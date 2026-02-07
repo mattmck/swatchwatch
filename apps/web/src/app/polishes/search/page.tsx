@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
-import type { Polish } from "polish-inventory-shared";
+import type { Polish } from "swatchwatch-shared";
 import { MOCK_POLISHES } from "@/lib/mock-data";
 import {
   colorDistance,
