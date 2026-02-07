@@ -33,7 +33,7 @@ jobs:
           action: 'upload'
           app_location: '/'
           app_build_command: 'npm run build --workspace=packages/shared && npm run build:web'
-          output_location: 'apps/web/.next'
+          output_location: 'apps/web/out'
 
   deploy-functions:
     name: Deploy Functions
