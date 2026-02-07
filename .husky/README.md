@@ -54,7 +54,10 @@ If no API key is set, the hook provides smart fallback suggestions based on file
 
 ### Emoji guideline
 Emojis are optional.
-If you include one, put it somewhere in the subject (after `type: `), e.g. `feat: add shimmer finish ✨ to swatch cards`.
+Emojis are allowed anywhere in the subject, as long as they appear after `type: `.
+Examples:
+- `feat: ✨ add shimmer finish to swatch cards`
+- `feat: add shimmer finish to swatch cards ✨`
 Don't put an emoji before the type.
 
 Note: The AI suggestion hook will also auto-normalize suggestions like `feat: ✨ add ...` into `feat: add ... ✨`.

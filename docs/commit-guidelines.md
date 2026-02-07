@@ -3,14 +3,15 @@
 SwatchWatch enforces nail polish-themed commit messages using commitlint and Husky. Every commit must follow Conventional Commits format AND include nail polish references.
 
 ## Format
-
 ```
 <type>: <subject with nail polish theme>
 ```
 
 ### Emojis (optional)
-If you include an emoji, it must be in the subject (after the `type: `). Do not put emojis before the type.
-Example: `feat: add holographic shimmer ✨ to swatch cards`.
+Emojis are allowed anywhere in the subject, as long as they appear after `type: ` (i.e. don’t put emojis before the type).
+Examples:
+- `feat: ✨ add holographic shimmer to swatch cards`
+- `feat: add holographic shimmer to swatch cards ✨`
 
 ## Valid Types
 
@@ -41,7 +42,7 @@ feat: add glossy topcoat to polish detail view
 fix: chip in color matching algorithm
 refactor: polish the swatch rendering logic
 docs: nail down API endpoint documentation
-feat: layer holographic finish ✨ over base coat component
+feat: ✨ layer holographic finish over base coat component
 fix: remove polish from deprecated auth flow
 chore: buff up TypeScript configs across workspaces
 test: apply coverage to color blend functions
@@ -64,7 +65,7 @@ docs: update API documentation          # Where's the pun?
 Test your commit message before committing:
 
 ```bash
-echo "feat: add shimmer effect to swatch cards" | npx commitlint
+echo "feat: ✨ add shimmer effect to swatch cards" | npx commitlint
 ```
 
 ## Bypass (Emergency Only)

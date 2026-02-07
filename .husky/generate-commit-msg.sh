@@ -27,7 +27,7 @@ Requirements:
 - Keep subject line under 72 characters
 - Reference the actual changes being made
 - Emoji: optional (do NOT put emoji before the type)
-- If you include an emoji, it must be somewhere in the SUBJECT (after the `type: `), not at the very start of the subject
+- If you include an emoji, it can be anywhere in the SUBJECT (after the `type: `), including right at the start of the subject
 - Provide 3 suggestions total: at least 1 with no emoji, and at least 1 with a relevant emoji in the subject
 
 Staged changes:
@@ -70,22 +70,15 @@ if [ -n "$SUGGESTIONS" ]; then
     # Remove our own marker emoji if the model included it
     cleaned=$(echo "$cleaned" | sed 's/💡//g')
 
-    # If the model put an emoji at the very start of the subject (e.g. "feat: ✨ add ..."),
-    # move that emoji to the end of the subject so it stays after "type: ".
-    # (Only normalizes a small curated set to avoid accidentally rewriting punctuation.)
-    for e in "💅" "✨" "🎨" "🔧" "🧪" "🐛" "📚" "♻️" "⚡️" "✅" "🚑"; do
-      cleaned=$(printf '%s' "$cleaned" | sed -E "s/^([a-z]+):[[:space:]]*${e}[[:space:]]*(.+)$/\1: \2 ${e}/")
-    done
-
     echo "# - $cleaned" >> "$COMMIT_MSG_FILE"
   done
 else
   # Fallback suggestions based on file patterns
   if echo "$DIFF_OUTPUT" | grep -q "package.json"; then
-    echo "# - chore: buff up dependency versions with fresh coat" >> "$COMMIT_MSG_FILE"
+    echo "# - chore: buff up dependency versions with a fresh coat" >> "$COMMIT_MSG_FILE"
   fi
   if echo "$DIFF_OUTPUT" | grep -q "\.tsx\|\.ts"; then
-    echo "# - feat: apply new coat to component polish for a glossy UI 💅" >> "$COMMIT_MSG_FILE"
+    echo "# - feat: apply a new coat to component polish for a glossy UI 💅" >> "$COMMIT_MSG_FILE"
   fi
   if echo "$DIFF_OUTPUT" | grep -q "test"; then
     echo "# - test: nail down edge cases with glossy coverage" >> "$COMMIT_MSG_FILE"
@@ -110,7 +103,7 @@ cat >> "$COMMIT_MSG_FILE" << 'EOF'
 #
 # Format: <type>: <nail-polish-themed subject>
 # Emoji (optional): if you use one, put it in the subject (after 'type: '), e.g.
-#   feat: add shimmer finish to swatch cards ✨
+#   feat: ✨ add shimmer finish to swatch cards
 #
 # Types: feat, fix, refactor, docs, chore, test, style, perf
 #
