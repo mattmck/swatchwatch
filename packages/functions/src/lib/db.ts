@@ -8,13 +8,17 @@ let pool: Pool | null = null;
  */
 export function getPool(): Pool {
   if (!pool) {
+    // Azure Flexible Server always requires SSL.
+    // Enable SSL whenever PGHOST points to an Azure domain; skip for local dev.
+    const isAzure = (process.env.PGHOST || "").includes(".postgres.database.azure.com");
+
     pool = new Pool({
       host: process.env.PGHOST,
       port: parseInt(process.env.PGPORT || "5432", 10),
       database: process.env.PGDATABASE,
       user: process.env.PGUSER,
       password: process.env.PGPASSWORD,
-      ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined,
+      ssl: isAzure ? { rejectUnauthorized: false } : undefined,
       max: 10,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000,

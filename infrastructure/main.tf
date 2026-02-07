@@ -171,6 +171,14 @@ resource "azurerm_linux_function_app" "main" {
     application_stack {
       node_version = "20"
     }
+
+    cors {
+      allowed_origins = [
+        "https://jolly-desert-0c7f01510.2.azurestaticapps.net",
+        "http://localhost:3000",
+      ]
+      support_credentials = false
+    }
   }
 
   app_settings = {
@@ -179,7 +187,7 @@ resource "azurerm_linux_function_app" "main" {
     PGHOST                      = azurerm_postgresql_flexible_server.main.fqdn
     PGPORT                      = "5432"
     PGDATABASE                  = azurerm_postgresql_flexible_server_database.main.name
-    PGUSER                      = "${var.pg_admin_username}@${azurerm_postgresql_flexible_server.main.name}"
+    PGUSER                      = var.pg_admin_username
     # Reference Key Vault secret instead of plaintext password
     PGPASSWORD = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.pg_password.id})"
     # Placeholder for future secrets
@@ -210,6 +218,10 @@ resource "azurerm_static_web_app" "main" {
   location            = azurerm_resource_group.main.location
   sku_tier            = "Standard"
   sku_size            = "Standard"
+
+  app_settings = {
+    NEXT_PUBLIC_API_URL = "https://${azurerm_linux_function_app.main.default_hostname}/api"
+  }
 }
 
 # ── Azure Speech Services ──────────────────────────────────────

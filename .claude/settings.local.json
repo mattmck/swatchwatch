@@ -22,7 +22,12 @@
       "WebFetch(domain:www.liberation-nails.com)",
       "WebFetch(domain:www.cosmeticsandtoiletries.com)",
       "Bash(grep:*)",
-      "Bash(done)"
+      "Bash(done)",
+      "WebFetch(domain:devs.upcitemdb.com)",
+      "WebFetch(domain:www.compoundchem.com)",
+      "WebFetch(domain:www.pharmacy180.com)",
+      "WebFetch(domain:www.ellamila.com)",
+      "WebFetch(domain:www.livoliv.com)"
     ]
   }
 }

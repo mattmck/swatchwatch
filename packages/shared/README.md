@@ -22,6 +22,14 @@ The package is automatically linked via npm workspaces — no publishing require
 | `PolishUpdateRequest` | Partial create fields + required `id` |
 | `PolishListResponse` | Paginated list: `{ polishes, total, page, pageSize }` |
 | `PolishFilters` | Query params: brand, finish, color, tags, search, sort, pagination |
+| `Polish` | Full polish entity (id, userId, brand, name, color, colorHex, finish, tags, size, rating, notes, timestamps, etc.) |
+| `PolishFinish` | Union of finish types: `"cream" | "shimmer" | ...` (see `src/lib/constants.ts` for UI list) |
+| `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps) |
+| `PolishUpdateRequest` | Partial create fields + required `id` |
+| `PolishListResponse` | Paginated list: `{ polishes, total, page, pageSize }` |
+| `PolishFilters` | Query params: brand, finish, color, tags, search, sort, pagination |
+
+**Note:** All frontend pages now use the live API. The mock-data.ts file is no longer used.
 
 ### `types/user.ts`
 

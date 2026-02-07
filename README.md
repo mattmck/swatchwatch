@@ -15,13 +15,17 @@ swatchwatch/
 └── infrastructure/       → Terraform (azurerm ~3.100)
 ```
 
+
+**Live API:** As of Feb 2026, all frontend pages fetch from the live Azure Functions API. The dev database is seeded with realistic data matching the original mock-data.ts. See `packages/functions/migrations/002_add_user_facing_columns.sql` and `003_seed_dev_data.sql`.
+
 **npm workspaces monorepo.** All commands run from the repo root.
+
 
 ### Data Flow
 
 ```
-Web / Mobile → Azure Functions REST API → Cosmos DB (serverless)
-                  ├── /api/polishes       → CRUD operations (partitioned by /userId)
+Web / Mobile → Azure Functions REST API → Azure PostgreSQL Flexible Server
+                  ├── /api/polishes       → CRUD operations (user inventory)
                   ├── /api/auth/*         → Azure AD B2C token validation
                   └── /api/voice          → Azure Speech → Azure OpenAI → parsed polish details
 ```
@@ -84,7 +88,10 @@ The web app is the most developed part of the project. Key pages:
 | `/polishes/[id]` | `apps/web/src/app/polishes/[id]/page.tsx` | Polish detail — all fields, photo placeholders, edit/delete |
 | `/polishes/search` | `apps/web/src/app/polishes/search/page.tsx` | Color wheel search — hover to preview, click to lock, similar/complementary modes |
 
+
 **UI stack:** [shadcn/ui](https://ui.shadcn.com/) components in `src/components/ui/`, custom components in `src/components/`, Tailwind v4 styling.
+
+**Data:** All pages now use the live API. The old `mock-data.ts` is no longer used.
 
 ## Environment Variables
 
@@ -110,11 +117,19 @@ The repo includes VS Code configurations in `.vscode/`:
 - **`settings.json`** — Azure Functions workspace settings
 - **`extensions.json`** — Recommended extensions
 
-**To debug functions:** Press F5 → the `func: host start` task auto-builds, watches, and starts the function host with debugging enabled.
+
+**Migrations & Seed:**
+Run new migrations with:
+```bash
+cd packages/functions
+PGUSER=pgadmin PGPASSWORD=... PGHOST=... PGDATABASE=swatchwatch npm run migrate
+# Or run .sql files directly with psql
+```
+See `migrations/002_add_user_facing_columns.sql` and `003_seed_dev_data.sql`.
 
 ## Current Status
 
-This project is in early development. The web UI prototype is functional with mock data. See [Known State & TODOs](.github/copilot-instructions.md#known-state--todos) in the copilot instructions for details on stub implementations.
+This project is in early development. The web UI is now fully API-driven. See [Known State & TODOs](.github/copilot-instructions.md#known-state--todos) for backend stubs.
 
 ## Documentation
 

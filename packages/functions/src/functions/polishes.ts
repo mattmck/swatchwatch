@@ -2,6 +2,32 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/fu
 import { Polish, PolishCreateRequest, PolishUpdateRequest, PolishListResponse } from "swatchwatch-shared";
 import { query } from "../lib/db";
 
+/**
+ * Shared SELECT fragment — returns Polish-shaped rows.
+ * Uses COALESCE so user-facing columns take priority over canonical shade/brand joins.
+ */
+const POLISH_SELECT = `
+  SELECT
+    ui.inventory_item_id::text  AS id,
+    ui.user_id::text            AS "userId",
+    COALESCE(b.name_canonical, '')              AS brand,
+    COALESCE(s.shade_name_canonical, '')        AS name,
+    COALESCE(ui.color_name, '')                 AS color,
+    ui.color_hex                                AS "colorHex",
+    COALESCE(s.finish, '')                      AS finish,
+    COALESCE(s.collection, '')                  AS collection,
+    ui.quantity,
+    ui.size_display                             AS size,
+    ui.rating,
+    ui.notes,
+    ui.tags,
+    ui.purchase_date                            AS "purchaseDate",
+    ui.created_at                               AS "createdAt",
+    ui.updated_at                               AS "updatedAt"
+  FROM user_inventory_item ui
+  LEFT JOIN shade s  ON ui.shade_id = s.shade_id
+  LEFT JOIN brand b  ON s.brand_id  = b.brand_id`;
+
 async function getPolishes(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   context.log("GET /api/polishes - Listing polishes");
 
@@ -10,21 +36,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext): Pr
   if (id) {
     try {
       const result = await query<any>(
-        `SELECT 
-          ui.inventory_item_id as id,
-          ui.user_id as "userId",
-          b.name_canonical as brand,
-          s.shade_name_canonical as name,
-          s.collection as collection,
-          s.finish as finish,
-          ui.quantity,
-          ui.notes,
-          ui.purchase_date as "purchaseDate",
-          ui.created_at as "createdAt"
-        FROM user_inventory_item ui
-        LEFT JOIN shade s ON ui.shade_id = s.shade_id
-        LEFT JOIN brand b ON s.brand_id = b.brand_id
-        WHERE ui.inventory_item_id = $1`,
+        `${POLISH_SELECT} WHERE ui.inventory_item_id = $1`,
         [parseInt(id, 10)]
       );
 
@@ -53,24 +65,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext): Pr
     const userId = 1; // Placeholder — will come from auth token
 
     const result = await query<any>(
-      `SELECT 
-        ui.inventory_item_id as id,
-        ui.user_id as "userId",
-        b.name_canonical as brand,
-        s.shade_name_canonical as name,
-        '' as color,
-        s.collection,
-        s.finish,
-        ui.quantity,
-        ui.notes,
-        ui.purchase_date as "purchaseDate",
-        ui.created_at as "createdAt",
-        ui.created_at as "updatedAt"
-      FROM user_inventory_item ui
-      LEFT JOIN shade s ON ui.shade_id = s.shade_id
-      LEFT JOIN brand b ON s.brand_id = b.brand_id
-      WHERE ui.user_id = $1
-      ORDER BY ui.created_at DESC`,
+      `${POLISH_SELECT} WHERE ui.user_id = $1 ORDER BY ui.created_at DESC`,
       [userId]
     );
 
@@ -107,36 +102,42 @@ async function createPolish(request: HttpRequest, context: InvocationContext): P
 
     const userId = 1; // TODO: get from auth token
 
-    // For MVP, create unlinked inventory item (shade_id = NULL)
-    // Later, matching resolver will link to canonical shade
+    // Insert inventory item with user-facing columns.
+    // shade_id is left NULL for now — matching resolver will link later.
     const result = await query<any>(
-      `INSERT INTO user_inventory_item 
-        (user_id, quantity, notes, purchase_date, status)
-      VALUES ($1, $2, $3, $4, 'active')
-      RETURNING 
-        inventory_item_id as id,
-        user_id as "userId",
-        quantity,
-        notes,
-        purchase_date as "purchaseDate",
-        created_at as "createdAt",
-        created_at as "updatedAt"`,
-      [userId, body.quantity || 1, body.notes || "", body.purchaseDate || null]
+      `INSERT INTO user_inventory_item
+        (user_id, quantity, notes, purchase_date, color_name, color_hex, rating, tags, size_display)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING inventory_item_id AS id`,
+      [
+        userId,
+        body.quantity || 1,
+        body.notes || null,
+        body.purchaseDate || null,
+        body.color || null,
+        body.colorHex || null,
+        body.rating || null,
+        body.tags && body.tags.length ? body.tags : null,
+        body.size || null,
+      ]
     );
 
-    const created = result.rows[0];
-    
-    // Return with user-provided brand/name (no canonical link yet)
+    // Re-fetch via shared SELECT for consistent shape
+    const created = await query<any>(
+      `${POLISH_SELECT} WHERE ui.inventory_item_id = $1`,
+      [result.rows[0].id]
+    );
+
+    // Overlay user-provided brand/name (no canonical link yet)
+    const row = created.rows[0];
+    row.brand = row.brand || body.brand;
+    row.name = row.name || body.name;
+    row.finish = row.finish || body.finish || "";
+    row.collection = row.collection || body.collection || "";
+
     return {
       status: 201,
-      jsonBody: {
-        ...created,
-        brand: body.brand,
-        name: body.name,
-        color: body.color || "",
-        finish: body.finish,
-        collection: body.collection,
-      },
+      jsonBody: row,
     };
   } catch (error: any) {
     context.error("Error creating polish:", error);
@@ -165,19 +166,24 @@ async function updatePolish(request: HttpRequest, context: InvocationContext): P
     const result = await query<any>(
       `UPDATE user_inventory_item 
       SET 
-        quantity = COALESCE($1, quantity),
-        notes = COALESCE($2, notes),
-        purchase_date = COALESCE($3, purchase_date)
-      WHERE inventory_item_id = $4 AND user_id = $5
-      RETURNING 
-        inventory_item_id as id,
-        user_id as "userId",
-        quantity,
-        notes,
-        purchase_date as "purchaseDate",
-        created_at as "createdAt",
-        created_at as "updatedAt"`,
-      [body.quantity, body.notes, body.purchaseDate, parseInt(id, 10), userId]
+        quantity       = COALESCE($1, quantity),
+        notes          = COALESCE($2, notes),
+        purchase_date  = COALESCE($3, purchase_date),
+        color_name     = COALESCE($4, color_name),
+        color_hex      = COALESCE($5, color_hex),
+        rating         = COALESCE($6, rating),
+        tags           = COALESCE($7, tags),
+        size_display   = COALESCE($8, size_display),
+        updated_at     = now()
+      WHERE inventory_item_id = $9 AND user_id = $10
+      RETURNING inventory_item_id AS id`,
+      [
+        body.quantity, body.notes, body.purchaseDate,
+        body.color, body.colorHex, body.rating,
+        body.tags && body.tags.length ? body.tags : null,
+        body.size,
+        parseInt(id, 10), userId,
+      ]
     );
 
     if (result.rows.length === 0) {
@@ -187,25 +193,9 @@ async function updatePolish(request: HttpRequest, context: InvocationContext): P
       };
     }
 
-    // Fetch joined data for full response
+    // Re-fetch via shared SELECT for consistent shape
     const fullResult = await query<any>(
-      `SELECT 
-        ui.inventory_item_id as id,
-        ui.user_id as "userId",
-        b.name_canonical as brand,
-        s.shade_name_canonical as name,
-        '' as color,
-        s.collection,
-        s.finish,
-        ui.quantity,
-        ui.notes,
-        ui.purchase_date as "purchaseDate",
-        ui.created_at as "createdAt",
-        ui.created_at as "updatedAt"
-      FROM user_inventory_item ui
-      LEFT JOIN shade s ON ui.shade_id = s.shade_id
-      LEFT JOIN brand b ON s.brand_id = b.brand_id
-      WHERE ui.inventory_item_id = $1`,
+      `${POLISH_SELECT} WHERE ui.inventory_item_id = $1`,
       [parseInt(id, 10)]
     );
 

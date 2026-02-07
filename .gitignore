@@ -12,6 +12,9 @@ build/
 # Azure Functions
 packages/functions/bin/
 packages/functions/obj/
+packages/functions/.deploy/
+*.deploy.zip
+deploy.zip
 local.settings.json
 
 # Terraform

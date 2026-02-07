@@ -18,15 +18,20 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 
 | Method | Route | Handler | File | Status |
 |--------|-------|---------|------|--------|
-| `GET` | `/api/polishes/{id?}` | `getPolishes` | `polishes.ts` | ⬜ Stub |
-| `POST` | `/api/polishes` | `createPolish` | `polishes.ts` | ⬜ Stub |
-| `PUT` | `/api/polishes/{id}` | `updatePolish` | `polishes.ts` | ⬜ Stub |
-| `DELETE` | `/api/polishes/{id}` | `deletePolish` | `polishes.ts` | ⬜ Stub |
+| `GET` | `/api/polishes/{id?}` | `getPolishes` | `polishes.ts` | ✅ Live |
+| `POST` | `/api/polishes` | `createPolish` | `polishes.ts` | ✅ Live |
+| `PUT` | `/api/polishes/{id}` | `updatePolish` | `polishes.ts` | ✅ Live |
+| `DELETE` | `/api/polishes/{id}` | `deletePolish` | `polishes.ts` | ✅ Live |
 | `POST` | `/api/auth/validate` | `validateToken` | `auth.ts` | ⬜ Stub (501) |
 | `GET` | `/api/auth/config` | `getAuthConfig` | `auth.ts` | ✅ Working |
 | `POST` | `/api/voice` | `processVoiceInput` | `voice.ts` | ⬜ Stub |
 
+
 All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpRequest, context: InvocationContext)`.
+
+## Migrations & Seed Data
+
+See `migrations/002_add_user_facing_columns.sql` (adds color, hex, rating, tags, size, updated_at) and `003_seed_dev_data.sql` (inserts brands, shades, demo user, and 20 inventory items).
 
 ## Adding a New Function
 
@@ -48,16 +53,16 @@ All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpReques
    ```
 3. Import types from `swatchwatch-shared` — **do not** redefine domain types locally
 
+
 ## Known Issues
 
-- `polishes.ts` defines a local `Polish` interface that duplicates `packages/shared` — new code should import from `swatchwatch-shared` instead
-- All CRUD handlers return placeholder responses — Cosmos DB SDK client not yet wired
 - JWT validation returns 501 — Azure AD B2C JWKS verification not implemented
 - Voice handler stubs Speech-to-text and OpenAI parsing
 
+
 ## Environment Variables
 
-Defined in `local.settings.json` (git-ignored values). See the root README for the full list.
+Defined in `local.settings.json` (git-ignored values). See the root README for the full list. For production, secrets are injected via Key Vault references.
 
 ## Build
 

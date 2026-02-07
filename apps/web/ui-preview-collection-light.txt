@@ -1,0 +1,23 @@
+UI Preview: All Polishes / Collection Table (Light Mode)
+
+--------------------------------------------------------
+|  ✔️  | Brand   | Name                        | Color | Finish | Collection |   [ - ] 2 [ + ]   |
+|  ➕  | Essie   | Ballet Slippers             | 🩰    | Sheer  | Core       |   [Add]           |
+|  ✔️  | OPI     | Lincoln Park After Dark     | 🟣    | Creme  | Fall 2022  |   [ - ] 1 [ + ]   |
+|  ➕  | Zoya    | Dream                       | 🔵    | Holo   | Winter     |   [Add]           |
+--------------------------------------------------------
+
+[Search: ____________________] [☑️ Favor My Collection] [☐ Include All] [☐ Similar] [☐ Complementary]
+
+Pagination: [Prev] 1 2 3 ... [Next]
+
+Legend:
+✔️ = Owned (shows quantity controls)
+➕ = Not owned (shows Add button)
+Color = Swatch dot
+[ - ] [ + ] = Decrement/Increment quantity
+[Add] = Add to collection
+
+Light background, subtle grid lines, clear buttons, and status icons.
+
+(For a true static image, use a design tool or AI image generator with this layout as a prompt.)

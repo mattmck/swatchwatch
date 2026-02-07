@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="900" height="480" viewBox="0 0 900 480" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="900" height="480" fill="#FAFAFA"/>
+  <rect x="40" y="40" width="820" height="60" rx="12" fill="#fff" stroke="#E5E7EB" stroke-width="1.5"/>
+  <text x="60" y="78" font-family="Inter, Arial, sans-serif" font-size="28" fill="#222">All Polishes</text>
+  <rect x="600" y="58" width="220" height="28" rx="6" fill="#F3F4F6"/>
+  <text x="610" y="77" font-family="Inter, Arial, sans-serif" font-size="16" fill="#888">Search...</text>
+  <g font-family="Inter, Arial, sans-serif" font-size="14">
+    <rect x="60" y="120" width="780" height="40" rx="8" fill="#fff" stroke="#E5E7EB"/>
+    <text x="80" y="145" fill="#888">✔️</text>
+    <text x="120" y="145" fill="#222">OPI</text>
+    <text x="220" y="145" fill="#222">Lincoln Park After Dark</text>
+    <circle cx="370" cy="138" r="10" fill="#5B3A6B" stroke="#D1D5DB"/>
+    <text x="400" y="145" fill="#555">Creme</text>
+    <text x="480" y="145" fill="#555">Fall 2022</text>
+    <rect x="570" y="130" width="80" height="24" rx="12" fill="#F3F4F6"/>
+    <text x="585" y="147" fill="#222">- 2 +</text>
+  </g>
+  <g font-family="Inter, Arial, sans-serif" font-size="14">
+    <rect x="60" y="170" width="780" height="40" rx="8" fill="#fff" stroke="#E5E7EB"/>
+    <text x="80" y="195" fill="#888">➕</text>
+    <text x="120" y="195" fill="#222">Essie</text>
+    <text x="220" y="195" fill="#222">Ballet Slippers</text>
+    <circle cx="370" cy="188" r="10" fill="#F8E1E7" stroke="#D1D5DB"/>
+    <text x="400" y="195" fill="#555">Sheer</text>
+    <text x="480" y="195" fill="#555">Core</text>
+    <rect x="570" y="180" width="60" height="24" rx="12" fill="#E0F2FE"/>
+    <text x="585" y="197" fill="#0070F3">Add</text>
+  </g>
+  <g font-family="Inter, Arial, sans-serif" font-size="14">
+    <rect x="60" y="220" width="780" height="40" rx="8" fill="#fff" stroke="#E5E7EB"/>
+    <text x="80" y="245" fill="#888">✔️</text>
+    <text x="120" y="245" fill="#222">Zoya</text>
+    <text x="220" y="245" fill="#222">Dream</text>
+    <circle cx="370" cy="238" r="10" fill="#3B82F6" stroke="#D1D5DB"/>
+    <text x="400" y="245" fill="#555">Holo</text>
+    <text x="480" y="245" fill="#555">Winter</text>
+    <rect x="570" y="230" width="80" height="24" rx="12" fill="#F3F4F6"/>
+    <text x="585" y="247" fill="#222">- 1 +</text>
+  </g>
+  <g font-family="Inter, Arial, sans-serif" font-size="14">
+    <rect x="60" y="270" width="780" height="40" rx="8" fill="#fff" stroke="#E5E7EB"/>
+    <text x="80" y="295" fill="#888">➕</text>
+    <text x="120" y="295" fill="#222">China Glaze</text>
+    <text x="220" y="295" fill="#222">For Audrey</text>
+    <circle cx="370" cy="288" r="10" fill="#A7E3E7" stroke="#D1D5DB"/>
+    <text x="400" y="295" fill="#555">Creme</text>
+    <text x="480" y="295" fill="#555">Core</text>
+    <rect x="570" y="280" width="60" height="24" rx="12" fill="#E0F2FE"/>
+    <text x="585" y="297" fill="#0070F3">Add</text>
+  </g>
+  <g>
+    <rect x="60" y="340" width="780" height="40" rx="8" fill="#F9FAFB" stroke="#E5E7EB"/>
+    <text x="70" y="365" font-family="Inter, Arial, sans-serif" font-size="16" fill="#888">[Prev] 1 2 3 ... [Next]</text>
+    <text x="300" y="365" font-family="Inter, Arial, sans-serif" font-size="14" fill="#888">Showing 1–4 of 2,000 polishes</text>
+  </g>
+  <g>
+    <rect x="60" y="400" width="780" height="40" rx="8" fill="#fff" stroke="#E5E7EB"/>
+    <text x="80" y="425" font-family="Inter, Arial, sans-serif" font-size="14" fill="#888">Legend: ✔️ = Owned, ➕ = Not owned, [ - ] [ + ] = Quantity, [Add] = Add to collection</text>
+  </g>
+</svg>

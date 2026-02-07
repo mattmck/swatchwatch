@@ -18,7 +18,9 @@ The interactive script handles everything:
 - Terraform init/plan/apply
 - Outputs GitHub Secrets for CI/CD
 
-**What gets deployed:** Resource Group, Key Vault, PostgreSQL Flexible Server (v16), Storage Account, Function App (with Managed Identity), Static Web App, Speech Services, GitHub Actions OIDC service principal.
+
+**Seed data:** The dev database is seeded with realistic polish/brand/shade data via `packages/functions/migrations/003_seed_dev_data.sql`.
+
 
 **Time:** ~5-10 minutes (Postgres provisioning is slow)
 
@@ -31,7 +33,7 @@ See full bootstrap guide at end of this file.
 | Resource Group | `azurerm_resource_group.main` | Container for all resources |
 | Key Vault | `azurerm_key_vault.main` | Secure secrets storage (PG password, API keys) |
 | PostgreSQL Flexible Server | `azurerm_postgresql_flexible_server.main` | PostgreSQL 16 with pg_trgm + pgvector |
-| PostgreSQL Database | `azurerm_postgresql_flexible_server_database.main` | `polish_inventory` database |
+| PostgreSQL Database | `azurerm_postgresql_flexible_server_database.main` | `swatchwatch` database |
 | Storage Account | `azurerm_storage_account.main` | Blob storage for images |
 | Storage Container | `azurerm_storage_container.swatches` | Swatch photos |
 | Storage Container | `azurerm_storage_container.nail_photos` | Nail photos |
@@ -89,7 +91,7 @@ Key outputs after `terraform apply`:
 | `static_web_app_hostname` | Static Web App URL |
 | `postgres_server_name` | PostgreSQL server name |
 | `postgres_fqdn` | PostgreSQL connection hostname |
-| `postgres_database_name` | Database name (`polish_inventory`) |
+| `postgres_database_name` | Database name (`swatchwatch`) |
 | `key_vault_name` | Key Vault name |
 | `github_client_id` | Azure AD app ID for GitHub Actions *(add to GitHub Secrets as `AZURE_CLIENT_ID`)* |
 | `github_tenant_id` | Azure AD tenant ID *(add to GitHub Secrets as `AZURE_TENANT_ID`)* |

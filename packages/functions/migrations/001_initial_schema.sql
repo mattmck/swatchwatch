@@ -52,8 +52,7 @@ CREATE TABLE shade (
   finish TEXT,
   collection TEXT,
   release_year INT,
-  status TEXT NOT NULL DEFAULT 'unknown',
-  UNIQUE (brand_id, product_line_id, shade_name_canonical, COALESCE(finish,''))
+  status TEXT NOT NULL DEFAULT 'unknown'
 );
 
 CREATE TABLE shade_alias (
@@ -263,6 +262,9 @@ CREATE INDEX idx_shade_name_trgm ON shade USING GIN (shade_name_canonical gin_tr
 CREATE INDEX idx_shade_alias_trgm ON shade_alias USING GIN (alias gin_trgm_ops);
 CREATE INDEX idx_swatch_embedding ON color_features USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 
+-- Unique constraint for shade that properly handles NULL finish values
+CREATE UNIQUE INDEX idx_shade_unique ON shade (brand_id, product_line_id, shade_name_canonical, COALESCE(finish, ''));
+
 
 -- -----------------------------------------------------------------------------
 -- Live Capture Onboarding (Rapid Add)
@@ -363,7 +365,7 @@ CREATE TABLE click_event (
   click_id BIGSERIAL PRIMARY KEY,
   offer_id BIGINT NOT NULL REFERENCES retailer_offer(offer_id) ON DELETE CASCADE,
   user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL,
-  inventory_item_id BIGINT REFERENCES user_inventory_item(user_inventory_item_id) ON DELETE SET NULL,
+  inventory_item_id BIGINT REFERENCES user_inventory_item(inventory_item_id) ON DELETE SET NULL,
   platform TEXT,                              -- ios|android|web
   session_uuid UUID,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
