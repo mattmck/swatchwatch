@@ -81,5 +81,5 @@ jobs:
       - name: Deploy to Azure Functions
         uses: Azure/functions-action@v1
         with:
-          app-name: 'swatchwatch-dev-func'
+          app-name: 'swatchwatch-dev-func-j5jij0be'
           package: 'packages/functions'
