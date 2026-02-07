@@ -81,6 +81,35 @@ See the [root README](README.md) for full setup instructions.
 - **Color math** — use OKLAB via `src/lib/color-utils.ts` for any perceptual color operations
 - Run `npm run typecheck` and `npm run lint` before pushing
 
+## Documentation
+
+**Update docs as part of every PR** — not as a follow-up.
+
+If your change adds/removes/modifies any of the following, update the corresponding doc:
+
+- **Routes or pages** → `apps/web/README.md` + copilot instructions route table
+- **API endpoints** → `packages/functions/README.md`
+- **Shared types** → `packages/shared/README.md`
+- **Components** → `apps/web/README.md`
+- **Env variables** → copilot instructions + `packages/functions/README.md`
+- **Infrastructure** → `infrastructure/README.md`
+- **Dev commands** → root `README.md` + copilot instructions
+
+The PR template checklist includes a docs checkbox — reviewers should verify it.
+
+### AI Agent Instructions
+
+The canonical agent instruction file is `.github/copilot-instructions.md`. Mirror copies exist for other AI coding agents:
+
+| Agent | File |
+|---|---|
+| GitHub Copilot | `.github/copilot-instructions.md` (canonical) |
+| Claude Code | `CLAUDE.md` |
+| Cursor | `.cursorrules` |
+| Windsurf | `.windsurfrules` |
+
+When updating agent instructions, update all mirror files. They should stay in sync.
+
 ## Future: GitFlow Migration
 
 When the project grows to need parallel release tracks, we'll migrate to GitFlow:

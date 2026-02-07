@@ -1,4 +1,4 @@
-# Polish Inventory — Copilot Instructions
+# Polish Inventory — Agent Instructions
 
 ## Architecture Overview
 

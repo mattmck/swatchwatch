@@ -18,7 +18,7 @@
 - [ ] `npm run build:web` succeeds (if web changes)
 - [ ] `npm run build:functions` succeeds (if functions changes)
 - [ ] Tested locally
-- [ ] Updated docs / README if needed
+- [ ] Updated relevant docs (see [CONTRIBUTING.md](CONTRIBUTING.md#documentation) for which files to update)
 
 ## Screenshots
 
