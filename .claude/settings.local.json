@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:makeup-api.herokuapp.com)",
+      "WebFetch(domain:world.openbeautyfacts.org)",
+      "WebFetch(domain:data.europa.eu)",
+      "WebFetch(domain:single-market-economy.ec.europa.eu)",
+      "Bash(curl:*)",
+      "WebFetch(domain:ec.europa.eu)",
+      "WebFetch(domain:www.ewg.org)",
+      "WebFetch(domain:www.temptalia.com)",
+      "WebFetch(domain:api.store)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.chemsafetypro.com)",
+      "WebFetch(domain:api.upcitemdb.com)",
+      "Bash(python3:*)",
+      "WebFetch(domain:www.upcitemdb.com)",
+      "WebFetch(domain:cotebeauty.com)",
+      "WebFetch(domain:prettyyeppuda.com)",
+      "WebFetch(domain:www.newbeauty.com)",
+      "WebFetch(domain:regask.com)",
+      "WebFetch(domain:www.liberation-nails.com)",
+      "WebFetch(domain:www.cosmeticsandtoiletries.com)",
+      "Bash(grep:*)",
+      "Bash(done)"
+    ]
+  }
+}

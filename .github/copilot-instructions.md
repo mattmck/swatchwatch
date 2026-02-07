@@ -12,7 +12,7 @@ packages/shared    → Shared TypeScript types (polish, user, voice)
 infrastructure/    → Terraform (azurerm ~3.100) for all Azure resources
 ```
 
-**Data flow:** Clients → Azure Functions REST API (`/api/polishes`, `/api/auth/*`, `/api/voice`) → Cosmos DB (serverless, database `polish-inventory`, container `polishes` partitioned by `/userId`). Voice input goes through Azure Speech Services → Azure OpenAI for parsing polish details from transcriptions.
+**Data flow:** Clients → Azure Functions REST API (`/api/polishes`, `/api/auth/*`, `/api/voice`) → Azure Database for PostgreSQL Flexible Server (schema in `docs/schema.sql`). Voice input goes through Azure Speech Services → Azure OpenAI for parsing polish details from transcriptions. Full canonical schema uses `pg_trgm` for fuzzy shade matching and `pgvector` for swatch similarity/dupe search.
 
 **Auth:** Azure AD B2C (provisioned outside Terraform via portal). Functions read `AZURE_AD_B2C_TENANT` and `AZURE_AD_B2C_CLIENT_ID` from environment. Token validation is JWT-based via the `/api/auth/validate` endpoint.
 
@@ -68,15 +68,16 @@ npm run build --workspace=packages/shared
 ## Known State & TODOs
 
 This project is in early development. The web UI prototype is functional with mock data. Backend handlers have placeholder/stub implementations marked with `TODO` comments:
-- Cosmos DB reads/writes in `polishes.ts` are stubbed — no SDK client yet
+- Postgres reads/writes in `polishes.ts` are stubbed — no DB client yet
 - JWT validation in `auth.ts` returns 501 — Azure AD B2C JWKS verification not implemented
 - Voice processing in `voice.ts` stubs Speech-to-text and OpenAI parsing
 - `packages/functions` defines a local `Polish` interface that duplicates `packages/shared` — new code should import from `polish-inventory-shared` instead
+- Infrastructure is migrating from Cosmos DB to Azure Database for PostgreSQL Flexible Server
 
 ## Environment Variables (Functions)
 
 Defined in `packages/functions/local.settings.json`. Required secrets:
-`COSMOS_DB_CONNECTION`, `AZURE_STORAGE_CONNECTION`, `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, `AZURE_AD_B2C_TENANT`, `AZURE_AD_B2C_CLIENT_ID`
+`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `AZURE_STORAGE_CONNECTION`, `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, `AZURE_AD_B2C_TENANT`, `AZURE_AD_B2C_CLIENT_ID`
 
 ## Adding a New Azure Function
 
@@ -106,6 +107,11 @@ Documentation files in this project:
 - `README.md` — project overview and quick start
 - `.github/copilot-instructions.md` — AI agent context (canonical source, mirrored to other agent files)
 - `CONTRIBUTING.md` — git workflow, code standards, PR process
+- `docs/implementation-guide.md` — knowledge graph data model, matching, AI pipeline, Azure architecture, MVP plan
+- `docs/schema.sql` — canonical Postgres DDL (pg_trgm, pgvector, all tables + indexes)
+- `docs/seed_data_sources.sql` — idempotent seed data for external sources (OpenBeautyFacts, CosIng, etc.)
+- `docs/mvp-backlog.md` — epics, capabilities, stories, and milestone timeline
+- `docs/azure-iac-bom.md` — per-environment Azure resource bill of materials
 - `apps/web/README.md` — web app routes, components, conventions
 - `packages/functions/README.md` — API routes, handler patterns
 - `packages/shared/README.md` — shared type catalog
