@@ -1,6 +1,6 @@
-# Nail Polish-Themed Commit Messages 💅
+# Commit Message Vibes 💅
 
-SwatchWatch enforces nail polish-themed commit messages using commitlint and Husky. Every commit must follow Conventional Commits format AND include nail polish references.
+SwatchWatch uses commitlint + Husky to encourage vibey, nail-polish-adjacent commit messages. Every commit must follow Conventional Commits format and include at least one nail-polish-adjacent word.
 
 ## Format
 ```
@@ -17,21 +17,13 @@ Examples:
 
 `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `style`, `perf`, `ci`, `build`, `revert`
 
-## Required: Nail Polish Theme
+## Required: Nail Polish Vibes
+Your commit subject must include at least one nail-polish-adjacent word (a color/finish, a manicure verb, or a collection vibe).
 
-Your commit subject MUST include at least one reference to:
-
-### Colors
-red, blue, pink, purple, green, yellow, orange, teal, coral, nude, beige, black, white, silver, gold, chrome, shimmer, glitter, metallic, pearl, holographic, iridescent, duochrome, multichrome
-
-### Polish Terms
-polish, lacquer, coat, topcoat, basecoat, gel, manicure, nail, swatch, finish, formula, shade, bottle, brush, chip, peel, cure, dry, glossy, sparkle, shine
-
-### Polish Puns & Actions
-buff, file, apply, remove, strip, layer, blend, paint, varnish, enamel, pigment, hue, tint, nailed it, nail down, polished, shiny, smooth, flawless, pristine, glazed, lacquered, painted, coated
-
-### Brand/Collection Terms
-collection, brand, dupe, compare, match, swatch, catalog, inventory, stash, haul
+Examples of vibe words:
+- finishes/colors: shimmer, chrome, glossy, matte, holographic
+- manicure verbs: buff, file, coat, cure, polish, swatch
+- collection vibes: stash, catalog, inventory, dupe
 
 ## Examples
 

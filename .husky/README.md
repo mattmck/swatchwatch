@@ -1,16 +1,16 @@
 # Husky Git Hooks
 
-This directory contains git hooks for SwatchWatch that enforce code quality and provide AI-powered commit message suggestions with nail polish vibes.
+This directory contains git hooks for SwatchWatch that enforce code quality and provide vibey commit message suggestions.
 
 ## Hooks
 
 - **pre-commit**: Runs `npm test` to ensure all tests pass before committing
 - **commit-msg**: Validates commit messages follow Conventional Commits format via commitlint
-- **prepare-commit-msg**: Generates AI-powered nail polish themed commit message suggestions
+- **prepare-commit-msg**: Generates vibey commit message suggestions based on staged changes
 
 ## AI-Powered Commit Messages
 
-The `prepare-commit-msg` hook uses Claude AI to generate creative, nail-polish-themed commit message suggestions based on your staged changes.
+The `prepare-commit-msg` hook can use Claude (if configured) to generate vibey commit message suggestions based on your staged changes.
 
 ### Setup
 
@@ -60,16 +60,13 @@ Examples:
 - `feat: add shimmer finish to swatch cards ✨`
 Don't put an emoji before the type.
 
-Note: The AI suggestion hook will also auto-normalize suggestions like `feat: ✨ add ...` into `feat: add ... ✨`.
 
-## Nail Polish Vocabulary
+## Vibe Words
+When writing commit messages, sprinkle in nail-polish-adjacent words:
 
-When writing commit messages, use creative polish terminology:
-
-**Colors**: ruby, crimson, shimmer, chrome, holographic, pearl, matte, metallic  
-**Terms**: polish, swatch, coat, finish, shade, nail, lacquer, gloss, cure  
-**Puns**: buff, file, nailed it, painted, flawless, chip, crack, peel, top coat  
-**Collection**: brand, dupe, inventory, catalog, stash, bottle, formula
+**Finishes/colors**: shimmer, chrome, glossy, matte, holographic  
+**Manicure verbs**: buff, file, coat, cure, polish, swatch  
+**Collection vibes**: stash, catalog, inventory, dupe
 
 ## Conventional Commits
 
@@ -87,7 +84,7 @@ All commits must follow the format: `<type>: <subject>`
 ## Troubleshooting
 
 **AI suggestions not appearing?**
-- Check that `ANTHROPIC_API_KEY` is exported: `echo $ANTHROPIC_API_KEY`
+- Check that `ANTHROPIC_API_KEY` is exported (without printing it): `printenv ANTHROPIC_API_KEY >/dev/null && echo set || echo not-set`
 - Verify the script is executable: `ls -l .husky/generate-commit-msg.sh`
 - Check for errors: `sh -x .husky/generate-commit-msg.sh .git/COMMIT_EDITMSG`
 

@@ -82,11 +82,9 @@ test('generate-commit-msg.sh: generates suggestions with emojis after the type',
   }
 
   const prompt = await fs.readFile(promptCaptureFile, 'utf8');
-  assert.match(prompt, /do NOT put emoji before the type/i);
-  // The script intends emojis to appear only in the subject, after the type prefix.
-  // (Backticks in the prompt are command-substitution in sh, so we assert nearby text.)
-  assert.match(prompt, /anywhere in the SUBJECT/i);
-  assert.match(prompt, /start of the subject/i);
+  assert.match(prompt, /vibey Conventional Commit suggestions/i);
+  assert.match(prompt, /Never put emoji before the type/i);
+  assert.match(prompt, /after <type>: \)/i);
 });
 
 test('generate-commit-msg.sh: generates fallback suggestions for package.json changes', async () => {
@@ -108,8 +106,5 @@ test('generate-commit-msg.sh: generates fallback suggestions for package.json ch
   });
 
   const out = await fs.readFile(commitMsgFile, 'utf8');
-  assert.match(
-    out,
-    /# - chore: buff up dependency versions with a fresh coat/
-  );
+  assert.match(out, /# - chore: ✨ fresh coat on dependency vibes/);
 });

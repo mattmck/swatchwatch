@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 
-# AI-powered nail polish themed commit message generator
-# Uses Anthropic Claude to generate vibe-y commit suggestions
+# Vibey commit message generator
+# Uses Anthropic Claude to generate commit suggestions based on staged changes
 
 COMMIT_MSG_FILE=$1
 DIFF_OUTPUT=$(git diff --cached --stat)
@@ -15,20 +15,19 @@ fi
 FULL_DIFF=$(git diff --cached)
 
 # Prepare prompt for AI
-PROMPT="You are a commit message generator for SwatchWatch, a nail polish collection manager app.
+PROMPT="You're writing commit message suggestions for SwatchWatch.
 
-Generate 3 commit message suggestions that follow Conventional Commits format but with NAIL POLISH themed language.
+Generate 3 vibey Conventional Commit suggestions inspired by the staged changes.
 
-Requirements:
-- Format: <type>: <subject with polish puns/terms>
+Vibe rules:
+- Format: <type>: <subject>
 - Types: feat, fix, refactor, docs, chore, test, style
-- Must include nail polish terms: polish, swatch, coat, finish, shade, lacquer, shimmer, glossy, matte, chrome, holographic, buff, file, nail, painted, flawless, dupe, etc.
-- Be creative with puns and metaphors
-- Keep subject line under 72 characters
-- Reference the actual changes being made
-- Emoji: optional (do NOT put emoji before the type)
-- If you include an emoji, it can be anywhere in the SUBJECT (after the `type: `), including right at the start of the subject
-- Provide 3 suggestions total: at least 1 with no emoji, and at least 1 with a relevant emoji in the subject
+- Keep it nail-polish-adjacent (colors, finishes, manicure verbs, collection vibes)
+- Keep the subject under 72 characters
+- Reference the actual change
+- Emojis are optional. Never put emoji before the type.
+- If you include an emoji, it must be in the subject (after <type>: )
+- Provide 3 suggestions: at least 1 with no emoji, at least 1 with an emoji
 
 Staged changes:
 $DIFF_OUTPUT
@@ -53,7 +52,7 @@ fi
 
 # Write suggestions to commit message file
 cat > "$COMMIT_MSG_FILE" << EOF
-# AI-generated nail polish commit suggestions:
+# AI-generated commit vibes:
 #
 EOF
 
@@ -75,19 +74,19 @@ if [ -n "$SUGGESTIONS" ]; then
 else
   # Fallback suggestions based on file patterns
   if echo "$DIFF_OUTPUT" | grep -q "package.json"; then
-    echo "# - chore: buff up dependency versions with a fresh coat" >> "$COMMIT_MSG_FILE"
+    echo "# - chore: ✨ fresh coat on dependency vibes" >> "$COMMIT_MSG_FILE"
   fi
   if echo "$DIFF_OUTPUT" | grep -q "\.tsx\|\.ts"; then
-    echo "# - feat: apply a new coat to component polish for a glossy UI 💅" >> "$COMMIT_MSG_FILE"
+    echo "# - feat: 💅 gloss up components for a smoother UI" >> "$COMMIT_MSG_FILE"
   fi
   if echo "$DIFF_OUTPUT" | grep -q "test"; then
-    echo "# - test: nail down edge cases with glossy coverage" >> "$COMMIT_MSG_FILE"
+    echo "# - test: 🧪 nail down edge cases with extra coverage" >> "$COMMIT_MSG_FILE"
   fi
   if echo "$DIFF_OUTPUT" | grep -q "\.md\|README"; then
-    echo "# - docs: polish documentation to a mirror shine ✨" >> "$COMMIT_MSG_FILE"
+    echo "# - docs: ✨ polish up the docs for a mirror shine" >> "$COMMIT_MSG_FILE"
   fi
   if echo "$DIFF_OUTPUT" | grep -q "\.css\|\.scss\|tailwind"; then
-    echo "# - style: add shimmer effect to UI finish" >> "$COMMIT_MSG_FILE"
+    echo "# - style: ✨ add shimmer to the UI finish" >> "$COMMIT_MSG_FILE"
   fi
 fi
 
@@ -95,14 +94,13 @@ cat >> "$COMMIT_MSG_FILE" << 'EOF'
 #
 # Pick one, customize it, or write your own.
 #
-# Nail polish vocabulary to use:
-#   Colors: ruby, crimson, shimmer, chrome, holographic, pearl, matte
-#   Terms: polish, swatch, coat, finish, shade, nail, lacquer, gloss
-#   Puns: buff, file, nailed it, painted, flawless, chip, cure, top coat
-#   Collection: brand, dupe, inventory, catalog, stash, bottle
+# Vibe words (optional):
+#   Colors/finishes: shimmer, chrome, glossy, matte, holographic
+#   Manicure verbs: buff, file, coat, cure, polish, swatch
+#   Collection vibes: stash, catalog, inventory, dupe
 #
-# Format: <type>: <nail-polish-themed subject>
-# Emoji (optional): if you use one, put it in the subject (after 'type: '), e.g.
+# Format: <type>: <subject>
+# Emoji (optional): if you use one, put it in the subject (after <type>: ), e.g.
 #   feat: ✨ add shimmer finish to swatch cards
 #
 # Types: feat, fix, refactor, docs, chore, test, style, perf
