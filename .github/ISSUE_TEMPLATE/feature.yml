@@ -1,0 +1,42 @@
+name: 🚀 Feature
+description: Propose a new feature or enhancement
+labels: ["feature"]
+body:
+  - type: markdown
+    attributes:
+      value: "## Feature Request"
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Clear description of the feature
+      placeholder: "As a user, I want to..."
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of the project does this affect?
+      multiple: true
+      options:
+        - Web (apps/web)
+        - Mobile (apps/mobile)
+        - Functions (packages/functions)
+        - Shared (packages/shared)
+        - Infrastructure (infrastructure/)
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How do we know this is done?
+      placeholder: |
+        - [ ] Criterion 1
+        - [ ] Criterion 2
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Mockups, screenshots, links, or related issues

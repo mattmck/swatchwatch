@@ -84,3 +84,12 @@ Defined in `packages/functions/local.settings.json`. Required secrets:
 2. Define handler function(s) with signature `(request: HttpRequest, context: InvocationContext) => Promise<HttpResponseInit>`
 3. Register with `app.http("descriptive-name", { methods, route, handler })` at module scope
 4. Use types from `polish-inventory-shared` — do not redefine domain types locally
+
+## Git Workflow
+
+**GitHub Flow** with **Conventional Commits**. See `CONTRIBUTING.md` for full details.
+
+- **Branches:** `<type>/<issue#>-<description>` off `main` (e.g., `feat/12-cosmos-db-client`, `fix/34-color-wheel-safari`)
+- **Commits:** `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:` prefixes
+- **PRs:** Squash merge into `main`. PR title = conventional commit message. Reference issues with `Closes #N`.
+- **Issues:** Use GitHub Issue templates (Feature, Bug, Chore). Add scope labels (`web`, `mobile`, `functions`, `infra`).
