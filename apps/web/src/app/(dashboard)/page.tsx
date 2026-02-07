@@ -39,7 +39,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground">
-            Your nail polish collection at a glance.
+            Your SwatchWatch collection at a glance.
           </p>
         </div>
         <Button asChild>

@@ -1,4 +1,4 @@
-import type { Polish } from "polish-inventory-shared";
+import type { Polish } from "swatchwatch-shared";
 
 export const MOCK_POLISHES: Polish[] = [
   {

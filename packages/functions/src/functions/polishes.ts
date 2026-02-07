@@ -1,15 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
-
-interface Polish {
-  id?: string;
-  brand: string;
-  name: string;
-  color: string;
-  finish?: string;
-  collection?: string;
-  quantity?: number;
-  notes?: string;
-}
+import { Polish, PolishCreateRequest, PolishUpdateRequest, PolishListResponse } from "swatchwatch-shared";
+import { query } from "../lib/db";
 
 async function getPolishes(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   context.log("GET /api/polishes - Listing polishes");
@@ -17,44 +8,141 @@ async function getPolishes(request: HttpRequest, context: InvocationContext): Pr
   const id = request.params.id;
 
   if (id) {
-    // TODO: Fetch single polish from Cosmos DB by id
-    context.log(`Fetching polish with id: ${id}`);
-    return {
-      status: 200,
-      jsonBody: { message: `Polish ${id} would be returned here` },
-    };
+    try {
+      const result = await query<any>(
+        `SELECT 
+          ui.inventory_item_id as id,
+          ui.user_id as "userId",
+          b.name_canonical as brand,
+          s.shade_name_canonical as name,
+          s.collection as collection,
+          s.finish as finish,
+          ui.quantity,
+          ui.notes,
+          ui.purchase_date as "purchaseDate",
+          ui.created_at as "createdAt"
+        FROM user_inventory_item ui
+        LEFT JOIN shade s ON ui.shade_id = s.shade_id
+        LEFT JOIN brand b ON s.brand_id = b.brand_id
+        WHERE ui.inventory_item_id = $1`,
+        [parseInt(id, 10)]
+      );
+
+      if (result.rows.length === 0) {
+        return {
+          status: 404,
+          jsonBody: { error: "Polish not found" },
+        };
+      }
+
+      return {
+        status: 200,
+        jsonBody: result.rows[0],
+      };
+    } catch (error: any) {
+      context.error("Error fetching polish:", error);
+      return {
+        status: 500,
+        jsonBody: { error: "Failed to fetch polish", details: error.message },
+      };
+    }
   }
 
-  // TODO: Fetch all polishes from Cosmos DB
-  return {
-    status: 200,
-    jsonBody: { message: "List of polishes would be returned here", polishes: [] },
-  };
+  // List all polishes for the user (TODO: get userId from auth token)
+  try {
+    const userId = 1; // Placeholder — will come from auth token
+
+    const result = await query<any>(
+      `SELECT 
+        ui.inventory_item_id as id,
+        ui.user_id as "userId",
+        b.name_canonical as brand,
+        s.shade_name_canonical as name,
+        '' as color,
+        s.collection,
+        s.finish,
+        ui.quantity,
+        ui.notes,
+        ui.purchase_date as "purchaseDate",
+        ui.created_at as "createdAt",
+        ui.created_at as "updatedAt"
+      FROM user_inventory_item ui
+      LEFT JOIN shade s ON ui.shade_id = s.shade_id
+      LEFT JOIN brand b ON s.brand_id = b.brand_id
+      WHERE ui.user_id = $1
+      ORDER BY ui.created_at DESC`,
+      [userId]
+    );
+
+    return {
+      status: 200,
+      jsonBody: {
+        polishes: result.rows,
+        total: result.rows.length,
+        page: 1,
+        pageSize: result.rows.length,
+      } as PolishListResponse,
+    };
+  } catch (error: any) {
+    context.error("Error fetching polishes:", error);
+    return {
+      status: 500,
+      jsonBody: { error: "Failed to fetch polishes", details: error.message },
+    };
+  }
 }
 
 async function createPolish(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   context.log("POST /api/polishes - Creating polish");
 
   try {
-    const body = (await request.json()) as Polish;
+    const body = (await request.json()) as PolishCreateRequest;
 
-    if (!body.brand || !body.name || !body.color) {
+    if (!body.brand || !body.name) {
       return {
         status: 400,
-        jsonBody: { error: "Missing required fields: brand, name, color" },
+        jsonBody: { error: "Brand and name are required" },
       };
     }
 
-    // TODO: Insert into Cosmos DB
-    context.log(`Creating polish: ${body.brand} - ${body.name}`);
+    const userId = 1; // TODO: get from auth token
+
+    // For MVP, create unlinked inventory item (shade_id = NULL)
+    // Later, matching resolver will link to canonical shade
+    const result = await query<any>(
+      `INSERT INTO user_inventory_item 
+        (user_id, quantity, notes, purchase_date, status)
+      VALUES ($1, $2, $3, $4, 'active')
+      RETURNING 
+        inventory_item_id as id,
+        user_id as "userId",
+        quantity,
+        notes,
+        purchase_date as "purchaseDate",
+        created_at as "createdAt",
+        created_at as "updatedAt"`,
+      [userId, body.quantity || 1, body.notes || "", body.purchaseDate || null]
+    );
+
+    const created = result.rows[0];
+    
+    // Return with user-provided brand/name (no canonical link yet)
     return {
       status: 201,
-      jsonBody: { message: "Polish created", polish: body },
+      jsonBody: {
+        ...created,
+        brand: body.brand,
+        name: body.name,
+        color: body.color || "",
+        finish: body.finish,
+        collection: body.collection,
+      },
     };
-  } catch {
+  } catch (error: any) {
+    context.error("Error creating polish:", error);
     return {
-      status: 400,
-      jsonBody: { error: "Invalid request body" },
+      status: 500,
+      jsonBody: { error: "Failed to create polish", details: error.message },
     };
   }
 }
@@ -71,18 +159,65 @@ async function updatePolish(request: HttpRequest, context: InvocationContext): P
   }
 
   try {
-    const body = (await request.json()) as Partial<Polish>;
+    const body = (await request.json()) as PolishUpdateRequest;
+    const userId = 1; // TODO: get from auth token
 
-    // TODO: Update in Cosmos DB
-    context.log(`Updating polish with id: ${id}`);
+    const result = await query<any>(
+      `UPDATE user_inventory_item 
+      SET 
+        quantity = COALESCE($1, quantity),
+        notes = COALESCE($2, notes),
+        purchase_date = COALESCE($3, purchase_date)
+      WHERE inventory_item_id = $4 AND user_id = $5
+      RETURNING 
+        inventory_item_id as id,
+        user_id as "userId",
+        quantity,
+        notes,
+        purchase_date as "purchaseDate",
+        created_at as "createdAt",
+        created_at as "updatedAt"`,
+      [body.quantity, body.notes, body.purchaseDate, parseInt(id, 10), userId]
+    );
+
+    if (result.rows.length === 0) {
+      return {
+        status: 404,
+        jsonBody: { error: "Polish not found or unauthorized" },
+      };
+    }
+
+    // Fetch joined data for full response
+    const fullResult = await query<any>(
+      `SELECT 
+        ui.inventory_item_id as id,
+        ui.user_id as "userId",
+        b.name_canonical as brand,
+        s.shade_name_canonical as name,
+        '' as color,
+        s.collection,
+        s.finish,
+        ui.quantity,
+        ui.notes,
+        ui.purchase_date as "purchaseDate",
+        ui.created_at as "createdAt",
+        ui.created_at as "updatedAt"
+      FROM user_inventory_item ui
+      LEFT JOIN shade s ON ui.shade_id = s.shade_id
+      LEFT JOIN brand b ON s.brand_id = b.brand_id
+      WHERE ui.inventory_item_id = $1`,
+      [parseInt(id, 10)]
+    );
+
     return {
       status: 200,
-      jsonBody: { message: `Polish ${id} updated`, polish: { id, ...body } },
+      jsonBody: fullResult.rows[0],
     };
-  } catch {
+  } catch (error: any) {
+    context.error("Error updating polish:", error);
     return {
-      status: 400,
-      jsonBody: { error: "Invalid request body" },
+      status: 500,
+      jsonBody: { error: "Failed to update polish", details: error.message },
     };
   }
 }
@@ -98,12 +233,34 @@ async function deletePolish(request: HttpRequest, context: InvocationContext): P
     };
   }
 
-  // TODO: Delete from Cosmos DB
-  context.log(`Deleting polish with id: ${id}`);
-  return {
-    status: 200,
-    jsonBody: { message: `Polish ${id} deleted` },
-  };
+  try {
+    const userId = 1; // TODO: get from auth token
+
+    const result = await query<any>(
+      `DELETE FROM user_inventory_item 
+      WHERE inventory_item_id = $1 AND user_id = $2
+      RETURNING inventory_item_id as id`,
+      [parseInt(id, 10), userId]
+    );
+
+    if (result.rows.length === 0) {
+      return {
+        status: 404,
+        jsonBody: { error: "Polish not found or unauthorized" },
+      };
+    }
+
+    return {
+      status: 200,
+      jsonBody: { message: "Polish deleted successfully", id: result.rows[0].id },
+    };
+  } catch (error: any) {
+    context.error("Error deleting polish:", error);
+    return {
+      status: 500,
+      jsonBody: { error: "Failed to delete polish", details: error.message },
+    };
+  }
 }
 
 app.http("polishes-list", {

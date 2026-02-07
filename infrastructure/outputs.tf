@@ -18,12 +18,16 @@ output "static_web_app_hostname" {
   value = azurerm_static_web_app.main.default_host_name
 }
 
-output "cosmos_account_name" {
-  value = azurerm_cosmosdb_account.main.name
+output "postgres_server_name" {
+  value = azurerm_postgresql_flexible_server.main.name
 }
 
-output "cosmos_endpoint" {
-  value = azurerm_cosmosdb_account.main.endpoint
+output "postgres_fqdn" {
+  value = azurerm_postgresql_flexible_server.main.fqdn
+}
+
+output "postgres_database_name" {
+  value = azurerm_postgresql_flexible_server_database.main.name
 }
 
 output "storage_account_name" {
@@ -37,4 +41,25 @@ output "speech_service_name" {
 output "speech_service_key" {
   value     = azurerm_cognitive_account.speech.primary_access_key
   sensitive = true
+}
+
+# Key Vault and GitHub Actions OIDC configuration
+output "key_vault_name" {
+  description = "Name of the Key Vault"
+  value       = azurerm_key_vault.main.name
+}
+
+output "github_client_id" {
+  description = "Application (client) ID for GitHub Actions - add to GitHub Secrets as AZURE_CLIENT_ID"
+  value       = azuread_application.github_actions.client_id
+}
+
+output "github_tenant_id" {
+  description = "Azure AD tenant ID - add to GitHub Secrets as AZURE_TENANT_ID"
+  value       = data.azurerm_client_config.current.tenant_id
+}
+
+output "subscription_id" {
+  description = "Azure subscription ID - add to GitHub Secrets as AZURE_SUBSCRIPTION_ID"
+  value       = data.azurerm_client_config.current.subscription_id
 }

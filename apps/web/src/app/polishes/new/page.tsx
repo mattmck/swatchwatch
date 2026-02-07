@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { PolishFinish } from "polish-inventory-shared";
+import type { PolishFinish } from "swatchwatch-shared";
 import { FINISHES } from "@/lib/mock-data";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";

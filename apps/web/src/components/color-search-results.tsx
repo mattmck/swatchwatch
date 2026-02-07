@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { Polish } from "polish-inventory-shared";
+import type { Polish } from "swatchwatch-shared";
 import { Badge } from "@/components/ui/badge";
 import { ColorDot } from "@/components/color-dot";
 

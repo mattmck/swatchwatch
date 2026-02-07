@@ -1,5 +1,5 @@
 {
-  "name": "polish-inventory",
+  "name": "swatchwatch",
   "private": true,
   "workspaces": [
     "apps/*",

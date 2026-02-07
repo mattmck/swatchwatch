@@ -46,11 +46,11 @@ All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpReques
      handler: myHandler,
    });
    ```
-3. Import types from `polish-inventory-shared` — **do not** redefine domain types locally
+3. Import types from `swatchwatch-shared` — **do not** redefine domain types locally
 
 ## Known Issues
 
-- `polishes.ts` defines a local `Polish` interface that duplicates `packages/shared` — new code should import from `polish-inventory-shared` instead
+- `polishes.ts` defines a local `Polish` interface that duplicates `packages/shared` — new code should import from `swatchwatch-shared` instead
 - All CRUD handlers return placeholder responses — Cosmos DB SDK client not yet wired
 - JWT validation returns 501 — Azure AD B2C JWKS verification not implemented
 - Voice handler stubs Speech-to-text and OpenAI parsing

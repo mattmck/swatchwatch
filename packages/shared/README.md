@@ -1,11 +1,11 @@
 # Shared Types — `packages/shared`
 
-Shared TypeScript type definitions used across the monorepo. Published as `polish-inventory-shared` in the npm workspace.
+Shared TypeScript type definitions used across the monorepo. Published as `swatchwatch-shared` in the npm workspace.
 
 ## Usage
 
 ```ts
-import type { Polish, PolishFinish, PolishCreateRequest } from "polish-inventory-shared";
+import type { Polish, PolishFinish, PolishCreateRequest } from "swatchwatch-shared";
 ```
 
 The package is automatically linked via npm workspaces — no publishing required.

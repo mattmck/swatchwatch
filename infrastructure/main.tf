@@ -6,6 +6,10 @@ terraform {
       source  = "hashicorp/azurerm"
       version = "~> 3.100"
     }
+    azuread = {
+      source  = "hashicorp/azuread"
+      version = "~> 2.47"
+    }
     random = {
       source  = "hashicorp/random"
       version = "~> 3.6"
@@ -14,8 +18,15 @@ terraform {
 }
 
 provider "azurerm" {
-  features {}
+  features {
+    key_vault {
+      purge_soft_delete_on_destroy    = true
+      recover_soft_deleted_key_vaults = true
+    }
+  }
 }
+
+data "azurerm_client_config" "current" {}
 
 resource "random_string" "suffix" {
   length  = 8
@@ -35,62 +46,101 @@ resource "azurerm_resource_group" "main" {
   location = var.location
 }
 
-# ── Cosmos DB (Serverless) ──────────────────────────────────────
+# ── Azure Key Vault ─────────────────────────────────────────────
 
-resource "azurerm_cosmosdb_account" "main" {
-  name                = "${local.resource_prefix}-cosmos-${local.unique_suffix}"
+resource "azurerm_key_vault" "main" {
+  name                = "kv${var.base_name}${var.environment}${local.unique_suffix}"
+  resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
-  resource_group_name = azurerm_resource_group.main.name
-  offer_type          = "Standard"
+  tenant_id           = data.azurerm_client_config.current.tenant_id
+  sku_name            = "standard"
 
-  capabilities {
-    name = "EnableServerless"
-  }
+  purge_protection_enabled   = false # Set true for production
+  soft_delete_retention_days = 7
 
-  consistency_policy {
-    consistency_level = "Session"
-  }
-
-  geo_location {
-    location          = azurerm_resource_group.main.location
-    failover_priority = 0
-  }
+  enable_rbac_authorization = false # Using access policies for simplicity
 }
 
-resource "azurerm_cosmosdb_sql_database" "main" {
-  name                = "polish-inventory"
-  resource_group_name = azurerm_resource_group.main.name
-  account_name        = azurerm_cosmosdb_account.main.name
+# Grant your current user full access to Key Vault
+resource "azurerm_key_vault_access_policy" "deployer" {
+  key_vault_id = azurerm_key_vault.main.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = data.azurerm_client_config.current.object_id
+
+  secret_permissions = [
+    "Get", "List", "Set", "Delete", "Purge", "Recover"
+  ]
 }
 
-resource "azurerm_cosmosdb_sql_container" "polishes" {
-  name                = "polishes"
+# Store Postgres password in Key Vault
+resource "azurerm_key_vault_secret" "pg_password" {
+  name         = "pg-password"
+  value        = var.pg_admin_password
+  key_vault_id = azurerm_key_vault.main.id
+
+  depends_on = [azurerm_key_vault_access_policy.deployer]
+}
+
+# ── Azure Database for PostgreSQL Flexible Server ───────────────
+
+resource "azurerm_postgresql_flexible_server" "main" {
+  name                = "${local.resource_prefix}-pg-${local.unique_suffix}"
   resource_group_name = azurerm_resource_group.main.name
-  account_name        = azurerm_cosmosdb_account.main.name
-  database_name       = azurerm_cosmosdb_sql_database.main.name
-  partition_key_paths = ["/userId"]
+  location            = azurerm_resource_group.main.location
+  version             = "16"
+
+  administrator_login    = var.pg_admin_username
+  administrator_password = var.pg_admin_password
+
+  sku_name   = "B_Standard_B1ms"
+  storage_mb = 32768
+
+  backup_retention_days        = 7
+  geo_redundant_backup_enabled = false
+
+  zone = "1"
+}
+
+resource "azurerm_postgresql_flexible_server_database" "main" {
+  name      = "swatchwatch"
+  server_id = azurerm_postgresql_flexible_server.main.id
+  charset   = "UTF8"
+  collation = "en_US.utf8"
+}
+
+resource "azurerm_postgresql_flexible_server_configuration" "pg_trgm" {
+  name      = "azure.extensions"
+  server_id = azurerm_postgresql_flexible_server.main.id
+  value     = "pg_trgm,vector"
+}
+
+resource "azurerm_postgresql_flexible_server_firewall_rule" "allow_azure_services" {
+  name             = "AllowAzureServices"
+  server_id        = azurerm_postgresql_flexible_server.main.id
+  start_ip_address = "0.0.0.0"
+  end_ip_address   = "0.0.0.0"
 }
 
 # ── Storage Account (polish images) ────────────────────────────
 
 resource "azurerm_storage_account" "main" {
-  name                     = "${var.base_name}${var.environment}${local.unique_suffix}"
-  resource_group_name      = azurerm_resource_group.main.name
-  location                 = azurerm_resource_group.main.location
-  account_tier             = "Standard"
-  account_replication_type = "LRS"
+  name                            = "${var.base_name}${var.environment}${local.unique_suffix}"
+  resource_group_name             = azurerm_resource_group.main.name
+  location                        = azurerm_resource_group.main.location
+  account_tier                    = "Standard"
+  account_replication_type        = "LRS"
   allow_nested_items_to_be_public = false
 }
 
 resource "azurerm_storage_container" "swatches" {
   name                  = "swatches"
-  storage_account_id    = azurerm_storage_account.main.id
+  storage_account_name  = azurerm_storage_account.main.name
   container_access_type = "private"
 }
 
 resource "azurerm_storage_container" "nail_photos" {
   name                  = "nail-photos"
-  storage_account_id    = azurerm_storage_account.main.id
+  storage_account_name  = azurerm_storage_account.main.name
   container_access_type = "private"
 }
 
@@ -113,6 +163,10 @@ resource "azurerm_linux_function_app" "main" {
   storage_account_name       = azurerm_storage_account.main.name
   storage_account_access_key = azurerm_storage_account.main.primary_access_key
 
+  identity {
+    type = "SystemAssigned"
+  }
+
   site_config {
     application_stack {
       node_version = "20"
@@ -122,8 +176,30 @@ resource "azurerm_linux_function_app" "main" {
   app_settings = {
     FUNCTIONS_WORKER_RUNTIME    = "node"
     FUNCTIONS_EXTENSION_VERSION = "~4"
-    COSMOS_DB_CONNECTION        = azurerm_cosmosdb_account.main.primary_sql_connection_string
+    PGHOST                      = azurerm_postgresql_flexible_server.main.fqdn
+    PGPORT                      = "5432"
+    PGDATABASE                  = azurerm_postgresql_flexible_server_database.main.name
+    PGUSER                      = "${var.pg_admin_username}@${azurerm_postgresql_flexible_server.main.name}"
+    # Reference Key Vault secret instead of plaintext password
+    PGPASSWORD = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.pg_password.id})"
+    # Placeholder for future secrets
+    AZURE_STORAGE_CONNECTION = azurerm_storage_account.main.primary_connection_string
+    AZURE_SPEECH_KEY         = "to-be-added"
+    AZURE_SPEECH_REGION      = azurerm_resource_group.main.location
+    AZURE_OPENAI_ENDPOINT    = "to-be-added"
+    AZURE_OPENAI_KEY         = "to-be-added"
+    AZURE_AD_B2C_TENANT      = "to-be-added"
+    AZURE_AD_B2C_CLIENT_ID   = "to-be-added"
   }
+}
+
+# Grant Function App access to Key Vault
+resource "azurerm_key_vault_access_policy" "function_app" {
+  key_vault_id = azurerm_key_vault.main.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = azurerm_linux_function_app.main.identity[0].principal_id
+
+  secret_permissions = ["Get", "List"]
 }
 
 # ── Static Web App (Next.js frontend) ──────────────────────────
@@ -145,4 +221,39 @@ resource "azurerm_cognitive_account" "speech" {
   location            = azurerm_resource_group.main.location
   kind                = "SpeechServices"
   sku_name            = "S0"
+}
+
+# ── GitHub Actions OIDC Federation (passwordless CI/CD) ────────
+
+resource "azuread_application" "github_actions" {
+  display_name = "${var.base_name}-${var.environment}-github-actions"
+}
+
+resource "azuread_service_principal" "github_actions" {
+  client_id = azuread_application.github_actions.client_id
+}
+
+# Federated credential for GitHub Actions OIDC
+resource "azuread_application_federated_identity_credential" "github_actions" {
+  application_id = azuread_application.github_actions.id
+  display_name   = "github-actions-${var.environment}"
+  audiences      = ["api://AzureADTokenExchange"]
+  issuer         = "https://token.actions.githubusercontent.com"
+  subject        = "repo:${var.github_repository}:environment:${var.environment}"
+}
+
+# Grant GitHub Actions service principal Contributor access
+resource "azurerm_role_assignment" "github_contributor" {
+  scope                = azurerm_resource_group.main.id
+  role_definition_name = "Contributor"
+  principal_id         = azuread_service_principal.github_actions.object_id
+}
+
+# Grant GitHub Actions access to Key Vault
+resource "azurerm_key_vault_access_policy" "github_actions" {
+  key_vault_id = azurerm_key_vault.main.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = azuread_service_principal.github_actions.object_id
+
+  secret_permissions = ["Get", "List"]
 }

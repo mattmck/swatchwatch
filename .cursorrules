@@ -1,8 +1,8 @@
-# Polish Inventory — Agent Instructions
+# SwatchWatch — Agent Instructions
 
 ## Architecture Overview
 
-Nail polish inventory management app. **npm workspaces monorepo** with three deployable targets and a shared types package:
+Smart nail polish collection manager. **npm workspaces monorepo** with three deployable targets and a shared types package:
 
 ```
 apps/web          → Next.js 16 (App Router) + Tailwind v4 + shadcn/ui → Azure Static Web App

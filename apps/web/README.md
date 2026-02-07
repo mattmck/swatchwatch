@@ -57,7 +57,7 @@ cd apps/web && npx shadcn@latest add <component-name>
 ## Conventions
 
 - **Path alias:** `@/*` maps to `src/*` (configured in `tsconfig.json`)
-- **Types:** Import domain types from `polish-inventory-shared`, not local redefinitions
+- **Types:** Import domain types from `swatchwatch-shared`, not local redefinitions
 - **Styling:** Tailwind v4 utility classes. CSS variables for theming in `globals.css`. Inline `style` only for dynamic color values (e.g. `backgroundColor: polish.colorHex`)
 - **Client components:** Pages with interactivity use `"use client"` directive. Server components used where possible (e.g. `polishes/[id]/page.tsx`)
 - **Data:** Currently mock data in `src/lib/mock-data.ts`. When API is connected, replace with `fetch("/api/polishes")` calls — the types are already aligned

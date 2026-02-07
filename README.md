@@ -1,11 +1,11 @@
-# 💅 Polish Inventory
+# 💅 SwatchWatch
 
-Nail polish collection management app with voice input, color-based search, and cross-platform support.
+Smart nail polish collection manager with voice input, color-based search, and cross-platform support.
 
 ## Architecture
 
 ```
-polish-inventory/
+swatchwatch/
 ├── apps/
 │   ├── web/              → Next.js 16 (App Router) + Tailwind v4 + shadcn/ui
 │   └── mobile/           → Expo / React Native (SDK 54)

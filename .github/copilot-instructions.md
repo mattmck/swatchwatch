@@ -1,8 +1,8 @@
-# Polish Inventory — Copilot Instructions
+# SwatchWatch — Copilot Instructions
 
 ## Architecture Overview
 
-Nail polish inventory management app. **npm workspaces monorepo** with three deployable targets and a shared types package:
+Smart nail polish collection manager. **npm workspaces monorepo** with three deployable targets and a shared types package:
 
 ```
 apps/web          → Next.js 16 (App Router) + Tailwind v4 + shadcn/ui → Azure Static Web App
@@ -71,7 +71,7 @@ This project is in early development. The web UI prototype is functional with mo
 - Postgres reads/writes in `polishes.ts` are stubbed — no DB client yet
 - JWT validation in `auth.ts` returns 501 — Azure AD B2C JWKS verification not implemented
 - Voice processing in `voice.ts` stubs Speech-to-text and OpenAI parsing
-- `packages/functions` defines a local `Polish` interface that duplicates `packages/shared` — new code should import from `polish-inventory-shared` instead
+- `packages/functions` defines a local `Polish` interface that duplicates `packages/shared` — new code should import from `swatchwatch-shared` instead
 - Infrastructure is migrating from Cosmos DB to Azure Database for PostgreSQL Flexible Server
 
 ## Environment Variables (Functions)
@@ -84,7 +84,7 @@ Defined in `packages/functions/local.settings.json`. Required secrets:
 1. Create a new file in `packages/functions/src/functions/`
 2. Define handler function(s) with signature `(request: HttpRequest, context: InvocationContext) => Promise<HttpResponseInit>`
 3. Register with `app.http("descriptive-name", { methods, route, handler })` at module scope
-4. Use types from `polish-inventory-shared` — do not redefine domain types locally
+4. Use types from `swatchwatch-shared` — do not redefine domain types locally
 
 ## Documentation Maintenance
 

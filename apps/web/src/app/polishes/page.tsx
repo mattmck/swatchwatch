@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import type { Polish, PolishFinish } from "polish-inventory-shared";
-import { MOCK_POLISHES, BRANDS, FINISHES } from "@/lib/mock-data";
+import type { Polish, PolishFinish } from "swatchwatch-shared";
+import { BRANDS, FINISHES } from "@/lib/mock-data";
+import { listPolishes } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -28,18 +29,37 @@ type SortField = "name" | "brand" | "createdAt" | "rating";
 type SortOrder = "asc" | "desc";
 
 export default function PolishesPage() {
+  const [polishes, setPolishes] = useState<Polish[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const [search, setSearch] = useState("");
   const [brandFilter, setBrandFilter] = useState<string>("all");
   const [finishFilter, setFinishFilter] = useState<string>("all");
   const [sortField, setSortField] = useState<SortField>("name");
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
 
-  const filtered = MOCK_POLISHES.filter((p) => {
+  useEffect(() => {
+    async function fetchPolishes() {
+      try {
+        setLoading(true);
+        const response = await listPolishes();
+        setPolishes(response.polishes);
+      } catch (err: any) {
+        setError(err.message || "Failed to load polishes");
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchPolishes();
+  }, []);
+
+  const filtered = polishes.filter((p) => {
     const matchesSearch =
       !search ||
       p.name.toLowerCase().includes(search.toLowerCase()) ||
       p.brand.toLowerCase().includes(search.toLowerCase()) ||
-      p.color.toLowerCase().includes(search.toLowerCase());
+      (p.color && p.color.toLowerCase().includes(search.toLowerCase()));
     const matchesBrand = brandFilter === "all" || p.brand === brandFilter;
     const matchesFinish = finishFilter === "all" || p.finish === finishFilter;
     return matchesSearch && matchesBrand && matchesFinish;
@@ -72,6 +92,26 @@ export default function PolishesPage() {
     return <span className="ml-1">{sortOrder === "asc" ? "↑" : "↓"}</span>;
   }
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <p className="text-muted-foreground">Loading polishes...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center space-y-2">
+          <p className="text-destructive font-medium">Error loading polishes</p>
+          <p className="text-sm text-muted-foreground">{error}</p>
+          <Button onClick={() => window.location.reload()}>Retry</Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       {/* Page header */}
@@ -79,7 +119,7 @@ export default function PolishesPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Collection</h1>
           <p className="text-muted-foreground">
-            {MOCK_POLISHES.length} polishes · {filtered.length} shown
+            {polishes.length} polishes · {filtered.length} shown
           </p>
         </div>
         <Button asChild>
