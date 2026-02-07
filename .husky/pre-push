@@ -1,6 +1,9 @@
 #!/usr/bin/env sh
 . "$(dirname -- "$0")/_/husky.sh"
 
+# Source the change detection logic (extracted for testability)
+. "$(dirname -- "$0")/detect-changes.sh"
+
 # Get list of changed files in commits being pushed
 CHANGED_FILES=$(git diff --name-only @{push}..HEAD 2>/dev/null || git diff --name-only origin/$(git branch --show-current)..HEAD 2>/dev/null || git diff --name-only HEAD~1..HEAD)
 
@@ -11,68 +14,8 @@ fi
 
 echo "🔍 Detecting changed workspaces..."
 
-# Track what needs to be built
-BUILD_SHARED=false
-BUILD_WEB=false
-BUILD_FUNCTIONS=false
-VALIDATE_INFRA=false
-
-# Check which parts were modified
-echo "$CHANGED_FILES" | while IFS= read -r file; do
-  case "$file" in
-    packages/shared/*)
-      BUILD_SHARED=true
-      ;;
-    apps/web/*)
-      BUILD_WEB=true
-      ;;
-    packages/functions/*)
-      BUILD_FUNCTIONS=true
-      ;;
-    infrastructure/*)
-      VALIDATE_INFRA=true
-      ;;
-  esac
-done
-
-# Re-evaluate since loop runs in subshell
-if echo "$CHANGED_FILES" | grep -q "^packages/shared/"; then
-  BUILD_SHARED=true
-fi
-if echo "$CHANGED_FILES" | grep -q "^apps/web/"; then
-  BUILD_WEB=true
-fi
-if echo "$CHANGED_FILES" | grep -q "^packages/functions/"; then
-  BUILD_FUNCTIONS=true
-fi
-if echo "$CHANGED_FILES" | grep -q "^infrastructure/"; then
-  VALIDATE_INFRA=true
-fi
-
-# Check for dependency changes - these affect all dependent packages
-if echo "$CHANGED_FILES" | grep -qE "(^|/)package\.json$|^package-lock\.json$"; then
-  echo "📋 Dependency changes detected"
-  if echo "$CHANGED_FILES" | grep -qE "^packages/shared/(package\.json|package-lock\.json)$"; then
-    echo "  → packages/shared dependencies changed"
-    BUILD_SHARED=true
-    BUILD_WEB=true
-    BUILD_FUNCTIONS=true
-  fi
-  if echo "$CHANGED_FILES" | grep -qE "^apps/web/(package\.json|package-lock\.json)$"; then
-    echo "  → apps/web dependencies changed"
-    BUILD_WEB=true
-  fi
-  if echo "$CHANGED_FILES" | grep -qE "^packages/functions/(package\.json|package-lock\.json)$"; then
-    echo "  → packages/functions dependencies changed"
-    BUILD_FUNCTIONS=true
-  fi
-  if echo "$CHANGED_FILES" | grep -qE "^(package\.json|package-lock\.json)$"; then
-    echo "  → Root dependencies changed - validating all workspaces"
-    BUILD_SHARED=true
-    BUILD_WEB=true
-    BUILD_FUNCTIONS=true
-  fi
-fi
+# Detect which workspaces need building
+detect_changes "$CHANGED_FILES"
 
 # Build shared first if needed (other packages depend on it)
 if [ "$BUILD_SHARED" = true ]; then

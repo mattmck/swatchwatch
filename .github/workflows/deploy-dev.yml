@@ -33,7 +33,9 @@ jobs:
           action: 'upload'
           app_location: '/'
           app_build_command: 'npm run build --workspace=packages/shared && npm run build:web'
-          output_location: 'apps/web/.next'
+          # Next.js SSR output (.next) does not include a static index.html.
+          # Static Web Apps expects static artifacts, so we deploy Next.js static export output instead.
+          output_location: 'apps/web/out'
         env:
           NEXT_PUBLIC_API_URL: 'https://swatchwatch-dev-func-j5jij0be.azurewebsites.net/api'
 
