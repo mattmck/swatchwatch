@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+.next/
+out/
+dist/
+build/
+
+# Azure Functions
+packages/functions/bin/
+packages/functions/obj/
+local.settings.json
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.tfvars
+*.tfvars.json
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Expo
+apps/mobile/.expo/
+apps/mobile/dist/
+
+# Testing
+coverage/
+
+# Misc
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
