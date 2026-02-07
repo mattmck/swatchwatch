@@ -1,6 +1,10 @@
+"use client";
+
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import { getPolishById, MOCK_POLISHES } from "@/lib/mock-data";
+import { useParams, useRouter } from "next/navigation";
+import type { Polish } from "swatchwatch-shared";
+import { getPolish, deletePolish } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -12,20 +16,62 @@ import {
 } from "@/components/ui/card";
 import { ColorDot } from "@/components/color-dot";
 
-export function generateStaticParams() {
-  return MOCK_POLISHES.map((p) => ({ id: p.id }));
-}
+export default function PolishDetailPage() {
+  const params = useParams<{ id: string }>();
+  const router = useRouter();
+  const [polish, setPolish] = useState<Polish | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
-export default async function PolishDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
-  const polish = getPolishById(id);
+  useEffect(() => {
+    async function fetchPolish() {
+      try {
+        setLoading(true);
+        const data = await getPolish(params.id);
+        setPolish(data);
+      } catch (err: any) {
+        setError(err.message || "Failed to load polish");
+      } finally {
+        setLoading(false);
+      }
+    }
+    if (params.id) fetchPolish();
+  }, [params.id]);
 
-  if (!polish) {
-    notFound();
+  async function handleDelete() {
+    if (!polish || !confirm("Delete this polish from your collection?")) return;
+    try {
+      setDeleting(true);
+      await deletePolish(polish.id);
+      router.push("/polishes");
+    } catch (err: any) {
+      alert(err.message || "Failed to delete");
+      setDeleting(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <p className="text-muted-foreground">Loading polish...</p>
+      </div>
+    );
+  }
+
+  if (error || !polish) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center space-y-2">
+          <p className="text-destructive font-medium">
+            {error || "Polish not found"}
+          </p>
+          <Button variant="outline" onClick={() => router.push("/polishes")}>
+            Back to Collection
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -51,8 +97,13 @@ export default async function PolishDetailPage({
           <Button variant="outline" size="sm">
             Edit
           </Button>
-          <Button variant="destructive" size="sm">
-            Delete
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={handleDelete}
+            disabled={deleting}
+          >
+            {deleting ? "Deleting…" : "Delete"}
           </Button>
         </div>
       </div>

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import type { Polish } from "swatchwatch-shared";
-import { MOCK_POLISHES } from "@/lib/mock-data";
+import { listPolishes } from "@/lib/api";
 import {
   colorDistance,
   complementaryHex,
@@ -26,19 +26,28 @@ type Mode = "similar" | "complementary";
 const MAX_DISTANCE = 0.5;
 
 export default function ColorSearchPage() {
+  const [allPolishes, setAllPolishes] = useState<Polish[]>([]);
+  const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<Mode>("similar");
   const [lightness, setLightness] = useState(0.5);
   const [selectedHsl, setSelectedHsl] = useState<HSL | null>(null);
   const [selectedHex, setSelectedHex] = useState<string | null>(null);
   const [previewHex, setPreviewHex] = useState<string | null>(null);
 
+  useEffect(() => {
+    listPolishes()
+      .then((res) => setAllPolishes(res.polishes))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
   // The color we're actively matching against (hover takes priority over click)
   const activeHex = previewHex ?? selectedHex;
 
   // Polishes that have a colorHex
   const colorPolishes = useMemo(
-    () => MOCK_POLISHES.filter((p): p is Polish & { colorHex: string } => !!p.colorHex),
-    []
+    () => allPolishes.filter((p): p is Polish & { colorHex: string } => !!p.colorHex),
+    [allPolishes]
   );
 
   // Compute the target color based on mode

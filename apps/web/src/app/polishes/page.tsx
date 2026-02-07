@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import type { Polish, PolishFinish } from "swatchwatch-shared";
-import { BRANDS, FINISHES } from "@/lib/mock-data";
+import { FINISHES } from "@/lib/constants";
 import { listPolishes } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,9 @@ export default function PolishesPage() {
   const [finishFilter, setFinishFilter] = useState<string>("all");
   const [sortField, setSortField] = useState<SortField>("name");
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
+
+  // Derive unique brands from loaded data
+  const brands = [...new Set(polishes.map((p) => p.brand).filter(Boolean))].sort();
 
   useEffect(() => {
     async function fetchPolishes() {
@@ -141,7 +144,7 @@ export default function PolishesPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Brands</SelectItem>
-            {BRANDS.map((brand) => (
+            {brands.map((brand) => (
               <SelectItem key={brand} value={brand}>
                 {brand}
               </SelectItem>

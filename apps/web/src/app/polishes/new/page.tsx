@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { PolishFinish } from "swatchwatch-shared";
-import { FINISHES } from "@/lib/mock-data";
+import { FINISHES } from "@/lib/constants";
+import { createPolish } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,15 +38,39 @@ export default function NewPolishPage() {
     tags: "",
   });
 
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
   function update(field: string, value: string | number) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    // TODO: POST to /api/polishes
-    alert("Polish saved! (mock — API not connected yet)");
-    router.push("/polishes");
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      await createPolish({
+        brand: form.brand,
+        name: form.name,
+        color: form.color,
+        colorHex: form.colorHex,
+        finish: (form.finish || undefined) as PolishFinish | undefined,
+        collection: form.collection || undefined,
+        quantity: form.quantity,
+        size: form.size || undefined,
+        rating: form.rating || undefined,
+        notes: form.notes || undefined,
+        tags: form.tags
+          ? form.tags.split(",").map((t) => t.trim()).filter(Boolean)
+          : undefined,
+      });
+      router.push("/polishes");
+    } catch (err: any) {
+      setSubmitError(err.message || "Failed to save polish");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -240,8 +265,13 @@ export default function NewPolishPage() {
             </div>
 
             {/* Actions */}
+            {submitError && (
+              <p className="text-sm text-destructive">{submitError}</p>
+            )}
             <div className="flex gap-3 pt-2">
-              <Button type="submit">Save Polish</Button>
+              <Button type="submit" disabled={submitting}>
+                {submitting ? "Saving…" : "Save Polish"}
+              </Button>
               <Button
                 type="button"
                 variant="outline"
