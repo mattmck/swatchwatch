@@ -34,6 +34,8 @@ jobs:
           app_location: '/'
           app_build_command: 'npm run build --workspace=packages/shared && npm run build:web'
           output_location: 'apps/web/out'
+        env:
+          NEXT_PUBLIC_API_URL: 'https://swatchwatch-dev-func-j5jij0be.azurewebsites.net/api'
 
   deploy-functions:
     name: Deploy Functions
