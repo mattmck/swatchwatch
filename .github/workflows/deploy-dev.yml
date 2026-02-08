@@ -95,7 +95,12 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       
       - name: Run database migrations
-        run: npm run migrate
+        run: |
+          if [ -n "$DATABASE_URL" ]; then
+            npm run migrate
+          else
+            echo "⚠ DATABASE_URL not set — skipping migrations"
+          fi
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
