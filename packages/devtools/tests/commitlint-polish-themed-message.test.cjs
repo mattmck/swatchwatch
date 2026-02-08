@@ -20,7 +20,7 @@ test('polish-themed-message: validates commit subjects with polish-themed words'
   assert.equal(valid, true);
 });
 
-test('polish-themed-message: rejects commit subjects without polish-themed words', () => {
+test('polish-themed-message: warns for commit subjects without polish-themed words', () => {
   assert.equal(typeof polishThemedRule, 'function');
 
   const [valid, message] = polishThemedRule({
@@ -28,5 +28,5 @@ test('polish-themed-message: rejects commit subjects without polish-themed words
   });
 
   assert.equal(valid, false);
-  assert.match(message, /nail polish themes/i);
+  assert.match(message, /nail polish vibes/i);
 });

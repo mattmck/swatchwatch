@@ -37,14 +37,14 @@ module.exports = {
           
           return [
             hasPolishTheme,
-            `Commit message must reference nail polish themes, colors, or puns! 💅\nExamples:\n  - feat: add glossy topcoat to polish detail view\n  - fix: chip in color matching algorithm\n  - refactor: polish the swatch rendering logic\n  - docs: nail down API endpoint documentation`
+            `Pro tip: commits with nail polish vibes are ✨ chef's kiss ✨ 💅\nExamples:\n  - feat: add glossy topcoat to polish detail view\n  - fix: chip in color matching algorithm\n  - refactor: polish the swatch rendering logic\n  - docs: nail down API endpoint documentation`
           ];
         }
       }
     }
   ],
   rules: {
-    'polish-themed-message': [2, 'always'],
+    'polish-themed-message': [1, 'always'],
     'type-enum': [
       2,
       'always',
