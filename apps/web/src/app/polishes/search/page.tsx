@@ -2,14 +2,15 @@
 
 import { useState, useMemo, useCallback, useEffect } from "react";
 import type { Polish } from "swatchwatch-shared";
-import { listPolishes } from "@/lib/api";
+import { listPolishes, updatePolish } from "@/lib/api";
 import {
   colorDistance,
   complementaryHex,
+  hexToHsl,
   hslToHex,
   type HSL,
 } from "@/lib/color-utils";
-import { ColorWheel } from "@/components/color-wheel";
+import { ColorWheel, type WheelMode, type SnapDot } from "@/components/color-wheel";
 import { ColorSearchResults } from "@/components/color-search-results";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,6 +22,7 @@ import {
 } from "@/components/ui/card";
 
 type Mode = "similar" | "complementary";
+type ResultsScope = "all" | "collection";
 
 /** Max OKLAB distance (used to normalize to 0-1 for display) */
 const MAX_DISTANCE = 0.5;
@@ -29,6 +31,8 @@ export default function ColorSearchPage() {
   const [allPolishes, setAllPolishes] = useState<Polish[]>([]);
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<Mode>("similar");
+  const [wheelMode, setWheelMode] = useState<WheelMode>("free");
+  const [resultsScope, setResultsScope] = useState<ResultsScope>("all");
   const [lightness, setLightness] = useState(0.5);
   const [selectedHsl, setSelectedHsl] = useState<HSL | null>(null);
   const [selectedHex, setSelectedHex] = useState<string | null>(null);
@@ -41,6 +45,8 @@ export default function ColorSearchPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  const isOwned = (p: Polish) => (p.quantity ?? 0) > 0;
+
   // The color we're actively matching against (hover takes priority over click)
   const activeHex = previewHex ?? selectedHex;
 
@@ -50,22 +56,43 @@ export default function ColorSearchPage() {
     [allPolishes]
   );
 
+  // Owned polishes with colors — used for snap dots
+  const ownedColorPolishes = useMemo(
+    () => colorPolishes.filter(isOwned),
+    [colorPolishes]
+  );
+
+  // Snap dots for the wheel
+  const snapDots: SnapDot[] = useMemo(
+    () =>
+      ownedColorPolishes.map((p) => ({
+        hex: p.colorHex,
+        hsl: hexToHsl(p.colorHex),
+      })),
+    [ownedColorPolishes]
+  );
+
   // Compute the target color based on mode
   const targetHex = useMemo(() => {
     if (!activeHex) return null;
     return mode === "complementary" ? complementaryHex(activeHex) : activeHex;
   }, [activeHex, mode]);
 
-  // Sort polishes by distance to target color
+  // Sort polishes by distance to target color, then filter by scope
   const sortedPolishes = useMemo(() => {
     if (!targetHex) return [];
-    return colorPolishes
+
+    const source = resultsScope === "collection"
+      ? colorPolishes.filter(isOwned)
+      : colorPolishes;
+
+    return source
       .map((p) => ({
         ...p,
         distance: Math.min(colorDistance(targetHex, p.colorHex) / MAX_DISTANCE, 1),
       }))
       .sort((a, b) => a.distance - b.distance);
-  }, [targetHex, colorPolishes]);
+  }, [targetHex, colorPolishes, resultsScope]);
 
   const handleHover = useCallback(
     (hex: string, _hsl: HSL) => {
@@ -82,6 +109,30 @@ export default function ColorSearchPage() {
   const handleMouseLeaveWheel = useCallback(() => {
     setPreviewHex(null);
   }, []);
+
+  const handleQuantityChange = useCallback(
+    (polishId: string, delta: number) => {
+      setAllPolishes((prev) =>
+        prev.map((p) => {
+          if (p.id !== polishId) return p;
+          const newQty = Math.max(0, (p.quantity ?? 0) + delta);
+          return { ...p, quantity: newQty };
+        })
+      );
+
+      const polish = allPolishes.find((p) => p.id === polishId);
+      if (!polish) return;
+      const newQty = Math.max(0, (polish.quantity ?? 0) + delta);
+
+      updatePolish(polishId, { id: polishId, quantity: newQty }).catch(() => {
+        // Revert on failure
+        setAllPolishes((prev) =>
+          prev.map((p) => (p.id === polishId ? { ...p, quantity: polish.quantity } : p))
+        );
+      });
+    },
+    [allPolishes]
+  );
 
   return (
     <div className="space-y-6">
@@ -112,6 +163,8 @@ export default function ColorSearchPage() {
                   onSelect={handleSelect}
                   selectedHsl={selectedHsl}
                   size={280}
+                  wheelMode={wheelMode}
+                  snapDots={snapDots}
                 />
               </div>
 
@@ -153,7 +206,7 @@ export default function ColorSearchPage() {
                   </div>
                   {mode === "complementary" && targetHex && (
                     <>
-                      <span className="text-muted-foreground">→</span>
+                      <span className="text-muted-foreground">&rarr;</span>
                       <div className="flex flex-col items-center gap-1">
                         <span
                           className="h-8 w-8 rounded-full border border-border"
@@ -169,7 +222,7 @@ export default function ColorSearchPage() {
                 </div>
               )}
 
-              {/* Mode toggle */}
+              {/* Similar / Complementary mode toggle */}
               <div className="flex w-full rounded-lg border bg-muted p-1">
                 <Button
                   variant={mode === "similar" ? "default" : "ghost"}
@@ -188,6 +241,46 @@ export default function ColorSearchPage() {
                   Complementary
                 </Button>
               </div>
+
+              {/* Wheel mode toggle (Free / Snap) */}
+              <div className="flex w-full rounded-lg border bg-muted p-1">
+                <Button
+                  variant={wheelMode === "free" ? "default" : "ghost"}
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => setWheelMode("free")}
+                >
+                  Free
+                </Button>
+                <Button
+                  variant={wheelMode === "snap" ? "default" : "ghost"}
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => setWheelMode("snap")}
+                >
+                  Snap
+                </Button>
+              </div>
+
+              {/* Results scope toggle (All / My Collection) */}
+              <div className="flex w-full rounded-lg border bg-muted p-1">
+                <Button
+                  variant={resultsScope === "all" ? "default" : "ghost"}
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => setResultsScope("all")}
+                >
+                  All Polishes
+                </Button>
+                <Button
+                  variant={resultsScope === "collection" ? "default" : "ghost"}
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => setResultsScope("collection")}
+                >
+                  My Collection
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -197,6 +290,7 @@ export default function ColorSearchPage() {
           <CardHeader>
             <CardTitle className="text-base">
               {mode === "similar" ? "Similar Colors" : "Complementary Colors"}
+              {resultsScope === "collection" && " — My Collection"}
             </CardTitle>
             <CardDescription>
               {activeHex
@@ -210,6 +304,7 @@ export default function ColorSearchPage() {
                 polishes={sortedPolishes}
                 targetHex={targetHex}
                 mode={mode}
+                onQuantityChange={handleQuantityChange}
               />
             ) : (
               <div className="flex flex-col items-center justify-center py-16 text-center">
