@@ -61,6 +61,32 @@ jobs:
       - name: Build functions
         run: npm run build:functions
       
+      - name: Prepare functions deployment package
+        run: |
+          DEPLOY_DIR=packages/functions/.deploy
+          rm -rf "$DEPLOY_DIR"
+          mkdir -p "$DEPLOY_DIR/_shared"
+
+          # Copy function app artifacts
+          cp packages/functions/host.json "$DEPLOY_DIR/"
+          cp packages/functions/package.json "$DEPLOY_DIR/"
+          cp -r packages/functions/dist "$DEPLOY_DIR/"
+
+          # Bundle the built shared package so it can be installed as a file: dep
+          cp packages/shared/package.json "$DEPLOY_DIR/_shared/"
+          cp -r packages/shared/dist "$DEPLOY_DIR/_shared/"
+
+          # Rewrite the workspace reference to a local file: path
+          node -e "
+            const pkg = JSON.parse(require('fs').readFileSync('$DEPLOY_DIR/package.json', 'utf8'));
+            pkg.dependencies['swatchwatch-shared'] = 'file:_shared';
+            require('fs').writeFileSync('$DEPLOY_DIR/package.json', JSON.stringify(pkg, null, 2));
+          "
+
+          # Install production-only deps into the self-contained deploy dir
+          cd "$DEPLOY_DIR"
+          npm install --omit=dev --ignore-scripts
+
       - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
@@ -72,4 +98,4 @@ jobs:
         uses: Azure/functions-action@v1
         with:
           app-name: 'swatchwatch-dev-func-j5jij0be'
-          package: 'packages/functions'
+          package: 'packages/functions/.deploy'

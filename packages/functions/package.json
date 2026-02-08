@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@azure/functions": "^4.0.0",
-    "pg": "^8.18.0"
+    "pg": "^8.18.0",
+    "swatchwatch-shared": "*"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
