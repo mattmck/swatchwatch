@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import type { Polish } from "swatchwatch-shared";
 import { listPolishes, updatePolish } from "@/lib/api";
 import {
@@ -27,7 +28,8 @@ type ResultsScope = "all" | "collection";
 /** Max OKLAB distance (used to normalize to 0-1 for display) */
 const MAX_DISTANCE = 0.5;
 
-export default function ColorSearchPage() {
+function ColorSearchPageContent() {
+  const searchParams = useSearchParams();
   const [allPolishes, setAllPolishes] = useState<Polish[]>([]);
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<Mode>("similar");
@@ -37,6 +39,20 @@ export default function ColorSearchPage() {
   const [selectedHsl, setSelectedHsl] = useState<HSL | null>(null);
   const [selectedHex, setSelectedHex] = useState<string | null>(null);
   const [previewHex, setPreviewHex] = useState<string | null>(null);
+
+  // Initialize from URL color param
+  useEffect(() => {
+    const colorParam = searchParams.get("color");
+    if (colorParam) {
+      const hex = colorParam.startsWith("#") ? colorParam : `#${colorParam}`;
+      if (/^#[0-9A-Fa-f]{6}$/.test(hex)) {
+        setSelectedHex(hex);
+        const hsl = hexToHsl(hex);
+        setSelectedHsl(hsl);
+        setLightness(hsl.l);
+      }
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     listPolishes()
@@ -318,5 +334,13 @@ export default function ColorSearchPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+export default function ColorSearchPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><p className="text-muted-foreground">Loading...</p></div>}>
+      <ColorSearchPageContent />
+    </Suspense>
   );
 }

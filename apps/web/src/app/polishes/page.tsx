@@ -279,6 +279,7 @@ export default function PolishesPage() {
               <TableHead>Brand</TableHead>
               <TableHead>Name</TableHead>
               <TableHead className="w-12">Color</TableHead>
+              <TableHead className="w-12">Find</TableHead>
               <TableHead>Finish</TableHead>
               <TableHead>Collection</TableHead>
               <TableHead className="w-28 text-right">Action</TableHead>
@@ -287,7 +288,7 @@ export default function PolishesPage() {
           <TableBody>
             {pageItems.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                   No polishes match your filters.
                 </TableCell>
               </TableRow>
@@ -317,6 +318,17 @@ export default function PolishesPage() {
                       >
                         <ColorDot hex={polish.colorHex} size="sm" />
                       </button>
+                    </TableCell>
+                    <TableCell>
+                      {polish.colorHex && (
+                        <Link
+                          href={`/polishes/search?color=${polish.colorHex.replace("#", "")}`}
+                          className="text-muted-foreground hover:text-primary"
+                          title="Find similar colors"
+                        >
+                          🔍
+                        </Link>
+                      )}
                     </TableCell>
                     <TableCell>
                       {polish.finish && (
