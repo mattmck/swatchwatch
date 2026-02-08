@@ -20,9 +20,12 @@ infrastructure/    → Terraform (azurerm ~3.100) for all Azure resources
 
 ```bash
 # From repo root — all use npm workspaces
+npm run dev              # Start functions + web concurrently
 npm run dev:web          # Next.js dev server (port 3000)
 npm run dev:mobile       # Expo start
 npm run dev:functions    # Azure Functions Core Tools (func start)
+npm run dev:db           # Start local Postgres via Docker Compose
+npm run dev:db:down      # Stop local Postgres
 npm run build:web        # Next.js production build
 npm run build:functions  # TypeScript compile for functions
 npm run lint             # ESLint across all workspaces
@@ -31,6 +34,15 @@ npm run migrate          # Run Postgres migrations — prod-safe (needs DATABASE
 npm run migrate:dev      # Run migrations + seed dev data (demo user, mock polishes)
 npm run migrate:down     # Roll back last migration
 npm run migrate:down:dev # Roll back last migration (with dev seed awareness)
+```
+
+**Local dev quick start:**
+```bash
+cp .env.example .env                       # Set DATABASE_URL (adjust port if needed)
+npm run dev:db                             # Start Postgres (pgvector, port 5434)
+npm run build --workspace=packages/shared  # Build shared types
+npm run migrate:dev                        # Apply migrations + seed data
+npm run dev                                # Start functions (7071) + web (3000)
 ```
 
 **Important:** Build `packages/shared` first when starting fresh — other packages depend on its compiled output:

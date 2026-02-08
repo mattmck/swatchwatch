@@ -41,7 +41,8 @@ Web / Mobile → Azure Functions REST API → Azure PostgreSQL Flexible Server
 ## Prerequisites
 
 - **Node.js ≥ 20** (see `engines` in `package.json`)
-- **Azure Functions Core Tools v4** — for local functions development (`npm i -g azure-functions-core-tools@4`)
+- **Docker** — for local Postgres (pgvector)
+- **Azure Functions Core Tools v4** — for local functions development (`brew install azure-functions-core-tools@4`)
 - **Terraform ≥ 1.5** — for infrastructure provisioning
 - **Expo CLI** — for mobile development (`npx expo`)
 
@@ -51,26 +52,26 @@ Web / Mobile → Azure Functions REST API → Azure PostgreSQL Flexible Server
 # Install all workspace dependencies
 npm install
 
-# Build shared types (required before other packages can import them)
-npm run build --workspace=packages/shared
+# Set up local database
+cp .env.example .env                       # DATABASE_URL for migrations
+npm run dev:db                             # Start Postgres via Docker Compose (port 5434)
+npm run build --workspace=packages/shared  # Build shared types first
+npm run migrate:dev                        # Apply migrations + seed data
 
-# Start web dev server
-npm run dev:web          # → http://localhost:3000
-
-# Start functions locally
-npm run dev:functions    # → http://localhost:7071/api/*
-
-# Start mobile
-npm run dev:mobile       # → Expo dev server
+# Start the full stack
+npm run dev                                # Functions (7071) + Web (3000)
 ```
 
 ## All Commands
 
 | Command | What it does |
 |---------|-------------|
+| `npm run dev` | Start functions + web concurrently |
 | `npm run dev:web` | Next.js dev server (port 3000) |
 | `npm run dev:mobile` | Expo start |
 | `npm run dev:functions` | Azure Functions Core Tools (`func start`) |
+| `npm run dev:db` | Start local Postgres via Docker Compose |
+| `npm run dev:db:down` | Stop local Postgres |
 | `npm run build:web` | Next.js production build |
 | `npm run build:functions` | TypeScript compile for functions |
 | `npm run lint` | ESLint across all workspaces |
@@ -99,7 +100,7 @@ Functions require secrets defined in `packages/functions/local.settings.json`:
 
 | Variable | Purpose |
 |----------|---------|
-| `COSMOS_DB_CONNECTION` | Cosmos DB connection string |
+| `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` | PostgreSQL connection (set by Docker Compose for local dev) |
 | `AZURE_STORAGE_CONNECTION` | Storage account (swatch/nail photos) |
 | `AZURE_SPEECH_KEY` | Azure Speech Services key |
 | `AZURE_SPEECH_REGION` | Azure Speech Services region |
@@ -107,6 +108,8 @@ Functions require secrets defined in `packages/functions/local.settings.json`:
 | `AZURE_OPENAI_KEY` | Azure OpenAI key |
 | `AZURE_AD_B2C_TENANT` | B2C tenant name |
 | `AZURE_AD_B2C_CLIENT_ID` | B2C app client ID |
+
+Migrations use `DATABASE_URL` from the root `.env` file (see `.env.example`).
 
 ## VS Code
 
@@ -119,13 +122,11 @@ The repo includes VS Code configurations in `.vscode/`:
 
 
 **Migrations & Seed:**
-Run new migrations with:
 ```bash
-cd packages/functions
-PGUSER=pgadmin PGPASSWORD=... PGHOST=... PGDATABASE=swatchwatch npm run migrate
-# Or run .sql files directly with psql
+npm run migrate:dev    # Apply all migrations + seed dev data
+npm run migrate:down   # Roll back last migration
 ```
-See `migrations/002_add_user_facing_columns.sql` and `003_seed_dev_data.sql`.
+Migrations read `DATABASE_URL` from `.env` via `--envPath`. See `packages/functions/migrations/` for all migration files.
 
 ## Current Status
 
