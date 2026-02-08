@@ -29,9 +29,27 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 
 All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpRequest, context: InvocationContext)`.
 
-## Migrations & Seed Data
+## Migrations
 
-See `migrations/002_add_user_facing_columns.sql` (adds color, hex, rating, tags, size, updated_at) and `003_seed_dev_data.sql` (inserts brands, shades, demo user, and 20 inventory items).
+Schema migrations use [node-pg-migrate](https://github.com/salsita/node-pg-migrate) with raw SQL files in `migrations/`. Each file contains an up migration and a `-- Down Migration` section for rollback.
+
+```bash
+# From repo root (requires DATABASE_URL or PG* env vars)
+npm run migrate          # Apply pending migrations
+npm run migrate:down     # Roll back last migration
+
+# From packages/functions
+npm run migrate:create -- my-migration-name   # Create a new migration file
+```
+
+**Migration files:**
+| File | Description |
+|------|-------------|
+| `001_initial_schema.sql` | Full schema: catalog, swatches, matching, users, inventory, capture, retail, provenance |
+| `002_add_user_facing_columns.sql` | Adds color_name, color_hex, rating, tags, size_display, updated_at to user_inventory_item |
+| `003_seed_dev_data.sql` | Inserts brands, shades, demo user, and 20 inventory items |
+
+node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_URL` is the preferred connection method; it also falls back to individual `PG*` env vars (`PGHOST`, `PGPORT`, etc.).
 
 ## Adding a New Function
 

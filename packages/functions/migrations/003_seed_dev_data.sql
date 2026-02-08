@@ -200,3 +200,14 @@ VALUES
    '2026-02-06', '2026-02-06T13:00:00Z', '2026-02-06T13:00:00Z');
 
 COMMIT;
+
+-- Down Migration
+
+BEGIN;
+
+DELETE FROM user_inventory_item WHERE user_id = 1;
+DELETE FROM shade WHERE brand_id IN (SELECT brand_id FROM brand WHERE name_canonical IN ('OPI','Essie','ILNP','Zoya','Cirque Colors','Holo Taco','China Glaze','Sally Hansen','Orly','Butter London'));
+DELETE FROM brand WHERE name_canonical IN ('OPI','Essie','ILNP','Zoya','Cirque Colors','Holo Taco','China Glaze','Sally Hansen','Orly','Butter London');
+DELETE FROM app_user WHERE user_id = 1;
+
+COMMIT;

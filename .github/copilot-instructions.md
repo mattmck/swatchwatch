@@ -27,6 +27,8 @@ npm run build:web        # Next.js production build
 npm run build:functions  # TypeScript compile for functions
 npm run lint             # ESLint across all workspaces
 npm run typecheck        # tsc --noEmit across all workspaces
+npm run migrate          # Run Postgres migrations (needs DATABASE_URL)
+npm run migrate:down     # Roll back last migration
 ```
 
 **Important:** Build `packages/shared` first when starting fresh — other packages depend on its compiled output:

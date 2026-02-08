@@ -7,7 +7,8 @@
     "build": "tsc",
     "start": "func start",
     "watch": "tsc -w",
-    "migrate": "node-pg-migrate up --migrations-dir migrations",
+    "migrate": "node-pg-migrate up --migrations-dir migrations --decamelize",
+    "migrate:down": "node-pg-migrate down --migrations-dir migrations --decamelize",
     "migrate:create": "node-pg-migrate create --migrations-dir migrations"
   },
   "dependencies": {

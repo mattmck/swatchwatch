@@ -450,3 +450,70 @@ CREATE TABLE ingestion_job (
 );
 
 CREATE INDEX idx_ingestion_job_source_time ON ingestion_job(data_source_id, started_at DESC);
+
+-- Down Migration
+
+DROP INDEX IF EXISTS idx_ingestion_job_source_time;
+DROP INDEX IF EXISTS idx_field_prov_source_time;
+DROP INDEX IF EXISTS idx_field_prov_entity;
+DROP INDEX IF EXISTS idx_external_product_source_time;
+DROP INDEX IF EXISTS idx_external_product_gtin;
+DROP INDEX IF EXISTS idx_click_user_time;
+DROP INDEX IF EXISTS idx_click_offer_time;
+DROP INDEX IF EXISTS idx_price_offer_time;
+DROP INDEX IF EXISTS idx_offer_retailer;
+DROP INDEX IF EXISTS idx_offer_entity;
+DROP INDEX IF EXISTS idx_capture_answer_question;
+DROP INDEX IF EXISTS idx_capture_question_session_status;
+DROP INDEX IF EXISTS idx_capture_frame_session_type;
+DROP INDEX IF EXISTS idx_capture_session_user_status;
+DROP INDEX IF EXISTS idx_shade_unique;
+DROP INDEX IF EXISTS idx_swatch_embedding;
+DROP INDEX IF EXISTS idx_shade_alias_trgm;
+DROP INDEX IF EXISTS idx_shade_name_trgm;
+DROP INDEX IF EXISTS idx_brand_alias_trgm;
+
+DROP TABLE IF EXISTS ingestion_job;
+DROP TABLE IF EXISTS field_provenance;
+DROP TABLE IF EXISTS external_product;
+DROP TABLE IF EXISTS data_source;
+DROP TABLE IF EXISTS disclosure_config;
+DROP TABLE IF EXISTS click_event;
+DROP TABLE IF EXISTS offer_price_snapshot;
+DROP TABLE IF EXISTS retailer_offer;
+DROP TABLE IF EXISTS affiliate_program;
+DROP TABLE IF EXISTS retailer;
+DROP TABLE IF EXISTS capture_answer;
+DROP TABLE IF EXISTS capture_question;
+DROP TABLE IF EXISTS capture_frame;
+DROP TABLE IF EXISTS capture_session;
+DROP TABLE IF EXISTS proposal_patch;
+DROP TABLE IF EXISTS submission_fact;
+DROP TABLE IF EXISTS submission_media;
+DROP TABLE IF EXISTS user_submission;
+DROP TABLE IF EXISTS inventory_event;
+DROP TABLE IF EXISTS user_inventory_item;
+DROP TABLE IF EXISTS app_user;
+DROP TABLE IF EXISTS match_decision;
+DROP TABLE IF EXISTS match_candidate;
+DROP TABLE IF EXISTS entity_link;
+DROP TABLE IF EXISTS color_features;
+DROP TABLE IF EXISTS swatch;
+DROP TABLE IF EXISTS image_asset;
+DROP TABLE IF EXISTS label_claim;
+DROP TABLE IF EXISTS claim;
+DROP TABLE IF EXISTS label_ingredient;
+DROP TABLE IF EXISTS ingredient;
+DROP TABLE IF EXISTS label_document;
+DROP TABLE IF EXISTS barcode;
+DROP TABLE IF EXISTS sku;
+DROP TABLE IF EXISTS shade_alias;
+DROP TABLE IF EXISTS shade;
+DROP TABLE IF EXISTS product_line;
+DROP TABLE IF EXISTS brand_alias;
+DROP TABLE IF EXISTS brand;
+DROP TABLE IF EXISTS source_record;
+DROP TABLE IF EXISTS source;
+
+DROP EXTENSION IF EXISTS vector;
+DROP EXTENSION IF EXISTS pg_trgm;

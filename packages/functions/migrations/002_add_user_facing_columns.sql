@@ -19,3 +19,13 @@ COMMENT ON COLUMN user_inventory_item.rating       IS 'User rating 1–5 stars. 
 COMMENT ON COLUMN user_inventory_item.tags         IS 'User-assigned tags (e.g. {"favorite","indie","spring"}).';
 COMMENT ON COLUMN user_inventory_item.size_display IS 'Display size string (e.g. "15ml", "0.5oz").';
 COMMENT ON COLUMN user_inventory_item.updated_at   IS 'Last modification timestamp.';
+
+-- Down Migration
+
+ALTER TABLE user_inventory_item
+  DROP COLUMN IF EXISTS color_name,
+  DROP COLUMN IF EXISTS color_hex,
+  DROP COLUMN IF EXISTS rating,
+  DROP COLUMN IF EXISTS tags,
+  DROP COLUMN IF EXISTS size_display,
+  DROP COLUMN IF EXISTS updated_at;
