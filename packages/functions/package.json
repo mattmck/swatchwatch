@@ -8,7 +8,9 @@
     "start": "func start",
     "watch": "tsc -w",
     "migrate": "node-pg-migrate up --migrations-dir migrations --decamelize",
+    "migrate:dev": "PGOPTIONS='-c app.seed_dev_data=true' node-pg-migrate up --migrations-dir migrations --decamelize",
     "migrate:down": "node-pg-migrate down --migrations-dir migrations --decamelize",
+    "migrate:down:dev": "PGOPTIONS='-c app.seed_dev_data=true' node-pg-migrate down --migrations-dir migrations --decamelize",
     "migrate:create": "node-pg-migrate create --migrations-dir migrations"
   },
   "dependencies": {

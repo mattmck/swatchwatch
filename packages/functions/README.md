@@ -37,20 +37,25 @@ Schema migrations use [node-pg-migrate](https://github.com/salsita/node-pg-migra
 
 ```bash
 # From repo root (requires DATABASE_URL or PG* env vars)
-npm run migrate          # Apply pending migrations
+npm run migrate          # Apply pending migrations (prod-safe)
+npm run migrate:dev      # Apply pending migrations + seed dev data (demo user, mock polishes)
 npm run migrate:down     # Roll back last migration
+npm run migrate:down:dev # Roll back last migration (with dev seed awareness)
 
 # From packages/functions
 npm run migrate:create -- my-migration-name   # Create a new migration file
 ```
+
+`migrate:dev` sets `PGOPTIONS='-c app.seed_dev_data=true'` so migration 003 inserts the demo user and sample inventory. Without it (i.e. `migrate` in prod), 003 is a safe no-op.
 
 **Migration files:**
 | File | Description |
 |------|-------------|
 | `001_initial_schema.sql` | Full schema: catalog, swatches, matching, users, inventory, capture, retail, provenance |
 | `002_add_user_facing_columns.sql` | Adds color_name, color_hex, rating, tags, size_display, updated_at to user_inventory_item |
-| `003_seed_dev_data.sql` | Inserts brands, shades, demo user, and 20 inventory items |
+| `003_seed_dev_data.sql` | Dev-only: demo user, sample shades, 20 inventory items (gated by `app.seed_dev_data` session var) |
 | `004_add_expiration_date.sql` | Adds expiration_date column to user_inventory_item |
+| `005_seed_production_reference_data.sql` | Prod reference data: finish_type table, data sources, 49 brands, brand aliases, claims, retailers, affiliate programs, disclosure config, INCI ingredients, product lines |
 
 node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_URL` is the preferred connection method; it also falls back to individual `PG*` env vars (`PGHOST`, `PGPORT`, etc.).
 
