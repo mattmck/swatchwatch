@@ -1,4 +1,5 @@
 import type { Polish, PolishCreateRequest, PolishUpdateRequest, PolishListResponse } from "swatchwatch-shared";
+import { MOCK_POLISHES } from "@/lib/mock-data";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:7071/api";
 
@@ -18,8 +19,17 @@ async function handleResponse<T>(response: Response): Promise<T> {
 }
 
 export async function listPolishes(): Promise<PolishListResponse> {
-  const response = await fetch(`${API_BASE_URL}/polishes`);
-  return handleResponse<PolishListResponse>(response);
+  try {
+    const response = await fetch(`${API_BASE_URL}/polishes`);
+    return await handleResponse<PolishListResponse>(response);
+  } catch {
+    return {
+      polishes: MOCK_POLISHES,
+      total: MOCK_POLISHES.length,
+      page: 1,
+      pageSize: MOCK_POLISHES.length,
+    };
+  }
 }
 
 export async function getPolish(id: string | number): Promise<Polish> {
