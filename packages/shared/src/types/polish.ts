@@ -95,3 +95,31 @@ export interface PolishFilters {
   page?: number;
   pageSize?: number;
 }
+
+// Catalog search types
+export interface CatalogSearchResult {
+  shadeId: string;
+  brand: string;
+  name: string;
+  finish?: string;
+  collection?: string;
+  similarity: number;
+}
+
+export interface CatalogSearchResponse {
+  results: CatalogSearchResult[];
+  query: string;
+  total: number;
+}
+
+export interface CatalogShadeDetail {
+  shadeId: string;
+  brand: string;
+  brandId: string;
+  name: string;
+  finish?: string;
+  collection?: string;
+  releaseYear?: number;
+  status: string;
+  aliases: string[];
+}

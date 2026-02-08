@@ -27,7 +27,11 @@
       "WebFetch(domain:www.compoundchem.com)",
       "WebFetch(domain:www.pharmacy180.com)",
       "WebFetch(domain:www.ellamila.com)",
-      "WebFetch(domain:www.livoliv.com)"
+      "WebFetch(domain:www.livoliv.com)",
+      "Bash(gh issue list:*)",
+      "Bash(gh label list:*)",
+      "Bash(gh issue create:*)",
+      "Bash(npx eslint:*)"
     ]
   }
 }

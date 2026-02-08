@@ -54,6 +54,7 @@ cd apps/web && npx shadcn@latest add <component-name>
 | `utils.ts` | `cn()` — Tailwind class merging (shadcn standard) |
 | `constants.ts` | `FINISHES` — canonical finish types for dropdowns |
 | `color-utils.ts` | Hex↔HSL↔RGB↔OKLAB conversions, `colorDistance()`, `complementaryHex()` |
+| `api.ts` | Typed fetch wrappers: `listPolishes`, `getPolish`, `createPolish`, `updatePolish`, `deletePolish`, `searchCatalog`, `getShade` |
 
 ## Conventions
 

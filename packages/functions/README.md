@@ -24,6 +24,8 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `DELETE` | `/api/polishes/{id}` | `deletePolish` | `polishes.ts` | ✅ Live |
 | `POST` | `/api/auth/validate` | `validateToken` | `auth.ts` | ⬜ Stub (501) |
 | `GET` | `/api/auth/config` | `getAuthConfig` | `auth.ts` | ✅ Working |
+| `GET` | `/api/catalog/search?q=` | `searchCatalog` | `catalog.ts` | ✅ Live |
+| `GET` | `/api/catalog/shade/{id}` | `getShade` | `catalog.ts` | ✅ Live |
 | `POST` | `/api/voice` | `processVoiceInput` | `voice.ts` | ⬜ Stub |
 
 
@@ -48,6 +50,7 @@ npm run migrate:create -- my-migration-name   # Create a new migration file
 | `001_initial_schema.sql` | Full schema: catalog, swatches, matching, users, inventory, capture, retail, provenance |
 | `002_add_user_facing_columns.sql` | Adds color_name, color_hex, rating, tags, size_display, updated_at to user_inventory_item |
 | `003_seed_dev_data.sql` | Inserts brands, shades, demo user, and 20 inventory items |
+| `004_add_expiration_date.sql` | Adds expiration_date column to user_inventory_item |
 
 node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_URL` is the preferred connection method; it also falls back to individual `PG*` env vars (`PGHOST`, `PGPORT`, etc.).
 
