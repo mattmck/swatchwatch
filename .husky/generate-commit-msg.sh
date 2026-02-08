@@ -72,22 +72,55 @@ if [ -n "$SUGGESTIONS" ]; then
     echo "# - $cleaned" >> "$COMMIT_MSG_FILE"
   done
 else
-  # Fallback suggestions based on file patterns
-  if echo "$DIFF_OUTPUT" | grep -q "package.json"; then
-    echo "# - chore: ✨ fresh coat on dependency vibes" >> "$COMMIT_MSG_FILE"
+  # Smarter fallback: extract what actually changed
+  # Get list of changed files (without stats)
+  CHANGED_FILES=$(git diff --cached --name-only)
+
+  # Extract key details from the diff
+  ADDED_FUNCS=$(echo "$FULL_DIFF" | grep -E '^\+.*(function|const|export)' | head -3 | sed 's/^+//' | tr '\n' ' ')
+  REMOVED_FUNCS=$(echo "$FULL_DIFF" | grep -E '^-.*(function|const|export)' | head -3 | sed 's/^-//' | tr '\n' ' ')
+
+  # Detect primary change type from paths
+  PRIMARY_PATH=$(echo "$CHANGED_FILES" | head -1)
+
+  # Generate context-aware suggestions
+  if echo "$CHANGED_FILES" | grep -q "commitlint\|husky"; then
+    echo "# - chore: buff the commit hooks for smoother vibes" >> "$COMMIT_MSG_FILE"
+    echo "# - chore: 💅 refine git workflow polish" >> "$COMMIT_MSG_FILE"
+  elif echo "$CHANGED_FILES" | grep -q "components/"; then
+    COMP_NAME=$(echo "$CHANGED_FILES" | grep "components/" | head -1 | sed 's/.*components\///; s/\.tsx//; s/\.ts//; s/\// /g' | awk '{print $NF}')
+    echo "# - feat: add shimmer to ${COMP_NAME:-components}" >> "$COMMIT_MSG_FILE"
+    echo "# - refactor: 💅 buff ${COMP_NAME:-components} for a smoother finish" >> "$COMMIT_MSG_FILE"
+  elif echo "$CHANGED_FILES" | grep -q "app/.*page"; then
+    PAGE_NAME=$(echo "$CHANGED_FILES" | grep "page" | head -1 | sed 's/.*app\///; s/\/page\.tsx//; s/\// /g')
+    echo "# - feat: gloss up the ${PAGE_NAME:-page} view" >> "$COMMIT_MSG_FILE"
+    echo "# - feat: ✨ fresh coat on ${PAGE_NAME:-page}" >> "$COMMIT_MSG_FILE"
+  elif echo "$CHANGED_FILES" | grep -q "functions/"; then
+    FUNC_NAME=$(echo "$CHANGED_FILES" | grep "functions/" | head -1 | sed 's/.*functions\///; s/\.ts//')
+    echo "# - feat: polish the ${FUNC_NAME:-API} endpoint" >> "$COMMIT_MSG_FILE"
+    echo "# - fix: 🔧 cure ${FUNC_NAME:-API} edge cases" >> "$COMMIT_MSG_FILE"
+  elif echo "$CHANGED_FILES" | grep -q "infrastructure/\|\.tf"; then
+    echo "# - chore: lacquer the infrastructure config" >> "$COMMIT_MSG_FILE"
+    echo "# - chore: 🏗️ buff terraform for a cleaner deploy" >> "$COMMIT_MSG_FILE"
+  elif echo "$CHANGED_FILES" | grep -q "test"; then
+    echo "# - test: 🧪 nail down edge cases" >> "$COMMIT_MSG_FILE"
+    echo "# - test: add coverage for a chip-free finish" >> "$COMMIT_MSG_FILE"
+  elif echo "$CHANGED_FILES" | grep -q "\.md\|README"; then
+    echo "# - docs: polish up the readme shine" >> "$COMMIT_MSG_FILE"
+    echo "# - docs: ✨ glossy new documentation" >> "$COMMIT_MSG_FILE"
+  elif echo "$CHANGED_FILES" | grep -q "package.json"; then
+    echo "# - chore: fresh coat on dependencies" >> "$COMMIT_MSG_FILE"
+    echo "# - chore: ✨ update the dependency palette" >> "$COMMIT_MSG_FILE"
+  else
+    # Generic but still try to be specific
+    FILE_COUNT=$(echo "$CHANGED_FILES" | wc -l | tr -d ' ')
+    echo "# - feat: buff ${FILE_COUNT} files for a smoother finish" >> "$COMMIT_MSG_FILE"
+    echo "# - refactor: 💅 polish codebase details" >> "$COMMIT_MSG_FILE"
   fi
-  if echo "$DIFF_OUTPUT" | grep -q "\.tsx\|\.ts"; then
-    echo "# - feat: 💅 gloss up components for a smoother UI" >> "$COMMIT_MSG_FILE"
-  fi
-  if echo "$DIFF_OUTPUT" | grep -q "test"; then
-    echo "# - test: 🧪 nail down edge cases with extra coverage" >> "$COMMIT_MSG_FILE"
-  fi
-  if echo "$DIFF_OUTPUT" | grep -q "\.md\|README"; then
-    echo "# - docs: ✨ polish up the docs for a mirror shine" >> "$COMMIT_MSG_FILE"
-  fi
-  if echo "$DIFF_OUTPUT" | grep -q "\.css\|\.scss\|tailwind"; then
-    echo "# - style: ✨ add shimmer to the UI finish" >> "$COMMIT_MSG_FILE"
-  fi
+
+  # Always add one that mentions the actual primary file
+  MAIN_FILE=$(basename "$PRIMARY_PATH" | sed 's/\.[^.]*$//')
+  echo "# - feat: ✨ update ${MAIN_FILE} with fresh shine" >> "$COMMIT_MSG_FILE"
 fi
 
 cat >> "$COMMIT_MSG_FILE" << 'EOF'

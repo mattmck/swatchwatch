@@ -106,5 +106,8 @@ test('generate-commit-msg.sh: generates fallback suggestions for package.json ch
   });
 
   const out = await fs.readFile(commitMsgFile, 'utf8');
-  assert.match(out, /# - chore: ✨ fresh coat on dependency vibes/);
+  // Should generate package.json-aware suggestions
+  assert.match(out, /# - chore:.*dependenc/i);
+  // Should also include a suggestion mentioning the actual file
+  assert.match(out, /package/i);
 });
