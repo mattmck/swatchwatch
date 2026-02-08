@@ -1,3 +1,5 @@
+-- Up Migration
+
 -- 002_add_user_facing_columns.sql
 -- Adds user-facing fields to user_inventory_item that the frontend Polish type expects
 -- but aren't covered by the shade/sku canonical joins (color, hex, rating, tags, size, updated_at)

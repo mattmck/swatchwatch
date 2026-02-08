@@ -1,3 +1,5 @@
+-- Up Migration
+
 -- 003_seed_dev_data.sql
 -- Idempotent seed data for the dev environment.
 -- Inserts brands, shades, one demo user, and inventory items that mirror

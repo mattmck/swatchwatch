@@ -1,3 +1,5 @@
+-- Up Migration
+
 -- nail_polish_schema_v1_1.sql
 -- Version: 1.1 (adds provenance + external source ingestion tables)
 -- Full starter schema for Nail Polish Knowledge Graph
