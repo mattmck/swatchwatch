@@ -94,10 +94,10 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       
-      - name: Run database migrations
+      - name: Run database migrations (with dev seed data)
         run: |
           if [ -n "$DATABASE_URL" ]; then
-            npm run migrate
+            npm run migrate:dev
           else
             echo "⚠ DATABASE_URL not set — skipping migrations"
           fi
