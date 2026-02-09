@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import type { Polish } from "swatchwatch-shared";
 import { listPolishes } from "@/lib/api";
+import { undertoneBreakdown } from "@/lib/color-utils";
 import {
   Card,
   CardContent,
@@ -14,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ColorDot } from "@/components/color-dot";
+import { UndertoneBreakdown } from "@/components/undertone-breakdown";
 
 export default function DashboardPage() {
   const [polishes, setPolishes] = useState<Polish[]>([]);
@@ -59,17 +61,17 @@ export default function DashboardPage() {
   const uniqueBrands = new Set(polishes.map((p) => p.brand)).size;
   const avgRating =
     polishes.reduce((sum, p) => sum + (p.rating ?? 0), 0) / totalPolishes;
-  const topFinishes = Object.entries(
-    polishes.reduce(
-      (acc, p) => {
-        if (p.finish) acc[p.finish] = (acc[p.finish] || 0) + 1;
-        return acc;
-      },
-      {} as Record<string, number>
-    )
-  )
+  const finishCounts: Record<string, number> = {};
+  for (const p of polishes) {
+    if (p.finish) finishCounts[p.finish] = (finishCounts[p.finish] || 0) + 1;
+  }
+  const topFinishes = Object.entries(finishCounts)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 4);
+
+  const toneBreakdown = undertoneBreakdown(
+    polishes.filter((p) => p.colorHex).map((p) => p.colorHex!)
+  );
 
   const recentPolishes = [...polishes]
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -163,28 +165,49 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Finish breakdown */}
+        {/* Collection breakdown: finish + undertone */}
         <Card>
           <CardHeader>
-            <CardTitle>By Finish</CardTitle>
-            <CardDescription>Distribution of finish types</CardDescription>
+            <CardTitle>Collection Breakdown</CardTitle>
+            <CardDescription>Finish types and color undertone analysis</CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {topFinishes.map(([finish, count]) => (
-                <div key={finish} className="flex items-center gap-3">
-                  <span className="w-24 text-sm capitalize">{finish}</span>
-                  <div className="flex-1 h-3 rounded-full bg-muted overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-primary"
-                      style={{ width: `${(count / totalPolishes) * 100}%` }}
-                    />
+          <CardContent className="space-y-6">
+            {/* Finish bars */}
+            <div>
+              <p className="text-sm font-medium mb-3">By Finish</p>
+              <div className="space-y-2.5">
+                {topFinishes.map(([finish, count]) => (
+                  <div key={finish} className="flex items-center gap-3">
+                    <span className="w-24 text-sm capitalize">{finish}</span>
+                    <div className="flex-1 h-3 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-primary"
+                        style={{ width: `${(count / totalPolishes) * 100}%` }}
+                      />
+                    </div>
+                    <span className="text-sm text-muted-foreground w-8 text-right">
+                      {count}
+                    </span>
                   </div>
-                  <span className="text-sm text-muted-foreground w-8 text-right">
-                    {count}
-                  </span>
-                </div>
-              ))}
+                ))}
+              </div>
+            </div>
+
+            {/* Undertone breakdown */}
+            <div>
+              <p className="text-sm font-medium mb-3">
+                Palette Undertone
+                <span className="font-normal text-muted-foreground">
+                  {" "}— leans{" "}
+                  <span className="capitalize font-medium text-foreground">{toneBreakdown.dominant}</span>
+                </span>
+              </p>
+              <UndertoneBreakdown
+                warm={toneBreakdown.warm}
+                cool={toneBreakdown.cool}
+                neutral={toneBreakdown.neutral}
+                total={polishes.filter((p) => p.colorHex).length}
+              />
             </div>
           </CardContent>
         </Card>
