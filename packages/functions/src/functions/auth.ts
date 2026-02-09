@@ -1,69 +1,37 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
+import { authenticateRequest, AuthError } from "../lib/auth";
 
 interface TokenValidationResult {
   valid: boolean;
-  userId?: string;
+  userId?: number;
   email?: string;
-  roles?: string[];
   error?: string;
 }
 
 async function validateToken(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   context.log("POST /api/auth/validate - Validating auth token");
 
-  const authHeader = request.headers.get("authorization");
-
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return {
-      status: 401,
-      jsonBody: {
-        valid: false,
-        error: "Missing or malformed Authorization header. Expected: Bearer <token>",
-      } satisfies TokenValidationResult,
-    };
-  }
-
-  const token = authHeader.substring(7);
-
-  if (!token) {
-    return {
-      status: 401,
-      jsonBody: {
-        valid: false,
-        error: "Empty token",
-      } satisfies TokenValidationResult,
-    };
-  }
-
   try {
-    // TODO: Validate JWT against Azure AD B2C
-    // const tenant = process.env.AZURE_AD_B2C_TENANT;
-    // const clientId = process.env.AZURE_AD_B2C_CLIENT_ID;
-    //
-    // Steps:
-    // 1. Fetch JWKS from Azure AD B2C discovery endpoint
-    // 2. Decode and verify the JWT signature
-    // 3. Validate claims (issuer, audience, expiration)
-    // 4. Extract user info from claims
-
-    context.log("Token validation stub - returning placeholder response");
-
-    const result: TokenValidationResult = {
-      valid: false,
-      error: "Token validation not yet implemented",
-    };
+    const auth = await authenticateRequest(request, context);
 
     return {
-      status: 501,
-      jsonBody: result,
+      status: 200,
+      jsonBody: {
+        valid: true,
+        userId: auth.userId,
+        email: auth.email,
+      } satisfies TokenValidationResult,
     };
-  } catch {
-    context.error("Token validation failed");
+  } catch (error) {
+    const message = error instanceof AuthError
+      ? error.message
+      : "Token validation failed";
+
     return {
       status: 401,
       jsonBody: {
         valid: false,
-        error: "Token validation failed",
+        error: message,
       } satisfies TokenValidationResult,
     };
   }

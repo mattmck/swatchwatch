@@ -1,6 +1,7 @@
 export interface User {
   id: string;
-  email: string;
+  externalId?: string;
+  email?: string;
   displayName: string;
   avatarUrl?: string;
   authProvider: AuthProvider;

@@ -17,6 +17,14 @@ class ApiError extends Error {
   }
 }
 
+function getAuthHeaders(): Record<string, string> {
+  if (process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true") {
+    return { Authorization: "Bearer dev:1" };
+  }
+  // TODO: read real token from auth state once B2C is wired up
+  return {};
+}
+
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: "Unknown error" }));
@@ -40,19 +48,21 @@ export async function listPolishes(filters?: PolishFilters): Promise<PolishListR
   const qs = params.toString();
   const url = `${API_BASE_URL}/polishes${qs ? `?${qs}` : ""}`;
 
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: getAuthHeaders() });
   return handleResponse<PolishListResponse>(response);
 }
 
 export async function getPolish(id: string | number): Promise<Polish> {
-  const response = await fetch(`${API_BASE_URL}/polishes/${id}`);
+  const response = await fetch(`${API_BASE_URL}/polishes/${id}`, {
+    headers: getAuthHeaders(),
+  });
   return handleResponse<Polish>(response);
 }
 
 export async function createPolish(data: PolishCreateRequest): Promise<Polish> {
   const response = await fetch(`${API_BASE_URL}/polishes`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(data),
   });
   return handleResponse<Polish>(response);
@@ -61,7 +71,7 @@ export async function createPolish(data: PolishCreateRequest): Promise<Polish> {
 export async function updatePolish(id: string | number, data: PolishUpdateRequest): Promise<Polish> {
   const response = await fetch(`${API_BASE_URL}/polishes/${id}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(data),
   });
   return handleResponse<Polish>(response);
@@ -70,6 +80,7 @@ export async function updatePolish(id: string | number, data: PolishUpdateReques
 export async function deletePolish(id: string | number): Promise<{ message: string; id: number }> {
   const response = await fetch(`${API_BASE_URL}/polishes/${id}`, {
     method: "DELETE",
+    headers: getAuthHeaders(),
   });
   return handleResponse<{ message: string; id: number }>(response);
 }
