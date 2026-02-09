@@ -19,6 +19,13 @@ export interface OKLab {
   b: number;
 }
 
+/** OKLCH — cylindrical form of OKLAB (perceptually uniform hue) */
+export interface OKLCH {
+  L: number; // 0-1
+  C: number; // chroma (0+)
+  h: number; // hue in degrees (0-360), NaN for achromatic
+}
+
 export function hexToRgb(hex: string): RGB {
   const cleaned = hex.replace("#", "");
   return {
@@ -126,6 +133,76 @@ export function colorDistance(hex1: string, hex2: string): number {
   return oklabDistance(hexToOklab(hex1), hexToOklab(hex2));
 }
 
+// ── OKLCH (perceptually uniform hue rotation) ───────────────
+
+export function oklabToOklch({ L, a, b }: OKLab): OKLCH {
+  const C = Math.sqrt(a * a + b * b);
+  const h = C < 1e-8 ? NaN : ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360;
+  return { L, C, h };
+}
+
+export function oklchToOklab({ L, C, h }: OKLCH): OKLab {
+  const hRad = Number.isNaN(h) ? 0 : (h * Math.PI) / 180;
+  return { L, a: C * Math.cos(hRad), b: C * Math.sin(hRad) };
+}
+
+function delinearize(c: number): number {
+  return c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+}
+
+export function oklabToRgb({ L, a, b }: OKLab): RGB {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.291485548 * b;
+
+  const l = l_ * l_ * l_;
+  const m = m_ * m_ * m_;
+  const s = s_ * s_ * s_;
+
+  const r = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+  const g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+  const bl = -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s;
+
+  return {
+    r: Math.round(Math.max(0, Math.min(1, delinearize(r))) * 255),
+    g: Math.round(Math.max(0, Math.min(1, delinearize(g))) * 255),
+    b: Math.round(Math.max(0, Math.min(1, delinearize(bl))) * 255),
+  };
+}
+
+function isRgbInGamut(rgb: RGB): boolean {
+  return rgb.r >= 0 && rgb.r <= 255 && rgb.g >= 0 && rgb.g <= 255 && rgb.b >= 0 && rgb.b <= 255;
+}
+
+/** Reduce chroma until the OKLCH color fits within sRGB gamut. */
+export function clampChromaToGamut(oklch: OKLCH): OKLCH {
+  if (oklch.C < 1e-8) return { ...oklch, C: 0 };
+  let lo = 0;
+  let hi = oklch.C;
+  let result = { ...oklch, C: 0 };
+  for (let i = 0; i < 20; i++) {
+    const mid = (lo + hi) / 2;
+    const candidate = { ...oklch, C: mid };
+    const rgb = oklabToRgb(oklchToOklab(candidate));
+    if (isRgbInGamut(rgb)) {
+      result = candidate;
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  return result;
+}
+
+export function oklchToHex(oklch: OKLCH): string {
+  const clamped = clampChromaToGamut(oklch);
+  return rgbToHex(oklabToRgb(oklchToOklab(clamped)));
+}
+
+export function hexToOklch(hex: string): OKLCH {
+  return oklabToOklch(hexToOklab(hex));
+}
+
 // ── Undertone classification (warm / cool / neutral) ─────────
 
 export type Undertone = "warm" | "cool" | "neutral";
@@ -191,8 +268,8 @@ export function undertoneBreakdown(hexColors: string[]): {
 
 // ── Complementary color ──────────────────────────────────────
 
-/** Rotate hue by 180° to get the complementary color */
+/** Rotate hue by 180° in OKLCH for perceptually uniform complement */
 export function complementaryHex(hex: string): string {
-  const hsl = hexToHsl(hex);
-  return hslToHex({ ...hsl, h: (hsl.h + 180) % 360 });
+  const oklch = hexToOklch(hex);
+  return oklchToHex({ ...oklch, h: Number.isNaN(oklch.h) ? oklch.h : (oklch.h + 180) % 360 });
 }
