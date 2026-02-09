@@ -1,11 +1,11 @@
 # Shared Types — `packages/shared`
 
-Shared TypeScript type definitions used across the monorepo. Published as `polish-inventory-shared` in the npm workspace.
+Shared TypeScript type definitions used across the monorepo. Published as `swatchwatch-shared` in the npm workspace.
 
 ## Usage
 
 ```ts
-import type { Polish, PolishFinish, PolishCreateRequest } from "polish-inventory-shared";
+import type { Polish, PolishFinish, PolishCreateRequest } from "swatchwatch-shared";
 ```
 
 The package is automatically linked via npm workspaces — no publishing required.
@@ -22,6 +22,13 @@ The package is automatically linked via npm workspaces — no publishing require
 | `PolishUpdateRequest` | Partial create fields + required `id` |
 | `PolishListResponse` | Paginated list: `{ polishes, total, page, pageSize }` |
 | `PolishFilters` | Query params: brand, finish, color, tags, search, sort, pagination |
+| `Brand` | Canonical brand entity (`brand_id`, `name_canonical`) |
+| `Shade` | Canonical shade entity (`shade_id`, `brand_id`, `shade_name_canonical`, `finish`, `collection`, etc.) |
+| `CatalogSearchResult` | Single search hit: shade with brand name and similarity score |
+| `CatalogSearchResponse` | Search response: `{ results, query, total }` |
+| `CatalogShadeDetail` | Full shade detail with brand info and aliases |
+
+**Note:** All frontend pages now use the live API. The mock-data.ts file is no longer used.
 
 ### `types/user.ts`
 

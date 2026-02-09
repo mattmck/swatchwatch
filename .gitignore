@@ -12,12 +12,18 @@ build/
 # Azure Functions
 packages/functions/bin/
 packages/functions/obj/
+packages/functions/.deploy/
+*.deploy.zip
+deploy.zip
 local.settings.json
 
 # Terraform
 .terraform/
 *.tfstate
 *.tfstate.backup
+terraform.tfvars
+tfplan
+.terraform.lock.hcl
 crash.log
 override.tf
 override.tf.json

@@ -1,7 +1,7 @@
 variable "location" {
   description = "The Azure region for all resources"
   type        = string
-  default     = "eastus"
+  default     = "centralus"
 }
 
 variable "environment" {
@@ -13,5 +13,24 @@ variable "environment" {
 variable "base_name" {
   description = "Base name for resources"
   type        = string
-  default     = "polishinv"
+  default     = "swatchwatch"
+}
+
+variable "pg_admin_username" {
+  description = "PostgreSQL administrator username"
+  type        = string
+  default     = "pgadmin"
+  sensitive   = true
+}
+
+variable "pg_admin_password" {
+  description = "PostgreSQL administrator password"
+  type        = string
+  sensitive   = true
+}
+
+variable "github_repository" {
+  description = "GitHub repository in format 'owner/repo' for OIDC federation"
+  type        = string
+  default     = "your-github-username/polish-inventory"
 }

@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: "📊" },
-  { href: "/polishes", label: "Collection", icon: "💅" },
-  { href: "/polishes/search", label: "Color Search", icon: "🎨" },
+  { href: "/polishes", label: "Polishes", icon: "💅" },
+  { href: "/polishes/search", label: "Search", icon: "🎨" },
   { href: "/polishes/new", label: "Add Polish", icon: "➕" },
 ];
 
@@ -22,7 +22,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="flex h-14 items-center border-b border-border px-4">
           <Link href="/" className="flex items-center gap-2 font-semibold">
             <span className="text-lg">💅</span>
-            <span>Polish Inventory</span>
+            <span>SwatchWatch</span>
           </Link>
         </div>
         <nav className="flex flex-col gap-1 p-3">
@@ -50,7 +50,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <header className="flex h-14 items-center gap-4 border-b border-border bg-background px-4 md:px-6">
           <div className="flex items-center gap-2 md:hidden">
             <span className="text-lg">💅</span>
-            <span className="font-semibold">Polish Inventory</span>
+            <span className="font-semibold">SwatchWatch</span>
           </div>
           <nav className="flex items-center gap-1 md:hidden">
             {navItems.map((item) => (

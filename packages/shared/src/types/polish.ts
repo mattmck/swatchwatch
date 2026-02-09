@@ -21,6 +21,7 @@ export interface Polish {
 }
 
 export type PolishFinish =
+  | "creme"
   | "cream"
   | "shimmer"
   | "glitter"
@@ -28,12 +29,33 @@ export type PolishFinish =
   | "matte"
   | "jelly"
   | "holographic"
+  | "holo"
+  | "crushed holo"
+  | "linear holo"
+  | "scattered holo"
   | "duochrome"
   | "multichrome"
   | "flake"
   | "topper"
   | "sheer"
   | "other";
+
+// Canonical entities (from schema)
+export interface Brand {
+  brand_id: number;
+  name_canonical: string;
+}
+
+export interface Shade {
+  shade_id: number;
+  brand_id: number;
+  product_line_id?: number;
+  shade_name_canonical: string;
+  finish?: string;
+  collection?: string;
+  release_year?: number;
+  status: string;
+}
 
 export interface PolishCreateRequest {
   brand: string;
@@ -72,4 +94,32 @@ export interface PolishFilters {
   sortOrder?: "asc" | "desc";
   page?: number;
   pageSize?: number;
+}
+
+// Catalog search types
+export interface CatalogSearchResult {
+  shadeId: string;
+  brand: string;
+  name: string;
+  finish?: string;
+  collection?: string;
+  similarity: number;
+}
+
+export interface CatalogSearchResponse {
+  results: CatalogSearchResult[];
+  query: string;
+  total: number;
+}
+
+export interface CatalogShadeDetail {
+  shadeId: string;
+  brand: string;
+  brandId: string;
+  name: string;
+  finish?: string;
+  collection?: string;
+  releaseYear?: number;
+  status: string;
+  aliases: string[];
 }

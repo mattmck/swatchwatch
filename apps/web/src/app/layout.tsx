@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Polish Inventory",
-  description: "Manage your nail polish collection",
+  title: "SwatchWatch",
+  description: "Your smart nail polish collection manager",
 };
 
 export default function RootLayout({

@@ -1,19 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
-import type { Polish, PolishFinish } from "polish-inventory-shared";
-import { MOCK_POLISHES, BRANDS, FINISHES } from "@/lib/mock-data";
+import type { Polish } from "swatchwatch-shared";
+import { listPolishes, updatePolish } from "@/lib/api";
+import { colorDistance, complementaryHex, hexToOklab } from "@/lib/color-utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -23,53 +17,170 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ColorDot } from "@/components/color-dot";
+import { QuantityControls } from "@/components/quantity-controls";
+import { Pagination } from "@/components/pagination";
 
-type SortField = "name" | "brand" | "createdAt" | "rating";
-type SortOrder = "asc" | "desc";
+const PAGE_SIZE = 10;
 
 export default function PolishesPage() {
+  const [polishes, setPolishes] = useState<Polish[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Filters
   const [search, setSearch] = useState("");
-  const [brandFilter, setBrandFilter] = useState<string>("all");
-  const [finishFilter, setFinishFilter] = useState<string>("all");
-  const [sortField, setSortField] = useState<SortField>("name");
-  const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
+  const [favorCollection, setFavorCollection] = useState(true);
+  const [includeAll, setIncludeAll] = useState(true);
+  const [similarMode, setSimilarMode] = useState(false);
+  const [complementaryMode, setComplementaryMode] = useState(false);
+  const [referenceColor, setReferenceColor] = useState<string | null>(null);
 
-  const filtered = MOCK_POLISHES.filter((p) => {
-    const matchesSearch =
-      !search ||
-      p.name.toLowerCase().includes(search.toLowerCase()) ||
-      p.brand.toLowerCase().includes(search.toLowerCase()) ||
-      p.color.toLowerCase().includes(search.toLowerCase());
-    const matchesBrand = brandFilter === "all" || p.brand === brandFilter;
-    const matchesFinish = finishFilter === "all" || p.finish === finishFilter;
-    return matchesSearch && matchesBrand && matchesFinish;
-  });
+  // Pagination
+  const [page, setPage] = useState(1);
 
-  const sorted = [...filtered].sort((a, b) => {
-    const dir = sortOrder === "asc" ? 1 : -1;
-    if (sortField === "rating") {
-      return ((a.rating ?? 0) - (b.rating ?? 0)) * dir;
+  useEffect(() => {
+    async function fetchPolishes() {
+      try {
+        setLoading(true);
+        const response = await listPolishes();
+        setPolishes(response.polishes);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Failed to load polishes";
+        setError(message);
+      } finally {
+        setLoading(false);
+      }
     }
-    if (sortField === "createdAt") {
-      return (a.createdAt.localeCompare(b.createdAt)) * dir;
-    }
-    const aVal = a[sortField].toLowerCase();
-    const bVal = b[sortField].toLowerCase();
-    return aVal.localeCompare(bVal) * dir;
-  });
+    fetchPolishes();
+  }, []);
 
-  function toggleSort(field: SortField) {
-    if (sortField === field) {
-      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+  // Reset page when filters change
+  useEffect(() => {
+    setPage(1);
+  }, [search, favorCollection, includeAll, similarMode, complementaryMode, referenceColor]);
+
+  const isOwned = (p: Polish) => (p.quantity ?? 0) > 0;
+
+  const filtered = useMemo(() => {
+    let result = polishes;
+
+    // Text search
+    if (search) {
+      const q = search.toLowerCase();
+      result = result.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          p.brand.toLowerCase().includes(q) ||
+          (p.color && p.color.toLowerCase().includes(q))
+      );
+    }
+
+    // Include All unchecked = owned only
+    if (!includeAll) {
+      result = result.filter(isOwned);
+    }
+
+    return result;
+  }, [polishes, search, includeAll]);
+
+  const sorted = useMemo(() => {
+    let result = [...filtered];
+
+    // Color-distance sort (Similar or Complementary)
+    if ((similarMode || complementaryMode) && referenceColor) {
+      const ref = complementaryMode ? complementaryHex(referenceColor) : referenceColor;
+      const refOklab = hexToOklab(ref);
+      result.sort((a, b) => {
+        const distA = a.colorHex ? colorDistance(a.colorHex, ref) : Infinity;
+        const distB = b.colorHex ? colorDistance(b.colorHex, ref) : Infinity;
+        return distA - distB;
+      });
     } else {
-      setSortField(field);
-      setSortOrder("asc");
+      // Default: alphabetical by name
+      result.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
     }
+
+    // Favor My Collection: stable-sort owned to top
+    if (favorCollection) {
+      result.sort((a, b) => {
+        const aOwned = isOwned(a) ? 0 : 1;
+        const bOwned = isOwned(b) ? 0 : 1;
+        return aOwned - bOwned;
+      });
+    }
+
+    return result;
+  }, [filtered, favorCollection, similarMode, complementaryMode, referenceColor]);
+
+  const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
+  const pageItems = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  // Optimistic quantity update
+  const handleQuantityChange = useCallback(
+    (polishId: string, delta: number) => {
+      setPolishes((prev) =>
+        prev.map((p) => {
+          if (p.id !== polishId) return p;
+          const newQty = Math.max(0, (p.quantity ?? 0) + delta);
+          return { ...p, quantity: newQty };
+        })
+      );
+
+      const polish = polishes.find((p) => p.id === polishId);
+      if (!polish) return;
+      const newQty = Math.max(0, (polish.quantity ?? 0) + delta);
+
+      updatePolish(polishId, { id: polishId, quantity: newQty }).catch(() => {
+        // Revert on failure
+        setPolishes((prev) =>
+          prev.map((p) => {
+            if (p.id !== polishId) return p;
+            return { ...p, quantity: polish.quantity };
+          })
+        );
+      });
+    },
+    [polishes]
+  );
+
+  const handleColorClick = (hex: string | undefined) => {
+    if (!hex) return;
+    setReferenceColor(hex);
+    if (!similarMode && !complementaryMode) {
+      setSimilarMode(true);
+    }
+  };
+
+  const toggleSimilar = () => {
+    const next = !similarMode;
+    setSimilarMode(next);
+    if (next) setComplementaryMode(false);
+  };
+
+  const toggleComplementary = () => {
+    const next = !complementaryMode;
+    setComplementaryMode(next);
+    if (next) setSimilarMode(false);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <p className="text-muted-foreground">Loading polishes...</p>
+      </div>
+    );
   }
 
-  function SortIndicator({ field }: { field: SortField }) {
-    if (sortField !== field) return <span className="text-muted-foreground/40 ml-1">↕</span>;
-    return <span className="ml-1">{sortOrder === "asc" ? "↑" : "↓"}</span>;
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center space-y-2">
+          <p className="text-destructive font-medium">Error loading polishes</p>
+          <p className="text-sm text-muted-foreground">{error}</p>
+          <Button onClick={() => window.location.reload()}>Retry</Button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -77,9 +188,9 @@ export default function PolishesPage() {
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Collection</h1>
+          <h1 className="text-2xl font-bold tracking-tight">All Polishes</h1>
           <p className="text-muted-foreground">
-            {MOCK_POLISHES.length} polishes · {filtered.length} shown
+            {polishes.length} polishes &middot; {sorted.length} shown
           </p>
         </div>
         <Button asChild>
@@ -90,45 +201,68 @@ export default function PolishesPage() {
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
         <Input
-          placeholder="Search by name, brand, or color…"
+          placeholder="Search by name, brand, or color..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="max-w-xs"
         />
-        <Select value={brandFilter} onValueChange={setBrandFilter}>
-          <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="All Brands" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Brands</SelectItem>
-            {BRANDS.map((brand) => (
-              <SelectItem key={brand} value={brand}>
-                {brand}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={finishFilter} onValueChange={setFinishFilter}>
-          <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="All Finishes" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Finishes</SelectItem>
-            {FINISHES.map((finish) => (
-              <SelectItem key={finish} value={finish}>
-                {finish.charAt(0).toUpperCase() + finish.slice(1)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {(search || brandFilter !== "all" || finishFilter !== "all") && (
+
+        <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={favorCollection}
+            onChange={(e) => setFavorCollection(e.target.checked)}
+            className="accent-primary"
+          />
+          Favor My Collection
+        </label>
+
+        <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={includeAll}
+            onChange={(e) => setIncludeAll(e.target.checked)}
+            className="accent-primary"
+          />
+          Include All
+        </label>
+
+        <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={similarMode}
+            onChange={toggleSimilar}
+            className="accent-primary"
+          />
+          Similar
+          {similarMode && referenceColor && (
+            <ColorDot hex={referenceColor} size="sm" />
+          )}
+        </label>
+
+        <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={complementaryMode}
+            onChange={toggleComplementary}
+            className="accent-primary"
+          />
+          Complementary
+          {complementaryMode && referenceColor && (
+            <ColorDot hex={complementaryHex(referenceColor)} size="sm" />
+          )}
+        </label>
+
+        {(search || !includeAll || similarMode || complementaryMode) && (
           <Button
             variant="ghost"
             size="sm"
             onClick={() => {
               setSearch("");
-              setBrandFilter("all");
-              setFinishFilter("all");
+              setIncludeAll(true);
+              setSimilarMode(false);
+              setComplementaryMode(false);
+              setReferenceColor(null);
             }}
           >
             Clear filters
@@ -141,75 +275,95 @@ export default function PolishesPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-10" />
-              <TableHead>
-                <button onClick={() => toggleSort("brand")} className="flex items-center font-medium">
-                  Brand <SortIndicator field="brand" />
-                </button>
-              </TableHead>
-              <TableHead>
-                <button onClick={() => toggleSort("name")} className="flex items-center font-medium">
-                  Name <SortIndicator field="name" />
-                </button>
-              </TableHead>
-              <TableHead>Color</TableHead>
+              <TableHead className="w-10">Status</TableHead>
+              <TableHead>Brand</TableHead>
+              <TableHead>Name</TableHead>
+              <TableHead className="w-12">Color</TableHead>
+              <TableHead className="w-12">Find</TableHead>
               <TableHead>Finish</TableHead>
-              <TableHead>
-                <button onClick={() => toggleSort("rating")} className="flex items-center font-medium">
-                  Rating <SortIndicator field="rating" />
-                </button>
-              </TableHead>
-              <TableHead>Tags</TableHead>
+              <TableHead>Collection</TableHead>
+              <TableHead className="w-28 text-right">Action</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sorted.length === 0 ? (
+            {pageItems.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                   No polishes match your filters.
                 </TableCell>
               </TableRow>
             ) : (
-              sorted.map((polish) => (
-                <TableRow key={polish.id} className="cursor-pointer hover:bg-muted/50">
-                  <TableCell>
-                    <ColorDot hex={polish.colorHex} size="sm" />
-                  </TableCell>
-                  <TableCell className="font-medium">{polish.brand}</TableCell>
-                  <TableCell>
-                    <Link
-                      href={`/polishes/${polish.id}`}
-                      className="text-primary hover:underline"
-                    >
-                      {polish.name}
-                    </Link>
-                  </TableCell>
-                  <TableCell>{polish.color}</TableCell>
-                  <TableCell>
-                    {polish.finish && (
-                      <Badge variant="secondary">
-                        {polish.finish}
-                      </Badge>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {polish.rating ? "★".repeat(polish.rating) + "☆".repeat(5 - polish.rating) : "—"}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {polish.tags?.map((tag) => (
-                        <Badge key={tag} variant="outline" className="text-xs">
-                          {tag}
+              pageItems.map((polish) => {
+                const owned = isOwned(polish);
+                return (
+                  <TableRow key={polish.id} className="hover:bg-muted/50">
+                    <TableCell className="text-center text-lg">
+                      {owned ? "\u2714\uFE0F" : "\u2795"}
+                    </TableCell>
+                    <TableCell className="font-medium">{polish.brand}</TableCell>
+                    <TableCell>
+                      <Link
+                        href={`/polishes/${polish.id}`}
+                        className="text-primary hover:underline"
+                      >
+                        {polish.name}
+                      </Link>
+                    </TableCell>
+                    <TableCell>
+                      <button
+                        type="button"
+                        onClick={() => handleColorClick(polish.colorHex)}
+                        className="cursor-pointer"
+                        title="Click to set as reference color"
+                      >
+                        <ColorDot hex={polish.colorHex} size="sm" />
+                      </button>
+                    </TableCell>
+                    <TableCell>
+                      {polish.colorHex && (
+                        <Link
+                          href={`/polishes/search?color=${polish.colorHex.replace("#", "")}`}
+                          className="text-muted-foreground hover:text-primary"
+                          title="Find similar colors"
+                        >
+                          🔍
+                        </Link>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {polish.finish && (
+                        <Badge variant="secondary">
+                          {polish.finish.charAt(0).toUpperCase() + polish.finish.slice(1)}
                         </Badge>
-                      ))}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {polish.collection ?? "\u2014"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <QuantityControls
+                        quantity={polish.quantity ?? 0}
+                        onIncrement={() => handleQuantityChange(polish.id, 1)}
+                        onDecrement={() => handleQuantityChange(polish.id, -1)}
+                        onAdd={() => handleQuantityChange(polish.id, 1)}
+                      />
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
       </div>
+
+      {/* Pagination */}
+      <Pagination
+        currentPage={page}
+        totalPages={totalPages}
+        totalItems={sorted.length}
+        pageSize={PAGE_SIZE}
+        onPageChange={setPage}
+      />
     </div>
   );
 }

@@ -1,5 +1,9 @@
+"use client";
+
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { MOCK_POLISHES } from "@/lib/mock-data";
+import type { Polish } from "swatchwatch-shared";
+import { listPolishes } from "@/lib/api";
 import {
   Card,
   CardContent,
@@ -12,7 +16,45 @@ import { Badge } from "@/components/ui/badge";
 import { ColorDot } from "@/components/color-dot";
 
 export default function DashboardPage() {
-  const polishes = MOCK_POLISHES;
+  const [polishes, setPolishes] = useState<Polish[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        setLoading(true);
+        const response = await listPolishes();
+        setPolishes(response.polishes);
+      } catch (err: any) {
+        setError(err.message || "Failed to load dashboard data");
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <p className="text-muted-foreground">Loading dashboard...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center space-y-2">
+          <p className="text-destructive font-medium">Error loading dashboard</p>
+          <p className="text-sm text-muted-foreground">{error}</p>
+          <Button onClick={() => window.location.reload()}>Retry</Button>
+        </div>
+      </div>
+    );
+  }
+
   const totalPolishes = polishes.length;
   const uniqueBrands = new Set(polishes.map((p) => p.brand)).size;
   const avgRating =
@@ -39,7 +81,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground">
-            Your nail polish collection at a glance.
+            Your SwatchWatch collection at a glance.
           </p>
         </div>
         <Button asChild>

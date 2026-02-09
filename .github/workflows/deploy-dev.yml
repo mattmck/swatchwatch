@@ -1,0 +1,111 @@
+name: Deploy Dev
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-web:
+    name: Deploy Static Web App
+    runs-on: ubuntu-latest
+    environment: dev
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      
+      - name: Deploy to Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: 'upload'
+          app_location: '/'
+          app_build_command: 'npm run build --workspace=packages/shared && npm run build:web'
+          # Next.js SSR output (.next) does not include a static index.html.
+          # Static Web Apps expects static artifacts, so we deploy Next.js static export output instead.
+          output_location: 'apps/web/out'
+        env:
+          NEXT_PUBLIC_API_URL: 'https://swatchwatch-dev-func-j5jij0be.azurewebsites.net/api'
+
+  deploy-functions:
+    name: Deploy Functions
+    runs-on: ubuntu-latest
+    environment: dev
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build shared package
+        run: npm run build --workspace=packages/shared
+      
+      - name: Build functions
+        run: npm run build:functions
+      
+      - name: Prepare functions deployment package
+        run: |
+          DEPLOY_DIR=packages/functions/.deploy
+          rm -rf "$DEPLOY_DIR"
+          mkdir -p "$DEPLOY_DIR/_shared"
+
+          # Copy function app artifacts
+          cp packages/functions/host.json "$DEPLOY_DIR/"
+          cp packages/functions/package.json "$DEPLOY_DIR/"
+          cp -r packages/functions/dist "$DEPLOY_DIR/"
+
+          # Bundle the built shared package so it can be installed as a file: dep
+          cp packages/shared/package.json "$DEPLOY_DIR/_shared/"
+          cp -r packages/shared/dist "$DEPLOY_DIR/_shared/"
+
+          # Rewrite the workspace reference to a local file: path
+          node -e "
+            const pkg = JSON.parse(require('fs').readFileSync('$DEPLOY_DIR/package.json', 'utf8'));
+            pkg.dependencies['swatchwatch-shared'] = 'file:_shared';
+            require('fs').writeFileSync('$DEPLOY_DIR/package.json', JSON.stringify(pkg, null, 2));
+          "
+
+          # Install production-only deps into the self-contained deploy dir
+          cd "$DEPLOY_DIR"
+          npm install --omit=dev --ignore-scripts
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      
+      - name: Run database migrations (with dev seed data)
+        run: |
+          if [ -n "$DATABASE_URL" ]; then
+            npm run migrate:dev
+          else
+            echo "⚠ DATABASE_URL not set — skipping migrations"
+          fi
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Deploy to Azure Functions
+        uses: Azure/functions-action@v1
+        with:
+          app-name: 'swatchwatch-dev-func-j5jij0be'
+          package: 'packages/functions/.deploy'

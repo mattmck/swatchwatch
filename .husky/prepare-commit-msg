@@ -1,0 +1,11 @@
+COMMIT_MSG_FILE="$1"
+COMMIT_SOURCE="$2"
+
+# Only add template for new commits (not amend, merge, etc.)
+if [ -z "$COMMIT_SOURCE" ]; then
+  # Check if file is empty or only has comments
+  if ! grep -q '^[^#]' "$COMMIT_MSG_FILE" 2>/dev/null; then
+    # Use AI generator to create suggestions
+    "$(dirname -- "$0")/generate-commit-msg.sh" "$COMMIT_MSG_FILE"
+  fi
+fi

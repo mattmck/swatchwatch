@@ -1,4 +1,4 @@
-# Contributing to Polish Inventory
+# Contributing to SwatchWatch
 
 ## Git Workflow
 

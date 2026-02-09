@@ -1,5 +1,5 @@
 {
-  "name": "web",
+  "name": "swatchwatch-web",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -13,7 +13,7 @@
     "clsx": "^2.1.1",
     "lucide-react": "^0.563.0",
     "next": "16.1.6",
-    "polish-inventory-shared": "^1.0.0",
+    "swatchwatch-shared": "^1.0.0",
     "radix-ui": "^1.4.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",

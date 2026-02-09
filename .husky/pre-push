@@ -1,0 +1,48 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Source the change detection logic (extracted for testability)
+. "$(dirname -- "$0")/detect-changes.sh"
+
+# Get list of changed files in commits being pushed
+CHANGED_FILES=$(git diff --name-only @{push}..HEAD 2>/dev/null || git diff --name-only origin/$(git branch --show-current)..HEAD 2>/dev/null || git diff --name-only HEAD~1..HEAD)
+
+if [ -z "$CHANGED_FILES" ]; then
+  echo "No changes detected, skipping build verification"
+  exit 0
+fi
+
+echo "🔍 Detecting changed workspaces..."
+
+# Detect which workspaces need building
+detect_changes "$CHANGED_FILES"
+
+# Build shared first if needed (other packages depend on it)
+if [ "$BUILD_SHARED" = true ]; then
+  echo "📦 Building packages/shared..."
+  npm run build --workspace=packages/shared || exit 1
+  # If shared changed, we need to rebuild everything that depends on it
+  BUILD_WEB=true
+  BUILD_FUNCTIONS=true
+fi
+
+# Build web app
+if [ "$BUILD_WEB" = true ]; then
+  echo "🌐 Building apps/web..."
+  npm run build:web || exit 1
+fi
+
+# Build functions
+if [ "$BUILD_FUNCTIONS" = true ]; then
+  echo "⚡ Building packages/functions..."
+  npm run build:functions || exit 1
+fi
+
+# Validate infrastructure
+if [ "$VALIDATE_INFRA" = true ]; then
+  echo "🏗️  Validating infrastructure..."
+  (cd infrastructure && terraform init -backend=false && terraform validate) || exit 1
+fi
+
+echo "✅ All builds passed!"
+exit 0

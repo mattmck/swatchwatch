@@ -1,18 +1,28 @@
 {
-  "name": "polish-inventory-functions",
+  "name": "swatchwatch-functions",
   "version": "1.0.0",
-  "description": "Azure Functions for Polish Inventory",
-  "main": "dist/src/functions/*.js",
+  "description": "Azure Functions for SwatchWatch",
+  "main": "dist/functions/*.js",
   "scripts": {
     "build": "tsc",
     "start": "func start",
-    "watch": "tsc -w"
+    "watch": "tsc -w",
+    "migrate": "node-pg-migrate up --migrations-dir migrations --decamelize --envPath ../../.env",
+    "migrate:dev": "PGOPTIONS='-c app.seed_dev_data=true' node-pg-migrate up --migrations-dir migrations --decamelize --envPath ../../.env",
+    "migrate:down": "node-pg-migrate down --migrations-dir migrations --decamelize --envPath ../../.env",
+    "migrate:down:dev": "PGOPTIONS='-c app.seed_dev_data=true' node-pg-migrate down --migrations-dir migrations --decamelize --envPath ../../.env",
+    "migrate:create": "node-pg-migrate create --migrations-dir migrations",
+    "test": "node --test tests/*.test.cjs"
   },
   "dependencies": {
-    "@azure/functions": "^4.0.0"
+    "@azure/functions": "^4.0.0",
+    "pg": "^8.18.0",
+    "swatchwatch-shared": "*"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
+    "@types/pg": "^8.16.0",
+    "node-pg-migrate": "^8.0.4",
     "typescript": "^5.3.0"
   }
 }
