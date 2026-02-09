@@ -1,18 +1,23 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect, Suspense } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import type { Polish } from "swatchwatch-shared";
 import { listPolishes, updatePolish } from "@/lib/api";
 import {
   colorDistance,
-  complementaryHex,
   hexToHsl,
   hslToHex,
   type HSL,
 } from "@/lib/color-utils";
-import { ColorWheel, type WheelMode, type SnapDot } from "@/components/color-wheel";
+import {
+  HARMONY_TYPES,
+  generateHarmonyColors,
+  type HarmonyType,
+} from "@/lib/color-harmonies";
+import { ColorWheel, type WheelMode, type SnapDot, type HarmonyDot } from "@/components/color-wheel";
 import { ColorSearchResults } from "@/components/color-search-results";
+import { HarmonyPalette } from "@/components/harmony-palette";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -21,8 +26,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
-type Mode = "similar" | "complementary";
 type ResultsScope = "all" | "collection";
 
 /** Max OKLAB distance (used to normalize to 0-1 for display) */
@@ -32,25 +43,50 @@ function ColorSearchPageContent() {
   const searchParams = useSearchParams();
   const [allPolishes, setAllPolishes] = useState<Polish[]>([]);
   const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState<Mode>("similar");
+  const [harmonyType, setHarmonyType] = useState<HarmonyType>("similar");
   const [wheelMode, setWheelMode] = useState<WheelMode>("free");
   const [resultsScope, setResultsScope] = useState<ResultsScope>("all");
   const [lightness, setLightness] = useState(0.5);
   const [selectedHsl, setSelectedHsl] = useState<HSL | null>(null);
-  const [selectedHex, setSelectedHex] = useState<string | null>(null);
   const [previewHex, setPreviewHex] = useState<string | null>(null);
+  const [externalHoverHex, setExternalHoverHex] = useState<string | null>(null);
+  const [focusedTargetHex, setFocusedTargetHex] = useState<string | null>(null);
+  const lockedTargetRef = useRef<string | null>(null);
 
-  // Initialize from URL color param
+  // Derive selectedHex from selectedHsl so lightness slider updates it
+  const selectedHex = useMemo(
+    () => (selectedHsl ? hslToHex(selectedHsl) : null),
+    [selectedHsl]
+  );
+
+  // Sync lightness slider → selectedHsl so harmony colors update in realtime
+  useEffect(() => {
+    setSelectedHsl((prev) => {
+      if (!prev || prev.l === lightness) return prev;
+      return { ...prev, l: lightness };
+    });
+  }, [lightness]);
+
+  // Clear focus/lock when harmony type changes
+  useEffect(() => {
+    lockedTargetRef.current = null;
+    setFocusedTargetHex(null);
+  }, [harmonyType]);
+
+  // Initialize from URL params
   useEffect(() => {
     const colorParam = searchParams.get("color");
     if (colorParam) {
       const hex = colorParam.startsWith("#") ? colorParam : `#${colorParam}`;
       if (/^#[0-9A-Fa-f]{6}$/.test(hex)) {
-        setSelectedHex(hex);
         const hsl = hexToHsl(hex);
         setSelectedHsl(hsl);
         setLightness(hsl.l);
       }
+    }
+    const harmonyParam = searchParams.get("harmony");
+    if (harmonyParam && HARMONY_TYPES.some((h) => h.value === harmonyParam)) {
+      setHarmonyType(harmonyParam as HarmonyType);
     }
   }, [searchParams]);
 
@@ -88,27 +124,92 @@ function ColorSearchPageContent() {
     [ownedColorPolishes]
   );
 
-  // Compute the target color based on mode
-  const targetHex = useMemo(() => {
-    if (!activeHex) return null;
-    return mode === "complementary" ? complementaryHex(activeHex) : activeHex;
-  }, [activeHex, mode]);
+  // Generate harmony target colors — pinned to selectedHex so they don't shift on hover
+  const harmonyColors = useMemo(() => {
+    if (!selectedHex) return [];
+    return generateHarmonyColors(selectedHex, harmonyType);
+  }, [selectedHex, harmonyType]);
 
-  // Sort polishes by distance to target color, then filter by scope
+  // Harmony target dots for the color wheel (diamonds)
+  const harmonyDots: HarmonyDot[] = useMemo(() => {
+    if (!selectedHex || harmonyType === "similar" || harmonyColors.length === 0) return [];
+    return harmonyColors.map((hex) => {
+      const hsl = hexToHsl(hex);
+      let closestSnapIndex: number | null = null;
+      if (wheelMode === "snap" && snapDots.length > 0) {
+        let minDist = Infinity;
+        for (let i = 0; i < snapDots.length; i++) {
+          const d = colorDistance(hex, snapDots[i].hex);
+          if (d < minDist) {
+            minDist = d;
+            closestSnapIndex = i;
+          }
+        }
+      }
+      return { hex, hsl, closestSnapIndex };
+    });
+  }, [selectedHex, harmonyType, harmonyColors, wheelMode, snapDots]);
+
+  // Closest owned polish hex for each harmony slot [source, ...harmony targets]
+  const collectionColors = useMemo(() => {
+    if (!selectedHex || ownedColorPolishes.length === 0) return [];
+    const targets = [selectedHex, ...harmonyColors];
+    return targets.map((targetHex) => {
+      let closestHex: string | null = null;
+      let minDist = Infinity;
+      for (const p of ownedColorPolishes) {
+        const d = colorDistance(targetHex, p.colorHex);
+        if (d < minDist) {
+          minDist = d;
+          closestHex = p.colorHex;
+        }
+      }
+      return closestHex;
+    });
+  }, [selectedHex, harmonyColors, ownedColorPolishes]);
+
+  // Colors to match against — includes source for harmony modes
+  const targetColors = useMemo(() => {
+    if (harmonyType === "similar") {
+      return activeHex ? [activeHex] : [];
+    }
+    if (!selectedHex) return [];
+    return [selectedHex, ...harmonyColors];
+  }, [harmonyType, activeHex, selectedHex, harmonyColors]);
+
+  // Sort polishes by distance — if a target is focused, match only that color
   const sortedPolishes = useMemo(() => {
-    if (!targetHex) return [];
+    const colorsToMatch = focusedTargetHex ? [focusedTargetHex] : targetColors;
+    if (colorsToMatch.length === 0) return [];
 
     const source = resultsScope === "collection"
       ? colorPolishes.filter(isOwned)
       : colorPolishes;
 
     return source
-      .map((p) => ({
-        ...p,
-        distance: Math.min(colorDistance(targetHex, p.colorHex) / MAX_DISTANCE, 1),
-      }))
+      .map((p) => {
+        let minDist = Infinity;
+        let matchedHarmonyHex = colorsToMatch[0];
+        let matchedHarmonyIndex = 0;
+        for (let i = 0; i < colorsToMatch.length; i++) {
+          const d = colorDistance(colorsToMatch[i], p.colorHex);
+          if (d < minDist) {
+            minDist = d;
+            matchedHarmonyHex = colorsToMatch[i];
+            matchedHarmonyIndex = i;
+          }
+        }
+        return {
+          ...p,
+          distance: Math.min(minDist / MAX_DISTANCE, 1),
+          matchedHarmonyHex,
+          matchedHarmonyIndex,
+        };
+      })
       .sort((a, b) => a.distance - b.distance);
-  }, [targetHex, colorPolishes, resultsScope]);
+  }, [focusedTargetHex, targetColors, colorPolishes, resultsScope]);
+
+  const harmonyLabel = HARMONY_TYPES.find((h) => h.value === harmonyType)?.label ?? "Similar";
 
   const handleHover = useCallback(
     (hex: string, _hsl: HSL) => {
@@ -118,8 +219,40 @@ function ColorSearchPageContent() {
   );
 
   const handleSelect = useCallback((hex: string, hsl: HSL) => {
-    setSelectedHex(hex);
     setSelectedHsl(hsl);
+    // Clear focus/lock on new wheel selection
+    lockedTargetRef.current = null;
+    setFocusedTargetHex(null);
+  }, []);
+
+  // Swatch hover/click handlers — affect wheel marker + table filter
+  const handleSwatchHover = useCallback((hex: string) => {
+    setExternalHoverHex(hex);
+    setFocusedTargetHex(hex);
+  }, []);
+
+  const handleSwatchLeave = useCallback(() => {
+    setExternalHoverHex(null);
+    setFocusedTargetHex(lockedTargetRef.current);
+  }, []);
+
+  const handleSwatchClick = useCallback((hex: string) => {
+    if (lockedTargetRef.current === hex) {
+      lockedTargetRef.current = null;
+      setFocusedTargetHex(null);
+    } else {
+      lockedTargetRef.current = hex;
+      setFocusedTargetHex(hex);
+    }
+  }, []);
+
+  // Row color dot hover — affects wheel marker only, not table filter
+  const handleColorHover = useCallback((hex: string) => {
+    setExternalHoverHex(hex);
+  }, []);
+
+  const handleColorLeave = useCallback(() => {
+    setExternalHoverHex(null);
   }, []);
 
   const handleMouseLeaveWheel = useCallback(() => {
@@ -181,6 +314,8 @@ function ColorSearchPageContent() {
                   size={280}
                   wheelMode={wheelMode}
                   snapDots={snapDots}
+                  externalHoverHex={externalHoverHex}
+                  harmonyDots={harmonyDots}
                 />
               </div>
 
@@ -208,54 +343,37 @@ function ColorSearchPageContent() {
                 />
               </div>
 
-              {/* Color preview swatches */}
-              {activeHex && (
-                <div className="flex items-center gap-3 rounded-lg border bg-muted/50 px-4 py-2 w-full">
-                  <div className="flex flex-col items-center gap-1">
-                    <span
-                      className="h-8 w-8 rounded-full border border-border"
-                      style={{ backgroundColor: activeHex }}
-                    />
-                    <span className="text-[10px] text-muted-foreground">
-                      {mode === "similar" ? "Selected" : "Picked"}
-                    </span>
-                  </div>
-                  {mode === "complementary" && targetHex && (
-                    <>
-                      <span className="text-muted-foreground">&rarr;</span>
-                      <div className="flex flex-col items-center gap-1">
-                        <span
-                          className="h-8 w-8 rounded-full border border-border"
-                          style={{ backgroundColor: targetHex }}
-                        />
-                        <span className="text-[10px] text-muted-foreground">Match</span>
-                      </div>
-                    </>
-                  )}
-                  <span className="ml-auto font-mono text-xs text-muted-foreground">
-                    {activeHex}
-                  </span>
-                </div>
+              {/* Harmony palette preview — two bars: Target + Collection */}
+              {selectedHex && (
+                <HarmonyPalette
+                  sourceHex={selectedHex}
+                  harmonyColors={harmonyColors}
+                  label={harmonyLabel}
+                  collectionColors={collectionColors}
+                  focusedTargetHex={focusedTargetHex}
+                  onSwatchHover={handleSwatchHover}
+                  onSwatchLeave={handleSwatchLeave}
+                  onSwatchClick={handleSwatchClick}
+                />
               )}
 
-              {/* Similar / Complementary mode toggle */}
-              <div className="flex w-full rounded-lg border bg-muted p-1">
-                <Button
-                  variant={mode === "similar" ? "default" : "ghost"}
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => setMode("similar")}
+              {/* Harmony type selector */}
+              <div className="w-full">
+                <Select
+                  value={harmonyType}
+                  onValueChange={(v) => setHarmonyType(v as HarmonyType)}
                 >
-                  Similar
-                </Button>
-                <Button
-                  variant={mode === "complementary" ? "default" : "ghost"}
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => setMode("complementary")}
-                >
-                  Complementary
-                </Button>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Harmony type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {HARMONY_TYPES.map((h) => (
+                      <SelectItem key={h.value} value={h.value}>
+                        {h.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Wheel mode toggle (Free / Snap) */}
@@ -305,22 +423,28 @@ function ColorSearchPageContent() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">
-              {mode === "similar" ? "Similar Colors" : "Complementary Colors"}
+              {harmonyLabel} Colors
               {resultsScope === "collection" && " — My Collection"}
             </CardTitle>
             <CardDescription>
               {activeHex
-                ? `Polishes sorted by ${mode === "similar" ? "similarity to" : "complementary match for"} your selection`
+                ? `Polishes sorted by ${harmonyType === "similar" ? "similarity to" : `${harmonyLabel.toLowerCase()} match for`} your selection`
                 : "Pick a color on the wheel to see matches"}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {activeHex && targetHex ? (
+            {activeHex && targetColors.length > 0 ? (
               <ColorSearchResults
                 polishes={sortedPolishes}
-                targetHex={targetHex}
-                mode={mode}
+                harmonyColors={targetColors}
+                harmonyType={harmonyType}
+                focusedTargetHex={focusedTargetHex}
                 onQuantityChange={handleQuantityChange}
+                onSwatchHover={handleSwatchHover}
+                onSwatchLeave={handleSwatchLeave}
+                onSwatchClick={handleSwatchClick}
+                onColorHover={handleColorHover}
+                onColorLeave={handleColorLeave}
               />
             ) : (
               <div className="flex flex-col items-center justify-center py-16 text-center">

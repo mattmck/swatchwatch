@@ -34,8 +34,9 @@ The `(dashboard)` route group provides the homepage without adding `/dashboard` 
 |-----------|---------|
 | `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) |
 | `color-dot.tsx` | Colored circle swatch — `sm`, `md`, `lg` sizes |
-| `color-wheel.tsx` | Canvas HSL color wheel with hover preview + click selection |
-| `color-search-results.tsx` | Polish list sorted by OKLAB color distance |
+| `color-wheel.tsx` | Canvas HSL color wheel with hover preview, click selection, snap-to-collection dots, harmony target diamonds, and external hover marker for bidirectional color highlighting |
+| `color-search-results.tsx` | Polish list sorted by OKLAB color distance, with harmony match indicators and bidirectional hover callbacks |
+| `harmony-palette.tsx` | Two-bar harmony display: "Target" bar (ideal harmony colors) + "My Collection" bar (closest owned polish for each target). Both bars support hover → wheel marker and click → select. |
 
 ### shadcn/ui (`src/components/ui/`)
 
@@ -53,7 +54,8 @@ cd apps/web && npx shadcn@latest add <component-name>
 |------|---------|
 | `utils.ts` | `cn()` — Tailwind class merging (shadcn standard) |
 | `constants.ts` | `FINISHES` — canonical finish types for dropdowns |
-| `color-utils.ts` | Hex↔HSL↔RGB↔OKLAB conversions, `colorDistance()`, `complementaryHex()` |
+| `color-utils.ts` | Hex↔HSL↔RGB↔OKLAB↔OKLCH conversions, `colorDistance()`, `complementaryHex()`, gamut clamping |
+| `color-harmonies.ts` | `HARMONY_TYPES`, `HarmonyType`, `generateHarmonyColors()` — 7 color theory harmonies via OKLCH |
 | `api.ts` | Typed fetch wrappers: `listPolishes`, `getPolish`, `createPolish`, `updatePolish`, `deletePolish`, `searchCatalog`, `getShade` |
 
 ## Conventions
