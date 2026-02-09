@@ -1,6 +1,7 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { PolishCreateRequest, PolishUpdateRequest, PolishListResponse } from "swatchwatch-shared";
 import { query, transaction } from "../lib/db";
+import { withAuth } from "../lib/auth";
 import { PoolClient } from "pg";
 
 /**
@@ -84,7 +85,7 @@ const SORT_COLUMNS: Record<string, string> = {
   rating: "ui.rating",
 };
 
-async function getPolishes(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+async function getPolishes(request: HttpRequest, context: InvocationContext, userId: number): Promise<HttpResponseInit> {
   context.log("GET /api/polishes");
 
   const id = request.params.id;
@@ -93,8 +94,8 @@ async function getPolishes(request: HttpRequest, context: InvocationContext): Pr
   if (id) {
     try {
       const result = await query(
-        `${POLISH_SELECT} WHERE ui.inventory_item_id = $1`,
-        [parseInt(id, 10)]
+        `${POLISH_SELECT} WHERE ui.inventory_item_id = $1 AND ui.user_id = $2`,
+        [parseInt(id, 10), userId]
       );
 
       if (result.rows.length === 0) {
@@ -110,7 +111,6 @@ async function getPolishes(request: HttpRequest, context: InvocationContext): Pr
 
   // List with filtering, search, sorting, and pagination
   try {
-    const userId = 1; // TODO: get from auth token
     const url = new URL(request.url);
 
     const search = url.searchParams.get("search");
@@ -193,7 +193,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext): Pr
   }
 }
 
-async function createPolish(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+async function createPolish(request: HttpRequest, context: InvocationContext, userId: number): Promise<HttpResponseInit> {
   context.log("POST /api/polishes");
 
   try {
@@ -202,8 +202,6 @@ async function createPolish(request: HttpRequest, context: InvocationContext): P
     if (!body.brand || !body.name) {
       return { status: 400, jsonBody: { error: "Brand and name are required" } };
     }
-
-    const userId = 1; // TODO: get from auth token
 
     const inventoryId = await transaction(async (client) => {
       // Find or create canonical brand + shade
@@ -248,7 +246,7 @@ async function createPolish(request: HttpRequest, context: InvocationContext): P
   }
 }
 
-async function updatePolish(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+async function updatePolish(request: HttpRequest, context: InvocationContext, userId: number): Promise<HttpResponseInit> {
   context.log("PUT /api/polishes");
 
   const id = request.params.id;
@@ -258,7 +256,6 @@ async function updatePolish(request: HttpRequest, context: InvocationContext): P
 
   try {
     const body = (await request.json()) as PolishUpdateRequest;
-    const userId = 1; // TODO: get from auth token
     const itemId = parseInt(id, 10);
 
     const updated = await transaction(async (client) => {
@@ -324,7 +321,7 @@ async function updatePolish(request: HttpRequest, context: InvocationContext): P
   }
 }
 
-async function deletePolish(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+async function deletePolish(request: HttpRequest, context: InvocationContext, userId: number): Promise<HttpResponseInit> {
   context.log("DELETE /api/polishes");
 
   const id = request.params.id;
@@ -333,7 +330,6 @@ async function deletePolish(request: HttpRequest, context: InvocationContext): P
   }
 
   try {
-    const userId = 1; // TODO: get from auth token
 
     const result = await query(
       `DELETE FROM user_inventory_item
@@ -357,26 +353,26 @@ app.http("polishes-list", {
   methods: ["GET"],
   authLevel: "anonymous",
   route: "polishes/{id?}",
-  handler: getPolishes,
+  handler: withAuth(getPolishes),
 });
 
 app.http("polishes-create", {
   methods: ["POST"],
   authLevel: "anonymous",
   route: "polishes",
-  handler: createPolish,
+  handler: withAuth(createPolish),
 });
 
 app.http("polishes-update", {
   methods: ["PUT"],
   authLevel: "anonymous",
   route: "polishes/{id}",
-  handler: updatePolish,
+  handler: withAuth(updatePolish),
 });
 
 app.http("polishes-delete", {
   methods: ["DELETE"],
   authLevel: "anonymous",
   route: "polishes/{id}",
-  handler: deletePolish,
+  handler: withAuth(deletePolish),
 });

@@ -47,7 +47,18 @@
       "Bash(brew link:*)",
       "Bash(ls:*)",
       "Bash(gh pr list:*)",
-      "Bash(gh pr create:*)"
+      "Bash(gh pr create:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr edit:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx -p typescript tsc:*)",
+      "Bash(npm ls:*)",
+      "Bash(npm install:*)",
+      "Bash(git -C /Users/matt/projects/polish-inventory-feat-4 diff --stat)",
+      "Bash(git -C /Users/matt/projects/polish-inventory-feat-4 status --short)",
+      "WebSearch",
+      "Bash(git worktree add:*)",
+      "Bash(npx next dev:*)"
     ]
   }
 }

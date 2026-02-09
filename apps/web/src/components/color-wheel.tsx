@@ -288,7 +288,7 @@ export function ColorWheel({
 
   // Zoom on wheel scroll
   const handleWheel = useCallback(
-    (e: React.WheelEvent<HTMLDivElement>) => {
+    (e: WheelEvent) => {
       e.preventDefault();
 
       const container = containerRef.current;
@@ -317,6 +317,14 @@ export function ColorWheel({
     },
     [zoom, panOffset, size, radius]
   );
+
+  // Attach wheel listener as non-passive so preventDefault works
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    el.addEventListener("wheel", handleWheel, { passive: false });
+    return () => el.removeEventListener("wheel", handleWheel);
+  }, [handleWheel]);
 
   // Pan via mouse drag when zoomed
   const handleMouseDown = useCallback(
@@ -451,7 +459,6 @@ export function ColorWheel({
         ref={containerRef}
         className="relative overflow-hidden rounded-full"
         style={{ width: size, height: size }}
-        onWheel={handleWheel}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
