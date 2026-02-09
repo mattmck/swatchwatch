@@ -44,7 +44,10 @@
       "Bash(brew tap:*)",
       "Bash(brew install:*)",
       "Bash(brew unlink:*)",
-      "Bash(brew link:*)"
+      "Bash(brew link:*)",
+      "Bash(ls:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr create:*)"
     ]
   }
 }
