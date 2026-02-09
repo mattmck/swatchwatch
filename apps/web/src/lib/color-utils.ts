@@ -126,6 +126,69 @@ export function colorDistance(hex1: string, hex2: string): number {
   return oklabDistance(hexToOklab(hex1), hexToOklab(hex2));
 }
 
+// ── Undertone classification (warm / cool / neutral) ─────────
+
+export type Undertone = "warm" | "cool" | "neutral";
+
+/**
+ * Compute a warmth score from an OKLAB color.
+ * Positive = warm, negative = cool, near-zero = neutral.
+ *
+ * Uses the OKLAB `b` axis (blue↔yellow) as primary signal
+ * and `a` axis (green↔red) as secondary warmth contributor.
+ * Low-chroma colors (greys, whites, blacks) are classified neutral
+ * regardless of hue lean.
+ */
+export function warmthScore(oklab: OKLab): number {
+  // b > 0 = yellow lean (warm), b < 0 = blue lean (cool)
+  // a > 0 = red lean (warm accent), a < 0 = green lean (cool accent)
+  return oklab.b * 1.0 + oklab.a * 0.5;
+}
+
+/**
+ * Classify a hex color as warm, cool, or neutral.
+ *
+ * Thresholds tuned against common nail polish colors:
+ * - Chroma below 0.04 → neutral (greys, whites, blacks, taupes)
+ * - Warmth score > 0.015 → warm
+ * - Warmth score < -0.015 → cool
+ * - Otherwise → neutral
+ */
+export function undertone(hex: string): Undertone {
+  const lab = hexToOklab(hex);
+
+  // Chroma = distance from the neutral axis in a-b plane
+  const chroma = Math.sqrt(lab.a ** 2 + lab.b ** 2);
+  if (chroma < 0.04) return "neutral";
+
+  const score = warmthScore(lab);
+  if (score > 0.015) return "warm";
+  if (score < -0.015) return "cool";
+  return "neutral";
+}
+
+/**
+ * Analyze a collection of hex colors and return the undertone breakdown.
+ */
+export function undertoneBreakdown(hexColors: string[]): {
+  warm: number;
+  cool: number;
+  neutral: number;
+  dominant: Undertone;
+} {
+  const counts = { warm: 0, cool: 0, neutral: 0 };
+  for (const hex of hexColors) {
+    counts[undertone(hex)]++;
+  }
+  const dominant: Undertone =
+    counts.warm >= counts.cool && counts.warm >= counts.neutral
+      ? "warm"
+      : counts.cool >= counts.neutral
+        ? "cool"
+        : "neutral";
+  return { ...counts, dominant };
+}
+
 // ── Complementary color ──────────────────────────────────────
 
 /** Rotate hue by 180° to get the complementary color */
