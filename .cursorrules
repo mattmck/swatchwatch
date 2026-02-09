@@ -142,3 +142,26 @@ Documentation files in this project:
 - **Commits:** `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:` prefixes
 - **PRs:** Squash merge into `main`. PR title = conventional commit message. Reference issues with `Closes #N`.
 - **Issues:** Use GitHub Issue templates (Feature, Bug, Chore). Add scope labels (`web`, `mobile`, `functions`, `infra`).
+
+## Agent Worktrees
+
+When working on a branch that isn't the current checkout, use **git worktrees** instead of switching branches. This avoids dirty-file conflicts (e.g., `.claude/settings.local.json`) and lets multiple agents work in parallel.
+
+```bash
+# Create a worktree for a new branch (defaults to branching from dev)
+scripts/agent-worktree.sh feat/42-new-feature
+
+# Branch from main instead
+scripts/agent-worktree.sh fix/99-hotfix main
+
+# Clean up when done
+git worktree remove ../swatchwatch-worktrees/feat/42-new-feature
+```
+
+Worktrees live in `../swatchwatch-worktrees/<branch-name>` (sibling to the repo root). The script runs `npm ci` and builds shared types so the worktree is ready to use immediately.
+
+**Rules:**
+- Never switch branches in the primary checkout during agent work — use a worktree.
+- Each worktree is independent: changes in one don't affect the other.
+- Run `git worktree list` to see active worktrees.
+- Remove worktrees after the branch is merged.
