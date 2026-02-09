@@ -67,7 +67,7 @@ npm run build --workspace=packages/shared
 - **Shared types** live in `packages/shared/src/types/` and are re-exported from `packages/shared/src/index.ts`. The canonical domain types are `Polish`, `PolishFinish`, `User`, `AuthProvider`, `VoiceProcessRequest`, `VoiceProcessResponse`, etc. When adding new domain types, add them here and re-export.
 - **Web app** uses `@/*` path alias pointing to `apps/web/src/*`. Styling uses Tailwind v4 via `@tailwindcss/postcss`.
 - **UI components:** shadcn/ui primitives in `apps/web/src/components/ui/`. Custom components in `apps/web/src/components/`. Add new shadcn components with `cd apps/web && npx shadcn@latest add <name>`.
-- **Color utilities:** `apps/web/src/lib/color-utils.ts` provides Hex↔HSL↔RGB↔OKLAB↔OKLCH conversions, perceptual `colorDistance()`, and gamut-clamped OKLCH output. `apps/web/src/lib/color-harmonies.ts` provides `generateHarmonyColors()` for 7 color theory harmony types. Use OKLAB/OKLCH for any color matching/sorting logic.
+- **Color utilities:** `apps/web/src/lib/color-utils.ts` provides Hex↔HSL↔RGB↔OKLAB conversions and perceptual `colorDistance()`. Use OKLAB for any color matching/sorting logic.
 - **Mock data:** All pages now use the live API. Dev DB is seeded with realistic data via migration 003. The old `mock-data.ts` has been deleted.
 - **Infrastructure as Code:** All Azure resources defined in `infrastructure/main.tf`. Resource naming follows `${base_name}-${environment}-{resource}-${random_suffix}` convention.
 
@@ -79,7 +79,7 @@ npm run build --workspace=packages/shared
 | `/polishes` | `src/app/polishes/page.tsx` | Client component, filterable/sortable table |
 | `/polishes/new` | `src/app/polishes/new/page.tsx` | Client component, form with color picker + star rating |
 | `/polishes/[id]` | `src/app/polishes/[id]/page.tsx` | Server component, uses `generateStaticParams` |
-| `/polishes/search` | `src/app/polishes/search/page.tsx` | Client component, canvas color wheel + OKLCH harmony matching (7 types) |
+| `/polishes/search` | `src/app/polishes/search/page.tsx` | Client component, canvas color wheel + OKLAB matching |
 
 ## Known State & TODOs
 
