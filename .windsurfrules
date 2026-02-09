@@ -68,7 +68,7 @@ npm run build --workspace=packages/shared
 - **Web app** uses `@/*` path alias pointing to `apps/web/src/*`. Styling uses Tailwind v4 via `@tailwindcss/postcss`.
 - **UI components:** shadcn/ui primitives in `apps/web/src/components/ui/`. Custom components in `apps/web/src/components/`. Add new shadcn components with `cd apps/web && npx shadcn@latest add <name>`.
 - **Color utilities:** `apps/web/src/lib/color-utils.ts` provides Hex↔HSL↔RGB↔OKLAB conversions and perceptual `colorDistance()`. Use OKLAB for any color matching/sorting logic.
-- **Mock data:** Currently using `apps/web/src/lib/mock-data.ts` with realistic `Polish` objects. When connecting to the real API, replace mock imports with `fetch("/api/polishes")` — types are already aligned.
+- **Mock data:** All pages now use the live API. Dev DB is seeded with realistic data via migration 003. The old `mock-data.ts` has been deleted.
 - **Infrastructure as Code:** All Azure resources defined in `infrastructure/main.tf`. Resource naming follows `${base_name}-${environment}-{resource}-${random_suffix}` convention.
 
 ## Web App Routes
@@ -83,11 +83,10 @@ npm run build --workspace=packages/shared
 
 ## Known State & TODOs
 
-This project is in early development. The web UI prototype is functional with mock data. Backend handlers have placeholder/stub implementations marked with `TODO` comments:
+This project is in early development. The web UI is connected to the live API. Backend handlers have placeholder/stub implementations marked with `TODO` comments:
 - Postgres reads/writes in `polishes.ts` are stubbed — no DB client yet
 - JWT validation in `auth.ts` returns 501 — Azure AD B2C JWKS verification not implemented
 - Voice processing in `voice.ts` stubs Speech-to-text and OpenAI parsing
-- `packages/functions` defines a local `Polish` interface that duplicates `packages/shared` — new code should import from `swatchwatch-shared` instead
 - Infrastructure is migrating from Cosmos DB to Azure Database for PostgreSQL Flexible Server
 
 ## Environment Variables (Functions)
