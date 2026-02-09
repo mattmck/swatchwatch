@@ -110,7 +110,7 @@ export function ColorSearchResults({
                 </Badge>
               )}
               <span className="shrink-0 text-xs tabular-nums text-muted-foreground w-12 text-right">
-                {(polish.distance * 100).toFixed(0)}%
+                {((1 - polish.distance) * 100).toFixed(0)}%
               </span>
             </Link>
 
