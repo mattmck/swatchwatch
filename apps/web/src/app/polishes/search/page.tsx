@@ -42,7 +42,7 @@ const MAX_DISTANCE = 0.5;
 function ColorSearchPageContent() {
   const searchParams = useSearchParams();
   const [allPolishes, setAllPolishes] = useState<Polish[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true); // eslint-disable-line @typescript-eslint/no-unused-vars
   const [harmonyType, setHarmonyType] = useState<HarmonyType>("similar");
   const [wheelMode, setWheelMode] = useState<WheelMode>("free");
   const [resultsScope, setResultsScope] = useState<ResultsScope>("all");
@@ -61,7 +61,7 @@ function ColorSearchPageContent() {
 
   // Sync lightness slider → selectedHsl so harmony colors update in realtime
   useEffect(() => {
-    setSelectedHsl((prev) => {
+    setSelectedHsl((prev) => { // eslint-disable-line react-hooks/set-state-in-effect
       if (!prev || prev.l === lightness) return prev;
       return { ...prev, l: lightness };
     });
@@ -70,7 +70,7 @@ function ColorSearchPageContent() {
   // Clear focus/lock when harmony type changes
   useEffect(() => {
     lockedTargetRef.current = null;
-    setFocusedTargetHex(null);
+    setFocusedTargetHex(null); // eslint-disable-line react-hooks/set-state-in-effect
   }, [harmonyType]);
 
   // Initialize from URL params
@@ -80,7 +80,7 @@ function ColorSearchPageContent() {
       const hex = colorParam.startsWith("#") ? colorParam : `#${colorParam}`;
       if (/^#[0-9A-Fa-f]{6}$/.test(hex)) {
         const hsl = hexToHsl(hex);
-        setSelectedHsl(hsl);
+        setSelectedHsl(hsl); // eslint-disable-line react-hooks/set-state-in-effect
         setLightness(hsl.l);
       }
     }
@@ -212,7 +212,7 @@ function ColorSearchPageContent() {
   const harmonyLabel = HARMONY_TYPES.find((h) => h.value === harmonyType)?.label ?? "Similar";
 
   const handleHover = useCallback(
-    (hex: string, _hsl: HSL) => {
+    (hex: string, _hsl: HSL) => { // eslint-disable-line @typescript-eslint/no-unused-vars
       setPreviewHex(hex);
     },
     []

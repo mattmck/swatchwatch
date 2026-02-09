@@ -66,8 +66,8 @@ export default function NewPolishPage() {
           : undefined,
       });
       router.push("/polishes");
-    } catch (err: any) {
-      setSubmitError(err.message || "Failed to save polish");
+    } catch (err: unknown) {
+      setSubmitError(err instanceof Error ? err.message : "Failed to save polish");
     } finally {
       setSubmitting(false);
     }
@@ -260,7 +260,7 @@ export default function NewPolishPage() {
             {/* Voice input placeholder */}
             <div className="rounded-lg border-2 border-dashed border-muted-foreground/25 p-4 text-center">
               <p className="text-sm text-muted-foreground">
-                🎙️ Voice input coming soon — describe your polish and we'll fill in the details
+                🎙️ Voice input coming soon — describe your polish and we&apos;ll fill in the details
               </p>
             </div>
 

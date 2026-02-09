@@ -60,6 +60,7 @@ export function ColorWheel({
   const [zoom, setZoom] = useState(1);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const isPanningRef = useRef(false);
+  const [isPanning, setIsPanning] = useState(false);
   const panStartRef = useRef({ x: 0, y: 0 });
   const panOffsetStartRef = useRef({ x: 0, y: 0 });
 
@@ -480,6 +481,7 @@ export function ColorWheel({
       // Right-click or middle-click, or any click when zoomed to start pan
       if (e.button === 1 || e.button === 2 || zoom > 1) {
         isPanningRef.current = true;
+        setIsPanning(true);
         panStartRef.current = { x: e.clientX, y: e.clientY };
         panOffsetStartRef.current = { ...panOffset };
         e.preventDefault();
@@ -521,6 +523,7 @@ export function ColorWheel({
         const dx = Math.abs(e.clientX - panStartRef.current.x);
         const dy = Math.abs(e.clientY - panStartRef.current.y);
         isPanningRef.current = false;
+        setIsPanning(false);
         // If it was a real drag, don't fire click
         if (dx > 3 || dy > 3) {
           e.preventDefault();
@@ -630,7 +633,7 @@ export function ColorWheel({
           onMouseLeave={handleMouseLeave}
         />
         {/* Hover cursor indicator */}
-        {hoveredPos && !isPanningRef.current && (
+        {hoveredPos && !isPanning && (
           <div
             className="pointer-events-none absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.3)]"
             style={{ left: hoveredPos.x, top: hoveredPos.y }}

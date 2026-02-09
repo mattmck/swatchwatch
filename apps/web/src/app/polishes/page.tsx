@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import type { Polish } from "swatchwatch-shared";
 import { listPolishes, updatePolish } from "@/lib/api";
-import { colorDistance, complementaryHex, hexToOklab } from "@/lib/color-utils";
+import { colorDistance, complementaryHex } from "@/lib/color-utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -86,12 +86,11 @@ export default function PolishesPage() {
   }, [polishes, search, includeAll]);
 
   const sorted = useMemo(() => {
-    let result = [...filtered];
+    const result = [...filtered];
 
     // Color-distance sort (Similar or Complementary)
     if ((similarMode || complementaryMode) && referenceColor) {
       const ref = complementaryMode ? complementaryHex(referenceColor) : referenceColor;
-      const refOklab = hexToOklab(ref);
       result.sort((a, b) => {
         const distA = a.colorHex ? colorDistance(a.colorHex, ref) : Infinity;
         const distB = b.colorHex ? colorDistance(b.colorHex, ref) : Infinity;
