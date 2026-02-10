@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { PolishFinish } from "swatchwatch-shared";
@@ -66,8 +67,8 @@ export default function NewPolishPage() {
           : undefined,
       });
       router.push("/polishes");
-    } catch (err: any) {
-      setSubmitError(err.message || "Failed to save polish");
+    } catch (err: unknown) {
+      setSubmitError(err instanceof Error ? err.message : "Failed to save polish");
     } finally {
       setSubmitting(false);
     }
@@ -82,16 +83,27 @@ export default function NewPolishPage() {
         </p>
       </div>
 
+      <div className="flex items-center justify-between rounded-lg border border-muted bg-muted/30 p-4">
+        <div>
+          <p className="text-sm font-medium">Need faster onboarding?</p>
+          <p className="text-xs text-muted-foreground">
+            Use Rapid Add for capture-driven matching and one-tap inventory adds.
+          </p>
+        </div>
+        <Button asChild variant="outline" size="sm">
+          <Link href="/rapid-add">Open Rapid Add</Link>
+        </Button>
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle>Polish Details</CardTitle>
           <CardDescription>
-            Fill in the details below, or use voice input to describe your polish.
+            Fill in the details below to add an item manually.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Brand + Name row */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label htmlFor="brand" className="text-sm font-medium">
@@ -119,7 +131,6 @@ export default function NewPolishPage() {
               </div>
             </div>
 
-            {/* Color + Hex row */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label htmlFor="color" className="text-sm font-medium">
@@ -154,7 +165,6 @@ export default function NewPolishPage() {
               </div>
             </div>
 
-            {/* Finish + Collection row */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Finish</label>
@@ -187,7 +197,6 @@ export default function NewPolishPage() {
               </div>
             </div>
 
-            {/* Quantity + Size row */}
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
                 <label htmlFor="quantity" className="text-sm font-medium">
@@ -198,7 +207,7 @@ export default function NewPolishPage() {
                   type="number"
                   min={1}
                   value={form.quantity}
-                  onChange={(e) => update("quantity", parseInt(e.target.value) || 1)}
+                  onChange={(e) => update("quantity", parseInt(e.target.value, 10) || 1)}
                 />
               </div>
               <div className="space-y-2">
@@ -229,7 +238,6 @@ export default function NewPolishPage() {
               </div>
             </div>
 
-            {/* Notes */}
             <div className="space-y-2">
               <label htmlFor="notes" className="text-sm font-medium">
                 Notes
@@ -244,7 +252,6 @@ export default function NewPolishPage() {
               />
             </div>
 
-            {/* Tags */}
             <div className="space-y-2">
               <label htmlFor="tags" className="text-sm font-medium">
                 Tags
@@ -260,7 +267,7 @@ export default function NewPolishPage() {
             {/* Voice input placeholder */}
             <div className="rounded-lg border-2 border-dashed border-muted-foreground/25 p-4 text-center">
               <p className="text-sm text-muted-foreground">
-                🎙️ Voice input coming soon — describe your polish and we'll fill in the details
+                🎙️ Voice input coming soon — describe your polish and we&apos;ll fill in the details
               </p>
             </div>
 

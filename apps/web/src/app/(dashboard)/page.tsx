@@ -26,8 +26,10 @@ export default function DashboardPage() {
         setLoading(true);
         const response = await listPolishes();
         setPolishes(response.polishes);
-      } catch (err: any) {
-        setError(err.message || "Failed to load dashboard data");
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Failed to load dashboard data";
+        setError(message);
       } finally {
         setLoading(false);
       }

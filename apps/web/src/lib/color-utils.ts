@@ -1,3 +1,10 @@
+import type {
+  CollectionGapAnalysis,
+  CollectionGapCell,
+  HueFamily,
+  LightnessBand,
+} from "swatchwatch-shared";
+
 // ── Hex ↔ RGB ────────────────────────────────────────────────
 
 export interface RGB {
@@ -17,6 +24,13 @@ export interface OKLab {
   L: number;
   a: number;
   b: number;
+}
+
+/** OKLCH — cylindrical form of OKLAB (perceptually uniform hue) */
+export interface OKLCH {
+  L: number; // 0-1
+  C: number; // chroma (0+)
+  h: number; // hue in degrees (0-360), NaN for achromatic
 }
 
 export function hexToRgb(hex: string): RGB {
@@ -126,10 +140,216 @@ export function colorDistance(hex1: string, hex2: string): number {
   return oklabDistance(hexToOklab(hex1), hexToOklab(hex2));
 }
 
+// ── OKLCH (perceptually uniform hue rotation) ───────────────
+
+export function oklabToOklch({ L, a, b }: OKLab): OKLCH {
+  const C = Math.sqrt(a * a + b * b);
+  const h = C < 1e-8 ? NaN : ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360;
+  return { L, C, h };
+}
+
+export function oklchToOklab({ L, C, h }: OKLCH): OKLab {
+  const hRad = Number.isNaN(h) ? 0 : (h * Math.PI) / 180;
+  return { L, a: C * Math.cos(hRad), b: C * Math.sin(hRad) };
+}
+
+function delinearize(c: number): number {
+  return c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+}
+
+export function oklabToRgb({ L, a, b }: OKLab): RGB {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.291485548 * b;
+
+  const l = l_ * l_ * l_;
+  const m = m_ * m_ * m_;
+  const s = s_ * s_ * s_;
+
+  const r = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+  const g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+  const bl = -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s;
+
+  return {
+    r: Math.round(Math.max(0, Math.min(1, delinearize(r))) * 255),
+    g: Math.round(Math.max(0, Math.min(1, delinearize(g))) * 255),
+    b: Math.round(Math.max(0, Math.min(1, delinearize(bl))) * 255),
+  };
+}
+
+function isRgbInGamut(rgb: RGB): boolean {
+  return rgb.r >= 0 && rgb.r <= 255 && rgb.g >= 0 && rgb.g <= 255 && rgb.b >= 0 && rgb.b <= 255;
+}
+
+/** Reduce chroma until the OKLCH color fits within sRGB gamut. */
+export function clampChromaToGamut(oklch: OKLCH): OKLCH {
+  if (oklch.C < 1e-8) return { ...oklch, C: 0 };
+  let lo = 0;
+  let hi = oklch.C;
+  let result = { ...oklch, C: 0 };
+  for (let i = 0; i < 20; i++) {
+    const mid = (lo + hi) / 2;
+    const candidate = { ...oklch, C: mid };
+    const rgb = oklabToRgb(oklchToOklab(candidate));
+    if (isRgbInGamut(rgb)) {
+      result = candidate;
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  return result;
+}
+
+export function oklchToHex(oklch: OKLCH): string {
+  const clamped = clampChromaToGamut(oklch);
+  return rgbToHex(oklabToRgb(oklchToOklab(clamped)));
+}
+
+export function hexToOklch(hex: string): OKLCH {
+  return oklabToOklch(hexToOklab(hex));
+}
+
+// ── Undertone classification (warm / cool / neutral) ─────────
+
+export type Undertone = "warm" | "cool" | "neutral";
+
+/**
+ * Compute a warmth score from an OKLAB color.
+ * Positive = warm, negative = cool, near-zero = neutral.
+ *
+ * Uses the OKLAB `b` axis (blue↔yellow) as primary signal
+ * and `a` axis (green↔red) as secondary warmth contributor.
+ * Low-chroma colors (greys, whites, blacks) are classified neutral
+ * regardless of hue lean.
+ */
+export function warmthScore(oklab: OKLab): number {
+  // b > 0 = yellow lean (warm), b < 0 = blue lean (cool)
+  // a > 0 = red lean (warm accent), a < 0 = green lean (cool accent)
+  return oklab.b * 1.0 + oklab.a * 0.5;
+}
+
+/**
+ * Classify a hex color as warm, cool, or neutral.
+ *
+ * Thresholds tuned against common nail polish colors:
+ * - Chroma below 0.04 → neutral (greys, whites, blacks, taupes)
+ * - Warmth score > 0.015 → warm
+ * - Warmth score < -0.015 → cool
+ * - Otherwise → neutral
+ */
+export function undertone(hex: string): Undertone {
+  const lab = hexToOklab(hex);
+
+  // Chroma = distance from the neutral axis in a-b plane
+  const chroma = Math.sqrt(lab.a ** 2 + lab.b ** 2);
+  if (chroma < 0.04) return "neutral";
+
+  const score = warmthScore(lab);
+  if (score > 0.015) return "warm";
+  if (score < -0.015) return "cool";
+  return "neutral";
+}
+
+/**
+ * Analyze a collection of hex colors and return the undertone breakdown.
+ */
+export function undertoneBreakdown(hexColors: string[]): {
+  warm: number;
+  cool: number;
+  neutral: number;
+  dominant: Undertone;
+} {
+  const counts = { warm: 0, cool: 0, neutral: 0 };
+  for (const hex of hexColors) {
+    counts[undertone(hex)]++;
+  }
+  const dominant: Undertone =
+    counts.warm >= counts.cool && counts.warm >= counts.neutral
+      ? "warm"
+      : counts.cool >= counts.neutral
+        ? "cool"
+        : "neutral";
+  return { ...counts, dominant };
+}
+
+export const HUE_FAMILY_ORDER: HueFamily[] = [
+  "reds",
+  "oranges-corals",
+  "yellows-golds",
+  "greens",
+  "blues-teals",
+  "purples-violets",
+  "pinks-magentas",
+  "neutrals",
+];
+
+export const LIGHTNESS_BAND_ORDER: LightnessBand[] = ["dark", "medium", "light"];
+
+function classifyHueFamily(oklch: OKLCH): HueFamily {
+  if (oklch.C < 0.04 || Number.isNaN(oklch.h)) return "neutrals";
+
+  const hue = oklch.h;
+  if (hue >= 350 || hue < 10) return "reds";
+  if (hue >= 10 && hue < 40) return "oranges-corals";
+  if (hue >= 40 && hue < 80) return "yellows-golds";
+  if (hue >= 80 && hue < 170) return "greens";
+  if (hue >= 170 && hue < 260) return "blues-teals";
+  if (hue >= 260 && hue < 310) return "purples-violets";
+  return "pinks-magentas";
+}
+
+function classifyLightnessBand(L: number): LightnessBand {
+  if (L < 0.38) return "dark";
+  if (L < 0.68) return "medium";
+  return "light";
+}
+
+/**
+ * Analyze hue/lightness coverage for owned colors and surface gaps.
+ */
+export function analyzeCollectionGaps(hexColors: string[]): CollectionGapAnalysis {
+  const counts = new Map<string, number>();
+  for (const hueFamily of HUE_FAMILY_ORDER) {
+    for (const lightnessBand of LIGHTNESS_BAND_ORDER) {
+      counts.set(`${hueFamily}:${lightnessBand}`, 0);
+    }
+  }
+
+  for (const hex of hexColors) {
+    if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) continue;
+    const oklch = hexToOklch(hex);
+    const hueFamily = classifyHueFamily(oklch);
+    const lightnessBand = classifyLightnessBand(oklch.L);
+    const key = `${hueFamily}:${lightnessBand}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  const cells: CollectionGapCell[] = [];
+  for (const hueFamily of HUE_FAMILY_ORDER) {
+    for (const lightnessBand of LIGHTNESS_BAND_ORDER) {
+      cells.push({
+        hueFamily,
+        lightnessBand,
+        count: counts.get(`${hueFamily}:${lightnessBand}`) ?? 0,
+      });
+    }
+  }
+
+  const missing = cells.filter((cell) => cell.count === 0);
+  const avgPerCell = hexColors.length / Math.max(cells.length, 1);
+  const lowThreshold = Math.max(1, Math.floor(avgPerCell * 0.5));
+  const underrepresented = cells.filter(
+    (cell) => cell.count > 0 && cell.count <= lowThreshold,
+  );
+
+  return { cells, missing, underrepresented };
+}
+
 // ── Complementary color ──────────────────────────────────────
 
-/** Rotate hue by 180° to get the complementary color */
+/** Rotate hue by 180° in OKLCH for perceptually uniform complement */
 export function complementaryHex(hex: string): string {
-  const hsl = hexToHsl(hex);
-  return hslToHex({ ...hsl, h: (hsl.h + 180) % 360 });
+  const oklch = hexToOklch(hex);
+  return oklchToHex({ ...oklch, h: Number.isNaN(oklch.h) ? oklch.h : (oklch.h + 180) % 360 });
 }
