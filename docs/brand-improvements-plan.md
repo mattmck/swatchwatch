@@ -19,6 +19,9 @@
 | **Route structure** | `(marketing)/` for landing page, `(app)/` for authenticated routes |
 | **Landing page** | Hero, features grid, color showcase, stats, CTA footer |
 | **App shell** | Lucide icons, brand wordmark in sidebar, `/dashboard` route |
+| **Dashboard stats** | KPI cards now have gradient accent rails, Lucide icons, and text-gradient values. |
+| **Add Polish form** | Quick color swatch palette, gradient-filled rating stars, and gradient CTA button. |
+| **Collection filters** | Checkbox filters replaced with pill toggles that reuse the branded button styling. |
 
 ---
 
@@ -45,16 +48,16 @@
 ## Phase B: Component Refinement (medium effort)
 
 ### B1. Branded stat cards on Dashboard
-- Current stats cards are plain white `<Card>`s — functional but flat
-- Add subtle gradient border or left-accent stripe in brand pink/purple
-- Stat value could use `text-gradient-brand` for visual pop
-- Icons in stat cards (Total Polishes → Droplets, Brands → Building2, Avg Rating → Star, Top Finish → Sparkles)
+- [x] Subtle gradient border/left accent stripe in brand pink/purple
+- [x] Stat values use `text-gradient-brand` for visual pop
+- [x] Icons in stat cards (Droplets, Building2, Star, Sparkles)
 
 ### B2. Polish list table visual upgrade
 - Add row hover effect with faint pink tint (`hover:bg-brand-pink-light/20`)
 - Color swatch column: make the dot slightly larger, add ring shadow
 - Finish badge: use brand-colored variants instead of default gray secondary
 - Consider sticky header row with glass effect
+- [x] Filters now use branded pill toggles with shared button micro-interactions
 
 ### B3. Polish detail page enhancements
 - Hero-style color display: large swatch as background gradient behind polish name
@@ -68,10 +71,10 @@
 - Selected color should glow (`.shadow-glow-brand`)
 
 ### B5. Form styling (Add Polish page)
-- Input focus rings already use brand ring color from theme — verify this renders well
-- Color picker integration: custom swatch grid with brand-styled selected state
-- Star rating: replace text stars with SVG stars, filled in brand pink gradient
-- Submit button: use `.bg-gradient-brand` for the primary CTA
+- [x] Input focus rings already use brand ring color from theme (no change needed)
+- [x] Color picker integration: quick swatch grid with brand-styled selected state
+- [x] Star rating: custom gradient SVG stars replace text glyphs
+- [x] Submit button uses `.bg-gradient-brand` for the primary CTA
 
 ---
 
