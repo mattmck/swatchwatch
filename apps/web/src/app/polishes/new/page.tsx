@@ -1,17 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { CaptureQuestion, CaptureStatus, PolishFinish } from "swatchwatch-shared";
+import type { PolishFinish } from "swatchwatch-shared";
 import { FINISHES } from "@/lib/constants";
-import {
-  addCaptureFrame,
-  answerCaptureQuestion,
-  createPolish,
-  finalizeCapture,
-  getCaptureStatus,
-  startCapture,
-} from "@/lib/api";
+import { createPolish } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -47,166 +41,10 @@ export default function NewPolishPage() {
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [captureId, setCaptureId] = useState<string | null>(null);
-  const [captureStatus, setCaptureStatus] = useState<CaptureStatus | null>(null);
-  const [captureQuestion, setCaptureQuestion] = useState<CaptureQuestion | null>(null);
-  const [captureMetadata, setCaptureMetadata] = useState<Record<string, unknown> | null>(null);
-  const [captureFrameUrl, setCaptureFrameUrl] = useState("");
-  const [captureFrameType, setCaptureFrameType] = useState<"barcode" | "label" | "color" | "other">("label");
-  const [captureBusy, setCaptureBusy] = useState(false);
-  const [captureError, setCaptureError] = useState<string | null>(null);
-  const [captureAnswerInput, setCaptureAnswerInput] = useState("");
-  const matchedInventoryId = captureMetadata?.inventoryItemId;
 
   function update(field: string, value: string | number) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
-
-  async function runCaptureAction(action: () => Promise<void>) {
-    setCaptureBusy(true);
-    setCaptureError(null);
-    try {
-      await action();
-    } catch (err: unknown) {
-      setCaptureError(err instanceof Error ? err.message : "Capture request failed");
-    } finally {
-      setCaptureBusy(false);
-    }
-  }
-
-  async function handleStartCapture() {
-    await runCaptureAction(async () => {
-      const res = await startCapture({
-        metadata: {
-          source: "web-polishes-new",
-          brand: form.brand || undefined,
-          shadeName: form.name || undefined,
-          finish: form.finish || undefined,
-          collection: form.collection || undefined,
-        },
-      });
-      setCaptureId(res.captureId);
-      setCaptureStatus(res.status);
-      setCaptureQuestion(null);
-      setCaptureMetadata(null);
-    });
-  }
-
-  async function handleMatchFromFormFields() {
-    await runCaptureAction(async () => {
-      const started = await startCapture({
-        metadata: {
-          source: "web-polishes-new-text-only",
-          brand: form.brand || undefined,
-          shadeName: form.name || undefined,
-          finish: form.finish || undefined,
-          collection: form.collection || undefined,
-        },
-      });
-      setCaptureId(started.captureId);
-      setCaptureMetadata(null);
-
-      const finalized = await finalizeCapture(started.captureId);
-      setCaptureStatus(finalized.status);
-      setCaptureQuestion(finalized.question || null);
-
-      const status = await getCaptureStatus(started.captureId);
-      setCaptureMetadata(status.metadata || null);
-    });
-  }
-
-  async function handleAddCaptureFrame() {
-    if (!captureId) return;
-    await runCaptureAction(async () => {
-      const res = await addCaptureFrame(captureId, {
-        frameType: captureFrameType,
-        imageBlobUrl: captureFrameUrl || "https://example.com/mock-frame.jpg",
-      });
-      setCaptureStatus(res.status);
-    });
-  }
-
-  async function handleFinalizeCapture() {
-    if (!captureId) return;
-    await runCaptureAction(async () => {
-      const res = await finalizeCapture(captureId);
-      setCaptureStatus(res.status);
-      setCaptureQuestion(res.question || null);
-      if (res.status === "matched" || res.status === "unmatched") {
-        const status = await getCaptureStatus(captureId);
-        setCaptureMetadata(status.metadata || null);
-      }
-    });
-  }
-
-  async function handleRefreshCaptureStatus() {
-    if (!captureId) return;
-    await runCaptureAction(async () => {
-      const res = await getCaptureStatus(captureId);
-      setCaptureStatus(res.status);
-      setCaptureQuestion(res.question || null);
-      setCaptureMetadata(res.metadata || null);
-    });
-  }
-
-  async function handleAnswerSkip() {
-    if (!captureId || !captureQuestion) return;
-    await runCaptureAction(async () => {
-      const res = await answerCaptureQuestion(captureId, {
-        questionId: captureQuestion.id,
-        answer: "skip",
-      });
-      setCaptureStatus(res.status);
-      setCaptureQuestion(res.question || null);
-      if (res.status === "matched" || res.status === "unmatched") {
-        const status = await getCaptureStatus(captureId);
-        setCaptureMetadata(status.metadata || null);
-      }
-    });
-  }
-
-  async function handleAnswerSubmit() {
-    if (!captureId || !captureQuestion || !captureAnswerInput.trim()) return;
-    await runCaptureAction(async () => {
-      const res = await answerCaptureQuestion(captureId, {
-        questionId: captureQuestion.id,
-        answer: captureAnswerInput.trim(),
-      });
-      setCaptureStatus(res.status);
-      setCaptureQuestion(res.question || null);
-      setCaptureAnswerInput("");
-      if (res.status === "matched" || res.status === "unmatched") {
-        const status = await getCaptureStatus(captureId);
-        setCaptureMetadata(status.metadata || null);
-      }
-    });
-  }
-
-  useEffect(() => {
-    if (!captureId || captureStatus !== "processing") {
-      return;
-    }
-
-    let cancelled = false;
-
-    const intervalId = window.setInterval(async () => {
-      try {
-        const res = await getCaptureStatus(captureId);
-        if (cancelled) return;
-        setCaptureStatus(res.status);
-        setCaptureQuestion(res.question || null);
-        setCaptureMetadata(res.metadata || null);
-      } catch (err: unknown) {
-        if (cancelled) return;
-        setCaptureError(err instanceof Error ? err.message : "Failed to refresh capture status");
-      }
-    }, 3000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, [captureId, captureStatus]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -245,16 +83,27 @@ export default function NewPolishPage() {
         </p>
       </div>
 
+      <div className="flex items-center justify-between rounded-lg border border-muted bg-muted/30 p-4">
+        <div>
+          <p className="text-sm font-medium">Need faster onboarding?</p>
+          <p className="text-xs text-muted-foreground">
+            Use Rapid Add for capture-driven matching and one-tap inventory adds.
+          </p>
+        </div>
+        <Button asChild variant="outline" size="sm">
+          <Link href="/rapid-add">Open Rapid Add</Link>
+        </Button>
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle>Polish Details</CardTitle>
           <CardDescription>
-            Fill in the details below, or use voice input to describe your polish.
+            Fill in the details below to add an item manually.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Brand + Name row */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label htmlFor="brand" className="text-sm font-medium">
@@ -282,7 +131,6 @@ export default function NewPolishPage() {
               </div>
             </div>
 
-            {/* Color + Hex row */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label htmlFor="color" className="text-sm font-medium">
@@ -317,7 +165,6 @@ export default function NewPolishPage() {
               </div>
             </div>
 
-            {/* Finish + Collection row */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Finish</label>
@@ -350,7 +197,6 @@ export default function NewPolishPage() {
               </div>
             </div>
 
-            {/* Quantity + Size row */}
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
                 <label htmlFor="quantity" className="text-sm font-medium">
@@ -361,7 +207,7 @@ export default function NewPolishPage() {
                   type="number"
                   min={1}
                   value={form.quantity}
-                  onChange={(e) => update("quantity", parseInt(e.target.value) || 1)}
+                  onChange={(e) => update("quantity", parseInt(e.target.value, 10) || 1)}
                 />
               </div>
               <div className="space-y-2">
@@ -392,7 +238,6 @@ export default function NewPolishPage() {
               </div>
             </div>
 
-            {/* Notes */}
             <div className="space-y-2">
               <label htmlFor="notes" className="text-sm font-medium">
                 Notes
@@ -407,7 +252,6 @@ export default function NewPolishPage() {
               />
             </div>
 
-            {/* Tags */}
             <div className="space-y-2">
               <label htmlFor="tags" className="text-sm font-medium">
                 Tags
@@ -420,124 +264,6 @@ export default function NewPolishPage() {
               />
             </div>
 
-            {/* Rapid Add scaffold */}
-            <div className="space-y-3 rounded-lg border border-muted p-4">
-              <p className="text-sm font-medium">Rapid Add (Capture Scaffold)</p>
-              <p className="text-xs text-muted-foreground">
-                Temporary UI to exercise /api/capture endpoints while the camera workflow is in progress.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" onClick={handleStartCapture} disabled={captureBusy}>
-                  Start Session
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleMatchFromFormFields}
-                  disabled={captureBusy}
-                >
-                  Match From Form Fields
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleRefreshCaptureStatus}
-                  disabled={captureBusy || !captureId}
-                >
-                  Refresh Status
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleFinalizeCapture}
-                  disabled={captureBusy || !captureId}
-                >
-                  Finalize
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleAnswerSkip}
-                  disabled={captureBusy || !captureId || !captureQuestion}
-                >
-                  Answer "Skip"
-                </Button>
-              </div>
-              <div className="grid grid-cols-1 gap-2 md:grid-cols-[120px_1fr_auto]">
-                <select
-                  value={captureFrameType}
-                  onChange={(e) => setCaptureFrameType(e.target.value as "barcode" | "label" | "color" | "other")}
-                  className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-                >
-                  <option value="barcode">barcode</option>
-                  <option value="label">label</option>
-                  <option value="color">color</option>
-                  <option value="other">other</option>
-                </select>
-                <Input
-                  value={captureFrameUrl}
-                  onChange={(e) => setCaptureFrameUrl(e.target.value)}
-                  placeholder="Optional frame URL (uses mock URL if empty)"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleAddCaptureFrame}
-                  disabled={captureBusy || !captureId}
-                >
-                  Add Frame
-                </Button>
-              </div>
-              <div className="text-xs text-muted-foreground">
-                <p>Capture ID: {captureId || "not started"}</p>
-                <p>Status: {captureStatus || "n/a"}</p>
-                {captureStatus === "processing" && <p>Polling status every 3s…</p>}
-                {captureQuestion && <p>Open question: {captureQuestion.prompt}</p>}
-                {captureStatus === "matched" && typeof captureMetadata?.inventoryItemId !== "undefined" && (
-                  <p>Inventory item created: {String(captureMetadata.inventoryItemId)}</p>
-                )}
-              </div>
-              {captureQuestion && (
-                <div className="space-y-2 rounded-md border border-border/50 p-3">
-                  <p className="text-xs font-medium text-foreground">Question Answer</p>
-                  {captureQuestion.options?.length ? (
-                    <p className="text-xs text-muted-foreground">
-                      Options: {captureQuestion.options.join(" | ")}
-                    </p>
-                  ) : null}
-                  <div className="flex gap-2">
-                    <Input
-                      value={captureAnswerInput}
-                      onChange={(e) => setCaptureAnswerInput(e.target.value)}
-                      placeholder="Enter answer (e.g. 21 or brand + shade)"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={handleAnswerSubmit}
-                      disabled={captureBusy || !captureAnswerInput.trim()}
-                    >
-                      Submit
-                    </Button>
-                  </div>
-                </div>
-              )}
-              {captureError && (
-                <p className="text-xs text-destructive">{captureError}</p>
-              )}
-              {captureStatus === "matched" && typeof matchedInventoryId !== "undefined" && (
-                <Button
-                  type="button"
-                  variant="default"
-                  size="sm"
-                  onClick={() => router.push(`/polishes/${String(matchedInventoryId)}`)}
-                >
-                  View Added Polish
-                </Button>
-              )}
-            </div>
-
-            {/* Actions */}
             {submitError && (
               <p className="text-sm text-destructive">{submitError}</p>
             )}
