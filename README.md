@@ -70,13 +70,23 @@ npm run dev                                # Functions (7071) + Web (3000)
 | `npm run dev` | Start functions + web concurrently |
 | `npm run dev:web` | Next.js dev server (port 3000) |
 | `npm run dev:mobile` | Expo start |
-| `npm run dev:functions` | Azure Functions Core Tools (`func start`) |
+| `npm run dev:functions` | Build functions (`tsc`) then start Azure Functions Core Tools with local dev CORS (`func start --cors "*"`). |
 | `npm run dev:db` | Start local Postgres via Docker Compose |
 | `npm run dev:db:down` | Stop local Postgres |
 | `npm run build:web` | Next.js production build |
 | `npm run build:functions` | TypeScript compile for functions |
 | `npm run lint` | ESLint across all workspaces |
 | `npm run typecheck` | `tsc --noEmit` across all workspaces |
+
+## Agent Worktrees
+
+Use a separate worktree per branch when running parallel agent work:
+
+```bash
+scripts/agent-worktree.sh feat/42-new-feature
+```
+
+The script always creates `../swatchwatch-worktrees/<branch-name>` relative to the primary checkout, copies local `.env` and `packages/functions/local.settings.json` when present, then runs `npm ci` and builds shared types.
 
 ## Project Structure — Web App
 
@@ -88,7 +98,7 @@ The web app is the most developed part of the project. Key pages:
 | `/polishes` | `apps/web/src/app/polishes/page.tsx` | Collection table — search, filter by brand/finish, sortable columns |
 | `/polishes/new` | `apps/web/src/app/polishes/new/page.tsx` | Add polish form — color picker, star rating, plus Rapid Add capture scaffold controls |
 | `/polishes/[id]` | `apps/web/src/app/polishes/[id]/page.tsx` | Polish detail — all fields, photo placeholders, edit/delete |
-| `/polishes/search` | `apps/web/src/app/polishes/search/page.tsx` | Color wheel search — hover to preview, click to lock, similar/complementary modes |
+| `/polishes/search` | `apps/web/src/app/polishes/search/page.tsx` | 3-column color workflow: wheel/source controls, filtered match table, desired-color bar, and ranked harmony recommendations |
 
 
 **UI stack:** [shadcn/ui](https://ui.shadcn.com/) components in `src/components/ui/`, custom components in `src/components/`, Tailwind v4 styling.

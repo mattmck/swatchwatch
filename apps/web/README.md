@@ -14,12 +14,12 @@ npm run build:web        # Production build
 
 ```
 src/app/
-├── (dashboard)/page.tsx       → /           Dashboard with stats, recent additions
+├── (dashboard)/page.tsx       → /           Dashboard with stats, recent additions, collection gap analysis
 ├── polishes/
 │   ├── page.tsx               → /polishes         Inventory table (search, filter, sort)
 │   ├── new/page.tsx           → /polishes/new     Add polish form + Rapid Add capture scaffold controls
 │   ├── [id]/page.tsx          → /polishes/:id     Polish detail view
-│   └── search/page.tsx        → /polishes/search  Color wheel search
+│   └── search/page.tsx        → /polishes/search  Responsive color workflow: wheel + harmonies stack in left column on desktop, filtered match table on right, quick "Add to Desired" from selected wheel color, and desired/recommended status icons (Have/Buy/Virtual)
 ├── layout.tsx                 → Root layout (AppShell wrapper)
 └── globals.css                → Tailwind v4 + shadcn/ui CSS variables
 ```
@@ -35,8 +35,8 @@ The `(dashboard)` route group provides the homepage without adding `/dashboard` 
 | `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) |
 | `color-dot.tsx` | Colored circle swatch — `sm`, `md`, `lg` sizes |
 | `color-wheel.tsx` | Canvas HSL color wheel with hover preview, click selection, snap-to-collection dots, harmony target diamonds, and external hover marker for bidirectional color highlighting |
-| `color-search-results.tsx` | Polish list sorted by OKLAB color distance, with harmony match indicators and bidirectional hover callbacks |
-| `harmony-palette.tsx` | Two-bar harmony display: "Target" bar (ideal harmony colors) + "My Collection" bar (closest owned polish for each target). Both bars support hover → wheel marker and click → select. |
+| `color-search-results.tsx` | Polish list sorted by OKLAB color distance, with harmony match indicators, bidirectional hover callbacks, per-row desired action aligned with quantity controls, and `brand · collection` metadata |
+| `harmony-palette.tsx` | Reusable harmony palette component kept for composition and experiments |
 
 ### shadcn/ui (`src/components/ui/`)
 
@@ -54,9 +54,9 @@ cd apps/web && npx shadcn@latest add <component-name>
 |------|---------|
 | `utils.ts` | `cn()` — Tailwind class merging (shadcn standard) |
 | `constants.ts` | `FINISHES` — canonical finish types for dropdowns |
-| `color-utils.ts` | Hex↔HSL↔RGB↔OKLAB↔OKLCH conversions, `colorDistance()`, `complementaryHex()`, gamut clamping |
-| `color-harmonies.ts` | `HARMONY_TYPES`, `HarmonyType`, `generateHarmonyColors()` — 7 color theory harmonies via OKLCH |
-| `api.ts` | Typed fetch wrappers: `listPolishes`, `getPolish`, `createPolish`, `updatePolish`, `deletePolish`, `searchCatalog`, `getShade`, `startCapture`, `addCaptureFrame`, `finalizeCapture`, `getCaptureStatus`, `answerCaptureQuestion` |
+| `color-utils.ts` | Hex↔HSL↔RGB↔OKLAB↔OKLCH conversions, `colorDistance()`, `complementaryHex()`, gamut clamping, undertone and collection gap analysis helpers |
+| `color-harmonies.ts` | `HARMONY_TYPES`, `HarmonyType`, `generateHarmonyColors()`, `generateHarmonyPalette()`, `suggestPaletteCompletion()` — OKLCH harmony generation + palette recommendation primitives |
+| `api.ts` | Typed fetch wrappers: `listPolishes`, `getPolish`, `createPolish`, `updatePolish`, `deletePolish`, `searchCatalog`, `getShade` |
 
 ## Conventions
 

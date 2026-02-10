@@ -2,8 +2,10 @@ interface HarmonyPaletteProps {
   sourceHex: string;
   harmonyColors: string[];
   label: string;
-  /** Closest owned polish hex for each slot [source, ...harmonyColors]. null = no match. */
-  collectionColors?: (string | null)[];
+  /** Closest match hex for each slot [source, ...harmonyColors]. null = no match. */
+  matchColors?: (string | null)[];
+  /** Label for the scoped match bar (e.g. "My Collection" or "All Polishes"). */
+  matchLabel?: string;
   /** Currently focused target hex (for visual highlight) */
   focusedTargetHex?: string | null;
   onSwatchHover?: (hex: string) => void;
@@ -15,7 +17,8 @@ export function HarmonyPalette({
   sourceHex,
   harmonyColors,
   label,
-  collectionColors = [],
+  matchColors = [],
+  matchLabel = "My Collection",
   focusedTargetHex,
   onSwatchHover,
   onSwatchLeave,
@@ -50,13 +53,13 @@ export function HarmonyPalette({
         </div>
       </div>
 
-      {/* Collection bar — closest owned polish for each target */}
-      {collectionColors.length > 0 && (
+      {/* Scope bar — closest scoped polish for each target */}
+      {matchColors.length > 0 && (
         <div className="space-y-1">
-          <p className="text-xs text-muted-foreground">My Collection</p>
+          <p className="text-xs text-muted-foreground">{matchLabel}</p>
           <div className="flex h-8 overflow-hidden rounded-lg border border-border">
             {targetColors.map((_, i) => {
-              const matchHex = collectionColors[i] ?? null;
+              const matchHex = matchColors[i] ?? null;
               return (
                 <div
                   key={i}
@@ -75,10 +78,13 @@ export function HarmonyPalette({
                       ? undefined
                       : "repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(128,128,128,0.15) 4px, rgba(128,128,128,0.15) 8px)",
                   }}
-                  title={matchHex ? `Closest owned: ${matchHex}` : "No match in collection"}
+                  title={matchHex ? `Closest in ${matchLabel}: ${matchHex}` : `No match in ${matchLabel.toLowerCase()}`}
                   onMouseEnter={() => matchHex && onSwatchHover?.(matchHex)}
                   onMouseLeave={onSwatchLeave}
-                  onClick={() => matchHex && onSwatchClick?.(matchHex)}
+                  onClick={() => {
+                    if (!matchHex) return;
+                    onSwatchClick?.(matchHex);
+                  }}
                 />
               );
             })}
