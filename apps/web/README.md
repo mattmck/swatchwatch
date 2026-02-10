@@ -17,7 +17,7 @@ src/app/
 ├── (dashboard)/page.tsx       → /           Dashboard with stats, recent additions
 ├── polishes/
 │   ├── page.tsx               → /polishes         Inventory table (search, filter, sort)
-│   ├── new/page.tsx           → /polishes/new     Add polish form
+│   ├── new/page.tsx           → /polishes/new     Add polish form + Rapid Add capture scaffold controls
 │   ├── [id]/page.tsx          → /polishes/:id     Polish detail view
 │   └── search/page.tsx        → /polishes/search  Color wheel search
 ├── layout.tsx                 → Root layout (AppShell wrapper)
