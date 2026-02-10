@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
+import { PoolClient } from "pg";
 import {
   CaptureAnswerRequest,
   CaptureAnswerResponse,
@@ -516,6 +517,80 @@ async function getCaptureSession(captureId: string, userId: number): Promise<Cap
   return result.rows[0] ?? null;
 }
 
+async function addToInventoryFromMatch(
+  client: PoolClient,
+  userId: number,
+  entityType: "shade" | "sku",
+  entityId: number
+): Promise<number> {
+  if (entityType === "sku") {
+    const existing = await client.query<{ id: number }>(
+      `SELECT inventory_item_id AS id
+       FROM user_inventory_item
+       WHERE user_id = $1 AND sku_id = $2
+       ORDER BY created_at ASC
+       LIMIT 1`,
+      [userId, entityId]
+    );
+
+    if (existing.rows.length > 0) {
+      await client.query(
+        `UPDATE user_inventory_item
+         SET quantity = quantity + 1,
+             updated_at = now()
+         WHERE inventory_item_id = $1`,
+        [existing.rows[0].id]
+      );
+      return existing.rows[0].id;
+    }
+
+    const skuResult = await client.query<{ shadeId: number | null }>(
+      `SELECT shade_id AS "shadeId"
+       FROM sku
+       WHERE sku_id = $1`,
+      [entityId]
+    );
+    const shadeId = skuResult.rows[0]?.shadeId ?? null;
+
+    const inserted = await client.query<{ id: number }>(
+      `INSERT INTO user_inventory_item (user_id, sku_id, shade_id, quantity, notes)
+       VALUES ($1, $2, $3, 1, $4)
+       RETURNING inventory_item_id AS id`,
+      [userId, entityId, shadeId, "Added via Rapid Add capture"]
+    );
+
+    return inserted.rows[0].id;
+  }
+
+  const existing = await client.query<{ id: number }>(
+    `SELECT inventory_item_id AS id
+     FROM user_inventory_item
+     WHERE user_id = $1 AND shade_id = $2 AND sku_id IS NULL
+     ORDER BY created_at ASC
+     LIMIT 1`,
+    [userId, entityId]
+  );
+
+  if (existing.rows.length > 0) {
+    await client.query(
+      `UPDATE user_inventory_item
+       SET quantity = quantity + 1,
+           updated_at = now()
+       WHERE inventory_item_id = $1`,
+      [existing.rows[0].id]
+    );
+    return existing.rows[0].id;
+  }
+
+  const inserted = await client.query<{ id: number }>(
+    `INSERT INTO user_inventory_item (user_id, shade_id, quantity, notes)
+     VALUES ($1, $2, 1, $3)
+     RETURNING inventory_item_id AS id`,
+    [userId, entityId, "Added via Rapid Add capture"]
+  );
+  return inserted.rows[0].id;
+}
+
 async function getOpenQuestion(sessionId: number): Promise<CaptureQuestionRow | undefined> {
   const result = await query<CaptureQuestionRow>(
     `SELECT
@@ -701,6 +776,13 @@ async function finalizeCapture(
 
     if (outcome.status === "matched") {
       await transaction(async (client) => {
+        const inventoryItemId = await addToInventoryFromMatch(
+          client,
+          userId,
+          outcome.entityType,
+          outcome.entityId
+        );
+
         await client.query(
           `UPDATE capture_question
            SET status = 'expired'
@@ -715,10 +797,19 @@ async function finalizeCapture(
                top_confidence = $2,
                accepted_entity_type = $3,
                accepted_entity_id = $4,
-               metadata = COALESCE(metadata, '{}'::jsonb) || $5::jsonb,
+               metadata = COALESCE(metadata, '{}'::jsonb)
+                 || $5::jsonb
+                 || jsonb_build_object('inventoryItemId', $6),
                updated_at = now()
            WHERE capture_session_id = $1`,
-          [session.id, outcome.confidence, outcome.entityType, outcome.entityId, outcome.metadataPatch]
+          [
+            session.id,
+            outcome.confidence,
+            outcome.entityType,
+            outcome.entityId,
+            outcome.metadataPatch,
+            inventoryItemId,
+          ]
         );
       });
 
@@ -946,6 +1037,13 @@ async function answerCaptureQuestion(
 
       if (selectedShadeId && body.answer !== "skip") {
         updatedStatus = "matched";
+        const inventoryItemId = await addToInventoryFromMatch(
+          client,
+          userId,
+          "shade",
+          selectedShadeId
+        );
+
         await client.query(
           `UPDATE capture_session
            SET status = 'matched',
@@ -957,10 +1055,11 @@ async function answerCaptureQuestion(
                       'answers',
                       COALESCE(metadata->'answers', '{}'::jsonb)
                         || jsonb_build_object($3::text, $4::jsonb)
-                    ),
+                    )
+                 || jsonb_build_object('inventoryItemId', $5),
                updated_at = now()
            WHERE capture_session_id = $1`,
-          [session.id, selectedShadeId, openQuestion.key, answerJson]
+          [session.id, selectedShadeId, openQuestion.key, answerJson, inventoryItemId]
         );
 
         await client.query(

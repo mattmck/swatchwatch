@@ -36,6 +36,12 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 
 All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpRequest, context: InvocationContext)`.
 
+### Capture Endpoint Behavior (Current)
+
+- `POST /api/capture/{captureId}/finalize` now runs a deterministic resolver (`gtin` barcode lookup first, then shade similarity).
+- On `matched`, the function also creates or increments a `user_inventory_item` for the authenticated user.
+- On medium/low confidence, it returns `needs_question` with a persisted capture question.
+
 ### Authentication
 
 Polish CRUD and capture session endpoints require a `Bearer` token in the `Authorization` header. The auth middleware (`src/lib/auth.ts`) supports two modes:

@@ -937,7 +937,15 @@ describe("functions/capture — finalize/status/answer workflow", () => {
     };
     transactionMock = async (cb) =>
       cb({
-        query: async () => ({ rows: [] }),
+        query: async (text) => {
+          if (text.includes("SELECT inventory_item_id AS id")) {
+            return { rows: [] };
+          }
+          if (text.includes("INSERT INTO user_inventory_item")) {
+            return { rows: [{ id: 701 }] };
+          }
+          return { rows: [] };
+        },
       });
 
     const handler = registeredRoutes["capture-finalize"].handler;
@@ -1066,7 +1074,15 @@ describe("functions/capture — finalize/status/answer workflow", () => {
     };
     transactionMock = async (cb) =>
       cb({
-        query: async () => ({ rows: [] }),
+        query: async (text) => {
+          if (text.includes("SELECT inventory_item_id AS id")) {
+            return { rows: [] };
+          }
+          if (text.includes("INSERT INTO user_inventory_item")) {
+            return { rows: [{ id: 702 }] };
+          }
+          return { rows: [] };
+        },
       });
 
     const handler = registeredRoutes["capture-answer"].handler;
