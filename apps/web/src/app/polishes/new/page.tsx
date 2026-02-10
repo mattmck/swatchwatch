@@ -50,6 +50,7 @@ export default function NewPolishPage() {
   const [captureId, setCaptureId] = useState<string | null>(null);
   const [captureStatus, setCaptureStatus] = useState<CaptureStatus | null>(null);
   const [captureQuestion, setCaptureQuestion] = useState<CaptureQuestion | null>(null);
+  const [captureMetadata, setCaptureMetadata] = useState<Record<string, unknown> | null>(null);
   const [captureFrameUrl, setCaptureFrameUrl] = useState("");
   const [captureFrameType, setCaptureFrameType] = useState<"barcode" | "label" | "color" | "other">("label");
   const [captureBusy, setCaptureBusy] = useState(false);
@@ -86,6 +87,7 @@ export default function NewPolishPage() {
       setCaptureId(res.captureId);
       setCaptureStatus(res.status);
       setCaptureQuestion(null);
+      setCaptureMetadata(null);
     });
   }
 
@@ -106,6 +108,10 @@ export default function NewPolishPage() {
       const res = await finalizeCapture(captureId);
       setCaptureStatus(res.status);
       setCaptureQuestion(res.question || null);
+      if (res.status === "matched" || res.status === "unmatched") {
+        const status = await getCaptureStatus(captureId);
+        setCaptureMetadata(status.metadata || null);
+      }
     });
   }
 
@@ -115,6 +121,7 @@ export default function NewPolishPage() {
       const res = await getCaptureStatus(captureId);
       setCaptureStatus(res.status);
       setCaptureQuestion(res.question || null);
+      setCaptureMetadata(res.metadata || null);
     });
   }
 
@@ -127,6 +134,10 @@ export default function NewPolishPage() {
       });
       setCaptureStatus(res.status);
       setCaptureQuestion(res.question || null);
+      if (res.status === "matched" || res.status === "unmatched") {
+        const status = await getCaptureStatus(captureId);
+        setCaptureMetadata(status.metadata || null);
+      }
     });
   }
 
@@ -140,6 +151,10 @@ export default function NewPolishPage() {
       setCaptureStatus(res.status);
       setCaptureQuestion(res.question || null);
       setCaptureAnswerInput("");
+      if (res.status === "matched" || res.status === "unmatched") {
+        const status = await getCaptureStatus(captureId);
+        setCaptureMetadata(status.metadata || null);
+      }
     });
   }
 
@@ -156,6 +171,7 @@ export default function NewPolishPage() {
         if (cancelled) return;
         setCaptureStatus(res.status);
         setCaptureQuestion(res.question || null);
+        setCaptureMetadata(res.metadata || null);
       } catch (err: unknown) {
         if (cancelled) return;
         setCaptureError(err instanceof Error ? err.message : "Failed to refresh capture status");
@@ -445,6 +461,9 @@ export default function NewPolishPage() {
                 <p>Status: {captureStatus || "n/a"}</p>
                 {captureStatus === "processing" && <p>Polling status every 3s…</p>}
                 {captureQuestion && <p>Open question: {captureQuestion.prompt}</p>}
+                {captureStatus === "matched" && typeof captureMetadata?.inventoryItemId !== "undefined" && (
+                  <p>Inventory item created: {String(captureMetadata.inventoryItemId)}</p>
+                )}
               </div>
               {captureQuestion && (
                 <div className="space-y-2 rounded-md border border-border/50 p-3">

@@ -1035,6 +1035,74 @@ describe("functions/capture — finalize/status/answer workflow", () => {
     assert.equal(res.jsonBody.question.key, "candidate_select");
   });
 
+  it("finalize matches by barcode and stores inventory via sku", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let callCount = 0;
+    queryMock = async () => {
+      callCount++;
+      if (callCount === 1) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (callCount === 2) {
+        return {
+          rows: [{
+            id: 11,
+            captureId: "22222222-2222-4222-8222-222222222222",
+            status: "processing",
+            topConfidence: null,
+            acceptedEntityType: null,
+            acceptedEntityId: null,
+            metadata: { gtin: "1234567890123" },
+          }],
+        };
+      }
+      if (callCount === 3) {
+        return { rows: [{ frameType: "barcode", quality: { gtin: "1234567890123" } }] };
+      }
+      if (callCount === 4) {
+        return {
+          rows: [{
+            skuId: "501",
+            shadeId: "21",
+            brand: "OPI",
+            productName: "Big Apple Red",
+            shadeName: "Big Apple Red",
+          }],
+        };
+      }
+      return { rows: [] };
+    };
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text) => {
+          if (text.includes("SELECT inventory_item_id AS id")) {
+            return { rows: [] };
+          }
+          if (text.includes("SELECT shade_id AS \"shadeId\"")) {
+            return { rows: [{ shadeId: 21 }] };
+          }
+          if (text.includes("INSERT INTO user_inventory_item")) {
+            return { rows: [{ id: 703 }] };
+          }
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["capture-finalize"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/capture/22222222-2222-4222-8222-222222222222/finalize",
+        headers: { authorization: "Bearer dev:1" },
+        params: { captureId: "22222222-2222-4222-8222-222222222222" },
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.status, "matched");
+  });
+
   it("answering candidate selection marks capture as matched", async () => {
     process.env.AUTH_DEV_BYPASS = "true";
     let callCount = 0;
