@@ -275,8 +275,8 @@ export default function PolishesPage() {
           className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-pink-soft via-brand-lilac to-brand-purple"
         />
         <Table>
-          <TableHeader>
-            <TableRow>
+          <TableHeader className="sticky top-0 z-10">
+            <TableRow className="glass border-b border-border/60">
               <TableHead className="w-10">Status</TableHead>
               <TableHead>Brand</TableHead>
               <TableHead>Name</TableHead>

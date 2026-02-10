@@ -87,30 +87,55 @@ export default function PolishDetailClient({ id }: { id: string }) {
         </span>
       </nav>
 
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-4">
-          <ColorDot hex={polish.colorHex} size="lg" />
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">{polish.name}</h1>
-            <p className="text-muted-foreground">{polish.brand}</p>
+      {/* Hero color banner */}
+      <div
+        className="relative overflow-hidden rounded-2xl p-6 sm:p-8"
+        style={{
+          background: polish.colorHex
+            ? `linear-gradient(135deg, ${polish.colorHex}33 0%, ${polish.colorHex}11 100%)`
+            : undefined,
+        }}
+      >
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-10 -top-10 size-40 rounded-full opacity-30 blur-3xl"
+          style={{ background: polish.colorHex || "transparent" }}
+        />
+        <div className="relative flex items-start justify-between">
+          <div className="flex items-center gap-4">
+            <div
+              className="size-16 shrink-0 rounded-xl shadow-lg ring-2 ring-white/50"
+              style={{ backgroundColor: polish.colorHex || "#ccc" }}
+            />
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">{polish.name}</h1>
+              <p className="text-muted-foreground">{polish.brand}</p>
+              {polish.colorHex && (
+                <p className="mt-1 font-mono text-xs text-muted-foreground">{polish.colorHex}</p>
+              )}
+            </div>
           </div>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm">
-            Edit
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={handleDelete}
-            disabled={deleting}
-          >
-            {deleting ? "Deleting…" : "Delete"}
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm">
+              Edit
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleDelete}
+              disabled={deleting}
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </Button>
+          </div>
         </div>
       </div>
 
-      <Card>
+      <Card className="relative overflow-hidden">
+        <span
+          aria-hidden
+          className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-pink-soft via-brand-lilac to-brand-purple"
+        />
         <CardHeader>
           <CardTitle>Details</CardTitle>
         </CardHeader>
@@ -132,7 +157,7 @@ export default function PolishDetailClient({ id }: { id: string }) {
               <p className="text-muted-foreground">Finish</p>
               <p className="font-medium">
                 {polish.finish ? (
-                  <Badge variant="secondary">{polish.finish}</Badge>
+                  <Badge className="border border-brand-pink-soft/60 bg-brand-pink-soft/30 text-brand-ink">{polish.finish}</Badge>
                 ) : (
                   "—"
                 )}
@@ -199,7 +224,11 @@ export default function PolishDetailClient({ id }: { id: string }) {
       </Card>
 
       {/* Swatch / photo placeholder */}
-      <Card>
+      <Card className="relative overflow-hidden">
+        <span
+          aria-hidden
+          className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-purple via-brand-lilac to-brand-pink-soft"
+        />
         <CardHeader>
           <CardTitle>Photos</CardTitle>
         </CardHeader>
