@@ -871,6 +871,7 @@ describe("functions/capture — finalize/status/answer workflow", () => {
   it("finalize returns needs_question when no frames exist", async () => {
     process.env.AUTH_DEV_BYPASS = "true";
     let callCount = 0;
+    let capturedMetadataPatch = null;
     queryMock = async () => {
       callCount++;
       if (callCount === 1) {
@@ -880,13 +881,16 @@ describe("functions/capture — finalize/status/answer workflow", () => {
         return { rows: [{ id: 10, captureId: "11111111-1111-4111-8111-111111111111", status: "processing", topConfidence: null, acceptedEntityType: null, acceptedEntityId: null, metadata: null }] };
       }
       if (callCount === 3) {
-        return { rows: [{ totalFrames: "0" }] };
+        return { rows: [] };
       }
       return { rows: [] };
     };
     transactionMock = async (cb) =>
       cb({
-        query: async (text) => {
+        query: async (text, params) => {
+          if (text.includes("SET status = 'needs_question'")) {
+            capturedMetadataPatch = params[2];
+          }
           if (text.includes("INSERT INTO capture_question")) {
             return {
               rows: [{
@@ -918,6 +922,10 @@ describe("functions/capture — finalize/status/answer workflow", () => {
     assert.equal(res.status, 200);
     assert.equal(res.jsonBody.status, "needs_question");
     assert.equal(res.jsonBody.question.key, "capture_frame");
+    assert.ok(capturedMetadataPatch);
+    assert.equal(capturedMetadataPatch.pipeline.finalize.attempt, 1);
+    assert.equal(capturedMetadataPatch.pipeline.finalize.outcome, "needs_question");
+    assert.equal(capturedMetadataPatch.resolver.step, "awaiting_frames");
   });
 
   it("status returns open question payload", async () => {
@@ -994,6 +1002,7 @@ describe("functions/capture — finalize/status/answer workflow", () => {
   it("finalize matches by shade hints when confidence is high", async () => {
     process.env.AUTH_DEV_BYPASS = "true";
     let callCount = 0;
+    let capturedMetadataPatch = null;
     queryMock = async () => {
       callCount++;
       if (callCount === 1) {
@@ -1029,7 +1038,10 @@ describe("functions/capture — finalize/status/answer workflow", () => {
     };
     transactionMock = async (cb) =>
       cb({
-        query: async (text) => {
+        query: async (text, params) => {
+          if (text.includes("SET status = 'matched'")) {
+            capturedMetadataPatch = params[4];
+          }
           if (text.includes("SELECT inventory_item_id AS id")) {
             return { rows: [] };
           }
@@ -1053,6 +1065,10 @@ describe("functions/capture — finalize/status/answer workflow", () => {
 
     assert.equal(res.status, 200);
     assert.equal(res.jsonBody.status, "matched");
+    assert.ok(capturedMetadataPatch);
+    assert.equal(capturedMetadataPatch.pipeline.finalize.outcome, "matched");
+    assert.equal(capturedMetadataPatch.resolver.step, "matched_by_shade_similarity");
+    assert.equal(capturedMetadataPatch.resolver.audit.frameCount, 1);
   });
 
   it("finalize can match from metadata text hints without frames", async () => {

@@ -242,6 +242,72 @@ function mergeQualityJson(
   };
 }
 
+function toRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return value as Record<string, unknown>;
+}
+
+function toNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return undefined;
+}
+
+function buildFinalizePipelinePatch(
+  metadata: Record<string, unknown> | null,
+  outcomeStatus: ResolverOutcome["status"],
+  runId: string,
+  startedAt: string
+): Record<string, unknown> {
+  const pipeline = toRecord(toRecord(metadata).pipeline);
+  const finalize = toRecord(pipeline.finalize);
+  const previousAttempt = toNumber(finalize.attempt) ?? 0;
+
+  return {
+    pipeline: {
+      ...pipeline,
+      finalize: {
+        attempt: previousAttempt + 1,
+        runId,
+        startedAt,
+        completedAt: new Date().toISOString(),
+        outcome: outcomeStatus,
+      },
+    },
+  };
+}
+
+function withFinalizeAuditPatch(
+  metadata: Record<string, unknown> | null,
+  basePatch: Record<string, unknown>,
+  outcomeStatus: ResolverOutcome["status"],
+  runId: string,
+  startedAt: string
+): Record<string, unknown> {
+  const resolver = toRecord(basePatch.resolver);
+  const pipelinePatch = buildFinalizePipelinePatch(metadata, outcomeStatus, runId, startedAt);
+
+  return {
+    ...basePatch,
+    resolver: {
+      ...resolver,
+      status: outcomeStatus,
+      runId,
+      finalizedAt: new Date().toISOString(),
+    },
+    pipeline: pipelinePatch.pipeline,
+  };
+}
+
 function parseNumeric(value: string | number | null | undefined): number | undefined {
   if (value === null || value === undefined) return undefined;
   const parsed = typeof value === "number" ? value : parseFloat(value);
@@ -556,13 +622,24 @@ async function resolveCaptureSession(session: CaptureSessionRow): Promise<Resolv
   const frames = await getCaptureFrameEvidence(session.id);
   const evidence = collectCaptureEvidence(session.metadata, frames);
   const hasTextEvidence = Boolean(evidence.gtin || evidence.shadeName || evidence.brand);
+  const resolverAudit = {
+    version: "deterministic-v1",
+    frameCount: frames.length,
+    hasTextEvidence,
+    evidence: {
+      gtin: evidence.gtin ?? null,
+      brand: evidence.brand ?? null,
+      shadeName: evidence.shadeName ?? null,
+      finish: evidence.finish ?? null,
+    },
+  };
 
   if (frames.length === 0 && !hasTextEvidence) {
     return {
       status: "needs_question",
       confidence: 0,
       question: buildNeedsFrameQuestion(),
-      metadataPatch: { resolver: { step: "awaiting_frames" } },
+      metadataPatch: { resolver: { step: "awaiting_frames", audit: resolverAudit } },
     };
   }
 
@@ -579,6 +656,7 @@ async function resolveCaptureSession(session: CaptureSessionRow): Promise<Resolv
             step: "matched_by_barcode",
             gtin: evidence.gtin,
             display: barcodeMatch.display,
+            audit: resolverAudit,
           },
         },
       };
@@ -594,14 +672,15 @@ async function resolveCaptureSession(session: CaptureSessionRow): Promise<Resolv
       confidence: topCandidate.confidence,
       entityType: topCandidate.entityType,
       entityId: topCandidate.entityId,
-      metadataPatch: {
-        resolver: {
-          step: "matched_by_shade_similarity",
-          topCandidate: topCandidate.display,
-          candidateCount: shadeCandidates.length,
+        metadataPatch: {
+          resolver: {
+            step: "matched_by_shade_similarity",
+            topCandidate: topCandidate.display,
+            candidateCount: shadeCandidates.length,
+            audit: resolverAudit,
+          },
         },
-      },
-    };
+      };
   }
 
   if (topCandidate && topCandidate.confidence >= 0.75) {
@@ -609,14 +688,15 @@ async function resolveCaptureSession(session: CaptureSessionRow): Promise<Resolv
       status: "needs_question",
       confidence: topCandidate.confidence,
       question: buildCandidateQuestion(shadeCandidates),
-      metadataPatch: {
-        resolver: {
-          step: "needs_user_candidate_selection",
-          candidateCount: shadeCandidates.length,
-          topCandidate: topCandidate.display,
+        metadataPatch: {
+          resolver: {
+            step: "needs_user_candidate_selection",
+            candidateCount: shadeCandidates.length,
+            topCandidate: topCandidate.display,
+            audit: resolverAudit,
+          },
         },
-      },
-    };
+      };
   }
 
   if (!evidence.brand || !evidence.shadeName) {
@@ -624,14 +704,15 @@ async function resolveCaptureSession(session: CaptureSessionRow): Promise<Resolv
       status: "needs_question",
       confidence: topCandidate?.confidence ?? 0,
       question: buildBrandShadeQuestion(),
-      metadataPatch: {
-        resolver: {
-          step: "needs_brand_and_shade",
-          brand: evidence.brand || null,
-          shadeName: evidence.shadeName || null,
+        metadataPatch: {
+          resolver: {
+            step: "needs_brand_and_shade",
+            brand: evidence.brand || null,
+            shadeName: evidence.shadeName || null,
+            audit: resolverAudit,
+          },
         },
-      },
-    };
+      };
   }
 
   return {
@@ -642,6 +723,7 @@ async function resolveCaptureSession(session: CaptureSessionRow): Promise<Resolv
         step: "unmatched_after_resolver",
         brand: evidence.brand,
         shadeName: evidence.shadeName,
+        audit: resolverAudit,
       },
     },
   };
@@ -928,7 +1010,16 @@ async function finalizeCapture(
       };
       return { status: 200, jsonBody: response };
     }
+    const finalizeStartedAt = new Date().toISOString();
+    const finalizeRunId = randomUUID();
     const outcome = await resolveCaptureSession(session);
+    const metadataPatch = withFinalizeAuditPatch(
+      session.metadata,
+      outcome.metadataPatch,
+      outcome.status,
+      finalizeRunId,
+      finalizeStartedAt
+    );
 
     if (outcome.status === "matched") {
       await transaction(async (client) => {
@@ -963,7 +1054,7 @@ async function finalizeCapture(
             outcome.confidence,
             outcome.entityType,
             outcome.entityId,
-            outcome.metadataPatch,
+            metadataPatch,
             inventoryItemId,
           ]
         );
@@ -995,7 +1086,7 @@ async function finalizeCapture(
                metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb,
                updated_at = now()
            WHERE capture_session_id = $1`,
-          [session.id, outcome.confidence, outcome.metadataPatch]
+          [session.id, outcome.confidence, metadataPatch]
         );
 
         const inserted = await client.query<CaptureQuestionRow>(
@@ -1048,7 +1139,7 @@ async function finalizeCapture(
              metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb,
              updated_at = now()
          WHERE capture_session_id = $1`,
-        [session.id, outcome.confidence, outcome.metadataPatch]
+        [session.id, outcome.confidence, metadataPatch]
       );
     });
 
