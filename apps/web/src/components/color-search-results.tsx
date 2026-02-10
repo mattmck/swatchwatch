@@ -144,7 +144,10 @@ export function ColorSearchResults({
                     variant="outline"
                     className="w-9"
                     title="Add to desired colors"
-                    onClick={() => onAddDesired(polish.colorHex)}
+                    onClick={() => {
+                      if (!polish.colorHex) return;
+                      onAddDesired(polish.colorHex);
+                    }}
                   >
                     <BsPlusLg className="h-3.5 w-3.5" />
                   </Button>
