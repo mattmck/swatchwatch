@@ -92,6 +92,29 @@ export default function NewPolishPage() {
     });
   }
 
+  async function handleMatchFromFormFields() {
+    await runCaptureAction(async () => {
+      const started = await startCapture({
+        metadata: {
+          source: "web-polishes-new-text-only",
+          brand: form.brand || undefined,
+          shadeName: form.name || undefined,
+          finish: form.finish || undefined,
+          collection: form.collection || undefined,
+        },
+      });
+      setCaptureId(started.captureId);
+      setCaptureMetadata(null);
+
+      const finalized = await finalizeCapture(started.captureId);
+      setCaptureStatus(finalized.status);
+      setCaptureQuestion(finalized.question || null);
+
+      const status = await getCaptureStatus(started.captureId);
+      setCaptureMetadata(status.metadata || null);
+    });
+  }
+
   async function handleAddCaptureFrame() {
     if (!captureId) return;
     await runCaptureAction(async () => {
@@ -406,6 +429,14 @@ export default function NewPolishPage() {
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" onClick={handleStartCapture} disabled={captureBusy}>
                   Start Session
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleMatchFromFormFields}
+                  disabled={captureBusy}
+                >
+                  Match From Form Fields
                 </Button>
                 <Button
                   type="button"
