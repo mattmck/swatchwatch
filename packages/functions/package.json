@@ -5,7 +5,10 @@
   "main": "dist/functions/*.js",
   "scripts": {
     "build": "tsc",
+    "prestart": "npm run build",
     "start": "func start",
+    "prestart:dev": "npm run build",
+    "start:dev": "func start --cors \"*\"",
     "watch": "tsc -w",
     "migrate": "node-pg-migrate up --migrations-dir migrations --decamelize --envPath ../../.env",
     "migrate:dev": "PGOPTIONS='-c app.seed_dev_data=true' node-pg-migrate up --migrations-dir migrations --decamelize --envPath ../../.env",

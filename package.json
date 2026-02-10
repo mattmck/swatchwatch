@@ -9,7 +9,7 @@
     "dev": "npm run dev:functions & npm run dev:web",
     "dev:web": "npm run dev --workspace=apps/web",
     "dev:mobile": "npm run start --workspace=apps/mobile",
-    "dev:functions": "npm run start --workspace=packages/functions",
+    "dev:functions": "npm run start:dev --workspace=packages/functions",
     "dev:db": "docker compose up -d",
     "dev:db:down": "docker compose down",
     "build:web": "npm run build --workspace=apps/web",

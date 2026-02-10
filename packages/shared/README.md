@@ -47,6 +47,18 @@ The package is automatically linked via npm workspaces — no publishing require
 | `VoiceProcessResponse` | Parsed result + optional alternative suggestions |
 | `VoiceCommand` | Discriminated union: `add \| update \| delete \| search` actions |
 
+### `types/palette.ts`
+
+| Type | Description |
+|------|-------------|
+| `HarmonyType` | Search harmony selector values: `"similar" \| "complementary" \| "split-complementary" \| "analogous" \| "triadic" \| "tetradic" \| "monochromatic"` |
+| `PaletteHarmonyType` | Harmony-only subset excluding `"similar"` |
+| `PaletteSuggestion` | Auto-detected harmony result for 2+ anchor colors (`confidence`, `sourceHex`, `targetHexes`, `completionHexes`) |
+| `HueFamily` | Gap-analysis hue bins: reds, oranges/corals, yellows/golds, greens, blues/teals, purples/violets, pinks/magentas, neutrals |
+| `LightnessBand` | Gap-analysis lightness bins: `dark \| medium \| light` |
+| `CollectionGapCell` | Count per hue/lightness cell |
+| `CollectionGapAnalysis` | Structured gap-analysis output (`cells`, `missing`, `underrepresented`) |
+
 ## Adding New Types
 
 1. Create or edit a file in `src/types/`

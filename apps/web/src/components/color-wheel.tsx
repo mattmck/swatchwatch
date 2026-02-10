@@ -19,7 +19,7 @@ export interface HarmonyDot {
 }
 
 interface ColorWheelProps {
-  /** Currently selected/previewed HSL (without lightness — that comes from the slider) */
+  /** Currently selected/previewed HSL */
   lightness: number;
   /** Called continuously as the mouse moves over the wheel */
   onHover: (hex: string, hsl: HSL) => void;
@@ -369,8 +369,9 @@ export function ColorWheel({
         const nearest = findNearestDot(vx, vy);
         if (nearest) {
           setSnappedDotIndex(nearest.index);
-          const hsl: HSL = { ...nearest.dot.hsl, l: lightness };
-          return { hex: hslToHex(hsl), hsl };
+          // Preserve the owned polish's true lightness when snapping.
+          const hsl: HSL = { ...nearest.dot.hsl };
+          return { hex: nearest.dot.hex, hsl };
         }
         setSnappedDotIndex(null);
       }
