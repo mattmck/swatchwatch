@@ -963,6 +963,70 @@ describe("functions/capture — finalize/status/answer workflow", () => {
     assert.equal(res.jsonBody.status, "matched");
   });
 
+  it("finalize can match from metadata text hints without frames", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let callCount = 0;
+    queryMock = async () => {
+      callCount++;
+      if (callCount === 1) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (callCount === 2) {
+        return {
+          rows: [{
+            id: 12,
+            captureId: "33333333-3333-4333-8333-333333333333",
+            status: "processing",
+            topConfidence: null,
+            acceptedEntityType: null,
+            acceptedEntityId: null,
+            metadata: { brand: "OPI", shadeName: "Big Apple Red" },
+          }],
+        };
+      }
+      if (callCount === 3) {
+        return { rows: [] };
+      }
+      if (callCount === 4) {
+        return {
+          rows: [{
+            shadeId: "21",
+            brand: "OPI",
+            shadeName: "Big Apple Red",
+            score: 0.95,
+          }],
+        };
+      }
+      return { rows: [] };
+    };
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text) => {
+          if (text.includes("SELECT inventory_item_id AS id")) {
+            return { rows: [] };
+          }
+          if (text.includes("INSERT INTO user_inventory_item")) {
+            return { rows: [{ id: 704 }] };
+          }
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["capture-finalize"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/capture/33333333-3333-4333-8333-333333333333/finalize",
+        headers: { authorization: "Bearer dev:1" },
+        params: { captureId: "33333333-3333-4333-8333-333333333333" },
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.status, "matched");
+  });
+
   it("finalize asks candidate selection question for medium-confidence matches", async () => {
     process.env.AUTH_DEV_BYPASS = "true";
     let callCount = 0;

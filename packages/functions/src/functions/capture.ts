@@ -407,8 +407,9 @@ function buildCandidateQuestion(candidates: CaptureMatchCandidate[]): CaptureQue
 async function resolveCaptureSession(session: CaptureSessionRow): Promise<ResolverOutcome> {
   const frames = await getCaptureFrameEvidence(session.id);
   const evidence = collectCaptureEvidence(session.metadata, frames);
+  const hasTextEvidence = Boolean(evidence.gtin || evidence.shadeName || evidence.brand);
 
-  if (frames.length === 0) {
+  if (frames.length === 0 && !hasTextEvidence) {
     return {
       status: "needs_question",
       confidence: 0,
