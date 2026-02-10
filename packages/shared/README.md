@@ -47,6 +47,22 @@ The package is automatically linked via npm workspaces — no publishing require
 | `VoiceProcessResponse` | Parsed result + optional alternative suggestions |
 | `VoiceCommand` | Discriminated union: `add \| update \| delete \| search` actions |
 
+### `types/capture.ts`
+
+| Type | Description |
+|------|-------------|
+| `CaptureStatus` | Capture lifecycle status: `processing \| matched \| needs_question \| unmatched \| cancelled` |
+| `CaptureFrameType` | Frame classification: `barcode \| label \| color \| other` |
+| `CaptureQuestionType` | Clarifying question type for adaptive flow |
+| `CaptureQuestionStatus` | Question status: `open \| answered \| skipped \| expired` |
+| `CaptureGuidanceConfig` | Capture guidance contract returned by `/api/capture/start` |
+| `CaptureQuestion` | Open question payload used by status/finalize/answer responses |
+| `CaptureStartRequest` / `CaptureStartResponse` | Start capture session payloads |
+| `CaptureFrameRequest` / `CaptureFrameResponse` | Add frame payloads (`imageId` or `imageBlobUrl`) |
+| `CaptureFinalizeResponse` | Finalize response with session status and optional question |
+| `CaptureStatusResponse` | Session status payload with confidence/accepted entity/question |
+| `CaptureAnswerRequest` / `CaptureAnswerResponse` | Answer question payloads for adaptive loop |
+
 ## Adding New Types
 
 1. Create or edit a file in `src/types/`

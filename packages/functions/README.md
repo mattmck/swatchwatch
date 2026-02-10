@@ -22,6 +22,11 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `POST` | `/api/polishes` | `createPolish` | `polishes.ts` | ✅ Live |
 | `PUT` | `/api/polishes/{id}` | `updatePolish` | `polishes.ts` | ✅ Live |
 | `DELETE` | `/api/polishes/{id}` | `deletePolish` | `polishes.ts` | ✅ Live |
+| `POST` | `/api/capture/start` | `startCapture` | `capture.ts` | ✅ Live |
+| `POST` | `/api/capture/{captureId}/frame` | `addCaptureFrame` | `capture.ts` | ✅ Live |
+| `POST` | `/api/capture/{captureId}/finalize` | `finalizeCapture` | `capture.ts` | ✅ Live |
+| `GET` | `/api/capture/{captureId}/status` | `getCaptureStatus` | `capture.ts` | ✅ Live |
+| `POST` | `/api/capture/{captureId}/answer` | `answerCaptureQuestion` | `capture.ts` | ✅ Live |
 | `POST` | `/api/auth/validate` | `validateToken` | `auth.ts` | ✅ Live (dev bypass + B2C) |
 | `GET` | `/api/auth/config` | `getAuthConfig` | `auth.ts` | ✅ Working |
 | `GET` | `/api/catalog/search?q=` | `searchCatalog` | `catalog.ts` | ✅ Live |
@@ -33,7 +38,7 @@ All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpReques
 
 ### Authentication
 
-Polish CRUD endpoints require a `Bearer` token in the `Authorization` header. The auth middleware (`src/lib/auth.ts`) supports two modes:
+Polish CRUD and capture session endpoints require a `Bearer` token in the `Authorization` header. The auth middleware (`src/lib/auth.ts`) supports two modes:
 
 - **Dev bypass** (`AUTH_DEV_BYPASS=true` in `local.settings.json`): accepts `Bearer dev:<userId>` tokens (e.g., `Bearer dev:1`) — maps directly to `app_user.user_id`. No cryptographic validation.
 - **Production** (B2C configured): validates JWTs against Azure AD B2C JWKS, extracts the `oid` claim, and upserts the user by `external_id`.
@@ -105,6 +110,7 @@ node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_U
 ## Known Issues
 
 - Voice handler stubs Speech-to-text and OpenAI parsing
+- Capture finalize currently returns `processing` or `needs_question` scaffolding status; durable OCR/LLM matching pipeline is not wired yet
 
 
 ## Environment Variables

@@ -131,6 +131,7 @@ require("../dist/functions/auth");
 require("../dist/functions/polishes");
 require("../dist/functions/catalog");
 require("../dist/functions/voice");
+require("../dist/functions/capture");
 
 // Reset mocks between tests
 afterEach(() => {
@@ -632,5 +633,269 @@ describe("functions/voice — processVoiceInput validation", () => {
     assert.ok("parsedDetails" in res.jsonBody);
     assert.ok("transcription" in res.jsonBody);
     assert.equal(res.jsonBody.parsedDetails.confidence, 0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// functions/capture — route registration, auth + basic workflow
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("functions/capture — route registration", () => {
+  it("registers all capture routes", () => {
+    assert.ok(registeredRoutes["capture-start"]);
+    assert.ok(registeredRoutes["capture-frame"]);
+    assert.ok(registeredRoutes["capture-finalize"]);
+    assert.ok(registeredRoutes["capture-status"]);
+    assert.ok(registeredRoutes["capture-answer"]);
+  });
+
+  it("uses expected methods and route patterns", () => {
+    assert.deepEqual(registeredRoutes["capture-start"].methods, ["POST"]);
+    assert.equal(registeredRoutes["capture-start"].route, "capture/start");
+    assert.deepEqual(registeredRoutes["capture-frame"].methods, ["POST"]);
+    assert.equal(registeredRoutes["capture-frame"].route, "capture/{captureId}/frame");
+    assert.deepEqual(registeredRoutes["capture-finalize"].methods, ["POST"]);
+    assert.equal(registeredRoutes["capture-finalize"].route, "capture/{captureId}/finalize");
+    assert.deepEqual(registeredRoutes["capture-status"].methods, ["GET"]);
+    assert.equal(registeredRoutes["capture-status"].route, "capture/{captureId}/status");
+    assert.deepEqual(registeredRoutes["capture-answer"].methods, ["POST"]);
+    assert.equal(registeredRoutes["capture-answer"].route, "capture/{captureId}/answer");
+  });
+});
+
+describe("functions/capture — startCapture", () => {
+  it("returns 401 when request is unauthenticated", async () => {
+    const handler = registeredRoutes["capture-start"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/capture/start",
+      }),
+      fakeContext()
+    );
+    assert.equal(res.status, 401);
+  });
+
+  it("creates a capture session for an authenticated user", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let callCount = 0;
+    queryMock = async () => {
+      callCount++;
+      if (callCount === 1) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      return { rows: [{ captureId: "11111111-1111-4111-8111-111111111111", status: "processing" }] };
+    };
+
+    const handler = registeredRoutes["capture-start"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/capture/start",
+        headers: { authorization: "Bearer dev:1" },
+        body: { metadata: { source: "mobile" } },
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 201);
+    assert.equal(res.jsonBody.status, "processing");
+    assert.equal(res.jsonBody.captureId, "11111111-1111-4111-8111-111111111111");
+    assert.ok(Array.isArray(res.jsonBody.uploadUrls));
+    assert.ok(res.jsonBody.guidanceConfig);
+  });
+});
+
+describe("functions/capture — addCaptureFrame", () => {
+  it("returns 400 for invalid UUID capture id", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async () => ({
+      rows: [{ user_id: 1, external_id: "ext-1", email: null }],
+    });
+    const handler = registeredRoutes["capture-frame"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/capture/not-a-uuid/frame",
+        headers: { authorization: "Bearer dev:1" },
+        params: { captureId: "not-a-uuid" },
+        body: { frameType: "label", imageBlobUrl: "https://blob.example/frame.png" },
+      }),
+      fakeContext()
+    );
+    assert.equal(res.status, 400);
+  });
+
+  it("creates frame with imageBlobUrl", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let callCount = 0;
+    queryMock = async () => {
+      callCount++;
+      if (callCount === 1) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (callCount === 2) {
+        return { rows: [{ id: 10, captureId: "11111111-1111-4111-8111-111111111111", status: "processing", topConfidence: null, acceptedEntityType: null, acceptedEntityId: null, metadata: null }] };
+      }
+      return { rows: [] };
+    };
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text) => {
+          if (text.includes("INSERT INTO image_asset")) {
+            return { rows: [{ imageId: "500" }] };
+          }
+          if (text.includes("INSERT INTO capture_frame")) {
+            return { rows: [{ frameId: "900" }] };
+          }
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["capture-frame"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/capture/11111111-1111-4111-8111-111111111111/frame",
+        headers: { authorization: "Bearer dev:1" },
+        params: { captureId: "11111111-1111-4111-8111-111111111111" },
+        body: {
+          frameType: "label",
+          imageBlobUrl: "https://blob.example/frame.png",
+          quality: { blur: 0.1 },
+        },
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 201);
+    assert.equal(res.jsonBody.received, true);
+    assert.equal(res.jsonBody.frameId, "900");
+    assert.equal(res.jsonBody.captureId, "11111111-1111-4111-8111-111111111111");
+  });
+});
+
+describe("functions/capture — finalize/status/answer workflow", () => {
+  it("finalize returns needs_question when no frames exist", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let callCount = 0;
+    queryMock = async () => {
+      callCount++;
+      if (callCount === 1) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (callCount === 2) {
+        return { rows: [{ id: 10, captureId: "11111111-1111-4111-8111-111111111111", status: "processing", topConfidence: null, acceptedEntityType: null, acceptedEntityId: null, metadata: null }] };
+      }
+      if (callCount === 3) {
+        return { rows: [{ totalFrames: "0" }] };
+      }
+      return { rows: [] };
+    };
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text) => {
+          if (text.includes("INSERT INTO capture_question")) {
+            return {
+              rows: [{
+                id: "321",
+                key: "capture_frame",
+                prompt: "Upload at least one barcode or label frame so we can continue matching.",
+                type: "single_select",
+                options: ["scan_barcode", "upload_label_photo", "skip"],
+                status: "open",
+                createdAt: "2026-02-10T00:00:00.000Z",
+              }],
+            };
+          }
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["capture-finalize"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/capture/11111111-1111-4111-8111-111111111111/finalize",
+        headers: { authorization: "Bearer dev:1" },
+        params: { captureId: "11111111-1111-4111-8111-111111111111" },
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.status, "needs_question");
+    assert.equal(res.jsonBody.question.key, "capture_frame");
+  });
+
+  it("status returns open question payload", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let callCount = 0;
+    queryMock = async () => {
+      callCount++;
+      if (callCount === 1) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (callCount === 2) {
+        return {
+          rows: [{
+            id: 10,
+            captureId: "11111111-1111-4111-8111-111111111111",
+            status: "needs_question",
+            topConfidence: "0.5",
+            acceptedEntityType: null,
+            acceptedEntityId: null,
+            metadata: { source: "mobile" },
+          }],
+        };
+      }
+      return {
+        rows: [{
+          id: "321",
+          key: "capture_frame",
+          prompt: "Upload at least one barcode or label frame so we can continue matching.",
+          type: "single_select",
+          options: ["scan_barcode", "upload_label_photo", "skip"],
+          status: "open",
+          createdAt: "2026-02-10T00:00:00.000Z",
+        }],
+      };
+    };
+
+    const handler = registeredRoutes["capture-status"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "GET",
+        url: "http://localhost:7071/api/capture/11111111-1111-4111-8111-111111111111/status",
+        headers: { authorization: "Bearer dev:1" },
+        params: { captureId: "11111111-1111-4111-8111-111111111111" },
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.status, "needs_question");
+    assert.equal(res.jsonBody.topConfidence, 0.5);
+    assert.equal(res.jsonBody.question.id, "321");
+  });
+
+  it("answer returns 400 when answer is missing", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async () => ({
+      rows: [{ user_id: 1, external_id: "ext-1", email: null }],
+    });
+
+    const handler = registeredRoutes["capture-answer"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/capture/11111111-1111-4111-8111-111111111111/answer",
+        headers: { authorization: "Bearer dev:1" },
+        params: { captureId: "11111111-1111-4111-8111-111111111111" },
+        body: {},
+      }),
+      fakeContext()
+    );
+    assert.equal(res.status, 400);
   });
 });

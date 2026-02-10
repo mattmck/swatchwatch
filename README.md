@@ -11,7 +11,7 @@ swatchwatch/
 │   └── mobile/           → Expo / React Native (SDK 54)
 ├── packages/
 │   ├── functions/        → Azure Functions v4 (Node 20, TypeScript)
-│   └── shared/           → Shared TypeScript types (polish, user, voice)
+│   └── shared/           → Shared TypeScript types (polish, user, voice, capture)
 └── infrastructure/       → Terraform (azurerm ~3.100)
 ```
 
@@ -26,6 +26,7 @@ swatchwatch/
 ```
 Web / Mobile → Azure Functions REST API → Azure PostgreSQL Flexible Server
                   ├── /api/polishes       → CRUD operations (user inventory)
+                  ├── /api/capture/*      → Rapid Add capture session workflow
                   ├── /api/auth/*         → Azure AD B2C token validation
                   └── /api/voice          → Azure Speech → Azure OpenAI → parsed polish details
 ```
