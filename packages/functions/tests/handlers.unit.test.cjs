@@ -1084,4 +1084,70 @@ describe("functions/capture — finalize/status/answer workflow", () => {
     assert.equal(res.status, 200);
     assert.equal(res.jsonBody.status, "matched");
   });
+
+  it("stores structured brand_shade answer and returns processing", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let callCount = 0;
+    const capturedArgs = [];
+    queryMock = async () => {
+      callCount++;
+      if (callCount === 1) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (callCount === 2) {
+        return {
+          rows: [{
+            id: 10,
+            captureId: "11111111-1111-4111-8111-111111111111",
+            status: "needs_question",
+            topConfidence: "0.4",
+            acceptedEntityType: null,
+            acceptedEntityId: null,
+            metadata: null,
+          }],
+        };
+      }
+      if (callCount === 3) {
+        return {
+          rows: [{
+            id: "445",
+            key: "brand_shade",
+            prompt: "Tell us brand and shade",
+            type: "free_text",
+            options: null,
+            status: "open",
+            createdAt: "2026-02-10T00:00:00.000Z",
+          }],
+        };
+      }
+      return { rows: [] };
+    };
+    transactionMock = async (cb) =>
+      cb({
+        query: async (_text, params) => {
+          capturedArgs.push(params);
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["capture-answer"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/capture/11111111-1111-4111-8111-111111111111/answer",
+        headers: { authorization: "Bearer dev:1" },
+        params: { captureId: "11111111-1111-4111-8111-111111111111" },
+        body: { questionId: "445", answer: "OPI - Big Apple Red" },
+      }),
+      fakeContext()
+    );
+
+    const updateParams = capturedArgs.find((params) => params?.[1] === "brand_shade");
+    assert.ok(updateParams);
+    assert.equal(typeof updateParams[2], "string");
+    assert.ok(updateParams[2].includes("\"brand\":\"OPI\""));
+    assert.ok(updateParams[2].includes("\"shadeName\":\"Big Apple Red\""));
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.status, "processing");
+  });
 });

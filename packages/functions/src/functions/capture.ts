@@ -219,6 +219,47 @@ function extractSelectedEntityId(answer: unknown): number | null {
   return null;
 }
 
+function normalizeBrandShadeAnswer(answer: unknown): Record<string, unknown> {
+  if (typeof answer === "object" && answer !== null) {
+    const record = answer as Record<string, unknown>;
+    return {
+      brand: getStringField(record, "brand"),
+      shadeName: getStringField(record, "shadeName", "name"),
+      finish: getStringField(record, "finish"),
+      raw: record.raw ?? answer,
+    };
+  }
+
+  if (typeof answer === "string") {
+    const raw = answer.trim();
+    const split = raw
+      .split(/\s+(?:-|—)\s+|\s*\|\s*|\s*,\s*/)
+      .filter(Boolean);
+
+    if (split.length >= 2) {
+      return {
+        brand: split[0],
+        shadeName: split.slice(1).join(" "),
+        raw,
+      };
+    }
+
+    return {
+      shadeName: raw || undefined,
+      raw,
+    };
+  }
+
+  return { raw: answer };
+}
+
+function normalizeAnswerForQuestion(questionKey: string, answer: unknown): unknown {
+  if (questionKey === "brand_shade") {
+    return normalizeBrandShadeAnswer(answer);
+  }
+  return answer;
+}
+
 async function resolveByBarcode(gtin: string): Promise<CaptureMatchCandidate | null> {
   const result = await query<{
     skuId: string;
@@ -840,8 +881,6 @@ async function answerCaptureQuestion(
     if (body?.answer === undefined) {
       return { status: 400, jsonBody: { error: "answer is required" } };
     }
-    const answerJson = JSON.stringify(body.answer);
-
     let requestedQuestionId: number | null = null;
     if (body.questionId !== undefined) {
       requestedQuestionId = parseInt(body.questionId, 10);
@@ -881,6 +920,9 @@ async function answerCaptureQuestion(
       return { status: 404, jsonBody: { error: "No open question found for this capture session" } };
     }
 
+    const normalizedAnswer = normalizeAnswerForQuestion(openQuestion.key, body.answer);
+    const answerJson = JSON.stringify(normalizedAnswer);
+
     let updatedStatus: CaptureStatus = "processing";
 
     await transaction(async (client) => {
@@ -899,7 +941,7 @@ async function answerCaptureQuestion(
 
       const selectedShadeId =
         openQuestion.key === "candidate_select"
-          ? extractSelectedEntityId(body.answer)
+          ? extractSelectedEntityId(normalizedAnswer)
           : null;
 
       if (selectedShadeId && body.answer !== "skip") {
