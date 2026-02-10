@@ -57,6 +57,14 @@ interface CaptureEvidence {
   finish?: string;
 }
 
+interface FrameExtraction {
+  gtin?: string;
+  brand?: string;
+  shadeName?: string;
+  finish?: string;
+  source: "pipeline" | "request_quality";
+}
+
 interface CaptureMatchCandidate {
   entityType: "shade" | "sku";
   entityId: number;
@@ -249,6 +257,51 @@ function toRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function extractFrameEvidence(quality: Record<string, unknown> | null): FrameExtraction | null {
+  if (!quality) {
+    return null;
+  }
+
+  const extracted = toRecord(quality.extracted);
+  const extractedEvidence = {
+    gtin: getStringField(extracted, "gtin", "upc", "ean"),
+    brand: getStringField(extracted, "brand"),
+    shadeName: getStringField(extracted, "shadeName", "name"),
+    finish: getStringField(extracted, "finish"),
+  };
+  if (
+    extractedEvidence.gtin
+    || extractedEvidence.brand
+    || extractedEvidence.shadeName
+    || extractedEvidence.finish
+  ) {
+    return {
+      ...extractedEvidence,
+      source: "pipeline",
+    };
+  }
+
+  const legacyEvidence = {
+    gtin: getStringField(quality, "gtin", "upc", "ean"),
+    brand: getStringField(quality, "brand"),
+    shadeName: getStringField(quality, "shadeName", "name"),
+    finish: getStringField(quality, "finish"),
+  };
+  if (
+    legacyEvidence.gtin
+    || legacyEvidence.brand
+    || legacyEvidence.shadeName
+    || legacyEvidence.finish
+  ) {
+    return {
+      ...legacyEvidence,
+      source: "request_quality",
+    };
+  }
+
+  return null;
+}
+
 function toNumber(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -383,18 +436,22 @@ function collectCaptureEvidence(
   for (const frame of frames) {
     const quality = frame.quality;
     if (!quality) continue;
+    const extracted = extractFrameEvidence(quality);
+    if (!extracted) {
+      continue;
+    }
 
     if (!evidence.gtin) {
-      evidence.gtin = getStringField(quality, "gtin", "upc", "ean");
+      evidence.gtin = extracted.gtin;
     }
     if (!evidence.brand) {
-      evidence.brand = getStringField(quality, "brand");
+      evidence.brand = extracted.brand;
     }
     if (!evidence.shadeName) {
-      evidence.shadeName = getStringField(quality, "shadeName", "name");
+      evidence.shadeName = extracted.shadeName;
     }
     if (!evidence.finish) {
-      evidence.finish = getStringField(quality, "finish");
+      evidence.finish = extracted.finish;
     }
   }
 
@@ -932,11 +989,24 @@ async function addCaptureFrame(
     const result = await transaction(async (client) => {
       let imageId = body.imageId ?? null;
       let qualityJson = body.quality ?? null;
+      let normalizedImage: PreparedImageInput | null = null;
 
       if (!imageId && body.imageBlobUrl) {
-        const normalizedImage = normalizeCaptureImageInput(body.imageBlobUrl, session.captureId);
+        normalizedImage = normalizeCaptureImageInput(body.imageBlobUrl, session.captureId);
         qualityJson = mergeQualityJson(body.quality, normalizedImage.qualityPatch);
+      }
 
+      const normalizedExtraction = extractFrameEvidence(qualityJson);
+      if (normalizedExtraction) {
+        qualityJson = mergeQualityJson(qualityJson ?? undefined, {
+          extracted: normalizedExtraction,
+        });
+      }
+
+      if (!imageId && body.imageBlobUrl) {
+        if (!normalizedImage) {
+          throw new CaptureInputError("Failed to normalize image input");
+        }
         const imageResult = await client.query<{ imageId: string }>(
           `INSERT INTO image_asset (owner_type, owner_id, storage_url, checksum_sha256, captured_at)
            VALUES ('user', $1, $2, $3, now())

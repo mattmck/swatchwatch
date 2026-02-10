@@ -833,6 +833,57 @@ describe("functions/capture — addCaptureFrame", () => {
     assert.equal(frameInsertParams[0][3].ingestion.byteSize, 3);
   });
 
+  it("normalizes request quality hints into quality.extracted", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let callCount = 0;
+    const frameInsertParams = [];
+    queryMock = async () => {
+      callCount++;
+      if (callCount === 1) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (callCount === 2) {
+        return { rows: [{ id: 10, captureId: "11111111-1111-4111-8111-111111111111", status: "processing", topConfidence: null, acceptedEntityType: null, acceptedEntityId: null, metadata: null }] };
+      }
+      return { rows: [] };
+    };
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          if (text.includes("INSERT INTO image_asset")) {
+            return { rows: [{ imageId: "500" }] };
+          }
+          if (text.includes("INSERT INTO capture_frame")) {
+            frameInsertParams.push(params);
+            return { rows: [{ frameId: "902" }] };
+          }
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["capture-frame"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/capture/11111111-1111-4111-8111-111111111111/frame",
+        headers: { authorization: "Bearer dev:1" },
+        params: { captureId: "11111111-1111-4111-8111-111111111111" },
+        body: {
+          frameType: "barcode",
+          imageBlobUrl: "https://blob.example/frame.png",
+          quality: { gtin: "1234567890123" },
+        },
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 201);
+    assert.equal(res.jsonBody.frameId, "902");
+    assert.equal(frameInsertParams.length, 1);
+    assert.equal(frameInsertParams[0][3].extracted.gtin, "1234567890123");
+    assert.equal(frameInsertParams[0][3].extracted.source, "request_quality");
+  });
+
   it("rejects blob URL image references", async () => {
     process.env.AUTH_DEV_BYPASS = "true";
     let callCount = 0;
