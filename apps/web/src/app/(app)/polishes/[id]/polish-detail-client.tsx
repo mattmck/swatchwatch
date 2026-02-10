@@ -15,6 +15,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ColorDot } from "@/components/color-dot";
+import { BrandSpinner } from "@/components/brand-spinner";
+import { ErrorState } from "@/components/error-state";
 
 export default function PolishDetailClient({ id }: { id: string }) {
   const router = useRouter();
@@ -51,26 +53,14 @@ export default function PolishDetailClient({ id }: { id: string }) {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <p className="text-muted-foreground">Loading polish...</p>
-      </div>
-    );
-  }
+  if (loading) return <BrandSpinner label="Loading polish…" />;
 
   if (error || !polish) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center space-y-2">
-          <p className="text-destructive font-medium">
-            {error || "Polish not found"}
-          </p>
-          <Button variant="outline" onClick={() => router.push("/polishes")}>
-            Back to Collection
-          </Button>
-        </div>
-      </div>
+      <ErrorState
+        message={error || "Polish not found"}
+        onRetry={() => router.push("/polishes")}
+      />
     );
   }
 

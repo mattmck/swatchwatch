@@ -14,6 +14,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ColorDot } from "@/components/color-dot";
+import { BrandSpinner } from "@/components/brand-spinner";
+import { ErrorState } from "@/components/error-state";
 import type { LucideIcon } from "lucide-react";
 import { Building2, Droplets, Sparkles, Star } from "lucide-react";
 
@@ -48,24 +50,10 @@ export default function DashboardPage() {
     fetchData();
   }, []);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <p className="text-muted-foreground">Loading dashboard...</p>
-      </div>
-    );
-  }
+  if (loading) return <BrandSpinner label="Loading dashboard…" />;
 
   if (error) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center space-y-2">
-          <p className="text-destructive font-medium">Error loading dashboard</p>
-          <p className="text-sm text-muted-foreground">{error}</p>
-          <Button onClick={() => window.location.reload()}>Retry</Button>
-        </div>
-      </div>
-    );
+    return <ErrorState message={error} onRetry={() => window.location.reload()} />;
   }
 
   const totalPolishes = polishes.length;

@@ -14,6 +14,7 @@ import {
 import { ColorWheel, type WheelMode, type SnapDot } from "@/components/color-wheel";
 import { ColorSearchResults } from "@/components/color-search-results";
 import { Button } from "@/components/ui/button";
+import { BrandSpinner } from "@/components/brand-spinner";
 import {
   Card,
   CardContent,
@@ -359,7 +360,7 @@ function ColorSearchPageContent() {
 
 export default function ColorSearchPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><p className="text-muted-foreground">Loading...</p></div>}>
+    <Suspense fallback={<BrandSpinner label="Loading color search…" />}>
       <ColorSearchPageContent />
     </Suspense>
   );

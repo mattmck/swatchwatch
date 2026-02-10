@@ -20,6 +20,9 @@ import { ColorDot } from "@/components/color-dot";
 import { QuantityControls } from "@/components/quantity-controls";
 import { Pagination } from "@/components/pagination";
 import { ToggleChip } from "@/components/toggle-chip";
+import { BrandSpinner } from "@/components/brand-spinner";
+import { ErrorState } from "@/components/error-state";
+import { EmptyState } from "@/components/empty-state";
 
 const PAGE_SIZE = 10;
 
@@ -161,24 +164,10 @@ export default function PolishesPage() {
     if (next) setSimilarMode(false);
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <p className="text-muted-foreground">Loading polishes...</p>
-      </div>
-    );
-  }
+  if (loading) return <BrandSpinner label="Loading polishes…" />;
 
   if (error) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center space-y-2">
-          <p className="text-destructive font-medium">Error loading polishes</p>
-          <p className="text-sm text-muted-foreground">{error}</p>
-          <Button onClick={() => window.location.reload()}>Retry</Button>
-        </div>
-      </div>
-    );
+    return <ErrorState message={error} onRetry={() => window.location.reload()} />;
   }
 
   return (
@@ -290,8 +279,13 @@ export default function PolishesPage() {
           <TableBody>
             {pageItems.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
-                  No polishes match your filters.
+                <TableCell colSpan={8} className="p-0">
+                  <EmptyState
+                    title={polishes.length === 0 ? "No polishes yet" : "No matches"}
+                    description={polishes.length === 0 ? "Add your first polish to get started." : "Try adjusting your filters."}
+                    actionLabel={polishes.length === 0 ? "+ Add Polish" : undefined}
+                    actionHref={polishes.length === 0 ? "/polishes/new" : undefined}
+                  />
                 </TableCell>
               </TableRow>
             ) : (
