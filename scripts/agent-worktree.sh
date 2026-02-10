@@ -14,6 +14,7 @@
 #
 # To clean up:
 #   git worktree remove ../<repo>-worktrees/<branch-name>
+#   git config core.bare false   # workaround: git may flip this on removal
 #
 set -euo pipefail
 
