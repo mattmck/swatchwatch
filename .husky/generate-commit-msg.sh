@@ -1,5 +1,10 @@
 #!/usr/bin/env sh
 
+# Ensure git commands inspect the repo at the current working directory.
+unset GIT_DIR
+unset GIT_WORK_TREE
+unset GIT_INDEX_FILE
+
 # Vibey commit message generator
 # Uses Anthropic Claude to generate commit suggestions based on staged changes
 

@@ -76,6 +76,8 @@ npm run dev:mobile       # → Expo dev server
 | `npm run lint` | ESLint across all workspaces |
 | `npm run typecheck` | `tsc --noEmit` across all workspaces |
 
+> Linting extends `eslint-config-next` from the repo root, so `next@16.1.6` is included in the root `devDependencies` to supply its bundled Babel parser. When upgrading Next in `apps/web`, bump the root version as well.
+
 ## Project Structure — Web App
 
 The web app is the most developed part of the project. Key pages:

@@ -19,7 +19,11 @@ function exec(cmd, args, options) {
 }
 
 function git(cwd, ...args) {
-  return exec('git', args, { cwd });
+  const env = { ...process.env };
+  delete env.GIT_DIR;
+  delete env.GIT_WORK_TREE;
+  delete env.GIT_INDEX_FILE;
+  return exec('git', args, { cwd, env });
 }
 
 async function initRepo() {
