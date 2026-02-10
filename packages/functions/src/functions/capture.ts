@@ -334,6 +334,7 @@ function buildIngestMetadataPatch(
   return {
     pipeline: {
       ...pipeline,
+      status: "ready_for_finalize",
       ingest: {
         ...ingest,
         status: "frames_received",
@@ -365,6 +366,7 @@ function buildFinalizePipelinePatch(
   return {
     pipeline: {
       ...pipeline,
+      status: outcomeStatus,
       finalize: {
         attempt: previousAttempt + 1,
         runId,
@@ -395,6 +397,30 @@ function withFinalizeAuditPatch(
       finalizedAt: new Date().toISOString(),
     },
     pipeline: pipelinePatch.pipeline,
+  };
+}
+
+function buildStartCaptureMetadata(
+  metadata: Record<string, unknown> | undefined
+): Record<string, unknown> {
+  const baseMetadata = toRecord(metadata);
+  const pipeline = toRecord(baseMetadata.pipeline);
+  const ingest = toRecord(pipeline.ingest);
+  const nowIso = new Date().toISOString();
+
+  return {
+    ...baseMetadata,
+    pipeline: {
+      ...pipeline,
+      status: typeof pipeline.status === "string" ? pipeline.status : "awaiting_frames",
+      ingest: {
+        ...ingest,
+        status: typeof ingest.status === "string" ? ingest.status : "awaiting_frames",
+        createdAt: typeof ingest.createdAt === "string" ? ingest.createdAt : nowIso,
+        framesReceived: toNumber(ingest.framesReceived) ?? 0,
+        frameTypeCounts: toRecord(ingest.frameTypeCounts),
+      },
+    },
   };
 }
 
@@ -954,11 +980,13 @@ async function startCapture(
 
     const captureId = randomUUID();
 
+    const metadata = buildStartCaptureMetadata(body.metadata);
+
     const result = await query<{ captureId: string; status: CaptureStatus }>(
       `INSERT INTO capture_session (capture_uuid, user_id, status, metadata)
        VALUES ($1::uuid, $2, 'processing', $3::jsonb)
        RETURNING capture_uuid::text AS "captureId", status`,
-      [captureId, userId, body.metadata ?? {}]
+      [captureId, userId, metadata]
     );
 
     const response: CaptureStartResponse = {

@@ -679,7 +679,9 @@ describe("functions/capture — startCapture", () => {
   it("creates a capture session for an authenticated user", async () => {
     process.env.AUTH_DEV_BYPASS = "true";
     let callCount = 0;
-    queryMock = async () => {
+    const capturedArgs = [];
+    queryMock = async (...args) => {
+      capturedArgs.push(args);
       callCount++;
       if (callCount === 1) {
         return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
@@ -703,6 +705,14 @@ describe("functions/capture — startCapture", () => {
     assert.equal(res.jsonBody.captureId, "11111111-1111-4111-8111-111111111111");
     assert.ok(Array.isArray(res.jsonBody.uploadUrls));
     assert.ok(res.jsonBody.guidanceConfig);
+
+    const insertCall = capturedArgs.find(([text]) => typeof text === "string" && text.includes("INSERT INTO capture_session"));
+    assert.ok(insertCall);
+    const insertParams = insertCall[1];
+    assert.equal(insertParams[2].source, "mobile");
+    assert.equal(insertParams[2].pipeline.status, "awaiting_frames");
+    assert.equal(insertParams[2].pipeline.ingest.status, "awaiting_frames");
+    assert.equal(insertParams[2].pipeline.ingest.framesReceived, 0);
   });
 });
 
@@ -892,6 +902,7 @@ describe("functions/capture — addCaptureFrame", () => {
     assert.equal(captureSessionUpdateParams[0][1].pipeline.ingest.frameTypeCounts.barcode, 1);
     assert.equal(captureSessionUpdateParams[0][1].pipeline.ingest.lastFrameHasExtractedEvidence, true);
     assert.equal(captureSessionUpdateParams[0][1].pipeline.ingest.lastExtractionSource, "request_quality");
+    assert.equal(captureSessionUpdateParams[0][1].pipeline.status, "ready_for_finalize");
   });
 
   it("rejects blob URL image references", async () => {
@@ -1128,6 +1139,7 @@ describe("functions/capture — finalize/status/answer workflow", () => {
     assert.equal(res.jsonBody.status, "matched");
     assert.ok(capturedMetadataPatch);
     assert.equal(capturedMetadataPatch.pipeline.finalize.outcome, "matched");
+    assert.equal(capturedMetadataPatch.pipeline.status, "matched");
     assert.equal(capturedMetadataPatch.resolver.step, "matched_by_shade_similarity");
     assert.equal(capturedMetadataPatch.resolver.audit.frameCount, 1);
   });
