@@ -264,6 +264,14 @@ export default function NewPolishPage() {
               />
             </div>
 
+            {/* Voice input placeholder */}
+            <div className="rounded-lg border-2 border-dashed border-muted-foreground/25 p-4 text-center">
+              <p className="text-sm text-muted-foreground">
+                🎙️ Voice input coming soon — describe your polish and we&apos;ll fill in the details
+              </p>
+            </div>
+
+            {/* Actions */}
             {submitError && (
               <p className="text-sm text-destructive">{submitError}</p>
             )}
