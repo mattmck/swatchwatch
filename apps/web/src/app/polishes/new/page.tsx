@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CaptureQuestion, CaptureStatus, PolishFinish } from "swatchwatch-shared";
 import { FINISHES } from "@/lib/constants";
@@ -120,6 +120,31 @@ export default function NewPolishPage() {
       setCaptureQuestion(res.question || null);
     });
   }
+
+  useEffect(() => {
+    if (!captureId || captureStatus !== "processing") {
+      return;
+    }
+
+    let cancelled = false;
+
+    const intervalId = window.setInterval(async () => {
+      try {
+        const res = await getCaptureStatus(captureId);
+        if (cancelled) return;
+        setCaptureStatus(res.status);
+        setCaptureQuestion(res.question || null);
+      } catch (err: unknown) {
+        if (cancelled) return;
+        setCaptureError(err instanceof Error ? err.message : "Failed to refresh capture status");
+      }
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [captureId, captureStatus]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -396,6 +421,7 @@ export default function NewPolishPage() {
               <div className="text-xs text-muted-foreground">
                 <p>Capture ID: {captureId || "not started"}</p>
                 <p>Status: {captureStatus || "n/a"}</p>
+                {captureStatus === "processing" && <p>Polling status every 3s…</p>}
                 {captureQuestion && <p>Open question: {captureQuestion.prompt}</p>}
               </div>
               {captureError && (
