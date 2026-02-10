@@ -66,7 +66,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <SwatchWatchWordmark iconSize={22} textClassName="text-sm" />
             </Link>
           </div>
-          <nav className="flex items-center gap-1 md:hidden">
+          <nav className="flex items-center gap-1 overflow-x-auto md:hidden">
             {navItems.map((item) => (
               <Button
                 key={item.href}

@@ -28,10 +28,22 @@ type ResultsScope = "all" | "collection";
 /** Max OKLAB distance (used to normalize to 0-1 for display) */
 const MAX_DISTANCE = 0.5;
 
+function useWheelSize(defaultSize = 280, mobileSize = 240) {
+  const [size, setSize] = useState(defaultSize);
+  useEffect(() => {
+    const update = () => setSize(window.innerWidth < 640 ? mobileSize : defaultSize);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [defaultSize, mobileSize]);
+  return size;
+}
+
 function ColorSearchPageContent() {
   const searchParams = useSearchParams();
   const [allPolishes, setAllPolishes] = useState<Polish[]>([]);
   const [loading, setLoading] = useState(true);
+  const wheelSize = useWheelSize();
   const [mode, setMode] = useState<Mode>("similar");
   const [wheelMode, setWheelMode] = useState<WheelMode>("free");
   const [resultsScope, setResultsScope] = useState<ResultsScope>("all");
@@ -182,7 +194,7 @@ function ColorSearchPageContent() {
                   onHover={handleHover}
                   onSelect={handleSelect}
                   selectedHsl={selectedHsl}
-                  size={280}
+                  size={wheelSize}
                   wheelMode={wheelMode}
                   snapDots={snapDots}
                 />

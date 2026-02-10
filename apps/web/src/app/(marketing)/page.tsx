@@ -62,10 +62,10 @@ export default function LandingPage() {
 
         <div className="relative mx-auto max-w-4xl px-6 text-center">
           <div className="mb-8 flex justify-center animate-fade-in-up">
-            <SwatchWatchIcon name="monogram" size={80} title="SwatchWatch" />
+            <SwatchWatchIcon name="monogram" size={64} title="SwatchWatch" />
           </div>
 
-          <h1 className="text-5xl tracking-tight sm:text-6xl lg:text-7xl animate-fade-in-up" style={{ animationDelay: "100ms" }}>
+          <h1 className="text-4xl tracking-tight sm:text-5xl md:text-6xl lg:text-7xl animate-fade-in-up" style={{ animationDelay: "100ms" }}>
             <span className="font-medium text-gradient-brand">Your polish collection,</span>
             <br />
             <span className="font-extrabold text-brand-ink">beautifully organized.</span>
@@ -80,7 +80,7 @@ export default function LandingPage() {
             <Button
               asChild
               size="lg"
-              className="bg-gradient-brand px-8 text-white shadow-glow-brand hover:opacity-90"
+              className="w-full bg-gradient-brand px-8 text-white shadow-glow-brand hover:opacity-90 sm:w-auto"
             >
               <Link href="/dashboard">Get Started</Link>
             </Button>
@@ -88,7 +88,7 @@ export default function LandingPage() {
               asChild
               variant="outline"
               size="lg"
-              className="border-brand-purple/30 px-8 text-brand-purple hover:bg-brand-purple/5"
+              className="w-full border-brand-purple/30 px-8 text-brand-purple hover:bg-brand-purple/5 sm:w-auto"
             >
               <Link href="/polishes">View Collection</Link>
             </Button>
@@ -219,7 +219,7 @@ export default function LandingPage() {
               <Button
                 asChild
                 size="lg"
-                className="bg-gradient-brand px-10 text-white shadow-glow-brand hover:opacity-90"
+                className="w-full bg-gradient-brand px-10 text-white shadow-glow-brand hover:opacity-90 sm:w-auto"
               >
                 <Link href="/dashboard">Get Started Free</Link>
               </Button>
