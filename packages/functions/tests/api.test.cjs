@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 
 const BASE = "http://localhost:7071/api";
 const TEST_BRAND = "__TEST__";
+const AUTH_HEADERS = { Authorization: "Bearer dev:1" };
 
 /** IDs of polishes created during tests, for cleanup. */
 const createdIds = [];
@@ -13,7 +14,7 @@ const createdIds = [];
 async function postJson(path, body) {
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
     body: JSON.stringify(body),
   });
   return { status: res.status, body: await res.json() };
@@ -25,14 +26,14 @@ async function postJson(path, body) {
 async function putJson(path, body) {
   const res = await fetch(`${BASE}${path}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
     body: JSON.stringify(body),
   });
   return { status: res.status, body: await res.json() };
 }
 
 // ---------------------------------------------------------------------------
-// Catalog search — fuzzy matching via pg_trgm
+// Catalog search — fuzzy matching via pg_trgm (public, no auth needed)
 // ---------------------------------------------------------------------------
 
 describe("GET /api/catalog/search", () => {
@@ -84,12 +85,17 @@ describe("GET /api/catalog/search", () => {
 describe("Polishes API — pagination and quantity controls", () => {
   /** Clean up any __TEST__ polishes left from prior runs + this run. */
   async function cleanupTestPolishes() {
-    const res = await fetch(`${BASE}/polishes?search=${TEST_BRAND}&pageSize=100`);
+    const res = await fetch(`${BASE}/polishes?search=${TEST_BRAND}&pageSize=100`, {
+      headers: AUTH_HEADERS,
+    });
     if (!res.ok) return;
     const data = await res.json();
     for (const p of data.polishes) {
       if (p.brand === TEST_BRAND) {
-        await fetch(`${BASE}/polishes/${p.id}`, { method: "DELETE" });
+        await fetch(`${BASE}/polishes/${p.id}`, {
+          method: "DELETE",
+          headers: AUTH_HEADERS,
+        });
       }
     }
   }
@@ -101,14 +107,22 @@ describe("Polishes API — pagination and quantity controls", () => {
   after(async () => {
     // Delete everything we created
     for (const id of createdIds) {
-      await fetch(`${BASE}/polishes/${id}`, { method: "DELETE" });
+      await fetch(`${BASE}/polishes/${id}`, {
+        method: "DELETE",
+        headers: AUTH_HEADERS,
+      });
     }
     // Belt-and-suspenders: also clean up by brand search
     await cleanupTestPolishes();
   });
 
-  it("GET /api/polishes returns correct list shape", async () => {
+  it("returns 401 without auth header", async () => {
     const res = await fetch(`${BASE}/polishes`);
+    assert.equal(res.status, 401);
+  });
+
+  it("GET /api/polishes returns correct list shape", async () => {
+    const res = await fetch(`${BASE}/polishes`, { headers: AUTH_HEADERS });
     assert.equal(res.status, 200);
 
     const data = await res.json();
@@ -184,7 +198,8 @@ describe("Polishes API — pagination and quantity controls", () => {
 
     // Request page 1 with small page size
     const res = await fetch(
-      `${BASE}/polishes?search=${TEST_BRAND}&pageSize=${PAGE_SIZE}&page=1`
+      `${BASE}/polishes?search=${TEST_BRAND}&pageSize=${PAGE_SIZE}&page=1`,
+      { headers: AUTH_HEADERS }
     );
     assert.equal(res.status, 200);
 
@@ -200,7 +215,8 @@ describe("Polishes API — pagination and quantity controls", () => {
 
     // Request page 2 — should have the overflow
     const res2 = await fetch(
-      `${BASE}/polishes?search=${TEST_BRAND}&pageSize=${PAGE_SIZE}&page=2`
+      `${BASE}/polishes?search=${TEST_BRAND}&pageSize=${PAGE_SIZE}&page=2`,
+      { headers: AUTH_HEADERS }
     );
     const data2 = await res2.json();
     assert.ok(data2.polishes.length > 0, "page 2 has items");
@@ -219,11 +235,14 @@ describe("Polishes API — pagination and quantity controls", () => {
 
     const delRes = await fetch(`${BASE}/polishes/${created.id}`, {
       method: "DELETE",
+      headers: AUTH_HEADERS,
     });
     assert.equal(delRes.status, 200);
 
     // Verify it's gone
-    const getRes = await fetch(`${BASE}/polishes/${created.id}`);
+    const getRes = await fetch(`${BASE}/polishes/${created.id}`, {
+      headers: AUTH_HEADERS,
+    });
     assert.equal(getRes.status, 404);
   });
 });

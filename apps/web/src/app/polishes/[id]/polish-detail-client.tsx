@@ -29,8 +29,8 @@ export default function PolishDetailClient({ id }: { id: string }) {
         setLoading(true);
         const data = await getPolish(id);
         setPolish(data);
-      } catch (err: any) {
-        setError(err.message || "Failed to load polish");
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "Failed to load polish");
       } finally {
         setLoading(false);
       }
@@ -45,8 +45,8 @@ export default function PolishDetailClient({ id }: { id: string }) {
       setDeleting(true);
       await deletePolish(polish.id);
       router.push("/polishes");
-    } catch (err: any) {
-      alert(err.message || "Failed to delete");
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to delete");
       setDeleting(false);
     }
   }

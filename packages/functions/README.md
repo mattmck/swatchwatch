@@ -6,7 +6,7 @@ Azure Functions v4 HTTP API (Node 20, TypeScript).
 
 ```bash
 # From repo root
-npm run dev:functions    # Starts func host on http://localhost:7071
+npm run dev:functions    # Builds TypeScript then starts func host (dev CORS enabled) on http://localhost:7071
 
 # Or for debugging (VS Code):
 # Press F5 → "Attach to Node Functions" (builds, watches, starts with --inspect on port 9229)
@@ -22,7 +22,7 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `POST` | `/api/polishes` | `createPolish` | `polishes.ts` | ✅ Live |
 | `PUT` | `/api/polishes/{id}` | `updatePolish` | `polishes.ts` | ✅ Live |
 | `DELETE` | `/api/polishes/{id}` | `deletePolish` | `polishes.ts` | ✅ Live |
-| `POST` | `/api/auth/validate` | `validateToken` | `auth.ts` | ⬜ Stub (501) |
+| `POST` | `/api/auth/validate` | `validateToken` | `auth.ts` | ✅ Live (dev bypass + B2C) |
 | `GET` | `/api/auth/config` | `getAuthConfig` | `auth.ts` | ✅ Working |
 | `GET` | `/api/catalog/search?q=` | `searchCatalog` | `catalog.ts` | ✅ Live |
 | `GET` | `/api/catalog/shade/{id}` | `getShade` | `catalog.ts` | ✅ Live |
@@ -30,6 +30,27 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 
 
 All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpRequest, context: InvocationContext)`.
+
+### Authentication
+
+Polish CRUD endpoints require a `Bearer` token in the `Authorization` header. The auth middleware (`src/lib/auth.ts`) supports two modes:
+
+- **Dev bypass** (`AUTH_DEV_BYPASS=true` in `local.settings.json`): accepts `Bearer dev:<userId>` tokens (e.g., `Bearer dev:1`) — maps directly to `app_user.user_id`. No cryptographic validation.
+- **Production** (B2C configured): validates JWTs against Azure AD B2C JWKS, extracts the `oid` claim, and upserts the user by `external_id`.
+
+To protect a handler, wrap it with `withAuth`:
+
+```ts
+import { withAuth } from "../lib/auth";
+
+async function myHandler(request: HttpRequest, context: InvocationContext, userId: number) {
+  // userId is the authenticated user's local DB ID
+}
+
+app.http("my-route", { ..., handler: withAuth(myHandler) });
+```
+
+Catalog endpoints (`/api/catalog/*`) remain public — no auth required.
 
 ## Migrations
 
@@ -56,6 +77,7 @@ npm run migrate:create -- my-migration-name   # Create a new migration file
 | `003_seed_dev_data.sql` | Dev-only: demo user, sample shades, 20 inventory items (gated by `app.seed_dev_data` session var) |
 | `004_add_expiration_date.sql` | Adds expiration_date column to user_inventory_item |
 | `005_seed_production_reference_data.sql` | Prod reference data: finish_type table, data sources, 49 brands, brand aliases, claims, retailers, affiliate programs, disclosure config, INCI ingredients, product lines |
+| `006_add_user_external_id.sql` | Adds `external_id` (B2C oid) and `email` to `app_user`; sets demo user external_id |
 
 node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_URL` is the preferred connection method; it also falls back to individual `PG*` env vars (`PGHOST`, `PGPORT`, etc.).
 
@@ -82,7 +104,6 @@ node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_U
 
 ## Known Issues
 
-- JWT validation returns 501 — Azure AD B2C JWKS verification not implemented
 - Voice handler stubs Speech-to-text and OpenAI parsing
 
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useCallback, useState } from "react";
+import { useRef, useEffect, useCallback, useState, useMemo } from "react";
 import { hslToHex, hexToHsl, type HSL } from "@/lib/color-utils";
 import { Button } from "@/components/ui/button";
 
@@ -11,8 +11,15 @@ export interface SnapDot {
   hsl: HSL;
 }
 
+export interface HarmonyDot {
+  hex: string;
+  hsl: HSL;
+  /** Index into snapDots for the closest owned polish (set when snap mode is on) */
+  closestSnapIndex: number | null;
+}
+
 interface ColorWheelProps {
-  /** Currently selected/previewed HSL (without lightness — that comes from the slider) */
+  /** Currently selected/previewed HSL */
   lightness: number;
   /** Called continuously as the mouse moves over the wheel */
   onHover: (hex: string, hsl: HSL) => void;
@@ -25,6 +32,10 @@ interface ColorWheelProps {
   wheelMode?: WheelMode;
   /** Dots to render on the wheel (owned polish positions) */
   snapDots?: SnapDot[];
+  /** Hex color hovered externally (e.g. from palette or results) — shows a marker on the wheel */
+  externalHoverHex?: string | null;
+  /** Harmony target dots to render as diamonds on the wheel */
+  harmonyDots?: HarmonyDot[];
 }
 
 /** Pixel radius for snapping to a dot */
@@ -38,6 +49,8 @@ export function ColorWheel({
   size = 280,
   wheelMode = "free",
   snapDots = [],
+  externalHoverHex,
+  harmonyDots = [],
 }: ColorWheelProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -47,6 +60,7 @@ export function ColorWheel({
   const [zoom, setZoom] = useState(1);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const isPanningRef = useRef(false);
+  const [isPanning, setIsPanning] = useState(false);
   const panStartRef = useRef({ x: 0, y: 0 });
   const panOffsetStartRef = useRef({ x: 0, y: 0 });
 
@@ -172,7 +186,148 @@ export function ColorWheel({
         }
       }
     }
-  }, [lightness, size, radius, zoom, panOffset, wheelMode, snapDots, snappedDotIndex, hslToWheelPos, wheelToViewport]);
+
+    // Draw harmony target diamonds on canvas
+    if (harmonyDots.length > 0) {
+      // Compute viewport positions for all harmony dots
+      const harmonyViewports = harmonyDots.map((dot) => {
+        const wp = hslToWheelPos(dot.hsl);
+        return { ...dot, vp: wheelToViewport(wp.x, wp.y) };
+      });
+
+      // Fan out dots that overlap (e.g. monochromatic with same hue/sat)
+      const FAN_THRESHOLD = 4; // px — dots closer than this get fanned out
+      const FAN_RADIUS = 10;   // px — radius of the fan ring
+      const groups = new Map<string, number[]>();
+      for (let i = 0; i < harmonyViewports.length; i++) {
+        let placed = false;
+        for (const [key, indices] of groups) {
+          const ref = harmonyViewports[parseInt(key)];
+          const dx = harmonyViewports[i].vp.x - ref.vp.x;
+          const dy = harmonyViewports[i].vp.y - ref.vp.y;
+          if (Math.sqrt(dx * dx + dy * dy) < FAN_THRESHOLD) {
+            indices.push(i);
+            placed = true;
+            break;
+          }
+        }
+        if (!placed) groups.set(String(i), [i]);
+      }
+
+      // Apply fan-out offsets for overlapping groups
+      const offsets = new Array<{ dx: number; dy: number }>(harmonyViewports.length).fill({ dx: 0, dy: 0 });
+      for (const indices of groups.values()) {
+        if (indices.length > 1) {
+          for (let j = 0; j < indices.length; j++) {
+            const angle = (j / indices.length) * Math.PI * 2 - Math.PI / 2;
+            offsets[indices[j]] = {
+              dx: Math.cos(angle) * FAN_RADIUS,
+              dy: Math.sin(angle) * FAN_RADIUS,
+            };
+          }
+        }
+      }
+
+      // Draw source → harmony connecting lines (dashed, behind diamonds)
+      if (selectedHsl) {
+        const selWp = hslToWheelPos(selectedHsl);
+        const selVp = wheelToViewport(selWp.x, selWp.y);
+
+        for (let i = 0; i < harmonyViewports.length; i++) {
+          const hd = harmonyViewports[i];
+          const hx = hd.vp.x + offsets[i].dx;
+          const hy = hd.vp.y + offsets[i].dy;
+
+          ctx.save();
+          ctx.setLineDash([6, 4]);
+          ctx.beginPath();
+          ctx.moveTo(selVp.x, selVp.y);
+          ctx.lineTo(hx, hy);
+          ctx.strokeStyle = "rgba(255,255,255,0.6)";
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+
+      // Draw snap-mode connecting lines (dashed, from harmony targets to closest owned)
+      if (wheelMode === "snap" && snapDots.length > 0) {
+        for (let i = 0; i < harmonyViewports.length; i++) {
+          const hd = harmonyViewports[i];
+          if (hd.closestSnapIndex === null) continue;
+          const snapDot = snapDots[hd.closestSnapIndex];
+          const snapWp = hslToWheelPos(snapDot.hsl);
+          const snapVp = wheelToViewport(snapWp.x, snapWp.y);
+
+          const hx = hd.vp.x + offsets[i].dx;
+          const hy = hd.vp.y + offsets[i].dy;
+
+          // Dashed connecting line
+          ctx.save();
+          ctx.setLineDash([4, 4]);
+          ctx.beginPath();
+          ctx.moveTo(hx, hy);
+          ctx.lineTo(snapVp.x, snapVp.y);
+          ctx.strokeStyle = hd.hex;
+          ctx.lineWidth = 1.5;
+          ctx.globalAlpha = 0.6;
+          ctx.stroke();
+          ctx.restore();
+
+          // Highlight ring around the matched snap dot
+          ctx.beginPath();
+          ctx.arc(snapVp.x, snapVp.y, 9, 0, Math.PI * 2);
+          ctx.strokeStyle = hd.hex;
+          ctx.lineWidth = 2;
+          ctx.globalAlpha = 0.7;
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+      }
+
+      // Draw diamond markers
+      const DIAMOND_SIZE = 7;
+      for (let i = 0; i < harmonyViewports.length; i++) {
+        const hd = harmonyViewports[i];
+        const cx = hd.vp.x + offsets[i].dx;
+        const cy = hd.vp.y + offsets[i].dy;
+
+        // Skip if off-canvas
+        if (cx < -15 || cx > size + 15 || cy < -15 || cy > size + 15) continue;
+
+        // Outer glow
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - DIAMOND_SIZE - 2);
+        ctx.lineTo(cx + DIAMOND_SIZE + 2, cy);
+        ctx.lineTo(cx, cy + DIAMOND_SIZE + 2);
+        ctx.lineTo(cx - DIAMOND_SIZE - 2, cy);
+        ctx.closePath();
+        ctx.strokeStyle = "rgba(255,255,255,0.4)";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        // Diamond fill
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - DIAMOND_SIZE);
+        ctx.lineTo(cx + DIAMOND_SIZE, cy);
+        ctx.lineTo(cx, cy + DIAMOND_SIZE);
+        ctx.lineTo(cx - DIAMOND_SIZE, cy);
+        ctx.closePath();
+        ctx.fillStyle = hd.hex;
+        ctx.globalAlpha = 0.8;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+
+        // Diamond stroke
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.strokeStyle = "rgba(0,0,0,0.3)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+  }, [lightness, size, radius, zoom, panOffset, wheelMode, snapDots, snappedDotIndex, hslToWheelPos, wheelToViewport, harmonyDots, selectedHsl]);
 
   // Find nearest snap dot in viewport space
   const findNearestDot = useCallback(
@@ -214,8 +369,9 @@ export function ColorWheel({
         const nearest = findNearestDot(vx, vy);
         if (nearest) {
           setSnappedDotIndex(nearest.index);
-          const hsl: HSL = { ...nearest.dot.hsl, l: lightness };
-          return { hex: hslToHex(hsl), hsl };
+          // Preserve the owned polish's true lightness when snapping.
+          const hsl: HSL = { ...nearest.dot.hsl };
+          return { hex: nearest.dot.hex, hsl };
         }
         setSnappedDotIndex(null);
       }
@@ -286,13 +442,14 @@ export function ColorWheel({
     setSnappedDotIndex(null);
   }, []);
 
-  // Zoom on wheel scroll
-  const handleWheel = useCallback(
-    (e: React.WheelEvent<HTMLDivElement>) => {
-      e.preventDefault();
+  // Zoom on wheel scroll — attached via useEffect with { passive: false }
+  // so preventDefault() actually works (React onWheel is passive).
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
 
-      const container = containerRef.current;
-      if (!container) return;
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
 
       const rect = container.getBoundingClientRect();
       const scaleX = size / rect.width;
@@ -300,13 +457,11 @@ export function ColorWheel({
       const cursorVx = (e.clientX - rect.left) * scaleX;
       const cursorVy = (e.clientY - rect.top) * scaleY;
 
-      // Zoom centered on cursor position
       const zoomFactor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
       const newZoom = Math.min(8, Math.max(1, zoom * zoomFactor));
 
       if (newZoom === zoom) return;
 
-      // Adjust pan so cursor stays over the same wheel-space point
       const wx = (cursorVx - radius - panOffset.x) / zoom + radius;
       const wy = (cursorVy - radius - panOffset.y) / zoom + radius;
       const newPanX = cursorVx - (wx - radius) * newZoom - radius;
@@ -314,9 +469,11 @@ export function ColorWheel({
 
       setZoom(newZoom);
       setPanOffset(clampPan(newPanX, newPanY, newZoom, size, radius));
-    },
-    [zoom, panOffset, size, radius]
-  );
+    };
+
+    container.addEventListener("wheel", handleWheel, { passive: false });
+    return () => container.removeEventListener("wheel", handleWheel);
+  }, [zoom, panOffset, size, radius]);
 
   // Pan via mouse drag when zoomed
   const handleMouseDown = useCallback(
@@ -325,6 +482,7 @@ export function ColorWheel({
       // Right-click or middle-click, or any click when zoomed to start pan
       if (e.button === 1 || e.button === 2 || zoom > 1) {
         isPanningRef.current = true;
+        setIsPanning(true);
         panStartRef.current = { x: e.clientX, y: e.clientY };
         panOffsetStartRef.current = { ...panOffset };
         e.preventDefault();
@@ -366,6 +524,7 @@ export function ColorWheel({
         const dx = Math.abs(e.clientX - panStartRef.current.x);
         const dy = Math.abs(e.clientY - panStartRef.current.y);
         isPanningRef.current = false;
+        setIsPanning(false);
         // If it was a real drag, don't fire click
         if (dx > 3 || dy > 3) {
           e.preventDefault();
@@ -437,6 +596,15 @@ export function ColorWheel({
     setPanOffset({ x: 0, y: 0 });
   }, []);
 
+  // Calculate external hover position (in viewport space)
+  const externalHoverPos = useMemo(() => {
+    if (!externalHoverHex) return null;
+    const hsl = hexToHsl(externalHoverHex);
+    const wp = hslToWheelPos(hsl);
+    const vp = wheelToViewport(wp.x, wp.y);
+    return { x: vp.x, y: vp.y, hex: externalHoverHex };
+  }, [externalHoverHex, hslToWheelPos, wheelToViewport]);
+
   // Calculate selected position for the marker (in viewport space)
   const selectedPos = selectedHsl
     ? (() => {
@@ -451,7 +619,6 @@ export function ColorWheel({
         ref={containerRef}
         className="relative overflow-hidden rounded-full"
         style={{ width: size, height: size }}
-        onWheel={handleWheel}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
@@ -467,7 +634,7 @@ export function ColorWheel({
           onMouseLeave={handleMouseLeave}
         />
         {/* Hover cursor indicator */}
-        {hoveredPos && !isPanningRef.current && (
+        {hoveredPos && !isPanning && (
           <div
             className="pointer-events-none absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.3)]"
             style={{ left: hoveredPos.x, top: hoveredPos.y }}
@@ -478,6 +645,13 @@ export function ColorWheel({
           <div
             className="pointer-events-none absolute h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white shadow-[0_0_0_2px_rgba(0,0,0,0.4)]"
             style={{ left: selectedPos.x, top: selectedPos.y }}
+          />
+        )}
+        {/* External hover marker (from palette/results hover) */}
+        {externalHoverPos && (
+          <div
+            className="pointer-events-none absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_6px_2px_rgba(255,255,255,0.5)]"
+            style={{ left: externalHoverPos.x, top: externalHoverPos.y, backgroundColor: externalHoverPos.hex }}
           />
         )}
       </div>
