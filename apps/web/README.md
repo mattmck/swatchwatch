@@ -56,7 +56,7 @@ cd apps/web && npx shadcn@latest add <component-name>
 | `constants.ts` | `FINISHES` — canonical finish types for dropdowns |
 | `color-utils.ts` | Hex↔HSL↔RGB↔OKLAB↔OKLCH conversions, `colorDistance()`, `complementaryHex()`, gamut clamping |
 | `color-harmonies.ts` | `HARMONY_TYPES`, `HarmonyType`, `generateHarmonyColors()` — 7 color theory harmonies via OKLCH |
-| `api.ts` | Typed fetch wrappers: `listPolishes`, `getPolish`, `createPolish`, `updatePolish`, `deletePolish`, `searchCatalog`, `getShade` |
+| `api.ts` | Typed fetch wrappers: `listPolishes`, `getPolish`, `createPolish`, `updatePolish`, `deletePolish`, `searchCatalog`, `getShade`, `startCapture`, `addCaptureFrame`, `finalizeCapture`, `getCaptureStatus`, `answerCaptureQuestion` |
 
 ## Conventions
 

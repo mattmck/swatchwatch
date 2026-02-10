@@ -1,4 +1,12 @@
 import type {
+  CaptureAnswerRequest,
+  CaptureAnswerResponse,
+  CaptureFinalizeResponse,
+  CaptureFrameRequest,
+  CaptureFrameResponse,
+  CaptureStartRequest,
+  CaptureStartResponse,
+  CaptureStatusResponse,
   Polish,
   PolishCreateRequest,
   PolishUpdateRequest,
@@ -96,4 +104,52 @@ export async function searchCatalog(q: string, limit?: number): Promise<CatalogS
 export async function getShade(id: string | number): Promise<CatalogShadeDetail> {
   const response = await fetch(`${API_BASE_URL}/catalog/shade/${id}`);
   return handleResponse<CatalogShadeDetail>(response);
+}
+
+export async function startCapture(data?: CaptureStartRequest): Promise<CaptureStartResponse> {
+  const response = await fetch(`${API_BASE_URL}/capture/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify(data || {}),
+  });
+  return handleResponse<CaptureStartResponse>(response);
+}
+
+export async function addCaptureFrame(
+  captureId: string,
+  data: CaptureFrameRequest
+): Promise<CaptureFrameResponse> {
+  const response = await fetch(`${API_BASE_URL}/capture/${captureId}/frame`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<CaptureFrameResponse>(response);
+}
+
+export async function finalizeCapture(captureId: string): Promise<CaptureFinalizeResponse> {
+  const response = await fetch(`${API_BASE_URL}/capture/${captureId}/finalize`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+  });
+  return handleResponse<CaptureFinalizeResponse>(response);
+}
+
+export async function getCaptureStatus(captureId: string): Promise<CaptureStatusResponse> {
+  const response = await fetch(`${API_BASE_URL}/capture/${captureId}/status`, {
+    headers: getAuthHeaders(),
+  });
+  return handleResponse<CaptureStatusResponse>(response);
+}
+
+export async function answerCaptureQuestion(
+  captureId: string,
+  data: CaptureAnswerRequest
+): Promise<CaptureAnswerResponse> {
+  const response = await fetch(`${API_BASE_URL}/capture/${captureId}/answer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<CaptureAnswerResponse>(response);
 }
