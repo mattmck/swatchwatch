@@ -56,6 +56,7 @@ export default function NewPolishPage() {
   const [captureBusy, setCaptureBusy] = useState(false);
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [captureAnswerInput, setCaptureAnswerInput] = useState("");
+  const matchedInventoryId = captureMetadata?.inventoryItemId;
 
   function update(field: string, value: string | number) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -492,6 +493,16 @@ export default function NewPolishPage() {
               )}
               {captureError && (
                 <p className="text-xs text-destructive">{captureError}</p>
+              )}
+              {captureStatus === "matched" && typeof matchedInventoryId !== "undefined" && (
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  onClick={() => router.push(`/polishes/${String(matchedInventoryId)}`)}
+                >
+                  View Added Polish
+                </Button>
               )}
             </div>
 
