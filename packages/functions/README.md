@@ -45,6 +45,7 @@ All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpReques
   - `imageBlobUrl` as `https://...` URL, or
   - base64 `data:image/...;base64,...` payloads from web/mobile camera uploads.
 - Frame ingest normalizes/stores metadata (`ingestion.source`, MIME type, byte size, checksum), writes structured evidence under `quality_json.extracted`, and rejects browser-local `blob:` URLs.
+- Each frame ingest updates `capture_session.metadata.pipeline.ingest` with durable progress details (`framesReceived`, `frameTypeCounts`, `lastFrameType`, extraction source).
 - Finalize now writes durable run metadata to `capture_session.metadata.pipeline.finalize` (`attempt`, `runId`, timestamps, outcome) and resolver audit evidence under `metadata.resolver.audit`.
 
 ### Authentication

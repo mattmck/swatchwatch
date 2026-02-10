@@ -65,6 +65,8 @@ interface FrameExtraction {
   source: "pipeline" | "request_quality";
 }
 
+type FrameExtractionSource = FrameExtraction["source"] | "none";
+
 interface CaptureMatchCandidate {
   entityType: "shade" | "sku";
   entityId: number;
@@ -313,6 +315,41 @@ function toNumber(value: unknown): number | undefined {
     }
   }
   return undefined;
+}
+
+function buildIngestMetadataPatch(
+  metadata: Record<string, unknown> | null,
+  frameType: CaptureFrameRequest["frameType"],
+  hasExtractedEvidence: boolean,
+  extractionSource: FrameExtractionSource
+): Record<string, unknown> {
+  const pipeline = toRecord(toRecord(metadata).pipeline);
+  const ingest = toRecord(pipeline.ingest);
+  const frameTypeCounts = toRecord(ingest.frameTypeCounts);
+  const nowIso = new Date().toISOString();
+
+  const previousFrames = toNumber(ingest.framesReceived) ?? 0;
+  const previousTypeCount = toNumber(frameTypeCounts[frameType]) ?? 0;
+
+  return {
+    pipeline: {
+      ...pipeline,
+      ingest: {
+        ...ingest,
+        status: "frames_received",
+        firstFrameAt: typeof ingest.firstFrameAt === "string" ? ingest.firstFrameAt : nowIso,
+        lastFrameAt: nowIso,
+        lastFrameType: frameType,
+        framesReceived: previousFrames + 1,
+        frameTypeCounts: {
+          ...frameTypeCounts,
+          [frameType]: previousTypeCount + 1,
+        },
+        lastFrameHasExtractedEvidence: hasExtractedEvidence,
+        lastExtractionSource: extractionSource,
+      },
+    },
+  };
 }
 
 function buildFinalizePipelinePatch(
@@ -1002,6 +1039,12 @@ async function addCaptureFrame(
           extracted: normalizedExtraction,
         });
       }
+      const ingestMetadataPatch = buildIngestMetadataPatch(
+        session.metadata,
+        body.frameType,
+        Boolean(normalizedExtraction),
+        normalizedExtraction?.source ?? "none"
+      );
 
       if (!imageId && body.imageBlobUrl) {
         if (!normalizedImage) {
@@ -1025,9 +1068,10 @@ async function addCaptureFrame(
 
       await client.query(
         `UPDATE capture_session
-         SET updated_at = now()
+         SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb,
+             updated_at = now()
          WHERE capture_session_id = $1`,
-        [session.id]
+        [session.id, ingestMetadataPatch]
       );
 
       return frameResult.rows[0];

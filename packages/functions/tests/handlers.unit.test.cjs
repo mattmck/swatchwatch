@@ -837,6 +837,7 @@ describe("functions/capture — addCaptureFrame", () => {
     process.env.AUTH_DEV_BYPASS = "true";
     let callCount = 0;
     const frameInsertParams = [];
+    const captureSessionUpdateParams = [];
     queryMock = async () => {
       callCount++;
       if (callCount === 1) {
@@ -856,6 +857,9 @@ describe("functions/capture — addCaptureFrame", () => {
           if (text.includes("INSERT INTO capture_frame")) {
             frameInsertParams.push(params);
             return { rows: [{ frameId: "902" }] };
+          }
+          if (text.includes("UPDATE capture_session")) {
+            captureSessionUpdateParams.push(params);
           }
           return { rows: [] };
         },
@@ -882,6 +886,12 @@ describe("functions/capture — addCaptureFrame", () => {
     assert.equal(frameInsertParams.length, 1);
     assert.equal(frameInsertParams[0][3].extracted.gtin, "1234567890123");
     assert.equal(frameInsertParams[0][3].extracted.source, "request_quality");
+    assert.equal(captureSessionUpdateParams.length, 1);
+    assert.equal(captureSessionUpdateParams[0][1].pipeline.ingest.status, "frames_received");
+    assert.equal(captureSessionUpdateParams[0][1].pipeline.ingest.framesReceived, 1);
+    assert.equal(captureSessionUpdateParams[0][1].pipeline.ingest.frameTypeCounts.barcode, 1);
+    assert.equal(captureSessionUpdateParams[0][1].pipeline.ingest.lastFrameHasExtractedEvidence, true);
+    assert.equal(captureSessionUpdateParams[0][1].pipeline.ingest.lastExtractionSource, "request_quality");
   });
 
   it("rejects blob URL image references", async () => {
