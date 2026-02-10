@@ -10,7 +10,8 @@
 #   scripts/agent-worktree.sh fix/99-hotfix main          # branch from main
 #
 # Creates a worktree at ../<repo>-worktrees/<branch-name> so agents can work
-# without touching the primary checkout. Installs deps and builds shared types.
+# without touching the primary checkout. Copies local ignored config files
+# when present, installs deps, and builds shared types.
 #
 # To clean up:
 #   git worktree remove ../<repo>-worktrees/<branch-name>
@@ -21,9 +22,14 @@ set -euo pipefail
 BRANCH="${1:?Usage: agent-worktree.sh <branch-name> [base-branch]}"
 BASE="${2:-dev}"
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-REPO_NAME="$(basename "$REPO_ROOT")"
-WORKTREE_DIR="$(dirname "$REPO_ROOT")/${REPO_NAME}-worktrees/${BRANCH}"
+CURRENT_ROOT="$(git rev-parse --show-toplevel)"
+PRIMARY_ROOT="$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')"
+if [ -z "${PRIMARY_ROOT:-}" ]; then
+  PRIMARY_ROOT="$CURRENT_ROOT"
+fi
+
+REPO_NAME="$(basename "$PRIMARY_ROOT")"
+WORKTREE_DIR="$(dirname "$PRIMARY_ROOT")/${REPO_NAME}-worktrees/${BRANCH}"
 
 if [ -d "$WORKTREE_DIR" ]; then
   echo "Worktree already exists at $WORKTREE_DIR"
@@ -39,6 +45,39 @@ if ! git show-ref --verify --quiet "refs/heads/$BRANCH"; then
 fi
 
 git worktree add "$WORKTREE_DIR" "$BRANCH"
+
+copy_if_present() {
+  local source_path="$1"
+  local target_path="$2"
+  local label="$3"
+
+  if [ -f "$source_path" ] && [ ! -f "$target_path" ]; then
+    mkdir -p "$(dirname "$target_path")"
+    cp "$source_path" "$target_path"
+    echo "Copied $label into new worktree."
+  fi
+}
+
+first_existing_path() {
+  local current_candidate="$1"
+  local primary_candidate="$2"
+  if [ -f "$current_candidate" ]; then
+    printf "%s" "$current_candidate"
+  elif [ -f "$primary_candidate" ]; then
+    printf "%s" "$primary_candidate"
+  fi
+}
+
+# Bring over local ignored dev settings from the source checkout.
+SOURCE_ENV="$(first_existing_path "$CURRENT_ROOT/.env" "$PRIMARY_ROOT/.env")"
+SOURCE_LOCAL_SETTINGS="$(first_existing_path "$CURRENT_ROOT/packages/functions/local.settings.json" "$PRIMARY_ROOT/packages/functions/local.settings.json")"
+
+if [ -n "${SOURCE_ENV:-}" ]; then
+  copy_if_present "$SOURCE_ENV" "$WORKTREE_DIR/.env" ".env"
+fi
+if [ -n "${SOURCE_LOCAL_SETTINGS:-}" ]; then
+  copy_if_present "$SOURCE_LOCAL_SETTINGS" "$WORKTREE_DIR/packages/functions/local.settings.json" "packages/functions/local.settings.json"
+fi
 
 echo "Installing dependencies..."
 (cd "$WORKTREE_DIR" && npm ci)

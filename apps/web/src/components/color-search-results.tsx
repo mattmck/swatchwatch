@@ -1,7 +1,9 @@
 import Link from "next/link";
 import type { Polish } from "swatchwatch-shared";
+import { BsPlusLg } from "react-icons/bs";
 import type { HarmonyType } from "@/lib/color-harmonies";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { ColorDot } from "@/components/color-dot";
 import { QuantityControls } from "@/components/quantity-controls";
 
@@ -15,10 +17,12 @@ interface ColorSearchResultsProps {
   harmonyType: HarmonyType;
   focusedTargetHex?: string | null;
   onQuantityChange?: (polishId: string, delta: number) => void;
+  onAddDesired?: (hex: string) => void;
   /** Header dot hover — affects wheel marker + table filter */
   onSwatchHover?: (hex: string) => void;
   onSwatchLeave?: () => void;
   onSwatchClick?: (hex: string) => void;
+  onColorSelect?: (hex: string) => void;
   /** Row color dot hover — affects wheel marker only */
   onColorHover?: (hex: string) => void;
   onColorLeave?: () => void;
@@ -30,9 +34,11 @@ export function ColorSearchResults({
   harmonyType,
   focusedTargetHex,
   onQuantityChange,
+  onAddDesired,
   onSwatchHover,
   onSwatchLeave,
   onSwatchClick,
+  onColorSelect,
   onColorHover,
   onColorLeave,
 }: ColorSearchResultsProps) {
@@ -88,6 +94,12 @@ export function ColorSearchResults({
               <span
                 onMouseEnter={() => polish.colorHex && onColorHover?.(polish.colorHex)}
                 onMouseLeave={onColorLeave}
+                onClick={(e) => {
+                  if (!polish.colorHex) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onColorSelect?.(polish.colorHex);
+                }}
               >
                 <ColorDot hex={polish.colorHex} size="md" />
               </span>
@@ -98,11 +110,19 @@ export function ColorSearchResults({
                   title={`Matched harmony color ${polish.matchedHarmonyIndex + 1}`}
                   onMouseEnter={() => onColorHover?.(polish.matchedHarmonyHex)}
                   onMouseLeave={onColorLeave}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onColorSelect?.(polish.matchedHarmonyHex);
+                  }}
                 />
               )}
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">{polish.name}</p>
-                <p className="text-sm text-muted-foreground">{polish.brand}</p>
+                <p className="truncate text-sm text-muted-foreground">
+                  {polish.brand}
+                  {polish.collection ? ` · ${polish.collection}` : ""}
+                </p>
               </div>
               {polish.finish && (
                 <Badge variant="secondary" className="shrink-0">
@@ -115,8 +135,24 @@ export function ColorSearchResults({
             </Link>
 
             {/* Quantity controls */}
+            {(onAddDesired || onQuantityChange) && (
+              <div className="shrink-0 flex items-center gap-2">
+                {onAddDesired && polish.colorHex && (
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="outline"
+                    className="w-9"
+                    title="Add to desired colors"
+                    onClick={() => onAddDesired(polish.colorHex)}
+                  >
+                    <BsPlusLg className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
+            )}
             {onQuantityChange && (
-              <div className="shrink-0">
+              <div className="shrink-0 w-[92px] flex justify-end">
                 <QuantityControls
                   quantity={polish.quantity ?? 0}
                   onIncrement={() => onQuantityChange(polish.id, 1)}

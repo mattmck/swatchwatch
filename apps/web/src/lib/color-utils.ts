@@ -1,3 +1,10 @@
+import type {
+  CollectionGapAnalysis,
+  CollectionGapCell,
+  HueFamily,
+  LightnessBand,
+} from "swatchwatch-shared";
+
 // ── Hex ↔ RGB ────────────────────────────────────────────────
 
 export interface RGB {
@@ -264,6 +271,79 @@ export function undertoneBreakdown(hexColors: string[]): {
         ? "cool"
         : "neutral";
   return { ...counts, dominant };
+}
+
+export const HUE_FAMILY_ORDER: HueFamily[] = [
+  "reds",
+  "oranges-corals",
+  "yellows-golds",
+  "greens",
+  "blues-teals",
+  "purples-violets",
+  "pinks-magentas",
+  "neutrals",
+];
+
+export const LIGHTNESS_BAND_ORDER: LightnessBand[] = ["dark", "medium", "light"];
+
+function classifyHueFamily(oklch: OKLCH): HueFamily {
+  if (oklch.C < 0.04 || Number.isNaN(oklch.h)) return "neutrals";
+
+  const hue = oklch.h;
+  if (hue >= 350 || hue < 10) return "reds";
+  if (hue >= 10 && hue < 40) return "oranges-corals";
+  if (hue >= 40 && hue < 80) return "yellows-golds";
+  if (hue >= 80 && hue < 170) return "greens";
+  if (hue >= 170 && hue < 260) return "blues-teals";
+  if (hue >= 260 && hue < 310) return "purples-violets";
+  return "pinks-magentas";
+}
+
+function classifyLightnessBand(L: number): LightnessBand {
+  if (L < 0.38) return "dark";
+  if (L < 0.68) return "medium";
+  return "light";
+}
+
+/**
+ * Analyze hue/lightness coverage for owned colors and surface gaps.
+ */
+export function analyzeCollectionGaps(hexColors: string[]): CollectionGapAnalysis {
+  const counts = new Map<string, number>();
+  for (const hueFamily of HUE_FAMILY_ORDER) {
+    for (const lightnessBand of LIGHTNESS_BAND_ORDER) {
+      counts.set(`${hueFamily}:${lightnessBand}`, 0);
+    }
+  }
+
+  for (const hex of hexColors) {
+    if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) continue;
+    const oklch = hexToOklch(hex);
+    const hueFamily = classifyHueFamily(oklch);
+    const lightnessBand = classifyLightnessBand(oklch.L);
+    const key = `${hueFamily}:${lightnessBand}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  const cells: CollectionGapCell[] = [];
+  for (const hueFamily of HUE_FAMILY_ORDER) {
+    for (const lightnessBand of LIGHTNESS_BAND_ORDER) {
+      cells.push({
+        hueFamily,
+        lightnessBand,
+        count: counts.get(`${hueFamily}:${lightnessBand}`) ?? 0,
+      });
+    }
+  }
+
+  const missing = cells.filter((cell) => cell.count === 0);
+  const avgPerCell = hexColors.length / Math.max(cells.length, 1);
+  const lowThreshold = Math.max(1, Math.floor(avgPerCell * 0.5));
+  const underrepresented = cells.filter(
+    (cell) => cell.count > 0 && cell.count <= lowThreshold,
+  );
+
+  return { cells, missing, underrepresented };
 }
 
 // ── Complementary color ──────────────────────────────────────
