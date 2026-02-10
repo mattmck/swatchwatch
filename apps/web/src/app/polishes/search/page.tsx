@@ -560,7 +560,7 @@ function ColorSearchPageContent() {
         </p>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,420px)_minmax(0,1fr)]">
+      <div className="grid gap-6 xl:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]">
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Pick Color</CardTitle>
@@ -659,7 +659,7 @@ function ColorSearchPageContent() {
           </CardContent>
         </Card>
 
-        <Card className="xl:order-3">
+        <Card className="order-3 xl:order-none xl:col-start-2 xl:row-span-2">
           <CardHeader>
             <CardTitle className="text-base">
               Match Table
@@ -748,7 +748,7 @@ function ColorSearchPageContent() {
           </CardContent>
         </Card>
 
-        <Card className="xl:order-2">
+        <Card className="order-2 xl:order-none xl:col-start-1 xl:row-start-2">
           <CardHeader>
             <CardTitle className="text-base">Harmonies</CardTitle>
             <CardDescription>
