@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CaptureQuestion, CaptureStatus, PolishFinish } from "swatchwatch-shared";
 import {
-  addCaptureFrame,
+  addCaptureFrameFromFile,
   answerCaptureQuestion,
   finalizeCapture,
   getCaptureStatus,
@@ -111,23 +111,18 @@ export default function RapidAddPage() {
     }
 
     await runCaptureAction(async () => {
-      const frameUrl = URL.createObjectURL(captureFrameFile);
-      try {
-        const res = await addCaptureFrame(captureId, {
-          frameType: captureFrameType,
-          imageBlobUrl: frameUrl,
-          quality: {
-            source: "web-file-input",
-            fileName: captureFrameFile.name,
-            mimeType: captureFrameFile.type,
-            fileSize: captureFrameFile.size,
-            lastModified: captureFrameFile.lastModified,
-          },
-        });
-        setCaptureStatus(res.status);
-      } finally {
-        URL.revokeObjectURL(frameUrl);
-      }
+      const res = await addCaptureFrameFromFile(captureId, {
+        frameType: captureFrameType,
+        file: captureFrameFile,
+        quality: {
+          source: "web-file-input",
+          fileName: captureFrameFile.name,
+          mimeType: captureFrameFile.type,
+          fileSize: captureFrameFile.size,
+          lastModified: captureFrameFile.lastModified,
+        },
+      });
+      setCaptureStatus(res.status);
     });
   }
 
@@ -329,7 +324,7 @@ export default function RapidAddPage() {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            Selected file: {captureFrameFile ? captureFrameFile.name : "none"}
+            Selected file: {captureFrameFile ? captureFrameFile.name : "none"} (image files only, max 5MB)
           </p>
         </CardContent>
       </Card>

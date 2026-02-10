@@ -4,6 +4,7 @@ import type {
   CaptureFinalizeResponse,
   CaptureFrameRequest,
   CaptureFrameResponse,
+  CaptureFrameType,
   CaptureStartRequest,
   CaptureStartResponse,
   CaptureStatusResponse,
@@ -17,6 +18,7 @@ import type {
 } from "swatchwatch-shared";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:7071/api";
+const MAX_CAPTURE_FRAME_BYTES = 5 * 1024 * 1024;
 
 class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -125,6 +127,46 @@ export async function addCaptureFrame(
     body: JSON.stringify(data),
   });
   return handleResponse<CaptureFrameResponse>(response);
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error("Failed to read image file"));
+    };
+    reader.onerror = () => reject(new Error("Failed to read image file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+export async function addCaptureFrameFromFile(
+  captureId: string,
+  params: {
+    frameType: CaptureFrameType;
+    file: File;
+    quality?: Record<string, unknown>;
+  }
+): Promise<CaptureFrameResponse> {
+  const { frameType, file, quality } = params;
+
+  if (!file.type.startsWith("image/")) {
+    throw new ApiError(400, "Only image files are supported for capture frames");
+  }
+  if (file.size > MAX_CAPTURE_FRAME_BYTES) {
+    throw new ApiError(400, `Image must be ${MAX_CAPTURE_FRAME_BYTES / (1024 * 1024)}MB or smaller`);
+  }
+
+  const imageBlobUrl = await fileToDataUrl(file);
+  return addCaptureFrame(captureId, {
+    frameType,
+    imageBlobUrl,
+    quality,
+  });
 }
 
 export async function finalizeCapture(captureId: string): Promise<CaptureFinalizeResponse> {
