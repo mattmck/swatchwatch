@@ -73,7 +73,15 @@ export default function NewPolishPage() {
 
   async function handleStartCapture() {
     await runCaptureAction(async () => {
-      const res = await startCapture({ metadata: { source: "web-polishes-new" } });
+      const res = await startCapture({
+        metadata: {
+          source: "web-polishes-new",
+          brand: form.brand || undefined,
+          shadeName: form.name || undefined,
+          finish: form.finish || undefined,
+          collection: form.collection || undefined,
+        },
+      });
       setCaptureId(res.captureId);
       setCaptureStatus(res.status);
       setCaptureQuestion(null);

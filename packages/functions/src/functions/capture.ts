@@ -43,6 +43,52 @@ interface CaptureQuestionRow {
   createdAt: string;
 }
 
+interface CaptureFrameEvidenceRow {
+  frameType: "barcode" | "label" | "color" | "other";
+  quality: Record<string, unknown> | null;
+}
+
+interface CaptureEvidence {
+  gtin?: string;
+  brand?: string;
+  shadeName?: string;
+  finish?: string;
+}
+
+interface CaptureMatchCandidate {
+  entityType: "shade" | "sku";
+  entityId: number;
+  display: string;
+  confidence: number;
+}
+
+interface CaptureQuestionSpec {
+  key: string;
+  prompt: string;
+  type: CaptureQuestion["type"];
+  options?: string[];
+}
+
+type ResolverOutcome =
+  | {
+      status: "matched";
+      confidence: number;
+      entityType: "shade" | "sku";
+      entityId: number;
+      metadataPatch: Record<string, unknown>;
+    }
+  | {
+      status: "needs_question";
+      confidence: number;
+      question: CaptureQuestionSpec;
+      metadataPatch: Record<string, unknown>;
+    }
+  | {
+      status: "unmatched";
+      confidence: number;
+      metadataPatch: Record<string, unknown>;
+    };
+
 function isValidUuid(value: string): boolean {
   return UUID_PATTERN.test(value);
 }
@@ -64,6 +110,349 @@ function toCaptureQuestion(row: CaptureQuestionRow | undefined): CaptureQuestion
     options: Array.isArray(row.options) ? row.options.filter((v): v is string => typeof v === "string") : undefined,
     status: row.status,
     createdAt: row.createdAt,
+  };
+}
+
+function getStringField(
+  source: Record<string, unknown> | null | undefined,
+  ...keys: string[]
+): string | undefined {
+  if (!source) return undefined;
+
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+
+  return undefined;
+}
+
+async function getCaptureFrameEvidence(sessionId: number): Promise<CaptureFrameEvidenceRow[]> {
+  const result = await query<CaptureFrameEvidenceRow>(
+    `SELECT
+       frame_type   AS "frameType",
+       quality_json AS quality
+     FROM capture_frame
+     WHERE capture_session_id = $1
+     ORDER BY created_at DESC`,
+    [sessionId]
+  );
+
+  return result.rows;
+}
+
+function collectCaptureEvidence(
+  metadata: Record<string, unknown> | null,
+  frames: CaptureFrameEvidenceRow[]
+): CaptureEvidence {
+  const answers = (metadata?.answers as Record<string, unknown> | undefined) ?? {};
+  const brandFromAnswers =
+    getStringField(answers.brand_shade as Record<string, unknown>, "brand")
+    || getStringField(answers, "brand");
+  const shadeFromAnswers =
+    getStringField(answers.brand_shade as Record<string, unknown>, "shadeName", "name")
+    || getStringField(answers, "shadeName", "name");
+  const finishFromAnswers =
+    getStringField(answers.brand_shade as Record<string, unknown>, "finish")
+    || getStringField(answers, "finish");
+
+  const evidence: CaptureEvidence = {
+    gtin: getStringField(metadata, "gtin"),
+    brand: brandFromAnswers || getStringField(metadata, "brand"),
+    shadeName: shadeFromAnswers || getStringField(metadata, "shadeName", "name"),
+    finish: finishFromAnswers || getStringField(metadata, "finish"),
+  };
+
+  for (const frame of frames) {
+    const quality = frame.quality;
+    if (!quality) continue;
+
+    if (!evidence.gtin) {
+      evidence.gtin = getStringField(quality, "gtin", "upc", "ean");
+    }
+    if (!evidence.brand) {
+      evidence.brand = getStringField(quality, "brand");
+    }
+    if (!evidence.shadeName) {
+      evidence.shadeName = getStringField(quality, "shadeName", "name");
+    }
+    if (!evidence.finish) {
+      evidence.finish = getStringField(quality, "finish");
+    }
+  }
+
+  return evidence;
+}
+
+function extractSelectedEntityId(answer: unknown): number | null {
+  if (typeof answer === "number" && Number.isInteger(answer) && answer > 0) {
+    return answer;
+  }
+
+  if (typeof answer === "string") {
+    const trimmed = answer.trim();
+    const parsedPrefixed = parseInt(trimmed.split(":")[0], 10);
+    if (Number.isInteger(parsedPrefixed) && parsedPrefixed > 0) {
+      return parsedPrefixed;
+    }
+    const parsed = parseInt(trimmed, 10);
+    if (Number.isInteger(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  if (typeof answer === "object" && answer !== null) {
+    const shadeId = (answer as Record<string, unknown>).shadeId;
+    if (typeof shadeId === "number" && Number.isInteger(shadeId) && shadeId > 0) {
+      return shadeId;
+    }
+    if (typeof shadeId === "string") {
+      const parsed = parseInt(shadeId, 10);
+      if (Number.isInteger(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+  }
+
+  return null;
+}
+
+async function resolveByBarcode(gtin: string): Promise<CaptureMatchCandidate | null> {
+  const result = await query<{
+    skuId: string;
+    shadeId: string | null;
+    brand: string | null;
+    productName: string | null;
+    shadeName: string | null;
+  }>(
+    `SELECT
+       s.sku_id::text              AS "skuId",
+       s.shade_id::text            AS "shadeId",
+       b.name_canonical            AS brand,
+       s.product_name              AS "productName",
+       sh.shade_name_canonical     AS "shadeName"
+     FROM barcode bc
+     JOIN sku s ON bc.sku_id = s.sku_id
+     LEFT JOIN brand b ON s.brand_id = b.brand_id
+     LEFT JOIN shade sh ON s.shade_id = sh.shade_id
+     WHERE bc.gtin = $1
+     LIMIT 1`,
+    [gtin]
+  );
+
+  if (result.rows.length === 0) {
+    return null;
+  }
+
+  const row = result.rows[0];
+  const display = [row.brand, row.productName || row.shadeName || `SKU ${row.skuId}`]
+    .filter(Boolean)
+    .join(" — ");
+
+  return {
+    entityType: "sku",
+    entityId: parseInt(row.skuId, 10),
+    display,
+    confidence: 1,
+  };
+}
+
+async function resolveShadeCandidates(evidence: CaptureEvidence): Promise<CaptureMatchCandidate[]> {
+  if (!evidence.shadeName) {
+    return [];
+  }
+
+  if (evidence.brand) {
+    const result = await query<{
+      shadeId: string;
+      brand: string;
+      shadeName: string;
+      score: number;
+    }>(
+      `SELECT
+         s.shade_id::text AS "shadeId",
+         b.name_canonical AS brand,
+         s.shade_name_canonical AS "shadeName",
+         similarity(s.shade_name_canonical, $2) AS score
+       FROM shade s
+       JOIN brand b ON s.brand_id = b.brand_id
+       WHERE s.status = 'active'
+         AND b.name_canonical ILIKE $1
+         AND (
+           s.shade_name_canonical % $2
+           OR similarity(s.shade_name_canonical, $2) >= 0.20
+         )
+       ORDER BY score DESC
+       LIMIT 5`,
+      [evidence.brand, evidence.shadeName]
+    );
+
+    return result.rows.map((row) => ({
+      entityType: "shade",
+      entityId: parseInt(row.shadeId, 10),
+      display: `${row.brand} — ${row.shadeName}`,
+      confidence: Math.max(0, Math.min(1, row.score)),
+    }));
+  }
+
+  const result = await query<{
+    shadeId: string;
+    brand: string;
+    shadeName: string;
+    score: number;
+  }>(
+    `SELECT
+       s.shade_id::text AS "shadeId",
+       b.name_canonical AS brand,
+       s.shade_name_canonical AS "shadeName",
+       GREATEST(
+         similarity(s.shade_name_canonical, $1),
+         similarity(b.name_canonical, $1)
+       ) AS score
+     FROM shade s
+     JOIN brand b ON s.brand_id = b.brand_id
+     WHERE s.status = 'active'
+       AND (
+         s.shade_name_canonical % $1
+         OR b.name_canonical % $1
+         OR similarity(s.shade_name_canonical, $1) >= 0.20
+       )
+     ORDER BY score DESC
+     LIMIT 5`,
+    [evidence.shadeName]
+  );
+
+  return result.rows.map((row) => ({
+    entityType: "shade",
+    entityId: parseInt(row.shadeId, 10),
+    display: `${row.brand} — ${row.shadeName}`,
+    confidence: Math.max(0, Math.min(1, row.score)),
+  }));
+}
+
+function buildNeedsFrameQuestion(): CaptureQuestionSpec {
+  return {
+    key: "capture_frame",
+    prompt: "Upload at least one barcode or label frame so we can continue matching.",
+    type: "single_select",
+    options: ["scan_barcode", "upload_label_photo", "skip"],
+  };
+}
+
+function buildBrandShadeQuestion(): CaptureQuestionSpec {
+  return {
+    key: "brand_shade",
+    prompt: "Tell us the brand and shade name (or upload a clearer label frame) to improve matching.",
+    type: "free_text",
+    options: ["brand + shade", "upload_label_photo", "skip"],
+  };
+}
+
+function buildCandidateQuestion(candidates: CaptureMatchCandidate[]): CaptureQuestionSpec {
+  return {
+    key: "candidate_select",
+    prompt: "We found close shade matches. Reply with a shade ID from the options below, or skip.",
+    type: "single_select",
+    options: [
+      ...candidates.map((candidate) => `${candidate.entityId}: ${candidate.display}`),
+      "skip",
+    ],
+  };
+}
+
+async function resolveCaptureSession(session: CaptureSessionRow): Promise<ResolverOutcome> {
+  const frames = await getCaptureFrameEvidence(session.id);
+  const evidence = collectCaptureEvidence(session.metadata, frames);
+
+  if (frames.length === 0) {
+    return {
+      status: "needs_question",
+      confidence: 0,
+      question: buildNeedsFrameQuestion(),
+      metadataPatch: { resolver: { step: "awaiting_frames" } },
+    };
+  }
+
+  if (evidence.gtin) {
+    const barcodeMatch = await resolveByBarcode(evidence.gtin);
+    if (barcodeMatch) {
+      return {
+        status: "matched",
+        confidence: barcodeMatch.confidence,
+        entityType: barcodeMatch.entityType,
+        entityId: barcodeMatch.entityId,
+        metadataPatch: {
+          resolver: {
+            step: "matched_by_barcode",
+            gtin: evidence.gtin,
+            display: barcodeMatch.display,
+          },
+        },
+      };
+    }
+  }
+
+  const shadeCandidates = await resolveShadeCandidates(evidence);
+  const topCandidate = shadeCandidates[0];
+
+  if (topCandidate && topCandidate.confidence >= 0.92) {
+    return {
+      status: "matched",
+      confidence: topCandidate.confidence,
+      entityType: topCandidate.entityType,
+      entityId: topCandidate.entityId,
+      metadataPatch: {
+        resolver: {
+          step: "matched_by_shade_similarity",
+          topCandidate: topCandidate.display,
+          candidateCount: shadeCandidates.length,
+        },
+      },
+    };
+  }
+
+  if (topCandidate && topCandidate.confidence >= 0.75) {
+    return {
+      status: "needs_question",
+      confidence: topCandidate.confidence,
+      question: buildCandidateQuestion(shadeCandidates),
+      metadataPatch: {
+        resolver: {
+          step: "needs_user_candidate_selection",
+          candidateCount: shadeCandidates.length,
+          topCandidate: topCandidate.display,
+        },
+      },
+    };
+  }
+
+  if (!evidence.brand || !evidence.shadeName) {
+    return {
+      status: "needs_question",
+      confidence: topCandidate?.confidence ?? 0,
+      question: buildBrandShadeQuestion(),
+      metadataPatch: {
+        resolver: {
+          step: "needs_brand_and_shade",
+          brand: evidence.brand || null,
+          shadeName: evidence.shadeName || null,
+        },
+      },
+    };
+  }
+
+  return {
+    status: "unmatched",
+    confidence: topCandidate?.confidence ?? 0,
+    metadataPatch: {
+      resolver: {
+        step: "unmatched_after_resolver",
+        brand: evidence.brand,
+        shadeName: evidence.shadeName,
+      },
+    },
   };
 }
 
@@ -267,34 +656,64 @@ async function finalizeCapture(
       };
       return { status: 200, jsonBody: response };
     }
+    const outcome = await resolveCaptureSession(session);
 
-    const frameCountResult = await query<{ totalFrames: string }>(
-      `SELECT COUNT(*)::text AS "totalFrames"
-       FROM capture_frame
-       WHERE capture_session_id = $1`,
-      [session.id]
-    );
+    if (outcome.status === "matched") {
+      await transaction(async (client) => {
+        await client.query(
+          `UPDATE capture_question
+           SET status = 'expired'
+           WHERE capture_session_id = $1
+             AND status = 'open'`,
+          [session.id]
+        );
 
-    const totalFrames = parseInt(frameCountResult.rows[0]?.totalFrames || "0", 10);
+        await client.query(
+          `UPDATE capture_session
+           SET status = 'matched',
+               top_confidence = $2,
+               accepted_entity_type = $3,
+               accepted_entity_id = $4,
+               metadata = COALESCE(metadata, '{}'::jsonb) || $5::jsonb,
+               updated_at = now()
+           WHERE capture_session_id = $1`,
+          [session.id, outcome.confidence, outcome.entityType, outcome.entityId, outcome.metadataPatch]
+        );
+      });
 
-    if (totalFrames === 0) {
-      const questionResult = await transaction(async (client) => {
+      const response: CaptureFinalizeResponse = {
+        captureId: session.captureId,
+        status: "matched",
+      };
+      return { status: 200, jsonBody: response };
+    }
+
+    if (outcome.status === "needs_question") {
+      const question = await transaction(async (client) => {
+        await client.query(
+          `UPDATE capture_question
+           SET status = 'expired'
+           WHERE capture_session_id = $1
+             AND status = 'open'`,
+          [session.id]
+        );
+
+        await client.query(
+          `UPDATE capture_session
+           SET status = 'needs_question',
+               top_confidence = $2,
+               accepted_entity_type = NULL,
+               accepted_entity_id = NULL,
+               metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb,
+               updated_at = now()
+           WHERE capture_session_id = $1`,
+          [session.id, outcome.confidence, outcome.metadataPatch]
+        );
+
         const inserted = await client.query<CaptureQuestionRow>(
           `INSERT INTO capture_question
              (capture_session_id, question_key, prompt, question_type, options_json, status)
-           SELECT
-             $1,
-             'capture_frame',
-             'Upload at least one barcode or label frame so we can continue matching.',
-             'single_select',
-             '["scan_barcode","upload_label_photo","skip"]'::jsonb,
-             'open'
-           WHERE NOT EXISTS (
-             SELECT 1 FROM capture_question
-             WHERE capture_session_id = $1
-               AND status = 'open'
-               AND question_key = 'capture_frame'
-           )
+           VALUES ($1, $2, $3, $4, $5::jsonb, 'open')
            RETURNING
              capture_question_id::text AS id,
              question_key              AS key,
@@ -303,61 +722,53 @@ async function finalizeCapture(
              options_json              AS options,
              status,
              created_at::text          AS "createdAt"`,
-          [session.id]
+          [
+            session.id,
+            outcome.question.key,
+            outcome.question.prompt,
+            outcome.question.type,
+            outcome.question.options ?? null,
+          ]
         );
 
-        const question = inserted.rows[0] ?? (await client.query<CaptureQuestionRow>(
-          `SELECT
-             capture_question_id::text AS id,
-             question_key              AS key,
-             prompt,
-             question_type             AS type,
-             options_json              AS options,
-             status,
-             created_at::text          AS "createdAt"
-           FROM capture_question
-           WHERE capture_session_id = $1
-             AND status = 'open'
-           ORDER BY created_at ASC
-           LIMIT 1`,
-          [session.id]
-        )).rows[0];
-
-        await client.query(
-          `UPDATE capture_session
-           SET status = 'needs_question',
-               top_confidence = 0,
-               updated_at = now()
-           WHERE capture_session_id = $1`,
-          [session.id]
-        );
-
-        return question;
+        return inserted.rows[0];
       });
 
       const response: CaptureFinalizeResponse = {
         captureId: session.captureId,
         status: "needs_question",
-        question: toCaptureQuestion(questionResult),
+        question: toCaptureQuestion(question),
       };
-
       return { status: 200, jsonBody: response };
     }
 
-    await query(
-      `UPDATE capture_session
-       SET status = 'processing',
-           updated_at = now()
-       WHERE capture_session_id = $1`,
-      [session.id]
-    );
+    await transaction(async (client) => {
+      await client.query(
+        `UPDATE capture_question
+         SET status = 'expired'
+         WHERE capture_session_id = $1
+           AND status = 'open'`,
+        [session.id]
+      );
+
+      await client.query(
+        `UPDATE capture_session
+         SET status = 'unmatched',
+             top_confidence = $2,
+             accepted_entity_type = NULL,
+             accepted_entity_id = NULL,
+             metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb,
+             updated_at = now()
+         WHERE capture_session_id = $1`,
+        [session.id, outcome.confidence, outcome.metadataPatch]
+      );
+    });
 
     const response: CaptureFinalizeResponse = {
       captureId: session.captureId,
-      status: "processing",
+      status: "unmatched",
     };
-
-    return { status: 202, jsonBody: response };
+    return { status: 200, jsonBody: response };
   } catch (error: any) {
     context.error("Error finalizing capture:", error);
     return { status: 500, jsonBody: { error: "Failed to finalize capture", details: error.message } };
@@ -470,6 +881,8 @@ async function answerCaptureQuestion(
       return { status: 404, jsonBody: { error: "No open question found for this capture session" } };
     }
 
+    let updatedStatus: CaptureStatus = "processing";
+
     await transaction(async (client) => {
       await client.query(
         `INSERT INTO capture_answer (capture_question_id, user_id, answer_json)
@@ -484,19 +897,59 @@ async function answerCaptureQuestion(
         [parseInt(openQuestion.id, 10), answerJson]
       );
 
+      const selectedShadeId =
+        openQuestion.key === "candidate_select"
+          ? extractSelectedEntityId(body.answer)
+          : null;
+
+      if (selectedShadeId && body.answer !== "skip") {
+        updatedStatus = "matched";
+        await client.query(
+          `UPDATE capture_session
+           SET status = 'matched',
+               top_confidence = 1,
+               accepted_entity_type = 'shade',
+               accepted_entity_id = $2,
+               metadata = COALESCE(metadata, '{}'::jsonb)
+                 || jsonb_build_object(
+                      'answers',
+                      COALESCE(metadata->'answers', '{}'::jsonb)
+                        || jsonb_build_object($3::text, $4::jsonb)
+                    ),
+               updated_at = now()
+           WHERE capture_session_id = $1`,
+          [session.id, selectedShadeId, openQuestion.key, answerJson]
+        );
+
+        await client.query(
+          `UPDATE capture_question
+           SET status = 'expired'
+           WHERE capture_session_id = $1
+             AND status = 'open'`,
+          [session.id]
+        );
+        return;
+      }
+
       await client.query(
         `UPDATE capture_session
          SET status = 'processing',
+             metadata = COALESCE(metadata, '{}'::jsonb)
+               || jsonb_build_object(
+                    'answers',
+                    COALESCE(metadata->'answers', '{}'::jsonb)
+                      || jsonb_build_object($2::text, $3::jsonb)
+                  ),
              updated_at = now()
          WHERE capture_session_id = $1`,
-        [session.id]
+        [session.id, openQuestion.key, answerJson]
       );
     });
 
     const nextQuestion = await getOpenQuestion(session.id);
     const response: CaptureAnswerResponse = {
       captureId: session.captureId,
-      status: "processing",
+      status: updatedStatus,
       question: toCaptureQuestion(nextQuestion),
     };
 

@@ -110,7 +110,7 @@ node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_U
 ## Known Issues
 
 - Voice handler stubs Speech-to-text and OpenAI parsing
-- Capture finalize currently returns `processing` or `needs_question` scaffolding status; durable OCR/LLM matching pipeline is not wired yet
+- Capture finalize currently uses deterministic resolver heuristics (barcode lookup + shade similarity). Durable OCR/LLM matching pipeline is not wired yet.
 
 
 ## Environment Variables

@@ -898,4 +898,190 @@ describe("functions/capture — finalize/status/answer workflow", () => {
     );
     assert.equal(res.status, 400);
   });
+
+  it("finalize matches by shade hints when confidence is high", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let callCount = 0;
+    queryMock = async () => {
+      callCount++;
+      if (callCount === 1) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (callCount === 2) {
+        return {
+          rows: [{
+            id: 10,
+            captureId: "11111111-1111-4111-8111-111111111111",
+            status: "processing",
+            topConfidence: null,
+            acceptedEntityType: null,
+            acceptedEntityId: null,
+            metadata: { brand: "OPI", shadeName: "Big Apple Red" },
+          }],
+        };
+      }
+      if (callCount === 3) {
+        return { rows: [{ frameType: "label", quality: { brand: "OPI", shadeName: "Big Apple Red" } }] };
+      }
+      if (callCount === 4) {
+        return {
+          rows: [{
+            shadeId: "21",
+            brand: "OPI",
+            shadeName: "Big Apple Red",
+            score: 0.95,
+          }],
+        };
+      }
+      return { rows: [] };
+    };
+    transactionMock = async (cb) =>
+      cb({
+        query: async () => ({ rows: [] }),
+      });
+
+    const handler = registeredRoutes["capture-finalize"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/capture/11111111-1111-4111-8111-111111111111/finalize",
+        headers: { authorization: "Bearer dev:1" },
+        params: { captureId: "11111111-1111-4111-8111-111111111111" },
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.status, "matched");
+  });
+
+  it("finalize asks candidate selection question for medium-confidence matches", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let callCount = 0;
+    queryMock = async () => {
+      callCount++;
+      if (callCount === 1) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (callCount === 2) {
+        return {
+          rows: [{
+            id: 10,
+            captureId: "11111111-1111-4111-8111-111111111111",
+            status: "processing",
+            topConfidence: null,
+            acceptedEntityType: null,
+            acceptedEntityId: null,
+            metadata: { brand: "OPI", shadeName: "Big Apple" },
+          }],
+        };
+      }
+      if (callCount === 3) {
+        return { rows: [{ frameType: "label", quality: { brand: "OPI", shadeName: "Big Apple" } }] };
+      }
+      if (callCount === 4) {
+        return {
+          rows: [{
+            shadeId: "21",
+            brand: "OPI",
+            shadeName: "Big Apple Red",
+            score: 0.81,
+          }],
+        };
+      }
+      return { rows: [] };
+    };
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text) => {
+          if (text.includes("INSERT INTO capture_question")) {
+            return {
+              rows: [{
+                id: "444",
+                key: "candidate_select",
+                prompt: "We found close shade matches. Reply with a shade ID from the options below, or skip.",
+                type: "single_select",
+                options: ["21: OPI — Big Apple Red", "skip"],
+                status: "open",
+                createdAt: "2026-02-10T00:00:00.000Z",
+              }],
+            };
+          }
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["capture-finalize"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/capture/11111111-1111-4111-8111-111111111111/finalize",
+        headers: { authorization: "Bearer dev:1" },
+        params: { captureId: "11111111-1111-4111-8111-111111111111" },
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.status, "needs_question");
+    assert.equal(res.jsonBody.question.key, "candidate_select");
+  });
+
+  it("answering candidate selection marks capture as matched", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let callCount = 0;
+    queryMock = async () => {
+      callCount++;
+      if (callCount === 1) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (callCount === 2) {
+        return {
+          rows: [{
+            id: 10,
+            captureId: "11111111-1111-4111-8111-111111111111",
+            status: "needs_question",
+            topConfidence: "0.81",
+            acceptedEntityType: null,
+            acceptedEntityId: null,
+            metadata: null,
+          }],
+        };
+      }
+      if (callCount === 3) {
+        return {
+          rows: [{
+            id: "444",
+            key: "candidate_select",
+            prompt: "Choose a match",
+            type: "single_select",
+            options: ["21: OPI — Big Apple Red", "skip"],
+            status: "open",
+            createdAt: "2026-02-10T00:00:00.000Z",
+          }],
+        };
+      }
+      // nextQuestion lookup after transaction
+      return { rows: [] };
+    };
+    transactionMock = async (cb) =>
+      cb({
+        query: async () => ({ rows: [] }),
+      });
+
+    const handler = registeredRoutes["capture-answer"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/capture/11111111-1111-4111-8111-111111111111/answer",
+        headers: { authorization: "Bearer dev:1" },
+        params: { captureId: "11111111-1111-4111-8111-111111111111" },
+        body: { questionId: "444", answer: "21" },
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.status, "matched");
+  });
 });
