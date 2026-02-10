@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import type { Polish } from "swatchwatch-shared";
 import { listPolishes, updatePolish } from "@/lib/api";
-import { colorDistance, complementaryHex, hexToOklab } from "@/lib/color-utils";
+import { colorDistance, complementaryHex } from "@/lib/color-utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +19,7 @@ import {
 import { ColorDot } from "@/components/color-dot";
 import { QuantityControls } from "@/components/quantity-controls";
 import { Pagination } from "@/components/pagination";
+import { ToggleChip } from "@/components/toggle-chip";
 
 const PAGE_SIZE = 10;
 
@@ -84,12 +85,11 @@ export default function PolishesPage() {
   }, [polishes, search, includeAll]);
 
   const sorted = useMemo(() => {
-    let result = [...filtered];
+    const result = [...filtered];
 
     // Color-distance sort (Similar or Complementary)
     if ((similarMode || complementaryMode) && referenceColor) {
       const ref = complementaryMode ? complementaryHex(referenceColor) : referenceColor;
-      const refOklab = hexToOklab(ref);
       result.sort((a, b) => {
         const distA = a.colorHex ? colorDistance(a.colorHex, ref) : Infinity;
         const distB = b.colorHex ? colorDistance(b.colorHex, ref) : Infinity;
@@ -151,14 +151,12 @@ export default function PolishesPage() {
     }
   };
 
-  const toggleSimilar = () => {
-    const next = !similarMode;
+  const handleSimilarPressed = (next: boolean) => {
     setSimilarMode(next);
     if (next) setComplementaryMode(false);
   };
 
-  const toggleComplementary = () => {
-    const next = !complementaryMode;
+  const handleComplementaryPressed = (next: boolean) => {
     setComplementaryMode(next);
     if (next) setSimilarMode(false);
   };
@@ -207,59 +205,59 @@ export default function PolishesPage() {
           className="max-w-xs"
         />
 
-        <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={favorCollection}
-            onChange={(e) => setFavorCollection(e.target.checked)}
-            className="accent-primary"
-          />
+        <ToggleChip
+          pressed={favorCollection}
+          onPressedChange={setFavorCollection}
+          aria-label="Toggle favor my collection"
+          className="min-w-[180px]"
+        >
           Favor My Collection
-        </label>
+        </ToggleChip>
 
-        <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={includeAll}
-            onChange={(e) => setIncludeAll(e.target.checked)}
-            className="accent-primary"
-          />
+        <ToggleChip
+          pressed={includeAll}
+          onPressedChange={setIncludeAll}
+          aria-label="Toggle include all polishes"
+          className="min-w-[150px]"
+        >
           Include All
-        </label>
+        </ToggleChip>
 
-        <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={similarMode}
-            onChange={toggleSimilar}
-            className="accent-primary"
-          />
-          Similar
-          {similarMode && referenceColor && (
-            <ColorDot hex={referenceColor} size="sm" />
-          )}
-        </label>
+        <ToggleChip
+          pressed={similarMode}
+          onPressedChange={handleSimilarPressed}
+          aria-label="Sort by similar shades"
+        >
+          <span className="flex items-center gap-2">
+            Similar
+            {similarMode && referenceColor && (
+              <ColorDot hex={referenceColor} size="sm" />
+            )}
+          </span>
+        </ToggleChip>
 
-        <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={complementaryMode}
-            onChange={toggleComplementary}
-            className="accent-primary"
-          />
-          Complementary
-          {complementaryMode && referenceColor && (
-            <ColorDot hex={complementaryHex(referenceColor)} size="sm" />
-          )}
-        </label>
+        <ToggleChip
+          pressed={complementaryMode}
+          onPressedChange={handleComplementaryPressed}
+          aria-label="Sort by complementary shades"
+        >
+          <span className="flex items-center gap-2">
+            Complementary
+            {complementaryMode && referenceColor && (
+              <ColorDot hex={complementaryHex(referenceColor)} size="sm" />
+            )}
+          </span>
+        </ToggleChip>
 
         {(search || !includeAll || similarMode || complementaryMode) && (
           <Button
             variant="ghost"
             size="sm"
+            className="text-brand-purple hover:bg-brand-pink-light/30"
             onClick={() => {
               setSearch("");
               setIncludeAll(true);
+              setFavorCollection(true);
               setSimilarMode(false);
               setComplementaryMode(false);
               setReferenceColor(null);
@@ -271,7 +269,11 @@ export default function PolishesPage() {
       </div>
 
       {/* Table */}
-      <div className="rounded-lg border">
+      <div className="relative overflow-hidden rounded-lg border">
+        <span
+          aria-hidden
+          className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-pink-soft via-brand-lilac to-brand-purple"
+        />
         <Table>
           <TableHeader>
             <TableRow>
@@ -296,7 +298,10 @@ export default function PolishesPage() {
               pageItems.map((polish) => {
                 const owned = isOwned(polish);
                 return (
-                  <TableRow key={polish.id} className="hover:bg-muted/50">
+                  <TableRow
+                    key={polish.id}
+                    className="transition-colors hover:bg-brand-pink-light/20"
+                  >
                     <TableCell className="text-center text-lg">
                       {owned ? "\u2714\uFE0F" : "\u2795"}
                     </TableCell>
@@ -319,7 +324,7 @@ export default function PolishesPage() {
                         <ColorDot hex={polish.colorHex} size="sm" />
                       </button>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="text-center">
                       {polish.colorHex && (
                         <Link
                           href={`/polishes/search?color=${polish.colorHex.replace("#", "")}`}
@@ -332,7 +337,7 @@ export default function PolishesPage() {
                     </TableCell>
                     <TableCell>
                       {polish.finish && (
-                        <Badge variant="secondary">
+                        <Badge className="border border-brand-pink-soft/60 bg-brand-pink-soft/30 text-brand-ink">
                           {polish.finish.charAt(0).toUpperCase() + polish.finish.slice(1)}
                         </Badge>
                       )}

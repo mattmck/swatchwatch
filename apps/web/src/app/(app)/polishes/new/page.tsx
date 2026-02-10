@@ -22,6 +22,25 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
+const PRESET_SWATCHES = [
+  "#F8D3E2",
+  "#F7A8C1",
+  "#F46A8D",
+  "#E14F65",
+  "#FFAF6D",
+  "#F7D878",
+  "#F1F1A3",
+  "#B7E4A8",
+  "#6BD4B0",
+  "#4EC9E2",
+  "#6A8FF6",
+  "#9C7BFF",
+  "#C899FF",
+  "#F6B8FF",
+];
+
+const RATING_STARS = [1, 2, 3, 4, 5] as const;
+
 export default function NewPolishPage() {
   const router = useRouter();
   const [form, setForm] = useState({
@@ -66,8 +85,8 @@ export default function NewPolishPage() {
           : undefined,
       });
       router.push("/polishes");
-    } catch (err: any) {
-      setSubmitError(err.message || "Failed to save polish");
+    } catch (err: unknown) {
+      setSubmitError(err instanceof Error ? err.message : "Failed to save polish");
     } finally {
       setSubmitting(false);
     }
@@ -82,7 +101,11 @@ export default function NewPolishPage() {
         </p>
       </div>
 
-      <Card>
+      <Card className="relative overflow-hidden">
+        <span
+          aria-hidden
+          className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-pink-soft via-brand-lilac to-brand-purple"
+        />
         <CardHeader>
           <CardTitle>Polish Details</CardTitle>
           <CardDescription>
@@ -151,6 +174,34 @@ export default function NewPolishPage() {
                     className="flex-1 font-mono"
                   />
                 </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-purple/70">
+                    Quick swatches
+                  </p>
+                  <div className="mt-3 grid grid-cols-7 gap-2 sm:grid-cols-10">
+                    {PRESET_SWATCHES.map((hex) => {
+                      const isSelected =
+                        form.colorHex.toLowerCase() === hex.toLowerCase();
+                      return (
+                        <button
+                          key={hex}
+                          type="button"
+                          onClick={() => update("colorHex", hex)}
+                          className={`relative flex h-9 w-9 items-center justify-center rounded-xl border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                            isSelected
+                              ? "border-brand-purple shadow-glow-brand"
+                              : "border-transparent hover:border-brand-lilac/60"
+                          }`}
+                          aria-label={`Use swatch ${hex}`}
+                          aria-pressed={isSelected}
+                          style={{ backgroundColor: hex }}
+                        >
+                          <span className="sr-only">{hex}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -214,17 +265,35 @@ export default function NewPolishPage() {
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Rating</label>
-                <div className="flex gap-1 pt-1">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <button
-                      key={star}
-                      type="button"
-                      onClick={() => update("rating", form.rating === star ? 0 : star)}
-                      className="text-xl transition-colors hover:text-primary"
-                    >
-                      {star <= form.rating ? "★" : "☆"}
-                    </button>
-                  ))}
+                <div className="relative flex items-center gap-3 overflow-hidden rounded-xl border border-brand-lilac/40 bg-card px-3 py-2 shadow-sm">
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0 opacity-30 [background:linear-gradient(120deg,rgba(248,211,226,0.6),rgba(156,123,255,0.35))]"
+                  />
+                  <div className="relative flex gap-1">
+                    {RATING_STARS.map((star) => {
+                      const isActive = star <= form.rating;
+                      return (
+                        <button
+                          key={star}
+                          type="button"
+                          onClick={() => update("rating", form.rating === star ? 0 : star)}
+                          className={`relative z-10 rounded-full p-1 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                            isActive
+                              ? "scale-105 drop-shadow-[0_6px_20px_rgba(158,91,255,0.35)]"
+                              : "opacity-70 hover:opacity-100"
+                          }`}
+                          aria-label={`Rate ${star} star${star > 1 ? "s" : ""}`}
+                          aria-pressed={isActive}
+                        >
+                          <GradientStar active={isActive} gradientId={`rating-star-${star}`} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <span className="relative z-10 text-sm text-muted-foreground">
+                    {form.rating ? `${form.rating} / 5` : "Tap a star to rate"}
+                  </span>
                 </div>
               </div>
             </div>
@@ -260,7 +329,7 @@ export default function NewPolishPage() {
             {/* Voice input placeholder */}
             <div className="rounded-lg border-2 border-dashed border-muted-foreground/25 p-4 text-center">
               <p className="text-sm text-muted-foreground">
-                🎙️ Voice input coming soon — describe your polish and we'll fill in the details
+                🎙️ Voice input coming soon — describe your polish and we&apos;ll fill in the details
               </p>
             </div>
 
@@ -269,7 +338,11 @@ export default function NewPolishPage() {
               <p className="text-sm text-destructive">{submitError}</p>
             )}
             <div className="flex gap-3 pt-2">
-              <Button type="submit" disabled={submitting}>
+              <Button
+                type="submit"
+                disabled={submitting}
+                className="bg-gradient-brand text-white shadow-glow-brand hover:opacity-90 disabled:opacity-60"
+              >
                 {submitting ? "Saving…" : "Save Polish"}
               </Button>
               <Button
@@ -284,5 +357,36 @@ export default function NewPolishPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+type GradientStarProps = {
+  active: boolean;
+  gradientId: string;
+};
+
+function GradientStar({ active, gradientId }: GradientStarProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      role="presentation"
+      className="size-6 drop-shadow-sm"
+      aria-hidden
+    >
+      <defs>
+        <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="oklch(0.852 0.107 341.3)" />
+          <stop offset="100%" stopColor="oklch(0.546 0.275 290.7)" />
+        </linearGradient>
+      </defs>
+      <polygon
+        points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"
+        fill={active ? `url(#${gradientId})` : "transparent"}
+        stroke={active ? "oklch(0.546 0.275 290.7)" : "oklch(0.785 0.128 299.5)"}
+        strokeWidth={active ? 1.2 : 1}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 }
