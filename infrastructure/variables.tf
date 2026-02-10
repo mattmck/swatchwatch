@@ -32,5 +32,5 @@ variable "pg_admin_password" {
 variable "github_repository" {
   description = "GitHub repository in format 'owner/repo' for OIDC federation"
   type        = string
-  default     = "your-github-username/polish-inventory"
+  default     = "mattmck/swatchwatch"
 }
