@@ -1,9 +1,4 @@
 -- seed_data_sources_v1_1.sql
--- ⚠️  SUPERSEDED by packages/functions/migrations/005_seed_production_reference_data.sql
--- This file is kept for reference only. Do not run it directly — the data is now
--- part of the migration pipeline (migration 005).
---
--- Original description:
 -- Idempotent seed data for easiest external/internal sources used by the MVP.
 -- Target DB: PostgreSQL (uses ON CONFLICT DO UPDATE)
 

@@ -150,9 +150,8 @@ export PGDATABASE=polish_inventory
 export PGUSER="pgadmin@$(cd ../infrastructure && terraform output -raw postgres_server_name)"
 export PGPASSWORD="your-password"
 
-npm run migrate          # prod-safe (reference data only)
-# Or for dev environments with sample data:
-npm run migrate:dev      # includes demo user + mock polishes
+npm run migrate
+psql -h $PGHOST -U $PGUSER -d $PGDATABASE -f ../../docs/seed_data_sources.sql
 ```
 
 ### 3. Add Additional Secrets to Key Vault

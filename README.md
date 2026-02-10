@@ -11,7 +11,7 @@ swatchwatch/
 │   └── mobile/           → Expo / React Native (SDK 54)
 ├── packages/
 │   ├── functions/        → Azure Functions v4 (Node 20, TypeScript)
-│   └── shared/           → Shared TypeScript types (polish, user, voice, capture)
+│   └── shared/           → Shared TypeScript types (polish, user, voice)
 └── infrastructure/       → Terraform (azurerm ~3.100)
 ```
 
@@ -26,7 +26,6 @@ swatchwatch/
 ```
 Web / Mobile → Azure Functions REST API → Azure PostgreSQL Flexible Server
                   ├── /api/polishes       → CRUD operations (user inventory)
-                  ├── /api/capture/*      → Rapid Add capture session workflow
                   ├── /api/auth/*         → Azure AD B2C token validation
                   └── /api/voice          → Azure Speech → Azure OpenAI → parsed polish details
 ```
@@ -42,8 +41,7 @@ Web / Mobile → Azure Functions REST API → Azure PostgreSQL Flexible Server
 ## Prerequisites
 
 - **Node.js ≥ 20** (see `engines` in `package.json`)
-- **Docker** — for local Postgres (pgvector)
-- **Azure Functions Core Tools v4** — for local functions development (`brew install azure-functions-core-tools@4`)
+- **Azure Functions Core Tools v4** — for local functions development (`npm i -g azure-functions-core-tools@4`)
 - **Terraform ≥ 1.5** — for infrastructure provisioning
 - **Expo CLI** — for mobile development (`npx expo`)
 
@@ -53,40 +51,30 @@ Web / Mobile → Azure Functions REST API → Azure PostgreSQL Flexible Server
 # Install all workspace dependencies
 npm install
 
-# Set up local database
-cp .env.example .env                       # DATABASE_URL for migrations
-npm run dev:db                             # Start Postgres via Docker Compose (port 5434)
-npm run build --workspace=packages/shared  # Build shared types first
-npm run migrate:dev                        # Apply migrations + seed data
+# Build shared types (required before other packages can import them)
+npm run build --workspace=packages/shared
 
-# Start the full stack
-npm run dev                                # Functions (7071) + Web (3000)
+# Start web dev server
+npm run dev:web          # → http://localhost:3000
+
+# Start functions locally
+npm run dev:functions    # → http://localhost:7071/api/*
+
+# Start mobile
+npm run dev:mobile       # → Expo dev server
 ```
 
 ## All Commands
 
 | Command | What it does |
 |---------|-------------|
-| `npm run dev` | Start functions + web concurrently |
 | `npm run dev:web` | Next.js dev server (port 3000) |
 | `npm run dev:mobile` | Expo start |
-| `npm run dev:functions` | Build functions (`tsc`) then start Azure Functions Core Tools with local dev CORS (`func start --cors "*"`). |
-| `npm run dev:db` | Start local Postgres via Docker Compose |
-| `npm run dev:db:down` | Stop local Postgres |
+| `npm run dev:functions` | Azure Functions Core Tools (`func start`) |
 | `npm run build:web` | Next.js production build |
 | `npm run build:functions` | TypeScript compile for functions |
 | `npm run lint` | ESLint across all workspaces |
 | `npm run typecheck` | `tsc --noEmit` across all workspaces |
-
-## Agent Worktrees
-
-Use a separate worktree per branch when running parallel agent work:
-
-```bash
-scripts/agent-worktree.sh feat/42-new-feature
-```
-
-The script always creates `../swatchwatch-worktrees/<branch-name>` relative to the primary checkout, copies local `.env` and `packages/functions/local.settings.json` when present, then runs `npm ci` and builds shared types.
 
 ## Project Structure — Web App
 
@@ -96,9 +84,9 @@ The web app is the most developed part of the project. Key pages:
 |-------|------|-------------|
 | `/` | `apps/web/src/app/(dashboard)/page.tsx` | Dashboard — stats cards, recent additions, finish breakdown |
 | `/polishes` | `apps/web/src/app/polishes/page.tsx` | Collection table — search, filter by brand/finish, sortable columns |
-| `/polishes/new` | `apps/web/src/app/polishes/new/page.tsx` | Add polish form — color picker, star rating, plus Rapid Add capture scaffold controls |
+| `/polishes/new` | `apps/web/src/app/polishes/new/page.tsx` | Add polish form — color picker, star rating, voice input placeholder |
 | `/polishes/[id]` | `apps/web/src/app/polishes/[id]/page.tsx` | Polish detail — all fields, photo placeholders, edit/delete |
-| `/polishes/search` | `apps/web/src/app/polishes/search/page.tsx` | 3-column color workflow: wheel/source controls, filtered match table, desired-color bar, and ranked harmony recommendations |
+| `/polishes/search` | `apps/web/src/app/polishes/search/page.tsx` | Color wheel search — hover to preview, click to lock, similar/complementary modes |
 
 
 **UI stack:** [shadcn/ui](https://ui.shadcn.com/) components in `src/components/ui/`, custom components in `src/components/`, Tailwind v4 styling.
@@ -111,7 +99,7 @@ Functions require secrets defined in `packages/functions/local.settings.json`:
 
 | Variable | Purpose |
 |----------|---------|
-| `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` | PostgreSQL connection (set by Docker Compose for local dev) |
+| `COSMOS_DB_CONNECTION` | Cosmos DB connection string |
 | `AZURE_STORAGE_CONNECTION` | Storage account (swatch/nail photos) |
 | `AZURE_SPEECH_KEY` | Azure Speech Services key |
 | `AZURE_SPEECH_REGION` | Azure Speech Services region |
@@ -119,8 +107,6 @@ Functions require secrets defined in `packages/functions/local.settings.json`:
 | `AZURE_OPENAI_KEY` | Azure OpenAI key |
 | `AZURE_AD_B2C_TENANT` | B2C tenant name |
 | `AZURE_AD_B2C_CLIENT_ID` | B2C app client ID |
-
-Migrations use `DATABASE_URL` from the root `.env` file (see `.env.example`).
 
 ## VS Code
 
@@ -133,11 +119,13 @@ The repo includes VS Code configurations in `.vscode/`:
 
 
 **Migrations & Seed:**
+Run new migrations with:
 ```bash
-npm run migrate:dev    # Apply all migrations + seed dev data
-npm run migrate:down   # Roll back last migration
+cd packages/functions
+PGUSER=pgadmin PGPASSWORD=... PGHOST=... PGDATABASE=swatchwatch npm run migrate
+# Or run .sql files directly with psql
 ```
-Migrations read `DATABASE_URL` from `.env` via `--envPath`. See `packages/functions/migrations/` for all migration files.
+See `migrations/002_add_user_facing_columns.sql` and `003_seed_dev_data.sql`.
 
 ## Current Status
 

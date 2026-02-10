@@ -30,12 +30,6 @@ output "postgres_database_name" {
   value = azurerm_postgresql_flexible_server_database.main.name
 }
 
-output "postgres_admin_username" {
-  description = "PostgreSQL administrator username"
-  value       = var.pg_admin_username
-  sensitive   = true
-}
-
 output "storage_account_name" {
   value = azurerm_storage_account.main.name
 }

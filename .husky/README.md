@@ -10,28 +10,11 @@ This directory contains git hooks for SwatchWatch that enforce code quality and 
 
 ## AI-Powered Commit Messages
 
-The `prepare-commit-msg` hook uses a provider fallback chain to generate commit suggestions from your staged diff.
-
-### Provider Cascade
-
-The hook tries each provider in order and uses the first one that works:
-
-| Priority | Provider | Requirements |
-|----------|----------|-------------|
-| 1 | **Claude CLI** | `claude` binary in PATH (uses Claude Code's own auth — no API key needed) |
-| 2 | **Anthropic API** | `ANTHROPIC_API_KEY` env var + `curl` + `jq` |
-| 3 | **OpenAI API** | `OPENAI_API_KEY` env var + `curl` + `jq` |
-| 4 | **Manual** | No requirements — prompts you to write your own message |
-
-If a provider fails (empty output or error), the hook automatically tries the next one.
+The `prepare-commit-msg` hook can use Claude (if configured) to generate vibey commit message suggestions based on your staged changes.
 
 ### Setup
 
-**Option 1: Claude Code CLI (recommended)**
-
-Install Claude Code from https://docs.anthropic.com/en/docs/claude-code — no API key needed, it uses its own auth.
-
-**Option 2: Anthropic API key**
+To enable AI-generated suggestions, set your Anthropic API key:
 
 ```bash
 # Add to your ~/.zshrc or ~/.bashrc
@@ -40,40 +23,33 @@ export ANTHROPIC_API_KEY="your-api-key-here"
 
 Get your API key from: https://console.anthropic.com/settings/keys
 
-**Option 3: OpenAI API key**
-
-```bash
-# Add to your ~/.zshrc or ~/.bashrc
-export OPENAI_API_KEY="your-api-key-here"
-```
-
 ### How It Works
 
 1. When you run `git commit`, the hook analyzes your staged changes
-2. It detects the best available AI provider
-3. The provider generates 3 creative commit message options
+2. It sends the diff to Claude with a prompt for nail-polish-themed suggestions
+3. Claude generates 3 creative commit message options
 4. The suggestions appear as comments in your commit message editor
 5. Pick one, customize it, or write your own!
 
-### No AI Available
+### Fallback
 
-If no AI provider is available, the hook writes a comment block telling you to write your own message — no auto-generated stub suggestions.
+If no API key is set, the hook provides smart fallback suggestions based on file patterns:
+- `package.json` changes → dependency update messages
+- `.tsx/.ts` changes → component/feature messages  
+- Test file changes → testing messages
+- Documentation changes → docs messages
+- Style file changes → UI/styling messages
 
 ### Example Output
 
 ```
-# AI-generated commit vibes (claude-cli):
+# AI-generated nail polish commit suggestions:
 #
-# - feat: ✨ add shimmer finish to swatch cards
-# - fix: polish swatch rendering edge cases
-# - docs: add glossy API notes 💅
+# - chore: buff up test runner with glossy new polish
+# - fix: repair chipped husky hook configuration
+# - refactor: apply smooth top coat to commit workflow
 #
 # Pick one, customize it, or write your own.
-#
-# Format: <type>: <subject>
-# Types: feat, fix, refactor, docs, chore, test, style, perf
-#
-# Write your commit message above (delete all # comment lines)
 ```
 
 ### Emoji guideline
@@ -88,8 +64,8 @@ Don't put an emoji before the type.
 ## Vibe Words
 When writing commit messages, sprinkle in nail-polish-adjacent words:
 
-**Finishes/colors**: shimmer, chrome, glossy, matte, holographic
-**Manicure verbs**: buff, file, coat, cure, polish, swatch
+**Finishes/colors**: shimmer, chrome, glossy, matte, holographic  
+**Manicure verbs**: buff, file, coat, cure, polish, swatch  
 **Collection vibes**: stash, catalog, inventory, dupe
 
 ## Conventional Commits
@@ -108,12 +84,9 @@ All commits must follow the format: `<type>: <subject>`
 ## Troubleshooting
 
 **AI suggestions not appearing?**
-- Check which provider is detected: `sh -x .husky/generate-commit-msg.sh /tmp/test-msg`
-- For Claude CLI: verify `claude` is in your PATH: `which claude`
-- For Anthropic API: check key is set (without printing it): `printenv ANTHROPIC_API_KEY >/dev/null && echo set || echo not-set`
-- For OpenAI API: check key is set: `printenv OPENAI_API_KEY >/dev/null && echo set || echo not-set`
-- Both API providers require `jq`: `which jq`
+- Check that `ANTHROPIC_API_KEY` is exported (without printing it): `printenv ANTHROPIC_API_KEY >/dev/null && echo set || echo not-set`
 - Verify the script is executable: `ls -l .husky/generate-commit-msg.sh`
+- Check for errors: `sh -x .husky/generate-commit-msg.sh .git/COMMIT_EDITMSG`
 
 **Pre-commit hook failing?**
 - Ensure workspace packages have test scripts or they use `--if-present` flag

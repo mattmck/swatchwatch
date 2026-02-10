@@ -1,9 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Keep static export for production deploys, but disable it in local dev to
-  // avoid dynamic-route param restrictions during iterative development.
-  output: process.env.NODE_ENV === "production" ? "export" : undefined,
+  // Azure Static Web Apps requires a static artifact output folder containing index.html.
+  // This enables Next.js static export to `apps/web/out`.
+  output: "export",
   trailingSlash: true,
 };
 

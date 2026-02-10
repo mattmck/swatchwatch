@@ -5,22 +5,14 @@
   "main": "dist/functions/*.js",
   "scripts": {
     "build": "tsc",
-    "prestart": "npm run build",
     "start": "func start",
-    "prestart:dev": "npm run build",
-    "start:dev": "func start --cors \"*\"",
     "watch": "tsc -w",
-    "migrate": "node-pg-migrate up --migrations-dir migrations --decamelize --envPath ../../.env",
-    "migrate:dev": "PGOPTIONS='-c app.seed_dev_data=true' node-pg-migrate up --migrations-dir migrations --decamelize --envPath ../../.env",
-    "migrate:down": "node-pg-migrate down --migrations-dir migrations --decamelize --envPath ../../.env",
-    "migrate:down:dev": "PGOPTIONS='-c app.seed_dev_data=true' node-pg-migrate down --migrations-dir migrations --decamelize --envPath ../../.env",
-    "migrate:create": "node-pg-migrate create --migrations-dir migrations",
-    "test": "node --test tests/*.unit.test.cjs",
-    "test:integration": "node --test tests/*.test.cjs"
+    "migrate": "node-pg-migrate up --migrations-dir migrations --decamelize",
+    "migrate:down": "node-pg-migrate down --migrations-dir migrations --decamelize",
+    "migrate:create": "node-pg-migrate create --migrations-dir migrations"
   },
   "dependencies": {
     "@azure/functions": "^4.0.0",
-    "jose": "^6.1.3",
     "pg": "^8.18.0",
     "swatchwatch-shared": "*"
   },

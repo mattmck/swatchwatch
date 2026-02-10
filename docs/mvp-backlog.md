@@ -79,7 +79,7 @@ This backlog is organized as **Epics → Capabilities → Stories/Tasks**, optim
   - `GET /api/catalog/search?q=` (brand/shade trigram search)
   - `GET /api/catalog/shade/{id}`
 - Create `apps/web/src/lib/api.ts` — typed fetch wrappers for all endpoints
-- ✅ Connect web UI collection page to real API (replace mock data imports)
+- Connect web UI collection page to real API (replace mock data imports)
 - Add audit logging for user corrections/links
 
 **DoD**

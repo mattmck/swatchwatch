@@ -20,29 +20,15 @@ infrastructure/    → Terraform (azurerm ~3.100) for all Azure resources
 
 ```bash
 # From repo root — all use npm workspaces
-npm run dev              # Start functions + web concurrently
 npm run dev:web          # Next.js dev server (port 3000)
 npm run dev:mobile       # Expo start
-npm run dev:functions    # Build functions then start Azure Functions Core Tools with local dev CORS
-npm run dev:db           # Start local Postgres via Docker Compose
-npm run dev:db:down      # Stop local Postgres
+npm run dev:functions    # Azure Functions Core Tools (func start)
 npm run build:web        # Next.js production build
 npm run build:functions  # TypeScript compile for functions
 npm run lint             # ESLint across all workspaces
 npm run typecheck        # tsc --noEmit across all workspaces
-npm run migrate          # Run Postgres migrations — prod-safe (needs DATABASE_URL)
-npm run migrate:dev      # Run migrations + seed dev data (demo user, mock polishes)
+npm run migrate          # Run Postgres migrations (needs DATABASE_URL)
 npm run migrate:down     # Roll back last migration
-npm run migrate:down:dev # Roll back last migration (with dev seed awareness)
-```
-
-**Local dev quick start:**
-```bash
-cp .env.example .env                       # Set DATABASE_URL (adjust port if needed)
-npm run dev:db                             # Start Postgres (pgvector, port 5434)
-npm run build --workspace=packages/shared  # Build shared types
-npm run migrate:dev                        # Apply migrations + seed data
-npm run dev                                # Start functions (7071) + web (3000)
 ```
 
 **Important:** Build `packages/shared` first when starting fresh — other packages depend on its compiled output:
@@ -67,26 +53,27 @@ npm run build --workspace=packages/shared
 - **Shared types** live in `packages/shared/src/types/` and are re-exported from `packages/shared/src/index.ts`. The canonical domain types are `Polish`, `PolishFinish`, `User`, `AuthProvider`, `VoiceProcessRequest`, `VoiceProcessResponse`, etc. When adding new domain types, add them here and re-export.
 - **Web app** uses `@/*` path alias pointing to `apps/web/src/*`. Styling uses Tailwind v4 via `@tailwindcss/postcss`.
 - **UI components:** shadcn/ui primitives in `apps/web/src/components/ui/`. Custom components in `apps/web/src/components/`. Add new shadcn components with `cd apps/web && npx shadcn@latest add <name>`.
-- **Color utilities:** `apps/web/src/lib/color-utils.ts` provides Hex↔HSL↔RGB↔OKLAB↔OKLCH conversions, perceptual `colorDistance()`, harmony-safe gamut clamping, and hue/lightness gap analysis helpers.
-- **Mock data:** All pages now use the live API. Dev DB is seeded with realistic data via migration 003. The old `mock-data.ts` has been deleted.
+- **Color utilities:** `apps/web/src/lib/color-utils.ts` provides Hex↔HSL↔RGB↔OKLAB conversions and perceptual `colorDistance()`. Use OKLAB for any color matching/sorting logic.
+- **Mock data:** Currently using `apps/web/src/lib/mock-data.ts` with realistic `Polish` objects. When connecting to the real API, replace mock imports with `fetch("/api/polishes")` — types are already aligned.
 - **Infrastructure as Code:** All Azure resources defined in `infrastructure/main.tf`. Resource naming follows `${base_name}-${environment}-{resource}-${random_suffix}` convention.
 
 ## Web App Routes
 
 | Route | File | Notes |
 |-------|------|-------|
-| `/` | `src/app/(dashboard)/page.tsx` | Client component, stats + recent additions + OKLCH collection gap analysis |
+| `/` | `src/app/(dashboard)/page.tsx` | Server component, stats + recent additions |
 | `/polishes` | `src/app/polishes/page.tsx` | Client component, filterable/sortable table |
 | `/polishes/new` | `src/app/polishes/new/page.tsx` | Client component, form with color picker + star rating |
 | `/polishes/[id]` | `src/app/polishes/[id]/page.tsx` | Server component, uses `generateStaticParams` |
-| `/polishes/search` | `src/app/polishes/search/page.tsx` | Client component, canvas color wheel + OKLCH harmonies + multi-color palette completion |
+| `/polishes/search` | `src/app/polishes/search/page.tsx` | Client component, canvas color wheel + OKLAB matching |
 
 ## Known State & TODOs
 
-This project is in early development. The web UI is connected to the live API. Backend handlers have placeholder/stub implementations marked with `TODO` comments:
+This project is in early development. The web UI prototype is functional with mock data. Backend handlers have placeholder/stub implementations marked with `TODO` comments:
 - Postgres reads/writes in `polishes.ts` are stubbed — no DB client yet
 - JWT validation in `auth.ts` returns 501 — Azure AD B2C JWKS verification not implemented
 - Voice processing in `voice.ts` stubs Speech-to-text and OpenAI parsing
+- `packages/functions` defines a local `Polish` interface that duplicates `packages/shared` — new code should import from `swatchwatch-shared` instead
 - Infrastructure is migrating from Cosmos DB to Azure Database for PostgreSQL Flexible Server
 
 ## Environment Variables (Functions)
@@ -142,26 +129,3 @@ Documentation files in this project:
 - **Commits:** `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:` prefixes
 - **PRs:** Squash merge into `main`. PR title = conventional commit message. Reference issues with `Closes #N`.
 - **Issues:** Use GitHub Issue templates (Feature, Bug, Chore). Add scope labels (`web`, `mobile`, `functions`, `infra`).
-
-## Agent Worktrees
-
-When working on a branch that isn't the current checkout, use **git worktrees** instead of switching branches. This avoids dirty-file conflicts (e.g., `.claude/settings.local.json`) and lets multiple agents work in parallel.
-
-```bash
-# Create a worktree for a new branch (defaults to branching from dev)
-scripts/agent-worktree.sh feat/42-new-feature
-
-# Branch from main instead
-scripts/agent-worktree.sh fix/99-hotfix main
-
-# Clean up when done
-git worktree remove ../swatchwatch-worktrees/feat/42-new-feature
-```
-
-Worktrees live in `../swatchwatch-worktrees/<branch-name>` (sibling to the primary repo root). The script copies local `.env` and `packages/functions/local.settings.json` when present, then runs `npm ci` and builds shared types so the worktree is ready to use immediately.
-
-**Rules:**
-- Never switch branches in the primary checkout during agent work — use a worktree.
-- Each worktree is independent: changes in one don't affect the other.
-- Run `git worktree list` to see active worktrees.
-- Remove worktrees after the branch is merged.

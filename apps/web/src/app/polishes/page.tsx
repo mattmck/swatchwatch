@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import type { Polish } from "swatchwatch-shared";
 import { listPolishes, updatePolish } from "@/lib/api";
-import { colorDistance, complementaryHex } from "@/lib/color-utils";
+import { colorDistance, complementaryHex, hexToOklab, undertone } from "@/lib/color-utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,8 +19,6 @@ import {
 import { ColorDot } from "@/components/color-dot";
 import { QuantityControls } from "@/components/quantity-controls";
 import { Pagination } from "@/components/pagination";
-import { UndertoneBadge } from "@/components/undertone-badge";
-import { undertone } from "@/lib/color-utils";
 
 const PAGE_SIZE = 10;
 
@@ -86,11 +84,12 @@ export default function PolishesPage() {
   }, [polishes, search, includeAll]);
 
   const sorted = useMemo(() => {
-    const result = [...filtered];
+    let result = [...filtered];
 
     // Color-distance sort (Similar or Complementary)
     if ((similarMode || complementaryMode) && referenceColor) {
       const ref = complementaryMode ? complementaryHex(referenceColor) : referenceColor;
+      const refOklab = hexToOklab(ref);
       result.sort((a, b) => {
         const distA = a.colorHex ? colorDistance(a.colorHex, ref) : Infinity;
         const distB = b.colorHex ? colorDistance(b.colorHex, ref) : Infinity;
@@ -208,7 +207,6 @@ export default function PolishesPage() {
           className="max-w-xs"
         />
 
-
         <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
           <input
             type="checkbox"
@@ -281,7 +279,6 @@ export default function PolishesPage() {
               <TableHead>Brand</TableHead>
               <TableHead>Name</TableHead>
               <TableHead className="w-12">Color</TableHead>
-              <TableHead>Tone</TableHead>
               <TableHead className="w-12">Find</TableHead>
               <TableHead>Finish</TableHead>
               <TableHead>Collection</TableHead>
@@ -291,7 +288,7 @@ export default function PolishesPage() {
           <TableBody>
             {pageItems.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                   No polishes match your filters.
                 </TableCell>
               </TableRow>
@@ -321,11 +318,6 @@ export default function PolishesPage() {
                       >
                         <ColorDot hex={polish.colorHex} size="sm" />
                       </button>
-                    </TableCell>
-                    <TableCell>
-                      {polish.colorHex && (
-                        <UndertoneBadge undertone={undertone(polish.colorHex)} />
-                      )}
                     </TableCell>
                     <TableCell>
                       {polish.colorHex && (

@@ -20,29 +20,15 @@ infrastructure/    → Terraform (azurerm ~3.100) for all Azure resources
 
 ```bash
 # From repo root — all use npm workspaces
-npm run dev              # Start functions + web concurrently
 npm run dev:web          # Next.js dev server (port 3000)
 npm run dev:mobile       # Expo start
 npm run dev:functions    # Azure Functions Core Tools (func start)
-npm run dev:db           # Start local Postgres via Docker Compose
-npm run dev:db:down      # Stop local Postgres
 npm run build:web        # Next.js production build
 npm run build:functions  # TypeScript compile for functions
 npm run lint             # ESLint across all workspaces
 npm run typecheck        # tsc --noEmit across all workspaces
-npm run migrate          # Run Postgres migrations — prod-safe (needs DATABASE_URL)
-npm run migrate:dev      # Run migrations + seed dev data (demo user, mock polishes)
+npm run migrate          # Run Postgres migrations (needs DATABASE_URL)
 npm run migrate:down     # Roll back last migration
-npm run migrate:down:dev # Roll back last migration (with dev seed awareness)
-```
-
-**Local dev quick start:**
-```bash
-cp .env.example .env                       # Set DATABASE_URL (adjust port if needed)
-npm run dev:db                             # Start Postgres (pgvector, port 5434)
-npm run build --workspace=packages/shared  # Build shared types
-npm run migrate:dev                        # Apply migrations + seed data
-npm run dev                                # Start functions (7071) + web (3000)
 ```
 
 **Important:** Build `packages/shared` first when starting fresh — other packages depend on its compiled output:
@@ -142,26 +128,3 @@ Documentation files in this project:
 - **Commits:** `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:` prefixes
 - **PRs:** Squash merge into `main`. PR title = conventional commit message. Reference issues with `Closes #N`.
 - **Issues:** Use GitHub Issue templates (Feature, Bug, Chore). Add scope labels (`web`, `mobile`, `functions`, `infra`).
-
-## Agent Worktrees
-
-When working on a branch that isn't the current checkout, use **git worktrees** instead of switching branches. This avoids dirty-file conflicts (e.g., `.claude/settings.local.json`) and lets multiple agents work in parallel.
-
-```bash
-# Create a worktree for a new branch (defaults to branching from dev)
-scripts/agent-worktree.sh feat/42-new-feature
-
-# Branch from main instead
-scripts/agent-worktree.sh fix/99-hotfix main
-
-# Clean up when done
-git worktree remove ../swatchwatch-worktrees/feat/42-new-feature
-```
-
-Worktrees live in `../swatchwatch-worktrees/<branch-name>` (sibling to the repo root). The script runs `npm ci` and builds shared types so the worktree is ready to use immediately.
-
-**Rules:**
-- Never switch branches in the primary checkout during agent work — use a worktree.
-- Each worktree is independent: changes in one don't affect the other.
-- Run `git worktree list` to see active worktrees.
-- Remove worktrees after the branch is merged.
