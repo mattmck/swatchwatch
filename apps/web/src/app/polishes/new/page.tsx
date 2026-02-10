@@ -54,6 +54,7 @@ export default function NewPolishPage() {
   const [captureFrameType, setCaptureFrameType] = useState<"barcode" | "label" | "color" | "other">("label");
   const [captureBusy, setCaptureBusy] = useState(false);
   const [captureError, setCaptureError] = useState<string | null>(null);
+  const [captureAnswerInput, setCaptureAnswerInput] = useState("");
 
   function update(field: string, value: string | number) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -126,6 +127,19 @@ export default function NewPolishPage() {
       });
       setCaptureStatus(res.status);
       setCaptureQuestion(res.question || null);
+    });
+  }
+
+  async function handleAnswerSubmit() {
+    if (!captureId || !captureQuestion || !captureAnswerInput.trim()) return;
+    await runCaptureAction(async () => {
+      const res = await answerCaptureQuestion(captureId, {
+        questionId: captureQuestion.id,
+        answer: captureAnswerInput.trim(),
+      });
+      setCaptureStatus(res.status);
+      setCaptureQuestion(res.question || null);
+      setCaptureAnswerInput("");
     });
   }
 
@@ -432,6 +446,31 @@ export default function NewPolishPage() {
                 {captureStatus === "processing" && <p>Polling status every 3s…</p>}
                 {captureQuestion && <p>Open question: {captureQuestion.prompt}</p>}
               </div>
+              {captureQuestion && (
+                <div className="space-y-2 rounded-md border border-border/50 p-3">
+                  <p className="text-xs font-medium text-foreground">Question Answer</p>
+                  {captureQuestion.options?.length ? (
+                    <p className="text-xs text-muted-foreground">
+                      Options: {captureQuestion.options.join(" | ")}
+                    </p>
+                  ) : null}
+                  <div className="flex gap-2">
+                    <Input
+                      value={captureAnswerInput}
+                      onChange={(e) => setCaptureAnswerInput(e.target.value)}
+                      placeholder="Enter answer (e.g. 21 or brand + shade)"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleAnswerSubmit}
+                      disabled={captureBusy || !captureAnswerInput.trim()}
+                    >
+                      Submit
+                    </Button>
+                  </div>
+                </div>
+              )}
               {captureError && (
                 <p className="text-xs text-destructive">{captureError}</p>
               )}
