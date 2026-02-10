@@ -59,13 +59,20 @@ npm run build --workspace=packages/shared
 
 ## Web App Routes
 
+The web app uses Next.js route groups to separate public marketing pages from the authenticated app:
+
 | Route | File | Notes |
 |-------|------|-------|
-| `/` | `src/app/(dashboard)/page.tsx` | Server component, stats + recent additions |
-| `/polishes` | `src/app/polishes/page.tsx` | Client component, filterable/sortable table |
-| `/polishes/new` | `src/app/polishes/new/page.tsx` | Client component, form with color picker + star rating |
-| `/polishes/[id]` | `src/app/polishes/[id]/page.tsx` | Server component, uses `generateStaticParams` |
-| `/polishes/search` | `src/app/polishes/search/page.tsx` | Client component, canvas color wheel + OKLAB matching |
+| `/` | `src/app/(marketing)/page.tsx` | Landing page — hero, features, color showcase, CTA |
+| `/dashboard` | `src/app/(app)/dashboard/page.tsx` | Client component, stats + recent additions |
+| `/polishes` | `src/app/(app)/polishes/page.tsx` | Client component, filterable/sortable table |
+| `/polishes/new` | `src/app/(app)/polishes/new/page.tsx` | Client component, form with color picker + star rating |
+| `/polishes/[id]` | `src/app/(app)/polishes/[id]/page.tsx` | Server component, uses `generateStaticParams` |
+| `/polishes/search` | `src/app/(app)/polishes/search/page.tsx` | Client component, canvas color wheel + OKLAB matching |
+
+**Route groups:**
+- `(marketing)` — Public pages with glass header + footer (no sidebar)
+- `(app)` — Authenticated app pages wrapped in `AppShell` (sidebar navigation)
 
 ## Known State & TODOs
 

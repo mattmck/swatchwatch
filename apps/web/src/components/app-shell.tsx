@@ -2,42 +2,55 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { LayoutDashboard, Sparkles, Search, PlusCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { SwatchWatchWordmark } from "@/components/brand/swatchwatch-brand";
+import type { LucideIcon } from "lucide-react";
 
-const navItems = [
-  { href: "/", label: "Dashboard", icon: "📊" },
-  { href: "/polishes", label: "Polishes", icon: "💅" },
-  { href: "/polishes/search", label: "Search", icon: "🎨" },
-  { href: "/polishes/new", label: "Add Polish", icon: "➕" },
+interface NavItem {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+}
+
+const navItems: NavItem[] = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/polishes", label: "Polishes", icon: Sparkles },
+  { href: "/polishes/search", label: "Search", icon: Search },
+  { href: "/polishes/new", label: "Add Polish", icon: PlusCircle },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
+  function isActive(href: string) {
+    if (href === "/dashboard") return pathname === "/dashboard";
+    return pathname.startsWith(href);
+  }
+
   return (
     <div className="flex min-h-screen">
       {/* Sidebar */}
       <aside className="hidden w-56 shrink-0 border-r border-border bg-sidebar md:block">
-        <div className="flex h-14 items-center border-b border-border px-4">
-          <Link href="/" className="flex items-center gap-2 font-semibold">
-            <span className="text-lg">💅</span>
-            <span>SwatchWatch</span>
+        <div className="flex h-14 items-center border-b border-border/60 px-4">
+          <Link href="/dashboard">
+            <SwatchWatchWordmark iconSize={26} />
           </Link>
         </div>
         <nav className="flex flex-col gap-1 p-3">
           {navItems.map((item) => (
             <Button
               key={item.href}
-              variant={pathname === item.href ? "secondary" : "ghost"}
+              variant={isActive(item.href) ? "secondary" : "ghost"}
               className={cn(
                 "justify-start gap-2",
-                pathname === item.href && "font-medium"
+                isActive(item.href) && "font-medium"
               )}
               asChild
             >
               <Link href={item.href}>
-                <span>{item.icon}</span>
+                <item.icon className="size-4" />
                 {item.label}
               </Link>
             </Button>
@@ -45,30 +58,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
       </aside>
 
-      {/* Mobile header */}
+      {/* Mobile header + page content */}
       <div className="flex flex-1 flex-col">
         <header className="flex h-14 items-center gap-4 border-b border-border bg-background px-4 md:px-6">
           <div className="flex items-center gap-2 md:hidden">
-            <span className="text-lg">💅</span>
-            <span className="font-semibold">SwatchWatch</span>
+            <Link href="/dashboard">
+              <SwatchWatchWordmark iconSize={22} textClassName="text-sm" />
+            </Link>
           </div>
           <nav className="flex items-center gap-1 md:hidden">
             {navItems.map((item) => (
               <Button
                 key={item.href}
-                variant={pathname === item.href ? "secondary" : "ghost"}
+                variant={isActive(item.href) ? "secondary" : "ghost"}
                 size="sm"
                 asChild
               >
                 <Link href={item.href}>
-                  <span className="text-sm">{item.icon}</span>
+                  <item.icon className="size-4" />
                 </Link>
               </Button>
             ))}
           </nav>
         </header>
 
-        {/* Page content */}
         <main className="flex-1 p-4 md:p-6">{children}</main>
       </div>
     </div>
