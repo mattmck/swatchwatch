@@ -646,7 +646,7 @@ function ColorSearchPageContent() {
               </div>
             </div>
 
-            <div className="rounded-md border p-2 text-xs">
+            <div className="space-y-2 rounded-md border p-2 text-xs">
               <p className="text-muted-foreground">Selected</p>
               <div className="mt-1 flex items-center gap-2">
                 <span
@@ -655,6 +655,18 @@ function ColorSearchPageContent() {
                 />
                 <span className="font-mono">{selectedHex ?? "--"}</span>
               </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                className="w-full justify-center gap-1.5"
+                onClick={() => addPaletteAnchorHex(selectedHex)}
+                disabled={!selectedHex}
+                title="Add selected color to desired"
+              >
+                <BsPlusLg className="h-3.5 w-3.5" />
+                Add to Desired
+              </Button>
             </div>
           </CardContent>
         </Card>

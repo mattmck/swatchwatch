@@ -19,7 +19,7 @@ src/app/
 │   ├── page.tsx               → /polishes         Inventory table (search, filter, sort)
 │   ├── new/page.tsx           → /polishes/new     Add polish form
 │   ├── [id]/page.tsx          → /polishes/:id     Polish detail view
-│   └── search/page.tsx        → /polishes/search  Responsive color workflow: wheel + harmonies stack in left column on desktop, filtered match table on right, with desired-color management and status icons (Have/Buy/Virtual)
+│   └── search/page.tsx        → /polishes/search  Responsive color workflow: wheel + harmonies stack in left column on desktop, filtered match table on right, quick "Add to Desired" from selected wheel color, and desired/recommended status icons (Have/Buy/Virtual)
 ├── layout.tsx                 → Root layout (AppShell wrapper)
 └── globals.css                → Tailwind v4 + shadcn/ui CSS variables
 ```
