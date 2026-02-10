@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { PoolClient } from "pg";
 import {
@@ -20,6 +20,7 @@ const GUIDANCE_CONFIG = {
   recommendedFrameTypes: ["barcode", "label", "color"],
   maxFrames: 6,
 } as const;
+const MAX_CAPTURE_IMAGE_BYTES = 5 * 1024 * 1024;
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -90,8 +91,155 @@ type ResolverOutcome =
       metadataPatch: Record<string, unknown>;
     };
 
+class CaptureInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CaptureInputError";
+  }
+}
+
+interface PreparedImageInput {
+  storageUrl: string;
+  checksumSha256: string | null;
+  qualityPatch: Record<string, unknown> | null;
+}
+
 function isValidUuid(value: string): boolean {
   return UUID_PATTERN.test(value);
+}
+
+function isValidBase64Payload(value: string): boolean {
+  if (value.length === 0 || value.length % 4 !== 0) {
+    return false;
+  }
+  return /^[A-Za-z0-9+/]+={0,2}$/.test(value);
+}
+
+function getImageExtension(mimeType: string): string {
+  switch (mimeType) {
+    case "image/jpeg":
+      return "jpg";
+    case "image/png":
+      return "png";
+    case "image/webp":
+      return "webp";
+    case "image/heic":
+      return "heic";
+    case "image/heif":
+      return "heif";
+    case "image/gif":
+      return "gif";
+    default:
+      return "img";
+  }
+}
+
+function buildImageIngestionPatch(details: {
+  source: "remote_url" | "data_url";
+  mimeType?: string;
+  byteSize?: number;
+  checksumSha256?: string;
+  host?: string;
+}): Record<string, unknown> {
+  return {
+    ingestion: {
+      source: details.source,
+      mimeType: details.mimeType,
+      byteSize: details.byteSize,
+      checksumSha256: details.checksumSha256,
+      host: details.host,
+    },
+  };
+}
+
+function normalizeCaptureImageInput(imageBlobUrl: string, captureId: string): PreparedImageInput {
+  const trimmed = imageBlobUrl.trim();
+
+  if (trimmed.startsWith("blob:")) {
+    throw new CaptureInputError(
+      "blob: image URLs are browser-local only. Send a base64 data URL or an https URL instead."
+    );
+  }
+
+  if (trimmed.startsWith("data:")) {
+    const commaIndex = trimmed.indexOf(",");
+    if (commaIndex <= 5) {
+      throw new CaptureInputError("Invalid image data URL format");
+    }
+
+    const meta = trimmed.slice(5, commaIndex);
+    const payload = trimmed.slice(commaIndex + 1).replace(/\s/g, "");
+    const metaParts = meta.split(";").filter(Boolean);
+    const mimeType = (metaParts[0] || "").toLowerCase();
+    const isBase64 = metaParts.includes("base64");
+
+    if (!mimeType.startsWith("image/")) {
+      throw new CaptureInputError("Data URL must include an image MIME type");
+    }
+    if (!isBase64) {
+      throw new CaptureInputError("Data URL images must be base64 encoded");
+    }
+    if (!isValidBase64Payload(payload)) {
+      throw new CaptureInputError("Data URL image payload must be valid base64");
+    }
+
+    const bytes = Buffer.from(payload, "base64");
+    if (bytes.length === 0) {
+      throw new CaptureInputError("Data URL image payload is empty");
+    }
+    if (bytes.length > MAX_CAPTURE_IMAGE_BYTES) {
+      throw new CaptureInputError("Capture frame image exceeds the 5MB limit");
+    }
+
+    const checksumSha256 = createHash("sha256").update(bytes).digest("hex");
+    const extension = getImageExtension(mimeType);
+    const storageUrl = `inline://capture/${captureId}/${checksumSha256}.${extension}`;
+
+    return {
+      storageUrl,
+      checksumSha256,
+      qualityPatch: buildImageIngestionPatch({
+        source: "data_url",
+        mimeType,
+        byteSize: bytes.length,
+        checksumSha256,
+      }),
+    };
+  }
+
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(trimmed);
+  } catch {
+    throw new CaptureInputError("imageBlobUrl must be a valid data URL or https URL");
+  }
+
+  if (parsedUrl.protocol !== "https:" && parsedUrl.protocol !== "http:") {
+    throw new CaptureInputError("imageBlobUrl must use http or https when passing a URL");
+  }
+
+  return {
+    storageUrl: trimmed,
+    checksumSha256: null,
+    qualityPatch: buildImageIngestionPatch({
+      source: "remote_url",
+      host: parsedUrl.host,
+    }),
+  };
+}
+
+function mergeQualityJson(
+  baseQuality: Record<string, unknown> | undefined,
+  patch: Record<string, unknown> | null
+): Record<string, unknown> | null {
+  if (!baseQuality && !patch) {
+    return null;
+  }
+
+  return {
+    ...(baseQuality ?? {}),
+    ...(patch ?? {}),
+  };
 }
 
 function parseNumeric(value: string | number | null | undefined): number | undefined {
@@ -701,13 +849,17 @@ async function addCaptureFrame(
 
     const result = await transaction(async (client) => {
       let imageId = body.imageId ?? null;
+      let qualityJson = body.quality ?? null;
 
       if (!imageId && body.imageBlobUrl) {
+        const normalizedImage = normalizeCaptureImageInput(body.imageBlobUrl, session.captureId);
+        qualityJson = mergeQualityJson(body.quality, normalizedImage.qualityPatch);
+
         const imageResult = await client.query<{ imageId: string }>(
-          `INSERT INTO image_asset (owner_type, owner_id, storage_url, captured_at)
-           VALUES ('user', $1, $2, now())
+          `INSERT INTO image_asset (owner_type, owner_id, storage_url, checksum_sha256, captured_at)
+           VALUES ('user', $1, $2, $3, now())
            RETURNING image_id::text AS "imageId"`,
-          [userId, body.imageBlobUrl]
+          [userId, normalizedImage.storageUrl, normalizedImage.checksumSha256]
         );
         imageId = parseInt(imageResult.rows[0].imageId, 10);
       }
@@ -716,7 +868,7 @@ async function addCaptureFrame(
         `INSERT INTO capture_frame (capture_session_id, image_id, frame_type, quality_json)
          VALUES ($1, $2, $3, $4::jsonb)
          RETURNING capture_frame_id::text AS "frameId"`,
-        [session.id, imageId, body.frameType, body.quality ?? null]
+        [session.id, imageId, body.frameType, qualityJson]
       );
 
       await client.query(
@@ -738,6 +890,9 @@ async function addCaptureFrame(
 
     return { status: 201, jsonBody: response };
   } catch (error: any) {
+    if (error instanceof CaptureInputError) {
+      return { status: 400, jsonBody: { error: error.message } };
+    }
     context.error("Error adding capture frame:", error);
     return { status: 500, jsonBody: { error: "Failed to save capture frame", details: error.message } };
   }

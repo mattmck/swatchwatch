@@ -41,6 +41,10 @@ All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpReques
 - `POST /api/capture/{captureId}/finalize` now runs a deterministic resolver (`gtin` barcode lookup first, then shade similarity).
 - On `matched`, the function also creates or increments a `user_inventory_item` for the authenticated user.
 - On medium/low confidence, it returns `needs_question` with a persisted capture question.
+- `POST /api/capture/{captureId}/frame` accepts either:
+  - `imageBlobUrl` as `https://...` URL, or
+  - base64 `data:image/...;base64,...` payloads from web/mobile camera uploads.
+- Frame ingest normalizes/stores metadata (`ingestion.source`, MIME type, byte size, checksum) and rejects browser-local `blob:` URLs.
 
 ### Authentication
 

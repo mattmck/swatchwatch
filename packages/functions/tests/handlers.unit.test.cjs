@@ -773,6 +773,98 @@ describe("functions/capture — addCaptureFrame", () => {
     assert.equal(res.jsonBody.frameId, "900");
     assert.equal(res.jsonBody.captureId, "11111111-1111-4111-8111-111111111111");
   });
+
+  it("normalizes data URL image uploads and enriches ingestion metadata", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let callCount = 0;
+    const imageInsertParams = [];
+    const frameInsertParams = [];
+    queryMock = async () => {
+      callCount++;
+      if (callCount === 1) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (callCount === 2) {
+        return { rows: [{ id: 10, captureId: "11111111-1111-4111-8111-111111111111", status: "processing", topConfidence: null, acceptedEntityType: null, acceptedEntityId: null, metadata: null }] };
+      }
+      return { rows: [] };
+    };
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          if (text.includes("INSERT INTO image_asset")) {
+            imageInsertParams.push(params);
+            return { rows: [{ imageId: "500" }] };
+          }
+          if (text.includes("INSERT INTO capture_frame")) {
+            frameInsertParams.push(params);
+            return { rows: [{ frameId: "901" }] };
+          }
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["capture-frame"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/capture/11111111-1111-4111-8111-111111111111/frame",
+        headers: { authorization: "Bearer dev:1" },
+        params: { captureId: "11111111-1111-4111-8111-111111111111" },
+        body: {
+          frameType: "label",
+          imageBlobUrl: "data:image/png;base64,YWJj",
+          quality: { blur: 0.1 },
+        },
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 201);
+    assert.equal(res.jsonBody.frameId, "901");
+    assert.equal(imageInsertParams.length, 1);
+    assert.ok(imageInsertParams[0][1].startsWith("inline://capture/11111111-1111-4111-8111-111111111111/"));
+    assert.equal(typeof imageInsertParams[0][2], "string");
+    assert.equal(imageInsertParams[0][2].length, 64);
+    assert.equal(frameInsertParams.length, 1);
+    assert.equal(frameInsertParams[0][3].blur, 0.1);
+    assert.equal(frameInsertParams[0][3].ingestion.source, "data_url");
+    assert.equal(frameInsertParams[0][3].ingestion.mimeType, "image/png");
+    assert.equal(frameInsertParams[0][3].ingestion.byteSize, 3);
+  });
+
+  it("rejects blob URL image references", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let callCount = 0;
+    queryMock = async () => {
+      callCount++;
+      if (callCount === 1) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (callCount === 2) {
+        return { rows: [{ id: 10, captureId: "11111111-1111-4111-8111-111111111111", status: "processing", topConfidence: null, acceptedEntityType: null, acceptedEntityId: null, metadata: null }] };
+      }
+      return { rows: [] };
+    };
+
+    const handler = registeredRoutes["capture-frame"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/capture/11111111-1111-4111-8111-111111111111/frame",
+        headers: { authorization: "Bearer dev:1" },
+        params: { captureId: "11111111-1111-4111-8111-111111111111" },
+        body: {
+          frameType: "label",
+          imageBlobUrl: "blob:http://localhost:3000/some-local-frame",
+        },
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 400);
+    assert.match(res.jsonBody.error, /blob:/i);
+  });
 });
 
 describe("functions/capture — finalize/status/answer workflow", () => {
