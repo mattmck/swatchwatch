@@ -63,13 +63,13 @@ export default function LandingPage() {
             <SwatchWatchIcon name="monogram" size={80} title="SwatchWatch" />
           </div>
 
-          <h1 className="text-4xl font-extrabold tracking-tight sm:text-5xl lg:text-6xl">
-            <span className="text-gradient-brand">Your polish collection,</span>
+          <h1 className="text-5xl tracking-tight sm:text-6xl lg:text-7xl">
+            <span className="font-medium text-gradient-brand">Your polish collection,</span>
             <br />
-            <span className="text-brand-ink">beautifully organized.</span>
+            <span className="font-extrabold text-brand-ink">beautifully organized.</span>
           </h1>
 
-          <p className="mx-auto mt-6 max-w-2xl text-lg text-brand-purple-deep/80 sm:text-xl">
+          <p className="mx-auto mt-6 max-w-2xl text-lg text-brand-purple-deep/80 sm:text-xl lg:text-2xl lg:leading-relaxed">
             The smart nail polish manager that catalogs your shades, finds dupes,
             and discovers harmonious color pairings — all powered by color science.
           </p>
