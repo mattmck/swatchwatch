@@ -1,5 +1,7 @@
 import { query, transaction } from "./db";
 import { ConnectorProductRecord } from "./connectors/types";
+import { detectHexWithAzureOpenAI } from "./ai-color-detection";
+import { uploadSourceImageToBlob } from "./blob-storage";
 
 export interface DataSourceRecord {
   dataSourceId: number;
@@ -46,6 +48,12 @@ export interface HoloTacoMaterializationMetrics {
   shadesCreated: number;
   inventoryInserted: number;
   inventoryUpdated: number;
+  imageCandidates: number;
+  imageUploads: number;
+  imageUploadFailures: number;
+  swatchesLinked: number;
+  hexDetected: number;
+  hexDetectionFailures: number;
   skipped: number;
 }
 
@@ -65,7 +73,27 @@ interface HoloTacoProductNormalized {
   name: string | null;
   collection: string | null;
   finish: string | null;
+  primaryImageUrl: string | null;
   tags: string[];
+}
+
+interface HoloTacoPreparedImage {
+  storageUrl: string | null;
+  checksumSha256: string | null;
+  detectedHex: string | null;
+}
+
+interface HoloTacoImagePreparationMetrics {
+  imageCandidates: number;
+  imageUploads: number;
+  imageUploadFailures: number;
+  hexDetected: number;
+  hexDetectionFailures: number;
+}
+
+interface HoloTacoImagePreparationResult {
+  byExternalId: Map<string, HoloTacoPreparedImage>;
+  metrics: HoloTacoImagePreparationMetrics;
 }
 
 function asString(value: unknown): string | null {
@@ -131,7 +159,88 @@ function parseHoloTacoNormalized(
     name: asString(normalized.name),
     collection: collections[0] || null,
     finish: finishes[0] || null,
+    primaryImageUrl: asString(normalized.primaryImageUrl),
     tags: asStringArray(normalized.tags),
+  };
+}
+
+function isHttpUrl(value: string | null): value is string {
+  if (!value) {
+    return false;
+  }
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+async function prepareHoloTacoImageData(
+  records: ConnectorProductRecord[]
+): Promise<HoloTacoImagePreparationResult> {
+  const byExternalId = new Map<string, HoloTacoPreparedImage>();
+  const metrics: HoloTacoImagePreparationMetrics = {
+    imageCandidates: 0,
+    imageUploads: 0,
+    imageUploadFailures: 0,
+    hexDetected: 0,
+    hexDetectionFailures: 0,
+  };
+
+  for (const record of records) {
+    const normalized =
+      record.normalized && typeof record.normalized === "object"
+        ? (record.normalized as Record<string, unknown>)
+        : null;
+    if (!normalized) {
+      continue;
+    }
+
+    const holo = parseHoloTacoNormalized(normalized);
+    if (!holo.name || !isHttpUrl(holo.primaryImageUrl)) {
+      continue;
+    }
+
+    metrics.imageCandidates += 1;
+
+    let storageUrl: string | null = null;
+    let checksumSha256: string | null = null;
+    let detectedHex: string | null = null;
+
+    try {
+      const upload = await uploadSourceImageToBlob({
+        sourceImageUrl: holo.primaryImageUrl,
+        source: "HoloTacoShopify",
+        externalId: record.externalId,
+      });
+      storageUrl = upload.storageUrl;
+      checksumSha256 = upload.checksumSha256;
+      metrics.imageUploads += 1;
+    } catch {
+      metrics.imageUploadFailures += 1;
+    }
+
+    try {
+      const detection = await detectHexWithAzureOpenAI(holo.primaryImageUrl);
+      if (detection.hex) {
+        detectedHex = detection.hex;
+        metrics.hexDetected += 1;
+      }
+    } catch {
+      metrics.hexDetectionFailures += 1;
+    }
+
+    byExternalId.set(record.externalId, {
+      storageUrl,
+      checksumSha256,
+      detectedHex,
+    });
+  }
+
+  return {
+    byExternalId,
+    metrics,
   };
 }
 
@@ -561,14 +670,18 @@ export async function materializeMakeupApiRecords(
 
 export async function materializeHoloTacoRecords(
   userId: number,
+  dataSourceId: number,
   records: ConnectorProductRecord[]
 ): Promise<HoloTacoMaterializationMetrics> {
+  const preparedImageData = await prepareHoloTacoImageData(records);
+
   return transaction(async (client) => {
     let processed = 0;
     let brandsCreated = 0;
     let shadesCreated = 0;
     let inventoryInserted = 0;
     let inventoryUpdated = 0;
+    let swatchesLinked = 0;
     let skipped = 0;
 
     const brandCache = new Map<string, number>();
@@ -658,6 +771,8 @@ export async function materializeHoloTacoRecords(
       );
 
       const importNote = `Imported from HoloTacoShopify external_id=${record.externalId}`;
+      const preparedImage = preparedImageData.byExternalId.get(record.externalId);
+      const detectedHex = preparedImage?.detectedHex || null;
       const sourceTags = Array.from(
         new Set(
           [...holo.tags, "imported", "holotaco", "shopify"]
@@ -669,9 +784,9 @@ export async function materializeHoloTacoRecords(
       if (inventory.rows.length === 0) {
         await client.query(
           `INSERT INTO user_inventory_item
-             (user_id, shade_id, quantity, color_name, notes, tags)
-           VALUES ($1, $2, 0, $3, $4, $5::text[])`,
-          [userId, shadeId, holo.name, importNote, sourceTags]
+             (user_id, shade_id, quantity, color_name, color_hex, notes, tags)
+           VALUES ($1, $2, 0, $3, $4, $5, $6::text[])`,
+          [userId, shadeId, holo.name, detectedHex, importNote, sourceTags]
         );
         inventoryInserted += 1;
       } else {
@@ -679,18 +794,73 @@ export async function materializeHoloTacoRecords(
         await client.query(
           `UPDATE user_inventory_item
            SET color_name = COALESCE(color_name, $2),
-               notes = COALESCE(notes, $3),
+               color_hex = COALESCE(color_hex, $3),
+               notes = COALESCE(notes, $4),
                tags = (
                  SELECT ARRAY(
                    SELECT DISTINCT t
-                   FROM unnest(COALESCE(user_inventory_item.tags, ARRAY[]::text[]) || $4::text[]) AS t
+                   FROM unnest(COALESCE(user_inventory_item.tags, ARRAY[]::text[]) || $5::text[]) AS t
                    ORDER BY t
                  )
                )
            WHERE inventory_item_id = $1`,
-          [inventoryItemId, holo.name, importNote, sourceTags]
+          [inventoryItemId, holo.name, detectedHex, importNote, sourceTags]
         );
         inventoryUpdated += 1;
+      }
+
+      if (preparedImage?.storageUrl && preparedImage.checksumSha256) {
+        const existingImage = await client.query<{ imageId: number }>(
+          `SELECT image_id AS "imageId"
+           FROM image_asset
+           WHERE owner_type = 'source'
+             AND owner_id = $1
+             AND checksum_sha256 = $2
+           LIMIT 1`,
+          [dataSourceId, preparedImage.checksumSha256]
+        );
+
+        let imageId: number;
+        if (existingImage.rows.length > 0) {
+          imageId = existingImage.rows[0].imageId;
+        } else {
+          const insertedImage = await client.query<{ imageId: number }>(
+            `INSERT INTO image_asset
+               (owner_type, owner_id, storage_url, checksum_sha256, copyright_status, captured_at)
+             VALUES ('source', $1, $2, $3, 'licensed_source', now())
+             RETURNING image_id AS "imageId"`,
+            [dataSourceId, preparedImage.storageUrl, preparedImage.checksumSha256]
+          );
+          imageId = insertedImage.rows[0].imageId;
+        }
+
+        const existingSwatch = await client.query<{ swatchId: number; imageIdOriginal: number }>(
+          `SELECT
+             swatch_id AS "swatchId",
+             image_id_original AS "imageIdOriginal"
+           FROM swatch
+           WHERE shade_id = $1
+           ORDER BY swatch_id DESC
+           LIMIT 1`,
+          [shadeId]
+        );
+
+        if (existingSwatch.rows.length === 0) {
+          await client.query(
+            `INSERT INTO swatch (shade_id, image_id_original, swatch_type, lighting, background, quality_score)
+             VALUES ($1, $2, 'source_product', 'unknown', 'transparent', 80.0)`,
+            [shadeId, imageId]
+          );
+          swatchesLinked += 1;
+        } else if (existingSwatch.rows[0].imageIdOriginal !== imageId) {
+          await client.query(
+            `UPDATE swatch
+             SET image_id_original = $2
+             WHERE swatch_id = $1`,
+            [existingSwatch.rows[0].swatchId, imageId]
+          );
+          swatchesLinked += 1;
+        }
       }
     }
 
@@ -700,6 +870,8 @@ export async function materializeHoloTacoRecords(
       shadesCreated,
       inventoryInserted,
       inventoryUpdated,
+      ...preparedImageData.metrics,
+      swatchesLinked,
       skipped,
     };
   });

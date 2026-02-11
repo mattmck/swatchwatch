@@ -23,6 +23,7 @@ const POLISH_SELECT = `
     ui.size_display                             AS size,
     ui.rating,
     ui.notes,
+    swatch_img.storage_url                      AS "swatchImageUrl",
     ui.tags,
     ui.purchase_date                            AS "purchaseDate",
     ui.expiration_date                          AS "expirationDate",
@@ -30,7 +31,15 @@ const POLISH_SELECT = `
     ui.updated_at                               AS "updatedAt"
   FROM user_inventory_item ui
   LEFT JOIN shade s  ON ui.shade_id = s.shade_id
-  LEFT JOIN brand b  ON s.brand_id  = b.brand_id`;
+  LEFT JOIN brand b  ON s.brand_id  = b.brand_id
+  LEFT JOIN LATERAL (
+    SELECT ia.storage_url
+    FROM swatch sw
+    JOIN image_asset ia ON ia.image_id = sw.image_id_original
+    WHERE sw.shade_id = ui.shade_id
+    ORDER BY sw.swatch_id DESC
+    LIMIT 1
+  ) AS swatch_img ON true`;
 
 /**
  * Find or create a brand + shade, returning the shade_id.

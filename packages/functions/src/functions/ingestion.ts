@@ -156,7 +156,7 @@ async function runIngestionJob(
       sourceInput === "MakeupAPI" && materializeToInventory
         ? await materializeMakeupApiRecords(userId, connectorResult.records)
         : sourceInput === "HoloTacoShopify" && materializeToInventory
-          ? await materializeHoloTacoRecords(userId, connectorResult.records)
+          ? await materializeHoloTacoRecords(userId, source.dataSourceId, connectorResult.records)
         : null;
 
     const finalMetrics = {

@@ -47,7 +47,9 @@ rows and user inventory rows (`quantity=0`) by default. Set `materializeToInvent
 
 For `HoloTacoShopify`, ingestion materializes searchable shade rows (brand/name/finish/collection)
 and user inventory rows (`quantity=0`) with source tags. Use `recentDays` to constrain to newer
-products by publish/create/update timestamps.
+products by publish/create/update timestamps. It also uploads source product images to Azure Blob
+Storage (`image_asset` + `swatch`) and attempts Azure OpenAI-based representative `color_hex`
+detection from the product image.
 
 Example request:
 ```json
@@ -122,11 +124,13 @@ node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_U
 
 Defined in `local.settings.json` (git-ignored values). See the root README for the full list. For production, secrets are injected via Key Vault references.
 
-Auth-specific variable:
+Key variables:
 
 | Variable | Purpose |
 |----------|---------|
 | `AUTH_DEV_BYPASS` | Dev-only bypass mode. When `true`, auth accepts `Bearer dev:<userId>` tokens. Keep this disabled outside isolated dev scenarios. |
+| `SOURCE_IMAGE_CONTAINER` | Optional blob container override for source-ingested images. Defaults to `source-images`. |
+| `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name dedicated to image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT` when unset). |
 
 Temporary cloud note (as of February 11, 2026):
 `deploy-dev.yml` currently sets `AUTH_DEV_BYPASS=true` on the dev Function App after deploy. Remove this once dev Azure AD B2C flow is fully wired.

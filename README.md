@@ -118,10 +118,12 @@ Functions require secrets defined in `packages/functions/local.settings.json`:
 |----------|---------|
 | `COSMOS_DB_CONNECTION` | Cosmos DB connection string |
 | `AZURE_STORAGE_CONNECTION` | Storage account (swatch/nail photos) |
+| `SOURCE_IMAGE_CONTAINER` | Optional container for source-ingested product images (default: `source-images`) |
 | `AZURE_SPEECH_KEY` | Azure Speech Services key |
 | `AZURE_SPEECH_REGION` | Azure Speech Services region |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint for voice parsing |
 | `AZURE_OPENAI_KEY` | Azure OpenAI key |
+| `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name for image-based hex detection |
 | `AZURE_AD_B2C_TENANT` | B2C tenant name |
 | `AZURE_AD_B2C_CLIENT_ID` | B2C app client ID |
 | `AUTH_DEV_BYPASS` | Dev-only bypass (`true` enables `Bearer dev:<userId>` tokens); do not use in shared/prod environments |
