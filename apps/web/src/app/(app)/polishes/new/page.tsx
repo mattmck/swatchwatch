@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { Suspense } from "react";
+import { BrandSpinner } from "@/components/brand-spinner";
 
 const FormContent = dynamic(() => import("./polish-form"), {
   ssr: false,
@@ -9,7 +10,7 @@ const FormContent = dynamic(() => import("./polish-form"), {
 
 export default function PolishPage() {
   return (
-    <Suspense fallback={<div className="min-h-[200px]" aria-live="polite">Loading polish form…</div>}>
+    <Suspense fallback={<BrandSpinner label="Loading polish form…" className="min-h-[240px]" />}>
       <FormContent />
     </Suspense>
   );

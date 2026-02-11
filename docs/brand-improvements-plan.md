@@ -127,24 +127,28 @@
 - Loading spinner: replace text "Loading..." with a branded spinner (rotating monogram icon or pulsing drop)
 - Error cards: use destructive red but with brand-consistent rounded corners and typography
 - Empty collection state: illustrated drop icon + encouraging copy + CTA to add first polish
+- [x] Completed (2026-02-11): Upgraded `BrandSpinner`, `ErrorState`, and `EmptyState` to branded card treatments and replaced remaining plain-text route fallbacks (`/polishes/new`, `/polishes/detail`, color search loading, and dashboard empty collection surface).
 
 ### D2. Notification / toast styling
 - shadcn Sonner toasts should inherit brand colors
 - Success: green with brand border radius
 - Info: brand purple tint
 - Error: stays destructive red
+- [x] Completed (2026-02-11): Added a global branded Sonner `Toaster` with success/info/error variants and replaced destructive alert messaging in polish detail actions with styled toast feedback.
 
 ### D3. Micro-interactions
 - Button hover: scale(1.02) + shadow transition on CTA buttons
 - Card hover: lift effect (translateY(-2px) + increased shadow)
 - Nav items: underline slide-in animation on active state
 - Polish swatch dots: subtle scale on hover
+- [x] Completed (2026-02-11): Added consistent button hover scaling, card lift-on-hover transitions, nav underline slide-in active states, and subtle hover scaling on polish swatch dots.
 
 ### D4. Sidebar refinement
 - Sidebar logo area: add a faint gradient divider or brand accent line
 - Active nav item: use a filled pill with brand pink-soft background instead of secondary
 - Collapsed state (future): icon-only mode at narrow breakpoints
 - User avatar / settings section at bottom of sidebar
+- [x] Completed (2026-02-11): Added a gradient accent divider in the sidebar logo area, upgraded active nav items to a branded filled-pill treatment, and introduced a bottom avatar/settings module (collapsed icon-only mode remains future scope).
 
 ---
 
@@ -154,15 +158,18 @@
 - Bundle the 4 brand icons into a single SVG sprite `<symbol>` sheet
 - Reduces HTTP requests and enables easier icon reuse in non-React contexts
 - The current inline SVG approach works but doesn't scale to 10+ icons
+- [x] Completed (2026-02-11): Added `public/brand/swatchwatch-sprite.svg` with all core symbols and introduced `SwatchWatchSpriteIcon` for sprite-based icon rendering when needed.
 
 ### E2. OG image variants
 - Per-page OG images (dashboard preview, collection preview)
 - Consider using `@vercel/og` or similar for dynamic OG generation if we move off static export
+- [x] Completed (2026-02-11): Added route-level OG generators for dashboard and collection surfaces via `opengraph-image.tsx` in `/dashboard` and `/polishes`.
 
 ### E3. Preload critical assets
 - `<link rel="preload">` for the brand font
 - Preconnect to font CDN if using Google Fonts
 - Ensure the monogram SVG favicon loads fast (it's tiny, but verify)
+- [x] Completed (2026-02-11): Configured `metadataBase` for stable social URLs and preloaded critical brand SVG assets in root layout head; `next/font` keeps Inter self-hosted so external font preconnect is not required.
 
 ---
 

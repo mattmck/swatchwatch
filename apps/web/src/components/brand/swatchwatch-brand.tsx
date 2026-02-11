@@ -20,6 +20,20 @@ interface SwatchWatchWordmarkProps {
   textClassName?: string;
 }
 
+interface SwatchWatchSpriteIconProps {
+  name?: SwatchWatchIconName;
+  size?: number;
+  className?: string;
+  title?: string;
+}
+
+const spriteSymbolIds: Record<SwatchWatchIconName, string> = {
+  app: "swatchwatch-icon-app",
+  monogram: "swatchwatch-icon-monogram",
+  swatch: "swatchwatch-icon-swatch",
+  brush: "swatchwatch-icon-brush",
+};
+
 function renderShape(shape: BrandShape, key: string) {
   if (shape.kind === "rect") {
     return (
@@ -113,6 +127,31 @@ export function SwatchWatchIcon({
       aria-hidden={!title}
     >
       {spec.shapes.map((shape, index) => renderShape(shape, `${name}-${index}`))}
+    </svg>
+  );
+}
+
+export function SwatchWatchSpriteIcon({
+  name = "monogram",
+  size = 32,
+  className,
+  title,
+}: SwatchWatchSpriteIconProps) {
+  const spec = swatchWatchIconSpecs[name];
+  const symbolId = spriteSymbolIds[name];
+
+  return (
+    <svg
+      className={className}
+      width={size}
+      height={size}
+      viewBox={spec.viewBox}
+      fill="none"
+      role={title ? "img" : "presentation"}
+      aria-label={title}
+      aria-hidden={!title}
+    >
+      <use href={`/brand/swatchwatch-sprite.svg#${symbolId}`} />
     </svg>
   );
 }

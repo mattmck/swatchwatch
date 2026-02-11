@@ -1,7 +1,6 @@
 import Link from "next/link";
 import type { Polish } from "swatchwatch-shared";
 import { BsPlusLg } from "react-icons/bs";
-import type { HarmonyType } from "@/lib/color-harmonies";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ColorDot } from "@/components/color-dot";
@@ -15,10 +14,10 @@ interface ColorSearchResultsProps {
     matchedHarmonyIndex: number;
   })[];
   harmonyColors: string[];
-  harmonyType: HarmonyType;
+  showMatchDots?: boolean;
   focusedTargetHex?: string | null;
   onQuantityChange?: (polishId: string, delta: number) => void;
-  onAddDesired?: (hex: string) => void;
+  onAddFocus?: (hex: string) => void;
   /** Header dot hover — affects wheel marker + table filter */
   onSwatchHover?: (hex: string) => void;
   onSwatchLeave?: () => void;
@@ -32,10 +31,10 @@ interface ColorSearchResultsProps {
 export function ColorSearchResults({
   polishes,
   harmonyColors,
-  harmonyType,
+  showMatchDots = false,
   focusedTargetHex,
   onQuantityChange,
-  onAddDesired,
+  onAddFocus,
   onSwatchHover,
   onSwatchLeave,
   onSwatchClick,
@@ -53,7 +52,7 @@ export function ColorSearchResults({
     );
   }
 
-  const showMatchDot = harmonyType !== "similar" && harmonyColors.length > 1;
+  const showMatchDot = showMatchDots && harmonyColors.length > 1;
 
   return (
     <div className="space-y-1">
@@ -63,8 +62,8 @@ export function ColorSearchResults({
             key={i}
             className={`inline-block h-4 w-4 rounded-full cursor-pointer transition-all ${
               focusedTargetHex === hex
-                ? "border-2 border-white ring-2 ring-primary scale-125"
-                : "border border-border hover:scale-110"
+                ? "border-2 border-white ring-2 ring-brand-purple/75 shadow-glow-brand scale-125"
+                : "border border-border hover:scale-110 hover:shadow-glow-purple"
             }`}
             style={{ backgroundColor: hex }}
             onMouseEnter={() => onSwatchHover?.(hex)}
@@ -136,18 +135,18 @@ export function ColorSearchResults({
             </Link>
 
             {/* Quantity controls */}
-            {(onAddDesired || onQuantityChange) && (
+            {(onAddFocus || onQuantityChange) && (
               <div className="shrink-0 flex items-center gap-2">
-                {onAddDesired && polish.colorHex && (
+                {onAddFocus && polish.colorHex && (
                   <Button
                     type="button"
                     size="icon-sm"
                     variant="outline"
                     className="w-9"
-                    title="Add to desired colors"
+                    title="Add to focused colors"
                     onClick={() => {
                       if (!polish.colorHex) return;
-                      onAddDesired(polish.colorHex);
+                      onAddFocus(polish.colorHex);
                     }}
                   >
                     <BsPlusLg className="h-3.5 w-3.5" />

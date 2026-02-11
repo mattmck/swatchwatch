@@ -1,0 +1,160 @@
+name: Deploy Infrastructure Dev
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - 'infrastructure/**'
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Apply Terraform changes
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-infra-dev
+  cancel-in-progress: false
+
+jobs:
+  detect-infra-changes:
+    name: Detect Infra Changes
+    runs-on: ubuntu-latest
+    outputs:
+      infra_changed: ${{ steps.detect.outputs.infra_changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed infrastructure files
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          if [ "$EVENT_NAME" = "push" ] && [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            RANGE="$BEFORE_SHA..$CURRENT_SHA"
+          elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            RANGE="HEAD^..HEAD"
+          else
+            RANGE=""
+          fi
+
+          if [ -n "$RANGE" ]; then
+            CHANGED="$(git diff --name-only "$RANGE" | grep '^infrastructure/' || true)"
+          else
+            CHANGED="$(git show --name-only --pretty='' HEAD | grep '^infrastructure/' || true)"
+          fi
+
+          if [ -n "$CHANGED" ]; then
+            echo "infra_changed=true" >> "$GITHUB_OUTPUT"
+            echo "Infrastructure changes detected:"
+            echo "$CHANGED"
+          else
+            echo "infra_changed=false" >> "$GITHUB_OUTPUT"
+            echo "No infrastructure changes detected."
+          fi
+
+  deploy-infra:
+    name: Terraform Apply (Dev)
+    needs: detect-infra-changes
+    if: ${{ needs.detect-infra-changes.outputs.infra_changed == 'true' }}
+    runs-on: ubuntu-latest
+    environment: dev
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VAR_environment: dev
+      TF_VAR_github_repository: ${{ github.repository }}
+      TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
+      TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
+      TFSTATE_CONTAINER: ${{ vars.TFSTATE_CONTAINER || 'tfstate' }}
+      TFSTATE_BLOB_NAME: ${{ vars.TFSTATE_BLOB_NAME || 'dev.terraform.tfstate' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Validate required secrets
+        run: |
+          missing=0
+          if [ -z "$TFSTATE_RESOURCE_GROUP" ]; then
+            echo "::error::Missing variable TFSTATE_RESOURCE_GROUP"
+            missing=1
+          fi
+          if [ -z "$TFSTATE_STORAGE_ACCOUNT" ]; then
+            echo "::error::Missing variable TFSTATE_STORAGE_ACCOUNT"
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Terraform init
+        run: |
+          TFSTATE_ACCESS_KEY="$(az storage account keys list \
+            --resource-group "$TFSTATE_RESOURCE_GROUP" \
+            --account-name "$TFSTATE_STORAGE_ACCOUNT" \
+            --query '[0].value' -o tsv)"
+
+          az storage container create \
+            --name "$TFSTATE_CONTAINER" \
+            --account-name "$TFSTATE_STORAGE_ACCOUNT" \
+            --account-key "$TFSTATE_ACCESS_KEY" \
+            --output none
+
+          terraform -chdir=infrastructure init -reconfigure -no-color \
+            -backend-config="resource_group_name=$TFSTATE_RESOURCE_GROUP" \
+            -backend-config="storage_account_name=$TFSTATE_STORAGE_ACCOUNT" \
+            -backend-config="container_name=$TFSTATE_CONTAINER" \
+            -backend-config="key=$TFSTATE_BLOB_NAME" \
+            -backend-config="access_key=$TFSTATE_ACCESS_KEY"
+
+      - name: Load PostgreSQL password from Key Vault
+        run: |
+          KEY_VAULT_NAME="$(terraform -chdir=infrastructure output -raw key_vault_name 2>/dev/null || true)"
+          if [ -z "$KEY_VAULT_NAME" ]; then
+            echo "::error::Unable to resolve key_vault_name from Terraform state. Run one local bootstrap apply first."
+            exit 1
+          fi
+
+          PG_PASSWORD="$(az keyvault secret show \
+            --vault-name "$KEY_VAULT_NAME" \
+            --name pg-password \
+            --query value -o tsv 2>/dev/null || true)"
+
+          if [ -z "$PG_PASSWORD" ]; then
+            echo "::error::Key Vault secret 'pg-password' not found in vault '$KEY_VAULT_NAME'."
+            exit 1
+          fi
+
+          echo "::add-mask::$PG_PASSWORD"
+          echo "TF_VAR_pg_admin_password=$PG_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Terraform validate
+        run: terraform -chdir=infrastructure validate -no-color
+
+      - name: Terraform plan
+        run: terraform -chdir=infrastructure plan -out=tfplan -no-color
+
+      - name: Terraform apply
+        if: ${{ github.event_name == 'push' || github.event.inputs.apply == 'true' }}
+        run: terraform -chdir=infrastructure apply -auto-approve -no-color tfplan

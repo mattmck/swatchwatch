@@ -15,23 +15,27 @@ npm run build:web        # Production build
 ```
 src/app/
 ├── (marketing)/
-│   ├── layout.tsx                → Marketing layout (glass header, responsive mobile menu, footer)
+│   ├── layout.tsx                → Marketing layout (branded sticky header, responsive mobile menu, footer)
 │   └── page.tsx                  → /           Landing page (hero, features, interactive showcase, testimonials, CTA)
 ├── (app)/
 │   ├── layout.tsx                → App layout (AppShell sidebar wrapper)
 │   ├── admin/jobs/page.tsx       → /admin/jobs      Internal ingestion admin (run jobs, toggle AI hex detection/overwrite mode, track status/metrics)
 │   ├── dashboard/page.tsx        → /dashboard       Stats, recent additions (computed from full paginated inventory)
+│   ├── dashboard/
+│   │   ├── page.tsx              → /dashboard       Stats, recent additions (computed from full paginated inventory)
+│   │   └── opengraph-image.tsx   → /dashboard OG image route
 │   └── polishes/
-│       ├── page.tsx              → /polishes         Inventory table (hydrates all API pages for client-side search/filter + swatch thumbnails)
+│       ├── page.tsx              → /polishes         Inventory table (hydrates all API pages for client-side search/filter + sortable headers)
+│       ├── opengraph-image.tsx   → /polishes OG image route
 │       ├── new/page.tsx          → /polishes/new     Add polish form
 │       ├── [id]/page.tsx         → /polishes/:id     Polish detail view + OKLCH profile + related shades
-│       └── search/page.tsx       → /polishes/search  Color wheel search
+│       └── search/page.tsx       → /polishes/search  Color wheel search (two-column layout, collapsible wheel/harmonies, single full-width harmony-only selector with All mode, one-click swatch focus, focus workflow)
 ├── layout.tsx                    → Root layout (fonts, metadata — no AppShell)
 └── globals.css                   → Tailwind v4 + brand theme tokens + utility classes
 ```
 
 **Route groups:**
-- `(marketing)` — Public pages with minimal glass header + footer
+- `(marketing)` — Public pages with branded sticky header + footer
 - `(app)` — Authenticated app pages wrapped in `AppShell` (sidebar navigation)
 
 ## Brand System
@@ -69,6 +73,9 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 | `shadow-glow-purple` | Purple glow box-shadow |
 | `shadow-glow-brand` | Combined pink/purple glow |
 | `glass` | Frosted glass effect (backdrop-blur, semi-transparent) |
+| `marketing-surface` | Shared marketing panel surface (rounded border, card tint, soft brand shadow) |
+| `marketing-surface-soft` | Softer accent panel for highlight blocks and active marketing states |
+| `marketing-kicker` | Uppercase section label styling for marketing headings |
 | `shimmer` | Animated shimmer sweep overlay |
 
 ### Brand Components (`src/components/brand/`)
@@ -76,6 +83,7 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 | Component | Purpose |
 |-----------|---------|
 | `SwatchWatchIcon` | Renders SVG brand icons (monogram, app, swatch, brush) |
+| `SwatchWatchSpriteIcon` | Renders symbols from `public/brand/swatchwatch-sprite.svg` for sprite-based icon usage |
 | `SwatchWatchWordmark` | Icon + styled "SwatchWatch" text with gradient W |
 | `SwatchWatchGraphicSet` | All 4 icons in a row |
 
@@ -85,16 +93,23 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 
 | Component | Purpose |
 |-----------|---------|
-| `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with Lucide icons and exact active-route matching |
+| `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with exact active-route matching, branded active-nav pills, logo accent divider, app theme toggle, and sidebar avatar/settings footer module |
+| `brand-spinner.tsx` | Branded loading state with animated monogram spinner used across app route fallbacks |
+| `error-state.tsx` | Reusable error card with destructive accent styling and optional retry action |
+| `empty-state.tsx` | Reusable empty-state card with brand icon treatment and optional CTA |
 | `marketing-color-showcase.tsx` | Interactive landing-page color harmony demo with mini wheel, connected swatch nodes, and animated suggested set tiles |
-| `marketing-theme-toggle.tsx` | System/light/dark theme selector used in the marketing header |
-| `color-dot.tsx` | Colored circle swatch — `sm`, `md`, `lg` sizes |
+| `marketing-theme-toggle.tsx` | Reusable system/light/dark theme selector used in marketing and authenticated app shells |
+| `color-dot.tsx` | Colored circle swatch (`sm`/`md`/`lg`) with subtle hover scale micro-interaction |
 | `color-wheel.tsx` | Canvas HSL color wheel with hover preview, click selection, owned-shade snap mode, and glow-forward selected marker |
-| `color-search-results.tsx` | Polish list sorted by OKLAB color distance, with branded finish badges and harmony interactions (palette selection affects table targeting without mutating desired anchors) |
+| `color-search-results.tsx` | Polish list sorted by OKLAB color distance, with branded finish badges, high-contrast focus-state swatch highlights, and harmony interactions (palette selection affects table targeting without mutating focused colors) |
 
 ### shadcn/ui (`src/components/ui/`)
 
-Installed components: `badge`, `button`, `card`, `dialog`, `dropdown-menu`, `input`, `select`, `separator`, `table`.
+Installed components: `badge`, `button`, `card`, `dialog`, `dropdown-menu`, `input`, `select`, `separator`, `sonner`, `table`.
+
+`button` includes a reusable `brand` variant for gradient CTAs shared across marketing and app surfaces.
+
+`src/components/ui/sonner.tsx` provides the branded toast wrapper mounted in `src/app/layout.tsx`.
 
 Add more with:
 ```bash
@@ -118,8 +133,9 @@ cd apps/web && npx shadcn@latest add <component-name>
 | Favicon (SVG) | `public/brand/swatchwatch-monogram.svg` | Referenced via metadata `icons` config |
 | Apple Touch Icon | `public/apple-touch-icon.png` | 180x180 PNG from app icon SVG |
 | OG Image | `public/og-image.png` | 1200x630 branded social preview |
+| OG Variants | `src/app/(app)/dashboard/opengraph-image.tsx`, `src/app/(app)/polishes/opengraph-image.tsx` | Route-specific social previews for dashboard and collection |
 | Manifest | `public/manifest.json` | PWA manifest with brand colors |
-| Brand SVGs | `public/brand/` | Monogram, wordmark, lockup, swatch, brush, app icon |
+| Brand SVGs | `public/brand/` | Monogram, wordmark, lockup, swatch, brush, app icon, sprite sheet |
 
 ## Environment Variables
 

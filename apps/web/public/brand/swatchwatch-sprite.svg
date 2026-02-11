@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <symbol id="swatchwatch-icon-monogram" viewBox="0 0 128 128">
+    <rect x="8" y="8" width="112" height="112" rx="32" fill="#42107e" />
+    <path d="M64 24C64 24 36 56 36 76a28 28 0 0056 0c0-20-28-52-28-52z" fill="#ff4fb8" />
+    <circle cx="52" cy="68" r="6" fill="#ffffff" opacity="0.45" />
+  </symbol>
+
+  <symbol id="swatchwatch-icon-swatch" viewBox="0 0 64 64">
+    <path
+      d="M26 16C26 16 14 34 14 44a12 12 0 0024 0c0-10-12-28-12-28z"
+      fill="#c5a6ff"
+      transform="rotate(-15 26 36)"
+    />
+    <path d="M32 12C32 12 20 32 20 43a12 12 0 0024 0c0-11-12-31-12-31z" fill="#ff4fb8" />
+    <path
+      d="M38 16C38 16 26 34 26 44a12 12 0 0024 0c0-10-12-28-12-28z"
+      fill="#7b2eff"
+      transform="rotate(15 38 36)"
+    />
+  </symbol>
+
+  <symbol id="swatchwatch-icon-brush" viewBox="0 0 64 64">
+    <rect x="17" y="30" width="30" height="28" rx="6" fill="#ff4fb8" />
+    <rect x="27" y="24" width="10" height="8" rx="2" fill="#42107e" />
+    <rect x="24" y="8" width="16" height="18" rx="4" fill="#7b2eff" />
+    <rect x="20" y="34" width="4" height="16" rx="2" fill="#ffffff" opacity="0.3" />
+    <rect x="27" y="11" width="3" height="11" rx="1.5" fill="#c5a6ff" opacity="0.4" />
+  </symbol>
+
+  <symbol id="swatchwatch-icon-app" viewBox="0 0 256 256">
+    <rect x="8" y="8" width="240" height="240" rx="56" fill="#42107e" />
+    <circle cx="128" cy="148" r="64" fill="#7b2eff" opacity="0.2" />
+    <path d="M128 44C128 44 80 108 80 148a48 48 0 0096 0c0-40-48-104-48-104z" fill="#ff4fb8" />
+    <circle cx="106" cy="140" r="10" fill="#ffffff" opacity="0.35" />
+  </symbol>
+</svg>

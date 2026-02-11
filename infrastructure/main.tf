@@ -1,6 +1,8 @@
 terraform {
   required_version = ">= 1.5.0"
 
+  backend "azurerm" {}
+
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
@@ -144,6 +146,30 @@ resource "azurerm_storage_container" "nail_photos" {
   container_access_type = "private"
 }
 
+resource "azurerm_storage_container" "tfstate" {
+  name                  = "tfstate"
+  storage_account_name  = azurerm_storage_account.main.name
+  container_access_type = "private"
+}
+
+# ── Monitoring (Application Insights + Log Analytics) ──────────
+
+resource "azurerm_log_analytics_workspace" "main" {
+  name                = "${local.resource_prefix}-law-${local.unique_suffix}"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  sku                 = "PerGB2018"
+  retention_in_days   = 30
+}
+
+resource "azurerm_application_insights" "main" {
+  name                = "${local.resource_prefix}-appi-${local.unique_suffix}"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  application_type    = "web"
+  workspace_id        = azurerm_log_analytics_workspace.main.id
+}
+
 # ── Azure Functions (Consumption/Serverless) ────────────────────
 
 resource "azurerm_service_plan" "main" {
@@ -168,6 +194,9 @@ resource "azurerm_linux_function_app" "main" {
   }
 
   site_config {
+    application_insights_connection_string = azurerm_application_insights.main.connection_string
+    application_insights_key               = azurerm_application_insights.main.instrumentation_key
+
     application_stack {
       node_version = "20"
     }
