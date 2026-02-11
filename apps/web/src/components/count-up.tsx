@@ -40,7 +40,6 @@ export function CountUp({ value, className }: CountUpProps) {
 
     const duration = 1200;
     const steps = 30;
-    const increment = targetNum / steps;
     let current = 0;
     let step = 0;
 
