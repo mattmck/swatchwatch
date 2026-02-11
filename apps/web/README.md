@@ -21,7 +21,7 @@ src/app/
 │   ├── layout.tsx                → App layout (AppShell sidebar wrapper)
 │   ├── dashboard/page.tsx        → /dashboard       Stats, recent additions (computed from full paginated inventory)
 │   └── polishes/
-│       ├── page.tsx              → /polishes         Inventory table (hydrates all API pages for client-side search/filter)
+│       ├── page.tsx              → /polishes         Inventory table (hydrates all API pages for client-side search/filter + sortable headers)
 │       ├── new/page.tsx          → /polishes/new     Add polish form
 │       ├── [id]/page.tsx         → /polishes/:id     Polish detail view + OKLCH profile + related shades
 │       └── search/page.tsx       → /polishes/search  Color wheel search (two-column layout, collapsible wheel/harmonies, full-width icon harmony selectors with All mode, one-click swatch focus, focus workflow)
