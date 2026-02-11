@@ -141,7 +141,7 @@
 - Card hover: lift effect (translateY(-2px) + increased shadow)
 - Nav items: underline slide-in animation on active state
 - Polish swatch dots: subtle scale on hover
-- [ ] Add consistent micro-interactions for buttons, cards, nav states, and swatches.
+- [x] Completed (2026-02-11): Added consistent button hover scaling, card lift-on-hover transitions, nav underline slide-in active states, and subtle hover scaling on polish swatch dots.
 
 ### D4. Sidebar refinement
 - Sidebar logo area: add a faint gradient divider or brand accent line

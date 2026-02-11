@@ -84,13 +84,13 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 
 | Component | Purpose |
 |-----------|---------|
-| `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with Lucide icons and exact active-route matching |
+| `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with Lucide icons, exact active-route matching, and animated active underline affordances |
 | `brand-spinner.tsx` | Branded loading state with animated monogram spinner used across app route fallbacks |
 | `error-state.tsx` | Reusable error card with destructive accent styling and optional retry action |
 | `empty-state.tsx` | Reusable empty-state card with brand icon treatment and optional CTA |
 | `marketing-color-showcase.tsx` | Interactive landing-page color harmony demo with mini wheel, connected swatch nodes, and animated suggested set tiles |
 | `marketing-theme-toggle.tsx` | System/light/dark theme selector used in the marketing header |
-| `color-dot.tsx` | Colored circle swatch — `sm`, `md`, `lg` sizes |
+| `color-dot.tsx` | Colored circle swatch (`sm`/`md`/`lg`) with subtle hover scale micro-interaction |
 | `color-wheel.tsx` | Canvas HSL color wheel with hover preview, click selection, owned-shade snap mode, and glow-forward selected marker |
 | `color-search-results.tsx` | Polish list sorted by OKLAB color distance, with branded finish badges and harmony interactions (palette selection affects table targeting without mutating desired anchors) |
 

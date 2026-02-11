@@ -13,7 +13,7 @@ const sizeMap = {
 export function ColorDot({ hex, size = "md", className = "" }: ColorDotProps) {
   return (
     <span
-      className={`inline-block rounded-full border border-border ${sizeMap[size]} ${className}`}
+      className={`inline-block rounded-full border border-border transition-transform duration-150 ease-out hover:scale-110 ${sizeMap[size]} ${className}`}
       style={{ backgroundColor: hex ?? "#ccc" }}
       aria-hidden="true"
     />

@@ -47,8 +47,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Button
               key={item.href}
               variant={isActive(item.href) ? "secondary" : "ghost"}
+              data-active={isActive(item.href) ? "true" : "false"}
               className={cn(
-                "justify-start gap-2",
+                "nav-underline justify-start gap-2",
                 isActive(item.href) && "font-medium"
               )}
               asChild
