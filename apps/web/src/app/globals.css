@@ -164,6 +164,18 @@
 /* ── Brand utility classes ── */
 
 @layer utilities {
+  .heading-page {
+    @apply text-2xl font-bold tracking-tight;
+  }
+
+  .heading-section {
+    @apply text-lg font-semibold tracking-tight;
+  }
+
+  .heading-card {
+    @apply text-base font-medium leading-none;
+  }
+
   /* Gradient backgrounds */
   .bg-gradient-brand {
     background: var(--gradient-brand);

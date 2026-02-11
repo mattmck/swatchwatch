@@ -38,11 +38,13 @@
 - Hero headline could use larger type on desktop (7xl/8xl) with finer weight modulation
 - Consider alternating font weights within the headline ("Your polish collection" in medium, "beautifully organized" in extrabold) for visual rhythm
 - Add subtle entry animation (fade-up on scroll) to hero content
+- [x] Completed (2026-02-11): Hero headline now scales up to 8xl on wide screens, keeps split-weight rhythm, and uses staged `ScrollFadeIn` fade-up reveals for icon/headline/copy/CTAs.
 
 ### A3. Consistent heading hierarchy across app pages
 - Dashboard, polish list, detail pages all use slightly different heading sizes and spacing
 - Define a scale: page title = `text-2xl font-bold`, section = `text-lg font-semibold`, card title = `text-base font-medium`
 - Apply consistently via shared component or Tailwind @apply
+- [x] Completed (2026-02-11): Added shared heading utility classes in `globals.css` (`heading-page`, `heading-section`, `heading-card`) and normalized app page H1s + `CardTitle` styling to that scale.
 
 ---
 

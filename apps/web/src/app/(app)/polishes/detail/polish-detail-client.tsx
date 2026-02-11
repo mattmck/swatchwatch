@@ -100,7 +100,7 @@ export default function PolishDetailClient({ id }: { id: string }) {
               style={{ backgroundColor: polish.colorHex || "#ccc" }}
             />
             <div>
-              <h1 className="text-2xl font-bold tracking-tight">{polish.name}</h1>
+              <h1 className="heading-page">{polish.name}</h1>
               <p className="text-muted-foreground">{polish.brand}</p>
               {polish.colorHex && (
                 <p className="mt-1 font-mono text-xs text-muted-foreground">{polish.colorHex}</p>

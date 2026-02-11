@@ -171,7 +171,7 @@ export default function PolishesPage() {
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">All Polishes</h1>
+          <h1 className="heading-page">All Polishes</h1>
           <p className="text-muted-foreground">
             {polishes.length} polishes &middot; {sorted.length} shown
           </p>

@@ -61,38 +61,44 @@ export default function LandingPage() {
         />
 
         <div className="relative mx-auto max-w-4xl px-6 text-center">
-          <div className="mb-8 flex justify-center animate-fade-in-up">
+          <ScrollFadeIn className="mb-8 flex justify-center">
             <SwatchWatchIcon name="monogram" size={64} title="SwatchWatch" />
-          </div>
+          </ScrollFadeIn>
 
-          <h1 className="text-4xl tracking-tight sm:text-5xl md:text-6xl lg:text-7xl animate-fade-in-up" style={{ animationDelay: "100ms" }}>
-            <span className="font-medium text-gradient-brand">Your polish collection,</span>
-            <br />
-            <span className="font-extrabold text-brand-ink">beautifully organized.</span>
-          </h1>
+          <ScrollFadeIn delay={100}>
+            <h1 className="text-5xl leading-[1.02] tracking-tight sm:text-6xl lg:text-7xl xl:text-8xl">
+              <span className="font-semibold text-gradient-brand">Your polish collection,</span>
+              <br />
+              <span className="font-black text-brand-ink">beautifully organized.</span>
+            </h1>
+          </ScrollFadeIn>
 
-          <p className="mx-auto mt-6 max-w-2xl text-lg text-brand-purple-deep/80 sm:text-xl lg:text-2xl lg:leading-relaxed animate-fade-in-up" style={{ animationDelay: "200ms" }}>
-            The smart nail polish manager that catalogs your shades, finds dupes,
-            and discovers harmonious color pairings — all powered by color science.
-          </p>
+          <ScrollFadeIn delay={200}>
+            <p className="mx-auto mt-6 max-w-2xl text-lg text-brand-purple-deep/80 sm:text-xl lg:text-2xl lg:leading-relaxed">
+              The smart nail polish manager that catalogs your shades, finds dupes,
+              and discovers harmonious color pairings — all powered by color science.
+            </p>
+          </ScrollFadeIn>
 
-          <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center animate-fade-in-up" style={{ animationDelay: "350ms" }}>
-            <Button
-              asChild
-              size="lg"
-              className="w-full bg-gradient-brand px-8 text-white shadow-glow-brand hover:opacity-90 sm:w-auto"
-            >
-              <Link href="/dashboard">Get Started</Link>
-            </Button>
-            <Button
-              asChild
-              variant="outline"
-              size="lg"
-              className="w-full border-brand-purple/30 px-8 text-brand-purple hover:bg-brand-purple/5 sm:w-auto"
-            >
-              <Link href="/polishes">View Collection</Link>
-            </Button>
-          </div>
+          <ScrollFadeIn delay={350}>
+            <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
+              <Button
+                asChild
+                size="lg"
+                className="w-full bg-gradient-brand px-8 text-white shadow-glow-brand hover:opacity-90 sm:w-auto"
+              >
+                <Link href="/dashboard">Get Started</Link>
+              </Button>
+              <Button
+                asChild
+                variant="outline"
+                size="lg"
+                className="w-full border-brand-purple/30 px-8 text-brand-purple hover:bg-brand-purple/5 sm:w-auto"
+              >
+                <Link href="/polishes">View Collection</Link>
+              </Button>
+            </div>
+          </ScrollFadeIn>
         </div>
       </section>
 

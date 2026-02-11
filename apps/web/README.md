@@ -50,6 +50,11 @@ Static text assets use the same Inter-first fallback stack:
 - `public/brand/swatchwatch-lockup.svg`
 - `public/og-image.svg`
 
+Shared heading scale utilities are defined in `src/app/globals.css` and reused across app routes:
+- `heading-page` → page titles (`text-2xl font-bold tracking-tight`)
+- `heading-section` → section headings (`text-lg font-semibold tracking-tight`)
+- `heading-card` → card titles (`text-base font-medium`)
+
 ### Brand Utility Classes
 
 | Class | Effect |

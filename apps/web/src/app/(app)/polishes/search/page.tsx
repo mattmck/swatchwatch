@@ -579,7 +579,7 @@ function ColorSearchPageContent() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Color Search</h1>
+        <h1 className="heading-page">Color Search</h1>
         <p className="text-muted-foreground">
           Explore your collection by color. Hover to preview, click to select.
         </p>
@@ -592,7 +592,7 @@ function ColorSearchPageContent() {
             className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-pink-soft via-brand-lilac to-brand-purple"
           />
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Pick a Color</CardTitle>
+            <CardTitle>Pick a Color</CardTitle>
             <CardDescription>
               {selectedHex
                 ? "Hover to preview, click to change selection"
@@ -730,7 +730,7 @@ function ColorSearchPageContent() {
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <CardTitle className="text-base">Harmonies</CardTitle>
+                    <CardTitle>Harmonies</CardTitle>
                     <CardDescription>
                       Build desired colors and explore top palette recommendations.
                     </CardDescription>
@@ -957,7 +957,7 @@ function ColorSearchPageContent() {
             className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-purple via-brand-lilac to-brand-pink-soft"
           />
           <CardHeader>
-            <CardTitle className="text-base">
+            <CardTitle>
               {harmonyType === "similar" ? "Similar Colors" : "Harmony Matches"}
               {resultsScope === "collection" && " — My Collection"}
             </CardTitle>
