@@ -33,7 +33,7 @@ src/app/
 ```
 
 **Route groups:**
-- `(marketing)` — Public pages with minimal glass header + footer
+- `(marketing)` — Public pages with branded sticky header + footer
 - `(app)` — Authenticated app pages wrapped in `AppShell` (sidebar navigation)
 
 ## Brand System
