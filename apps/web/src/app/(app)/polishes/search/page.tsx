@@ -92,6 +92,7 @@ const HARMONY_SYMBOLS: Record<HarmonyType, string> = {
   tetradic: "\u25AD",
   monochromatic: "\u25D2",
 };
+const SELECTABLE_HARMONY_TYPES = HARMONY_TYPES.filter((h) => h.value !== "similar");
 const ALL_HARMONY_SYMBOL = "\u2726";
 
 function uniqueHexes(hexes: string[]): string[] {
@@ -141,8 +142,8 @@ function ColorSearchPageContent() {
   const searchParams = useSearchParams();
   const [allPolishes, setAllPolishes] = useState<Polish[]>([]);
   const wheelSize = useWheelSize();
-  const [harmonyType, setHarmonyType] = useState<HarmonyType>("similar");
-  const [includeAllHarmonies, setIncludeAllHarmonies] = useState(false);
+  const [harmonyType, setHarmonyType] = useState<HarmonyType>("complementary");
+  const [includeAllHarmonies, setIncludeAllHarmonies] = useState(true);
   const [wheelMode, setWheelMode] = useState<WheelMode>("free");
   const [harmonyColorSet, setHarmonyColorSet] = useState<HarmonyColorSet>("any");
   const [resultsScope, setResultsScope] = useState<ResultsScope>("all");
@@ -200,7 +201,7 @@ function ColorSearchPageContent() {
     const harmonyParam = searchParams.get("harmony");
     if (harmonyParam === "all") {
       setIncludeAllHarmonies(true);
-    } else if (harmonyParam && HARMONY_TYPES.some((h) => h.value === harmonyParam)) {
+    } else if (harmonyParam && SELECTABLE_HARMONY_TYPES.some((h) => h.value === harmonyParam)) {
       setIncludeAllHarmonies(false);
       setHarmonyType(harmonyParam as HarmonyType);
     }
@@ -218,7 +219,7 @@ function ColorSearchPageContent() {
   const activeHex = previewHex ?? selectedHex;
   const isSimilarMode = !includeAllHarmonies && harmonyType === "similar";
   const recommendationHarmonyFilter: "all" | HarmonyType =
-    includeAllHarmonies || harmonyType === "similar" ? "all" : harmonyType;
+    includeAllHarmonies ? "all" : harmonyType;
 
   // Polishes that have a colorHex
   const colorPolishes = useMemo(
@@ -796,7 +797,7 @@ function ColorSearchPageContent() {
               <CardContent className="space-y-4">
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground">Harmony Type</p>
-                <div className="grid grid-cols-4 gap-1 rounded-lg border bg-muted/60 p-1 sm:grid-cols-8">
+                <div className="grid grid-cols-4 gap-1 rounded-lg border bg-muted/60 p-1 sm:grid-cols-7">
                   <Button
                     type="button"
                     size="sm"
@@ -813,7 +814,7 @@ function ColorSearchPageContent() {
                   >
                     <span className="text-sm leading-none">{ALL_HARMONY_SYMBOL}</span>
                   </Button>
-                  {HARMONY_TYPES.map((h) => (
+                  {SELECTABLE_HARMONY_TYPES.map((h) => (
                     <Button
                       key={h.value}
                       type="button"
