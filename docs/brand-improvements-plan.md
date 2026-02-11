@@ -108,6 +108,7 @@
 - Feature cards: single column on mobile with adjusted spacing
 - Marketing header: hamburger menu or simplified nav at small widths
 - CTA buttons: full-width on mobile
+- [x] Completed (2026-02-11): Hero/section spacing and typography were retuned for small screens, feature/showcase/stat card spacing was tightened for mobile, and marketing header now uses a compact hamburger dropdown at small breakpoints.
 
 ### C5. Dark mode for marketing pages
 - Currently the landing page doesn't have a theme toggle

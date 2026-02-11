@@ -15,7 +15,7 @@ npm run build:web        # Production build
 ```
 src/app/
 ├── (marketing)/
-│   ├── layout.tsx                → Marketing layout (glass header + footer)
+│   ├── layout.tsx                → Marketing layout (glass header, responsive mobile menu, footer)
 │   └── page.tsx                  → /           Landing page (hero, features, CTA)
 ├── (app)/
 │   ├── layout.tsx                → App layout (AppShell sidebar wrapper)

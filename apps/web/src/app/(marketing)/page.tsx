@@ -45,28 +45,28 @@ export default function LandingPage() {
   return (
     <div className="flex flex-col">
       {/* ── Hero ── */}
-      <section className="relative overflow-hidden bg-gradient-hero py-24 sm:py-32 lg:py-40">
+      <section className="relative overflow-hidden bg-gradient-hero py-16 sm:py-24 lg:py-36">
         {/* Decorative blurred circles */}
         <div
-          className="pointer-events-none absolute -left-20 top-1/4 size-72 animate-float rounded-full opacity-30 blur-3xl"
+          className="pointer-events-none absolute -left-24 top-14 size-56 animate-float rounded-full opacity-30 blur-3xl sm:-left-20 sm:top-1/4 sm:size-72"
           style={{ background: "#ff4fb8" }}
         />
         <div
-          className="pointer-events-none absolute -right-20 bottom-1/4 size-80 animate-float-slow rounded-full opacity-20 blur-3xl"
+          className="pointer-events-none absolute -right-24 bottom-6 size-60 animate-float-slow rounded-full opacity-20 blur-3xl sm:-right-20 sm:bottom-1/4 sm:size-80"
           style={{ background: "#7b2eff" }}
         />
         <div
-          className="pointer-events-none absolute left-1/2 top-10 size-40 -translate-x-1/2 animate-float-delayed rounded-full opacity-25 blur-3xl"
+          className="pointer-events-none absolute left-1/2 top-6 size-28 -translate-x-1/2 animate-float-delayed rounded-full opacity-25 blur-3xl sm:top-10 sm:size-40"
           style={{ background: "#c5a6ff" }}
         />
 
-        <div className="relative mx-auto max-w-4xl px-6 text-center">
-          <ScrollFadeIn className="mb-8 flex justify-center">
-            <SwatchWatchIcon name="monogram" size={64} title="SwatchWatch" />
+        <div className="relative mx-auto max-w-4xl px-5 text-center sm:px-6">
+          <ScrollFadeIn className="mb-6 flex justify-center sm:mb-8">
+            <SwatchWatchIcon name="monogram" size={56} title="SwatchWatch" />
           </ScrollFadeIn>
 
           <ScrollFadeIn delay={100}>
-            <h1 className="text-5xl leading-[1.02] tracking-tight sm:text-6xl lg:text-7xl xl:text-8xl">
+            <h1 className="text-4xl leading-[1.03] tracking-tight sm:text-5xl lg:text-7xl xl:text-8xl">
               <span className="font-semibold text-gradient-brand">Your polish collection,</span>
               <br />
               <span className="font-black text-brand-ink">beautifully organized.</span>
@@ -74,14 +74,14 @@ export default function LandingPage() {
           </ScrollFadeIn>
 
           <ScrollFadeIn delay={200}>
-            <p className="mx-auto mt-6 max-w-2xl text-lg text-brand-purple-deep/80 sm:text-xl lg:text-2xl lg:leading-relaxed">
+            <p className="mx-auto mt-5 max-w-2xl text-base text-brand-purple-deep/80 sm:mt-6 sm:text-lg lg:text-2xl lg:leading-relaxed">
               The smart nail polish manager that catalogs your shades, finds dupes,
               and discovers harmonious color pairings — all powered by color science.
             </p>
           </ScrollFadeIn>
 
           <ScrollFadeIn delay={350}>
-            <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
+            <div className="mt-8 flex flex-col items-center gap-3 sm:mt-10 sm:flex-row sm:justify-center sm:gap-4">
               <Button
                 asChild
                 size="lg"
@@ -103,25 +103,25 @@ export default function LandingPage() {
       </section>
 
       {/* ── Features ── */}
-      <section className="py-20 sm:py-28">
-        <div className="mx-auto max-w-6xl px-6">
+      <section className="py-16 sm:py-24">
+        <div className="mx-auto max-w-6xl px-5 sm:px-6">
           <ScrollFadeIn>
             <div className="text-center">
-              <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
+              <h2 className="text-2xl font-bold tracking-tight sm:text-3xl md:text-4xl">
                 <span className="text-gradient-brand">Smart tools</span>{" "}
                 for polish lovers
               </h2>
-              <p className="mx-auto mt-4 max-w-2xl text-muted-foreground">
+              <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground sm:mt-4 sm:text-base">
                 Everything you need to manage, discover, and enjoy your nail polish
                 collection.
               </p>
             </div>
           </ScrollFadeIn>
 
-          <div className="mt-16 grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-10 grid gap-4 sm:mt-16 sm:gap-8 sm:grid-cols-2 lg:grid-cols-3">
             {features.map((feature, i) => (
               <ScrollFadeIn key={feature.title} delay={i * 120}>
-                <div className="glass group rounded-2xl p-8 transition-shadow hover:shadow-glow-brand">
+                <div className="glass group rounded-2xl p-6 transition-shadow hover:shadow-glow-brand sm:p-8">
                   <div className="mb-4 inline-flex size-12 items-center justify-center rounded-xl bg-gradient-brand text-white">
                     <feature.icon className="size-6" />
                   </div>
@@ -139,24 +139,24 @@ export default function LandingPage() {
       </section>
 
       {/* ── Color Showcase ── */}
-      <section className="bg-muted/50 py-20 sm:py-28">
-        <div className="mx-auto max-w-6xl px-6">
+      <section className="bg-muted/50 py-16 sm:py-24">
+        <div className="mx-auto max-w-6xl px-5 sm:px-6">
           <ScrollFadeIn>
             <div className="text-center">
-              <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
+              <h2 className="text-2xl font-bold tracking-tight sm:text-3xl md:text-4xl">
                 See every shade at a glance
               </h2>
-              <p className="mx-auto mt-4 max-w-2xl text-muted-foreground">
+              <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground sm:mt-4 sm:text-base">
                 Rich polish cards with color intelligence, finish types, and visual
                 harmony suggestions.
               </p>
             </div>
           </ScrollFadeIn>
 
-          <div className="mt-16 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-10 grid gap-3 sm:mt-16 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {showcaseColors.map((color, i) => (
               <ScrollFadeIn key={color.name} delay={i * 80}>
-                <div className="group flex items-center gap-4 rounded-xl border border-border bg-card p-4 transition-shadow hover:shadow-glow-brand">
+                <div className="group flex items-center gap-3 rounded-xl border border-border bg-card p-3.5 transition-shadow hover:shadow-glow-brand sm:gap-4 sm:p-4">
                   <div
                     className="size-14 shrink-0 rounded-lg shadow-sm ring-1 ring-black/5"
                     style={{ backgroundColor: color.hex }}
@@ -180,20 +180,20 @@ export default function LandingPage() {
       </section>
 
       {/* ── Stats ── */}
-      <section className="py-20 sm:py-28">
-        <div className="mx-auto max-w-4xl px-6">
+      <section className="py-16 sm:py-24">
+        <div className="mx-auto max-w-4xl px-5 sm:px-6">
           <ScrollFadeIn>
             <div className="text-center">
-              <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
+              <h2 className="text-2xl font-bold tracking-tight sm:text-3xl md:text-4xl">
                 Built for <span className="text-gradient-brand">polish lovers</span>
               </h2>
             </div>
           </ScrollFadeIn>
 
-          <div className="mt-12 grid gap-6 sm:grid-cols-3">
+          <div className="mt-8 grid gap-4 sm:mt-12 sm:gap-6 sm:grid-cols-3">
             {stats.map((stat, i) => (
               <ScrollFadeIn key={stat.label} delay={i * 150}>
-                <div className="flex flex-col items-center rounded-2xl border border-border bg-card p-8 text-center">
+                <div className="flex flex-col items-center rounded-2xl border border-border bg-card p-6 text-center sm:p-8">
                   <div className="mb-3 inline-flex size-10 items-center justify-center rounded-lg bg-accent">
                     <stat.icon className="size-5 text-accent-foreground" />
                   </div>
@@ -211,13 +211,13 @@ export default function LandingPage() {
       </section>
 
       {/* ── CTA ── */}
-      <section className="bg-gradient-hero py-20 sm:py-28">
+      <section className="bg-gradient-hero py-16 sm:py-24">
         <ScrollFadeIn>
-          <div className="mx-auto max-w-3xl px-6 text-center">
-            <h2 className="text-3xl font-bold tracking-tight text-brand-ink sm:text-4xl">
+          <div className="mx-auto max-w-3xl px-5 text-center sm:px-6">
+            <h2 className="text-2xl font-bold tracking-tight text-brand-ink sm:text-3xl md:text-4xl">
               Start organizing your collection
             </h2>
-            <p className="mx-auto mt-4 max-w-xl text-brand-purple-deep/70">
+            <p className="mx-auto mt-3 max-w-xl text-sm text-brand-purple-deep/70 sm:mt-4 sm:text-base">
               Join SwatchWatch and bring color intelligence to your nail polish
               collection today.
             </p>
