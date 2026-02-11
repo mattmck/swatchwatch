@@ -1,0 +1,10 @@
+<svg width="380" height="56" viewBox="0 0 380 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Drop mark -->
+  <rect x="2" y="2" width="52" height="52" rx="15" fill="#42107e"/>
+  <path d="M28 12C28 12 14 28 14 38a14 14 0 0028 0c0-10-14-26-14-26z" fill="#ff4fb8"/>
+  <circle cx="22" cy="34" r="3" fill="#ffffff" fill-opacity="0.45"/>
+  <!-- Wordmark -->
+  <text font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="38" font-weight="700" letter-spacing="-1">
+    <tspan x="66" y="38" fill="#22123b">Swatch</tspan><tspan fill="#7b2eff">Watch</tspan>
+  </text>
+</svg>

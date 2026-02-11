@@ -1,6 +1,7 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { CatalogSearchResponse, CatalogShadeDetail } from "swatchwatch-shared";
 import { query } from "../lib/db";
+import { withCors } from "../lib/http";
 
 /**
  * GET /api/catalog/search?q=<term>&limit=<n>
@@ -155,15 +156,15 @@ async function getShade(request: HttpRequest, context: InvocationContext): Promi
 }
 
 app.http("catalog-search", {
-  methods: ["GET"],
+  methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   route: "catalog/search",
-  handler: searchCatalog,
+  handler: withCors(searchCatalog),
 });
 
 app.http("catalog-shade", {
-  methods: ["GET"],
+  methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   route: "catalog/shade/{id}",
-  handler: getShade,
+  handler: withCors(getShade),
 });

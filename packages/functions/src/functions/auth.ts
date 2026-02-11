@@ -1,5 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { authenticateRequest, AuthError } from "../lib/auth";
+import { withCors } from "../lib/http";
 
 interface TokenValidationResult {
   valid: boolean;
@@ -62,15 +63,15 @@ async function getAuthConfig(request: HttpRequest, context: InvocationContext): 
 }
 
 app.http("auth-validate", {
-  methods: ["POST"],
+  methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   route: "auth/validate",
-  handler: validateToken,
+  handler: withCors(validateToken),
 });
 
 app.http("auth-config", {
-  methods: ["GET"],
+  methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   route: "auth/config",
-  handler: getAuthConfig,
+  handler: withCors(getAuthConfig),
 });

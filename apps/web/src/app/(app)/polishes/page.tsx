@@ -4,10 +4,17 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import type { Polish } from "swatchwatch-shared";
 import { listPolishes, updatePolish } from "@/lib/api";
-import { colorDistance, complementaryHex } from "@/lib/color-utils";
+import { undertone, type Undertone } from "@/lib/color-utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -19,6 +26,11 @@ import {
 import { ColorDot } from "@/components/color-dot";
 import { QuantityControls } from "@/components/quantity-controls";
 import { Pagination } from "@/components/pagination";
+import { ToggleChip } from "@/components/toggle-chip";
+import { BrandSpinner } from "@/components/brand-spinner";
+import { ErrorState } from "@/components/error-state";
+import { EmptyState } from "@/components/empty-state";
+import { FINISHES } from "@/lib/constants";
 
 const PAGE_SIZE = 10;
 
@@ -31,9 +43,9 @@ export default function PolishesPage() {
   const [search, setSearch] = useState("");
   const [favorCollection, setFavorCollection] = useState(true);
   const [includeAll, setIncludeAll] = useState(true);
-  const [similarMode, setSimilarMode] = useState(false);
-  const [complementaryMode, setComplementaryMode] = useState(false);
-  const [referenceColor, setReferenceColor] = useState<string | null>(null);
+  const [toneFilter, setToneFilter] = useState<Undertone | "all">("all");
+  const [finishFilter, setFinishFilter] = useState<string>("all");
+  const [availabilityFilter, setAvailabilityFilter] = useState<"all" | "owned" | "wishlist">("all");
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -57,7 +69,7 @@ export default function PolishesPage() {
   // Reset page when filters change
   useEffect(() => {
     setPage(1);
-  }, [search, favorCollection, includeAll, similarMode, complementaryMode, referenceColor]);
+  }, [search, favorCollection, includeAll, toneFilter, finishFilter, availabilityFilter]);
 
   const isOwned = (p: Polish) => (p.quantity ?? 0) > 0;
 
@@ -71,7 +83,9 @@ export default function PolishesPage() {
         (p) =>
           p.name.toLowerCase().includes(q) ||
           p.brand.toLowerCase().includes(q) ||
-          (p.color && p.color.toLowerCase().includes(q))
+          (p.color && p.color.toLowerCase().includes(q)) ||
+          (p.collection && p.collection.toLowerCase().includes(q)) ||
+          (p.notes && p.notes.toLowerCase().includes(q))
       );
     }
 
@@ -80,24 +94,28 @@ export default function PolishesPage() {
       result = result.filter(isOwned);
     }
 
+    if (toneFilter !== "all") {
+      result = result.filter((p) => p.colorHex && undertone(p.colorHex) === toneFilter);
+    }
+
+    if (finishFilter !== "all") {
+      result = result.filter((p) => p.finish === finishFilter);
+    }
+
+    if (availabilityFilter !== "all") {
+      result = result.filter((p) =>
+        availabilityFilter === "owned" ? isOwned(p) : !isOwned(p)
+      );
+    }
+
     return result;
-  }, [polishes, search, includeAll]);
+  }, [polishes, search, includeAll, toneFilter, finishFilter, availabilityFilter]);
 
   const sorted = useMemo(() => {
     const result = [...filtered];
 
-    // Color-distance sort (Similar or Complementary)
-    if ((similarMode || complementaryMode) && referenceColor) {
-      const ref = complementaryMode ? complementaryHex(referenceColor) : referenceColor;
-      result.sort((a, b) => {
-        const distA = a.colorHex ? colorDistance(a.colorHex, ref) : Infinity;
-        const distB = b.colorHex ? colorDistance(b.colorHex, ref) : Infinity;
-        return distA - distB;
-      });
-    } else {
-      // Default: alphabetical by name
-      result.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-    }
+    // Default alphabetical sort
+    result.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
 
     // Favor My Collection: stable-sort owned to top
     if (favorCollection) {
@@ -109,7 +127,7 @@ export default function PolishesPage() {
     }
 
     return result;
-  }, [filtered, favorCollection, similarMode, complementaryMode, referenceColor]);
+  }, [filtered, favorCollection]);
 
   const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
   const pageItems = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -142,44 +160,10 @@ export default function PolishesPage() {
     [polishes]
   );
 
-  const handleColorClick = (hex: string | undefined) => {
-    if (!hex) return;
-    setReferenceColor(hex);
-    if (!similarMode && !complementaryMode) {
-      setSimilarMode(true);
-    }
-  };
-
-  const toggleSimilar = () => {
-    const next = !similarMode;
-    setSimilarMode(next);
-    if (next) setComplementaryMode(false);
-  };
-
-  const toggleComplementary = () => {
-    const next = !complementaryMode;
-    setComplementaryMode(next);
-    if (next) setSimilarMode(false);
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <p className="text-muted-foreground">Loading polishes...</p>
-      </div>
-    );
-  }
+  if (loading) return <BrandSpinner label="Loading polishes…" />;
 
   if (error) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center space-y-2">
-          <p className="text-destructive font-medium">Error loading polishes</p>
-          <p className="text-sm text-muted-foreground">{error}</p>
-          <Button onClick={() => window.location.reload()}>Retry</Button>
-        </div>
-      </div>
-    );
+    return <ErrorState message={error} onRetry={() => window.location.reload()} />;
   }
 
   return (
@@ -206,62 +190,83 @@ export default function PolishesPage() {
           className="max-w-xs"
         />
 
-        <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={favorCollection}
-            onChange={(e) => setFavorCollection(e.target.checked)}
-            className="accent-primary"
-          />
+        <ToggleChip
+          pressed={favorCollection}
+          onPressedChange={setFavorCollection}
+          aria-label="Toggle favor my collection"
+          className="min-w-[180px]"
+        >
           Favor My Collection
-        </label>
+        </ToggleChip>
 
-        <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={includeAll}
-            onChange={(e) => setIncludeAll(e.target.checked)}
-            className="accent-primary"
-          />
+        <ToggleChip
+          pressed={includeAll}
+          onPressedChange={setIncludeAll}
+          aria-label="Toggle include all polishes"
+          className="min-w-[150px]"
+        >
           Include All
-        </label>
+        </ToggleChip>
 
-        <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={similarMode}
-            onChange={toggleSimilar}
-            className="accent-primary"
-          />
-          Similar
-          {similarMode && referenceColor && (
-            <ColorDot hex={referenceColor} size="sm" />
-          )}
-        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={toneFilter} onValueChange={(v) => setToneFilter(v as Undertone | "all")}>
+            <SelectTrigger className="h-8 w-[140px]">
+              <SelectValue placeholder="Tone" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Tones</SelectItem>
+              <SelectItem value="warm">Warm</SelectItem>
+              <SelectItem value="cool">Cool</SelectItem>
+              <SelectItem value="neutral">Neutral</SelectItem>
+            </SelectContent>
+          </Select>
 
-        <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={complementaryMode}
-            onChange={toggleComplementary}
-            className="accent-primary"
-          />
-          Complementary
-          {complementaryMode && referenceColor && (
-            <ColorDot hex={complementaryHex(referenceColor)} size="sm" />
-          )}
-        </label>
+          <Select value={finishFilter} onValueChange={setFinishFilter}>
+            <SelectTrigger className="h-8 w-[160px]">
+              <SelectValue placeholder="Finish" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Finishes</SelectItem>
+              {FINISHES.map((finish) => (
+                <SelectItem key={finish} value={finish}>
+                  {finish.charAt(0).toUpperCase() + finish.slice(1)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-        {(search || !includeAll || similarMode || complementaryMode) && (
+          <Select
+            value={availabilityFilter}
+            onValueChange={(v) => setAvailabilityFilter(v as "all" | "owned" | "wishlist")}
+          >
+            <SelectTrigger className="h-8 w-[170px]">
+              <SelectValue placeholder="Availability" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Items</SelectItem>
+              <SelectItem value="owned">In Collection</SelectItem>
+              <SelectItem value="wishlist">Wishlist</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {(search ||
+          !includeAll ||
+          !favorCollection ||
+          toneFilter !== "all" ||
+          finishFilter !== "all" ||
+          availabilityFilter !== "all") && (
           <Button
             variant="ghost"
             size="sm"
+            className="text-brand-purple hover:bg-brand-pink-light/30"
             onClick={() => {
               setSearch("");
               setIncludeAll(true);
-              setSimilarMode(false);
-              setComplementaryMode(false);
-              setReferenceColor(null);
+              setFavorCollection(true);
+              setToneFilter("all");
+              setFinishFilter("all");
+              setAvailabilityFilter("all");
             }}
           >
             Clear filters
@@ -270,10 +275,14 @@ export default function PolishesPage() {
       </div>
 
       {/* Table */}
-      <div className="rounded-lg border">
+      <div className="relative overflow-hidden rounded-lg border">
+        <span
+          aria-hidden
+          className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-pink-soft via-brand-lilac to-brand-purple"
+        />
         <Table>
-          <TableHeader>
-            <TableRow>
+          <TableHeader className="sticky top-0 z-10">
+            <TableRow className="glass border-b border-border/60">
               <TableHead className="w-10">Status</TableHead>
               <TableHead>Brand</TableHead>
               <TableHead>Name</TableHead>
@@ -287,38 +296,39 @@ export default function PolishesPage() {
           <TableBody>
             {pageItems.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
-                  No polishes match your filters.
+                <TableCell colSpan={8} className="p-0">
+                  <EmptyState
+                    title={polishes.length === 0 ? "No polishes yet" : "No matches"}
+                    description={polishes.length === 0 ? "Add your first polish to get started." : "Try adjusting your filters."}
+                    actionLabel={polishes.length === 0 ? "+ Add Polish" : undefined}
+                    actionHref={polishes.length === 0 ? "/polishes/new" : undefined}
+                  />
                 </TableCell>
               </TableRow>
             ) : (
               pageItems.map((polish) => {
                 const owned = isOwned(polish);
                 return (
-                  <TableRow key={polish.id} className="hover:bg-muted/50">
+                  <TableRow
+                    key={polish.id}
+                    className="transition-colors hover:bg-brand-pink-light/20"
+                  >
                     <TableCell className="text-center text-lg">
                       {owned ? "\u2714\uFE0F" : "\u2795"}
                     </TableCell>
                     <TableCell className="font-medium">{polish.brand}</TableCell>
                     <TableCell>
                       <Link
-                        href={`/polishes/${polish.id}`}
+                        href={`/polishes/detail?id=${polish.id}`}
                         className="text-primary hover:underline"
                       >
                         {polish.name}
                       </Link>
                     </TableCell>
                     <TableCell>
-                      <button
-                        type="button"
-                        onClick={() => handleColorClick(polish.colorHex)}
-                        className="cursor-pointer"
-                        title="Click to set as reference color"
-                      >
-                        <ColorDot hex={polish.colorHex} size="sm" />
-                      </button>
+                      <ColorDot hex={polish.colorHex} size="sm" />
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="text-center">
                       {polish.colorHex && (
                         <Link
                           href={`/polishes/search?color=${polish.colorHex.replace("#", "")}`}
@@ -331,7 +341,7 @@ export default function PolishesPage() {
                     </TableCell>
                     <TableCell>
                       {polish.finish && (
-                        <Badge variant="secondary">
+                        <Badge className="border border-brand-pink-soft/60 bg-brand-pink-soft/30 text-brand-ink">
                           {polish.finish.charAt(0).toUpperCase() + polish.finish.slice(1)}
                         </Badge>
                       )}

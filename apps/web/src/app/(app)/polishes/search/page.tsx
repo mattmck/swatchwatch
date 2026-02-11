@@ -6,6 +6,7 @@ import type { Polish } from "swatchwatch-shared";
 import type { IconType } from "react-icons";
 import { BsCurrencyDollar, BsPlusLg, BsQuestionCircleFill, BsTrash3Fill } from "react-icons/bs";
 import { GiPerfumeBottle } from "react-icons/gi";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { listPolishes, updatePolish } from "@/lib/api";
 import {
   colorDistance,
@@ -24,6 +25,7 @@ import {
 import { ColorWheel, type WheelMode, type SnapDot, type HarmonyDot } from "@/components/color-wheel";
 import { ColorSearchResults } from "@/components/color-search-results";
 import { Button } from "@/components/ui/button";
+import { BrandSpinner } from "@/components/brand-spinner";
 import {
   Card,
   CardContent,
@@ -123,10 +125,22 @@ function findClosestPolish(
   return { polish: closest, distance: minDistance };
 }
 
+function useWheelSize(defaultSize = 280, mobileSize = 240) {
+  const [size, setSize] = useState(defaultSize);
+  useEffect(() => {
+    const update = () => setSize(window.innerWidth < 640 ? mobileSize : defaultSize);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [defaultSize, mobileSize]);
+  return size;
+}
+
 function ColorSearchPageContent() {
   const searchParams = useSearchParams();
   const [allPolishes, setAllPolishes] = useState<Polish[]>([]);
-  const [loading, setLoading] = useState(true); // eslint-disable-line @typescript-eslint/no-unused-vars
+  const [loading, setLoading] = useState(true);
+  const wheelSize = useWheelSize();
   const [harmonyType, setHarmonyType] = useState<HarmonyType>("similar");
   const [wheelMode, setWheelMode] = useState<WheelMode>("free");
   const [harmonyColorSet, setHarmonyColorSet] = useState<HarmonyColorSet>("any");
@@ -134,6 +148,7 @@ function ColorSearchPageContent() {
   const [resultsScope, setResultsScope] = useState<ResultsScope>("all");
   const [toneFilter, setToneFilter] = useState<Undertone | "all">("all");
   const [finishFilter, setFinishFilter] = useState<string>("all");
+  const [availabilityFilter, setAvailabilityFilter] = useState<"all" | "owned" | "wishlist">("all");
   const [lightness, setLightness] = useState(0.5);
   const [selectedHsl, setSelectedHsl] = useState<HSL | null>(null);
   const [paletteAnchors, setPaletteAnchors] = useState<string[]>([]);
@@ -141,6 +156,7 @@ function ColorSearchPageContent() {
   const [previewHex, setPreviewHex] = useState<string | null>(null);
   const [externalHoverHex, setExternalHoverHex] = useState<string | null>(null);
   const [focusedTargetHex, setFocusedTargetHex] = useState<string | null>(null);
+  const [harmonyPanelCollapsed, setHarmonyPanelCollapsed] = useState(false);
   const lockedTargetRef = useRef<string | null>(null);
 
   // Derive selectedHex from selectedHsl so lightness slider updates it
@@ -236,8 +252,13 @@ function ColorSearchPageContent() {
     if (toneFilter !== "all") {
       result = result.filter((p) => undertone(p.colorHex) === toneFilter);
     }
+    if (availabilityFilter !== "all") {
+      result = result.filter((p) =>
+        availabilityFilter === "owned" ? isOwned(p) : !isOwned(p)
+      );
+    }
     return result;
-  }, [scopedColorPolishes, finishFilter, toneFilter]);
+  }, [scopedColorPolishes, finishFilter, toneFilter, availabilityFilter]);
 
   // Snap dots for the wheel
   const snapDots: SnapDot[] = useMemo(
@@ -551,6 +572,10 @@ function ColorSearchPageContent() {
     [allPolishes]
   );
 
+  const layoutCols = harmonyPanelCollapsed
+    ? "xl:grid-cols-[minmax(300px,_360px)_80px_minmax(0,_1fr)]"
+    : "xl:grid-cols-[minmax(300px,_360px)_minmax(280px,_340px)_minmax(0,_1fr)]";
+
   return (
     <div className="space-y-6">
       <div>
@@ -560,12 +585,18 @@ function ColorSearchPageContent() {
         </p>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]">
-        <Card>
+      <div className={`grid gap-6 ${layoutCols}`}>
+        <Card className="relative overflow-hidden">
+          <span
+            aria-hidden
+            className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-pink-soft via-brand-lilac to-brand-purple"
+          />
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Pick Color</CardTitle>
+            <CardTitle className="text-base">Pick a Color</CardTitle>
             <CardDescription>
-              Use wheel, table dots, or harmony swatches to set the selected color.
+              {selectedHex
+                ? "Hover to preview, click to change selection"
+                : "Use the wheel, harmony swatches, or table dots to set a color."}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -575,7 +606,7 @@ function ColorSearchPageContent() {
                 onHover={handleHover}
                 onSelect={handleSelect}
                 selectedHsl={selectedHsl}
-                size={280}
+                size={wheelSize}
                 wheelMode={wheelMode}
                 snapDots={snapDots}
                 externalHoverHex={externalHoverHex}
@@ -671,14 +702,271 @@ function ColorSearchPageContent() {
           </CardContent>
         </Card>
 
-        <Card className="order-3 xl:order-none xl:col-start-2 xl:row-span-2">
+        <Card
+          className={`relative overflow-hidden xl:col-start-2 ${
+            harmonyPanelCollapsed ? "flex items-center justify-center px-2 py-8" : ""
+          }`}
+        >
+          <span
+            aria-hidden
+            className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-lilac via-brand-pink-soft to-brand-purple"
+          />
+          {harmonyPanelCollapsed ? (
+            <Button
+              variant="ghost"
+              className="flex flex-col items-center gap-3 text-xs"
+              onClick={() => setHarmonyPanelCollapsed(false)}
+            >
+              <span
+                className="font-semibold uppercase tracking-[0.35em] text-muted-foreground"
+                style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
+              >
+                Harmonies
+              </span>
+              <span className="text-muted-foreground">Show panel</span>
+            </Button>
+          ) : (
+            <>
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <CardTitle className="text-base">Harmonies</CardTitle>
+                    <CardDescription>
+                      Build desired colors and explore top palette recommendations.
+                    </CardDescription>
+                  </div>
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    onClick={() => setHarmonyPanelCollapsed((prev) => !prev)}
+                    aria-label="Collapse harmonies panel"
+                  >
+                    <ChevronUp className="h-4 w-4" />
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Harmony Color Set</p>
+                  <div className="flex w-full rounded-lg border bg-muted p-1">
+                    <Button
+                      variant={harmonyColorSet === "any" ? "default" : "ghost"}
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => setHarmonyColorSet("any")}
+                    >
+                      Any
+                    </Button>
+                    <Button
+                      variant={harmonyColorSet === "all" ? "default" : "ghost"}
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => setHarmonyColorSet("all")}
+                    >
+                      All
+                    </Button>
+                    <Button
+                      variant={harmonyColorSet === "collection" ? "default" : "ghost"}
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => setHarmonyColorSet("collection")}
+                    >
+                      Mine
+                    </Button>
+                  </div>
+                </div>
+
+              <div className="space-y-2 rounded-md border p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium">Desired Colors</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">
+                      {paletteAnchors.length} color{paletteAnchors.length === 1 ? "" : "s"}
+                    </span>
+                    {paletteAnchors.length > 0 && (
+                      <Button
+                        type="button"
+                        size="icon-xs"
+                        variant="destructive"
+                        onClick={handleClearPaletteAnchors}
+                        title="Clear desired colors"
+                      >
+                        <BsTrash3Fill className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="secondary"
+                    onClick={handleAddFocusedPaletteAnchor}
+                    disabled={!focusedTargetHex && !selectedHex}
+                    title="Add selected color to desired"
+                  >
+                    <BsPlusLg className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="outline"
+                    onClick={handleRemoveSelectedPaletteColor}
+                    disabled={paletteAnchors.length === 0 || (!focusedTargetHex && !selectedHex)}
+                    title="Remove selected color from desired"
+                  >
+                    <BsTrash3Fill className="h-4 w-4" />
+                  </Button>
+                </div>
+                {anchorFeedback && (
+                  <p className="text-xs text-muted-foreground">{anchorFeedback}</p>
+                )}
+                <div className="flex h-10 overflow-hidden rounded-md border">
+                  {wantedColorStatuses.length === 0 ? (
+                    <div className="flex w-full items-center justify-center text-xs text-muted-foreground">
+                      Add colors from wheel, table, or palette suggestions
+                    </div>
+                  ) : (
+                    wantedColorStatuses.map(({ hex, availability }) => {
+                      const status = availability.status;
+                      const Icon = AVAILABILITY_ICON[status];
+                      return (
+                        <button
+                          key={hex}
+                          type="button"
+                          className={`relative flex-1 ${
+                            focusedTargetHex === hex
+                              ? "ring-2 ring-primary ring-inset"
+                              : "hover:opacity-90"
+                          }`}
+                          style={{ backgroundColor: hex }}
+                          title={`${hex} • ${AVAILABILITY_META[status].label}`}
+                          onMouseEnter={() => handleSwatchHover(hex)}
+                          onMouseLeave={handleSwatchLeave}
+                          onClick={() => {
+                            handleSwatchClick(hex);
+                            handleExternalColorSelect(hex);
+                          }}
+                        >
+                          <span className="absolute inset-0 flex items-center justify-center">
+                            <Icon className="h-4 w-4" style={{ color: iconColorForHex(hex) }} />
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2 rounded-md border bg-muted/30 p-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium">Recommended Palettes</p>
+                  <p className="text-[10px] text-muted-foreground">Top 12 by Have %, then Buy %</p>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant={recommendationHarmonyFilter === "all" ? "default" : "outline"}
+                    onClick={() => setRecommendationHarmonyFilter("all")}
+                  >
+                    All
+                  </Button>
+                  {HARMONY_TYPES.filter((h) => h.value !== "similar").map((h) => (
+                    <Button
+                      key={h.value}
+                      type="button"
+                      size="xs"
+                      variant={recommendationHarmonyFilter === h.value ? "default" : "outline"}
+                      title={h.label}
+                      onClick={() => setRecommendationHarmonyFilter(h.value)}
+                    >
+                      <span className="mr-1">{HARMONY_SYMBOLS[h.value]}</span>
+                      {h.label}
+                    </Button>
+                  ))}
+                </div>
+                {recommendedPalettes.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Add desired colors or pick a source color to generate recommendations.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {recommendedPalettes.map((candidate) => {
+                      const harmonyName =
+                        HARMONY_TYPES.find((h) => h.value === candidate.harmony)?.label ?? candidate.harmony;
+                      return (
+                        <div key={candidate.id} className="rounded-md border bg-background p-2">
+                          <div className="mb-1 flex items-center justify-between gap-2">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span
+                                className="inline-flex h-5 w-5 items-center justify-center rounded border text-xs"
+                                title={harmonyName}
+                              >
+                                {HARMONY_SYMBOLS[candidate.harmony]}
+                              </span>
+                              <p className="truncate text-xs font-medium">{harmonyName}</p>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">
+                              {(candidate.haveCoverage * 100).toFixed(0)}% Have •{" "}
+                              {(candidate.buyCoverage * 100).toFixed(0)}% Buy
+                            </p>
+                          </div>
+                          <div className="flex h-10 overflow-hidden rounded-md border">
+                            {candidate.slotHexes.map((hex, index) => {
+                              const status = candidate.slotStatuses[index]?.status ?? "virtual";
+                              const Icon = AVAILABILITY_ICON[status];
+                              return (
+                                <button
+                                  key={`${candidate.id}-${hex}-${index}`}
+                                  type="button"
+                                  className={`relative flex-1 ${
+                                    focusedTargetHex === hex ? "ring-2 ring-primary ring-inset" : "hover:opacity-90"
+                                  }`}
+                                  style={{ backgroundColor: hex }}
+                                  title={`${hex} • ${AVAILABILITY_META[status].label}`}
+                                  onMouseEnter={() => handleSwatchHover(hex)}
+                                  onMouseLeave={handleSwatchLeave}
+                                  onClick={() => {
+                                    handleSwatchClick(hex);
+                                    handleExternalColorSelect(hex);
+                                  }}
+                                >
+                                  <span className="absolute inset-0 flex items-center justify-center">
+                                    <Icon className="h-4 w-4" style={{ color: iconColorForHex(hex) }} />
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              </CardContent>
+            </>
+          )}
+        </Card>
+
+        <Card className="relative overflow-hidden xl:col-start-3 xl:row-span-2">
+          <span
+            aria-hidden
+            className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-purple via-brand-lilac to-brand-pink-soft"
+          />
           <CardHeader>
             <CardTitle className="text-base">
-              Match Table
+              {harmonyType === "similar" ? "Similar Colors" : "Harmony Matches"}
               {resultsScope === "collection" && " — My Collection"}
             </CardTitle>
             <CardDescription>
-              Scope and filters are inline with results.
+              {activeHex
+                ? `Polishes sorted by ${
+                    harmonyType === "similar" ? "similarity to" : "best harmony for"
+                  } your selection`
+                : "Pick or hover a color on the wheel to see matches"}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -729,6 +1017,33 @@ function ColorSearchPageContent() {
                   ))}
                 </SelectContent>
               </Select>
+              <Select
+                value={availabilityFilter}
+                onValueChange={(v) => setAvailabilityFilter(v as "all" | "owned" | "wishlist")}
+              >
+                <SelectTrigger className="h-8 w-[170px]">
+                  <SelectValue placeholder="Availability" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Items</SelectItem>
+                  <SelectItem value="owned">In Collection</SelectItem>
+                  <SelectItem value="wishlist">Wishlist</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="text-xs text-muted-foreground"
+                onClick={() => {
+                  setResultsScope("all");
+                  setToneFilter("all");
+                  setFinishFilter("all");
+                  setAvailabilityFilter("all");
+                }}
+              >
+                Clear filters
+              </Button>
             </div>
 
             {activeHex && targetColors.length > 0 ? (
@@ -760,223 +1075,6 @@ function ColorSearchPageContent() {
           </CardContent>
         </Card>
 
-        <Card className="order-2 xl:order-none xl:col-start-1 xl:row-start-2">
-          <CardHeader>
-            <CardTitle className="text-base">Harmonies</CardTitle>
-            <CardDescription>
-              Build desired colors and explore top palette recommendations.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">Harmony Color Set</p>
-              <div className="flex w-full rounded-lg border bg-muted p-1">
-                <Button
-                  variant={harmonyColorSet === "any" ? "default" : "ghost"}
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => setHarmonyColorSet("any")}
-                >
-                  Any
-                </Button>
-                <Button
-                  variant={harmonyColorSet === "all" ? "default" : "ghost"}
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => setHarmonyColorSet("all")}
-                >
-                  All
-                </Button>
-                <Button
-                  variant={harmonyColorSet === "collection" ? "default" : "ghost"}
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => setHarmonyColorSet("collection")}
-                >
-                  Mine
-                </Button>
-              </div>
-            </div>
-
-            <div className="space-y-2 rounded-md border p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-medium">Desired Colors</p>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">
-                    {paletteAnchors.length} color{paletteAnchors.length === 1 ? "" : "s"}
-                  </span>
-                  {paletteAnchors.length > 0 && (
-                    <Button
-                      type="button"
-                      size="icon-xs"
-                      variant="destructive"
-                      onClick={handleClearPaletteAnchors}
-                      title="Clear desired colors"
-                    >
-                      <BsTrash3Fill className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="secondary"
-                  onClick={handleAddFocusedPaletteAnchor}
-                  disabled={!focusedTargetHex && !selectedHex}
-                  title="Add selected color to desired"
-                >
-                  <BsPlusLg className="h-4 w-4" />
-                </Button>
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="outline"
-                  onClick={handleRemoveSelectedPaletteColor}
-                  disabled={paletteAnchors.length === 0 || (!focusedTargetHex && !selectedHex)}
-                  title="Remove selected color from desired"
-                >
-                  <BsTrash3Fill className="h-4 w-4" />
-                </Button>
-              </div>
-              {anchorFeedback && (
-                <p className="text-xs text-muted-foreground">{anchorFeedback}</p>
-              )}
-              <div className="flex h-10 overflow-hidden rounded-md border">
-                {wantedColorStatuses.length === 0 ? (
-                  <div className="flex w-full items-center justify-center text-xs text-muted-foreground">
-                    Add colors from wheel, table, or harmonies
-                  </div>
-                ) : (
-                  wantedColorStatuses.map((wanted, i) => {
-                    const Icon = AVAILABILITY_ICON[wanted.availability.status];
-                    return (
-                      <button
-                        key={`${wanted.hex}-${i}`}
-                        type="button"
-                        className={`relative flex-1 ${
-                          focusedTargetHex === wanted.hex ? "ring-2 ring-primary ring-inset" : "hover:opacity-90"
-                        }`}
-                        style={{ backgroundColor: wanted.hex }}
-                        onMouseEnter={() => handleSwatchHover(wanted.hex)}
-                        onMouseLeave={handleSwatchLeave}
-                        onClick={() => {
-                          handleSwatchClick(wanted.hex);
-                          handleExternalColorSelect(wanted.hex);
-                        }}
-                        title={`${wanted.hex} • ${AVAILABILITY_META[wanted.availability.status].label}`}
-                      >
-                        <span className="absolute inset-0 flex items-center justify-center">
-                          <Icon className="h-4 w-4" style={{ color: iconColorForHex(wanted.hex) }} />
-                        </span>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                {(["have", "buy", "virtual"] as const).map((status) => {
-                  const Icon = AVAILABILITY_ICON[status];
-                  return (
-                    <span key={status} className="inline-flex items-center gap-1">
-                      <Icon className="h-3.5 w-3.5" style={{ color: AVAILABILITY_META[status].color }} />
-                      {AVAILABILITY_META[status].label}
-                    </span>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="space-y-2 rounded-md border bg-muted/30 p-2">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-medium">Recommended Palettes</p>
-                <p className="text-[10px] text-muted-foreground">Top 12 by Have %, then Buy %</p>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                <Button
-                  type="button"
-                  size="xs"
-                  variant={recommendationHarmonyFilter === "all" ? "default" : "outline"}
-                  onClick={() => setRecommendationHarmonyFilter("all")}
-                >
-                  All
-                </Button>
-                {HARMONY_TYPES.filter((h) => h.value !== "similar").map((h) => (
-                  <Button
-                    key={h.value}
-                    type="button"
-                    size="xs"
-                    variant={recommendationHarmonyFilter === h.value ? "default" : "outline"}
-                    title={h.label}
-                    onClick={() => setRecommendationHarmonyFilter(h.value)}
-                  >
-                    <span className="mr-1">{HARMONY_SYMBOLS[h.value]}</span>
-                    {h.label}
-                  </Button>
-                ))}
-              </div>
-              {recommendedPalettes.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  Add desired colors or pick a source color to generate recommendations.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {recommendedPalettes.map((candidate) => {
-                    const harmonyName =
-                      HARMONY_TYPES.find((h) => h.value === candidate.harmony)?.label ?? candidate.harmony;
-                    return (
-                      <div key={candidate.id} className="rounded-md border bg-background p-2">
-                        <div className="mb-1 flex items-center justify-between gap-2">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <span
-                              className="inline-flex h-5 w-5 items-center justify-center rounded border text-xs"
-                              title={harmonyName}
-                            >
-                              {HARMONY_SYMBOLS[candidate.harmony]}
-                            </span>
-                            <p className="truncate text-xs font-medium">{harmonyName}</p>
-                          </div>
-                          <p className="text-[10px] text-muted-foreground">
-                            {(candidate.haveCoverage * 100).toFixed(0)}% Have •{" "}
-                            {(candidate.buyCoverage * 100).toFixed(0)}% Buy
-                          </p>
-                        </div>
-                        <div className="flex h-10 overflow-hidden rounded-md border">
-                          {candidate.slotHexes.map((hex, index) => {
-                            const status = candidate.slotStatuses[index]?.status ?? "virtual";
-                            const Icon = AVAILABILITY_ICON[status];
-                            return (
-                              <button
-                                key={`${candidate.id}-${hex}-${index}`}
-                                type="button"
-                                className={`relative flex-1 ${
-                                  focusedTargetHex === hex ? "ring-2 ring-primary ring-inset" : "hover:opacity-90"
-                                }`}
-                                style={{ backgroundColor: hex }}
-                                title={`${hex} • ${AVAILABILITY_META[status].label}`}
-                                onMouseEnter={() => handleSwatchHover(hex)}
-                                onMouseLeave={handleSwatchLeave}
-                                onClick={() => {
-                                  handleSwatchClick(hex);
-                                  handleExternalColorSelect(hex);
-                                }}
-                              >
-                                <span className="absolute inset-0 flex items-center justify-center">
-                                  <Icon className="h-4 w-4" style={{ color: iconColorForHex(hex) }} />
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
       </div>
     </div>
   );
@@ -984,7 +1082,7 @@ function ColorSearchPageContent() {
 
 export default function ColorSearchPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><p className="text-muted-foreground">Loading...</p></div>}>
+    <Suspense fallback={<BrandSpinner label="Loading color search…" />}>
       <ColorSearchPageContent />
     </Suspense>
   );

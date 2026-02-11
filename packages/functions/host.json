@@ -12,11 +12,15 @@
     "id": "Microsoft.Azure.Functions.ExtensionBundle",
     "version": "[4.*, 5.0.0)"
   },
-  "cors": {
-    "supportCredentials": false,
-    "allowedOrigins": [
-      "http://localhost:3000",
-      "https://*.azurestaticapps.net"
-    ]
+  "extensions": {
+    "http": {
+      "cors": {
+        "supportCredentials": false,
+        "allowedOrigins": [
+          "http://localhost:3000",
+          "https://*.azurestaticapps.net"
+        ]
+      }
+    }
   }
 }

@@ -15,6 +15,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ColorDot } from "@/components/color-dot";
+import { BrandSpinner } from "@/components/brand-spinner";
+import { ErrorState } from "@/components/error-state";
 
 export default function PolishDetailClient({ id }: { id: string }) {
   const router = useRouter();
@@ -51,32 +53,23 @@ export default function PolishDetailClient({ id }: { id: string }) {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <p className="text-muted-foreground">Loading polish...</p>
-      </div>
-    );
+  if (!id) {
+    return <ErrorState message="Missing polish ID." onRetry={() => router.push("/polishes")} />;
   }
+
+  if (loading) return <BrandSpinner label="Loading polish…" />;
 
   if (error || !polish) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center space-y-2">
-          <p className="text-destructive font-medium">
-            {error || "Polish not found"}
-          </p>
-          <Button variant="outline" onClick={() => router.push("/polishes")}>
-            Back to Collection
-          </Button>
-        </div>
-      </div>
+      <ErrorState
+        message={error || "Polish not found"}
+        onRetry={() => router.push("/polishes")}
+      />
     );
   }
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      {/* Breadcrumb */}
       <nav className="flex items-center gap-2 text-sm text-muted-foreground">
         <Link href="/polishes" className="hover:text-foreground">
           Collection
@@ -87,30 +80,58 @@ export default function PolishDetailClient({ id }: { id: string }) {
         </span>
       </nav>
 
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-4">
-          <ColorDot hex={polish.colorHex} size="lg" />
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">{polish.name}</h1>
-            <p className="text-muted-foreground">{polish.brand}</p>
+      <div
+        className="relative overflow-hidden rounded-2xl p-6 sm:p-8"
+        style={{
+          background: polish.colorHex
+            ? `linear-gradient(135deg, ${polish.colorHex}33 0%, ${polish.colorHex}11 100%)`
+            : undefined,
+        }}
+      >
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-10 -top-10 size-40 rounded-full opacity-30 blur-3xl"
+          style={{ background: polish.colorHex || "transparent" }}
+        />
+        <div className="relative flex items-start justify-between">
+          <div className="flex items-center gap-4">
+            <div
+              className="size-16 shrink-0 rounded-xl shadow-lg ring-2 ring-white/50"
+              style={{ backgroundColor: polish.colorHex || "#ccc" }}
+            />
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">{polish.name}</h1>
+              <p className="text-muted-foreground">{polish.brand}</p>
+              {polish.colorHex && (
+                <p className="mt-1 font-mono text-xs text-muted-foreground">{polish.colorHex}</p>
+              )}
+            </div>
           </div>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm">
-            Edit
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={handleDelete}
-            disabled={deleting}
-          >
-            {deleting ? "Deleting…" : "Delete"}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push(`/polishes/new?id=${polish.id}`)}
+            >
+              Edit
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleDelete}
+              disabled={deleting}
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </Button>
+          </div>
         </div>
       </div>
 
-      <Card>
+      <Card className="relative overflow-hidden">
+        <span
+          aria-hidden
+          className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-pink-soft via-brand-lilac to-brand-purple"
+        />
         <CardHeader>
           <CardTitle>Details</CardTitle>
         </CardHeader>
@@ -132,7 +153,7 @@ export default function PolishDetailClient({ id }: { id: string }) {
               <p className="text-muted-foreground">Finish</p>
               <p className="font-medium">
                 {polish.finish ? (
-                  <Badge variant="secondary">{polish.finish}</Badge>
+                  <Badge className="border border-brand-pink-soft/60 bg-brand-pink-soft/30 text-brand-ink">{polish.finish}</Badge>
                 ) : (
                   "—"
                 )}
@@ -185,33 +206,6 @@ export default function PolishDetailClient({ id }: { id: string }) {
               </div>
             </>
           )}
-
-          <Separator />
-          <div className="grid grid-cols-2 gap-4 text-xs text-muted-foreground">
-            <div>
-              Added: {new Date(polish.createdAt).toLocaleDateString()}
-            </div>
-            <div>
-              Updated: {new Date(polish.updatedAt).toLocaleDateString()}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Swatch / photo placeholder */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Photos</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="flex aspect-square items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/25 text-sm text-muted-foreground">
-              📸 Swatch photo
-            </div>
-            <div className="flex aspect-square items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/25 text-sm text-muted-foreground">
-              💅 Nail photo
-            </div>
-          </div>
         </CardContent>
       </Card>
     </div>
