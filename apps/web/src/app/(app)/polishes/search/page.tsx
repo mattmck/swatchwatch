@@ -157,6 +157,7 @@ function ColorSearchPageContent() {
   const [externalHoverHex, setExternalHoverHex] = useState<string | null>(null);
   const [focusedTargetHex, setFocusedTargetHex] = useState<string | null>(null);
   const [harmonyPanelCollapsed, setHarmonyPanelCollapsed] = useState(false);
+  const [activeRecommendedPaletteId, setActiveRecommendedPaletteId] = useState<string | null>(null);
   const lockedTargetRef = useRef<string | null>(null);
 
   // Derive selectedHex from selectedHsl so lightness slider updates it
@@ -405,14 +406,22 @@ function ColorSearchPageContent() {
     getAvailabilityForHex,
   ]);
 
+  const activeRecommendedPalette = useMemo(
+    () => recommendedPalettes.find((candidate) => candidate.id === activeRecommendedPaletteId) ?? null,
+    [recommendedPalettes, activeRecommendedPaletteId],
+  );
+
   // Colors to match against — includes source for harmony modes
   const targetColors = useMemo(() => {
+    if (activeRecommendedPalette) {
+      return activeRecommendedPalette.slotHexes;
+    }
     if (harmonyType === "similar") {
       return activeHex ? [activeHex] : [];
     }
     if (!selectedHex) return [];
     return [selectedHex, ...harmonyColors];
-  }, [harmonyType, activeHex, selectedHex, harmonyColors]);
+  }, [activeRecommendedPalette, harmonyType, activeHex, selectedHex, harmonyColors]);
 
   // Sort polishes by distance — if a target is focused, match only that color
   const sortedPolishes = useMemo(() => {
@@ -451,6 +460,7 @@ function ColorSearchPageContent() {
   const handleSelect = useCallback((hex: string, hsl: HSL) => {
     setSelectedHsl(hsl);
     setLightness(hsl.l);
+    setActiveRecommendedPaletteId(null);
     // Clear focus/lock on new wheel selection
     lockedTargetRef.current = null;
     setFocusedTargetHex(null);
@@ -460,6 +470,7 @@ function ColorSearchPageContent() {
     const hsl = hexToHsl(hex);
     setSelectedHsl(hsl);
     setLightness(hsl.l);
+    setActiveRecommendedPaletteId(null);
   }, []);
 
   const addPaletteAnchorHex = useCallback((hex: string | null) => {
@@ -586,11 +597,11 @@ function ColorSearchPageContent() {
     setFocusedTargetHex(normalizedFocusHex);
     setExternalHoverHex(null);
     setPreviewHex(null);
+    setActiveRecommendedPaletteId(candidate.id);
     setHarmonyType(candidate.harmony);
     setSelectedHsl(sourceHsl);
     setLightness(sourceHsl.l);
-    setPaletteAnchors(uniqueHexes(candidate.slotHexes));
-    setAnchorFeedback(`Applied ${harmonyLabel} palette`);
+    setAnchorFeedback(`Applied ${harmonyLabel} palette to search results`);
   }, []);
 
   const layoutCols = harmonyPanelCollapsed
@@ -888,7 +899,7 @@ function ColorSearchPageContent() {
                 </div>
               </div>
 
-              <div className="space-y-2 rounded-md border bg-muted/30 p-2">
+                <div className="space-y-2 rounded-md border bg-muted/30 p-2">
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-medium">Recommended Palettes</p>
                   <p className="text-[10px] text-muted-foreground">Top 12 by Have %, then Buy %</p>
@@ -928,7 +939,11 @@ function ColorSearchPageContent() {
                       return (
                         <div
                           key={candidate.id}
-                          className="glass cursor-pointer rounded-lg border border-brand-lilac/45 bg-background/70 p-2 shadow-[0_12px_26px_rgba(66,16,126,0.12)] transition-all hover:shadow-glow-brand"
+                          className={`glass cursor-pointer rounded-lg border bg-background/70 p-2 shadow-[0_12px_26px_rgba(66,16,126,0.12)] transition-all ${
+                            activeRecommendedPalette?.id === candidate.id
+                              ? "border-brand-purple/65 ring-2 ring-brand-purple/35 shadow-glow-brand"
+                              : "border-brand-lilac/45 hover:shadow-glow-brand"
+                          }`}
                           onClick={() => handleApplyRecommendedPalette(candidate)}
                         >
                           <div className="mb-1 flex items-center justify-between gap-2">

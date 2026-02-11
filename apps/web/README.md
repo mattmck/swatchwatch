@@ -89,7 +89,7 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 | `marketing-theme-toggle.tsx` | System/light/dark theme selector used in the marketing header |
 | `color-dot.tsx` | Colored circle swatch — `sm`, `md`, `lg` sizes |
 | `color-wheel.tsx` | Canvas HSL color wheel with hover preview, click selection, owned-shade snap mode, and glow-forward selected marker |
-| `color-search-results.tsx` | Polish list sorted by OKLAB color distance, with branded finish badges and harmony interactions (including palette-driven table targeting) |
+| `color-search-results.tsx` | Polish list sorted by OKLAB color distance, with branded finish badges and harmony interactions (palette selection affects table targeting without mutating desired anchors) |
 
 ### shadcn/ui (`src/components/ui/`)
 
