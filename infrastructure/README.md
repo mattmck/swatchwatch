@@ -26,6 +26,18 @@ The interactive script handles everything:
 
 See full bootstrap guide at end of this file.
 
+## GitHub Infra Deployment (Dev)
+
+Terraform infrastructure deploys in CI via `.github/workflows/deploy-infra-dev.yml`.
+
+State is stored in Azure Blob Storage using Terraform's native `azurerm` backend (configured in `main.tf` with `backend "azurerm" {}`).
+
+Required GitHub Actions configuration:
+- Secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`
+- Variables: `TFSTATE_RESOURCE_GROUP`, `TFSTATE_STORAGE_ACCOUNT`, `TFSTATE_CONTAINER` (recommended: `tfstate`), `TFSTATE_BLOB_NAME` (recommended: `dev.terraform.tfstate`)
+The workflow creates the state container automatically if it does not exist.
+The workflow reads the `pg-password` secret from Key Vault and exports it as `TF_VAR_pg_admin_password` for Terraform.
+
 ## Resources Provisioned
 
 | Resource | Terraform Resource | Purpose |
@@ -37,6 +49,9 @@ See full bootstrap guide at end of this file.
 | Storage Account | `azurerm_storage_account.main` | Blob storage for images |
 | Storage Container | `azurerm_storage_container.swatches` | Swatch photos |
 | Storage Container | `azurerm_storage_container.nail_photos` | Nail photos |
+| Storage Container | `azurerm_storage_container.tfstate` | Terraform remote state container |
+| Log Analytics Workspace | `azurerm_log_analytics_workspace.main` | Centralized log storage/query backend |
+| Application Insights | `azurerm_application_insights.main` | Function telemetry, traces, requests, and exceptions |
 | App Service Plan | `azurerm_service_plan.main` | Linux Consumption plan (Y1) |
 | Function App | `azurerm_linux_function_app.main` | Node 20 function host (Managed Identity enabled) |
 | Static Web App | `azurerm_static_web_app.main` | Next.js frontend (Standard tier) |
@@ -106,6 +121,8 @@ Key outputs after `terraform apply`:
 | `openai_endpoint` | Active Azure OpenAI endpoint URL (provisioned or external) |
 | `openai_hex_deployment_name` | Azure OpenAI deployment name used by Functions (empty when OpenAI is disabled) |
 | `openai_resources_provisioned` | Whether this stack provisioned Azure OpenAI resources |
+| `application_insights_name` | Application Insights resource name |
+| `log_analytics_workspace_name` | Log Analytics workspace name |
 | `key_vault_name` | Key Vault name |
 | `github_client_id` | Azure AD app ID for GitHub Actions *(add to GitHub Secrets as `AZURE_CLIENT_ID`)* |
 | `github_tenant_id` | Azure AD tenant ID *(add to GitHub Secrets as `AZURE_TENANT_ID`)* |

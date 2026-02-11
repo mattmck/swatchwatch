@@ -1,5 +1,4 @@
 import {
-  swatchWatchBrandPalette,
   swatchWatchIconSpecs,
   type BrandShape,
   type SwatchWatchIconName,
@@ -19,6 +18,20 @@ interface SwatchWatchWordmarkProps {
   className?: string;
   textClassName?: string;
 }
+
+interface SwatchWatchSpriteIconProps {
+  name?: SwatchWatchIconName;
+  size?: number;
+  className?: string;
+  title?: string;
+}
+
+const spriteSymbolIds: Record<SwatchWatchIconName, string> = {
+  app: "swatchwatch-icon-app",
+  monogram: "swatchwatch-icon-monogram",
+  swatch: "swatchwatch-icon-swatch",
+  brush: "swatchwatch-icon-brush",
+};
 
 function renderShape(shape: BrandShape, key: string) {
   if (shape.kind === "rect") {
@@ -117,6 +130,31 @@ export function SwatchWatchIcon({
   );
 }
 
+export function SwatchWatchSpriteIcon({
+  name = "monogram",
+  size = 32,
+  className,
+  title,
+}: SwatchWatchSpriteIconProps) {
+  const spec = swatchWatchIconSpecs[name];
+  const symbolId = spriteSymbolIds[name];
+
+  return (
+    <svg
+      className={className}
+      width={size}
+      height={size}
+      viewBox={spec.viewBox}
+      fill="none"
+      role={title ? "img" : "presentation"}
+      aria-label={title}
+      aria-hidden={!title}
+    >
+      <use href={`/brand/swatchwatch-sprite.svg#${symbolId}`} />
+    </svg>
+  );
+}
+
 /**
  * SwatchWatch wordmark — clean, modern, cohesive.
  *
@@ -140,8 +178,8 @@ export function SwatchWatchWordmark({
           textClassName
         )}
       >
-        <span style={{ color: swatchWatchBrandPalette.ink }}>Swatch</span>
-        <span style={{ color: swatchWatchBrandPalette.purple }}>Watch</span>
+        <span className="text-brand-ink dark:text-brand-lilac">Swatch</span>
+        <span className="text-brand-purple dark:text-brand-pink-soft">Watch</span>
       </span>
     </span>
   );

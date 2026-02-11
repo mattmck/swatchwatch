@@ -19,8 +19,12 @@ export default function MarketingLayout({
 }>) {
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="sticky top-0 z-50 glass border-b border-border/50">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:h-16 sm:px-6">
+      <header className="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur">
+        <div className="relative mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:h-16 sm:px-6">
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-x-2 bottom-0 h-px bg-gradient-to-r from-brand-pink-soft/0 via-brand-lilac to-brand-purple/0"
+          />
           <Link href="/" className="shrink-0">
             <SwatchWatchWordmark
               iconSize={24}
@@ -31,10 +35,15 @@ export default function MarketingLayout({
 
           <div className="hidden items-center gap-2 sm:flex">
             <MarketingThemeToggle />
-            <Button asChild variant="outline" size="sm">
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="border-brand-purple/25 text-brand-purple-deep hover:bg-brand-pink-light/25 dark:text-brand-lilac"
+            >
               <Link href="/polishes">View Collection</Link>
             </Button>
-            <Button asChild className="bg-gradient-brand text-white hover:opacity-90">
+            <Button asChild variant="brand">
               <Link href="/dashboard">Open App</Link>
             </Button>
           </div>
@@ -43,7 +52,12 @@ export default function MarketingLayout({
             <MarketingThemeToggle />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon-sm" aria-label="Open navigation menu">
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  className="border-brand-purple/25 text-brand-purple-deep dark:text-brand-lilac"
+                  aria-label="Open navigation menu"
+                >
                   <Menu className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
@@ -64,7 +78,7 @@ export default function MarketingLayout({
 
       <main className="flex-1">{children}</main>
 
-      <footer className="border-t border-border bg-muted/50 py-8 text-center text-sm text-muted-foreground">
+      <footer className="border-t border-border/70 bg-muted/35 py-8 text-center text-sm text-muted-foreground">
         <div className="flex flex-col items-center gap-2">
           <SwatchWatchWordmark iconSize={20} className="justify-center" />
           <p>Your smart nail polish collection manager</p>

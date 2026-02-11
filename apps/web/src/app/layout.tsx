@@ -1,6 +1,12 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
+import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
+
+const metadataBase =
+  process.env.NEXT_PUBLIC_SITE_URL != null
+    ? new URL(process.env.NEXT_PUBLIC_SITE_URL)
+    : new URL("https://swatchwatch.app");
 
 const inter = Inter({
   variable: "--font-sans",
@@ -15,6 +21,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase,
   title: {
     default: "SwatchWatch",
     template: "%s | SwatchWatch",
@@ -55,10 +62,25 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <link
+          rel="preload"
+          href="/brand/swatchwatch-monogram.svg"
+          as="image"
+          type="image/svg+xml"
+        />
+        <link
+          rel="preload"
+          href="/brand/swatchwatch-lockup.svg"
+          as="image"
+          type="image/svg+xml"
+        />
+      </head>
       <body
         className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}
       >
         {children}
+        <Toaster richColors closeButton />
       </body>
     </html>
   );
