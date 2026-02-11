@@ -1,10 +1,14 @@
-export type SupportedConnectorSource = "OpenBeautyFacts" | "MakeupAPI";
+export type SupportedConnectorSource =
+  | "OpenBeautyFacts"
+  | "MakeupAPI"
+  | "HoloTacoShopify";
 
 export interface ConnectorPullOptions {
   searchTerm: string;
   page: number;
   pageSize: number;
   maxRecords: number;
+  recentDays?: number;
 }
 
 export interface ConnectorProductRecord {

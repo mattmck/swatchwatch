@@ -418,7 +418,7 @@ export default function PolishesPage() {
           <TableBody>
             {pageItems.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="p-0">
+                <TableCell colSpan={9} className="p-0">
                   <EmptyState
                     title={polishes.length === 0 ? "No polishes yet" : "No matches"}
                     description={polishes.length === 0 ? "Add your first polish to get started." : "Try adjusting your filters."}
@@ -437,6 +437,18 @@ export default function PolishesPage() {
                   >
                     <TableCell className="text-center text-lg">
                       {owned ? "\u2714\uFE0F" : "\u2795"}
+                    </TableCell>
+                    <TableCell>
+                      {polish.swatchImageUrl ? (
+                        <img
+                          src={polish.swatchImageUrl}
+                          alt={`${polish.brand} ${polish.name} swatch`}
+                          className="h-10 w-10 rounded-md border object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="h-10 w-10 rounded-md border bg-muted/40" />
+                      )}
                     </TableCell>
                     <TableCell className="font-medium">{polish.brand}</TableCell>
                     <TableCell>

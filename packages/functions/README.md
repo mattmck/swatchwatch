@@ -6,7 +6,9 @@ Azure Functions v4 HTTP API (Node 20, TypeScript).
 
 ```bash
 # From repo root
-npm run dev:functions    # Starts func host on http://localhost:7071
+npm run setup            # Install workspace dependencies first
+npm run dev:infra        # Start local Postgres + Azurite
+npm run dev:functions    # TypeScript watch + func host on http://localhost:7071
 
 # Or for debugging (VS Code):
 # Press F5 → "Attach to Node Functions" (builds, watches, starts with --inspect on port 9229)
@@ -25,38 +27,60 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `POST` | `/api/auth/validate` | `validateToken` | `auth.ts` | ✅ Working |
 | `GET` | `/api/auth/config` | `getAuthConfig` | `auth.ts` | ✅ Working |
 | `GET` | `/api/ingestion/jobs` | `ingestionJobsHandler` | `ingestion.ts` | ✅ Working |
-| `POST` | `/api/ingestion/jobs` | `runIngestionJob` | `ingestion.ts` | ✅ Working |
+| `POST` | `/api/ingestion/jobs` | `enqueueIngestionJob` | `ingestion.ts` | ✅ Working |
 | `GET` | `/api/ingestion/jobs/{id}` | `handleGetIngestionJob` | `ingestion.ts` | ✅ Working |
 | `POST` | `/api/voice` | `processVoiceInput` | `voice.ts` | ⬜ Stub |
 
 
 All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpRequest, context: InvocationContext)`.
 
+`GET /api/polishes` and `GET /api/polishes/{id}` return `swatchImageUrl` as a readable blob URL.
+When backing storage is private, the API emits a short-lived signed URL (SAS) so the web app can load swatch images directly.
+
 ### Connector Ingestion Jobs
 
-`POST /api/ingestion/jobs` runs an on-demand connector pull and persists into `external_product`.
+`POST /api/ingestion/jobs` now **queues** an async ingestion run and returns `202 Accepted` with a queued job record.
+Execution happens in a queue-triggered worker (`ingestion-worker.ts`) backed by Azure Storage Queue.
 
 Current source support:
 - `OpenBeautyFacts` (search-based pull)
 - `MakeupAPI` (nail-polish catalog pull)
+- `HoloTacoShopify` (current Shopify storefront pull, bundle-filtered)
+
+Auth requirement:
+- Ingestion endpoints are admin-only (`withAdmin`). In dev bypass mode, use an admin dev user token (for example `Bearer dev:2` with seeded admin user id 2).
 
 For `MakeupAPI`, ingestion also materializes product color variants into searchable `shade`
 rows and user inventory rows (`quantity=0`) by default. Set `materializeToInventory` to
 `false` to store only raw/normalized external records.
 
+For `HoloTacoShopify`, ingestion materializes searchable shade rows (brand/name/finish/collection)
+and user inventory rows (`quantity=0`) with source tags. Use `recentDays` to constrain to newer
+products by publish/create/update timestamps. It also uploads source product images to Azure Blob
+Storage (`image_asset` + `swatch`) and attempts Azure OpenAI-based representative `color_hex`
+detection from the product image.
+
+Holo Taco run options:
+- `detectHexFromImage` (default `true`) toggles image-based AI hex detection.
+- `overwriteDetectedHex` (default `false`) refreshes existing `color_hex` values on reruns instead of only filling blanks.
+
 Example request:
 ```json
 {
-  "source": "OpenBeautyFacts",
-  "searchTerm": "nail polish",
+  "source": "HoloTacoShopify",
+  "searchTerm": "recent",
   "page": 1,
-  "pageSize": 20,
-  "maxRecords": 20,
-  "materializeToInventory": true
+  "pageSize": 50,
+  "maxRecords": 50,
+  "recentDays": 120,
+  "materializeToInventory": true,
+  "detectHexFromImage": true,
+  "overwriteDetectedHex": true
 }
 ```
 
-Use `GET /api/ingestion/jobs` and `GET /api/ingestion/jobs/{id}` to inspect run status/metrics.
+Use `GET /api/ingestion/jobs` and `GET /api/ingestion/jobs/{id}` to inspect queued/running/completed status and metrics.
+If a queue message is malformed but includes a valid `jobId`, the worker marks that ingestion job as `failed` with validation details in `error` and `metrics.pipeline`.
 
 ## Migrations
 
@@ -77,6 +101,9 @@ npm run migrate:create -- my-migration-name   # Create a new migration file
 | `001_initial_schema.sql` | Full schema: catalog, swatches, matching, users, inventory, capture, retail, provenance |
 | `002_add_user_facing_columns.sql` | Adds color_name, color_hex, rating, tags, size_display, updated_at to user_inventory_item |
 | `003_seed_dev_data.sql` | Inserts brands, shades, demo user, and 20 inventory items |
+| `007_add_makeup_api_data_source.sql` | Registers `MakeupAPI` in `data_source` for connector ingestion |
+| `008_add_holo_taco_shopify_data_source.sql` | Registers `HoloTacoShopify` in `data_source` for connector ingestion |
+| `009_add_admin_role_and_ingestion_queue_support.sql` | Adds `app_user.role`, seeds dev admin user (`user_id=2`), supports admin-gated async ingestion flow |
 
 node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_URL` is the preferred connection method; it also falls back to individual `PG*` env vars (`PGHOST`, `PGPORT`, etc.).
 
@@ -114,11 +141,15 @@ node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_U
 
 Defined in `local.settings.json` (git-ignored values). See the root README for the full list. For production, secrets are injected via Key Vault references.
 
-Auth-specific variable:
+Key variables:
 
 | Variable | Purpose |
 |----------|---------|
 | `AUTH_DEV_BYPASS` | Dev-only bypass mode. When `true`, auth accepts `Bearer dev:<userId>` tokens. Keep this disabled outside isolated dev scenarios. |
+| `INGESTION_JOB_QUEUE_NAME` | Optional queue name for async ingestion jobs. Defaults to `ingestion-jobs`. |
+| `SOURCE_IMAGE_CONTAINER` | Optional blob container override for source-ingested images. Defaults to `source-images`. |
+| `BLOB_READ_SAS_TTL_SECONDS` | Optional signed read URL TTL for blob-backed swatch images (seconds). Defaults to `3600`. |
+| `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name dedicated to image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT` when unset). |
 
 Temporary cloud note (as of February 11, 2026):
 `deploy-dev.yml` currently sets `AUTH_DEV_BYPASS=true` on the dev Function App after deploy. Remove this once dev Azure AD B2C flow is fully wired.

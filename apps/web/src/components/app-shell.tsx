@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Sparkles, Search, PlusCircle, Settings } from "lucide-react";
+import { LayoutDashboard, Sparkles, Search, PlusCircle, Settings, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { SwatchWatchWordmark } from "@/components/brand/swatchwatch-brand";
@@ -20,6 +20,7 @@ const navItems: NavItem[] = [
   { href: "/polishes", label: "Polishes", icon: Sparkles },
   { href: "/polishes/search", label: "Search", icon: Search },
   { href: "/polishes/new", label: "Add Polish", icon: PlusCircle },
+  { href: "/admin/jobs", label: "Admin Jobs", icon: ShieldCheck },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {

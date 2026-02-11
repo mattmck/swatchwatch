@@ -43,6 +43,18 @@ output "speech_service_key" {
   sensitive = true
 }
 
+output "openai_account_name" {
+  value = azurerm_cognitive_account.openai.name
+}
+
+output "openai_endpoint" {
+  value = azurerm_cognitive_account.openai.endpoint
+}
+
+output "openai_hex_deployment_name" {
+  value = azurerm_cognitive_deployment.openai_hex.name
+}
+
 output "application_insights_name" {
   value = azurerm_application_insights.main.name
 }

@@ -6,6 +6,7 @@ export interface AuthResult {
   userId: number;
   externalId: string;
   email?: string;
+  role: string;
 }
 
 /**
@@ -51,10 +52,33 @@ async function handleDevBypass(
   const userId = parseInt(match[1], 10);
   context.log(`Auth dev bypass: userId=${userId}`);
 
-  const result = await query<{ user_id: number; external_id: string; email: string | null }>(
-    `SELECT user_id, external_id, email FROM app_user WHERE user_id = $1`,
-    [userId]
-  );
+  const result = await (async () => {
+    try {
+      return await query<{
+        user_id: number;
+        external_id: string;
+        email: string | null;
+        role: string | null;
+      }>(
+        `SELECT user_id, external_id, email, role FROM app_user WHERE user_id = $1`,
+        [userId]
+      );
+    } catch (error: any) {
+      // Backward-compatible fallback when role column doesn't exist yet.
+      if (error?.code === "42703") {
+        return query<{
+          user_id: number;
+          external_id: string;
+          email: string | null;
+          role: string | null;
+        }>(
+          `SELECT user_id, external_id, email, 'user'::text AS role FROM app_user WHERE user_id = $1`,
+          [userId]
+        );
+      }
+      throw error;
+    }
+  })();
 
   if (result.rows.length === 0) {
     throw new AuthError(`Dev user ${userId} not found`);
@@ -65,6 +89,7 @@ async function handleDevBypass(
     userId: user.user_id,
     externalId: user.external_id || `dev-user-${userId}`,
     email: user.email || undefined,
+    role: user.role || "user",
   };
 }
 
@@ -103,9 +128,9 @@ async function handleB2CToken(
 
   context.log(`Auth B2C: oid=${externalId}`);
 
-  const userId = await getOrCreateUser(externalId, email);
+  const user = await getOrCreateUser(externalId, email);
 
-  return { userId, externalId, email };
+  return { userId: user.userId, externalId, email, role: user.role };
 }
 
 /**
@@ -114,15 +139,33 @@ async function handleB2CToken(
 async function getOrCreateUser(
   externalId: string,
   email?: string
-): Promise<number> {
-  const result = await query<{ user_id: number }>(
-    `INSERT INTO app_user (external_id, email, handle)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (external_id) DO UPDATE SET email = COALESCE(EXCLUDED.email, app_user.email)
-     RETURNING user_id`,
-    [externalId, email || null, email || externalId]
-  );
-  return result.rows[0].user_id;
+): Promise<{ userId: number; role: string }> {
+  const result = await (async () => {
+    try {
+      return await query<{ user_id: number; role: string | null }>(
+        `INSERT INTO app_user (external_id, email, handle)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (external_id) DO UPDATE SET email = COALESCE(EXCLUDED.email, app_user.email)
+         RETURNING user_id, role`,
+        [externalId, email || null, email || externalId]
+      );
+    } catch (error: any) {
+      if (error?.code === "42703") {
+        return query<{ user_id: number; role: string | null }>(
+          `INSERT INTO app_user (external_id, email, handle)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (external_id) DO UPDATE SET email = COALESCE(EXCLUDED.email, app_user.email)
+           RETURNING user_id, 'user'::text AS role`,
+          [externalId, email || null, email || externalId]
+        );
+      }
+      throw error;
+    }
+  })();
+  return {
+    userId: result.rows[0].user_id,
+    role: result.rows[0].role || "user",
+  };
 }
 
 export class AuthError extends Error {
@@ -144,12 +187,43 @@ export type AuthenticatedHandler = (
   userId: number
 ) => Promise<HttpResponseInit>;
 
+export type AdminHandler = AuthenticatedHandler;
+
 export function withAuth(
   handler: AuthenticatedHandler
 ): (request: HttpRequest, context: InvocationContext) => Promise<HttpResponseInit> {
   return async (request, context) => {
     try {
       const auth = await authenticateRequest(request, context);
+      return handler(request, context, auth.userId);
+    } catch (error) {
+      if (error instanceof AuthError) {
+        return {
+          status: 401,
+          jsonBody: { error: error.message },
+        };
+      }
+      context.error("Unexpected auth error:", error);
+      return {
+        status: 401,
+        jsonBody: { error: "Authentication failed" },
+      };
+    }
+  };
+}
+
+export function withAdmin(
+  handler: AdminHandler
+): (request: HttpRequest, context: InvocationContext) => Promise<HttpResponseInit> {
+  return async (request, context) => {
+    try {
+      const auth = await authenticateRequest(request, context);
+      if (auth.role !== "admin") {
+        return {
+          status: 403,
+          jsonBody: { error: "Admin role required" },
+        };
+      }
       return handler(request, context, auth.userId);
     } catch (error) {
       if (error instanceof AuthError) {

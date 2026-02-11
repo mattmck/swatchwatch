@@ -20,9 +20,12 @@ infrastructure/    → Terraform (azurerm ~3.100) for all Azure resources
 
 ```bash
 # From repo root — all use npm workspaces
+npm run setup            # Install workspace dependencies (npm ci)
+npm run dev              # Shared types + Functions + web (parallel)
+npm run dev:infra        # Start local Postgres + Azurite containers
 npm run dev:web          # Next.js dev server (port 3000)
 npm run dev:mobile       # Expo start
-npm run dev:functions    # Azure Functions Core Tools (func start)
+npm run dev:functions    # Functions TypeScript watch + func host
 npm run build:web        # Next.js production build
 npm run build:functions  # TypeScript compile for functions
 npm run lint             # ESLint across all workspaces
@@ -31,7 +34,10 @@ npm run migrate          # Run Postgres migrations (needs DATABASE_URL)
 npm run migrate:down     # Roll back last migration
 ```
 
-**Important:** Build `packages/shared` first when starting fresh — other packages depend on its compiled output:
+**Important:** `dev`, `dev:web`, `dev:functions`, and `dev:shared` run a dependency preflight and
+print `npm run setup` if workspace dependencies are missing.
+
+If you run web/functions separately without the watcher flow, build `packages/shared` first:
 ```bash
 npm run build --workspace=packages/shared
 ```
@@ -65,6 +71,7 @@ The web app uses Next.js route groups to separate public marketing pages from th
 |-------|------|-------|
 | `/` | `src/app/(marketing)/page.tsx` | Landing page — hero, features, color showcase, CTA |
 | `/dashboard` | `src/app/(app)/dashboard/page.tsx` | Client component, stats + recent additions |
+| `/admin/jobs` | `src/app/(app)/admin/jobs/page.tsx` | Client component, run ingestion jobs + monitor status/change metrics |
 | `/polishes` | `src/app/(app)/polishes/page.tsx` | Client component, filterable/sortable table |
 | `/polishes/new` | `src/app/(app)/polishes/new/page.tsx` | Client component, form with color picker + star rating |
 | `/polishes/[id]` | `src/app/(app)/polishes/[id]/page.tsx` | Server component, uses `generateStaticParams` |
@@ -86,7 +93,7 @@ This project is in early development. The web UI prototype is functional with mo
 ## Environment Variables (Functions)
 
 Defined in `packages/functions/local.settings.json`. Required secrets:
-`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `AZURE_STORAGE_CONNECTION`, `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, `AZURE_AD_B2C_TENANT`, `AZURE_AD_B2C_CLIENT_ID`
+`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `AZURE_STORAGE_CONNECTION`, `INGESTION_JOB_QUEUE_NAME`, `SOURCE_IMAGE_CONTAINER`, `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, `AZURE_OPENAI_DEPLOYMENT_HEX`, `AZURE_AD_B2C_TENANT`, `AZURE_AD_B2C_CLIENT_ID`
 
 ## Adding a New Azure Function
 

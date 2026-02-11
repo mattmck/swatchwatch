@@ -56,6 +56,8 @@ The workflow reads the `pg-password` secret from Key Vault and exports it as `TF
 | Function App | `azurerm_linux_function_app.main` | Node 20 function host (Managed Identity enabled) |
 | Static Web App | `azurerm_static_web_app.main` | Next.js frontend (Standard tier) |
 | Speech Services | `azurerm_cognitive_account.speech` | Speech-to-text for voice input |
+| Azure OpenAI Account | `azurerm_cognitive_account.openai` | Vision-capable OpenAI endpoint for hex color detection |
+| Azure OpenAI Deployment | `azurerm_cognitive_deployment.openai_hex` | Model deployment used by `AZURE_OPENAI_DEPLOYMENT_HEX` |
 | Azure AD Application | `azuread_application.github_actions` | GitHub Actions OIDC identity |
 | Service Principal | `azuread_service_principal.github_actions` | Grants GitHub Actions access |
 | Federated Credential | `azuread_application_federated_identity_credential.github_actions` | Passwordless OIDC trust |
@@ -72,6 +74,10 @@ The workflow reads the `pg-password` secret from Key Vault and exports it as `TF
 | `pg_admin_username` | `pgadmin` | PostgreSQL admin username |
 | `pg_admin_password` | *(required)* | PostgreSQL admin password (stored in Key Vault) |
 | `github_repository` | `your-username/polish-inventory` | GitHub repo for OIDC federation |
+| `openai_deployment_name` | `hex-detector` | Azure OpenAI deployment name exposed to Functions as `AZURE_OPENAI_DEPLOYMENT_HEX` |
+| `openai_model_name` | `gpt-4o-mini` | Azure OpenAI model name for the hex detector deployment |
+| `openai_model_version` | `2024-07-18` | Azure OpenAI model version for the hex detector deployment |
+| `openai_deployment_capacity` | `10` | Provisioned throughput units for the OpenAI deployment |
 
 **Sensitive variables** are stored in `terraform.tfvars` (gitignored) and created by `bootstrap.sh`.
 
@@ -107,6 +113,9 @@ Key outputs after `terraform apply`:
 | `postgres_server_name` | PostgreSQL server name |
 | `postgres_fqdn` | PostgreSQL connection hostname |
 | `postgres_database_name` | Database name (`swatchwatch`) |
+| `openai_account_name` | Azure OpenAI account name |
+| `openai_endpoint` | Azure OpenAI endpoint URL |
+| `openai_hex_deployment_name` | Azure OpenAI deployment name used by Functions |
 | `application_insights_name` | Application Insights resource name |
 | `log_analytics_workspace_name` | Log Analytics workspace name |
 | `key_vault_name` | Key Vault name |
@@ -171,13 +180,10 @@ npm run migrate
 psql -h $PGHOST -U $PGUSER -d $PGDATABASE -f ../../docs/seed_data_sources.sql
 ```
 
-### 3. Add Additional Secrets to Key Vault
+### 3. Add Remaining Optional Secrets to Key Vault
 
 ```bash
 VAULT_NAME=$(cd infrastructure && terraform output -raw key_vault_name)
-
-az keyvault secret set --vault-name $VAULT_NAME \
-  --name azure-openai-key --value "your-key"
 
 az keyvault secret set --vault-name $VAULT_NAME \
   --name azure-speech-key --value "your-key"
@@ -191,9 +197,10 @@ RG_NAME=$(cd infrastructure && terraform output -raw resource_group_name)
 az functionapp config appsettings set \
   --name $FUNC_NAME --resource-group $RG_NAME \
   --settings \
-    AZURE_OPENAI_KEY="@Microsoft.KeyVault(SecretUri=https://${VAULT_NAME}.vault.azure.net/secrets/azure-openai-key)" \
     AZURE_SPEECH_KEY="@Microsoft.KeyVault(SecretUri=https://${VAULT_NAME}.vault.azure.net/secrets/azure-speech-key)"
 ```
+
+`AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, and `AZURE_OPENAI_DEPLOYMENT_HEX` are now provisioned directly by Terraform.
 
 ## Destroying Infrastructure
 

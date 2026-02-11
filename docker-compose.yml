@@ -2,7 +2,7 @@ services:
   postgres:
     image: pgvector/pgvector:pg17
     ports:
-      - "5434:5432"
+      - "55432:5432"
     environment:
       POSTGRES_DB: swatchwatch
       POSTGRES_USER: postgres
@@ -14,6 +14,18 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite
+    command: >
+      azurite
+      --blobHost 0.0.0.0
+      --queueHost 0.0.0.0
+      --tableHost 0.0.0.0
+    ports:
+      - "10000:10000"
+      - "10001:10001"
+      - "10002:10002"
 
 volumes:
   pgdata:

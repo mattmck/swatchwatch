@@ -1,13 +1,14 @@
 export type IngestionSourceName =
   | "OpenBeautyFacts"
   | "MakeupAPI"
+  | "HoloTacoShopify"
   | "CosIng"
   | "ImpactAffiliateNetwork"
   | "RakutenAdvertising"
   | "ManualEntry"
   | "UserCapture";
 
-export type IngestionJobStatus = "running" | "succeeded" | "failed" | "cancelled";
+export type IngestionJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
 export interface IngestionJobRunRequest {
   source: IngestionSourceName;
@@ -15,7 +16,10 @@ export interface IngestionJobRunRequest {
   page?: number;
   pageSize?: number;
   maxRecords?: number;
+  recentDays?: number;
   materializeToInventory?: boolean;
+  detectHexFromImage?: boolean;
+  overwriteDetectedHex?: boolean;
 }
 
 export interface IngestionJobRecord {

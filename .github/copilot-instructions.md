@@ -62,6 +62,7 @@ npm run build --workspace=packages/shared
 | Route | File | Notes |
 |-------|------|-------|
 | `/` | `src/app/(dashboard)/page.tsx` | Server component, stats + recent additions |
+| `/admin/jobs` | `src/app/(app)/admin/jobs/page.tsx` | Client component, run ingestion jobs + monitor status/change metrics |
 | `/polishes` | `src/app/polishes/page.tsx` | Client component, filterable/sortable table |
 | `/polishes/new` | `src/app/polishes/new/page.tsx` | Client component, form with color picker + star rating |
 | `/polishes/[id]` | `src/app/polishes/[id]/page.tsx` | Server component, uses `generateStaticParams` |
@@ -78,7 +79,7 @@ This project is in early development. The web UI is now fully API-driven. Backen
 ## Environment Variables (Functions)
 
 Defined in `packages/functions/local.settings.json`. Required secrets:
-`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `AZURE_STORAGE_CONNECTION`, `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, `AZURE_AD_B2C_TENANT`, `AZURE_AD_B2C_CLIENT_ID`
+`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `AZURE_STORAGE_CONNECTION`, `INGESTION_JOB_QUEUE_NAME`, `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, `AZURE_AD_B2C_TENANT`, `AZURE_AD_B2C_CLIENT_ID`
 
 ## Adding a New Azure Function
 

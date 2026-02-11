@@ -49,33 +49,38 @@ Web / Mobile → Azure Functions REST API → Azure PostgreSQL Flexible Server
 ## Quick Start
 
 ```bash
-# Install all workspace dependencies
-npm install
+# Install workspace dependencies
+npm run setup            # (same as npm ci)
 
-# Build shared types (required before other packages can import them)
-npm run build --workspace=packages/shared
+# Start local infra containers (Postgres + Azurite)
+npm run dev:infra
 
-# Start web dev server
-npm run dev:web          # → http://localhost:3000
+# Start dev stack (shared types + functions + web)
+npm run dev              # → web on http://localhost:3000, API on http://localhost:7071/api/*
 
-# Start functions locally
-npm run dev:functions    # → http://localhost:7071/api/*
-
-# Start mobile
-npm run dev:mobile       # → Expo dev server
+# Or run pieces individually
+npm run dev:web          # → web only
+npm run dev:functions    # → functions only (builds on change via TypeScript watch)
+npm run dev:mobile       # → mobile via Expo
 ```
 
 ## All Commands
 
 | Command | What it does |
 |---------|-------------|
+| `npm run setup` | Install workspace dependencies (`npm ci`) |
+| `npm run dev:infra` | Start local Postgres + Azurite containers in Docker |
+| `npm run dev` | Run shared type watcher, Functions host, and web dev server together (CTRL+C stops all) |
 | `npm run dev:web` | Next.js dev server (port 3000) |
 | `npm run dev:mobile` | Expo start |
-| `npm run dev:functions` | Azure Functions Core Tools (`func start`) |
+| `npm run dev:functions` | Functions TypeScript watch + Azure Functions Core Tools (`func start`) |
 | `npm run build:web` | Next.js production build |
 | `npm run build:functions` | TypeScript compile for functions |
 | `npm run lint` | ESLint across all workspaces |
 | `npm run typecheck` | `tsc --noEmit` across all workspaces |
+
+`dev`, `dev:web`, `dev:functions`, and `dev:shared` run a dependency preflight and print a clear
+`npm run setup` hint if dependencies are missing.
 
 > Linting extends `eslint-config-next` from the repo root, so `next@16.1.6` is included in the root `devDependencies` to supply its bundled Babel parser. When upgrading Next in `apps/web`, bump the root version as well.
 
@@ -100,12 +105,14 @@ The web app is the most developed part of the project. Key pages:
 
 | Route | File | Description |
 |-------|------|-------------|
-| `/` | `apps/web/src/app/(dashboard)/page.tsx` | Dashboard — stats cards, recent additions, finish breakdown |
-| `/polishes` | `apps/web/src/app/polishes/page.tsx` | Collection table — search/filter + clickable sorting for status, brand, name, finish, and collection |
-| `/polishes/new` | `apps/web/src/app/polishes/new/page.tsx` | Add polish form — color picker, star rating, voice input placeholder |
-| `/polishes/[id]` | `apps/web/src/app/polishes/[id]/page.tsx` | Polish detail — all fields, photo placeholders, edit/delete |
-| `/polishes/search` | `apps/web/src/app/polishes/search/page.tsx` | Color wheel search — two-column layout with collapsible wheel/harmonies, a single full-width harmony-only selector (All + harmony types) driving matching + recommendations, vertical lightness, snap chip, and one-click palette swatch focus |
-
+| `/` | `apps/web/src/app/(marketing)/page.tsx` | Marketing landing page |
+| `/dashboard` | `apps/web/src/app/(app)/dashboard/page.tsx` | Dashboard — stats cards, recent additions, finish breakdown |
+| `/admin/jobs` | `apps/web/src/app/(app)/admin/jobs/page.tsx` | Internal ingestion admin — run jobs, monitor status, inspect change metrics |
+| `/polishes` | `apps/web/src/app/(app)/polishes/page.tsx` | Collection table — search, filter by brand/finish, sortable columns |
+| `/polishes/new` | `apps/web/src/app/(app)/polishes/new/page.tsx` | Add polish form — color picker, star rating, voice input placeholder |
+| `/polishes/detail` | `apps/web/src/app/(app)/polishes/detail/page.tsx` | Polish detail shell (query-param based) |
+| `/polishes/search` | `apps/web/src/app/(app)/polishes/search/page.tsx` | Color wheel search — hover to preview, click to lock, similar/complementary modes |
+| `/rapid-add` | `apps/web/src/app/rapid-add/page.tsx` | Capture-driven rapid add flow |
 
 **UI stack:** [shadcn/ui](https://ui.shadcn.com/) components in `src/components/ui/`, custom components in `src/components/`, Tailwind v4 styling.
 
@@ -118,16 +125,42 @@ Functions require secrets defined in `packages/functions/local.settings.json`:
 | Variable | Purpose |
 |----------|---------|
 | `COSMOS_DB_CONNECTION` | Cosmos DB connection string |
-| `AZURE_STORAGE_CONNECTION` | Storage account (swatch/nail photos) |
+| `AZURE_STORAGE_CONNECTION` | Storage account (swatch/nail photos). In local dev this points to Azurite (see "Local storage emulator" below). |
+| `INGESTION_JOB_QUEUE_NAME` | Optional async ingestion queue name (default: `ingestion-jobs`) |
+| `SOURCE_IMAGE_CONTAINER` | Optional container for source-ingested product images (default: `source-images`) |
+| `BLOB_READ_SAS_TTL_SECONDS` | Optional signed read URL TTL for blob-backed swatch images, in seconds (default: `3600`) |
 | `AZURE_SPEECH_KEY` | Azure Speech Services key |
 | `AZURE_SPEECH_REGION` | Azure Speech Services region |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint for voice parsing |
 | `AZURE_OPENAI_KEY` | Azure OpenAI key |
+| `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name for image-based hex detection |
 | `AZURE_AD_B2C_TENANT` | B2C tenant name |
 | `AZURE_AD_B2C_CLIENT_ID` | B2C app client ID |
 | `AUTH_DEV_BYPASS` | Dev-only bypass (`true` enables `Bearer dev:<userId>` tokens); do not use in shared/prod environments |
 | `NEXT_PUBLIC_API_URL` | Web API base URL used at web build time |
 | `NEXT_PUBLIC_AUTH_DEV_BYPASS` | Web dev-only bypass toggle (`true` makes the UI send `Authorization: Bearer dev:1`) |
+| `NEXT_PUBLIC_AUTH_DEV_ADMIN_USER_ID` | Optional web admin bypass user id for admin-only API calls (defaults to `2`) |
+
+### Local storage emulator (Azurite)
+
+For local blob storage (used by the Holo Taco connector and other ingestion jobs), run Azurite via `docker-compose`:
+
+```bash
+npm run dev:infra
+```
+
+Then set the following in `packages/functions/local.settings.json` (the `agent-worktree.sh` script already uses these defaults for new worktrees):
+
+```jsonc
+{
+  "Values": {
+    "AzureWebJobsStorage": "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;QueueEndpoint=http://127.0.0.1:10001/devstoreaccount1;TableEndpoint=http://127.0.0.1:10002/devstoreaccount1;",
+    "AZURE_STORAGE_CONNECTION": "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;QueueEndpoint=http://127.0.0.1:10001/devstoreaccount1;TableEndpoint=http://127.0.0.1:10002/devstoreaccount1;",
+    "SOURCE_IMAGE_CONTAINER": "source-images",
+    "BLOB_READ_SAS_TTL_SECONDS": "3600"
+  }
+}
+```
 
 ## VS Code
 
