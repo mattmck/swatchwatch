@@ -52,26 +52,27 @@ Web / Mobile → Azure Functions REST API → Azure PostgreSQL Flexible Server
 # Install all workspace dependencies
 npm install
 
-# Build shared types (required before other packages can import them)
-npm run build --workspace=packages/shared
+# Start local infra containers (Postgres + Azurite)
+npm run dev:infra
 
-# Start web dev server
-npm run dev:web          # → http://localhost:3000
+# Start dev stack (shared types + functions + web)
+npm run dev              # → web on http://localhost:3000, API on http://localhost:7071/api/*
 
-# Start functions locally
-npm run dev:functions    # → http://localhost:7071/api/*
-
-# Start mobile
-npm run dev:mobile       # → Expo dev server
+# Or run pieces individually
+npm run dev:web          # → web only
+npm run dev:functions    # → functions only (builds on change via TypeScript watch)
+npm run dev:mobile       # → mobile via Expo
 ```
 
 ## All Commands
 
 | Command | What it does |
 |---------|-------------|
+| `npm run dev:infra` | Start local Postgres + Azurite containers in Docker |
+| `npm run dev` | Run shared type watcher, Functions host, and web dev server together (CTRL+C stops all) |
 | `npm run dev:web` | Next.js dev server (port 3000) |
 | `npm run dev:mobile` | Expo start |
-| `npm run dev:functions` | Azure Functions Core Tools (`func start`) |
+| `npm run dev:functions` | Functions TypeScript watch + Azure Functions Core Tools (`func start`) |
 | `npm run build:web` | Next.js production build |
 | `npm run build:functions` | TypeScript compile for functions |
 | `npm run lint` | ESLint across all workspaces |
@@ -117,7 +118,7 @@ Functions require secrets defined in `packages/functions/local.settings.json`:
 | Variable | Purpose |
 |----------|---------|
 | `COSMOS_DB_CONNECTION` | Cosmos DB connection string |
-| `AZURE_STORAGE_CONNECTION` | Storage account (swatch/nail photos) |
+| `AZURE_STORAGE_CONNECTION` | Storage account (swatch/nail photos). In local dev this points to Azurite (see "Local storage emulator" below). |
 | `SOURCE_IMAGE_CONTAINER` | Optional container for source-ingested product images (default: `source-images`) |
 | `AZURE_SPEECH_KEY` | Azure Speech Services key |
 | `AZURE_SPEECH_REGION` | Azure Speech Services region |
@@ -129,6 +130,26 @@ Functions require secrets defined in `packages/functions/local.settings.json`:
 | `AUTH_DEV_BYPASS` | Dev-only bypass (`true` enables `Bearer dev:<userId>` tokens); do not use in shared/prod environments |
 | `NEXT_PUBLIC_API_URL` | Web API base URL used at web build time |
 | `NEXT_PUBLIC_AUTH_DEV_BYPASS` | Web dev-only bypass toggle (`true` makes the UI send `Authorization: Bearer dev:1`) |
+
+### Local storage emulator (Azurite)
+
+For local blob storage (used by the Holo Taco connector and other ingestion jobs), run Azurite via `docker-compose`:
+
+```bash
+npm run dev:infra
+```
+
+Then set the following in `packages/functions/local.settings.json` (the `agent-worktree.sh` script already uses these defaults for new worktrees):
+
+```jsonc
+{
+  "Values": {
+    "AzureWebJobsStorage": "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;QueueEndpoint=http://127.0.0.1:10001/devstoreaccount1;TableEndpoint=http://127.0.0.1:10002/devstoreaccount1;",
+    "AZURE_STORAGE_CONNECTION": "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;QueueEndpoint=http://127.0.0.1:10001/devstoreaccount1;TableEndpoint=http://127.0.0.1:10002/devstoreaccount1;",
+    "SOURCE_IMAGE_CONTAINER": "source-images"
+  }
+}
+```
 
 ## VS Code
 
