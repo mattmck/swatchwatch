@@ -13,7 +13,7 @@ export interface IngestionJobRecord {
   jobId: string;
   source: string;
   jobType: string;
-  status: "running" | "succeeded" | "failed" | "cancelled";
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
   startedAt: string;
   finishedAt?: string;
   metrics?: Record<string, unknown>;
@@ -48,13 +48,20 @@ export interface HoloTacoMaterializationMetrics {
   shadesCreated: number;
   inventoryInserted: number;
   inventoryUpdated: number;
+  hexOverwritten: number;
   imageCandidates: number;
   imageUploads: number;
   imageUploadFailures: number;
   swatchesLinked: number;
   hexDetected: number;
   hexDetectionFailures: number;
+  hexDetectionSkipped: number;
   skipped: number;
+}
+
+export interface HoloTacoMaterializationOptions {
+  detectHexFromImage?: boolean;
+  overwriteDetectedHex?: boolean;
 }
 
 interface MakeupColorVariant {
@@ -89,6 +96,7 @@ interface HoloTacoImagePreparationMetrics {
   imageUploadFailures: number;
   hexDetected: number;
   hexDetectionFailures: number;
+  hexDetectionSkipped: number;
 }
 
 interface HoloTacoImagePreparationResult {
@@ -177,8 +185,10 @@ function isHttpUrl(value: string | null): value is string {
 }
 
 async function prepareHoloTacoImageData(
-  records: ConnectorProductRecord[]
+  records: ConnectorProductRecord[],
+  options?: HoloTacoMaterializationOptions
 ): Promise<HoloTacoImagePreparationResult> {
+  const detectHexFromImage = options?.detectHexFromImage !== false;
   const byExternalId = new Map<string, HoloTacoPreparedImage>();
   const metrics: HoloTacoImagePreparationMetrics = {
     imageCandidates: 0,
@@ -186,6 +196,7 @@ async function prepareHoloTacoImageData(
     imageUploadFailures: 0,
     hexDetected: 0,
     hexDetectionFailures: 0,
+    hexDetectionSkipped: 0,
   };
 
   for (const record of records) {
@@ -221,14 +232,18 @@ async function prepareHoloTacoImageData(
       metrics.imageUploadFailures += 1;
     }
 
-    try {
-      const detection = await detectHexWithAzureOpenAI(holo.primaryImageUrl);
-      if (detection.hex) {
-        detectedHex = detection.hex;
-        metrics.hexDetected += 1;
+    if (detectHexFromImage) {
+      try {
+        const detection = await detectHexWithAzureOpenAI(holo.primaryImageUrl);
+        if (detection.hex) {
+          detectedHex = detection.hex;
+          metrics.hexDetected += 1;
+        }
+      } catch {
+        metrics.hexDetectionFailures += 1;
       }
-    } catch {
-      metrics.hexDetectionFailures += 1;
+    } else {
+      metrics.hexDetectionSkipped += 1;
     }
 
     byExternalId.set(record.externalId, {
@@ -266,16 +281,43 @@ export async function getDataSourceByName(name: string): Promise<DataSourceRecor
 export async function createIngestionJob(
   dataSourceId: number,
   jobType: string,
-  metrics: Record<string, unknown>
+  metrics: Record<string, unknown>,
+  status: "queued" | "running" = "queued"
 ): Promise<IngestionJobStartRecord> {
   const result = await query<{ jobId: number; startedAt: string }>(
     `INSERT INTO ingestion_job (data_source_id, job_type, status, metrics_json)
-     VALUES ($1, $2, 'running', $3::jsonb)
+     VALUES ($1, $2, $3, $4::jsonb)
      RETURNING ingestion_job_id AS "jobId", started_at::text AS "startedAt"`,
-    [dataSourceId, jobType, metrics]
+    [dataSourceId, jobType, status, metrics]
   );
 
   return result.rows[0];
+}
+
+export async function markIngestionJobRunning(
+  jobId: number,
+  metrics: Record<string, unknown>
+): Promise<void> {
+  await query(
+    `UPDATE ingestion_job
+     SET status = 'running',
+         error = NULL,
+         metrics_json = $2::jsonb
+     WHERE ingestion_job_id = $1`,
+    [jobId, metrics]
+  );
+}
+
+export async function updateIngestionJobMetrics(
+  jobId: number,
+  metrics: Record<string, unknown>
+): Promise<void> {
+  await query(
+    `UPDATE ingestion_job
+     SET metrics_json = $2::jsonb
+     WHERE ingestion_job_id = $1`,
+    [jobId, metrics]
+  );
 }
 
 export async function markIngestionJobSucceeded(
@@ -371,7 +413,7 @@ export async function getIngestionJobById(jobId: number): Promise<IngestionJobRe
     jobId: string;
     source: string;
     jobType: string;
-    status: "running" | "succeeded" | "failed" | "cancelled";
+    status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
     startedAt: string;
     finishedAt: string | null;
     metrics: Record<string, unknown> | null;
@@ -430,7 +472,7 @@ export async function listIngestionJobs(
     jobId: string;
     source: string;
     jobType: string;
-    status: "running" | "succeeded" | "failed" | "cancelled";
+    status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
     startedAt: string;
     finishedAt: string | null;
     metrics: Record<string, unknown> | null;
@@ -671,9 +713,11 @@ export async function materializeMakeupApiRecords(
 export async function materializeHoloTacoRecords(
   userId: number,
   dataSourceId: number,
-  records: ConnectorProductRecord[]
+  records: ConnectorProductRecord[],
+  options?: HoloTacoMaterializationOptions
 ): Promise<HoloTacoMaterializationMetrics> {
-  const preparedImageData = await prepareHoloTacoImageData(records);
+  const preparedImageData = await prepareHoloTacoImageData(records, options);
+  const overwriteDetectedHex = options?.overwriteDetectedHex === true;
 
   return transaction(async (client) => {
     let processed = 0;
@@ -681,6 +725,7 @@ export async function materializeHoloTacoRecords(
     let shadesCreated = 0;
     let inventoryInserted = 0;
     let inventoryUpdated = 0;
+    let hexOverwritten = 0;
     let swatchesLinked = 0;
     let skipped = 0;
 
@@ -761,8 +806,9 @@ export async function materializeHoloTacoRecords(
         shadesCreated += 1;
       }
 
-      const inventory = await client.query<{ inventoryItemId: number }>(
+      const inventory = await client.query<{ inventoryItemId: number; colorHex: string | null }>(
         `SELECT inventory_item_id AS "inventoryItemId"
+                color_hex AS "colorHex"
          FROM user_inventory_item
          WHERE user_id = $1
            AND shade_id = $2
@@ -791,10 +837,20 @@ export async function materializeHoloTacoRecords(
         inventoryInserted += 1;
       } else {
         const inventoryItemId = inventory.rows[0].inventoryItemId;
+        const existingColorHex = inventory.rows[0].colorHex;
+        const shouldOverwriteHex = overwriteDetectedHex && Boolean(detectedHex);
+
+        if (shouldOverwriteHex && detectedHex !== existingColorHex) {
+          hexOverwritten += 1;
+        }
+
         await client.query(
           `UPDATE user_inventory_item
            SET color_name = COALESCE(color_name, $2),
-               color_hex = COALESCE(color_hex, $3),
+               color_hex = CASE
+                 WHEN $6::boolean AND $3 IS NOT NULL THEN $3
+                 ELSE COALESCE(color_hex, $3)
+               END,
                notes = COALESCE(notes, $4),
                tags = (
                  SELECT ARRAY(
@@ -804,7 +860,7 @@ export async function materializeHoloTacoRecords(
                  )
                )
            WHERE inventory_item_id = $1`,
-          [inventoryItemId, holo.name, detectedHex, importNote, sourceTags]
+          [inventoryItemId, holo.name, detectedHex, importNote, sourceTags, overwriteDetectedHex]
         );
         inventoryUpdated += 1;
       }
@@ -870,6 +926,7 @@ export async function materializeHoloTacoRecords(
       shadesCreated,
       inventoryInserted,
       inventoryUpdated,
+      hexOverwritten,
       ...preparedImageData.metrics,
       swatchesLinked,
       skipped,

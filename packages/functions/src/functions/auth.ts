@@ -6,6 +6,7 @@ interface TokenValidationResult {
   valid: boolean;
   userId?: number;
   email?: string;
+  role?: string;
   error?: string;
 }
 
@@ -21,6 +22,7 @@ async function validateToken(request: HttpRequest, context: InvocationContext): 
         valid: true,
         userId: auth.userId,
         email: auth.email,
+        role: auth.role,
       } satisfies TokenValidationResult,
     };
   } catch (error) {

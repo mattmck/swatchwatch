@@ -19,6 +19,7 @@ src/app/
 │   └── page.tsx                  → /           Landing page (hero, features, interactive showcase, testimonials, CTA)
 ├── (app)/
 │   ├── layout.tsx                → App layout (AppShell sidebar wrapper)
+│   ├── admin/jobs/page.tsx       → /admin/jobs      Internal ingestion admin (run jobs, toggle AI hex detection/overwrite mode, track status/metrics)
 │   ├── dashboard/page.tsx        → /dashboard       Stats, recent additions (computed from full paginated inventory)
 │   └── polishes/
 │       ├── page.tsx              → /polishes         Inventory table (hydrates all API pages for client-side search/filter + swatch thumbnails)
@@ -108,7 +109,7 @@ cd apps/web && npx shadcn@latest add <component-name>
 | `utils.ts` | `cn()` — Tailwind class merging (shadcn standard) |
 | `constants.ts` | `FINISHES`, `finishLabel()`, `finishBadgeClassName()` — finish taxonomy and branded badge styling |
 | `color-utils.ts` | Hex↔HSL↔RGB↔OKLAB conversions, `colorDistance()`, `complementaryHex()` |
-| `api.ts` | API client helpers including `listPolishes()` and `listAllPolishes()` for full paginated inventory fetches |
+| `api.ts` | API client helpers including polish CRUD, rapid-add capture calls, and ingestion admin methods (`listIngestionJobs`, `runIngestionJob`, `getIngestionJob`) |
 
 ## Metadata & Assets
 
@@ -126,6 +127,7 @@ cd apps/web && npx shadcn@latest add <component-name>
 |----------|---------|
 | `NEXT_PUBLIC_API_URL` | API base URL used by `src/lib/api.ts` |
 | `NEXT_PUBLIC_AUTH_DEV_BYPASS` | Dev-only bypass toggle. When `true`, the UI sends `Authorization: Bearer dev:1` on authenticated API calls. |
+| `NEXT_PUBLIC_AUTH_DEV_ADMIN_USER_ID` | Optional admin dev bypass user id for admin-only API calls (`/admin/jobs` uses this; defaults to `2`). |
 
 Temporary note (as of February 11, 2026):
 `deploy-dev.yml` sets `NEXT_PUBLIC_AUTH_DEV_BYPASS=true` for dev web deployments. Remove this once Azure AD B2C auth is wired in the web app.

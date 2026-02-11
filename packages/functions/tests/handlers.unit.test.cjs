@@ -9,6 +9,7 @@ const Module = require("node:module");
 
 // Track registered routes from app.http()
 const registeredRoutes = {};
+const registeredQueues = {};
 
 // Mutable mock implementations — tests can override these
 let queryMock = async () => ({ rows: [] });
@@ -42,6 +43,12 @@ registerMock("@azure/functions", {
     http: (name, opts) => {
       registeredRoutes[name] = opts;
     },
+    storageQueue: (name, opts) => {
+      registeredQueues[name] = opts;
+    },
+  },
+  output: {
+    storageQueue: (opts) => ({ __type: "storageQueue", ...opts }),
   },
 });
 
@@ -116,10 +123,15 @@ function fakeRequest({
 }
 
 function fakeContext() {
+  const outputValues = new Map();
   return {
     log: () => {},
     error: () => {},
     warn: () => {},
+    extraOutputs: {
+      set: (binding, value) => outputValues.set(binding, value),
+      get: (binding) => outputValues.get(binding),
+    },
   };
 }
 
@@ -133,6 +145,7 @@ require("../dist/functions/catalog");
 require("../dist/functions/voice");
 require("../dist/functions/capture");
 require("../dist/functions/ingestion");
+require("../dist/functions/ingestion-worker");
 
 // Reset mocks between tests
 afterEach(() => {
@@ -203,13 +216,14 @@ describe("lib/auth — authenticateRequest", () => {
   it("dev bypass: returns AuthResult for valid token", async () => {
     process.env.AUTH_DEV_BYPASS = "true";
     queryMock = async () => ({
-      rows: [{ user_id: 1, external_id: "ext-1", email: "test@example.com" }],
+      rows: [{ user_id: 1, external_id: "ext-1", email: "test@example.com", role: "admin" }],
     });
     const req = fakeRequest({ headers: { authorization: "Bearer dev:1" } });
     const result = await authLib.authenticateRequest(req, fakeContext());
     assert.equal(result.userId, 1);
     assert.equal(result.externalId, "ext-1");
     assert.equal(result.email, "test@example.com");
+    assert.equal(result.role, "admin");
   });
 
   it("production: throws when B2C not configured", async () => {
@@ -235,7 +249,7 @@ describe("lib/auth — withAuth wrapper", () => {
   it("passes userId to inner handler on success", async () => {
     process.env.AUTH_DEV_BYPASS = "true";
     queryMock = async () => ({
-      rows: [{ user_id: 42, external_id: "ext-42", email: null }],
+      rows: [{ user_id: 42, external_id: "ext-42", email: null, role: "user" }],
     });
     const handler = authLib.withAuth(async (req, ctx, userId) => ({
       status: 200,
@@ -245,6 +259,39 @@ describe("lib/auth — withAuth wrapper", () => {
     const res = await handler(req, fakeContext());
     assert.equal(res.status, 200);
     assert.equal(res.jsonBody.userId, 42);
+  });
+});
+
+describe("lib/auth — withAdmin wrapper", () => {
+  it("returns 403 for authenticated non-admin users", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async () => ({
+      rows: [{ user_id: 1, external_id: "ext-1", email: null, role: "user" }],
+    });
+
+    const handler = authLib.withAdmin(async () => ({ status: 200 }));
+    const req = fakeRequest({ headers: { authorization: "Bearer dev:1" } });
+    const res = await handler(req, fakeContext());
+
+    assert.equal(res.status, 403);
+    assert.equal(res.jsonBody.error, "Admin role required");
+  });
+
+  it("allows authenticated admin users", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async () => ({
+      rows: [{ user_id: 2, external_id: "dev-admin-2", email: null, role: "admin" }],
+    });
+
+    const handler = authLib.withAdmin(async (_req, _ctx, userId) => ({
+      status: 200,
+      jsonBody: { userId },
+    }));
+    const req = fakeRequest({ headers: { authorization: "Bearer dev:2" } });
+    const res = await handler(req, fakeContext());
+
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.userId, 2);
   });
 });
 
@@ -652,6 +699,77 @@ describe("functions/ingestion — route registration", () => {
     assert.equal(registeredRoutes["ingestion-jobs"].route, "ingestion/jobs");
     assert.deepEqual(registeredRoutes["ingestion-job-detail"].methods, ["GET", "OPTIONS"]);
     assert.equal(registeredRoutes["ingestion-job-detail"].route, "ingestion/jobs/{id}");
+  });
+});
+
+describe("functions/ingestion-worker — queue registration", () => {
+  it("registers ingestion queue worker", () => {
+    assert.ok(registeredQueues["ingestion-job-worker"]);
+    assert.equal(registeredQueues["ingestion-job-worker"].queueName, "ingestion-jobs");
+  });
+});
+
+describe("functions/ingestion-worker — payload validation", () => {
+  it("marks job failed when payload has string jobId but invalid userId", async () => {
+    const handler = registeredQueues["ingestion-job-worker"].handler;
+    const calls = [];
+
+    queryMock = async (...args) => {
+      calls.push(args);
+      const [text] = args;
+      if (typeof text === "string" && text.includes("FROM ingestion_job j")) {
+        return {
+          rows: [
+            {
+              jobId: "1",
+              source: "HoloTacoShopify",
+              jobType: "connector_verify",
+              status: "queued",
+              startedAt: "2026-02-11T20:56:55.161Z",
+              finishedAt: null,
+              metrics: null,
+              error: null,
+            },
+          ],
+        };
+      }
+
+      return { rows: [] };
+    };
+
+    await handler(
+      {
+        jobId: "1",
+        userId: "not-a-number",
+        queuedAt: "2026-02-11T20:56:55.161Z",
+        request: {
+          source: "HoloTacoShopify",
+          page: 1,
+          pageSize: 50,
+          maxRecords: 50,
+          materializeToInventory: true,
+          recentDays: 120,
+          searchTerm: "recent",
+        },
+        requestedMetrics: {
+          searchTerm: "recent",
+          requestedPage: 1,
+          requestedPageSize: 50,
+          maxRecords: 50,
+          recentDays: 120,
+          materializeToInventory: true,
+          triggeredByUserId: "2",
+        },
+      },
+      fakeContext()
+    );
+
+    const failedCall = calls.find(
+      ([text]) => typeof text === "string" && text.includes("SET status = 'failed'")
+    );
+    assert.ok(failedCall, "expected invalid payload to mark ingestion_job failed");
+    assert.equal(failedCall[1][0], 1);
+    assert.match(failedCall[1][1], /Invalid ingestion queue payload: userId is required/);
   });
 });
 

@@ -5,6 +5,9 @@ import type {
   CaptureFrameRequest,
   CaptureFrameResponse,
   CaptureFrameType,
+  IngestionJobListResponse,
+  IngestionJobRunRequest,
+  IngestionJobRunResponse,
   CaptureStartRequest,
   CaptureStartResponse,
   CaptureStatusResponse,
@@ -27,9 +30,12 @@ class ApiError extends Error {
   }
 }
 
-function getAuthHeaders(): Record<string, string> {
+function getAuthHeaders(options?: { admin?: boolean }): Record<string, string> {
   if (process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true") {
-    return { Authorization: "Bearer dev:1" };
+    const devUserId = options?.admin
+      ? process.env.NEXT_PUBLIC_AUTH_DEV_ADMIN_USER_ID || "2"
+      : "1";
+    return { Authorization: `Bearer dev:${devUserId}` };
   }
   // TODO: read real token from auth state once B2C is wired up
   return {};
@@ -140,6 +146,41 @@ export async function searchCatalog(q: string, limit?: number): Promise<CatalogS
 export async function getShade(id: string | number): Promise<CatalogShadeDetail> {
   const response = await fetch(`${API_BASE_URL}/catalog/shade/${id}`);
   return handleResponse<CatalogShadeDetail>(response);
+}
+
+export async function listIngestionJobs(params?: {
+  limit?: number;
+  source?: string;
+}): Promise<IngestionJobListResponse> {
+  const searchParams = new URLSearchParams();
+
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.source) searchParams.set("source", params.source);
+
+  const qs = searchParams.toString();
+  const response = await fetch(`${API_BASE_URL}/ingestion/jobs${qs ? `?${qs}` : ""}`, {
+    headers: getAuthHeaders({ admin: true }),
+  });
+
+  return handleResponse<IngestionJobListResponse>(response);
+}
+
+export async function runIngestionJob(
+  data: IngestionJobRunRequest
+): Promise<IngestionJobRunResponse> {
+  const response = await fetch(`${API_BASE_URL}/ingestion/jobs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<IngestionJobRunResponse>(response);
+}
+
+export async function getIngestionJob(id: string | number): Promise<IngestionJobRunResponse> {
+  const response = await fetch(`${API_BASE_URL}/ingestion/jobs/${id}`, {
+    headers: getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<IngestionJobRunResponse>(response);
 }
 
 export async function startCapture(data?: CaptureStartRequest): Promise<CaptureStartResponse> {

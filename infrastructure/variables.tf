@@ -34,3 +34,27 @@ variable "github_repository" {
   type        = string
   default     = "your-github-username/polish-inventory"
 }
+
+variable "openai_deployment_name" {
+  description = "Azure OpenAI deployment name used for hex detection"
+  type        = string
+  default     = "hex-detector"
+}
+
+variable "openai_model_name" {
+  description = "Azure OpenAI model name for the hex detection deployment"
+  type        = string
+  default     = "gpt-4o-mini"
+}
+
+variable "openai_model_version" {
+  description = "Azure OpenAI model version for the hex detection deployment"
+  type        = string
+  default     = "2024-07-18"
+}
+
+variable "openai_deployment_capacity" {
+  description = "Azure OpenAI deployment capacity units for the hex detection deployment"
+  type        = number
+  default     = 10
+}

@@ -1,20 +1,22 @@
-import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
+import { app, HttpRequest, HttpResponseInit, InvocationContext, output } from "@azure/functions";
 import {
   IngestionJobListResponse,
   IngestionJobRunRequest,
   IngestionJobRunResponse,
 } from "swatchwatch-shared";
-import { withAuth } from "../lib/auth";
+import { withAdmin } from "../lib/auth";
 import { withCors } from "../lib/http";
 import {
   createIngestionJob,
   getDataSourceByName,
   getIngestionJobById,
   listIngestionJobs,
+  markIngestionJobFailed,
+  markIngestionJobRunning,
+  markIngestionJobSucceeded,
   materializeHoloTacoRecords,
   materializeMakeupApiRecords,
-  markIngestionJobFailed,
-  markIngestionJobSucceeded,
+  updateIngestionJobMetrics,
   upsertExternalProducts,
 } from "../lib/ingestion-repo";
 import { OpenBeautyFactsConnector } from "../lib/connectors/open-beauty-facts";
@@ -31,12 +33,41 @@ const MAX_RECORDS = 200;
 const MAX_RECENT_DAYS = 3650;
 const DEFAULT_SEARCH_TERM = "nail polish";
 const JOB_TYPE_CONNECTOR_VERIFY = "connector_verify";
+const INGESTION_QUEUE_CONNECTION_SETTING = "AzureWebJobsStorage";
+
+export const INGESTION_JOB_QUEUE_NAME =
+  (process.env.INGESTION_JOB_QUEUE_NAME || "ingestion-jobs").trim().toLowerCase();
+
+const ingestionJobQueueOutput = output.storageQueue({
+  queueName: INGESTION_JOB_QUEUE_NAME,
+  connection: INGESTION_QUEUE_CONNECTION_SETTING,
+});
 
 const SUPPORTED_SOURCES: readonly SupportedConnectorSource[] = [
   "OpenBeautyFacts",
   "MakeupAPI",
   "HoloTacoShopify",
 ];
+
+interface NormalizedIngestionJobRequest {
+  source: SupportedConnectorSource;
+  searchTerm: string;
+  page: number;
+  pageSize: number;
+  maxRecords: number;
+  recentDays?: number;
+  materializeToInventory: boolean;
+  detectHexFromImage: boolean;
+  overwriteDetectedHex: boolean;
+}
+
+export interface IngestionJobQueueMessage {
+  jobId: number;
+  userId: number;
+  queuedAt: string;
+  request: NormalizedIngestionJobRequest;
+  requestedMetrics: Record<string, unknown>;
+}
 
 function clampInt(
   value: unknown,
@@ -74,12 +105,46 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown error";
 }
 
-async function runIngestionJob(
+function buildRequestedMetrics(
+  request: NormalizedIngestionJobRequest,
+  userId: number
+): Record<string, unknown> {
+  return {
+    searchTerm: request.searchTerm,
+    requestedPage: request.page,
+    requestedPageSize: request.pageSize,
+    maxRecords: request.maxRecords,
+    recentDays: request.recentDays || null,
+    materializeToInventory: request.materializeToInventory,
+    detectHexFromImage: request.detectHexFromImage,
+    overwriteDetectedHex: request.overwriteDetectedHex,
+    triggeredByUserId: userId,
+  };
+}
+
+function withPipelineMetrics(
+  baseMetrics: Record<string, unknown>,
+  status: "queued" | "running" | "succeeded" | "failed",
+  stage: string,
+  extra?: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    ...baseMetrics,
+    ...(extra || {}),
+    pipeline: {
+      status,
+      stage,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+}
+
+async function enqueueIngestionJob(
   request: HttpRequest,
   context: InvocationContext,
   userId: number
 ): Promise<HttpResponseInit> {
-  context.log(`POST /api/ingestion/jobs by user ${userId}`);
+  context.log(`POST /api/ingestion/jobs by admin user ${userId}`);
 
   let body: Partial<IngestionJobRunRequest>;
   try {
@@ -101,92 +166,85 @@ async function runIngestionJob(
     };
   }
 
-  const page = clampInt(body.page, DEFAULT_PAGE, 1, 50);
-  const pageSize = clampInt(body.pageSize, DEFAULT_PAGE_SIZE, 1, MAX_PAGE_SIZE);
-  const maxRecords = clampInt(body.maxRecords, DEFAULT_MAX_RECORDS, 1, MAX_RECORDS);
-  const materializeToInventory = body.materializeToInventory !== false;
-  const recentDays =
-    body.recentDays === null || body.recentDays === undefined
-      ? undefined
-      : clampInt(body.recentDays, DEFAULT_RECENT_DAYS, 1, MAX_RECENT_DAYS);
-  const searchTerm =
-    typeof body.searchTerm === "string" && body.searchTerm.trim().length > 0
-      ? body.searchTerm.trim()
-      : DEFAULT_SEARCH_TERM;
-
-  const requestedMetrics: Record<string, unknown> = {
-    searchTerm,
-    requestedPage: page,
-    requestedPageSize: pageSize,
-    maxRecords,
-    recentDays: recentDays || null,
-    materializeToInventory,
-    triggeredByUserId: userId,
+  const normalizedRequest: NormalizedIngestionJobRequest = {
+    source: sourceInput,
+    page: clampInt(body.page, DEFAULT_PAGE, 1, 50),
+    pageSize: clampInt(body.pageSize, DEFAULT_PAGE_SIZE, 1, MAX_PAGE_SIZE),
+    maxRecords: clampInt(body.maxRecords, DEFAULT_MAX_RECORDS, 1, MAX_RECORDS),
+    materializeToInventory: body.materializeToInventory !== false,
+    detectHexFromImage: body.detectHexFromImage !== false,
+    overwriteDetectedHex: body.overwriteDetectedHex === true,
+    recentDays:
+      body.recentDays === null || body.recentDays === undefined
+        ? undefined
+        : clampInt(body.recentDays, DEFAULT_RECENT_DAYS, 1, MAX_RECENT_DAYS),
+    searchTerm:
+      typeof body.searchTerm === "string" && body.searchTerm.trim().length > 0
+        ? body.searchTerm.trim()
+        : DEFAULT_SEARCH_TERM,
   };
+
+  const requestedMetrics = buildRequestedMetrics(normalizedRequest, userId);
+  const queuedAt = new Date().toISOString();
 
   let jobId: number | null = null;
 
   try {
-    const source = await getDataSourceByName(sourceInput);
+    const source = await getDataSourceByName(normalizedRequest.source);
     if (!source) {
       return {
         status: 404,
-        jsonBody: { error: `Data source '${sourceInput}' not found in data_source table` },
+        jsonBody: { error: `Data source '${normalizedRequest.source}' not found in data_source table` },
       };
     }
 
-    const job = await createIngestionJob(source.dataSourceId, JOB_TYPE_CONNECTOR_VERIFY, requestedMetrics);
-    jobId = job.jobId;
-
-    const connector = createConnector(sourceInput, source.baseUrl);
-    const connectorResult = await connector.pullProducts({
-      searchTerm,
-      page,
-      pageSize,
-      maxRecords,
-      recentDays,
+    const queuedMetrics = withPipelineMetrics(requestedMetrics, "queued", "queued", {
+      queuedAt,
+      queueName: INGESTION_JOB_QUEUE_NAME,
     });
 
-    const persistenceMetrics = await upsertExternalProducts(
+    const job = await createIngestionJob(
       source.dataSourceId,
-      connectorResult.records
+      JOB_TYPE_CONNECTOR_VERIFY,
+      queuedMetrics,
+      "queued"
     );
+    jobId = job.jobId;
 
-    const materializationMetrics =
-      sourceInput === "MakeupAPI" && materializeToInventory
-        ? await materializeMakeupApiRecords(userId, connectorResult.records)
-        : sourceInput === "HoloTacoShopify" && materializeToInventory
-          ? await materializeHoloTacoRecords(userId, source.dataSourceId, connectorResult.records)
-        : null;
-
-    const finalMetrics = {
-      ...requestedMetrics,
-      ...connectorResult.metadata,
-      ...persistenceMetrics,
-      ...(materializationMetrics || {}),
+    const queueMessage: IngestionJobQueueMessage = {
+      jobId: job.jobId,
+      userId,
+      queuedAt,
+      request: normalizedRequest,
+      requestedMetrics,
     };
 
-    await markIngestionJobSucceeded(job.jobId, finalMetrics);
-    const finalizedJob = await getIngestionJobById(job.jobId);
+    context.extraOutputs.set(ingestionJobQueueOutput, JSON.stringify(queueMessage));
 
-    if (!finalizedJob) {
+    const queuedJob = await getIngestionJobById(job.jobId);
+    if (!queuedJob) {
       return {
         status: 500,
-        jsonBody: { error: `Ingestion job ${job.jobId} completed but could not be loaded` },
+        jsonBody: { error: `Ingestion job ${job.jobId} queued but could not be loaded` },
       };
     }
 
     return {
-      status: 201,
-      jsonBody: { job: finalizedJob } satisfies IngestionJobRunResponse,
+      status: 202,
+      jsonBody: { job: queuedJob } satisfies IngestionJobRunResponse,
     };
   } catch (error: unknown) {
     const message = getErrorMessage(error);
-    context.error("Ingestion job execution failed:", error);
+    context.error("Ingestion job enqueue failed:", error);
 
     if (jobId !== null) {
       try {
-        await markIngestionJobFailed(jobId, message, requestedMetrics);
+        const failedMetrics = withPipelineMetrics(requestedMetrics, "failed", "queue_enqueue_failed", {
+          queuedAt,
+          queueName: INGESTION_JOB_QUEUE_NAME,
+          failedAt: new Date().toISOString(),
+        });
+        await markIngestionJobFailed(jobId, message, failedMetrics);
         const failedJob = await getIngestionJobById(jobId);
         if (failedJob) {
           return {
@@ -203,6 +261,157 @@ async function runIngestionJob(
       status: 500,
       jsonBody: { error: message },
     };
+  }
+}
+
+export async function processIngestionJobQueueMessage(
+  payload: IngestionJobQueueMessage,
+  context: InvocationContext
+): Promise<void> {
+  const requestedMetrics = payload.requestedMetrics || buildRequestedMetrics(payload.request, payload.userId);
+  let stage = "worker_started";
+
+  try {
+    const existingJob = await getIngestionJobById(payload.jobId);
+    if (!existingJob) {
+      context.warn(`Ingestion queue message ignored: job ${payload.jobId} not found`);
+      return;
+    }
+
+    if (existingJob.status === "succeeded" || existingJob.status === "cancelled") {
+      context.log(`Ingestion queue message ignored: job ${payload.jobId} already ${existingJob.status}`);
+      return;
+    }
+
+    if (existingJob.status === "failed") {
+      context.log(`Ingestion queue message ignored: job ${payload.jobId} already failed`);
+      return;
+    }
+
+    await markIngestionJobRunning(
+      payload.jobId,
+      withPipelineMetrics(requestedMetrics, "running", stage, {
+        queuedAt: payload.queuedAt,
+        queueName: INGESTION_JOB_QUEUE_NAME,
+        workerStartedAt: new Date().toISOString(),
+      })
+    );
+
+    stage = "source_lookup";
+    await updateIngestionJobMetrics(
+      payload.jobId,
+      withPipelineMetrics(requestedMetrics, "running", stage, {
+        queuedAt: payload.queuedAt,
+      })
+    );
+
+    const source = await getDataSourceByName(payload.request.source);
+    if (!source) {
+      throw new Error(`Data source '${payload.request.source}' not found in data_source table`);
+    }
+
+    stage = "connector_pull";
+    await updateIngestionJobMetrics(
+      payload.jobId,
+      withPipelineMetrics(requestedMetrics, "running", stage, {
+        queuedAt: payload.queuedAt,
+        sourceBaseUrl: source.baseUrl,
+      })
+    );
+
+    const connector = createConnector(payload.request.source, source.baseUrl);
+    const connectorResult = await connector.pullProducts({
+      searchTerm: payload.request.searchTerm,
+      page: payload.request.page,
+      pageSize: payload.request.pageSize,
+      maxRecords: payload.request.maxRecords,
+      recentDays: payload.request.recentDays,
+    });
+
+    stage = "upsert_external_products";
+    await updateIngestionJobMetrics(
+      payload.jobId,
+      withPipelineMetrics(requestedMetrics, "running", stage, {
+        queuedAt: payload.queuedAt,
+        ...connectorResult.metadata,
+      })
+    );
+
+    const persistenceMetrics = await upsertExternalProducts(
+      source.dataSourceId,
+      connectorResult.records
+    );
+
+    let materializationMetrics: Record<string, unknown> | null = null;
+
+    if (payload.request.source === "MakeupAPI" && payload.request.materializeToInventory) {
+      stage = "materialize_inventory";
+      await updateIngestionJobMetrics(
+        payload.jobId,
+        withPipelineMetrics(requestedMetrics, "running", stage, {
+          queuedAt: payload.queuedAt,
+          ...connectorResult.metadata,
+          ...persistenceMetrics,
+        })
+      );
+      materializationMetrics = (await materializeMakeupApiRecords(
+        payload.userId,
+        connectorResult.records
+      )) as unknown as Record<string, unknown>;
+    }
+
+    if (payload.request.source === "HoloTacoShopify" && payload.request.materializeToInventory) {
+      stage = "materialize_inventory";
+      await updateIngestionJobMetrics(
+        payload.jobId,
+        withPipelineMetrics(requestedMetrics, "running", stage, {
+          queuedAt: payload.queuedAt,
+          ...connectorResult.metadata,
+          ...persistenceMetrics,
+        })
+      );
+      materializationMetrics = (await materializeHoloTacoRecords(
+        payload.userId,
+        source.dataSourceId,
+        connectorResult.records,
+        {
+          detectHexFromImage: payload.request.detectHexFromImage,
+          overwriteDetectedHex: payload.request.overwriteDetectedHex,
+        }
+      )) as unknown as Record<string, unknown>;
+    }
+
+    const finalMetrics = withPipelineMetrics(
+      {
+        ...requestedMetrics,
+        ...connectorResult.metadata,
+        ...persistenceMetrics,
+        ...(materializationMetrics || {}),
+      },
+      "succeeded",
+      "completed",
+      {
+        queuedAt: payload.queuedAt,
+        workerCompletedAt: new Date().toISOString(),
+      }
+    );
+
+    await markIngestionJobSucceeded(payload.jobId, finalMetrics);
+    context.log(`Ingestion job ${payload.jobId} completed`);
+  } catch (error: unknown) {
+    const message = getErrorMessage(error);
+    context.error(`Ingestion job ${payload.jobId} failed:`, error);
+
+    try {
+      const failedMetrics = withPipelineMetrics(requestedMetrics, "failed", stage, {
+        queuedAt: payload.queuedAt,
+        failedAt: new Date().toISOString(),
+        failedStage: stage,
+      });
+      await markIngestionJobFailed(payload.jobId, message, failedMetrics);
+    } catch (markFailedError) {
+      context.error("Failed to update ingestion job failure status:", markFailedError);
+    }
   }
 }
 
@@ -270,7 +479,7 @@ async function ingestionJobsHandler(
     return handleListIngestionJobs(request, context);
   }
   if (method === "POST") {
-    return runIngestionJob(request, context, userId);
+    return enqueueIngestionJob(request, context, userId);
   }
   return { status: 405, jsonBody: { error: "Method not allowed" } };
 }
@@ -291,12 +500,13 @@ app.http("ingestion-jobs", {
   methods: ["GET", "POST", "OPTIONS"],
   authLevel: "anonymous",
   route: "ingestion/jobs",
-  handler: withCors(withAuth(ingestionJobsHandler)),
+  extraOutputs: [ingestionJobQueueOutput],
+  handler: withCors(withAdmin(ingestionJobsHandler)),
 });
 
 app.http("ingestion-job-detail", {
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   route: "ingestion/jobs/{id}",
-  handler: withCors(withAuth(ingestionJobDetailHandler)),
+  handler: withCors(withAdmin(ingestionJobDetailHandler)),
 });

@@ -191,13 +191,15 @@ resource "azurerm_linux_function_app" "main" {
     # Reference Key Vault secret instead of plaintext password
     PGPASSWORD = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.pg_password.id})"
     # Placeholder for future secrets
-    AZURE_STORAGE_CONNECTION = azurerm_storage_account.main.primary_connection_string
-    AZURE_SPEECH_KEY         = "to-be-added"
-    AZURE_SPEECH_REGION      = azurerm_resource_group.main.location
-    AZURE_OPENAI_ENDPOINT    = "to-be-added"
-    AZURE_OPENAI_KEY         = "to-be-added"
-    AZURE_AD_B2C_TENANT      = "to-be-added"
-    AZURE_AD_B2C_CLIENT_ID   = "to-be-added"
+    AZURE_STORAGE_CONNECTION    = azurerm_storage_account.main.primary_connection_string
+    INGESTION_JOB_QUEUE_NAME    = "ingestion-jobs"
+    AZURE_SPEECH_KEY            = "to-be-added"
+    AZURE_SPEECH_REGION         = azurerm_resource_group.main.location
+    AZURE_OPENAI_ENDPOINT       = azurerm_cognitive_account.openai.endpoint
+    AZURE_OPENAI_KEY            = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.openai_key.id})"
+    AZURE_OPENAI_DEPLOYMENT_HEX = azurerm_cognitive_deployment.openai_hex.name
+    AZURE_AD_B2C_TENANT         = "to-be-added"
+    AZURE_AD_B2C_CLIENT_ID      = "to-be-added"
   }
 }
 
@@ -233,6 +235,39 @@ resource "azurerm_cognitive_account" "speech" {
   location            = azurerm_resource_group.main.location
   kind                = "SpeechServices"
   sku_name            = "S0"
+}
+
+resource "azurerm_cognitive_account" "openai" {
+  name                  = "${local.resource_prefix}-openai-${local.unique_suffix}"
+  resource_group_name   = azurerm_resource_group.main.name
+  location              = azurerm_resource_group.main.location
+  kind                  = "OpenAI"
+  sku_name              = "S0"
+  custom_subdomain_name = "${local.resource_prefix}-openai-${local.unique_suffix}"
+}
+
+resource "azurerm_cognitive_deployment" "openai_hex" {
+  name                 = var.openai_deployment_name
+  cognitive_account_id = azurerm_cognitive_account.openai.id
+
+  model {
+    format  = "OpenAI"
+    name    = var.openai_model_name
+    version = var.openai_model_version
+  }
+
+  scale {
+    type     = "Standard"
+    capacity = var.openai_deployment_capacity
+  }
+}
+
+resource "azurerm_key_vault_secret" "openai_key" {
+  name         = "azure-openai-key"
+  value        = azurerm_cognitive_account.openai.primary_access_key
+  key_vault_id = azurerm_key_vault.main.id
+
+  depends_on = [azurerm_key_vault_access_policy.deployer]
 }
 
 # ── GitHub Actions OIDC Federation (passwordless CI/CD) ────────

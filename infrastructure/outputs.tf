@@ -43,6 +43,18 @@ output "speech_service_key" {
   sensitive = true
 }
 
+output "openai_account_name" {
+  value = azurerm_cognitive_account.openai.name
+}
+
+output "openai_endpoint" {
+  value = azurerm_cognitive_account.openai.endpoint
+}
+
+output "openai_hex_deployment_name" {
+  value = azurerm_cognitive_deployment.openai_hex.name
+}
+
 # Key Vault and GitHub Actions OIDC configuration
 output "key_vault_name" {
   description = "Name of the Key Vault"

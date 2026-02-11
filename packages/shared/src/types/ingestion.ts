@@ -8,7 +8,7 @@ export type IngestionSourceName =
   | "ManualEntry"
   | "UserCapture";
 
-export type IngestionJobStatus = "running" | "succeeded" | "failed" | "cancelled";
+export type IngestionJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
 export interface IngestionJobRunRequest {
   source: IngestionSourceName;
@@ -18,6 +18,8 @@ export interface IngestionJobRunRequest {
   maxRecords?: number;
   recentDays?: number;
   materializeToInventory?: boolean;
+  detectHexFromImage?: boolean;
+  overwriteDetectedHex?: boolean;
 }
 
 export interface IngestionJobRecord {

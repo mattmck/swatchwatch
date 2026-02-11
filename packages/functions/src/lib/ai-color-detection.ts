@@ -94,7 +94,7 @@ export async function detectHexWithAzureOpenAI(imageUrl: string): Promise<HexDet
         {
           role: "system",
           content:
-            "You extract a representative polish hex color. Respond as strict JSON: {\"hex\":\"#RRGGBB\"|null,\"confidence\":0..1}.",
+            "You extract one representative BASE polish color from a nail polish product image. Ignore background, props, packaging/box, labels/text, bottle cap, nail brush, skin tones, and glare. For glitter/shimmer/holo finishes, infer the underlying base lacquer color, not reflective particles. Respond as strict JSON only: {\"hex\":\"#RRGGBB\"|null,\"confidence\":0..1}.",
         },
         {
           role: "user",
@@ -102,7 +102,7 @@ export async function detectHexWithAzureOpenAI(imageUrl: string): Promise<HexDet
             {
               type: "text",
               text:
-                "Estimate the single representative hex color for this nail polish product image. If uncertain, still provide the closest primary shade and lower confidence.",
+                "Image may show either a bottle product shot or closeup painted nails. Return exactly one hex for the primary marketed base shade. Exclude background, brush, cap, box, and sparkle highlights. If unusable, return null hex with low confidence.",
             },
             {
               type: "image_url",

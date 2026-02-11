@@ -104,11 +104,14 @@ The web app is the most developed part of the project. Key pages:
 
 | Route | File | Description |
 |-------|------|-------------|
-| `/` | `apps/web/src/app/(dashboard)/page.tsx` | Dashboard — stats cards, recent additions, finish breakdown |
-| `/polishes` | `apps/web/src/app/polishes/page.tsx` | Collection table — search, filter by brand/finish, sortable columns |
-| `/polishes/new` | `apps/web/src/app/polishes/new/page.tsx` | Add polish form — color picker, star rating, voice input placeholder |
-| `/polishes/[id]` | `apps/web/src/app/polishes/[id]/page.tsx` | Polish detail — all fields, photo placeholders, edit/delete |
-| `/polishes/search` | `apps/web/src/app/polishes/search/page.tsx` | Color wheel search — hover to preview, click to lock, similar/complementary modes |
+| `/` | `apps/web/src/app/(marketing)/page.tsx` | Marketing landing page |
+| `/dashboard` | `apps/web/src/app/(app)/dashboard/page.tsx` | Dashboard — stats cards, recent additions, finish breakdown |
+| `/admin/jobs` | `apps/web/src/app/(app)/admin/jobs/page.tsx` | Internal ingestion admin — run jobs, monitor status, inspect change metrics |
+| `/polishes` | `apps/web/src/app/(app)/polishes/page.tsx` | Collection table — search, filter by brand/finish, sortable columns |
+| `/polishes/new` | `apps/web/src/app/(app)/polishes/new/page.tsx` | Add polish form — color picker, star rating, voice input placeholder |
+| `/polishes/detail` | `apps/web/src/app/(app)/polishes/detail/page.tsx` | Polish detail shell (query-param based) |
+| `/polishes/search` | `apps/web/src/app/(app)/polishes/search/page.tsx` | Color wheel search — hover to preview, click to lock, similar/complementary modes |
+| `/rapid-add` | `apps/web/src/app/rapid-add/page.tsx` | Capture-driven rapid add flow |
 
 
 **UI stack:** [shadcn/ui](https://ui.shadcn.com/) components in `src/components/ui/`, custom components in `src/components/`, Tailwind v4 styling.
@@ -123,7 +126,9 @@ Functions require secrets defined in `packages/functions/local.settings.json`:
 |----------|---------|
 | `COSMOS_DB_CONNECTION` | Cosmos DB connection string |
 | `AZURE_STORAGE_CONNECTION` | Storage account (swatch/nail photos). In local dev this points to Azurite (see "Local storage emulator" below). |
+| `INGESTION_JOB_QUEUE_NAME` | Optional async ingestion queue name (default: `ingestion-jobs`) |
 | `SOURCE_IMAGE_CONTAINER` | Optional container for source-ingested product images (default: `source-images`) |
+| `BLOB_READ_SAS_TTL_SECONDS` | Optional signed read URL TTL for blob-backed swatch images, in seconds (default: `3600`) |
 | `AZURE_SPEECH_KEY` | Azure Speech Services key |
 | `AZURE_SPEECH_REGION` | Azure Speech Services region |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint for voice parsing |
@@ -134,6 +139,7 @@ Functions require secrets defined in `packages/functions/local.settings.json`:
 | `AUTH_DEV_BYPASS` | Dev-only bypass (`true` enables `Bearer dev:<userId>` tokens); do not use in shared/prod environments |
 | `NEXT_PUBLIC_API_URL` | Web API base URL used at web build time |
 | `NEXT_PUBLIC_AUTH_DEV_BYPASS` | Web dev-only bypass toggle (`true` makes the UI send `Authorization: Bearer dev:1`) |
+| `NEXT_PUBLIC_AUTH_DEV_ADMIN_USER_ID` | Optional web admin bypass user id for admin-only API calls (defaults to `2`) |
 
 ### Local storage emulator (Azurite)
 
@@ -150,7 +156,8 @@ Then set the following in `packages/functions/local.settings.json` (the `agent-w
   "Values": {
     "AzureWebJobsStorage": "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;QueueEndpoint=http://127.0.0.1:10001/devstoreaccount1;TableEndpoint=http://127.0.0.1:10002/devstoreaccount1;",
     "AZURE_STORAGE_CONNECTION": "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;QueueEndpoint=http://127.0.0.1:10001/devstoreaccount1;TableEndpoint=http://127.0.0.1:10002/devstoreaccount1;",
-    "SOURCE_IMAGE_CONTAINER": "source-images"
+    "SOURCE_IMAGE_CONTAINER": "source-images",
+    "BLOB_READ_SAS_TTL_SECONDS": "3600"
   }
 }
 ```
