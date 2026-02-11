@@ -18,7 +18,7 @@ interface ColorSearchResultsProps {
   harmonyType: HarmonyType;
   focusedTargetHex?: string | null;
   onQuantityChange?: (polishId: string, delta: number) => void;
-  onAddDesired?: (hex: string) => void;
+  onAddFocus?: (hex: string) => void;
   /** Header dot hover — affects wheel marker + table filter */
   onSwatchHover?: (hex: string) => void;
   onSwatchLeave?: () => void;
@@ -35,7 +35,7 @@ export function ColorSearchResults({
   harmonyType,
   focusedTargetHex,
   onQuantityChange,
-  onAddDesired,
+  onAddFocus,
   onSwatchHover,
   onSwatchLeave,
   onSwatchClick,
@@ -136,18 +136,18 @@ export function ColorSearchResults({
             </Link>
 
             {/* Quantity controls */}
-            {(onAddDesired || onQuantityChange) && (
+            {(onAddFocus || onQuantityChange) && (
               <div className="shrink-0 flex items-center gap-2">
-                {onAddDesired && polish.colorHex && (
+                {onAddFocus && polish.colorHex && (
                   <Button
                     type="button"
                     size="icon-sm"
                     variant="outline"
                     className="w-9"
-                    title="Add to desired colors"
+                    title="Add to focused colors"
                     onClick={() => {
                       if (!polish.colorHex) return;
-                      onAddDesired(polish.colorHex);
+                      onAddFocus(polish.colorHex);
                     }}
                   >
                     <BsPlusLg className="h-3.5 w-3.5" />

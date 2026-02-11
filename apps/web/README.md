@@ -24,7 +24,7 @@ src/app/
 │       ├── page.tsx              → /polishes         Inventory table (hydrates all API pages for client-side search/filter)
 │       ├── new/page.tsx          → /polishes/new     Add polish form
 │       ├── [id]/page.tsx         → /polishes/:id     Polish detail view + OKLCH profile + related shades
-│       └── search/page.tsx       → /polishes/search  Color wheel search
+│       └── search/page.tsx       → /polishes/search  Color wheel search (two-column layout, focus workflow)
 ├── layout.tsx                    → Root layout (fonts, metadata — no AppShell)
 └── globals.css                   → Tailwind v4 + brand theme tokens + utility classes
 ```
@@ -89,7 +89,7 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 | `marketing-theme-toggle.tsx` | System/light/dark theme selector used in the marketing header |
 | `color-dot.tsx` | Colored circle swatch — `sm`, `md`, `lg` sizes |
 | `color-wheel.tsx` | Canvas HSL color wheel with hover preview, click selection, owned-shade snap mode, and glow-forward selected marker |
-| `color-search-results.tsx` | Polish list sorted by OKLAB color distance, with branded finish badges and harmony interactions (palette selection affects table targeting without mutating desired anchors) |
+| `color-search-results.tsx` | Polish list sorted by OKLAB color distance, with branded finish badges and harmony interactions (palette selection affects table targeting without mutating focused colors) |
 
 ### shadcn/ui (`src/components/ui/`)
 
