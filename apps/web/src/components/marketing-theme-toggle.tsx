@@ -17,10 +17,6 @@ type ResolvedTheme = "light" | "dark";
 
 const STORAGE_KEY = "swatchwatch-theme";
 
-function getSystemTheme(): ResolvedTheme {
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
-
 function getSavedPreference(): ThemePreference {
   if (typeof window === "undefined") return "system";
   const saved = localStorage.getItem(STORAGE_KEY);
@@ -28,20 +24,26 @@ function getSavedPreference(): ThemePreference {
 }
 
 export function MarketingThemeToggle() {
-  const [preference, setPreference] = useState<ThemePreference>(() => getSavedPreference());
-  const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(() =>
-    typeof window === "undefined" ? "light" : getSystemTheme(),
-  );
+  const [preference, setPreference] = useState<ThemePreference>("system");
+  const [systemTheme, setSystemTheme] = useState<ResolvedTheme>("light");
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const savedPreference = getSavedPreference();
+    const initTimer = window.setTimeout(() => {
+      setPreference(savedPreference);
+      setSystemTheme(media.matches ? "dark" : "light");
+    }, 0);
+
     const handleSystemThemeChange = (event: MediaQueryListEvent) => {
       setSystemTheme(event.matches ? "dark" : "light");
     };
 
     media.addEventListener("change", handleSystemThemeChange);
-
-    return () => media.removeEventListener("change", handleSystemThemeChange);
+    return () => {
+      window.clearTimeout(initTimer);
+      media.removeEventListener("change", handleSystemThemeChange);
+    };
   }, []);
 
   const resolvedTheme: ResolvedTheme = useMemo(

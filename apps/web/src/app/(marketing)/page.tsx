@@ -93,7 +93,7 @@ export default function LandingPage() {
           </ScrollFadeIn>
 
           <ScrollFadeIn delay={200}>
-            <p className="mx-auto mt-5 max-w-2xl text-base text-brand-purple-deep/80 sm:mt-6 sm:text-lg lg:text-2xl lg:leading-relaxed">
+            <p className="mx-auto mt-5 max-w-2xl text-base text-brand-purple-deep/80 dark:text-brand-lilac/90 sm:mt-6 sm:text-lg lg:text-2xl lg:leading-relaxed">
               The smart nail polish manager that catalogs your shades, finds dupes,
               and discovers harmonious color pairings — all powered by color science.
             </p>
@@ -260,7 +260,7 @@ export default function LandingPage() {
             <h2 className="text-2xl font-bold tracking-tight text-brand-ink sm:text-3xl md:text-4xl">
               Start organizing your collection
             </h2>
-            <p className="mx-auto mt-3 max-w-xl text-sm text-brand-purple-deep/70 sm:mt-4 sm:text-base">
+            <p className="mx-auto mt-3 max-w-xl text-sm text-brand-purple-deep/70 dark:text-brand-lilac/85 sm:mt-4 sm:text-base">
               Join SwatchWatch and bring color intelligence to your nail polish
               collection today.
             </p>

@@ -572,6 +572,27 @@ function ColorSearchPageContent() {
     [allPolishes]
   );
 
+  const handleApplyRecommendedPalette = useCallback((
+    candidate: RecommendedPalette,
+    focusedHex?: string,
+  ) => {
+    const sourceHex = candidate.sourceHex.toUpperCase();
+    const sourceHsl = hexToHsl(sourceHex);
+    const harmonyLabel =
+      HARMONY_TYPES.find((item) => item.value === candidate.harmony)?.label ?? candidate.harmony;
+    const normalizedFocusHex = focusedHex?.toUpperCase() ?? null;
+
+    lockedTargetRef.current = normalizedFocusHex;
+    setFocusedTargetHex(normalizedFocusHex);
+    setExternalHoverHex(null);
+    setPreviewHex(null);
+    setHarmonyType(candidate.harmony);
+    setSelectedHsl(sourceHsl);
+    setLightness(sourceHsl.l);
+    setPaletteAnchors(uniqueHexes(candidate.slotHexes));
+    setAnchorFeedback(`Applied ${harmonyLabel} palette`);
+  }, []);
+
   const layoutCols = harmonyPanelCollapsed
     ? "xl:grid-cols-[minmax(300px,_360px)_80px_minmax(0,_1fr)]"
     : "xl:grid-cols-[minmax(300px,_360px)_minmax(280px,_340px)_minmax(0,_1fr)]";
@@ -907,7 +928,8 @@ function ColorSearchPageContent() {
                       return (
                         <div
                           key={candidate.id}
-                          className="glass rounded-lg border border-brand-lilac/45 bg-background/70 p-2 shadow-[0_12px_26px_rgba(66,16,126,0.12)]"
+                          className="glass cursor-pointer rounded-lg border border-brand-lilac/45 bg-background/70 p-2 shadow-[0_12px_26px_rgba(66,16,126,0.12)] transition-all hover:shadow-glow-brand"
+                          onClick={() => handleApplyRecommendedPalette(candidate)}
                         >
                           <div className="mb-1 flex items-center justify-between gap-2">
                             <div className="flex min-w-0 items-center gap-2">
@@ -941,9 +963,9 @@ function ColorSearchPageContent() {
                                   title={`${hex} • ${AVAILABILITY_META[status].label}`}
                                   onMouseEnter={() => handleSwatchHover(hex)}
                                   onMouseLeave={handleSwatchLeave}
-                                  onClick={() => {
-                                    handleSwatchClick(hex);
-                                    handleExternalColorSelect(hex);
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleApplyRecommendedPalette(candidate, hex);
                                   }}
                                 >
                                   <span className="absolute inset-0 flex items-center justify-center">
