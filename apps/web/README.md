@@ -23,7 +23,7 @@ src/app/
 │   └── polishes/
 │       ├── page.tsx              → /polishes         Inventory table
 │       ├── new/page.tsx          → /polishes/new     Add polish form
-│       ├── [id]/page.tsx         → /polishes/:id     Polish detail view
+│       ├── [id]/page.tsx         → /polishes/:id     Polish detail view + OKLCH profile + related shades
 │       └── search/page.tsx       → /polishes/search  Color wheel search
 ├── layout.tsx                    → Root layout (fonts, metadata — no AppShell)
 └── globals.css                   → Tailwind v4 + brand theme tokens + utility classes
@@ -104,7 +104,7 @@ cd apps/web && npx shadcn@latest add <component-name>
 | File | Exports |
 |------|---------|
 | `utils.ts` | `cn()` — Tailwind class merging (shadcn standard) |
-| `constants.ts` | `FINISHES` — canonical finish types for dropdowns |
+| `constants.ts` | `FINISHES`, `finishLabel()`, `finishBadgeClassName()` — finish taxonomy and branded badge styling |
 | `color-utils.ts` | Hex↔HSL↔RGB↔OKLAB conversions, `colorDistance()`, `complementaryHex()` |
 
 ## Metadata & Assets

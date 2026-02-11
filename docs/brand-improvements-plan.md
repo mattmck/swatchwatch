@@ -61,11 +61,13 @@
 - Finish badge: use brand-colored variants instead of default gray secondary
 - Consider sticky header row with glass effect
 - [x] Filters now use branded pill toggles with shared button micro-interactions
+- [x] Completed (2026-02-11): Row hover tint, larger ringed swatches, finish-specific brand badge variants, and sticky glass header are all implemented on `/polishes`.
 
 ### B3. Polish detail page enhancements
 - Hero-style color display: large swatch as background gradient behind polish name
 - Color metadata section with visual OKLCH breakdown (lightness bar, chroma indicator, hue wheel position)
 - Related/similar shades section using the existing color distance API
+- [x] Completed (2026-02-11): Detail page now includes hero swatch treatment, an OKLCH color profile card with visual bars, and a related shades list ranked by perceptual `colorDistance`.
 
 ### B4. Color search page refinements
 - The OKLCH color wheel is functional but visually stark

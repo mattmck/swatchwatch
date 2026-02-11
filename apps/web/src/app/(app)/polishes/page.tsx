@@ -30,7 +30,7 @@ import { ToggleChip } from "@/components/toggle-chip";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
-import { FINISHES } from "@/lib/constants";
+import { FINISHES, finishBadgeClassName, finishLabel } from "@/lib/constants";
 
 const PAGE_SIZE = 10;
 
@@ -286,7 +286,7 @@ export default function PolishesPage() {
               <TableHead className="w-10">Status</TableHead>
               <TableHead>Brand</TableHead>
               <TableHead>Name</TableHead>
-              <TableHead className="w-12">Color</TableHead>
+              <TableHead className="w-14">Color</TableHead>
               <TableHead className="w-12">Find</TableHead>
               <TableHead>Finish</TableHead>
               <TableHead>Collection</TableHead>
@@ -326,7 +326,11 @@ export default function PolishesPage() {
                       </Link>
                     </TableCell>
                     <TableCell>
-                      <ColorDot hex={polish.colorHex} size="sm" />
+                      <ColorDot
+                        hex={polish.colorHex}
+                        size="md"
+                        className="ring-2 ring-white/80 shadow-[0_0_0_1px_rgba(66,16,126,0.18),0_8px_20px_rgba(66,16,126,0.16)]"
+                      />
                     </TableCell>
                     <TableCell className="text-center">
                       {polish.colorHex && (
@@ -341,8 +345,8 @@ export default function PolishesPage() {
                     </TableCell>
                     <TableCell>
                       {polish.finish && (
-                        <Badge className="border border-brand-pink-soft/60 bg-brand-pink-soft/30 text-brand-ink">
-                          {polish.finish.charAt(0).toUpperCase() + polish.finish.slice(1)}
+                        <Badge className={finishBadgeClassName(polish.finish)}>
+                          {finishLabel(polish.finish)}
                         </Badge>
                       )}
                     </TableCell>
