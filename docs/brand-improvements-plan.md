@@ -158,18 +158,18 @@
 - Bundle the 4 brand icons into a single SVG sprite `<symbol>` sheet
 - Reduces HTTP requests and enables easier icon reuse in non-React contexts
 - The current inline SVG approach works but doesn't scale to 10+ icons
-- [ ] Evaluate and implement SVG sprite strategy for reusable brand icons.
+- [x] Completed (2026-02-11): Added `public/brand/swatchwatch-sprite.svg` with all core symbols and introduced `SwatchWatchSpriteIcon` for sprite-based icon rendering when needed.
 
 ### E2. OG image variants
 - Per-page OG images (dashboard preview, collection preview)
 - Consider using `@vercel/og` or similar for dynamic OG generation if we move off static export
-- [ ] Add page-specific OG variants for key app surfaces.
+- [x] Completed (2026-02-11): Added route-level OG generators for dashboard and collection surfaces via `opengraph-image.tsx` in `/dashboard` and `/polishes`.
 
 ### E3. Preload critical assets
 - `<link rel="preload">` for the brand font
 - Preconnect to font CDN if using Google Fonts
 - Ensure the monogram SVG favicon loads fast (it's tiny, but verify)
-- [ ] Add and verify critical asset preload/preconnect optimizations.
+- [x] Completed (2026-02-11): Configured `metadataBase` for stable social URLs and preloaded critical brand SVG assets in root layout head; `next/font` keeps Inter self-hosted so external font preconnect is not required.
 
 ---
 

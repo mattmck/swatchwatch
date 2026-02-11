@@ -19,9 +19,12 @@ src/app/
 │   └── page.tsx                  → /           Landing page (hero, features, interactive showcase, testimonials, CTA)
 ├── (app)/
 │   ├── layout.tsx                → App layout (AppShell sidebar wrapper)
-│   ├── dashboard/page.tsx        → /dashboard       Stats, recent additions
+│   ├── dashboard/
+│   │   ├── page.tsx              → /dashboard       Stats, recent additions
+│   │   └── opengraph-image.tsx   → /dashboard OG image route
 │   └── polishes/
 │       ├── page.tsx              → /polishes         Inventory table
+│       ├── opengraph-image.tsx   → /polishes OG image route
 │       ├── new/page.tsx          → /polishes/new     Add polish form
 │       ├── [id]/page.tsx         → /polishes/:id     Polish detail view + OKLCH profile + related shades
 │       └── search/page.tsx       → /polishes/search  Color wheel search
@@ -75,6 +78,7 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 | Component | Purpose |
 |-----------|---------|
 | `SwatchWatchIcon` | Renders SVG brand icons (monogram, app, swatch, brush) |
+| `SwatchWatchSpriteIcon` | Renders symbols from `public/brand/swatchwatch-sprite.svg` for sprite-based icon usage |
 | `SwatchWatchWordmark` | Icon + styled "SwatchWatch" text with gradient W |
 | `SwatchWatchGraphicSet` | All 4 icons in a row |
 
@@ -121,8 +125,9 @@ cd apps/web && npx shadcn@latest add <component-name>
 | Favicon (SVG) | `public/brand/swatchwatch-monogram.svg` | Referenced via metadata `icons` config |
 | Apple Touch Icon | `public/apple-touch-icon.png` | 180x180 PNG from app icon SVG |
 | OG Image | `public/og-image.png` | 1200x630 branded social preview |
+| OG Variants | `src/app/(app)/dashboard/opengraph-image.tsx`, `src/app/(app)/polishes/opengraph-image.tsx` | Route-specific social previews for dashboard and collection |
 | Manifest | `public/manifest.json` | PWA manifest with brand colors |
-| Brand SVGs | `public/brand/` | Monogram, wordmark, lockup, swatch, brush, app icon |
+| Brand SVGs | `public/brand/` | Monogram, wordmark, lockup, swatch, brush, app icon, sprite sheet |
 
 ## Environment Variables
 
