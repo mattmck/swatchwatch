@@ -127,24 +127,28 @@
 - Loading spinner: replace text "Loading..." with a branded spinner (rotating monogram icon or pulsing drop)
 - Error cards: use destructive red but with brand-consistent rounded corners and typography
 - Empty collection state: illustrated drop icon + encouraging copy + CTA to add first polish
+- [ ] Implement branded loading, error, and empty-state treatments across app routes.
 
 ### D2. Notification / toast styling
 - shadcn Sonner toasts should inherit brand colors
 - Success: green with brand border radius
 - Info: brand purple tint
 - Error: stays destructive red
+- [ ] Apply brand-aware Sonner toast variants for success/info/error states.
 
 ### D3. Micro-interactions
 - Button hover: scale(1.02) + shadow transition on CTA buttons
 - Card hover: lift effect (translateY(-2px) + increased shadow)
 - Nav items: underline slide-in animation on active state
 - Polish swatch dots: subtle scale on hover
+- [ ] Add consistent micro-interactions for buttons, cards, nav states, and swatches.
 
 ### D4. Sidebar refinement
 - Sidebar logo area: add a faint gradient divider or brand accent line
 - Active nav item: use a filled pill with brand pink-soft background instead of secondary
 - Collapsed state (future): icon-only mode at narrow breakpoints
 - User avatar / settings section at bottom of sidebar
+- [ ] Refine sidebar visual hierarchy and active-state styling.
 
 ---
 
@@ -154,15 +158,18 @@
 - Bundle the 4 brand icons into a single SVG sprite `<symbol>` sheet
 - Reduces HTTP requests and enables easier icon reuse in non-React contexts
 - The current inline SVG approach works but doesn't scale to 10+ icons
+- [ ] Evaluate and implement SVG sprite strategy for reusable brand icons.
 
 ### E2. OG image variants
 - Per-page OG images (dashboard preview, collection preview)
 - Consider using `@vercel/og` or similar for dynamic OG generation if we move off static export
+- [ ] Add page-specific OG variants for key app surfaces.
 
 ### E3. Preload critical assets
 - `<link rel="preload">` for the brand font
 - Preconnect to font CDN if using Google Fonts
 - Ensure the monogram SVG favicon loads fast (it's tiny, but verify)
+- [ ] Add and verify critical asset preload/preconnect optimizations.
 
 ---
 
