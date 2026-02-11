@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import type { Polish } from "swatchwatch-shared";
-import { listPolishes } from "@/lib/api";
+import { listAllPolishes } from "@/lib/api";
 import {
   Card,
   CardContent,
@@ -40,8 +40,12 @@ export default function DashboardPage() {
     async function fetchData() {
       try {
         setLoading(true);
-        const response = await listPolishes();
-        setPolishes(response.polishes);
+        setError(null);
+        const response = await listAllPolishes({
+          sortBy: "createdAt",
+          sortOrder: "desc",
+        });
+        setPolishes(response);
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Failed to load dashboard data");
       } finally {

@@ -132,6 +132,7 @@ require("../dist/functions/polishes");
 require("../dist/functions/catalog");
 require("../dist/functions/voice");
 require("../dist/functions/capture");
+require("../dist/functions/ingestion");
 
 // Reset mocks between tests
 afterEach(() => {
@@ -633,6 +634,24 @@ describe("functions/voice — processVoiceInput validation", () => {
     assert.ok("parsedDetails" in res.jsonBody);
     assert.ok("transcription" in res.jsonBody);
     assert.equal(res.jsonBody.parsedDetails.confidence, 0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// functions/ingestion — route registration
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("functions/ingestion — route registration", () => {
+  it("registers ingestion routes", () => {
+    assert.ok(registeredRoutes["ingestion-jobs"]);
+    assert.ok(registeredRoutes["ingestion-job-detail"]);
+  });
+
+  it("uses expected methods and route patterns", () => {
+    assert.deepEqual(registeredRoutes["ingestion-jobs"].methods, ["GET", "POST", "OPTIONS"]);
+    assert.equal(registeredRoutes["ingestion-jobs"].route, "ingestion/jobs");
+    assert.deepEqual(registeredRoutes["ingestion-job-detail"].methods, ["GET", "OPTIONS"]);
+    assert.equal(registeredRoutes["ingestion-job-detail"].route, "ingestion/jobs/{id}");
   });
 });
 

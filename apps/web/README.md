@@ -20,14 +20,14 @@ src/app/
 ├── (app)/
 │   ├── layout.tsx                → App layout (AppShell sidebar wrapper)
 │   ├── dashboard/
-│   │   ├── page.tsx              → /dashboard       Stats, recent additions
+│   │   ├── page.tsx              → /dashboard       Stats, recent additions (computed from full paginated inventory)
 │   │   └── opengraph-image.tsx   → /dashboard OG image route
 │   └── polishes/
-│       ├── page.tsx              → /polishes         Inventory table
+│       ├── page.tsx              → /polishes         Inventory table (hydrates all API pages for client-side search/filter + sortable headers)
 │       ├── opengraph-image.tsx   → /polishes OG image route
 │       ├── new/page.tsx          → /polishes/new     Add polish form
 │       ├── [id]/page.tsx         → /polishes/:id     Polish detail view + OKLCH profile + related shades
-│       └── search/page.tsx       → /polishes/search  Color wheel search
+│       └── search/page.tsx       → /polishes/search  Color wheel search (two-column layout, collapsible wheel/harmonies, single full-width harmony-only selector with All mode, one-click swatch focus, focus workflow)
 ├── layout.tsx                    → Root layout (fonts, metadata — no AppShell)
 └── globals.css                   → Tailwind v4 + brand theme tokens + utility classes
 ```
@@ -96,7 +96,7 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 | `marketing-theme-toggle.tsx` | System/light/dark theme selector used in the marketing header |
 | `color-dot.tsx` | Colored circle swatch (`sm`/`md`/`lg`) with subtle hover scale micro-interaction |
 | `color-wheel.tsx` | Canvas HSL color wheel with hover preview, click selection, owned-shade snap mode, and glow-forward selected marker |
-| `color-search-results.tsx` | Polish list sorted by OKLAB color distance, with branded finish badges and harmony interactions (palette selection affects table targeting without mutating desired anchors) |
+| `color-search-results.tsx` | Polish list sorted by OKLAB color distance, with branded finish badges, high-contrast focus-state swatch highlights, and harmony interactions (palette selection affects table targeting without mutating focused colors) |
 
 ### shadcn/ui (`src/components/ui/`)
 
@@ -117,6 +117,7 @@ cd apps/web && npx shadcn@latest add <component-name>
 | `utils.ts` | `cn()` — Tailwind class merging (shadcn standard) |
 | `constants.ts` | `FINISHES`, `finishLabel()`, `finishBadgeClassName()` — finish taxonomy and branded badge styling |
 | `color-utils.ts` | Hex↔HSL↔RGB↔OKLAB conversions, `colorDistance()`, `complementaryHex()` |
+| `api.ts` | API client helpers including `listPolishes()` and `listAllPolishes()` for full paginated inventory fetches |
 
 ## Metadata & Assets
 
