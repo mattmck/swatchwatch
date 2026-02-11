@@ -38,9 +38,6 @@ interface ColorWheelProps {
   harmonyDots?: HarmonyDot[];
 }
 
-/** Pixel radius for snapping to a dot */
-const SNAP_RADIUS = 20;
-
 export function ColorWheel({
   lightness,
   onHover,
@@ -343,7 +340,7 @@ export function ColorWheel({
         const dy = vy - vp.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
-        if (dist <= SNAP_RADIUS && (!best || dist < best.distPx)) {
+        if (!best || dist < best.distPx) {
           best = { index: i, dot: snapDots[i], distPx: dist };
         }
       }
@@ -407,10 +404,9 @@ export function ColorWheel({
         const vx = (e.clientX - rect.left) * scaleX;
         const vy = (e.clientY - rect.top) * scaleY;
 
-        // In snap mode with a snapped dot, position the indicator at the dot
-        if (wheelMode === "snap" && snappedDotIndex !== null) {
-          const dot = snapDots[snappedDotIndex];
-          const wp = hslToWheelPos(dot.hsl);
+        // In snap mode, keep the indicator on the snapped owned shade.
+        if (wheelMode === "snap") {
+          const wp = hslToWheelPos(result.hsl);
           const vp = wheelToViewport(wp.x, wp.y);
           setHoveredPos({ x: vp.x, y: vp.y });
         } else {
@@ -422,7 +418,7 @@ export function ColorWheel({
         setSnappedDotIndex(null);
       }
     },
-    [getColorFromEvent, onHover, size, wheelMode, snappedDotIndex, snapDots, hslToWheelPos, wheelToViewport]
+    [getColorFromEvent, onHover, size, wheelMode, hslToWheelPos, wheelToViewport]
   );
 
   const handleClick = useCallback(
@@ -612,6 +608,7 @@ export function ColorWheel({
         return wheelToViewport(wp.x, wp.y);
       })()
     : null;
+  const selectedHex = selectedHsl ? hslToHex(selectedHsl) : null;
 
   return (
     <div className="relative inline-block" style={{ width: size, height: size }}>
@@ -643,8 +640,8 @@ export function ColorWheel({
         {/* Locked selection marker */}
         {selectedPos && (
           <div
-            className="pointer-events-none absolute h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white shadow-[0_0_0_2px_rgba(0,0,0,0.4)]"
-            style={{ left: selectedPos.x, top: selectedPos.y }}
+            className="pointer-events-none absolute h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white shadow-glow-brand"
+            style={{ left: selectedPos.x, top: selectedPos.y, backgroundColor: selectedHex ?? undefined }}
           />
         )}
         {/* External hover marker (from palette/results hover) */}

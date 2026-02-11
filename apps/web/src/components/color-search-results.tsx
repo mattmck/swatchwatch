@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ColorDot } from "@/components/color-dot";
 import { QuantityControls } from "@/components/quantity-controls";
+import { finishBadgeClassName, finishLabel } from "@/lib/constants";
 
 interface ColorSearchResultsProps {
   polishes: (Polish & {
@@ -125,8 +126,8 @@ export function ColorSearchResults({
                 </p>
               </div>
               {polish.finish && (
-                <Badge variant="secondary" className="shrink-0">
-                  {polish.finish}
+                <Badge className={`shrink-0 ${finishBadgeClassName(polish.finish)}`}>
+                  {finishLabel(polish.finish)}
                 </Badge>
               )}
               <span className="shrink-0 text-xs tabular-nums text-muted-foreground w-12 text-right">
