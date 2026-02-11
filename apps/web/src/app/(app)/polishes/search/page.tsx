@@ -6,6 +6,7 @@ import type { Polish } from "swatchwatch-shared";
 import type { IconType } from "react-icons";
 import { BsCurrencyDollar, BsPlusLg, BsQuestionCircleFill, BsTrash3Fill } from "react-icons/bs";
 import { GiPerfumeBottle } from "react-icons/gi";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { listPolishes, updatePolish } from "@/lib/api";
 import {
   colorDistance,
@@ -154,6 +155,8 @@ function ColorSearchPageContent() {
   const [previewHex, setPreviewHex] = useState<string | null>(null);
   const [externalHoverHex, setExternalHoverHex] = useState<string | null>(null);
   const [focusedTargetHex, setFocusedTargetHex] = useState<string | null>(null);
+  const [wheelPanelCollapsed, setWheelPanelCollapsed] = useState(false);
+  const [harmoniesPanelCollapsed, setHarmoniesPanelCollapsed] = useState(false);
   const [activeRecommendedPaletteId, setActiveRecommendedPaletteId] = useState<string | null>(null);
   const lockedTargetRef = useRef<string | null>(null);
 
@@ -619,99 +622,115 @@ function ColorSearchPageContent() {
               className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-pink-soft via-brand-lilac to-brand-purple"
             />
             <CardHeader className="pb-3">
-              <CardTitle>Pick a Color</CardTitle>
-              <CardDescription>
-                {selectedHex
-                  ? "Hover to preview, click to update focus."
-                  : "Use the wheel, harmony swatches, or table dots to focus a color."}
-              </CardDescription>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <CardTitle>Pick a Color</CardTitle>
+                  <CardDescription>
+                    {selectedHex
+                      ? "Hover to preview, click to update focus."
+                      : "Use the wheel, harmony swatches, or table dots to focus a color."}
+                  </CardDescription>
+                </div>
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  onClick={() => setWheelPanelCollapsed((prev) => !prev)}
+                  aria-label={wheelPanelCollapsed ? "Expand color wheel panel" : "Collapse color wheel panel"}
+                >
+                  {wheelPanelCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+                </Button>
+              </div>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="mx-auto flex w-fit items-center gap-4" onMouseLeave={handleMouseLeaveWheel}>
-                <div className="rounded-[2rem] bg-gradient-brand p-[2px] shadow-glow-brand">
-                  <div className="glass rounded-[calc(2rem-2px)] p-3">
-                    <div className="rounded-full border border-white/60 bg-background/65 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
-                      <ColorWheel
-                        lightness={lightness}
-                        onHover={handleHover}
-                        onSelect={handleSelect}
-                        selectedHsl={selectedHsl}
-                        size={wheelSize}
-                        wheelMode={wheelMode}
-                        snapDots={snapDots}
-                        externalHoverHex={externalHoverHex}
-                        harmonyDots={harmonyDots}
-                      />
+            {wheelPanelCollapsed ? (
+              <CardContent className="pt-0">
+                <p className="text-xs text-muted-foreground">
+                  Focus is set to <span className="font-mono">{selectedHex ?? "--"}</span>. Expand to adjust.
+                </p>
+              </CardContent>
+            ) : (
+              <CardContent className="space-y-4">
+                <div className="mx-auto flex w-fit items-center gap-4" onMouseLeave={handleMouseLeaveWheel}>
+                  <div className="rounded-[2rem] bg-gradient-brand p-[2px] shadow-glow-brand">
+                    <div className="glass rounded-[calc(2rem-2px)] p-3">
+                      <div className="rounded-full border border-white/60 bg-background/65 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
+                        <ColorWheel
+                          lightness={lightness}
+                          onHover={handleHover}
+                          onSelect={handleSelect}
+                          selectedHsl={selectedHsl}
+                          size={wheelSize}
+                          wheelMode={wheelMode}
+                          snapDots={snapDots}
+                          externalHoverHex={externalHoverHex}
+                          harmonyDots={harmonyDots}
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="flex h-[292px] flex-col items-center justify-between rounded-xl border bg-muted/35 px-2 py-3">
-                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Light</span>
-                  <div className="flex h-[220px] items-center">
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.01}
-                      value={lightness}
-                      onChange={(e) => setLightness(parseFloat(e.target.value))}
-                      className="h-2 w-[220px] -rotate-90 accent-primary"
-                      aria-label="Lightness"
-                      style={{
-                        background: `linear-gradient(to right, #000, ${hslToHex({ h: selectedHsl?.h ?? 0, s: selectedHsl?.s ?? 1, l: 0.5 })}, #fff)`,
-                        borderRadius: "9999px",
-                      }}
-                    />
+                  <div className="flex h-[292px] flex-col items-center justify-between rounded-xl border bg-muted/35 px-2 py-3">
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Light</span>
+                    <div className="flex h-[220px] items-center">
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={lightness}
+                        onChange={(e) => setLightness(parseFloat(e.target.value))}
+                        className="h-2 w-[220px] -rotate-90 accent-primary"
+                        aria-label="Lightness"
+                        style={{
+                          background: `linear-gradient(to right, #000, ${hslToHex({ h: selectedHsl?.h ?? 0, s: selectedHsl?.s ?? 1, l: 0.5 })}, #fff)`,
+                          borderRadius: "9999px",
+                        }}
+                      />
+                    </div>
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Dark</span>
                   </div>
-                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Dark</span>
                 </div>
-              </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="flex items-center gap-2 rounded-full border bg-muted/35 px-2 py-1">
-                  <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Source
-                  </span>
+                <div className="flex flex-wrap items-center gap-2">
                   <Button
                     type="button"
                     size="sm"
-                    className="h-7 rounded-full px-3 text-xs"
+                    className="h-7 rounded-full px-2.5 text-[11px] font-medium"
                     variant={wheelMode === "snap" ? "default" : "outline"}
                     onClick={() => setWheelMode((prev) => (prev === "snap" ? "free" : "snap"))}
-                    title="Toggle snap-to-owned mode"
+                    title={wheelMode === "snap" ? "Snap is on. Click to turn off." : "Snap is off. Click to turn on."}
                   >
                     ◎ Snap
                   </Button>
-                </div>
 
-                <div className="flex items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-xs">
-                  <span
-                    className={`inline-block h-4 w-4 rounded-full border ${
-                      selectedHex ? "shadow-glow-brand ring-1 ring-brand-purple/35" : ""
-                    }`}
-                    style={{ backgroundColor: selectedHex ?? "transparent" }}
-                  />
-                  <span className="text-muted-foreground">Focused</span>
-                  <span className="font-mono">{selectedHex ?? "--"}</span>
-                </div>
+                  <div className="flex items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-xs">
+                    <span
+                      className={`inline-block h-4 w-4 rounded-full border ${
+                        selectedHex ? "shadow-glow-brand ring-1 ring-brand-purple/35" : ""
+                      }`}
+                      style={{ backgroundColor: selectedHex ?? "transparent" }}
+                    />
+                    <span className="text-muted-foreground">Focused</span>
+                    <span className="font-mono">{selectedHex ?? "--"}</span>
+                  </div>
 
-                <div className="flex items-center gap-1 rounded-full border bg-background px-2 py-1.5">
-                  <span className="text-xs font-medium text-muted-foreground">Focus</span>
-                  <Button
-                    type="button"
-                    size="icon-xs"
-                    variant="secondary"
-                    className="h-6 w-6 rounded-full"
-                    onClick={() => addPaletteAnchorHex(selectedHex)}
-                    disabled={!selectedHex}
-                    title="Add focused color"
-                  >
-                    <BsPlusLg className="h-3 w-3" />
-                  </Button>
+                  <div className="flex items-center gap-1 rounded-full border bg-background px-2 py-1.5">
+                    <span className="text-xs font-medium text-muted-foreground">Focus</span>
+                    <Button
+                      type="button"
+                      size="icon-xs"
+                      variant="secondary"
+                      className="h-6 w-6 rounded-full"
+                      onClick={() => addPaletteAnchorHex(selectedHex)}
+                      disabled={!selectedHex}
+                      title="Add focused color"
+                    >
+                      <BsPlusLg className="h-3 w-3" />
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
+              </CardContent>
+            )}
           </Card>
 
           <Card className="relative overflow-hidden">
@@ -720,12 +739,32 @@ function ColorSearchPageContent() {
               className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-lilac via-brand-pink-soft to-brand-purple"
             />
             <CardHeader className="pb-3">
-              <CardTitle>Harmonies</CardTitle>
-              <CardDescription>
-                Build focused colors and explore top palette recommendations.
-              </CardDescription>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <CardTitle>Harmonies</CardTitle>
+                  <CardDescription>
+                    Build focused colors and explore top palette recommendations.
+                  </CardDescription>
+                </div>
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  onClick={() => setHarmoniesPanelCollapsed((prev) => !prev)}
+                  aria-label={harmoniesPanelCollapsed ? "Expand harmonies panel" : "Collapse harmonies panel"}
+                >
+                  {harmoniesPanelCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+                </Button>
+              </div>
             </CardHeader>
-            <CardContent className="space-y-4">
+            {harmoniesPanelCollapsed ? (
+              <CardContent className="pt-0">
+                <p className="text-xs text-muted-foreground">
+                  Harmonies hidden while you refine selection. Expand when ready to build focus palettes.
+                </p>
+              </CardContent>
+            ) : (
+              <CardContent className="space-y-4">
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground">Harmony Color Set</p>
                 <div className="flex w-full rounded-lg border bg-muted p-1">
@@ -776,65 +815,69 @@ function ColorSearchPageContent() {
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    size="icon-sm"
-                    variant="secondary"
-                    onClick={handleAddFocusedPaletteAnchor}
-                    disabled={!focusedTargetHex && !selectedHex}
-                    title="Add focused color"
-                  >
-                    <BsPlusLg className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    size="icon-sm"
-                    variant="outline"
-                    onClick={handleRemoveSelectedPaletteColor}
-                    disabled={paletteAnchors.length === 0 || (!focusedTargetHex && !selectedHex)}
-                    title="Remove focused color"
-                  >
-                    <BsTrash3Fill className="h-4 w-4" />
-                  </Button>
-                </div>
                 {anchorFeedback && (
                   <p className="text-xs text-muted-foreground">{anchorFeedback}</p>
                 )}
-                <div className="flex h-10 overflow-hidden rounded-md border">
-                  {wantedColorStatuses.length === 0 ? (
-                    <div className="flex w-full items-center justify-center text-xs text-muted-foreground">
-                      Add focused colors from wheel, table, or palette suggestions
-                    </div>
-                  ) : (
-                    wantedColorStatuses.map(({ hex, availability }) => {
-                      const status = availability.status;
-                      const Icon = AVAILABILITY_ICON[status];
-                      return (
-                        <button
-                          key={hex}
-                          type="button"
-                          className={`relative flex-1 ${
-                            focusedTargetHex === hex
-                              ? "ring-2 ring-primary ring-inset shadow-glow-brand"
-                              : "hover:opacity-90"
-                          }`}
-                          style={{ backgroundColor: hex }}
-                          title={`${hex} • ${AVAILABILITY_META[status].label}`}
-                          onMouseEnter={() => handleSwatchHover(hex)}
-                          onMouseLeave={handleSwatchLeave}
-                          onClick={() => {
-                            handleSwatchClick(hex);
-                            handleExternalColorSelect(hex);
-                          }}
-                        >
-                          <span className="absolute inset-0 flex items-center justify-center">
-                            <Icon className="h-4 w-4" style={{ color: iconColorForHex(hex) }} />
-                          </span>
-                        </button>
-                      );
-                    })
-                  )}
+                <div className="flex items-stretch gap-2">
+                  <div className="flex h-10 flex-1 overflow-hidden rounded-md border">
+                    {wantedColorStatuses.length === 0 ? (
+                      <div className="flex w-full items-center justify-center text-xs text-muted-foreground">
+                        Add focused colors from wheel, table, or palette suggestions
+                      </div>
+                    ) : (
+                      wantedColorStatuses.map(({ hex, availability }) => {
+                        const status = availability.status;
+                        const Icon = AVAILABILITY_ICON[status];
+                        return (
+                          <button
+                            key={hex}
+                            type="button"
+                            className={`relative flex-1 ${
+                              focusedTargetHex === hex
+                                ? "ring-2 ring-primary ring-inset shadow-glow-brand"
+                                : "hover:opacity-90"
+                            }`}
+                            style={{ backgroundColor: hex }}
+                            title={`${hex} • ${AVAILABILITY_META[status].label}`}
+                            onMouseEnter={() => handleSwatchHover(hex)}
+                            onMouseLeave={handleSwatchLeave}
+                            onClick={() => {
+                              handleSwatchClick(hex);
+                              handleExternalColorSelect(hex);
+                            }}
+                          >
+                            <span className="absolute inset-0 flex items-center justify-center">
+                              <Icon className="h-4 w-4" style={{ color: iconColorForHex(hex) }} />
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="secondary"
+                      className="h-10 w-10"
+                      onClick={handleAddFocusedPaletteAnchor}
+                      disabled={!focusedTargetHex && !selectedHex}
+                      title="Add focused color"
+                    >
+                      <BsPlusLg className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="outline"
+                      className="h-10 w-10"
+                      onClick={handleRemoveSelectedPaletteColor}
+                      disabled={paletteAnchors.length === 0 || (!focusedTargetHex && !selectedHex)}
+                      title="Remove focused color"
+                    >
+                      <BsTrash3Fill className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               </div>
 
@@ -935,7 +978,8 @@ function ColorSearchPageContent() {
                   </div>
                 )}
               </div>
-            </CardContent>
+              </CardContent>
+            )}
           </Card>
         </div>
 
