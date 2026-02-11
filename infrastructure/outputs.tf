@@ -57,11 +57,6 @@ output "openai_hex_deployment_name" {
 
 output "openai_resources_provisioned" {
   value = var.create_openai_resources
-  value = azurerm_cognitive_account.openai.name
-}
-
-output "openai_endpoint" {
-  value = azurerm_cognitive_account.openai.endpoint
 }
 
 output "application_insights_name" {

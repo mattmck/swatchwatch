@@ -68,9 +68,9 @@ The workflow reads the `pg-password` secret from Key Vault and exports it as `TF
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `location` | `eastus` | Azure region |
+| `location` | `centralus` | Azure region |
 | `environment` | `dev` | Environment name (dev, staging, prod) |
-| `base_name` | `polishinv` | Base name prefix for resources |
+| `base_name` | `swatchwatch` | Base name prefix for resources |
 | `pg_admin_username` | `pgadmin` | PostgreSQL admin username |
 | `pg_admin_password` | *(required)* | PostgreSQL admin password (stored in Key Vault) |
 | `github_repository` | `your-username/polish-inventory` | GitHub repo for OIDC federation |
@@ -140,7 +140,7 @@ cd infrastructure
 # Create terraform.tfvars
 cat > terraform.tfvars <<EOF
 environment       = "dev"
-location          = "eastus"
+location          = "centralus"
 github_repository = "your-username/polish-inventory"
 pg_admin_username = "pgadmin"
 pg_admin_password = "your-secure-password"
