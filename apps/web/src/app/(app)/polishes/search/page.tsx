@@ -691,42 +691,48 @@ function ColorSearchPageContent() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="h-7 rounded-full px-2.5 text-[11px] font-medium"
-                    variant={wheelMode === "snap" ? "default" : "outline"}
-                    onClick={() => setWheelMode((prev) => (prev === "snap" ? "free" : "snap"))}
-                    title={wheelMode === "snap" ? "Mine mode is on. Click to turn off." : "Mine mode is off. Click to turn on."}
-                  >
-                    ◎ Mine
-                  </Button>
-
-                  <div className="flex items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-xs">
-                    <span
-                      className={`inline-block h-4 w-4 rounded-full border ${
-                        selectedHex ? "shadow-glow-brand ring-1 ring-brand-purple/35" : ""
-                      }`}
-                      style={{ backgroundColor: selectedHex ?? "transparent" }}
-                    />
-                    <span className="text-muted-foreground">Focused</span>
-                    <span className="font-mono">{selectedHex ?? "--"}</span>
-                  </div>
-
-                  <div className="flex items-center gap-1 rounded-full border bg-background px-2 py-1.5">
-                    <span className="text-xs font-medium text-muted-foreground">Focus</span>
+                <div className="grid w-full gap-2 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
+                  <div className="flex justify-start">
                     <Button
                       type="button"
-                      size="icon-xs"
-                      variant="secondary"
-                      className="h-6 w-6 rounded-full"
-                      onClick={() => addPaletteAnchorHex(selectedHex)}
-                      disabled={!selectedHex}
-                      title="Add focused color"
+                      size="sm"
+                      className="h-7 rounded-full px-2.5 text-[11px] font-medium"
+                      variant={wheelMode === "snap" ? "default" : "outline"}
+                      onClick={() => setWheelMode((prev) => (prev === "snap" ? "free" : "snap"))}
+                      title={wheelMode === "snap" ? "Mine mode is on. Click to turn off." : "Mine mode is off. Click to turn on."}
                     >
-                      <BsPlusLg className="h-3 w-3" />
+                      ◎ Mine
                     </Button>
+                  </div>
+
+                  <div className="flex justify-center">
+                    <div className="flex w-fit items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-xs">
+                      <span
+                        className={`inline-block h-4 w-4 rounded-full border ${
+                          selectedHex ? "shadow-glow-brand ring-1 ring-brand-purple/35" : ""
+                        }`}
+                        style={{ backgroundColor: selectedHex ?? "transparent" }}
+                      />
+                      <span className="text-muted-foreground">Focused</span>
+                      <span className="font-mono">{selectedHex ?? "--"}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end">
+                    <div className="flex items-center gap-1 rounded-full border bg-background px-2 py-1.5">
+                      <span className="text-xs font-medium text-muted-foreground">Focus</span>
+                      <Button
+                        type="button"
+                        size="icon-xs"
+                        variant="secondary"
+                        className="h-6 w-6 rounded-full"
+                        onClick={() => addPaletteAnchorHex(selectedHex)}
+                        disabled={!selectedHex}
+                        title="Add focused color"
+                      >
+                        <BsPlusLg className="h-3 w-3" />
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </CardContent>
