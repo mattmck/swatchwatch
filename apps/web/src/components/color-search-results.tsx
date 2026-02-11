@@ -63,8 +63,8 @@ export function ColorSearchResults({
             key={i}
             className={`inline-block h-4 w-4 rounded-full cursor-pointer transition-all ${
               focusedTargetHex === hex
-                ? "border-2 border-white ring-2 ring-primary scale-125"
-                : "border border-border hover:scale-110"
+                ? "border-2 border-white ring-2 ring-brand-purple/75 shadow-glow-brand scale-125"
+                : "border border-border hover:scale-110 hover:shadow-glow-purple"
             }`}
             style={{ backgroundColor: hex }}
             onMouseEnter={() => onSwatchHover?.(hex)}

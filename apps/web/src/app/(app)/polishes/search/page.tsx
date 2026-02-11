@@ -829,28 +829,31 @@ function ColorSearchPageContent() {
                         const status = availability.status;
                         const Icon = AVAILABILITY_ICON[status];
                         return (
-                          <button
-                            key={hex}
-                            type="button"
-                            className={`relative flex-1 ${
-                              focusedTargetHex === hex
-                                ? "ring-2 ring-primary ring-inset shadow-glow-brand"
-                                : "hover:opacity-90"
-                            }`}
-                            style={{ backgroundColor: hex }}
-                            title={`${hex} • ${AVAILABILITY_META[status].label}`}
-                            onMouseEnter={() => handleSwatchHover(hex)}
-                            onMouseLeave={handleSwatchLeave}
+                        <button
+                          key={hex}
+                          type="button"
+                          className={`relative flex-1 transition-all duration-150 ${
+                            focusedTargetHex === hex
+                              ? "z-10 scale-[1.06] ring-2 ring-brand-purple/75 ring-offset-1 ring-offset-background shadow-glow-brand outline outline-1 outline-white/85"
+                              : "hover:opacity-90 hover:scale-[1.01]"
+                          }`}
+                          style={{ backgroundColor: hex }}
+                          title={`${hex} • ${AVAILABILITY_META[status].label}`}
+                          onMouseEnter={() => handleSwatchHover(hex)}
+                          onMouseLeave={handleSwatchLeave}
                             onClick={() => {
                               handleSwatchClick(hex);
                               handleExternalColorSelect(hex);
-                            }}
-                          >
-                            <span className="absolute inset-0 flex items-center justify-center">
-                              <Icon className="h-4 w-4" style={{ color: iconColorForHex(hex) }} />
-                            </span>
-                          </button>
-                        );
+                          }}
+                        >
+                          {focusedTargetHex === hex && (
+                            <span className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full border border-white bg-brand-purple shadow-glow-purple" />
+                          )}
+                          <span className="absolute inset-0 flex items-center justify-center">
+                            <Icon className="h-4 w-4" style={{ color: iconColorForHex(hex) }} />
+                          </span>
+                        </button>
+                      );
                       })
                     )}
                   </div>
@@ -951,10 +954,10 @@ function ColorSearchPageContent() {
                                 <button
                                   key={`${candidate.id}-${hex}-${index}`}
                                   type="button"
-                                  className={`relative flex-1 ${
+                                  className={`relative flex-1 transition-all duration-150 ${
                                     focusedTargetHex === hex
-                                      ? "ring-2 ring-primary ring-inset shadow-glow-brand"
-                                      : "hover:opacity-90"
+                                      ? "z-10 scale-[1.06] ring-2 ring-brand-purple/75 ring-offset-1 ring-offset-background shadow-glow-brand outline outline-1 outline-white/85"
+                                      : "hover:opacity-90 hover:scale-[1.01]"
                                   }`}
                                   style={{ backgroundColor: hex }}
                                   title={`${hex} • ${AVAILABILITY_META[status].label}`}
@@ -965,6 +968,9 @@ function ColorSearchPageContent() {
                                     handleApplyRecommendedPalette(candidate, hex);
                                   }}
                                 >
+                                  {focusedTargetHex === hex && (
+                                    <span className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full border border-white bg-brand-purple shadow-glow-purple" />
+                                  )}
                                   <span className="absolute inset-0 flex items-center justify-center">
                                     <Icon className="h-4 w-4" style={{ color: iconColorForHex(hex) }} />
                                   </span>
