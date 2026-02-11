@@ -2,7 +2,7 @@ services:
   postgres:
     image: pgvector/pgvector:pg17
     ports:
-      - "5434:5432"
+      - "55432:5432"
     environment:
       POSTGRES_DB: swatchwatch
       POSTGRES_USER: postgres
