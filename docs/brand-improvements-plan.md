@@ -134,7 +134,7 @@
 - Success: green with brand border radius
 - Info: brand purple tint
 - Error: stays destructive red
-- [ ] Apply brand-aware Sonner toast variants for success/info/error states.
+- [x] Completed (2026-02-11): Added a global branded Sonner `Toaster` with success/info/error variants and replaced destructive alert messaging in polish detail actions with styled toast feedback.
 
 ### D3. Micro-interactions
 - Button hover: scale(1.02) + shadow transition on CTA buttons

@@ -96,7 +96,9 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 
 ### shadcn/ui (`src/components/ui/`)
 
-Installed components: `badge`, `button`, `card`, `dialog`, `dropdown-menu`, `input`, `select`, `separator`, `table`.
+Installed components: `badge`, `button`, `card`, `dialog`, `dropdown-menu`, `input`, `select`, `separator`, `sonner`, `table`.
+
+`src/components/ui/sonner.tsx` provides the branded toast wrapper mounted in `src/app/layout.tsx`.
 
 Add more with:
 ```bash

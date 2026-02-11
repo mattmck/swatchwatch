@@ -20,6 +20,7 @@ import {
 import { ColorDot } from "@/components/color-dot";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
+import { toast } from "sonner";
 
 export default function PolishDetailClient({ id }: { id: string }) {
   const router = useRouter();
@@ -112,9 +113,14 @@ export default function PolishDetailClient({ id }: { id: string }) {
     try {
       setDeleting(true);
       await deletePolish(polish.id);
+      toast.success("Polish deleted", {
+        description: `${polish.brand} ${polish.name} was removed from your collection.`,
+      });
       router.push("/polishes");
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to delete");
+      toast.error("Delete failed", {
+        description: err instanceof Error ? err.message : "Failed to delete polish.",
+      });
       setDeleting(false);
     }
   }
