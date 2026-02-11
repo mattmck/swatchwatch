@@ -84,7 +84,7 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 |-----------|---------|
 | `SwatchWatchIcon` | Renders SVG brand icons (monogram, app, swatch, brush) |
 | `SwatchWatchSpriteIcon` | Renders symbols from `public/brand/swatchwatch-sprite.svg` for sprite-based icon usage |
-| `SwatchWatchWordmark` | Icon + styled "SwatchWatch" text with gradient W |
+| `SwatchWatchWordmark` | Icon + styled "SwatchWatch" text with theme-aware contrast in light/dark modes |
 | `SwatchWatchGraphicSet` | All 4 icons in a row |
 
 ## Components

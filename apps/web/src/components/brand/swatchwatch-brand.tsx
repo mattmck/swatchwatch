@@ -1,5 +1,4 @@
 import {
-  swatchWatchBrandPalette,
   swatchWatchIconSpecs,
   type BrandShape,
   type SwatchWatchIconName,
@@ -179,8 +178,8 @@ export function SwatchWatchWordmark({
           textClassName
         )}
       >
-        <span style={{ color: swatchWatchBrandPalette.ink }}>Swatch</span>
-        <span style={{ color: swatchWatchBrandPalette.purple }}>Watch</span>
+        <span className="text-brand-ink dark:text-brand-lilac">Swatch</span>
+        <span className="text-brand-purple dark:text-brand-pink-soft">Watch</span>
       </span>
     </span>
   );
