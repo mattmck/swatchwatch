@@ -90,8 +90,9 @@ Temporary dev auth note:
 `deploy-dev.yml` currently sets `AUTH_DEV_BYPASS=true` on the dev Function App and `NEXT_PUBLIC_AUTH_DEV_BYPASS=true` during dev web builds, so the web app sends `Bearer dev:<userId>` tokens to the API. This is temporary and should be removed after dev B2C auth wiring is complete.
 
 Infrastructure deploy workflow requirements:
-- GitHub secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `PG_ADMIN_PASSWORD`
+- GitHub secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`
 - GitHub variables: `TFSTATE_RESOURCE_GROUP`, `TFSTATE_STORAGE_ACCOUNT`, `TFSTATE_CONTAINER` (recommended: `tfstate`), `TFSTATE_BLOB_NAME` (recommended: `dev.terraform.tfstate`)
+The workflow reads `pg-password` from Azure Key Vault at runtime and sets `TF_VAR_pg_admin_password` automatically.
 
 ## Project Structure — Web App
 

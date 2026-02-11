@@ -43,6 +43,14 @@ output "speech_service_key" {
   sensitive = true
 }
 
+output "application_insights_name" {
+  value = azurerm_application_insights.main.name
+}
+
+output "log_analytics_workspace_name" {
+  value = azurerm_log_analytics_workspace.main.name
+}
+
 # Key Vault and GitHub Actions OIDC configuration
 output "key_vault_name" {
   description = "Name of the Key Vault"
