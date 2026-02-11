@@ -75,6 +75,17 @@ The package is automatically linked via npm workspaces — no publishing require
 | `CollectionGapCell` | Count per hue/lightness cell |
 | `CollectionGapAnalysis` | Structured gap-analysis output (`cells`, `missing`, `underrepresented`) |
 
+### `types/ingestion.ts`
+
+| Type | Description |
+|------|-------------|
+| `IngestionSourceName` | Allowed source names for connector ingestion jobs (OpenBeautyFacts, MakeupAPI, CosIng, etc.) |
+| `IngestionJobStatus` | Job lifecycle status: `running \| succeeded \| failed \| cancelled` |
+| `IngestionJobRunRequest` | Request payload for `POST /api/ingestion/jobs` (includes optional `materializeToInventory`) |
+| `IngestionJobRecord` | Ingestion job summary payload (source, status, timestamps, metrics, error) |
+| `IngestionJobRunResponse` | Job-trigger response wrapper: `{ job }` |
+| `IngestionJobListResponse` | Job list payload: `{ jobs, total }` |
+
 ## Adding New Types
 
 1. Create or edit a file in `src/types/`

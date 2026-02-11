@@ -24,10 +24,39 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `DELETE` | `/api/polishes/{id}` | `deletePolish` | `polishes.ts` | ✅ Live |
 | `POST` | `/api/auth/validate` | `validateToken` | `auth.ts` | ✅ Working |
 | `GET` | `/api/auth/config` | `getAuthConfig` | `auth.ts` | ✅ Working |
+| `GET` | `/api/ingestion/jobs` | `ingestionJobsHandler` | `ingestion.ts` | ✅ Working |
+| `POST` | `/api/ingestion/jobs` | `runIngestionJob` | `ingestion.ts` | ✅ Working |
+| `GET` | `/api/ingestion/jobs/{id}` | `handleGetIngestionJob` | `ingestion.ts` | ✅ Working |
 | `POST` | `/api/voice` | `processVoiceInput` | `voice.ts` | ⬜ Stub |
 
 
 All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpRequest, context: InvocationContext)`.
+
+### Connector Ingestion Jobs
+
+`POST /api/ingestion/jobs` runs an on-demand connector pull and persists into `external_product`.
+
+Current source support:
+- `OpenBeautyFacts` (search-based pull)
+- `MakeupAPI` (nail-polish catalog pull)
+
+For `MakeupAPI`, ingestion also materializes product color variants into searchable `shade`
+rows and user inventory rows (`quantity=0`) by default. Set `materializeToInventory` to
+`false` to store only raw/normalized external records.
+
+Example request:
+```json
+{
+  "source": "OpenBeautyFacts",
+  "searchTerm": "nail polish",
+  "page": 1,
+  "pageSize": 20,
+  "maxRecords": 20,
+  "materializeToInventory": true
+}
+```
+
+Use `GET /api/ingestion/jobs` and `GET /api/ingestion/jobs/{id}` to inspect run status/metrics.
 
 ## Migrations
 
