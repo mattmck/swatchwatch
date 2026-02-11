@@ -41,6 +41,15 @@ All shadcn theme tokens in `globals.css` are mapped to the SwatchWatch brand pal
 
 **Brand palette Tailwind utilities:** `bg-brand-pink`, `text-brand-purple`, `border-brand-lilac`, etc.
 
+### Typography
+
+Inter is loaded via `next/font/google` in `src/app/layout.tsx` and applied globally with `font-sans` through the root `<body>` class.
+
+Static text assets use the same Inter-first fallback stack:
+- `public/brand/swatchwatch-wordmark.svg`
+- `public/brand/swatchwatch-lockup.svg`
+- `public/og-image.svg`
+
 ### Brand Utility Classes
 
 | Class | Effect |

@@ -32,6 +32,7 @@
 - Replace the current `system-ui` fallback stack with the loaded font
 - Gives instant "designed, not default" feel
 - Update font variables in `globals.css` and brand SVGs
+- [x] Completed (2026-02-11): Inter is loaded in root layout, `body` uses `font-sans`, and static brand SVG text uses an Inter-first stack instead of `system-ui`.
 
 ### A2. Landing page headline typography
 - Hero headline could use larger type on desktop (7xl/8xl) with finer weight modulation
