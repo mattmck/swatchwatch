@@ -85,6 +85,9 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 | Component | Purpose |
 |-----------|---------|
 | `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with Lucide icons and exact active-route matching |
+| `brand-spinner.tsx` | Branded loading state with animated monogram spinner used across app route fallbacks |
+| `error-state.tsx` | Reusable error card with destructive accent styling and optional retry action |
+| `empty-state.tsx` | Reusable empty-state card with brand icon treatment and optional CTA |
 | `marketing-color-showcase.tsx` | Interactive landing-page color harmony demo with mini wheel, connected swatch nodes, and animated suggested set tiles |
 | `marketing-theme-toggle.tsx` | System/light/dark theme selector used in the marketing header |
 | `color-dot.tsx` | Colored circle swatch — `sm`, `md`, `lg` sizes |

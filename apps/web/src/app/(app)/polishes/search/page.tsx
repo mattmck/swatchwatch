@@ -6,7 +6,7 @@ import type { Polish } from "swatchwatch-shared";
 import type { IconType } from "react-icons";
 import { BsCurrencyDollar, BsPlusLg, BsQuestionCircleFill, BsTrash3Fill } from "react-icons/bs";
 import { GiPerfumeBottle } from "react-icons/gi";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronUp } from "lucide-react";
 import { listPolishes, updatePolish } from "@/lib/api";
 import {
   colorDistance,
@@ -607,6 +607,10 @@ function ColorSearchPageContent() {
   const layoutCols = harmonyPanelCollapsed
     ? "xl:grid-cols-[minmax(300px,_360px)_80px_minmax(0,_1fr)]"
     : "xl:grid-cols-[minmax(300px,_360px)_minmax(280px,_340px)_minmax(0,_1fr)]";
+
+  if (loading) {
+    return <BrandSpinner label="Loading color inventory…" />;
+  }
 
   return (
     <div className="space-y-6">

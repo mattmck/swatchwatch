@@ -127,7 +127,7 @@
 - Loading spinner: replace text "Loading..." with a branded spinner (rotating monogram icon or pulsing drop)
 - Error cards: use destructive red but with brand-consistent rounded corners and typography
 - Empty collection state: illustrated drop icon + encouraging copy + CTA to add first polish
-- [ ] Implement branded loading, error, and empty-state treatments across app routes.
+- [x] Completed (2026-02-11): Upgraded `BrandSpinner`, `ErrorState`, and `EmptyState` to branded card treatments and replaced remaining plain-text route fallbacks (`/polishes/new`, `/polishes/detail`, color search loading, and dashboard empty collection surface).
 
 ### D2. Notification / toast styling
 - shadcn Sonner toasts should inherit brand colors
