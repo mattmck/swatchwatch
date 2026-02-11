@@ -148,7 +148,7 @@
 - Active nav item: use a filled pill with brand pink-soft background instead of secondary
 - Collapsed state (future): icon-only mode at narrow breakpoints
 - User avatar / settings section at bottom of sidebar
-- [ ] Refine sidebar visual hierarchy and active-state styling.
+- [x] Completed (2026-02-11): Added a gradient accent divider in the sidebar logo area, upgraded active nav items to a branded filled-pill treatment, and introduced a bottom avatar/settings module (collapsed icon-only mode remains future scope).
 
 ---
 

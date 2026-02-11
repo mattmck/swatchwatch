@@ -84,7 +84,7 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 
 | Component | Purpose |
 |-----------|---------|
-| `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with Lucide icons, exact active-route matching, and animated active underline affordances |
+| `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with exact active-route matching, branded active-nav pills, logo accent divider, and sidebar avatar/settings footer module |
 | `brand-spinner.tsx` | Branded loading state with animated monogram spinner used across app route fallbacks |
 | `error-state.tsx` | Reusable error card with destructive accent styling and optional retry action |
 | `empty-state.tsx` | Reusable empty-state card with brand icon treatment and optional CTA |
