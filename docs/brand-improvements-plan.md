@@ -32,16 +32,19 @@
 - Replace the current `system-ui` fallback stack with the loaded font
 - Gives instant "designed, not default" feel
 - Update font variables in `globals.css` and brand SVGs
+- [x] Completed (2026-02-11): Inter is loaded in root layout, `body` uses `font-sans`, and static brand SVG text uses an Inter-first stack instead of `system-ui`.
 
 ### A2. Landing page headline typography
 - Hero headline could use larger type on desktop (7xl/8xl) with finer weight modulation
 - Consider alternating font weights within the headline ("Your polish collection" in medium, "beautifully organized" in extrabold) for visual rhythm
 - Add subtle entry animation (fade-up on scroll) to hero content
+- [x] Completed (2026-02-11): Hero headline now scales up to 8xl on wide screens, keeps split-weight rhythm, and uses staged `ScrollFadeIn` fade-up reveals for icon/headline/copy/CTAs.
 
 ### A3. Consistent heading hierarchy across app pages
 - Dashboard, polish list, detail pages all use slightly different heading sizes and spacing
 - Define a scale: page title = `text-2xl font-bold`, section = `text-lg font-semibold`, card title = `text-base font-medium`
 - Apply consistently via shared component or Tailwind @apply
+- [x] Completed (2026-02-11): Added shared heading utility classes in `globals.css` (`heading-page`, `heading-section`, `heading-card`) and normalized app page H1s + `CardTitle` styling to that scale.
 
 ---
 
@@ -58,17 +61,20 @@
 - Finish badge: use brand-colored variants instead of default gray secondary
 - Consider sticky header row with glass effect
 - [x] Filters now use branded pill toggles with shared button micro-interactions
+- [x] Completed (2026-02-11): Row hover tint, larger ringed swatches, finish-specific brand badge variants, and sticky glass header are all implemented on `/polishes`.
 
 ### B3. Polish detail page enhancements
 - Hero-style color display: large swatch as background gradient behind polish name
 - Color metadata section with visual OKLCH breakdown (lightness bar, chroma indicator, hue wheel position)
 - Related/similar shades section using the existing color distance API
+- [x] Completed (2026-02-11): Detail page now includes hero swatch treatment, an OKLCH color profile card with visual bars, and a related shades list ranked by perceptual `colorDistance`.
 
 ### B4. Color search page refinements
 - The OKLCH color wheel is functional but visually stark
 - Add a branded frame/container around the wheel
 - Harmony results could use glass cards instead of plain borders
 - Selected color should glow (`.shadow-glow-brand`)
+- [x] Completed (2026-02-11): Added branded wheel framing, glass-styled harmony recommendation cards, and glow-forward selected-state markers in the color search experience.
 
 ### B5. Form styling (Add Polish page)
 - [x] Input focus rings already use brand ring color from theme (no change needed)
@@ -85,28 +91,33 @@
 - Hero decorative circles: subtle floating animation (translateY oscillation)
 - Feature cards: staggered entrance animation
 - Stats counters: animated count-up on scroll into view
+- [x] Completed (2026-02-11): Added `ScrollFadeIn` reveal motion across landing sections, floating hero decorative circles, staggered feature card entries, and scroll-activated stat count-up animation.
 
 ### C2. Richer color showcase section
 - Replace static polish cards with an interactive mini-demo
 - Show a small color wheel with 3-4 dots and harmony lines connecting them
 - Or: animate swatches "dropping" into a collection grid
 - This section should sell the product's core value prop visually
+- [x] Completed (2026-02-11): Replaced static swatch cards with an interactive harmony demo featuring a mini color wheel, connected palette nodes, and animated suggested-set swatches.
 
 ### C3. Social proof / testimonial section
 - Even placeholder quotes give credibility
 - Glass cards with avatar circles, quote text, name/handle
 - Carousel or 2-3 static cards
+- [x] Completed (2026-02-11): Added a dedicated social proof section with three glass testimonial cards, avatar initials, handles, and role/context labels.
 
 ### C4. Mobile responsiveness audit
 - Hero padding and type scale on small screens
 - Feature cards: single column on mobile with adjusted spacing
 - Marketing header: hamburger menu or simplified nav at small widths
 - CTA buttons: full-width on mobile
+- [x] Completed (2026-02-11): Hero/section spacing and typography were retuned for small screens, feature/showcase/stat card spacing was tightened for mobile, and marketing header now uses a compact hamburger dropdown at small breakpoints.
 
 ### C5. Dark mode for marketing pages
 - Currently the landing page doesn't have a theme toggle
 - The dark tokens are defined — add a toggle or respect system preference
 - Hero gradient needs dark variant (already defined in `.dark` but untested visually)
+- [x] Completed (2026-02-11): Added a marketing header theme toggle (system/light/dark), persisted preference in localStorage, and wired `.dark` class application so marketing pages can be previewed in dark mode with existing tokenized gradients.
 
 ---
 

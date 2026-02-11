@@ -157,6 +157,7 @@ function ColorSearchPageContent() {
   const [externalHoverHex, setExternalHoverHex] = useState<string | null>(null);
   const [focusedTargetHex, setFocusedTargetHex] = useState<string | null>(null);
   const [harmonyPanelCollapsed, setHarmonyPanelCollapsed] = useState(false);
+  const [activeRecommendedPaletteId, setActiveRecommendedPaletteId] = useState<string | null>(null);
   const lockedTargetRef = useRef<string | null>(null);
 
   // Derive selectedHex from selectedHsl so lightness slider updates it
@@ -405,14 +406,22 @@ function ColorSearchPageContent() {
     getAvailabilityForHex,
   ]);
 
+  const activeRecommendedPalette = useMemo(
+    () => recommendedPalettes.find((candidate) => candidate.id === activeRecommendedPaletteId) ?? null,
+    [recommendedPalettes, activeRecommendedPaletteId],
+  );
+
   // Colors to match against — includes source for harmony modes
   const targetColors = useMemo(() => {
+    if (activeRecommendedPalette) {
+      return activeRecommendedPalette.slotHexes;
+    }
     if (harmonyType === "similar") {
       return activeHex ? [activeHex] : [];
     }
     if (!selectedHex) return [];
     return [selectedHex, ...harmonyColors];
-  }, [harmonyType, activeHex, selectedHex, harmonyColors]);
+  }, [activeRecommendedPalette, harmonyType, activeHex, selectedHex, harmonyColors]);
 
   // Sort polishes by distance — if a target is focused, match only that color
   const sortedPolishes = useMemo(() => {
@@ -451,6 +460,7 @@ function ColorSearchPageContent() {
   const handleSelect = useCallback((hex: string, hsl: HSL) => {
     setSelectedHsl(hsl);
     setLightness(hsl.l);
+    setActiveRecommendedPaletteId(null);
     // Clear focus/lock on new wheel selection
     lockedTargetRef.current = null;
     setFocusedTargetHex(null);
@@ -460,6 +470,7 @@ function ColorSearchPageContent() {
     const hsl = hexToHsl(hex);
     setSelectedHsl(hsl);
     setLightness(hsl.l);
+    setActiveRecommendedPaletteId(null);
   }, []);
 
   const addPaletteAnchorHex = useCallback((hex: string | null) => {
@@ -572,6 +583,27 @@ function ColorSearchPageContent() {
     [allPolishes]
   );
 
+  const handleApplyRecommendedPalette = useCallback((
+    candidate: RecommendedPalette,
+    focusedHex?: string,
+  ) => {
+    const sourceHex = candidate.sourceHex.toUpperCase();
+    const sourceHsl = hexToHsl(sourceHex);
+    const harmonyLabel =
+      HARMONY_TYPES.find((item) => item.value === candidate.harmony)?.label ?? candidate.harmony;
+    const normalizedFocusHex = focusedHex?.toUpperCase() ?? null;
+
+    lockedTargetRef.current = normalizedFocusHex;
+    setFocusedTargetHex(normalizedFocusHex);
+    setExternalHoverHex(null);
+    setPreviewHex(null);
+    setActiveRecommendedPaletteId(candidate.id);
+    setHarmonyType(candidate.harmony);
+    setSelectedHsl(sourceHsl);
+    setLightness(sourceHsl.l);
+    setAnchorFeedback(`Applied ${harmonyLabel} palette to search results`);
+  }, []);
+
   const layoutCols = harmonyPanelCollapsed
     ? "xl:grid-cols-[minmax(300px,_360px)_80px_minmax(0,_1fr)]"
     : "xl:grid-cols-[minmax(300px,_360px)_minmax(280px,_340px)_minmax(0,_1fr)]";
@@ -579,7 +611,7 @@ function ColorSearchPageContent() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Color Search</h1>
+        <h1 className="heading-page">Color Search</h1>
         <p className="text-muted-foreground">
           Explore your collection by color. Hover to preview, click to select.
         </p>
@@ -592,7 +624,7 @@ function ColorSearchPageContent() {
             className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-pink-soft via-brand-lilac to-brand-purple"
           />
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Pick a Color</CardTitle>
+            <CardTitle>Pick a Color</CardTitle>
             <CardDescription>
               {selectedHex
                 ? "Hover to preview, click to change selection"
@@ -601,17 +633,23 @@ function ColorSearchPageContent() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="mx-auto w-fit" onMouseLeave={handleMouseLeaveWheel}>
-              <ColorWheel
-                lightness={lightness}
-                onHover={handleHover}
-                onSelect={handleSelect}
-                selectedHsl={selectedHsl}
-                size={wheelSize}
-                wheelMode={wheelMode}
-                snapDots={snapDots}
-                externalHoverHex={externalHoverHex}
-                harmonyDots={harmonyDots}
-              />
+              <div className="rounded-[2rem] bg-gradient-brand p-[2px] shadow-glow-brand">
+                <div className="glass rounded-[calc(2rem-2px)] p-3">
+                  <div className="rounded-full border border-white/60 bg-background/65 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
+                    <ColorWheel
+                      lightness={lightness}
+                      onHover={handleHover}
+                      onSelect={handleSelect}
+                      selectedHsl={selectedHsl}
+                      size={wheelSize}
+                      wheelMode={wheelMode}
+                      snapDots={snapDots}
+                      externalHoverHex={externalHoverHex}
+                      harmonyDots={harmonyDots}
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="space-y-1.5">
@@ -681,7 +719,9 @@ function ColorSearchPageContent() {
               <p className="text-muted-foreground">Selected</p>
               <div className="mt-1 flex items-center gap-2">
                 <span
-                  className="inline-block h-4 w-4 rounded-full border"
+                  className={`inline-block h-4 w-4 rounded-full border ${
+                    selectedHex ? "shadow-glow-brand ring-1 ring-brand-purple/35" : ""
+                  }`}
                   style={{ backgroundColor: selectedHex ?? "transparent" }}
                 />
                 <span className="font-mono">{selectedHex ?? "--"}</span>
@@ -730,7 +770,7 @@ function ColorSearchPageContent() {
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <CardTitle className="text-base">Harmonies</CardTitle>
+                    <CardTitle>Harmonies</CardTitle>
                     <CardDescription>
                       Build desired colors and explore top palette recommendations.
                     </CardDescription>
@@ -837,7 +877,7 @@ function ColorSearchPageContent() {
                           type="button"
                           className={`relative flex-1 ${
                             focusedTargetHex === hex
-                              ? "ring-2 ring-primary ring-inset"
+                              ? "ring-2 ring-primary ring-inset shadow-glow-brand"
                               : "hover:opacity-90"
                           }`}
                           style={{ backgroundColor: hex }}
@@ -859,7 +899,7 @@ function ColorSearchPageContent() {
                 </div>
               </div>
 
-              <div className="space-y-2 rounded-md border bg-muted/30 p-2">
+                <div className="space-y-2 rounded-md border bg-muted/30 p-2">
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-medium">Recommended Palettes</p>
                   <p className="text-[10px] text-muted-foreground">Top 12 by Have %, then Buy %</p>
@@ -897,7 +937,15 @@ function ColorSearchPageContent() {
                       const harmonyName =
                         HARMONY_TYPES.find((h) => h.value === candidate.harmony)?.label ?? candidate.harmony;
                       return (
-                        <div key={candidate.id} className="rounded-md border bg-background p-2">
+                        <div
+                          key={candidate.id}
+                          className={`glass cursor-pointer rounded-lg border bg-background/70 p-2 shadow-[0_12px_26px_rgba(66,16,126,0.12)] transition-all ${
+                            activeRecommendedPalette?.id === candidate.id
+                              ? "border-brand-purple/65 ring-2 ring-brand-purple/35 shadow-glow-brand"
+                              : "border-brand-lilac/45 hover:shadow-glow-brand"
+                          }`}
+                          onClick={() => handleApplyRecommendedPalette(candidate)}
+                        >
                           <div className="mb-1 flex items-center justify-between gap-2">
                             <div className="flex min-w-0 items-center gap-2">
                               <span
@@ -922,15 +970,17 @@ function ColorSearchPageContent() {
                                   key={`${candidate.id}-${hex}-${index}`}
                                   type="button"
                                   className={`relative flex-1 ${
-                                    focusedTargetHex === hex ? "ring-2 ring-primary ring-inset" : "hover:opacity-90"
+                                    focusedTargetHex === hex
+                                      ? "ring-2 ring-primary ring-inset shadow-glow-brand"
+                                      : "hover:opacity-90"
                                   }`}
                                   style={{ backgroundColor: hex }}
                                   title={`${hex} • ${AVAILABILITY_META[status].label}`}
                                   onMouseEnter={() => handleSwatchHover(hex)}
                                   onMouseLeave={handleSwatchLeave}
-                                  onClick={() => {
-                                    handleSwatchClick(hex);
-                                    handleExternalColorSelect(hex);
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleApplyRecommendedPalette(candidate, hex);
                                   }}
                                 >
                                   <span className="absolute inset-0 flex items-center justify-center">
@@ -957,7 +1007,7 @@ function ColorSearchPageContent() {
             className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-purple via-brand-lilac to-brand-pink-soft"
           />
           <CardHeader>
-            <CardTitle className="text-base">
+            <CardTitle>
               {harmonyType === "similar" ? "Similar Colors" : "Harmony Matches"}
               {resultsScope === "collection" && " — My Collection"}
             </CardTitle>

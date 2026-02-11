@@ -15,15 +15,15 @@ npm run build:web        # Production build
 ```
 src/app/
 ├── (marketing)/
-│   ├── layout.tsx                → Marketing layout (glass header + footer)
-│   └── page.tsx                  → /           Landing page (hero, features, CTA)
+│   ├── layout.tsx                → Marketing layout (glass header, responsive mobile menu, footer)
+│   └── page.tsx                  → /           Landing page (hero, features, interactive showcase, testimonials, CTA)
 ├── (app)/
 │   ├── layout.tsx                → App layout (AppShell sidebar wrapper)
 │   ├── dashboard/page.tsx        → /dashboard       Stats, recent additions
 │   └── polishes/
 │       ├── page.tsx              → /polishes         Inventory table
 │       ├── new/page.tsx          → /polishes/new     Add polish form
-│       ├── [id]/page.tsx         → /polishes/:id     Polish detail view
+│       ├── [id]/page.tsx         → /polishes/:id     Polish detail view + OKLCH profile + related shades
 │       └── search/page.tsx       → /polishes/search  Color wheel search
 ├── layout.tsx                    → Root layout (fonts, metadata — no AppShell)
 └── globals.css                   → Tailwind v4 + brand theme tokens + utility classes
@@ -40,6 +40,20 @@ src/app/
 All shadcn theme tokens in `globals.css` are mapped to the SwatchWatch brand palette (pink/purple). The palette source of truth is `packages/shared/src/branding/swatchwatch-brand.ts`.
 
 **Brand palette Tailwind utilities:** `bg-brand-pink`, `text-brand-purple`, `border-brand-lilac`, etc.
+
+### Typography
+
+Inter is loaded via `next/font/google` in `src/app/layout.tsx` and applied globally with `font-sans` through the root `<body>` class.
+
+Static text assets use the same Inter-first fallback stack:
+- `public/brand/swatchwatch-wordmark.svg`
+- `public/brand/swatchwatch-lockup.svg`
+- `public/og-image.svg`
+
+Shared heading scale utilities are defined in `src/app/globals.css` and reused across app routes:
+- `heading-page` → page titles (`text-2xl font-bold tracking-tight`)
+- `heading-section` → section headings (`text-lg font-semibold tracking-tight`)
+- `heading-card` → card titles (`text-base font-medium`)
 
 ### Brand Utility Classes
 
@@ -70,10 +84,12 @@ All shadcn theme tokens in `globals.css` are mapped to the SwatchWatch brand pal
 
 | Component | Purpose |
 |-----------|---------|
-| `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with Lucide icons |
+| `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with Lucide icons and exact active-route matching |
+| `marketing-color-showcase.tsx` | Interactive landing-page color harmony demo with mini wheel, connected swatch nodes, and animated suggested set tiles |
+| `marketing-theme-toggle.tsx` | System/light/dark theme selector used in the marketing header |
 | `color-dot.tsx` | Colored circle swatch — `sm`, `md`, `lg` sizes |
-| `color-wheel.tsx` | Canvas HSL color wheel with hover preview + click selection |
-| `color-search-results.tsx` | Polish list sorted by OKLAB color distance |
+| `color-wheel.tsx` | Canvas HSL color wheel with hover preview, click selection, owned-shade snap mode, and glow-forward selected marker |
+| `color-search-results.tsx` | Polish list sorted by OKLAB color distance, with branded finish badges and harmony interactions (palette selection affects table targeting without mutating desired anchors) |
 
 ### shadcn/ui (`src/components/ui/`)
 
@@ -90,7 +106,7 @@ cd apps/web && npx shadcn@latest add <component-name>
 | File | Exports |
 |------|---------|
 | `utils.ts` | `cn()` — Tailwind class merging (shadcn standard) |
-| `constants.ts` | `FINISHES` — canonical finish types for dropdowns |
+| `constants.ts` | `FINISHES`, `finishLabel()`, `finishBadgeClassName()` — finish taxonomy and branded badge styling |
 | `color-utils.ts` | Hex↔HSL↔RGB↔OKLAB conversions, `colorDistance()`, `complementaryHex()` |
 
 ## Metadata & Assets

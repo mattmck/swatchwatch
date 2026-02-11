@@ -205,7 +205,7 @@ export default function RapidAddPage() {
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Rapid Add</h1>
+          <h1 className="heading-page">Rapid Add</h1>
           <p className="text-muted-foreground">
             Capture-driven flow for fast matching and inventory updates.
           </p>
