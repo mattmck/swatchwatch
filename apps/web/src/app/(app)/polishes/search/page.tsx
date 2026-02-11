@@ -92,6 +92,7 @@ const HARMONY_SYMBOLS: Record<HarmonyType, string> = {
   tetradic: "\u25AD",
   monochromatic: "\u25D2",
 };
+const ALL_HARMONY_SYMBOL = "\u2726";
 
 function uniqueHexes(hexes: string[]): string[] {
   const seen = new Set<string>();
@@ -141,6 +142,7 @@ function ColorSearchPageContent() {
   const [allPolishes, setAllPolishes] = useState<Polish[]>([]);
   const wheelSize = useWheelSize();
   const [harmonyType, setHarmonyType] = useState<HarmonyType>("similar");
+  const [includeAllHarmonies, setIncludeAllHarmonies] = useState(false);
   const [wheelMode, setWheelMode] = useState<WheelMode>("free");
   const [harmonyColorSet, setHarmonyColorSet] = useState<HarmonyColorSet>("any");
   const [recommendationHarmonyFilter, setRecommendationHarmonyFilter] = useState<"all" | HarmonyType>("all");
@@ -178,7 +180,7 @@ function ColorSearchPageContent() {
   useEffect(() => {
     lockedTargetRef.current = null;
     setFocusedTargetHex(null); // eslint-disable-line react-hooks/set-state-in-effect
-  }, [harmonyType]);
+  }, [harmonyType, includeAllHarmonies]);
 
   // Initialize from URL params
   useEffect(() => {
@@ -192,7 +194,10 @@ function ColorSearchPageContent() {
       }
     }
     const harmonyParam = searchParams.get("harmony");
-    if (harmonyParam && HARMONY_TYPES.some((h) => h.value === harmonyParam)) {
+    if (harmonyParam === "all") {
+      setIncludeAllHarmonies(true);
+    } else if (harmonyParam && HARMONY_TYPES.some((h) => h.value === harmonyParam)) {
+      setIncludeAllHarmonies(false);
       setHarmonyType(harmonyParam as HarmonyType);
     }
   }, [searchParams]);
@@ -207,6 +212,7 @@ function ColorSearchPageContent() {
 
   // The color we're actively matching against (hover takes priority over click)
   const activeHex = previewHex ?? selectedHex;
+  const isSimilarMode = !includeAllHarmonies && harmonyType === "similar";
 
   // Polishes that have a colorHex
   const colorPolishes = useMemo(
@@ -291,13 +297,20 @@ function ColorSearchPageContent() {
   // Generate harmony target colors — pinned to selectedHex so they don't shift on hover
   const harmonyColors = useMemo(() => {
     if (!selectedHex) return [];
+    if (includeAllHarmonies) {
+      const allHarmonyColors = HARMONY_TYPES
+        .map((item) => item.value)
+        .filter((value): value is HarmonyType => value !== "similar")
+        .flatMap((value) => generateHarmonyColors(selectedHex, value));
+      return constrainHarmonyHexes(uniqueHexes(allHarmonyColors), selectedHex);
+    }
     const rawHarmonyColors = generateHarmonyColors(selectedHex, harmonyType);
     return constrainHarmonyHexes(rawHarmonyColors, selectedHex);
-  }, [selectedHex, harmonyType, constrainHarmonyHexes]);
+  }, [selectedHex, harmonyType, includeAllHarmonies, constrainHarmonyHexes]);
 
   // Harmony target dots for the color wheel (diamonds)
   const harmonyDots: HarmonyDot[] = useMemo(() => {
-    if (!selectedHex || harmonyType === "similar" || harmonyColors.length === 0) return [];
+    if (!selectedHex || isSimilarMode || harmonyColors.length === 0) return [];
     return harmonyColors.map((hex) => {
       const hsl = hexToHsl(hex);
       let closestSnapIndex: number | null = null;
@@ -313,7 +326,7 @@ function ColorSearchPageContent() {
       }
       return { hex, hsl, closestSnapIndex };
     });
-  }, [selectedHex, harmonyType, harmonyColors, wheelMode, snapDots]);
+  }, [selectedHex, isSimilarMode, harmonyColors, wheelMode, snapDots]);
 
   const wantedColorStatuses = useMemo<WantedColorStatus[]>(
     () => paletteAnchors.map((hex) => ({ hex, availability: getAvailabilityForHex(hex) })),
@@ -415,12 +428,12 @@ function ColorSearchPageContent() {
     if (activeRecommendedPalette) {
       return activeRecommendedPalette.slotHexes;
     }
-    if (harmonyType === "similar") {
+    if (isSimilarMode) {
       return activeHex ? [activeHex] : [];
     }
     if (!selectedHex) return [];
     return [selectedHex, ...harmonyColors];
-  }, [activeRecommendedPalette, harmonyType, activeHex, selectedHex, harmonyColors]);
+  }, [activeRecommendedPalette, isSimilarMode, activeHex, selectedHex, harmonyColors]);
 
   // Sort polishes by distance — if a target is focused, match only that color
   const sortedPolishes = useMemo(() => {
@@ -597,6 +610,7 @@ function ColorSearchPageContent() {
     setExternalHoverHex(null);
     setPreviewHex(null);
     setActiveRecommendedPaletteId(candidate.id);
+    setIncludeAllHarmonies(false);
     setHarmonyType(candidate.harmony);
     setSelectedHsl(sourceHsl);
     setLightness(sourceHsl.l);
@@ -774,16 +788,33 @@ function ColorSearchPageContent() {
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground">Harmony Type</p>
                 <div className="flex flex-wrap gap-1 rounded-lg border bg-muted/60 p-1">
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant={includeAllHarmonies ? "default" : "ghost"}
+                    className="h-7 w-7 rounded-md"
+                    title="All harmony types"
+                    aria-label="Set harmony type to all"
+                    onClick={() => {
+                      setIncludeAllHarmonies(true);
+                      setActiveRecommendedPaletteId(null);
+                      lockedTargetRef.current = null;
+                      setFocusedTargetHex(null);
+                    }}
+                  >
+                    <span className="text-sm leading-none">{ALL_HARMONY_SYMBOL}</span>
+                  </Button>
                   {HARMONY_TYPES.map((h) => (
                     <Button
                       key={h.value}
                       type="button"
                       size="icon-sm"
-                      variant={harmonyType === h.value ? "default" : "ghost"}
+                      variant={!includeAllHarmonies && harmonyType === h.value ? "default" : "ghost"}
                       className="h-7 w-7 rounded-md"
                       title={h.label}
                       aria-label={`Set harmony type to ${h.label}`}
                       onClick={() => {
+                        setIncludeAllHarmonies(false);
                         setHarmonyType(h.value);
                         setActiveRecommendedPaletteId(null);
                         lockedTargetRef.current = null;
@@ -1032,13 +1063,13 @@ function ColorSearchPageContent() {
           />
           <CardHeader>
             <CardTitle>
-              {harmonyType === "similar" ? "Similar Colors" : "Harmony Matches"}
+              {isSimilarMode ? "Similar Colors" : "Harmony Matches"}
               {resultsScope === "collection" && " — My Collection"}
             </CardTitle>
             <CardDescription>
               {activeHex
                 ? `Polishes sorted by ${
-                    harmonyType === "similar" ? "similarity to" : "best harmony for"
+                    isSimilarMode ? "similarity to" : "best harmony for"
                   } your selection`
                 : "Pick or hover a color on the wheel to see matches"}
             </CardDescription>
@@ -1124,7 +1155,7 @@ function ColorSearchPageContent() {
               <ColorSearchResults
                 polishes={sortedPolishes}
                 harmonyColors={targetColors}
-                harmonyType={harmonyType}
+                showMatchDots={!isSimilarMode}
                 focusedTargetHex={focusedTargetHex}
                 onQuantityChange={handleQuantityChange}
                 onAddFocus={(hex) => {

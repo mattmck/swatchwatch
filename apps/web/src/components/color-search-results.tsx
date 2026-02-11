@@ -1,7 +1,6 @@
 import Link from "next/link";
 import type { Polish } from "swatchwatch-shared";
 import { BsPlusLg } from "react-icons/bs";
-import type { HarmonyType } from "@/lib/color-harmonies";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ColorDot } from "@/components/color-dot";
@@ -15,7 +14,7 @@ interface ColorSearchResultsProps {
     matchedHarmonyIndex: number;
   })[];
   harmonyColors: string[];
-  harmonyType: HarmonyType;
+  showMatchDots?: boolean;
   focusedTargetHex?: string | null;
   onQuantityChange?: (polishId: string, delta: number) => void;
   onAddFocus?: (hex: string) => void;
@@ -32,7 +31,7 @@ interface ColorSearchResultsProps {
 export function ColorSearchResults({
   polishes,
   harmonyColors,
-  harmonyType,
+  showMatchDots = false,
   focusedTargetHex,
   onQuantityChange,
   onAddFocus,
@@ -53,7 +52,7 @@ export function ColorSearchResults({
     );
   }
 
-  const showMatchDot = harmonyType !== "similar" && harmonyColors.length > 1;
+  const showMatchDot = showMatchDots && harmonyColors.length > 1;
 
   return (
     <div className="space-y-1">
