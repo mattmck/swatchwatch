@@ -180,15 +180,13 @@ export default function PolishesPage() {
   }, [filtered, favorCollection, sortKey, sortDirection]);
 
   const handleSort = useCallback((key: SortKey) => {
-    setSortKey((currentKey) => {
-      if (currentKey === key) {
-        setSortDirection((currentDirection) => (currentDirection === "asc" ? "desc" : "asc"));
-        return currentKey;
-      }
-      setSortDirection("asc");
-      return key;
-    });
-  }, []);
+    if (sortKey === key) {
+      setSortDirection((currentDirection) => (currentDirection === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortKey(key);
+    setSortDirection("asc");
+  }, [sortKey]);
 
   const renderSortIcon = (column: SortKey) => {
     if (sortKey !== column) {
