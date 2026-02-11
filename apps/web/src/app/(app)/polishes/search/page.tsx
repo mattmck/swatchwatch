@@ -806,7 +806,8 @@ function ColorSearchPageContent() {
                       <Button
                         type="button"
                         size="icon-xs"
-                        variant="destructive"
+                        variant="outline"
+                        className="h-6 w-6 border-brand-lilac/60 text-muted-foreground hover:border-brand-purple/60 hover:text-foreground"
                         onClick={handleClearPaletteAnchors}
                         title="Clear focused colors"
                       >
