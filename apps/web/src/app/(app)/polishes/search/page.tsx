@@ -161,6 +161,7 @@ function ColorSearchPageContent() {
   const [harmoniesPanelCollapsed, setHarmoniesPanelCollapsed] = useState(false);
   const [activeRecommendedPaletteId, setActiveRecommendedPaletteId] = useState<string | null>(null);
   const lockedTargetRef = useRef<string | null>(null);
+  const skipNextHarmonyResetRef = useRef(false);
 
   // Derive selectedHex from selectedHsl so lightness slider updates it
   const selectedHex = useMemo(
@@ -178,6 +179,10 @@ function ColorSearchPageContent() {
 
   // Clear focus/lock when harmony type changes
   useEffect(() => {
+    if (skipNextHarmonyResetRef.current) {
+      skipNextHarmonyResetRef.current = false;
+      return;
+    }
     lockedTargetRef.current = null;
     setFocusedTargetHex(null); // eslint-disable-line react-hooks/set-state-in-effect
   }, [harmonyType, includeAllHarmonies]);
@@ -605,6 +610,9 @@ function ColorSearchPageContent() {
       HARMONY_TYPES.find((item) => item.value === candidate.harmony)?.label ?? candidate.harmony;
     const normalizedFocusHex = focusedHex?.toUpperCase() ?? null;
 
+    if (normalizedFocusHex) {
+      skipNextHarmonyResetRef.current = true;
+    }
     lockedTargetRef.current = normalizedFocusHex;
     setFocusedTargetHex(normalizedFocusHex);
     setExternalHoverHex(null);
@@ -787,12 +795,12 @@ function ColorSearchPageContent() {
               <CardContent className="space-y-4">
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground">Harmony Type</p>
-                <div className="flex flex-wrap gap-1 rounded-lg border bg-muted/60 p-1">
+                <div className="grid grid-cols-4 gap-1 rounded-lg border bg-muted/60 p-1 sm:grid-cols-8">
                   <Button
                     type="button"
-                    size="icon-sm"
+                    size="sm"
                     variant={includeAllHarmonies ? "default" : "ghost"}
-                    className="h-7 w-7 rounded-md"
+                    className="h-7 w-full rounded-md px-0"
                     title="All harmony types"
                     aria-label="Set harmony type to all"
                     onClick={() => {
@@ -808,9 +816,9 @@ function ColorSearchPageContent() {
                     <Button
                       key={h.value}
                       type="button"
-                      size="icon-sm"
+                      size="sm"
                       variant={!includeAllHarmonies && harmonyType === h.value ? "default" : "ghost"}
-                      className="h-7 w-7 rounded-md"
+                      className="h-7 w-full rounded-md px-0"
                       title={h.label}
                       aria-label={`Set harmony type to ${h.label}`}
                       onClick={() => {
@@ -952,11 +960,11 @@ function ColorSearchPageContent() {
                   <p className="text-xs font-medium">Recommended Palettes</p>
                   <p className="text-[10px] text-muted-foreground">Top 12 by Have %, then Buy %</p>
                 </div>
-                <div className="flex flex-wrap gap-1 rounded-lg border bg-muted/60 p-1">
+                <div className="grid grid-cols-4 gap-1 rounded-lg border bg-muted/60 p-1 sm:grid-cols-7">
                   <Button
                     type="button"
-                    size="icon-sm"
-                    className="h-7 w-7 rounded-md"
+                    size="sm"
+                    className="h-7 w-full rounded-md px-0"
                     variant={recommendationHarmonyFilter === "all" ? "default" : "ghost"}
                     title="All harmony types"
                     aria-label="Show recommended palettes for all harmony types"
@@ -968,8 +976,8 @@ function ColorSearchPageContent() {
                     <Button
                       key={h.value}
                       type="button"
-                      size="icon-sm"
-                      className="h-7 w-7 rounded-md"
+                      size="sm"
+                      className="h-7 w-full rounded-md px-0"
                       variant={recommendationHarmonyFilter === h.value ? "default" : "ghost"}
                       title={h.label}
                       aria-label={`Show recommended palettes for ${h.label}`}
