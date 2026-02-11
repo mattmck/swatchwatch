@@ -103,7 +103,7 @@ The web app is the most developed part of the project. Key pages:
 | `/polishes` | `apps/web/src/app/polishes/page.tsx` | Collection table — search, filter by brand/finish, sortable columns |
 | `/polishes/new` | `apps/web/src/app/polishes/new/page.tsx` | Add polish form — color picker, star rating, voice input placeholder |
 | `/polishes/[id]` | `apps/web/src/app/polishes/[id]/page.tsx` | Polish detail — all fields, photo placeholders, edit/delete |
-| `/polishes/search` | `apps/web/src/app/polishes/search/page.tsx` | Color wheel search — two-column layout with collapsible wheel/harmonies, vertical lightness, snap chip, focus workflow, and harmony recommendations |
+| `/polishes/search` | `apps/web/src/app/polishes/search/page.tsx` | Color wheel search — two-column layout with collapsible wheel/harmonies, icon-based harmony selector, vertical lightness, snap chip, focus workflow, and harmony recommendations |
 
 
 **UI stack:** [shadcn/ui](https://ui.shadcn.com/) components in `src/components/ui/`, custom components in `src/components/`, Tailwind v4 styling.

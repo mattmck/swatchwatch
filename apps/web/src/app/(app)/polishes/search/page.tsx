@@ -772,6 +772,31 @@ function ColorSearchPageContent() {
             ) : (
               <CardContent className="space-y-4">
               <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Harmony Type</p>
+                <div className="flex flex-wrap gap-1 rounded-lg border bg-muted/60 p-1">
+                  {HARMONY_TYPES.map((h) => (
+                    <Button
+                      key={h.value}
+                      type="button"
+                      size="icon-sm"
+                      variant={harmonyType === h.value ? "default" : "ghost"}
+                      className="h-7 w-7 rounded-md"
+                      title={h.label}
+                      aria-label={`Set harmony type to ${h.label}`}
+                      onClick={() => {
+                        setHarmonyType(h.value);
+                        setActiveRecommendedPaletteId(null);
+                        lockedTargetRef.current = null;
+                        setFocusedTargetHex(null);
+                      }}
+                    >
+                      <span className="text-sm leading-none">{HARMONY_SYMBOLS[h.value]}</span>
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1">
                 <p className="text-xs text-muted-foreground">Harmony Color Set</p>
                 <div className="flex w-full rounded-lg border bg-muted p-1">
                   <Button
