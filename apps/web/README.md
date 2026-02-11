@@ -24,7 +24,7 @@ src/app/
 │       ├── page.tsx              → /polishes         Inventory table
 │       ├── new/page.tsx          → /polishes/new     Add polish form
 │       ├── [id]/page.tsx         → /polishes/:id     Polish detail view
-│       └── search/page.tsx       → /polishes/search  Color wheel search
+│       └── search/page.tsx       → /polishes/search  Color spectrum search with combined style strip
 ├── layout.tsx                    → Root layout (fonts, metadata — no AppShell)
 └── globals.css                   → Tailwind v4 + brand theme tokens + utility classes
 ```
@@ -72,7 +72,8 @@ All shadcn theme tokens in `globals.css` are mapped to the SwatchWatch brand pal
 |-----------|---------|
 | `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with Lucide icons |
 | `color-dot.tsx` | Colored circle swatch — `sm`, `md`, `lg` sizes |
-| `color-wheel.tsx` | Canvas HSL color wheel with hover preview + click selection |
+| `color-wheel.tsx` | Canvas HSL color wheel component (legacy/alternative picker) |
+| `color-spectrum.tsx` | Horizontal HSL spectrum with hover/click selection, harmony markers, and owned-color snap tick lines |
 | `color-search-results.tsx` | Polish list sorted by OKLAB color distance |
 
 ### shadcn/ui (`src/components/ui/`)

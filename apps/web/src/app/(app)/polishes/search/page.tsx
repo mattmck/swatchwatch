@@ -6,7 +6,7 @@ import type { Polish } from "swatchwatch-shared";
 import type { IconType } from "react-icons";
 import { BsCurrencyDollar, BsPlusLg, BsQuestionCircleFill, BsTrash3Fill } from "react-icons/bs";
 import { GiPerfumeBottle } from "react-icons/gi";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronUp } from "lucide-react";
 import { listPolishes, updatePolish } from "@/lib/api";
 import {
   colorDistance,
@@ -22,7 +22,7 @@ import {
   generateHarmonyPalette,
   type HarmonyType,
 } from "@/lib/color-harmonies";
-import { ColorWheel, type WheelMode, type SnapDot, type HarmonyDot } from "@/components/color-wheel";
+import { ColorSpectrum, type WheelMode, type SnapDot, type HarmonyDot } from "@/components/color-spectrum";
 import { ColorSearchResults } from "@/components/color-search-results";
 import { Button } from "@/components/ui/button";
 import { BrandSpinner } from "@/components/brand-spinner";
@@ -71,6 +71,10 @@ type RecommendedPalette = {
 /** Max OKLAB distance (used to normalize to 0-1 for display) */
 const MAX_DISTANCE = 0.5;
 const AVAILABILITY_MATCH_THRESHOLD = 0.075;
+const STYLE_STRIP_MIN_SATURATION = 0.2;
+const STYLE_STRIP_MAX_SATURATION = 1;
+const STYLE_STRIP_MIN_LIGHTNESS = 0.28;
+const STYLE_STRIP_MAX_LIGHTNESS = 0.82;
 
 const AVAILABILITY_META: Record<ColorAvailability, { label: string; color: string }> = {
   have: { label: "Have", color: "#22C55E" },
@@ -125,22 +129,9 @@ function findClosestPolish(
   return { polish: closest, distance: minDistance };
 }
 
-function useWheelSize(defaultSize = 280, mobileSize = 240) {
-  const [size, setSize] = useState(defaultSize);
-  useEffect(() => {
-    const update = () => setSize(window.innerWidth < 640 ? mobileSize : defaultSize);
-    update();
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
-  }, [defaultSize, mobileSize]);
-  return size;
-}
-
 function ColorSearchPageContent() {
   const searchParams = useSearchParams();
   const [allPolishes, setAllPolishes] = useState<Polish[]>([]);
-  const [loading, setLoading] = useState(true);
-  const wheelSize = useWheelSize();
   const [harmonyType, setHarmonyType] = useState<HarmonyType>("similar");
   const [wheelMode, setWheelMode] = useState<WheelMode>("free");
   const [harmonyColorSet, setHarmonyColorSet] = useState<HarmonyColorSet>("any");
@@ -150,6 +141,7 @@ function ColorSearchPageContent() {
   const [finishFilter, setFinishFilter] = useState<string>("all");
   const [availabilityFilter, setAvailabilityFilter] = useState<"all" | "owned" | "wishlist">("all");
   const [lightness, setLightness] = useState(0.5);
+  const [saturation, setSaturation] = useState(1);
   const [selectedHsl, setSelectedHsl] = useState<HSL | null>(null);
   const [paletteAnchors, setPaletteAnchors] = useState<string[]>([]);
   const [anchorFeedback, setAnchorFeedback] = useState<string | null>(null);
@@ -159,19 +151,55 @@ function ColorSearchPageContent() {
   const [harmonyPanelCollapsed, setHarmonyPanelCollapsed] = useState(false);
   const lockedTargetRef = useRef<string | null>(null);
 
-  // Derive selectedHex from selectedHsl so lightness slider updates it
+  const clamp01 = useCallback((value: number) => Math.max(0, Math.min(1, value)), []);
+
+  const styleStripValue = useMemo(() => {
+    const satRange = STYLE_STRIP_MAX_SATURATION - STYLE_STRIP_MIN_SATURATION;
+    const lightRange = STYLE_STRIP_MAX_LIGHTNESS - STYLE_STRIP_MIN_LIGHTNESS;
+    const satT = satRange === 0 ? 0 : (saturation - STYLE_STRIP_MIN_SATURATION) / satRange;
+    const lightT = lightRange === 0 ? 0 : (lightness - STYLE_STRIP_MIN_LIGHTNESS) / lightRange;
+    return clamp01((satT + lightT) / 2);
+  }, [saturation, lightness, clamp01]);
+
+  const styleStripGradient = useMemo(() => {
+    const hue = selectedHsl?.h ?? 0;
+    const stops = Array.from({ length: 9 }, (_, index) => {
+      const t = index / 8;
+      const s = STYLE_STRIP_MIN_SATURATION + (STYLE_STRIP_MAX_SATURATION - STYLE_STRIP_MIN_SATURATION) * t;
+      const l = STYLE_STRIP_MIN_LIGHTNESS + (STYLE_STRIP_MAX_LIGHTNESS - STYLE_STRIP_MIN_LIGHTNESS) * t;
+      return `${hslToHex({ h: hue, s, l })} ${t * 100}%`;
+    });
+    return `linear-gradient(to right, ${stops.join(", ")})`;
+  }, [selectedHsl]);
+
+  const handleStyleStripChange = useCallback(
+    (value: number) => {
+      const t = clamp01(value);
+      setSaturation(
+        STYLE_STRIP_MIN_SATURATION +
+          (STYLE_STRIP_MAX_SATURATION - STYLE_STRIP_MIN_SATURATION) * t
+      );
+      setLightness(
+        STYLE_STRIP_MIN_LIGHTNESS +
+          (STYLE_STRIP_MAX_LIGHTNESS - STYLE_STRIP_MIN_LIGHTNESS) * t
+      );
+    },
+    [clamp01]
+  );
+
+  // Derive selectedHex from selectedHsl so slider updates are reflected instantly.
   const selectedHex = useMemo(
     () => (selectedHsl ? hslToHex(selectedHsl) : null),
     [selectedHsl]
   );
 
-  // Sync lightness slider → selectedHsl so harmony colors update in realtime
+  // Sync lightness/saturation controls -> selectedHsl so harmony colors update in realtime.
   useEffect(() => {
     setSelectedHsl((prev) => { // eslint-disable-line react-hooks/set-state-in-effect
-      if (!prev || prev.l === lightness) return prev;
-      return { ...prev, l: lightness };
+      if (!prev || (prev.l === lightness && prev.s === saturation)) return prev;
+      return { ...prev, l: lightness, s: saturation };
     });
-  }, [lightness]);
+  }, [lightness, saturation]);
 
   // Clear focus/lock when harmony type changes
   useEffect(() => {
@@ -188,6 +216,7 @@ function ColorSearchPageContent() {
         const hsl = hexToHsl(hex);
         setSelectedHsl(hsl); // eslint-disable-line react-hooks/set-state-in-effect
         setLightness(hsl.l);
+        setSaturation(hsl.s);
       }
     }
     const harmonyParam = searchParams.get("harmony");
@@ -199,8 +228,7 @@ function ColorSearchPageContent() {
   useEffect(() => {
     listPolishes()
       .then((res) => setAllPolishes(res.polishes))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+      .catch(() => {});
   }, []);
 
   const isOwned = (p: Polish) => (p.quantity ?? 0) > 0;
@@ -260,7 +288,7 @@ function ColorSearchPageContent() {
     return result;
   }, [scopedColorPolishes, finishFilter, toneFilter, availabilityFilter]);
 
-  // Snap dots for the wheel
+  // Snap dots for the spectrum picker.
   const snapDots: SnapDot[] = useMemo(
     () =>
       ownedColorPolishes.map((p) => ({
@@ -295,7 +323,7 @@ function ColorSearchPageContent() {
     return constrainHarmonyHexes(rawHarmonyColors, selectedHex);
   }, [selectedHex, harmonyType, constrainHarmonyHexes]);
 
-  // Harmony target dots for the color wheel (diamonds)
+  // Harmony target dots for the spectrum picker.
   const harmonyDots: HarmonyDot[] = useMemo(() => {
     if (!selectedHex || harmonyType === "similar" || harmonyColors.length === 0) return [];
     return harmonyColors.map((hex) => {
@@ -451,7 +479,8 @@ function ColorSearchPageContent() {
   const handleSelect = useCallback((hex: string, hsl: HSL) => {
     setSelectedHsl(hsl);
     setLightness(hsl.l);
-    // Clear focus/lock on new wheel selection
+    setSaturation(hsl.s);
+    // Clear focus/lock on new spectrum selection
     lockedTargetRef.current = null;
     setFocusedTargetHex(null);
   }, []);
@@ -460,6 +489,7 @@ function ColorSearchPageContent() {
     const hsl = hexToHsl(hex);
     setSelectedHsl(hsl);
     setLightness(hsl.l);
+    setSaturation(hsl.s);
   }, []);
 
   const addPaletteAnchorHex = useCallback((hex: string | null) => {
@@ -514,7 +544,7 @@ function ColorSearchPageContent() {
     return () => window.clearTimeout(t);
   }, [anchorFeedback]);
 
-  // Swatch hover/click handlers — affect wheel marker + table filter
+  // Swatch hover/click handlers — affect spectrum marker + table filter.
   const handleSwatchHover = useCallback((hex: string) => {
     setExternalHoverHex(hex);
     setFocusedTargetHex(hex);
@@ -535,7 +565,7 @@ function ColorSearchPageContent() {
     }
   }, []);
 
-  // Row color dot hover — affects wheel marker only, not table filter
+  // Row color dot hover — affects spectrum marker only, not table filter.
   const handleColorHover = useCallback((hex: string) => {
     setExternalHoverHex(hex);
   }, []);
@@ -544,7 +574,7 @@ function ColorSearchPageContent() {
     setExternalHoverHex(null);
   }, []);
 
-  const handleMouseLeaveWheel = useCallback(() => {
+  const handleMouseLeaveSpectrum = useCallback(() => {
     setPreviewHex(null);
   }, []);
 
@@ -573,8 +603,8 @@ function ColorSearchPageContent() {
   );
 
   const layoutCols = harmonyPanelCollapsed
-    ? "xl:grid-cols-[minmax(300px,_360px)_80px_minmax(0,_1fr)]"
-    : "xl:grid-cols-[minmax(300px,_360px)_minmax(280px,_340px)_minmax(0,_1fr)]";
+    ? "xl:grid-cols-[80px_minmax(0,_1fr)]"
+    : "xl:grid-cols-[minmax(280px,_340px)_minmax(0,_1fr)]";
 
   return (
     <div className="space-y-6">
@@ -586,27 +616,27 @@ function ColorSearchPageContent() {
       </div>
 
       <div className={`grid gap-6 ${layoutCols}`}>
-        <Card className="relative overflow-hidden">
+        <Card className="relative overflow-hidden xl:col-span-2">
           <span
             aria-hidden
             className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-pink-soft via-brand-lilac to-brand-purple"
           />
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Pick a Color</CardTitle>
+            <CardTitle className="text-base">Color Controls</CardTitle>
             <CardDescription>
               {selectedHex
                 ? "Hover to preview, click to change selection"
-                : "Use the wheel, harmony swatches, or table dots to set a color."}
+                : "Use the spectrum, harmony swatches, or table dots to set a color."}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="mx-auto w-fit" onMouseLeave={handleMouseLeaveWheel}>
-              <ColorWheel
+            <div onMouseLeave={handleMouseLeaveSpectrum}>
+              <ColorSpectrum
                 lightness={lightness}
+                saturation={saturation}
                 onHover={handleHover}
                 onSelect={handleSelect}
                 selectedHsl={selectedHsl}
-                size={wheelSize}
                 wheelMode={wheelMode}
                 snapDots={snapDots}
                 externalHoverHex={externalHoverHex}
@@ -616,94 +646,96 @@ function ColorSearchPageContent() {
 
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>Dark</span>
-                <span>Lightness</span>
-                <span>Light</span>
+                <span>Muted + Deep</span>
+                <span>Style Strip</span>
+                <span>Vivid + Light</span>
               </div>
               <input
                 type="range"
                 min={0}
                 max={1}
                 step={0.01}
-                value={lightness}
-                onChange={(e) => setLightness(parseFloat(e.target.value))}
+                value={styleStripValue}
+                onChange={(e) => handleStyleStripChange(parseFloat(e.target.value))}
                 className="w-full accent-primary"
-                aria-label="Lightness"
+                aria-label="Style strip"
                 style={{
-                  background: `linear-gradient(to right, #000, ${hslToHex({ h: selectedHsl?.h ?? 0, s: selectedHsl?.s ?? 1, l: 0.5 })}, #fff)`,
+                  background: styleStripGradient,
                   borderRadius: "9999px",
-                  height: "8px",
+                  height: "10px",
                 }}
               />
             </div>
 
-            <div className="grid gap-2">
-              <Select
-                value={harmonyType}
-                onValueChange={(v) => setHarmonyType(v as HarmonyType)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Harmony type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {HARMONY_TYPES.map((h) => (
-                    <SelectItem key={h.value} value={h.value}>
-                      {h.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <div className="grid gap-3 md:grid-cols-[minmax(0,_1fr)_minmax(0,_1fr)_220px]">
+              <div className="grid gap-2">
+                <Select
+                  value={harmonyType}
+                  onValueChange={(v) => setHarmonyType(v as HarmonyType)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Harmony type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {HARMONY_TYPES.map((h) => (
+                      <SelectItem key={h.value} value={h.value}>
+                        {h.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">Source Color Mode</p>
-              <div className="flex w-full rounded-lg border bg-muted p-1">
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Source Color Mode</p>
+                <div className="flex w-full rounded-lg border bg-muted p-1">
+                  <Button
+                    variant={wheelMode === "free" ? "default" : "ghost"}
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => setWheelMode("free")}
+                  >
+                    Any Color
+                  </Button>
+                  <Button
+                    variant={wheelMode === "snap" ? "default" : "ghost"}
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => setWheelMode("snap")}
+                  >
+                    Snap to Owned
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-2 rounded-md border p-2 text-xs">
+                <p className="text-muted-foreground">Selected</p>
+                <div className="mt-1 flex items-center gap-2">
+                  <span
+                    className="inline-block h-4 w-4 rounded-full border"
+                    style={{ backgroundColor: selectedHex ?? "transparent" }}
+                  />
+                  <span className="font-mono">{selectedHex ?? "--"}</span>
+                </div>
                 <Button
-                  variant={wheelMode === "free" ? "default" : "ghost"}
+                  type="button"
                   size="sm"
-                  className="flex-1"
-                  onClick={() => setWheelMode("free")}
+                  variant="secondary"
+                  className="w-full justify-center gap-1.5"
+                  onClick={() => addPaletteAnchorHex(selectedHex)}
+                  disabled={!selectedHex}
+                  title="Add selected color to desired"
                 >
-                  Any Color
-                </Button>
-                <Button
-                  variant={wheelMode === "snap" ? "default" : "ghost"}
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => setWheelMode("snap")}
-                >
-                  Snap to Owned
+                  <BsPlusLg className="h-3.5 w-3.5" />
+                  Add to Desired
                 </Button>
               </div>
-            </div>
-
-            <div className="space-y-2 rounded-md border p-2 text-xs">
-              <p className="text-muted-foreground">Selected</p>
-              <div className="mt-1 flex items-center gap-2">
-                <span
-                  className="inline-block h-4 w-4 rounded-full border"
-                  style={{ backgroundColor: selectedHex ?? "transparent" }}
-                />
-                <span className="font-mono">{selectedHex ?? "--"}</span>
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                className="w-full justify-center gap-1.5"
-                onClick={() => addPaletteAnchorHex(selectedHex)}
-                disabled={!selectedHex}
-                title="Add selected color to desired"
-              >
-                <BsPlusLg className="h-3.5 w-3.5" />
-                Add to Desired
-              </Button>
             </div>
           </CardContent>
         </Card>
 
         <Card
-          className={`relative overflow-hidden xl:col-start-2 ${
+          className={`relative overflow-hidden xl:col-start-1 ${
             harmonyPanelCollapsed ? "flex items-center justify-center px-2 py-8" : ""
           }`}
         >
@@ -825,7 +857,7 @@ function ColorSearchPageContent() {
                 <div className="flex h-10 overflow-hidden rounded-md border">
                   {wantedColorStatuses.length === 0 ? (
                     <div className="flex w-full items-center justify-center text-xs text-muted-foreground">
-                      Add colors from wheel, table, or palette suggestions
+                      Add colors from spectrum, table, or palette suggestions
                     </div>
                   ) : (
                     wantedColorStatuses.map(({ hex, availability }) => {
@@ -951,7 +983,7 @@ function ColorSearchPageContent() {
           )}
         </Card>
 
-        <Card className="relative overflow-hidden xl:col-start-3 xl:row-span-2">
+        <Card className="relative overflow-hidden xl:col-start-2">
           <span
             aria-hidden
             className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-purple via-brand-lilac to-brand-pink-soft"
@@ -966,7 +998,7 @@ function ColorSearchPageContent() {
                 ? `Polishes sorted by ${
                     harmonyType === "similar" ? "similarity to" : "best harmony for"
                   } your selection`
-                : "Pick or hover a color on the wheel to see matches"}
+                : "Pick or hover a color on the spectrum to see matches"}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -1068,7 +1100,7 @@ function ColorSearchPageContent() {
               <div className="flex flex-col items-center justify-center py-16 text-center">
                 <span className="text-4xl">🎨</span>
                 <p className="mt-3 text-sm text-muted-foreground">
-                  Pick or hover a color on the wheel to see matches
+                  Pick or hover a color on the spectrum to see matches
                 </p>
               </div>
             )}
