@@ -43,6 +43,15 @@ VALUES
     '{"priority":"medium","mvp":"yes","notes":"One-time bootstrap for nail polish brand/shade and hex color variants."}'::jsonb
   ),
   (
+    'HoloTacoShopify',
+    'api',
+    'https://www.holotaco.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://www.holotaco.com/pages/terms-of-service',
+    true,
+    '{"priority":"high","mvp":"yes","notes":"Current Holo Taco Shopify storefront pull for recent searchable shades, variant SKU/barcode, and images."}'::jsonb
+  ),
+  (
     'CosIng',
     'api',
     'https://ec.europa.eu/growth/sectors/cosmetics/cosing',

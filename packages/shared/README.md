@@ -79,9 +79,9 @@ The package is automatically linked via npm workspaces — no publishing require
 
 | Type | Description |
 |------|-------------|
-| `IngestionSourceName` | Allowed source names for connector ingestion jobs (OpenBeautyFacts, MakeupAPI, CosIng, etc.) |
+| `IngestionSourceName` | Allowed source names for connector ingestion jobs (OpenBeautyFacts, MakeupAPI, HoloTacoShopify, CosIng, etc.) |
 | `IngestionJobStatus` | Job lifecycle status: `running \| succeeded \| failed \| cancelled` |
-| `IngestionJobRunRequest` | Request payload for `POST /api/ingestion/jobs` (includes optional `materializeToInventory`) |
+| `IngestionJobRunRequest` | Request payload for `POST /api/ingestion/jobs` (includes optional `recentDays` and `materializeToInventory`) |
 | `IngestionJobRecord` | Ingestion job summary payload (source, status, timestamps, metrics, error) |
 | `IngestionJobRunResponse` | Job-trigger response wrapper: `{ job }` |
 | `IngestionJobListResponse` | Job list payload: `{ jobs, total }` |

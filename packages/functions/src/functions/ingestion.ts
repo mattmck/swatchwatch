@@ -11,6 +11,7 @@ import {
   getDataSourceByName,
   getIngestionJobById,
   listIngestionJobs,
+  materializeHoloTacoRecords,
   materializeMakeupApiRecords,
   markIngestionJobFailed,
   markIngestionJobSucceeded,
@@ -18,17 +19,24 @@ import {
 } from "../lib/ingestion-repo";
 import { OpenBeautyFactsConnector } from "../lib/connectors/open-beauty-facts";
 import { MakeupApiConnector } from "../lib/connectors/makeup-api";
+import { HoloTacoShopifyConnector } from "../lib/connectors/holo-taco-shopify";
 import { ProductConnector, SupportedConnectorSource } from "../lib/connectors/types";
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
 const DEFAULT_MAX_RECORDS = 20;
+const DEFAULT_RECENT_DAYS = 120;
 const MAX_PAGE_SIZE = 100;
 const MAX_RECORDS = 200;
+const MAX_RECENT_DAYS = 3650;
 const DEFAULT_SEARCH_TERM = "nail polish";
 const JOB_TYPE_CONNECTOR_VERIFY = "connector_verify";
 
-const SUPPORTED_SOURCES: readonly SupportedConnectorSource[] = ["OpenBeautyFacts", "MakeupAPI"];
+const SUPPORTED_SOURCES: readonly SupportedConnectorSource[] = [
+  "OpenBeautyFacts",
+  "MakeupAPI",
+  "HoloTacoShopify",
+];
 
 function clampInt(
   value: unknown,
@@ -54,6 +62,9 @@ function createConnector(source: SupportedConnectorSource, baseUrl?: string | nu
   }
   if (source === "MakeupAPI") {
     return new MakeupApiConnector(baseUrl);
+  }
+  if (source === "HoloTacoShopify") {
+    return new HoloTacoShopifyConnector(baseUrl);
   }
 
   throw new Error(`Unsupported connector source: ${source}`);
@@ -94,6 +105,10 @@ async function runIngestionJob(
   const pageSize = clampInt(body.pageSize, DEFAULT_PAGE_SIZE, 1, MAX_PAGE_SIZE);
   const maxRecords = clampInt(body.maxRecords, DEFAULT_MAX_RECORDS, 1, MAX_RECORDS);
   const materializeToInventory = body.materializeToInventory !== false;
+  const recentDays =
+    body.recentDays === null || body.recentDays === undefined
+      ? undefined
+      : clampInt(body.recentDays, DEFAULT_RECENT_DAYS, 1, MAX_RECENT_DAYS);
   const searchTerm =
     typeof body.searchTerm === "string" && body.searchTerm.trim().length > 0
       ? body.searchTerm.trim()
@@ -104,6 +119,7 @@ async function runIngestionJob(
     requestedPage: page,
     requestedPageSize: pageSize,
     maxRecords,
+    recentDays: recentDays || null,
     materializeToInventory,
     triggeredByUserId: userId,
   };
@@ -128,6 +144,7 @@ async function runIngestionJob(
       page,
       pageSize,
       maxRecords,
+      recentDays,
     });
 
     const persistenceMetrics = await upsertExternalProducts(
@@ -138,6 +155,8 @@ async function runIngestionJob(
     const materializationMetrics =
       sourceInput === "MakeupAPI" && materializeToInventory
         ? await materializeMakeupApiRecords(userId, connectorResult.records)
+        : sourceInput === "HoloTacoShopify" && materializeToInventory
+          ? await materializeHoloTacoRecords(userId, connectorResult.records)
         : null;
 
     const finalMetrics = {

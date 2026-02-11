@@ -1,6 +1,7 @@
 export type IngestionSourceName =
   | "OpenBeautyFacts"
   | "MakeupAPI"
+  | "HoloTacoShopify"
   | "CosIng"
   | "ImpactAffiliateNetwork"
   | "RakutenAdvertising"
@@ -15,6 +16,7 @@ export interface IngestionJobRunRequest {
   page?: number;
   pageSize?: number;
   maxRecords?: number;
+  recentDays?: number;
   materializeToInventory?: boolean;
 }
 

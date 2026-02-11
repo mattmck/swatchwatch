@@ -40,6 +40,15 @@ export interface MakeupApiMaterializationMetrics {
   skipped: number;
 }
 
+export interface HoloTacoMaterializationMetrics {
+  processed: number;
+  brandsCreated: number;
+  shadesCreated: number;
+  inventoryInserted: number;
+  inventoryUpdated: number;
+  skipped: number;
+}
+
 interface MakeupColorVariant {
   name: string | null;
   hex: string | null;
@@ -51,12 +60,30 @@ interface MakeupProductNormalized {
   colorVariants: MakeupColorVariant[];
 }
 
+interface HoloTacoProductNormalized {
+  brand: string | null;
+  name: string | null;
+  collection: string | null;
+  finish: string | null;
+  tags: string[];
+}
+
 function asString(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
   }
   const normalized = value.replace(/\s+/g, " ").trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => asString(entry))
+    .filter((entry): entry is string => Boolean(entry));
 }
 
 function canonicalizeBrandName(rawBrand: string): string {
@@ -91,6 +118,20 @@ function parseMakeupNormalized(
     brand: asString(normalized.brand),
     name: asString(normalized.name),
     colorVariants: parseMakeupVariants(normalized.colorVariants),
+  };
+}
+
+function parseHoloTacoNormalized(
+  normalized: Record<string, unknown>
+): HoloTacoProductNormalized {
+  const collections = asStringArray(normalized.collections);
+  const finishes = asStringArray(normalized.finishes);
+  return {
+    brand: asString(normalized.brand),
+    name: asString(normalized.name),
+    collection: collections[0] || null,
+    finish: finishes[0] || null,
+    tags: asStringArray(normalized.tags),
   };
 }
 
@@ -513,6 +554,152 @@ export async function materializeMakeupApiRecords(
       inventoryInserted,
       inventoryUpdated,
       legacyRowsDeleted,
+      skipped,
+    };
+  });
+}
+
+export async function materializeHoloTacoRecords(
+  userId: number,
+  records: ConnectorProductRecord[]
+): Promise<HoloTacoMaterializationMetrics> {
+  return transaction(async (client) => {
+    let processed = 0;
+    let brandsCreated = 0;
+    let shadesCreated = 0;
+    let inventoryInserted = 0;
+    let inventoryUpdated = 0;
+    let skipped = 0;
+
+    const brandCache = new Map<string, number>();
+
+    for (const record of records) {
+      const normalized =
+        record.normalized && typeof record.normalized === "object"
+          ? (record.normalized as Record<string, unknown>)
+          : null;
+
+      if (!normalized) {
+        skipped += 1;
+        continue;
+      }
+
+      const holo = parseHoloTacoNormalized(normalized);
+      if (!holo.name) {
+        skipped += 1;
+        continue;
+      }
+
+      const brandName = canonicalizeBrandName(holo.brand || "Holo Taco");
+      const brandKey = brandName.toLowerCase();
+      let brandId = brandCache.get(brandKey);
+
+      if (!brandId) {
+        const existingBrand = await client.query<{ brandId: number }>(
+          `SELECT brand_id AS "brandId"
+           FROM brand
+           WHERE lower(name_canonical) = lower($1)
+           ORDER BY brand_id
+           LIMIT 1`,
+          [brandName]
+        );
+
+        if (existingBrand.rows.length > 0) {
+          brandId = existingBrand.rows[0].brandId;
+        } else {
+          const insertedBrand = await client.query<{ brandId: number }>(
+            `INSERT INTO brand (name_canonical)
+             VALUES ($1)
+             RETURNING brand_id AS "brandId"`,
+            [brandName]
+          );
+          brandId = insertedBrand.rows[0].brandId;
+          brandsCreated += 1;
+        }
+
+        brandCache.set(brandKey, brandId);
+      }
+
+      processed += 1;
+
+      const existingShade = await client.query<{ shadeId: number }>(
+        `SELECT shade_id AS "shadeId"
+         FROM shade
+         WHERE brand_id = $1
+           AND product_line_id IS NULL
+           AND lower(shade_name_canonical) = lower($2)
+           AND coalesce(finish, '') = coalesce($3, '')
+           AND coalesce(collection, '') = coalesce($4, '')
+         LIMIT 1`,
+        [brandId, holo.name, holo.finish, holo.collection]
+      );
+
+      let shadeId: number;
+      if (existingShade.rows.length > 0) {
+        shadeId = existingShade.rows[0].shadeId;
+      } else {
+        const insertedShade = await client.query<{ shadeId: number }>(
+          `INSERT INTO shade (brand_id, shade_name_canonical, finish, collection, status)
+           VALUES ($1, $2, $3, $4, 'active')
+           RETURNING shade_id AS "shadeId"`,
+          [brandId, holo.name, holo.finish, holo.collection]
+        );
+        shadeId = insertedShade.rows[0].shadeId;
+        shadesCreated += 1;
+      }
+
+      const inventory = await client.query<{ inventoryItemId: number }>(
+        `SELECT inventory_item_id AS "inventoryItemId"
+         FROM user_inventory_item
+         WHERE user_id = $1
+           AND shade_id = $2
+         LIMIT 1`,
+        [userId, shadeId]
+      );
+
+      const importNote = `Imported from HoloTacoShopify external_id=${record.externalId}`;
+      const sourceTags = Array.from(
+        new Set(
+          [...holo.tags, "imported", "holotaco", "shopify"]
+            .map((tag) => tag.trim())
+            .filter(Boolean)
+        )
+      );
+
+      if (inventory.rows.length === 0) {
+        await client.query(
+          `INSERT INTO user_inventory_item
+             (user_id, shade_id, quantity, color_name, notes, tags)
+           VALUES ($1, $2, 0, $3, $4, $5::text[])`,
+          [userId, shadeId, holo.name, importNote, sourceTags]
+        );
+        inventoryInserted += 1;
+      } else {
+        const inventoryItemId = inventory.rows[0].inventoryItemId;
+        await client.query(
+          `UPDATE user_inventory_item
+           SET color_name = COALESCE(color_name, $2),
+               notes = COALESCE(notes, $3),
+               tags = (
+                 SELECT ARRAY(
+                   SELECT DISTINCT t
+                   FROM unnest(COALESCE(user_inventory_item.tags, ARRAY[]::text[]) || $4::text[]) AS t
+                   ORDER BY t
+                 )
+               )
+           WHERE inventory_item_id = $1`,
+          [inventoryItemId, holo.name, importNote, sourceTags]
+        );
+        inventoryUpdated += 1;
+      }
+    }
+
+    return {
+      processed,
+      brandsCreated,
+      shadesCreated,
+      inventoryInserted,
+      inventoryUpdated,
       skipped,
     };
   });
