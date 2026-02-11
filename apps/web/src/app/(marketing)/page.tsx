@@ -81,7 +81,9 @@ export default function LandingPage() {
 
         <div className="relative mx-auto max-w-4xl px-5 text-center sm:px-6">
           <ScrollFadeIn className="mb-6 flex justify-center sm:mb-8">
-            <SwatchWatchIcon name="monogram" size={56} title="SwatchWatch" />
+            <span className="inline-flex h-16 w-16 items-center justify-center rounded-full border border-brand-purple/20 bg-white/75 shadow-glow-brand backdrop-blur-sm dark:border-brand-lilac/35 dark:bg-background/70 sm:h-[4.5rem] sm:w-[4.5rem]">
+              <SwatchWatchIcon name="monogram" size={52} title="SwatchWatch" />
+            </span>
           </ScrollFadeIn>
 
           <ScrollFadeIn delay={100}>

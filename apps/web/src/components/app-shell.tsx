@@ -6,6 +6,7 @@ import { LayoutDashboard, Sparkles, Search, PlusCircle, Settings } from "lucide-
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { SwatchWatchWordmark } from "@/components/brand/swatchwatch-brand";
+import { ThemeToggle } from "@/components/marketing-theme-toggle";
 import type { LucideIcon } from "lucide-react";
 
 interface NavItem {
@@ -37,7 +38,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-screen">
       {/* Sidebar */}
       <aside className="hidden w-56 shrink-0 border-r border-border bg-sidebar md:flex md:flex-col">
-        <div className="relative flex h-14 items-center border-b border-border/60 px-4">
+        <div className="relative flex h-14 items-center justify-between border-b border-border/60 px-4">
           <span
             aria-hidden
             className="pointer-events-none absolute inset-x-4 bottom-0 h-px bg-gradient-to-r from-brand-pink-soft via-brand-lilac to-brand-purple"
@@ -45,6 +46,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Link href="/dashboard">
             <SwatchWatchWordmark iconSize={26} />
           </Link>
+          <ThemeToggle className="border-brand-purple/25 text-brand-purple-deep dark:text-brand-lilac" />
         </div>
         <nav className="flex flex-col gap-1 p-3">
           {navItems.map((item) => (
@@ -101,7 +103,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <SwatchWatchWordmark iconSize={22} textClassName="text-sm" />
             </Link>
           </div>
-          <nav className="flex items-center gap-1 overflow-x-auto md:hidden">
+          <nav className="flex flex-1 items-center gap-1 overflow-x-auto md:hidden">
             {navItems.map((item) => (
               <Button
                 key={item.href}
@@ -115,6 +117,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </Button>
             ))}
           </nav>
+          <ThemeToggle
+            className="shrink-0 border-brand-purple/25 text-brand-purple-deep dark:text-brand-lilac md:hidden"
+          />
         </header>
 
         <main className="flex-1 p-4 md:p-6">{children}</main>
