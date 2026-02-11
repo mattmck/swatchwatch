@@ -698,9 +698,9 @@ function ColorSearchPageContent() {
                     className="h-7 rounded-full px-2.5 text-[11px] font-medium"
                     variant={wheelMode === "snap" ? "default" : "outline"}
                     onClick={() => setWheelMode((prev) => (prev === "snap" ? "free" : "snap"))}
-                    title={wheelMode === "snap" ? "Snap is on. Click to turn off." : "Snap is off. Click to turn on."}
+                    title={wheelMode === "snap" ? "Mine mode is on. Click to turn off." : "Mine mode is off. Click to turn on."}
                   >
-                    ◎ Snap
+                    ◎ Mine
                   </Button>
 
                   <div className="flex items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-xs">
