@@ -41,6 +41,25 @@ variable "openai_deployment_name" {
   default     = "hex-detector"
 }
 
+variable "create_openai_resources" {
+  description = "Create Azure OpenAI account/deployment resources. Set false when quota is unavailable and provide openai_endpoint/openai_api_key manually if needed."
+  type        = bool
+  default     = false
+}
+
+variable "openai_endpoint" {
+  description = "Optional existing Azure OpenAI endpoint (used when create_openai_resources=false)."
+  type        = string
+  default     = ""
+}
+
+variable "openai_api_key" {
+  description = "Optional existing Azure OpenAI API key (used when create_openai_resources=false). Stored in Key Vault."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "openai_model_name" {
   description = "Azure OpenAI model name for the hex detection deployment"
   type        = string
