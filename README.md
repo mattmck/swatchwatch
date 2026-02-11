@@ -86,7 +86,7 @@ npm run dev:mobile       # → Expo dev server
 | `.github/workflows/deploy-infra-dev.yml` | Deploy Terraform infrastructure to dev | Push to `dev` when `infrastructure/**` changes, manual dispatch |
 
 Temporary dev auth note:
-`deploy-dev.yml` currently sets `AUTH_DEV_BYPASS=true` on the dev Function App after deployment so the API accepts `Bearer dev:<userId>` tokens. This is temporary and should be removed after dev B2C auth wiring is complete.
+`deploy-dev.yml` currently sets `AUTH_DEV_BYPASS=true` on the dev Function App and `NEXT_PUBLIC_AUTH_DEV_BYPASS=true` during dev web builds, so the web app sends `Bearer dev:<userId>` tokens to the API. This is temporary and should be removed after dev B2C auth wiring is complete.
 
 Infrastructure deploy workflow requirements:
 - GitHub secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `PG_ADMIN_PASSWORD`
@@ -124,6 +124,8 @@ Functions require secrets defined in `packages/functions/local.settings.json`:
 | `AZURE_AD_B2C_TENANT` | B2C tenant name |
 | `AZURE_AD_B2C_CLIENT_ID` | B2C app client ID |
 | `AUTH_DEV_BYPASS` | Dev-only bypass (`true` enables `Bearer dev:<userId>` tokens); do not use in shared/prod environments |
+| `NEXT_PUBLIC_API_URL` | Web API base URL used at web build time |
+| `NEXT_PUBLIC_AUTH_DEV_BYPASS` | Web dev-only bypass toggle (`true` makes the UI send `Authorization: Bearer dev:1`) |
 
 ## VS Code
 

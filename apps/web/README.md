@@ -103,6 +103,16 @@ cd apps/web && npx shadcn@latest add <component-name>
 | Manifest | `public/manifest.json` | PWA manifest with brand colors |
 | Brand SVGs | `public/brand/` | Monogram, wordmark, lockup, swatch, brush, app icon |
 
+## Environment Variables
+
+| Variable | Purpose |
+|----------|---------|
+| `NEXT_PUBLIC_API_URL` | API base URL used by `src/lib/api.ts` |
+| `NEXT_PUBLIC_AUTH_DEV_BYPASS` | Dev-only bypass toggle. When `true`, the UI sends `Authorization: Bearer dev:1` on authenticated API calls. |
+
+Temporary note (as of February 11, 2026):
+`deploy-dev.yml` sets `NEXT_PUBLIC_AUTH_DEV_BYPASS=true` for dev web deployments. Remove this once Azure AD B2C auth is wired in the web app.
+
 ## Conventions
 
 - **Path alias:** `@/*` maps to `src/*` (configured in `tsconfig.json`)
