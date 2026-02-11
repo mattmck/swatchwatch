@@ -114,6 +114,7 @@
 - Currently the landing page doesn't have a theme toggle
 - The dark tokens are defined — add a toggle or respect system preference
 - Hero gradient needs dark variant (already defined in `.dark` but untested visually)
+- [x] Completed (2026-02-11): Added a marketing header theme toggle (system/light/dark), persisted preference in localStorage, and wired `.dark` class application so marketing pages can be previewed in dark mode with existing tokenized gradients.
 
 ---
 

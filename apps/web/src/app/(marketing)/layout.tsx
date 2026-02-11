@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { SwatchWatchWordmark } from "@/components/brand/swatchwatch-brand";
 import { Button } from "@/components/ui/button";
+import { MarketingThemeToggle } from "@/components/marketing-theme-toggle";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +30,7 @@ export default function MarketingLayout({
           </Link>
 
           <div className="hidden items-center gap-2 sm:flex">
+            <MarketingThemeToggle />
             <Button asChild variant="outline" size="sm">
               <Link href="/polishes">View Collection</Link>
             </Button>
@@ -37,7 +39,8 @@ export default function MarketingLayout({
             </Button>
           </div>
 
-          <div className="sm:hidden">
+          <div className="flex items-center gap-2 sm:hidden">
+            <MarketingThemeToggle />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="icon-sm" aria-label="Open navigation menu">
