@@ -19,9 +19,9 @@ src/app/
 │   └── page.tsx                  → /           Landing page (hero, features, CTA)
 ├── (app)/
 │   ├── layout.tsx                → App layout (AppShell sidebar wrapper)
-│   ├── dashboard/page.tsx        → /dashboard       Stats, recent additions
+│   ├── dashboard/page.tsx        → /dashboard       Stats, recent additions (computed from full paginated inventory)
 │   └── polishes/
-│       ├── page.tsx              → /polishes         Inventory table
+│       ├── page.tsx              → /polishes         Inventory table (hydrates all API pages for client-side search/filter)
 │       ├── new/page.tsx          → /polishes/new     Add polish form
 │       ├── [id]/page.tsx         → /polishes/:id     Polish detail view
 │       └── search/page.tsx       → /polishes/search  Color wheel search
@@ -92,6 +92,7 @@ cd apps/web && npx shadcn@latest add <component-name>
 | `utils.ts` | `cn()` — Tailwind class merging (shadcn standard) |
 | `constants.ts` | `FINISHES` — canonical finish types for dropdowns |
 | `color-utils.ts` | Hex↔HSL↔RGB↔OKLAB conversions, `colorDistance()`, `complementaryHex()` |
+| `api.ts` | API client helpers including `listPolishes()` and `listAllPolishes()` for full paginated inventory fetches |
 
 ## Metadata & Assets
 

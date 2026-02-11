@@ -34,6 +34,15 @@ VALUES
     '{"priority":"high","mvp":"yes","notes":"Barcode-first bootstrap for product name/brand and sometimes ingredients/labels. Coverage varies; cache by GTIN."}'::jsonb
   ),
   (
+    'MakeupAPI',
+    'api',
+    'https://makeup-api.herokuapp.com',
+    'Public API (verify terms)',
+    'https://makeup-api.herokuapp.com',
+    true,
+    '{"priority":"medium","mvp":"yes","notes":"One-time bootstrap for nail polish brand/shade and hex color variants."}'::jsonb
+  ),
+  (
     'CosIng',
     'api',
     'https://ec.europa.eu/growth/sectors/cosmetics/cosing',

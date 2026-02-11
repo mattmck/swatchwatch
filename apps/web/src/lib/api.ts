@@ -62,6 +62,40 @@ export async function listPolishes(filters?: PolishFilters): Promise<PolishListR
   return handleResponse<PolishListResponse>(response);
 }
 
+/**
+ * Fetch all polish rows for the current user by walking paginated API results.
+ * The API currently returns paginated responses (default pageSize=50).
+ */
+export async function listAllPolishes(
+  filters?: Omit<PolishFilters, "page" | "pageSize"> & { pageSize?: number }
+): Promise<Polish[]> {
+  const pageSize = Math.min(100, Math.max(1, filters?.pageSize ?? 100));
+  const allPolishes: Polish[] = [];
+  let currentPage = 1;
+  let total = 0;
+
+  do {
+    const response = await listPolishes({
+      ...filters,
+      page: currentPage,
+      pageSize,
+    });
+
+    allPolishes.push(...response.polishes);
+    total = response.total;
+    currentPage += 1;
+
+    if (response.polishes.length === 0) {
+      break;
+    }
+  } while (allPolishes.length < total);
+
+  // Defensive de-dupe by inventory item id in case of overlapping pages.
+  return Array.from(
+    new Map(allPolishes.map((polish) => [polish.id, polish])).values()
+  );
+}
+
 export async function getPolish(id: string | number): Promise<Polish> {
   const response = await fetch(`${API_BASE_URL}/polishes/${id}`, {
     headers: getAuthHeaders(),

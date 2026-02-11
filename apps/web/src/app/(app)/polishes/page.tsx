@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import type { Polish } from "swatchwatch-shared";
-import { listPolishes, updatePolish } from "@/lib/api";
+import { listAllPolishes, updatePolish } from "@/lib/api";
 import { undertone, type Undertone } from "@/lib/color-utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -51,19 +51,37 @@ export default function PolishesPage() {
   const [page, setPage] = useState(1);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function fetchPolishes() {
       try {
         setLoading(true);
-        const response = await listPolishes();
-        setPolishes(response.polishes);
+        setError(null);
+
+        const allPolishes = await listAllPolishes({
+          sortBy: "createdAt",
+          sortOrder: "desc",
+        });
+
+        if (!cancelled) {
+          setPolishes(allPolishes);
+        }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Failed to load polishes";
-        setError(message);
+        if (!cancelled) {
+          setError(message);
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     }
     fetchPolishes();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Reset page when filters change

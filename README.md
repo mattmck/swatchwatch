@@ -27,6 +27,7 @@ swatchwatch/
 Web / Mobile → Azure Functions REST API → Azure PostgreSQL Flexible Server
                   ├── /api/polishes       → CRUD operations (user inventory)
                   ├── /api/auth/*         → Azure AD B2C token validation
+                  ├── /api/ingestion/jobs → Connector pull jobs → external_product + ingestion_job
                   └── /api/voice          → Azure Speech → Azure OpenAI → parsed polish details
 ```
 
