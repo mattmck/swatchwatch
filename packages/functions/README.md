@@ -85,6 +85,15 @@ node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_U
 
 Defined in `local.settings.json` (git-ignored values). See the root README for the full list. For production, secrets are injected via Key Vault references.
 
+Auth-specific variable:
+
+| Variable | Purpose |
+|----------|---------|
+| `AUTH_DEV_BYPASS` | Dev-only bypass mode. When `true`, auth accepts `Bearer dev:<userId>` tokens. Keep this disabled outside isolated dev scenarios. |
+
+Temporary cloud note (as of February 11, 2026):
+`deploy-dev.yml` currently sets `AUTH_DEV_BYPASS=true` on the dev Function App after deploy. Remove this once dev Azure AD B2C flow is fully wired.
+
 ## Build
 
 ```bash

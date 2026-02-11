@@ -109,3 +109,11 @@ jobs:
         with:
           app-name: 'swatchwatch-dev-func-j5jij0be'
           package: 'packages/functions/.deploy'
+
+      - name: TEMP enable auth dev bypass (remove after dev B2C wiring)
+        run: |
+          # TODO(2026-02-11): Remove AUTH_DEV_BYPASS once dev B2C auth is fully wired end-to-end.
+          az functionapp config appsettings set \
+            --name 'swatchwatch-dev-func-j5jij0be' \
+            --resource-group 'swatchwatch-dev-rg' \
+            --settings AUTH_DEV_BYPASS=true

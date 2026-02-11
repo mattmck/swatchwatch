@@ -78,6 +78,20 @@ npm run dev:mobile       # → Expo dev server
 
 > Linting extends `eslint-config-next` from the repo root, so `next@16.1.6` is included in the root `devDependencies` to supply its bundled Babel parser. When upgrading Next in `apps/web`, bump the root version as well.
 
+## CI/CD Workflows
+
+| Workflow | Purpose | Trigger |
+|----------|---------|---------|
+| `.github/workflows/deploy-dev.yml` | Deploy web + function app code to dev | Push to `dev`, manual dispatch |
+| `.github/workflows/deploy-infra-dev.yml` | Deploy Terraform infrastructure to dev | Push to `dev` when `infrastructure/**` changes, manual dispatch |
+
+Temporary dev auth note:
+`deploy-dev.yml` currently sets `AUTH_DEV_BYPASS=true` on the dev Function App after deployment so the API accepts `Bearer dev:<userId>` tokens. This is temporary and should be removed after dev B2C auth wiring is complete.
+
+Infrastructure deploy workflow requirements:
+- GitHub secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `PG_ADMIN_PASSWORD`
+- GitHub variables: `TFSTATE_RESOURCE_GROUP`, `TFSTATE_STORAGE_ACCOUNT`, `TFSTATE_CONTAINER` (recommended: `tfstate`), `TFSTATE_BLOB_NAME` (recommended: `dev.terraform.tfstate`)
+
 ## Project Structure — Web App
 
 The web app is the most developed part of the project. Key pages:
@@ -109,6 +123,7 @@ Functions require secrets defined in `packages/functions/local.settings.json`:
 | `AZURE_OPENAI_KEY` | Azure OpenAI key |
 | `AZURE_AD_B2C_TENANT` | B2C tenant name |
 | `AZURE_AD_B2C_CLIENT_ID` | B2C app client ID |
+| `AUTH_DEV_BYPASS` | Dev-only bypass (`true` enables `Bearer dev:<userId>` tokens); do not use in shared/prod environments |
 
 ## VS Code
 
