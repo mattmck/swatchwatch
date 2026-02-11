@@ -1,0 +1,16 @@
+{
+  "name": "SwatchWatch",
+  "short_name": "SwatchWatch",
+  "description": "Your smart nail polish collection manager",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffd7f0",
+  "theme_color": "#42107e",
+  "icons": [
+    {
+      "src": "/brand/swatchwatch-app-icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any"
+    }
+  ]
+}

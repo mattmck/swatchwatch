@@ -1,4 +1,5 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
+import { withCors } from "../lib/http";
 
 interface ParsedPolishDetails {
   brand: string | null;
@@ -73,8 +74,8 @@ async function processVoiceInput(request: HttpRequest, context: InvocationContex
 }
 
 app.http("voice-process", {
-  methods: ["POST"],
+  methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   route: "voice",
-  handler: processVoiceInput,
+  handler: withCors(processVoiceInput),
 });

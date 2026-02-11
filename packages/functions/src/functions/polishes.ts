@@ -2,6 +2,7 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/fu
 import { PolishCreateRequest, PolishUpdateRequest, PolishListResponse } from "swatchwatch-shared";
 import { query, transaction } from "../lib/db";
 import { withAuth } from "../lib/auth";
+import { withCors } from "../lib/http";
 import { PoolClient } from "pg";
 
 /**
@@ -131,7 +132,13 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       conditions.push(
         `(b.name_canonical ILIKE $${paramIndex}
           OR s.shade_name_canonical ILIKE $${paramIndex}
-          OR ui.color_name ILIKE $${paramIndex})`
+          OR ui.color_name ILIKE $${paramIndex}
+          OR s.collection ILIKE $${paramIndex}
+          OR ui.notes ILIKE $${paramIndex}
+          OR EXISTS (
+            SELECT 1 FROM unnest(COALESCE(ui.tags, ARRAY[]::text[])) AS tag
+            WHERE tag ILIKE $${paramIndex}
+          ))`
       );
       params.push(`%${search}%`);
       paramIndex++;
@@ -350,29 +357,32 @@ async function deletePolish(request: HttpRequest, context: InvocationContext, us
 }
 
 app.http("polishes-list", {
-  methods: ["GET"],
+  methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   route: "polishes/{id?}",
-  handler: withAuth(getPolishes),
+  handler: withCors(withAuth(getPolishes)),
 });
 
 app.http("polishes-create", {
-  methods: ["POST"],
+  methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   route: "polishes",
-  handler: withAuth(createPolish),
+  handler: withCors(withAuth(createPolish)),
 });
 
-app.http("polishes-update", {
-  methods: ["PUT"],
+app.http("polishes-mutate", {
+  methods: ["PUT", "DELETE", "OPTIONS"],
   authLevel: "anonymous",
   route: "polishes/{id}",
-  handler: withAuth(updatePolish),
-});
-
-app.http("polishes-delete", {
-  methods: ["DELETE"],
-  authLevel: "anonymous",
-  route: "polishes/{id}",
-  handler: withAuth(deletePolish),
+  handler: withCors(
+    withAuth(async (request, context, userId) => {
+      if (request.method?.toUpperCase() === "PUT") {
+        return updatePolish(request, context, userId);
+      }
+      if (request.method?.toUpperCase() === "DELETE") {
+        return deletePolish(request, context, userId);
+      }
+      return { status: 405, jsonBody: { error: "Method not allowed" } };
+    })
+  ),
 });

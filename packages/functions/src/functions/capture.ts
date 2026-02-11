@@ -15,6 +15,7 @@ import {
 } from "swatchwatch-shared";
 import { query, transaction } from "../lib/db";
 import { withAuth } from "../lib/auth";
+import { withCors } from "../lib/http";
 
 const GUIDANCE_CONFIG = {
   recommendedFrameTypes: ["barcode", "label", "color"],
@@ -1491,36 +1492,36 @@ async function answerCaptureQuestion(
 }
 
 app.http("capture-start", {
-  methods: ["POST"],
+  methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   route: "capture/start",
-  handler: withAuth(startCapture),
+  handler: withCors(withAuth(startCapture)),
 });
 
 app.http("capture-frame", {
-  methods: ["POST"],
+  methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   route: "capture/{captureId}/frame",
-  handler: withAuth(addCaptureFrame),
+  handler: withCors(withAuth(addCaptureFrame)),
 });
 
 app.http("capture-finalize", {
-  methods: ["POST"],
+  methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   route: "capture/{captureId}/finalize",
-  handler: withAuth(finalizeCapture),
+  handler: withCors(withAuth(finalizeCapture)),
 });
 
 app.http("capture-status", {
-  methods: ["GET"],
+  methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   route: "capture/{captureId}/status",
-  handler: withAuth(getCaptureStatus),
+  handler: withCors(withAuth(getCaptureStatus)),
 });
 
 app.http("capture-answer", {
-  methods: ["POST"],
+  methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   route: "capture/{captureId}/answer",
-  handler: withAuth(answerCaptureQuestion),
+  handler: withCors(withAuth(answerCaptureQuestion)),
 });

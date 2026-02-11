@@ -74,9 +74,31 @@ SOURCE_LOCAL_SETTINGS="$(first_existing_path "$CURRENT_ROOT/packages/functions/l
 
 if [ -n "${SOURCE_ENV:-}" ]; then
   copy_if_present "$SOURCE_ENV" "$WORKTREE_DIR/.env" ".env"
+elif [ ! -f "$WORKTREE_DIR/.env" ] && [ -f "$WORKTREE_DIR/.env.example" ]; then
+  cp "$WORKTREE_DIR/.env.example" "$WORKTREE_DIR/.env"
+  echo "Created .env from .env.example (no existing .env found to copy)."
 fi
+
 if [ -n "${SOURCE_LOCAL_SETTINGS:-}" ]; then
   copy_if_present "$SOURCE_LOCAL_SETTINGS" "$WORKTREE_DIR/packages/functions/local.settings.json" "packages/functions/local.settings.json"
+elif [ ! -f "$WORKTREE_DIR/packages/functions/local.settings.json" ]; then
+  mkdir -p "$WORKTREE_DIR/packages/functions"
+  cat > "$WORKTREE_DIR/packages/functions/local.settings.json" <<'SETTINGS'
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+    "AzureWebJobsStorage": "",
+    "PGHOST": "localhost",
+    "PGPORT": "5434",
+    "PGDATABASE": "swatchwatch",
+    "PGUSER": "postgres",
+    "PGPASSWORD": "swatchwatch_dev",
+    "AUTH_DEV_BYPASS": "true"
+  }
+}
+SETTINGS
+  echo "Created packages/functions/local.settings.json with dev defaults (no existing file found to copy)."
 fi
 
 echo "Installing dependencies..."

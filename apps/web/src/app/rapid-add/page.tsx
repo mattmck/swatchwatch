@@ -385,7 +385,7 @@ export default function RapidAddPage() {
           {captureStatus === "matched" && typeof matchedInventoryId !== "undefined" && (
             <Button
               type="button"
-              onClick={() => router.push(`/polishes/${String(matchedInventoryId)}`)}
+              onClick={() => router.push(`/polishes/detail?id=${String(matchedInventoryId)}`)}
             >
               View Added Polish
             </Button>

@@ -88,7 +88,7 @@ export function ColorSearchResults({
             </span>
 
             <Link
-              href={`/polishes/${polish.id}`}
+              href={`/polishes/detail?id=${polish.id}`}
               className="flex min-w-0 flex-1 items-center gap-3"
             >
               <span
