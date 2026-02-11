@@ -145,7 +145,6 @@ function ColorSearchPageContent() {
   const [includeAllHarmonies, setIncludeAllHarmonies] = useState(false);
   const [wheelMode, setWheelMode] = useState<WheelMode>("free");
   const [harmonyColorSet, setHarmonyColorSet] = useState<HarmonyColorSet>("any");
-  const [recommendationHarmonyFilter, setRecommendationHarmonyFilter] = useState<"all" | HarmonyType>("all");
   const [resultsScope, setResultsScope] = useState<ResultsScope>("all");
   const [toneFilter, setToneFilter] = useState<Undertone | "all">("all");
   const [finishFilter, setFinishFilter] = useState<string>("all");
@@ -218,6 +217,8 @@ function ColorSearchPageContent() {
   // The color we're actively matching against (hover takes priority over click)
   const activeHex = previewHex ?? selectedHex;
   const isSimilarMode = !includeAllHarmonies && harmonyType === "similar";
+  const recommendationHarmonyFilter: "all" | HarmonyType =
+    includeAllHarmonies || harmonyType === "similar" ? "all" : harmonyType;
 
   // Polishes that have a colorHex
   const colorPolishes = useMemo(
@@ -958,34 +959,11 @@ function ColorSearchPageContent() {
               <div className="space-y-2 rounded-md border bg-muted/30 p-2">
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-medium">Recommended Palettes</p>
-                  <p className="text-[10px] text-muted-foreground">Top 12 by Have %, then Buy %</p>
-                </div>
-                <div className="grid grid-cols-4 gap-1 rounded-lg border bg-muted/60 p-1 sm:grid-cols-7">
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="h-7 w-full rounded-md px-0"
-                    variant={recommendationHarmonyFilter === "all" ? "default" : "ghost"}
-                    title="All harmony types"
-                    aria-label="Show recommended palettes for all harmony types"
-                    onClick={() => setRecommendationHarmonyFilter("all")}
-                  >
-                    <span className="text-sm leading-none">✦</span>
-                  </Button>
-                  {HARMONY_TYPES.filter((h) => h.value !== "similar").map((h) => (
-                    <Button
-                      key={h.value}
-                      type="button"
-                      size="sm"
-                      className="h-7 w-full rounded-md px-0"
-                      variant={recommendationHarmonyFilter === h.value ? "default" : "ghost"}
-                      title={h.label}
-                      aria-label={`Show recommended palettes for ${h.label}`}
-                      onClick={() => setRecommendationHarmonyFilter(h.value)}
-                    >
-                      <span className="text-sm leading-none">{HARMONY_SYMBOLS[h.value]}</span>
-                    </Button>
-                  ))}
+                  <p className="text-[10px] text-muted-foreground">
+                    {recommendationHarmonyFilter === "all"
+                      ? "Top 12 by Have %, then Buy %"
+                      : `Showing ${HARMONY_TYPES.find((h) => h.value === recommendationHarmonyFilter)?.label ?? "selected"} only`}
+                  </p>
                 </div>
                 {recommendedPalettes.length === 0 ? (
                   <p className="text-xs text-muted-foreground">

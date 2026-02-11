@@ -24,7 +24,7 @@ src/app/
 │       ├── page.tsx              → /polishes         Inventory table (hydrates all API pages for client-side search/filter + sortable headers)
 │       ├── new/page.tsx          → /polishes/new     Add polish form
 │       ├── [id]/page.tsx         → /polishes/:id     Polish detail view + OKLCH profile + related shades
-│       └── search/page.tsx       → /polishes/search  Color wheel search (two-column layout, collapsible wheel/harmonies, full-width icon harmony selectors with All mode, one-click swatch focus, focus workflow)
+│       └── search/page.tsx       → /polishes/search  Color wheel search (two-column layout, collapsible wheel/harmonies, single full-width icon harmony selector with All mode, one-click swatch focus, focus workflow)
 ├── layout.tsx                    → Root layout (fonts, metadata — no AppShell)
 └── globals.css                   → Tailwind v4 + brand theme tokens + utility classes
 ```
