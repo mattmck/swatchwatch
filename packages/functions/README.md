@@ -22,7 +22,7 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `POST` | `/api/polishes` | `createPolish` | `polishes.ts` | ✅ Live |
 | `PUT` | `/api/polishes/{id}` | `updatePolish` | `polishes.ts` | ✅ Live |
 | `DELETE` | `/api/polishes/{id}` | `deletePolish` | `polishes.ts` | ✅ Live |
-| `POST` | `/api/auth/validate` | `validateToken` | `auth.ts` | ⬜ Stub (501) |
+| `POST` | `/api/auth/validate` | `validateToken` | `auth.ts` | ✅ Working |
 | `GET` | `/api/auth/config` | `getAuthConfig` | `auth.ts` | ✅ Working |
 | `POST` | `/api/voice` | `processVoiceInput` | `voice.ts` | ⬜ Stub |
 
@@ -74,8 +74,11 @@ node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_U
 
 ## Known Issues
 
-- JWT validation returns 501 — Azure AD B2C JWKS verification not implemented
 - Voice handler stubs Speech-to-text and OpenAI parsing
+
+## Troubleshooting
+
+- If the Function App starts but no functions are listed, check startup logs for module resolution errors and confirm runtime dependencies (for example `jose` for auth JWT validation) are in `dependencies`, not only dev deps.
 
 
 ## Environment Variables
