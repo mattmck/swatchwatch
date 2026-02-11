@@ -86,8 +86,8 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 |-----------|---------|
 | `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with Lucide icons |
 | `color-dot.tsx` | Colored circle swatch — `sm`, `md`, `lg` sizes |
-| `color-wheel.tsx` | Canvas HSL color wheel with hover preview + click selection |
-| `color-search-results.tsx` | Polish list sorted by OKLAB color distance |
+| `color-wheel.tsx` | Canvas HSL color wheel with hover preview, click selection, and glow-forward selected marker |
+| `color-search-results.tsx` | Polish list sorted by OKLAB color distance, with branded finish badges and harmony interactions |
 
 ### shadcn/ui (`src/components/ui/`)
 

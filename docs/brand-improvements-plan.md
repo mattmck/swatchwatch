@@ -74,6 +74,7 @@
 - Add a branded frame/container around the wheel
 - Harmony results could use glass cards instead of plain borders
 - Selected color should glow (`.shadow-glow-brand`)
+- [x] Completed (2026-02-11): Added branded wheel framing, glass-styled harmony recommendation cards, and glow-forward selected-state markers in the color search experience.
 
 ### B5. Form styling (Add Polish page)
 - [x] Input focus rings already use brand ring color from theme (no change needed)

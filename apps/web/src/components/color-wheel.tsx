@@ -612,6 +612,7 @@ export function ColorWheel({
         return wheelToViewport(wp.x, wp.y);
       })()
     : null;
+  const selectedHex = selectedHsl ? hslToHex(selectedHsl) : null;
 
   return (
     <div className="relative inline-block" style={{ width: size, height: size }}>
@@ -643,8 +644,8 @@ export function ColorWheel({
         {/* Locked selection marker */}
         {selectedPos && (
           <div
-            className="pointer-events-none absolute h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white shadow-[0_0_0_2px_rgba(0,0,0,0.4)]"
-            style={{ left: selectedPos.x, top: selectedPos.y }}
+            className="pointer-events-none absolute h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white shadow-glow-brand"
+            style={{ left: selectedPos.x, top: selectedPos.y, backgroundColor: selectedHex ?? undefined }}
           />
         )}
         {/* External hover marker (from palette/results hover) */}

@@ -601,17 +601,23 @@ function ColorSearchPageContent() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="mx-auto w-fit" onMouseLeave={handleMouseLeaveWheel}>
-              <ColorWheel
-                lightness={lightness}
-                onHover={handleHover}
-                onSelect={handleSelect}
-                selectedHsl={selectedHsl}
-                size={wheelSize}
-                wheelMode={wheelMode}
-                snapDots={snapDots}
-                externalHoverHex={externalHoverHex}
-                harmonyDots={harmonyDots}
-              />
+              <div className="rounded-[2rem] bg-gradient-brand p-[2px] shadow-glow-brand">
+                <div className="glass rounded-[calc(2rem-2px)] p-3">
+                  <div className="rounded-full border border-white/60 bg-background/65 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
+                    <ColorWheel
+                      lightness={lightness}
+                      onHover={handleHover}
+                      onSelect={handleSelect}
+                      selectedHsl={selectedHsl}
+                      size={wheelSize}
+                      wheelMode={wheelMode}
+                      snapDots={snapDots}
+                      externalHoverHex={externalHoverHex}
+                      harmonyDots={harmonyDots}
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="space-y-1.5">
@@ -681,7 +687,9 @@ function ColorSearchPageContent() {
               <p className="text-muted-foreground">Selected</p>
               <div className="mt-1 flex items-center gap-2">
                 <span
-                  className="inline-block h-4 w-4 rounded-full border"
+                  className={`inline-block h-4 w-4 rounded-full border ${
+                    selectedHex ? "shadow-glow-brand ring-1 ring-brand-purple/35" : ""
+                  }`}
                   style={{ backgroundColor: selectedHex ?? "transparent" }}
                 />
                 <span className="font-mono">{selectedHex ?? "--"}</span>
@@ -837,7 +845,7 @@ function ColorSearchPageContent() {
                           type="button"
                           className={`relative flex-1 ${
                             focusedTargetHex === hex
-                              ? "ring-2 ring-primary ring-inset"
+                              ? "ring-2 ring-primary ring-inset shadow-glow-brand"
                               : "hover:opacity-90"
                           }`}
                           style={{ backgroundColor: hex }}
@@ -897,7 +905,10 @@ function ColorSearchPageContent() {
                       const harmonyName =
                         HARMONY_TYPES.find((h) => h.value === candidate.harmony)?.label ?? candidate.harmony;
                       return (
-                        <div key={candidate.id} className="rounded-md border bg-background p-2">
+                        <div
+                          key={candidate.id}
+                          className="glass rounded-lg border border-brand-lilac/45 bg-background/70 p-2 shadow-[0_12px_26px_rgba(66,16,126,0.12)]"
+                        >
                           <div className="mb-1 flex items-center justify-between gap-2">
                             <div className="flex min-w-0 items-center gap-2">
                               <span
@@ -922,7 +933,9 @@ function ColorSearchPageContent() {
                                   key={`${candidate.id}-${hex}-${index}`}
                                   type="button"
                                   className={`relative flex-1 ${
-                                    focusedTargetHex === hex ? "ring-2 ring-primary ring-inset" : "hover:opacity-90"
+                                    focusedTargetHex === hex
+                                      ? "ring-2 ring-primary ring-inset shadow-glow-brand"
+                                      : "hover:opacity-90"
                                   }`}
                                   style={{ backgroundColor: hex }}
                                   title={`${hex} • ${AVAILABILITY_META[status].label}`}
