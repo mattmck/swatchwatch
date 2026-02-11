@@ -808,7 +808,7 @@ export async function materializeHoloTacoRecords(
 
       const inventory = await client.query<{ inventoryItemId: number; colorHex: string | null }>(
         `SELECT inventory_item_id AS "inventoryItemId"
-                color_hex AS "colorHex"
+                , color_hex AS "colorHex"
          FROM user_inventory_item
          WHERE user_id = $1
            AND shade_id = $2
