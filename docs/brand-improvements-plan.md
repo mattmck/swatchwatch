@@ -91,17 +91,20 @@
 - Hero decorative circles: subtle floating animation (translateY oscillation)
 - Feature cards: staggered entrance animation
 - Stats counters: animated count-up on scroll into view
+- [x] Completed (2026-02-11): Added `ScrollFadeIn` reveal motion across landing sections, floating hero decorative circles, staggered feature card entries, and scroll-activated stat count-up animation.
 
 ### C2. Richer color showcase section
 - Replace static polish cards with an interactive mini-demo
 - Show a small color wheel with 3-4 dots and harmony lines connecting them
 - Or: animate swatches "dropping" into a collection grid
 - This section should sell the product's core value prop visually
+- [x] Completed (2026-02-11): Replaced static swatch cards with an interactive harmony demo featuring a mini color wheel, connected palette nodes, and animated suggested-set swatches.
 
 ### C3. Social proof / testimonial section
 - Even placeholder quotes give credibility
 - Glass cards with avatar circles, quote text, name/handle
 - Carousel or 2-3 static cards
+- [x] Completed (2026-02-11): Added a dedicated social proof section with three glass testimonial cards, avatar initials, handles, and role/context labels.
 
 ### C4. Mobile responsiveness audit
 - Hero padding and type scale on small screens

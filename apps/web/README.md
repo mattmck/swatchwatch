@@ -16,7 +16,7 @@ npm run build:web        # Production build
 src/app/
 ├── (marketing)/
 │   ├── layout.tsx                → Marketing layout (glass header, responsive mobile menu, footer)
-│   └── page.tsx                  → /           Landing page (hero, features, CTA)
+│   └── page.tsx                  → /           Landing page (hero, features, interactive showcase, testimonials, CTA)
 ├── (app)/
 │   ├── layout.tsx                → App layout (AppShell sidebar wrapper)
 │   ├── dashboard/page.tsx        → /dashboard       Stats, recent additions
@@ -85,6 +85,7 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 | Component | Purpose |
 |-----------|---------|
 | `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with Lucide icons |
+| `marketing-color-showcase.tsx` | Interactive landing-page color harmony demo with mini wheel, connected swatch nodes, and animated suggested set tiles |
 | `marketing-theme-toggle.tsx` | System/light/dark theme selector used in the marketing header |
 | `color-dot.tsx` | Colored circle swatch — `sm`, `md`, `lg` sizes |
 | `color-wheel.tsx` | Canvas HSL color wheel with hover preview, click selection, and glow-forward selected marker |

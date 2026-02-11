@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { SwatchWatchIcon } from "@/components/brand/swatchwatch-brand";
 import { ScrollFadeIn } from "@/components/scroll-fade-in";
 import { CountUp } from "@/components/count-up";
+import { MarketingColorShowcase } from "@/components/marketing-color-showcase";
 import { Palette, Camera, LayoutGrid, Sparkles, Search, Droplets } from "lucide-react";
 
 const features = [
@@ -32,13 +33,31 @@ const stats = [
   { value: "Instant", label: "Dupe detection", icon: Search },
 ];
 
-const showcaseColors = [
-  { name: "Berry Kiss", hex: "#c51d93", finish: "Shimmer" },
-  { name: "Lilac Dream", hex: "#c5a6ff", finish: "Cream" },
-  { name: "Hot Fuchsia", hex: "#ff4fb8", finish: "Glitter" },
-  { name: "Midnight Plum", hex: "#42107e", finish: "Cream" },
-  { name: "Rose Quartz", hex: "#ffb3e3", finish: "Shimmer" },
-  { name: "Ultra Violet", hex: "#7b2eff", finish: "Matte" },
+const testimonials = [
+  {
+    quote:
+      "I stopped buying accidental dupes the same month I moved my stash into SwatchWatch. The color matching is spot-on.",
+    name: "Avery K.",
+    handle: "@lacquerlog",
+    initials: "AK",
+    collectionSize: "412 shades tracked",
+  },
+  {
+    quote:
+      "The harmony suggestions save me when I plan content sets. I can build a five-color lineup in under a minute.",
+    name: "Mina R.",
+    handle: "@studio_mani",
+    initials: "MR",
+    collectionSize: "Weekly swatch creator",
+  },
+  {
+    quote:
+      "Our salon team uses it to keep inventory balanced across undertones instead of overbuying the same pink family.",
+    name: "Nails by Tori",
+    handle: "@nailsbytori",
+    initials: "NT",
+    collectionSize: "Salon inventory workflow",
+  },
 ];
 
 export default function LandingPage() {
@@ -144,38 +163,18 @@ export default function LandingPage() {
           <ScrollFadeIn>
             <div className="text-center">
               <h2 className="text-2xl font-bold tracking-tight sm:text-3xl md:text-4xl">
-                See every shade at a glance
+                Plan polished color stories faster
               </h2>
               <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground sm:mt-4 sm:text-base">
-                Rich polish cards with color intelligence, finish types, and visual
-                harmony suggestions.
+                Explore curated palettes, inspect harmony geometry, and watch polished
+                sets assemble in real time.
               </p>
             </div>
           </ScrollFadeIn>
 
-          <div className="mt-10 grid gap-3 sm:mt-16 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {showcaseColors.map((color, i) => (
-              <ScrollFadeIn key={color.name} delay={i * 80}>
-                <div className="group flex items-center gap-3 rounded-xl border border-border bg-card p-3.5 transition-shadow hover:shadow-glow-brand sm:gap-4 sm:p-4">
-                  <div
-                    className="size-14 shrink-0 rounded-lg shadow-sm ring-1 ring-black/5"
-                    style={{ backgroundColor: color.hex }}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium text-foreground">{color.name}</p>
-                    <div className="mt-1 flex items-center gap-2">
-                      <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
-                        {color.finish}
-                      </span>
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {color.hex}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </ScrollFadeIn>
-            ))}
-          </div>
+          <ScrollFadeIn delay={120}>
+            <MarketingColorShowcase />
+          </ScrollFadeIn>
         </div>
       </section>
 
@@ -204,6 +203,50 @@ export default function LandingPage() {
                     {stat.label}
                   </p>
                 </div>
+              </ScrollFadeIn>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Social Proof ── */}
+      <section className="bg-muted/30 py-16 sm:py-24">
+        <div className="mx-auto max-w-6xl px-5 sm:px-6">
+          <ScrollFadeIn>
+            <div className="text-center">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-purple/75">
+                Community feedback
+              </p>
+              <h2 className="mt-3 text-2xl font-bold tracking-tight sm:text-3xl md:text-4xl">
+                Trusted by collectors and creators
+              </h2>
+              <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground sm:mt-4 sm:text-base">
+                Early testers use SwatchWatch to cut duplicate purchases and build
+                cleaner color sets.
+              </p>
+            </div>
+          </ScrollFadeIn>
+
+          <div className="mt-10 grid gap-4 sm:mt-14 sm:gap-6 lg:grid-cols-3">
+            {testimonials.map((testimonial, i) => (
+              <ScrollFadeIn key={testimonial.name} delay={i * 130}>
+                <article className="glass h-full rounded-2xl p-5 sm:p-6">
+                  <p className="text-sm leading-relaxed text-foreground/90">
+                    &ldquo;{testimonial.quote}&rdquo;
+                  </p>
+                  <div className="mt-6 flex items-center gap-3">
+                    <div className="inline-flex size-10 items-center justify-center rounded-full bg-gradient-brand text-xs font-bold text-white">
+                      {testimonial.initials}
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">{testimonial.name}</p>
+                      <p className="text-xs text-muted-foreground">{testimonial.handle}</p>
+                    </div>
+                  </div>
+                  <p className="mt-4 text-xs font-medium uppercase tracking-[0.14em] text-brand-purple/70">
+                    {testimonial.collectionSize}
+                  </p>
+                </article>
               </ScrollFadeIn>
             ))}
           </div>

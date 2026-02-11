@@ -21,27 +21,27 @@ function getSystemTheme(): ResolvedTheme {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
+function getSavedPreference(): ThemePreference {
+  if (typeof window === "undefined") return "system";
+  const saved = localStorage.getItem(STORAGE_KEY);
+  return saved === "light" || saved === "dark" || saved === "system" ? saved : "system";
+}
+
 export function MarketingThemeToggle() {
-  const [mounted, setMounted] = useState(false);
-  const [preference, setPreference] = useState<ThemePreference>("system");
-  const [systemTheme, setSystemTheme] = useState<ResolvedTheme>("light");
+  const [preference, setPreference] = useState<ThemePreference>(() => getSavedPreference());
+  const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(() =>
+    typeof window === "undefined" ? "light" : getSystemTheme(),
+  );
 
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved === "light" || saved === "dark" || saved === "system") {
-      setPreference(saved);
-    }
-
     const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const syncSystemTheme = () => {
-      setSystemTheme(media.matches ? "dark" : "light");
+    const handleSystemThemeChange = (event: MediaQueryListEvent) => {
+      setSystemTheme(event.matches ? "dark" : "light");
     };
 
-    syncSystemTheme();
-    media.addEventListener("change", syncSystemTheme);
-    setMounted(true);
+    media.addEventListener("change", handleSystemThemeChange);
 
-    return () => media.removeEventListener("change", syncSystemTheme);
+    return () => media.removeEventListener("change", handleSystemThemeChange);
   }, []);
 
   const resolvedTheme: ResolvedTheme = useMemo(
@@ -50,12 +50,10 @@ export function MarketingThemeToggle() {
   );
 
   useEffect(() => {
-    if (!mounted) return;
-
     const root = document.documentElement;
     root.classList.toggle("dark", resolvedTheme === "dark");
     localStorage.setItem(STORAGE_KEY, preference);
-  }, [mounted, preference, resolvedTheme]);
+  }, [preference, resolvedTheme]);
 
   const TriggerIcon = resolvedTheme === "dark" ? Moon : Sun;
 
@@ -68,7 +66,7 @@ export function MarketingThemeToggle() {
           aria-label={`Theme: ${preference}`}
           title={`Theme: ${preference}`}
         >
-          {mounted ? <TriggerIcon className="size-4" /> : <Sun className="size-4" />}
+          <TriggerIcon className="size-4" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-44">
