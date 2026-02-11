@@ -6,6 +6,7 @@ Azure Functions v4 HTTP API (Node 20, TypeScript).
 
 ```bash
 # From repo root
+npm run setup            # Install workspace dependencies first
 npm run dev:infra        # Start local Postgres + Azurite
 npm run dev:functions    # TypeScript watch + func host on http://localhost:7071
 

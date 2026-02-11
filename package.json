@@ -6,12 +6,14 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently -k -n shared,functions,web \"npm run dev:shared\" \"npm run dev:functions\" \"npm run dev:web\"",
+    "setup": "npm ci",
+    "predev:check": "node scripts/dev-preflight.mjs",
+    "dev": "npm run predev:check && concurrently -k -n shared,functions,web \"npm run dev:shared\" \"npm run dev:functions\" \"npm run dev:web\"",
     "dev:infra": "docker compose up -d postgres azurite",
-    "dev:shared": "npm run watch --workspace=packages/shared",
-    "dev:web": "npm run dev --workspace=apps/web",
+    "dev:shared": "npm run predev:check && npm run watch --workspace=packages/shared",
+    "dev:web": "npm run predev:check && npm run dev --workspace=apps/web",
     "dev:mobile": "npm run start --workspace=apps/mobile",
-    "dev:functions": "concurrently -k -n func-build,func-host \"npm run watch --workspace=packages/functions\" \"npm run start --workspace=packages/functions\"",
+    "dev:functions": "npm run predev:check && concurrently -k -n func-build,func-host \"npm run watch --workspace=packages/functions\" \"npm run start --workspace=packages/functions\"",
     "build:web": "npm run build --workspace=apps/web",
     "build:functions": "npm run build --workspace=packages/functions",
     "lint": "npm run lint --workspaces --if-present",

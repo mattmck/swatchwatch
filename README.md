@@ -49,8 +49,8 @@ Web / Mobile → Azure Functions REST API → Azure PostgreSQL Flexible Server
 ## Quick Start
 
 ```bash
-# Install all workspace dependencies
-npm install
+# Install workspace dependencies
+npm run setup            # (same as npm ci)
 
 # Start local infra containers (Postgres + Azurite)
 npm run dev:infra
@@ -68,6 +68,7 @@ npm run dev:mobile       # → mobile via Expo
 
 | Command | What it does |
 |---------|-------------|
+| `npm run setup` | Install workspace dependencies (`npm ci`) |
 | `npm run dev:infra` | Start local Postgres + Azurite containers in Docker |
 | `npm run dev` | Run shared type watcher, Functions host, and web dev server together (CTRL+C stops all) |
 | `npm run dev:web` | Next.js dev server (port 3000) |
@@ -77,6 +78,9 @@ npm run dev:mobile       # → mobile via Expo
 | `npm run build:functions` | TypeScript compile for functions |
 | `npm run lint` | ESLint across all workspaces |
 | `npm run typecheck` | `tsc --noEmit` across all workspaces |
+
+`dev`, `dev:web`, `dev:functions`, and `dev:shared` run a dependency preflight and print a clear
+`npm run setup` hint if dependencies are missing.
 
 > Linting extends `eslint-config-next` from the repo root, so `next@16.1.6` is included in the root `devDependencies` to supply its bundled Babel parser. When upgrading Next in `apps/web`, bump the root version as well.
 
