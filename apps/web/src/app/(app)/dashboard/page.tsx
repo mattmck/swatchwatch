@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { ColorDot } from "@/components/color-dot";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
+import { EmptyState } from "@/components/empty-state";
 import type { LucideIcon } from "lucide-react";
 import { Building2, Droplets, Sparkles, Star } from "lucide-react";
 
@@ -189,31 +190,43 @@ export default function DashboardPage() {
             <CardDescription>Last 5 polishes added</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              {recentPolishes.map((polish) => (
-                <Link
-                  key={polish.id}
-                  href={`/polishes/detail?id=${polish.id}`}
-                  className="flex items-center gap-3 rounded-md p-2 transition-colors hover:bg-muted"
-                >
-                  <ColorDot hex={polish.colorHex} size="md" />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{polish.name}</p>
-                    <p className="text-sm text-muted-foreground">{polish.brand}</p>
-                  </div>
-                  {polish.finish && (
-                    <Badge variant="secondary" className="shrink-0">
-                      {polish.finish}
-                    </Badge>
-                  )}
-                </Link>
-              ))}
-            </div>
-            <div className="mt-4 text-center">
-              <Button variant="outline" size="sm" asChild>
-                <Link href="/polishes">View All →</Link>
-              </Button>
-            </div>
+            {recentPolishes.length === 0 ? (
+              <EmptyState
+                title="No polishes yet"
+                description="Start your collection with your first shade and track it here."
+                actionLabel="+ Add Polish"
+                actionHref="/polishes/new"
+                className="min-h-[240px] py-4"
+              />
+            ) : (
+              <>
+                <div className="space-y-3">
+                  {recentPolishes.map((polish) => (
+                    <Link
+                      key={polish.id}
+                      href={`/polishes/detail?id=${polish.id}`}
+                      className="flex items-center gap-3 rounded-md p-2 transition-colors hover:bg-muted"
+                    >
+                      <ColorDot hex={polish.colorHex} size="md" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium">{polish.name}</p>
+                        <p className="text-sm text-muted-foreground">{polish.brand}</p>
+                      </div>
+                      {polish.finish && (
+                        <Badge variant="secondary" className="shrink-0">
+                          {polish.finish}
+                        </Badge>
+                      )}
+                    </Link>
+                  ))}
+                </div>
+                <div className="mt-4 text-center">
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href="/polishes">View All →</Link>
+                  </Button>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 

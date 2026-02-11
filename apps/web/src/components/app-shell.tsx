@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Sparkles, Search, PlusCircle } from "lucide-react";
+import { LayoutDashboard, Sparkles, Search, PlusCircle, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { SwatchWatchWordmark } from "@/components/brand/swatchwatch-brand";
@@ -36,8 +36,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen">
       {/* Sidebar */}
-      <aside className="hidden w-56 shrink-0 border-r border-border bg-sidebar md:block">
-        <div className="flex h-14 items-center border-b border-border/60 px-4">
+      <aside className="hidden w-56 shrink-0 border-r border-border bg-sidebar md:flex md:flex-col">
+        <div className="relative flex h-14 items-center border-b border-border/60 px-4">
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-x-4 bottom-0 h-px bg-gradient-to-r from-brand-pink-soft via-brand-lilac to-brand-purple"
+          />
           <Link href="/dashboard">
             <SwatchWatchWordmark iconSize={26} />
           </Link>
@@ -46,10 +50,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {navItems.map((item) => (
             <Button
               key={item.href}
-              variant={isActive(item.href) ? "secondary" : "ghost"}
+              variant="ghost"
+              data-active={isActive(item.href) ? "true" : "false"}
               className={cn(
-                "justify-start gap-2",
-                isActive(item.href) && "font-medium"
+                "nav-underline justify-start gap-2 rounded-xl border border-transparent px-3.5",
+                isActive(item.href)
+                  ? "font-medium border-brand-purple/25 bg-brand-pink-light/65 text-brand-purple-deep shadow-[0_12px_26px_rgba(66,16,126,0.14)] dark:bg-brand-purple/30 dark:text-brand-lilac"
+                  : "hover:border-brand-purple/15 hover:bg-brand-pink-light/30 dark:hover:bg-brand-purple/20",
               )}
               asChild
             >
@@ -60,6 +67,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </Button>
           ))}
         </nav>
+
+        <div className="mt-auto border-t border-border/70 p-3">
+          <div className="rounded-xl border border-brand-purple/20 bg-card/80 p-3 shadow-[0_10px_24px_rgba(66,16,126,0.1)]">
+            <div className="flex items-center gap-2.5">
+              <span className="inline-flex size-9 items-center justify-center rounded-full bg-gradient-brand text-xs font-semibold text-white shadow-glow-brand">
+                SW
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-foreground">You</p>
+                <p className="truncate text-xs text-muted-foreground">Collector workspace</p>
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-3 w-full justify-start"
+              disabled
+            >
+              <Settings className="size-3.5" />
+              Settings (Soon)
+            </Button>
+          </div>
+        </div>
       </aside>
 
       {/* Mobile header + page content */}

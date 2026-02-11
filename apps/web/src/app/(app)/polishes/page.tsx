@@ -23,6 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { ColorDot } from "@/components/color-dot";
 import { QuantityControls } from "@/components/quantity-controls";
 import { Pagination } from "@/components/pagination";
@@ -33,6 +34,8 @@ import { EmptyState } from "@/components/empty-state";
 import { FINISHES, finishBadgeClassName, finishLabel } from "@/lib/constants";
 
 const PAGE_SIZE = 10;
+type SortKey = "status" | "brand" | "name" | "finish" | "collection";
+type SortDirection = "asc" | "desc";
 
 export default function PolishesPage() {
   const [polishes, setPolishes] = useState<Polish[]>([]);
@@ -46,6 +49,8 @@ export default function PolishesPage() {
   const [toneFilter, setToneFilter] = useState<Undertone | "all">("all");
   const [finishFilter, setFinishFilter] = useState<string>("all");
   const [availabilityFilter, setAvailabilityFilter] = useState<"all" | "owned" | "wishlist">("all");
+  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -87,7 +92,7 @@ export default function PolishesPage() {
   // Reset page when filters change
   useEffect(() => {
     setPage(1);
-  }, [search, favorCollection, includeAll, toneFilter, finishFilter, availabilityFilter]);
+  }, [search, favorCollection, includeAll, toneFilter, finishFilter, availabilityFilter, sortKey, sortDirection]);
 
   const isOwned = (p: Polish) => (p.quantity ?? 0) > 0;
 
@@ -132,8 +137,35 @@ export default function PolishesPage() {
   const sorted = useMemo(() => {
     const result = [...filtered];
 
-    // Default alphabetical sort
-    result.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+    const normalize = (value: string | null | undefined) => (value ?? "").toLowerCase();
+    const compare = (a: Polish, b: Polish): number => {
+      switch (sortKey) {
+        case "status": {
+          const aOwned = isOwned(a) ? 0 : 1;
+          const bOwned = isOwned(b) ? 0 : 1;
+          return aOwned - bOwned;
+        }
+        case "brand":
+          return normalize(a.brand).localeCompare(normalize(b.brand));
+        case "name":
+          return normalize(a.name).localeCompare(normalize(b.name));
+        case "finish":
+          return normalize(a.finish).localeCompare(normalize(b.finish));
+        case "collection":
+          return normalize(a.collection).localeCompare(normalize(b.collection));
+        default:
+          return 0;
+      }
+    };
+
+    result.sort((a, b) => {
+      const primary = compare(a, b);
+      if (primary !== 0) return sortDirection === "asc" ? primary : -primary;
+
+      const byName = normalize(a.name).localeCompare(normalize(b.name));
+      if (byName !== 0) return byName;
+      return normalize(a.brand).localeCompare(normalize(b.brand));
+    });
 
     // Favor My Collection: stable-sort owned to top
     if (favorCollection) {
@@ -145,7 +177,29 @@ export default function PolishesPage() {
     }
 
     return result;
-  }, [filtered, favorCollection]);
+  }, [filtered, favorCollection, sortKey, sortDirection]);
+
+  const handleSort = useCallback((key: SortKey) => {
+    if (sortKey === key) {
+      setSortDirection((currentDirection) => (currentDirection === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortKey(key);
+    setSortDirection("asc");
+  }, [sortKey]);
+
+  const renderSortIcon = (column: SortKey) => {
+    if (sortKey !== column) {
+      return <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground/70" />;
+    }
+    return sortDirection === "asc"
+      ? <ArrowUp className="h-3.5 w-3.5 text-primary" />
+      : <ArrowDown className="h-3.5 w-3.5 text-primary" />;
+  };
+  const getAriaSort = (column: SortKey): "ascending" | "descending" | "none" => {
+    if (sortKey !== column) return "none";
+    return sortDirection === "asc" ? "ascending" : "descending";
+  };
 
   const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
   const pageItems = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -301,13 +355,63 @@ export default function PolishesPage() {
         <Table>
           <TableHeader className="sticky top-0 z-10">
             <TableRow className="glass border-b border-border/60">
-              <TableHead className="w-10">Status</TableHead>
-              <TableHead>Brand</TableHead>
-              <TableHead>Name</TableHead>
+              <TableHead className="w-10" aria-sort={getAriaSort("status")}>
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-center gap-1 text-xs font-medium"
+                  onClick={() => handleSort("status")}
+                  title="Sort by status"
+                >
+                  <span>Status</span>
+                  {renderSortIcon("status")}
+                </button>
+              </TableHead>
+              <TableHead aria-sort={getAriaSort("brand")}>
+                <button
+                  type="button"
+                  className="flex items-center gap-1 text-xs font-medium"
+                  onClick={() => handleSort("brand")}
+                  title="Sort by brand"
+                >
+                  <span>Brand</span>
+                  {renderSortIcon("brand")}
+                </button>
+              </TableHead>
+              <TableHead aria-sort={getAriaSort("name")}>
+                <button
+                  type="button"
+                  className="flex items-center gap-1 text-xs font-medium"
+                  onClick={() => handleSort("name")}
+                  title="Sort by name"
+                >
+                  <span>Name</span>
+                  {renderSortIcon("name")}
+                </button>
+              </TableHead>
               <TableHead className="w-14">Color</TableHead>
               <TableHead className="w-12">Find</TableHead>
-              <TableHead>Finish</TableHead>
-              <TableHead>Collection</TableHead>
+              <TableHead aria-sort={getAriaSort("finish")}>
+                <button
+                  type="button"
+                  className="flex items-center gap-1 text-xs font-medium"
+                  onClick={() => handleSort("finish")}
+                  title="Sort by finish"
+                >
+                  <span>Finish</span>
+                  {renderSortIcon("finish")}
+                </button>
+              </TableHead>
+              <TableHead aria-sort={getAriaSort("collection")}>
+                <button
+                  type="button"
+                  className="flex items-center gap-1 text-xs font-medium"
+                  onClick={() => handleSort("collection")}
+                  title="Sort by collection"
+                >
+                  <span>Collection</span>
+                  {renderSortIcon("collection")}
+                </button>
+              </TableHead>
               <TableHead className="w-28 text-right">Action</TableHead>
             </TableRow>
           </TableHeader>

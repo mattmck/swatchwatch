@@ -100,10 +100,10 @@ The web app is the most developed part of the project. Key pages:
 | Route | File | Description |
 |-------|------|-------------|
 | `/` | `apps/web/src/app/(dashboard)/page.tsx` | Dashboard — stats cards, recent additions, finish breakdown |
-| `/polishes` | `apps/web/src/app/polishes/page.tsx` | Collection table — search, filter by brand/finish, sortable columns |
+| `/polishes` | `apps/web/src/app/polishes/page.tsx` | Collection table — search/filter + clickable sorting for status, brand, name, finish, and collection |
 | `/polishes/new` | `apps/web/src/app/polishes/new/page.tsx` | Add polish form — color picker, star rating, voice input placeholder |
 | `/polishes/[id]` | `apps/web/src/app/polishes/[id]/page.tsx` | Polish detail — all fields, photo placeholders, edit/delete |
-| `/polishes/search` | `apps/web/src/app/polishes/search/page.tsx` | Color wheel search — hover to preview, click to lock, similar/complementary modes |
+| `/polishes/search` | `apps/web/src/app/polishes/search/page.tsx` | Color wheel search — two-column layout with collapsible wheel/harmonies, a single full-width harmony-only selector (All + harmony types) driving matching + recommendations, vertical lightness, snap chip, and one-click palette swatch focus |
 
 
 **UI stack:** [shadcn/ui](https://ui.shadcn.com/) components in `src/components/ui/`, custom components in `src/components/`, Tailwind v4 styling.

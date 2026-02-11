@@ -17,6 +17,7 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-icons": "^5.5.0",
+    "sonner": "^2.0.7",
     "swatchwatch-shared": "^1.0.0",
     "tailwind-merge": "^3.4.0"
   },
