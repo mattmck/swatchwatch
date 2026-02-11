@@ -88,7 +88,7 @@ export default function LandingPage() {
             <h1 className="text-4xl leading-[1.03] tracking-tight sm:text-5xl lg:text-7xl xl:text-8xl">
               <span className="font-semibold text-gradient-brand">Your polish collection,</span>
               <br />
-              <span className="font-black text-brand-ink">beautifully organized.</span>
+              <span className="font-black text-brand-ink dark:text-brand-lilac">beautifully organized.</span>
             </h1>
           </ScrollFadeIn>
 
@@ -103,8 +103,9 @@ export default function LandingPage() {
             <div className="mt-8 flex flex-col items-center gap-3 sm:mt-10 sm:flex-row sm:justify-center sm:gap-4">
               <Button
                 asChild
+                variant="brand"
                 size="lg"
-                className="w-full bg-gradient-brand px-8 text-white shadow-glow-brand hover:opacity-90 sm:w-auto"
+                className="w-full px-8 sm:w-auto"
               >
                 <Link href="/dashboard">Get Started</Link>
               </Button>
@@ -112,7 +113,7 @@ export default function LandingPage() {
                 asChild
                 variant="outline"
                 size="lg"
-                className="w-full border-brand-purple/30 px-8 text-brand-purple hover:bg-brand-purple/5 sm:w-auto"
+                className="w-full border-brand-purple/30 px-8 text-brand-purple-deep hover:bg-brand-pink-light/25 dark:text-brand-lilac sm:w-auto"
               >
                 <Link href="/polishes">View Collection</Link>
               </Button>
@@ -140,7 +141,7 @@ export default function LandingPage() {
           <div className="mt-10 grid gap-4 sm:mt-16 sm:gap-8 sm:grid-cols-2 lg:grid-cols-3">
             {features.map((feature, i) => (
               <ScrollFadeIn key={feature.title} delay={i * 120}>
-                <div className="glass group rounded-2xl p-6 transition-shadow hover:shadow-glow-brand sm:p-8">
+                <div className="marketing-surface group p-6 transition-all hover:border-brand-purple/30 hover:bg-brand-pink-light/10 sm:p-8 dark:hover:bg-brand-purple/15">
                   <div className="mb-4 inline-flex size-12 items-center justify-center rounded-xl bg-gradient-brand text-white">
                     <feature.icon className="size-6" />
                   </div>
@@ -158,7 +159,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── Color Showcase ── */}
-      <section className="bg-muted/50 py-16 sm:py-24">
+      <section className="bg-muted/35 py-16 sm:py-24">
         <div className="mx-auto max-w-6xl px-5 sm:px-6">
           <ScrollFadeIn>
             <div className="text-center">
@@ -192,7 +193,7 @@ export default function LandingPage() {
           <div className="mt-8 grid gap-4 sm:mt-12 sm:gap-6 sm:grid-cols-3">
             {stats.map((stat, i) => (
               <ScrollFadeIn key={stat.label} delay={i * 150}>
-                <div className="flex flex-col items-center rounded-2xl border border-border bg-card p-6 text-center sm:p-8">
+                <div className="marketing-surface flex flex-col items-center p-6 text-center sm:p-8">
                   <div className="mb-3 inline-flex size-10 items-center justify-center rounded-lg bg-accent">
                     <stat.icon className="size-5 text-accent-foreground" />
                   </div>
@@ -210,11 +211,11 @@ export default function LandingPage() {
       </section>
 
       {/* ── Social Proof ── */}
-      <section className="bg-muted/30 py-16 sm:py-24">
+      <section className="bg-muted/35 py-16 sm:py-24">
         <div className="mx-auto max-w-6xl px-5 sm:px-6">
           <ScrollFadeIn>
             <div className="text-center">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-purple/75">
+              <p className="marketing-kicker">
                 Community feedback
               </p>
               <h2 className="mt-3 text-2xl font-bold tracking-tight sm:text-3xl md:text-4xl">
@@ -230,7 +231,7 @@ export default function LandingPage() {
           <div className="mt-10 grid gap-4 sm:mt-14 sm:gap-6 lg:grid-cols-3">
             {testimonials.map((testimonial, i) => (
               <ScrollFadeIn key={testimonial.name} delay={i * 130}>
-                <article className="glass h-full rounded-2xl p-5 sm:p-6">
+                <article className="marketing-surface h-full p-5 sm:p-6">
                   <p className="text-sm leading-relaxed text-foreground/90">
                     &ldquo;{testimonial.quote}&rdquo;
                   </p>
@@ -267,8 +268,9 @@ export default function LandingPage() {
             <div className="mt-8">
               <Button
                 asChild
+                variant="brand"
                 size="lg"
-                className="w-full bg-gradient-brand px-10 text-white shadow-glow-brand hover:opacity-90 sm:w-auto"
+                className="w-full px-10 sm:w-auto"
               >
                 <Link href="/dashboard">Get Started Free</Link>
               </Button>

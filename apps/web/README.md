@@ -15,7 +15,7 @@ npm run build:web        # Production build
 ```
 src/app/
 ├── (marketing)/
-│   ├── layout.tsx                → Marketing layout (glass header, responsive mobile menu, footer)
+│   ├── layout.tsx                → Marketing layout (branded sticky header, responsive mobile menu, footer)
 │   └── page.tsx                  → /           Landing page (hero, features, interactive showcase, testimonials, CTA)
 ├── (app)/
 │   ├── layout.tsx                → App layout (AppShell sidebar wrapper)
@@ -71,6 +71,9 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 | `shadow-glow-purple` | Purple glow box-shadow |
 | `shadow-glow-brand` | Combined pink/purple glow |
 | `glass` | Frosted glass effect (backdrop-blur, semi-transparent) |
+| `marketing-surface` | Shared marketing panel surface (rounded border, card tint, soft brand shadow) |
+| `marketing-surface-soft` | Softer accent panel for highlight blocks and active marketing states |
+| `marketing-kicker` | Uppercase section label styling for marketing headings |
 | `shimmer` | Animated shimmer sweep overlay |
 
 ### Brand Components (`src/components/brand/`)
@@ -101,6 +104,8 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 ### shadcn/ui (`src/components/ui/`)
 
 Installed components: `badge`, `button`, `card`, `dialog`, `dropdown-menu`, `input`, `select`, `separator`, `sonner`, `table`.
+
+`button` includes a reusable `brand` variant for gradient CTAs shared across marketing and app surfaces.
 
 `src/components/ui/sonner.tsx` provides the branded toast wrapper mounted in `src/app/layout.tsx`.
 

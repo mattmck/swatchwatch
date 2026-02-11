@@ -129,7 +129,7 @@ export function MarketingColorShowcase() {
 
   return (
     <div className="mt-10 grid gap-4 sm:mt-14 sm:gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,0.9fr)]">
-      <div className="glass relative overflow-hidden rounded-3xl border border-brand-purple/15 p-5 sm:p-6 lg:p-8">
+      <div className="marketing-surface relative overflow-hidden p-5 sm:p-6 lg:p-8">
         <div className="pointer-events-none absolute -top-24 -left-20 size-60 rounded-full bg-brand-pink/30 blur-3xl" />
         <div className="pointer-events-none absolute -right-24 -bottom-20 size-64 rounded-full bg-brand-purple/25 blur-3xl" />
 
@@ -251,8 +251,8 @@ export function MarketingColorShowcase() {
         </div>
       </div>
 
-      <div className="rounded-3xl border border-border/70 bg-card/70 p-5 sm:p-6">
-        <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-brand-purple/75">
+      <div className="marketing-surface p-5 sm:p-6">
+        <p className="marketing-kicker inline-flex items-center gap-2">
           <Sparkles className="size-3.5" />
           Why this matters
         </p>
