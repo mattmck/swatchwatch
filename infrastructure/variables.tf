@@ -60,6 +60,12 @@ variable "openai_api_key" {
   sensitive   = true
 }
 
+variable "openai_key_vault_secret_uri" {
+  description = "Optional existing Key Vault secret URI containing the Azure OpenAI API key. Use this to avoid passing openai_api_key to Terraform."
+  type        = string
+  default     = ""
+}
+
 variable "openai_model_name" {
   description = "Azure OpenAI model name for the hex detection deployment"
   type        = string

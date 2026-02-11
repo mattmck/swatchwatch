@@ -35,14 +35,24 @@ resource "random_string" "suffix" {
 }
 
 locals {
-  resource_prefix          = "${var.base_name}-${var.environment}"
-  unique_suffix            = random_string.suffix.result
-  openai_external_endpoint = trimspace(var.openai_endpoint)
-  openai_external_api_key  = trimspace(var.openai_api_key)
-  openai_create_resources  = var.create_openai_resources
+  resource_prefix                      = "${var.base_name}-${var.environment}"
+  unique_suffix                        = random_string.suffix.result
+  openai_external_endpoint             = trimspace(var.openai_endpoint)
+  openai_external_api_key              = trimspace(var.openai_api_key)
+  openai_external_key_vault_secret_uri = trimspace(var.openai_key_vault_secret_uri)
+  openai_create_resources              = var.create_openai_resources
+  openai_uses_external_inline_key = (
+    local.openai_external_endpoint != "" &&
+    local.openai_external_api_key != ""
+  )
+  openai_uses_external_secret_uri = (
+    local.openai_external_endpoint != "" &&
+    local.openai_external_key_vault_secret_uri != ""
+  )
   openai_enabled = (
     local.openai_create_resources ||
-    (local.openai_external_endpoint != "" && local.openai_external_api_key != "")
+    local.openai_uses_external_inline_key ||
+    local.openai_uses_external_secret_uri
   )
   openai_endpoint_value = (
     local.openai_create_resources
@@ -55,7 +65,11 @@ locals {
     ? try(azurerm_cognitive_account.openai[0].primary_access_key, "")
     : local.openai_external_api_key
   )
-  openai_key_secret_uri = try(azurerm_key_vault_secret.openai_key[0].id, "")
+  openai_key_secret_uri = (
+    local.openai_uses_external_secret_uri
+    ? local.openai_external_key_vault_secret_uri
+    : try(azurerm_key_vault_secret.openai_key[0].id, "")
+  )
 }
 
 check "openai_configuration" {
@@ -63,11 +77,21 @@ check "openai_configuration" {
     condition = (
       var.create_openai_resources ||
       (
-        (trimspace(var.openai_endpoint) == "" && trimspace(var.openai_api_key) == "") ||
-        (trimspace(var.openai_endpoint) != "" && trimspace(var.openai_api_key) != "")
+        (
+          trimspace(var.openai_endpoint) == "" &&
+          trimspace(var.openai_api_key) == "" &&
+          trimspace(var.openai_key_vault_secret_uri) == ""
+        ) ||
+        (
+          trimspace(var.openai_endpoint) != "" &&
+          (
+            trimspace(var.openai_api_key) != "" ||
+            trimspace(var.openai_key_vault_secret_uri) != ""
+          )
+        )
       )
     )
-    error_message = "When create_openai_resources is false, set both openai_endpoint and openai_api_key together, or leave both empty."
+    error_message = "When create_openai_resources is false, set openai_endpoint with either openai_api_key or openai_key_vault_secret_uri, or leave all three empty."
   }
 }
 
@@ -297,7 +321,7 @@ resource "azurerm_cognitive_deployment" "openai_hex" {
 }
 
 resource "azurerm_key_vault_secret" "openai_key" {
-  count        = local.openai_enabled ? 1 : 0
+  count        = (local.openai_create_resources || local.openai_uses_external_inline_key) ? 1 : 0
   name         = "azure-openai-key"
   value        = local.openai_key_secret_value
   key_vault_id = azurerm_key_vault.main.id

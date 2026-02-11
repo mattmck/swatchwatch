@@ -62,6 +62,7 @@ See full bootstrap guide at end of this file.
 | `create_openai_resources` | `false` | Provision Azure OpenAI account/deployment in this stack (disable when quota is unavailable) |
 | `openai_endpoint` | `""` | Existing Azure OpenAI endpoint when reusing an external account (`create_openai_resources=false`) |
 | `openai_api_key` | `""` | Existing Azure OpenAI API key when reusing an external account (`create_openai_resources=false`) |
+| `openai_key_vault_secret_uri` | `""` | Existing Key Vault secret URI for Azure OpenAI key (preferred over `openai_api_key` to avoid passing key through Terraform) |
 | `openai_deployment_name` | `hex-detector` | Azure OpenAI deployment name exposed to Functions as `AZURE_OPENAI_DEPLOYMENT_HEX` |
 | `openai_model_name` | `gpt-4o-mini` | Azure OpenAI model name for the hex detector deployment |
 | `openai_model_version` | `2024-07-18` | Azure OpenAI model version for the hex detector deployment |
@@ -190,7 +191,9 @@ az functionapp config appsettings set \
 
 OpenAI settings are optional:
 - If `create_openai_resources=true`, Terraform provisions OpenAI and wires `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, and `AZURE_OPENAI_DEPLOYMENT_HEX`.
-- If `create_openai_resources=false`, set both `openai_endpoint` and `openai_api_key` in `terraform.tfvars` to reuse an existing OpenAI account.
+- If `create_openai_resources=false`, either:
+  - set `openai_endpoint` + `openai_api_key`, or
+  - set `openai_endpoint` + `openai_key_vault_secret_uri` (preferred).
 
 ## Destroying Infrastructure
 
