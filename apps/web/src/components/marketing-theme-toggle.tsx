@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Laptop, Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,7 +24,11 @@ function getSavedPreference(): ThemePreference {
   return saved === "light" || saved === "dark" || saved === "system" ? saved : "system";
 }
 
-export function MarketingThemeToggle() {
+type ThemeToggleProps = {
+  className?: string;
+};
+
+export function ThemeToggle({ className }: ThemeToggleProps = {}) {
   const [preference, setPreference] = useState<ThemePreference>("system");
   const [systemTheme, setSystemTheme] = useState<ResolvedTheme>("light");
 
@@ -65,6 +70,7 @@ export function MarketingThemeToggle() {
         <Button
           variant="outline"
           size="icon-sm"
+          className={cn(className)}
           aria-label={`Theme: ${preference}`}
           title={`Theme: ${preference}`}
         >
@@ -92,4 +98,9 @@ export function MarketingThemeToggle() {
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+// Kept for backwards compatibility in marketing layout imports.
+export function MarketingThemeToggle() {
+  return <ThemeToggle />;
 }

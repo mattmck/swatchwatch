@@ -176,6 +176,18 @@
     @apply text-base font-medium leading-none;
   }
 
+  .marketing-kicker {
+    @apply text-xs font-semibold uppercase tracking-[0.2em] text-brand-purple/75;
+  }
+
+  .marketing-surface {
+    @apply rounded-2xl border border-border/70 bg-card/80 shadow-[0_16px_34px_rgba(66,16,126,0.12)] backdrop-blur-sm;
+  }
+
+  .marketing-surface-soft {
+    @apply rounded-2xl border border-brand-purple/20 bg-brand-pink-light/30 shadow-[0_14px_30px_rgba(66,16,126,0.1)] dark:bg-brand-purple/20;
+  }
+
   .nav-underline {
     position: relative;
   }

@@ -15,7 +15,7 @@ npm run build:web        # Production build
 ```
 src/app/
 ├── (marketing)/
-│   ├── layout.tsx                → Marketing layout (glass header, responsive mobile menu, footer)
+│   ├── layout.tsx                → Marketing layout (branded sticky header, responsive mobile menu, footer)
 │   └── page.tsx                  → /           Landing page (hero, features, interactive showcase, testimonials, CTA)
 ├── (app)/
 │   ├── layout.tsx                → App layout (AppShell sidebar wrapper)
@@ -33,7 +33,7 @@ src/app/
 ```
 
 **Route groups:**
-- `(marketing)` — Public pages with minimal glass header + footer
+- `(marketing)` — Public pages with branded sticky header + footer
 - `(app)` — Authenticated app pages wrapped in `AppShell` (sidebar navigation)
 
 ## Brand System
@@ -71,6 +71,9 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 | `shadow-glow-purple` | Purple glow box-shadow |
 | `shadow-glow-brand` | Combined pink/purple glow |
 | `glass` | Frosted glass effect (backdrop-blur, semi-transparent) |
+| `marketing-surface` | Shared marketing panel surface (rounded border, card tint, soft brand shadow) |
+| `marketing-surface-soft` | Softer accent panel for highlight blocks and active marketing states |
+| `marketing-kicker` | Uppercase section label styling for marketing headings |
 | `shimmer` | Animated shimmer sweep overlay |
 
 ### Brand Components (`src/components/brand/`)
@@ -88,12 +91,12 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 
 | Component | Purpose |
 |-----------|---------|
-| `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with exact active-route matching, branded active-nav pills, logo accent divider, and sidebar avatar/settings footer module |
+| `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with exact active-route matching, branded active-nav pills, logo accent divider, app theme toggle, and sidebar avatar/settings footer module |
 | `brand-spinner.tsx` | Branded loading state with animated monogram spinner used across app route fallbacks |
 | `error-state.tsx` | Reusable error card with destructive accent styling and optional retry action |
 | `empty-state.tsx` | Reusable empty-state card with brand icon treatment and optional CTA |
 | `marketing-color-showcase.tsx` | Interactive landing-page color harmony demo with mini wheel, connected swatch nodes, and animated suggested set tiles |
-| `marketing-theme-toggle.tsx` | System/light/dark theme selector used in the marketing header |
+| `marketing-theme-toggle.tsx` | Reusable system/light/dark theme selector used in marketing and authenticated app shells |
 | `color-dot.tsx` | Colored circle swatch (`sm`/`md`/`lg`) with subtle hover scale micro-interaction |
 | `color-wheel.tsx` | Canvas HSL color wheel with hover preview, click selection, owned-shade snap mode, and glow-forward selected marker |
 | `color-search-results.tsx` | Polish list sorted by OKLAB color distance, with branded finish badges, high-contrast focus-state swatch highlights, and harmony interactions (palette selection affects table targeting without mutating focused colors) |
@@ -101,6 +104,8 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 ### shadcn/ui (`src/components/ui/`)
 
 Installed components: `badge`, `button`, `card`, `dialog`, `dropdown-menu`, `input`, `select`, `separator`, `sonner`, `table`.
+
+`button` includes a reusable `brand` variant for gradient CTAs shared across marketing and app surfaces.
 
 `src/components/ui/sonner.tsx` provides the branded toast wrapper mounted in `src/app/layout.tsx`.
 
