@@ -921,26 +921,30 @@ function ColorSearchPageContent() {
                   <p className="text-xs font-medium">Recommended Palettes</p>
                   <p className="text-[10px] text-muted-foreground">Top 12 by Have %, then Buy %</p>
                 </div>
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap gap-1 rounded-lg border bg-muted/60 p-1">
                   <Button
                     type="button"
-                    size="xs"
-                    variant={recommendationHarmonyFilter === "all" ? "default" : "outline"}
+                    size="icon-sm"
+                    className="h-7 w-7 rounded-md"
+                    variant={recommendationHarmonyFilter === "all" ? "default" : "ghost"}
+                    title="All harmony types"
+                    aria-label="Show recommended palettes for all harmony types"
                     onClick={() => setRecommendationHarmonyFilter("all")}
                   >
-                    All
+                    <span className="text-sm leading-none">✦</span>
                   </Button>
                   {HARMONY_TYPES.filter((h) => h.value !== "similar").map((h) => (
                     <Button
                       key={h.value}
                       type="button"
-                      size="xs"
-                      variant={recommendationHarmonyFilter === h.value ? "default" : "outline"}
+                      size="icon-sm"
+                      className="h-7 w-7 rounded-md"
+                      variant={recommendationHarmonyFilter === h.value ? "default" : "ghost"}
                       title={h.label}
+                      aria-label={`Show recommended palettes for ${h.label}`}
                       onClick={() => setRecommendationHarmonyFilter(h.value)}
                     >
-                      <span className="mr-1">{HARMONY_SYMBOLS[h.value]}</span>
-                      {h.label}
+                      <span className="text-sm leading-none">{HARMONY_SYMBOLS[h.value]}</span>
                     </Button>
                   ))}
                 </div>
