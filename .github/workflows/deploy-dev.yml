@@ -85,6 +85,14 @@ jobs:
             require('fs').writeFileSync('$DEPLOY_DIR/package.json', JSON.stringify(pkg, null, 2));
           "
 
+          # Remove the 'main' field from the deployment package.json to avoid issues in Azure
+          node -e "
+            const pkgPath = '$DEPLOY_DIR/package.json';
+            const pkg = JSON.parse(require('fs').readFileSync(pkgPath, 'utf8'));
+            delete pkg.main;
+            require('fs').writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
+          "
+
           # Install production-only deps into the self-contained deploy dir
           cd "$DEPLOY_DIR"
           npm install --omit=dev --ignore-scripts
