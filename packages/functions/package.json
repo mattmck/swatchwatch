@@ -4,7 +4,7 @@
   "description": "Azure Functions for SwatchWatch",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && func pack --output ./dist --native-deps false",
     "start": "func start",
     "watch": "tsc -w",
     "migrate": "node-pg-migrate up --migrations-dir migrations --decamelize",

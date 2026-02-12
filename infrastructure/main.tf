@@ -121,11 +121,32 @@ resource "azurerm_key_vault" "main" {
 
 
 
+# Grant your current user full access to Key Vault
+resource "azurerm_key_vault_access_policy" "deployer" {
+
+  key_vault_id = azurerm_key_vault.main.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = data.azurerm_client_config.current.object_id
+
+  key_permissions = [
+    "Get", "List", "Update", "Create", "Import", "Delete", "Recover", "Backup", "Restore", "Purge"
+  ]
+
+  secret_permissions = [
+    "Get", "List", "Set", "Delete", "Purge", "Recover"
+  ]
+
+  certificate_permissions = [
+    "Get", "List", "Update", "Create", "Import", "Delete", "Recover", "Backup", "Restore", "Purge", "ManageContacts", "ManageIssuers", "GetIssuers", "ListIssuers", "SetIssuers", "DeleteIssuers"
+  ]
+}
+
 # Store Postgres password in Key Vault
 resource "azurerm_key_vault_secret" "pg_password" {
   name         = "pg-password"
   value        = var.pg_admin_password
   key_vault_id = azurerm_key_vault.main.id
+  depends_on   = [azurerm_key_vault_access_policy.deployer]
 }
 
 # ── Azure Database for PostgreSQL Flexible Server ───────────────
@@ -271,9 +292,10 @@ resource "azurerm_linux_function_app" "main" {
     AZURE_SPEECH_REGION         = azurerm_resource_group.main.location
     AZURE_OPENAI_ENDPOINT       = local.openai_enabled ? local.openai_endpoint_value : ""
     AZURE_OPENAI_KEY            = local.openai_enabled ? "@Microsoft.KeyVault(SecretUri=${local.openai_key_secret_uri})" : ""
-    AZURE_OPENAI_DEPLOYMENT_HEX = local.openai_deployment_name_value
-    AZURE_AD_B2C_TENANT         = "to-be-added"
-    AZURE_AD_B2C_CLIENT_ID      = "to-be-added"
+    AZURE_OPENAI_DEPLOYMENT_HEX = local.openai_deployment_name_value,
+    AZURE_AD_B2C_TENANT         = "to-be-added",
+    AZURE_AD_B2C_CLIENT_ID      = "to-be-added",
+    AUTH_DEV_BYPASS             = "true"
   }
 }
 
@@ -361,6 +383,8 @@ resource "azurerm_key_vault_secret" "openai_key" {
   name         = "azure-openai-key"
   value        = local.openai_key_secret_value
   key_vault_id = azurerm_key_vault.main.id
+
+  depends_on = [azurerm_key_vault_access_policy.deployer]
 }
 
 # ── GitHub Actions OIDC Federation (passwordless CI/CD) ────────
