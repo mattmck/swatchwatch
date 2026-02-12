@@ -394,13 +394,14 @@ resource "azuread_service_principal" "github_actions" {
   client_id = azuread_application.github_actions.client_id
 }
 
-# Federated credential for GitHub Actions OIDC
-resource "azuread_application_federated_identity_credential" "github_actions" {
+# Federated credential for the dev branch
+resource "azuread_application_federated_identity_credential" "github_actions_dev" {
   application_id = azuread_application.github_actions.id
-  display_name   = "github-actions-${var.environment}"
+  display_name   = "github-actions-${var.environment}-branch"
   audiences      = ["api://AzureADTokenExchange"]
   issuer         = "https://token.actions.githubusercontent.com"
-  subject        = "repo:${var.github_repository}:environment:${var.environment}"
+  subject        = "repo:${var.github_repository}:ref:refs/heads/${var.environment}"
+
 }
 
 # Grant GitHub Actions service principal Contributor access
