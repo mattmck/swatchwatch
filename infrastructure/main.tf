@@ -126,8 +126,6 @@ resource "azurerm_key_vault_secret" "pg_password" {
   name         = "pg-password"
   value        = var.pg_admin_password
   key_vault_id = azurerm_key_vault.main.id
-
-  depends_on = [azurerm_key_vault_access_policy.deployer]
 }
 
 # ── Azure Database for PostgreSQL Flexible Server ───────────────
@@ -363,8 +361,6 @@ resource "azurerm_key_vault_secret" "openai_key" {
   name         = "azure-openai-key"
   value        = local.openai_key_secret_value
   key_vault_id = azurerm_key_vault.main.id
-
-  depends_on = [azurerm_key_vault_access_policy.deployer]
 }
 
 # ── GitHub Actions OIDC Federation (passwordless CI/CD) ────────
