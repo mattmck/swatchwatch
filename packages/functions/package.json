@@ -2,7 +2,7 @@
   "name": "swatchwatch-functions",
   "version": "1.0.0",
   "description": "Azure Functions for SwatchWatch",
-  "main": "dist/functions/*.js",
+  "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
     "start": "func start",
