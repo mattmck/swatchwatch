@@ -44,15 +44,19 @@ output "speech_service_key" {
 }
 
 output "openai_account_name" {
-  value = azurerm_cognitive_account.openai.name
+  value = try(azurerm_cognitive_account.openai[0].name, "")
 }
 
 output "openai_endpoint" {
-  value = azurerm_cognitive_account.openai.endpoint
+  value = local.openai_endpoint_value
 }
 
 output "openai_hex_deployment_name" {
-  value = azurerm_cognitive_deployment.openai_hex.name
+  value = local.openai_deployment_name_value
+}
+
+output "openai_resources_provisioned" {
+  value = var.create_openai_resources
 }
 
 output "application_insights_name" {

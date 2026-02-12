@@ -56,8 +56,8 @@ The workflow reads the `pg-password` secret from Key Vault and exports it as `TF
 | Function App | `azurerm_linux_function_app.main` | Node 20 function host (Managed Identity enabled) |
 | Static Web App | `azurerm_static_web_app.main` | Next.js frontend (Standard tier) |
 | Speech Services | `azurerm_cognitive_account.speech` | Speech-to-text for voice input |
-| Azure OpenAI Account | `azurerm_cognitive_account.openai` | Vision-capable OpenAI endpoint for hex color detection |
-| Azure OpenAI Deployment | `azurerm_cognitive_deployment.openai_hex` | Model deployment used by `AZURE_OPENAI_DEPLOYMENT_HEX` |
+| Azure OpenAI Account *(optional)* | `azurerm_cognitive_account.openai` | Vision-capable OpenAI endpoint for hex color detection (`create_openai_resources=true`) |
+| Azure OpenAI Deployment *(optional)* | `azurerm_cognitive_deployment.openai_hex` | Model deployment used by `AZURE_OPENAI_DEPLOYMENT_HEX` when OpenAI resources are provisioned |
 | Azure AD Application | `azuread_application.github_actions` | GitHub Actions OIDC identity |
 | Service Principal | `azuread_service_principal.github_actions` | Grants GitHub Actions access |
 | Federated Credential | `azuread_application_federated_identity_credential.github_actions` | Passwordless OIDC trust |
@@ -68,12 +68,16 @@ The workflow reads the `pg-password` secret from Key Vault and exports it as `TF
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `location` | `eastus` | Azure region |
+| `location` | `centralus` | Azure region |
 | `environment` | `dev` | Environment name (dev, staging, prod) |
-| `base_name` | `polishinv` | Base name prefix for resources |
+| `base_name` | `swatchwatch` | Base name prefix for resources |
 | `pg_admin_username` | `pgadmin` | PostgreSQL admin username |
 | `pg_admin_password` | *(required)* | PostgreSQL admin password (stored in Key Vault) |
 | `github_repository` | `your-username/polish-inventory` | GitHub repo for OIDC federation |
+| `create_openai_resources` | `false` | Provision Azure OpenAI account/deployment in this stack (disable when quota is unavailable) |
+| `openai_endpoint` | `""` | Existing Azure OpenAI endpoint when reusing an external account (`create_openai_resources=false`) |
+| `openai_api_key` | `""` | Existing Azure OpenAI API key when reusing an external account (`create_openai_resources=false`) |
+| `openai_key_vault_secret_uri` | `""` | Existing Key Vault secret URI for Azure OpenAI key (preferred over `openai_api_key` to avoid passing key through Terraform) |
 | `openai_deployment_name` | `hex-detector` | Azure OpenAI deployment name exposed to Functions as `AZURE_OPENAI_DEPLOYMENT_HEX` |
 | `openai_model_name` | `gpt-4o-mini` | Azure OpenAI model name for the hex detector deployment |
 | `openai_model_version` | `2024-07-18` | Azure OpenAI model version for the hex detector deployment |
@@ -113,9 +117,10 @@ Key outputs after `terraform apply`:
 | `postgres_server_name` | PostgreSQL server name |
 | `postgres_fqdn` | PostgreSQL connection hostname |
 | `postgres_database_name` | Database name (`swatchwatch`) |
-| `openai_account_name` | Azure OpenAI account name |
-| `openai_endpoint` | Azure OpenAI endpoint URL |
-| `openai_hex_deployment_name` | Azure OpenAI deployment name used by Functions |
+| `openai_account_name` | Azure OpenAI account name (empty when reusing external endpoint) |
+| `openai_endpoint` | Active Azure OpenAI endpoint URL (provisioned or external) |
+| `openai_hex_deployment_name` | Azure OpenAI deployment name used by Functions (empty when OpenAI is disabled) |
+| `openai_resources_provisioned` | Whether this stack provisioned Azure OpenAI resources |
 | `application_insights_name` | Application Insights resource name |
 | `log_analytics_workspace_name` | Log Analytics workspace name |
 | `key_vault_name` | Key Vault name |
@@ -135,10 +140,11 @@ cd infrastructure
 # Create terraform.tfvars
 cat > terraform.tfvars <<EOF
 environment       = "dev"
-location          = "eastus"
+location          = "centralus"
 github_repository = "your-username/polish-inventory"
 pg_admin_username = "pgadmin"
 pg_admin_password = "your-secure-password"
+create_openai_resources = false
 EOF
 
 # Initialize
@@ -200,7 +206,11 @@ az functionapp config appsettings set \
     AZURE_SPEECH_KEY="@Microsoft.KeyVault(SecretUri=https://${VAULT_NAME}.vault.azure.net/secrets/azure-speech-key)"
 ```
 
-`AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, and `AZURE_OPENAI_DEPLOYMENT_HEX` are now provisioned directly by Terraform.
+OpenAI settings are optional:
+- If `create_openai_resources=true`, Terraform provisions OpenAI and wires `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, and `AZURE_OPENAI_DEPLOYMENT_HEX`.
+- If `create_openai_resources=false`, either:
+  - set `openai_endpoint` + `openai_api_key`, or
+  - set `openai_endpoint` + `openai_key_vault_secret_uri` (preferred).
 
 ## Destroying Infrastructure
 
