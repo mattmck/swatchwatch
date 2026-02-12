@@ -291,6 +291,23 @@ resource "azurerm_cognitive_deployment" "openai_hex" {
   }
 }
 
+# Send Azure OpenAI diagnostics to the shared Log Analytics workspace
+# (same workspace backing Application Insights).
+resource "azurerm_monitor_diagnostic_setting" "openai" {
+  name                       = "openai-observability"
+  target_resource_id         = azurerm_cognitive_account.openai.id
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
+
+  enabled_log {
+    category_group = "allLogs"
+  }
+
+  metric {
+    category = "AllMetrics"
+    enabled  = true
+  }
+}
+
 resource "azurerm_key_vault_secret" "openai_key" {
   name         = "azure-openai-key"
   value        = azurerm_cognitive_account.openai.primary_access_key

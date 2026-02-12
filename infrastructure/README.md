@@ -58,6 +58,7 @@ The workflow reads the `pg-password` secret from Key Vault and exports it as `TF
 | Speech Services | `azurerm_cognitive_account.speech` | Speech-to-text for voice input |
 | Azure OpenAI Account | `azurerm_cognitive_account.openai` | Vision-capable OpenAI endpoint for hex color detection |
 | Azure OpenAI Deployment | `azurerm_cognitive_deployment.openai_hex` | Model deployment used by `AZURE_OPENAI_DEPLOYMENT_HEX` |
+| Azure OpenAI Diagnostic Setting | `azurerm_monitor_diagnostic_setting.openai` | Sends OpenAI logs/metrics to Log Analytics (shared with Application Insights) |
 | Azure AD Application | `azuread_application.github_actions` | GitHub Actions OIDC identity |
 | Service Principal | `azuread_service_principal.github_actions` | Grants GitHub Actions access |
 | Federated Credential | `azuread_application_federated_identity_credential.github_actions` | Passwordless OIDC trust |
@@ -88,6 +89,7 @@ The workflow reads the `pg-password` secret from Key Vault and exports it as `TF
 ✅ **OIDC Federation** — GitHub Actions deploys without stored secrets  
 ✅ **Access Policies** — Least-privilege RBAC for all principals  
 ✅ **Audit Trail** — Key Vault logs all secret access  
+✅ **OpenAI Observability** — Azure OpenAI diagnostic logs/metrics flow into the shared Log Analytics/App Insights workspace  
 ✅ **Key Vault References** — Function App settings use `@Microsoft.KeyVault(...)` syntax
 
 ## Naming Convention
@@ -116,6 +118,7 @@ Key outputs after `terraform apply`:
 | `openai_account_name` | Azure OpenAI account name |
 | `openai_endpoint` | Azure OpenAI endpoint URL |
 | `openai_hex_deployment_name` | Azure OpenAI deployment name used by Functions |
+| `openai_diagnostic_setting_name` | Azure OpenAI diagnostic setting attached to Log Analytics |
 | `application_insights_name` | Application Insights resource name |
 | `log_analytics_workspace_name` | Log Analytics workspace name |
 | `key_vault_name` | Key Vault name |
@@ -200,7 +203,7 @@ az functionapp config appsettings set \
     AZURE_SPEECH_KEY="@Microsoft.KeyVault(SecretUri=https://${VAULT_NAME}.vault.azure.net/secrets/azure-speech-key)"
 ```
 
-`AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, and `AZURE_OPENAI_DEPLOYMENT_HEX` are now provisioned directly by Terraform.
+`AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, and `AZURE_OPENAI_DEPLOYMENT_HEX` are now provisioned directly by Terraform. Azure OpenAI diagnostics are also configured by Terraform to flow to Log Analytics/Application Insights.
 
 ## Destroying Infrastructure
 

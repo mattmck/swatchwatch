@@ -55,6 +55,10 @@ output "openai_hex_deployment_name" {
   value = azurerm_cognitive_deployment.openai_hex.name
 }
 
+output "openai_diagnostic_setting_name" {
+  value = azurerm_monitor_diagnostic_setting.openai.name
+}
+
 output "application_insights_name" {
   value = azurerm_application_insights.main.name
 }

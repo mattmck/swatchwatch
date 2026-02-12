@@ -4,6 +4,13 @@ variable "location" {
   default     = "centralus"
 }
 
+variable "openai_location" {
+  description = "Optional override region for Azure OpenAI resources (defaults to `location` when null)"
+  type        = string
+  default     = null
+  nullable    = true
+}
+
 variable "environment" {
   description = "Environment name (dev, staging, prod)"
   type        = string
