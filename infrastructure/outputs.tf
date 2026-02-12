@@ -52,7 +52,8 @@ output "openai_endpoint" {
 }
 
 output "openai_hex_deployment_name" {
-  value = local.openai_deployment_name_value
+  value     = local.openai_deployment_name_value
+  sensitive = true
 }
 
 output "openai_resources_provisioned" {
