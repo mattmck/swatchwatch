@@ -37,8 +37,64 @@ resource "random_string" "suffix" {
 }
 
 locals {
-  resource_prefix = "${var.base_name}-${var.environment}"
-  unique_suffix   = random_string.suffix.result
+  resource_prefix                      = "${var.base_name}-${var.environment}"
+  unique_suffix                        = random_string.suffix.result
+  openai_external_endpoint             = trimspace(var.openai_endpoint)
+  openai_external_api_key              = trimspace(var.openai_api_key)
+  openai_external_key_vault_secret_uri = trimspace(var.openai_key_vault_secret_uri)
+  openai_create_resources              = var.create_openai_resources
+  openai_uses_external_inline_key = (
+    local.openai_external_endpoint != "" &&
+    local.openai_external_api_key != ""
+  )
+  openai_uses_external_secret_uri = (
+    local.openai_external_endpoint != "" &&
+    local.openai_external_key_vault_secret_uri != ""
+  )
+  openai_enabled = (
+    local.openai_create_resources ||
+    local.openai_uses_external_inline_key ||
+    local.openai_uses_external_secret_uri
+  )
+  openai_endpoint_value = (
+    local.openai_create_resources
+    ? try(azurerm_cognitive_account.openai[0].endpoint, "")
+    : local.openai_external_endpoint
+  )
+  openai_deployment_name_value = local.openai_enabled ? var.openai_deployment_name : ""
+  openai_key_secret_value = (
+    local.openai_create_resources
+    ? try(azurerm_cognitive_account.openai[0].primary_access_key, "")
+    : local.openai_external_api_key
+  )
+  openai_key_secret_uri = (
+    local.openai_uses_external_secret_uri
+    ? local.openai_external_key_vault_secret_uri
+    : try(azurerm_key_vault_secret.openai_key[0].id, "")
+  )
+}
+
+check "openai_configuration" {
+  assert {
+    condition = (
+      var.create_openai_resources ||
+      (
+        (
+          trimspace(var.openai_endpoint) == "" &&
+          trimspace(var.openai_api_key) == "" &&
+          trimspace(var.openai_key_vault_secret_uri) == ""
+        ) ||
+        (
+          trimspace(var.openai_endpoint) != "" &&
+          (
+            trimspace(var.openai_api_key) != "" ||
+            trimspace(var.openai_key_vault_secret_uri) != ""
+          )
+        )
+      )
+    )
+    error_message = "When create_openai_resources is false, set openai_endpoint with either openai_api_key or openai_key_vault_secret_uri, or leave all three empty."
+  }
 }
 
 # ── Resource Group ──────────────────────────────────────────────
@@ -69,8 +125,16 @@ resource "azurerm_key_vault_access_policy" "deployer" {
   tenant_id    = data.azurerm_client_config.current.tenant_id
   object_id    = data.azurerm_client_config.current.object_id
 
+  key_permissions = [
+    "Get", "List", "Update", "Create", "Import", "Delete", "Recover", "Backup", "Restore", "Purge"
+  ]
+
   secret_permissions = [
     "Get", "List", "Set", "Delete", "Purge", "Recover"
+  ]
+
+  certificate_permissions = [
+    "Get", "List", "Update", "Create", "Import", "Delete", "Recover", "Backup", "Restore", "Purge", "ManageContacts", "ManageIssuers", "GetIssuers", "ListIssuers", "SetIssuers", "DeleteIssuers"
   ]
 }
 
@@ -224,9 +288,9 @@ resource "azurerm_linux_function_app" "main" {
     INGESTION_JOB_QUEUE_NAME    = "ingestion-jobs"
     AZURE_SPEECH_KEY            = "to-be-added"
     AZURE_SPEECH_REGION         = azurerm_resource_group.main.location
-    AZURE_OPENAI_ENDPOINT       = azurerm_cognitive_account.openai.endpoint
-    AZURE_OPENAI_KEY            = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.openai_key.id})"
-    AZURE_OPENAI_DEPLOYMENT_HEX = azurerm_cognitive_deployment.openai_hex.name
+    AZURE_OPENAI_ENDPOINT       = local.openai_enabled ? local.openai_endpoint_value : ""
+    AZURE_OPENAI_KEY            = local.openai_enabled ? "@Microsoft.KeyVault(SecretUri=${local.openai_key_secret_uri})" : ""
+    AZURE_OPENAI_DEPLOYMENT_HEX = local.openai_deployment_name_value
     AZURE_AD_B2C_TENANT         = "to-be-added"
     AZURE_AD_B2C_CLIENT_ID      = "to-be-added"
   }
@@ -267,17 +331,19 @@ resource "azurerm_cognitive_account" "speech" {
 }
 
 resource "azurerm_cognitive_account" "openai" {
+  count                 = local.openai_create_resources ? 1 : 0
   name                  = "${local.resource_prefix}-openai-${local.unique_suffix}"
   resource_group_name   = azurerm_resource_group.main.name
-  location              = azurerm_resource_group.main.location
+  location              = var.openai_location != null ? var.openai_location : azurerm_resource_group.main.location
   kind                  = "OpenAI"
   sku_name              = "S0"
-  custom_subdomain_name = "${local.resource_prefix}-openai-${local.unique_suffix}"
+  custom_subdomain_name = var.openai_custom_subdomain_name != null ? var.openai_custom_subdomain_name : "${local.resource_prefix}-openai-${local.unique_suffix}"
 }
 
 resource "azurerm_cognitive_deployment" "openai_hex" {
+  count                = local.openai_create_resources ? 1 : 0
   name                 = var.openai_deployment_name
-  cognitive_account_id = azurerm_cognitive_account.openai.id
+  cognitive_account_id = azurerm_cognitive_account.openai[0].id
 
   model {
     format  = "OpenAI"
@@ -294,8 +360,9 @@ resource "azurerm_cognitive_deployment" "openai_hex" {
 # Send Azure OpenAI diagnostics to the shared Log Analytics workspace
 # (same workspace backing Application Insights).
 resource "azurerm_monitor_diagnostic_setting" "openai" {
+  count                      = local.openai_create_resources ? 1 : 0
   name                       = "openai-observability"
-  target_resource_id         = azurerm_cognitive_account.openai.id
+  target_resource_id         = azurerm_cognitive_account.openai[0].id
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
 
   enabled_log {
@@ -309,8 +376,9 @@ resource "azurerm_monitor_diagnostic_setting" "openai" {
 }
 
 resource "azurerm_key_vault_secret" "openai_key" {
+  count        = (local.openai_create_resources || local.openai_uses_external_inline_key) ? 1 : 0
   name         = "azure-openai-key"
-  value        = azurerm_cognitive_account.openai.primary_access_key
+  value        = local.openai_key_secret_value
   key_vault_id = azurerm_key_vault.main.id
 
   depends_on = [azurerm_key_vault_access_policy.deployer]
