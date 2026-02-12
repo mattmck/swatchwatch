@@ -119,24 +119,7 @@ resource "azurerm_key_vault" "main" {
   enable_rbac_authorization = false # Using access policies for simplicity
 }
 
-# Grant your current user full access to Key Vault
-resource "azurerm_key_vault_access_policy" "deployer" {
-  key_vault_id = azurerm_key_vault.main.id
-  tenant_id    = data.azurerm_client_config.current.tenant_id
-  object_id    = data.azurerm_client_config.current.object_id
 
-  key_permissions = [
-    "Get", "List", "Update", "Create", "Import", "Delete", "Recover", "Backup", "Restore", "Purge"
-  ]
-
-  secret_permissions = [
-    "Get", "List", "Set", "Delete", "Purge", "Recover"
-  ]
-
-  certificate_permissions = [
-    "Get", "List", "Update", "Create", "Import", "Delete", "Recover", "Backup", "Restore", "Purge", "ManageContacts", "ManageIssuers", "GetIssuers", "ListIssuers", "SetIssuers", "DeleteIssuers"
-  ]
-}
 
 # Store Postgres password in Key Vault
 resource "azurerm_key_vault_secret" "pg_password" {
@@ -407,6 +390,13 @@ resource "azuread_application_federated_identity_credential" "github_actions" {
 resource "azurerm_role_assignment" "github_contributor" {
   scope                = azurerm_resource_group.main.id
   role_definition_name = "Contributor"
+  principal_id         = azuread_service_principal.github_actions.object_id
+}
+
+# Grant GitHub Actions service principal Cognitive Services Contributor access
+resource "azurerm_role_assignment" "github_cognitive_services_contributor" {
+  scope                = azurerm_resource_group.main.id
+  role_definition_name = "Cognitive Services Contributor"
   principal_id         = azuread_service_principal.github_actions.object_id
 }
 
