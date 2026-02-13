@@ -1,5 +1,8 @@
 const OPENAI_API_VERSION = "2024-10-21";
 const REQUEST_TIMEOUT_MS = 20000;
+const MAX_RETRIES = 3;
+const BASE_DELAY_MS = 2000;
+const RATE_LIMIT_DELAY_MS = 10000;
 
 export interface HexDetectionResult {
   hex: string | null;
@@ -55,6 +58,22 @@ function parseHexFromContent(content: string): HexDetectionResult {
   };
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseRetryAfter(response: Response): number | null {
+  const retryAfter = response.headers.get("retry-after");
+  if (!retryAfter) {
+    return null;
+  }
+  const seconds = parseInt(retryAfter, 10);
+  if (Number.isFinite(seconds) && seconds > 0) {
+    return seconds * 1000;
+  }
+  return null;
+}
+
 async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -66,6 +85,39 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetchWithTimeout(url, init);
+
+      if (response.status === 429) {
+        const retryAfter = parseRetryAfter(response) || RATE_LIMIT_DELAY_MS;
+        const delay = Math.min(retryAfter, 60000);
+        await sleep(delay);
+        continue;
+      }
+
+      if (response.status >= 500 && attempt < MAX_RETRIES - 1) {
+        const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+        await sleep(delay);
+        continue;
+      }
+
+      return response;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt < MAX_RETRIES - 1) {
+        const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+        await sleep(delay);
+      }
+    }
+  }
+
+  throw lastError || new Error("Request failed after retries");
 }
 
 export async function detectHexWithAzureOpenAI(imageUrl: string): Promise<HexDetectionResult> {
@@ -80,7 +132,7 @@ export async function detectHexWithAzureOpenAI(imageUrl: string): Promise<HexDet
   }
 
   const requestUrl = `${endpoint.replace(/\/+$/, "")}/openai/deployments/${deployment}/chat/completions?api-version=${OPENAI_API_VERSION}`;
-  const response = await fetchWithTimeout(requestUrl, {
+  const response = await fetchWithRetry(requestUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
