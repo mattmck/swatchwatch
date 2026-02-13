@@ -184,6 +184,12 @@ function isHttpUrl(value: string | null): value is string {
   }
 }
 
+const HEX_DETECTION_DELAY_MS = 6000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function prepareHoloTacoImageData(
   records: ConnectorProductRecord[],
   options?: HoloTacoMaterializationOptions
@@ -239,6 +245,7 @@ async function prepareHoloTacoImageData(
           detectedHex = detection.hex;
           metrics.hexDetected += 1;
         }
+        await sleep(HEX_DETECTION_DELAY_MS);
       } catch {
         metrics.hexDetectionFailures += 1;
       }
