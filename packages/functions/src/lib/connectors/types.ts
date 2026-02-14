@@ -1,7 +1,10 @@
-export type SupportedConnectorSource =
-  | "OpenBeautyFacts"
-  | "MakeupAPI"
-  | "HoloTacoShopify";
+// Auto-generated from docs/seed_data_sources.sql
+// Do not edit manually - run "node scripts/generate-connector-types.mjs" to regenerate
+import type { SupportedConnectorSource } from "./generated-types";
+import { SUPPORTED_SOURCES } from "./generated-types";
+
+export type { SupportedConnectorSource };
+export { SUPPORTED_SOURCES };
 
 export interface ConnectorPullOptions {
   searchTerm: string;

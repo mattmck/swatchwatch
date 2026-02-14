@@ -4,7 +4,6 @@ import { query, transaction } from "../lib/db";
 import { withAuth } from "../lib/auth";
 import { withCors } from "../lib/http";
 import { PoolClient } from "pg";
-import { getReadableBlobUrl } from "../lib/blob-storage";
 
 /**
  * Shared SELECT fragment — returns Polish-shaped rows.
@@ -97,11 +96,7 @@ const SORT_COLUMNS: Record<string, string> = {
 };
 
 function withReadableSwatchUrl<T extends { swatchImageUrl?: string | null }>(row: T): T {
-  const signedSwatchUrl = getReadableBlobUrl(row.swatchImageUrl || undefined);
-  return {
-    ...row,
-    swatchImageUrl: signedSwatchUrl,
-  };
+  return row;
 }
 
 async function getPolishes(request: HttpRequest, context: InvocationContext, userId: number): Promise<HttpResponseInit> {

@@ -6,23 +6,33 @@ import {
 } from "swatchwatch-shared";
 import { withAdmin } from "../lib/auth";
 import { withCors } from "../lib/http";
+import { getQueueStats, purgeQueue } from "../lib/queue-management";
 import {
+  cancelIngestionJob,
   createIngestionJob,
   getDataSourceByName,
+  getGlobalSettings,
   getIngestionJobById,
+  listDataSources,
+  listDataSourcesWithSettings,
   listIngestionJobs,
   markIngestionJobFailed,
   markIngestionJobRunning,
   markIngestionJobSucceeded,
   materializeHoloTacoRecords,
   materializeMakeupApiRecords,
-  updateIngestionJobMetrics,
+  updateDataSourceSettings,
+  updateGlobalSettings,
   upsertExternalProducts,
 } from "../lib/ingestion-repo";
+
+
+import { JobLogger } from "../lib/job-logger";
 import { OpenBeautyFactsConnector } from "../lib/connectors/open-beauty-facts";
 import { MakeupApiConnector } from "../lib/connectors/makeup-api";
 import { HoloTacoShopifyConnector } from "../lib/connectors/holo-taco-shopify";
-import { ProductConnector, SupportedConnectorSource } from "../lib/connectors/types";
+import { ShopifyGenericConnector } from "../lib/connectors/shopify-generic";
+import { ProductConnector, SupportedConnectorSource, SUPPORTED_SOURCES } from "../lib/connectors/types";
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
@@ -43,11 +53,8 @@ const ingestionJobQueueOutput = output.storageQueue({
   connection: INGESTION_QUEUE_CONNECTION_SETTING,
 });
 
-const SUPPORTED_SOURCES: readonly SupportedConnectorSource[] = [
-  "OpenBeautyFacts",
-  "MakeupAPI",
-  "HoloTacoShopify",
-];
+// Supported sources are now derived from seed_data_sources.sql
+// Run "npm run generate:types" to regenerate after adding new sources
 
 interface NormalizedIngestionJobRequest {
   source: SupportedConnectorSource;
@@ -59,6 +66,7 @@ interface NormalizedIngestionJobRequest {
   materializeToInventory: boolean;
   detectHexFromImage: boolean;
   overwriteDetectedHex: boolean;
+  collectTrainingData: boolean;
 }
 
 export interface IngestionJobQueueMessage {
@@ -98,7 +106,12 @@ function createConnector(source: SupportedConnectorSource, baseUrl?: string | nu
     return new HoloTacoShopifyConnector(baseUrl);
   }
 
-  throw new Error(`Unsupported connector source: ${source}`);
+  // All other Shopify stores use the generic Shopify connector
+  if (source.endsWith("Shopify")) {
+    return new ShopifyGenericConnector(source, baseUrl);
+  }
+
+  throw new Error(`No connector available for source: ${source}`);
 }
 
 function getErrorMessage(error: unknown): string {
@@ -174,6 +187,7 @@ async function enqueueIngestionJob(
     materializeToInventory: body.materializeToInventory !== false,
     detectHexFromImage: body.detectHexFromImage !== false,
     overwriteDetectedHex: body.overwriteDetectedHex === true,
+    collectTrainingData: body.collectTrainingData === true,
     recentDays:
       body.recentDays === null || body.recentDays === undefined
         ? undefined
@@ -271,53 +285,71 @@ export async function processIngestionJobQueueMessage(
   const requestedMetrics = payload.requestedMetrics || buildRequestedMetrics(payload.request, payload.userId);
   let stage = "worker_started";
 
+  // Initialize logger with base metrics - flushes every 3s automatically
+  const logger = new JobLogger({
+    jobId: payload.jobId,
+    context,
+    baseMetrics: withPipelineMetrics(requestedMetrics, "running", stage, {
+      queuedAt: payload.queuedAt,
+      queueName: INGESTION_JOB_QUEUE_NAME,
+      workerStartedAt: new Date().toISOString(),
+    }),
+  });
+
   try {
+    logger.info(`Job ${payload.jobId} worker started`, {
+      source: payload.request.source,
+      searchTerm: payload.request.searchTerm,
+      maxRecords: payload.request.maxRecords,
+    });
+
     const existingJob = await getIngestionJobById(payload.jobId);
     if (!existingJob) {
-      context.warn(`Ingestion queue message ignored: job ${payload.jobId} not found`);
+      logger.warn(`Job ${payload.jobId} not found in database, ignoring queue message`);
+      await logger.dispose();
       return;
     }
 
     if (existingJob.status === "succeeded" || existingJob.status === "cancelled") {
-      context.log(`Ingestion queue message ignored: job ${payload.jobId} already ${existingJob.status}`);
+      logger.info(`Job ${payload.jobId} already ${existingJob.status}, ignoring queue message`);
+      await logger.dispose();
       return;
     }
 
     if (existingJob.status === "failed") {
-      context.log(`Ingestion queue message ignored: job ${payload.jobId} already failed`);
+      logger.info(`Job ${payload.jobId} already failed, ignoring queue message`);
+      await logger.dispose();
       return;
     }
 
-    await markIngestionJobRunning(
-      payload.jobId,
-      withPipelineMetrics(requestedMetrics, "running", stage, {
-        queuedAt: payload.queuedAt,
-        queueName: INGESTION_JOB_QUEUE_NAME,
-        workerStartedAt: new Date().toISOString(),
-      })
-    );
+    await markIngestionJobRunning(payload.jobId, logger.getMetricsWithLogs());
 
+    // Source lookup
     stage = "source_lookup";
-    await updateIngestionJobMetrics(
-      payload.jobId,
-      withPipelineMetrics(requestedMetrics, "running", stage, {
-        queuedAt: payload.queuedAt,
-      })
-    );
+    logger.updateBaseMetrics(withPipelineMetrics(requestedMetrics, "running", stage, {
+      queuedAt: payload.queuedAt,
+    }));
+    logger.info(`Looking up data source: ${payload.request.source}`);
 
     const source = await getDataSourceByName(payload.request.source);
     if (!source) {
       throw new Error(`Data source '${payload.request.source}' not found in data_source table`);
     }
+    logger.info(`Found data source`, { dataSourceId: source.dataSourceId, baseUrl: source.baseUrl });
 
+    // Connector pull
     stage = "connector_pull";
-    await updateIngestionJobMetrics(
-      payload.jobId,
-      withPipelineMetrics(requestedMetrics, "running", stage, {
-        queuedAt: payload.queuedAt,
-        sourceBaseUrl: source.baseUrl,
-      })
-    );
+    logger.updateBaseMetrics(withPipelineMetrics(requestedMetrics, "running", stage, {
+      queuedAt: payload.queuedAt,
+      sourceBaseUrl: source.baseUrl,
+    }));
+    logger.info(`Pulling products from ${payload.request.source}`, {
+      searchTerm: payload.request.searchTerm,
+      page: payload.request.page,
+      pageSize: payload.request.pageSize,
+      maxRecords: payload.request.maxRecords,
+      recentDays: payload.request.recentDays,
+    });
 
     const connector = createConnector(payload.request.source, source.baseUrl);
     const connectorResult = await connector.pullProducts({
@@ -328,90 +360,142 @@ export async function processIngestionJobQueueMessage(
       recentDays: payload.request.recentDays,
     });
 
+    logger.info(`Connector returned ${connectorResult.records.length} records`, connectorResult.metadata);
+
+    // Upsert external products
     stage = "upsert_external_products";
-    await updateIngestionJobMetrics(
-      payload.jobId,
-      withPipelineMetrics(requestedMetrics, "running", stage, {
-        queuedAt: payload.queuedAt,
-        ...connectorResult.metadata,
-      })
-    );
+    logger.updateBaseMetrics(withPipelineMetrics(requestedMetrics, "running", stage, {
+      queuedAt: payload.queuedAt,
+      ...connectorResult.metadata,
+    }));
+    logger.info(`Upserting ${connectorResult.records.length} external products`);
 
     const persistenceMetrics = await upsertExternalProducts(
       source.dataSourceId,
       connectorResult.records
     );
+    logger.info(`Upsert complete`, persistenceMetrics as unknown as Record<string, unknown>);
 
     let materializationMetrics: Record<string, unknown> | null = null;
 
     if (payload.request.source === "MakeupAPI" && payload.request.materializeToInventory) {
       stage = "materialize_inventory";
-      await updateIngestionJobMetrics(
-        payload.jobId,
-        withPipelineMetrics(requestedMetrics, "running", stage, {
-          queuedAt: payload.queuedAt,
-          ...connectorResult.metadata,
-          ...persistenceMetrics,
-        })
-      );
-      materializationMetrics = (await materializeMakeupApiRecords(
-        payload.userId,
-        connectorResult.records
-      )) as unknown as Record<string, unknown>;
+      logger.updateBaseMetrics(withPipelineMetrics(requestedMetrics, "running", stage, {
+        queuedAt: payload.queuedAt,
+        ...connectorResult.metadata,
+        ...persistenceMetrics,
+      }));
+
+      const materializeStartTime = Date.now();
+      logger.info(`Materializing MakeupAPI records to inventory`, {
+        recordCount: connectorResult.records.length,
+        userId: payload.userId,
+      });
+
+      try {
+        materializationMetrics = (await materializeMakeupApiRecords(
+          payload.userId,
+          connectorResult.records
+        )) as unknown as Record<string, unknown>;
+
+        const materializeDuration = Date.now() - materializeStartTime;
+        logger.info(`MakeupAPI materialization complete`, {
+          ...materializationMetrics,
+          durationMs: materializeDuration,
+          recordsProcessed: connectorResult.records.length,
+        });
+      } catch (materializeError) {
+        const materializeDuration = Date.now() - materializeStartTime;
+        logger.error(`MakeupAPI materialization failed`, {
+          error: getErrorMessage(materializeError),
+          durationMs: materializeDuration,
+          recordCount: connectorResult.records.length,
+        });
+        throw materializeError;
+      }
     }
 
     if (payload.request.source === "HoloTacoShopify" && payload.request.materializeToInventory) {
       stage = "materialize_inventory";
-      await updateIngestionJobMetrics(
-        payload.jobId,
-        withPipelineMetrics(requestedMetrics, "running", stage, {
-          queuedAt: payload.queuedAt,
-          ...connectorResult.metadata,
-          ...persistenceMetrics,
-        })
-      );
-      materializationMetrics = (await materializeHoloTacoRecords(
-        payload.userId,
-        source.dataSourceId,
-        connectorResult.records,
-        {
-          detectHexFromImage: payload.request.detectHexFromImage,
-          overwriteDetectedHex: payload.request.overwriteDetectedHex,
-        }
-      )) as unknown as Record<string, unknown>;
-    }
-
-    const finalMetrics = withPipelineMetrics(
-      {
-        ...requestedMetrics,
+      logger.updateBaseMetrics(withPipelineMetrics(requestedMetrics, "running", stage, {
+        queuedAt: payload.queuedAt,
         ...connectorResult.metadata,
         ...persistenceMetrics,
-        ...(materializationMetrics || {}),
-      },
-      "succeeded",
-      "completed",
-      {
-        queuedAt: payload.queuedAt,
-        workerCompletedAt: new Date().toISOString(),
-      }
-    );
+      }));
 
-    await markIngestionJobSucceeded(payload.jobId, finalMetrics);
-    context.log(`Ingestion job ${payload.jobId} completed`);
+      const materializeStartTime = Date.now();
+      logger.info(`Materializing HoloTaco records to inventory`, {
+        recordCount: connectorResult.records.length,
+        userId: payload.userId,
+        dataSourceId: source.dataSourceId,
+        detectHexFromImage: payload.request.detectHexFromImage,
+        overwriteDetectedHex: payload.request.overwriteDetectedHex,
+      });
+
+      try {
+        materializationMetrics = (await materializeHoloTacoRecords(
+          payload.userId,
+          source.dataSourceId,
+          connectorResult.records,
+          {
+            detectHexFromImage: payload.request.detectHexFromImage,
+            overwriteDetectedHex: payload.request.overwriteDetectedHex,
+          }
+        )) as unknown as Record<string, unknown>;
+
+        const materializeDuration = Date.now() - materializeStartTime;
+        logger.info(`HoloTaco materialization complete`, {
+          ...materializationMetrics,
+          durationMs: materializeDuration,
+          recordsProcessed: connectorResult.records.length,
+        });
+      } catch (materializeError) {
+        const materializeDuration = Date.now() - materializeStartTime;
+        logger.error(`HoloTaco materialization failed`, {
+          error: getErrorMessage(materializeError),
+          durationMs: materializeDuration,
+          recordCount: connectorResult.records.length,
+          detectHexFromImage: payload.request.detectHexFromImage,
+          overwriteDetectedHex: payload.request.overwriteDetectedHex,
+        });
+        throw materializeError;
+      }
+    }
+
+    // Build final metrics with logs
+    const baseMetrics = {
+      ...requestedMetrics,
+      ...connectorResult.metadata,
+      ...persistenceMetrics,
+      ...(materializationMetrics || {}),
+    };
+    logger.updateBaseMetrics(withPipelineMetrics(baseMetrics, "succeeded", "completed", {
+      queuedAt: payload.queuedAt,
+      workerCompletedAt: new Date().toISOString(),
+    }));
+    logger.info(`Job ${payload.jobId} completed successfully`);
+
+    await markIngestionJobSucceeded(payload.jobId, logger.getMetricsWithLogs());
+    await logger.dispose();
   } catch (error: unknown) {
     const message = getErrorMessage(error);
-    context.error(`Ingestion job ${payload.jobId} failed:`, error);
+    const errorData = error instanceof Error ? { stack: error.stack } : undefined;
+    logger.error(`Job ${payload.jobId} failed: ${message}`, errorData);
 
     try {
-      const failedMetrics = withPipelineMetrics(requestedMetrics, "failed", stage, {
+      logger.updateBaseMetrics(withPipelineMetrics(requestedMetrics, "failed", stage, {
         queuedAt: payload.queuedAt,
         failedAt: new Date().toISOString(),
         failedStage: stage,
-      });
-      await markIngestionJobFailed(payload.jobId, message, failedMetrics);
+      }));
+      await markIngestionJobFailed(payload.jobId, message, logger.getMetricsWithLogs());
     } catch (markFailedError) {
-      context.error("Failed to update ingestion job failure status:", markFailedError);
+      logger.error("Failed to update job failure status", {
+        originalError: message,
+        markError: getErrorMessage(markFailedError),
+      });
     }
+    await logger.dispose();
   }
 }
 
@@ -496,6 +580,299 @@ async function ingestionJobDetailHandler(
   return { status: 405, jsonBody: { error: "Method not allowed" } };
 }
 
+async function handleCancelIngestionJob(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+  const id = request.params.id;
+  if (!id) {
+    return { status: 400, jsonBody: { error: "job id is required" } };
+  }
+
+  const parsedId = Number.parseInt(id, 10);
+  if (!Number.isFinite(parsedId) || parsedId <= 0) {
+    return { status: 400, jsonBody: { error: "job id must be a positive integer" } };
+  }
+
+  let body: Partial<{ reason: string }>;
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return { status: 400, jsonBody: { error: "Request body must be valid JSON" } };
+  }
+
+  const reason = typeof body.reason === "string" ? body.reason.trim() : "Cancelled by admin";
+
+  try {
+    context.log(`DELETE /api/ingestion/jobs/${parsedId} - reason: ${reason}`);
+
+    const job = await getIngestionJobById(parsedId);
+    if (!job) {
+      return { status: 404, jsonBody: { error: "Ingestion job not found" } };
+    }
+
+    if (job.status === "succeeded" || job.status === "failed" || job.status === "cancelled") {
+      return {
+        status: 400,
+        jsonBody: { error: `Cannot cancel job in status: ${job.status}` },
+      };
+    }
+
+    await cancelIngestionJob(parsedId, reason);
+
+    const updatedJob = await getIngestionJobById(parsedId);
+    return {
+      status: 200,
+      jsonBody: { job: updatedJob },
+    };
+  } catch (error) {
+    context.error("Error cancelling ingestion job:", error);
+    return {
+      status: 500,
+      jsonBody: { error: "Failed to cancel ingestion job" },
+    };
+  }
+}
+
+async function ingestionJobCancelHandler(
+  request: HttpRequest,
+  context: InvocationContext,
+  _userId: number
+): Promise<HttpResponseInit> {
+  const method = request.method?.toUpperCase();
+  if (method === "DELETE") {
+    return handleCancelIngestionJob(request, context);
+  }
+  return { status: 405, jsonBody: { error: "Method not allowed" } };
+}
+
+async function handleListDataSources(_request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+  context.log("GET /api/ingestion/sources");
+
+  try {
+    const sources = await listDataSources(true);
+    return {
+      status: 200,
+      jsonBody: { sources },
+    };
+  } catch (error) {
+    context.error("Error listing data sources:", error);
+    return {
+      status: 500,
+      jsonBody: { error: "Failed to list data sources" },
+    };
+  }
+}
+
+async function dataSourcesHandler(
+  request: HttpRequest,
+  context: InvocationContext,
+  _userId: number
+): Promise<HttpResponseInit> {
+  const method = request.method?.toUpperCase();
+  if (method === "GET") {
+    return handleListDataSources(request, context);
+  }
+  return { status: 405, jsonBody: { error: "Method not allowed" } };
+}
+
+async function handleGetSourcesWithSettings(_request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+  context.log("GET /api/ingestion/sources?withSettings=true");
+
+  try {
+    const sources = await listDataSourcesWithSettings(true);
+    return {
+      status: 200,
+      jsonBody: { sources },
+    };
+  } catch (error) {
+    context.error("Error listing data sources with settings:", error);
+    return {
+      status: 500,
+      jsonBody: { error: "Failed to list data sources" },
+    };
+  }
+}
+
+async function handleUpdateSourceSettings(
+  request: HttpRequest,
+  context: InvocationContext
+): Promise<HttpResponseInit> {
+  const id = request.params.id;
+  if (!id) {
+    return { status: 400, jsonBody: { error: "source id is required" } };
+  }
+
+  const parsedId = Number.parseInt(id, 10);
+  if (!Number.isFinite(parsedId) || parsedId <= 0) {
+    return { status: 400, jsonBody: { error: "source id must be a positive integer" } };
+  }
+
+  let body: Partial<{ downloadImages: boolean; detectHex: boolean; overwriteExisting: boolean }>;
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return { status: 400, jsonBody: { error: "Request body must be valid JSON" } };
+  }
+
+  context.log(`PATCH /api/ingestion/sources/${parsedId}/settings`, body);
+
+  try {
+    await updateDataSourceSettings(parsedId, body);
+    return {
+      status: 200,
+      jsonBody: { success: true },
+    };
+  } catch (error) {
+    context.error("Error updating data source settings:", error);
+    return {
+      status: 500,
+      jsonBody: { error: "Failed to update data source settings" },
+    };
+  }
+}
+
+async function handleGetGlobalSettings(_request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+  context.log("GET /api/ingestion/settings");
+
+  try {
+    const settings = await getGlobalSettings();
+    return {
+      status: 200,
+      jsonBody: { settings },
+    };
+  } catch (error) {
+    context.error("Error getting global settings:", error);
+    return {
+      status: 500,
+      jsonBody: { error: "Failed to get global settings" },
+    };
+  }
+}
+
+async function handleUpdateGlobalSettings(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+  let body: Partial<{ downloadImages: boolean; detectHex: boolean }>;
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return { status: 400, jsonBody: { error: "Request body must be valid JSON" } };
+  }
+
+  context.log(`PATCH /api/ingestion/settings`, body);
+
+  try {
+    await updateGlobalSettings(body);
+    const settings = await getGlobalSettings();
+    return {
+      status: 200,
+      jsonBody: { settings },
+    };
+  } catch (error) {
+    context.error("Error updating global settings:", error);
+    return {
+      status: 500,
+      jsonBody: { error: "Failed to update global settings" },
+    };
+  }
+}
+
+async function sourceSettingsHandler(
+  request: HttpRequest,
+  context: InvocationContext,
+  _userId: number
+): Promise<HttpResponseInit> {
+  const method = request.method?.toUpperCase();
+  if (method === "PATCH") {
+    return handleUpdateSourceSettings(request, context);
+  }
+  return { status: 405, jsonBody: { error: "Method not allowed" } };
+}
+
+async function globalSettingsHandler(
+  request: HttpRequest,
+  context: InvocationContext,
+  _userId: number
+): Promise<HttpResponseInit> {
+  const method = request.method?.toUpperCase();
+  if (method === "GET") {
+    return handleGetGlobalSettings(request, context);
+  }
+  if (method === "PATCH") {
+    return handleUpdateGlobalSettings(request, context);
+  }
+  return { status: 405, jsonBody: { error: "Method not allowed" } };
+}
+
+async function handleGetQueueStats(
+  _request: HttpRequest,
+  context: InvocationContext
+): Promise<HttpResponseInit> {
+  context.log("GET /api/ingestion/queue/stats");
+
+  try {
+    const stats = await getQueueStats(INGESTION_JOB_QUEUE_NAME);
+    return {
+      status: 200,
+      jsonBody: stats,
+    };
+  } catch (error) {
+    context.error("Error getting queue stats:", error);
+    return {
+      status: 500,
+      jsonBody: { error: "Failed to get queue stats" },
+    };
+  }
+}
+
+async function handlePurgeQueue(
+  _request: HttpRequest,
+  context: InvocationContext
+): Promise<HttpResponseInit> {
+  context.log("DELETE /api/ingestion/queue/messages");
+
+  try {
+    const result = await purgeQueue(INGESTION_JOB_QUEUE_NAME);
+    if (!result.success) {
+      context.error("Error purging queue:", result.error);
+      return {
+        status: 500,
+        jsonBody: { error: result.error || "Failed to purge queue" },
+      };
+    }
+    return {
+      status: 200,
+      jsonBody: result,
+    };
+  } catch (error) {
+    context.error("Error purging queue:", error);
+    return {
+      status: 500,
+      jsonBody: { error: "Failed to purge queue" },
+    };
+  }
+}
+
+async function queueStatsHandler(
+  request: HttpRequest,
+  context: InvocationContext,
+  _userId: number
+): Promise<HttpResponseInit> {
+  const method = request.method?.toUpperCase();
+  if (method === "GET") {
+    return handleGetQueueStats(request, context);
+  }
+  return { status: 405, jsonBody: { error: "Method not allowed" } };
+}
+
+async function queueMessagesHandler(
+  request: HttpRequest,
+  context: InvocationContext,
+  _userId: number
+): Promise<HttpResponseInit> {
+  const method = request.method?.toUpperCase();
+  if (method === "DELETE") {
+    return handlePurgeQueue(request, context);
+  }
+  return { status: 405, jsonBody: { error: "Method not allowed" } };
+}
+
 app.http("ingestion-jobs", {
   methods: ["GET", "POST", "OPTIONS"],
   authLevel: "anonymous",
@@ -510,3 +887,46 @@ app.http("ingestion-job-detail", {
   route: "ingestion/jobs/{id}",
   handler: withCors(withAdmin(ingestionJobDetailHandler)),
 });
+
+app.http("ingestion-job-cancel", {
+  methods: ["DELETE", "OPTIONS"],
+  authLevel: "anonymous",
+  route: "ingestion/jobs/{id}/cancel",
+  handler: withCors(withAdmin(ingestionJobCancelHandler)),
+});
+
+app.http("ingestion-sources", {
+  methods: ["GET", "OPTIONS"],
+  authLevel: "anonymous",
+  route: "ingestion/sources",
+  handler: withCors(withAdmin(dataSourcesHandler)),
+});
+
+app.http("ingestion-source-settings", {
+  methods: ["PATCH", "OPTIONS"],
+  authLevel: "anonymous",
+  route: "ingestion/sources/{id}/settings",
+  handler: withCors(withAdmin(sourceSettingsHandler)),
+});
+
+app.http("ingestion-settings", {
+  methods: ["GET", "PATCH", "OPTIONS"],
+  authLevel: "anonymous",
+  route: "ingestion/settings",
+  handler: withCors(withAdmin(globalSettingsHandler)),
+});
+
+app.http("ingestion-queue-stats", {
+  methods: ["GET", "OPTIONS"],
+  authLevel: "anonymous",
+  route: "ingestion/queue/stats",
+  handler: withCors(withAdmin(queueStatsHandler)),
+});
+
+app.http("ingestion-queue-messages", {
+  methods: ["DELETE", "OPTIONS"],
+  authLevel: "anonymous",
+  route: "ingestion/queue/messages",
+  handler: withCors(withAdmin(queueMessagesHandler)),
+});
+

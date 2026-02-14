@@ -205,20 +205,28 @@ async function prepareHoloTacoImageData(
     hexDetectionSkipped: 0,
   };
 
+  console.log(`[HoloTaco] Image preparation: processing ${records.length} records, detectHexFromImage=${detectHexFromImage}`);
+
   for (const record of records) {
     const normalized =
       record.normalized && typeof record.normalized === "object"
         ? (record.normalized as Record<string, unknown>)
         : null;
     if (!normalized) {
+      console.log(`[HoloTaco] Skipping record ${record.externalId}: no normalized data`);
       continue;
     }
 
     const holo = parseHoloTacoNormalized(normalized);
     if (!holo.name || !isHttpUrl(holo.primaryImageUrl)) {
+      console.log(`[HoloTaco] Skipping record ${record.externalId}: missing name or invalid image URL`, {
+        name: holo.name,
+        imageUrl: holo.primaryImageUrl,
+      });
       continue;
     }
 
+    console.log(`[HoloTaco] Image candidate: externalId=${record.externalId}, name=${holo.name}, imageUrl=${holo.primaryImageUrl}`);
     metrics.imageCandidates += 1;
 
     let storageUrl: string | null = null;
@@ -226,6 +234,7 @@ async function prepareHoloTacoImageData(
     let detectedHex: string | null = null;
 
     try {
+      console.log(`[HoloTaco] Uploading image for ${record.externalId}`);
       const upload = await uploadSourceImageToBlob({
         sourceImageUrl: holo.primaryImageUrl,
         source: "HoloTacoShopify",
@@ -234,23 +243,33 @@ async function prepareHoloTacoImageData(
       storageUrl = upload.storageUrl;
       checksumSha256 = upload.checksumSha256;
       metrics.imageUploads += 1;
-    } catch {
+      console.log(`[HoloTaco] Image uploaded: ${checksumSha256}, storageUrl=${storageUrl}`);
+    } catch (err) {
       metrics.imageUploadFailures += 1;
+      console.error(`[HoloTaco] Image upload failed for ${record.externalId}:`, String(err));
     }
 
     if (detectHexFromImage) {
       try {
+        console.log(`[HoloTaco] Starting AI hex detection for ${record.externalId} from ${holo.primaryImageUrl}`);
         const detection = await detectHexWithAzureOpenAI(holo.primaryImageUrl);
+        console.log(`[HoloTaco] AI detection result:`, { detectedHex: detection.hex });
         if (detection.hex) {
           detectedHex = detection.hex;
           metrics.hexDetected += 1;
+          console.log(`[HoloTaco] Hex detected: ${detectedHex}`);
+        } else {
+          console.log(`[HoloTaco] No hex returned from AI (result was null/undefined)`);
         }
+        console.log(`[HoloTaco] Sleeping ${HEX_DETECTION_DELAY_MS}ms before next detection`);
         await sleep(HEX_DETECTION_DELAY_MS);
-      } catch {
+      } catch (err) {
         metrics.hexDetectionFailures += 1;
+        console.error(`[HoloTaco] AI hex detection failed for ${record.externalId}:`, String(err));
       }
     } else {
       metrics.hexDetectionSkipped += 1;
+      console.log(`[HoloTaco] Skipping AI detection for ${record.externalId}`);
     }
 
     byExternalId.set(record.externalId, {
@@ -259,6 +278,8 @@ async function prepareHoloTacoImageData(
       detectedHex,
     });
   }
+
+  console.log(`[HoloTaco] Image preparation complete:`, metrics);
 
   return {
     byExternalId,
@@ -284,6 +305,133 @@ export async function getDataSourceByName(name: string): Promise<DataSourceRecor
 
   return result.rows[0] ?? null;
 }
+
+export interface DataSourceSettings {
+  downloadImages: boolean;
+  detectHex: boolean;
+  overwriteExisting: boolean;
+}
+
+export interface DataSourceRecordWithSettings extends DataSourceRecord {
+  settings: DataSourceSettings;
+  enabled: boolean;
+}
+
+export async function listDataSources(enabledOnly = true): Promise<DataSourceRecord[]> {
+  const whereClause = enabledOnly ? "WHERE enabled = true" : "";
+  const result = await query<{
+    dataSourceId: number;
+    name: string;
+    baseUrl: string | null;
+  }>(
+    `SELECT
+       data_source_id AS "dataSourceId",
+       name,
+       base_url AS "baseUrl"
+     FROM data_source
+     ${whereClause}
+     ORDER BY name`,
+    []
+  );
+
+  return result.rows;
+}
+
+export async function listDataSourcesWithSettings(enabledOnly = true): Promise<DataSourceRecordWithSettings[]> {
+  const whereClause = enabledOnly ? "WHERE enabled = true" : "";
+  const result = await query<{
+    dataSourceId: number;
+    name: string;
+    baseUrl: string | null;
+    enabled: boolean;
+    metadata: Record<string, unknown> | null;
+  }>(
+    `SELECT
+       data_source_id AS "dataSourceId",
+       name,
+       base_url AS "baseUrl",
+       enabled,
+       metadata
+     FROM data_source
+     ${whereClause}
+     ORDER BY name`,
+    []
+  );
+
+  const defaultSettings: DataSourceSettings = {
+    downloadImages: true,
+    detectHex: true,
+    overwriteExisting: false,
+  };
+
+  return result.rows.map((row) => ({
+    dataSourceId: row.dataSourceId,
+    name: row.name,
+    baseUrl: row.baseUrl,
+    enabled: row.enabled,
+    settings: (row.metadata?.ingestion) as DataSourceSettings || defaultSettings,
+  }));
+}
+
+export async function updateDataSourceSettings(
+  dataSourceId: number,
+  settings: Partial<DataSourceSettings>
+): Promise<void> {
+  // Get current metadata
+  const result = await query<{ metadata: Record<string, unknown> | null }>(
+    `SELECT metadata FROM data_source WHERE data_source_id = $1`,
+    [dataSourceId]
+  );
+
+  const currentMetadata = result.rows[0]?.metadata || {};
+  const currentIngestion = currentMetadata.ingestion || {};
+  
+  const newIngestion = {
+    ...currentIngestion,
+    ...settings,
+  };
+
+  await query(
+    `UPDATE data_source 
+     SET metadata = metadata || $2::jsonb 
+     WHERE data_source_id = $1`,
+    [dataSourceId, JSON.stringify({ ingestion: newIngestion })]
+  );
+}
+
+export interface GlobalSettings {
+  downloadImages: boolean;
+  detectHex: boolean;
+}
+
+export async function getGlobalSettings(): Promise<GlobalSettings> {
+  const result = await query<{ setting_value: Record<string, unknown> }>(
+    `SELECT setting_value FROM app_settings WHERE setting_key = 'ingestion'`,
+    []
+  );
+
+  if (result.rows.length === 0) {
+    return { downloadImages: true, detectHex: true };
+  }
+
+  return result.rows[0].setting_value as unknown as GlobalSettings;
+}
+
+export async function updateGlobalSettings(settings: Partial<GlobalSettings>): Promise<void> {
+  const current = await getGlobalSettings();
+  const newValue = { ...current, ...settings };
+
+  await query(
+    `INSERT INTO app_settings (setting_key, setting_value, description)
+     VALUES ('ingestion', $1::jsonb, 'Global ingestion settings')
+     ON CONFLICT (setting_key) 
+     DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = now()`,
+    [JSON.stringify(newValue)]
+  );
+}
+
+
+
 
 export async function createIngestionJob(
   dataSourceId: number,
@@ -354,6 +502,21 @@ export async function markIngestionJobFailed(
          metrics_json = $3::jsonb
      WHERE ingestion_job_id = $1`,
     [jobId, errorMessage, metrics]
+  );
+}
+
+export async function cancelIngestionJob(
+  jobId: number,
+  cancelReason: string
+): Promise<void> {
+  await query(
+    `UPDATE ingestion_job
+     SET status = 'cancelled',
+         finished_at = now(),
+         error = $2
+     WHERE ingestion_job_id = $1
+     AND status IN ('queued', 'running')`,
+    [jobId, cancelReason]
   );
 }
 
@@ -738,6 +901,8 @@ export async function materializeHoloTacoRecords(
 
     const brandCache = new Map<string, number>();
 
+    console.log(`[HoloTaco] Starting materialization for ${records.length} records, userId=${userId}, dataSourceId=${dataSourceId}, overwriteDetectedHex=${overwriteDetectedHex}`);
+
     for (const record of records) {
       const normalized =
         record.normalized && typeof record.normalized === "object"
@@ -754,6 +919,8 @@ export async function materializeHoloTacoRecords(
         skipped += 1;
         continue;
       }
+
+      console.log(`[HoloTaco] Processing record: externalId=${record.externalId}, name=${holo.name}`);
 
       const brandName = canonicalizeBrandName(holo.brand || "Holo Taco");
       const brandKey = brandName.toLowerCase();
@@ -834,100 +1001,153 @@ export async function materializeHoloTacoRecords(
         )
       );
 
+      console.log(`[HoloTaco] Inventory check: shadeId=${shadeId}, detectedHex=${detectedHex}, tags=${JSON.stringify(sourceTags)}`);
+
       if (inventory.rows.length === 0) {
-        await client.query(
-          `INSERT INTO user_inventory_item
-             (user_id, shade_id, quantity, color_name, color_hex, notes, tags)
-           VALUES ($1, $2, 0, $3, $4, $5, $6::text[])`,
-          [userId, shadeId, holo.name, detectedHex, importNote, sourceTags]
-        );
-        inventoryInserted += 1;
+        console.log(`[HoloTaco] Inserting new inventory item for shade ${shadeId}`);
+        try {
+          await client.query(
+            `INSERT INTO user_inventory_item
+               (user_id, shade_id, quantity, color_name, color_hex, notes, tags)
+             VALUES ($1, $2, 0, $3, $4, $5, $6::text[])`,
+            [userId, shadeId, holo.name, detectedHex, importNote, sourceTags]
+          );
+          inventoryInserted += 1;
+          console.log(`[HoloTaco] Inserted inventory item successfully`);
+        } catch (err) {
+          console.error(`[HoloTaco] Error inserting inventory item:`, {
+            userId,
+            shadeId,
+            colorName: holo.name,
+            colorHex: detectedHex,
+            colorHexType: typeof detectedHex,
+            notes: importNote,
+            tagsLength: sourceTags.length,
+            error: String(err),
+          });
+          throw err;
+        }
       } else {
         const inventoryItemId = inventory.rows[0].inventoryItemId;
         const existingColorHex = inventory.rows[0].colorHex;
         const shouldOverwriteHex = overwriteDetectedHex && Boolean(detectedHex);
 
+        console.log(`[HoloTaco] Updating inventory item ${inventoryItemId}: detectedHex=${detectedHex}, shouldOverwrite=${shouldOverwriteHex}, existing=${existingColorHex}`);
+
         if (shouldOverwriteHex && detectedHex !== existingColorHex) {
           hexOverwritten += 1;
         }
 
-        await client.query(
-          `UPDATE user_inventory_item
-           SET color_name = COALESCE(color_name, $2),
-               color_hex = CASE
-                 WHEN $6::boolean AND $3 IS NOT NULL THEN $3
-                 ELSE COALESCE(color_hex, $3)
-               END,
-               notes = COALESCE(notes, $4),
-               tags = (
-                 SELECT ARRAY(
-                   SELECT DISTINCT t
-                   FROM unnest(COALESCE(user_inventory_item.tags, ARRAY[]::text[]) || $5::text[]) AS t
-                   ORDER BY t
+        try {
+          await client.query(
+            `UPDATE user_inventory_item
+             SET color_name = COALESCE(color_name, $2),
+                 color_hex = CASE
+                   WHEN $6::boolean AND $3::text IS NOT NULL THEN $3::text
+                   ELSE COALESCE(color_hex, $3::text)
+                 END,
+                 notes = COALESCE(notes, $4),
+                 tags = (
+                   SELECT ARRAY(
+                     SELECT DISTINCT t
+                     FROM unnest(COALESCE(user_inventory_item.tags, ARRAY[]::text[]) || $5::text[]) AS t
+                     ORDER BY t
+                   )
                  )
-               )
-           WHERE inventory_item_id = $1`,
-          [inventoryItemId, holo.name, detectedHex, importNote, sourceTags, overwriteDetectedHex]
-        );
-        inventoryUpdated += 1;
+             WHERE inventory_item_id = $1`,
+            [inventoryItemId, holo.name, detectedHex, importNote, sourceTags, overwriteDetectedHex]
+          );
+          inventoryUpdated += 1;
+          console.log(`[HoloTaco] Updated inventory item successfully`);
+        } catch (err) {
+          console.error(`[HoloTaco] Error updating inventory item:`, {
+            inventoryItemId,
+            colorName: holo.name,
+            colorHex: detectedHex,
+            colorHexType: typeof detectedHex,
+            notes: importNote,
+            tagsLength: sourceTags.length,
+            overwriteDetectedHex,
+            error: String(err),
+          });
+          throw err;
+        }
       }
 
       if (preparedImage?.storageUrl && preparedImage.checksumSha256) {
-        const existingImage = await client.query<{ imageId: number }>(
-          `SELECT image_id AS "imageId"
-           FROM image_asset
-           WHERE owner_type = 'source'
-             AND owner_id = $1
-             AND checksum_sha256 = $2
-           LIMIT 1`,
-          [dataSourceId, preparedImage.checksumSha256]
-        );
-
-        let imageId: number;
-        if (existingImage.rows.length > 0) {
-          imageId = existingImage.rows[0].imageId;
-        } else {
-          const insertedImage = await client.query<{ imageId: number }>(
-            `INSERT INTO image_asset
-               (owner_type, owner_id, storage_url, checksum_sha256, copyright_status, captured_at)
-             VALUES ('source', $1, $2, $3, 'licensed_source', now())
-             RETURNING image_id AS "imageId"`,
-            [dataSourceId, preparedImage.storageUrl, preparedImage.checksumSha256]
+        console.log(`[HoloTaco] Processing swatch for shade ${shadeId}: checksum=${preparedImage.checksumSha256}`);
+        try {
+          const existingImage = await client.query<{ imageId: number }>(
+            `SELECT image_id AS "imageId"
+             FROM image_asset
+             WHERE owner_type = 'source'
+               AND owner_id = $1
+               AND checksum_sha256 = $2
+             LIMIT 1`,
+            [dataSourceId, preparedImage.checksumSha256]
           );
-          imageId = insertedImage.rows[0].imageId;
-        }
 
-        const existingSwatch = await client.query<{ swatchId: number; imageIdOriginal: number }>(
-          `SELECT
-             swatch_id AS "swatchId",
-             image_id_original AS "imageIdOriginal"
-           FROM swatch
-           WHERE shade_id = $1
-           ORDER BY swatch_id DESC
-           LIMIT 1`,
-          [shadeId]
-        );
+          let imageId: number;
+          if (existingImage.rows.length > 0) {
+            imageId = existingImage.rows[0].imageId;
+            console.log(`[HoloTaco] Found existing image ${imageId}`);
+          } else {
+            const insertedImage = await client.query<{ imageId: number }>(
+              `INSERT INTO image_asset
+                 (owner_type, owner_id, storage_url, checksum_sha256, copyright_status, captured_at)
+               VALUES ('source', $1, $2, $3, 'licensed_source', now())
+               RETURNING image_id AS "imageId"`,
+              [dataSourceId, preparedImage.storageUrl, preparedImage.checksumSha256]
+            );
+            imageId = insertedImage.rows[0].imageId;
+            console.log(`[HoloTaco] Inserted new image ${imageId}`);
+          }
 
-        if (existingSwatch.rows.length === 0) {
-          await client.query(
-            `INSERT INTO swatch (shade_id, image_id_original, swatch_type, lighting, background, quality_score)
-             VALUES ($1, $2, 'source_product', 'unknown', 'transparent', 80.0)`,
-            [shadeId, imageId]
+          const existingSwatch = await client.query<{ swatchId: number; imageIdOriginal: number }>(
+            `SELECT
+               swatch_id AS "swatchId",
+               image_id_original AS "imageIdOriginal"
+             FROM swatch
+             WHERE shade_id = $1
+             ORDER BY swatch_id DESC
+             LIMIT 1`,
+            [shadeId]
           );
-          swatchesLinked += 1;
-        } else if (existingSwatch.rows[0].imageIdOriginal !== imageId) {
-          await client.query(
-            `UPDATE swatch
-             SET image_id_original = $2
-             WHERE swatch_id = $1`,
-            [existingSwatch.rows[0].swatchId, imageId]
-          );
-          swatchesLinked += 1;
+
+          if (existingSwatch.rows.length === 0) {
+            console.log(`[HoloTaco] Inserting new swatch for shade ${shadeId} with image ${imageId}`);
+            await client.query(
+              `INSERT INTO swatch (shade_id, image_id_original, swatch_type, lighting, background, quality_score)
+               VALUES ($1, $2, 'source_product', 'unknown', 'transparent', 80.0)`,
+              [shadeId, imageId]
+            );
+            swatchesLinked += 1;
+            console.log(`[HoloTaco] Inserted swatch successfully`);
+          } else if (existingSwatch.rows[0].imageIdOriginal !== imageId) {
+            console.log(`[HoloTaco] Updating swatch ${existingSwatch.rows[0].swatchId} with new image ${imageId}`);
+            await client.query(
+              `UPDATE swatch
+               SET image_id_original = $2
+               WHERE swatch_id = $1`,
+              [existingSwatch.rows[0].swatchId, imageId]
+            );
+            swatchesLinked += 1;
+            console.log(`[HoloTaco] Updated swatch successfully`);
+          }
+        } catch (err) {
+          console.error(`[HoloTaco] Error processing swatch:`, {
+            shadeId,
+            dataSourceId,
+            checksum: preparedImage.checksumSha256,
+            storageUrl: preparedImage.storageUrl,
+            error: String(err),
+          });
+          throw err;
         }
       }
     }
 
-    return {
+    const result = {
       processed,
       brandsCreated,
       shadesCreated,
@@ -938,5 +1158,226 @@ export async function materializeHoloTacoRecords(
       swatchesLinked,
       skipped,
     };
+
+    console.log(`[HoloTaco] Materialization complete:`, result);
+
+    return result;
+  });
+}
+
+export interface GenericShopifyMaterializationMetrics {
+  processed: number;
+  brandsCreated: number;
+  shadesCreated: number;
+  inventoryInserted: number;
+  inventoryUpdated: number;
+  skipped: number;
+}
+
+export async function materializeGenericShopifyRecords(
+  userId: number,
+  dataSourceId: number,
+  records: ConnectorProductRecord[]
+): Promise<GenericShopifyMaterializationMetrics> {
+  return transaction(async (client) => {
+    let processed = 0;
+    let brandsCreated = 0;
+    let shadesCreated = 0;
+    let inventoryInserted = 0;
+    let inventoryUpdated = 0;
+    let skipped = 0;
+
+    const brandCache = new Map<string, number>();
+
+    console.log(`[GenericShopify] Starting materialization for ${records.length} records, userId=${userId}, dataSourceId=${dataSourceId}`);
+
+    for (const record of records) {
+      const normalized =
+        record.normalized && typeof record.normalized === "object"
+          ? (record.normalized as Record<string, unknown>)
+          : null;
+
+      if (!normalized) {
+        skipped += 1;
+        continue;
+      }
+
+      const brand = asString(normalized.brand);
+      const name = asString(normalized.name);
+      const hex = asString(normalized.hex);
+      const colorName = asString(normalized.colorName);
+      const finish = asString(normalized.finishes) ||
+                    (Array.isArray(normalized.finishes) && normalized.finishes.length > 0
+                      ? String(normalized.finishes[0])
+                      : null);
+      const collection = asString(normalized.collections) ||
+                        (Array.isArray(normalized.collections) && normalized.collections.length > 0
+                          ? String(normalized.collections[0])
+                          : null);
+      const tags = asStringArray(normalized.tags);
+
+      if (!brand || !name) {
+        console.log(`[GenericShopify] Skipping record ${record.externalId}: missing brand or name`, {
+          brand,
+          name,
+        });
+        skipped += 1;
+        continue;
+      }
+
+      console.log(`[GenericShopify] Processing record: externalId=${record.externalId}, brand=${brand}, name=${name}, hex=${hex}`);
+
+      const brandName = canonicalizeBrandName(brand);
+      const brandKey = brandName.toLowerCase();
+      let brandId = brandCache.get(brandKey);
+
+      if (!brandId) {
+        const existingBrand = await client.query<{ brandId: number }>(
+          `SELECT brand_id AS "brandId"
+           FROM brand
+           WHERE lower(name_canonical) = lower($1)
+           ORDER BY brand_id
+           LIMIT 1`,
+          [brandName]
+        );
+
+        if (existingBrand.rows.length > 0) {
+          brandId = existingBrand.rows[0].brandId;
+        } else {
+          const insertedBrand = await client.query<{ brandId: number }>(
+            `INSERT INTO brand (name_canonical)
+             VALUES ($1)
+             RETURNING brand_id AS "brandId"`,
+            [brandName]
+          );
+          brandId = insertedBrand.rows[0].brandId;
+          brandsCreated += 1;
+        }
+
+        brandCache.set(brandKey, brandId);
+      }
+
+      processed += 1;
+
+      const existingShade = await client.query<{ shadeId: number }>(
+        `SELECT shade_id AS "shadeId"
+         FROM shade
+         WHERE brand_id = $1
+           AND product_line_id IS NULL
+           AND lower(shade_name_canonical) = lower($2)
+           AND coalesce(finish, '') = coalesce($3, '')
+           AND coalesce(collection, '') = coalesce($4, '')
+         LIMIT 1`,
+        [brandId, name, finish, collection]
+      );
+
+      let shadeId: number;
+      if (existingShade.rows.length > 0) {
+        shadeId = existingShade.rows[0].shadeId;
+      } else {
+        const insertedShade = await client.query<{ shadeId: number }>(
+          `INSERT INTO shade (brand_id, shade_name_canonical, finish, collection, status)
+           VALUES ($1, $2, $3, $4, 'active')
+           RETURNING shade_id AS "shadeId"`,
+          [brandId, name, finish, collection]
+        );
+        shadeId = insertedShade.rows[0].shadeId;
+        shadesCreated += 1;
+      }
+
+      const inventory = await client.query<{ inventoryItemId: number; colorHex: string | null }>(
+        `SELECT inventory_item_id AS "inventoryItemId"
+                , color_hex AS "colorHex"
+         FROM user_inventory_item
+         WHERE user_id = $1
+           AND shade_id = $2
+         LIMIT 1`,
+        [userId, shadeId]
+      );
+
+      const importNote = `Imported from ${record.normalized && typeof record.normalized === 'object' && (record.normalized as any).source || 'external_product'}`;
+      const sourceTags = Array.from(
+        new Set(
+          [...tags, "imported", "shopify"]
+            .map((tag) => tag.trim())
+            .filter(Boolean)
+        )
+      );
+
+      console.log(`[GenericShopify] Inventory check: shadeId=${shadeId}, hex=${hex}, tags=${JSON.stringify(sourceTags)}`);
+
+      if (inventory.rows.length === 0) {
+        console.log(`[GenericShopify] Inserting new inventory item for shade ${shadeId}`);
+        try {
+          await client.query(
+            `INSERT INTO user_inventory_item
+               (user_id, shade_id, quantity, color_name, color_hex, notes, tags)
+             VALUES ($1, $2, 0, $3, $4, $5, $6::text[])`,
+            [userId, shadeId, colorName || name, hex, importNote, sourceTags]
+          );
+          inventoryInserted += 1;
+          console.log(`[GenericShopify] Inserted inventory item successfully`);
+        } catch (err) {
+          console.error(`[GenericShopify] Error inserting inventory item:`, {
+            userId,
+            shadeId,
+            colorName: colorName || name,
+            colorHex: hex,
+            notes: importNote,
+            tagsLength: sourceTags.length,
+            error: String(err),
+          });
+          throw err;
+        }
+      } else {
+        const inventoryItemId = inventory.rows[0].inventoryItemId;
+        const existingColorHex = inventory.rows[0].colorHex;
+
+        console.log(`[GenericShopify] Updating inventory item ${inventoryItemId}: hex=${hex}, existing=${existingColorHex}`);
+
+        try {
+          await client.query(
+            `UPDATE user_inventory_item
+             SET color_name = COALESCE(color_name, $2),
+                 color_hex = COALESCE(color_hex, $3),
+                 notes = COALESCE(notes, $4),
+                 tags = (
+                   SELECT ARRAY(
+                     SELECT DISTINCT t
+                     FROM unnest(COALESCE(user_inventory_item.tags, ARRAY[]::text[]) || $5::text[]) AS t
+                     ORDER BY t
+                   )
+                 )
+             WHERE inventory_item_id = $1`,
+            [inventoryItemId, colorName || name, hex, importNote, sourceTags]
+          );
+          inventoryUpdated += 1;
+          console.log(`[GenericShopify] Updated inventory item successfully`);
+        } catch (err) {
+          console.error(`[GenericShopify] Error updating inventory item:`, {
+            inventoryItemId,
+            colorName: colorName || name,
+            colorHex: hex,
+            notes: importNote,
+            tagsLength: sourceTags.length,
+            error: String(err),
+          });
+          throw err;
+        }
+      }
+    }
+
+    const result = {
+      processed,
+      brandsCreated,
+      shadesCreated,
+      inventoryInserted,
+      inventoryUpdated,
+      skipped,
+    };
+
+    console.log(`[GenericShopify] Materialization complete:`, result);
+
+    return result;
   });
 }

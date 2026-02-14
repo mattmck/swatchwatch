@@ -74,8 +74,10 @@ npm run dev:mobile       # → mobile via Expo
 | `npm run dev:web` | Next.js dev server (port 3000) |
 | `npm run dev:mobile` | Expo start |
 | `npm run dev:functions` | Functions TypeScript watch + Azure Functions Core Tools (`func start`) |
-| `npm run build:web` | Next.js production build |
-| `npm run build:functions` | TypeScript compile for functions |
+| `npm run build` | Build all workspaces (shared → web → functions) |
+| `npm run build:shared` | Build shared types only |
+| `npm run build:web` | Build shared types + Next.js production build |
+| `npm run build:functions` | Build shared types + TypeScript compile for functions |
 | `npm run lint` | ESLint across all workspaces |
 | `npm run typecheck` | `tsc --noEmit` across all workspaces |
 
@@ -190,7 +192,7 @@ This project is in early development. The web UI is now fully API-driven. See [K
 | Document | Audience | Content |
 |----------|----------|---------|
 | [This README](README.md) | All developers | Setup, architecture, quick start |
-| [.github/copilot-instructions.md](.github/copilot-instructions.md) | AI coding agents | Conventions, patterns, decision rationale |
+| [CLAUDE.md](CLAUDE.md) | AI coding agents | Conventions, patterns, decision rationale (canonical; other agent files are symlinks) |
 | [apps/web/README.md](apps/web/README.md) | Web developers | Web app architecture, components, routing |
 | [packages/functions/README.md](packages/functions/README.md) | Backend developers | API routes, handler patterns, local dev |
 | [packages/shared/README.md](packages/shared/README.md) | All developers | Shared types, how to add new types |

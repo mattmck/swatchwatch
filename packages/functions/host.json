@@ -3,9 +3,13 @@
   "logging": {
     "applicationInsights": {
       "samplingSettings": {
-        "isEnabled": true,
-        "excludedTypes": "Request"
-      }
+        "isEnabled": true
+      },
+	"logLevel": {
+      "default": "Trace",
+      "Function": "Trace",
+      "Host.Aggregator": "Trace"
+    	}
     }
   },
   "extensionBundle": {
@@ -18,6 +22,7 @@
         "supportCredentials": false,
         "allowedOrigins": [
           "http://localhost:3000",
+          "http://localhost:3001",
           "https://*.azurestaticapps.net"
         ]
       }

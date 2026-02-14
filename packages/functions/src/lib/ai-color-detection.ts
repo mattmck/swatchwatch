@@ -1,4 +1,4 @@
-const OPENAI_API_VERSION = "2024-10-21";
+const OPENAI_API_VERSION = "2024-05-01-preview";
 const REQUEST_TIMEOUT_MS = 20000;
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 2000;
@@ -37,20 +37,31 @@ function parseConfidence(value: unknown): number | null {
   return null;
 }
 
-function parseHexFromContent(content: string): HexDetectionResult {
+function parseHexFromContent(content: string, imageUrl: string): HexDetectionResult {
   try {
     const parsed = JSON.parse(content) as Record<string, unknown>;
     const hex = normalizeHex(parsed.hex);
     const confidence = parseConfidence(parsed.confidence);
+    const errorReason = typeof parsed.error === "string" ? parsed.error : null;
+
+    if (errorReason) {
+      console.log(`[ai-color-detection] Low confidence for ${imageUrl}: ${errorReason}`);
+    }
+
     if (hex) {
       return { hex, confidence, provider: "azure-openai" };
     }
-  } catch {
-    // Fall through to regex extraction.
+
+    console.log(`[ai-color-detection] No valid hex in response for ${imageUrl}: ${content}`);
+  } catch (err) {
+    console.log(`[ai-color-detection] JSON parse error for ${imageUrl}: ${err instanceof Error ? err.message : String(err)}, content: ${content}`);
   }
 
   const fallbackMatch = content.match(/#?[0-9a-fA-F]{6}/);
   const hex = normalizeHex(fallbackMatch?.[0]);
+  if (!hex) {
+    console.log(`[ai-color-detection] Regex fallback also failed for ${imageUrl}`);
+  }
   return {
     hex,
     confidence: null,
@@ -128,8 +139,21 @@ export async function detectHexWithAzureOpenAI(imageUrl: string): Promise<HexDet
     process.env.AZURE_OPENAI_DEPLOYMENT?.trim();
 
   if (!endpoint || !apiKey || !deployment) {
+    console.error(`[ai-color-detection] Missing Azure OpenAI config:`, {
+      hasEndpoint: !!endpoint,
+      hasApiKey: !!apiKey,
+      hasDeployment: !!deployment,
+      availableEnvVars: {
+        AZURE_OPENAI_ENDPOINT: process.env.AZURE_OPENAI_ENDPOINT ? "set" : "missing",
+        AZURE_OPENAI_KEY: process.env.AZURE_OPENAI_KEY ? "set" : "missing",
+        AZURE_OPENAI_DEPLOYMENT_HEX: process.env.AZURE_OPENAI_DEPLOYMENT_HEX ? "set" : "missing",
+        AZURE_OPENAI_DEPLOYMENT: process.env.AZURE_OPENAI_DEPLOYMENT ? "set" : "missing",
+      },
+    });
     return { hex: null, confidence: null, provider: "none" };
   }
+
+  console.log(`[ai-color-detection] Config loaded, calling Azure OpenAI for ${imageUrl}`);
 
   const requestUrl = `${endpoint.replace(/\/+$/, "")}/openai/deployments/${deployment}/chat/completions?api-version=${OPENAI_API_VERSION}`;
   const response = await fetchWithRetry(requestUrl, {
@@ -146,7 +170,7 @@ export async function detectHexWithAzureOpenAI(imageUrl: string): Promise<HexDet
         {
           role: "system",
           content:
-            "You extract one representative BASE polish color from a nail polish product image. Ignore background, props, packaging/box, labels/text, bottle cap, nail brush, skin tones, and glare. For glitter/shimmer/holo finishes, infer the underlying base lacquer color, not reflective particles. Respond as strict JSON only: {\"hex\":\"#RRGGBB\"|null,\"confidence\":0..1}.",
+            "You extract one representative BASE polish color from a nail polish product image. Ignore background, props, packaging/box, labels/text, bottle cap, nail brush, skin tones, and glare. For glitter/shimmer/holo finishes, infer the underlying base lacquer color, not reflective particles. ALWAYS respond with valid JSON containing hex and confidence. If you cannot determine the color, still provide your best guess with a low confidence score. Format: {\"hex\":\"#RRGGBB\",\"confidence\":0..1,\"error\":\"reason if low confidence\"}.",
         },
         {
           role: "user",
@@ -154,7 +178,7 @@ export async function detectHexWithAzureOpenAI(imageUrl: string): Promise<HexDet
             {
               type: "text",
               text:
-                "Image may show either a bottle product shot or closeup painted nails. Return exactly one hex for the primary marketed base shade. Exclude background, brush, cap, box, and sparkle highlights. If unusable, return null hex with low confidence.",
+                "Image may show either a bottle product shot or closeup painted nails. Return exactly one hex for the primary marketed base shade. Exclude background, brush, cap, box, and sparkle highlights. ALWAYS return a hex value and confidence score. If the image is unclear or unusable, make your best guess and include an 'error' field explaining why confidence is low.",
             },
             {
               type: "image_url",
@@ -181,5 +205,5 @@ export async function detectHexWithAzureOpenAI(imageUrl: string): Promise<HexDet
     return { hex: null, confidence: null, provider: "azure-openai" };
   }
 
-  return parseHexFromContent(content);
+  return parseHexFromContent(content, imageUrl);
 }

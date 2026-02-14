@@ -183,7 +183,74 @@ export async function getIngestionJob(id: string | number): Promise<IngestionJob
   return handleResponse<IngestionJobRunResponse>(response);
 }
 
+export async function cancelIngestionJob(
+  id: string | number,
+  reason?: string
+): Promise<IngestionJobRunResponse> {
+  const response = await fetch(`${API_BASE_URL}/ingestion/jobs/${id}/cancel`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders({ admin: true }) },
+    body: JSON.stringify({ reason: reason || "Cancelled by admin" }),
+  });
+  return handleResponse<IngestionJobRunResponse>(response);
+}
+
+export interface DataSource {
+  dataSourceId: number;
+  name: string;
+  baseUrl: string | null;
+}
+
+export interface ListDataSourcesResponse {
+  sources: DataSource[];
+}
+
+export async function listDataSources(): Promise<ListDataSourcesResponse> {
+  const response = await fetch(`${API_BASE_URL}/ingestion/sources`, {
+    headers: getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<ListDataSourcesResponse>(response);
+}
+
+export interface IngestionSettings {
+  downloadImages: boolean;
+  detectHex: boolean;
+}
+
+export interface GlobalSettingsResponse {
+  settings: IngestionSettings;
+}
+
+export async function getGlobalSettings(): Promise<GlobalSettingsResponse> {
+  const response = await fetch(`${API_BASE_URL}/ingestion/settings`, {
+    headers: getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<GlobalSettingsResponse>(response);
+}
+
+export async function updateGlobalSettings(settings: Partial<IngestionSettings>): Promise<GlobalSettingsResponse> {
+  const response = await fetch(`${API_BASE_URL}/ingestion/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(settings),
+  });
+  return handleResponse<GlobalSettingsResponse>(response);
+}
+
+export async function updateDataSourceSettings(
+  dataSourceId: number,
+  settings: Partial<IngestionSettings>
+): Promise<{ success: boolean }> {
+  const response = await fetch(`${API_BASE_URL}/ingestion/sources/${dataSourceId}/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(settings),
+  });
+  return handleResponse<{ success: boolean }>(response);
+}
+
 export async function startCapture(data?: CaptureStartRequest): Promise<CaptureStartResponse> {
+
   const response = await fetch(`${API_BASE_URL}/capture/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
@@ -269,4 +336,32 @@ export async function answerCaptureQuestion(
     body: JSON.stringify(data),
   });
   return handleResponse<CaptureAnswerResponse>(response);
+}
+
+export interface QueueStatsResponse {
+  queueName: string;
+  messageCount: number;
+  timestamp: string;
+}
+
+export interface QueuePurgeResponse {
+  success: boolean;
+  queueName: string;
+  timestamp: string;
+  error?: string;
+}
+
+export async function getQueueStats(): Promise<QueueStatsResponse> {
+  const response = await fetch(`${API_BASE_URL}/ingestion/queue/stats`, {
+    headers: getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<QueueStatsResponse>(response);
+}
+
+export async function purgeQueue(): Promise<QueuePurgeResponse> {
+  const response = await fetch(`${API_BASE_URL}/ingestion/queue/messages`, {
+    method: "DELETE",
+    headers: getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<QueuePurgeResponse>(response);
 }
