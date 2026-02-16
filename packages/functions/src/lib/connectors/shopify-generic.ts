@@ -365,38 +365,7 @@ export class ShopifyGenericConnector implements ProductConnector {
   }
 
   private defaultBaseUrl(): string {
-    // Map known sources to their URLs
-    const urlMap: Record<string, string> = {
-      MooncatShopify: "https://www.mooncat.com",
-      ClionadhShopify: "https://clionadhcosmetics.com",
-      OrlyShopify: "https://orlybeauty.com",
-      BeesKneesLacquerShopify: "https://www.beeskneeslacquer.com",
-      GreatLakesLacquerShopify: "https://www.greatlakeslacquer.com",
-      RoylaleeShopify: "https://roylalee.com",
-      GardenPathLacquersShopify: "https://gardenpathlacquers.com",
-      KathleenAndCoShopify: "https://kathleenandco.com",
-      PrismParadeShopify: "https://prismparade.com",
-      SassysaucePolishShopify: "https://sassysaucepolish.com",
-      ColorClubShopify: "https://colorclub.com",
-      RogueLacquerShopify: "https://roguelacquer.com",
-      RedEyedLacquerShopify: "https://redeyedlacquer.com",
-      CupcakePolishShopify: "https://www.cupcakepolish.com",
-      LoudBabbsShopify: "https://loudbabbs.com",
-      PaintItPrettyPolishShopify: "https://paintitprettypolish.com",
-      ChinaGlazeShopify: "https://chinaglaze.com",
-      LeMiniMacaronShopify: "https://www.leminimacaron.eu",
-      CrackedPolishShopify: "https://crackedpolish.com",
-      OliveAvePolishShopify: "https://oliveavepolish.com",
-      LightsLacquerShopify: "https://lightslacquer.com",
-      ZombieClawPolishShopify: "https://zombieclawpolish.com",
-      PotionPolishShopify: "https://www.potionpolish.com",
-      StarrilyShopify: "https://www.starrily.com",
-      TylerStrinketsShopify: "https://tylerstrinkets.com",
-      DrunkFairyPolishShopify: "https://drunkfairypolish.com",
-      HoloTacoShopify: "https://www.holotaco.com",
-    };
-
-    return urlMap[this.source] || `https://${this.source.replace(/Shopify$/, "").toLowerCase().replace(/ /g, "")}.com`;
+    return defaultShopifyBaseUrl(this.source);
   }
 
   async pullProducts(options: ConnectorPullOptions): Promise<ConnectorPullResult> {
@@ -527,6 +496,44 @@ export class ShopifyGenericConnector implements ProductConnector {
       clearTimeout(timeout);
     }
   }
+}
+
+// Shared map used by connector runtime and data_source auto-provisioning.
+export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
+  MooncatShopify: "https://www.mooncat.com",
+  ClionadhShopify: "https://clionadhcosmetics.com",
+  OrlyShopify: "https://orlybeauty.com",
+  BeesKneesLacquerShopify: "https://www.beeskneeslacquer.com",
+  GreatLakesLacquerShopify: "https://www.greatlakeslacquer.com",
+  RoylaleeShopify: "https://roylalee.com",
+  GardenPathLacquersShopify: "https://gardenpathlacquers.com",
+  KathleenAndCoShopify: "https://kathleenandco.com",
+  PrismParadeShopify: "https://prismparade.com",
+  SassysaucePolishShopify: "https://sassysaucepolish.com",
+  ColorClubShopify: "https://colorclub.com",
+  RogueLacquerShopify: "https://roguelacquer.com",
+  RedEyedLacquerShopify: "https://redeyedlacquer.com",
+  CupcakePolishShopify: "https://www.cupcakepolish.com",
+  LoudBabbsShopify: "https://loudbabbs.com",
+  PaintItPrettyPolishShopify: "https://paintitprettypolish.com",
+  ChinaGlazeShopify: "https://chinaglaze.com",
+  LeMiniMacaronShopify: "https://www.leminimacaron.eu",
+  CrackedPolishShopify: "https://crackedpolish.com",
+  OliveAvePolishShopify: "https://oliveavepolish.com",
+  LightsLacquerShopify: "https://lightslacquer.com",
+  ZombieClawPolishShopify: "https://zombieclawpolish.com",
+  PotionPolishShopify: "https://www.potionpolish.com",
+  StarrilyShopify: "https://www.starrily.com",
+  TylerStrinketsShopify: "https://tylerstrinkets.com",
+  DrunkFairyPolishShopify: "https://drunkfairypolish.com",
+  HoloTacoShopify: "https://www.holotaco.com",
+};
+
+export function defaultShopifyBaseUrl(source: string): string {
+  return (
+    SHOPIFY_SOURCE_BASE_URLS[source] ||
+    `https://${source.replace(/Shopify$/, "").toLowerCase().replace(/ /g, "")}.com`
+  );
 }
 
 async function toNormalizedRecord(

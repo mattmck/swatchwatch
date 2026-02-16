@@ -47,6 +47,7 @@ Current source support:
 - `OpenBeautyFacts` (search-based pull)
 - `MakeupAPI` (nail-polish catalog pull)
 - `HoloTacoShopify` (current Shopify storefront pull, bundle-filtered)
+- Additional `*Shopify` sources from the generated connector list are auto-provisioned into `data_source` when missing, so they appear in `/api/ingestion/sources` and can be queued without manual SQL seeding.
 
 Auth requirement:
 - Ingestion endpoints are admin-only (`withAdmin`). In dev bypass mode, use an admin dev user token (for example `Bearer dev:2` with seeded admin user id 2).

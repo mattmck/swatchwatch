@@ -1,5 +1,7 @@
 import { query, transaction } from "./db";
 import { ConnectorProductRecord } from "./connectors/types";
+import { SUPPORTED_SOURCES } from "./connectors/types";
+import { defaultShopifyBaseUrl } from "./connectors/shopify-generic";
 import { detectHexWithAzureOpenAI } from "./ai-color-detection";
 import { uploadSourceImageToBlob } from "./blob-storage";
 import { isSuspiciousHex } from "./suspicious-hex";
@@ -375,6 +377,57 @@ export async function getDataSourceByName(name: string): Promise<DataSourceRecor
   );
 
   return result.rows[0] ?? null;
+}
+
+function isAutoProvisionableSource(name: string): boolean {
+  return name.endsWith("Shopify");
+}
+
+async function createDataSourceIfMissing(name: string): Promise<DataSourceRecord | null> {
+  if (!isAutoProvisionableSource(name)) {
+    return null;
+  }
+
+  const baseUrl = defaultShopifyBaseUrl(name);
+  const metadata = {
+    priority: "medium",
+    mvp: "yes",
+    notes: "Auto-provisioned Shopify source from supported connector list.",
+    autoProvisioned: true,
+  };
+
+  const inserted = await query<{
+    dataSourceId: number;
+    name: string;
+    baseUrl: string | null;
+  }>(
+    `INSERT INTO data_source (name, source_type, base_url, enabled, metadata)
+     VALUES ($1, 'api', $2, true, $3::jsonb)
+     ON CONFLICT (name) DO NOTHING
+     RETURNING data_source_id AS "dataSourceId", name, base_url AS "baseUrl"`,
+    [name, baseUrl, JSON.stringify(metadata)]
+  );
+
+  if (inserted.rows.length > 0) {
+    return inserted.rows[0];
+  }
+
+  return getDataSourceByName(name);
+}
+
+export async function ensureDataSourceByName(name: string): Promise<DataSourceRecord | null> {
+  const existing = await getDataSourceByName(name);
+  if (existing) {
+    return existing;
+  }
+  return createDataSourceIfMissing(name);
+}
+
+export async function ensureSupportedShopifyDataSources(): Promise<void> {
+  const shopifySources = SUPPORTED_SOURCES.filter((source) => source.endsWith("Shopify"));
+  for (const source of shopifySources) {
+    await ensureDataSourceByName(source);
+  }
 }
 
 export interface DataSourceSettings {

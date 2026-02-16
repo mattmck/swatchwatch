@@ -10,6 +10,8 @@ import { getQueueStats, purgeQueue } from "../lib/queue-management";
 import {
   cancelIngestionJob,
   createIngestionJob,
+  ensureDataSourceByName,
+  ensureSupportedShopifyDataSources,
   getDataSourceByName,
   getGlobalSettings,
   getIngestionJobById,
@@ -207,7 +209,7 @@ async function enqueueIngestionJob(
   let jobId: number | null = null;
 
   try {
-    const source = await getDataSourceByName(normalizedRequest.source);
+    const source = await ensureDataSourceByName(normalizedRequest.source);
     if (!source) {
       return {
         status: 404,
@@ -657,6 +659,7 @@ async function handleListDataSources(_request: HttpRequest, context: InvocationC
   context.log("GET /api/ingestion/sources");
 
   try {
+    await ensureSupportedShopifyDataSources();
     const sources = await listDataSources(true);
     return {
       status: 200,
