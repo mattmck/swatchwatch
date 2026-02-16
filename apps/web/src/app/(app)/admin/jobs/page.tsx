@@ -242,7 +242,7 @@ function JobLogPanel({ job, autoScroll }: { job: IngestionJobRecord; autoScroll?
   return (
     <div
       ref={scrollRef}
-      className="max-h-64 w-full max-w-full overflow-x-auto overflow-y-auto rounded border bg-gray-950 p-2 font-mono text-xs"
+      className="max-h-64 w-full min-w-0 max-w-full overflow-x-auto overflow-y-auto rounded border bg-gray-950 p-2 font-mono text-xs"
     >
       <div className="min-w-max">
         {logs.map((entry, idx) => (
@@ -794,8 +794,8 @@ export default function AdminJobsPage() {
           </div>
 
         </CardHeader>
-        <CardContent>
-          <Table>
+      <CardContent>
+          <Table className="table-fixed">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-8"></TableHead>
@@ -849,8 +849,8 @@ export default function AdminJobsPage() {
                     </TableRow>
                     {isExpanded && (
                       <TableRow className="bg-muted/30 hover:bg-muted/30">
-                        <TableCell colSpan={7} className="p-3">
-                          <div className="space-y-3">
+                        <TableCell colSpan={7} className="p-3 max-w-0 overflow-hidden">
+                          <div className="space-y-3 min-w-0">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
                                 <span className="text-sm font-medium">Job Logs</span>
