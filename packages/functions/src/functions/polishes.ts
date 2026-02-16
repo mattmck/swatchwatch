@@ -16,7 +16,9 @@ const POLISH_SELECT = `
     COALESCE(b.name_canonical, '')              AS brand,
     COALESCE(s.shade_name_canonical, '')        AS name,
     COALESCE(ui.color_name, '')                 AS color,
-    ui.color_hex                                AS "colorHex",
+    ui.vendor_hex                               AS "vendorHex",
+    ui.detected_hex                             AS "detectedHex",
+    ui.name_hex                                 AS "nameHex",
     COALESCE(s.finish, '')                      AS finish,
     COALESCE(s.collection, '')                  AS collection,
     ui.quantity,
@@ -233,8 +235,8 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       const result = await client.query<{ id: number }>(
         `INSERT INTO user_inventory_item
           (user_id, shade_id, quantity, notes, purchase_date, expiration_date,
-           color_name, color_hex, rating, tags, size_display)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+           color_name, vendor_hex, detected_hex, name_hex, rating, tags, size_display)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         RETURNING inventory_item_id AS id`,
         [
           userId,
@@ -244,7 +246,9 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
           body.purchaseDate || null,
           body.expirationDate || null,
           body.color || null,
-          body.colorHex || null,
+          body.vendorHex || null,
+          body.detectedHex || null,
+          body.nameHex || null,
           body.rating || null,
           body.tags && body.tags.length ? body.tags : null,
           body.size || null,
@@ -299,12 +303,14 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
           purchase_date   = COALESCE($3, purchase_date),
           expiration_date = COALESCE($4, expiration_date),
           color_name      = COALESCE($5, color_name),
-          color_hex       = COALESCE($6, color_hex),
-          rating          = COALESCE($7, rating),
-          tags            = COALESCE($8, tags),
-          size_display    = COALESCE($9, size_display),
+          vendor_hex      = COALESCE($6, vendor_hex),
+          detected_hex    = COALESCE($7, detected_hex),
+          name_hex        = COALESCE($8, name_hex),
+          rating          = COALESCE($9, rating),
+          tags            = COALESCE($10, tags),
+          size_display    = COALESCE($11, size_display),
           updated_at      = now()
-        WHERE inventory_item_id = $10 AND user_id = $11
+        WHERE inventory_item_id = $12 AND user_id = $13
         RETURNING inventory_item_id AS id`,
         [
           body.quantity ?? null,
@@ -312,7 +318,9 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
           body.purchaseDate ?? null,
           body.expirationDate ?? null,
           body.color ?? null,
-          body.colorHex ?? null,
+          body.vendorHex ?? null,
+          body.detectedHex ?? null,
+          body.nameHex ?? null,
           body.rating ?? null,
           body.tags && body.tags.length ? body.tags : null,
           body.size ?? null,

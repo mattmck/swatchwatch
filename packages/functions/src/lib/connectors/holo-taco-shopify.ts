@@ -240,6 +240,8 @@ function toNormalizedRecord(
       primaryImageUrl: imageUrls[0] || null,
       productUrl: handle ? `${baseUrl}/products/${handle}` : null,
       variants,
+      vendorHex: null,
+      nameHex: null,
       createdAt: asNonEmptyString(product.created_at),
       updatedAt: asNonEmptyString(product.updated_at),
       publishedAt: asNonEmptyString(product.published_at),

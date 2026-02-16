@@ -131,7 +131,13 @@ async function fetchWithRetry(url: string, init: RequestInit): Promise<Response>
   throw lastError || new Error("Request failed after retries");
 }
 
-export async function detectHexWithAzureOpenAI(imageUrl: string): Promise<HexDetectionResult> {
+/**
+ * Detect hex color from an image using Azure OpenAI vision.
+ * @param imageUrlOrDataUri - Either a publicly-accessible URL or a base64 data URI (data:image/...;base64,...).
+ *   Data URIs are preferred because Azure OpenAI fetches URL images server-side, which fails for
+ *   localhost (Azurite) URLs and Shopify CDN URLs with bot protection.
+ */
+export async function detectHexWithAzureOpenAI(imageUrlOrDataUri: string): Promise<HexDetectionResult> {
   const endpoint = process.env.AZURE_OPENAI_ENDPOINT?.trim();
   const apiKey = process.env.AZURE_OPENAI_KEY?.trim();
   const deployment =
@@ -153,7 +159,8 @@ export async function detectHexWithAzureOpenAI(imageUrl: string): Promise<HexDet
     return { hex: null, confidence: null, provider: "none" };
   }
 
-  console.log(`[ai-color-detection] Config loaded, calling Azure OpenAI for ${imageUrl}`);
+  const logLabel = imageUrlOrDataUri.startsWith("data:") ? "data:…(base64)" : imageUrlOrDataUri;
+  console.log(`[ai-color-detection] Config loaded, calling Azure OpenAI for ${logLabel}`);
 
   const requestUrl = `${endpoint.replace(/\/+$/, "")}/openai/deployments/${deployment}/chat/completions?api-version=${OPENAI_API_VERSION}`;
   const response = await fetchWithRetry(requestUrl, {
@@ -182,7 +189,7 @@ export async function detectHexWithAzureOpenAI(imageUrl: string): Promise<HexDet
             },
             {
               type: "image_url",
-              image_url: { url: imageUrl },
+              image_url: { url: imageUrlOrDataUri },
             },
           ],
         },
@@ -205,5 +212,5 @@ export async function detectHexWithAzureOpenAI(imageUrl: string): Promise<HexDet
     return { hex: null, confidence: null, provider: "azure-openai" };
   }
 
-  return parseHexFromContent(content, imageUrl);
+  return parseHexFromContent(content, logLabel);
 }

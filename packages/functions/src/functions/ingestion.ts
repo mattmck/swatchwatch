@@ -65,6 +65,7 @@ interface NormalizedIngestionJobRequest {
   recentDays?: number;
   materializeToInventory: boolean;
   detectHexFromImage: boolean;
+  detectHexOnSuspiciousOnly: boolean;
   overwriteDetectedHex: boolean;
   collectTrainingData: boolean;
 }
@@ -130,6 +131,7 @@ function buildRequestedMetrics(
     recentDays: request.recentDays || null,
     materializeToInventory: request.materializeToInventory,
     detectHexFromImage: request.detectHexFromImage,
+    detectHexOnSuspiciousOnly: request.detectHexOnSuspiciousOnly,
     overwriteDetectedHex: request.overwriteDetectedHex,
     triggeredByUserId: userId,
   };
@@ -186,6 +188,7 @@ async function enqueueIngestionJob(
     maxRecords: clampInt(body.maxRecords, DEFAULT_MAX_RECORDS, 1, MAX_RECORDS),
     materializeToInventory: body.materializeToInventory !== false,
     detectHexFromImage: body.detectHexFromImage !== false,
+    detectHexOnSuspiciousOnly: body.detectHexOnSuspiciousOnly === true,
     overwriteDetectedHex: body.overwriteDetectedHex === true,
     collectTrainingData: body.collectTrainingData === true,
     recentDays:
@@ -415,7 +418,7 @@ export async function processIngestionJobQueueMessage(
       }
     }
 
-    if (payload.request.source === "HoloTacoShopify" && payload.request.materializeToInventory) {
+    if (payload.request.source.endsWith("Shopify") && payload.request.materializeToInventory) {
       stage = "materialize_inventory";
       logger.updateBaseMetrics(withPipelineMetrics(requestedMetrics, "running", stage, {
         queuedAt: payload.queuedAt,
@@ -424,7 +427,7 @@ export async function processIngestionJobQueueMessage(
       }));
 
       const materializeStartTime = Date.now();
-      logger.info(`Materializing HoloTaco records to inventory`, {
+      logger.info(`Materializing ${payload.request.source} records to inventory`, {
         recordCount: connectorResult.records.length,
         userId: payload.userId,
         dataSourceId: source.dataSourceId,
@@ -439,19 +442,21 @@ export async function processIngestionJobQueueMessage(
           connectorResult.records,
           {
             detectHexFromImage: payload.request.detectHexFromImage,
+            detectHexOnSuspiciousOnly: payload.request.detectHexOnSuspiciousOnly,
             overwriteDetectedHex: payload.request.overwriteDetectedHex,
-          }
+          },
+          `[${payload.request.source}]`
         )) as unknown as Record<string, unknown>;
 
         const materializeDuration = Date.now() - materializeStartTime;
-        logger.info(`HoloTaco materialization complete`, {
+        logger.info(`${payload.request.source} materialization complete`, {
           ...materializationMetrics,
           durationMs: materializeDuration,
           recordsProcessed: connectorResult.records.length,
         });
       } catch (materializeError) {
         const materializeDuration = Date.now() - materializeStartTime;
-        logger.error(`HoloTaco materialization failed`, {
+        logger.error(`${payload.request.source} materialization failed`, {
           error: getErrorMessage(materializeError),
           durationMs: materializeDuration,
           recordCount: connectorResult.records.length,

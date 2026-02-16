@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import type { Polish } from "swatchwatch-shared";
+import { resolveDisplayHex } from "swatchwatch-shared";
 import { listAllPolishes } from "@/lib/api";
 import {
   Card,
@@ -207,7 +208,7 @@ export default function DashboardPage() {
                       href={`/polishes/detail?id=${polish.id}`}
                       className="flex items-center gap-3 rounded-md p-2 transition-colors hover:bg-muted"
                     >
-                      <ColorDot hex={polish.colorHex} size="md" />
+                      <ColorDot hex={resolveDisplayHex(polish)} size="md" />
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-medium">{polish.name}</p>
                         <p className="text-sm text-muted-foreground">{polish.brand}</p>

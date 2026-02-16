@@ -560,26 +560,26 @@ async function toNormalizedRecord(
   const imageUrls = normalizeImageUrls(product.images);
   const variants = normalizeVariants(product.variants);
 
-  // Extract hex from options
-  let hex = extractHexFromProduct(product);
+  // Extract vendor hex from variant options (stored as-is, even if suspicious)
+  const vendorHex = extractHexFromProduct(product);
   let colorName: string | null = null;
-  let detectedHex: string | null = null;
+  let nameHex: string | null = null;
   let hexSource: string | null = null;
 
-  // If no hex found in options, try color name detection
-  // AI takes precedence over builtin lookup for better color accuracy
-  if (!hex) {
-    colorName = extractColorNameFromProduct(product);
-    if (colorName) {
-      // Try AI first for better nail polish color accuracy
-      const aiResult = await detectHexFromColorName(colorName, { preferAi: true });
-      if (aiResult.hex) {
-        detectedHex = aiResult.hex;
+  if (vendorHex) {
+    hexSource = "variant-option";
+  }
+
+  // Always try color name detection for name_hex (independent of vendor hex)
+  colorName = extractColorNameFromProduct(product);
+  if (colorName) {
+    const aiResult = await detectHexFromColorName(colorName, { preferAi: true });
+    if (aiResult.hex) {
+      nameHex = aiResult.hex;
+      if (!hexSource) {
         hexSource = aiResult.provider === "azure-openai" ? "ai-lookup" : "builtin-lookup";
       }
     }
-  } else {
-    hexSource = "variant-option";
   }
 
   const gtin = variants
@@ -605,10 +605,10 @@ async function toNormalizedRecord(
       primaryImageUrl: imageUrls[0] || null,
       productUrl: handle ? `${baseUrl}/products/${handle}` : null,
       variants,
-      // Color data - always store both the color name and detected hex
+      // Color data - three independent hex sources
       colorName: colorName || null,
-      hex: hex || detectedHex,
-      detectedHex: detectedHex,
+      vendorHex: vendorHex || null,
+      nameHex: nameHex || null,
       hexSource,
       createdAt: asNonEmptyString(product.created_at),
       updatedAt: asNonEmptyString(product.updated_at),

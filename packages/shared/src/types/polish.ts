@@ -4,7 +4,12 @@ export interface Polish {
   brand: string;
   name: string;
   color: string;
-  colorHex?: string;
+  /** Hex from vendor/retailer product data (e.g. Shopify variant options) */
+  vendorHex?: string;
+  /** Hex detected by AI from the product image */
+  detectedHex?: string;
+  /** Hex inferred from the product color name via AI or builtin lookup */
+  nameHex?: string;
   finish?: PolishFinish;
   collection?: string;
   quantity?: number;
@@ -18,6 +23,13 @@ export interface Polish {
   tags?: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+/** Returns the best available hex for display: vendor > detected > name */
+export function resolveDisplayHex(
+  polish: Pick<Polish, "vendorHex" | "detectedHex" | "nameHex">
+): string | undefined {
+  return polish.vendorHex || polish.detectedHex || polish.nameHex || undefined;
 }
 
 export type PolishFinish =
@@ -61,7 +73,9 @@ export interface PolishCreateRequest {
   brand: string;
   name: string;
   color: string;
-  colorHex?: string;
+  vendorHex?: string;
+  detectedHex?: string;
+  nameHex?: string;
   finish?: PolishFinish;
   collection?: string;
   quantity?: number;

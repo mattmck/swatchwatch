@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { PolishFinish } from "swatchwatch-shared";
+import { resolveDisplayHex } from "swatchwatch-shared";
 import { FINISHES } from "@/lib/constants";
 import { createPolish, getPolish, updatePolish } from "@/lib/api";
 import { Input } from "@/components/ui/input";
@@ -78,7 +79,7 @@ export default function PolishForm() {
           brand: data.brand ?? "",
           name: data.name ?? "",
           color: data.color ?? "",
-          colorHex: data.colorHex ?? "#000000",
+          colorHex: resolveDisplayHex(data) ?? "#000000",
           finish: (data.finish as PolishFinish | "") ?? "",
           collection: data.collection ?? "",
           quantity: data.quantity ?? 1,
@@ -102,7 +103,7 @@ export default function PolishForm() {
       brand: form.brand,
       name: form.name,
       color: form.color,
-      colorHex: form.colorHex,
+      vendorHex: form.colorHex,
       finish: (form.finish || undefined) as PolishFinish | undefined,
       collection: form.collection || undefined,
       quantity: form.quantity,

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Polish } from "swatchwatch-shared";
+import { resolveDisplayHex } from "swatchwatch-shared";
 import { BsPlusLg } from "react-icons/bs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -92,16 +93,17 @@ export function ColorSearchResults({
               className="flex min-w-0 flex-1 items-center gap-3"
             >
               <span
-                onMouseEnter={() => polish.colorHex && onColorHover?.(polish.colorHex)}
+                onMouseEnter={() => { const h = resolveDisplayHex(polish); if (h) onColorHover?.(h); }}
                 onMouseLeave={onColorLeave}
                 onClick={(e) => {
-                  if (!polish.colorHex) return;
+                  const h = resolveDisplayHex(polish);
+                  if (!h) return;
                   e.preventDefault();
                   e.stopPropagation();
-                  onColorSelect?.(polish.colorHex);
+                  onColorSelect?.(h);
                 }}
               >
-                <ColorDot hex={polish.colorHex} size="md" />
+                <ColorDot hex={resolveDisplayHex(polish)} size="md" />
               </span>
               {showMatchDot && (
                 <span
@@ -137,7 +139,7 @@ export function ColorSearchResults({
             {/* Quantity controls */}
             {(onAddFocus || onQuantityChange) && (
               <div className="shrink-0 flex items-center gap-2">
-                {onAddFocus && polish.colorHex && (
+                {onAddFocus && resolveDisplayHex(polish) && (
                   <Button
                     type="button"
                     size="icon-sm"
@@ -145,8 +147,8 @@ export function ColorSearchResults({
                     className="w-9"
                     title="Add to focused colors"
                     onClick={() => {
-                      if (!polish.colorHex) return;
-                      onAddFocus(polish.colorHex);
+                      const h = resolveDisplayHex(polish);
+                      if (h) onAddFocus(h);
                     }}
                   >
                     <BsPlusLg className="h-3.5 w-3.5" />

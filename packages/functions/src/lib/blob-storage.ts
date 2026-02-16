@@ -16,6 +16,7 @@ export interface UploadedBlobImage {
   checksumSha256: string;
   contentType: string;
   sizeBytes: number;
+  imageBase64DataUri: string;
 }
 
 interface UploadSourceImageOptions {
@@ -339,10 +340,13 @@ export async function uploadSourceImageToBlob(params: UploadSourceImageOptions):
     imageUrl = blobUrl.toString();
   }
 
+  const imageBase64DataUri = `data:${contentType};base64,${bytes.toString("base64")}`;
+
   return {
     storageUrl: imageUrl,
     checksumSha256,
     contentType,
     sizeBytes: bytes.length,
+    imageBase64DataUri,
   };
 }

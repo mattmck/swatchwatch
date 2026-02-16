@@ -134,6 +134,7 @@ function parseNormalizedRequest(
     maxRecords,
     materializeToInventory,
     detectHexFromImage,
+    detectHexOnSuspiciousOnly: false,
     overwriteDetectedHex,
     collectTrainingData,
     recentDays,
