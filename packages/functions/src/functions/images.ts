@@ -1,17 +1,18 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
+import { BlobReadError, readBlobFromStorageUrl } from "../lib/blob-storage";
+import { decodeImageProxyId } from "../lib/image-proxy";
+import { withCors } from "../lib/http";
 
 /**
- * Serve swatch images from blob storage
+ * Proxy private blob-backed swatch images
  * GET /api/images/:id
- *
- * For local dev: Returns a placeholder
- * For production: Would proxy from blob storage (not implemented yet)
  */
 app.http("images", {
   methods: ["GET"],
   authLevel: "anonymous",
   route: "images/{id}",
-  handler: async (request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> => {
+  handler: withCors(
+    async (request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> => {
     try {
       const id = request.params.id;
 
@@ -22,29 +23,42 @@ app.http("images", {
         };
       }
 
-      // TODO: Implement actual image serving from blob storage
-      // For now, return a simple placeholder for local dev
+      const storageUrl = decodeImageProxyId(id);
+      const blob = await readBlobFromStorageUrl(storageUrl);
 
-      // Return a simple 1x1 transparent PNG as placeholder
-      const placeholderPng = Buffer.from(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
-        "base64"
-      );
+      const headers = new Headers({
+        "Content-Type": blob.contentType,
+        "Cache-Control": blob.cacheControl || "public, max-age=3600",
+      });
+      if (blob.etag) headers.set("ETag", blob.etag);
+      if (blob.lastModified) headers.set("Last-Modified", blob.lastModified);
 
       return {
         status: 200,
-        headers: {
-          "Content-Type": "image/png",
-          "Cache-Control": "public, max-age=3600",
-        },
-        body: placeholderPng,
+        headers,
+        body: blob.bytes,
       };
     } catch (error) {
+      if (error instanceof TypeError || (error instanceof Error && error.message.includes("Invalid proxied image URL"))) {
+        return {
+          status: 400,
+          body: JSON.stringify({ error: "Invalid image URL token" }),
+        };
+      }
+
+      if (error instanceof BlobReadError && error.status === 404) {
+        return {
+          status: 404,
+          body: JSON.stringify({ error: "Image not found" }),
+        };
+      }
+
       context.error(`[images] Error serving image:`, error);
       return {
         status: 500,
         body: JSON.stringify({ error: "Failed to serve image" }),
       };
     }
-  },
+    }
+  ),
 });

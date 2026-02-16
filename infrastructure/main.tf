@@ -291,7 +291,7 @@ resource "azurerm_linux_function_app" "main" {
     PGDATABASE                  = azurerm_postgresql_flexible_server_database.main.name
     PGUSER                      = var.pg_admin_username
     # Reference Key Vault secret instead of plaintext password
-    PGPASSWORD = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.pg_password.id})"
+    PGPASSWORD = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.pg_password.versionless_id})"
     # Placeholder for future secrets
     AZURE_STORAGE_CONNECTION    = azurerm_storage_account.main.primary_connection_string
     INGESTION_JOB_QUEUE_NAME    = "ingestion-jobs"
@@ -303,6 +303,16 @@ resource "azurerm_linux_function_app" "main" {
     AZURE_AD_B2C_TENANT         = "to-be-added",
     AZURE_AD_B2C_CLIENT_ID      = "to-be-added",
     AUTH_DEV_BYPASS             = "true"
+  }
+
+  lifecycle {
+    ignore_changes = [
+      app_settings["WEBSITE_RUN_FROM_PACKAGE"],
+      app_settings["WEBSITE_MOUNT_ENABLED"],
+      tags["hidden-link: /app-insights-resource-id"],
+      tags["hidden-link: /app-insights-instrumentation-key"],
+      tags["hidden-link: /app-insights-conn-string"],
+    ]
   }
 }
 
