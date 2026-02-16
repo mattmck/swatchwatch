@@ -136,6 +136,7 @@ node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_U
 ## Troubleshooting
 
 - If the Function App starts but no functions are listed, check startup logs for module resolution errors and confirm runtime dependencies (for example `jose` for auth JWT validation) are in `dependencies`, not only dev deps.
+- AI hex detection diagnostics are logged under the `[ai-color-detection]` prefix, including retry attempts, delay timings, upstream status codes, and Azure request IDs (`x-request-id`/`apim-request-id`) for failed calls.
 
 
 ## Environment Variables
