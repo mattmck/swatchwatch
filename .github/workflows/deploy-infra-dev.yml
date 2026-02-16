@@ -73,13 +73,14 @@ jobs:
       TF_INPUT: "false"
       TF_VAR_environment: dev
       TF_VAR_github_repository: ${{ github.repository }}
+      TF_VAR_openai_endpoint: https://swatchwatch-experiment-resource.cognitiveservices.azure.com/
+      TF_VAR_openai_deployment_name: gpt-4o-mini
       TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
       TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
       TFSTATE_CONTAINER: ${{ vars.TFSTATE_CONTAINER || 'tfstate' }}
       TFSTATE_BLOB_NAME: ${{ vars.TFSTATE_BLOB_NAME || 'dev.terraform.tfstate' }}
       TF_VAR_is_automation: true
-      TF_VAR_create_openai_resources: true
-      TF_VAR_openai_location: eastus
+      TF_VAR_create_openai_resources: false
 
     steps:
       - uses: actions/checkout@v4
@@ -151,6 +152,21 @@ jobs:
 
           echo "::add-mask::$PG_PASSWORD"
           echo "TF_VAR_pg_admin_password=$PG_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Load Azure OpenAI key from experiment resource
+        run: |
+          OPENAI_KEY="$(az cognitiveservices account keys list \
+            --resource-group swatchwatch-dev-rg \
+            --name swatchwatch-experiment-resource \
+            --query key1 -o tsv 2>/dev/null || true)"
+
+          if [ -z "$OPENAI_KEY" ]; then
+            echo "::error::Unable to load key for swatchwatch-experiment-resource."
+            exit 1
+          fi
+
+          echo "::add-mask::$OPENAI_KEY"
+          echo "TF_VAR_openai_api_key=$OPENAI_KEY" >> "$GITHUB_ENV"
 
       - name: Terraform validate
         run: terraform -chdir=infrastructure validate -no-color

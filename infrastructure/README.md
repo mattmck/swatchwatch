@@ -37,6 +37,7 @@ Required GitHub Actions configuration:
 - Variables: `TFSTATE_RESOURCE_GROUP`, `TFSTATE_STORAGE_ACCOUNT`, `TFSTATE_CONTAINER` (recommended: `tfstate`), `TFSTATE_BLOB_NAME` (recommended: `dev.terraform.tfstate`)
 The workflow creates the state container automatically if it does not exist.
 The workflow reads the `pg-password` secret from Key Vault and exports it as `TF_VAR_pg_admin_password` for Terraform.
+Dev infra deploys are pinned to the shared experiment OpenAI endpoint (`swatchwatch-experiment-resource`) with deployment `gpt-4o-mini`, and the workflow loads that resource key into `TF_VAR_openai_api_key` before Terraform runs.
 
 ## Resources Provisioned
 
