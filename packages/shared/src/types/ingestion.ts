@@ -10,6 +10,15 @@ export type IngestionSourceName =
 
 export type IngestionJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
+export type IngestionLogLevel = "debug" | "info" | "warn" | "error";
+
+export interface IngestionLogEntry {
+  ts: string;
+  level: IngestionLogLevel;
+  msg: string;
+  data?: Record<string, unknown>;
+}
+
 export interface IngestionJobRunRequest {
   source: IngestionSourceName;
   searchTerm?: string;
@@ -19,7 +28,13 @@ export interface IngestionJobRunRequest {
   recentDays?: number;
   materializeToInventory?: boolean;
   detectHexFromImage?: boolean;
+  /** When true, only run AI image detection when vendor hex looks suspicious (placeholder-like) */
+  detectHexOnSuspiciousOnly?: boolean;
   overwriteDetectedHex?: boolean;
+  /** When true and vendor provides hex in product options, save image+hex pairs for training custom color AI */
+  collectTrainingData?: boolean;
+  /** When true and collectTrainingData=true, download images to blob storage. When false, just store vendor URLs (default: false) */
+  downloadTrainingImages?: boolean;
 }
 
 export interface IngestionJobRecord {

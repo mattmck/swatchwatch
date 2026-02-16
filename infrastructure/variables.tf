@@ -97,3 +97,9 @@ variable "openai_deployment_capacity" {
   type        = number
   default     = 10
 }
+
+variable "is_automation" {
+  description = "Flag to indicate if Terraform is running in an automation pipeline"
+  type        = bool
+  default     = false
+}

@@ -26,8 +26,10 @@ npm run dev:infra        # Start local Postgres + Azurite containers
 npm run dev:web          # Next.js dev server (port 3000)
 npm run dev:mobile       # Expo start
 npm run dev:functions    # Functions TypeScript watch + func host
-npm run build:web        # Next.js production build
-npm run build:functions  # TypeScript compile for functions
+npm run build            # Build all workspaces (shared → web → functions)
+npm run build:shared     # Build shared types only
+npm run build:web        # Build shared types + Next.js production build
+npm run build:functions  # Build shared types + TypeScript compile for functions
 npm run lint             # ESLint across all workspaces
 npm run typecheck        # tsc --noEmit across all workspaces
 npm run migrate          # Run Postgres migrations (needs DATABASE_URL)
@@ -39,7 +41,7 @@ print `npm run setup` if workspace dependencies are missing.
 
 If you run web/functions separately without the watcher flow, build `packages/shared` first:
 ```bash
-npm run build --workspace=packages/shared
+npm run build:shared
 ```
 
 **Azure Functions debugging:** Use the VS Code launch config "Attach to Node Functions" which runs the `func: host start` task (builds, watches, starts func on port 9229).
@@ -60,7 +62,7 @@ npm run build --workspace=packages/shared
 - **Web app** uses `@/*` path alias pointing to `apps/web/src/*`. Styling uses Tailwind v4 via `@tailwindcss/postcss`.
 - **UI components:** shadcn/ui primitives in `apps/web/src/components/ui/`. Custom components in `apps/web/src/components/`. Add new shadcn components with `cd apps/web && npx shadcn@latest add <name>`.
 - **Color utilities:** `apps/web/src/lib/color-utils.ts` provides Hex↔HSL↔RGB↔OKLAB conversions and perceptual `colorDistance()`. Use OKLAB for any color matching/sorting logic.
-- **Mock data:** Currently using `apps/web/src/lib/mock-data.ts` with realistic `Polish` objects. When connecting to the real API, replace mock imports with `fetch("/api/polishes")` — types are already aligned.
+- **Mock data:** All pages now use the live API. The old `mock-data.ts` is no longer used. Dev DB is seeded with realistic data via migration 003.
 - **Infrastructure as Code:** All Azure resources defined in `infrastructure/main.tf`. Resource naming follows `${base_name}-${environment}-{resource}-${random_suffix}` convention.
 
 ## Web App Routes
@@ -83,12 +85,11 @@ The web app uses Next.js route groups to separate public marketing pages from th
 
 ## Known State & TODOs
 
-This project is in early development. The web UI prototype is functional with mock data. Backend handlers have placeholder/stub implementations marked with `TODO` comments:
-- Postgres reads/writes in `polishes.ts` are stubbed — no DB client yet
+This project is in early development. The web UI is now fully API-driven. Backend handlers have placeholder/stub implementations marked with `TODO` comments:
 - JWT validation in `auth.ts` returns 501 — Azure AD B2C JWKS verification not implemented
 - Voice processing in `voice.ts` stubs Speech-to-text and OpenAI parsing
 - `packages/functions` defines a local `Polish` interface that duplicates `packages/shared` — new code should import from `swatchwatch-shared` instead
-- Infrastructure is migrating from Cosmos DB to Azure Database for PostgreSQL Flexible Server
+- Infrastructure is now on Azure Database for PostgreSQL Flexible Server
 
 ## Environment Variables (Functions)
 
@@ -121,7 +122,7 @@ When you add, remove, or modify functionality, update the relevant docs as part 
 
 Documentation files in this project:
 - `README.md` — project overview and quick start
-- `.github/copilot-instructions.md` — AI agent context (canonical source, mirrored to other agent files)
+- `.github/copilot-instructions.md` — AI agent context (symlink to `CLAUDE.md`)
 - `CONTRIBUTING.md` — git workflow, code standards, PR process
 - `docs/implementation-guide.md` — knowledge graph data model, matching, AI pipeline, Azure architecture, MVP plan
 - `docs/schema.sql` — canonical Postgres DDL (pg_trgm, pgvector, all tables + indexes)
@@ -133,7 +134,7 @@ Documentation files in this project:
 - `packages/shared/README.md` — shared type catalog
 - `infrastructure/README.md` — Terraform resources and variables
 
-> **For AI agents:** This file is the canonical agent instruction source. It is mirrored to `CLAUDE.md`, `.cursorrules`, and `.windsurfrules` at the repo root. When updating this file, update those mirrors too.
+> **For AI agents:** `CLAUDE.md` is the canonical agent instruction source. `.github/copilot-instructions.md`, `.cursorrules`, `.windsurfrules`, and `AGENTS.md` are all symlinks to it.
 
 ## Git Workflow
 

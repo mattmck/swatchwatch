@@ -67,7 +67,7 @@ Add scope labels (`web`, `mobile`, `functions`, `infra`) to help with filtering.
 git clone https://github.com/mattmck/polish-inventory.git
 cd polish-inventory
 npm install
-npm run build --workspace=packages/shared   # build shared types first
+npm run build:shared                         # build shared types first
 npm run dev:web                              # start web dev server
 ```
 
@@ -99,16 +99,17 @@ The PR template checklist includes a docs checkbox — reviewers should verify i
 
 ### AI Agent Instructions
 
-The canonical agent instruction file is `.github/copilot-instructions.md`. Mirror copies exist for other AI coding agents:
+The canonical agent instruction file is `CLAUDE.md`. All other agent files are symlinks:
 
 | Agent | File |
 |---|---|
-| GitHub Copilot | `.github/copilot-instructions.md` (canonical) |
-| Claude Code | `CLAUDE.md` |
-| Cursor | `.cursorrules` |
-| Windsurf | `.windsurfrules` |
+| Claude Code | `CLAUDE.md` (canonical) |
+| GitHub Copilot | `.github/copilot-instructions.md` → `CLAUDE.md` |
+| Cursor | `.cursorrules` → `CLAUDE.md` |
+| Windsurf | `.windsurfrules` → `CLAUDE.md` |
+| Aider / others | `AGENTS.md` → `CLAUDE.md` |
 
-When updating agent instructions, update all mirror files. They should stay in sync.
+Only edit `CLAUDE.md` — the symlinks keep everything in sync automatically.
 
 ## Future: GitFlow Migration
 

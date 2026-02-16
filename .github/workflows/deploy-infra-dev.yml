@@ -77,6 +77,9 @@ jobs:
       TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
       TFSTATE_CONTAINER: ${{ vars.TFSTATE_CONTAINER || 'tfstate' }}
       TFSTATE_BLOB_NAME: ${{ vars.TFSTATE_BLOB_NAME || 'dev.terraform.tfstate' }}
+      TF_VAR_is_automation: true
+      TF_VAR_create_openai_resources: true
+      TF_VAR_openai_location: eastus
 
     steps:
       - uses: actions/checkout@v4

@@ -56,9 +56,12 @@ locals {
     local.openai_uses_external_inline_key ||
     local.openai_uses_external_secret_uri
   )
+  # AIServices kind returns a cognitiveservices.azure.com endpoint, but we need
+  # the openai.azure.com endpoint for the Azure OpenAI SDK. Construct it from
+  # the custom subdomain name instead.
   openai_endpoint_value = (
     local.openai_create_resources
-    ? try(azurerm_cognitive_account.openai[0].endpoint, "")
+    ? "https://${try(azurerm_cognitive_account.openai[0].custom_subdomain_name, "")}.openai.azure.com/"
     : local.openai_external_endpoint
   )
   openai_deployment_name_value = local.openai_enabled ? var.openai_deployment_name : ""
@@ -121,11 +124,32 @@ resource "azurerm_key_vault" "main" {
 
 
 
+# Grant your current user full access to Key Vault
+resource "azurerm_key_vault_access_policy" "deployer" {
+
+  key_vault_id = azurerm_key_vault.main.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = data.azurerm_client_config.current.object_id
+
+  key_permissions = [
+    "Get", "List", "Update", "Create", "Import", "Delete", "Recover", "Backup", "Restore", "Purge"
+  ]
+
+  secret_permissions = [
+    "Get", "List", "Set", "Delete", "Purge", "Recover"
+  ]
+
+  certificate_permissions = [
+    "Get", "List", "Update", "Create", "Import", "Delete", "Recover", "Backup", "Restore", "Purge", "ManageContacts", "ManageIssuers", "GetIssuers", "ListIssuers", "SetIssuers", "DeleteIssuers"
+  ]
+}
+
 # Store Postgres password in Key Vault
 resource "azurerm_key_vault_secret" "pg_password" {
   name         = "pg-password"
   value        = var.pg_admin_password
   key_vault_id = azurerm_key_vault.main.id
+  depends_on   = [azurerm_key_vault_access_policy.deployer]
 }
 
 # ── Azure Database for PostgreSQL Flexible Server ───────────────
@@ -271,9 +295,10 @@ resource "azurerm_linux_function_app" "main" {
     AZURE_SPEECH_REGION         = azurerm_resource_group.main.location
     AZURE_OPENAI_ENDPOINT       = local.openai_enabled ? local.openai_endpoint_value : ""
     AZURE_OPENAI_KEY            = local.openai_enabled ? "@Microsoft.KeyVault(SecretUri=${local.openai_key_secret_uri})" : ""
-    AZURE_OPENAI_DEPLOYMENT_HEX = local.openai_deployment_name_value
-    AZURE_AD_B2C_TENANT         = "to-be-added"
-    AZURE_AD_B2C_CLIENT_ID      = "to-be-added"
+    AZURE_OPENAI_DEPLOYMENT_HEX = local.openai_deployment_name_value,
+    AZURE_AD_B2C_TENANT         = "to-be-added",
+    AZURE_AD_B2C_CLIENT_ID      = "to-be-added",
+    AUTH_DEV_BYPASS             = "true"
   }
 }
 
@@ -319,6 +344,13 @@ resource "azurerm_cognitive_account" "openai" {
   kind                  = "OpenAI"
   sku_name              = "S0"
   custom_subdomain_name = var.openai_custom_subdomain_name != null ? var.openai_custom_subdomain_name : "${local.resource_prefix}-openai-${local.unique_suffix}"
+
+  # Azure auto-migrated the resource from kind "OpenAI" to "AIServices".
+  # The azurerm v3 provider doesn't support "AIServices", so ignore the drift
+  # to prevent a destructive replacement. Remove this after upgrading to v4.
+  lifecycle {
+    ignore_changes = [kind]
+  }
 }
 
 resource "azurerm_cognitive_deployment" "openai_hex" {
@@ -361,6 +393,8 @@ resource "azurerm_key_vault_secret" "openai_key" {
   name         = "azure-openai-key"
   value        = local.openai_key_secret_value
   key_vault_id = azurerm_key_vault.main.id
+
+  depends_on = [azurerm_key_vault_access_policy.deployer]
 }
 
 # ── GitHub Actions OIDC Federation (passwordless CI/CD) ────────

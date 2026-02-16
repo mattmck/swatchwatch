@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Polish } from "swatchwatch-shared";
+import { resolveDisplayHex } from "swatchwatch-shared";
 import { getPolish, deletePolish, listPolishes } from "@/lib/api";
 import { colorDistance, hexToOklch, oklchToHex } from "@/lib/color-utils";
 import { finishBadgeClassName, finishLabel } from "@/lib/constants";
@@ -65,11 +66,12 @@ export default function PolishDetailClient({ id }: { id: string }) {
     };
   }, [id]);
 
-  const colorProfile = useMemo(() => {
-    const hex = polish?.colorHex;
-    if (!hex) return null;
+  const displayHex = polish ? resolveDisplayHex(polish) : undefined;
 
-    const oklch = hexToOklch(hex);
+  const colorProfile = useMemo(() => {
+    if (!displayHex) return null;
+
+    const oklch = hexToOklch(displayHex);
     const hue = Number.isNaN(oklch.h) ? 0 : oklch.h;
     const lightnessPct = Math.round(oklch.L * 100);
     const chromaPct = Math.round(Math.min(oklch.C / 0.37, 1) * 100);
@@ -86,27 +88,28 @@ export default function PolishDetailClient({ id }: { id: string }) {
       neutralHex,
       vividHex,
     };
-  }, [polish?.colorHex]);
+  }, [displayHex]);
 
   const relatedShades = useMemo(() => {
-    const currentHex = polish?.colorHex;
     const currentId = polish?.id;
-    if (!currentHex || !currentId) return [];
+    if (!displayHex || !currentId) return [];
 
     return allPolishes
       .filter(
-        (candidate): candidate is Polish & { colorHex: string } =>
-          candidate.id !== currentId &&
-          typeof candidate.colorHex === "string" &&
-          /^#[0-9A-Fa-f]{6}$/.test(candidate.colorHex)
+        (candidate) => {
+          if (candidate.id === currentId) return false;
+          const candidateHex = resolveDisplayHex(candidate);
+          return typeof candidateHex === "string" &&
+            /^#[0-9A-Fa-f]{6}$/.test(candidateHex);
+        }
       )
       .map((candidate) => ({
         polish: candidate,
-        distance: colorDistance(currentHex, candidate.colorHex),
+        distance: colorDistance(displayHex, resolveDisplayHex(candidate)!),
       }))
       .sort((a, b) => a.distance - b.distance)
       .slice(0, 5);
-  }, [allPolishes, polish]);
+  }, [allPolishes, polish, displayHex]);
 
   async function handleDelete() {
     if (!polish || !confirm("Delete this polish from your collection?")) return;
@@ -155,27 +158,50 @@ export default function PolishDetailClient({ id }: { id: string }) {
       <div
         className="relative overflow-hidden rounded-2xl p-6 sm:p-8"
         style={{
-          background: polish.colorHex
-            ? `linear-gradient(135deg, ${polish.colorHex}33 0%, ${polish.colorHex}11 100%)`
+          background: displayHex
+            ? `linear-gradient(135deg, ${displayHex}33 0%, ${displayHex}11 100%)`
             : undefined,
         }}
       >
         <div
           aria-hidden
           className="pointer-events-none absolute -right-10 -top-10 size-40 rounded-full opacity-30 blur-3xl"
-          style={{ background: polish.colorHex || "transparent" }}
+          style={{ background: displayHex || "transparent" }}
         />
         <div className="relative flex items-start justify-between">
           <div className="flex items-center gap-4">
             <div
               className="size-16 shrink-0 rounded-xl shadow-lg ring-2 ring-white/50"
-              style={{ backgroundColor: polish.colorHex || "#ccc" }}
+              style={{ backgroundColor: displayHex || "#ccc" }}
             />
             <div>
               <h1 className="heading-page">{polish.name}</h1>
               <p className="text-muted-foreground">{polish.brand}</p>
-              {polish.colorHex && (
-                <p className="mt-1 font-mono text-xs text-muted-foreground">{polish.colorHex}</p>
+              {displayHex && (
+                <p className="mt-1 font-mono text-xs text-muted-foreground">{displayHex}</p>
+              )}
+              {/* Color sources */}
+              {(polish.vendorHex || polish.detectedHex || polish.nameHex) && (
+                <div className="mt-2 space-y-0.5">
+                  {polish.vendorHex && (
+                    <div className="flex items-center gap-1.5">
+                      <ColorDot hex={polish.vendorHex} size="sm" />
+                      <span className="text-[10px] text-muted-foreground">Vendor {polish.vendorHex}</span>
+                    </div>
+                  )}
+                  {polish.detectedHex && (
+                    <div className="flex items-center gap-1.5">
+                      <ColorDot hex={polish.detectedHex} size="sm" />
+                      <span className="text-[10px] text-muted-foreground">AI {polish.detectedHex}</span>
+                    </div>
+                  )}
+                  {polish.nameHex && (
+                    <div className="flex items-center gap-1.5">
+                      <ColorDot hex={polish.nameHex} size="sm" />
+                      <span className="text-[10px] text-muted-foreground">Name {polish.nameHex}</span>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -213,14 +239,14 @@ export default function PolishDetailClient({ id }: { id: string }) {
               <p className="text-muted-foreground">Color</p>
               <p className="font-medium flex items-center gap-2">
                 <ColorDot
-                  hex={polish.colorHex}
+                  hex={displayHex}
                   size="md"
                   className="ring-2 ring-white/80 shadow-[0_0_0_1px_rgba(66,16,126,0.18),0_8px_20px_rgba(66,16,126,0.16)]"
                 />
                 {polish.color}
-                {polish.colorHex && (
+                {displayHex && (
                   <span className="font-mono text-xs text-muted-foreground">
-                    {polish.colorHex}
+                    {displayHex}
                   </span>
                 )}
               </p>
@@ -358,7 +384,7 @@ export default function PolishDetailClient({ id }: { id: string }) {
                   className="flex items-center gap-3 rounded-lg border px-3 py-2 transition-colors hover:bg-brand-pink-light/15"
                 >
                   <ColorDot
-                    hex={related.colorHex}
+                    hex={resolveDisplayHex(related)}
                     size="md"
                     className="ring-2 ring-white/80 shadow-[0_0_0_1px_rgba(66,16,126,0.18),0_8px_18px_rgba(66,16,126,0.14)]"
                   />

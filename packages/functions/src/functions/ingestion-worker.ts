@@ -96,6 +96,10 @@ function parseNormalizedRequest(
     value.overwriteDetectedHex === undefined
       ? false
       : parseBoolean(value.overwriteDetectedHex);
+  const collectTrainingData =
+    value.collectTrainingData === undefined
+      ? false
+      : parseBoolean(value.collectTrainingData);
 
   let recentDays: number | undefined;
   if (value.recentDays === undefined || value.recentDays === null) {
@@ -116,7 +120,8 @@ function parseNormalizedRequest(
     maxRecords === null ||
     materializeToInventory === null ||
     detectHexFromImage === null ||
-    overwriteDetectedHex === null
+    overwriteDetectedHex === null ||
+    collectTrainingData === null
   ) {
     return null;
   }
@@ -129,7 +134,9 @@ function parseNormalizedRequest(
     maxRecords,
     materializeToInventory,
     detectHexFromImage,
+    detectHexOnSuspiciousOnly: false,
     overwriteDetectedHex,
+    collectTrainingData,
     recentDays,
   };
 }

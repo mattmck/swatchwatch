@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import type { Polish } from "swatchwatch-shared";
+import { resolveDisplayHex } from "swatchwatch-shared";
 import { listAllPolishes, updatePolish } from "@/lib/api";
 import { undertone, type Undertone } from "@/lib/color-utils";
 import { Input } from "@/components/ui/input";
@@ -118,7 +119,10 @@ export default function PolishesPage() {
     }
 
     if (toneFilter !== "all") {
-      result = result.filter((p) => p.colorHex && undertone(p.colorHex) === toneFilter);
+      result = result.filter((p) => {
+        const hex = resolveDisplayHex(p);
+        return hex && undertone(hex) === toneFilter;
+      });
     }
 
     if (finishFilter !== "all") {
@@ -461,15 +465,15 @@ export default function PolishesPage() {
                     </TableCell>
                     <TableCell>
                       <ColorDot
-                        hex={polish.colorHex}
+                        hex={resolveDisplayHex(polish)}
                         size="md"
                         className="ring-2 ring-white/80 shadow-[0_0_0_1px_rgba(66,16,126,0.18),0_8px_20px_rgba(66,16,126,0.16)]"
                       />
                     </TableCell>
                     <TableCell className="text-center">
-                      {polish.colorHex && (
+                      {resolveDisplayHex(polish) && (
                         <Link
-                          href={`/polishes/search?color=${polish.colorHex.replace("#", "")}`}
+                          href={`/polishes/search?color=${resolveDisplayHex(polish)!.replace("#", "")}`}
                           className="text-muted-foreground hover:text-primary"
                           title="Find similar colors"
                         >

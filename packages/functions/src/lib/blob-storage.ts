@@ -3,9 +3,6 @@ import { createHash, createHmac } from "node:crypto";
 const AZURE_STORAGE_API_VERSION = "2023-11-03";
 const DEFAULT_SOURCE_IMAGE_CONTAINER = "source-images";
 const REQUEST_TIMEOUT_MS = 20000;
-const READ_SAS_PERMISSION = "r";
-const READ_SAS_RESOURCE = "b";
-const DEFAULT_READ_SAS_TTL_SECONDS = 60 * 60;
 
 interface StorageAccountConfig {
   accountName: string;
@@ -19,6 +16,13 @@ export interface UploadedBlobImage {
   checksumSha256: string;
   contentType: string;
   sizeBytes: number;
+  imageBase64DataUri: string;
+}
+
+interface UploadSourceImageOptions {
+  sourceImageUrl: string;
+  source: string;
+  externalId: string;
 }
 
 function asNonEmpty(value: string | undefined): string | null {
@@ -217,20 +221,6 @@ function normalizeContainerName(value: string | undefined): string {
   return normalized.length > 0 ? normalized : fallback;
 }
 
-function getReadSasTtlSeconds(): number {
-  const configured = asNonEmpty(process.env.BLOB_READ_SAS_TTL_SECONDS);
-  if (!configured) {
-    return DEFAULT_READ_SAS_TTL_SECONDS;
-  }
-
-  const parsed = Number.parseInt(configured, 10);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    return DEFAULT_READ_SAS_TTL_SECONDS;
-  }
-
-  return parsed;
-}
-
 function inferExtension(contentType: string, sourceUrl: string): string {
   if (contentType.includes("png")) return "png";
   if (contentType.includes("webp")) return "webp";
@@ -248,138 +238,6 @@ function inferExtension(contentType: string, sourceUrl: string): string {
   return "jpg";
 }
 
-function toSasTimestamp(date: Date): string {
-  return date.toISOString().replace(/\.\d{3}Z$/, "Z");
-}
-
-function parseBlobResource(
-  storageUrl: URL,
-  config: StorageAccountConfig
-): { canonicalizedResource: string } | null {
-  const endpointUrl = new URL(config.blobEndpoint);
-  if (storageUrl.origin.toLowerCase() !== endpointUrl.origin.toLowerCase()) {
-    return null;
-  }
-
-  const endpointPrefix = endpointUrl.pathname.replace(/\/+$/, "");
-  const storagePath = storageUrl.pathname;
-
-  let relativePath = storagePath.replace(/^\/+/, "");
-  if (endpointPrefix) {
-    const normalizedPrefix = endpointPrefix.replace(/^\/+/, "");
-    const normalizedStoragePath = storagePath.replace(/^\/+/, "");
-    if (!normalizedStoragePath.startsWith(`${normalizedPrefix}/`)) {
-      return null;
-    }
-    relativePath = normalizedStoragePath.slice(normalizedPrefix.length + 1);
-  }
-
-  if (!relativePath) {
-    return null;
-  }
-
-  const decodedRelativePath = decodeURIComponent(relativePath);
-  const slashIndex = decodedRelativePath.indexOf("/");
-  if (slashIndex <= 0 || slashIndex >= decodedRelativePath.length - 1) {
-    return null;
-  }
-
-  return {
-    canonicalizedResource: `/blob/${config.accountName}/${decodedRelativePath}`,
-  };
-}
-
-function buildBlobReadSasUrl(storageUrl: URL, config: StorageAccountConfig): URL {
-  if (config.sasToken) {
-    return mergeSas(storageUrl, config.sasToken);
-  }
-
-  if (!config.accountKey) {
-    return storageUrl;
-  }
-
-  const resource = parseBlobResource(storageUrl, config);
-  if (!resource) {
-    return storageUrl;
-  }
-
-  const now = Date.now();
-  const ttlSeconds = getReadSasTtlSeconds();
-  const start = toSasTimestamp(new Date(now - 5 * 60 * 1000));
-  const expiry = toSasTimestamp(new Date(now + ttlSeconds * 1000));
-  const protocol = storageUrl.protocol === "http:" ? "https,http" : "https";
-
-  const stringToSign = [
-    READ_SAS_PERMISSION,
-    start,
-    expiry,
-    resource.canonicalizedResource,
-    "",
-    "",
-    protocol,
-    AZURE_STORAGE_API_VERSION,
-    READ_SAS_RESOURCE,
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-  ].join("\n");
-
-  const signature = createHmac("sha256", config.accountKey)
-    .update(stringToSign, "utf8")
-    .digest("base64");
-
-  const signedUrl = new URL(storageUrl.toString());
-  signedUrl.searchParams.set("sp", READ_SAS_PERMISSION);
-  signedUrl.searchParams.set("st", start);
-  signedUrl.searchParams.set("se", expiry);
-  signedUrl.searchParams.set("spr", protocol);
-  signedUrl.searchParams.set("sv", AZURE_STORAGE_API_VERSION);
-  signedUrl.searchParams.set("sr", READ_SAS_RESOURCE);
-  signedUrl.searchParams.set("sig", signature);
-
-  return signedUrl;
-}
-
-export function getReadableBlobUrl(storageUrl: string | null | undefined): string | undefined {
-  if (!storageUrl) {
-    return undefined;
-  }
-
-  let parsedUrl: URL;
-  try {
-    parsedUrl = new URL(storageUrl);
-  } catch {
-    return storageUrl;
-  }
-
-  // Keep existing signed URLs untouched.
-  if (parsedUrl.searchParams.has("sig") && parsedUrl.searchParams.has("sv")) {
-    return parsedUrl.toString();
-  }
-
-  const connectionString = asNonEmpty(process.env.AZURE_STORAGE_CONNECTION);
-  if (!connectionString) {
-    return parsedUrl.toString();
-  }
-
-  let config: StorageAccountConfig;
-  try {
-    config = parseStorageConnectionString(connectionString);
-  } catch {
-    return parsedUrl.toString();
-  }
-
-  try {
-    return buildBlobReadSasUrl(parsedUrl, config).toString();
-  } catch {
-    return parsedUrl.toString();
-  }
-}
-
 function buildBlobName(source: string, externalId: string, checksumSha256: string, extension: string): string {
   const safeSource = source.toLowerCase().replace(/[^a-z0-9-]/g, "-");
   const safeExternal = externalId.toLowerCase().replace(/[^a-z0-9-]/g, "-");
@@ -393,11 +251,7 @@ function encodeBlobPath(path: string): string {
     .join("/");
 }
 
-export async function uploadSourceImageToBlob(params: {
-  sourceImageUrl: string;
-  source: string;
-  externalId: string;
-}): Promise<UploadedBlobImage> {
+export async function uploadSourceImageToBlob(params: UploadSourceImageOptions): Promise<UploadedBlobImage> {
   const connectionString = asNonEmpty(process.env.AZURE_STORAGE_CONNECTION);
   if (!connectionString) {
     throw new Error("AZURE_STORAGE_CONNECTION is required for source image uploads");
@@ -406,6 +260,7 @@ export async function uploadSourceImageToBlob(params: {
   const config = parseStorageConnectionString(connectionString);
   const containerName = normalizeContainerName(process.env.SOURCE_IMAGE_CONTAINER);
 
+  console.log(`[blob-storage] Downloading image from ${params.sourceImageUrl}`);
   const sourceResponse = await runWithTimeout(
     fetch(params.sourceImageUrl, {
       method: "GET",
@@ -432,7 +287,10 @@ export async function uploadSourceImageToBlob(params: {
   const extension = inferExtension(contentType, params.sourceImageUrl);
   const blobName = buildBlobName(params.source, params.externalId, checksumSha256, extension);
 
+  console.log(`[blob-storage] Image downloaded: ${bytes.length} bytes, checksum=${checksumSha256}, extension=${extension}`);
+
   const containerUrl = new URL(`${config.blobEndpoint}/${containerName}`);
+  console.log(`[blob-storage] Ensuring container exists: ${containerName}`);
   const createContainerResponse = await sendStorageRequest(
     config,
     "PUT",
@@ -449,6 +307,7 @@ export async function uploadSourceImageToBlob(params: {
   }
 
   const blobUrl = new URL(`${containerUrl.toString()}/${encodeBlobPath(blobName)}`);
+  console.log(`[blob-storage] Uploading blob: ${blobName}`);
   const uploadResponse = await sendStorageRequest(
     config,
     "PUT",
@@ -466,10 +325,28 @@ export async function uploadSourceImageToBlob(params: {
     throw new Error(`Blob upload failed: ${uploadResponse.status} ${details}`);
   }
 
+  console.log(`[blob-storage] Blob uploaded successfully: ${blobUrl.toString()}`);
+
+  // For local dev (Azurite), return an API endpoint instead of direct blob URL
+  // For production, this would be the actual blob URL
+  const isLocalDev = process.env.AzureWebJobsStorage?.includes("127.0.0.1") ||
+                     process.env.AzureWebJobsStorage?.includes("UseDevelopmentStorage");
+
+  let imageUrl: string;
+  if (isLocalDev) {
+    // Return full URL to local functions API
+    imageUrl = `http://localhost:7071/api/images/${checksumSha256}`;
+  } else {
+    imageUrl = blobUrl.toString();
+  }
+
+  const imageBase64DataUri = `data:${contentType};base64,${bytes.toString("base64")}`;
+
   return {
-    storageUrl: blobUrl.toString(),
+    storageUrl: imageUrl,
     checksumSha256,
     contentType,
     sizeBytes: bytes.length,
+    imageBase64DataUri,
   };
 }

@@ -3,6 +3,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import type { Polish } from "swatchwatch-shared";
+import { resolveDisplayHex } from "swatchwatch-shared";
 import type { IconType } from "react-icons";
 import { BsCurrencyDollar, BsPlusLg, BsQuestionCircleFill, BsTrash3Fill } from "react-icons/bs";
 import { GiPerfumeBottle } from "react-icons/gi";
@@ -44,7 +45,7 @@ import { FINISHES } from "@/lib/constants";
 
 type ResultsScope = "all" | "collection";
 type HarmonyColorSet = "any" | "all" | "collection";
-type ColorPolish = Polish & { colorHex: string };
+type ColorPolish = Polish & { colorHex: string }; // colorHex is a computed display hex
 type ColorAvailability = "have" | "buy" | "virtual";
 type ColorAvailabilityInfo = {
   status: ColorAvailability;
@@ -237,9 +238,13 @@ function ColorSearchPageContent() {
   const recommendationHarmonyFilter: "all" | HarmonyType =
     includeAllHarmonies ? "all" : harmonyType;
 
-  // Polishes that have a colorHex
-  const colorPolishes = useMemo(
-    () => allPolishes.filter((p): p is Polish & { colorHex: string } => !!p.colorHex),
+  // Polishes that have a display hex (vendor, detected, or name)
+  const colorPolishes: ColorPolish[] = useMemo(
+    () => allPolishes.reduce<ColorPolish[]>((acc, p) => {
+      const hex = resolveDisplayHex(p);
+      if (hex) acc.push({ ...p, colorHex: hex });
+      return acc;
+    }, []),
     [allPolishes]
   );
 
