@@ -175,7 +175,7 @@ async function runWithTimeout<T>(promise: Promise<T>, timeoutMs: number, label: 
 
 async function sendStorageRequest(
   config: StorageAccountConfig,
-  method: "PUT",
+  method: "PUT" | "GET",
   url: URL,
   headers: Record<string, string>,
   body?: Buffer
@@ -249,6 +249,79 @@ function encodeBlobPath(path: string): string {
     .split("/")
     .map((segment) => encodeURIComponent(segment))
     .join("/");
+}
+
+function parseStorageUrl(value: string): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("Invalid blob storage URL");
+  }
+
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error("Unsupported blob storage URL protocol");
+  }
+
+  return parsed;
+}
+
+function assertStorageHostMatches(config: StorageAccountConfig, storageUrl: URL): void {
+  const configuredHost = new URL(config.blobEndpoint).host.toLowerCase();
+  const storageHost = storageUrl.host.toLowerCase();
+
+  if (configuredHost !== storageHost) {
+    throw new Error(`Blob storage URL host mismatch: expected ${configuredHost}, got ${storageHost}`);
+  }
+}
+
+export interface ReadBlobResult {
+  bytes: Buffer;
+  contentType: string;
+  cacheControl: string | null;
+  etag: string | null;
+  lastModified: string | null;
+}
+
+export class BlobReadError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message);
+    this.name = "BlobReadError";
+  }
+}
+
+export async function readBlobFromStorageUrl(storageUrl: string): Promise<ReadBlobResult> {
+  const connectionString = asNonEmpty(process.env.AZURE_STORAGE_CONNECTION);
+  if (!connectionString) {
+    throw new Error("AZURE_STORAGE_CONNECTION is required for source image reads");
+  }
+
+  const config = parseStorageConnectionString(connectionString);
+  const parsedStorageUrl = parseStorageUrl(storageUrl);
+  assertStorageHostMatches(config, parsedStorageUrl);
+
+  const response = await sendStorageRequest(config, "GET", parsedStorageUrl, {});
+  if (!response.ok) {
+    const details = await response.text().catch(() => "");
+    throw new BlobReadError(
+      `Blob read failed: ${response.status} ${response.statusText} ${details}`.trim(),
+      response.status
+    );
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  const bytes = Buffer.from(arrayBuffer);
+  if (bytes.length === 0) {
+    throw new Error("Blob read returned empty body");
+  }
+
+  return {
+    bytes,
+    contentType: response.headers.get("content-type") || "application/octet-stream",
+    cacheControl: response.headers.get("cache-control"),
+    etag: response.headers.get("etag"),
+    lastModified: response.headers.get("last-modified"),
+  };
 }
 
 export async function uploadSourceImageToBlob(params: UploadSourceImageOptions): Promise<UploadedBlobImage> {

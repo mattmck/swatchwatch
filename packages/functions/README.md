@@ -30,12 +30,13 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `POST` | `/api/ingestion/jobs` | `enqueueIngestionJob` | `ingestion.ts` | ✅ Working |
 | `GET` | `/api/ingestion/jobs/{id}` | `handleGetIngestionJob` | `ingestion.ts` | ✅ Working |
 | `POST` | `/api/voice` | `processVoiceInput` | `voice.ts` | ⬜ Stub |
+| `GET` | `/api/images/{id}` | `images` | `images.ts` | ✅ Working |
 
 
 All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpRequest, context: InvocationContext)`.
 
-`GET /api/polishes` and `GET /api/polishes/{id}` return `swatchImageUrl` as a readable blob URL.
-When backing storage is private, the API emits a short-lived signed URL (SAS) so the web app can load swatch images directly.
+`GET /api/polishes` and `GET /api/polishes/{id}` return `swatchImageUrl` ready for browser rendering.
+For private blob storage, the API rewrites blob URLs to `/api/images/{id}` so image bytes are served through Functions (no public container access or client-side SAS required).
 
 ### Connector Ingestion Jobs
 
@@ -148,7 +149,6 @@ Key variables:
 | `AUTH_DEV_BYPASS` | Dev-only bypass mode. When `true`, auth accepts `Bearer dev:<userId>` tokens. Keep this disabled outside isolated dev scenarios. |
 | `INGESTION_JOB_QUEUE_NAME` | Optional queue name for async ingestion jobs. Defaults to `ingestion-jobs`. |
 | `SOURCE_IMAGE_CONTAINER` | Optional blob container override for source-ingested images. Defaults to `source-images`. |
-| `BLOB_READ_SAS_TTL_SECONDS` | Optional signed read URL TTL for blob-backed swatch images (seconds). Defaults to `3600`. |
 | `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name dedicated to image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT` when unset). |
 
 Temporary cloud note (as of February 11, 2026):

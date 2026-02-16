@@ -3,6 +3,7 @@ import { PolishCreateRequest, PolishUpdateRequest, PolishListResponse } from "sw
 import { query, transaction } from "../lib/db";
 import { withAuth } from "../lib/auth";
 import { withCors } from "../lib/http";
+import { toImageProxyUrl } from "../lib/image-proxy";
 import { PoolClient } from "pg";
 
 /**
@@ -97,8 +98,25 @@ const SORT_COLUMNS: Record<string, string> = {
   rating: "ui.rating",
 };
 
-function withReadableSwatchUrl<T extends { swatchImageUrl?: string | null }>(row: T): T {
-  return row;
+function withReadableSwatchUrl<T extends { swatchImageUrl?: string | null }>(row: T, requestUrl: string): T {
+  const swatchUrl = row.swatchImageUrl?.trim();
+  if (!swatchUrl) {
+    return row;
+  }
+
+  const isBlobStorageUrl = /^https?:\/\/[^/]*\.blob\./i.test(swatchUrl);
+  if (!isBlobStorageUrl) {
+    return row;
+  }
+
+  return {
+    ...row,
+    swatchImageUrl: toImageProxyUrl(requestUrl, swatchUrl),
+  };
+}
+
+function mapReadableSwatchUrls<T extends { swatchImageUrl?: string | null }>(rows: T[], requestUrl: string): T[] {
+  return rows.map((row) => withReadableSwatchUrl(row, requestUrl));
 }
 
 async function getPolishes(request: HttpRequest, context: InvocationContext, userId: number): Promise<HttpResponseInit> {
@@ -118,7 +136,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
         return { status: 404, jsonBody: { error: "Polish not found" } };
       }
 
-      return { status: 200, jsonBody: withReadableSwatchUrl(result.rows[0]) };
+      return { status: 200, jsonBody: withReadableSwatchUrl(result.rows[0], request.url) };
     } catch (error: any) {
       context.error("Error fetching polish:", error);
       return { status: 500, jsonBody: { error: "Failed to fetch polish", details: error.message } };
@@ -203,7 +221,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
     return {
       status: 200,
       jsonBody: {
-        polishes: result.rows.map((row) => withReadableSwatchUrl(row)),
+        polishes: mapReadableSwatchUrls(result.rows, request.url),
         total: parseInt(countResult.rows[0].total, 10),
         page,
         pageSize,
@@ -263,7 +281,7 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       [inventoryId]
     );
 
-    return { status: 201, jsonBody: withReadableSwatchUrl(created.rows[0]) };
+    return { status: 201, jsonBody: withReadableSwatchUrl(created.rows[0], request.url) };
   } catch (error: any) {
     context.error("Error creating polish:", error);
     return { status: 500, jsonBody: { error: "Failed to create polish", details: error.message } };
@@ -342,7 +360,7 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
       [itemId]
     );
 
-    return { status: 200, jsonBody: withReadableSwatchUrl(fullResult.rows[0]) };
+    return { status: 200, jsonBody: withReadableSwatchUrl(fullResult.rows[0], request.url) };
   } catch (error: any) {
     context.error("Error updating polish:", error);
     return { status: 500, jsonBody: { error: "Failed to update polish", details: error.message } };
