@@ -124,9 +124,10 @@ resource "azurerm_key_vault" "main" {
 
 
 
-# Grant your current user full access to Key Vault
+# Grant your current user full access to Key Vault (skip in CI — the
+# github_actions policy covers the service principal instead).
 resource "azurerm_key_vault_access_policy" "deployer" {
-
+  count        = var.is_automation ? 0 : 1
   key_vault_id = azurerm_key_vault.main.id
   tenant_id    = data.azurerm_client_config.current.tenant_id
   object_id    = data.azurerm_client_config.current.object_id
@@ -149,7 +150,10 @@ resource "azurerm_key_vault_secret" "pg_password" {
   name         = "pg-password"
   value        = var.pg_admin_password
   key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [azurerm_key_vault_access_policy.deployer]
+  depends_on = [
+    azurerm_key_vault_access_policy.deployer,
+    azurerm_key_vault_access_policy.github_actions,
+  ]
 }
 
 # ── Azure Database for PostgreSQL Flexible Server ───────────────
@@ -394,7 +398,10 @@ resource "azurerm_key_vault_secret" "openai_key" {
   value        = local.openai_key_secret_value
   key_vault_id = azurerm_key_vault.main.id
 
-  depends_on = [azurerm_key_vault_access_policy.deployer]
+  depends_on = [
+    azurerm_key_vault_access_policy.deployer,
+    azurerm_key_vault_access_policy.github_actions,
+  ]
 }
 
 # ── GitHub Actions OIDC Federation (passwordless CI/CD) ────────
