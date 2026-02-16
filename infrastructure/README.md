@@ -83,6 +83,7 @@ Dev infra deploys are pinned to the shared experiment OpenAI endpoint (`swatchwa
 | `github_repository` | `your-username/polish-inventory` | GitHub repo for OIDC federation |
 | `openai_custom_subdomain_name` | `null` | Optional custom subdomain for the Azure OpenAI account. If not set, a name is generated. |
 | `create_openai_resources` | `false` | Provision Azure OpenAI account/deployment in this stack (disable when quota is unavailable) |
+| `retain_openai_account` | `false` | Keep the legacy in-stack OpenAI account when `create_openai_resources=false` (avoids deletes blocked by nested Foundry project resources) |
 | `openai_endpoint` | `""` | Existing Azure OpenAI endpoint when reusing an external account (`create_openai_resources=false`) |
 | `openai_api_key` | `""` | Existing Azure OpenAI API key when reusing an external account (`create_openai_resources=false`) |
 | `openai_key_vault_secret_uri` | `""` | Existing Key Vault secret URI for Azure OpenAI key (preferred over `openai_api_key` to avoid passing key through Terraform) |

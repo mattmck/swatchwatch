@@ -351,7 +351,7 @@ resource "azurerm_cognitive_account" "speech" {
 }
 
 resource "azurerm_cognitive_account" "openai" {
-  count                 = local.openai_create_resources ? 1 : 0
+  count                 = (local.openai_create_resources || var.retain_openai_account) ? 1 : 0
   name                  = "${local.resource_prefix}-openai-${local.unique_suffix}"
   resource_group_name   = azurerm_resource_group.main.name
   location              = var.openai_location != null ? var.openai_location : azurerm_resource_group.main.location
