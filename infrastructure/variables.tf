@@ -64,7 +64,7 @@ variable "create_openai_resources" {
 variable "retain_openai_account" {
   description = "Retain the legacy in-stack OpenAI account even when create_openai_resources=false (prevents destroy failures when nested Foundry project resources exist)."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "openai_endpoint" {
