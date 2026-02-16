@@ -64,6 +64,11 @@ export interface HoloTacoMaterializationOptions {
   detectHexFromImage?: boolean;
   overwriteDetectedHex?: boolean;
   detectHexOnSuspiciousOnly?: boolean;
+  progressLogger?: {
+    info: (message: string, data?: Record<string, unknown>) => void;
+    warn: (message: string, data?: Record<string, unknown>) => void;
+    error: (message: string, data?: Record<string, unknown>) => void;
+  };
 }
 
 interface MakeupColorVariant {
@@ -209,6 +214,7 @@ async function prepareHoloTacoImageData(
 ): Promise<HoloTacoImagePreparationResult> {
   const detectHexFromImage = options?.detectHexFromImage !== false;
   const detectHexOnSuspiciousOnly = options?.detectHexOnSuspiciousOnly === true;
+  const progressLogger = options?.progressLogger;
   const byExternalId = new Map<string, HoloTacoPreparedImage>();
   const metrics: HoloTacoImagePreparationMetrics = {
     imageCandidates: 0,
@@ -302,7 +308,18 @@ async function prepareHoloTacoImageData(
         console.log(`${sourceLogPrefix} No vendor hex for ${record.externalId}, running AI detection`);
       }
       try {
-        const detection = await detectHexWithAzureOpenAI(imageForAi);
+        const detection = await detectHexWithAzureOpenAI(imageForAi, {
+          onLog: (level, message, data) => {
+            const withRecord = `${sourceLogPrefix} ${record.externalId} ${message}`;
+            if (level === "error") {
+              progressLogger?.error(withRecord, data);
+            } else if (level === "warn") {
+              progressLogger?.warn(withRecord, data);
+            } else {
+              progressLogger?.info(withRecord, data);
+            }
+          },
+        });
         console.log(`${sourceLogPrefix} AI detection result for ${record.externalId}:`, { detectedHex: detection.hex, vendorHex: holo.vendorHex });
         if (detection.hex) {
           detectedHex = detection.hex;
@@ -1266,4 +1283,3 @@ export async function materializeHoloTacoRecords(
     return result;
   });
 }
-

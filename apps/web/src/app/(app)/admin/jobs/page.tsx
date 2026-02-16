@@ -242,22 +242,24 @@ function JobLogPanel({ job, autoScroll }: { job: IngestionJobRecord; autoScroll?
   return (
     <div
       ref={scrollRef}
-      className="max-h-64 overflow-auto rounded border bg-gray-950 p-2 font-mono text-xs"
+      className="max-h-64 w-full max-w-full overflow-x-auto overflow-y-auto rounded border bg-gray-950 p-2 font-mono text-xs"
     >
-      {logs.map((entry, idx) => (
-        <div key={idx} className="flex gap-2 py-0.5 leading-relaxed">
-          <span className="flex-shrink-0 text-gray-500">
-            {formatLogTime(entry.ts)}
-          </span>
-          <LogLevelIcon level={entry.level} />
-          <span className={logLevelClassName(entry.level)}>{entry.msg}</span>
-          {entry.data && (
-            <span className="text-gray-500">
-              {JSON.stringify(entry.data)}
+      <div className="min-w-max">
+        {logs.map((entry, idx) => (
+          <div key={idx} className="flex min-w-max gap-2 whitespace-nowrap py-0.5 leading-relaxed">
+            <span className="flex-shrink-0 text-gray-500">
+              {formatLogTime(entry.ts)}
             </span>
-          )}
-        </div>
-      ))}
+            <LogLevelIcon level={entry.level} />
+            <span className={logLevelClassName(entry.level)}>{entry.msg}</span>
+            {entry.data && (
+              <span className="text-gray-500">
+                {JSON.stringify(entry.data)}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

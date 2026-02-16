@@ -11,6 +11,33 @@ export interface HexDetectionResult {
   provider: "azure-openai" | "none";
 }
 
+export type HexDetectionLogLevel = "info" | "warn" | "error";
+
+export interface HexDetectionOptions {
+  onLog?: (
+    level: HexDetectionLogLevel,
+    message: string,
+    data?: Record<string, unknown>
+  ) => void;
+}
+
+function emitLog(
+  options: HexDetectionOptions | undefined,
+  level: HexDetectionLogLevel,
+  message: string,
+  data?: Record<string, unknown>
+): void {
+  if (level === "error") {
+    console.error(message, data ?? "");
+  } else if (level === "warn") {
+    console.warn(message, data ?? "");
+  } else {
+    console.log(message, data ?? "");
+  }
+
+  options?.onLog?.(level, message, data);
+}
+
 function normalizeHex(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
@@ -38,7 +65,11 @@ function parseConfidence(value: unknown): number | null {
   return null;
 }
 
-function parseHexFromContent(content: string, imageUrl: string): HexDetectionResult {
+function parseHexFromContent(
+  content: string,
+  imageUrl: string,
+  options?: HexDetectionOptions
+): HexDetectionResult {
   try {
     const parsed = JSON.parse(content) as Record<string, unknown>;
     const hex = normalizeHex(parsed.hex);
@@ -46,22 +77,26 @@ function parseHexFromContent(content: string, imageUrl: string): HexDetectionRes
     const errorReason = typeof parsed.error === "string" ? parsed.error : null;
 
     if (errorReason) {
-      console.log(`[ai-color-detection] Low confidence for ${imageUrl}: ${errorReason}`);
+      emitLog(options, "info", `[ai-color-detection] Low confidence for ${imageUrl}: ${errorReason}`);
     }
 
     if (hex) {
       return { hex, confidence, provider: "azure-openai" };
     }
 
-    console.log(`[ai-color-detection] No valid hex in response for ${imageUrl}: ${content}`);
+    emitLog(options, "warn", `[ai-color-detection] No valid hex in response for ${imageUrl}: ${content}`);
   } catch (err) {
-    console.log(`[ai-color-detection] JSON parse error for ${imageUrl}: ${err instanceof Error ? err.message : String(err)}, content: ${content}`);
+    emitLog(
+      options,
+      "warn",
+      `[ai-color-detection] JSON parse error for ${imageUrl}: ${err instanceof Error ? err.message : String(err)}, content: ${content}`
+    );
   }
 
   const fallbackMatch = content.match(/#?[0-9a-fA-F]{6}/);
   const hex = normalizeHex(fallbackMatch?.[0]);
   if (!hex) {
-    console.log(`[ai-color-detection] Regex fallback also failed for ${imageUrl}`);
+    emitLog(options, "warn", `[ai-color-detection] Regex fallback also failed for ${imageUrl}`);
   }
   return {
     hex,
@@ -125,7 +160,11 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
   }
 }
 
-async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  options?: HexDetectionOptions
+): Promise<Response> {
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -137,8 +176,17 @@ async function fetchWithRetry(url: string, init: RequestInit): Promise<Response>
         const retryAfter = parseRetryAfter(response) || RATE_LIMIT_DELAY_MS;
         const delay = Math.min(retryAfter, 60000);
         const requestId = getResponseId(response);
-        console.warn(
-          `[ai-color-detection] Azure OpenAI rate-limited (429) attempt ${attemptNumber}/${MAX_RETRIES}, retrying in ${delay}ms (requestId=${requestId})`
+        emitLog(
+          options,
+          "warn",
+          `[ai-color-detection] Azure OpenAI rate-limited (429) attempt ${attemptNumber}/${MAX_RETRIES}, retrying in ${delay}ms (requestId=${requestId})`,
+          {
+            status: response.status,
+            attemptNumber,
+            maxRetries: MAX_RETRIES,
+            delayMs: delay,
+            requestId,
+          }
         );
         await sleep(delay);
         continue;
@@ -148,8 +196,18 @@ async function fetchWithRetry(url: string, init: RequestInit): Promise<Response>
         const delay = BASE_DELAY_MS * Math.pow(2, attempt);
         const requestId = getResponseId(response);
         const bodySnippet = await readErrorBodySnippet(response);
-        console.warn(
-          `[ai-color-detection] Azure OpenAI server error ${response.status} attempt ${attemptNumber}/${MAX_RETRIES}, retrying in ${delay}ms (requestId=${requestId}, body=${bodySnippet || "n/a"})`
+        emitLog(
+          options,
+          "warn",
+          `[ai-color-detection] Azure OpenAI server error ${response.status} attempt ${attemptNumber}/${MAX_RETRIES}, retrying in ${delay}ms (requestId=${requestId}, body=${bodySnippet || "n/a"})`,
+          {
+            status: response.status,
+            attemptNumber,
+            maxRetries: MAX_RETRIES,
+            delayMs: delay,
+            requestId,
+            body: bodySnippet || undefined,
+          }
         );
         await sleep(delay);
         continue;
@@ -159,10 +217,18 @@ async function fetchWithRetry(url: string, init: RequestInit): Promise<Response>
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       const delay = BASE_DELAY_MS * Math.pow(2, attempt);
-      console.warn(
+      emitLog(
+        options,
+        "warn",
         `[ai-color-detection] Request error attempt ${attemptNumber}/${MAX_RETRIES}: ${formatFetchError(error)}${
           attempt < MAX_RETRIES - 1 ? `, retrying in ${delay}ms` : ""
-        }`
+        }`,
+        {
+          attemptNumber,
+          maxRetries: MAX_RETRIES,
+          delayMs: attempt < MAX_RETRIES - 1 ? delay : undefined,
+          error: formatFetchError(error),
+        }
       );
       if (attempt < MAX_RETRIES - 1) {
         await sleep(delay);
@@ -171,7 +237,7 @@ async function fetchWithRetry(url: string, init: RequestInit): Promise<Response>
   }
 
   if (lastError) {
-    console.error(`[ai-color-detection] Exhausted retries: ${formatFetchError(lastError)}`);
+    emitLog(options, "error", `[ai-color-detection] Exhausted retries: ${formatFetchError(lastError)}`);
   }
   throw lastError || new Error("Request failed after retries");
 }
@@ -182,7 +248,10 @@ async function fetchWithRetry(url: string, init: RequestInit): Promise<Response>
  *   Data URIs are preferred because Azure OpenAI fetches URL images server-side, which fails for
  *   localhost (Azurite) URLs and Shopify CDN URLs with bot protection.
  */
-export async function detectHexWithAzureOpenAI(imageUrlOrDataUri: string): Promise<HexDetectionResult> {
+export async function detectHexWithAzureOpenAI(
+  imageUrlOrDataUri: string,
+  options?: HexDetectionOptions
+): Promise<HexDetectionResult> {
   const endpoint = process.env.AZURE_OPENAI_ENDPOINT?.trim();
   const apiKey = process.env.AZURE_OPENAI_KEY?.trim();
   const deployment =
@@ -190,7 +259,7 @@ export async function detectHexWithAzureOpenAI(imageUrlOrDataUri: string): Promi
     process.env.AZURE_OPENAI_DEPLOYMENT?.trim();
 
   if (!endpoint || !apiKey || !deployment) {
-    console.error(`[ai-color-detection] Missing Azure OpenAI config:`, {
+    emitLog(options, "error", `[ai-color-detection] Missing Azure OpenAI config`, {
       hasEndpoint: !!endpoint,
       hasApiKey: !!apiKey,
       hasDeployment: !!deployment,
@@ -205,7 +274,7 @@ export async function detectHexWithAzureOpenAI(imageUrlOrDataUri: string): Promi
   }
 
   const logLabel = imageUrlOrDataUri.startsWith("data:") ? "data:…(base64)" : imageUrlOrDataUri;
-  console.log(`[ai-color-detection] Config loaded, calling Azure OpenAI for ${logLabel}`);
+  emitLog(options, "info", `[ai-color-detection] Config loaded, calling Azure OpenAI for ${logLabel}`);
 
   const requestUrl = `${endpoint.replace(/\/+$/, "")}/openai/deployments/${deployment}/chat/completions?api-version=${OPENAI_API_VERSION}`;
   const response = await fetchWithRetry(requestUrl, {
@@ -240,13 +309,20 @@ export async function detectHexWithAzureOpenAI(imageUrlOrDataUri: string): Promi
         },
       ],
     }),
-  });
+  }, options);
 
   if (!response.ok) {
     const details = await readErrorBodySnippet(response);
     const requestId = getResponseId(response);
-    console.error(
-      `[ai-color-detection] Azure OpenAI non-OK response: status=${response.status}, requestId=${requestId}, body=${details || "n/a"}`
+    emitLog(
+      options,
+      "error",
+      `[ai-color-detection] Azure OpenAI non-OK response: status=${response.status}, requestId=${requestId}, body=${details || "n/a"}`,
+      {
+        status: response.status,
+        requestId,
+        body: details || undefined,
+      }
     );
     throw new Error(`Azure OpenAI hex detection failed: ${response.status} ${details}`);
   }
@@ -261,5 +337,5 @@ export async function detectHexWithAzureOpenAI(imageUrlOrDataUri: string): Promi
     return { hex: null, confidence: null, provider: "azure-openai" };
   }
 
-  return parseHexFromContent(content, logLabel);
+  return parseHexFromContent(content, logLabel, options);
 }

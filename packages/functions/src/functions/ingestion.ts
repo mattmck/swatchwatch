@@ -444,6 +444,11 @@ export async function processIngestionJobQueueMessage(
             detectHexFromImage: payload.request.detectHexFromImage,
             detectHexOnSuspiciousOnly: payload.request.detectHexOnSuspiciousOnly,
             overwriteDetectedHex: payload.request.overwriteDetectedHex,
+            progressLogger: {
+              info: (message, data) => logger.info(message, data),
+              warn: (message, data) => logger.warn(message, data),
+              error: (message, data) => logger.error(message, data),
+            },
           },
           `[${payload.request.source}]`
         )) as unknown as Record<string, unknown>;
@@ -934,4 +939,3 @@ app.http("ingestion-queue-messages", {
   route: "ingestion/queue/messages",
   handler: withCors(withAdmin(queueMessagesHandler)),
 });
-
