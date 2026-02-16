@@ -56,9 +56,12 @@ locals {
     local.openai_uses_external_inline_key ||
     local.openai_uses_external_secret_uri
   )
+  # AIServices kind returns a cognitiveservices.azure.com endpoint, but we need
+  # the openai.azure.com endpoint for the Azure OpenAI SDK. Construct it from
+  # the custom subdomain name instead.
   openai_endpoint_value = (
     local.openai_create_resources
-    ? try(azurerm_cognitive_account.openai[0].endpoint, "")
+    ? "https://${try(azurerm_cognitive_account.openai[0].custom_subdomain_name, "")}.openai.azure.com/"
     : local.openai_external_endpoint
   )
   openai_deployment_name_value = local.openai_enabled ? var.openai_deployment_name : ""
@@ -341,6 +344,13 @@ resource "azurerm_cognitive_account" "openai" {
   kind                  = "OpenAI"
   sku_name              = "S0"
   custom_subdomain_name = var.openai_custom_subdomain_name != null ? var.openai_custom_subdomain_name : "${local.resource_prefix}-openai-${local.unique_suffix}"
+
+  # Azure auto-migrated the resource from kind "OpenAI" to "AIServices".
+  # The azurerm v3 provider doesn't support "AIServices", so ignore the drift
+  # to prevent a destructive replacement. Remove this after upgrading to v4.
+  lifecycle {
+    ignore_changes = [kind]
+  }
 }
 
 resource "azurerm_cognitive_deployment" "openai_hex" {
