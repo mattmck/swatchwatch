@@ -176,6 +176,16 @@ function getPipelineStage(job: IngestionJobRecord): string | null {
     : null;
 }
 
+function getPipelineUpdatedAt(job: IngestionJobRecord): number {
+  if (!job.metrics || typeof job.metrics !== "object") return 0;
+  const pipeline = job.metrics.pipeline;
+  if (!pipeline || typeof pipeline !== "object") return 0;
+  const raw = (pipeline as Record<string, unknown>).updatedAt;
+  if (typeof raw !== "string") return 0;
+  const value = Date.parse(raw);
+  return Number.isNaN(value) ? 0 : value;
+}
+
 function getJobLogs(job: IngestionJobRecord): IngestionLogEntry[] {
   if (!job.metrics || typeof job.metrics !== "object") return [];
   const logs = job.metrics.logs;
@@ -511,7 +521,22 @@ export default function AdminJobsPage() {
   // Get the best job data (prefer detail over list item)
   const getJobData = useCallback(
     (job: IngestionJobRecord): IngestionJobRecord => {
-      return jobDetails.get(job.jobId) || job;
+      const detail = jobDetails.get(job.jobId);
+      if (!detail) return job;
+
+      const listLogsCount = getJobLogs(job).length;
+      const detailLogsCount = getJobLogs(detail).length;
+      if (listLogsCount !== detailLogsCount) {
+        return listLogsCount > detailLogsCount ? job : detail;
+      }
+
+      const listUpdatedAt = getPipelineUpdatedAt(job);
+      const detailUpdatedAt = getPipelineUpdatedAt(detail);
+      if (listUpdatedAt !== detailUpdatedAt) {
+        return listUpdatedAt > detailUpdatedAt ? job : detail;
+      }
+
+      return detail;
     },
     [jobDetails]
   );
