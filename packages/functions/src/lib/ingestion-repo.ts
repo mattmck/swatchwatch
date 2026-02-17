@@ -329,9 +329,25 @@ async function prepareHoloTacoImageData(
     // is set, only run when vendor hex is suspicious/missing
     const shouldRunAiDetection = detectHexFromImage &&
       (!detectHexOnSuspiciousOnly || isSuspiciousHex(holo.vendorHex));
-    const imageForAi = imageBase64DataUri || storageUrl || holo.primaryImageUrl;
+    const imageForAi = imageBase64DataUri;
 
     if (shouldRunAiDetection) {
+      if (!imageForAi) {
+        metrics.hexDetectionSkipped += 1;
+        const skipMessage = `${sourceLogPrefix} ${record.externalId} [ai-color-detection] Skipping AI: missing base64 image payload`;
+        console.warn(skipMessage, {
+          externalId: record.externalId,
+          brand: holo.brand || sourceLogPrefix.replace(/[\[\]]/g, ""),
+          colorName: holo.name,
+          uploadSucceeded: Boolean(storageUrl),
+        });
+        progressLogger?.warn(skipMessage, {
+          externalId: record.externalId,
+          brand: holo.brand || sourceLogPrefix.replace(/[\[\]]/g, ""),
+          colorName: holo.name,
+          uploadSucceeded: Boolean(storageUrl),
+        });
+      } else {
       if (holo.vendorHex) {
         console.log(`${sourceLogPrefix} Vendor hex (${holo.vendorHex}) is suspicious, running AI detection for ${record.externalId}`);
       } else {
@@ -371,6 +387,7 @@ async function prepareHoloTacoImageData(
       } catch (err) {
         metrics.hexDetectionFailures += 1;
         console.error(`${sourceLogPrefix} AI hex detection failed for ${record.externalId}:`, String(err));
+      }
       }
     } else {
       metrics.hexDetectionSkipped += 1;
