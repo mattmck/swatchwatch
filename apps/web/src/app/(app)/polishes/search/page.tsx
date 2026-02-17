@@ -601,24 +601,23 @@ function ColorSearchPageContent() {
 
   const handleQuantityChange = useCallback(
     (polishId: string, delta: number) => {
+      const original = allPolishes.find((p) => p.id === polishId);
+      if (!original) return;
+
+      const newQty = Math.max(0, (original.quantity ?? 0) + delta);
       setAllPolishes((prev) =>
-        prev.map((p) => {
-          if (p.id !== polishId) return p;
-          const newQty = Math.max(0, (p.quantity ?? 0) + delta);
-          return { ...p, quantity: newQty };
-        })
+        prev.map((p) => (p.id === polishId ? { ...p, quantity: newQty } : p))
       );
 
-      const polish = allPolishes.find((p) => p.id === polishId);
-      if (!polish) return;
-      const newQty = Math.max(0, (polish.quantity ?? 0) + delta);
-
-      updatePolish(polishId, { id: polishId, quantity: newQty }).catch(() => {
-        // Revert on failure
-        setAllPolishes((prev) =>
-          prev.map((p) => (p.id === polishId ? { ...p, quantity: polish.quantity } : p))
-        );
-      });
+      updatePolish(polishId, { quantity: newQty })
+        .then((updated) => {
+          setAllPolishes((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+        })
+        .catch(() => {
+          setAllPolishes((prev) =>
+            prev.map((p) => (p.id === polishId ? original : p))
+          );
+        });
     },
     [allPolishes]
   );

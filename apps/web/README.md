@@ -25,7 +25,7 @@ src/app/
 │   │   ├── page.tsx              → /dashboard       Stats, recent additions (computed from full paginated inventory)
 │   │   └── opengraph-image.tsx   → /dashboard OG image route
 │   └── polishes/
-│       ├── page.tsx              → /polishes         Inventory table (hydrates all API pages for client-side search/filter + sortable headers; swatch thumbnails open full image)
+│       ├── page.tsx              → /polishes         Global polish catalog + personal inventory overlay (hydrates all API pages for client-side search/filter + sortable headers; swatch thumbnails open full image)
 │       ├── opengraph-image.tsx   → /polishes OG image route
 │       ├── new/page.tsx          → /polishes/new     Add polish form
 │       ├── [id]/page.tsx         → /polishes/:id     Polish detail view + image preview + OKLCH profile + related shades

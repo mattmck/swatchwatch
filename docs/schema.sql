@@ -57,6 +57,8 @@ CREATE TABLE shade (
   vendor_hex TEXT,
   detected_hex TEXT,
   name_hex TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (brand_id, product_line_id, shade_name_canonical, COALESCE(finish,''))
 );
 
@@ -216,6 +218,10 @@ CREATE TABLE user_inventory_item (
   notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE UNIQUE INDEX idx_user_inventory_unique_shade
+  ON user_inventory_item(user_id, shade_id)
+  WHERE shade_id IS NOT NULL;
 
 CREATE TABLE inventory_event (
   inventory_event_id BIGSERIAL PRIMARY KEY,

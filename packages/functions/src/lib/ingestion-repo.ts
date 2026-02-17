@@ -1005,8 +1005,9 @@ export async function materializeMakeupApiRecords(
         const resolvedVendorHex = variant.hex;
         await client.query(
           `UPDATE shade SET
-             color_name = COALESCE(color_name, $2),
-             vendor_hex = COALESCE(vendor_hex, $3)
+             color_name = COALESCE($2, color_name),
+             vendor_hex = COALESCE($3, vendor_hex),
+             updated_at = now()
            WHERE shade_id = $1`,
           [shadeId, resolvedColorName, resolvedVendorHex]
         );
@@ -1224,7 +1225,8 @@ async function materializePreparedHoloTacoRecord(
          name_hex = CASE
            WHEN $6::boolean AND $5::text IS NOT NULL THEN $5::text
            ELSE COALESCE(name_hex, $5::text)
-         END
+         END,
+         updated_at = now()
      WHERE shade_id = $1`,
     [shadeId, holo.name, vendorHex, detectedHex, nameHex, overwriteDetectedHex]
   );
