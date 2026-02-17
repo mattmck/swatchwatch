@@ -63,6 +63,17 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                var p = localStorage.getItem('swatchwatch-theme');
+                var d = p === 'dark' || (p === 'system' || !p) && window.matchMedia('(prefers-color-scheme: dark)').matches;
+                if (d) document.documentElement.classList.add('dark');
+              } catch(e) {}
+            `,
+          }}
+        />
         <link
           rel="preload"
           href="/brand/swatchwatch-monogram.svg"
