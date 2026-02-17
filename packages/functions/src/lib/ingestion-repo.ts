@@ -1351,15 +1351,41 @@ async function materializePreparedHoloTacoRecord(
           [dataSourceId, addImg.checksumSha256]
         );
 
+        let galleryImageId: number;
         if (existingAdditional.rows.length === 0) {
-          await client.query(
+          const insertedAdditional = await client.query<{ imageId: number }>(
             `INSERT INTO image_asset
                (owner_type, owner_id, storage_url, checksum_sha256, copyright_status, captured_at)
-             VALUES ('source', $1, $2, $3, 'licensed_source', now())`,
+             VALUES ('source', $1, $2, $3, 'licensed_source', now())
+             RETURNING image_id AS "imageId"`,
             [dataSourceId, addImg.storageUrl, addImg.checksumSha256]
           );
+          galleryImageId = insertedAdditional.rows[0].imageId;
           console.log(
             `${sourceLogPrefix} Stored additional image for ${record.externalId}: checksum=${addImg.checksumSha256}`
+          );
+        } else {
+          galleryImageId = existingAdditional.rows[0].imageId;
+        }
+
+        const existingGallerySwatch = await client.query<{ swatchId: number }>(
+          `SELECT swatch_id AS "swatchId"
+           FROM swatch
+           WHERE shade_id = $1
+             AND image_id_original = $2
+           LIMIT 1`,
+          [shadeId, galleryImageId]
+        );
+
+        if (existingGallerySwatch.rows.length === 0) {
+          await client.query(
+            `INSERT INTO swatch (shade_id, image_id_original, swatch_type, lighting, background, quality_score)
+             VALUES ($1, $2, 'source_gallery', 'unknown', 'transparent', 70.0)`,
+            [shadeId, galleryImageId]
+          );
+          delta.swatchesLinked += 1;
+          console.log(
+            `${sourceLogPrefix} Linked additional image to shade ${shadeId}: imageId=${galleryImageId}`
           );
         }
       } catch (err) {
