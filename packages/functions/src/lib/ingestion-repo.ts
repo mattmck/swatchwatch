@@ -326,6 +326,15 @@ async function prepareHoloTacoImageData(
         if (detection.hex) {
           detectedHex = detection.hex;
           metrics.hexDetected += 1;
+          const successData = {
+            externalId: record.externalId,
+            brand: holo.brand || sourceLogPrefix.replace(/[\[\]]/g, ""),
+            colorName: holo.name,
+            hex: detection.hex,
+          };
+          const successMessage = `${sourceLogPrefix} ${record.externalId} [ai-color-detection] Success`;
+          console.log(successMessage, successData);
+          progressLogger?.info(successMessage, successData);
         } else {
           console.log(`${sourceLogPrefix} No hex returned from AI for ${record.externalId}`);
         }
