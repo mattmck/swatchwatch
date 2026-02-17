@@ -16,10 +16,10 @@ const POLISH_SELECT = `
     ui.user_id::text            AS "userId",
     COALESCE(b.name_canonical, '')              AS brand,
     COALESCE(s.shade_name_canonical, '')        AS name,
-    COALESCE(ui.color_name, '')                 AS color,
-    ui.vendor_hex                               AS "vendorHex",
-    ui.detected_hex                             AS "detectedHex",
-    ui.name_hex                                 AS "nameHex",
+    COALESCE(s.color_name, '')                  AS color,
+    s.vendor_hex                                AS "vendorHex",
+    s.detected_hex                              AS "detectedHex",
+    s.name_hex                                  AS "nameHex",
     COALESCE(s.finish, '')                      AS finish,
     COALESCE(s.collection, '')                  AS collection,
     ui.quantity,
@@ -53,7 +53,8 @@ async function findOrCreateShade(
   brandName: string,
   shadeName: string,
   finish?: string,
-  collection?: string
+  collection?: string,
+  colorData?: { colorName?: string; vendorHex?: string; detectedHex?: string; nameHex?: string }
 ): Promise<number> {
   // Find or create brand
   await client.query(
@@ -77,15 +78,32 @@ async function findOrCreateShade(
   );
 
   if (existingShade.rows.length > 0) {
-    return existingShade.rows[0].shade_id;
+    const shadeId = existingShade.rows[0].shade_id;
+    // Backfill color data if provided
+    if (colorData) {
+      await client.query(
+        `UPDATE shade SET
+           color_name   = COALESCE(color_name,   $2),
+           vendor_hex   = COALESCE(vendor_hex,   $3),
+           detected_hex = COALESCE(detected_hex, $4),
+           name_hex     = COALESCE(name_hex,     $5)
+         WHERE shade_id = $1`,
+        [shadeId, colorData.colorName || null, colorData.vendorHex || null, colorData.detectedHex || null, colorData.nameHex || null]
+      );
+    }
+    return shadeId;
   }
 
-  // Create new shade
+  // Create new shade with color data
   const newShade = await client.query<{ shade_id: number }>(
-    `INSERT INTO shade (brand_id, shade_name_canonical, finish, collection, status)
-     VALUES ($1, $2, $3, $4, 'active')
+    `INSERT INTO shade (brand_id, shade_name_canonical, finish, collection, status, color_name, vendor_hex, detected_hex, name_hex)
+     VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, $8)
      RETURNING shade_id`,
-    [brandId, shadeName, finish || null, collection || null]
+    [
+      brandId, shadeName, finish || null, collection || null,
+      colorData?.colorName || null, colorData?.vendorHex || null,
+      colorData?.detectedHex || null, colorData?.nameHex || null,
+    ]
   );
   return newShade.rows[0].shade_id;
 }
@@ -223,7 +241,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       conditions.push(
         `(b.name_canonical ILIKE $${paramIndex}
           OR s.shade_name_canonical ILIKE $${paramIndex}
-          OR ui.color_name ILIKE $${paramIndex}
+          OR s.color_name ILIKE $${paramIndex}
           OR s.collection ILIKE $${paramIndex}
           OR ui.notes ILIKE $${paramIndex}
           OR EXISTS (
@@ -302,17 +320,18 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
     }
 
     const inventoryId = await transaction(async (client) => {
-      // Find or create canonical brand + shade
+      // Find or create canonical brand + shade (color data lives on shade)
       const shadeId = await findOrCreateShade(
-        client, body.brand, body.name, body.finish, body.collection
+        client, body.brand, body.name, body.finish, body.collection,
+        { colorName: body.color, vendorHex: body.vendorHex, detectedHex: body.detectedHex, nameHex: body.nameHex }
       );
 
-      // Insert inventory item linked to the shade
+      // Insert inventory item linked to the shade (user-relationship data only)
       const result = await client.query<{ id: number }>(
         `INSERT INTO user_inventory_item
           (user_id, shade_id, quantity, notes, purchase_date, expiration_date,
-           color_name, vendor_hex, detected_hex, name_hex, rating, tags, size_display)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+           rating, tags, size_display)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING inventory_item_id AS id`,
         [
           userId,
@@ -321,10 +340,6 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
           body.notes || null,
           body.purchaseDate || null,
           body.expirationDate || null,
-          body.color || null,
-          body.vendorHex || null,
-          body.detectedHex || null,
-          body.nameHex || null,
           body.rating || null,
           body.tags && body.tags.length ? body.tags : null,
           body.size || null,
@@ -362,15 +377,27 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
       // If brand or name changed, find-or-create the new shade and update the link
       if (body.brand && body.name) {
         const shadeId = await findOrCreateShade(
-          client, body.brand, body.name, body.finish, body.collection
+          client, body.brand, body.name, body.finish, body.collection,
+          { colorName: body.color, vendorHex: body.vendorHex, detectedHex: body.detectedHex, nameHex: body.nameHex }
         );
         await client.query(
           `UPDATE user_inventory_item SET shade_id = $1 WHERE inventory_item_id = $2 AND user_id = $3`,
           [shadeId, itemId, userId]
         );
+      } else if (body.color || body.vendorHex || body.detectedHex || body.nameHex) {
+        // Update color data on the existing shade
+        await client.query(
+          `UPDATE shade SET
+             color_name   = COALESCE($2, color_name),
+             vendor_hex   = COALESCE($3, vendor_hex),
+             detected_hex = COALESCE($4, detected_hex),
+             name_hex     = COALESCE($5, name_hex)
+           WHERE shade_id = (SELECT shade_id FROM user_inventory_item WHERE inventory_item_id = $1 AND user_id = $6)`,
+          [itemId, body.color ?? null, body.vendorHex ?? null, body.detectedHex ?? null, body.nameHex ?? null, userId]
+        );
       }
 
-      // Update user-facing columns
+      // Update user-relationship columns only
       const result = await client.query<{ id: number }>(
         `UPDATE user_inventory_item
         SET
@@ -378,25 +405,17 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
           notes           = COALESCE($2, notes),
           purchase_date   = COALESCE($3, purchase_date),
           expiration_date = COALESCE($4, expiration_date),
-          color_name      = COALESCE($5, color_name),
-          vendor_hex      = COALESCE($6, vendor_hex),
-          detected_hex    = COALESCE($7, detected_hex),
-          name_hex        = COALESCE($8, name_hex),
-          rating          = COALESCE($9, rating),
-          tags            = COALESCE($10, tags),
-          size_display    = COALESCE($11, size_display),
+          rating          = COALESCE($5, rating),
+          tags            = COALESCE($6, tags),
+          size_display    = COALESCE($7, size_display),
           updated_at      = now()
-        WHERE inventory_item_id = $12 AND user_id = $13
+        WHERE inventory_item_id = $8 AND user_id = $9
         RETURNING inventory_item_id AS id`,
         [
           body.quantity ?? null,
           body.notes ?? null,
           body.purchaseDate ?? null,
           body.expirationDate ?? null,
-          body.color ?? null,
-          body.vendorHex ?? null,
-          body.detectedHex ?? null,
-          body.nameHex ?? null,
           body.rating ?? null,
           body.tags && body.tags.length ? body.tags : null,
           body.size ?? null,

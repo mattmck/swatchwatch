@@ -68,6 +68,10 @@ export interface Shade {
   collection?: string;
   release_year?: number;
   status: string;
+  color_name?: string;
+  vendor_hex?: string;
+  detected_hex?: string;
+  name_hex?: string;
 }
 
 export interface PolishCreateRequest {

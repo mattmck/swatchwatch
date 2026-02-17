@@ -53,6 +53,10 @@ CREATE TABLE shade (
   collection TEXT,
   release_year INT,
   status TEXT NOT NULL DEFAULT 'unknown',
+  color_name TEXT,
+  vendor_hex TEXT,
+  detected_hex TEXT,
+  name_hex TEXT,
   UNIQUE (brand_id, product_line_id, shade_name_canonical, COALESCE(finish,''))
 );
 
