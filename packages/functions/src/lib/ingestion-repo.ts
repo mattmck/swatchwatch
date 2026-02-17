@@ -1000,15 +1000,21 @@ export async function materializeMakeupApiRecords(
           shadesCreated += 1;
         }
 
+        // Write color data to shade (product-level)
+        const resolvedColorName = variant.name || makeup.name;
+        const resolvedVendorHex = variant.hex;
+        await client.query(
+          `UPDATE shade SET
+             color_name = COALESCE(color_name, $2),
+             vendor_hex = COALESCE(vendor_hex, $3)
+           WHERE shade_id = $1`,
+          [shadeId, resolvedColorName, resolvedVendorHex]
+        );
+
         const inventory = await client.query<{
           inventoryItemId: number;
-          colorName: string | null;
-          vendorHex: string | null;
         }>(
-          `SELECT
-             inventory_item_id AS "inventoryItemId",
-             color_name AS "colorName",
-             vendor_hex AS "vendorHex"
+          `SELECT inventory_item_id AS "inventoryItemId"
            FROM user_inventory_item
            WHERE user_id = $1
              AND shade_id = $2
@@ -1016,25 +1022,21 @@ export async function materializeMakeupApiRecords(
           [userId, shadeId]
         );
 
-        const resolvedColorName = variant.name || makeup.name;
-        const resolvedVendorHex = variant.hex;
         const importNote = `Imported from MakeupAPI external_id=${record.externalId}`;
 
         if (inventory.rows.length === 0) {
           await client.query(
             `INSERT INTO user_inventory_item
-               (user_id, shade_id, quantity, color_name, vendor_hex, notes, tags)
-             VALUES ($1, $2, 0, $3, $4, $5, ARRAY['imported','makeupapi']::text[])`,
-            [userId, shadeId, resolvedColorName, resolvedVendorHex, importNote]
+               (user_id, shade_id, quantity, notes, tags)
+             VALUES ($1, $2, 0, $3, ARRAY['imported','makeupapi']::text[])`,
+            [userId, shadeId, importNote]
           );
           inventoryInserted += 1;
         } else {
           const inventoryItemId = inventory.rows[0].inventoryItemId;
           await client.query(
             `UPDATE user_inventory_item
-             SET color_name = COALESCE(color_name, $2),
-                 vendor_hex = COALESCE(vendor_hex, $3),
-                 notes = COALESCE(notes, $4),
+             SET notes = COALESCE(notes, $2),
                  tags = (
                    SELECT ARRAY(
                      SELECT DISTINCT t
@@ -1043,7 +1045,7 @@ export async function materializeMakeupApiRecords(
                    )
                  )
              WHERE inventory_item_id = $1`,
-            [inventoryItemId, resolvedColorName, resolvedVendorHex, importNote]
+            [inventoryItemId, importNote]
           );
           inventoryUpdated += 1;
         }
@@ -1170,23 +1172,6 @@ async function materializePreparedHoloTacoRecord(
     delta.shadesCreated += 1;
   }
 
-  const inventory = await client.query<{
-    inventoryItemId: number;
-    vendorHex: string | null;
-    detectedHex: string | null;
-    nameHex: string | null;
-  }>(
-    `SELECT inventory_item_id AS "inventoryItemId",
-            vendor_hex AS "vendorHex",
-            detected_hex AS "detectedHex",
-            name_hex AS "nameHex"
-     FROM user_inventory_item
-     WHERE user_id = $1
-       AND shade_id = $2
-     LIMIT 1`,
-    [userId, shadeId]
-  );
-
   const importNote = `Imported from ${sourceLogPrefix.replace(/[\[\]]/g, "")} external_id=${record.externalId}`;
   const vendorHex = holo.vendorHex;
   const detectedHex = preparedImage.detectedHex || null;
@@ -1200,61 +1185,90 @@ async function materializePreparedHoloTacoRecord(
   );
 
   console.log(
-    `${sourceLogPrefix} Inventory check: shadeId=${shadeId}, vendorHex=${vendorHex}, detectedHex=${detectedHex}, nameHex=${nameHex}`
+    `${sourceLogPrefix} Shade color update: shadeId=${shadeId}, vendorHex=${vendorHex}, detectedHex=${detectedHex}, nameHex=${nameHex}`
+  );
+
+  // Read current shade color data for overwrite comparison
+  const currentShade = await client.query<{
+    vendorHex: string | null;
+    detectedHex: string | null;
+    nameHex: string | null;
+  }>(
+    `SELECT vendor_hex AS "vendorHex", detected_hex AS "detectedHex", name_hex AS "nameHex"
+     FROM shade WHERE shade_id = $1`,
+    [shadeId]
+  );
+
+  const shouldOverwrite = overwriteDetectedHex;
+  if (
+    shouldOverwrite && currentShade.rows.length > 0 &&
+    ((vendorHex && vendorHex !== currentShade.rows[0].vendorHex) ||
+      (detectedHex && detectedHex !== currentShade.rows[0].detectedHex) ||
+      (nameHex && nameHex !== currentShade.rows[0].nameHex))
+  ) {
+    delta.hexOverwritten += 1;
+  }
+
+  // Write color data to shade (product-level)
+  await client.query(
+    `UPDATE shade
+     SET color_name = COALESCE(color_name, $2),
+         vendor_hex = CASE
+           WHEN $6::boolean AND $3::text IS NOT NULL THEN $3::text
+           ELSE COALESCE(vendor_hex, $3::text)
+         END,
+         detected_hex = CASE
+           WHEN $6::boolean AND $4::text IS NOT NULL THEN $4::text
+           ELSE COALESCE(detected_hex, $4::text)
+         END,
+         name_hex = CASE
+           WHEN $6::boolean AND $5::text IS NOT NULL THEN $5::text
+           ELSE COALESCE(name_hex, $5::text)
+         END
+     WHERE shade_id = $1`,
+    [shadeId, holo.name, vendorHex, detectedHex, nameHex, overwriteDetectedHex]
+  );
+
+  const inventory = await client.query<{
+    inventoryItemId: number;
+  }>(
+    `SELECT inventory_item_id AS "inventoryItemId"
+     FROM user_inventory_item
+     WHERE user_id = $1
+       AND shade_id = $2
+     LIMIT 1`,
+    [userId, shadeId]
   );
 
   if (inventory.rows.length === 0) {
     console.log(`${sourceLogPrefix} Inserting new inventory item for shade ${shadeId}`);
     await client.query(
       `INSERT INTO user_inventory_item
-         (user_id, shade_id, quantity, color_name, vendor_hex, detected_hex, name_hex, notes, tags)
-       VALUES ($1, $2, 0, $3, $4, $5, $6, $7, $8::text[])`,
-      [userId, shadeId, holo.name, vendorHex, detectedHex, nameHex, importNote, sourceTags]
+         (user_id, shade_id, quantity, notes, tags)
+       VALUES ($1, $2, 0, $3, $4::text[])`,
+      [userId, shadeId, importNote, sourceTags]
     );
     delta.inventoryInserted += 1;
     console.log(`${sourceLogPrefix} Inserted inventory item successfully`);
   } else {
     const inventoryItemId = inventory.rows[0].inventoryItemId;
-    const shouldOverwrite = overwriteDetectedHex;
 
     console.log(
-      `${sourceLogPrefix} Updating inventory item ${inventoryItemId}: vendorHex=${vendorHex}, detectedHex=${detectedHex}, nameHex=${nameHex}, overwrite=${shouldOverwrite}`
+      `${sourceLogPrefix} Updating inventory item ${inventoryItemId}`
     );
-
-    if (
-      shouldOverwrite &&
-      ((vendorHex && vendorHex !== inventory.rows[0].vendorHex) ||
-        (detectedHex && detectedHex !== inventory.rows[0].detectedHex) ||
-        (nameHex && nameHex !== inventory.rows[0].nameHex))
-    ) {
-      delta.hexOverwritten += 1;
-    }
 
     await client.query(
       `UPDATE user_inventory_item
-       SET color_name = COALESCE(color_name, $2),
-           vendor_hex = CASE
-             WHEN $8::boolean AND $3::text IS NOT NULL THEN $3::text
-             ELSE COALESCE(vendor_hex, $3::text)
-           END,
-           detected_hex = CASE
-             WHEN $8::boolean AND $4::text IS NOT NULL THEN $4::text
-             ELSE COALESCE(detected_hex, $4::text)
-           END,
-           name_hex = CASE
-             WHEN $8::boolean AND $5::text IS NOT NULL THEN $5::text
-             ELSE COALESCE(name_hex, $5::text)
-           END,
-           notes = COALESCE(notes, $6),
+       SET notes = COALESCE(notes, $2),
            tags = (
              SELECT ARRAY(
                SELECT DISTINCT t
-               FROM unnest(COALESCE(user_inventory_item.tags, ARRAY[]::text[]) || $7::text[]) AS t
+               FROM unnest(COALESCE(user_inventory_item.tags, ARRAY[]::text[]) || $3::text[]) AS t
                ORDER BY t
              )
            )
        WHERE inventory_item_id = $1`,
-      [inventoryItemId, holo.name, vendorHex, detectedHex, nameHex, importNote, sourceTags, overwriteDetectedHex]
+      [inventoryItemId, importNote, sourceTags]
     );
     delta.inventoryUpdated += 1;
     console.log(`${sourceLogPrefix} Updated inventory item successfully`);
