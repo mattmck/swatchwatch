@@ -16,7 +16,7 @@ The package is automatically linked via npm workspaces — no publishing require
 
 | Type | Description |
 |------|-------------|
-| `Polish` | Full polish entity (id, userId, brand, name, color, colorHex, finish, tags, timestamps, etc.) |
+| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, finish, tags, timestamps, etc.) |
 | `PolishFinish` | Union of finish types: `"cream" \| "shimmer" \| "glitter" \| "metallic" \| "matte" \| "jelly" \| "holographic" \| "duochrome" \| "multichrome" \| "flake" \| "topper" \| "sheer" \| "other"` |
 | `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps) |
 | `PolishUpdateRequest` | Partial create fields + required `id` |

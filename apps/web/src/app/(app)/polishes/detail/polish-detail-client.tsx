@@ -111,6 +111,15 @@ export default function PolishDetailClient({ id }: { id: string }) {
       .slice(0, 5);
   }, [allPolishes, polish, displayHex]);
 
+  const detailImageUrls = useMemo(() => {
+    if (!polish) return [];
+    const urls = [
+      ...(Array.isArray(polish.sourceImageUrls) ? polish.sourceImageUrls : []),
+      ...(polish.swatchImageUrl ? [polish.swatchImageUrl] : []),
+    ].filter((url): url is string => typeof url === "string" && url.trim().length > 0);
+    return Array.from(new Set(urls));
+  }, [polish]);
+
   async function handleDelete() {
     if (!polish || !confirm("Delete this polish from your collection?")) return;
     try {
@@ -285,25 +294,30 @@ export default function PolishDetailClient({ id }: { id: string }) {
             </div>
           </div>
 
-          {polish.swatchImageUrl && (
+          {detailImageUrls.length > 0 && (
             <>
               <Separator />
               <div>
                 <p className="mb-2 text-sm text-muted-foreground">Images</p>
-                <a
-                  href={polish.swatchImageUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  title="Open image"
-                  className="inline-block"
-                >
-                  <img
-                    src={polish.swatchImageUrl}
-                    alt={`${polish.brand} ${polish.name} swatch`}
-                    className="h-44 w-44 rounded-lg border object-cover transition-opacity hover:opacity-90"
-                    loading="lazy"
-                  />
-                </a>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {detailImageUrls.map((imageUrl, index) => (
+                    <a
+                      key={`${imageUrl}-${index}`}
+                      href={imageUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="Open image"
+                      className="inline-block"
+                    >
+                      <img
+                        src={imageUrl}
+                        alt={`${polish.brand} ${polish.name} image ${index + 1}`}
+                        className="h-36 w-full rounded-lg border object-cover transition-opacity hover:opacity-90"
+                        loading="lazy"
+                      />
+                    </a>
+                  ))}
+                </div>
               </div>
             </>
           )}

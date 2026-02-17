@@ -19,6 +19,7 @@ export interface Polish {
   rating?: number;
   notes?: string;
   swatchImageUrl?: string;
+  sourceImageUrls?: string[];
   nailImageUrl?: string;
   tags?: string[];
   createdAt: string;

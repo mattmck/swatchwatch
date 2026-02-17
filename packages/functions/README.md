@@ -36,6 +36,7 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpRequest, context: InvocationContext)`.
 
 `GET /api/polishes` and `GET /api/polishes/{id}` return `swatchImageUrl` ready for browser rendering.
+`GET /api/polishes/{id}` also includes `sourceImageUrls` (all source images associated with imported records) for detail-page galleries.
 For private blob storage, the API rewrites blob URLs to `/api/images/{id}` so image bytes are served through Functions (no public container access or client-side SAS required).
 
 ### Connector Ingestion Jobs

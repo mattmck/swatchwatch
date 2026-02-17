@@ -98,25 +98,50 @@ const SORT_COLUMNS: Record<string, string> = {
   rating: "ui.rating",
 };
 
-function withReadableSwatchUrl<T extends { swatchImageUrl?: string | null }>(row: T, requestUrl: string): T {
+function withReadableSwatchUrl<T extends { swatchImageUrl?: string | null; sourceImageUrls?: string[] }>(
+  row: T,
+  requestUrl: string
+): T {
   const swatchUrl = row.swatchImageUrl?.trim();
   if (!swatchUrl) {
     return row;
   }
 
-  const isBlobStorageUrl = /^https?:\/\/[^/]*\.blob\./i.test(swatchUrl);
-  if (!isBlobStorageUrl) {
-    return row;
-  }
+  const readableSourceImageUrls = Array.isArray(row.sourceImageUrls)
+    ? row.sourceImageUrls.map((url) => withReadableImageUrl(url, requestUrl))
+    : row.sourceImageUrls;
 
   return {
     ...row,
-    swatchImageUrl: toImageProxyUrl(requestUrl, swatchUrl),
+    swatchImageUrl: withReadableImageUrl(swatchUrl, requestUrl),
+    sourceImageUrls: readableSourceImageUrls,
   };
 }
 
 function mapReadableSwatchUrls<T extends { swatchImageUrl?: string | null }>(rows: T[], requestUrl: string): T[] {
   return rows.map((row) => withReadableSwatchUrl(row, requestUrl));
+}
+
+function withReadableImageUrl(imageUrl: string, requestUrl: string): string {
+  const normalized = imageUrl.trim();
+  const isBlobStorageUrl = /^https?:\/\/[^/]*\.blob\./i.test(normalized);
+  return isBlobStorageUrl ? toImageProxyUrl(requestUrl, normalized) : normalized;
+}
+
+function parseImportedSourceDetails(notes: unknown): { safeSource: string; externalId: string } | null {
+  if (typeof notes !== "string" || notes.trim().length === 0) {
+    return null;
+  }
+
+  const match = notes.match(/Imported from\s+([^\s]+)\s+external_id=([^\s]+)/i);
+  if (!match) {
+    return null;
+  }
+
+  const sourceName = match[1];
+  const externalId = match[2];
+  const safeSource = sourceName.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  return { safeSource, externalId };
 }
 
 async function getPolishes(request: HttpRequest, context: InvocationContext, userId: number): Promise<HttpResponseInit> {
@@ -136,7 +161,40 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
         return { status: 404, jsonBody: { error: "Polish not found" } };
       }
 
-      return { status: 200, jsonBody: withReadableSwatchUrl(result.rows[0], request.url) };
+      const row = result.rows[0] as Record<string, unknown>;
+      const imported = parseImportedSourceDetails(row.notes);
+      let sourceImageUrls: string[] = [];
+
+      if (imported) {
+        const imagesResult = await query<{ storageUrl: string }>(
+          `SELECT storage_url AS "storageUrl"
+           FROM image_asset
+           WHERE owner_type = 'source'
+             AND storage_url ILIKE $1
+           ORDER BY image_id DESC`,
+          [`%/${imported.safeSource}/${imported.externalId}-%`]
+        );
+
+        sourceImageUrls = Array.from(
+          new Set(
+            imagesResult.rows
+              .map((r) => r.storageUrl)
+              .filter((url): url is string => typeof url === "string" && url.trim().length > 0)
+              .map((url) => withReadableImageUrl(url, request.url))
+          )
+        );
+      }
+
+      return {
+        status: 200,
+        jsonBody: withReadableSwatchUrl(
+          {
+            ...row,
+            sourceImageUrls: sourceImageUrls.length > 0 ? sourceImageUrls : undefined,
+          },
+          request.url
+        ),
+      };
     } catch (error: any) {
       context.error("Error fetching polish:", error);
       return { status: 500, jsonBody: { error: "Failed to fetch polish", details: error.message } };
