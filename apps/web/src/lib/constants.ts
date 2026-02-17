@@ -16,21 +16,21 @@ export const FINISHES = [
 ] as const;
 
 const DEFAULT_FINISH_BADGE =
-  "border border-brand-pink-soft/60 bg-brand-pink-soft/30 text-brand-ink";
+  "border border-brand-pink-soft/60 bg-brand-pink-soft/30 text-brand-ink dark:border-brand-pink/40 dark:bg-brand-pink/10 dark:text-brand-pink-light";
 
 const FINISH_BADGE_CLASS_MAP: Record<string, string> = {
-  cream: "border border-rose-200 bg-rose-50 text-rose-900",
-  shimmer: "border border-amber-200 bg-amber-50 text-amber-900",
-  glitter: "border border-fuchsia-200 bg-fuchsia-50 text-fuchsia-900",
-  metallic: "border border-slate-300 bg-slate-100 text-slate-800",
-  matte: "border border-violet-200 bg-violet-50 text-violet-900",
-  jelly: "border border-pink-200 bg-pink-50 text-pink-900",
-  holographic: "border border-brand-lilac/60 bg-brand-pink-light/50 text-brand-purple-deep",
-  duochrome: "border border-indigo-200 bg-indigo-50 text-indigo-900",
-  multichrome: "border border-purple-200 bg-purple-50 text-purple-900",
-  flake: "border border-cyan-200 bg-cyan-50 text-cyan-900",
-  topper: "border border-brand-purple/30 bg-brand-lilac/35 text-brand-purple-deep",
-  sheer: "border border-neutral-200 bg-neutral-50 text-neutral-800",
+  cream: "border border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-800 dark:bg-rose-950/60 dark:text-rose-200",
+  shimmer: "border border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-200",
+  glitter: "border border-fuchsia-200 bg-fuchsia-50 text-fuchsia-900 dark:border-fuchsia-800 dark:bg-fuchsia-950/60 dark:text-fuchsia-200",
+  metallic: "border border-slate-300 bg-slate-100 text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300",
+  matte: "border border-violet-200 bg-violet-50 text-violet-900 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-200",
+  jelly: "border border-pink-200 bg-pink-50 text-pink-900 dark:border-pink-800 dark:bg-pink-950/60 dark:text-pink-200",
+  holographic: "border border-brand-lilac/60 bg-brand-pink-light/50 text-brand-purple-deep dark:border-brand-lilac/40 dark:bg-brand-purple/20 dark:text-brand-pink",
+  duochrome: "border border-indigo-200 bg-indigo-50 text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-200",
+  multichrome: "border border-purple-200 bg-purple-50 text-purple-900 dark:border-purple-800 dark:bg-purple-950/60 dark:text-purple-200",
+  flake: "border border-cyan-200 bg-cyan-50 text-cyan-900 dark:border-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-200",
+  topper: "border border-brand-purple/30 bg-brand-lilac/35 text-brand-purple-deep dark:border-brand-purple/40 dark:bg-brand-lilac/20 dark:text-brand-pink",
+  sheer: "border border-neutral-200 bg-neutral-50 text-neutral-800 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300",
   other: DEFAULT_FINISH_BADGE,
 };
 
