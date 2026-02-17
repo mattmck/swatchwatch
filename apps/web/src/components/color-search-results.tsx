@@ -92,6 +92,16 @@ export function ColorSearchResults({
               href={`/polishes/detail?id=${polish.id}`}
               className="flex min-w-0 flex-1 items-center gap-3"
             >
+              {polish.swatchImageUrl ? (
+                <img
+                  src={polish.swatchImageUrl}
+                  alt={`${polish.brand} ${polish.name} swatch`}
+                  className="h-10 w-10 shrink-0 rounded-md border object-cover transition-opacity hover:opacity-85"
+                  loading="lazy"
+                />
+              ) : (
+                <div className="h-10 w-10 shrink-0 rounded-md border bg-muted/40" />
+              )}
               <span
                 onMouseEnter={() => { const h = resolveDisplayHex(polish); if (h) onColorHover?.(h); }}
                 onMouseLeave={onColorLeave}

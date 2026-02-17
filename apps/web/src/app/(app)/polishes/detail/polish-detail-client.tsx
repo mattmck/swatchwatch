@@ -285,6 +285,29 @@ export default function PolishDetailClient({ id }: { id: string }) {
             </div>
           </div>
 
+          {polish.swatchImageUrl && (
+            <>
+              <Separator />
+              <div>
+                <p className="mb-2 text-sm text-muted-foreground">Images</p>
+                <a
+                  href={polish.swatchImageUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Open image"
+                  className="inline-block"
+                >
+                  <img
+                    src={polish.swatchImageUrl}
+                    alt={`${polish.brand} ${polish.name} swatch`}
+                    className="h-44 w-44 rounded-lg border object-cover transition-opacity hover:opacity-90"
+                    loading="lazy"
+                  />
+                </a>
+              </div>
+            </>
+          )}
+
           {polish.tags && polish.tags.length > 0 && (
             <>
               <Separator />

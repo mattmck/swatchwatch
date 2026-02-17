@@ -444,12 +444,20 @@ export default function PolishesPage() {
                     </TableCell>
                     <TableCell>
                       {polish.swatchImageUrl ? (
-                        <img
-                          src={polish.swatchImageUrl}
-                          alt={`${polish.brand} ${polish.name} swatch`}
-                          className="h-10 w-10 rounded-md border object-cover"
-                          loading="lazy"
-                        />
+                        <a
+                          href={polish.swatchImageUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Open image"
+                          className="inline-block"
+                        >
+                          <img
+                            src={polish.swatchImageUrl}
+                            alt={`${polish.brand} ${polish.name} swatch`}
+                            className="h-10 w-10 rounded-md border object-cover transition-opacity hover:opacity-85"
+                            loading="lazy"
+                          />
+                        </a>
                       ) : (
                         <div className="h-10 w-10 rounded-md border bg-muted/40" />
                       )}
