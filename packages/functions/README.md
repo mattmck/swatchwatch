@@ -61,6 +61,8 @@ and user inventory rows (`quantity=0`) with source tags. Use `recentDays` to con
 products by publish/create/update timestamps. It also uploads source product images to Azure Blob
 Storage (`image_asset` + `swatch`) and attempts Azure OpenAI-based representative `color_hex`
 detection from the product image.
+Materialization now commits per record while the job is running, so newly imported polishes become
+visible progressively instead of waiting for the final job commit.
 
 Holo Taco run options:
 - `detectHexFromImage` (default `true`) toggles image-based AI hex detection.

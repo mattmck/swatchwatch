@@ -5,6 +5,7 @@ import { defaultShopifyBaseUrl } from "./connectors/shopify-generic";
 import { detectHexWithAzureOpenAI } from "./ai-color-detection";
 import { uploadSourceImageToBlob } from "./blob-storage";
 import { isSuspiciousHex } from "./suspicious-hex";
+import { PoolClient } from "pg";
 
 export interface DataSourceRecord {
   dataSourceId: number;
@@ -212,7 +213,11 @@ function sleep(ms: number): Promise<void> {
 async function prepareHoloTacoImageData(
   records: ConnectorProductRecord[],
   options?: HoloTacoMaterializationOptions,
-  sourceLogPrefix: string = "[HoloTaco]"
+  sourceLogPrefix: string = "[HoloTaco]",
+  onRecordPrepared?: (
+    record: ConnectorProductRecord,
+    preparedImage: HoloTacoPreparedImage
+  ) => Promise<void>
 ): Promise<HoloTacoImagePreparationResult> {
   const detectHexFromImage = options?.detectHexFromImage !== false;
   const detectHexOnSuspiciousOnly = options?.detectHexOnSuspiciousOnly === true;
@@ -231,21 +236,44 @@ async function prepareHoloTacoImageData(
   console.log(`${sourceLogPrefix} Image preparation: processing ${records.length} records, detectHexFromImage=${detectHexFromImage}, detectHexOnSuspiciousOnly=${detectHexOnSuspiciousOnly}`);
 
   for (const record of records) {
+    const emptyPrepared: HoloTacoPreparedImage = {
+      storageUrl: null,
+      checksumSha256: null,
+      detectedHex: null,
+      additionalImages: [],
+    };
+
     const normalized =
       record.normalized && typeof record.normalized === "object"
         ? (record.normalized as Record<string, unknown>)
         : null;
     if (!normalized) {
       console.log(`${sourceLogPrefix} Skipping record ${record.externalId}: no normalized data`);
+      byExternalId.set(record.externalId, emptyPrepared);
+      if (onRecordPrepared) {
+        await onRecordPrepared(record, emptyPrepared);
+      }
       continue;
     }
 
     const holo = parseHoloTacoNormalized(normalized);
-    if (!holo.name || !isHttpUrl(holo.primaryImageUrl)) {
+    if (!holo.name) {
+      byExternalId.set(record.externalId, emptyPrepared);
+      if (onRecordPrepared) {
+        await onRecordPrepared(record, emptyPrepared);
+      }
+      continue;
+    }
+
+    if (!isHttpUrl(holo.primaryImageUrl)) {
       console.log(`${sourceLogPrefix} Skipping record ${record.externalId}: missing name or invalid image URL`, {
         name: holo.name,
         imageUrl: holo.primaryImageUrl,
       });
+      byExternalId.set(record.externalId, emptyPrepared);
+      if (onRecordPrepared) {
+        await onRecordPrepared(record, emptyPrepared);
+      }
       continue;
     }
 
@@ -353,12 +381,16 @@ async function prepareHoloTacoImageData(
       }
     }
 
-    byExternalId.set(record.externalId, {
+    const preparedImage: HoloTacoPreparedImage = {
       storageUrl,
       checksumSha256,
       detectedHex,
       additionalImages,
-    });
+    };
+    byExternalId.set(record.externalId, preparedImage);
+    if (onRecordPrepared) {
+      await onRecordPrepared(record, preparedImage);
+    }
   }
 
   console.log(`${sourceLogPrefix} Image preparation complete:`, metrics);
@@ -1013,6 +1045,300 @@ export async function materializeMakeupApiRecords(
   });
 }
 
+interface HoloTacoRecordMaterializationDelta {
+  processed: number;
+  brandsCreated: number;
+  shadesCreated: number;
+  inventoryInserted: number;
+  inventoryUpdated: number;
+  hexOverwritten: number;
+  swatchesLinked: number;
+  skipped: number;
+}
+
+async function materializePreparedHoloTacoRecord(
+  client: PoolClient,
+  userId: number,
+  dataSourceId: number,
+  record: ConnectorProductRecord,
+  preparedImage: HoloTacoPreparedImage,
+  overwriteDetectedHex: boolean,
+  sourceLogPrefix: string,
+  brandCache: Map<string, number>
+): Promise<HoloTacoRecordMaterializationDelta> {
+  const delta: HoloTacoRecordMaterializationDelta = {
+    processed: 0,
+    brandsCreated: 0,
+    shadesCreated: 0,
+    inventoryInserted: 0,
+    inventoryUpdated: 0,
+    hexOverwritten: 0,
+    swatchesLinked: 0,
+    skipped: 0,
+  };
+
+  const normalized =
+    record.normalized && typeof record.normalized === "object"
+      ? (record.normalized as Record<string, unknown>)
+      : null;
+
+  if (!normalized) {
+    delta.skipped += 1;
+    return delta;
+  }
+
+  const holo = parseHoloTacoNormalized(normalized);
+  if (!holo.name) {
+    delta.skipped += 1;
+    return delta;
+  }
+
+  console.log(`${sourceLogPrefix} Processing record: externalId=${record.externalId}, name=${holo.name}`);
+
+  const brandName = canonicalizeBrandName(holo.brand || "Holo Taco");
+  const brandKey = brandName.toLowerCase();
+  let brandId = brandCache.get(brandKey);
+
+  if (!brandId) {
+    const existingBrand = await client.query<{ brandId: number }>(
+      `SELECT brand_id AS "brandId"
+       FROM brand
+       WHERE lower(name_canonical) = lower($1)
+       ORDER BY brand_id
+       LIMIT 1`,
+      [brandName]
+    );
+
+    if (existingBrand.rows.length > 0) {
+      brandId = existingBrand.rows[0].brandId;
+    } else {
+      const insertedBrand = await client.query<{ brandId: number }>(
+        `INSERT INTO brand (name_canonical)
+         VALUES ($1)
+         RETURNING brand_id AS "brandId"`,
+        [brandName]
+      );
+      brandId = insertedBrand.rows[0].brandId;
+      delta.brandsCreated += 1;
+    }
+
+    brandCache.set(brandKey, brandId);
+  }
+
+  delta.processed += 1;
+
+  const existingShade = await client.query<{ shadeId: number }>(
+    `SELECT shade_id AS "shadeId"
+     FROM shade
+     WHERE brand_id = $1
+       AND product_line_id IS NULL
+       AND lower(shade_name_canonical) = lower($2)
+       AND coalesce(finish, '') = coalesce($3, '')
+       AND coalesce(collection, '') = coalesce($4, '')
+     LIMIT 1`,
+    [brandId, holo.name, holo.finish, holo.collection]
+  );
+
+  let shadeId: number;
+  if (existingShade.rows.length > 0) {
+    shadeId = existingShade.rows[0].shadeId;
+  } else {
+    const insertedShade = await client.query<{ shadeId: number }>(
+      `INSERT INTO shade (brand_id, shade_name_canonical, finish, collection, status)
+       VALUES ($1, $2, $3, $4, 'active')
+       RETURNING shade_id AS "shadeId"`,
+      [brandId, holo.name, holo.finish, holo.collection]
+    );
+    shadeId = insertedShade.rows[0].shadeId;
+    delta.shadesCreated += 1;
+  }
+
+  const inventory = await client.query<{
+    inventoryItemId: number;
+    vendorHex: string | null;
+    detectedHex: string | null;
+    nameHex: string | null;
+  }>(
+    `SELECT inventory_item_id AS "inventoryItemId",
+            vendor_hex AS "vendorHex",
+            detected_hex AS "detectedHex",
+            name_hex AS "nameHex"
+     FROM user_inventory_item
+     WHERE user_id = $1
+       AND shade_id = $2
+     LIMIT 1`,
+    [userId, shadeId]
+  );
+
+  const importNote = `Imported from ${sourceLogPrefix.replace(/[\[\]]/g, "")} external_id=${record.externalId}`;
+  const vendorHex = holo.vendorHex;
+  const detectedHex = preparedImage.detectedHex || null;
+  const nameHex = holo.nameHex;
+  const sourceTags = Array.from(
+    new Set(
+      [...holo.tags, "imported", "shopify"]
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+    )
+  );
+
+  console.log(
+    `${sourceLogPrefix} Inventory check: shadeId=${shadeId}, vendorHex=${vendorHex}, detectedHex=${detectedHex}, nameHex=${nameHex}`
+  );
+
+  if (inventory.rows.length === 0) {
+    console.log(`${sourceLogPrefix} Inserting new inventory item for shade ${shadeId}`);
+    await client.query(
+      `INSERT INTO user_inventory_item
+         (user_id, shade_id, quantity, color_name, vendor_hex, detected_hex, name_hex, notes, tags)
+       VALUES ($1, $2, 0, $3, $4, $5, $6, $7, $8::text[])`,
+      [userId, shadeId, holo.name, vendorHex, detectedHex, nameHex, importNote, sourceTags]
+    );
+    delta.inventoryInserted += 1;
+    console.log(`${sourceLogPrefix} Inserted inventory item successfully`);
+  } else {
+    const inventoryItemId = inventory.rows[0].inventoryItemId;
+    const shouldOverwrite = overwriteDetectedHex;
+
+    console.log(
+      `${sourceLogPrefix} Updating inventory item ${inventoryItemId}: vendorHex=${vendorHex}, detectedHex=${detectedHex}, nameHex=${nameHex}, overwrite=${shouldOverwrite}`
+    );
+
+    if (
+      shouldOverwrite &&
+      ((vendorHex && vendorHex !== inventory.rows[0].vendorHex) ||
+        (detectedHex && detectedHex !== inventory.rows[0].detectedHex) ||
+        (nameHex && nameHex !== inventory.rows[0].nameHex))
+    ) {
+      delta.hexOverwritten += 1;
+    }
+
+    await client.query(
+      `UPDATE user_inventory_item
+       SET color_name = COALESCE(color_name, $2),
+           vendor_hex = CASE
+             WHEN $8::boolean AND $3::text IS NOT NULL THEN $3::text
+             ELSE COALESCE(vendor_hex, $3::text)
+           END,
+           detected_hex = CASE
+             WHEN $8::boolean AND $4::text IS NOT NULL THEN $4::text
+             ELSE COALESCE(detected_hex, $4::text)
+           END,
+           name_hex = CASE
+             WHEN $8::boolean AND $5::text IS NOT NULL THEN $5::text
+             ELSE COALESCE(name_hex, $5::text)
+           END,
+           notes = COALESCE(notes, $6),
+           tags = (
+             SELECT ARRAY(
+               SELECT DISTINCT t
+               FROM unnest(COALESCE(user_inventory_item.tags, ARRAY[]::text[]) || $7::text[]) AS t
+               ORDER BY t
+             )
+           )
+       WHERE inventory_item_id = $1`,
+      [inventoryItemId, holo.name, vendorHex, detectedHex, nameHex, importNote, sourceTags, overwriteDetectedHex]
+    );
+    delta.inventoryUpdated += 1;
+    console.log(`${sourceLogPrefix} Updated inventory item successfully`);
+  }
+
+  if (preparedImage.storageUrl && preparedImage.checksumSha256) {
+    console.log(`${sourceLogPrefix} Processing swatch for shade ${shadeId}: checksum=${preparedImage.checksumSha256}`);
+    const existingImage = await client.query<{ imageId: number }>(
+      `SELECT image_id AS "imageId"
+       FROM image_asset
+       WHERE owner_type = 'source'
+         AND owner_id = $1
+         AND checksum_sha256 = $2
+       LIMIT 1`,
+      [dataSourceId, preparedImage.checksumSha256]
+    );
+
+    let imageId: number;
+    if (existingImage.rows.length > 0) {
+      imageId = existingImage.rows[0].imageId;
+      console.log(`${sourceLogPrefix} Found existing image ${imageId}`);
+    } else {
+      const insertedImage = await client.query<{ imageId: number }>(
+        `INSERT INTO image_asset
+           (owner_type, owner_id, storage_url, checksum_sha256, copyright_status, captured_at)
+         VALUES ('source', $1, $2, $3, 'licensed_source', now())
+         RETURNING image_id AS "imageId"`,
+        [dataSourceId, preparedImage.storageUrl, preparedImage.checksumSha256]
+      );
+      imageId = insertedImage.rows[0].imageId;
+      console.log(`${sourceLogPrefix} Inserted new image ${imageId}`);
+    }
+
+    const existingSwatch = await client.query<{ swatchId: number; imageIdOriginal: number }>(
+      `SELECT
+         swatch_id AS "swatchId",
+         image_id_original AS "imageIdOriginal"
+       FROM swatch
+       WHERE shade_id = $1
+       ORDER BY swatch_id DESC
+       LIMIT 1`,
+      [shadeId]
+    );
+
+    if (existingSwatch.rows.length === 0) {
+      console.log(`${sourceLogPrefix} Inserting new swatch for shade ${shadeId} with image ${imageId}`);
+      await client.query(
+        `INSERT INTO swatch (shade_id, image_id_original, swatch_type, lighting, background, quality_score)
+         VALUES ($1, $2, 'source_product', 'unknown', 'transparent', 80.0)`,
+        [shadeId, imageId]
+      );
+      delta.swatchesLinked += 1;
+      console.log(`${sourceLogPrefix} Inserted swatch successfully`);
+    } else if (existingSwatch.rows[0].imageIdOriginal !== imageId) {
+      console.log(`${sourceLogPrefix} Updating swatch ${existingSwatch.rows[0].swatchId} with new image ${imageId}`);
+      await client.query(
+        `UPDATE swatch
+         SET image_id_original = $2
+         WHERE swatch_id = $1`,
+        [existingSwatch.rows[0].swatchId, imageId]
+      );
+      delta.swatchesLinked += 1;
+      console.log(`${sourceLogPrefix} Updated swatch successfully`);
+    }
+  }
+
+  // Store additional images as image_assets (no swatch — for training data)
+  if (preparedImage.additionalImages.length > 0) {
+    for (const addImg of preparedImage.additionalImages) {
+      try {
+        const existingAdditional = await client.query<{ imageId: number }>(
+          `SELECT image_id AS "imageId"
+           FROM image_asset
+           WHERE owner_type = 'source'
+             AND owner_id = $1
+             AND checksum_sha256 = $2
+           LIMIT 1`,
+          [dataSourceId, addImg.checksumSha256]
+        );
+
+        if (existingAdditional.rows.length === 0) {
+          await client.query(
+            `INSERT INTO image_asset
+               (owner_type, owner_id, storage_url, checksum_sha256, copyright_status, captured_at)
+             VALUES ('source', $1, $2, $3, 'licensed_source', now())`,
+            [dataSourceId, addImg.storageUrl, addImg.checksumSha256]
+          );
+          console.log(
+            `${sourceLogPrefix} Stored additional image for ${record.externalId}: checksum=${addImg.checksumSha256}`
+          );
+        }
+      } catch (err) {
+        console.error(`${sourceLogPrefix} Error storing additional image:`, String(err));
+        // Non-fatal: don't throw for additional images
+      }
+    }
+  }
+
+  return delta;
+}
+
 export async function materializeHoloTacoRecords(
   userId: number,
   dataSourceId: number,
@@ -1020,328 +1346,63 @@ export async function materializeHoloTacoRecords(
   options?: HoloTacoMaterializationOptions,
   sourceLogPrefix: string = "[HoloTaco]"
 ): Promise<HoloTacoMaterializationMetrics> {
-  const preparedImageData = await prepareHoloTacoImageData(records, options, sourceLogPrefix);
   const overwriteDetectedHex = options?.overwriteDetectedHex === true;
+  let processed = 0;
+  let brandsCreated = 0;
+  let shadesCreated = 0;
+  let inventoryInserted = 0;
+  let inventoryUpdated = 0;
+  let hexOverwritten = 0;
+  let swatchesLinked = 0;
+  let skipped = 0;
 
-  return transaction(async (client) => {
-    let processed = 0;
-    let brandsCreated = 0;
-    let shadesCreated = 0;
-    let inventoryInserted = 0;
-    let inventoryUpdated = 0;
-    let hexOverwritten = 0;
-    let swatchesLinked = 0;
-    let skipped = 0;
+  const brandCache = new Map<string, number>();
 
-    const brandCache = new Map<string, number>();
+  console.log(
+    `${sourceLogPrefix} Starting materialization for ${records.length} records, userId=${userId}, dataSourceId=${dataSourceId}, overwriteDetectedHex=${overwriteDetectedHex}`
+  );
 
-    console.log(`${sourceLogPrefix} Starting materialization for ${records.length} records, userId=${userId}, dataSourceId=${dataSourceId}, overwriteDetectedHex=${overwriteDetectedHex}`);
-
-    for (const record of records) {
-      const normalized =
-        record.normalized && typeof record.normalized === "object"
-          ? (record.normalized as Record<string, unknown>)
-          : null;
-
-      if (!normalized) {
-        skipped += 1;
-        continue;
-      }
-
-      const holo = parseHoloTacoNormalized(normalized);
-      if (!holo.name) {
-        skipped += 1;
-        continue;
-      }
-
-      console.log(`${sourceLogPrefix} Processing record: externalId=${record.externalId}, name=${holo.name}`);
-
-      const brandName = canonicalizeBrandName(holo.brand || "Holo Taco");
-      const brandKey = brandName.toLowerCase();
-      let brandId = brandCache.get(brandKey);
-
-      if (!brandId) {
-        const existingBrand = await client.query<{ brandId: number }>(
-          `SELECT brand_id AS "brandId"
-           FROM brand
-           WHERE lower(name_canonical) = lower($1)
-           ORDER BY brand_id
-           LIMIT 1`,
-          [brandName]
-        );
-
-        if (existingBrand.rows.length > 0) {
-          brandId = existingBrand.rows[0].brandId;
-        } else {
-          const insertedBrand = await client.query<{ brandId: number }>(
-            `INSERT INTO brand (name_canonical)
-             VALUES ($1)
-             RETURNING brand_id AS "brandId"`,
-            [brandName]
-          );
-          brandId = insertedBrand.rows[0].brandId;
-          brandsCreated += 1;
-        }
-
-        brandCache.set(brandKey, brandId);
-      }
-
-      processed += 1;
-
-      const existingShade = await client.query<{ shadeId: number }>(
-        `SELECT shade_id AS "shadeId"
-         FROM shade
-         WHERE brand_id = $1
-           AND product_line_id IS NULL
-           AND lower(shade_name_canonical) = lower($2)
-           AND coalesce(finish, '') = coalesce($3, '')
-           AND coalesce(collection, '') = coalesce($4, '')
-         LIMIT 1`,
-        [brandId, holo.name, holo.finish, holo.collection]
-      );
-
-      let shadeId: number;
-      if (existingShade.rows.length > 0) {
-        shadeId = existingShade.rows[0].shadeId;
-      } else {
-        const insertedShade = await client.query<{ shadeId: number }>(
-          `INSERT INTO shade (brand_id, shade_name_canonical, finish, collection, status)
-           VALUES ($1, $2, $3, $4, 'active')
-           RETURNING shade_id AS "shadeId"`,
-          [brandId, holo.name, holo.finish, holo.collection]
-        );
-        shadeId = insertedShade.rows[0].shadeId;
-        shadesCreated += 1;
-      }
-
-      const inventory = await client.query<{ inventoryItemId: number; vendorHex: string | null; detectedHex: string | null; nameHex: string | null }>(
-        `SELECT inventory_item_id AS "inventoryItemId",
-                vendor_hex AS "vendorHex",
-                detected_hex AS "detectedHex",
-                name_hex AS "nameHex"
-         FROM user_inventory_item
-         WHERE user_id = $1
-           AND shade_id = $2
-         LIMIT 1`,
-        [userId, shadeId]
-      );
-
-      const importNote = `Imported from ${sourceLogPrefix.replace(/[\[\]]/g, "")} external_id=${record.externalId}`;
-      const preparedImage = preparedImageData.byExternalId.get(record.externalId);
-      const vendorHex = holo.vendorHex;
-      const detectedHex = preparedImage?.detectedHex || null;
-      const nameHex = holo.nameHex;
-      const sourceTags = Array.from(
-        new Set(
-          [...holo.tags, "imported", "shopify"]
-            .map((tag) => tag.trim())
-            .filter(Boolean)
+  const preparedImageData = await prepareHoloTacoImageData(
+    records,
+    options,
+    sourceLogPrefix,
+    async (record, preparedImage) => {
+      const delta = await transaction(async (client) =>
+        materializePreparedHoloTacoRecord(
+          client,
+          userId,
+          dataSourceId,
+          record,
+          preparedImage,
+          overwriteDetectedHex,
+          sourceLogPrefix,
+          brandCache
         )
       );
 
-      console.log(`${sourceLogPrefix} Inventory check: shadeId=${shadeId}, vendorHex=${vendorHex}, detectedHex=${detectedHex}, nameHex=${nameHex}`);
-
-      if (inventory.rows.length === 0) {
-        console.log(`${sourceLogPrefix} Inserting new inventory item for shade ${shadeId}`);
-        try {
-          await client.query(
-            `INSERT INTO user_inventory_item
-               (user_id, shade_id, quantity, color_name, vendor_hex, detected_hex, name_hex, notes, tags)
-             VALUES ($1, $2, 0, $3, $4, $5, $6, $7, $8::text[])`,
-            [userId, shadeId, holo.name, vendorHex, detectedHex, nameHex, importNote, sourceTags]
-          );
-          inventoryInserted += 1;
-          console.log(`${sourceLogPrefix} Inserted inventory item successfully`);
-        } catch (err) {
-          console.error(`${sourceLogPrefix} Error inserting inventory item:`, {
-            userId,
-            shadeId,
-            colorName: holo.name,
-            vendorHex,
-            detectedHex,
-            nameHex,
-            notes: importNote,
-            tagsLength: sourceTags.length,
-            error: String(err),
-          });
-          throw err;
-        }
-      } else {
-        const inventoryItemId = inventory.rows[0].inventoryItemId;
-        const shouldOverwrite = overwriteDetectedHex;
-
-        console.log(`${sourceLogPrefix} Updating inventory item ${inventoryItemId}: vendorHex=${vendorHex}, detectedHex=${detectedHex}, nameHex=${nameHex}, overwrite=${shouldOverwrite}`);
-
-        if (shouldOverwrite && (
-          (vendorHex && vendorHex !== inventory.rows[0].vendorHex) ||
-          (detectedHex && detectedHex !== inventory.rows[0].detectedHex) ||
-          (nameHex && nameHex !== inventory.rows[0].nameHex)
-        )) {
-          hexOverwritten += 1;
-        }
-
-        try {
-          await client.query(
-            `UPDATE user_inventory_item
-             SET color_name = COALESCE(color_name, $2),
-                 vendor_hex = CASE
-                   WHEN $8::boolean AND $3::text IS NOT NULL THEN $3::text
-                   ELSE COALESCE(vendor_hex, $3::text)
-                 END,
-                 detected_hex = CASE
-                   WHEN $8::boolean AND $4::text IS NOT NULL THEN $4::text
-                   ELSE COALESCE(detected_hex, $4::text)
-                 END,
-                 name_hex = CASE
-                   WHEN $8::boolean AND $5::text IS NOT NULL THEN $5::text
-                   ELSE COALESCE(name_hex, $5::text)
-                 END,
-                 notes = COALESCE(notes, $6),
-                 tags = (
-                   SELECT ARRAY(
-                     SELECT DISTINCT t
-                     FROM unnest(COALESCE(user_inventory_item.tags, ARRAY[]::text[]) || $7::text[]) AS t
-                     ORDER BY t
-                   )
-                 )
-             WHERE inventory_item_id = $1`,
-            [inventoryItemId, holo.name, vendorHex, detectedHex, nameHex, importNote, sourceTags, overwriteDetectedHex]
-          );
-          inventoryUpdated += 1;
-          console.log(`${sourceLogPrefix} Updated inventory item successfully`);
-        } catch (err) {
-          console.error(`${sourceLogPrefix} Error updating inventory item:`, {
-            inventoryItemId,
-            colorName: holo.name,
-            vendorHex,
-            detectedHex,
-            nameHex,
-            notes: importNote,
-            tagsLength: sourceTags.length,
-            overwriteDetectedHex,
-            error: String(err),
-          });
-          throw err;
-        }
-      }
-
-      if (preparedImage?.storageUrl && preparedImage.checksumSha256) {
-        console.log(`${sourceLogPrefix} Processing swatch for shade ${shadeId}: checksum=${preparedImage.checksumSha256}`);
-        try {
-          const existingImage = await client.query<{ imageId: number }>(
-            `SELECT image_id AS "imageId"
-             FROM image_asset
-             WHERE owner_type = 'source'
-               AND owner_id = $1
-               AND checksum_sha256 = $2
-             LIMIT 1`,
-            [dataSourceId, preparedImage.checksumSha256]
-          );
-
-          let imageId: number;
-          if (existingImage.rows.length > 0) {
-            imageId = existingImage.rows[0].imageId;
-            console.log(`${sourceLogPrefix} Found existing image ${imageId}`);
-          } else {
-            const insertedImage = await client.query<{ imageId: number }>(
-              `INSERT INTO image_asset
-                 (owner_type, owner_id, storage_url, checksum_sha256, copyright_status, captured_at)
-               VALUES ('source', $1, $2, $3, 'licensed_source', now())
-               RETURNING image_id AS "imageId"`,
-              [dataSourceId, preparedImage.storageUrl, preparedImage.checksumSha256]
-            );
-            imageId = insertedImage.rows[0].imageId;
-            console.log(`${sourceLogPrefix} Inserted new image ${imageId}`);
-          }
-
-          const existingSwatch = await client.query<{ swatchId: number; imageIdOriginal: number }>(
-            `SELECT
-               swatch_id AS "swatchId",
-               image_id_original AS "imageIdOriginal"
-             FROM swatch
-             WHERE shade_id = $1
-             ORDER BY swatch_id DESC
-             LIMIT 1`,
-            [shadeId]
-          );
-
-          if (existingSwatch.rows.length === 0) {
-            console.log(`${sourceLogPrefix} Inserting new swatch for shade ${shadeId} with image ${imageId}`);
-            await client.query(
-              `INSERT INTO swatch (shade_id, image_id_original, swatch_type, lighting, background, quality_score)
-               VALUES ($1, $2, 'source_product', 'unknown', 'transparent', 80.0)`,
-              [shadeId, imageId]
-            );
-            swatchesLinked += 1;
-            console.log(`${sourceLogPrefix} Inserted swatch successfully`);
-          } else if (existingSwatch.rows[0].imageIdOriginal !== imageId) {
-            console.log(`${sourceLogPrefix} Updating swatch ${existingSwatch.rows[0].swatchId} with new image ${imageId}`);
-            await client.query(
-              `UPDATE swatch
-               SET image_id_original = $2
-               WHERE swatch_id = $1`,
-              [existingSwatch.rows[0].swatchId, imageId]
-            );
-            swatchesLinked += 1;
-            console.log(`${sourceLogPrefix} Updated swatch successfully`);
-          }
-        } catch (err) {
-          console.error(`${sourceLogPrefix} Error processing swatch:`, {
-            shadeId,
-            dataSourceId,
-            checksum: preparedImage.checksumSha256,
-            storageUrl: preparedImage.storageUrl,
-            error: String(err),
-          });
-          throw err;
-        }
-      }
-
-      // Store additional images as image_assets (no swatch — for training data)
-      if (preparedImage?.additionalImages && preparedImage.additionalImages.length > 0) {
-        for (const addImg of preparedImage.additionalImages) {
-          try {
-            const existingAdditional = await client.query<{ imageId: number }>(
-              `SELECT image_id AS "imageId"
-               FROM image_asset
-               WHERE owner_type = 'source'
-                 AND owner_id = $1
-                 AND checksum_sha256 = $2
-               LIMIT 1`,
-              [dataSourceId, addImg.checksumSha256]
-            );
-
-            if (existingAdditional.rows.length === 0) {
-              await client.query(
-                `INSERT INTO image_asset
-                   (owner_type, owner_id, storage_url, checksum_sha256, copyright_status, captured_at)
-                 VALUES ('source', $1, $2, $3, 'licensed_source', now())`,
-                [dataSourceId, addImg.storageUrl, addImg.checksumSha256]
-              );
-              console.log(`${sourceLogPrefix} Stored additional image for ${record.externalId}: checksum=${addImg.checksumSha256}`);
-            }
-          } catch (err) {
-            console.error(`${sourceLogPrefix} Error storing additional image:`, String(err));
-            // Non-fatal: don't throw for additional images
-          }
-        }
-      }
+      processed += delta.processed;
+      brandsCreated += delta.brandsCreated;
+      shadesCreated += delta.shadesCreated;
+      inventoryInserted += delta.inventoryInserted;
+      inventoryUpdated += delta.inventoryUpdated;
+      hexOverwritten += delta.hexOverwritten;
+      swatchesLinked += delta.swatchesLinked;
+      skipped += delta.skipped;
     }
+  );
 
-    const result = {
-      processed,
-      brandsCreated,
-      shadesCreated,
-      inventoryInserted,
-      inventoryUpdated,
-      hexOverwritten,
-      ...preparedImageData.metrics,
-      swatchesLinked,
-      skipped,
-    };
+  const result = {
+    processed,
+    brandsCreated,
+    shadesCreated,
+    inventoryInserted,
+    inventoryUpdated,
+    hexOverwritten,
+    ...preparedImageData.metrics,
+    swatchesLinked,
+    skipped,
+  };
 
-    console.log(`${sourceLogPrefix} Materialization complete:`, result);
-
-    return result;
-  });
+  console.log(`${sourceLogPrefix} Materialization complete:`, result);
+  return result;
 }
