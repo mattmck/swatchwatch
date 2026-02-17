@@ -1,5 +1,4 @@
 #!/usr/bin/env sh
-. "$(dirname -- "$0")/_/husky.sh"
 
 # Source the change detection logic (extracted for testability)
 . "$(dirname -- "$0")/detect-changes.sh"
