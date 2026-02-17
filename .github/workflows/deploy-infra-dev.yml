@@ -75,6 +75,7 @@ jobs:
       TF_VAR_github_repository: ${{ github.repository }}
       TF_VAR_openai_endpoint: https://swatchwatch-experiment-resource.cognitiveservices.azure.com/
       TF_VAR_openai_deployment_name: gpt-4o-mini
+      TF_VAR_openai_location: eastus
       TF_VAR_retain_openai_account: true
       TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
       TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}

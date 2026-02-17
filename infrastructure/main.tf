@@ -361,9 +361,16 @@ resource "azurerm_cognitive_account" "openai" {
 
   # Azure auto-migrated the resource from kind "OpenAI" to "AIServices".
   # The azurerm v3 provider doesn't support "AIServices", so ignore the drift
-  # to prevent a destructive replacement. Remove this after upgrading to v4.
+  # to prevent a destructive replacement. Also ignore immutable location/
+  # subdomain drift while retaining this legacy account in Terraform.
+  # Remove this after upgrading to v4 and decommissioning the legacy account.
   lifecycle {
-    ignore_changes = [kind]
+    ignore_changes = [
+      kind,
+      location,
+      custom_subdomain_name,
+      tags,
+    ]
   }
 }
 
