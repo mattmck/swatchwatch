@@ -355,7 +355,9 @@ export async function uploadSourceImageToBlob(params: UploadSourceImageOptions):
   // If storage isn't configured (e.g., local dev), fall back to the source URL so we can still
   // associate images with records and run AI detection using the downloaded bytes.
   if (!connectionString) {
-    console.warn("[blob-storage] AZURE_STORAGE_CONNECTION not configured; using source image URL directly");
+    console.warn(
+      `[blob-storage] AZURE_STORAGE_CONNECTION not configured; using source image URL directly for ${params.source}:${params.externalId}`
+    );
     return {
       storageUrl: params.sourceImageUrl,
       checksumSha256,
