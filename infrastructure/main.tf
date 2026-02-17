@@ -73,7 +73,7 @@ locals {
   openai_key_secret_uri = (
     local.openai_uses_external_secret_uri
     ? local.openai_external_key_vault_secret_uri
-    : try(azurerm_key_vault_secret.openai_key[0].id, "")
+    : try(azurerm_key_vault_secret.openai_key[0].versionless_id, "")
   )
 }
 

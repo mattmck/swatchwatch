@@ -103,6 +103,7 @@ Dev infra deploys are pinned to the shared experiment OpenAI endpoint (`swatchwa
 ✅ **Audit Trail** — Key Vault logs all secret access  
 ✅ **OpenAI Observability** — Azure OpenAI diagnostic logs/metrics flow into the shared Log Analytics/App Insights workspace  
 ✅ **Key Vault References** — Function App settings use `@Microsoft.KeyVault(...)` syntax
+✅ **Versionless Secret URIs** — Function App secret references use Key Vault `versionless_id` to avoid app-setting churn on each secret version rotation
 
 ## Naming Convention
 
