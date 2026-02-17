@@ -147,6 +147,14 @@ function formatFetchError(error: unknown): string {
   return String(error);
 }
 
+function isContentFilterResponse(status: number, details: string): boolean {
+  if (status !== 400) {
+    return false;
+  }
+  const lower = details.toLowerCase();
+  return lower.includes("content_filter") || lower.includes("responsibleaipolicyviolation");
+}
+
 async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -277,7 +285,7 @@ export async function detectHexWithAzureOpenAI(
   emitLog(options, "info", `[ai-color-detection] Config loaded, calling Azure OpenAI for ${logLabel}`);
 
   const requestUrl = `${endpoint.replace(/\/+$/, "")}/openai/deployments/${deployment}/chat/completions?api-version=${OPENAI_API_VERSION}`;
-  const response = await fetchWithRetry(requestUrl, {
+  const createRequestInit = (safePrompt: boolean): RequestInit => ({
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -287,33 +295,101 @@ export async function detectHexWithAzureOpenAI(
       temperature: 0,
       max_tokens: 120,
       response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content:
-            "You extract one representative BASE polish color from a nail polish product image. Ignore background, props, packaging/box, labels/text, bottle cap, nail brush, skin tones, and glare. For glitter/shimmer/holo finishes, infer the underlying base lacquer color, not reflective particles. ALWAYS respond with valid JSON containing hex and confidence. If you cannot determine the color, still provide your best guess with a low confidence score. Format: {\"hex\":\"#RRGGBB\",\"confidence\":0..1,\"error\":\"reason if low confidence\"}.",
-        },
-        {
-          role: "user",
-          content: [
+      messages: safePrompt
+        ? [
             {
-              type: "text",
-              text:
-                "Image may show either a bottle product shot or closeup painted nails. Return exactly one hex for the primary marketed base shade. Exclude background, brush, cap, box, and sparkle highlights. ALWAYS return a hex value and confidence score. If the image is unclear or unusable, make your best guess and include an 'error' field explaining why confidence is low.",
+              role: "system",
+              content:
+                "Return one representative base polish color from the product image. Respond with valid JSON only: {\"hex\":\"#RRGGBB\",\"confidence\":0..1,\"error\":\"optional\"}. Always include hex and confidence.",
             },
             {
-              type: "image_url",
-              image_url: { url: imageUrlOrDataUri },
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text:
+                    "Return exactly one hex code for the primary polish shade. Ignore non-polish areas and reflections. If uncertain, provide best guess with low confidence.",
+                },
+                {
+                  type: "image_url",
+                  image_url: { url: imageUrlOrDataUri },
+                },
+              ],
+            },
+          ]
+        : [
+            {
+              role: "system",
+              content:
+                "You extract one representative BASE polish color from a nail polish product image. Ignore background, props, packaging/box, labels/text, bottle cap, nail brush, and glare. For glitter/shimmer/holo finishes, infer the underlying base lacquer color, not reflective particles. ALWAYS respond with valid JSON containing hex and confidence. If you cannot determine the color, still provide your best guess with a low confidence score. Format: {\"hex\":\"#RRGGBB\",\"confidence\":0..1,\"error\":\"reason if low confidence\"}.",
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text:
+                    "Image may show either a bottle product shot or closeup painted nails. Return exactly one hex for the primary marketed base shade. Exclude background, brush, cap, box, and sparkle highlights. ALWAYS return a hex value and confidence score. If the image is unclear or unusable, make your best guess and include an 'error' field explaining why confidence is low.",
+                },
+                {
+                  type: "image_url",
+                  image_url: { url: imageUrlOrDataUri },
+                },
+              ],
             },
           ],
-        },
-      ],
     }),
-  }, options);
+  });
+
+  let response = await fetchWithRetry(requestUrl, createRequestInit(false), options);
 
   if (!response.ok) {
     const details = await readErrorBodySnippet(response);
     const requestId = getResponseId(response);
+    if (isContentFilterResponse(response.status, details)) {
+      emitLog(
+        options,
+        "warn",
+        `[ai-color-detection] Content filter hit, retrying with safer prompt (requestId=${requestId})`,
+        {
+          status: response.status,
+          requestId,
+          body: details || undefined,
+        }
+      );
+      response = await fetchWithRetry(requestUrl, createRequestInit(true), options);
+    } else {
+      emitLog(
+        options,
+        "error",
+        `[ai-color-detection] Azure OpenAI non-OK response: status=${response.status}, requestId=${requestId}, body=${details || "n/a"}`,
+        {
+          status: response.status,
+          requestId,
+          body: details || undefined,
+        }
+      );
+      throw new Error(`Azure OpenAI hex detection failed: ${response.status} ${details}`);
+    }
+  }
+
+  if (!response.ok) {
+    const details = await readErrorBodySnippet(response);
+    const requestId = getResponseId(response);
+    if (isContentFilterResponse(response.status, details)) {
+      emitLog(
+        options,
+        "warn",
+        `[ai-color-detection] Content filter persisted after safe retry, skipping image (requestId=${requestId})`,
+        {
+          status: response.status,
+          requestId,
+          body: details || undefined,
+        }
+      );
+      return { hex: null, confidence: null, provider: "azure-openai" };
+    }
+
     emitLog(
       options,
       "error",
