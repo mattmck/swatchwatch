@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Menu } from "lucide-react";
+import { MarketingAuthButton } from "@/components/marketing-auth-button";
 
 export default function MarketingLayout({
   children,
@@ -43,9 +44,7 @@ export default function MarketingLayout({
             >
               <Link href="/polishes">View Collection</Link>
             </Button>
-            <Button asChild variant="brand">
-              <Link href="/dashboard">Open App</Link>
-            </Button>
+            <MarketingAuthButton />
           </div>
 
           <div className="flex items-center gap-2 sm:hidden">

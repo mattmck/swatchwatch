@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
+import { AuthProvider } from "@/components/auth-provider";
 import "./globals.css";
 
 const metadataBase =
@@ -90,8 +91,10 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}
       >
-        {children}
-        <Toaster richColors closeButton />
+        <AuthProvider>
+          {children}
+          <Toaster richColors closeButton />
+        </AuthProvider>
       </body>
     </html>
   );
