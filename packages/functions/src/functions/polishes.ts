@@ -467,6 +467,22 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
            WHERE shade_id = $1`,
           [targetShadeId, body.color ?? null, body.vendorHex ?? null, body.detectedHex ?? null, body.nameHex ?? null]
         );
+      } else if (body.color || body.vendorHex || body.detectedHex || body.nameHex) {
+        const inventoryItemResult = await client.query<{ inventoryItemId: string }>(
+          `SELECT inventory_item_id FROM user_inventory_item WHERE shade_id = $1 AND user_id = $2`,
+          [shadeId, userId]
+          );
+        const itemId = inventoryItemResult.rows[0]?.inventoryItemId;
+        // Update color data on the existing shade
+        await client.query(
+          `UPDATE shade SET
+             color_name   = COALESCE($2, color_name),
+             vendor_hex   = COALESCE($3, vendor_hex),
+             detected_hex = COALESCE($4, detected_hex),
+             name_hex     = COALESCE($5, name_hex)
+           WHERE shade_id = (SELECT shade_id FROM user_inventory_item WHERE inventory_item_id = $1 AND user_id = $6)`,
+          [itemId, body.color ?? null, body.vendorHex ?? null, body.detectedHex ?? null, body.nameHex ?? null, userId]
+        );
       }
 
       const result = await client.query<{ inventoryItemId: string }>(
