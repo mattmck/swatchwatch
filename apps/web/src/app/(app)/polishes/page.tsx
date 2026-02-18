@@ -211,27 +211,23 @@ export default function PolishesPage() {
   // Optimistic quantity update
   const handleQuantityChange = useCallback(
     (polishId: string, delta: number) => {
+      const original = polishes.find((p) => p.id === polishId);
+      if (!original) return;
+
+      const newQty = Math.max(0, (original.quantity ?? 0) + delta);
       setPolishes((prev) =>
-        prev.map((p) => {
-          if (p.id !== polishId) return p;
-          const newQty = Math.max(0, (p.quantity ?? 0) + delta);
-          return { ...p, quantity: newQty };
-        })
+        prev.map((p) => (p.id === polishId ? { ...p, quantity: newQty } : p))
       );
 
-      const polish = polishes.find((p) => p.id === polishId);
-      if (!polish) return;
-      const newQty = Math.max(0, (polish.quantity ?? 0) + delta);
-
-      updatePolish(polishId, { id: polishId, quantity: newQty }).catch(() => {
-        // Revert on failure
-        setPolishes((prev) =>
-          prev.map((p) => {
-            if (p.id !== polishId) return p;
-            return { ...p, quantity: polish.quantity };
-          })
-        );
-      });
+      updatePolish(polishId, { quantity: newQty })
+        .then((updated) => {
+          setPolishes((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+        })
+        .catch(() => {
+          setPolishes((prev) =>
+            prev.map((p) => (p.id === polishId ? original : p))
+          );
+        });
     },
     [polishes]
   );

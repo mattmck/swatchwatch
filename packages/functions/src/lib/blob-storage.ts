@@ -325,14 +325,6 @@ export async function readBlobFromStorageUrl(storageUrl: string): Promise<ReadBl
 }
 
 export async function uploadSourceImageToBlob(params: UploadSourceImageOptions): Promise<UploadedBlobImage> {
-  const connectionString = asNonEmpty(process.env.AZURE_STORAGE_CONNECTION);
-  if (!connectionString) {
-    throw new Error("AZURE_STORAGE_CONNECTION is required for source image uploads");
-  }
-
-  const config = parseStorageConnectionString(connectionString);
-  const containerName = normalizeContainerName(process.env.SOURCE_IMAGE_CONTAINER);
-
   console.log(`[blob-storage] Downloading image from ${params.sourceImageUrl}`);
   const sourceResponse = await runWithTimeout(
     fetch(params.sourceImageUrl, {
@@ -357,6 +349,26 @@ export async function uploadSourceImageToBlob(params: UploadSourceImageOptions):
   }
 
   const checksumSha256 = createHash("sha256").update(bytes).digest("hex");
+  const imageBase64DataUri = `data:${contentType};base64,${bytes.toString("base64")}`;
+  const connectionString = asNonEmpty(process.env.AZURE_STORAGE_CONNECTION);
+
+  // If storage isn't configured (e.g., local dev), fall back to the source URL so we can still
+  // associate images with records and run AI detection using the downloaded bytes.
+  if (!connectionString) {
+    console.warn(
+      `[blob-storage] AZURE_STORAGE_CONNECTION not configured; using source image URL directly for ${params.source}:${params.externalId}`
+    );
+    return {
+      storageUrl: params.sourceImageUrl,
+      checksumSha256,
+      contentType,
+      sizeBytes: bytes.length,
+      imageBase64DataUri,
+    };
+  }
+
+  const config = parseStorageConnectionString(connectionString);
+  const containerName = normalizeContainerName(process.env.SOURCE_IMAGE_CONTAINER);
   const extension = inferExtension(contentType, params.sourceImageUrl);
   const blobName = buildBlobName(params.source, params.externalId, checksumSha256, extension);
 
@@ -400,23 +412,8 @@ export async function uploadSourceImageToBlob(params: UploadSourceImageOptions):
 
   console.log(`[blob-storage] Blob uploaded successfully: ${blobUrl.toString()}`);
 
-  // For local dev (Azurite), return an API endpoint instead of direct blob URL
-  // For production, this would be the actual blob URL
-  const isLocalDev = process.env.AzureWebJobsStorage?.includes("127.0.0.1") ||
-                     process.env.AzureWebJobsStorage?.includes("UseDevelopmentStorage");
-
-  let imageUrl: string;
-  if (isLocalDev) {
-    // Return full URL to local functions API
-    imageUrl = `http://localhost:7071/api/images/${checksumSha256}`;
-  } else {
-    imageUrl = blobUrl.toString();
-  }
-
-  const imageBase64DataUri = `data:${contentType};base64,${bytes.toString("base64")}`;
-
   return {
-    storageUrl: imageUrl,
+    storageUrl: blobUrl.toString(),
     checksumSha256,
     contentType,
     sizeBytes: bytes.length,

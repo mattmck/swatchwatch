@@ -116,8 +116,8 @@ export default function PolishForm() {
     };
     try {
       if (isEditing && editId) {
-        await updatePolish(editId, { id: String(editId), ...payload });
-        router.push(`/polishes/detail?id=${editId}`);
+        const updated = await updatePolish(editId, payload);
+        router.push(`/polishes/detail?id=${updated.id}`);
       } else {
         const created = await createPolish(payload);
         if (created?.id) {

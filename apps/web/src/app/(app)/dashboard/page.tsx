@@ -46,7 +46,7 @@ export default function DashboardPage() {
           sortBy: "createdAt",
           sortOrder: "desc",
         });
-        setPolishes(response);
+        setPolishes(response.filter((polish) => (polish.quantity ?? 0) > 0));
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Failed to load dashboard data");
       } finally {

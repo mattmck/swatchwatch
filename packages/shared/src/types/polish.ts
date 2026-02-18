@@ -1,5 +1,10 @@
 export interface Polish {
+  /** Canonical shade identifier (global across all users) */
   id: string;
+  /** Alias for clarity when joining with catalog/shade tables */
+  shadeId: string;
+  /** User-specific inventory row id (undefined when the user does not own it) */
+  inventoryItemId?: string;
   userId: string;
   brand: string;
   name: string;
@@ -75,6 +80,11 @@ export interface Shade {
 }
 
 export interface PolishCreateRequest {
+  /**
+   * Optional shade id when attaching an existing catalog entry to a user's collection.
+   * When omitted, a new shade (brand/name) will be created or matched by name.
+   */
+  shadeId?: string;
   brand: string;
   name: string;
   color: string;
@@ -92,9 +102,7 @@ export interface PolishCreateRequest {
   tags?: string[];
 }
 
-export interface PolishUpdateRequest extends Partial<PolishCreateRequest> {
-  id: string;
-}
+export type PolishUpdateRequest = Partial<PolishCreateRequest>;
 
 export interface PolishListResponse {
   polishes: Polish[];
