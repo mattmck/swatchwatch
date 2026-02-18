@@ -109,3 +109,9 @@ variable "is_automation" {
   type        = bool
   default     = false
 }
+
+variable "domain_name" {
+  description = "Root domain name for the application (e.g., swatchwatch.app)"
+  type        = string
+  default     = "swatchwatch.app"
+}

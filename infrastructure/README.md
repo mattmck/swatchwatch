@@ -57,14 +57,10 @@ Dev infra deploys are pinned to the shared experiment OpenAI endpoint (`swatchwa
 | Function App | `azurerm_linux_function_app.main` | Node 20 function host (Managed Identity enabled) |
 | Static Web App | `azurerm_static_web_app.main` | Next.js frontend (Standard tier) |
 | Speech Services | `azurerm_cognitive_account.speech` | Speech-to-text for voice input |
-<<<<<<< HEAD
-| Azure OpenAI Account | `azurerm_cognitive_account.openai` | Vision-capable OpenAI endpoint for hex color detection |
-| Azure OpenAI Deployment | `azurerm_cognitive_deployment.openai_hex` | Model deployment used by `AZURE_OPENAI_DEPLOYMENT_HEX` |
-| Azure OpenAI Diagnostic Setting | `azurerm_monitor_diagnostic_setting.openai` | Sends OpenAI logs/metrics to Log Analytics (shared with Application Insights) |
-=======
 | Azure OpenAI Account *(optional)* | `azurerm_cognitive_account.openai` | Vision-capable OpenAI endpoint for hex color detection (`create_openai_resources=true`) |
 | Azure OpenAI Deployment *(optional)* | `azurerm_cognitive_deployment.openai_hex` | Model deployment used by `AZURE_OPENAI_DEPLOYMENT_HEX` when OpenAI resources are provisioned |
->>>>>>> 9a1b0c854e915692687986304bd9b7fff97dfed7
+| Azure OpenAI Diagnostic Setting *(optional)* | `azurerm_monitor_diagnostic_setting.openai` | Sends OpenAI logs/metrics to Log Analytics (when OpenAI resources are provisioned) |
+| Custom Domain | `azurerm_static_web_app_custom_domain.dev` | Maps `dev.swatchwatch.app` to the Static Web App |
 | Azure AD Application | `azuread_application.github_actions` | GitHub Actions OIDC identity |
 | Service Principal | `azuread_service_principal.github_actions` | Grants GitHub Actions access |
 | Federated Credential | `azuread_application_federated_identity_credential.github_actions` | Passwordless OIDC trust |
@@ -91,6 +87,8 @@ Dev infra deploys are pinned to the shared experiment OpenAI endpoint (`swatchwa
 | `openai_model_name` | `gpt-4o-mini` | Azure OpenAI model name for the hex detector deployment |
 | `openai_model_version` | `2024-07-18` | Azure OpenAI model version for the hex detector deployment |
 | `openai_deployment_capacity` | `10` | Provisioned throughput units for the OpenAI deployment |
+| `is_automation` | `false` | Flag for CI/CD pipelines (skips deployer Key Vault access policy) |
+| `domain_name` | `swatchwatch.app` | Root domain name for the application (used for custom domains and CORS) |
 
 **Sensitive variables** are stored in `terraform.tfvars` (gitignored) and created by `bootstrap.sh`.
 
@@ -218,15 +216,11 @@ az functionapp config appsettings set \
     AZURE_SPEECH_KEY="@Microsoft.KeyVault(SecretUri=https://${VAULT_NAME}.vault.azure.net/secrets/azure-speech-key)"
 ```
 
-<<<<<<< HEAD
-`AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, and `AZURE_OPENAI_DEPLOYMENT_HEX` are now provisioned directly by Terraform. Azure OpenAI diagnostics are also configured by Terraform to flow to Log Analytics/Application Insights.
-=======
 OpenAI settings are optional:
-- If `create_openai_resources=true`, Terraform provisions OpenAI and wires `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, and `AZURE_OPENAI_DEPLOYMENT_HEX`.
+- If `create_openai_resources=true`, Terraform provisions OpenAI and wires `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, and `AZURE_OPENAI_DEPLOYMENT_HEX`. Diagnostics flow to Log Analytics/Application Insights.
 - If `create_openai_resources=false`, either:
   - set `openai_endpoint` + `openai_api_key`, or
   - set `openai_endpoint` + `openai_key_vault_secret_uri` (preferred).
->>>>>>> 9a1b0c854e915692687986304bd9b7fff97dfed7
 
 ## Destroying Infrastructure
 
