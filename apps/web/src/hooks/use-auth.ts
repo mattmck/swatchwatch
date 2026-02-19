@@ -11,6 +11,8 @@ export interface AuthUser {
 export interface UseAuthReturn {
   isAuthenticated: boolean;
   user: AuthUser | null;
+  role: "admin" | "user" | null;
+  isAdmin: boolean;
   login: () => void;
   logout: () => void;
 }
@@ -25,6 +27,14 @@ export function useAuth(): UseAuthReturn {
   const isAuthenticated = useIsAuthenticated();
 
   const account = accounts[0] ?? null;
+  const roleClaimsRaw = (account?.idTokenClaims as { roles?: string[] | string } | undefined)?.roles;
+  const roleClaims = Array.isArray(roleClaimsRaw)
+    ? roleClaimsRaw
+    : typeof roleClaimsRaw === "string"
+      ? [roleClaimsRaw]
+      : [];
+  const isAdmin = roleClaims.some((role) => role.toLowerCase() === "admin");
+  const role: "admin" | "user" = isAdmin ? "admin" : "user";
 
   const user: AuthUser | null = account
     ? {
@@ -41,7 +51,7 @@ export function useAuth(): UseAuthReturn {
     instance.logoutRedirect();
   };
 
-  return { isAuthenticated, user, login, logout };
+  return { isAuthenticated, user, role, isAdmin, login, logout };
 }
 
 /**
@@ -52,6 +62,8 @@ export function useUnconfiguredAuth(): UseAuthReturn {
   return {
     isAuthenticated: false,
     user: null,
+    role: null,
+    isAdmin: false,
     login: () => {
       console.warn("[Auth] Cannot login: B2C is not configured");
     },
@@ -67,6 +79,8 @@ export function useDevAuth(): UseAuthReturn {
   return {
     isAuthenticated: true,
     user: { name: "Dev User", email: "dev@swatchwatch.app" },
+    role: "admin",
+    isAdmin: true,
     login: () => {},
     logout: () => {},
   };

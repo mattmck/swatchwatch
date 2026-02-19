@@ -142,6 +142,21 @@ export async function deletePolish(id: string | number): Promise<{ message: stri
   return handleResponse<{ message: string; id: number }>(response);
 }
 
+export interface RecalcPolishHexResponse {
+  success?: boolean;
+  message?: string;
+  shadeId?: string;
+  status?: string;
+}
+
+export async function recalcPolishHex(id: string | number): Promise<RecalcPolishHexResponse> {
+  const response = await fetch(`${API_BASE_URL}/polishes/${id}/recalc-hex`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders({ admin: true }) },
+  });
+  return handleResponse<RecalcPolishHexResponse>(response);
+}
+
 export async function searchCatalog(q: string, limit?: number): Promise<CatalogSearchResponse> {
   const params = new URLSearchParams({ q });
   if (limit) params.set("limit", String(limit));

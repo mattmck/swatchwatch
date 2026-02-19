@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
-import { listAllPolishes, updatePolish } from "@/lib/api";
+import { listAllPolishes, recalcPolishHex, updatePolish } from "@/lib/api";
 import { undertone, type Undertone } from "@/lib/color-utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Loader2, Sparkles } from "lucide-react";
 import { ColorDot } from "@/components/color-dot";
 import { QuantityControls } from "@/components/quantity-controls";
 import { Pagination } from "@/components/pagination";
@@ -33,12 +33,44 @@ import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
 import { FINISHES, finishBadgeClassName, finishLabel } from "@/lib/constants";
+import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
+import { buildMsalConfig } from "@/lib/msal-config";
+import { toast } from "sonner";
 
 const DEFAULT_PAGE_SIZE = 10;
 type SortKey = "status" | "brand" | "name" | "finish" | "collection";
 type SortDirection = "asc" | "desc";
+const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
+const HAS_B2C_CONFIG = buildMsalConfig() !== null;
 
 export default function PolishesPage() {
+  if (IS_DEV_BYPASS) {
+    return <DevPolishesPage />;
+  }
+
+  if (!HAS_B2C_CONFIG) {
+    return <UnconfiguredPolishesPage />;
+  }
+
+  return <B2CPolishesPage />;
+}
+
+function DevPolishesPage() {
+  const { isAdmin } = useDevAuth();
+  return <PolishesPageContent isAdmin={isAdmin} />;
+}
+
+function B2CPolishesPage() {
+  const { isAdmin } = useAuth();
+  return <PolishesPageContent isAdmin={isAdmin} />;
+}
+
+function UnconfiguredPolishesPage() {
+  const { isAdmin } = useUnconfiguredAuth();
+  return <PolishesPageContent isAdmin={isAdmin} />;
+}
+
+function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const [polishes, setPolishes] = useState<Polish[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +88,9 @@ export default function PolishesPage() {
   // Pagination
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [recalcPendingById, setRecalcPendingById] = useState<
+    Record<string, boolean>
+  >({});
 
   useEffect(() => {
     let cancelled = false;
@@ -208,6 +243,7 @@ export default function PolishesPage() {
 
   const totalPages = Math.ceil(sorted.length / pageSize);
   const pageItems = sorted.slice((page - 1) * pageSize, page * pageSize);
+  const columnCount = 9 + (isAdmin ? 1 : 0);
 
   // Optimistic quantity update
   const handleQuantityChange = useCallback(
@@ -232,6 +268,24 @@ export default function PolishesPage() {
     },
     [polishes]
   );
+
+  const handleRecalcHex = useCallback(async (polishId: string) => {
+    setRecalcPendingById((prev) => ({ ...prev, [polishId]: true }));
+    try {
+      const result = await recalcPolishHex(polishId);
+      toast.success(result.message || "Hex recalculation request submitted.");
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Failed to recalculate shade hex.";
+      toast.error("Hex recalculation failed", { description: message });
+    } finally {
+      setRecalcPendingById((prev) => {
+        const next = { ...prev };
+        delete next[polishId];
+        return next;
+      });
+    }
+  }, []);
 
   if (loading) return <BrandSpinner label="Loading polishes…" />;
 
@@ -414,13 +468,16 @@ export default function PolishesPage() {
                   {renderSortIcon("collection")}
                 </button>
               </TableHead>
+              {isAdmin && (
+                <TableHead className="w-28 text-right">Recalc Hex</TableHead>
+              )}
               <TableHead className="w-28 text-right">Action</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {pageItems.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10} className="p-0">
+                <TableCell colSpan={columnCount} className="p-0">
                   <EmptyState
                     title={polishes.length === 0 ? "No polishes yet" : "No matches"}
                     description={polishes.length === 0 ? "Add your first polish to get started." : "Try adjusting your filters."}
@@ -432,6 +489,7 @@ export default function PolishesPage() {
             ) : (
               pageItems.map((polish) => {
                 const owned = isOwned(polish);
+                const recalcPending = recalcPendingById[polish.id] === true;
                 return (
                   <TableRow
                     key={polish.id}
@@ -497,6 +555,25 @@ export default function PolishesPage() {
                     <TableCell className="text-muted-foreground">
                       {polish.collection ?? "\u2014"}
                     </TableCell>
+                    {isAdmin && (
+                      <TableCell className="text-right">
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="outline"
+                          className="min-w-[102px] justify-center"
+                          disabled={recalcPending}
+                          onClick={() => handleRecalcHex(polish.id)}
+                        >
+                          {recalcPending ? (
+                            <Loader2 className="size-3 animate-spin" />
+                          ) : (
+                            <Sparkles className="size-3" />
+                          )}
+                          {recalcPending ? "Submitting..." : "Recalc"}
+                        </Button>
+                      </TableCell>
+                    )}
                     <TableCell className="text-right">
                       <QuantityControls
                         quantity={polish.quantity ?? 0}
