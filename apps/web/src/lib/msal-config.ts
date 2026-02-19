@@ -21,7 +21,7 @@ export function buildMsalConfig(): Configuration | null {
 
   // External ID (CIAM) tenants use ciamlogin.com without a policy segment.
   // Legacy Azure AD B2C uses b2clogin.com with policy in the authority path.
-  const isLegacyB2CPolicy = /^B2C_1/i.test(policy);
+  const isLegacyB2CPolicy = isLegacyB2CPolicyName(policy);
   const authorityHost = isLegacyB2CPolicy
     ? `${tenant}.b2clogin.com`
     : `${tenant}.ciamlogin.com`;
@@ -49,6 +49,25 @@ export function buildMsalConfig(): Configuration | null {
       },
     },
   };
+}
+
+function isLegacyB2CPolicyName(policy: string): boolean {
+  return /^B2C_1/i.test(policy);
+}
+
+/**
+ * Additional query params for CIAM user-flow selection.
+ * Legacy B2C encodes policy in authority path and doesn't use `p`.
+ */
+export function buildPolicyQueryParameters(): Record<string, string> | undefined {
+  const policy =
+    process.env.NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY || "B2C_1_signupsignin";
+
+  if (isLegacyB2CPolicyName(policy)) {
+    return undefined;
+  }
+
+  return { p: policy };
 }
 
 /** Scopes used for login and token acquisition. */

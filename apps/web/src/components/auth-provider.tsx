@@ -3,7 +3,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { MsalProvider } from "@azure/msal-react";
 import { PublicClientApplication, EventType } from "@azure/msal-browser";
-import { buildMsalConfig, LOGIN_SCOPES } from "@/lib/msal-config";
+import {
+  buildMsalConfig,
+  buildPolicyQueryParameters,
+  LOGIN_SCOPES,
+} from "@/lib/msal-config";
 import { setAccessToken } from "@/lib/auth-token";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -60,6 +64,7 @@ function MsalAuthProvider({
           const result = await msalInstance.acquireTokenSilent({
             scopes: LOGIN_SCOPES,
             account: activeAccount,
+            extraQueryParameters: buildPolicyQueryParameters(),
           });
           setAccessToken(result.accessToken);
         } catch {

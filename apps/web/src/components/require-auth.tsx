@@ -2,7 +2,11 @@
 
 import { type ReactNode } from "react";
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
-import { LOGIN_SCOPES, buildMsalConfig } from "@/lib/msal-config";
+import {
+  buildMsalConfig,
+  buildPolicyQueryParameters,
+  LOGIN_SCOPES,
+} from "@/lib/msal-config";
 import { Button } from "@/components/ui/button";
 
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
@@ -61,7 +65,11 @@ function B2CGuard({ children }: { children: ReactNode }) {
         </p>
         <Button
           variant="brand"
-          onClick={() => instance.loginRedirect({ scopes: LOGIN_SCOPES })}
+          onClick={() =>
+            instance.loginRedirect({
+              scopes: LOGIN_SCOPES,
+              extraQueryParameters: buildPolicyQueryParameters(),
+            })}
         >
           Sign In
         </Button>

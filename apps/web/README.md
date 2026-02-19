@@ -171,7 +171,7 @@ cd apps/web && npx shadcn@latest add <component-name>
 | `NEXT_PUBLIC_AUTH_DEV_ADMIN_USER_ID` | Optional admin dev bypass user id for admin-only API calls (`/admin/jobs` uses this; defaults to `2`). Ignored when `NEXT_PUBLIC_AUTH_DEV_BYPASS=false` |
 | `NEXT_PUBLIC_B2C_TENANT` | Entra tenant short name (e.g., `myorgdev`). Empty or missing → auth skipped, unconfigured fallback mode. When set with `NEXT_PUBLIC_B2C_CLIENT_ID` → MSAL initialized |
 | `NEXT_PUBLIC_B2C_CLIENT_ID` | Entra app registration client ID. Must be set alongside `NEXT_PUBLIC_B2C_TENANT` to enable auth |
-| `NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY` | Policy/user-flow selector. If it starts with `B2C_1`, the app uses legacy `b2clogin.com` policy authority. Otherwise it uses `ciamlogin.com` authority without a policy path segment (for External ID tenants). |
+| `NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY` | Policy/user-flow selector. If it starts with `B2C_1`, the app uses legacy `b2clogin.com` policy authority. Otherwise it uses `ciamlogin.com` authority and sends `p=<value>` query parameter on auth/token requests (for External ID tenants). |
 
 **Note:** When both `NEXT_PUBLIC_B2C_TENANT` and `NEXT_PUBLIC_B2C_CLIENT_ID` are empty, the app runs in **unconfigured mode**: marketing pages work, but `(app)` routes show a "Sign in" prompt that warns the user B2C is not configured.
 
