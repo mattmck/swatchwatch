@@ -1,6 +1,13 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface PaginationProps {
   currentPage: number;
@@ -8,6 +15,7 @@ interface PaginationProps {
   totalItems: number;
   pageSize: number;
   onPageChange: (page: number) => void;
+  onPageSizeChange?: (size: number) => void;
 }
 
 export function Pagination({
@@ -16,11 +24,17 @@ export function Pagination({
   totalItems,
   pageSize,
   onPageChange,
+  onPageSizeChange,
 }: PaginationProps) {
   if (totalPages <= 1) {
     return (
-      <div className="text-sm text-muted-foreground">
-        {totalItems} {totalItems === 1 ? "polish" : "polishes"}
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-muted-foreground">
+          {totalItems} {totalItems === 1 ? "polish" : "polishes"}
+        </span>
+        {onPageSizeChange && (
+          <PageSizeSelector pageSize={pageSize} onPageSizeChange={onPageSizeChange} />
+        )}
       </div>
     );
   }
@@ -30,11 +44,29 @@ export function Pagination({
   const end = Math.min(currentPage * pageSize, totalItems);
 
   return (
-    <div className="flex items-center justify-between">
+    <div className="flex items-center justify-between gap-4">
       <span className="text-sm text-muted-foreground">
         {start}&ndash;{end} of {totalItems}
       </span>
       <div className="flex items-center gap-1">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={currentPage <= 1}
+          onClick={() => onPageChange(1)}
+          title="First page"
+        >
+          «
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={currentPage <= 1}
+          onClick={() => onPageChange(Math.max(1, currentPage - 5))}
+          title="Back 5 pages"
+        >
+          ‹‹
+        </Button>
         <Button
           variant="outline"
           size="sm"
@@ -67,7 +99,55 @@ export function Pagination({
         >
           Next
         </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={currentPage >= totalPages}
+          onClick={() => onPageChange(Math.min(totalPages, currentPage + 5))}
+          title="Forward 5 pages"
+        >
+          ››
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={currentPage >= totalPages}
+          onClick={() => onPageChange(totalPages)}
+          title="Last page"
+        >
+          »
+        </Button>
       </div>
+      {onPageSizeChange && (
+        <PageSizeSelector pageSize={pageSize} onPageSizeChange={onPageSizeChange} />
+      )}
+    </div>
+  );
+}
+
+function PageSizeSelector({
+  pageSize,
+  onPageSizeChange,
+}: {
+  pageSize: number;
+  onPageSizeChange: (size: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <label htmlFor="page-size" className="text-sm text-muted-foreground">
+        Rows per page:
+      </label>
+      <Select value={pageSize.toString()} onValueChange={(v) => onPageSizeChange(parseInt(v, 10))}>
+        <SelectTrigger id="page-size" className="w-20">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="10">10</SelectItem>
+          <SelectItem value="25">25</SelectItem>
+          <SelectItem value="50">50</SelectItem>
+          <SelectItem value="100">100</SelectItem>
+        </SelectContent>
+      </Select>
     </div>
   );
 }
