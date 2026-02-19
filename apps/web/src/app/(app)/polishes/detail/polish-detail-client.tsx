@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
@@ -307,13 +308,15 @@ export default function PolishDetailClient({ id }: { id: string }) {
                       target="_blank"
                       rel="noreferrer"
                       title="Open image"
-                      className="inline-block"
+                      className="relative inline-block h-36 w-full overflow-hidden rounded-lg border"
                     >
-                      <img
+                      <Image
                         src={imageUrl}
                         alt={`${polish.brand} ${polish.name} image ${index + 1}`}
-                        className="h-36 w-full rounded-lg border object-cover transition-opacity hover:opacity-90"
-                        loading="lazy"
+                        fill
+                        unoptimized
+                        sizes="(min-width: 640px) 33vw, 50vw"
+                        className="object-cover transition-opacity hover:opacity-90"
                       />
                     </a>
                   ))}

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
@@ -697,11 +698,14 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                           title="Open image"
                           className="inline-block"
                         >
-                          <img
+                          <Image
                             src={polish.swatchImageUrl}
                             alt={`${polish.brand} ${polish.name} swatch`}
+                            width={40}
+                            height={40}
+                            unoptimized
+                            sizes="40px"
                             className="h-10 w-10 rounded-md border object-cover transition-opacity hover:opacity-85"
-                            loading="lazy"
                           />
                         </a>
                       ) : (
