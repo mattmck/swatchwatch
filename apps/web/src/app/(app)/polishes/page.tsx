@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
 import { listAllPolishes, recalcPolishHex, updatePolish } from "@/lib/api";
@@ -38,10 +39,54 @@ import { buildMsalConfig } from "@/lib/msal-config";
 import { toast } from "sonner";
 
 const DEFAULT_PAGE_SIZE = 10;
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
 type SortKey = "status" | "brand" | "name" | "finish" | "collection";
 type SortDirection = "asc" | "desc";
+type AvailabilityFilter = "all" | "owned" | "wishlist";
+const SORT_KEYS: readonly SortKey[] = ["status", "brand", "name", "finish", "collection"];
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
 const HAS_B2C_CONFIG = buildMsalConfig() !== null;
+
+function parsePositiveInt(value: string | null, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseBooleanFlag(value: string | null, fallback: boolean): boolean {
+  if (!value) return fallback;
+  if (value === "1" || value === "true") return true;
+  if (value === "0" || value === "false") return false;
+  return fallback;
+}
+
+function parseSortKey(value: string | null): SortKey {
+  return SORT_KEYS.includes(value as SortKey) ? (value as SortKey) : "name";
+}
+
+function parseSortDirection(value: string | null): SortDirection {
+  return value === "desc" ? "desc" : "asc";
+}
+
+function parseToneFilter(value: string | null): Undertone | "all" {
+  return value === "warm" || value === "cool" || value === "neutral" ? value : "all";
+}
+
+function parseFinishFilter(value: string | null): string {
+  if (!value || value === "all") return "all";
+  return FINISHES.includes(value as (typeof FINISHES)[number]) ? value : "all";
+}
+
+function parseAvailabilityFilter(value: string | null): AvailabilityFilter {
+  return value === "owned" || value === "wishlist" ? value : "all";
+}
+
+function parsePageSize(value: string | null): number {
+  const parsed = parsePositiveInt(value, DEFAULT_PAGE_SIZE);
+  return PAGE_SIZE_OPTIONS.includes(parsed as (typeof PAGE_SIZE_OPTIONS)[number])
+    ? parsed
+    : DEFAULT_PAGE_SIZE;
+}
 
 export default function PolishesPage() {
   if (IS_DEV_BYPASS) {
@@ -71,23 +116,43 @@ function UnconfiguredPolishesPage() {
 }
 
 function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const didMountRef = useRef(false);
   const [polishes, setPolishes] = useState<Polish[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Filters
-  const [search, setSearch] = useState("");
-  const [favorCollection, setFavorCollection] = useState(true);
-  const [includeAll, setIncludeAll] = useState(true);
-  const [toneFilter, setToneFilter] = useState<Undertone | "all">("all");
-  const [finishFilter, setFinishFilter] = useState<string>("all");
-  const [availabilityFilter, setAvailabilityFilter] = useState<"all" | "owned" | "wishlist">("all");
-  const [sortKey, setSortKey] = useState<SortKey>("name");
-  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+  const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
+  const [favorCollection, setFavorCollection] = useState(() =>
+    parseBooleanFlag(searchParams.get("favor"), true)
+  );
+  const [includeAll, setIncludeAll] = useState(() =>
+    parseBooleanFlag(searchParams.get("all"), true)
+  );
+  const [toneFilter, setToneFilter] = useState<Undertone | "all">(() =>
+    parseToneFilter(searchParams.get("tone"))
+  );
+  const [finishFilter, setFinishFilter] = useState<string>(() =>
+    parseFinishFilter(searchParams.get("finish"))
+  );
+  const [availabilityFilter, setAvailabilityFilter] = useState<AvailabilityFilter>(() =>
+    parseAvailabilityFilter(searchParams.get("avail"))
+  );
+  const [sortKey, setSortKey] = useState<SortKey>(() =>
+    parseSortKey(searchParams.get("sort"))
+  );
+  const [sortDirection, setSortDirection] = useState<SortDirection>(() =>
+    parseSortDirection(searchParams.get("dir"))
+  );
 
   // Pagination
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [page, setPage] = useState(() => parsePositiveInt(searchParams.get("page"), 1));
+  const [pageSize, setPageSize] = useState(() =>
+    parsePageSize(searchParams.get("pageSize"))
+  );
   const [recalcPendingById, setRecalcPendingById] = useState<
     Record<string, boolean>
   >({});
@@ -126,10 +191,52 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     };
   }, []);
 
-  // Reset page when filters change
+  // Reset page when filters change (but keep initial URL-restored page).
   useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
     setPage(1);
   }, [search, favorCollection, includeAll, toneFilter, finishFilter, availabilityFilter, sortKey, sortDirection]);
+
+  // Persist list state in URL to support back/forward restoration.
+  useEffect(() => {
+    const params = new URLSearchParams();
+
+    if (search) params.set("q", search);
+    if (!favorCollection) params.set("favor", "0");
+    if (!includeAll) params.set("all", "0");
+    if (toneFilter !== "all") params.set("tone", toneFilter);
+    if (finishFilter !== "all") params.set("finish", finishFilter);
+    if (availabilityFilter !== "all") params.set("avail", availabilityFilter);
+    if (sortKey !== "name") params.set("sort", sortKey);
+    if (sortDirection !== "asc") params.set("dir", sortDirection);
+    if (page !== 1) params.set("page", String(page));
+    if (pageSize !== DEFAULT_PAGE_SIZE) params.set("pageSize", String(pageSize));
+
+    const nextQuery = params.toString();
+    const currentQuery = searchParams.toString();
+    if (nextQuery === currentQuery) return;
+
+    router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, {
+      scroll: false,
+    });
+  }, [
+    availabilityFilter,
+    favorCollection,
+    finishFilter,
+    includeAll,
+    page,
+    pageSize,
+    pathname,
+    router,
+    search,
+    searchParams,
+    sortDirection,
+    sortKey,
+    toneFilter,
+  ]);
 
   const isOwned = (p: Polish) => (p.quantity ?? 0) > 0;
 
@@ -244,6 +351,16 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const totalPages = Math.ceil(sorted.length / pageSize);
   const pageItems = sorted.slice((page - 1) * pageSize, page * pageSize);
   const columnCount = 9 + (isAdmin ? 1 : 0);
+
+  useEffect(() => {
+    if (totalPages === 0 && page !== 1) {
+      setPage(1);
+      return;
+    }
+    if (totalPages > 0 && page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
 
   // Optimistic quantity update
   const handleQuantityChange = useCallback(
