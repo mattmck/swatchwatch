@@ -6,6 +6,7 @@ export interface AuthResult {
   userId: number;
   externalId: string;
   email?: string;
+  role?: string;
 }
 
 /**
@@ -105,7 +106,7 @@ async function handleB2CToken(
 
   const userId = await getOrCreateUser(externalId, email);
 
-  return { userId, externalId, email };
+  return { userId, externalId, email, role: "user" };
 }
 
 /**
@@ -144,12 +145,43 @@ export type AuthenticatedHandler = (
   userId: number
 ) => Promise<HttpResponseInit>;
 
+export type AdminHandler = AuthenticatedHandler;
+
 export function withAuth(
   handler: AuthenticatedHandler
 ): (request: HttpRequest, context: InvocationContext) => Promise<HttpResponseInit> {
   return async (request, context) => {
     try {
       const auth = await authenticateRequest(request, context);
+      return handler(request, context, auth.userId);
+    } catch (error) {
+      if (error instanceof AuthError) {
+        return {
+          status: 401,
+          jsonBody: { error: error.message },
+        };
+      }
+      context.error("Unexpected auth error:", error);
+      return {
+        status: 401,
+        jsonBody: { error: "Authentication failed" },
+      };
+    }
+  };
+}
+
+export function withAdmin(
+  handler: AdminHandler
+): (request: HttpRequest, context: InvocationContext) => Promise<HttpResponseInit> {
+  return async (request, context) => {
+    try {
+      const auth = await authenticateRequest(request, context);
+      if (auth.role !== "admin") {
+        return {
+          status: 403,
+          jsonBody: { error: "Admin role required" },
+        };
+      }
       return handler(request, context, auth.userId);
     } catch (error) {
       if (error instanceof AuthError) {
