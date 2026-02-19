@@ -72,3 +72,29 @@ export function buildPolicyQueryParameters(): Record<string, string> | undefined
 
 /** Scopes used for login and token acquisition. */
 export const LOGIN_SCOPES = ["openid", "profile", "offline_access"];
+
+/**
+ * API scopes requested for backend calls.
+ *
+ * Priority:
+ * 1. Explicit `NEXT_PUBLIC_B2C_API_SCOPE` (space-delimited list supported)
+ * 2. Default to `api://<client-id>/access_as_user`
+ */
+export function buildApiTokenScopes(): string[] {
+  const configuredApiScopes = process.env.NEXT_PUBLIC_B2C_API_SCOPE?.trim();
+  if (configuredApiScopes) {
+    return configuredApiScopes.split(/\s+/).filter(Boolean);
+  }
+
+  const clientId = process.env.NEXT_PUBLIC_B2C_CLIENT_ID;
+  if (!clientId) {
+    return [];
+  }
+
+  return [`api://${clientId}/access_as_user`];
+}
+
+/** Full interactive login scopes (OIDC + API). */
+export function buildLoginRequestScopes(): string[] {
+  return Array.from(new Set([...LOGIN_SCOPES, ...buildApiTokenScopes()]));
+}

@@ -3,9 +3,9 @@
 import { type ReactNode } from "react";
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
 import {
+  buildLoginRequestScopes,
   buildMsalConfig,
   buildPolicyQueryParameters,
-  LOGIN_SCOPES,
 } from "@/lib/msal-config";
 import { Button } from "@/components/ui/button";
 
@@ -67,7 +67,7 @@ function B2CGuard({ children }: { children: ReactNode }) {
           variant="brand"
           onClick={() =>
             instance.loginRedirect({
-              scopes: LOGIN_SCOPES,
+              scopes: buildLoginRequestScopes(),
               extraQueryParameters: buildPolicyQueryParameters(),
             })}
         >

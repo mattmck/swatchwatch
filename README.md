@@ -95,7 +95,7 @@ npm run dev:mobile       # → mobile via Expo
 
 Dev auth deploy note:
 `deploy-dev.yml` reads auth config from the GitHub `dev` environment.
-- Variables: `AUTH_DEV_BYPASS`, `NEXT_PUBLIC_AUTH_DEV_BYPASS`, `NEXT_PUBLIC_B2C_TENANT`, `NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY`
+- Variables: `AUTH_DEV_BYPASS`, `NEXT_PUBLIC_AUTH_DEV_BYPASS`, `NEXT_PUBLIC_B2C_TENANT`, `NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY`, `NEXT_PUBLIC_B2C_API_SCOPE` (optional)
 - Secrets: `AZURE_AD_B2C_CLIENT_ID`, `NEXT_PUBLIC_B2C_CLIENT_ID`
 
 Infrastructure deploy workflow requirements:
@@ -145,6 +145,7 @@ Functions require secrets defined in `packages/functions/local.settings.json`:
 | `NEXT_PUBLIC_API_URL` | Web API base URL used at web build time |
 | `NEXT_PUBLIC_AUTH_DEV_BYPASS` | Web dev-only bypass toggle (`true` makes the UI send `Authorization: Bearer dev:1`) |
 | `NEXT_PUBLIC_AUTH_DEV_ADMIN_USER_ID` | Optional web admin bypass user id for admin-only API calls (defaults to `2`) |
+| `NEXT_PUBLIC_B2C_API_SCOPE` | Optional web auth scope(s) for API tokens (space-delimited). Defaults to `api://<NEXT_PUBLIC_B2C_CLIENT_ID>/access_as_user` |
 
 ### Local storage emulator (Azurite)
 

@@ -167,9 +167,10 @@ async function handleB2CToken(
     jwksUri = oidcConfig.jwksUri;
   }
 
+  const validAudiences = [clientId, `api://${clientId}`];
   const { payload } = await jwtVerify(token, jwks, {
     issuer: toIssuerCandidates(oidcConfig.issuer),
-    audience: clientId,
+    audience: validAudiences,
   });
 
   const externalId = (payload.oid as string | undefined) || (payload.sub as string | undefined);

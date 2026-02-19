@@ -4,9 +4,9 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { MsalProvider } from "@azure/msal-react";
 import { PublicClientApplication, EventType } from "@azure/msal-browser";
 import {
+  buildApiTokenScopes,
   buildMsalConfig,
   buildPolicyQueryParameters,
-  LOGIN_SCOPES,
 } from "@/lib/msal-config";
 import { setAccessToken } from "@/lib/auth-token";
 
@@ -59,17 +59,22 @@ function MsalAuthProvider({
 
       // Acquire token silently for the active account
       const activeAccount = msalInstance.getActiveAccount();
+      const apiTokenScopes = buildApiTokenScopes();
       if (activeAccount) {
-        try {
-          const result = await msalInstance.acquireTokenSilent({
-            scopes: LOGIN_SCOPES,
-            account: activeAccount,
-            extraQueryParameters: buildPolicyQueryParameters(),
-          });
-          setAccessToken(result.accessToken);
-        } catch {
-          // Token expired or unavailable — user will need to log in again
+        if (apiTokenScopes.length === 0) {
           setAccessToken(null);
+        } else {
+          try {
+            const result = await msalInstance.acquireTokenSilent({
+              scopes: apiTokenScopes,
+              account: activeAccount,
+              extraQueryParameters: buildPolicyQueryParameters(),
+            });
+            setAccessToken(result.accessToken);
+          } catch {
+            // Token expired or unavailable — user will need to log in again
+            setAccessToken(null);
+          }
         }
       }
 

@@ -1,7 +1,10 @@
 "use client";
 
 import { useMsal, useIsAuthenticated } from "@azure/msal-react";
-import { buildPolicyQueryParameters, LOGIN_SCOPES } from "@/lib/msal-config";
+import {
+  buildLoginRequestScopes,
+  buildPolicyQueryParameters,
+} from "@/lib/msal-config";
 
 export interface AuthUser {
   name: string;
@@ -45,7 +48,7 @@ export function useAuth(): UseAuthReturn {
 
   const login = () => {
     instance.loginRedirect({
-      scopes: LOGIN_SCOPES,
+      scopes: buildLoginRequestScopes(),
       extraQueryParameters: buildPolicyQueryParameters(),
     });
   };
