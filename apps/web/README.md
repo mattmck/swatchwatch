@@ -148,7 +148,7 @@ cd apps/web && npx shadcn@latest add <component-name>
 | `constants.ts` | `FINISHES`, `finishLabel()`, `finishBadgeClassName()` — finish taxonomy and branded badge styling |
 | `color-utils.ts` | Hex↔HSL↔RGB↔OKLAB conversions, `colorDistance()`, `complementaryHex()` |
 | `api.ts` | API client helpers including polish CRUD, rapid-add capture calls, and ingestion admin methods (`listIngestionJobs`, `runIngestionJob`, `getIngestionJob`) |
-| `msal-config.ts` | `buildMsalConfig()` builder, `LOGIN_SCOPES` constant. Returns `null` if B2C not configured |
+| `msal-config.ts` | `buildMsalConfig()` builder, `LOGIN_SCOPES` constant. Returns `null` if auth env is not configured |
 | `auth-token.ts` | Module-level token store: `setAccessToken()`, `getAccessToken()` |
 
 ## Metadata & Assets
@@ -169,9 +169,9 @@ cd apps/web && npx shadcn@latest add <component-name>
 | `NEXT_PUBLIC_API_URL` | API base URL used by `src/lib/api.ts` |
 | `NEXT_PUBLIC_AUTH_DEV_BYPASS` | Dev-only bypass toggle. When `true`, the UI sends `Authorization: Bearer dev:1` on authenticated API calls. Set to `false` for production or to test B2C auth locally |
 | `NEXT_PUBLIC_AUTH_DEV_ADMIN_USER_ID` | Optional admin dev bypass user id for admin-only API calls (`/admin/jobs` uses this; defaults to `2`). Ignored when `NEXT_PUBLIC_AUTH_DEV_BYPASS=false` |
-| `NEXT_PUBLIC_B2C_TENANT` | Azure AD B2C tenant name (e.g., `myorgdev`). Empty or missing → B2C skipped, unconfigured fallback mode. When set with `NEXT_PUBLIC_B2C_CLIENT_ID` → MSAL initialized for real B2C auth |
-| `NEXT_PUBLIC_B2C_CLIENT_ID` | Azure AD B2C app registration client ID. Must be set alongside `NEXT_PUBLIC_B2C_TENANT` to enable B2C |
-| `NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY` | B2C sign-up/sign-in policy name (defaults to `B2C_1_signupsignin`). Rarely changed |
+| `NEXT_PUBLIC_B2C_TENANT` | Entra tenant short name (e.g., `myorgdev`). Empty or missing → auth skipped, unconfigured fallback mode. When set with `NEXT_PUBLIC_B2C_CLIENT_ID` → MSAL initialized |
+| `NEXT_PUBLIC_B2C_CLIENT_ID` | Entra app registration client ID. Must be set alongside `NEXT_PUBLIC_B2C_TENANT` to enable auth |
+| `NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY` | Policy/user-flow selector. If it starts with `B2C_1`, the app uses legacy `b2clogin.com` policy authority. Otherwise it uses `ciamlogin.com` authority without a policy path segment (for External ID tenants). |
 
 **Note:** When both `NEXT_PUBLIC_B2C_TENANT` and `NEXT_PUBLIC_B2C_CLIENT_ID` are empty, the app runs in **unconfigured mode**: marketing pages work, but `(app)` routes show a "Sign in" prompt that warns the user B2C is not configured.
 

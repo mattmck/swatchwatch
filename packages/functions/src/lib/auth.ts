@@ -14,7 +14,7 @@ export interface AuthResult {
  *
  * - **Dev bypass** (`AUTH_DEV_BYPASS=true`): accepts `Bearer dev:<userId>` tokens.
  *   Looks up the user by user_id directly — meant for local development only.
- * - **Production** (B2C configured): validates JWT against Azure AD B2C JWKS,
+ * - **Production** (Entra/B2C configured): validates JWT against tenant JWKS,
  *   extracts `oid` claim, and upserts the user by external_id.
  */
 export async function authenticateRequest(
@@ -94,6 +94,61 @@ async function handleDevBypass(
 }
 
 let jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
+let jwksUri: string | null = null;
+let oidcConfigPromise: Promise<OidcConfig> | null = null;
+
+interface OidcConfig {
+  issuer: string;
+  jwksUri: string;
+}
+
+const toLegacyB2CConfig = (tenant: string): OidcConfig => ({
+  issuer: `https://${tenant}.b2clogin.com/${tenant}.onmicrosoft.com/v2.0`,
+  jwksUri: `https://${tenant}.b2clogin.com/${tenant}.onmicrosoft.com/discovery/v2.0/keys`,
+});
+
+const toIssuerCandidates = (issuer: string): string[] => {
+  const normalized = issuer.endsWith("/") ? issuer.slice(0, -1) : issuer;
+  return [normalized, `${normalized}/`];
+};
+
+async function discoverOidcConfig(
+  tenant: string,
+  context: InvocationContext
+): Promise<OidcConfig> {
+  const ciamWellKnownUrl = `https://${tenant}.ciamlogin.com/${tenant}.onmicrosoft.com/v2.0/.well-known/openid-configuration`;
+
+  try {
+    const response = await fetch(ciamWellKnownUrl);
+    if (response.ok) {
+      const body = (await response.json()) as {
+        issuer?: string;
+        jwks_uri?: string;
+      };
+      if (body.issuer && body.jwks_uri) {
+        context.log("Auth OIDC: using ciamlogin.com metadata");
+        return { issuer: body.issuer, jwksUri: body.jwks_uri };
+      }
+    } else {
+      context.log(`Auth OIDC: ciam metadata unavailable (${response.status}), falling back`);
+    }
+  } catch (error) {
+    context.log(`Auth OIDC: ciam metadata lookup failed, falling back (${String(error)})`);
+  }
+
+  context.log("Auth OIDC: using legacy b2clogin.com metadata");
+  return toLegacyB2CConfig(tenant);
+}
+
+async function getOidcConfig(
+  tenant: string,
+  context: InvocationContext
+): Promise<OidcConfig> {
+  if (!oidcConfigPromise) {
+    oidcConfigPromise = discoverOidcConfig(tenant, context);
+  }
+  return oidcConfigPromise;
+}
 
 async function handleB2CToken(
   token: string,
@@ -106,21 +161,20 @@ async function handleB2CToken(
     throw new AuthError("Azure AD B2C not configured");
   }
 
-  if (!jwks) {
-    const jwksUrl = new URL(
-      `https://${tenant}.b2clogin.com/${tenant}.onmicrosoft.com/discovery/v2.0/keys`
-    );
-    jwks = createRemoteJWKSet(jwksUrl);
+  const oidcConfig = await getOidcConfig(tenant, context);
+  if (!jwks || jwksUri !== oidcConfig.jwksUri) {
+    jwks = createRemoteJWKSet(new URL(oidcConfig.jwksUri));
+    jwksUri = oidcConfig.jwksUri;
   }
 
   const { payload } = await jwtVerify(token, jwks, {
-    issuer: `https://${tenant}.b2clogin.com/${tenant}.onmicrosoft.com/v2.0/`,
+    issuer: toIssuerCandidates(oidcConfig.issuer),
     audience: clientId,
   });
 
-  const externalId = payload.oid as string | undefined;
+  const externalId = (payload.oid as string | undefined) || (payload.sub as string | undefined);
   if (!externalId) {
-    throw new AuthError("Token missing oid claim");
+    throw new AuthError("Token missing oid/sub claim");
   }
 
   const email = (payload.emails as string[] | undefined)?.[0]

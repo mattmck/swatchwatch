@@ -19,11 +19,21 @@ export function buildMsalConfig(): Configuration | null {
   const redirectUri =
     typeof window !== "undefined" ? window.location.origin + "/" : "/";
 
+  // External ID (CIAM) tenants use ciamlogin.com without a policy segment.
+  // Legacy Azure AD B2C uses b2clogin.com with policy in the authority path.
+  const isLegacyB2CPolicy = /^B2C_1/i.test(policy);
+  const authorityHost = isLegacyB2CPolicy
+    ? `${tenant}.b2clogin.com`
+    : `${tenant}.ciamlogin.com`;
+  const authority = isLegacyB2CPolicy
+    ? `https://${authorityHost}/${tenant}.onmicrosoft.com/${policy}`
+    : `https://${authorityHost}/${tenant}.onmicrosoft.com`;
+
   return {
     auth: {
       clientId,
-      authority: `https://${tenant}.b2clogin.com/${tenant}.onmicrosoft.com/${policy}`,
-      knownAuthorities: [`${tenant}.b2clogin.com`],
+      authority,
+      knownAuthorities: [authorityHost],
       redirectUri,
     },
     cache: {
