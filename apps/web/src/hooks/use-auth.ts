@@ -16,10 +16,9 @@ export interface UseAuthReturn {
 }
 
 /**
- * Auth hook for B2C mode. Must ONLY be used inside components
- * rendered within <MsalProvider> (i.e., when B2C auth is active).
- *
- * For dev bypass mode, use useDevAuth() instead.
+ * Auth hook for B2C mode.
+ * Only call this from components that are guaranteed to be rendered
+ * within <MsalProvider> (i.e., when B2C is configured).
  */
 export function useAuth(): UseAuthReturn {
   const { instance, accounts } = useMsal();
@@ -43,6 +42,21 @@ export function useAuth(): UseAuthReturn {
   };
 
   return { isAuthenticated, user, login, logout };
+}
+
+/**
+ * Stub auth state for unconfigured B2C mode (B2C vars not set).
+ * No MSAL hooks — safe to call anywhere.
+ */
+export function useUnconfiguredAuth(): UseAuthReturn {
+  return {
+    isAuthenticated: false,
+    user: null,
+    login: () => {
+      console.warn("[Auth] Cannot login: B2C is not configured");
+    },
+    logout: () => {},
+  };
 }
 
 /**
