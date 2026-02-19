@@ -93,6 +93,8 @@ export function ColorSearchResults({
               className="flex min-w-0 flex-1 items-center gap-3"
             >
               {polish.swatchImageUrl ? (
+                // Dynamic external image URLs + static export require raw img here.
+                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={polish.swatchImageUrl}
                   alt={`${polish.brand} ${polish.name} swatch`}

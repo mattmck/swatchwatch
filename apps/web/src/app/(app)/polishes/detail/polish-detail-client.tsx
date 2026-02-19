@@ -309,6 +309,8 @@ export default function PolishDetailClient({ id }: { id: string }) {
                       title="Open image"
                       className="inline-block"
                     >
+                      {/* Dynamic external image URLs + static export require raw img here. */}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={imageUrl}
                         alt={`${polish.brand} ${polish.name} image ${index + 1}`}

@@ -27,3 +27,4 @@ This tracker captures the findings visible in that shared issue text and maps th
 ## Notes
 - The issue page excerpt indicated "15 remaining items" not fully included in the pasted text.
 - If additional findings exist in the full issue thread, append them here before implementation.
+- 2026-02-19: CI lint follow-up in `fix/42-no-img-lint` documented intentional raw `<img>` usage for dynamic external swatch URLs in static export mode to clear `@next/next/no-img-element` warnings.

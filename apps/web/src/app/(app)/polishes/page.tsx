@@ -624,6 +624,8 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                           title="Open image"
                           className="inline-block"
                         >
+                          {/* Dynamic external image URLs + static export require raw img here. */}
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
                             src={polish.swatchImageUrl}
                             alt={`${polish.brand} ${polish.name} swatch`}
