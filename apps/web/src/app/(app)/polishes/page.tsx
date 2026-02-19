@@ -367,6 +367,7 @@ export default function PolishesPage() {
                   {renderSortIcon("status")}
                 </button>
               </TableHead>
+              <TableHead className="w-12">Image</TableHead>
               <TableHead aria-sort={getAriaSort("brand")}>
                 <button
                   type="button"
@@ -419,7 +420,7 @@ export default function PolishesPage() {
           <TableBody>
             {pageItems.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="p-0">
+                <TableCell colSpan={10} className="p-0">
                   <EmptyState
                     title={polishes.length === 0 ? "No polishes yet" : "No matches"}
                     description={polishes.length === 0 ? "Add your first polish to get started." : "Try adjusting your filters."}
