@@ -34,7 +34,7 @@ import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
 import { FINISHES, finishBadgeClassName, finishLabel } from "@/lib/constants";
 
-const PAGE_SIZE = 10;
+const DEFAULT_PAGE_SIZE = 10;
 type SortKey = "status" | "brand" | "name" | "finish" | "collection";
 type SortDirection = "asc" | "desc";
 
@@ -55,6 +55,7 @@ export default function PolishesPage() {
 
   // Pagination
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   useEffect(() => {
     let cancelled = false;
@@ -205,8 +206,8 @@ export default function PolishesPage() {
     return sortDirection === "asc" ? "ascending" : "descending";
   };
 
-  const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
-  const pageItems = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages = Math.ceil(sorted.length / pageSize);
+  const pageItems = sorted.slice((page - 1) * pageSize, page * pageSize);
 
   // Optimistic quantity update
   const handleQuantityChange = useCallback(
@@ -516,8 +517,12 @@ export default function PolishesPage() {
         currentPage={page}
         totalPages={totalPages}
         totalItems={sorted.length}
-        pageSize={PAGE_SIZE}
+        pageSize={pageSize}
         onPageChange={setPage}
+        onPageSizeChange={(newSize) => {
+          setPageSize(newSize);
+          setPage(1); // Reset to first page when page size changes
+        }}
       />
     </div>
   );
