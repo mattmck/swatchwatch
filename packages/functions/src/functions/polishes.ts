@@ -1,7 +1,7 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { PolishCreateRequest, PolishUpdateRequest, PolishListResponse } from "swatchwatch-shared";
 import { query, transaction } from "../lib/db";
-import { withAuth } from "../lib/auth";
+import { withAuth, withAdmin } from "../lib/auth";
 import { withCors } from "../lib/http";
 import { toImageProxyUrl } from "../lib/image-proxy";
 import { PoolClient } from "pg";
@@ -570,6 +570,53 @@ async function deletePolish(request: HttpRequest, context: InvocationContext, us
   }
 }
 
+async function recalcHex(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+  context.log("POST /api/polishes/{id}/recalc-hex");
+
+  const id = request.params.id;
+  if (!id) {
+    return { status: 400, jsonBody: { error: "Polish id is required" } };
+  }
+
+  const shadeId = parseInt(id, 10);
+  if (Number.isNaN(shadeId) || shadeId <= 0) {
+    return { status: 400, jsonBody: { error: "Invalid polish id" } };
+  }
+
+  try {
+    // TODO: Integrate with Azure OpenAI hex detection service.
+    // This endpoint currently verifies the shade and returns a queued response.
+    const shadeResult = await query<{ shade_id: number; shade_name_canonical: string }>(
+      `SELECT shade_id, shade_name_canonical
+       FROM shade
+       WHERE shade_id = $1`,
+      [shadeId]
+    );
+
+    if (shadeResult.rows.length === 0) {
+      return { status: 404, jsonBody: { error: "Shade not found" } };
+    }
+
+    const shade = shadeResult.rows[0];
+
+    return {
+      status: 202,
+      jsonBody: {
+        message: "Hex recalculation queued",
+        shadeId: String(shade.shade_id),
+        shadeName: shade.shade_name_canonical,
+        status: "processing",
+      },
+    };
+  } catch (error: any) {
+    context.error("Error recalculating hex:", error);
+    return {
+      status: 500,
+      jsonBody: { error: "Failed to recalculate hex", details: error.message },
+    };
+  }
+}
+
 app.http("polishes-list", {
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
@@ -599,4 +646,11 @@ app.http("polishes-mutate", {
       return { status: 405, jsonBody: { error: "Method not allowed" } };
     })
   ),
+});
+
+app.http("polishes-recalc-hex", {
+  methods: ["POST", "OPTIONS"],
+  authLevel: "anonymous",
+  route: "polishes/{id}/recalc-hex",
+  handler: withCors(withAdmin(recalcHex)),
 });
