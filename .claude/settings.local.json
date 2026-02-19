@@ -67,7 +67,17 @@
       "Bash(npm run build:shared:*)",
       "Bash(npm run build:web:*)",
       "Bash(npm install:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(git merge:*)",
+      "Bash(git worktree:*)",
+      "Bash(git fetch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git pull:*)",
+      "Bash(git log:*)",
+      "Bash(gh issue list:*)",
+      "Bash(ls:*)",
+      "Bash(git commit:*)",
+      "Bash(scripts/agent-worktree.sh:*)"
     ]
   }
 }
