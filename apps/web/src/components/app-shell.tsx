@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Sparkles, Search, PlusCircle, Settings, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, Sparkles, Search, PlusCircle, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { SwatchWatchWordmark } from "@/components/brand/swatchwatch-brand";
 import { ThemeToggle } from "@/components/marketing-theme-toggle";
+import { UserCard } from "@/components/user-card";
 import type { LucideIcon } from "lucide-react";
 
 interface NavItem {
@@ -72,27 +73,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
 
         <div className="mt-auto border-t border-border/70 p-3">
-          <div className="rounded-xl border border-brand-purple/20 bg-card/80 p-3 shadow-[0_10px_24px_rgba(66,16,126,0.1)]">
-            <div className="flex items-center gap-2.5">
-              <span className="inline-flex size-9 items-center justify-center rounded-full bg-gradient-brand text-xs font-semibold text-white shadow-glow-brand">
-                SW
-              </span>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-foreground">You</p>
-                <p className="truncate text-xs text-muted-foreground">Collector workspace</p>
-              </div>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="mt-3 w-full justify-start"
-              disabled
-            >
-              <Settings className="size-3.5" />
-              Settings (Soon)
-            </Button>
-          </div>
+          <UserCard />
         </div>
       </aside>
 

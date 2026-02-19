@@ -277,6 +277,7 @@ resource "azurerm_linux_function_app" "main" {
     cors {
       allowed_origins = [
         "https://jolly-desert-0c7f01510.2.azurestaticapps.net",
+        "https://dev.${var.domain_name}",
         "http://localhost:3000",
       ]
       support_credentials = false
@@ -336,6 +337,16 @@ resource "azurerm_static_web_app" "main" {
 
   app_settings = {
     NEXT_PUBLIC_API_URL = "https://${azurerm_linux_function_app.main.default_hostname}/api"
+  }
+}
+
+resource "azurerm_static_web_app_custom_domain" "dev" {
+  static_web_app_id = azurerm_static_web_app.main.id
+  domain_name       = "dev.${var.domain_name}"
+  validation_type   = "cname-delegation"
+
+  lifecycle {
+    ignore_changes = [validation_type]
   }
 }
 

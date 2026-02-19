@@ -93,7 +93,11 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 
 | Component | Purpose |
 |-----------|---------|
-| `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with exact active-route matching, branded active-nav pills, logo accent divider, app theme toggle, and sidebar avatar/settings footer module |
+| `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with exact active-route matching, branded active-nav pills, logo accent divider, app theme toggle, and `<UserCard>` footer with auth state |
+| `auth-provider.tsx` | MSAL provider wrapper with three modes: dev bypass (no MSAL), B2C via MSAL, unconfigured fallback. Manages token lifecycle and stores in module-level `auth-token.ts` |
+| `require-auth.tsx` | Route guard for `(app)` routes. Dev bypass → render children; B2C unconfigured → show "Sign in" button; B2C authenticated → render children; unauthenticated → show "Sign in" button |
+| `user-card.tsx` | Sidebar footer: displays user initials, name, email, and sign-out button. Conditionally uses `useAuth()` (B2C) or `useDevAuth()` (dev bypass) |
+| `marketing-auth-button.tsx` | Header auth button: "Open App" when authenticated, "Sign In" when unauthenticated (B2C), always "Open App" in dev bypass |
 | `brand-spinner.tsx` | Branded loading state with animated monogram spinner used across app route fallbacks |
 | `error-state.tsx` | Reusable error card with destructive accent styling and optional retry action |
 | `empty-state.tsx` | Reusable empty-state card with brand icon treatment and optional CTA |
@@ -117,6 +121,24 @@ cd apps/web && npx shadcn@latest add <component-name>
 ```
 
 
+## Auth System
+
+**Dev Bypass Mode** (`NEXT_PUBLIC_AUTH_DEV_BYPASS=true`):
+- Skips MSAL initialization entirely
+- `getAuthHeaders()` returns `Bearer dev:1` (or `Bearer dev:2` for admin calls)
+- All MSAL-dependent components render fallback/stub states
+
+**B2C Mode** (when `NEXT_PUBLIC_B2C_TENANT` and `NEXT_PUBLIC_B2C_CLIENT_ID` are set):
+- MSAL initializes via `PublicClientApplication` in `auth-provider.tsx`
+- User signs in → token stored in module-level `auth-token.ts`
+- `getAuthHeaders()` reads token and sends it in `Authorization` header
+- `<RequireAuth>` guard on `(app)` routes triggers login redirect if unauthenticated
+- `<UserCard>` displays user info and sign-out button in sidebar
+
+**Hooks:**
+- `useAuth()` — B2C mode only, calls MSAL hooks (`useMsal`, `useIsAuthenticated`). Returns `{ isAuthenticated, user, login, logout }`. Must be inside `<MsalProvider>`
+- `useDevAuth()` — Dev bypass stub, safe to call anywhere. Returns stubbed auth state
+
 ## Utilities (`src/lib/`)
 
 | File | Exports |
@@ -125,6 +147,8 @@ cd apps/web && npx shadcn@latest add <component-name>
 | `constants.ts` | `FINISHES`, `finishLabel()`, `finishBadgeClassName()` — finish taxonomy and branded badge styling |
 | `color-utils.ts` | Hex↔HSL↔RGB↔OKLAB conversions, `colorDistance()`, `complementaryHex()` |
 | `api.ts` | API client helpers including polish CRUD, rapid-add capture calls, and ingestion admin methods (`listIngestionJobs`, `runIngestionJob`, `getIngestionJob`) |
+| `msal-config.ts` | `buildMsalConfig()` builder, `LOGIN_SCOPES` constant. Returns `null` if B2C not configured |
+| `auth-token.ts` | Module-level token store: `setAccessToken()`, `getAccessToken()` |
 
 ## Metadata & Assets
 
@@ -142,11 +166,13 @@ cd apps/web && npx shadcn@latest add <component-name>
 | Variable | Purpose |
 |----------|---------|
 | `NEXT_PUBLIC_API_URL` | API base URL used by `src/lib/api.ts` |
-| `NEXT_PUBLIC_AUTH_DEV_BYPASS` | Dev-only bypass toggle. When `true`, the UI sends `Authorization: Bearer dev:1` on authenticated API calls. |
-| `NEXT_PUBLIC_AUTH_DEV_ADMIN_USER_ID` | Optional admin dev bypass user id for admin-only API calls (`/admin/jobs` uses this; defaults to `2`). |
+| `NEXT_PUBLIC_AUTH_DEV_BYPASS` | Dev-only bypass toggle. When `true`, the UI sends `Authorization: Bearer dev:1` on authenticated API calls. Set to `false` for production or to test B2C auth locally |
+| `NEXT_PUBLIC_AUTH_DEV_ADMIN_USER_ID` | Optional admin dev bypass user id for admin-only API calls (`/admin/jobs` uses this; defaults to `2`). Ignored when `NEXT_PUBLIC_AUTH_DEV_BYPASS=false` |
+| `NEXT_PUBLIC_B2C_TENANT` | Azure AD B2C tenant name (e.g., `myorgdev`). Empty or missing → B2C skipped, unconfigured fallback mode. When set with `NEXT_PUBLIC_B2C_CLIENT_ID` → MSAL initialized for real B2C auth |
+| `NEXT_PUBLIC_B2C_CLIENT_ID` | Azure AD B2C app registration client ID. Must be set alongside `NEXT_PUBLIC_B2C_TENANT` to enable B2C |
+| `NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY` | B2C sign-up/sign-in policy name (defaults to `B2C_1_signupsignin`). Rarely changed |
 
-Temporary note (as of February 11, 2026):
-`deploy-dev.yml` sets `NEXT_PUBLIC_AUTH_DEV_BYPASS=true` for dev web deployments. Remove this once Azure AD B2C auth is wired in the web app.
+**Note:** When both `NEXT_PUBLIC_B2C_TENANT` and `NEXT_PUBLIC_B2C_CLIENT_ID` are empty, the app runs in **unconfigured mode**: marketing pages work, but `(app)` routes show a "Sign in" prompt that warns the user B2C is not configured.
 
 ## Conventions
 

@@ -20,6 +20,8 @@ import type {
   CatalogShadeDetail,
 } from "swatchwatch-shared";
 
+import { getAccessToken } from "./auth-token";
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:7071/api";
 const MAX_CAPTURE_FRAME_BYTES = 5 * 1024 * 1024;
 
@@ -37,7 +39,12 @@ function getAuthHeaders(options?: { admin?: boolean }): Record<string, string> {
       : "1";
     return { Authorization: `Bearer dev:${devUserId}` };
   }
-  // TODO: read real token from auth state once B2C is wired up
+
+  const token = getAccessToken();
+  if (token) {
+    return { Authorization: `Bearer ${token}` };
+  }
+
   return {};
 }
 

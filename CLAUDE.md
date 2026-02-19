@@ -86,10 +86,13 @@ The web app uses Next.js route groups to separate public marketing pages from th
 ## Known State & TODOs
 
 This project is in early development. The web UI is now fully API-driven. Backend handlers have placeholder/stub implementations marked with `TODO` comments:
-- JWT validation in `auth.ts` returns 501 — Azure AD B2C JWKS verification not implemented
 - Voice processing in `voice.ts` stubs Speech-to-text and OpenAI parsing
 - `packages/functions` defines a local `Polish` interface that duplicates `packages/shared` — new code should import from `swatchwatch-shared` instead
 - Infrastructure is now on Azure Database for PostgreSQL Flexible Server
+
+**Completed (M0):**
+- ✅ JWT validation in `packages/functions/src/lib/auth.ts` — Full JWKS-based validation with dev bypass mode, user auto-creation on first login
+- ✅ Web app B2C auth wiring — MSAL integration with graceful dev bypass fallback, auth guards on `(app)` routes, real user display in sidebar
 
 ## Environment Variables (Functions)
 
