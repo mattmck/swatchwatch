@@ -30,6 +30,25 @@ interface ColorSearchResultsProps {
   onColorLeave?: () => void;
 }
 
+/**
+ * Render a searchable list of polishes with color swatches, match indicators, ownership and quantity controls.
+ *
+ * Renders a header row of harmony color swatches and a scrolling list of polish rows. Each row shows an optional swatch image, a color dot (and optional matched-harmony dot), name/brand/collection, finish badge, match percentage, ownership indicator, and optional controls to add to focused colors or change collection quantity.
+ *
+ * @param polishes - Array of polish objects augmented with `distance`, `matchedHarmonyHex`, and `matchedHarmonyIndex`.
+ * @param harmonyColors - Array of hex color strings used to render the header swatches.
+ * @param showMatchDots - When true and more than one harmony color exists, show a small matched-harmony dot for each polish.
+ * @param focusedTargetHex - Hex string of the currently focused harmony swatch; used to highlight the corresponding header swatch.
+ * @param onQuantityChange - Optional handler invoked as `(polishId, delta)` when quantity is incremented/decremented/added.
+ * @param onAddFocus - Optional handler invoked with a hex string when the "add to focused colors" button is pressed.
+ * @param onSwatchHover - Optional handler invoked with a hex string when a header swatch is hovered.
+ * @param onSwatchLeave - Optional handler invoked when a header swatch hover ends.
+ * @param onSwatchClick - Optional handler invoked with a hex string when a header swatch is clicked.
+ * @param onColorSelect - Optional handler invoked with a hex string when a swatch or matched-harmony dot is clicked.
+ * @param onColorHover - Optional handler invoked with a hex string when a swatch or matched-harmony dot is hovered.
+ * @param onColorLeave - Optional handler invoked when a swatch or matched-harmony dot hover ends.
+ * @returns A React node containing the rendered color search results list.
+ */
 export function ColorSearchResults({
   polishes,
   harmonyColors,

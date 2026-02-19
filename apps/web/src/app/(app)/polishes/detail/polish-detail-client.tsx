@@ -24,6 +24,12 @@ import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { toast } from "sonner";
 
+/**
+ * Render a detailed polish view including color swatch, metadata, images, color profile, and related shades.
+ *
+ * @param id - The polish ID to display.
+ * @returns The React element that renders the polish detail UI.
+ */
 export default function PolishDetailClient({ id }: { id: string }) {
   const router = useRouter();
   const [polish, setPolish] = useState<Polish | null>(null);
