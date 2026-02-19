@@ -19,7 +19,7 @@ src/app/
 │   └── page.tsx                  → /           Landing page (hero, features, interactive showcase, testimonials, CTA)
 ├── (app)/
 │   ├── layout.tsx                → App layout (AppShell sidebar wrapper)
-│   ├── admin/jobs/page.tsx       → /admin/jobs      Internal ingestion admin (run jobs, toggle AI hex detection/overwrite mode, track status/metrics)
+│   ├── admin/jobs/page.tsx       → /admin/jobs      Internal ingestion admin (admin-only UI guard; run jobs, toggle AI hex detection/overwrite mode, track status/metrics)
 │   ├── dashboard/page.tsx        → /dashboard       Stats, recent additions (computed from full paginated inventory)
 │   ├── dashboard/
 │   │   ├── page.tsx              → /dashboard       Stats, recent additions (computed from full paginated inventory)
@@ -93,7 +93,7 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 
 | Component | Purpose |
 |-----------|---------|
-| `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with exact active-route matching, branded active-nav pills, logo accent divider, app theme toggle, and `<UserCard>` footer with auth state |
+| `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with exact active-route matching, branded active-nav pills, logo accent divider, app theme toggle, and `<UserCard>` footer with auth state. Admin links are shown only for admin users |
 | `auth-provider.tsx` | MSAL provider wrapper with three modes: dev bypass (no MSAL), B2C via MSAL, unconfigured fallback. Manages token lifecycle and stores in module-level `auth-token.ts` |
 | `require-auth.tsx` | Route guard for `(app)` routes. Dev bypass → render children; B2C unconfigured → show "Sign in" button; B2C authenticated → render children; unauthenticated → show "Sign in" button |
 | `user-card.tsx` | Sidebar footer: displays user initials, name, email, and sign-out button. Conditionally uses `useAuth()` (B2C) or `useDevAuth()` (dev bypass) |
