@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
 import { BsPlusLg } from "react-icons/bs";
@@ -93,13 +94,14 @@ export function ColorSearchResults({
               className="flex min-w-0 flex-1 items-center gap-3"
             >
               {polish.swatchImageUrl ? (
-                // Dynamic external image URLs + static export require raw img here.
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
+                <Image
                   src={polish.swatchImageUrl}
                   alt={`${polish.brand} ${polish.name} swatch`}
+                  width={40}
+                  height={40}
+                  unoptimized
+                  sizes="40px"
                   className="h-10 w-10 shrink-0 rounded-md border object-cover transition-opacity hover:opacity-85"
-                  loading="lazy"
                 />
               ) : (
                 <div className="h-10 w-10 shrink-0 rounded-md border bg-muted/40" />
