@@ -116,6 +116,16 @@ function UnconfiguredPolishesPage() {
   return <PolishesPageContent isAdmin={isAdmin} />;
 }
 
+/**
+ * Render the polishes list and management UI with filtering, sorting, pagination, and per-item actions.
+ *
+ * The component loads and displays all polishes, persists list/filter state to the URL for back/forward restoration,
+ * supports text/tone/finish/availability filters, stable sorting and "favor my collection" ordering, optimistic
+ * quantity updates, and an admin-only hex recalculation action.
+ *
+ * @param isAdmin - Whether the current user has admin privileges (enables admin-only actions and columns)
+ * @returns The JSX for the polishes management page, including filters, table of results, and pagination controls.
+ */
 function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
