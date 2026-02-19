@@ -66,8 +66,49 @@ import {
   Settings,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
+import { buildMsalConfig } from "@/lib/msal-config";
 
 type SourceFilter = "all" | string;
+const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
+const HAS_B2C_CONFIG = buildMsalConfig() !== null;
+
+export default function AdminJobsPage() {
+  if (IS_DEV_BYPASS) {
+    return <DevAdminJobsPage />;
+  }
+
+  if (!HAS_B2C_CONFIG) {
+    return <UnconfiguredAdminJobsPage />;
+  }
+
+  return <B2CAdminJobsPage />;
+}
+
+function DevAdminJobsPage() {
+  const { isAdmin } = useDevAuth();
+  return isAdmin ? <AdminJobsInner /> : <AdminAccessRequired />;
+}
+
+function B2CAdminJobsPage() {
+  const { isAdmin } = useAuth();
+  return isAdmin ? <AdminJobsInner /> : <AdminAccessRequired />;
+}
+
+function UnconfiguredAdminJobsPage() {
+  const { isAdmin } = useUnconfiguredAuth();
+  return isAdmin ? <AdminJobsInner /> : <AdminAccessRequired />;
+}
+
+function AdminAccessRequired() {
+  return (
+    <ErrorState
+      title="Admin Access Required"
+      message="This page is only available to admin users."
+      className="min-h-[420px]"
+    />
+  );
+}
 
 
 
@@ -264,7 +305,7 @@ function JobLogPanel({ job, autoScroll }: { job: IngestionJobRecord; autoScroll?
   );
 }
 
-export default function AdminJobsPage() {
+function AdminJobsInner() {
   const [jobs, setJobs] = useState<IngestionJobRecord[]>([]);
   const [totalJobs, setTotalJobs] = useState(0);
   const [loading, setLoading] = useState(true);

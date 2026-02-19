@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { SwatchWatchWordmark } from "@/components/brand/swatchwatch-brand";
 import { ThemeToggle } from "@/components/marketing-theme-toggle";
 import { UserCard } from "@/components/user-card";
+import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
+import { buildMsalConfig } from "@/lib/msal-config";
 import type { LucideIcon } from "lucide-react";
 
 interface NavItem {
@@ -16,16 +18,52 @@ interface NavItem {
   icon: LucideIcon;
 }
 
-const navItems: NavItem[] = [
+const baseNavItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/polishes", label: "Polishes", icon: Sparkles },
   { href: "/polishes/search", label: "Search", icon: Search },
   { href: "/polishes/new", label: "Add Polish", icon: PlusCircle },
-  { href: "/admin/jobs", label: "Admin Jobs", icon: ShieldCheck },
 ];
+const adminNavItem: NavItem = { href: "/admin/jobs", label: "Admin Jobs", icon: ShieldCheck };
+const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
+const HAS_B2C_CONFIG = buildMsalConfig() !== null;
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  if (IS_DEV_BYPASS) {
+    return <DevAppShell>{children}</DevAppShell>;
+  }
+
+  if (!HAS_B2C_CONFIG) {
+    return <UnconfiguredAppShell>{children}</UnconfiguredAppShell>;
+  }
+
+  return <B2CAppShell>{children}</B2CAppShell>;
+}
+
+function DevAppShell({ children }: { children: React.ReactNode }) {
+  const { isAdmin } = useDevAuth();
+  return <AppShellLayout isAdmin={isAdmin}>{children}</AppShellLayout>;
+}
+
+function B2CAppShell({ children }: { children: React.ReactNode }) {
+  const { isAdmin } = useAuth();
+  return <AppShellLayout isAdmin={isAdmin}>{children}</AppShellLayout>;
+}
+
+function UnconfiguredAppShell({ children }: { children: React.ReactNode }) {
+  const { isAdmin } = useUnconfiguredAuth();
+  return <AppShellLayout isAdmin={isAdmin}>{children}</AppShellLayout>;
+}
+
+function AppShellLayout({
+  children,
+  isAdmin,
+}: {
+  children: React.ReactNode;
+  isAdmin: boolean;
+}) {
   const pathname = usePathname();
+  const navItems = isAdmin ? [...baseNavItems, adminNavItem] : baseNavItems;
 
   const activeHref =
     navItems
