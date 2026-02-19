@@ -164,8 +164,11 @@ Key variables:
 | `AZURE_STORAGE_CONNECTION` | Connection string for uploading source images to Azure Blob Storage. When unset (for local dev or bring-up), ingestion falls back to storing the original source image URLs so swatch images still appear. |
 | `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name dedicated to image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT` when unset). |
 
-Temporary cloud note (as of February 11, 2026):
-`deploy-dev.yml` currently sets `AUTH_DEV_BYPASS=true` on the dev Function App after deploy. Remove this once dev Azure AD B2C flow is fully wired.
+Dev deploy note:
+`deploy-dev.yml` configures Function App auth settings from GitHub `dev` environment values on each deploy.
+- Variable: `AUTH_DEV_BYPASS`
+- Secret: `AZURE_AD_B2C_CLIENT_ID`
+- Tenant source: `AZURE_AD_B2C_TENANT` variable (falls back to `NEXT_PUBLIC_B2C_TENANT`)
 
 ## Build
 

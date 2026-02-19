@@ -38,8 +38,10 @@ jobs:
           output_location: 'apps/web/out'
         env:
           NEXT_PUBLIC_API_URL: 'https://swatchwatch-dev-func-j5jij0be.azurewebsites.net/api'
-          # TODO(2026-02-11): Remove once dev B2C auth flow is wired in the web app.
-          NEXT_PUBLIC_AUTH_DEV_BYPASS: 'true'
+          NEXT_PUBLIC_AUTH_DEV_BYPASS: ${{ vars.NEXT_PUBLIC_AUTH_DEV_BYPASS }}
+          NEXT_PUBLIC_B2C_TENANT: ${{ vars.NEXT_PUBLIC_B2C_TENANT }}
+          NEXT_PUBLIC_B2C_CLIENT_ID: ${{ secrets.NEXT_PUBLIC_B2C_CLIENT_ID }}
+          NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY: ${{ vars.NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY }}
 
   deploy-functions:
     name: Deploy Functions
@@ -112,10 +114,16 @@ jobs:
           app-name: 'swatchwatch-dev-func-j5jij0be'
           package: 'packages/functions/.deploy'
 
-      - name: TEMP enable auth dev bypass (remove after dev B2C wiring)
+      - name: Configure function auth settings
         run: |
-          # TODO(2026-02-11): Remove AUTH_DEV_BYPASS once dev B2C auth is fully wired end-to-end.
           az functionapp config appsettings set \
             --name 'swatchwatch-dev-func-j5jij0be' \
             --resource-group 'swatchwatch-dev-rg' \
-            --settings AUTH_DEV_BYPASS=true
+            --settings \
+              AUTH_DEV_BYPASS="$AUTH_DEV_BYPASS" \
+              AZURE_AD_B2C_TENANT="$AZURE_AD_B2C_TENANT" \
+              AZURE_AD_B2C_CLIENT_ID="$AZURE_AD_B2C_CLIENT_ID"
+        env:
+          AUTH_DEV_BYPASS: ${{ vars.AUTH_DEV_BYPASS }}
+          AZURE_AD_B2C_TENANT: ${{ vars.AZURE_AD_B2C_TENANT || vars.NEXT_PUBLIC_B2C_TENANT }}
+          AZURE_AD_B2C_CLIENT_ID: ${{ secrets.AZURE_AD_B2C_CLIENT_ID }}

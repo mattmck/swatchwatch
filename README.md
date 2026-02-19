@@ -93,12 +93,15 @@ npm run dev:mobile       # → mobile via Expo
 | `.github/workflows/deploy-dev.yml` | Deploy web + function app code to dev | Push to `dev`, manual dispatch |
 | `.github/workflows/deploy-infra-dev.yml` | Deploy Terraform infrastructure to dev | Push to `dev` when `infrastructure/**` changes, manual dispatch |
 
-Temporary dev auth note:
-`deploy-dev.yml` currently sets `AUTH_DEV_BYPASS=true` on the dev Function App and `NEXT_PUBLIC_AUTH_DEV_BYPASS=true` during dev web builds, so the web app sends `Bearer dev:<userId>` tokens to the API. This is temporary and should be removed after dev B2C auth wiring is complete.
+Dev auth deploy note:
+`deploy-dev.yml` reads auth config from the GitHub `dev` environment.
+- Variables: `AUTH_DEV_BYPASS`, `NEXT_PUBLIC_AUTH_DEV_BYPASS`, `NEXT_PUBLIC_B2C_TENANT`, `NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY`
+- Secrets: `AZURE_AD_B2C_CLIENT_ID`, `NEXT_PUBLIC_B2C_CLIENT_ID`
 
 Infrastructure deploy workflow requirements:
 - GitHub secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`
 - GitHub variables: `TFSTATE_RESOURCE_GROUP`, `TFSTATE_STORAGE_ACCOUNT`, `TFSTATE_CONTAINER` (recommended: `tfstate`), `TFSTATE_BLOB_NAME` (recommended: `dev.terraform.tfstate`)
+- Recommended for auth settings drift prevention in Terraform deploys: secret `AZURE_AD_B2C_CLIENT_ID`, variables `AUTH_DEV_BYPASS` and `AZURE_AD_B2C_TENANT` (or `NEXT_PUBLIC_B2C_TENANT`)
 The workflow reads `pg-password` from Azure Key Vault at runtime and sets `TF_VAR_pg_admin_password` automatically.
 
 ## Project Structure — Web App

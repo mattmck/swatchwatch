@@ -81,6 +81,9 @@ jobs:
       TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
       TFSTATE_CONTAINER: ${{ vars.TFSTATE_CONTAINER || 'tfstate' }}
       TFSTATE_BLOB_NAME: ${{ vars.TFSTATE_BLOB_NAME || 'dev.terraform.tfstate' }}
+      TF_VAR_auth_dev_bypass: ${{ vars.AUTH_DEV_BYPASS || 'false' }}
+      TF_VAR_azure_ad_b2c_tenant: ${{ vars.AZURE_AD_B2C_TENANT || vars.NEXT_PUBLIC_B2C_TENANT || 'to-be-added' }}
+      TF_VAR_azure_ad_b2c_client_id: ${{ secrets.AZURE_AD_B2C_CLIENT_ID || 'to-be-added' }}
       TF_VAR_is_automation: true
       TF_VAR_create_openai_resources: false
 

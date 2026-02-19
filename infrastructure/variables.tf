@@ -115,3 +115,21 @@ variable "domain_name" {
   type        = string
   default     = "swatchwatch.app"
 }
+
+variable "azure_ad_b2c_tenant" {
+  description = "Azure AD B2C/Entra External ID tenant name for Function App auth"
+  type        = string
+  default     = "to-be-added"
+}
+
+variable "azure_ad_b2c_client_id" {
+  description = "Azure AD B2C/Entra External ID application client ID for Function App JWT audience"
+  type        = string
+  default     = "to-be-added"
+}
+
+variable "auth_dev_bypass" {
+  description = "Enable dev auth bypass in Functions (`Bearer dev:<userId>` tokens)"
+  type        = bool
+  default     = false
+}

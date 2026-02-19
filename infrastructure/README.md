@@ -35,6 +35,9 @@ State is stored in Azure Blob Storage using Terraform's native `azurerm` backend
 Required GitHub Actions configuration:
 - Secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`
 - Variables: `TFSTATE_RESOURCE_GROUP`, `TFSTATE_STORAGE_ACCOUNT`, `TFSTATE_CONTAINER` (recommended: `tfstate`), `TFSTATE_BLOB_NAME` (recommended: `dev.terraform.tfstate`)
+Recommended auth config (propagated to Terraform `TF_VAR_*` inputs):
+- Secrets: `AZURE_AD_B2C_CLIENT_ID`
+- Variables: `AUTH_DEV_BYPASS`, `AZURE_AD_B2C_TENANT` (falls back to `NEXT_PUBLIC_B2C_TENANT` if unset)
 The workflow creates the state container automatically if it does not exist.
 The workflow reads the `pg-password` secret from Key Vault and exports it as `TF_VAR_pg_admin_password` for Terraform.
 Dev infra deploys are pinned to the shared experiment OpenAI endpoint (`swatchwatch-experiment-resource`) with deployment `gpt-4o-mini`, and the workflow loads that resource key into `TF_VAR_openai_api_key` before Terraform runs.
@@ -89,6 +92,9 @@ Dev infra deploys are pinned to the shared experiment OpenAI endpoint (`swatchwa
 | `openai_deployment_capacity` | `10` | Provisioned throughput units for the OpenAI deployment |
 | `is_automation` | `false` | Flag for CI/CD pipelines (skips deployer Key Vault access policy) |
 | `domain_name` | `swatchwatch.app` | Root domain name for the application (used for custom domains and CORS) |
+| `azure_ad_b2c_tenant` | `to-be-added` | Azure AD B2C/Entra External ID tenant name applied to Function App setting `AZURE_AD_B2C_TENANT` |
+| `azure_ad_b2c_client_id` | `to-be-added` | Azure AD B2C/Entra External ID app client ID applied to Function App setting `AZURE_AD_B2C_CLIENT_ID` |
+| `auth_dev_bypass` | `false` | Controls Function App setting `AUTH_DEV_BYPASS`; keep `false` to require JWT validation |
 
 **Sensitive variables** are stored in `terraform.tfvars` (gitignored) and created by `bootstrap.sh`.
 

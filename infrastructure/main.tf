@@ -300,10 +300,10 @@ resource "azurerm_linux_function_app" "main" {
     AZURE_SPEECH_REGION         = azurerm_resource_group.main.location
     AZURE_OPENAI_ENDPOINT       = local.openai_enabled ? local.openai_endpoint_value : ""
     AZURE_OPENAI_KEY            = local.openai_enabled ? "@Microsoft.KeyVault(SecretUri=${local.openai_key_secret_uri})" : ""
-    AZURE_OPENAI_DEPLOYMENT_HEX = local.openai_deployment_name_value,
-    AZURE_AD_B2C_TENANT         = "to-be-added",
-    AZURE_AD_B2C_CLIENT_ID      = "to-be-added",
-    AUTH_DEV_BYPASS             = "true"
+    AZURE_OPENAI_DEPLOYMENT_HEX = local.openai_deployment_name_value
+    AZURE_AD_B2C_TENANT         = var.azure_ad_b2c_tenant
+    AZURE_AD_B2C_CLIENT_ID      = var.azure_ad_b2c_client_id
+    AUTH_DEV_BYPASS             = var.auth_dev_bypass ? "true" : "false"
   }
 
   lifecycle {
