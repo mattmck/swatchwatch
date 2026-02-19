@@ -50,7 +50,9 @@ Current source support:
 - Additional `*Shopify` sources from the generated connector list are auto-provisioned into `data_source` when missing, so they appear in `/api/ingestion/sources` and can be queued without manual SQL seeding.
 
 Auth requirement:
-- Ingestion endpoints are admin-only (`withAdmin`). In dev bypass mode, use an admin dev user token (for example `Bearer dev:2` with seeded admin user id 2).
+- Ingestion endpoints are admin-only (`withAdmin`).
+- In production auth mode, admin is determined from the Entra access-token `roles` claim (`admin`).
+- In dev bypass mode, use an admin dev user token (for example `Bearer dev:2` with seeded admin user id 2).
 
 For `MakeupAPI`, ingestion also materializes product color variants into searchable `shade`
 rows and user inventory rows (`quantity=0`) by default. Set `materializeToInventory` to
@@ -167,6 +169,7 @@ Key variables:
 JWT validation note:
 - In production mode (`AUTH_DEV_BYPASS=false`), auth discovery first tries Entra External ID (`ciamlogin.com`) metadata for `AZURE_AD_B2C_TENANT`, then falls back to legacy Azure AD B2C (`b2clogin.com`) metadata.
 - Accepted token audiences are `AZURE_AD_B2C_CLIENT_ID` and `api://AZURE_AD_B2C_CLIENT_ID` to support exposed-API scopes like `access_as_user`.
+- User records are still upserted in `app_user`; `role` is synchronized from Entra token roles on each authenticated request.
 
 Dev deploy note:
 `deploy-dev.yml` configures Function App auth settings from GitHub `dev` environment values on each deploy.

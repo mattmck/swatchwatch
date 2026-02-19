@@ -9,6 +9,8 @@ export interface AuthResult {
   role: string;
 }
 
+type EntraRole = "admin" | "user";
+
 /**
  * Authenticate an incoming request.
  *
@@ -180,12 +182,23 @@ async function handleB2CToken(
 
   const email = (payload.emails as string[] | undefined)?.[0]
     || (payload.email as string | undefined);
+  const role = resolveEntraRole(payload.roles);
 
-  context.log(`Auth B2C: oid=${externalId}`);
+  context.log(`Auth B2C: oid=${externalId} role=${role}`);
 
-  const user = await getOrCreateUser(externalId, email);
+  const user = await getOrCreateUser(externalId, email, role);
 
   return { userId: user.userId, externalId, email, role: user.role };
+}
+
+function resolveEntraRole(rolesClaim: unknown): EntraRole {
+  const roles = Array.isArray(rolesClaim)
+    ? rolesClaim.filter((role): role is string => typeof role === "string")
+    : typeof rolesClaim === "string"
+      ? [rolesClaim]
+      : [];
+
+  return roles.some((role) => role.toLowerCase() === "admin") ? "admin" : "user";
 }
 
 /**
@@ -193,16 +206,20 @@ async function handleB2CToken(
  */
 async function getOrCreateUser(
   externalId: string,
-  email?: string
+  email?: string,
+  role: EntraRole = "user"
 ): Promise<{ userId: number; role: string }> {
   const result = await (async () => {
     try {
       return await query<{ user_id: number; role: string | null }>(
-        `INSERT INTO app_user (external_id, email, handle)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (external_id) DO UPDATE SET email = COALESCE(EXCLUDED.email, app_user.email)
+        `INSERT INTO app_user (external_id, email, handle, role)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (external_id) DO UPDATE
+         SET
+           email = COALESCE(EXCLUDED.email, app_user.email),
+           role = EXCLUDED.role
          RETURNING user_id, role`,
-        [externalId, email || null, email || externalId]
+        [externalId, email || null, email || externalId, role]
       );
     } catch (error: any) {
       if (error?.code === "42703") {
@@ -219,7 +236,7 @@ async function getOrCreateUser(
   })();
   return {
     userId: result.rows[0].user_id,
-    role: result.rows[0].role || "user",
+    role: result.rows[0].role || role,
   };
 }
 

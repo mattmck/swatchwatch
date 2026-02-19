@@ -31,6 +31,10 @@ Web / Mobile → Azure Functions REST API → Azure PostgreSQL Flexible Server
                   └── /api/voice          → Azure Speech → Azure OpenAI → parsed polish details
 ```
 
+Admin authorization note:
+- In production auth mode, admin access is determined by Entra token `roles` (expects `admin`).
+- The backend mirrors that role into `app_user.role` on authenticated requests.
+
 ### Deploy Targets
 
 | Package | Target | Infrastructure |
