@@ -146,15 +146,17 @@ function withReadableSwatchUrl<T extends { swatchImageUrl?: string | null; sourc
     ? row.sourceImageUrls.map((url) => withReadableImageUrl(url, requestUrl))
     : row.sourceImageUrls;
 
+  const normalizedRow = withNormalizedFinish(row);
+
   return {
-    ...withNormalizedFinish(row),
+    ...(normalizedRow as T),
     swatchImageUrl: withReadableImageUrl(swatchUrl, requestUrl),
     sourceImageUrls: readableSourceImageUrls,
   };
 }
 
 function mapReadableSwatchUrls<T extends { swatchImageUrl?: string | null }>(rows: T[], requestUrl: string): T[] {
-  return rows.map((row) => withReadableSwatchUrl(row, requestUrl));
+  return rows.map((row) => withReadableSwatchUrl(row as T & { sourceImageUrls?: string[] }, requestUrl));
 }
 
 function withNormalizedFinish<T extends { finish?: string | null }>(row: T): T {

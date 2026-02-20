@@ -455,7 +455,7 @@ export async function detectHexWithAzureOpenAI(
           body: details || undefined,
         }
       );
-      return { hex: null, confidence: null, provider: "azure-openai" };
+      return { hex: null, confidence: null, finishes: null, provider: "azure-openai" };
     }
 
     emitLog(
