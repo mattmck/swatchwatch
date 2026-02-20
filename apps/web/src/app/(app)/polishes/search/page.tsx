@@ -150,6 +150,7 @@ function ColorSearchPageContent() {
   const [harmonyColorSet, setHarmonyColorSet] = useState<HarmonyColorSet>("any");
   const [resultsScope, setResultsScope] = useState<ResultsScope>("all");
   const [toneFilter, setToneFilter] = useState<Undertone | "all">("all");
+  const [brandFilter, setBrandFilter] = useState<string>("all");
   const [finishFilter, setFinishFilter] = useState<string>("all");
   const [availabilityFilter, setAvailabilityFilter] = useState<"all" | "owned" | "wishlist">("all");
   const [lightness, setLightness] = useState(0.5);
@@ -278,8 +279,33 @@ function ColorSearchPageContent() {
     () => (resultsScope === "collection" ? ownedColorPolishes : colorPolishes),
     [resultsScope, ownedColorPolishes, colorPolishes]
   );
+  const brandOptions = useMemo(() => {
+    const brandsByKey = new Map<string, string>();
+    for (const polish of scopedColorPolishes) {
+      const brand = polish.brand.trim();
+      if (!brand) continue;
+      const key = brand.toLowerCase();
+      if (!brandsByKey.has(key)) {
+        brandsByKey.set(key, brand);
+      }
+    }
+    return [...brandsByKey.values()].sort((a, b) => a.localeCompare(b));
+  }, [scopedColorPolishes]);
+
+  useEffect(() => {
+    if (brandFilter === "all") return;
+    const normalizedBrand = brandFilter.toLowerCase();
+    if (!brandOptions.some((brand) => brand.toLowerCase() === normalizedBrand)) {
+      setBrandFilter("all");
+    }
+  }, [brandFilter, brandOptions]);
+
   const filteredScopedColorPolishes = useMemo(() => {
     let result = scopedColorPolishes;
+    if (brandFilter !== "all") {
+      const normalizedBrand = brandFilter.toLowerCase();
+      result = result.filter((p) => p.brand.toLowerCase() === normalizedBrand);
+    }
     if (finishFilter !== "all") {
       result = result.filter((p) => p.finish === finishFilter);
     }
@@ -292,7 +318,7 @@ function ColorSearchPageContent() {
       );
     }
     return result;
-  }, [scopedColorPolishes, finishFilter, toneFilter, availabilityFilter]);
+  }, [scopedColorPolishes, brandFilter, finishFilter, toneFilter, availabilityFilter]);
 
   // Snap dots for the wheel
   const snapDots: SnapDot[] = useMemo(
@@ -1118,6 +1144,22 @@ function ColorSearchPageContent() {
                 </SelectContent>
               </Select>
               <Select
+                value={brandFilter}
+                onValueChange={setBrandFilter}
+              >
+                <SelectTrigger className="h-8 w-[180px]">
+                  <SelectValue placeholder="Brand" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Brands</SelectItem>
+                  {brandOptions.map((brand) => (
+                    <SelectItem key={brand} value={brand}>
+                      {brand}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
                 value={finishFilter}
                 onValueChange={setFinishFilter}
               >
@@ -1154,6 +1196,7 @@ function ColorSearchPageContent() {
                 onClick={() => {
                   setResultsScope("all");
                   setToneFilter("all");
+                  setBrandFilter("all");
                   setFinishFilter("all");
                   setAvailabilityFilter("all");
                 }}

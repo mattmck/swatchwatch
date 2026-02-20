@@ -128,6 +128,18 @@ function parseFinishFilter(value: string | null): string {
 }
 
 /**
+ * Normalize a brand filter value from query params.
+ *
+ * @param value - Raw brand query value or null.
+ * @returns A non-empty brand string, or `"all"` for unset/invalid values.
+ */
+function parseBrandFilter(value: string | null): string {
+  if (!value || value === "all") return "all";
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : "all";
+}
+
+/**
  * Parse a query string into a valid availability filter.
  *
  * @param value - The raw input to interpret; expected values are `"owned"` or `"wishlist"`. `null` or any other string will be treated as no filter.
@@ -307,6 +319,9 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const [toneFilter, setToneFilter] = useState<Undertone | "all">(() =>
     parseToneFilter(searchParams.get("tone"))
   );
+  const [brandFilter, setBrandFilter] = useState<string>(() =>
+    parseBrandFilter(searchParams.get("brand"))
+  );
   const [finishFilter, setFinishFilter] = useState<string>(() =>
     parseFinishFilter(searchParams.get("finish"))
   );
@@ -370,7 +385,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       return;
     }
     setPage(1);
-  }, [search, favorCollection, includeAll, toneFilter, finishFilter, availabilityFilter, sortKey, sortDirection]);
+  }, [search, favorCollection, includeAll, toneFilter, brandFilter, finishFilter, availabilityFilter, sortKey, sortDirection]);
 
   // Persist list state in URL to support back/forward restoration.
   useEffect(() => {
@@ -380,6 +395,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     if (!favorCollection) params.set("favor", "0");
     if (!includeAll) params.set("all", "0");
     if (toneFilter !== "all") params.set("tone", toneFilter);
+    if (brandFilter !== "all") params.set("brand", brandFilter);
     if (finishFilter !== "all") params.set("finish", finishFilter);
     if (availabilityFilter !== "all") params.set("avail", availabilityFilter);
     if (sortKey !== "name") params.set("sort", sortKey);
@@ -396,6 +412,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     });
   }, [
     availabilityFilter,
+    brandFilter,
     favorCollection,
     finishFilter,
     includeAll,
@@ -411,6 +428,18 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   ]);
 
   const isOwned = (p: Polish) => (p.quantity ?? 0) > 0;
+  const brandOptions = useMemo(() => {
+    const brandsByKey = new Map<string, string>();
+    for (const polish of polishes) {
+      const brand = polish.brand.trim();
+      if (!brand) continue;
+      const key = brand.toLowerCase();
+      if (!brandsByKey.has(key)) {
+        brandsByKey.set(key, brand);
+      }
+    }
+    return [...brandsByKey.values()].sort((a, b) => a.localeCompare(b));
+  }, [polishes]);
 
   const filtered = useMemo(() => {
     let result = polishes;
@@ -440,6 +469,11 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       });
     }
 
+    if (brandFilter !== "all") {
+      const normalizedBrand = brandFilter.toLowerCase();
+      result = result.filter((p) => p.brand.toLowerCase() === normalizedBrand);
+    }
+
     if (finishFilter !== "all") {
       result = result.filter((p) => p.finish === finishFilter);
     }
@@ -451,7 +485,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     }
 
     return result;
-  }, [polishes, search, includeAll, toneFilter, finishFilter, availabilityFilter]);
+  }, [polishes, search, includeAll, toneFilter, brandFilter, finishFilter, availabilityFilter]);
 
   const sorted = useMemo(() => {
     const result = [...filtered];
@@ -637,6 +671,20 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
             </SelectContent>
           </Select>
 
+          <Select value={brandFilter} onValueChange={setBrandFilter}>
+            <SelectTrigger className="h-8 w-[180px]">
+              <SelectValue placeholder="Brand" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Brands</SelectItem>
+              {brandOptions.map((brand) => (
+                <SelectItem key={brand} value={brand}>
+                  {brand}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
           <Select value={finishFilter} onValueChange={setFinishFilter}>
             <SelectTrigger className="h-8 w-[160px]">
               <SelectValue placeholder="Finish" />
@@ -670,6 +718,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
           !includeAll ||
           !favorCollection ||
           toneFilter !== "all" ||
+          brandFilter !== "all" ||
           finishFilter !== "all" ||
           availabilityFilter !== "all") && (
           <Button
@@ -681,6 +730,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
               setIncludeAll(true);
               setFavorCollection(true);
               setToneFilter("all");
+              setBrandFilter("all");
               setFinishFilter("all");
               setAvailabilityFilter("all");
             }}
