@@ -79,7 +79,7 @@ Dev infra deploys are pinned to the shared experiment OpenAI endpoint (`swatchwa
 | `base_name` | `swatchwatch` | Base name prefix for resources |
 | `pg_admin_username` | `pgadmin` | PostgreSQL admin username |
 | `pg_admin_password` | *(required)* | PostgreSQL admin password (stored in Key Vault) |
-| `github_repository` | `your-username/polish-inventory` | GitHub repo for OIDC federation |
+| `github_repository` | `your-github-username/swatchwatch` | GitHub repo for OIDC federation |
 | `openai_custom_subdomain_name` | `null` | Optional custom subdomain for the Azure OpenAI account. If not set, a name is generated. |
 | `create_openai_resources` | `false` | Provision Azure OpenAI account/deployment in this stack (disable when quota is unavailable) |
 | `retain_openai_account` | `true` | Keep the legacy in-stack OpenAI account when `create_openai_resources=false` (avoids deletes blocked by nested Foundry project resources) |
@@ -115,7 +115,7 @@ Dev infra deploys are pinned to the shared experiment OpenAI endpoint (`swatchwa
 ${base_name}-${environment}-${resource_type}-${random_8char_suffix}
 ```
 
-Example: `polishinv-dev-cosmos-a3bc7f21`
+Example: `swatchwatch-dev-function-3fa1c9d2`
 
 The random suffix is generated once via `random_string.suffix` and reused across resources.
 
@@ -157,7 +157,7 @@ cd infrastructure
 cat > terraform.tfvars <<EOF
 environment       = "dev"
 location          = "centralus"
-github_repository = "your-username/polish-inventory"
+github_repository = "your-github-username/swatchwatch"
 pg_admin_username = "pgadmin"
 pg_admin_password = "your-secure-password"
 create_openai_resources = false
@@ -194,7 +194,7 @@ cd ../packages/functions
 
 export PGHOST=$(cd ../infrastructure && terraform output -raw postgres_fqdn)
 export PGPORT=5432
-export PGDATABASE=polish_inventory
+export PGDATABASE=swatchwatch
 export PGUSER="pgadmin@$(cd ../infrastructure && terraform output -raw postgres_server_name)"
 export PGPASSWORD="your-password"
 

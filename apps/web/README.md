@@ -20,7 +20,6 @@ src/app/
 ├── (app)/
 │   ├── layout.tsx                → App layout (AppShell sidebar wrapper)
 │   ├── admin/jobs/page.tsx       → /admin/jobs      Internal ingestion admin (admin-only UI guard; run jobs, toggle AI hex detection/overwrite mode, track status/metrics)
-│   ├── dashboard/page.tsx        → /dashboard       Stats, recent additions (computed from full paginated inventory)
 │   ├── dashboard/
 │   │   ├── page.tsx              → /dashboard       Stats, recent additions (computed from full paginated inventory)
 │   │   └── opengraph-image.tsx   → /dashboard OG image route
@@ -28,7 +27,7 @@ src/app/
 │       ├── page.tsx              → /polishes         Global polish catalog + personal inventory overlay (hydrates all API pages for client-side search/filter + sortable headers; persists page/filter/sort state in URL query params for back-navigation restore; standardized Brand/Tone/Finish/Availability dropdown filters; finish/collection pills stay single-line with overflow ellipsis + full-value hover/focus popover; swatch thumbnails open full image; admins see per-row "Recalc Hex" action)
 │       ├── opengraph-image.tsx   → /polishes OG image route
 │       ├── new/page.tsx          → /polishes/new     Add polish form
-│       ├── [id]/page.tsx         → /polishes/:id     Polish detail view + image preview + OKLCH profile + related shades
+│       ├── detail/page.tsx       → /polishes/detail  Polish detail view + image preview + OKLCH profile + related shades
 │       └── search/page.tsx       → /polishes/search  Color wheel search (two-column layout, collapsible wheel/harmonies, single full-width harmony-only selector with All mode, one-click swatch focus, focus workflow, standardized Brand/Tone/Finish/Availability dropdown filters)
 ├── layout.tsx                    → Root layout (fonts, metadata — no AppShell)
 └── globals.css                   → Tailwind v4 + brand theme tokens + utility classes

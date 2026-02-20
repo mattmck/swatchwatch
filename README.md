@@ -133,7 +133,11 @@ Functions require secrets defined in `packages/functions/local.settings.json`:
 
 | Variable | Purpose |
 |----------|---------|
-| `COSMOS_DB_CONNECTION` | Cosmos DB connection string |
+| `PGHOST` | PostgreSQL host |
+| `PGPORT` | PostgreSQL port |
+| `PGDATABASE` | PostgreSQL database name |
+| `PGUSER` | PostgreSQL username |
+| `PGPASSWORD` | PostgreSQL password |
 | `AZURE_STORAGE_CONNECTION` | Storage account (swatch/nail photos). In local dev this points to Azurite (see "Local storage emulator" below). |
 | `INGESTION_JOB_QUEUE_NAME` | Optional async ingestion queue name (default: `ingestion-jobs`) |
 | `SOURCE_IMAGE_CONTAINER` | Optional container for source-ingested product images (default: `source-images`) |
