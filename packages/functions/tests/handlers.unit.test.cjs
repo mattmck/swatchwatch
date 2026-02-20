@@ -89,6 +89,7 @@ registerMock("../lib/ai-color-detection", {
   detectHexWithAzureOpenAI: async () => ({
     hex: "#ABCDEF",
     confidence: 0.87,
+    finishes: ["creme"],
     provider: "azure-openai",
   }),
 });

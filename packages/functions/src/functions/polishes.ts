@@ -163,6 +163,7 @@ function mapReadableSwatchUrls<T extends { swatchImageUrl?: string | null; sourc
 }
 
 function withNormalizedFinish<T extends { finish?: string | null }>(row: T): T {
+  if (typeof row.finish === "undefined") return row;
   const normalized = normalizeFinish(row.finish);
   if (!normalized || normalized === row.finish) return row;
   return { ...row, finish: normalized };
@@ -618,15 +619,18 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
       detected_hex: string | null;
       vendor_hex: string | null;
       storage_url: string | null;
+      vendor_tags: string[] | null;
     }>(
       `SELECT s.shade_id,
               s.shade_name_canonical,
               s.detected_hex,
               s.vendor_hex,
-              ia.storage_url
+              ia.storage_url,
+              ARRAY(SELECT jsonb_array_elements_text(ep.normalized_json -> 'tags')) AS vendor_tags
        FROM shade s
        LEFT JOIN swatch sw ON sw.shade_id = s.shade_id
        LEFT JOIN image_asset ia ON ia.image_id = sw.image_id_original
+       LEFT JOIN external_product ep ON ep.external_id = s.external_id
        WHERE s.shade_id = $1
        ORDER BY sw.swatch_id DESC
        LIMIT 1`,
@@ -662,10 +666,17 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
       vendorContext: {
         shadeName: shade.shade_name_canonical,
         vendorHex: shade.vendor_hex,
+        tags: shade.vendor_tags,
       },
     });
 
     const previousHex = shade.detected_hex;
+    const vendorFinishes =
+      shade.vendor_tags
+        ?.map((t) => normalizeFinish(t) || t.trim().toLowerCase())
+        .filter((v): v is string => Boolean(v)) ?? [];
+    const aiFinishes = result.finishes ?? [];
+    const mergedFinishes = Array.from(new Set([...vendorFinishes, ...aiFinishes]));
 
     if (!result.hex) {
       return {
@@ -677,13 +688,18 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
           previousHex,
           detectedHex: null,
           confidence: result.confidence,
+          finishes: mergedFinishes.length ? mergedFinishes : null,
         },
       };
     }
 
     await query(
-      `UPDATE shade SET detected_hex = $2, updated_at = now() WHERE shade_id = $1`,
-      [shadeId, result.hex]
+      `UPDATE shade
+         SET detected_hex = $2,
+             detected_finishes = $3,
+             updated_at = now()
+       WHERE shade_id = $1`,
+      [shadeId, result.hex, mergedFinishes.length ? mergedFinishes : null]
     );
 
     return {
@@ -697,7 +713,7 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
         previousHex,
         detectedHex: result.hex,
         confidence: result.confidence,
-        finishes: result.finishes,
+        finishes: mergedFinishes.length ? mergedFinishes : null,
       },
     };
   } catch (error: any) {
