@@ -224,11 +224,11 @@ This backlog is organized as **Epics → Capabilities → Stories/Tasks**, optim
 
 ### Security and Deprecation Fixes (2026-02)
 
-- JWT validation in `auth.ts` is a stub (returns 501); implement Azure AD B2C JWT validation for production security.
+- JWT validation in `auth.ts` is implemented via JWKS/JOSE; keep `AUTH_DEV_BYPASS=false` outside isolated local dev.
 - Remove all dev auth bypasses (e.g., `NEXT_PUBLIC_AUTH_DEV_BYPASS`) from CI/CD and app settings once B2C is fully wired.
 - Voice processing in `voice.ts` is a stub; add input validation and security checks.
 - Ensure signed upload URLs, rate limiting, malware scanning, and least-privilege RBAC are enforced (see implementation-guide.md).
 - For production, migrate Postgres/Blob to VNet/private endpoints (currently public with firewall rules).
 - Address all deprecated npm packages: update `glob`, `rimraf`, replace `inflight` with `lru-cache`, and use native `DOMException`.
 - Run `npm audit` and `npm ls` to identify and update direct dependencies that bring in deprecated packages.
-- Add checklist items for removing dev auth bypass and implementing real JWT validation.
+- Add checklist items to verify dev auth bypass is disabled for shared/prod environments.

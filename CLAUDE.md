@@ -76,8 +76,9 @@ The web app uses Next.js route groups to separate public marketing pages from th
 | `/admin/jobs` | `src/app/(app)/admin/jobs/page.tsx` | Client component, run ingestion jobs + monitor status/change metrics |
 | `/polishes` | `src/app/(app)/polishes/page.tsx` | Client component, filterable/sortable table |
 | `/polishes/new` | `src/app/(app)/polishes/new/page.tsx` | Client component, form with color picker + star rating |
-| `/polishes/[id]` | `src/app/(app)/polishes/[id]/page.tsx` | Server component, uses `generateStaticParams` |
+| `/polishes/detail` | `src/app/(app)/polishes/detail/page.tsx` | Client component, detail shell driven by query params |
 | `/polishes/search` | `src/app/(app)/polishes/search/page.tsx` | Client component, canvas color wheel + OKLAB matching |
+| `/rapid-add` | `src/app/rapid-add/page.tsx` | Client component, capture-first rapid add workflow |
 
 **Route groups:**
 - `(marketing)` — Public pages with glass header + footer (no sidebar)
@@ -143,7 +144,7 @@ Documentation files in this project:
 
 **GitHub Flow** with **Conventional Commits**. See `CONTRIBUTING.md` for full details.
 
-- **Branches:** `<type>/<issue#>-<description>` off `main` (e.g., `feat/12-cosmos-db-client`, `fix/34-color-wheel-safari`)
+- **Branches:** `<type>/<issue#>-<description>` off `main` (e.g., `feat/12-catalog-search`, `fix/34-color-wheel-safari`)
 - **Commits:** `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:` prefixes
 - **PRs:** Squash merge into `main`. PR title = conventional commit message. Reference issues with `Closes #N`.
 - **Issues:** Use GitHub Issue templates (Feature, Bug, Chore). Add scope labels (`web`, `mobile`, `functions`, `infra`).
