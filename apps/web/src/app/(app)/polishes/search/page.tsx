@@ -140,6 +140,15 @@ function useWheelSize(defaultSize = 280, mobileSize = 240) {
   return size;
 }
 
+/**
+ * Render the Color Search page UI and manage its state, data, and interactions.
+ *
+ * Manages loading and fetching of polishes, color selection and preview, harmony generation,
+ * palette anchoring and recommendations, filtering (brand, finish, tone, availability, scope),
+ * and actions that update polish quantities or apply recommended palettes.
+ *
+ * @returns The rendered Color Search page content as a React element
+ */
 function ColorSearchPageContent() {
   const searchParams = useSearchParams();
   const [allPolishes, setAllPolishes] = useState<Polish[]>([]);
