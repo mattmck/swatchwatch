@@ -143,10 +143,13 @@ export async function deletePolish(id: string | number): Promise<{ message: stri
 }
 
 export interface RecalcPolishHexResponse {
-  success?: boolean;
   message?: string;
   shadeId?: string;
-  status?: string;
+  shadeName?: string;
+  previousHex?: string | null;
+  detectedHex?: string | null;
+  confidence?: number | null;
+  finishes?: string[] | null;
 }
 
 export async function recalcPolishHex(id: string | number): Promise<RecalcPolishHexResponse> {

@@ -33,20 +33,20 @@ ON CONFLICT (name_canonical) DO NOTHING;
 -- Each shade references a brand by name_canonical lookup
 INSERT INTO shade (brand_id, shade_name_canonical, finish, collection, status) VALUES
   -- Original 10 mock-data polishes
-  ((SELECT brand_id FROM brand WHERE name_canonical = 'OPI'),           'Big Apple Red',              'cream',        'Iconic Shades',    'active'),
+  ((SELECT brand_id FROM brand WHERE name_canonical = 'OPI'),           'Big Apple Red',              'creme',        'Iconic Shades',    'active'),
   ((SELECT brand_id FROM brand WHERE name_canonical = 'Essie'),         'Ballet Slippers',            'sheer',        'Essie Originals',  'active'),
   ((SELECT brand_id FROM brand WHERE name_canonical = 'ILNP'),          'Mega',                       'holographic',  'ILNP Originals',   'active'),
-  ((SELECT brand_id FROM brand WHERE name_canonical = 'Zoya'),          'Willa',                      'cream',        'Zoya Naturel',     'active'),
-  ((SELECT brand_id FROM brand WHERE name_canonical = 'OPI'),           'Lincoln Park After Dark',    'cream',        'Iconic Shades',    'active'),
-  ((SELECT brand_id FROM brand WHERE name_canonical = 'Cirque Colors'), 'Lullaby',                    'cream',        'Aura Collection',  'active'),
+  ((SELECT brand_id FROM brand WHERE name_canonical = 'Zoya'),          'Willa',                      'creme',        'Zoya Naturel',     'active'),
+  ((SELECT brand_id FROM brand WHERE name_canonical = 'OPI'),           'Lincoln Park After Dark',    'creme',        'Iconic Shades',    'active'),
+  ((SELECT brand_id FROM brand WHERE name_canonical = 'Cirque Colors'), 'Lullaby',                    'creme',        'Aura Collection',  'active'),
   ((SELECT brand_id FROM brand WHERE name_canonical = 'Holo Taco'),     'Scattered Holo Taco',        'topper',       'Holo Taco Toppers','active'),
-  ((SELECT brand_id FROM brand WHERE name_canonical = 'Essie'),         'Wicked',                     'cream',        'Essie Originals',  'active'),
+  ((SELECT brand_id FROM brand WHERE name_canonical = 'Essie'),         'Wicked',                     'creme',        'Essie Originals',  'active'),
   ((SELECT brand_id FROM brand WHERE name_canonical = 'ILNP'),          'Cygnus Loop',                'multichrome',  'ILNP Originals',   'active'),
   ((SELECT brand_id FROM brand WHERE name_canonical = 'OPI'),           'Funny Bunny',                'sheer',        'Soft Shades',      'active'),
   -- 10 additional polishes for variety
   ((SELECT brand_id FROM brand WHERE name_canonical = 'China Glaze'),   'Ruby Pumps',                 'glitter',      'Holiday Joy',      'active'),
-  ((SELECT brand_id FROM brand WHERE name_canonical = 'Sally Hansen'),  'Black Out',                  'cream',        'Insta-Dri',        'active'),
-  ((SELECT brand_id FROM brand WHERE name_canonical = 'Holo Taco'),     'One Coat Black',             'cream',        'Holo Taco Cremes', 'active'),
+  ((SELECT brand_id FROM brand WHERE name_canonical = 'Sally Hansen'),  'Black Out',                  'creme',        'Insta-Dri',        'active'),
+  ((SELECT brand_id FROM brand WHERE name_canonical = 'Holo Taco'),     'One Coat Black',             'creme',        'Holo Taco Cremes', 'active'),
   ((SELECT brand_id FROM brand WHERE name_canonical = 'Orly'),          'Seize the Day',              'shimmer',      'Day Trippin',      'active'),
   ((SELECT brand_id FROM brand WHERE name_canonical = 'Zoya'),          'Pixie Dust Lux',             'matte',        'Pixie Dust',       'active'),
   ((SELECT brand_id FROM brand WHERE name_canonical = 'OPI'),           'Do You Lilac It?',           'cream',        'Iconic Shades',    'active'),

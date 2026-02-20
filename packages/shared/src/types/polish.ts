@@ -40,7 +40,6 @@ export function resolveDisplayHex(
 
 export type PolishFinish =
   | "creme"
-  | "cream"
   | "shimmer"
   | "glitter"
   | "metallic"
@@ -56,6 +55,9 @@ export type PolishFinish =
   | "flake"
   | "topper"
   | "sheer"
+  | "magnetic"
+  | "thermal"
+  | "crelly"
   | "other";
 
 // Canonical entities (from schema)

@@ -8,6 +8,7 @@ const MAX_ERROR_BODY_LOG_CHARS = 400;
 export interface HexDetectionResult {
   hex: string | null;
   confidence: number | null;
+  finishes: string[] | null;
   provider: "azure-openai" | "none";
 }
 
@@ -19,6 +20,13 @@ export interface HexDetectionOptions {
     message: string,
     data?: Record<string, unknown>
   ) => void;
+  vendorContext?: {
+    shadeName?: string | null;
+    vendorHex?: string | null;
+    description?: string | null;
+    tags?: string[] | null;
+    vendorJson?: Record<string, unknown> | null;
+  };
 }
 
 function emitLog(
@@ -65,6 +73,42 @@ function parseConfidence(value: unknown): number | null {
   return null;
 }
 
+const FINISH_CANONICAL: Record<string, string> = {
+  creme: "creme",
+  cream: "creme",
+  creamy: "creme",
+  shimmer: "shimmer",
+  glitter: "glitter",
+  metallic: "metallic",
+  matte: "matte",
+  jelly: "jelly",
+  holographic: "holographic",
+  holo: "holographic",
+  duochrome: "duochrome",
+  multichrome: "multichrome",
+  flake: "flake",
+  flakes: "flake",
+  topper: "topper",
+  sheer: "sheer",
+  magnetic: "magnetic",
+  thermal: "thermal",
+  crelly: "crelly",
+};
+
+function parseFinishes(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const out: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string") continue;
+    const normalized = entry.trim().toLowerCase();
+    const mapped = FINISH_CANONICAL[normalized];
+    if (mapped && !out.includes(mapped)) {
+      out.push(mapped);
+    }
+  }
+  return out.length ? out : null;
+}
+
 function parseHexFromContent(
   content: string,
   imageUrl: string,
@@ -74,6 +118,7 @@ function parseHexFromContent(
     const parsed = JSON.parse(content) as Record<string, unknown>;
     const hex = normalizeHex(parsed.hex);
     const confidence = parseConfidence(parsed.confidence);
+    const finishes = parseFinishes(parsed.finishes);
     const errorReason = typeof parsed.error === "string" ? parsed.error : null;
 
     if (errorReason) {
@@ -81,7 +126,7 @@ function parseHexFromContent(
     }
 
     if (hex) {
-      return { hex, confidence, provider: "azure-openai" };
+      return { hex, confidence, finishes, provider: "azure-openai" };
     }
 
     emitLog(options, "warn", `[ai-color-detection] No valid hex in response for ${imageUrl}: ${content}`);
@@ -101,6 +146,7 @@ function parseHexFromContent(
   return {
     hex,
     confidence: null,
+    finishes: null,
     provider: "azure-openai",
   };
 }
@@ -119,6 +165,25 @@ function parseRetryAfter(response: Response): number | null {
     return seconds * 1000;
   }
   return null;
+}
+
+function buildVendorContext(options?: HexDetectionOptions): string | null {
+  const ctx = options?.vendorContext;
+  if (!ctx) return null;
+  const payload: Record<string, unknown> = {};
+  if (ctx.shadeName) payload.shadeName = ctx.shadeName;
+  if (ctx.vendorHex) payload.vendorHex = ctx.vendorHex;
+  if (ctx.description) payload.description = ctx.description;
+  if (Array.isArray(ctx.tags) && ctx.tags.length > 0) payload.tags = ctx.tags;
+  if (ctx.vendorJson) {
+    try {
+      const json = JSON.stringify(ctx.vendorJson);
+      payload.vendorJson = json.length > 1800 ? `${json.slice(0, 1800)}…` : ctx.vendorJson;
+    } catch {
+      // ignore serialization errors
+    }
+  }
+  return Object.keys(payload).length ? JSON.stringify(payload) : null;
 }
 
 function getResponseId(response: Response): string {
@@ -278,10 +343,11 @@ export async function detectHexWithAzureOpenAI(
         AZURE_OPENAI_DEPLOYMENT: process.env.AZURE_OPENAI_DEPLOYMENT ? "set" : "missing",
       },
     });
-    return { hex: null, confidence: null, provider: "none" };
+    return { hex: null, confidence: null, finishes: null, provider: "none" };
   }
 
   const logLabel = imageUrlOrDataUri.startsWith("data:") ? "data:…(base64)" : imageUrlOrDataUri;
+  const vendorContext = buildVendorContext(options);
   emitLog(options, "info", `[ai-color-detection] Config loaded, calling Azure OpenAI for ${logLabel}`);
 
   const requestUrl = `${endpoint.replace(/\/+$/, "")}/openai/deployments/${deployment}/chat/completions?api-version=${OPENAI_API_VERSION}`;
@@ -300,7 +366,7 @@ export async function detectHexWithAzureOpenAI(
             {
               role: "system",
               content:
-                "Return one representative base polish color from the product image. Respond with valid JSON only: {\"hex\":\"#RRGGBB\",\"confidence\":0..1,\"error\":\"optional\"}. Always include hex and confidence.",
+                "Return one representative base polish color from the product image. Respond with valid JSON only: {\"hex\":\"#RRGGBB\",\"confidence\":0..1,\"finishes\":[\"creme\",\"shimmer\",...],\"error\":\"optional\"}. Always include hex and confidence.",
             },
             {
               role: "user",
@@ -308,8 +374,9 @@ export async function detectHexWithAzureOpenAI(
                 {
                   type: "text",
                   text:
-                    "Return exactly one hex code for the primary polish shade. Ignore non-polish areas and reflections. If uncertain, provide best guess with low confidence.",
+                    "Return exactly one hex code for the primary polish shade. Ignore non-polish areas and reflections. Also identify all finishes mentioned or visible (e.g., creme, shimmer, glitter, metallic, matte, jelly, holographic, duochrome, multichrome, flake, topper, sheer, magnetic, thermal, crelly). If uncertain, provide best guess with low confidence.",
                 },
+                ...(vendorContext ? [{ type: "text", text: `Vendor context: ${vendorContext}` }] : []),
                 {
                   type: "image_url",
                   image_url: { url: imageUrlOrDataUri },
@@ -321,7 +388,7 @@ export async function detectHexWithAzureOpenAI(
             {
               role: "system",
               content:
-                "You extract one representative BASE polish color from a nail polish product image. Ignore background, props, packaging/box, labels/text, bottle cap, nail brush, and glare. For glitter/shimmer/holo finishes, infer the underlying base lacquer color, not reflective particles. ALWAYS respond with valid JSON containing hex and confidence. If you cannot determine the color, still provide your best guess with a low confidence score. Format: {\"hex\":\"#RRGGBB\",\"confidence\":0..1,\"error\":\"reason if low confidence\"}.",
+                "You extract the primary base polish color and finishes from a nail polish product image. Ignore background, props, packaging/box, labels/text, bottle cap, nail brush, and glare. For glitter/shimmer/holo finishes, infer the underlying base lacquer color, not reflective particles. ALWAYS respond with valid JSON containing hex, confidence, finishes array, and optional error. Format: {\"hex\":\"#RRGGBB\",\"confidence\":0..1,\"finishes\":[\"creme\",\"shimmer\",...],\"error\":\"reason if low confidence\"}.",
             },
             {
               role: "user",
@@ -329,8 +396,9 @@ export async function detectHexWithAzureOpenAI(
                 {
                   type: "text",
                   text:
-                    "Image may show either a bottle product shot or closeup painted nails. Return exactly one hex for the primary marketed base shade. Exclude background, brush, cap, box, and sparkle highlights. ALWAYS return a hex value and confidence score. If the image is unclear or unusable, make your best guess and include an 'error' field explaining why confidence is low.",
+                    "Image may show either a bottle product shot or closeup painted nails. Return exactly one hex for the primary marketed base shade. Exclude background, brush, cap, box, and sparkle highlights. Identify any finishes mentioned or visible (creme, shimmer, glitter, metallic, matte, jelly, holographic, duochrome, multichrome, flake, topper, sheer, magnetic, thermal, crelly). ALWAYS return a hex value and confidence score. If the image is unclear or unusable, make your best guess and include an 'error' field explaining why confidence is low.",
                 },
+                ...(vendorContext ? [{ type: "text", text: `Vendor context: ${vendorContext}` }] : []),
                 {
                   type: "image_url",
                   image_url: { url: imageUrlOrDataUri },

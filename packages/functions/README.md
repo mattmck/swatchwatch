@@ -38,7 +38,7 @@ All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpReques
 
 `GET /api/polishes` now returns the entire canonical shade catalog joined with the requesting user's inventory rows. `inventoryItemId` and user-facing fields are undefined when the user has not added that shade yet, but catalog metadata (brand, finish, color hexes, swatch) is still returned so the UI can show "not owned" entries. `GET /api/polishes/{id}` looks up a shade by `shade_id` and includes `sourceImageUrls` (all source images associated with that shade's swatches) for the detail page.
 For private blob storage, the API rewrites blob URLs to `/api/images/{id}` so image bytes are served through Functions (no public container access or client-side SAS required).
-`POST /api/polishes/{id}/recalc-hex` is admin-only and currently returns a `202` queued response after validating the shade exists (AI recalculation integration remains TODO).
+`POST /api/polishes/{id}/recalc-hex` is admin-only, fetches the latest swatch image for the shade, runs Azure OpenAI hex detection, updates `detected_hex`, and returns a 200 with the detected hex and confidence (or a 422 if no image is available for detection).
 
 ### Connector Ingestion Jobs
 

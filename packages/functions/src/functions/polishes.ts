@@ -4,7 +4,19 @@ import { query, transaction } from "../lib/db";
 import { withAuth, withAdmin } from "../lib/auth";
 import { withCors } from "../lib/http";
 import { toImageProxyUrl } from "../lib/image-proxy";
+import { detectHexWithAzureOpenAI } from "../lib/ai-color-detection";
+import { readBlobFromStorageUrl } from "../lib/blob-storage";
 import { PoolClient } from "pg";
+
+const FINISH_NORMALIZATION_MAP: Record<string, string> = {
+  cream: "creme",
+};
+
+function normalizeFinish(value?: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  return FINISH_NORMALIZATION_MAP[normalized] || normalized || null;
+}
 
 /**
  * Shared SELECT fragment — returns global shade data plus the requesting user's inventory fields.
@@ -78,7 +90,7 @@ async function findOrCreateShade(
        AND shade_name_canonical = $2
        AND product_line_id IS NULL
        AND COALESCE(finish, '') = COALESCE($3, '')`,
-    [brandId, shadeName, finish || null]
+    [brandId, shadeName, normalizeFinish(finish)]
   );
 
   if (existingShade.rows.length > 0) {
@@ -105,7 +117,7 @@ async function findOrCreateShade(
      VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, $8)
      RETURNING shade_id`,
     [
-      brandId, shadeName, finish || null, collection || null,
+      brandId, shadeName, normalizeFinish(finish), collection || null,
       colorData?.colorName || null, colorData?.vendorHex || null,
       colorData?.detectedHex || null, colorData?.nameHex || null,
     ]
@@ -135,7 +147,7 @@ function withReadableSwatchUrl<T extends { swatchImageUrl?: string | null; sourc
     : row.sourceImageUrls;
 
   return {
-    ...row,
+    ...withNormalizedFinish(row),
     swatchImageUrl: withReadableImageUrl(swatchUrl, requestUrl),
     sourceImageUrls: readableSourceImageUrls,
   };
@@ -143,6 +155,12 @@ function withReadableSwatchUrl<T extends { swatchImageUrl?: string | null; sourc
 
 function mapReadableSwatchUrls<T extends { swatchImageUrl?: string | null }>(rows: T[], requestUrl: string): T[] {
   return rows.map((row) => withReadableSwatchUrl(row, requestUrl));
+}
+
+function withNormalizedFinish<T extends { finish?: string | null }>(row: T): T {
+  const normalized = normalizeFinish(row.finish);
+  if (!normalized || normalized === row.finish) return row;
+  return { ...row, finish: normalized };
 }
 
 const BLOB_HOST_PATTERN = /^https?:\/\/[^/]*\.blob\./i;
@@ -275,11 +293,16 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       paramIndex++;
     }
 
-    if (finishFilter) {
-      conditions.push(`s.finish = $${paramIndex}`);
-      params.push(finishFilter);
+  if (finishFilter) {
+    const normalizedFilter = normalizeFinish(finishFilter);
+    const filterValues =
+      normalizedFilter === "creme" ? ["creme", "cream"] : normalizedFilter ? [normalizedFilter] : [];
+    if (filterValues.length > 0) {
+      conditions.push(`LOWER(s.finish) = ANY($${paramIndex}::text[])`);
+      params.push(filterValues);
       paramIndex++;
     }
+  }
 
     if (tagsParam) {
       const tags = tagsParam.split(",").map((t) => t.trim()).filter(Boolean);
@@ -570,7 +593,7 @@ async function deletePolish(request: HttpRequest, context: InvocationContext, us
   }
 }
 
-async function recalcHex(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+async function recalcHex(request: HttpRequest, context: InvocationContext, _userId: number): Promise<HttpResponseInit> {
   context.log("POST /api/polishes/{id}/recalc-hex");
 
   const id = request.params.id;
@@ -584,12 +607,24 @@ async function recalcHex(request: HttpRequest, context: InvocationContext): Prom
   }
 
   try {
-    // TODO: Integrate with Azure OpenAI hex detection service.
-    // This endpoint currently verifies the shade and returns a queued response.
-    const shadeResult = await query<{ shade_id: number; shade_name_canonical: string }>(
-      `SELECT shade_id, shade_name_canonical
-       FROM shade
-       WHERE shade_id = $1`,
+    const shadeResult = await query<{
+      shade_id: number;
+      shade_name_canonical: string;
+      detected_hex: string | null;
+      vendor_hex: string | null;
+      storage_url: string | null;
+    }>(
+      `SELECT s.shade_id,
+              s.shade_name_canonical,
+              s.detected_hex,
+              s.vendor_hex,
+              ia.storage_url
+       FROM shade s
+       LEFT JOIN swatch sw ON sw.shade_id = s.shade_id
+       LEFT JOIN image_asset ia ON ia.image_id = sw.image_id_original
+       WHERE s.shade_id = $1
+       ORDER BY sw.swatch_id DESC
+       LIMIT 1`,
       [shadeId]
     );
 
@@ -599,13 +634,65 @@ async function recalcHex(request: HttpRequest, context: InvocationContext): Prom
 
     const shade = shadeResult.rows[0];
 
+    if (!shade.storage_url) {
+      return {
+        status: 422,
+        jsonBody: {
+          error: "No image available for hex detection",
+          shadeId: String(shade.shade_id),
+          shadeName: shade.shade_name_canonical,
+        },
+      };
+    }
+
+    const blob = await readBlobFromStorageUrl(shade.storage_url);
+    const dataUri = `data:${blob.contentType};base64,${blob.bytes.toString("base64")}`;
+
+    const result = await detectHexWithAzureOpenAI(dataUri, {
+      onLog: (level, msg) => {
+        if (level === "error") context.error(msg);
+        else if (level === "warn") context.warn(msg);
+        else context.log(msg);
+      },
+      vendorContext: {
+        shadeName: shade.shade_name_canonical,
+        vendorHex: shade.vendor_hex,
+      },
+    });
+
+    const previousHex = shade.detected_hex;
+
+    if (!result.hex) {
+      return {
+        status: 200,
+        jsonBody: {
+          message: "Could not detect hex from image",
+          shadeId: String(shade.shade_id),
+          shadeName: shade.shade_name_canonical,
+          previousHex,
+          detectedHex: null,
+          confidence: result.confidence,
+        },
+      };
+    }
+
+    await query(
+      `UPDATE shade SET detected_hex = $2, updated_at = now() WHERE shade_id = $1`,
+      [shadeId, result.hex]
+    );
+
     return {
-      status: 202,
+      status: 200,
       jsonBody: {
-        message: "Hex recalculation queued",
+        message: previousHex
+          ? `Updated detected hex from ${previousHex} to ${result.hex}`
+          : `Detected hex ${result.hex}`,
         shadeId: String(shade.shade_id),
         shadeName: shade.shade_name_canonical,
-        status: "processing",
+        previousHex,
+        detectedHex: result.hex,
+        confidence: result.confidence,
+        finishes: result.finishes,
       },
     };
   } catch (error: any) {
