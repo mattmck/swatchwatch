@@ -7,7 +7,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
 import { listAllPolishes, recalcPolishHex, updatePolish } from "@/lib/api";
-import { undertone, type Undertone } from "@/lib/color-utils";
+import type { Undertone } from "@/lib/color-utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +35,7 @@ import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
 import { FINISHES, finishBadgeClassName, finishLabel } from "@/lib/constants";
+import { buildBrandOptions, filterPolishesForList } from "@/lib/polish-filters";
 import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
 import { buildMsalConfig } from "@/lib/msal-config";
 import { cn } from "@/lib/utils";
@@ -117,14 +118,26 @@ function parseToneFilter(value: string | null): Undertone | "all" {
 }
 
 /**
- * Validate and normalize a finish filter value.
+ * Normalize a finish filter value to a known finish or `"all"`.
  *
  * @param value - Raw finish filter value (e.g., from a query parameter); may be a finish name or `"all"`.
- * @returns The original finish name if it is one of the known finishes, otherwise `"all"`.
+ * @returns The matched finish name if it exists in FINISHES, otherwise `"all"`.
  */
 function parseFinishFilter(value: string | null): string {
   if (!value || value === "all") return "all";
   return FINISHES.includes(value as (typeof FINISHES)[number]) ? value : "all";
+}
+
+/**
+ * Normalize a brand filter value from query params.
+ *
+ * @param value - Raw brand query value or null.
+ * @returns A non-empty brand string, or `"all"` for unset/invalid values.
+ */
+function parseBrandFilter(value: string | null): string {
+  if (!value || value === "all") return "all";
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : "all";
 }
 
 /**
@@ -277,15 +290,16 @@ function UnconfiguredPolishesPage() {
 }
 
 /**
- * Render the "All Polishes" page: a searchable, filterable, sortable and paginated list of polishes with inline actions.
+ * Render the All Polishes page with a searchable, filterable, sortable, and paginated list of polishes.
  *
- * The component initializes list state from the URL query parameters and keeps the URL in sync as filters,
- * sorting, or pagination change. It fetches polishes on mount, shows loading and error states, applies
- * text/tone/finish/availability filters, supports stable sorting and optional favoring of owned items,
- * and provides optimistic quantity updates. When `isAdmin` is true, admin-only actions (Recalc Hex) are exposed.
+ * Initializes list and filter state from URL query parameters and keeps the URL in sync as filters,
+ * sorting, or pagination change. Fetches polishes on mount, displays loading and error states,
+ * applies text/tone/brand/finish/availability filters, supports stable sorting and optional favoring
+ * of owned items, and provides optimistic quantity updates. When `isAdmin` is true, exposes admin-only
+ * actions such as hex recalculation.
  *
- * @param isAdmin - If true, include admin-only controls (e.g., Recalc Hex) in the UI.
- * @returns The page's React element containing header, filter controls, table of polishes, and pagination.
+ * @param isAdmin - If true, include admin-only controls (for example, the "Recalc Hex" action).
+ * @returns The React element containing the page header, filter controls, polishes table, and pagination.
  */
 function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const router = useRouter();
@@ -306,6 +320,9 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   );
   const [toneFilter, setToneFilter] = useState<Undertone | "all">(() =>
     parseToneFilter(searchParams.get("tone"))
+  );
+  const [brandFilter, setBrandFilter] = useState<string>(() =>
+    parseBrandFilter(searchParams.get("brand"))
   );
   const [finishFilter, setFinishFilter] = useState<string>(() =>
     parseFinishFilter(searchParams.get("finish"))
@@ -370,7 +387,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       return;
     }
     setPage(1);
-  }, [search, favorCollection, includeAll, toneFilter, finishFilter, availabilityFilter, sortKey, sortDirection]);
+  }, [search, favorCollection, includeAll, toneFilter, brandFilter, finishFilter, availabilityFilter, sortKey, sortDirection]);
 
   // Persist list state in URL to support back/forward restoration.
   useEffect(() => {
@@ -380,6 +397,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     if (!favorCollection) params.set("favor", "0");
     if (!includeAll) params.set("all", "0");
     if (toneFilter !== "all") params.set("tone", toneFilter);
+    if (brandFilter !== "all") params.set("brand", brandFilter);
     if (finishFilter !== "all") params.set("finish", finishFilter);
     if (availabilityFilter !== "all") params.set("avail", availabilityFilter);
     if (sortKey !== "name") params.set("sort", sortKey);
@@ -396,6 +414,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     });
   }, [
     availabilityFilter,
+    brandFilter,
     favorCollection,
     finishFilter,
     includeAll,
@@ -411,47 +430,21 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   ]);
 
   const isOwned = (p: Polish) => (p.quantity ?? 0) > 0;
+  const brandOptions = useMemo(() => buildBrandOptions(polishes), [polishes]);
 
-  const filtered = useMemo(() => {
-    let result = polishes;
-
-    // Text search
-    if (search) {
-      const q = search.toLowerCase();
-      result = result.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.brand.toLowerCase().includes(q) ||
-          (p.color && p.color.toLowerCase().includes(q)) ||
-          (p.collection && p.collection.toLowerCase().includes(q)) ||
-          (p.notes && p.notes.toLowerCase().includes(q))
-      );
-    }
-
-    // Include All unchecked = owned only
-    if (!includeAll) {
-      result = result.filter(isOwned);
-    }
-
-    if (toneFilter !== "all") {
-      result = result.filter((p) => {
-        const hex = resolveDisplayHex(p);
-        return hex && undertone(hex) === toneFilter;
-      });
-    }
-
-    if (finishFilter !== "all") {
-      result = result.filter((p) => p.finish === finishFilter);
-    }
-
-    if (availabilityFilter !== "all") {
-      result = result.filter((p) =>
-        availabilityFilter === "owned" ? isOwned(p) : !isOwned(p)
-      );
-    }
-
-    return result;
-  }, [polishes, search, includeAll, toneFilter, finishFilter, availabilityFilter]);
+  const filtered = useMemo(
+    () =>
+      filterPolishesForList({
+        polishes,
+        search,
+        includeAll,
+        toneFilter,
+        brandFilter,
+        finishFilter,
+        availabilityFilter,
+      }),
+    [polishes, search, includeAll, toneFilter, brandFilter, finishFilter, availabilityFilter]
+  );
 
   const sorted = useMemo(() => {
     const result = [...filtered];
@@ -672,6 +665,20 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
             </SelectContent>
           </Select>
 
+          <Select value={brandFilter} onValueChange={setBrandFilter}>
+            <SelectTrigger className="h-8 w-[180px]">
+              <SelectValue placeholder="Brand" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Brands</SelectItem>
+              {brandOptions.map((brand) => (
+                <SelectItem key={brand} value={brand}>
+                  {brand}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
           <Select value={finishFilter} onValueChange={setFinishFilter}>
             <SelectTrigger className="h-8 w-[160px]">
               <SelectValue placeholder="Finish" />
@@ -705,6 +712,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
           !includeAll ||
           !favorCollection ||
           toneFilter !== "all" ||
+          brandFilter !== "all" ||
           finishFilter !== "all" ||
           availabilityFilter !== "all") && (
           <Button
@@ -716,6 +724,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
               setIncludeAll(true);
               setFavorCollection(true);
               setToneFilter("all");
+              setBrandFilter("all");
               setFinishFilter("all");
               setAvailabilityFilter("all");
             }}
