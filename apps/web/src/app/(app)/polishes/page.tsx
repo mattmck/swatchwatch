@@ -7,7 +7,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
 import { listAllPolishes, recalcPolishHex, updatePolish } from "@/lib/api";
-import type { Undertone } from "@/lib/color-utils";
+import { undertone, type Undertone } from "@/lib/color-utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -30,16 +30,13 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Loader2, Sparkles } from "lucide-react
 import { ColorDot } from "@/components/color-dot";
 import { QuantityControls } from "@/components/quantity-controls";
 import { Pagination } from "@/components/pagination";
-import { ToggleChip } from "@/components/toggle-chip";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
 import { FINISHES, finishBadgeClassName, finishLabel } from "@/lib/constants";
-import { buildBrandOptions, filterPolishesForList } from "@/lib/polish-filters";
 import { runRecalcHexFlow } from "@/lib/recalc-hex-flow";
 import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
 import { buildMsalConfig } from "@/lib/msal-config";
-import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const DEFAULT_PAGE_SIZE = 10;
@@ -47,17 +44,10 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
 type SortKey = "status" | "brand" | "name" | "finish" | "collection";
 type SortDirection = "asc" | "desc";
 type AvailabilityFilter = "all" | "owned" | "wishlist";
+type ResultsScope = "all" | "collection";
 const SORT_KEYS: readonly SortKey[] = ["status", "brand", "name", "finish", "collection"];
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
 const HAS_B2C_CONFIG = buildMsalConfig() !== null;
-const COLLECTION_PILL_CLASS_NAME =
-  "border border-border/70 bg-background/70 text-foreground dark:border-border/60 dark:bg-muted/30";
-
-interface OverflowPillItem {
-  id: string;
-  label: string;
-  className?: string;
-}
 
 /**
  * Parse a string into a positive integer, returning a fallback when the input is absent or invalid.
@@ -119,26 +109,14 @@ function parseToneFilter(value: string | null): Undertone | "all" {
 }
 
 /**
- * Normalize a finish filter value to a known finish or `"all"`.
+ * Validate and normalize a finish filter value.
  *
  * @param value - Raw finish filter value (e.g., from a query parameter); may be a finish name or `"all"`.
- * @returns The matched finish name if it exists in FINISHES, otherwise `"all"`.
+ * @returns The original finish name if it is one of the known finishes, otherwise `"all"`.
  */
 function parseFinishFilter(value: string | null): string {
   if (!value || value === "all") return "all";
   return FINISHES.includes(value as (typeof FINISHES)[number]) ? value : "all";
-}
-
-/**
- * Normalize a brand filter value from query params.
- *
- * @param value - Raw brand query value or null.
- * @returns A non-empty brand string, or `"all"` for unset/invalid values.
- */
-function parseBrandFilter(value: string | null): string {
-  if (!value || value === "all") return "all";
-  const normalized = value.trim();
-  return normalized.length > 0 ? normalized : "all";
 }
 
 /**
@@ -149,6 +127,20 @@ function parseBrandFilter(value: string | null): string {
  */
 function parseAvailabilityFilter(value: string | null): AvailabilityFilter {
   return value === "owned" || value === "wishlist" ? value : "all";
+}
+
+/**
+ * Parse list scope from query params.
+ *
+ * Supports both current `scope` and legacy `all` query params.
+ */
+function parseResultsScope(
+  scopeValue: string | null,
+  legacyIncludeAllValue: string | null
+): ResultsScope {
+  if (scopeValue === "collection") return "collection";
+  if (scopeValue === "all") return "all";
+  return parseBooleanFlag(legacyIncludeAllValue, true) ? "all" : "collection";
 }
 
 /**
@@ -164,93 +156,30 @@ function parsePageSize(value: string | null): number {
     : DEFAULT_PAGE_SIZE;
 }
 
-function splitPillValues(value?: string | null): string[] {
-  if (!value) return [];
-  return value
-    .split(/[,;/|]+/)
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
-}
+type PolishesListQueryState = {
+  search: string;
+  scope: ResultsScope;
+  toneFilter: Undertone | "all";
+  finishFilter: string;
+  availabilityFilter: AvailabilityFilter;
+  sortKey: SortKey;
+  sortDirection: SortDirection;
+  page: number;
+  pageSize: number;
+};
 
-function OverflowPillCell({
-  items,
-  maxWidthClassName,
-  emptyLabel = "—",
-}: {
-  items: OverflowPillItem[];
-  maxWidthClassName: string;
-  emptyLabel?: string;
-}) {
-  const rowRef = useRef<HTMLDivElement | null>(null);
-  const [isOverflowing, setIsOverflowing] = useState(false);
-  const itemFingerprint = useMemo(
-    () => items.map((item) => `${item.id}:${item.label}`).join("|"),
-    [items]
-  );
-
-  useEffect(() => {
-    const element = rowRef.current;
-    if (!element) return;
-
-    const syncOverflowState = () => {
-      setIsOverflowing(element.scrollWidth > element.clientWidth + 1);
-    };
-
-    syncOverflowState();
-
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(syncOverflowState);
-    observer.observe(element);
-
-    return () => observer.disconnect();
-  }, [itemFingerprint]);
-
-  if (items.length === 0) {
-    return <span className="text-muted-foreground">{emptyLabel}</span>;
-  }
-
-  return (
-    <div
-      className={cn("group relative outline-none", maxWidthClassName)}
-      tabIndex={isOverflowing ? 0 : -1}
-      aria-label={isOverflowing ? "Show full values" : undefined}
-    >
-      <div
-        ref={rowRef}
-        className="flex flex-nowrap items-center gap-1 overflow-hidden whitespace-nowrap"
-      >
-        {items.map((item, index) => (
-          <Badge key={`${item.id}-${index}`} className={cn("shrink-0", item.className)}>
-            {item.label}
-          </Badge>
-        ))}
-      </div>
-
-      {isOverflowing && (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 right-0 flex items-center bg-gradient-to-l from-background via-background/95 to-transparent pl-6 pr-1 text-xs text-muted-foreground"
-        >
-          …
-        </span>
-      )}
-
-      {isOverflowing && (
-        <div
-          role="tooltip"
-          className="pointer-events-none invisible absolute left-0 top-[calc(100%+0.35rem)] z-20 w-max max-w-[24rem] rounded-md border border-border/70 bg-popover p-2 opacity-0 shadow-lg transition-opacity duration-150 group-hover:visible group-hover:pointer-events-auto group-hover:opacity-100 group-focus-visible:visible group-focus-visible:pointer-events-auto group-focus-visible:opacity-100"
-        >
-          <div className="flex flex-wrap gap-1">
-            {items.map((item, index) => (
-              <Badge key={`${item.id}-tooltip-${index}`} className={item.className}>
-                {item.label}
-              </Badge>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
+function buildPolishesListQueryString(state: PolishesListQueryState): string {
+  const params = new URLSearchParams();
+  if (state.search) params.set("q", state.search);
+  if (state.scope !== "all") params.set("scope", state.scope);
+  if (state.toneFilter !== "all") params.set("tone", state.toneFilter);
+  if (state.finishFilter !== "all") params.set("finish", state.finishFilter);
+  if (state.availabilityFilter !== "all") params.set("avail", state.availabilityFilter);
+  if (state.sortKey !== "name") params.set("sort", state.sortKey);
+  if (state.sortDirection !== "asc") params.set("dir", state.sortDirection);
+  if (state.page !== 1) params.set("page", String(state.page));
+  if (state.pageSize !== DEFAULT_PAGE_SIZE) params.set("pageSize", String(state.pageSize));
+  return params.toString();
 }
 
 /**
@@ -291,16 +220,15 @@ function UnconfiguredPolishesPage() {
 }
 
 /**
- * Render the All Polishes page with a searchable, filterable, sortable, and paginated list of polishes.
+ * Render the "All Polishes" page: a searchable, filterable, sortable and paginated list of polishes with inline actions.
  *
- * Initializes list and filter state from URL query parameters and keeps the URL in sync as filters,
- * sorting, or pagination change. Fetches polishes on mount, displays loading and error states,
- * applies text/tone/brand/finish/availability filters, supports stable sorting and optional favoring
- * of owned items, and provides optimistic quantity updates. When `isAdmin` is true, exposes admin-only
- * actions such as hex recalculation.
+ * The component initializes list state from the URL query parameters and keeps the URL in sync as filters,
+ * sorting, or pagination change. It fetches polishes on mount, shows loading and error states, applies
+ * text/tone/finish/availability filters, supports stable sorting and optional favoring of owned items,
+ * and provides optimistic quantity updates. When `isAdmin` is true, admin-only actions (Recalc Hex) are exposed.
  *
- * @param isAdmin - If true, include admin-only controls (for example, the "Recalc Hex" action).
- * @returns The React element containing the page header, filter controls, polishes table, and pagination.
+ * @param isAdmin - If true, include admin-only controls (e.g., Recalc Hex) in the UI.
+ * @returns The page's React element containing header, filter controls, table of polishes, and pagination.
  */
 function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const router = useRouter();
@@ -313,17 +241,11 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
 
   // Filters
   const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
-  const [favorCollection, setFavorCollection] = useState(() =>
-    parseBooleanFlag(searchParams.get("favor"), true)
-  );
-  const [includeAll, setIncludeAll] = useState(() =>
-    parseBooleanFlag(searchParams.get("all"), true)
+  const [scope, setScope] = useState<ResultsScope>(() =>
+    parseResultsScope(searchParams.get("scope"), searchParams.get("all"))
   );
   const [toneFilter, setToneFilter] = useState<Undertone | "all">(() =>
     parseToneFilter(searchParams.get("tone"))
-  );
-  const [brandFilter, setBrandFilter] = useState<string>(() =>
-    parseBrandFilter(searchParams.get("brand"))
   );
   const [finishFilter, setFinishFilter] = useState<string>(() =>
     parseFinishFilter(searchParams.get("finish"))
@@ -388,25 +310,38 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       return;
     }
     setPage(1);
-  }, [search, favorCollection, includeAll, toneFilter, brandFilter, finishFilter, availabilityFilter, sortKey, sortDirection]);
+  }, [search, scope, toneFilter, finishFilter, availabilityFilter, sortKey, sortDirection]);
+
+  const queryString = useMemo(
+    () =>
+      buildPolishesListQueryString({
+        search,
+        scope,
+        toneFilter,
+        finishFilter,
+        availabilityFilter,
+        sortKey,
+        sortDirection,
+        page,
+        pageSize,
+      }),
+    [
+      search,
+      scope,
+      toneFilter,
+      finishFilter,
+      availabilityFilter,
+      sortKey,
+      sortDirection,
+      page,
+      pageSize,
+    ]
+  );
+  const returnToHref = queryString ? `${pathname}?${queryString}` : pathname;
 
   // Persist list state in URL to support back/forward restoration.
   useEffect(() => {
-    const params = new URLSearchParams();
-
-    if (search) params.set("q", search);
-    if (!favorCollection) params.set("favor", "0");
-    if (!includeAll) params.set("all", "0");
-    if (toneFilter !== "all") params.set("tone", toneFilter);
-    if (brandFilter !== "all") params.set("brand", brandFilter);
-    if (finishFilter !== "all") params.set("finish", finishFilter);
-    if (availabilityFilter !== "all") params.set("avail", availabilityFilter);
-    if (sortKey !== "name") params.set("sort", sortKey);
-    if (sortDirection !== "asc") params.set("dir", sortDirection);
-    if (page !== 1) params.set("page", String(page));
-    if (pageSize !== DEFAULT_PAGE_SIZE) params.set("pageSize", String(pageSize));
-
-    const nextQuery = params.toString();
+    const nextQuery = queryString;
     const currentQuery = searchParams.toString();
     if (nextQuery === currentQuery) return;
 
@@ -415,37 +350,57 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     });
   }, [
     availabilityFilter,
-    brandFilter,
-    favorCollection,
     finishFilter,
-    includeAll,
     page,
     pageSize,
     pathname,
+    queryString,
     router,
-    search,
     searchParams,
-    sortDirection,
-    sortKey,
-    toneFilter,
   ]);
 
   const isOwned = (p: Polish) => (p.quantity ?? 0) > 0;
-  const brandOptions = useMemo(() => buildBrandOptions(polishes), [polishes]);
 
-  const filtered = useMemo(
-    () =>
-      filterPolishesForList({
-        polishes,
-        search,
-        includeAll,
-        toneFilter,
-        brandFilter,
-        finishFilter,
-        availabilityFilter,
-      }),
-    [polishes, search, includeAll, toneFilter, brandFilter, finishFilter, availabilityFilter]
-  );
+  const filtered = useMemo(() => {
+    let result = polishes;
+
+    // Text search
+    if (search) {
+      const q = search.toLowerCase();
+      result = result.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          p.brand.toLowerCase().includes(q) ||
+          (p.color && p.color.toLowerCase().includes(q)) ||
+          (p.collection && p.collection.toLowerCase().includes(q)) ||
+          (p.notes && p.notes.toLowerCase().includes(q))
+      );
+    }
+
+    // My Collection scope = owned only
+    if (scope === "collection") {
+      result = result.filter(isOwned);
+    }
+
+    if (toneFilter !== "all") {
+      result = result.filter((p) => {
+        const hex = resolveDisplayHex(p);
+        return hex && undertone(hex) === toneFilter;
+      });
+    }
+
+    if (finishFilter !== "all") {
+      result = result.filter((p) => p.finish === finishFilter);
+    }
+
+    if (availabilityFilter !== "all") {
+      result = result.filter((p) =>
+        availabilityFilter === "owned" ? isOwned(p) : !isOwned(p)
+      );
+    }
+
+    return result;
+  }, [polishes, search, scope, toneFilter, finishFilter, availabilityFilter]);
 
   const sorted = useMemo(() => {
     const result = [...filtered];
@@ -480,17 +435,8 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       return normalize(a.brand).localeCompare(normalize(b.brand));
     });
 
-    // Favor My Collection: stable-sort owned to top
-    if (favorCollection) {
-      result.sort((a, b) => {
-        const aOwned = isOwned(a) ? 0 : 1;
-        const bOwned = isOwned(b) ? 0 : 1;
-        return aOwned - bOwned;
-      });
-    }
-
     return result;
-  }, [filtered, favorCollection, sortKey, sortDirection]);
+  }, [filtered, sortKey, sortDirection]);
 
   const handleSort = useCallback((key: SortKey) => {
     if (sortKey === key) {
@@ -593,23 +539,22 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
           className="max-w-xs"
         />
 
-        <ToggleChip
-          pressed={favorCollection}
-          onPressedChange={setFavorCollection}
-          aria-label="Toggle favor my collection"
-          className="min-w-[180px]"
-        >
-          Favor My Collection
-        </ToggleChip>
-
-        <ToggleChip
-          pressed={includeAll}
-          onPressedChange={setIncludeAll}
-          aria-label="Toggle include all polishes"
-          className="min-w-[150px]"
-        >
-          Include All
-        </ToggleChip>
+        <div className="flex rounded-lg border bg-muted p-1">
+          <Button
+            variant={scope === "all" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setScope("all")}
+          >
+            All
+          </Button>
+          <Button
+            variant={scope === "collection" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setScope("collection")}
+          >
+            My Collection
+          </Button>
+        </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <Select value={toneFilter} onValueChange={(v) => setToneFilter(v as Undertone | "all")}>
@@ -621,20 +566,6 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
               <SelectItem value="warm">Warm</SelectItem>
               <SelectItem value="cool">Cool</SelectItem>
               <SelectItem value="neutral">Neutral</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Select value={brandFilter} onValueChange={setBrandFilter}>
-            <SelectTrigger className="h-8 w-[180px]">
-              <SelectValue placeholder="Brand" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Brands</SelectItem>
-              {brandOptions.map((brand) => (
-                <SelectItem key={brand} value={brand}>
-                  {brand}
-                </SelectItem>
-              ))}
             </SelectContent>
           </Select>
 
@@ -668,10 +599,8 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
         </div>
 
         {(search ||
-          !includeAll ||
-          !favorCollection ||
+          scope !== "all" ||
           toneFilter !== "all" ||
-          brandFilter !== "all" ||
           finishFilter !== "all" ||
           availabilityFilter !== "all") && (
           <Button
@@ -680,10 +609,8 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
             className="text-brand-purple hover:bg-brand-pink-light/30"
             onClick={() => {
               setSearch("");
-              setIncludeAll(true);
-              setFavorCollection(true);
+              setScope("all");
               setToneFilter("all");
-              setBrandFilter("all");
               setFinishFilter("all");
               setAvailabilityFilter("all");
             }}
@@ -782,19 +709,6 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
               pageItems.map((polish) => {
                 const owned = isOwned(polish);
                 const recalcPending = recalcPendingById[polish.id] === true;
-                const finishItems = splitPillValues(polish.finish).map((finish) => {
-                  const normalized = finish.toLowerCase();
-                  return {
-                    id: normalized,
-                    label: finishLabel(normalized),
-                    className: finishBadgeClassName(normalized),
-                  };
-                });
-                const collectionItems = splitPillValues(polish.collection).map((collection) => ({
-                  id: collection.toLowerCase(),
-                  label: collection,
-                  className: COLLECTION_PILL_CLASS_NAME,
-                }));
                 return (
                   <TableRow
                     key={polish.id}
@@ -829,7 +743,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                     <TableCell className="font-medium">{polish.brand}</TableCell>
                     <TableCell>
                       <Link
-                        href={`/polishes/detail?id=${polish.id}`}
+                        href={`/polishes/detail?id=${polish.id}&returnTo=${encodeURIComponent(returnToHref)}`}
                         className="text-primary hover:underline"
                       >
                         {polish.name}
@@ -854,10 +768,14 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                       )}
                     </TableCell>
                     <TableCell>
-                      <OverflowPillCell items={finishItems} maxWidthClassName="max-w-[11rem]" />
+                      {polish.finish && (
+                        <Badge className={finishBadgeClassName(polish.finish)}>
+                          {finishLabel(polish.finish)}
+                        </Badge>
+                      )}
                     </TableCell>
-                    <TableCell>
-                      <OverflowPillCell items={collectionItems} maxWidthClassName="max-w-[14rem]" />
+                    <TableCell className="text-muted-foreground">
+                      {polish.collection ?? "\u2014"}
                     </TableCell>
                     {isAdmin && (
                       <TableCell className="text-right">
