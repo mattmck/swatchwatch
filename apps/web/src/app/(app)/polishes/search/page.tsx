@@ -9,6 +9,7 @@ import { BsCurrencyDollar, BsPlusLg, BsQuestionCircleFill, BsTrash3Fill } from "
 import { GiPerfumeBottle } from "react-icons/gi";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { listPolishes, updatePolish } from "@/lib/api";
+import { buildBrandOptions, matchesBrandFilter } from "@/lib/polish-filters";
 import {
   colorDistance,
   hexToHsl,
@@ -279,24 +280,13 @@ function ColorSearchPageContent() {
     () => (resultsScope === "collection" ? ownedColorPolishes : colorPolishes),
     [resultsScope, ownedColorPolishes, colorPolishes]
   );
-  const brandOptions = useMemo(() => {
-    const brandsByKey = new Map<string, string>();
-    for (const polish of colorPolishes) {
-      const brand = polish.brand.trim();
-      if (!brand) continue;
-      const key = brand.toLowerCase();
-      if (!brandsByKey.has(key)) {
-        brandsByKey.set(key, brand);
-      }
-    }
-    return [...brandsByKey.values()].sort((a, b) => a.localeCompare(b));
-  }, [colorPolishes]);
+  const brandOptions = useMemo(() => buildBrandOptions(colorPolishes), [colorPolishes]);
 
   const filteredScopedColorPolishes = useMemo(() => {
     let result = scopedColorPolishes;
     if (brandFilter !== "all") {
       const normalizedBrand = brandFilter.toLowerCase();
-      result = result.filter((p) => p.brand.toLowerCase() === normalizedBrand);
+      result = result.filter((p) => matchesBrandFilter(p.brand, normalizedBrand));
     }
     if (finishFilter !== "all") {
       result = result.filter((p) => p.finish === finishFilter);

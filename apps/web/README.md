@@ -148,6 +148,7 @@ cd apps/web && npx shadcn@latest add <component-name>
 | `utils.ts` | `cn()` — Tailwind class merging (shadcn standard) |
 | `constants.ts` | `FINISHES`, `finishLabel()`, `finishBadgeClassName()` — finish taxonomy and branded badge styling |
 | `color-utils.ts` | Hex↔HSL↔RGB↔OKLAB conversions, `colorDistance()`, `complementaryHex()` |
+| `polish-filters.ts` | `buildBrandOptions()`, `filterPolishesForList()`, `matchesBrandFilter()` — shared catalog/search filter helpers with normalized brand matching |
 | `api.ts` | API client helpers including polish CRUD, rapid-add capture calls, and ingestion admin methods (`listIngestionJobs`, `runIngestionJob`, `getIngestionJob`) |
 | `msal-config.ts` | `buildMsalConfig()` builder, `LOGIN_SCOPES` constant. Returns `null` if auth env is not configured |
 | `auth-token.ts` | Module-level token store: `setAccessToken()`, `getAccessToken()` |

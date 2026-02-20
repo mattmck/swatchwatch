@@ -7,7 +7,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
 import { listAllPolishes, recalcPolishHex, updatePolish } from "@/lib/api";
-import { undertone, type Undertone } from "@/lib/color-utils";
+import type { Undertone } from "@/lib/color-utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +35,7 @@ import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
 import { FINISHES, finishBadgeClassName, finishLabel } from "@/lib/constants";
+import { buildBrandOptions, filterPolishesForList } from "@/lib/polish-filters";
 import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
 import { buildMsalConfig } from "@/lib/msal-config";
 import { cn } from "@/lib/utils";
@@ -428,64 +429,21 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   ]);
 
   const isOwned = (p: Polish) => (p.quantity ?? 0) > 0;
-  const brandOptions = useMemo(() => {
-    const brandsByKey = new Map<string, string>();
-    for (const polish of polishes) {
-      const brand = polish.brand.trim();
-      if (!brand) continue;
-      const key = brand.toLowerCase();
-      if (!brandsByKey.has(key)) {
-        brandsByKey.set(key, brand);
-      }
-    }
-    return [...brandsByKey.values()].sort((a, b) => a.localeCompare(b));
-  }, [polishes]);
+  const brandOptions = useMemo(() => buildBrandOptions(polishes), [polishes]);
 
-  const filtered = useMemo(() => {
-    let result = polishes;
-
-    // Text search
-    if (search) {
-      const q = search.toLowerCase();
-      result = result.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.brand.toLowerCase().includes(q) ||
-          (p.color && p.color.toLowerCase().includes(q)) ||
-          (p.collection && p.collection.toLowerCase().includes(q)) ||
-          (p.notes && p.notes.toLowerCase().includes(q))
-      );
-    }
-
-    // Include All unchecked = owned only
-    if (!includeAll) {
-      result = result.filter(isOwned);
-    }
-
-    if (toneFilter !== "all") {
-      result = result.filter((p) => {
-        const hex = resolveDisplayHex(p);
-        return hex && undertone(hex) === toneFilter;
-      });
-    }
-
-    if (brandFilter !== "all") {
-      const normalizedBrand = brandFilter.toLowerCase();
-      result = result.filter((p) => p.brand.toLowerCase() === normalizedBrand);
-    }
-
-    if (finishFilter !== "all") {
-      result = result.filter((p) => p.finish === finishFilter);
-    }
-
-    if (availabilityFilter !== "all") {
-      result = result.filter((p) =>
-        availabilityFilter === "owned" ? isOwned(p) : !isOwned(p)
-      );
-    }
-
-    return result;
-  }, [polishes, search, includeAll, toneFilter, brandFilter, finishFilter, availabilityFilter]);
+  const filtered = useMemo(
+    () =>
+      filterPolishesForList({
+        polishes,
+        search,
+        includeAll,
+        toneFilter,
+        brandFilter,
+        finishFilter,
+        availabilityFilter,
+      }),
+    [polishes, search, includeAll, toneFilter, brandFilter, finishFilter, availabilityFilter]
+  );
 
   const sorted = useMemo(() => {
     const result = [...filtered];
