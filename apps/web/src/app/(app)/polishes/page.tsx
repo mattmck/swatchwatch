@@ -117,10 +117,10 @@ function parseToneFilter(value: string | null): Undertone | "all" {
 }
 
 /**
- * Validate and normalize a finish filter value.
+ * Normalize a finish filter value to a known finish or `"all"`.
  *
  * @param value - Raw finish filter value (e.g., from a query parameter); may be a finish name or `"all"`.
- * @returns The original finish name if it is one of the known finishes, otherwise `"all"`.
+ * @returns The matched finish name if it exists in FINISHES, otherwise `"all"`.
  */
 function parseFinishFilter(value: string | null): string {
   if (!value || value === "all") return "all";
@@ -289,15 +289,16 @@ function UnconfiguredPolishesPage() {
 }
 
 /**
- * Render the "All Polishes" page: a searchable, filterable, sortable and paginated list of polishes with inline actions.
+ * Render the All Polishes page with a searchable, filterable, sortable, and paginated list of polishes.
  *
- * The component initializes list state from the URL query parameters and keeps the URL in sync as filters,
- * sorting, or pagination change. It fetches polishes on mount, shows loading and error states, applies
- * text/tone/finish/availability filters, supports stable sorting and optional favoring of owned items,
- * and provides optimistic quantity updates. When `isAdmin` is true, admin-only actions (Recalc Hex) are exposed.
+ * Initializes list and filter state from URL query parameters and keeps the URL in sync as filters,
+ * sorting, or pagination change. Fetches polishes on mount, displays loading and error states,
+ * applies text/tone/brand/finish/availability filters, supports stable sorting and optional favoring
+ * of owned items, and provides optimistic quantity updates. When `isAdmin` is true, exposes admin-only
+ * actions such as hex recalculation.
  *
- * @param isAdmin - If true, include admin-only controls (e.g., Recalc Hex) in the UI.
- * @returns The page's React element containing header, filter controls, table of polishes, and pagination.
+ * @param isAdmin - If true, include admin-only controls (for example, the "Recalc Hex" action).
+ * @returns The React element containing the page header, filter controls, polishes table, and pagination.
  */
 function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const router = useRouter();
