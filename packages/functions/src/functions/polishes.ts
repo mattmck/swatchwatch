@@ -610,11 +610,14 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
               s.detected_hex,
               s.vendor_hex,
               ia.storage_url,
-              ARRAY(SELECT jsonb_array_elements_text(ep.normalized_json -> 'tags')) AS vendor_tags
+              CASE
+                WHEN s.finish IS NOT NULL AND btrim(s.finish) <> ''
+                  THEN ARRAY[s.finish]::text[]
+                ELSE NULL::text[]
+              END AS vendor_tags
        FROM shade s
        LEFT JOIN swatch sw ON sw.shade_id = s.shade_id
        LEFT JOIN image_asset ia ON ia.image_id = sw.image_id_original
-       LEFT JOIN external_product ep ON ep.external_id = s.external_id
        WHERE s.shade_id = $1
        ORDER BY sw.swatch_id DESC
        LIMIT 1`,

@@ -492,6 +492,50 @@ describe("functions/polishes — recalcHex", () => {
     assert.equal(res.jsonBody.detectedHex, "#ABCDEF");
     assert.match(res.jsonBody.message, /Detected hex/i);
   });
+
+  it("does not depend on shade.external_id in recalc shade lookup query", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let removedJoinUsed = false;
+    queryMock = async (...args) => {
+      const sql = args[0] || "";
+      if (sql.includes("FROM app_user")) {
+        return {
+          rows: [{ user_id: 1, external_id: "ext-1", email: "admin@test", role: "admin" }],
+        };
+      }
+      if (sql.includes("FROM shade s")) {
+        if (sql.includes("ON ep.external_id = s.external_id")) {
+          removedJoinUsed = true;
+          throw new Error("column s.external_id does not exist");
+        }
+        return {
+          rows: [
+            {
+              shade_id: 123,
+              shade_name_canonical: "Tag Edge Case",
+              detected_hex: null,
+              vendor_hex: null,
+              storage_url: "https://example.com/fake.png",
+              vendor_tags: null,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    };
+
+    const handler = registeredRoutes["polishes-recalc-hex"].handler;
+    const req = fakeRequest({
+      method: "POST",
+      url: "http://localhost:7071/api/polishes/123/recalc-hex",
+      headers: { authorization: "Bearer dev:1" },
+      params: { id: "123" },
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.detectedHex, "#ABCDEF");
+    assert.equal(removedJoinUsed, false);
+  });
 });
 
 describe("functions/polishes — createPolish validation", () => {
