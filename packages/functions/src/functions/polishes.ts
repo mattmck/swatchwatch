@@ -146,7 +146,7 @@ function withReadableSwatchUrl<T extends { swatchImageUrl?: string | null; sourc
     ? row.sourceImageUrls.map((url) => withReadableImageUrl(url, requestUrl))
     : row.sourceImageUrls;
 
-  const normalizedRow = withNormalizedFinish(row);
+  const normalizedRow = withNormalizedFinish(row as T & { finish?: string | null });
 
   return {
     ...(normalizedRow as T),
