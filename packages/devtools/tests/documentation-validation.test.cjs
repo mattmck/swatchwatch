@@ -10,10 +10,11 @@ function readMarkdown(filePath) {
 
 // Helper to extract markdown headings
 function extractHeadings(content) {
+  const withoutCode = content.replace(/```[\s\S]*?```/g, '');
   const headingRegex = /^#{1,6}\s+(.+)$/gm;
   const headings = [];
   let match;
-  while ((match = headingRegex.exec(content)) !== null) {
+  while ((match = headingRegex.exec(withoutCode)) !== null) {
     const level = match[0].match(/^#+/)[0].length;
     headings.push({ level, text: match[1].trim() });
   }
@@ -104,13 +105,14 @@ test('README.md: internal documentation links are valid', () => {
   const content = readMarkdown(readmePath);
   const links = extractLinks(content);
 
-  // Check internal links (relative paths without anchors)
+  // Check internal links (relative paths, including file links with anchors)
   const internalLinks = links.filter(
-    (link) => !link.url.startsWith('http') && !link.url.startsWith('#') && !link.url.includes('#')
+    (link) => !link.url.startsWith('http') && !link.url.startsWith('#')
   );
 
   internalLinks.forEach((link) => {
-    const exists = fileExists(repoRoot, link.url);
+    const [filePath] = link.url.split('#');
+    const exists = fileExists(repoRoot, filePath);
     assert.ok(
       exists,
       `Internal link should exist: [${link.text}](${link.url})`
