@@ -111,7 +111,7 @@ test('swatchwatch-brush-icon.svg: has square viewBox', () => {
   const attrs = getSVGAttributes(content);
 
   if (attrs.viewBox) {
-    const [x, y, width, height] = attrs.viewBox.split(' ').map(Number);
+    const [, , width, height] = attrs.viewBox.split(' ').map(Number);
     assert.equal(width, height, 'viewBox should be square');
   }
 });
@@ -135,7 +135,7 @@ test('swatchwatch-lockup.svg: is horizontal (wider than tall)', () => {
   const attrs = getSVGAttributes(content);
 
   if (attrs.viewBox) {
-    const [x, y, width, height] = attrs.viewBox.split(' ').map(Number);
+    const [, , width, height] = attrs.viewBox.split(' ').map(Number);
     assert.ok(width > height, 'lockup should be horizontal (wider than tall)');
   } else if (attrs.width && attrs.height) {
     const width = parseInt(attrs.width, 10);
@@ -174,7 +174,7 @@ test('swatchwatch-monogram.svg: is square', () => {
   const attrs = getSVGAttributes(content);
 
   if (attrs.viewBox) {
-    const [x, y, width, height] = attrs.viewBox.split(' ').map(Number);
+    const [, , width, height] = attrs.viewBox.split(' ').map(Number);
     assert.equal(width, height, 'monogram should be square');
   } else if (attrs.width && attrs.height) {
     assert.equal(attrs.width, attrs.height, 'monogram should be square');

@@ -13,10 +13,22 @@ interface ListFilterInput {
   availabilityFilter: InventoryAvailabilityFilter;
 }
 
+/**
+ * Normalize a brand label for case-insensitive matching.
+ *
+ * @param value - Raw brand text that may include mixed casing or whitespace.
+ * @returns Lowercased, trimmed brand key suitable for equality checks.
+ */
 export function normalizeBrand(value: string): string {
   return value.trim().toLowerCase();
 }
 
+/**
+ * Build sorted, deduplicated brand options from polish records.
+ *
+ * @param polishes - Polish-like rows containing a `brand` string.
+ * @returns Display-ready brand labels deduped by normalized brand key.
+ */
 export function buildBrandOptions(polishes: Array<Pick<Polish, "brand">>): string[] {
   const brandsByKey = new Map<string, string>();
   for (const polish of polishes) {
@@ -30,6 +42,13 @@ export function buildBrandOptions(polishes: Array<Pick<Polish, "brand">>): strin
   return [...brandsByKey.values()].sort((a, b) => a.localeCompare(b));
 }
 
+/**
+ * Compare a polish brand against a selected brand filter.
+ *
+ * @param brand - Brand value from a polish row.
+ * @param brandFilter - Selected filter value from UI state.
+ * @returns `true` when both values match after trim+lowercase normalization.
+ */
 export function matchesBrandFilter(brand: string, brandFilter: string): boolean {
   return normalizeBrand(brand) === normalizeBrand(brandFilter);
 }

@@ -1,14 +1,74 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const os = require("node:os");
+const fs = require("node:fs/promises");
+const { pathToFileURL } = require("node:url");
+const ts = require("typescript");
 
-const FILTERS_PATH = path.resolve(
+const FILTERS_TS_PATH = path.resolve(
   __dirname,
   "../../../apps/web/src/lib/polish-filters.ts"
 );
+const COLOR_UTILS_PATH = path.resolve(
+  __dirname,
+  "../../../apps/web/src/lib/color-utils.ts"
+);
+
+let importedFiltersPromise;
+
+async function transpileToJsFile({
+  sourcePath,
+  outputDir,
+  outputFileName,
+  sourceText,
+}) {
+  const text = sourceText ?? (await fs.readFile(sourcePath, "utf8"));
+  const { outputText } = ts.transpileModule(text, {
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+    },
+    fileName: path.basename(sourcePath),
+  });
+
+  const outputPath = path.join(outputDir, outputFileName);
+  await fs.writeFile(outputPath, outputText, "utf8");
+  return outputPath;
+}
 
 async function importFilters() {
-  return import(FILTERS_PATH);
+  if (!importedFiltersPromise) {
+    importedFiltersPromise = (async () => {
+      // Transpile TS helpers to temporary JS so node --test can import them.
+      const tempDir = await fs.mkdtemp(
+        path.join(os.tmpdir(), "swatchwatch-polish-filters-")
+      );
+
+      await transpileToJsFile({
+        sourcePath: COLOR_UTILS_PATH,
+        outputDir: tempDir,
+        outputFileName: "color-utils.js",
+      });
+
+      const filtersSource = await fs.readFile(FILTERS_TS_PATH, "utf8");
+      const rewrittenFiltersSource = filtersSource.replace(
+        "./color-utils.ts",
+        "./color-utils.js"
+      );
+
+      const filtersJsPath = await transpileToJsFile({
+        sourcePath: FILTERS_TS_PATH,
+        outputDir: tempDir,
+        outputFileName: "polish-filters.js",
+        sourceText: rewrittenFiltersSource,
+      });
+
+      return import(pathToFileURL(filtersJsPath).href);
+    })();
+  }
+
+  return importedFiltersPromise;
 }
 
 function createPolish(overrides = {}) {
@@ -62,7 +122,7 @@ test("polish-filters: filterPolishesForList matches brand case-insensitively and
   );
 });
 
-test("polish-filters: brand filter composes correctly with owned state and tone via resolveDisplayHex", async () => {
+test("polish-filters: filterPolishesForList composes brand + owned + tone filters correctly", async () => {
   const { filterPolishesForList } = await importFilters();
   const polishes = [
     createPolish({

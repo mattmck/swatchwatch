@@ -438,7 +438,7 @@ test('all markdown files: have proper heading hierarchy', () => {
       const diff = headings[i].level - headings[i - 1].level;
       // Allow up to 2 levels jump (common in markdown with nested sections)
       assert.ok(
-        diff <= 2,
+        Math.abs(diff) <= 2,
         `${path.basename(filePath)} should not skip too many heading levels (H${headings[i - 1].level} -> H${headings[i].level})`
       );
     }
