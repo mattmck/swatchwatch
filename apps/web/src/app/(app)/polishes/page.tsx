@@ -466,12 +466,13 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       const result = await recalcPolishHex(polishId);
 
       if (result.detectedHex) {
+        const detectedHex = result.detectedHex ?? undefined;
         setPolishes((prev) =>
           prev.map((p) =>
             p.id === polishId
               ? {
                   ...p,
-                  detectedHex: result.detectedHex,
+                  detectedHex,
                   // If finish is empty and AI suggested one, take the first.
                   finish: p.finish ?? result.finishes?.[0] ?? p.finish,
                 }
