@@ -9,6 +9,7 @@ import { BsCurrencyDollar, BsPlusLg, BsQuestionCircleFill, BsTrash3Fill } from "
 import { GiPerfumeBottle } from "react-icons/gi";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { listPolishes, updatePolish } from "@/lib/api";
+import { buildBrandOptions, matchesBrandFilter } from "@/lib/polish-filters";
 import {
   colorDistance,
   hexToHsl,
@@ -139,6 +140,15 @@ function useWheelSize(defaultSize = 280, mobileSize = 240) {
   return size;
 }
 
+/**
+ * Render the Color Search page UI and manage its state, data, and interactions.
+ *
+ * Manages loading and fetching of polishes, color selection and preview, harmony generation,
+ * palette anchoring and recommendations, filtering (brand, finish, tone, availability, scope),
+ * and actions that update polish quantities or apply recommended palettes.
+ *
+ * @returns The rendered Color Search page content as a React element
+ */
 function ColorSearchPageContent() {
   const searchParams = useSearchParams();
   const [allPolishes, setAllPolishes] = useState<Polish[]>([]);
@@ -150,6 +160,7 @@ function ColorSearchPageContent() {
   const [harmonyColorSet, setHarmonyColorSet] = useState<HarmonyColorSet>("any");
   const [resultsScope, setResultsScope] = useState<ResultsScope>("all");
   const [toneFilter, setToneFilter] = useState<Undertone | "all">("all");
+  const [brandFilter, setBrandFilter] = useState<string>("all");
   const [finishFilter, setFinishFilter] = useState<string>("all");
   const [availabilityFilter, setAvailabilityFilter] = useState<"all" | "owned" | "wishlist">("all");
   const [lightness, setLightness] = useState(0.5);
@@ -278,8 +289,14 @@ function ColorSearchPageContent() {
     () => (resultsScope === "collection" ? ownedColorPolishes : colorPolishes),
     [resultsScope, ownedColorPolishes, colorPolishes]
   );
+  const brandOptions = useMemo(() => buildBrandOptions(colorPolishes), [colorPolishes]);
+
   const filteredScopedColorPolishes = useMemo(() => {
     let result = scopedColorPolishes;
+    if (brandFilter !== "all") {
+      const normalizedBrand = brandFilter.toLowerCase();
+      result = result.filter((p) => matchesBrandFilter(p.brand, normalizedBrand));
+    }
     if (finishFilter !== "all") {
       result = result.filter((p) => p.finish === finishFilter);
     }
@@ -292,7 +309,7 @@ function ColorSearchPageContent() {
       );
     }
     return result;
-  }, [scopedColorPolishes, finishFilter, toneFilter, availabilityFilter]);
+  }, [scopedColorPolishes, brandFilter, finishFilter, toneFilter, availabilityFilter]);
 
   // Snap dots for the wheel
   const snapDots: SnapDot[] = useMemo(
@@ -1118,6 +1135,22 @@ function ColorSearchPageContent() {
                 </SelectContent>
               </Select>
               <Select
+                value={brandFilter}
+                onValueChange={setBrandFilter}
+              >
+                <SelectTrigger className="h-8 w-[180px]">
+                  <SelectValue placeholder="Brand" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Brands</SelectItem>
+                  {brandOptions.map((brand) => (
+                    <SelectItem key={brand} value={brand}>
+                      {brand}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
                 value={finishFilter}
                 onValueChange={setFinishFilter}
               >
@@ -1154,6 +1187,7 @@ function ColorSearchPageContent() {
                 onClick={() => {
                   setResultsScope("all");
                   setToneFilter("all");
+                  setBrandFilter("all");
                   setFinishFilter("all");
                   setAvailabilityFilter("all");
                 }}
