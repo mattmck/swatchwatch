@@ -44,10 +44,25 @@ const PRESET_SWATCHES = [
 
 const RATING_STARS = [1, 2, 3, 4, 5] as const;
 
+function resolveReturnTo(returnTo: string | null): string {
+  if (!returnTo) return "/polishes";
+  try {
+    const decoded = decodeURIComponent(returnTo);
+    if (decoded.startsWith("/") && !decoded.startsWith("//")) {
+      return decoded;
+    }
+  } catch {
+    // Ignore malformed values and use fallback.
+  }
+  return "/polishes";
+}
+
 export default function PolishForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const editId = searchParams.get("id");
+  const returnTo = searchParams.get("returnTo");
+  const listHref = resolveReturnTo(returnTo);
   const isEditing = Boolean(editId);
   const [form, setForm] = useState({
     brand: "",
@@ -117,13 +132,17 @@ export default function PolishForm() {
     try {
       if (isEditing && editId) {
         const updated = await updatePolish(editId, payload);
-        router.push(`/polishes/detail?id=${updated.id}`);
+        router.push(
+          `/polishes/detail?id=${updated.id}&returnTo=${encodeURIComponent(listHref)}`
+        );
       } else {
         const created = await createPolish(payload);
         if (created?.id) {
-          router.push(`/polishes/detail?id=${created.id}`);
+          router.push(
+            `/polishes/detail?id=${created.id}&returnTo=${encodeURIComponent(listHref)}`
+          );
         } else {
-          router.push("/polishes");
+          router.push(listHref);
         }
       }
     } catch (err: unknown) {
@@ -377,9 +396,11 @@ export default function PolishForm() {
                 variant="outline"
                 onClick={() => {
                   if (isEditing && editId) {
-                    router.push(`/polishes/detail?id=${editId}`);
+                    router.push(
+                      `/polishes/detail?id=${editId}&returnTo=${encodeURIComponent(listHref)}`
+                    );
                   } else {
-                    router.push("/polishes");
+                    router.push(listHref);
                   }
                 }}
               >
