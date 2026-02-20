@@ -9,8 +9,10 @@ function isValidSVG(content) {
   const hasSvgTag = /<svg[\s>]/.test(content);
   const hasClosingSvgTag = /<\/svg>/.test(content);
   const hasViewBox = /viewBox=/.test(content);
+  const hasWidth = /\bwidth\s*=\s*["'][0-9.]+(?:px|em|rem|%|pt|pc|cm|mm|in)?["']/i.test(content);
+  const hasHeight = /\bheight\s*=\s*["'][0-9.]+(?:px|em|rem|%|pt|pc|cm|mm|in)?["']/i.test(content);
 
-  return hasSvgTag && hasClosingSvgTag && hasViewBox;
+  return hasSvgTag && hasClosingSvgTag && (hasViewBox || (hasWidth && hasHeight));
 }
 
 // Helper to extract SVG attributes
@@ -19,11 +21,11 @@ function getSVGAttributes(content) {
   if (!svgMatch) return {};
 
   const attrs = {};
-  const attrRegex = /(\w+)="([^"]*)"/g;
+  const attrRegex = /([:\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
   let match;
 
   while ((match = attrRegex.exec(svgMatch[1])) !== null) {
-    attrs[match[1]] = match[2];
+    attrs[match[1]] = match[2] ?? match[3] ?? '';
   }
 
   return attrs;
@@ -230,7 +232,7 @@ test('swatchwatch-sprite.svg: symbols have IDs', () => {
 
   while ((match = symbolRegex.exec(content)) !== null) {
     symbolCount++;
-    if (/id="[^"]+"/.test(match[1])) {
+    if (/id\s*=\s*(["'])([^"']+)\1/.test(match[1])) {
       symbolsWithId++;
     }
   }
@@ -250,9 +252,10 @@ test('swatchwatch-sprite.svg: contains expected icon IDs', () => {
   ];
 
   expectedSymbols.forEach((symbolId) => {
+    const escapedSymbolId = symbolId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     assert.match(
       content,
-      new RegExp(`id="${symbolId}"`),
+      new RegExp(`id\\s*=\\s*(["'])${escapedSymbolId}\\1`),
       `sprite should contain symbol with id="${symbolId}"`
     );
   });

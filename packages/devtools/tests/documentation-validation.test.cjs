@@ -230,6 +230,7 @@ test('CLAUDE.md: has environment variables section', () => {
 // Test symlinks to CLAUDE.md
 test('agent instruction files: .cursorrules is a symlink to CLAUDE.md', () => {
   const cursorrules = path.resolve(__dirname, '../../../.cursorrules');
+  assert.ok(fs.existsSync(cursorrules), '.cursorrules should exist');
 
   if (process.platform !== 'win32') {
     const stats = fs.lstatSync(cursorrules);
