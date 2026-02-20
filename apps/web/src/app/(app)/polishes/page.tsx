@@ -37,6 +37,7 @@ import { EmptyState } from "@/components/empty-state";
 import { FINISHES, finishBadgeClassName, finishLabel } from "@/lib/constants";
 import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
 import { buildMsalConfig } from "@/lib/msal-config";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const DEFAULT_PAGE_SIZE = 10;
@@ -47,6 +48,14 @@ type AvailabilityFilter = "all" | "owned" | "wishlist";
 const SORT_KEYS: readonly SortKey[] = ["status", "brand", "name", "finish", "collection"];
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
 const HAS_B2C_CONFIG = buildMsalConfig() !== null;
+const COLLECTION_PILL_CLASS_NAME =
+  "border border-border/70 bg-background/70 text-foreground dark:border-border/60 dark:bg-muted/30";
+
+interface OverflowPillItem {
+  id: string;
+  label: string;
+  className?: string;
+}
 
 /**
  * Parse a string into a positive integer, returning a fallback when the input is absent or invalid.
@@ -139,6 +148,95 @@ function parsePageSize(value: string | null): number {
   return PAGE_SIZE_OPTIONS.includes(parsed as (typeof PAGE_SIZE_OPTIONS)[number])
     ? parsed
     : DEFAULT_PAGE_SIZE;
+}
+
+function splitPillValues(value?: string | null): string[] {
+  if (!value) return [];
+  return value
+    .split(/[,;/|]+/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+function OverflowPillCell({
+  items,
+  maxWidthClassName,
+  emptyLabel = "—",
+}: {
+  items: OverflowPillItem[];
+  maxWidthClassName: string;
+  emptyLabel?: string;
+}) {
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+  const itemFingerprint = useMemo(
+    () => items.map((item) => `${item.id}:${item.label}`).join("|"),
+    [items]
+  );
+
+  useEffect(() => {
+    const element = rowRef.current;
+    if (!element) return;
+
+    const syncOverflowState = () => {
+      setIsOverflowing(element.scrollWidth > element.clientWidth + 1);
+    };
+
+    syncOverflowState();
+
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(syncOverflowState);
+    observer.observe(element);
+
+    return () => observer.disconnect();
+  }, [itemFingerprint]);
+
+  if (items.length === 0) {
+    return <span className="text-muted-foreground">{emptyLabel}</span>;
+  }
+
+  return (
+    <div
+      className={cn("group relative outline-none", maxWidthClassName)}
+      tabIndex={isOverflowing ? 0 : -1}
+      aria-label={isOverflowing ? "Show full values" : undefined}
+    >
+      <div
+        ref={rowRef}
+        className="flex flex-nowrap items-center gap-1 overflow-hidden whitespace-nowrap"
+      >
+        {items.map((item, index) => (
+          <Badge key={`${item.id}-${index}`} className={cn("shrink-0", item.className)}>
+            {item.label}
+          </Badge>
+        ))}
+      </div>
+
+      {isOverflowing && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 right-0 flex items-center bg-gradient-to-l from-background via-background/95 to-transparent pl-6 pr-1 text-xs text-muted-foreground"
+        >
+          …
+        </span>
+      )}
+
+      {isOverflowing && (
+        <div
+          role="tooltip"
+          className="pointer-events-none invisible absolute left-0 top-[calc(100%+0.35rem)] z-20 w-max max-w-[24rem] rounded-md border border-border/70 bg-popover p-2 opacity-0 shadow-lg transition-opacity duration-150 group-hover:visible group-hover:pointer-events-auto group-hover:opacity-100 group-focus-visible:visible group-focus-visible:pointer-events-auto group-focus-visible:opacity-100"
+        >
+          <div className="flex flex-wrap gap-1">
+            {items.map((item, index) => (
+              <Badge key={`${item.id}-tooltip-${index}`} className={item.className}>
+                {item.label}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -681,6 +779,19 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
               pageItems.map((polish) => {
                 const owned = isOwned(polish);
                 const recalcPending = recalcPendingById[polish.id] === true;
+                const finishItems = splitPillValues(polish.finish).map((finish) => {
+                  const normalized = finish.toLowerCase();
+                  return {
+                    id: normalized,
+                    label: finishLabel(normalized),
+                    className: finishBadgeClassName(normalized),
+                  };
+                });
+                const collectionItems = splitPillValues(polish.collection).map((collection) => ({
+                  id: collection.toLowerCase(),
+                  label: collection,
+                  className: COLLECTION_PILL_CLASS_NAME,
+                }));
                 return (
                   <TableRow
                     key={polish.id}
@@ -740,14 +851,10 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                       )}
                     </TableCell>
                     <TableCell>
-                      {polish.finish && (
-                        <Badge className={finishBadgeClassName(polish.finish)}>
-                          {finishLabel(polish.finish)}
-                        </Badge>
-                      )}
+                      <OverflowPillCell items={finishItems} maxWidthClassName="max-w-[11rem]" />
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {polish.collection ?? "\u2014"}
+                    <TableCell>
+                      <OverflowPillCell items={collectionItems} maxWidthClassName="max-w-[14rem]" />
                     </TableCell>
                     {isAdmin && (
                       <TableCell className="text-right">

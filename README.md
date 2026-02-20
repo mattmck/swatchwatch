@@ -117,7 +117,7 @@ The web app is the most developed part of the project. Key pages:
 | `/` | `apps/web/src/app/(marketing)/page.tsx` | Marketing landing page |
 | `/dashboard` | `apps/web/src/app/(app)/dashboard/page.tsx` | Dashboard — stats cards, recent additions, finish breakdown |
 | `/admin/jobs` | `apps/web/src/app/(app)/admin/jobs/page.tsx` | Internal ingestion admin — run jobs, monitor status, inspect change metrics |
-| `/polishes` | `apps/web/src/app/(app)/polishes/page.tsx` | Collection table — search, filter by brand/finish, sortable columns |
+| `/polishes` | `apps/web/src/app/(app)/polishes/page.tsx` | Collection table — search, filter by brand/finish, sortable columns, single-line finish/collection pills with overflow popover |
 | `/polishes/new` | `apps/web/src/app/(app)/polishes/new/page.tsx` | Add polish form — color picker, star rating, voice input placeholder |
 | `/polishes/detail` | `apps/web/src/app/(app)/polishes/detail/page.tsx` | Polish detail shell (query-param based) |
 | `/polishes/search` | `apps/web/src/app/(app)/polishes/search/page.tsx` | Color wheel search — hover to preview, click to lock, similar/complementary modes |
