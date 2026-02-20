@@ -478,7 +478,7 @@ export async function detectHexWithAzureOpenAI(
   };
   const content = body.choices?.[0]?.message?.content;
   if (!content || typeof content !== "string") {
-    return { hex: null, confidence: null, provider: "azure-openai" };
+    return { hex: null, confidence: null, finishes: null, provider: "azure-openai" };
   }
 
   return parseHexFromContent(content, logLabel, options);

@@ -155,8 +155,11 @@ function withReadableSwatchUrl<T extends { swatchImageUrl?: string | null; sourc
   };
 }
 
-function mapReadableSwatchUrls<T extends { swatchImageUrl?: string | null }>(rows: T[], requestUrl: string): T[] {
-  return rows.map((row) => withReadableSwatchUrl(row as T & { sourceImageUrls?: string[] }, requestUrl));
+function mapReadableSwatchUrls<T extends { swatchImageUrl?: string | null; sourceImageUrls?: string[] }>(
+  rows: T[],
+  requestUrl: string
+): T[] {
+  return rows.map((row) => withReadableSwatchUrl(row, requestUrl));
 }
 
 function withNormalizedFinish<T extends { finish?: string | null }>(row: T): T {
