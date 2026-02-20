@@ -284,7 +284,32 @@ export const HUE_FAMILY_ORDER: HueFamily[] = [
   "neutrals",
 ];
 
-export const LIGHTNESS_BAND_ORDER: LightnessBand[] = ["dark", "medium", "light"];
+export const LIGHTNESS_BAND_ORDER: LightnessBand[] = [
+  "dark",
+  "dark-medium",
+  "medium",
+  "medium-light",
+  "light",
+];
+
+const GAP_HUE_SEED: Record<HueFamily, number> = {
+  reds: 8,
+  "oranges-corals": 26,
+  "yellows-golds": 52,
+  greens: 130,
+  "blues-teals": 205,
+  "purples-violets": 275,
+  "pinks-magentas": 328,
+  neutrals: 220,
+};
+
+const GAP_LIGHTNESS_SEED: Record<LightnessBand, number> = {
+  dark: 0.24,
+  "dark-medium": 0.38,
+  medium: 0.52,
+  "medium-light": 0.7,
+  light: 0.86,
+};
 
 function classifyHueFamily(oklch: OKLCH): HueFamily {
   if (oklch.C < 0.04 || Number.isNaN(oklch.h)) return "neutrals";
@@ -300,9 +325,32 @@ function classifyHueFamily(oklch: OKLCH): HueFamily {
 }
 
 function classifyLightnessBand(L: number): LightnessBand {
-  if (L < 0.38) return "dark";
-  if (L < 0.68) return "medium";
+  if (L < 0.3) return "dark";
+  if (L < 0.44) return "dark-medium";
+  if (L < 0.6) return "medium";
+  if (L < 0.76) return "medium-light";
   return "light";
+}
+
+export function classifyHexToGapCell(
+  hex: string,
+): { hueFamily: HueFamily; lightnessBand: LightnessBand } | null {
+  if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) return null;
+  const oklch = hexToOklch(hex);
+  return {
+    hueFamily: classifyHueFamily(oklch),
+    lightnessBand: classifyLightnessBand(oklch.L),
+  };
+}
+
+export function gapCellToSeedHex(
+  hueFamily: HueFamily,
+  lightnessBand: LightnessBand,
+): string {
+  const hue = GAP_HUE_SEED[hueFamily];
+  const saturation = hueFamily === "neutrals" ? 0.05 : 0.78;
+  const lightness = GAP_LIGHTNESS_SEED[lightnessBand];
+  return hslToHex({ h: hue, s: saturation, l: lightness });
 }
 
 /**
