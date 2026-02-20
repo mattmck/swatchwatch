@@ -55,6 +55,9 @@ export type PolishFinish =
   | "flake"
   | "topper"
   | "sheer"
+  | "magnetic"
+  | "thermal"
+  | "crelly"
   | "other";
 
 // Canonical entities (from schema)

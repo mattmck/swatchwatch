@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS finish_type (
 );
 
 INSERT INTO finish_type (name, display_name, description, sort_order) VALUES
-  ('cream',        'Cream',        'Opaque, no shimmer or sparkle',                          1),
+  ('creme',        'Creme',        'Opaque, no shimmer or sparkle',                          1),
   ('sheer',        'Sheer',        'Translucent, buildable coverage',                        2),
   ('jelly',        'Jelly',        'Translucent with a squishy, glossy look',                3),
   ('shimmer',      'Shimmer',      'Fine light-reflecting particles',                        4),
@@ -35,7 +35,8 @@ INSERT INTO finish_type (name, display_name, description, sort_order) VALUES
   ('topper',       'Topper',       'Meant to layer over another polish',                    12),
   ('magnetic',     'Magnetic',     'Contains iron particles shaped with a magnet',           13),
   ('thermal',      'Thermal',      'Color changes with temperature',                        14),
-  ('glow',         'Glow',         'Glow-in-the-dark or UV-reactive',                       15),
+  ('crelly',       'Crelly',       'Cream/jelly hybrid; semi-sheer squishy base',           15),
+  ('glow',         'Glow',         'Glow-in-the-dark or UV-reactive',                       16),
   ('other',        'Other',        'Finish not covered by standard categories',              99)
 ON CONFLICT (name) DO NOTHING;
 

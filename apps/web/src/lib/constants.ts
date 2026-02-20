@@ -12,6 +12,9 @@ export const FINISHES = [
   "flake",
   "topper",
   "sheer",
+  "magnetic",
+  "thermal",
+  "crelly",
   "other",
 ] as const;
 
@@ -31,6 +34,9 @@ const FINISH_BADGE_CLASS_MAP: Record<string, string> = {
   flake: "border border-cyan-200 bg-cyan-50 text-cyan-900 dark:border-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-200",
   topper: "border border-brand-purple/30 bg-brand-lilac/35 text-brand-purple-deep dark:border-brand-purple/40 dark:bg-brand-lilac/20 dark:text-brand-pink",
   sheer: "border border-neutral-200 bg-neutral-50 text-neutral-800 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300",
+  magnetic: "border border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-800 dark:bg-sky-950/60 dark:text-sky-200",
+  thermal: "border border-orange-200 bg-orange-50 text-orange-900 dark:border-orange-800 dark:bg-orange-950/60 dark:text-orange-200",
+  crelly: "border border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200",
   other: DEFAULT_FINISH_BADGE,
 };
 

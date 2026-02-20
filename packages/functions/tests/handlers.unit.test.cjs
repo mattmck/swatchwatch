@@ -17,8 +17,7 @@ let transactionMock = async (cb) => cb(fakeClient());
 
 function expectMethods(routeName, expectedMethods) {
   assert.ok(registeredRoutes[routeName], `route ${routeName} should be registered`);
-  const actual = registeredRoutes[routeName].methods;
-  // Routes commonly include OPTIONS due to CORS; allow superset.
+  const actual = registeredRoutes[routeName].methods || [];
   for (const method of expectedMethods) {
     assert.ok(
       actual.includes(method),
@@ -90,6 +89,7 @@ registerMock("../lib/ai-color-detection", {
   detectHexWithAzureOpenAI: async () => ({
     hex: "#ABCDEF",
     confidence: 0.87,
+    finishes: ["creme"],
     provider: "azure-openai",
   }),
 });
@@ -531,7 +531,7 @@ describe("functions/polishes — updatePolish validation", () => {
     queryMock = async () => ({
       rows: [{ user_id: 1, external_id: "ext-1", email: null }],
     });
-    const handler = registeredRoutes["polishes-update"].handler;
+    const handler = registeredRoutes["polishes-mutate"].handler;
     const req = fakeRequest({
       method: "PUT",
       url: "http://localhost:7071/api/polishes",
@@ -551,7 +551,7 @@ describe("functions/polishes — deletePolish validation", () => {
     queryMock = async () => ({
       rows: [{ user_id: 1, external_id: "ext-1", email: null }],
     });
-    const handler = registeredRoutes["polishes-delete"].handler;
+    const handler = registeredRoutes["polishes-mutate"].handler;
     const req = fakeRequest({
       method: "DELETE",
       url: "http://localhost:7071/api/polishes",
@@ -573,7 +573,7 @@ describe("functions/polishes — deletePolish validation", () => {
       }
       return { rows: [] };
     };
-    const handler = registeredRoutes["polishes-delete"].handler;
+    const handler = registeredRoutes["polishes-mutate"].handler;
     const req = fakeRequest({
       method: "DELETE",
       url: "http://localhost:7071/api/polishes/999",
@@ -642,13 +642,13 @@ describe("functions/polishes — getPolishes", () => {
 describe("functions/catalog — route registration", () => {
   it("registers catalog-search GET route", () => {
     assert.ok(registeredRoutes["catalog-search"]);
-    assert.deepEqual(registeredRoutes["catalog-search"].methods, ["GET"]);
+    expectMethods("catalog-search", ["GET"]);
     assert.equal(registeredRoutes["catalog-search"].route, "catalog/search");
   });
 
   it("registers catalog-shade GET route", () => {
     assert.ok(registeredRoutes["catalog-shade"]);
-    assert.deepEqual(registeredRoutes["catalog-shade"].methods, ["GET"]);
+    expectMethods("catalog-shade", ["GET"]);
     assert.equal(registeredRoutes["catalog-shade"].route, "catalog/shade/{id}");
   });
 });
@@ -672,7 +672,7 @@ describe("functions/catalog — searchCatalog validation", () => {
   it("returns results for valid query", async () => {
     queryMock = async () => ({
       rows: [
-        { shadeId: "1", brand: "OPI", name: "Big Apple Red", finish: "cream", collection: null, similarity: 0.8 },
+        { shadeId: "1", brand: "OPI", name: "Big Apple Red", finish: "creme", collection: null, similarity: 0.8 },
       ],
     });
     const handler = registeredRoutes["catalog-search"].handler;
@@ -728,7 +728,7 @@ describe("functions/catalog — getShade validation", () => {
         return {
           rows: [{
             shadeId: "1", brand: "OPI", brandId: "10", name: "Big Apple Red",
-            finish: "cream", collection: "NYC", releaseYear: 2020, status: "active",
+            finish: "creme", collection: "NYC", releaseYear: 2020, status: "active",
           }],
         };
       }
@@ -755,7 +755,7 @@ describe("functions/catalog — getShade validation", () => {
 describe("functions/voice — route registration", () => {
   it("registers voice-process POST route", () => {
     assert.ok(registeredRoutes["voice-process"]);
-    assert.deepEqual(registeredRoutes["voice-process"].methods, ["POST"]);
+    expectMethods("voice-process", ["POST"]);
     assert.equal(registeredRoutes["voice-process"].route, "voice");
   });
 });
@@ -918,15 +918,15 @@ describe("functions/capture — route registration", () => {
   });
 
   it("uses expected methods and route patterns", () => {
-    assert.deepEqual(registeredRoutes["capture-start"].methods, ["POST"]);
+    expectMethods("capture-start", ["POST"]);
     assert.equal(registeredRoutes["capture-start"].route, "capture/start");
-    assert.deepEqual(registeredRoutes["capture-frame"].methods, ["POST"]);
+    expectMethods("capture-frame", ["POST"]);
     assert.equal(registeredRoutes["capture-frame"].route, "capture/{captureId}/frame");
-    assert.deepEqual(registeredRoutes["capture-finalize"].methods, ["POST"]);
+    expectMethods("capture-finalize", ["POST"]);
     assert.equal(registeredRoutes["capture-finalize"].route, "capture/{captureId}/finalize");
-    assert.deepEqual(registeredRoutes["capture-status"].methods, ["GET"]);
+    expectMethods("capture-status", ["GET"]);
     assert.equal(registeredRoutes["capture-status"].route, "capture/{captureId}/status");
-    assert.deepEqual(registeredRoutes["capture-answer"].methods, ["POST"]);
+    expectMethods("capture-answer", ["POST"]);
     assert.equal(registeredRoutes["capture-answer"].route, "capture/{captureId}/answer");
   });
 });

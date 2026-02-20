@@ -562,7 +562,42 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     setRecalcPendingById((prev) => ({ ...prev, [polishId]: true }));
     try {
       const result = await recalcPolishHex(polishId);
-      toast.success(result.message || "Hex recalculation request submitted.");
+
+      if (result.detectedHex) {
+        const detectedHex = result.detectedHex ?? undefined;
+        const suggestedFinish = result.finishes?.find((f) =>
+          (FINISHES as readonly string[]).includes(f)
+        );
+        setPolishes((prev) =>
+          prev.map((p) =>
+            p.id === polishId
+              ? {
+                  ...p,
+                  detectedHex,
+                  // If finish is empty and AI suggested one, take the first.
+                  finish: p.finish ?? (suggestedFinish as Polish["finish"]),
+                }
+              : p
+          )
+        );
+      }
+
+      const confidenceText =
+        typeof result.confidence === "number"
+          ? `${Math.round(result.confidence * 100)}% confidence`
+          : undefined;
+
+      if (result.detectedHex) {
+        toast.success(result.message ?? `Detected hex ${result.detectedHex}`, {
+          description: [confidenceText, result.finishes?.length ? `Finishes: ${result.finishes.join(", ")}` : undefined]
+            .filter(Boolean)
+            .join(" · "),
+        });
+      } else {
+        toast.info(result.message ?? "Could not detect hex from image", {
+          description: confidenceText,
+        });
+      }
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : "Failed to recalculate shade hex.";
