@@ -18,10 +18,19 @@ let transactionMock = async (cb) => cb(fakeClient());
 function expectMethods(routeName, expectedMethods) {
   assert.ok(registeredRoutes[routeName], `route ${routeName} should be registered`);
   const actual = registeredRoutes[routeName].methods || [];
+  const allowed = new Set([...expectedMethods, "OPTIONS"]);
+
   for (const method of expectedMethods) {
     assert.ok(
       actual.includes(method),
       `route ${routeName} should include ${method} (got ${actual})`
+    );
+  }
+
+  for (const method of actual) {
+    assert.ok(
+      allowed.has(method),
+      `route ${routeName} should not include unexpected method ${method} (allowed: ${[...allowed].join(", ")})`
     );
   }
 }
@@ -384,12 +393,8 @@ describe("functions/polishes — route registration", () => {
     expectMethods("polishes-create", ["POST"]);
   });
 
-  it("polishes-update accepts PUT", () => {
-    expectMethods("polishes-mutate", ["PUT"]);
-  });
-
-  it("polishes-delete accepts DELETE", () => {
-    expectMethods("polishes-mutate", ["DELETE"]);
+  it("polishes-mutate accepts PUT + DELETE", () => {
+    expectMethods("polishes-mutate", ["PUT", "DELETE"]);
   });
 });
 
@@ -659,7 +664,18 @@ describe("functions/polishes — getPolishes", () => {
         return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
       }
       if (callCount === 2) {
-        return { rows: [{ id: "1", brand: "OPI", name: "Red", color: "Red" }] };
+        return {
+          rows: [
+            {
+              id: "1",
+              brand: "OPI",
+              name: "Red",
+              color: "Red",
+              finish: "cream",
+              swatchImageUrl: null,
+            },
+          ],
+        };
       }
       // count query
       return { rows: [{ total: "1" }] };
@@ -676,6 +692,7 @@ describe("functions/polishes — getPolishes", () => {
     assert.equal(typeof res.jsonBody.total, "number");
     assert.equal(typeof res.jsonBody.page, "number");
     assert.equal(typeof res.jsonBody.pageSize, "number");
+    assert.equal(res.jsonBody.polishes[0].finish, "creme");
   });
 });
 
