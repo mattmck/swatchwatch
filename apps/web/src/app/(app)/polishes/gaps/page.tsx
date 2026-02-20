@@ -55,6 +55,24 @@ const LIGHTNESS_BASE: Record<LightnessBand, number> = {
   light: 84,
 };
 
+const SEVERITY_META: Record<CellSeverity, { label: string; badgeClassName: string; description: string }> = {
+  missing: {
+    label: "Missing",
+    badgeClassName: "border-rose-400/60 bg-rose-100/80 text-rose-800 dark:bg-rose-950/40 dark:text-rose-100",
+    description: "No shades land in this bucket yet. This is a high-value target for variety.",
+  },
+  thin: {
+    label: "Thin",
+    badgeClassName: "border-amber-400/60 bg-amber-100/80 text-amber-800 dark:bg-amber-950/40 dark:text-amber-100",
+    description: "You have a start here, but this area is still underrepresented.",
+  },
+  healthy: {
+    label: "Healthy",
+    badgeClassName: "border-brand-lilac/50",
+    description: "Coverage here is healthy. Consider balancing other thin/missing areas first.",
+  },
+};
+
 function cellKey(cell: Pick<CollectionGapCell, "hueFamily" | "lightnessBand">): string {
   return `${cell.hueFamily}:${cell.lightnessBand}`;
 }
@@ -221,6 +239,8 @@ export default function PolishCollectionGapsPage() {
   const selectedSeverity = selectedCell
     ? getSeverity(selectedCell, missingKeys, thinKeys)
     : null;
+  const selectedSeverityMeta =
+    selectedSeverity ? SEVERITY_META[selectedSeverity] : SEVERITY_META.healthy;
   const selectedCellBoundPolishes = useMemo(() => {
     if (!selectedCell) return [];
     return cellBoundPolishes.filter(
@@ -324,11 +344,17 @@ export default function PolishCollectionGapsPage() {
             Click any cell to inspect it. Missing and thin cells are prioritized for next-buy suggestions.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <Badge variant="outline" className="border-rose-400/60 bg-rose-100/80 text-rose-800 dark:bg-rose-950/40 dark:text-rose-100">Missing</Badge>
-            <Badge variant="outline" className="border-amber-400/60 bg-amber-100/80 text-amber-800 dark:bg-amber-950/40 dark:text-amber-100">Thin</Badge>
-            <Badge variant="outline" className="border-brand-lilac/50">Healthy</Badge>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              {(["missing", "thin", "healthy"] as const).map((severity) => (
+                <Badge
+                  key={severity}
+                  variant="outline"
+                  className={SEVERITY_META[severity].badgeClassName}
+                >
+                  {SEVERITY_META[severity].label}
+                </Badge>
+              ))}
             <span className="ml-auto">
               {analysis.cells.length} total cells ({HUE_FAMILY_ORDER.length} hue families × {LIGHTNESS_BAND_ORDER.length} lightness bands)
             </span>
@@ -383,19 +409,9 @@ export default function PolishCollectionGapsPage() {
                   <Badge variant="outline">{LIGHTNESS_META[selectedCell.lightnessBand].label}</Badge>
                   <Badge
                     variant="outline"
-                    className={
-                      selectedSeverity === "missing"
-                        ? "border-rose-400/60 bg-rose-100/80 text-rose-800 dark:bg-rose-950/40 dark:text-rose-100"
-                        : selectedSeverity === "thin"
-                          ? "border-amber-400/60 bg-amber-100/80 text-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
-                          : "border-brand-lilac/50"
-                    }
+                    className={selectedSeverityMeta.badgeClassName}
                   >
-                    {selectedSeverity === "missing"
-                      ? "Missing"
-                      : selectedSeverity === "thin"
-                        ? "Thin"
-                        : "Healthy"}
+                    {selectedSeverityMeta.label}
                   </Badge>
                 </div>
                 <p className="text-sm text-muted-foreground">
@@ -403,11 +419,7 @@ export default function PolishCollectionGapsPage() {
                   <span className="font-semibold text-foreground">{selectedOwnedMatches.length}</span>
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  {selectedSeverity === "missing"
-                    ? "No shades land in this bucket yet. This is a high-value target for variety."
-                    : selectedSeverity === "thin"
-                      ? "You have a start here, but this area is still underrepresented."
-                      : "Coverage here is healthy. Consider balancing other thin/missing areas first."}
+                  {selectedSeverityMeta.description}
                 </p>
                 <div className="grid gap-3 lg:grid-cols-2">
                   <CellMatchesList
@@ -567,7 +579,7 @@ function Row({
             </p>
             <p className="mt-1 text-2xl font-black leading-none">{cell.count}</p>
             <p className="mt-1 text-[10px] font-medium opacity-80">
-              {severity === "missing" ? "Missing" : severity === "thin" ? "Thin" : "Healthy"}
+              {SEVERITY_META[severity].label}
             </p>
           </button>
         );
