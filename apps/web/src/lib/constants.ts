@@ -1,6 +1,6 @@
 /** Canonical list of nail polish finish types for UI dropdowns. */
 export const FINISHES = [
-  "cream",
+  "creme",
   "shimmer",
   "glitter",
   "metallic",
@@ -19,7 +19,7 @@ const DEFAULT_FINISH_BADGE =
   "border border-brand-pink-soft/60 bg-brand-pink-soft/30 text-brand-ink dark:border-brand-pink/40 dark:bg-brand-pink/10 dark:text-brand-pink-light";
 
 const FINISH_BADGE_CLASS_MAP: Record<string, string> = {
-  cream: "border border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-800 dark:bg-rose-950/60 dark:text-rose-200",
+  creme: "border border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-800 dark:bg-rose-950/60 dark:text-rose-200",
   shimmer: "border border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-200",
   glitter: "border border-fuchsia-200 bg-fuchsia-50 text-fuchsia-900 dark:border-fuchsia-800 dark:bg-fuchsia-950/60 dark:text-fuchsia-200",
   metallic: "border border-slate-300 bg-slate-100 text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300",

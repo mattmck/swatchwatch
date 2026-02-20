@@ -15,6 +15,18 @@ const registeredQueues = {};
 let queryMock = async () => ({ rows: [] });
 let transactionMock = async (cb) => cb(fakeClient());
 
+function expectMethods(routeName, expectedMethods) {
+  assert.ok(registeredRoutes[routeName], `route ${routeName} should be registered`);
+  const actual = registeredRoutes[routeName].methods;
+  // Routes commonly include OPTIONS due to CORS; allow superset.
+  for (const method of expectedMethods) {
+    assert.ok(
+      actual.includes(method),
+      `route ${routeName} should include ${method} (got ${actual})`
+    );
+  }
+}
+
 function fakeClient() {
   return { query: async () => ({ rows: [] }) };
 }
@@ -71,6 +83,26 @@ registerMock("../lib/db", {
   get transaction() { return (...args) => transactionMock(...args); },
   get getPool() { return () => ({}); },
   get closePool() { return async () => {}; },
+});
+
+// Stub AI hex detection to avoid external calls during tests
+registerMock("../lib/ai-color-detection", {
+  detectHexWithAzureOpenAI: async () => ({
+    hex: "#ABCDEF",
+    confidence: 0.87,
+    provider: "azure-openai",
+  }),
+});
+
+// Stub blob storage reader to avoid network
+registerMock("../lib/blob-storage", {
+  readBlobFromStorageUrl: async () => ({
+    bytes: Buffer.from("fakeimg"),
+    contentType: "image/png",
+    checksumSha256: "deadbeef",
+    sizeBytes: 7,
+    storageUrl: "https://example.com/fake.png",
+  }),
 });
 
 // Pre-populate require.cache for mocked modules
@@ -301,14 +333,12 @@ describe("lib/auth — withAdmin wrapper", () => {
 
 describe("functions/auth — route registration", () => {
   it("registers auth-validate POST route", () => {
-    assert.ok(registeredRoutes["auth-validate"]);
-    assert.deepEqual(registeredRoutes["auth-validate"].methods, ["POST"]);
+    expectMethods("auth-validate", ["POST"]);
     assert.equal(registeredRoutes["auth-validate"].route, "auth/validate");
   });
 
   it("registers auth-config GET route", () => {
-    assert.ok(registeredRoutes["auth-config"]);
-    assert.deepEqual(registeredRoutes["auth-config"].methods, ["GET"]);
+    expectMethods("auth-config", ["GET"]);
     assert.equal(registeredRoutes["auth-config"].route, "auth/config");
   });
 });
@@ -341,25 +371,126 @@ describe("functions/polishes — route registration", () => {
   it("registers all CRUD routes", () => {
     assert.ok(registeredRoutes["polishes-list"]);
     assert.ok(registeredRoutes["polishes-create"]);
-    assert.ok(registeredRoutes["polishes-update"]);
-    assert.ok(registeredRoutes["polishes-delete"]);
+    assert.ok(registeredRoutes["polishes-mutate"]);
+    assert.ok(registeredRoutes["polishes-recalc-hex"]);
   });
 
   it("polishes-list accepts GET", () => {
-    assert.deepEqual(registeredRoutes["polishes-list"].methods, ["GET"]);
+    expectMethods("polishes-list", ["GET"]);
     assert.equal(registeredRoutes["polishes-list"].route, "polishes/{id?}");
   });
 
   it("polishes-create accepts POST", () => {
-    assert.deepEqual(registeredRoutes["polishes-create"].methods, ["POST"]);
+    expectMethods("polishes-create", ["POST"]);
   });
 
   it("polishes-update accepts PUT", () => {
-    assert.deepEqual(registeredRoutes["polishes-update"].methods, ["PUT"]);
+    expectMethods("polishes-mutate", ["PUT"]);
   });
 
   it("polishes-delete accepts DELETE", () => {
-    assert.deepEqual(registeredRoutes["polishes-delete"].methods, ["DELETE"]);
+    expectMethods("polishes-mutate", ["DELETE"]);
+  });
+});
+
+describe("functions/polishes — recalcHex", () => {
+  function adminRequest(overrides) {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async (...args) => {
+      // First call: auth user lookup
+      if (args[0]?.includes("FROM app_user")) {
+        return {
+          rows: [{ user_id: 1, external_id: "ext-1", email: "admin@test", role: "admin" }],
+        };
+      }
+      // Shade lookup
+      if (args[0]?.includes("FROM shade s")) {
+        return {
+          rows: [
+            {
+              shade_id: 123,
+              shade_name_canonical: "Test Shade",
+              detected_hex: null,
+              vendor_hex: null,
+              storage_url: "https://example.com/fake.png",
+            },
+          ],
+        };
+      }
+      // Update detected_hex
+      return { rows: [] };
+    };
+
+    return fakeRequest({
+      method: "POST",
+      url: "http://localhost:7071/api/polishes/123/recalc-hex",
+      headers: { authorization: "Bearer dev:1" },
+      params: { id: "123" },
+      ...overrides,
+    });
+  }
+
+  it("returns 400 when id param is missing", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async () => ({
+      rows: [{ user_id: 1, external_id: "ext-1", email: "admin@test", role: "admin" }],
+    });
+    const handler = registeredRoutes["polishes-recalc-hex"].handler;
+    const req = fakeRequest({
+      method: "POST",
+      url: "http://localhost:7071/api/polishes/recalc-hex",
+      headers: { authorization: "Bearer dev:1" },
+      params: {},
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 400);
+  });
+
+  it("returns 422 when no image is available", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let calls = 0;
+    queryMock = async (...args) => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          rows: [{ user_id: 1, external_id: "ext-1", email: "admin@test", role: "admin" }],
+        };
+      }
+      if (calls === 2) {
+        return {
+          rows: [
+            {
+              shade_id: 123,
+              shade_name_canonical: "No Image Shade",
+              detected_hex: "#111111",
+              vendor_hex: null,
+              storage_url: null,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    };
+
+    const handler = registeredRoutes["polishes-recalc-hex"].handler;
+    const req = fakeRequest({
+      method: "POST",
+      url: "http://localhost:7071/api/polishes/123/recalc-hex",
+      headers: { authorization: "Bearer dev:1" },
+      params: { id: "123" },
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 422);
+    assert.match(res.jsonBody.error, /No image/i);
+  });
+
+  it("detects and updates hex when image is present", async () => {
+    const handler = registeredRoutes["polishes-recalc-hex"].handler;
+    const req = adminRequest();
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.detectedHex, "#ABCDEF");
+    assert.match(res.jsonBody.message, /Detected hex/i);
   });
 });
 
