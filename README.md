@@ -83,6 +83,7 @@ npm run dev:mobile       # → mobile via Expo
 | `npm run build:web` | Build shared types + Next.js production build |
 | `npm run build:functions` | Build shared types + TypeScript compile for functions |
 | `npm run lint` | ESLint across all workspaces |
+| `npm run test` | Run workspace tests where present |
 | `npm run typecheck` | `tsc --noEmit` across all workspaces |
 
 `dev`, `dev:web`, `dev:functions`, and `dev:shared` run a dependency preflight and print a clear

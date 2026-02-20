@@ -1,15 +1,24 @@
 import type { Polish } from "swatchwatch-shared";
 import { undertone, type Undertone } from "@/lib/color-utils";
 
+/** Inventory availability mode used by list filtering. */
 export type InventoryAvailabilityFilter = "all" | "owned" | "wishlist";
 
-interface ListFilterInput {
+/** Inputs used by `filterPolishesForList`. */
+export interface ListFilterInput {
+  /** Source polish rows to filter. */
   polishes: Polish[];
+  /** Free-text query matched against name/brand/color/collection/notes. */
   search: string;
+  /** When true, include owned + wishlist rows unless overridden by availabilityFilter. */
   includeAll: boolean;
+  /** Undertone filter derived from vendor/detected/name hex values. */
   toneFilter: Undertone | "all";
+  /** Brand filter value, or `"all"` to disable brand filtering. */
   brandFilter: string;
+  /** Exact finish value, or `"all"` to disable finish filtering. */
   finishFilter: string;
+  /** Explicit availability filter (takes precedence over includeAll when not `"all"`). */
   availabilityFilter: InventoryAvailabilityFilter;
 }
 
@@ -58,6 +67,7 @@ export function matchesBrandFilter(brand: string, brandFilter: string): boolean 
  *
  * Uses an internal `isOwned` check (`quantity > 0`), tone matching via `undertone(...)`,
  * and brand matching via `matchesBrandFilter(...)` to compose the final result.
+ * When `availabilityFilter` is not `"all"`, availability filtering takes precedence over `includeAll`.
  *
  * @param input - Filter input containing the source `Polish[]` and active values from `ListFilterInput`
  * (`polishes`, `search`, `includeAll`, `toneFilter`, `brandFilter`, `finishFilter`, `availabilityFilter`).
@@ -90,7 +100,7 @@ export function filterPolishesForList(input: ListFilterInput): Polish[] {
     );
   }
 
-  if (!includeAll) {
+  if (availabilityFilter === "all" && !includeAll) {
     result = result.filter(isOwned);
   }
 

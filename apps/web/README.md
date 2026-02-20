@@ -8,6 +8,7 @@ Next.js 16 (App Router) + Tailwind v4 + shadcn/ui.
 # From repo root
 npm run dev:web          # → http://localhost:3000
 npm run build:web        # Production build
+npm run test --workspace=apps/web   # Web unit tests
 ```
 
 ## Route Structure
