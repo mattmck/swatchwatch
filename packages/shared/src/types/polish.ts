@@ -40,7 +40,6 @@ export function resolveDisplayHex(
 
 export type PolishFinish =
   | "creme"
-  | "cream"
   | "shimmer"
   | "glitter"
   | "metallic"
