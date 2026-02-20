@@ -35,6 +35,7 @@ import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
 import { FINISHES, finishBadgeClassName, finishLabel } from "@/lib/constants";
+import { runRecalcHexFlow } from "@/lib/recalc-hex-flow";
 import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
 import { buildMsalConfig } from "@/lib/msal-config";
 import { toast } from "sonner";
@@ -461,56 +462,14 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   );
 
   const handleRecalcHex = useCallback(async (polishId: string) => {
-    setRecalcPendingById((prev) => ({ ...prev, [polishId]: true }));
-    try {
-      const result = await recalcPolishHex(polishId);
-
-      if (result.detectedHex) {
-        const detectedHex = result.detectedHex ?? undefined;
-        const suggestedFinish = result.finishes?.find((f) =>
-          (FINISHES as readonly string[]).includes(f)
-        );
-        setPolishes((prev) =>
-          prev.map((p) =>
-            p.id === polishId
-              ? {
-                  ...p,
-                  detectedHex,
-                  // If finish is empty and AI suggested one, take the first.
-                  finish: p.finish ?? (suggestedFinish as Polish["finish"]),
-                }
-              : p
-          )
-        );
-      }
-
-      const confidenceText =
-        typeof result.confidence === "number"
-          ? `${Math.round(result.confidence * 100)}% confidence`
-          : undefined;
-
-      if (result.detectedHex) {
-        toast.success(result.message ?? `Detected hex ${result.detectedHex}`, {
-          description: [confidenceText, result.finishes?.length ? `Finishes: ${result.finishes.join(", ")}` : undefined]
-            .filter(Boolean)
-            .join(" · "),
-        });
-      } else {
-        toast.info(result.message ?? "Could not detect hex from image", {
-          description: confidenceText,
-        });
-      }
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : "Failed to recalculate shade hex.";
-      toast.error("Hex recalculation failed", { description: message });
-    } finally {
-      setRecalcPendingById((prev) => {
-        const next = { ...prev };
-        delete next[polishId];
-        return next;
-      });
-    }
+    await runRecalcHexFlow({
+      polishId,
+      recalc: recalcPolishHex,
+      knownFinishes: FINISHES as readonly string[],
+      setPendingById: setRecalcPendingById,
+      setPolishes,
+      toast,
+    });
   }, []);
 
   if (loading) return <BrandSpinner label="Loading polishes…" />;

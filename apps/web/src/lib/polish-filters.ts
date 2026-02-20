@@ -1,22 +1,36 @@
 import type { Polish } from "swatchwatch-shared";
 import { undertone, type Undertone } from "./color-utils";
 
+/** Inventory availability mode used by list filtering. */
 export type InventoryAvailabilityFilter = "all" | "owned" | "wishlist";
 
-interface ListFilterInput {
+/** Inputs used by `filterPolishesForList`. */
+export interface ListFilterInput {
+  /** Source polish rows to filter. */
   polishes: Polish[];
+  /** Free-text query matched against name/brand/color/collection/notes. */
   search: string;
+  /** When true, include owned + wishlist rows unless overridden by availabilityFilter. */
   includeAll: boolean;
+  /** Undertone filter derived from vendor/detected/name hex values. */
   toneFilter: Undertone | "all";
+  /** Brand filter value, or `"all"` to disable brand filtering. */
   brandFilter: string;
+  /** Exact finish value, or `"all"` to disable finish filtering. */
   finishFilter: string;
+  /** Explicit availability filter (takes precedence over includeAll when not `"all"`). */
   availabilityFilter: InventoryAvailabilityFilter;
 }
 
+/** Trim + lowercase a brand value so brand comparisons are case/whitespace insensitive. */
 export function normalizeBrand(value: string): string {
   return value.trim().toLowerCase();
 }
 
+/**
+ * Build sorted brand options from polish rows.
+ * Deduplicates by normalized brand key while preserving first-seen original casing.
+ */
 export function buildBrandOptions(polishes: Array<Pick<Polish, "brand">>): string[] {
   const brandsByKey = new Map<string, string>();
   for (const polish of polishes) {
@@ -30,10 +44,15 @@ export function buildBrandOptions(polishes: Array<Pick<Polish, "brand">>): strin
   return [...brandsByKey.values()].sort((a, b) => a.localeCompare(b));
 }
 
+/** Return true when a polish brand matches the active brand filter (case/whitespace insensitive). */
 export function matchesBrandFilter(brand: string, brandFilter: string): boolean {
   return normalizeBrand(brand) === normalizeBrand(brandFilter);
 }
 
+/**
+ * Filter polish rows in this order: search, owned-only (includeAll), undertone, brand, finish, availability.
+ * When `availabilityFilter !== "all"`, availability filtering takes precedence and the includeAll-owned filter is skipped.
+ */
 export function filterPolishesForList(input: ListFilterInput): Polish[] {
   const {
     polishes,
@@ -61,7 +80,7 @@ export function filterPolishesForList(input: ListFilterInput): Polish[] {
     );
   }
 
-  if (!includeAll) {
+  if (availabilityFilter === "all" && !includeAll) {
     result = result.filter(isOwned);
   }
 

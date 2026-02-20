@@ -137,16 +137,15 @@ function withReadableSwatchUrl<T extends { swatchImageUrl?: string | null; sourc
   row: T,
   requestUrl: string
 ): T {
+  const normalizedRow = withNormalizedFinish(row as T & { finish?: string | null });
   const swatchUrl = row.swatchImageUrl?.trim();
   if (!swatchUrl) {
-    return row;
+    return normalizedRow as T;
   }
 
-  const readableSourceImageUrls = Array.isArray(row.sourceImageUrls)
-    ? row.sourceImageUrls.map((url) => withReadableImageUrl(url, requestUrl))
-    : row.sourceImageUrls;
-
-  const normalizedRow = withNormalizedFinish(row as T & { finish?: string | null });
+  const readableSourceImageUrls = Array.isArray(normalizedRow.sourceImageUrls)
+    ? normalizedRow.sourceImageUrls.map((url) => withReadableImageUrl(url, requestUrl))
+    : normalizedRow.sourceImageUrls;
 
   return {
     ...(normalizedRow as T),
