@@ -152,7 +152,7 @@ export default function DashboardPage() {
             />
             <CardContent className="relative z-10 flex items-center justify-between gap-4 px-6 py-6">
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-brand-purple-deep/70">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-brand-purple-deep/80 dark:text-brand-lilac/95">
                   {card.label}
                 </p>
                 <div className="mt-1 flex items-baseline gap-1">
@@ -162,12 +162,12 @@ export default function DashboardPage() {
                     {card.value}
                   </p>
                   {card.suffix && (
-                    <span className="text-lg font-semibold text-brand-purple">
+                    <span className="text-lg font-semibold text-brand-purple dark:text-brand-pink-soft">
                       {card.suffix}
                     </span>
                   )}
                 </div>
-                <p className="mt-1 text-sm text-muted-foreground">
+                <p className="mt-1 text-sm text-muted-foreground dark:text-brand-pink-soft/90">
                   {card.subText}
                 </p>
               </div>
