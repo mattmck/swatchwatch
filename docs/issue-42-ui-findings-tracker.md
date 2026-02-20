@@ -20,8 +20,8 @@ This tracker captures the findings visible in that shared issue text and maps th
 | 5 | `/polishes` back navigation | medium | Preserve page/list context when returning from detail/edit | Done | Implemented in `feat/42-ui-final-slice`: list state now persists in URL query params (page, pageSize, filters, sort) |
 | 6 | `/polishes` action alignment | low | Add button alignment inconsistent with quantity controls | Verify | Current action cell is right-aligned; confirm visual consistency in latest UI |
 | 7 | `/polishes` table headers | high | Image column header missing/misaligned | Done | Fixed in #60 / #62 |
-| 8 | `/polishes` finish/collection overflow | medium | Keep single-line pills, ellipsis, hover reveal full set | Pending | Needs tooltip/popover pattern and stable row height |
-| 9 | `/polishes` + `/polishes/search` filters | medium | Standardize dropdown fields/options (include brand) | Pending | Requested consistency across both routes |
+| 8 | `/polishes` finish/collection overflow | medium | Keep single-line pills, ellipsis, hover reveal full set | Done | Implemented in `feat/42-overflow-pills`: finish + collection render as single-line pills with ellipsis-on-overflow and full-value hover/focus popover |
+| 9 | `/polishes` + `/polishes/search` filters | medium | Standardize dropdown fields/options (include brand) | Done | Added aligned Brand/Tone/Finish/Availability dropdown sets across both routes; both now expose `All Brands` + dynamic brand options sourced from loaded polish data |
 | 10 | `/polishes` + `/polishes/search` collection toggle | medium | Replace dual buttons with clearer All/My Collection model | Pending | Candidate for shared reusable filter bar |
 
 ## Notes

@@ -77,7 +77,8 @@
       "Bash(gh issue list:*)",
       "Bash(ls:*)",
       "Bash(git commit:*)",
-      "Bash(scripts/agent-worktree.sh:*)"
+      "Bash(scripts/agent-worktree.sh:*)",
+      "Bash(git config:*)"
     ]
   }
 }

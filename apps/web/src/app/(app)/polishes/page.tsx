@@ -7,7 +7,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
 import { listAllPolishes, recalcPolishHex, updatePolish } from "@/lib/api";
-import { undertone, type Undertone } from "@/lib/color-utils";
+import type { Undertone } from "@/lib/color-utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -35,8 +35,10 @@ import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
 import { FINISHES, finishBadgeClassName, finishLabel } from "@/lib/constants";
+import { buildBrandOptions, filterPolishesForList } from "@/lib/polish-filters";
 import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
 import { buildMsalConfig } from "@/lib/msal-config";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const DEFAULT_PAGE_SIZE = 10;
@@ -47,6 +49,14 @@ type AvailabilityFilter = "all" | "owned" | "wishlist";
 const SORT_KEYS: readonly SortKey[] = ["status", "brand", "name", "finish", "collection"];
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
 const HAS_B2C_CONFIG = buildMsalConfig() !== null;
+const COLLECTION_PILL_CLASS_NAME =
+  "border border-border/70 bg-background/70 text-foreground dark:border-border/60 dark:bg-muted/30";
+
+interface OverflowPillItem {
+  id: string;
+  label: string;
+  className?: string;
+}
 
 /**
  * Parse a string into a positive integer, returning a fallback when the input is absent or invalid.
@@ -108,14 +118,26 @@ function parseToneFilter(value: string | null): Undertone | "all" {
 }
 
 /**
- * Validate and normalize a finish filter value.
+ * Normalize a finish filter value to a known finish or `"all"`.
  *
  * @param value - Raw finish filter value (e.g., from a query parameter); may be a finish name or `"all"`.
- * @returns The original finish name if it is one of the known finishes, otherwise `"all"`.
+ * @returns The matched finish name if it exists in FINISHES, otherwise `"all"`.
  */
 function parseFinishFilter(value: string | null): string {
   if (!value || value === "all") return "all";
   return FINISHES.includes(value as (typeof FINISHES)[number]) ? value : "all";
+}
+
+/**
+ * Normalize a brand filter value from query params.
+ *
+ * @param value - Raw brand query value or null.
+ * @returns A non-empty brand string, or `"all"` for unset/invalid values.
+ */
+function parseBrandFilter(value: string | null): string {
+  if (!value || value === "all") return "all";
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : "all";
 }
 
 /**
@@ -139,6 +161,95 @@ function parsePageSize(value: string | null): number {
   return PAGE_SIZE_OPTIONS.includes(parsed as (typeof PAGE_SIZE_OPTIONS)[number])
     ? parsed
     : DEFAULT_PAGE_SIZE;
+}
+
+function splitPillValues(value?: string | null): string[] {
+  if (!value) return [];
+  return value
+    .split(/[,;/|]+/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+function OverflowPillCell({
+  items,
+  maxWidthClassName,
+  emptyLabel = "—",
+}: {
+  items: OverflowPillItem[];
+  maxWidthClassName: string;
+  emptyLabel?: string;
+}) {
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+  const itemFingerprint = useMemo(
+    () => items.map((item) => `${item.id}:${item.label}`).join("|"),
+    [items]
+  );
+
+  useEffect(() => {
+    const element = rowRef.current;
+    if (!element) return;
+
+    const syncOverflowState = () => {
+      setIsOverflowing(element.scrollWidth > element.clientWidth + 1);
+    };
+
+    syncOverflowState();
+
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(syncOverflowState);
+    observer.observe(element);
+
+    return () => observer.disconnect();
+  }, [itemFingerprint]);
+
+  if (items.length === 0) {
+    return <span className="text-muted-foreground">{emptyLabel}</span>;
+  }
+
+  return (
+    <div
+      className={cn("group relative outline-none", maxWidthClassName)}
+      tabIndex={isOverflowing ? 0 : -1}
+      aria-label={isOverflowing ? "Show full values" : undefined}
+    >
+      <div
+        ref={rowRef}
+        className="flex flex-nowrap items-center gap-1 overflow-hidden whitespace-nowrap"
+      >
+        {items.map((item, index) => (
+          <Badge key={`${item.id}-${index}`} className={cn("shrink-0", item.className)}>
+            {item.label}
+          </Badge>
+        ))}
+      </div>
+
+      {isOverflowing && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 right-0 flex items-center bg-gradient-to-l from-background via-background/95 to-transparent pl-6 pr-1 text-xs text-muted-foreground"
+        >
+          …
+        </span>
+      )}
+
+      {isOverflowing && (
+        <div
+          role="tooltip"
+          className="pointer-events-none invisible absolute left-0 top-[calc(100%+0.35rem)] z-20 w-max max-w-[24rem] rounded-md border border-border/70 bg-popover p-2 opacity-0 shadow-lg transition-opacity duration-150 group-hover:visible group-hover:pointer-events-auto group-hover:opacity-100 group-focus-visible:visible group-focus-visible:pointer-events-auto group-focus-visible:opacity-100"
+        >
+          <div className="flex flex-wrap gap-1">
+            {items.map((item, index) => (
+              <Badge key={`${item.id}-tooltip-${index}`} className={item.className}>
+                {item.label}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -179,15 +290,16 @@ function UnconfiguredPolishesPage() {
 }
 
 /**
- * Render the "All Polishes" page: a searchable, filterable, sortable and paginated list of polishes with inline actions.
+ * Render the All Polishes page with a searchable, filterable, sortable, and paginated list of polishes.
  *
- * The component initializes list state from the URL query parameters and keeps the URL in sync as filters,
- * sorting, or pagination change. It fetches polishes on mount, shows loading and error states, applies
- * text/tone/finish/availability filters, supports stable sorting and optional favoring of owned items,
- * and provides optimistic quantity updates. When `isAdmin` is true, admin-only actions (Recalc Hex) are exposed.
+ * Initializes list and filter state from URL query parameters and keeps the URL in sync as filters,
+ * sorting, or pagination change. Fetches polishes on mount, displays loading and error states,
+ * applies text/tone/brand/finish/availability filters, supports stable sorting and optional favoring
+ * of owned items, and provides optimistic quantity updates. When `isAdmin` is true, exposes admin-only
+ * actions such as hex recalculation.
  *
- * @param isAdmin - If true, include admin-only controls (e.g., Recalc Hex) in the UI.
- * @returns The page's React element containing header, filter controls, table of polishes, and pagination.
+ * @param isAdmin - If true, include admin-only controls (for example, the "Recalc Hex" action).
+ * @returns The React element containing the page header, filter controls, polishes table, and pagination.
  */
 function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const router = useRouter();
@@ -208,6 +320,9 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   );
   const [toneFilter, setToneFilter] = useState<Undertone | "all">(() =>
     parseToneFilter(searchParams.get("tone"))
+  );
+  const [brandFilter, setBrandFilter] = useState<string>(() =>
+    parseBrandFilter(searchParams.get("brand"))
   );
   const [finishFilter, setFinishFilter] = useState<string>(() =>
     parseFinishFilter(searchParams.get("finish"))
@@ -272,7 +387,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       return;
     }
     setPage(1);
-  }, [search, favorCollection, includeAll, toneFilter, finishFilter, availabilityFilter, sortKey, sortDirection]);
+  }, [search, favorCollection, includeAll, toneFilter, brandFilter, finishFilter, availabilityFilter, sortKey, sortDirection]);
 
   // Persist list state in URL to support back/forward restoration.
   useEffect(() => {
@@ -282,6 +397,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     if (!favorCollection) params.set("favor", "0");
     if (!includeAll) params.set("all", "0");
     if (toneFilter !== "all") params.set("tone", toneFilter);
+    if (brandFilter !== "all") params.set("brand", brandFilter);
     if (finishFilter !== "all") params.set("finish", finishFilter);
     if (availabilityFilter !== "all") params.set("avail", availabilityFilter);
     if (sortKey !== "name") params.set("sort", sortKey);
@@ -298,6 +414,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     });
   }, [
     availabilityFilter,
+    brandFilter,
     favorCollection,
     finishFilter,
     includeAll,
@@ -313,47 +430,21 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   ]);
 
   const isOwned = (p: Polish) => (p.quantity ?? 0) > 0;
+  const brandOptions = useMemo(() => buildBrandOptions(polishes), [polishes]);
 
-  const filtered = useMemo(() => {
-    let result = polishes;
-
-    // Text search
-    if (search) {
-      const q = search.toLowerCase();
-      result = result.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.brand.toLowerCase().includes(q) ||
-          (p.color && p.color.toLowerCase().includes(q)) ||
-          (p.collection && p.collection.toLowerCase().includes(q)) ||
-          (p.notes && p.notes.toLowerCase().includes(q))
-      );
-    }
-
-    // Include All unchecked = owned only
-    if (!includeAll) {
-      result = result.filter(isOwned);
-    }
-
-    if (toneFilter !== "all") {
-      result = result.filter((p) => {
-        const hex = resolveDisplayHex(p);
-        return hex && undertone(hex) === toneFilter;
-      });
-    }
-
-    if (finishFilter !== "all") {
-      result = result.filter((p) => p.finish === finishFilter);
-    }
-
-    if (availabilityFilter !== "all") {
-      result = result.filter((p) =>
-        availabilityFilter === "owned" ? isOwned(p) : !isOwned(p)
-      );
-    }
-
-    return result;
-  }, [polishes, search, includeAll, toneFilter, finishFilter, availabilityFilter]);
+  const filtered = useMemo(
+    () =>
+      filterPolishesForList({
+        polishes,
+        search,
+        includeAll,
+        toneFilter,
+        brandFilter,
+        finishFilter,
+        availabilityFilter,
+      }),
+    [polishes, search, includeAll, toneFilter, brandFilter, finishFilter, availabilityFilter]
+  );
 
   const sorted = useMemo(() => {
     const result = [...filtered];
@@ -574,6 +665,20 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
             </SelectContent>
           </Select>
 
+          <Select value={brandFilter} onValueChange={setBrandFilter}>
+            <SelectTrigger className="h-8 w-[180px]">
+              <SelectValue placeholder="Brand" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Brands</SelectItem>
+              {brandOptions.map((brand) => (
+                <SelectItem key={brand} value={brand}>
+                  {brand}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
           <Select value={finishFilter} onValueChange={setFinishFilter}>
             <SelectTrigger className="h-8 w-[160px]">
               <SelectValue placeholder="Finish" />
@@ -607,6 +712,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
           !includeAll ||
           !favorCollection ||
           toneFilter !== "all" ||
+          brandFilter !== "all" ||
           finishFilter !== "all" ||
           availabilityFilter !== "all") && (
           <Button
@@ -618,6 +724,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
               setIncludeAll(true);
               setFavorCollection(true);
               setToneFilter("all");
+              setBrandFilter("all");
               setFinishFilter("all");
               setAvailabilityFilter("all");
             }}
@@ -716,6 +823,19 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
               pageItems.map((polish) => {
                 const owned = isOwned(polish);
                 const recalcPending = recalcPendingById[polish.id] === true;
+                const finishItems = splitPillValues(polish.finish).map((finish) => {
+                  const normalized = finish.toLowerCase();
+                  return {
+                    id: normalized,
+                    label: finishLabel(normalized),
+                    className: finishBadgeClassName(normalized),
+                  };
+                });
+                const collectionItems = splitPillValues(polish.collection).map((collection) => ({
+                  id: collection.toLowerCase(),
+                  label: collection,
+                  className: COLLECTION_PILL_CLASS_NAME,
+                }));
                 return (
                   <TableRow
                     key={polish.id}
@@ -775,14 +895,10 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                       )}
                     </TableCell>
                     <TableCell>
-                      {polish.finish && (
-                        <Badge className={finishBadgeClassName(polish.finish)}>
-                          {finishLabel(polish.finish)}
-                        </Badge>
-                      )}
+                      <OverflowPillCell items={finishItems} maxWidthClassName="max-w-[11rem]" />
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {polish.collection ?? "\u2014"}
+                    <TableCell>
+                      <OverflowPillCell items={collectionItems} maxWidthClassName="max-w-[14rem]" />
                     </TableCell>
                     {isAdmin && (
                       <TableCell className="text-right">

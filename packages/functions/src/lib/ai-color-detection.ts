@@ -93,6 +93,7 @@ const FINISH_CANONICAL: Record<string, string> = {
   magnetic: "magnetic",
   thermal: "thermal",
   crelly: "crelly",
+  velvet: "velvet"
 };
 
 function parseFinishes(value: unknown): string[] | null {
@@ -374,7 +375,7 @@ export async function detectHexWithAzureOpenAI(
                 {
                   type: "text",
                   text:
-                    "Return exactly one hex code for the primary polish shade. Ignore non-polish areas and reflections. Also identify all finishes mentioned or visible (e.g., creme, shimmer, glitter, metallic, matte, jelly, holographic, duochrome, multichrome, flake, topper, sheer, magnetic, thermal, crelly). If uncertain, provide best guess with low confidence.",
+                    "Return exactly one hex code for the primary polish shade. Ignore non-polish areas and reflections. Also identify all finishes mentioned or visible (e.g., creme, shimmer, glitter, metallic, matte, jelly, holographic, duochrome, multichrome, flake, topper, sheer, magnetic, thermal, crelly, velvet, etc.). If uncertain, provide best guess with low confidence.",
                 },
                 ...(vendorContext ? [{ type: "text", text: `Vendor context: ${vendorContext}` }] : []),
                 {
@@ -396,7 +397,7 @@ export async function detectHexWithAzureOpenAI(
                 {
                   type: "text",
                   text:
-                    "Image may show either a bottle product shot or closeup painted nails. Return exactly one hex for the primary marketed base shade. Exclude background, brush, cap, box, and sparkle highlights. Identify any finishes mentioned or visible (creme, shimmer, glitter, metallic, matte, jelly, holographic, duochrome, multichrome, flake, topper, sheer, magnetic, thermal, crelly). ALWAYS return a hex value and confidence score. If the image is unclear or unusable, make your best guess and include an 'error' field explaining why confidence is low.",
+                    "Image may show either a bottle product shot or closeup painted nails. Return exactly one hex for the primary marketed base shade. Exclude background, brush, cap, box, and sparkle highlights. Identify any finishes mentioned or visible (creme, shimmer, glitter, metallic, matte, jelly, holographic, duochrome, multichrome, flake, topper, sheer, magnetic, thermal, crelly, velvet, etc.). ALWAYS return a hex value and confidence score. If the image is unclear or unusable, make your best guess and include an 'error' field explaining why confidence is low.",
                 },
                 ...(vendorContext ? [{ type: "text", text: `Vendor context: ${vendorContext}` }] : []),
                 {
