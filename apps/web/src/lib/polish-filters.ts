@@ -1,5 +1,5 @@
 import type { Polish } from "swatchwatch-shared";
-import { undertone, type Undertone } from "./color-utils.ts";
+import { undertone, type Undertone } from "./color-utils";
 
 export type InventoryAvailabilityFilter = "all" | "owned" | "wishlist";
 
