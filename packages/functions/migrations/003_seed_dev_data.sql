@@ -49,10 +49,10 @@ INSERT INTO shade (brand_id, shade_name_canonical, finish, collection, status) V
   ((SELECT brand_id FROM brand WHERE name_canonical = 'Holo Taco'),     'One Coat Black',             'creme',        'Holo Taco Cremes', 'active'),
   ((SELECT brand_id FROM brand WHERE name_canonical = 'Orly'),          'Seize the Day',              'shimmer',      'Day Trippin',      'active'),
   ((SELECT brand_id FROM brand WHERE name_canonical = 'Zoya'),          'Pixie Dust Lux',             'matte',        'Pixie Dust',       'active'),
-  ((SELECT brand_id FROM brand WHERE name_canonical = 'OPI'),           'Do You Lilac It?',           'cream',        'Iconic Shades',    'active'),
-  ((SELECT brand_id FROM brand WHERE name_canonical = 'Essie'),         'Mint Candy Apple',           'cream',        'Essie Originals',  'active'),
+  ((SELECT brand_id FROM brand WHERE name_canonical = 'OPI'),           'Do You Lilac It?',           'creme',        'Iconic Shades',    'active'),
+  ((SELECT brand_id FROM brand WHERE name_canonical = 'Essie'),         'Mint Candy Apple',           'creme',        'Essie Originals',  'active'),
   ((SELECT brand_id FROM brand WHERE name_canonical = 'ILNP'),          'Eclipse',                    'multichrome',  'Ultra Chromes',    'active'),
-  ((SELECT brand_id FROM brand WHERE name_canonical = 'Butter London'), 'Teddy Girl',                 'cream',        'Patent Shine',     'active'),
+  ((SELECT brand_id FROM brand WHERE name_canonical = 'Butter London'), 'Teddy Girl',                 'creme',        'Patent Shine',     'active'),
   ((SELECT brand_id FROM brand WHERE name_canonical = 'China Glaze'),   'Fairy Dust',                 'glitter',      'Holiday Joy',      'active')
 ON CONFLICT DO NOTHING;
 

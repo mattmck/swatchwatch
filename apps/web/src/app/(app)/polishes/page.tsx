@@ -477,7 +477,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                   ...p,
                   detectedHex,
                   // If finish is empty and AI suggested one, take the first.
-                  finish: p.finish ?? (suggestedFinish as Polish["finish"]) ?? p.finish,
+                  finish: p.finish ?? (suggestedFinish as Polish["finish"]),
                 }
               : p
           )

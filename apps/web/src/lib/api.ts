@@ -149,7 +149,7 @@ export interface RecalcPolishHexResponse {
   previousHex?: string | null;
   detectedHex?: string | null;
   confidence?: number | null;
-  finishes?: string[] | null;
+  finishes?: PolishFinish[] | null;
 }
 
 export async function recalcPolishHex(id: string | number): Promise<RecalcPolishHexResponse> {
