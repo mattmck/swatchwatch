@@ -467,6 +467,9 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
 
       if (result.detectedHex) {
         const detectedHex = result.detectedHex ?? undefined;
+        const suggestedFinish = result.finishes?.find((f) =>
+          (FINISHES as readonly string[]).includes(f)
+        );
         setPolishes((prev) =>
           prev.map((p) =>
             p.id === polishId
@@ -474,7 +477,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                   ...p,
                   detectedHex,
                   // If finish is empty and AI suggested one, take the first.
-                  finish: p.finish ?? result.finishes?.[0] ?? p.finish,
+                  finish: p.finish ?? (suggestedFinish as Polish["finish"]) ?? p.finish,
                 }
               : p
           )
