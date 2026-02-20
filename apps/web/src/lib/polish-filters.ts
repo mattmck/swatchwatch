@@ -1,5 +1,5 @@
 import type { Polish } from "swatchwatch-shared";
-import { undertone, type Undertone } from "./color-utils";
+import { undertone, type Undertone } from "@/lib/color-utils";
 
 export type InventoryAvailabilityFilter = "all" | "owned" | "wishlist";
 
@@ -53,6 +53,16 @@ export function matchesBrandFilter(brand: string, brandFilter: string): boolean 
   return normalizeBrand(brand) === normalizeBrand(brandFilter);
 }
 
+/**
+ * Apply list-level polish filters for search text, ownership, tone, brand, finish, and availability.
+ *
+ * Uses an internal `isOwned` check (`quantity > 0`), tone matching via `undertone(...)`,
+ * and brand matching via `matchesBrandFilter(...)` to compose the final result.
+ *
+ * @param input - Filter input containing the source `Polish[]` and active values from `ListFilterInput`
+ * (`polishes`, `search`, `includeAll`, `toneFilter`, `brandFilter`, `finishFilter`, `availabilityFilter`).
+ * @returns A filtered `Polish[]` matching all active criteria.
+ */
 export function filterPolishesForList(input: ListFilterInput): Polish[] {
   const {
     polishes,
