@@ -83,6 +83,7 @@ npm run dev:mobile       # → mobile via Expo
 | `npm run build:web` | Build shared types + Next.js production build |
 | `npm run build:functions` | Build shared types + TypeScript compile for functions |
 | `npm run lint` | ESLint across all workspaces |
+| `npm run test` | Run workspace tests where present |
 | `npm run typecheck` | `tsc --noEmit` across all workspaces |
 
 `dev`, `dev:web`, `dev:functions`, and `dev:shared` run a dependency preflight and print a clear
@@ -117,7 +118,7 @@ The web app is the most developed part of the project. Key pages:
 | `/` | `apps/web/src/app/(marketing)/page.tsx` | Marketing landing page |
 | `/dashboard` | `apps/web/src/app/(app)/dashboard/page.tsx` | Dashboard — stats cards, recent additions, finish breakdown |
 | `/admin/jobs` | `apps/web/src/app/(app)/admin/jobs/page.tsx` | Internal ingestion admin — run jobs, monitor status, inspect change metrics |
-| `/polishes` | `apps/web/src/app/(app)/polishes/page.tsx` | Collection table — search, filter by brand/finish, sortable columns, single-line finish/collection pills with overflow popover |
+| `/polishes` | `apps/web/src/app/(app)/polishes/page.tsx` | Collection table — search/filter/sort with All/My Collection scope toggle and URL-persisted list state |
 | `/polishes/new` | `apps/web/src/app/(app)/polishes/new/page.tsx` | Add polish form — color picker, star rating, voice input placeholder |
 | `/polishes/detail` | `apps/web/src/app/(app)/polishes/detail/page.tsx` | Polish detail shell (query-param based) |
 | `/polishes/gaps` | `apps/web/src/app/(app)/polishes/gaps/page.tsx` | Collection gap map — 8×5 hue/lightness heatmap with missing/thin coverage, next-buy suggestions, and deep-link handoff to color search |

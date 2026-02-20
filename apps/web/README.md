@@ -8,6 +8,7 @@ Next.js 16 (App Router) + Tailwind v4 + shadcn/ui.
 # From repo root
 npm run dev:web          # → http://localhost:3000
 npm run build:web        # Production build
+npm run test --workspace=apps/web   # Web unit tests
 ```
 
 ## Route Structure
@@ -24,7 +25,7 @@ src/app/
 │   │   ├── page.tsx              → /dashboard       Stats, recent additions (computed from full paginated inventory)
 │   │   └── opengraph-image.tsx   → /dashboard OG image route
 │   └── polishes/
-│       ├── page.tsx              → /polishes         Global polish catalog + personal inventory overlay (hydrates all API pages for client-side search/filter + sortable headers; persists page/filter/sort state in URL query params for back-navigation restore; standardized Brand/Tone/Finish/Availability dropdown filters; finish/collection pills stay single-line with overflow ellipsis + full-value hover/focus popover; swatch thumbnails open full image; admins see per-row "Recalc Hex" action)
+│       ├── page.tsx              → /polishes         Global polish catalog + personal inventory overlay (hydrates all API pages for client-side search/filter + sortable headers; single All/My Collection scope toggle; persists page/filter/sort state in URL query params for back-navigation restore; detail/edit flows carry `returnTo` context; swatch thumbnails open full image; admins see per-row "Recalc Hex" action)
 │       ├── opengraph-image.tsx   → /polishes OG image route
 │       ├── new/page.tsx          → /polishes/new     Add polish form
 │       ├── detail/page.tsx       → /polishes/detail  Polish detail view + image preview + OKLCH profile + related shades

@@ -24,14 +24,35 @@ import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { toast } from "sonner";
 
+function resolveReturnTo(returnTo: string | null): string {
+  if (!returnTo) return "/polishes";
+  try {
+    const decoded = decodeURIComponent(returnTo);
+    // Restrict redirects to app-internal paths to avoid open redirect behavior.
+    if (decoded.startsWith("/") && !decoded.startsWith("//")) {
+      return decoded;
+    }
+  } catch {
+    // Ignore malformed values and fall back.
+  }
+  return "/polishes";
+}
+
 /**
  * Render a detailed polish view including color swatch, metadata, images, color profile, and related shades.
  *
  * @param id - The polish ID to display.
  * @returns The React element that renders the polish detail UI.
  */
-export default function PolishDetailClient({ id }: { id: string }) {
+export default function PolishDetailClient({
+  id,
+  returnTo,
+}: {
+  id: string;
+  returnTo?: string | null;
+}) {
   const router = useRouter();
+  const listHref = resolveReturnTo(returnTo ?? null);
   const [polish, setPolish] = useState<Polish | null>(null);
   const [allPolishes, setAllPolishes] = useState<Polish[]>([]);
   const [loading, setLoading] = useState(true);
@@ -135,7 +156,7 @@ export default function PolishDetailClient({ id }: { id: string }) {
       toast.success("Polish deleted", {
         description: `${polish.brand} ${polish.name} was removed from your collection.`,
       });
-      router.push("/polishes");
+      router.push(listHref);
     } catch (err: unknown) {
       toast.error("Delete failed", {
         description: err instanceof Error ? err.message : "Failed to delete polish.",
@@ -145,7 +166,7 @@ export default function PolishDetailClient({ id }: { id: string }) {
   }
 
   if (!id) {
-    return <ErrorState message="Missing polish ID." onRetry={() => router.push("/polishes")} />;
+    return <ErrorState message="Missing polish ID." onRetry={() => router.push(listHref)} />;
   }
 
   if (loading) return <BrandSpinner label="Loading polish…" />;
@@ -154,7 +175,7 @@ export default function PolishDetailClient({ id }: { id: string }) {
     return (
       <ErrorState
         message={error || "Polish not found"}
-        onRetry={() => router.push("/polishes")}
+        onRetry={() => router.push(listHref)}
       />
     );
   }
@@ -162,7 +183,7 @@ export default function PolishDetailClient({ id }: { id: string }) {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <nav className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Link href="/polishes" className="hover:text-foreground">
+        <Link href={listHref} className="hover:text-foreground">
           Collection
         </Link>
         <span>/</span>
@@ -225,7 +246,11 @@ export default function PolishDetailClient({ id }: { id: string }) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => router.push(`/polishes/new?id=${polish.id}`)}
+              onClick={() =>
+                router.push(
+                  `/polishes/new?id=${polish.id}&returnTo=${encodeURIComponent(listHref)}`
+                )
+              }
             >
               Edit
             </Button>

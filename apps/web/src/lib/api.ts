@@ -33,7 +33,7 @@ class ApiError extends Error {
   }
 }
 
-function getAuthHeaders(options?: { admin?: boolean }): Record<string, string> {
+async function getAuthHeaders(options?: { admin?: boolean }): Promise<Record<string, string>> {
   if (process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true") {
     const devUserId = options?.admin
       ? process.env.NEXT_PUBLIC_AUTH_DEV_ADMIN_USER_ID || "2"
@@ -72,7 +72,7 @@ export async function listPolishes(filters?: PolishFilters): Promise<PolishListR
   const qs = params.toString();
   const url = `${API_BASE_URL}/polishes${qs ? `?${qs}` : ""}`;
 
-  const response = await fetch(url, { headers: getAuthHeaders() });
+  const response = await fetch(url, { headers: await getAuthHeaders() });
   return handleResponse<PolishListResponse>(response);
 }
 
@@ -112,7 +112,7 @@ export async function listAllPolishes(
 
 export async function getPolish(id: string | number): Promise<Polish> {
   const response = await fetch(`${API_BASE_URL}/polishes/${id}`, {
-    headers: getAuthHeaders(),
+    headers: await getAuthHeaders(),
   });
   return handleResponse<Polish>(response);
 }
@@ -120,7 +120,7 @@ export async function getPolish(id: string | number): Promise<Polish> {
 export async function createPolish(data: PolishCreateRequest): Promise<Polish> {
   const response = await fetch(`${API_BASE_URL}/polishes`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
     body: JSON.stringify(data),
   });
   return handleResponse<Polish>(response);
@@ -129,7 +129,7 @@ export async function createPolish(data: PolishCreateRequest): Promise<Polish> {
 export async function updatePolish(id: string | number, data: PolishUpdateRequest): Promise<Polish> {
   const response = await fetch(`${API_BASE_URL}/polishes/${id}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
     body: JSON.stringify(data),
   });
   return handleResponse<Polish>(response);
@@ -138,25 +138,37 @@ export async function updatePolish(id: string | number, data: PolishUpdateReques
 export async function deletePolish(id: string | number): Promise<{ message: string; id: number }> {
   const response = await fetch(`${API_BASE_URL}/polishes/${id}`, {
     method: "DELETE",
-    headers: getAuthHeaders(),
+    headers: await getAuthHeaders(),
   });
   return handleResponse<{ message: string; id: number }>(response);
 }
 
+/**
+ * Response payload for `POST /api/polishes/{id}/recalc-hex`.
+ * All fields are optional because error/edge-case responses can omit values.
+ * Consumers should handle both `undefined` (field absent) and `null` (explicitly unknown/not detected).
+ */
 export interface RecalcPolishHexResponse {
+  /** Human-readable status text from the API; present on most success responses. */
   message?: string;
+  /** Shade id as a string when the API resolves a target shade. */
   shadeId?: string;
+  /** Canonical shade name when the API resolves a target shade. */
   shadeName?: string;
+  /** Previously stored detected hex (`#RRGGBB`) or `null` if no prior detected value existed. */
   previousHex?: string | null;
+  /** Newly detected hex (`#RRGGBB`) or `null` when image analysis cannot produce one. */
   detectedHex?: string | null;
+  /** Detection confidence in the inclusive range 0..1, or `null` when not provided/applicable. */
   confidence?: number | null;
+  /** Suggested canonical polish finishes, or `null` when no finishes are available. */
   finishes?: PolishFinish[] | null;
 }
 
 export async function recalcPolishHex(id: string | number): Promise<RecalcPolishHexResponse> {
   const response = await fetch(`${API_BASE_URL}/polishes/${id}/recalc-hex`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...getAuthHeaders({ admin: true }) },
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
   });
   return handleResponse<RecalcPolishHexResponse>(response);
 }
@@ -185,7 +197,7 @@ export async function listIngestionJobs(params?: {
 
   const qs = searchParams.toString();
   const response = await fetch(`${API_BASE_URL}/ingestion/jobs${qs ? `?${qs}` : ""}`, {
-    headers: getAuthHeaders({ admin: true }),
+    headers: await getAuthHeaders({ admin: true }),
   });
 
   return handleResponse<IngestionJobListResponse>(response);
@@ -196,7 +208,7 @@ export async function runIngestionJob(
 ): Promise<IngestionJobRunResponse> {
   const response = await fetch(`${API_BASE_URL}/ingestion/jobs`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...getAuthHeaders({ admin: true }) },
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
     body: JSON.stringify(data),
   });
   return handleResponse<IngestionJobRunResponse>(response);
@@ -204,7 +216,7 @@ export async function runIngestionJob(
 
 export async function getIngestionJob(id: string | number): Promise<IngestionJobRunResponse> {
   const response = await fetch(`${API_BASE_URL}/ingestion/jobs/${id}`, {
-    headers: getAuthHeaders({ admin: true }),
+    headers: await getAuthHeaders({ admin: true }),
   });
   return handleResponse<IngestionJobRunResponse>(response);
 }
@@ -215,7 +227,7 @@ export async function cancelIngestionJob(
 ): Promise<IngestionJobRunResponse> {
   const response = await fetch(`${API_BASE_URL}/ingestion/jobs/${id}/cancel`, {
     method: "DELETE",
-    headers: { "Content-Type": "application/json", ...getAuthHeaders({ admin: true }) },
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
     body: JSON.stringify({ reason: reason || "Cancelled by admin" }),
   });
   return handleResponse<IngestionJobRunResponse>(response);
@@ -233,7 +245,7 @@ export interface ListDataSourcesResponse {
 
 export async function listDataSources(): Promise<ListDataSourcesResponse> {
   const response = await fetch(`${API_BASE_URL}/ingestion/sources`, {
-    headers: getAuthHeaders({ admin: true }),
+    headers: await getAuthHeaders({ admin: true }),
   });
   return handleResponse<ListDataSourcesResponse>(response);
 }
@@ -249,7 +261,7 @@ export interface GlobalSettingsResponse {
 
 export async function getGlobalSettings(): Promise<GlobalSettingsResponse> {
   const response = await fetch(`${API_BASE_URL}/ingestion/settings`, {
-    headers: getAuthHeaders({ admin: true }),
+    headers: await getAuthHeaders({ admin: true }),
   });
   return handleResponse<GlobalSettingsResponse>(response);
 }
@@ -257,7 +269,7 @@ export async function getGlobalSettings(): Promise<GlobalSettingsResponse> {
 export async function updateGlobalSettings(settings: Partial<IngestionSettings>): Promise<GlobalSettingsResponse> {
   const response = await fetch(`${API_BASE_URL}/ingestion/settings`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", ...getAuthHeaders({ admin: true }) },
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
     body: JSON.stringify(settings),
   });
   return handleResponse<GlobalSettingsResponse>(response);
@@ -269,7 +281,7 @@ export async function updateDataSourceSettings(
 ): Promise<{ success: boolean }> {
   const response = await fetch(`${API_BASE_URL}/ingestion/sources/${dataSourceId}/settings`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", ...getAuthHeaders({ admin: true }) },
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
     body: JSON.stringify(settings),
   });
   return handleResponse<{ success: boolean }>(response);
@@ -279,7 +291,7 @@ export async function startCapture(data?: CaptureStartRequest): Promise<CaptureS
 
   const response = await fetch(`${API_BASE_URL}/capture/start`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
     body: JSON.stringify(data || {}),
   });
   return handleResponse<CaptureStartResponse>(response);
@@ -291,7 +303,7 @@ export async function addCaptureFrame(
 ): Promise<CaptureFrameResponse> {
   const response = await fetch(`${API_BASE_URL}/capture/${captureId}/frame`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
     body: JSON.stringify(data),
   });
   return handleResponse<CaptureFrameResponse>(response);
@@ -340,14 +352,14 @@ export async function addCaptureFrameFromFile(
 export async function finalizeCapture(captureId: string): Promise<CaptureFinalizeResponse> {
   const response = await fetch(`${API_BASE_URL}/capture/${captureId}/finalize`, {
     method: "POST",
-    headers: getAuthHeaders(),
+    headers: await getAuthHeaders(),
   });
   return handleResponse<CaptureFinalizeResponse>(response);
 }
 
 export async function getCaptureStatus(captureId: string): Promise<CaptureStatusResponse> {
   const response = await fetch(`${API_BASE_URL}/capture/${captureId}/status`, {
-    headers: getAuthHeaders(),
+    headers: await getAuthHeaders(),
   });
   return handleResponse<CaptureStatusResponse>(response);
 }
@@ -358,7 +370,7 @@ export async function answerCaptureQuestion(
 ): Promise<CaptureAnswerResponse> {
   const response = await fetch(`${API_BASE_URL}/capture/${captureId}/answer`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
     body: JSON.stringify(data),
   });
   return handleResponse<CaptureAnswerResponse>(response);
@@ -379,7 +391,7 @@ export interface QueuePurgeResponse {
 
 export async function getQueueStats(): Promise<QueueStatsResponse> {
   const response = await fetch(`${API_BASE_URL}/ingestion/queue/stats`, {
-    headers: getAuthHeaders({ admin: true }),
+    headers: await getAuthHeaders({ admin: true }),
   });
   return handleResponse<QueueStatsResponse>(response);
 }
@@ -387,7 +399,7 @@ export async function getQueueStats(): Promise<QueueStatsResponse> {
 export async function purgeQueue(): Promise<QueuePurgeResponse> {
   const response = await fetch(`${API_BASE_URL}/ingestion/queue/messages`, {
     method: "DELETE",
-    headers: getAuthHeaders({ admin: true }),
+    headers: await getAuthHeaders({ admin: true }),
   });
   return handleResponse<QueuePurgeResponse>(response);
 }
