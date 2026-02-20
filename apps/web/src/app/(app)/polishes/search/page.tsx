@@ -281,7 +281,7 @@ function ColorSearchPageContent() {
   );
   const brandOptions = useMemo(() => {
     const brandsByKey = new Map<string, string>();
-    for (const polish of scopedColorPolishes) {
+    for (const polish of colorPolishes) {
       const brand = polish.brand.trim();
       if (!brand) continue;
       const key = brand.toLowerCase();
@@ -290,15 +290,7 @@ function ColorSearchPageContent() {
       }
     }
     return [...brandsByKey.values()].sort((a, b) => a.localeCompare(b));
-  }, [scopedColorPolishes]);
-
-  useEffect(() => {
-    if (brandFilter === "all") return;
-    const normalizedBrand = brandFilter.toLowerCase();
-    if (!brandOptions.some((brand) => brand.toLowerCase() === normalizedBrand)) {
-      setBrandFilter("all");
-    }
-  }, [brandFilter, brandOptions]);
+  }, [colorPolishes]);
 
   const filteredScopedColorPolishes = useMemo(() => {
     let result = scopedColorPolishes;
