@@ -18,6 +18,7 @@ import type {
   PolishFilters,
   CatalogSearchResponse,
   CatalogShadeDetail,
+  PolishFinish,
 } from "swatchwatch-shared";
 
 import { getAccessToken } from "./auth-token";
