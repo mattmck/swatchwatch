@@ -18,6 +18,27 @@ CREATE TABLE IF NOT EXISTS finish_normalization (
     ON DELETE RESTRICT
 );
 
+-- Backfill canonical finish_type rows required by normalization mappings.
+-- Some older environments may be missing one or more of these values.
+INSERT INTO finish_type (name, display_name, description, sort_order) VALUES
+  ('creme', 'Creme', 'Opaque, no shimmer or sparkle', 1),
+  ('sheer', 'Sheer', 'Translucent, buildable coverage', 2),
+  ('jelly', 'Jelly', 'Translucent with a squishy, glossy look', 3),
+  ('shimmer', 'Shimmer', 'Fine light-reflecting particles', 4),
+  ('metallic', 'Metallic', 'Foil-like, mirror-finish sheen', 5),
+  ('glitter', 'Glitter', 'Visible glitter particles in a clear or tinted base', 6),
+  ('holographic', 'Holographic', 'Prismatic rainbow effect (linear or scattered)', 7),
+  ('duochrome', 'Duochrome', 'Shifts between two colors at different angles', 8),
+  ('multichrome', 'Multichrome', 'Shifts across three or more colors', 9),
+  ('flake', 'Flake', 'Irregular metallic or iridescent flakes', 10),
+  ('matte', 'Matte', 'Non-shiny, flat finish (may need matte top coat)', 11),
+  ('topper', 'Topper', 'Meant to layer over another polish', 12),
+  ('magnetic', 'Magnetic', 'Contains iron particles shaped with a magnet', 13),
+  ('thermal', 'Thermal', 'Color changes with temperature', 14),
+  ('crelly', 'Crelly', 'Cream/jelly hybrid; semi-sheer squishy base', 15),
+  ('glow', 'Glow', 'Glow-in-the-dark or UV-reactive', 16)
+ON CONFLICT (name) DO NOTHING;
+
 INSERT INTO finish_normalization (source_value, normalized_finish_name) VALUES
   ('creme', 'creme'),
   ('cream', 'creme'),
