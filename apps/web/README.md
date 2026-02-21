@@ -22,13 +22,13 @@ src/app/
 │   └── admin/
 │       ├── page.tsx              → /admin  Unified admin console (tabs: Configuration, Job Runs, Admin Jobs)
 │       └── reference-data/
-│           ├── page.tsx          → /admin/reference-data  Legacy reference-data route (still available)
+│           ├── page.tsx          → /admin/reference-data  Legacy route redirect to `/admin?tab=configuration`
 │           └── components/
 │               ├── jobs-tab.tsx  → Jobs tab (list `/api/reference-admin/jobs`, status/error inspection, filtering)
 │               └── config-tab.tsx → Configuration tab (finish/harmony CRUD + finish-normalization alias CRUD)
 ├── (app)/
 │   ├── layout.tsx                → App layout (AppShell sidebar wrapper)
-│   ├── admin/jobs/page.tsx       → /admin/jobs      Internal ingestion admin (admin-only UI guard; run jobs, toggle AI hex detection/overwrite mode, track status/metrics)
+│   ├── admin/jobs/page.tsx       → /admin/jobs      Legacy route redirect to `/admin?tab=admin-jobs`
 │   ├── dashboard/
 │   │   ├── page.tsx              → /dashboard       Stats, recent additions (computed from full paginated inventory)
 │   │   └── opengraph-image.tsx   → /dashboard OG image route

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Tabs as TabsPrimitive } from "radix-ui";
 import { AppShell } from "@/components/app-shell";
 import { ErrorState } from "@/components/error-state";
@@ -17,6 +17,13 @@ const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
 const HAS_B2C_CONFIG = buildMsalConfig() !== null;
 
 type AdminTab = "configuration" | "job-runs" | "admin-jobs";
+
+function getTabFromQuery(value: string | null): AdminTab {
+  if (value === "configuration" || value === "job-runs" || value === "admin-jobs") {
+    return value;
+  }
+  return "configuration";
+}
 
 export default function AdminPage() {
   if (IS_DEV_BYPASS) {
@@ -67,6 +74,13 @@ function AdminAccessRequired() {
 
 function AdminContent() {
   const [activeTab, setActiveTab] = useState<AdminTab>("configuration");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const tab = getTabFromQuery(params.get("tab"));
+    setActiveTab(tab);
+  }, []);
 
   return (
     <div className="space-y-6">
