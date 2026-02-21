@@ -21,6 +21,11 @@ export const HARMONY_TYPES = [
   { value: "monochromatic", label: "Monochromatic" },
 ] as const satisfies ReadonlyArray<{ value: HarmonyType; label: string }>;
 
+/**
+ * Build harmony selector options from API reference data when available.
+ * Falls back to `HARMONY_TYPES`, validates names against known `HarmonyType` values,
+ * and preserves labels via `fallbackLabelByValue` when display names are missing.
+ */
 export function getHarmonyTypeOptions(
   harmonyTypes?: ReferenceHarmonyType[],
 ): ReadonlyArray<{ value: HarmonyType; label: string }> {

@@ -1,4 +1,4 @@
- after all th-- nail_polish_schema_v1_1.sql
+-- nail_polish_schema_v1_1.sql
 -- Version: 1.1 (adds provenance + external source ingestion tables)
 -- Full starter schema for Nail Polish Knowledge Graph
 -- Requires: pg_trgm, pgvector

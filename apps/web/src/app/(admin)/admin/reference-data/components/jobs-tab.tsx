@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { IngestionJob } from "swatchwatch-shared";
 import { listAdminJobs } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -49,6 +49,7 @@ function statusBadgeClass(status: IngestionJob["status"]): string {
 }
 
 export function JobsTab() {
+  const isMountedRef = useRef(true);
   const [jobs, setJobs] = useState<IngestionJob[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -63,45 +64,33 @@ export function JobsTab() {
 
   const loadJobs = useCallback(async () => {
     try {
-      setIsLoading(true);
-      setError(null);
+      if (isMountedRef.current) {
+        setIsLoading(true);
+        setError(null);
+      }
       const response = await listAdminJobs({ page: 1, pageSize: 200 });
-      setJobs(response.jobs);
-      setTotal(response.total);
+      if (isMountedRef.current) {
+        setJobs(response.jobs);
+        setTotal(response.total);
+      }
     } catch (loadError: unknown) {
-      setError(loadError instanceof Error ? loadError.message : "Failed to load admin jobs");
+      if (isMountedRef.current) {
+        setError(loadError instanceof Error ? loadError.message : "Failed to load admin jobs");
+      }
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current) {
+        setIsLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function bootstrap() {
-      try {
-        setIsLoading(true);
-        setError(null);
-        const response = await listAdminJobs({ page: 1, pageSize: 200 });
-        if (cancelled) return;
-        setJobs(response.jobs);
-        setTotal(response.total);
-      } catch (loadError: unknown) {
-        if (cancelled) return;
-        setError(loadError instanceof Error ? loadError.message : "Failed to load admin jobs");
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    void bootstrap();
-
+    isMountedRef.current = true;
+    void loadJobs();
     return () => {
-      cancelled = true;
+      isMountedRef.current = false;
     };
-  }, []);
+  }, [loadJobs]);
 
   const filteredJobs = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();

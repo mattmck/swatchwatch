@@ -73,6 +73,12 @@ function writeCachedReferenceData(data: CachedReferenceData): void {
   }
 }
 
+/**
+ * Resolve a finish display label from a canonical finish name.
+ * @param name Canonical finish identifier (for example `holographic`).
+ * @param finishTypes Optional API-provided finish reference rows.
+ * @returns User-facing finish display label.
+ */
 export function getFinishDisplayName(name: string, finishTypes?: FinishType[]): string {
   const normalized = name.trim().toLowerCase();
   if (!normalized) return "";
@@ -80,6 +86,12 @@ export function getFinishDisplayName(name: string, finishTypes?: FinishType[]): 
   return found?.displayName ?? finishLabel(normalized);
 }
 
+/**
+ * Resolve a harmony display label from a canonical harmony name.
+ * @param name Canonical harmony identifier (for example `split-complementary`).
+ * @param harmonyTypes Optional API-provided harmony reference rows.
+ * @returns User-facing harmony display label.
+ */
 export function getHarmonyDisplayName(name: string, harmonyTypes?: ReferenceHarmonyType[]): string {
   const normalized = name.trim().toLowerCase();
   if (!normalized) return "";
@@ -88,6 +100,10 @@ export function getHarmonyDisplayName(name: string, harmonyTypes?: ReferenceHarm
   return HARMONY_TYPES.find((harmony) => harmony.value === normalized)?.label ?? normalized;
 }
 
+/**
+ * Load finish/harmony reference data with memory + localStorage caching and fallback constants.
+ * Returns loading/error state plus memoized lookup helpers for display labels.
+ */
 export function useReferenceData() {
   const fallbackFinishTypes = useMemo(buildFallbackFinishTypes, []);
   const fallbackHarmonyTypes = useMemo(buildFallbackHarmonyTypes, []);

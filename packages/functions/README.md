@@ -76,11 +76,11 @@ Reference endpoints:
 - `GET /api/reference-admin/jobs` lists recent ingestion jobs with pagination (`page`, `pageSize`) and optional `status` filter (`queued|running|succeeded|failed|cancelled`), joined with `data_source` for source metadata.
 
 Adding a new reference category (example: `texture_type`):
-1. Add DB table + audit columns in a migration and seed with `ON CONFLICT DO NOTHING`.
-2. Add public read endpoint(s) in `reference.ts` (sorted by `sort_order`, cache headers).
-3. Add admin CRUD endpoint(s) in `admin-reference.ts` using `withAdmin` and audit updates on write.
-4. Add shared types in `packages/shared/src/types/reference.ts` and re-export from `packages/shared/src/index.ts`.
-5. Add web API helpers + `use-reference-data` consumption path for fallback-safe UI usage.
+1. Start with a migration that creates the DB table + audit columns, and seed rows using `ON CONFLICT DO NOTHING`.
+2. Implement public read endpoint(s) in `reference.ts` with `sort_order` ordering and cache headers.
+3. Wire admin CRUD endpoint(s) in `admin-reference.ts` via `withAdmin`, including audit updates on writes.
+4. Define shared contracts in `packages/shared/src/types/reference.ts`, then re-export from `packages/shared/src/index.ts`.
+5. Finish by adding web API helpers and a `use-reference-data` consumption path for fallback-safe UI behavior.
 
 ### Connector Ingestion Jobs
 

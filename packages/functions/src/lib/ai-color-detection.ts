@@ -140,11 +140,23 @@ async function loadFinishNormalizationMap(
       sourceValue: string;
       normalizedFinishName: string;
     }>(
-      `SELECT source_value AS "sourceValue", normalized_finish_name AS "normalizedFinishName"
-       FROM finish_normalization
-       UNION
-       SELECT name AS "sourceValue", name AS "normalizedFinishName"
-       FROM finish_type`
+      `SELECT DISTINCT ON ("sourceValue")
+         "sourceValue",
+         "normalizedFinishName"
+       FROM (
+         SELECT
+           source_value AS "sourceValue",
+           normalized_finish_name AS "normalizedFinishName",
+           1 AS source_priority
+         FROM finish_normalization
+         UNION ALL
+         SELECT
+           name AS "sourceValue",
+           name AS "normalizedFinishName",
+           2 AS source_priority
+         FROM finish_type
+       ) x
+       ORDER BY "sourceValue", source_priority`
     );
 
     const values = new Map<string, string>();

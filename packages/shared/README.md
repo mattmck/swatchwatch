@@ -100,6 +100,7 @@ The package is automatically linked via npm workspaces — no publishing require
 | `FinishTypeListResponse` | Response wrapper for finish list endpoint |
 | `HarmonyTypeListResponse` | Response wrapper for harmony list endpoint |
 | `IngestionJob` | Jobs-tab oriented ingestion job row shape (status/timing/error/processed count) |
+| `AdminJobsListResponse` | Admin jobs page/list payload wrapper (`jobs`, `total`, `page`, `pageSize`) |
 
 Export note:
 - `HarmonyType` is already used by `types/palette.ts` for palette selection values.

@@ -57,7 +57,11 @@ INSERT INTO finish_normalization (source_value, normalized_finish_name) VALUES
   ('sheer', 'sheer'),
   ('magnetic', 'magnetic'),
   ('thermal', 'thermal'),
-  ('crelly', 'crelly')
+  ('crelly', 'crelly'),
+  ('glow', 'glow'),
+  ('glow in the dark', 'glow'),
+  ('glow-in-the-dark', 'glow'),
+  ('gitd', 'glow')
 ON CONFLICT (source_value) DO NOTHING;
 
 COMMIT;

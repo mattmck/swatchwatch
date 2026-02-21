@@ -18,5 +18,6 @@ export {
   type FinishNormalizationUpdateRequest,
   type FinishNormalizationListResponse,
   type IngestionJob,
+  type AdminJobsListResponse,
 } from "./types/reference";
 export * from "./branding/swatchwatch-brand";

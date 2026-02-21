@@ -114,6 +114,12 @@ function toFinishNormalizationFormValues(
   };
 }
 
+/**
+ * Reusable CRUD section for reference tables (finish/harmony).
+ * @template T Reference row shape with shared display fields.
+ * @param props Section metadata, rows, loading/error state, and CRUD callbacks.
+ * @returns Config card with filtering, create/edit dialog, and delete confirmation.
+ */
 function ReferenceSection<T extends ReferenceRecord>({
   title,
   description,
@@ -137,6 +143,7 @@ function ReferenceSection<T extends ReferenceRecord>({
 
   const [deleteTarget, setDeleteTarget] = useState<T | null>(null);
   const [deletePending, setDeletePending] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const filteredRows = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -212,10 +219,16 @@ function ReferenceSection<T extends ReferenceRecord>({
 
     try {
       setDeletePending(true);
+      setDeleteError(null);
       await onDelete(getId(deleteTarget));
       setDeleteTarget(null);
-    } catch {
-      // Keep dialog open so the user can retry.
+      setDeleteError(null);
+    } catch (submitError: unknown) {
+      setDeleteError(
+        submitError instanceof Error
+          ? submitError.message
+          : `Failed to delete ${singularLabel}`
+      );
     } finally {
       setDeletePending(false);
     }
@@ -281,7 +294,14 @@ function ReferenceSection<T extends ReferenceRecord>({
                       <Button variant="outline" size="sm" onClick={() => openEditDialog(row)}>
                         Edit
                       </Button>
-                      <Button variant="destructive" size="sm" onClick={() => setDeleteTarget(row)}>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => {
+                          setDeleteError(null);
+                          setDeleteTarget(row);
+                        }}
+                      >
                         Delete
                       </Button>
                     </div>
@@ -358,6 +378,7 @@ function ReferenceSection<T extends ReferenceRecord>({
               {deletePending ? "Deleting…" : "Delete"}
             </Button>
           </DialogFooter>
+          {deleteError && <p className="text-sm text-destructive">{deleteError}</p>}
         </DialogContent>
       </Dialog>
     </Card>
@@ -375,6 +396,11 @@ interface FinishNormalizationsSectionProps {
   onDelete: (id: number) => Promise<void>;
 }
 
+/**
+ * CRUD section for finish normalization aliases used by AI/vendor ingestion.
+ * @param props Rows, finish-type options, loading/error state, and CRUD callbacks.
+ * @returns Config card with alias mapping create/edit/delete workflows.
+ */
 function FinishNormalizationsSection({
   rows,
   finishTypes,
@@ -397,6 +423,7 @@ function FinishNormalizationsSection({
 
   const [deleteTarget, setDeleteTarget] = useState<FinishNormalization | null>(null);
   const [deletePending, setDeletePending] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const finishTypeOptions = useMemo(
     () =>
@@ -467,8 +494,14 @@ function FinishNormalizationsSection({
 
     try {
       setDeletePending(true);
+      setDeleteError(null);
       await onDelete(deleteTarget.finishNormalizationId);
       setDeleteTarget(null);
+      setDeleteError(null);
+    } catch (submitError: unknown) {
+      setDeleteError(
+        submitError instanceof Error ? submitError.message : "Failed to delete finish normalization"
+      );
     } finally {
       setDeletePending(false);
     }
@@ -538,7 +571,10 @@ function FinishNormalizationsSection({
                         <Button
                           variant="destructive"
                           size="sm"
-                          onClick={() => setDeleteTarget(row)}
+                          onClick={() => {
+                            setDeleteError(null);
+                            setDeleteTarget(row);
+                          }}
                         >
                           Delete
                         </Button>
@@ -623,12 +659,17 @@ function FinishNormalizationsSection({
               {deletePending ? "Deleting…" : "Delete"}
             </Button>
           </DialogFooter>
+          {deleteError && <p className="text-sm text-destructive">{deleteError}</p>}
         </DialogContent>
       </Dialog>
     </Card>
   );
 }
 
+/**
+ * Reference-data configuration tab for admin CRUD workflows.
+ * Loads finish types, harmony types, and finish normalizations and wires section handlers.
+ */
 export function ConfigTab() {
   const [finishTypes, setFinishTypes] = useState<FinishType[]>([]);
   const [harmonyTypes, setHarmonyTypes] = useState<ReferenceHarmonyType[]>([]);

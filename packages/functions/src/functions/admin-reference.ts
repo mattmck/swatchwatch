@@ -11,6 +11,7 @@ import {
   type HarmonyTypeCreateRequest,
   type HarmonyTypeListResponse,
   type HarmonyTypeUpdateRequest,
+  type AdminJobsListResponse,
   type IngestionJob,
   type ReferenceHarmonyType,
 } from "swatchwatch-shared";
@@ -22,13 +23,6 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
 const VALID_JOB_STATUSES = new Set(["queued", "running", "succeeded", "failed", "cancelled"]);
-
-interface AdminJobsListResponse {
-  jobs: IngestionJob[];
-  total: number;
-  page: number;
-  pageSize: number;
-}
 
 function parseInteger(value: string | null, fallback: number, min: number, max: number): number {
   const parsed = Number.parseInt(value ?? "", 10);

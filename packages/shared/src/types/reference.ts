@@ -90,3 +90,10 @@ export interface IngestionJob {
   errorSummary?: string;
   recordsProcessed?: number;
 }
+
+export interface AdminJobsListResponse {
+  jobs: IngestionJob[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
