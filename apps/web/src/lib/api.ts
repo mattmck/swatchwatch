@@ -19,6 +19,15 @@ import type {
   CatalogSearchResponse,
   CatalogShadeDetail,
   PolishFinish,
+  FinishType,
+  FinishTypeCreateRequest,
+  FinishTypeUpdateRequest,
+  FinishTypeListResponse,
+  ReferenceHarmonyType,
+  HarmonyTypeCreateRequest,
+  HarmonyTypeUpdateRequest,
+  HarmonyTypeListResponse,
+  IngestionJob,
 } from "swatchwatch-shared";
 
 import { getAccessToken } from "./auth-token";
@@ -402,4 +411,105 @@ export async function purgeQueue(): Promise<QueuePurgeResponse> {
     headers: await getAuthHeaders({ admin: true }),
   });
   return handleResponse<QueuePurgeResponse>(response);
+}
+
+export interface AdminJobsListResponse {
+  jobs: IngestionJob[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export async function listAdminJobs(params?: {
+  page?: number;
+  pageSize?: number;
+  status?: IngestionJob["status"];
+}): Promise<AdminJobsListResponse> {
+  const searchParams = new URLSearchParams();
+  if (typeof params?.page === "number") searchParams.set("page", String(params.page));
+  if (typeof params?.pageSize === "number") searchParams.set("pageSize", String(params.pageSize));
+  if (params?.status) searchParams.set("status", params.status);
+
+  const qs = searchParams.toString();
+  const response = await fetch(`${API_BASE_URL}/reference-admin/jobs${qs ? `?${qs}` : ""}`, {
+    headers: await getAuthHeaders({ admin: true }),
+  });
+
+  return handleResponse<AdminJobsListResponse>(response);
+}
+
+export async function listFinishTypes(): Promise<FinishTypeListResponse> {
+  const response = await fetch(`${API_BASE_URL}/reference-admin/finishes`, {
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<FinishTypeListResponse>(response);
+}
+
+export async function createFinishType(data: FinishTypeCreateRequest): Promise<FinishType> {
+  const response = await fetch(`${API_BASE_URL}/reference-admin/finishes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<FinishType>(response);
+}
+
+export async function updateFinishType(
+  finishTypeId: number,
+  data: FinishTypeUpdateRequest
+): Promise<FinishType> {
+  const response = await fetch(`${API_BASE_URL}/reference-admin/finishes/${finishTypeId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<FinishType>(response);
+}
+
+export async function deleteFinishType(
+  finishTypeId: number
+): Promise<{ success?: boolean; message?: string }> {
+  const response = await fetch(`${API_BASE_URL}/reference-admin/finishes/${finishTypeId}`, {
+    method: "DELETE",
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<{ success?: boolean; message?: string }>(response);
+}
+
+export async function listHarmonyTypes(): Promise<HarmonyTypeListResponse> {
+  const response = await fetch(`${API_BASE_URL}/reference-admin/harmonies`, {
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<HarmonyTypeListResponse>(response);
+}
+
+export async function createHarmonyType(data: HarmonyTypeCreateRequest): Promise<ReferenceHarmonyType> {
+  const response = await fetch(`${API_BASE_URL}/reference-admin/harmonies`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<ReferenceHarmonyType>(response);
+}
+
+export async function updateHarmonyType(
+  harmonyTypeId: number,
+  data: HarmonyTypeUpdateRequest
+): Promise<ReferenceHarmonyType> {
+  const response = await fetch(`${API_BASE_URL}/reference-admin/harmonies/${harmonyTypeId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<ReferenceHarmonyType>(response);
+}
+
+export async function deleteHarmonyType(
+  harmonyTypeId: number
+): Promise<{ success?: boolean; message?: string }> {
+  const response = await fetch(`${API_BASE_URL}/reference-admin/harmonies/${harmonyTypeId}`, {
+    method: "DELETE",
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<{ success?: boolean; message?: string }>(response);
 }

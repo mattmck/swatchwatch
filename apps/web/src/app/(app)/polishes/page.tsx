@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { Suspense, useState, useEffect, useMemo, useCallback, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -188,6 +188,14 @@ function buildPolishesListQueryString(state: PolishesListQueryState): string {
  * @returns The React element for the developer bypass page when developer bypass is enabled, the unconfigured page when B2C auth is not configured, or the B2C-enabled polishes page otherwise.
  */
 export default function PolishesPage() {
+  return (
+    <Suspense fallback={<PolishesPageFallback />}>
+      <PolishesPageInner />
+    </Suspense>
+  );
+}
+
+function PolishesPageInner() {
   if (IS_DEV_BYPASS) {
     return <DevPolishesPage />;
   }
@@ -197,6 +205,14 @@ export default function PolishesPage() {
   }
 
   return <B2CPolishesPage />;
+}
+
+function PolishesPageFallback() {
+  return (
+    <div className="flex min-h-[420px] items-center justify-center">
+      <BrandSpinner className="h-9 w-9" />
+    </div>
+  );
 }
 
 function DevPolishesPage() {
