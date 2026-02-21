@@ -121,6 +121,7 @@ The web app is the most developed part of the project. Key pages:
 | `/polishes` | `apps/web/src/app/(app)/polishes/page.tsx` | Collection table — search/filter/sort with All/My Collection scope toggle and URL-persisted list state |
 | `/polishes/new` | `apps/web/src/app/(app)/polishes/new/page.tsx` | Add polish form — color picker, star rating, voice input placeholder |
 | `/polishes/detail` | `apps/web/src/app/(app)/polishes/detail/page.tsx` | Polish detail shell (query-param based) |
+| `/polishes/gaps` | `apps/web/src/app/(app)/polishes/gaps/page.tsx` | Collection gap map — 8×5 hue/lightness heatmap with missing/thin coverage, next-buy suggestions, and deep-link handoff to color search |
 | `/polishes/search` | `apps/web/src/app/(app)/polishes/search/page.tsx` | Color wheel search — hover to preview, click to lock, similar/complementary modes |
 | `/rapid-add` | `apps/web/src/app/rapid-add/page.tsx` | Capture-driven rapid add flow |
 

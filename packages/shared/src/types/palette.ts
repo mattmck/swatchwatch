@@ -33,7 +33,12 @@ export type HueFamily =
   | "pinks-magentas"
   | "neutrals";
 
-export type LightnessBand = "dark" | "medium" | "light";
+export type LightnessBand =
+  | "dark"
+  | "dark-medium"
+  | "medium"
+  | "medium-light"
+  | "light";
 
 export interface CollectionGapCell {
   hueFamily: HueFamily;

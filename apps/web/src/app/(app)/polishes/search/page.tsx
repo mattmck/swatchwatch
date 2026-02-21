@@ -214,6 +214,9 @@ function ColorSearchPageContent() {
     const harmonyParam = searchParams.get("harmony");
     if (harmonyParam === "all") {
       setIncludeAllHarmonies(true);
+    } else if (harmonyParam === "similar") {
+      setIncludeAllHarmonies(false);
+      setHarmonyType("similar");
     } else if (harmonyParam && SELECTABLE_HARMONY_TYPES.some((h) => h.value === harmonyParam)) {
       setIncludeAllHarmonies(false);
       setHarmonyType(harmonyParam as HarmonyType);

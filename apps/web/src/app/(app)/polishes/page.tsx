@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { Suspense, useState, useEffect, useMemo, useCallback, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -201,12 +201,12 @@ export default function PolishesPage() {
 
 function DevPolishesPage() {
   const { isAdmin } = useDevAuth();
-  return <PolishesPageContent isAdmin={isAdmin} />;
+  return <PolishesPageContentBoundary isAdmin={isAdmin} />;
 }
 
 function B2CPolishesPage() {
   const { isAdmin } = useAuth();
-  return <PolishesPageContent isAdmin={isAdmin} />;
+  return <PolishesPageContentBoundary isAdmin={isAdmin} />;
 }
 
 /**
@@ -216,7 +216,15 @@ function B2CPolishesPage() {
  */
 function UnconfiguredPolishesPage() {
   const { isAdmin } = useUnconfiguredAuth();
-  return <PolishesPageContent isAdmin={isAdmin} />;
+  return <PolishesPageContentBoundary isAdmin={isAdmin} />;
+}
+
+function PolishesPageContentBoundary({ isAdmin }: { isAdmin: boolean }) {
+  return (
+    <Suspense fallback={<BrandSpinner label="Loading polishes…" />}>
+      <PolishesPageContent isAdmin={isAdmin} />
+    </Suspense>
+  );
 }
 
 /**
