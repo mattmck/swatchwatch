@@ -126,6 +126,7 @@ let finishNormalizationCache:
       expiresAtMs: number;
     }
   | null = null;
+let pendingFinishNormalizationLoad: Promise<Map<string, string>> | null = null;
 
 async function loadFinishNormalizationMap(
   options?: HexDetectionOptions
@@ -135,58 +136,68 @@ async function loadFinishNormalizationMap(
     return finishNormalizationCache.values;
   }
 
-  try {
-    const result = await query<{
-      sourceValue: string;
-      normalizedFinishName: string;
-    }>(
-      `SELECT DISTINCT ON ("sourceValue")
-         "sourceValue",
-         "normalizedFinishName"
-       FROM (
-         SELECT
-           source_value AS "sourceValue",
-           normalized_finish_name AS "normalizedFinishName",
-           1 AS source_priority
-         FROM finish_normalization
-         UNION ALL
-         SELECT
-           name AS "sourceValue",
-           name AS "normalizedFinishName",
-           2 AS source_priority
-         FROM finish_type
-       ) x
-       ORDER BY "sourceValue", source_priority`
-    );
-
-    const values = new Map<string, string>();
-    for (const row of result.rows) {
-      const source = row.sourceValue?.trim().toLowerCase();
-      const normalized = row.normalizedFinishName?.trim().toLowerCase();
-      if (!source || !normalized) continue;
-      values.set(source, normalized);
-    }
-
-    finishNormalizationCache = {
-      values,
-      expiresAtMs: now + FINISH_NORMALIZATION_CACHE_TTL_MS,
-    };
-    return values;
-  } catch (error: unknown) {
-    const code =
-      typeof error === "object" && error !== null && "code" in error
-        ? String(error.code)
-        : undefined;
-    const message = error instanceof Error ? error.message : String(error);
-
-    emitLog(
-      options,
-      "warn",
-      `[ai-color-detection] Falling back to default finish normalization map (${message})`,
-      { code }
-    );
-    return new Map(Object.entries(DEFAULT_FINISH_CANONICAL_MAP));
+  if (pendingFinishNormalizationLoad) {
+    return pendingFinishNormalizationLoad;
   }
+
+  pendingFinishNormalizationLoad = (async () => {
+    try {
+      const result = await query<{
+        sourceValue: string;
+        normalizedFinishName: string;
+      }>(
+        `SELECT DISTINCT ON ("sourceValue")
+           "sourceValue",
+           "normalizedFinishName"
+         FROM (
+           SELECT
+             source_value AS "sourceValue",
+             normalized_finish_name AS "normalizedFinishName",
+             1 AS source_priority
+           FROM finish_normalization
+           UNION ALL
+           SELECT
+             name AS "sourceValue",
+             name AS "normalizedFinishName",
+             2 AS source_priority
+           FROM finish_type
+         ) x
+         ORDER BY "sourceValue", source_priority`
+      );
+
+      const values = new Map<string, string>();
+      for (const row of result.rows) {
+        const source = row.sourceValue?.trim().toLowerCase();
+        const normalized = row.normalizedFinishName?.trim().toLowerCase();
+        if (!source || !normalized) continue;
+        values.set(source, normalized);
+      }
+
+      finishNormalizationCache = {
+        values,
+        expiresAtMs: now + FINISH_NORMALIZATION_CACHE_TTL_MS,
+      };
+      return values;
+    } catch (error: unknown) {
+      const code =
+        typeof error === "object" && error !== null && "code" in error
+          ? String(error.code)
+          : undefined;
+      const message = error instanceof Error ? error.message : String(error);
+
+      emitLog(
+        options,
+        "warn",
+        `[ai-color-detection] Falling back to default finish normalization map (${message})`,
+        { code }
+      );
+      return new Map(Object.entries(DEFAULT_FINISH_CANONICAL_MAP));
+    } finally {
+      pendingFinishNormalizationLoad = null;
+    }
+  })();
+
+  return pendingFinishNormalizationLoad;
 }
 
 async function parseFinishes(
