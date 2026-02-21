@@ -112,6 +112,32 @@ registerMock("../lib/blob-storage", {
     sizeBytes: 7,
     storageUrl: "https://example.com/fake.png",
   }),
+  validateImageUpload: (contentType, sizeBytes) => {
+    const normalizedType = String(contentType || "")
+      .split(";")[0]
+      .trim()
+      .toLowerCase();
+    const allowedMimeTypes = new Set([
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "image/heic",
+      "image/heif",
+      "image/gif",
+    ]);
+
+    if (!normalizedType || !allowedMimeTypes.has(normalizedType)) {
+      throw new Error("Unsupported image type");
+    }
+    if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+      throw new Error("Image payload is empty");
+    }
+    if (sizeBytes > 5 * 1024 * 1024) {
+      throw new Error("Image too large");
+    }
+
+    return normalizedType;
+  },
 });
 
 // Pre-populate require.cache for mocked modules
@@ -1265,6 +1291,39 @@ describe("functions/capture — addCaptureFrame", () => {
 
     assert.equal(res.status, 400);
     assert.match(res.jsonBody.error, /blob:/i);
+  });
+
+  it("rejects unsupported data URL image mime types", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let callCount = 0;
+    queryMock = async () => {
+      callCount++;
+      if (callCount === 1) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (callCount === 2) {
+        return { rows: [{ id: 10, captureId: "11111111-1111-4111-8111-111111111111", status: "processing", topConfidence: null, acceptedEntityType: null, acceptedEntityId: null, metadata: null }] };
+      }
+      return { rows: [] };
+    };
+
+    const handler = registeredRoutes["capture-frame"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/capture/11111111-1111-4111-8111-111111111111/frame",
+        headers: { authorization: "Bearer dev:1" },
+        params: { captureId: "11111111-1111-4111-8111-111111111111" },
+        body: {
+          frameType: "label",
+          imageBlobUrl: "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=",
+        },
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 400);
+    assert.match(res.jsonBody.error, /Unsupported image type/i);
   });
 });
 

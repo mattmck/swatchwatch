@@ -6,6 +6,7 @@ import { withCors } from "../lib/http";
 import { toImageProxyUrl } from "../lib/image-proxy";
 import { detectHexWithAzureOpenAI } from "../lib/ai-color-detection";
 import { readBlobFromStorageUrl } from "../lib/blob-storage";
+import { trackEvent, trackException } from "../lib/telemetry";
 import { PoolClient } from "pg";
 
 const FINISH_NORMALIZATION_MAP: Record<string, string> = {
@@ -446,12 +447,21 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       return { status: 500, jsonBody: { error: "Created polish not found" } };
     }
 
+    trackEvent("polish.created", {
+      shadeId,
+      userId,
+      source: adoptingExistingShade ? "existing_shade" : "new_shade",
+      hasFinish: Boolean(body.finish),
+      hasCollection: Boolean(body.collection),
+    });
+
     return {
       status: 201,
       jsonBody: withReadableSwatchUrl(created.rows[0], request.url),
     };
   } catch (error: any) {
     context.error("Error creating polish:", error);
+    trackException(error, { endpoint: "polishes.create" });
     return { status: 500, jsonBody: { error: "Failed to create polish", details: error.message } };
   }
 }

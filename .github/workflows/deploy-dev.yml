@@ -128,3 +128,69 @@ jobs:
           AUTH_DEV_BYPASS: ${{ vars.AUTH_DEV_BYPASS }}
           AZURE_AD_B2C_TENANT: ${{ vars.AZURE_AD_B2C_TENANT || vars.NEXT_PUBLIC_B2C_TENANT }}
           AZURE_AD_B2C_CLIENT_ID: ${{ secrets.AZURE_AD_B2C_CLIENT_ID }}
+
+      - name: Smoke test deployed API
+        run: |
+          set -euo pipefail
+          API_BASE="https://swatchwatch-dev-func-j5jij0be.azurewebsites.net/api"
+          ATTEMPTS=8
+          SLEEP_SECONDS=10
+          AUTH_DEV_BYPASS_VALUE="$(echo "${AUTH_DEV_BYPASS:-false}" | tr '[:upper:]' '[:lower:]')"
+
+          VOICE_URL="$API_BASE/voice"
+          echo "Smoke test 1/2: route liveness ($VOICE_URL)"
+          for attempt in $(seq 1 "$ATTEMPTS"); do
+            echo "Attempt $attempt/$ATTEMPTS..."
+            status_code=$(curl -sS -o /tmp/swatchwatch-smoke-voice-body.json -w "%{http_code}" \
+              -X POST "$VOICE_URL" \
+              -H "Content-Type: application/json" \
+              --data '{"probe":"smoke-test"}' || true)
+
+            if [ "$status_code" = "400" ]; then
+              echo "Voice smoke test passed (status=$status_code)."
+              cat /tmp/swatchwatch-smoke-voice-body.json
+              break
+            fi
+
+            echo "Unexpected status: $status_code (expected 400)"
+            cat /tmp/swatchwatch-smoke-voice-body.json || true
+
+            if [ "$attempt" -eq "$ATTEMPTS" ]; then
+              echo "Voice smoke test failed after $ATTEMPTS attempts."
+              exit 1
+            fi
+
+            sleep "$SLEEP_SECONDS"
+          done
+
+          if [ "$AUTH_DEV_BYPASS_VALUE" = "true" ]; then
+            POLISHES_URL="$API_BASE/polishes?pageSize=1"
+            echo "Smoke test 2/2: authenticated DB path ($POLISHES_URL)"
+            for attempt in $(seq 1 "$ATTEMPTS"); do
+              echo "Attempt $attempt/$ATTEMPTS..."
+              status_code=$(curl -sS -o /tmp/swatchwatch-smoke-polishes-body.json -w "%{http_code}" \
+                -H "Authorization: Bearer dev:1" \
+                "$POLISHES_URL" || true)
+
+              if [ "$status_code" = "200" ]; then
+                echo "Polishes smoke test passed (status=$status_code)."
+                cat /tmp/swatchwatch-smoke-polishes-body.json
+                exit 0
+              fi
+
+              echo "Unexpected status: $status_code (expected 200)"
+              cat /tmp/swatchwatch-smoke-polishes-body.json || true
+
+              if [ "$attempt" -eq "$ATTEMPTS" ]; then
+                echo "Polishes smoke test failed after $ATTEMPTS attempts."
+                exit 1
+              fi
+
+              sleep "$SLEEP_SECONDS"
+            done
+          fi
+
+          echo "Skipping authenticated /polishes smoke check because AUTH_DEV_BYPASS=$AUTH_DEV_BYPASS_VALUE."
+          exit 0
+        env:
+          AUTH_DEV_BYPASS: ${{ vars.AUTH_DEV_BYPASS }}

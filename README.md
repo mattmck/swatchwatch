@@ -95,7 +95,7 @@ npm run dev:mobile       # → mobile via Expo
 
 | Workflow | Purpose | Trigger |
 |----------|---------|---------|
-| `.github/workflows/deploy-dev.yml` | Deploy web + function app code to dev | Push to `dev`, manual dispatch |
+| `.github/workflows/deploy-dev.yml` | Deploy web + function app code to dev, then run API smoke tests | Push to `dev`, manual dispatch |
 | `.github/workflows/deploy-infra-dev.yml` | Deploy Terraform infrastructure to dev | Push to `dev` when `infrastructure/**` changes, manual dispatch |
 
 Dev auth deploy note:
@@ -150,6 +150,7 @@ Functions require secrets defined in `packages/functions/local.settings.json`:
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint for voice parsing |
 | `AZURE_OPENAI_KEY` | Azure OpenAI key |
 | `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name for image-based hex detection |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | Optional App Insights connection string for custom function telemetry events/metrics |
 | `AZURE_AD_B2C_TENANT` | B2C tenant name |
 | `AZURE_AD_B2C_CLIENT_ID` | B2C app client ID |
 | `AUTH_DEV_BYPASS` | Dev-only bypass (`true` enables `Bearer dev:<userId>` tokens); do not use in shared/prod environments |

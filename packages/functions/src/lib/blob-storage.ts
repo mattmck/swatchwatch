@@ -1,8 +1,21 @@
 import { createHash, createHmac } from "node:crypto";
+import sharp from "sharp";
 
 const AZURE_STORAGE_API_VERSION = "2023-11-03";
 const DEFAULT_SOURCE_IMAGE_CONTAINER = "source-images";
 const REQUEST_TIMEOUT_MS = 20000;
+
+export const UPLOAD_LIMITS = {
+  maxSizeBytes: 5 * 1024 * 1024,
+  allowedMimeTypes: new Set([
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/heic",
+    "image/heif",
+    "image/gif",
+  ]),
+} as const;
 
 interface StorageAccountConfig {
   accountName: string;
@@ -23,6 +36,40 @@ interface UploadSourceImageOptions {
   sourceImageUrl: string;
   source: string;
   externalId: string;
+}
+
+function normalizeImageContentType(contentType: string): string {
+  return contentType.split(";")[0].trim().toLowerCase();
+}
+
+export function validateImageUpload(contentType: string, sizeBytes: number): string {
+  const normalizedType = normalizeImageContentType(contentType || "");
+  if (!normalizedType || !UPLOAD_LIMITS.allowedMimeTypes.has(normalizedType)) {
+    throw new Error(
+      `Unsupported image type: ${normalizedType || "unknown"}. Allowed: ${[...UPLOAD_LIMITS.allowedMimeTypes].join(", ")}`
+    );
+  }
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+    throw new Error("Image payload is empty");
+  }
+  if (sizeBytes > UPLOAD_LIMITS.maxSizeBytes) {
+    throw new Error(
+      `Image too large: ${(sizeBytes / (1024 * 1024)).toFixed(1)}MB exceeds ${(UPLOAD_LIMITS.maxSizeBytes / (1024 * 1024)).toFixed(1)}MB limit`
+    );
+  }
+
+  return normalizedType;
+}
+
+export async function stripImageMetadata(bytes: Buffer): Promise<Buffer> {
+  try {
+    return await sharp(bytes, { failOn: "none" })
+      .rotate()
+      .toBuffer();
+  } catch (error) {
+    console.warn("[blob-storage] Failed to strip image metadata, using original bytes:", error);
+    return bytes;
+  }
 }
 
 function asNonEmpty(value: string | undefined): string | null {
@@ -341,15 +388,15 @@ export async function uploadSourceImageToBlob(params: UploadSourceImageOptions):
     );
   }
 
-  const contentType = sourceResponse.headers.get("content-type") || "image/jpeg";
+  const sourceContentType = sourceResponse.headers.get("content-type") || "image/jpeg";
   const arrayBuffer = await sourceResponse.arrayBuffer();
   const bytes = Buffer.from(arrayBuffer);
-  if (bytes.length === 0) {
-    throw new Error("Source image download returned empty body");
-  }
+  const contentType = validateImageUpload(sourceContentType, bytes.length);
+  const cleanBytes = await stripImageMetadata(bytes);
+  validateImageUpload(contentType, cleanBytes.length);
 
-  const checksumSha256 = createHash("sha256").update(bytes).digest("hex");
-  const imageBase64DataUri = `data:${contentType};base64,${bytes.toString("base64")}`;
+  const checksumSha256 = createHash("sha256").update(cleanBytes).digest("hex");
+  const imageBase64DataUri = `data:${contentType};base64,${cleanBytes.toString("base64")}`;
   const connectionString = asNonEmpty(process.env.AZURE_STORAGE_CONNECTION);
 
   // If storage isn't configured (e.g., local dev), fall back to the source URL so we can still
@@ -362,7 +409,7 @@ export async function uploadSourceImageToBlob(params: UploadSourceImageOptions):
       storageUrl: params.sourceImageUrl,
       checksumSha256,
       contentType,
-      sizeBytes: bytes.length,
+      sizeBytes: cleanBytes.length,
       imageBase64DataUri,
     };
   }
@@ -372,7 +419,9 @@ export async function uploadSourceImageToBlob(params: UploadSourceImageOptions):
   const extension = inferExtension(contentType, params.sourceImageUrl);
   const blobName = buildBlobName(params.source, params.externalId, checksumSha256, extension);
 
-  console.log(`[blob-storage] Image downloaded: ${bytes.length} bytes, checksum=${checksumSha256}, extension=${extension}`);
+  console.log(
+    `[blob-storage] Image downloaded: ${bytes.length} bytes (${cleanBytes.length} after metadata strip), checksum=${checksumSha256}, extension=${extension}`
+  );
 
   const containerUrl = new URL(`${config.blobEndpoint}/${containerName}`);
   console.log(`[blob-storage] Ensuring container exists: ${containerName}`);
@@ -399,10 +448,10 @@ export async function uploadSourceImageToBlob(params: UploadSourceImageOptions):
     blobUrl,
     {
       "Content-Type": contentType,
-      "Content-Length": String(bytes.length),
+      "Content-Length": String(cleanBytes.length),
       "x-ms-blob-type": "BlockBlob",
     },
-    bytes
+    cleanBytes
   );
 
   if (uploadResponse.status !== 201) {
@@ -416,7 +465,7 @@ export async function uploadSourceImageToBlob(params: UploadSourceImageOptions):
     storageUrl: blobUrl.toString(),
     checksumSha256,
     contentType,
-    sizeBytes: bytes.length,
+    sizeBytes: cleanBytes.length,
     imageBase64DataUri,
   };
 }

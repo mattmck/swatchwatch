@@ -1,6 +1,7 @@
 import { HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { query } from "./db";
+import { trackEvent, trackException } from "./telemetry";
 
 export interface AuthResult {
   userId: number;
@@ -25,11 +26,13 @@ export async function authenticateRequest(
 ): Promise<AuthResult> {
   const authHeader = request.headers.get("authorization");
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    trackEvent("auth.failure", { reason: "missing_or_malformed_authorization_header" });
     throw new AuthError("Missing or malformed Authorization header");
   }
 
   const token = authHeader.substring(7);
   if (!token) {
+    trackEvent("auth.failure", { reason: "empty_token" });
     throw new AuthError("Empty token");
   }
 
@@ -48,6 +51,7 @@ async function handleDevBypass(
 ): Promise<AuthResult> {
   const match = token.match(/^dev:(\d+)$/);
   if (!match) {
+    trackEvent("auth.failure", { reason: "invalid_dev_token_format", mode: "dev_bypass" });
     throw new AuthError("Invalid dev token format. Expected: dev:<userId>");
   }
 
@@ -85,10 +89,12 @@ async function handleDevBypass(
   })();
 
   if (result.rows.length === 0) {
+    trackEvent("auth.failure", { reason: "dev_user_not_found", mode: "dev_bypass", userId });
     throw new AuthError(`Dev user ${userId} not found`);
   }
 
   const user = result.rows[0];
+  trackEvent("auth.success", { mode: "dev_bypass", role: user.role, userId: user.user_id });
   return {
     userId: user.user_id,
     externalId: user.external_id || `dev-user-${userId}`,
@@ -162,6 +168,7 @@ async function handleB2CToken(
   const clientId = process.env.AZURE_AD_B2C_CLIENT_ID;
 
   if (!tenant || !clientId) {
+    trackEvent("auth.failure", { reason: "b2c_not_configured", mode: "jwt" });
     throw new AuthError("Azure AD B2C not configured");
   }
 
@@ -179,6 +186,7 @@ async function handleB2CToken(
 
   const externalId = (payload.oid as string | undefined) || (payload.sub as string | undefined);
   if (!externalId) {
+    trackEvent("auth.failure", { reason: "missing_oid_or_sub_claim", mode: "jwt" });
     throw new AuthError("Token missing oid/sub claim");
   }
 
@@ -189,6 +197,7 @@ async function handleB2CToken(
   context.log(`Auth B2C: oid=${externalId} role=${role}`);
 
   const user = await getOrCreateUser(externalId, email, role);
+  trackEvent("auth.success", { mode: "jwt", role, userId: user.userId });
 
   return { userId: user.userId, externalId, email, role: user.role };
 }
@@ -272,12 +281,14 @@ export function withAuth(
       return handler(request, context, auth.userId);
     } catch (error) {
       if (error instanceof AuthError) {
+        trackEvent("auth.failure", { wrapper: "withAuth", reason: error.message });
         return {
           status: 401,
           jsonBody: { error: error.message },
         };
       }
       context.error("Unexpected auth error:", error);
+      trackException(error, { wrapper: "withAuth", reason: "unexpected_auth_error" });
       return {
         status: 401,
         jsonBody: { error: "Authentication failed" },
@@ -301,12 +312,14 @@ export function withAdmin(
       return handler(request, context, auth.userId);
     } catch (error) {
       if (error instanceof AuthError) {
+        trackEvent("auth.failure", { wrapper: "withAdmin", reason: error.message });
         return {
           status: 401,
           jsonBody: { error: error.message },
         };
       }
       context.error("Unexpected auth error:", error);
+      trackException(error, { wrapper: "withAdmin", reason: "unexpected_auth_error" });
       return {
         status: 401,
         jsonBody: { error: "Authentication failed" },

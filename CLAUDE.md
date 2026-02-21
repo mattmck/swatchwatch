@@ -101,6 +101,9 @@ This project is in early development. The web UI is now fully API-driven. Backen
 Defined in `packages/functions/local.settings.json`. Required secrets:
 `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `AZURE_STORAGE_CONNECTION`, `INGESTION_JOB_QUEUE_NAME`, `SOURCE_IMAGE_CONTAINER`, `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, `AZURE_OPENAI_DEPLOYMENT_HEX`, `AZURE_AD_B2C_TENANT`, `AZURE_AD_B2C_CLIENT_ID`
 
+Optional telemetry:
+`APPLICATIONINSIGHTS_CONNECTION_STRING`
+
 ## Adding a New Azure Function
 
 1. Create a new file in `packages/functions/src/functions/`

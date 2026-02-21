@@ -15,13 +15,14 @@ import {
 } from "swatchwatch-shared";
 import { query, transaction } from "../lib/db";
 import { withAuth } from "../lib/auth";
+import { validateImageUpload } from "../lib/blob-storage";
 import { withCors } from "../lib/http";
+import { trackEvent, trackException } from "../lib/telemetry";
 
 const GUIDANCE_CONFIG = {
   recommendedFrameTypes: ["barcode", "label", "color"],
   maxFrames: 6,
 } as const;
-const MAX_CAPTURE_IMAGE_BYTES = 5 * 1024 * 1024;
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -195,15 +196,15 @@ function normalizeCaptureImageInput(imageBlobUrl: string, captureId: string): Pr
     }
 
     const bytes = Buffer.from(payload, "base64");
-    if (bytes.length === 0) {
-      throw new CaptureInputError("Data URL image payload is empty");
-    }
-    if (bytes.length > MAX_CAPTURE_IMAGE_BYTES) {
-      throw new CaptureInputError("Capture frame image exceeds the 5MB limit");
+    let normalizedMimeType: string;
+    try {
+      normalizedMimeType = validateImageUpload(mimeType, bytes.length);
+    } catch (error) {
+      throw new CaptureInputError(error instanceof Error ? error.message : "Invalid capture frame image");
     }
 
     const checksumSha256 = createHash("sha256").update(bytes).digest("hex");
-    const extension = getImageExtension(mimeType);
+    const extension = getImageExtension(normalizedMimeType);
     const storageUrl = `inline://capture/${captureId}/${checksumSha256}.${extension}`;
 
     return {
@@ -211,7 +212,7 @@ function normalizeCaptureImageInput(imageBlobUrl: string, captureId: string): Pr
       checksumSha256,
       qualityPatch: buildImageIngestionPatch({
         source: "data_url",
-        mimeType,
+        mimeType: normalizedMimeType,
         byteSize: bytes.length,
         checksumSha256,
       }),
@@ -1163,6 +1164,12 @@ async function finalizeCapture(
       finalizeRunId,
       finalizeStartedAt
     );
+    trackEvent("capture.finalized", {
+      captureId: session.captureId,
+      outcome: outcome.status,
+      confidence: outcome.confidence,
+      runId: finalizeRunId,
+    });
 
     if (outcome.status === "matched") {
       await transaction(async (client) => {
@@ -1293,6 +1300,7 @@ async function finalizeCapture(
     return { status: 200, jsonBody: response };
   } catch (error: any) {
     context.error("Error finalizing capture:", error);
+    trackException(error, { endpoint: "capture.finalize" });
     return { status: 500, jsonBody: { error: "Failed to finalize capture", details: error.message } };
   }
 }
