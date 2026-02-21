@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Sparkles, Search, PlusCircle, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { LayoutDashboard, Sparkles, Search, PlusCircle, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { SwatchWatchWordmark } from "@/components/brand/swatchwatch-brand";
@@ -25,8 +25,7 @@ const baseNavItems: NavItem[] = [
   { href: "/polishes/new", label: "Add Polish", icon: PlusCircle },
 ];
 const adminNavItems: NavItem[] = [
-  { href: "/admin/reference-data", label: "Reference Data", icon: SlidersHorizontal },
-  { href: "/admin/jobs", label: "Admin Jobs", icon: ShieldCheck },
+  { href: "/admin", label: "Admin", icon: ShieldCheck },
 ];
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
 const HAS_B2C_CONFIG = buildMsalConfig() !== null;

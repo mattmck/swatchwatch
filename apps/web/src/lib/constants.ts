@@ -1,4 +1,7 @@
-/** Canonical list of nail polish finish types for UI dropdowns. */
+/**
+ * @deprecated Fallback-only constant. Prefer API-backed finish types via useReferenceData().
+ * Keep this list for resilience when reference endpoints are unavailable.
+ */
 export const FINISHES = [
   "creme",
   "shimmer",
@@ -14,6 +17,7 @@ export const FINISHES = [
   "sheer",
   "magnetic",
   "thermal",
+  "glow",
   "crelly",
   "other",
 ] as const;

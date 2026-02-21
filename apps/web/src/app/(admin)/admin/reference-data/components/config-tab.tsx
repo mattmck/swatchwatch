@@ -1,14 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { FinishType, ReferenceHarmonyType } from "swatchwatch-shared";
+import type { FinishNormalization, FinishType, ReferenceHarmonyType } from "swatchwatch-shared";
 import {
+  createFinishNormalization,
   createFinishType,
   createHarmonyType,
+  deleteFinishNormalization,
   deleteFinishType,
   deleteHarmonyType,
+  listFinishNormalizations,
   listFinishTypes,
   listHarmonyTypes,
+  updateFinishNormalization,
   updateFinishType,
   updateHarmonyType,
 } from "@/lib/api";
@@ -30,6 +34,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -45,6 +56,11 @@ interface ReferenceFormValues {
   displayName: string;
   description: string;
   sortOrder: string;
+}
+
+interface FinishNormalizationFormValues {
+  sourceValue: string;
+  normalizedFinishName: string;
 }
 
 interface ReferenceSectionProps<T extends ReferenceRecord> {
@@ -87,6 +103,15 @@ function formatDateTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
+}
+
+function toFinishNormalizationFormValues(
+  record?: FinishNormalization
+): FinishNormalizationFormValues {
+  return {
+    sourceValue: record?.sourceValue ?? "",
+    normalizedFinishName: record?.normalizedFinishName ?? "",
+  };
 }
 
 function ReferenceSection<T extends ReferenceRecord>({
@@ -339,13 +364,281 @@ function ReferenceSection<T extends ReferenceRecord>({
   );
 }
 
+interface FinishNormalizationsSectionProps {
+  rows: FinishNormalization[];
+  finishTypes: FinishType[];
+  loading: boolean;
+  error: string | null;
+  onRefresh: () => Promise<void>;
+  onCreate: (payload: FinishNormalizationFormValues) => Promise<void>;
+  onUpdate: (id: number, payload: FinishNormalizationFormValues) => Promise<void>;
+  onDelete: (id: number) => Promise<void>;
+}
+
+function FinishNormalizationsSection({
+  rows,
+  finishTypes,
+  loading,
+  error,
+  onRefresh,
+  onCreate,
+  onUpdate,
+  onDelete,
+}: FinishNormalizationsSectionProps) {
+  const [query, setQuery] = useState("");
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editMode, setEditMode] = useState<"create" | "update">("create");
+  const [formValues, setFormValues] = useState<FinishNormalizationFormValues>(
+    toFinishNormalizationFormValues()
+  );
+  const [editingRecord, setEditingRecord] = useState<FinishNormalization | null>(null);
+  const [pending, setPending] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const [deleteTarget, setDeleteTarget] = useState<FinishNormalization | null>(null);
+  const [deletePending, setDeletePending] = useState(false);
+
+  const finishTypeOptions = useMemo(
+    () =>
+      [...finishTypes].sort((a, b) =>
+        a.displayName.localeCompare(b.displayName, undefined, { sensitivity: "base" })
+      ),
+    [finishTypes]
+  );
+
+  const filteredRows = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return rows;
+
+    return rows.filter((row) =>
+      `${row.sourceValue} ${row.normalizedFinishName}`.toLowerCase().includes(normalizedQuery)
+    );
+  }, [rows, query]);
+
+  function openCreateDialog() {
+    setEditMode("create");
+    setEditingRecord(null);
+    setFormValues(toFinishNormalizationFormValues());
+    setFormError(null);
+    setIsEditOpen(true);
+  }
+
+  function openEditDialog(record: FinishNormalization) {
+    setEditMode("update");
+    setEditingRecord(record);
+    setFormValues(toFinishNormalizationFormValues(record));
+    setFormError(null);
+    setIsEditOpen(true);
+  }
+
+  async function handleSubmit() {
+    const sourceValue = formValues.sourceValue.trim().toLowerCase();
+    const normalizedFinishName = formValues.normalizedFinishName.trim().toLowerCase();
+
+    if (!sourceValue || !normalizedFinishName) {
+      setFormError("Source value and normalized finish are required.");
+      return;
+    }
+
+    try {
+      setPending(true);
+      setFormError(null);
+
+      if (editMode === "create") {
+        await onCreate({ sourceValue, normalizedFinishName });
+      } else if (editingRecord) {
+        await onUpdate(editingRecord.finishNormalizationId, { sourceValue, normalizedFinishName });
+      }
+
+      setIsEditOpen(false);
+      setEditingRecord(null);
+      setFormValues(toFinishNormalizationFormValues());
+    } catch (submitError: unknown) {
+      setFormError(
+        submitError instanceof Error ? submitError.message : "Failed to save finish normalization"
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+
+    try {
+      setDeletePending(true);
+      await onDelete(deleteTarget.finishNormalizationId);
+      setDeleteTarget(null);
+    } finally {
+      setDeletePending(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-4">
+        <div>
+          <CardTitle>Finish Normalizations</CardTitle>
+          <CardDescription>
+            Map vendor- or AI-reported finish text to canonical finish names (for example,
+            &quot;linear holo&quot; → &quot;holographic&quot;).
+          </CardDescription>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => void onRefresh()} disabled={loading}>
+            Refresh
+          </Button>
+          <Button onClick={openCreateDialog}>Add normalization</Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Input
+          placeholder="Filter finish normalizations"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        {error && <p className="text-sm text-destructive">{error}</p>}
+
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Source value</TableHead>
+                <TableHead>Normalized finish</TableHead>
+                <TableHead>Updated</TableHead>
+                <TableHead className="w-40">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading && (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center text-muted-foreground">
+                    Loading…
+                  </TableCell>
+                </TableRow>
+              )}
+              {!loading && filteredRows.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center text-muted-foreground">
+                    No records found.
+                  </TableCell>
+                </TableRow>
+              )}
+              {!loading &&
+                filteredRows.map((row) => (
+                  <TableRow key={row.finishNormalizationId}>
+                    <TableCell className="font-medium">{row.sourceValue}</TableCell>
+                    <TableCell>{row.normalizedFinishName}</TableCell>
+                    <TableCell>{formatDateTime(row.updatedAt)}</TableCell>
+                    <TableCell>
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={() => openEditDialog(row)}>
+                          Edit
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => setDeleteTarget(row)}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+
+      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {editMode === "create"
+                ? "Create finish normalization"
+                : "Update finish normalization"}
+            </DialogTitle>
+            <DialogDescription>
+              Keep finish parsing resilient as new aliases and misspellings appear.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <Input
+              placeholder="Source value (e.g. crushed holo)"
+              value={formValues.sourceValue}
+              onChange={(event) =>
+                setFormValues((prev) => ({
+                  ...prev,
+                  sourceValue: event.target.value,
+                }))
+              }
+            />
+            <Select
+              value={formValues.normalizedFinishName}
+              onValueChange={(value) =>
+                setFormValues((prev) => ({ ...prev, normalizedFinishName: value }))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select canonical finish" />
+              </SelectTrigger>
+              <SelectContent>
+                {finishTypeOptions.map((finishType) => (
+                  <SelectItem key={finishType.finishTypeId} value={finishType.name}>
+                    {finishType.displayName} ({finishType.name})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {formError && <p className="text-sm text-destructive">{formError}</p>}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditOpen(false)} disabled={pending}>
+              Cancel
+            </Button>
+            <Button onClick={() => void handleSubmit()} disabled={pending}>
+              {pending ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete finish normalization?</DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. Confirm deletion of{" "}
+              <span className="font-semibold">{deleteTarget?.sourceValue}</span>.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deletePending}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={() => void handleDelete()} disabled={deletePending}>
+              {deletePending ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
 export function ConfigTab() {
   const [finishTypes, setFinishTypes] = useState<FinishType[]>([]);
   const [harmonyTypes, setHarmonyTypes] = useState<ReferenceHarmonyType[]>([]);
+  const [finishNormalizations, setFinishNormalizations] = useState<FinishNormalization[]>([]);
   const [finishLoading, setFinishLoading] = useState(true);
   const [harmonyLoading, setHarmonyLoading] = useState(true);
+  const [normalizationsLoading, setNormalizationsLoading] = useState(true);
   const [finishError, setFinishError] = useState<string | null>(null);
   const [harmonyError, setHarmonyError] = useState<string | null>(null);
+  const [normalizationsError, setNormalizationsError] = useState<string | null>(null);
 
   const loadFinishTypes = useCallback(async () => {
     try {
@@ -373,9 +666,24 @@ export function ConfigTab() {
     }
   }, []);
 
+  const loadFinishNormalizations = useCallback(async () => {
+    try {
+      setNormalizationsLoading(true);
+      setNormalizationsError(null);
+      const response = await listFinishNormalizations();
+      setFinishNormalizations(response.finishNormalizations);
+    } catch (error: unknown) {
+      setNormalizationsError(
+        error instanceof Error ? error.message : "Failed to load finish normalizations"
+      );
+    } finally {
+      setNormalizationsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    void Promise.all([loadFinishTypes(), loadHarmonyTypes()]);
-  }, [loadFinishTypes, loadHarmonyTypes]);
+    void Promise.all([loadFinishTypes(), loadHarmonyTypes(), loadFinishNormalizations()]);
+  }, [loadFinishTypes, loadHarmonyTypes, loadFinishNormalizations]);
 
   return (
     <div className="space-y-4">
@@ -422,6 +730,26 @@ export function ConfigTab() {
         onDelete={async (id) => {
           await deleteHarmonyType(id);
           await loadHarmonyTypes();
+        }}
+      />
+
+      <FinishNormalizationsSection
+        rows={finishNormalizations}
+        finishTypes={finishTypes}
+        loading={normalizationsLoading}
+        error={normalizationsError}
+        onRefresh={loadFinishNormalizations}
+        onCreate={async (payload) => {
+          await createFinishNormalization(payload);
+          await loadFinishNormalizations();
+        }}
+        onUpdate={async (id, payload) => {
+          await updateFinishNormalization(id, payload);
+          await loadFinishNormalizations();
+        }}
+        onDelete={async (id) => {
+          await deleteFinishNormalization(id);
+          await loadFinishNormalizations();
         }}
       />
     </div>

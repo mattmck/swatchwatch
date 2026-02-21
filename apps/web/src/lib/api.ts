@@ -20,6 +20,10 @@ import type {
   CatalogShadeDetail,
   PolishFinish,
   FinishType,
+  FinishNormalization,
+  FinishNormalizationCreateRequest,
+  FinishNormalizationListResponse,
+  FinishNormalizationUpdateRequest,
   FinishTypeCreateRequest,
   FinishTypeUpdateRequest,
   FinishTypeListResponse,
@@ -445,6 +449,11 @@ export async function listFinishTypes(): Promise<FinishTypeListResponse> {
   return handleResponse<FinishTypeListResponse>(response);
 }
 
+export async function listReferenceFinishTypes(): Promise<FinishTypeListResponse> {
+  const response = await fetch(`${API_BASE_URL}/reference/finishes`);
+  return handleResponse<FinishTypeListResponse>(response);
+}
+
 export async function createFinishType(data: FinishTypeCreateRequest): Promise<FinishType> {
   const response = await fetch(`${API_BASE_URL}/reference-admin/finishes`, {
     method: "POST",
@@ -483,6 +492,11 @@ export async function listHarmonyTypes(): Promise<HarmonyTypeListResponse> {
   return handleResponse<HarmonyTypeListResponse>(response);
 }
 
+export async function listReferenceHarmonyTypes(): Promise<HarmonyTypeListResponse> {
+  const response = await fetch(`${API_BASE_URL}/reference/harmonies`);
+  return handleResponse<HarmonyTypeListResponse>(response);
+}
+
 export async function createHarmonyType(data: HarmonyTypeCreateRequest): Promise<ReferenceHarmonyType> {
   const response = await fetch(`${API_BASE_URL}/reference-admin/harmonies`, {
     method: "POST",
@@ -511,5 +525,51 @@ export async function deleteHarmonyType(
     method: "DELETE",
     headers: await getAuthHeaders({ admin: true }),
   });
+  return handleResponse<{ success?: boolean; message?: string }>(response);
+}
+
+export async function listFinishNormalizations(): Promise<FinishNormalizationListResponse> {
+  const response = await fetch(`${API_BASE_URL}/reference-admin/finish-normalizations`, {
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<FinishNormalizationListResponse>(response);
+}
+
+export async function createFinishNormalization(
+  data: FinishNormalizationCreateRequest
+): Promise<FinishNormalization> {
+  const response = await fetch(`${API_BASE_URL}/reference-admin/finish-normalizations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<FinishNormalization>(response);
+}
+
+export async function updateFinishNormalization(
+  finishNormalizationId: number,
+  data: FinishNormalizationUpdateRequest
+): Promise<FinishNormalization> {
+  const response = await fetch(
+    `${API_BASE_URL}/reference-admin/finish-normalizations/${finishNormalizationId}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+      body: JSON.stringify(data),
+    }
+  );
+  return handleResponse<FinishNormalization>(response);
+}
+
+export async function deleteFinishNormalization(
+  finishNormalizationId: number
+): Promise<{ success?: boolean; message?: string }> {
+  const response = await fetch(
+    `${API_BASE_URL}/reference-admin/finish-normalizations/${finishNormalizationId}`,
+    {
+      method: "DELETE",
+      headers: await getAuthHeaders({ admin: true }),
+    }
+  );
   return handleResponse<{ success?: boolean; message?: string }>(response);
 }

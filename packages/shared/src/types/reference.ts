@@ -56,6 +56,29 @@ export interface HarmonyTypeListResponse {
   harmonyTypes: HarmonyType[];
 }
 
+export interface FinishNormalization {
+  finishNormalizationId: number;
+  sourceValue: string;
+  normalizedFinishName: string;
+  createdAt: string;
+  updatedAt: string;
+  updatedByUserId?: number;
+}
+
+export interface FinishNormalizationCreateRequest {
+  sourceValue: string;
+  normalizedFinishName: string;
+}
+
+export interface FinishNormalizationUpdateRequest {
+  sourceValue?: string;
+  normalizedFinishName?: string;
+}
+
+export interface FinishNormalizationListResponse {
+  finishNormalizations: FinishNormalization[];
+}
+
 export interface IngestionJob {
   ingestionJobId: number;
   dataSourceId: number;

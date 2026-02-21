@@ -19,11 +19,13 @@ src/app/
 │   ├── layout.tsx                → Marketing layout (branded sticky header, responsive mobile menu, footer)
 │   └── page.tsx                  → /           Landing page (hero, features, interactive showcase, testimonials, CTA)
 ├── (admin)/
-│   └── admin/reference-data/
-│       ├── page.tsx              → /admin/reference-data  Admin-only reference data console (Jobs + Configuration tabs)
-│       └── components/
-│           ├── jobs-tab.tsx      → Jobs tab (list `/api/reference-admin/jobs`, status/error inspection, filtering)
-│           └── config-tab.tsx    → Configuration tab (finish/harmony CRUD)
+│   └── admin/
+│       ├── page.tsx              → /admin  Unified admin console (tabs: Configuration, Job Runs, Admin Jobs)
+│       └── reference-data/
+│           ├── page.tsx          → /admin/reference-data  Legacy reference-data route (still available)
+│           └── components/
+│               ├── jobs-tab.tsx  → Jobs tab (list `/api/reference-admin/jobs`, status/error inspection, filtering)
+│               └── config-tab.tsx → Configuration tab (finish/harmony CRUD + finish-normalization alias CRUD)
 ├── (app)/
 │   ├── layout.tsx                → App layout (AppShell sidebar wrapper)
 │   ├── admin/jobs/page.tsx       → /admin/jobs      Internal ingestion admin (admin-only UI guard; run jobs, toggle AI hex detection/overwrite mode, track status/metrics)
@@ -100,7 +102,7 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 
 | Component | Purpose |
 |-----------|---------|
-| `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with exact active-route matching, branded active-nav pills, logo accent divider, app theme toggle, and `<UserCard>` footer with auth state. Admin links (`/admin/reference-data`, `/admin/jobs`) are shown only for admin users |
+| `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with exact active-route matching, branded active-nav pills, logo accent divider, app theme toggle, and `<UserCard>` footer with auth state. A single Admin link (`/admin`) is shown only for admin users |
 | `auth-provider.tsx` | MSAL provider wrapper with three modes: dev bypass (no MSAL), B2C via MSAL, unconfigured fallback. Manages token lifecycle and stores in module-level `auth-token.ts` |
 | `require-auth.tsx` | Route guard for `(app)` routes. Dev bypass → render children; B2C unconfigured → show "Sign in" button; B2C authenticated → render children; unauthenticated → show "Sign in" button |
 | `user-card.tsx` | Sidebar footer: displays user initials, name, email, and sign-out button. Conditionally uses `useAuth()` (B2C) or `useDevAuth()` (dev bypass) |
@@ -153,9 +155,11 @@ cd apps/web && npx shadcn@latest add <component-name>
 | File | Exports |
 |------|---------|
 | `utils.ts` | `cn()` — Tailwind class merging (shadcn standard) |
-| `constants.ts` | `FINISHES`, `finishLabel()`, `finishBadgeClassName()` — finish taxonomy and branded badge styling |
+| `constants.ts` | `FINISHES`, `finishLabel()`, `finishBadgeClassName()` — fallback finish taxonomy and branded badge styling when reference APIs are unavailable |
+| `color-harmonies.ts` | Harmony palette generation + `getHarmonyTypeOptions()` for API-backed harmony option mapping (with fallback constants) |
 | `color-utils.ts` | Hex↔HSL↔RGB↔OKLAB conversions, `colorDistance()`, `complementaryHex()` |
-| `api.ts` | API client helpers including polish CRUD, rapid-add capture calls, ingestion admin methods (`listIngestionJobs`, `runIngestionJob`, `getIngestionJob`), and reference-data admin methods (`listAdminJobs`, finish-type CRUD, harmony-type CRUD) |
+| `api.ts` | API client helpers including polish CRUD, rapid-add capture calls, ingestion admin methods (`listIngestionJobs`, `runIngestionJob`, `getIngestionJob`), reference-data admin methods (`listAdminJobs`, finish/harmony CRUD, finish-normalization CRUD), and public reference lookup methods (`listReferenceFinishTypes`, `listReferenceHarmonyTypes`) |
+| `hooks/use-reference-data.ts` | API-backed reference data hook with in-memory + localStorage caching, resilient fallback data, and lookup helpers (`getFinishDisplayName`, `getHarmonyDisplayName`) |
 | `msal-config.ts` | `buildMsalConfig()` builder, `LOGIN_SCOPES` constant. Returns `null` if auth env is not configured |
 | `auth-token.ts` | Module-level token store: `setAccessToken()`, `getAccessToken()` |
 

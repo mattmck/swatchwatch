@@ -36,6 +36,7 @@ import { EmptyState } from "@/components/empty-state";
 import { FINISHES, finishBadgeClassName, finishLabel } from "@/lib/constants";
 import { runRecalcHexFlow } from "@/lib/recalc-hex-flow";
 import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
+import { useReferenceData } from "@/hooks/use-reference-data";
 import { buildMsalConfig } from "@/lib/msal-config";
 import { toast } from "sonner";
 
@@ -116,7 +117,7 @@ function parseToneFilter(value: string | null): Undertone | "all" {
  */
 function parseFinishFilter(value: string | null): string {
   if (!value || value === "all") return "all";
-  return FINISHES.includes(value as (typeof FINISHES)[number]) ? value : "all";
+  return value;
 }
 
 /**
@@ -254,6 +255,16 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const [polishes, setPolishes] = useState<Polish[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { finishTypes } = useReferenceData();
+  const finishOptions = useMemo(
+    () =>
+      (
+        finishTypes.length > 0
+          ? finishTypes.map((finish) => ({ value: finish.name, label: finish.displayName }))
+          : FINISHES.map((finish) => ({ value: finish, label: finishLabel(finish) }))
+      ).sort((a, b) => a.label.localeCompare(b.label)),
+    [finishTypes],
+  );
 
   // Filters
   const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
@@ -591,9 +602,9 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Finishes</SelectItem>
-              {FINISHES.map((finish) => (
-                <SelectItem key={finish} value={finish}>
-                  {finish.charAt(0).toUpperCase() + finish.slice(1)}
+              {finishOptions.map((finish) => (
+                <SelectItem key={finish.value} value={finish.value}>
+                  {finish.label}
                 </SelectItem>
               ))}
             </SelectContent>

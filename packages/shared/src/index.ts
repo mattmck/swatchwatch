@@ -13,6 +13,10 @@ export {
   type HarmonyTypeCreateRequest,
   type HarmonyTypeUpdateRequest,
   type HarmonyTypeListResponse,
+  type FinishNormalization,
+  type FinishNormalizationCreateRequest,
+  type FinishNormalizationUpdateRequest,
+  type FinishNormalizationListResponse,
   type IngestionJob,
 } from "./types/reference";
 export * from "./branding/swatchwatch-brand";

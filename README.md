@@ -117,6 +117,7 @@ The web app is the most developed part of the project. Key pages:
 |-------|------|-------------|
 | `/` | `apps/web/src/app/(marketing)/page.tsx` | Marketing landing page |
 | `/dashboard` | `apps/web/src/app/(app)/dashboard/page.tsx` | Dashboard — stats cards, recent additions, finish breakdown |
+| `/admin/reference-data` | `apps/web/src/app/(admin)/admin/reference-data/page.tsx` | Reference-data admin console — jobs overview + finish/harmony configuration CRUD |
 | `/admin/jobs` | `apps/web/src/app/(app)/admin/jobs/page.tsx` | Internal ingestion admin — run jobs, monitor status, inspect change metrics |
 | `/polishes` | `apps/web/src/app/(app)/polishes/page.tsx` | Collection table — search/filter/sort with All/My Collection scope toggle and URL-persisted list state |
 | `/polishes/new` | `apps/web/src/app/(app)/polishes/new/page.tsx` | Add polish form — color picker, star rating, voice input placeholder |

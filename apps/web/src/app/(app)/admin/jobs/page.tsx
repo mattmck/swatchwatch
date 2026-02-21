@@ -87,17 +87,17 @@ export default function AdminJobsPage() {
 
 function DevAdminJobsPage() {
   const { isAdmin } = useDevAuth();
-  return isAdmin ? <AdminJobsInner /> : <AdminAccessRequired />;
+  return isAdmin ? <AdminJobsContent /> : <AdminAccessRequired />;
 }
 
 function B2CAdminJobsPage() {
   const { isAdmin } = useAuth();
-  return isAdmin ? <AdminJobsInner /> : <AdminAccessRequired />;
+  return isAdmin ? <AdminJobsContent /> : <AdminAccessRequired />;
 }
 
 function UnconfiguredAdminJobsPage() {
   const { isAdmin } = useUnconfiguredAuth();
-  return isAdmin ? <AdminJobsInner /> : <AdminAccessRequired />;
+  return isAdmin ? <AdminJobsContent /> : <AdminAccessRequired />;
 }
 
 function AdminAccessRequired() {
@@ -305,7 +305,7 @@ function JobLogPanel({ job, autoScroll }: { job: IngestionJobRecord; autoScroll?
   );
 }
 
-function AdminJobsInner() {
+export function AdminJobsContent() {
   const [jobs, setJobs] = useState<IngestionJobRecord[]>([]);
   const [totalJobs, setTotalJobs] = useState(0);
   const [loading, setLoading] = useState(true);

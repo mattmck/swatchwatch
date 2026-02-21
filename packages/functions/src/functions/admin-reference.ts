@@ -1,5 +1,9 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import {
+  type FinishNormalization,
+  type FinishNormalizationCreateRequest,
+  type FinishNormalizationListResponse,
+  type FinishNormalizationUpdateRequest,
   type FinishType,
   type FinishTypeCreateRequest,
   type FinishTypeListResponse,
@@ -146,6 +150,24 @@ function mapHarmonyTypeRow(row: {
     displayName: row.displayName,
     description: row.description || undefined,
     sortOrder: row.sortOrder,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    updatedByUserId: row.updatedByUserId ?? undefined,
+  };
+}
+
+function mapFinishNormalizationRow(row: {
+  finishNormalizationId: number;
+  sourceValue: string;
+  normalizedFinishName: string;
+  createdAt: string;
+  updatedAt: string;
+  updatedByUserId: number | null;
+}): FinishNormalization {
+  return {
+    finishNormalizationId: row.finishNormalizationId,
+    sourceValue: row.sourceValue,
+    normalizedFinishName: row.normalizedFinishName,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     updatedByUserId: row.updatedByUserId ?? undefined,
@@ -807,6 +829,243 @@ async function listAdminJobs(
   }
 }
 
+async function listAdminFinishNormalizations(
+  _request: HttpRequest,
+  context: InvocationContext
+): Promise<HttpResponseInit> {
+  context.log("GET /api/reference-admin/finish-normalizations");
+
+  try {
+    const result = await query<{
+      finishNormalizationId: number;
+      sourceValue: string;
+      normalizedFinishName: string;
+      createdAt: string;
+      updatedAt: string;
+      updatedByUserId: number | null;
+    }>(
+      `SELECT
+         finish_normalization_id AS "finishNormalizationId",
+         source_value AS "sourceValue",
+         normalized_finish_name AS "normalizedFinishName",
+         created_at::text AS "createdAt",
+         updated_at::text AS "updatedAt",
+         updated_by_user_id AS "updatedByUserId"
+       FROM finish_normalization
+       ORDER BY source_value ASC`
+    );
+
+    return {
+      status: 200,
+      jsonBody: {
+        finishNormalizations: result.rows.map(mapFinishNormalizationRow),
+      } satisfies FinishNormalizationListResponse,
+    };
+  } catch (error) {
+    context.error("Error listing finish normalizations:", error);
+    return {
+      status: 500,
+      jsonBody: { error: "Failed to list finish normalizations" },
+    };
+  }
+}
+
+async function createFinishNormalization(
+  request: HttpRequest,
+  context: InvocationContext,
+  userId: number
+): Promise<HttpResponseInit> {
+  context.log("POST /api/reference-admin/finish-normalizations");
+
+  let body: Partial<FinishNormalizationCreateRequest> | undefined;
+  try {
+    body = (await request.json()) as Partial<FinishNormalizationCreateRequest>;
+  } catch {
+    return { status: 400, jsonBody: { error: "Request body must be valid JSON" } };
+  }
+
+  const sourceField = getFieldString(body, "sourceValue", "source_value");
+  const normalizedField = getFieldString(body, "normalizedFinishName", "normalized_finish_name");
+
+  if (!sourceField.provided || sourceField.invalid) {
+    return {
+      status: 400,
+      jsonBody: { error: "sourceValue (or source_value) is required as a non-empty string" },
+    };
+  }
+  if (!normalizedField.provided || normalizedField.invalid) {
+    return {
+      status: 400,
+      jsonBody: { error: "normalizedFinishName (or normalized_finish_name) is required as a non-empty string" },
+    };
+  }
+
+  try {
+    const result = await query<{
+      finishNormalizationId: number;
+      sourceValue: string;
+      normalizedFinishName: string;
+      createdAt: string;
+      updatedAt: string;
+      updatedByUserId: number | null;
+    }>(
+      `INSERT INTO finish_normalization (
+         source_value,
+         normalized_finish_name,
+         updated_at,
+         updated_by_user_id
+       )
+       VALUES ($1, $2, now(), $3)
+       RETURNING
+         finish_normalization_id AS "finishNormalizationId",
+         source_value AS "sourceValue",
+         normalized_finish_name AS "normalizedFinishName",
+         created_at::text AS "createdAt",
+         updated_at::text AS "updatedAt",
+         updated_by_user_id AS "updatedByUserId"`,
+      [sourceField.value?.toLowerCase(), normalizedField.value?.toLowerCase(), userId]
+    );
+
+    return {
+      status: 201,
+      jsonBody: mapFinishNormalizationRow(result.rows[0]),
+    };
+  } catch (error: unknown) {
+    context.error("Error creating finish normalization:", error);
+    if (typeof error === "object" && error !== null && "code" in error) {
+      if (error.code === "23505") {
+        return { status: 409, jsonBody: { error: "A normalization for this source value already exists" } };
+      }
+      if (error.code === "23503") {
+        return { status: 400, jsonBody: { error: "normalizedFinishName must match an existing finish type name" } };
+      }
+    }
+    return { status: 500, jsonBody: { error: "Failed to create finish normalization" } };
+  }
+}
+
+async function updateFinishNormalization(
+  request: HttpRequest,
+  context: InvocationContext,
+  userId: number
+): Promise<HttpResponseInit> {
+  context.log("PUT /api/reference-admin/finish-normalizations/{id}");
+
+  const id = parsePositiveId(request.params.id);
+  if (!id) {
+    return { status: 400, jsonBody: { error: "finish normalization id must be a positive integer" } };
+  }
+
+  let body: Partial<FinishNormalizationUpdateRequest> | undefined;
+  try {
+    body = (await request.json()) as Partial<FinishNormalizationUpdateRequest>;
+  } catch {
+    return { status: 400, jsonBody: { error: "Request body must be valid JSON" } };
+  }
+
+  const sourceField = getFieldString(body, "sourceValue", "source_value");
+  const normalizedField = getFieldString(body, "normalizedFinishName", "normalized_finish_name");
+
+  if (sourceField.invalid) {
+    return { status: 400, jsonBody: { error: "sourceValue/source_value must be a non-empty string" } };
+  }
+  if (normalizedField.invalid) {
+    return { status: 400, jsonBody: { error: "normalizedFinishName/normalized_finish_name must be a non-empty string" } };
+  }
+  if (!sourceField.provided && !normalizedField.provided) {
+    return {
+      status: 400,
+      jsonBody: { error: "At least one of sourceValue/source_value or normalizedFinishName/normalized_finish_name is required" },
+    };
+  }
+
+  const setClauses: string[] = [];
+  const params: Array<string | number> = [];
+
+  if (sourceField.provided) {
+    params.push((sourceField.value || "").toLowerCase());
+    setClauses.push(`source_value = $${params.length}`);
+  }
+  if (normalizedField.provided) {
+    params.push((normalizedField.value || "").toLowerCase());
+    setClauses.push(`normalized_finish_name = $${params.length}`);
+  }
+  params.push(userId);
+  setClauses.push(`updated_by_user_id = $${params.length}`);
+  setClauses.push("updated_at = now()");
+  params.push(id);
+
+  try {
+    const result = await query<{
+      finishNormalizationId: number;
+      sourceValue: string;
+      normalizedFinishName: string;
+      createdAt: string;
+      updatedAt: string;
+      updatedByUserId: number | null;
+    }>(
+      `UPDATE finish_normalization
+       SET ${setClauses.join(", ")}
+       WHERE finish_normalization_id = $${params.length}
+       RETURNING
+         finish_normalization_id AS "finishNormalizationId",
+         source_value AS "sourceValue",
+         normalized_finish_name AS "normalizedFinishName",
+         created_at::text AS "createdAt",
+         updated_at::text AS "updatedAt",
+         updated_by_user_id AS "updatedByUserId"`,
+      params
+    );
+
+    if (result.rows.length === 0) {
+      return { status: 404, jsonBody: { error: "Finish normalization not found" } };
+    }
+
+    return { status: 200, jsonBody: mapFinishNormalizationRow(result.rows[0]) };
+  } catch (error: unknown) {
+    context.error("Error updating finish normalization:", error);
+    if (typeof error === "object" && error !== null && "code" in error) {
+      if (error.code === "23505") {
+        return { status: 409, jsonBody: { error: "A normalization for this source value already exists" } };
+      }
+      if (error.code === "23503") {
+        return { status: 400, jsonBody: { error: "normalizedFinishName must match an existing finish type name" } };
+      }
+    }
+    return { status: 500, jsonBody: { error: "Failed to update finish normalization" } };
+  }
+}
+
+async function deleteFinishNormalization(
+  request: HttpRequest,
+  context: InvocationContext
+): Promise<HttpResponseInit> {
+  context.log("DELETE /api/reference-admin/finish-normalizations/{id}");
+
+  const id = parsePositiveId(request.params.id);
+  if (!id) {
+    return { status: 400, jsonBody: { error: "finish normalization id must be a positive integer" } };
+  }
+
+  try {
+    const result = await query<{ finishNormalizationId: number }>(
+      `DELETE FROM finish_normalization
+       WHERE finish_normalization_id = $1
+       RETURNING finish_normalization_id AS "finishNormalizationId"`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return { status: 404, jsonBody: { error: "Finish normalization not found" } };
+    }
+
+    return { status: 200, jsonBody: { message: "Finish normalization deleted successfully", finishNormalizationId: id } };
+  } catch (error) {
+    context.error("Error deleting finish normalization:", error);
+    return { status: 500, jsonBody: { error: "Failed to delete finish normalization" } };
+  }
+}
+
 async function adminFinishesCollectionHandler(
   request: HttpRequest,
   context: InvocationContext,
@@ -879,6 +1138,36 @@ async function adminJobsHandler(
   return { status: 405, jsonBody: { error: "Method not allowed" } };
 }
 
+async function adminFinishNormalizationsCollectionHandler(
+  request: HttpRequest,
+  context: InvocationContext,
+  userId: number
+): Promise<HttpResponseInit> {
+  const method = request.method?.toUpperCase();
+  if (method === "GET") {
+    return listAdminFinishNormalizations(request, context);
+  }
+  if (method === "POST") {
+    return createFinishNormalization(request, context, userId);
+  }
+  return { status: 405, jsonBody: { error: "Method not allowed" } };
+}
+
+async function adminFinishNormalizationsItemHandler(
+  request: HttpRequest,
+  context: InvocationContext,
+  userId: number
+): Promise<HttpResponseInit> {
+  const method = request.method?.toUpperCase();
+  if (method === "PUT") {
+    return updateFinishNormalization(request, context, userId);
+  }
+  if (method === "DELETE") {
+    return deleteFinishNormalization(request, context);
+  }
+  return { status: 405, jsonBody: { error: "Method not allowed" } };
+}
+
 app.http("admin-finishes", {
   methods: ["GET", "POST", "OPTIONS"],
   authLevel: "anonymous",
@@ -912,4 +1201,18 @@ app.http("admin-jobs", {
   authLevel: "anonymous",
   route: "reference-admin/jobs",
   handler: withCors(withAdmin(adminJobsHandler)),
+});
+
+app.http("admin-finish-normalizations", {
+  methods: ["GET", "POST", "OPTIONS"],
+  authLevel: "anonymous",
+  route: "reference-admin/finish-normalizations",
+  handler: withCors(withAdmin(adminFinishNormalizationsCollectionHandler)),
+});
+
+app.http("admin-finish-normalization-item", {
+  methods: ["PUT", "DELETE", "OPTIONS"],
+  authLevel: "anonymous",
+  route: "reference-admin/finish-normalizations/{id}",
+  handler: withCors(withAdmin(adminFinishNormalizationsItemHandler)),
 });
