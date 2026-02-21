@@ -60,9 +60,11 @@ async function handleDevBypass(
         user_id: number;
         external_id: string;
         email: string | null;
-        role: string | null;
+        role: string;
       }>(
-        `SELECT user_id, external_id, email, role FROM app_user WHERE user_id = $1`,
+        `SELECT user_id, external_id, email, COALESCE(role, 'user') AS role
+         FROM app_user
+         WHERE user_id = $1`,
         [userId]
       );
     } catch (error: any) {
@@ -72,7 +74,7 @@ async function handleDevBypass(
           user_id: number;
           external_id: string;
           email: string | null;
-          role: string | null;
+          role: string;
         }>(
           `SELECT user_id, external_id, email, 'user'::text AS role FROM app_user WHERE user_id = $1`,
           [userId]
@@ -91,7 +93,7 @@ async function handleDevBypass(
     userId: user.user_id,
     externalId: user.external_id || `dev-user-${userId}`,
     email: user.email || undefined,
-    role: user.role || "user",
+    role: user.role,
   };
 }
 

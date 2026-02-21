@@ -9,7 +9,6 @@ import type {
 } from "swatchwatch-shared";
 import {
   cancelIngestionJob,
-  getGlobalSettings,
   getIngestionJob,
   getQueueStats,
   listDataSources,
@@ -17,9 +16,7 @@ import {
   purgeQueue,
   runIngestionJob,
   type DataSource,
-  type IngestionSettings,
   type QueueStatsResponse,
-  updateGlobalSettings,
 } from "@/lib/api";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
@@ -63,51 +60,19 @@ import {
   AlertTriangle,
   Info,
   Bug,
-  Settings,
 } from "lucide-react";
-import { Switch } from "@/components/ui/switch";
-import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
-import { buildMsalConfig } from "@/lib/msal-config";
+import { useRouter } from "next/navigation";
 
 type SourceFilter = "all" | string;
-const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
-const HAS_B2C_CONFIG = buildMsalConfig() !== null;
 
 export default function AdminJobsPage() {
-  if (IS_DEV_BYPASS) {
-    return <DevAdminJobsPage />;
-  }
+  const router = useRouter();
 
-  if (!HAS_B2C_CONFIG) {
-    return <UnconfiguredAdminJobsPage />;
-  }
+  useEffect(() => {
+    router.replace("/admin?tab=admin-jobs");
+  }, [router]);
 
-  return <B2CAdminJobsPage />;
-}
-
-function DevAdminJobsPage() {
-  const { isAdmin } = useDevAuth();
-  return isAdmin ? <AdminJobsInner /> : <AdminAccessRequired />;
-}
-
-function B2CAdminJobsPage() {
-  const { isAdmin } = useAuth();
-  return isAdmin ? <AdminJobsInner /> : <AdminAccessRequired />;
-}
-
-function UnconfiguredAdminJobsPage() {
-  const { isAdmin } = useUnconfiguredAuth();
-  return isAdmin ? <AdminJobsInner /> : <AdminAccessRequired />;
-}
-
-function AdminAccessRequired() {
-  return (
-    <ErrorState
-      title="Admin Access Required"
-      message="This page is only available to admin users."
-      className="min-h-[420px]"
-    />
-  );
+  return <BrandSpinner label="Redirecting to Admin…" />;
 }
 
 
@@ -305,14 +270,12 @@ function JobLogPanel({ job, autoScroll }: { job: IngestionJobRecord; autoScroll?
   );
 }
 
-function AdminJobsInner() {
+export function AdminJobsContent() {
   const [jobs, setJobs] = useState<IngestionJobRecord[]>([]);
   const [totalJobs, setTotalJobs] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingError, setLoadingError] = useState<string | null>(null);
   const [availableSources, setAvailableSources] = useState<DataSource[]>([]);
-  const [globalSettings, setGlobalSettings] = useState<IngestionSettings>({ downloadImages: true, detectHex: true });
-  const [settingsLoading, setSettingsLoading] = useState(false);
 
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const [expandedJobIds, setExpandedJobIds] = useState<Set<string>>(new Set());
@@ -401,31 +364,6 @@ function AdminJobsInner() {
     }
   }, [jobs]);
 
-  // Load global settings
-  useEffect(() => {
-    async function loadSettings() {
-      try {
-        const settings = await getGlobalSettings();
-        setGlobalSettings(settings.settings);
-      } catch (error) {
-        console.error("Failed to load global settings:", error);
-      }
-    }
-    loadSettings();
-  }, []);
-
-  async function handleToggleGlobalSetting(key: keyof IngestionSettings, value: boolean) {
-    try {
-      setSettingsLoading(true);
-      await updateGlobalSettings({ [key]: value });
-      setGlobalSettings((prev) => ({ ...prev, [key]: value }));
-    } catch (error) {
-      console.error("Failed to update global setting:", error);
-    } finally {
-      setSettingsLoading(false);
-    }
-  }
-
   useEffect(() => {
     let cancelled = false;
 
@@ -462,7 +400,7 @@ function AdminJobsInner() {
     return () => {
       cancelled = true;
     };
-  }, [refreshJobs]);
+  }, [refreshJobs, refreshQueueStats]);
 
 
   // Poll for updates

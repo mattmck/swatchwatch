@@ -25,7 +25,9 @@ const baseNavItems: NavItem[] = [
   { href: "/polishes/gaps", label: "Gap Map", icon: Grid2x2 },
   { href: "/polishes/new", label: "Add Polish", icon: PlusCircle },
 ];
-const adminNavItem: NavItem = { href: "/admin/jobs", label: "Admin Jobs", icon: ShieldCheck };
+const adminNavItems: NavItem[] = [
+  { href: "/admin", label: "Admin", icon: ShieldCheck },
+];
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
 const HAS_B2C_CONFIG = buildMsalConfig() !== null;
 
@@ -64,7 +66,7 @@ function AppShellLayout({
   isAdmin: boolean;
 }) {
   const pathname = usePathname();
-  const navItems = isAdmin ? [...baseNavItems, adminNavItem] : baseNavItems;
+  const navItems = isAdmin ? [...baseNavItems, ...adminNavItems] : baseNavItems;
 
   const activeHref =
     navItems

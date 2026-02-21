@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { PolishFinish } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
 import { FINISHES } from "@/lib/constants";
 import { createPolish, getPolish, updatePolish } from "@/lib/api";
+import { useReferenceData } from "@/hooks/use-reference-data";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -80,6 +81,19 @@ export default function PolishForm() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [loadingExisting, setLoadingExisting] = useState(false);
+  const { finishTypes } = useReferenceData();
+  const finishOptions = useMemo(
+    () =>
+      (
+        finishTypes.length > 0
+          ? finishTypes.map((finish) => ({ value: finish.name, label: finish.displayName }))
+          : FINISHES.map((finish) => ({
+            value: finish,
+            label: finish.charAt(0).toUpperCase() + finish.slice(1),
+          }))
+      ).sort((a, b) => a.label.localeCompare(b.label)),
+    [finishTypes]
+  );
 
   function update(field: string, value: string | number) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -276,9 +290,9 @@ export default function PolishForm() {
                     <SelectValue placeholder="Select finish type" />
                   </SelectTrigger>
                   <SelectContent>
-                    {FINISHES.map((f) => (
-                      <SelectItem key={f} value={f}>
-                        {f.charAt(0).toUpperCase() + f.slice(1)}
+                    {finishOptions.map((finish) => (
+                      <SelectItem key={finish.value} value={finish.value}>
+                        {finish.label}
                       </SelectItem>
                     ))}
                   </SelectContent>

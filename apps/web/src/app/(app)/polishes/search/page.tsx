@@ -19,7 +19,7 @@ import {
   type HSL,
 } from "@/lib/color-utils";
 import {
-  HARMONY_TYPES,
+  getHarmonyTypeOptions,
   generateHarmonyColors,
   generateHarmonyPalette,
   type HarmonyType,
@@ -42,7 +42,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { FINISHES } from "@/lib/constants";
+import { useReferenceData } from "@/hooks/use-reference-data";
 
 type ResultsScope = "all" | "collection";
 type HarmonyColorSet = "any" | "all" | "collection";
@@ -94,7 +94,6 @@ const HARMONY_SYMBOLS: Record<HarmonyType, string> = {
   tetradic: "\u25AD",
   monochromatic: "\u25D2",
 };
-const SELECTABLE_HARMONY_TYPES = HARMONY_TYPES.filter((h) => h.value !== "similar");
 const ALL_HARMONY_SYMBOL = "\u2726";
 
 function uniqueHexes(hexes: string[]): string[] {
@@ -151,6 +150,29 @@ function useWheelSize(defaultSize = 280, mobileSize = 240) {
  */
 function ColorSearchPageContent() {
   const searchParams = useSearchParams();
+  const { finishTypes, harmonyTypes } = useReferenceData();
+  const finishOptions = useMemo(
+    () =>
+      finishTypes
+        .map((finish) => ({
+          value: finish.name,
+          label: finish.displayName,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [finishTypes],
+  );
+  const harmonyTypeOptions = useMemo(
+    () => getHarmonyTypeOptions(harmonyTypes),
+    [harmonyTypes],
+  );
+  const selectableHarmonyTypeOptions = useMemo(
+    () => harmonyTypeOptions.filter((h) => h.value !== "similar"),
+    [harmonyTypeOptions],
+  );
+  const harmonyLabelByValue = useMemo(
+    () => new Map(harmonyTypeOptions.map((h) => [h.value, h.label])),
+    [harmonyTypeOptions],
+  );
   const [allPolishes, setAllPolishes] = useState<Polish[]>([]);
   const [loading, setLoading] = useState(true);
   const wheelSize = useWheelSize();
@@ -214,14 +236,11 @@ function ColorSearchPageContent() {
     const harmonyParam = searchParams.get("harmony");
     if (harmonyParam === "all") {
       setIncludeAllHarmonies(true);
-    } else if (harmonyParam === "similar") {
-      setIncludeAllHarmonies(false);
-      setHarmonyType("similar");
-    } else if (harmonyParam && SELECTABLE_HARMONY_TYPES.some((h) => h.value === harmonyParam)) {
+    } else if (harmonyParam && selectableHarmonyTypeOptions.some((h) => h.value === harmonyParam)) {
       setIncludeAllHarmonies(false);
       setHarmonyType(harmonyParam as HarmonyType);
     }
-  }, [searchParams]);
+  }, [searchParams, selectableHarmonyTypeOptions]);
 
   useEffect(() => {
     let cancelled = false;
@@ -346,7 +365,7 @@ function ColorSearchPageContent() {
   const harmonyColors = useMemo(() => {
     if (!selectedHex) return [];
     if (includeAllHarmonies) {
-      const allHarmonyColors = HARMONY_TYPES
+      const allHarmonyColors = harmonyTypeOptions
         .map((item) => item.value)
         .filter((value): value is HarmonyType => value !== "similar")
         .flatMap((value) => generateHarmonyColors(selectedHex, value));
@@ -354,7 +373,7 @@ function ColorSearchPageContent() {
     }
     const rawHarmonyColors = generateHarmonyColors(selectedHex, harmonyType);
     return constrainHarmonyHexes(rawHarmonyColors, selectedHex);
-  }, [selectedHex, harmonyType, includeAllHarmonies, constrainHarmonyHexes]);
+  }, [selectedHex, harmonyType, includeAllHarmonies, constrainHarmonyHexes, harmonyTypeOptions]);
 
   // Harmony target dots for the color wheel (diamonds)
   const harmonyDots: HarmonyDot[] = useMemo(() => {
@@ -398,7 +417,7 @@ function ColorSearchPageContent() {
           ? [selectedHex]
           : [],
     );
-    const harmonies = HARMONY_TYPES.map((item) => item.value).filter(
+    const harmonies = harmonyTypeOptions.map((item) => item.value).filter(
       (h): h is HarmonyType => h !== "similar",
     );
     const seen = new Set<string>();
@@ -464,6 +483,7 @@ function ColorSearchPageContent() {
     recommendationHarmonyFilter,
     constrainHarmonyHexes,
     getAvailabilityForHex,
+    harmonyTypeOptions,
   ]);
 
   const activeRecommendedPalette = useMemo(
@@ -648,8 +668,7 @@ function ColorSearchPageContent() {
   ) => {
     const sourceHex = candidate.sourceHex.toUpperCase();
     const sourceHsl = hexToHsl(sourceHex);
-    const harmonyLabel =
-      HARMONY_TYPES.find((item) => item.value === candidate.harmony)?.label ?? candidate.harmony;
+    const harmonyLabel = harmonyLabelByValue.get(candidate.harmony) ?? candidate.harmony;
     const normalizedFocusHex = focusedHex?.toUpperCase() ?? null;
 
     if (normalizedFocusHex) {
@@ -665,7 +684,7 @@ function ColorSearchPageContent() {
     setSelectedHsl(sourceHsl);
     setLightness(sourceHsl.l);
     setAnchorFeedback(`Applied ${harmonyLabel} palette to search results`);
-  }, []);
+  }, [harmonyLabelByValue]);
 
   const layoutCols = "xl:grid-cols-[minmax(320px,_380px)_minmax(0,_1fr)]";
 
@@ -858,7 +877,7 @@ function ColorSearchPageContent() {
                   >
                     <span className="text-sm leading-none">{ALL_HARMONY_SYMBOL}</span>
                   </Button>
-                  {SELECTABLE_HARMONY_TYPES.map((h) => (
+                  {selectableHarmonyTypeOptions.map((h) => (
                     <Button
                       key={h.value}
                       type="button"
@@ -1007,7 +1026,7 @@ function ColorSearchPageContent() {
                   <p className="text-[10px] text-muted-foreground">
                     {recommendationHarmonyFilter === "all"
                       ? "Top 12 by Have %, then Buy %"
-                      : `Showing ${HARMONY_TYPES.find((h) => h.value === recommendationHarmonyFilter)?.label ?? "selected"} only`}
+                      : `Showing ${harmonyLabelByValue.get(recommendationHarmonyFilter) ?? "selected"} only`}
                   </p>
                 </div>
                 {recommendedPalettes.length === 0 ? (
@@ -1017,8 +1036,7 @@ function ColorSearchPageContent() {
                 ) : (
                   <div className="space-y-2">
                     {recommendedPalettes.map((candidate) => {
-                      const harmonyName =
-                        HARMONY_TYPES.find((h) => h.value === candidate.harmony)?.label ?? candidate.harmony;
+                      const harmonyName = harmonyLabelByValue.get(candidate.harmony) ?? candidate.harmony;
                       return (
                         <div
                           key={candidate.id}
@@ -1162,9 +1180,9 @@ function ColorSearchPageContent() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Finishes</SelectItem>
-                  {FINISHES.map((finish) => (
-                    <SelectItem key={finish} value={finish}>
-                      {finish.charAt(0).toUpperCase() + finish.slice(1)}
+                  {finishOptions.map((finish) => (
+                    <SelectItem key={finish.value} value={finish.value}>
+                      {finish.label}
                     </SelectItem>
                   ))}
                 </SelectContent>

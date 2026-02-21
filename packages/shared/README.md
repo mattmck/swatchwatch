@@ -86,6 +86,27 @@ The package is automatically linked via npm workspaces — no publishing require
 | `IngestionJobRunResponse` | Job-trigger response wrapper: `{ job }` |
 | `IngestionJobListResponse` | Job list payload: `{ jobs, total }` |
 
+### `types/reference.ts`
+
+| Type | Description |
+|------|-------------|
+| `FinishType` | Reference finish row contract (`finishTypeId`, `name`, `displayName`, `description`, `sortOrder`, audit fields) |
+| `HarmonyType` | Reference harmony row contract (`harmonyTypeId`, `name`, `displayName`, `description`, `sortOrder`, audit fields) |
+| `FinishTypeCreateRequest` / `FinishTypeUpdateRequest` | Request payloads for admin finish create/update endpoints |
+| `HarmonyTypeCreateRequest` / `HarmonyTypeUpdateRequest` | Request payloads for admin harmony create/update endpoints |
+| `FinishNormalization` | Alias mapping row (`sourceValue` → `normalizedFinishName`) with audit fields |
+| `FinishNormalizationCreateRequest` / `FinishNormalizationUpdateRequest` | Request payloads for admin finish-normalization create/update endpoints |
+| `FinishNormalizationListResponse` | Response wrapper for finish normalization list endpoint |
+| `FinishTypeListResponse` | Response wrapper for finish list endpoint |
+| `HarmonyTypeListResponse` | Response wrapper for harmony list endpoint |
+| `IngestionJob` | Jobs-tab oriented ingestion job row shape (status/timing/error/processed count) |
+| `AdminJobsListResponse` | Admin jobs page/list payload wrapper (`jobs`, `total`, `page`, `pageSize`) |
+
+Export note:
+- `HarmonyType` is already used by `types/palette.ts` for palette selection values.
+- `types/reference.ts` harmony row type is re-exported from package root as `ReferenceHarmonyType`.
+- These reference contracts are consumed by the web `use-reference-data` hook for API-backed finish/harmony option loading with fallback support.
+
 ## Adding New Types
 
 1. Create or edit a file in `src/types/`

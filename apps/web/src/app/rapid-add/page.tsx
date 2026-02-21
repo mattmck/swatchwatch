@@ -11,7 +11,8 @@ import {
   getCaptureStatus,
   startCapture,
 } from "@/lib/api";
-import { FINISHES } from "@/lib/constants";
+import { FINISHES, finishLabel } from "@/lib/constants";
+import { useReferenceData } from "@/hooks/use-reference-data";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,6 +34,12 @@ type FrameType = "barcode" | "label" | "color" | "other";
 
 export default function RapidAddPage() {
   const router = useRouter();
+  const { finishTypes } = useReferenceData();
+  const finishOptions = (
+    finishTypes.length > 0
+      ? finishTypes.map((finish) => ({ value: finish.name, label: finish.displayName }))
+      : FINISHES.map((finish) => ({ value: finish, label: finishLabel(finish) }))
+  ).sort((a, b) => a.label.localeCompare(b.label));
 
   const [brandHint, setBrandHint] = useState("");
   const [shadeHint, setShadeHint] = useState("");
@@ -244,9 +251,9 @@ export default function RapidAddPage() {
                 <SelectValue placeholder="Optional finish hint" />
               </SelectTrigger>
               <SelectContent>
-                {FINISHES.map((finish) => (
-                  <SelectItem key={finish} value={finish}>
-                    {finish}
+                {finishOptions.map((finish) => (
+                  <SelectItem key={finish.value} value={finish.value}>
+                    {finish.label}
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -1,4 +1,4 @@
- after all th-- nail_polish_schema_v1_1.sql
+-- nail_polish_schema_v1_1.sql
 -- Version: 1.1 (adds provenance + external source ingestion tables)
 -- Full starter schema for Nail Polish Knowledge Graph
 -- Requires: pg_trgm, pgvector
@@ -202,7 +202,31 @@ CREATE TABLE match_decision (
 CREATE TABLE app_user (
   user_id BIGSERIAL PRIMARY KEY,
   handle TEXT UNIQUE,
+  role TEXT NOT NULL DEFAULT 'user',
+  CONSTRAINT app_user_role_check CHECK (role IN ('user', 'admin')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE finish_type (
+  finish_type_id SMALLSERIAL PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL,
+  description TEXT,
+  sort_order SMALLINT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL
+);
+
+CREATE TABLE harmony_type (
+  harmony_type_id SMALLSERIAL PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL,
+  description TEXT,
+  sort_order SMALLINT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL
 );
 
 CREATE TABLE user_inventory_item (

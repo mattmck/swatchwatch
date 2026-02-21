@@ -11,6 +11,7 @@ import type {
   CaptureStartRequest,
   CaptureStartResponse,
   CaptureStatusResponse,
+  AdminJobsListResponse,
   Polish,
   PolishCreateRequest,
   PolishUpdateRequest,
@@ -19,6 +20,19 @@ import type {
   CatalogSearchResponse,
   CatalogShadeDetail,
   PolishFinish,
+  FinishType,
+  FinishNormalization,
+  FinishNormalizationCreateRequest,
+  FinishNormalizationListResponse,
+  FinishNormalizationUpdateRequest,
+  FinishTypeCreateRequest,
+  FinishTypeUpdateRequest,
+  FinishTypeListResponse,
+  ReferenceHarmonyType,
+  HarmonyTypeCreateRequest,
+  HarmonyTypeUpdateRequest,
+  HarmonyTypeListResponse,
+  IngestionJob,
 } from "swatchwatch-shared";
 
 import { getAccessToken } from "./auth-token";
@@ -402,4 +416,169 @@ export async function purgeQueue(): Promise<QueuePurgeResponse> {
     headers: await getAuthHeaders({ admin: true }),
   });
   return handleResponse<QueuePurgeResponse>(response);
+}
+
+/** List admin ingestion jobs from `/api/reference-admin/jobs` (admin auth required). */
+export async function listAdminJobs(params?: {
+  page?: number;
+  pageSize?: number;
+  status?: IngestionJob["status"];
+}): Promise<AdminJobsListResponse> {
+  const searchParams = new URLSearchParams();
+  if (typeof params?.page === "number") searchParams.set("page", String(params.page));
+  if (typeof params?.pageSize === "number") searchParams.set("pageSize", String(params.pageSize));
+  if (params?.status) searchParams.set("status", params.status);
+
+  const qs = searchParams.toString();
+  const response = await fetch(`${API_BASE_URL}/reference-admin/jobs${qs ? `?${qs}` : ""}`, {
+    headers: await getAuthHeaders({ admin: true }),
+  });
+
+  return handleResponse<AdminJobsListResponse>(response);
+}
+
+/** List finish reference rows from `/api/reference-admin/finishes` (admin auth required). */
+export async function listFinishTypes(): Promise<FinishTypeListResponse> {
+  const response = await fetch(`${API_BASE_URL}/reference-admin/finishes`, {
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<FinishTypeListResponse>(response);
+}
+
+/** List public finish reference rows from `/api/reference/finishes` (no auth). */
+export async function listReferenceFinishTypes(): Promise<FinishTypeListResponse> {
+  const response = await fetch(`${API_BASE_URL}/reference/finishes`);
+  return handleResponse<FinishTypeListResponse>(response);
+}
+
+/** Create a finish reference row via `POST /api/reference-admin/finishes` (admin auth required). */
+export async function createFinishType(data: FinishTypeCreateRequest): Promise<FinishType> {
+  const response = await fetch(`${API_BASE_URL}/reference-admin/finishes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<FinishType>(response);
+}
+
+/** Update a finish reference row via `PUT /api/reference-admin/finishes/{id}` (admin auth required). */
+export async function updateFinishType(
+  finishTypeId: number,
+  data: FinishTypeUpdateRequest
+): Promise<FinishType> {
+  const response = await fetch(`${API_BASE_URL}/reference-admin/finishes/${finishTypeId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<FinishType>(response);
+}
+
+/** Delete a finish reference row via `DELETE /api/reference-admin/finishes/{id}` (admin auth required). */
+export async function deleteFinishType(
+  finishTypeId: number
+): Promise<{ success?: boolean; message?: string }> {
+  const response = await fetch(`${API_BASE_URL}/reference-admin/finishes/${finishTypeId}`, {
+    method: "DELETE",
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<{ success?: boolean; message?: string }>(response);
+}
+
+/** List harmony reference rows from `/api/reference-admin/harmonies` (admin auth required). */
+export async function listHarmonyTypes(): Promise<HarmonyTypeListResponse> {
+  const response = await fetch(`${API_BASE_URL}/reference-admin/harmonies`, {
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<HarmonyTypeListResponse>(response);
+}
+
+/** List public harmony reference rows from `/api/reference/harmonies` (no auth). */
+export async function listReferenceHarmonyTypes(): Promise<HarmonyTypeListResponse> {
+  const response = await fetch(`${API_BASE_URL}/reference/harmonies`);
+  return handleResponse<HarmonyTypeListResponse>(response);
+}
+
+/** Create a harmony reference row via `POST /api/reference-admin/harmonies` (admin auth required). */
+export async function createHarmonyType(data: HarmonyTypeCreateRequest): Promise<ReferenceHarmonyType> {
+  const response = await fetch(`${API_BASE_URL}/reference-admin/harmonies`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<ReferenceHarmonyType>(response);
+}
+
+/** Update a harmony reference row via `PUT /api/reference-admin/harmonies/{id}` (admin auth required). */
+export async function updateHarmonyType(
+  harmonyTypeId: number,
+  data: HarmonyTypeUpdateRequest
+): Promise<ReferenceHarmonyType> {
+  const response = await fetch(`${API_BASE_URL}/reference-admin/harmonies/${harmonyTypeId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<ReferenceHarmonyType>(response);
+}
+
+/** Delete a harmony reference row via `DELETE /api/reference-admin/harmonies/{id}` (admin auth required). */
+export async function deleteHarmonyType(
+  harmonyTypeId: number
+): Promise<{ success?: boolean; message?: string }> {
+  const response = await fetch(`${API_BASE_URL}/reference-admin/harmonies/${harmonyTypeId}`, {
+    method: "DELETE",
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<{ success?: boolean; message?: string }>(response);
+}
+
+/** List finish normalization rows from `/api/reference-admin/finish-normalizations` (admin auth required). */
+export async function listFinishNormalizations(): Promise<FinishNormalizationListResponse> {
+  const response = await fetch(`${API_BASE_URL}/reference-admin/finish-normalizations`, {
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<FinishNormalizationListResponse>(response);
+}
+
+/** Create a finish normalization row via `POST /api/reference-admin/finish-normalizations` (admin auth required). */
+export async function createFinishNormalization(
+  data: FinishNormalizationCreateRequest
+): Promise<FinishNormalization> {
+  const response = await fetch(`${API_BASE_URL}/reference-admin/finish-normalizations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<FinishNormalization>(response);
+}
+
+/** Update a finish normalization row via `PUT /api/reference-admin/finish-normalizations/{id}` (admin auth required). */
+export async function updateFinishNormalization(
+  finishNormalizationId: number,
+  data: FinishNormalizationUpdateRequest
+): Promise<FinishNormalization> {
+  const response = await fetch(
+    `${API_BASE_URL}/reference-admin/finish-normalizations/${finishNormalizationId}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+      body: JSON.stringify(data),
+    }
+  );
+  return handleResponse<FinishNormalization>(response);
+}
+
+/** Delete a finish normalization row via `DELETE /api/reference-admin/finish-normalizations/{id}` (admin auth required). */
+export async function deleteFinishNormalization(
+  finishNormalizationId: number
+): Promise<{ success?: boolean; message?: string }> {
+  const response = await fetch(
+    `${API_BASE_URL}/reference-admin/finish-normalizations/${finishNormalizationId}`,
+    {
+      method: "DELETE",
+      headers: await getAuthHeaders({ admin: true }),
+    }
+  );
+  return handleResponse<{ success?: boolean; message?: string }>(response);
 }
