@@ -71,7 +71,7 @@ The package is automatically linked via npm workspaces — no publishing require
 | `PaletteHarmonyType` | Harmony-only subset excluding `"similar"` |
 | `PaletteSuggestion` | Auto-detected harmony result for 2+ anchor colors (`confidence`, `sourceHex`, `targetHexes`, `completionHexes`) |
 | `HueFamily` | Gap-analysis hue bins: reds, oranges/corals, yellows/golds, greens, blues/teals, purples/violets, pinks/magentas, neutrals |
-| `LightnessBand` | Gap-analysis lightness bins: `dark \| medium \| light` |
+| `LightnessBand` | Gap-analysis lightness bins: `dark \| dark-medium \| medium \| medium-light \| light` |
 | `CollectionGapCell` | Count per hue/lightness cell |
 | `CollectionGapAnalysis` | Structured gap-analysis output (`cells`, `missing`, `underrepresented`) |
 

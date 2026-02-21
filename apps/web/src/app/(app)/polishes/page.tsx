@@ -218,12 +218,12 @@ function PolishesPageFallback() {
 
 function DevPolishesPage() {
   const { isAdmin } = useDevAuth();
-  return <PolishesPageContent isAdmin={isAdmin} />;
+  return <PolishesPageContentBoundary isAdmin={isAdmin} />;
 }
 
 function B2CPolishesPage() {
   const { isAdmin } = useAuth();
-  return <PolishesPageContent isAdmin={isAdmin} />;
+  return <PolishesPageContentBoundary isAdmin={isAdmin} />;
 }
 
 /**
@@ -233,7 +233,15 @@ function B2CPolishesPage() {
  */
 function UnconfiguredPolishesPage() {
   const { isAdmin } = useUnconfiguredAuth();
-  return <PolishesPageContent isAdmin={isAdmin} />;
+  return <PolishesPageContentBoundary isAdmin={isAdmin} />;
+}
+
+function PolishesPageContentBoundary({ isAdmin }: { isAdmin: boolean }) {
+  return (
+    <Suspense fallback={<BrandSpinner label="Loading polishes…" />}>
+      <PolishesPageContent isAdmin={isAdmin} />
+    </Suspense>
+  );
 }
 
 /**
