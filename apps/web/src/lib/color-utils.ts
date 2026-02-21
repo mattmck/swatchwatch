@@ -343,6 +343,16 @@ export function classifyHexToGapCell(
   };
 }
 
+/**
+ * Build a representative seed hex color for a hue/lightness gap cell.
+ *
+ * Uses OKLCH seeds so converting the result back to OKLCH aligns with
+ * `classifyLightnessBand` thresholds. Neutral seeds use zero chroma.
+ *
+ * @param hueFamily Target hue family.
+ * @param lightnessBand Target lightness band.
+ * @returns Hex string in `#RRGGBB` format.
+ */
 export function gapCellToSeedHex(
   hueFamily: HueFamily,
   lightnessBand: LightnessBand,

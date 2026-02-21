@@ -27,6 +27,12 @@ import {
   sortCellsByGridOrder,
 } from "./gaps-utils";
 
+/**
+ * Render the collection gap heatmap and selected-cell recommendations.
+ *
+ * Handles loading/error/empty states and derives cell severity + candidate
+ * matches from the current polish catalog.
+ */
 export default function PolishCollectionGapsPage() {
   const [polishes, setPolishes] = useState<Polish[]>([]);
   const [loading, setLoading] = useState(true);
