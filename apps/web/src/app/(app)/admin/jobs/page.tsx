@@ -9,7 +9,6 @@ import type {
 } from "swatchwatch-shared";
 import {
   cancelIngestionJob,
-  getGlobalSettings,
   getIngestionJob,
   getQueueStats,
   listDataSources,
@@ -17,9 +16,7 @@ import {
   purgeQueue,
   runIngestionJob,
   type DataSource,
-  type IngestionSettings,
   type QueueStatsResponse,
-  updateGlobalSettings,
 } from "@/lib/api";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
@@ -63,10 +60,8 @@ import {
   AlertTriangle,
   Info,
   Bug,
-  Settings,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { Switch } from "@/components/ui/switch";
 
 type SourceFilter = "all" | string;
 
@@ -281,8 +276,6 @@ export function AdminJobsContent() {
   const [loading, setLoading] = useState(true);
   const [loadingError, setLoadingError] = useState<string | null>(null);
   const [availableSources, setAvailableSources] = useState<DataSource[]>([]);
-  const [globalSettings, setGlobalSettings] = useState<IngestionSettings>({ downloadImages: true, detectHex: true });
-  const [settingsLoading, setSettingsLoading] = useState(false);
 
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const [expandedJobIds, setExpandedJobIds] = useState<Set<string>>(new Set());
@@ -371,31 +364,6 @@ export function AdminJobsContent() {
     }
   }, [jobs]);
 
-  // Load global settings
-  useEffect(() => {
-    async function loadSettings() {
-      try {
-        const settings = await getGlobalSettings();
-        setGlobalSettings(settings.settings);
-      } catch (error) {
-        console.error("Failed to load global settings:", error);
-      }
-    }
-    loadSettings();
-  }, []);
-
-  async function handleToggleGlobalSetting(key: keyof IngestionSettings, value: boolean) {
-    try {
-      setSettingsLoading(true);
-      await updateGlobalSettings({ [key]: value });
-      setGlobalSettings((prev) => ({ ...prev, [key]: value }));
-    } catch (error) {
-      console.error("Failed to update global setting:", error);
-    } finally {
-      setSettingsLoading(false);
-    }
-  }
-
   useEffect(() => {
     let cancelled = false;
 
@@ -432,7 +400,7 @@ export function AdminJobsContent() {
     return () => {
       cancelled = true;
     };
-  }, [refreshJobs]);
+  }, [refreshJobs, refreshQueueStats]);
 
 
   // Poll for updates

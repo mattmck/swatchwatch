@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Tabs as TabsPrimitive } from "radix-ui";
 import { AppShell } from "@/components/app-shell";
 import { ErrorState } from "@/components/error-state";
@@ -73,14 +73,11 @@ function AdminAccessRequired() {
 }
 
 function AdminContent() {
-  const [activeTab, setActiveTab] = useState<AdminTab>("configuration");
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
+  const [activeTab, setActiveTab] = useState<AdminTab>(() => {
+    if (typeof window === "undefined") return "configuration";
     const params = new URLSearchParams(window.location.search);
-    const tab = getTabFromQuery(params.get("tab"));
-    setActiveTab(tab);
-  }, []);
+    return getTabFromQuery(params.get("tab"));
+  });
 
   return (
     <div className="space-y-6">
