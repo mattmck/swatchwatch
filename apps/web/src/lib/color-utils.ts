@@ -348,9 +348,9 @@ export function gapCellToSeedHex(
   lightnessBand: LightnessBand,
 ): string {
   const hue = GAP_HUE_SEED[hueFamily];
-  const saturation = hueFamily === "neutrals" ? 0.05 : 0.78;
   const lightness = GAP_LIGHTNESS_SEED[lightnessBand];
-  return hslToHex({ h: hue, s: saturation, l: lightness });
+  const chroma = hueFamily === "neutrals" ? 0 : 0.09;
+  return oklchToHex({ L: lightness, C: chroma, h: hue });
 }
 
 /**

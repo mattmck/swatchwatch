@@ -2,138 +2,30 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { resolveDisplayHex, type CollectionGapCell, type HueFamily, type LightnessBand, type Polish } from "swatchwatch-shared";
+import { resolveDisplayHex, type Polish } from "swatchwatch-shared";
 import { listAllPolishes } from "@/lib/api";
 import {
   analyzeCollectionGaps,
   classifyHexToGapCell,
-  gapCellToSeedHex,
   HUE_FAMILY_ORDER,
   LIGHTNESS_BAND_ORDER,
 } from "@/lib/color-utils";
 import { BrandSpinner } from "@/components/brand-spinner";
-import { ColorDot } from "@/components/color-dot";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-
-type CellSeverity = "missing" | "thin" | "healthy";
-type CellBoundPolish = {
-  polish: Polish;
-  colorHex: string;
-  hueFamily: HueFamily;
-  lightnessBand: LightnessBand;
-  owned: boolean;
-};
-
-const HUE_META: Record<HueFamily, { label: string; hue: number | null }> = {
-  reds: { label: "Reds", hue: 8 },
-  "oranges-corals": { label: "Oranges/Corals", hue: 26 },
-  "yellows-golds": { label: "Yellows/Golds", hue: 52 },
-  greens: { label: "Greens", hue: 130 },
-  "blues-teals": { label: "Blues/Teals", hue: 205 },
-  "purples-violets": { label: "Purples/Violets", hue: 275 },
-  "pinks-magentas": { label: "Pinks/Magentas", hue: 328 },
-  neutrals: { label: "Neutrals", hue: null },
-};
-
-const LIGHTNESS_META: Record<LightnessBand, { label: string; short: string }> = {
-  dark: { label: "Dark", short: "D" },
-  "dark-medium": { label: "Dark-Mid", short: "DM" },
-  medium: { label: "Medium", short: "M" },
-  "medium-light": { label: "Light-Mid", short: "LM" },
-  light: { label: "Light", short: "L" },
-};
-
-const LIGHTNESS_BASE: Record<LightnessBand, number> = {
-  dark: 28,
-  "dark-medium": 42,
-  medium: 56,
-  "medium-light": 70,
-  light: 84,
-};
-
-const SEVERITY_META: Record<CellSeverity, { label: string; badgeClassName: string; description: string }> = {
-  missing: {
-    label: "Missing",
-    badgeClassName: "border-rose-400/60 bg-rose-100/80 text-rose-800 dark:bg-rose-950/40 dark:text-rose-100",
-    description: "No shades land in this bucket yet. This is a high-value target for variety.",
-  },
-  thin: {
-    label: "Thin",
-    badgeClassName: "border-amber-400/60 bg-amber-100/80 text-amber-800 dark:bg-amber-950/40 dark:text-amber-100",
-    description: "You have a start here, but this area is still underrepresented.",
-  },
-  healthy: {
-    label: "Healthy",
-    badgeClassName: "border-brand-lilac/50",
-    description: "Coverage here is healthy. Consider balancing other thin/missing areas first.",
-  },
-};
-
-function cellKey(cell: Pick<CollectionGapCell, "hueFamily" | "lightnessBand">): string {
-  return `${cell.hueFamily}:${cell.lightnessBand}`;
-}
-
-function sortCellsByGridOrder(cells: CollectionGapCell[]): CollectionGapCell[] {
-  const hueOrder = new Map(HUE_FAMILY_ORDER.map((hue, index) => [hue, index]));
-  const lightnessOrder = new Map(LIGHTNESS_BAND_ORDER.map((band, index) => [band, index]));
-  return [...cells].sort((a, b) => {
-    const aBand = lightnessOrder.get(a.lightnessBand) ?? 0;
-    const bBand = lightnessOrder.get(b.lightnessBand) ?? 0;
-    if (aBand !== bBand) return aBand - bBand;
-    return (hueOrder.get(a.hueFamily) ?? 0) - (hueOrder.get(b.hueFamily) ?? 0);
-  });
-}
-
-function getSeverity(
-  cell: CollectionGapCell,
-  missing: Set<string>,
-  thin: Set<string>,
-): CellSeverity {
-  const key = cellKey(cell);
-  if (missing.has(key)) return "missing";
-  if (thin.has(key)) return "thin";
-  return "healthy";
-}
-
-function getCellClasses(severity: CellSeverity, isSelected: boolean): string {
-  const selectedRing = isSelected
-    ? "ring-2 ring-brand-purple/70 ring-offset-1 ring-offset-background"
-    : "";
-
-  if (severity === "missing") {
-    return `border-rose-400/65 bg-rose-100/80 text-rose-900 shadow-[0_10px_28px_rgba(244,63,94,0.2)] dark:bg-rose-950/40 dark:text-rose-100 ${selectedRing}`;
-  }
-
-  if (severity === "thin") {
-    return `border-amber-400/65 bg-amber-100/80 text-amber-900 shadow-[0_10px_28px_rgba(245,158,11,0.16)] dark:bg-amber-950/40 dark:text-amber-100 ${selectedRing}`;
-  }
-
-  return `border-brand-lilac/50 text-foreground/90 shadow-[0_8px_20px_rgba(66,16,126,0.08)] ${selectedRing}`;
-}
-
-function getHealthyCellStyle(cell: CollectionGapCell, maxCount: number) {
-  const hue = HUE_META[cell.hueFamily].hue;
-  const intensity = maxCount > 0 ? Math.min(cell.count / maxCount, 1) : 0;
-  const baseLightness = LIGHTNESS_BASE[cell.lightnessBand];
-  const lightness = Math.max(12, baseLightness - intensity * 8);
-  const saturation = hue === null ? 8 : 76;
-
-  return {
-    backgroundColor: `hsl(${hue ?? 220} ${saturation}% ${lightness}%)`,
-  };
-}
-
-function getGapSearchHref(cell: CollectionGapCell): string {
-  const params = new URLSearchParams({
-    color: gapCellToSeedHex(cell.hueFamily, cell.lightnessBand).replace("#", ""),
-    harmony: "similar",
-  });
-  return `/polishes/search?${params.toString()}`;
-}
+import { CellMatchesList, type CellBoundPolish, Row } from "./gaps-components";
+import {
+  cellKey,
+  getGapSearchHref,
+  getSeverity,
+  HUE_META,
+  LIGHTNESS_META,
+  SEVERITY_META,
+  sortCellsByGridOrder,
+} from "./gaps-utils";
 
 export default function PolishCollectionGapsPage() {
   const [polishes, setPolishes] = useState<Polish[]>([]);
@@ -482,108 +374,5 @@ export default function PolishCollectionGapsPage() {
         </Card>
       </div>
     </div>
-  );
-}
-
-function CellMatchesList({
-  title,
-  items,
-  emptyLabel,
-}: {
-  title: string;
-  items: CellBoundPolish[];
-  emptyLabel: string;
-}) {
-  const visible = items.slice(0, 6);
-
-  return (
-    <div className="rounded-md border bg-muted/30 p-2">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-          {title}
-        </p>
-        <Badge variant="outline" className="h-5 px-2 text-[10px]">
-          {items.length}
-        </Badge>
-      </div>
-      {visible.length === 0 ? (
-        <p className="text-xs text-muted-foreground">{emptyLabel}</p>
-      ) : (
-        <div className="space-y-1.5">
-          {visible.map((item) => (
-            <Link
-              key={item.polish.id}
-              href={`/polishes/detail?id=${item.polish.id}`}
-              className="flex items-center gap-2 rounded-md border bg-background/85 px-2 py-1.5 text-xs transition hover:bg-background"
-            >
-              <ColorDot hex={item.colorHex} size="sm" />
-              <span className="min-w-0 flex-1 truncate font-medium">
-                {item.polish.brand} · {item.polish.name}
-              </span>
-            </Link>
-          ))}
-          {items.length > visible.length && (
-            <p className="text-[11px] text-muted-foreground">
-              Showing {visible.length} of {items.length}
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Row({
-  lightnessBand,
-  cellsByKey,
-  maxCellCount,
-  missingKeys,
-  thinKeys,
-  selectedCellKey,
-  onSelect,
-}: {
-  lightnessBand: LightnessBand;
-  cellsByKey: Map<string, CollectionGapCell>;
-  maxCellCount: number;
-  missingKeys: Set<string>;
-  thinKeys: Set<string>;
-  selectedCellKey: string | null;
-  onSelect: (key: string) => void;
-}) {
-  return (
-    <>
-      <div className="flex items-center rounded-md border border-brand-lilac/45 bg-muted/40 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-        {LIGHTNESS_META[lightnessBand].label}
-      </div>
-      {HUE_FAMILY_ORDER.map((hueFamily) => {
-        const key = `${hueFamily}:${lightnessBand}`;
-        const cell = cellsByKey.get(key);
-        if (!cell) return <div key={key} />;
-
-        const severity = getSeverity(cell, missingKeys, thinKeys);
-        const isSelected = selectedCellKey === key;
-        const className = getCellClasses(severity, isSelected);
-        const style = severity === "healthy" ? getHealthyCellStyle(cell, maxCellCount) : undefined;
-
-        return (
-          <button
-            key={key}
-            type="button"
-            title={`${HUE_META[hueFamily].label} • ${LIGHTNESS_META[lightnessBand].label}: ${cell.count}`}
-            onClick={() => onSelect(key)}
-            className={`group relative h-20 rounded-lg border p-2 text-left transition hover:scale-[1.02] hover:shadow-glow-brand ${className}`}
-            style={style}
-          >
-            <p className="text-[10px] font-medium uppercase tracking-[0.08em] opacity-75">
-              {LIGHTNESS_META[lightnessBand].short}
-            </p>
-            <p className="mt-1 text-2xl font-black leading-none">{cell.count}</p>
-            <p className="mt-1 text-[10px] font-medium opacity-80">
-              {SEVERITY_META[severity].label}
-            </p>
-          </button>
-        );
-      })}
-    </>
   );
 }
