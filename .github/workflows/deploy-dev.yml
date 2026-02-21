@@ -70,27 +70,35 @@ jobs:
         run: |
           DEPLOY_DIR=packages/functions/.deploy
           rm -rf "$DEPLOY_DIR"
-          mkdir -p "$DEPLOY_DIR/_shared"
+          mkdir -p "$DEPLOY_DIR"
 
           # Copy function app artifacts
           cp packages/functions/host.json "$DEPLOY_DIR/"
           cp packages/functions/package.json "$DEPLOY_DIR/"
           cp -r packages/functions/dist "$DEPLOY_DIR/"
 
-          # Bundle the built shared package so it can be installed as a file: dep
-          cp packages/shared/package.json "$DEPLOY_DIR/_shared/"
-          cp -r packages/shared/dist "$DEPLOY_DIR/_shared/"
+          # Pack the built shared package into a tarball and install from it.
+          # Avoid file:directory deps here because npm installs those as symlinks,
+          # which can fail to resolve reliably under WEBSITE_RUN_FROM_PACKAGE.
+          SHARED_TARBALL="$(npm pack --silent --workspace=packages/shared --pack-destination "$DEPLOY_DIR" | tail -n 1)"
 
-          # Rewrite the workspace reference to a local file: path
+          # Rewrite the workspace reference to the local tarball
           node -e "
             const pkg = JSON.parse(require('fs').readFileSync('$DEPLOY_DIR/package.json', 'utf8'));
-            pkg.dependencies['swatchwatch-shared'] = 'file:_shared';
+            pkg.dependencies['swatchwatch-shared'] = 'file:${SHARED_TARBALL}';
             require('fs').writeFileSync('$DEPLOY_DIR/package.json', JSON.stringify(pkg, null, 2));
           "
 
           # Install production-only deps into the self-contained deploy dir
           cd "$DEPLOY_DIR"
           npm install --omit=dev --ignore-scripts
+
+          # Guardrail: ensure the shared package is materialized (not symlinked)
+          if [ -L "node_modules/swatchwatch-shared" ]; then
+            echo "Expected node_modules/swatchwatch-shared to be a real directory, but it is a symlink."
+            ls -la "node_modules/swatchwatch-shared"
+            exit 1
+          fi
 
       - name: Azure login (OIDC)
         uses: azure/login@v2
