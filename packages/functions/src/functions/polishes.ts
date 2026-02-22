@@ -270,7 +270,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
     const sortBy = url.searchParams.get("sortBy") || "createdAt";
     const sortOrder = url.searchParams.get("sortOrder")?.toUpperCase() === "ASC" ? "ASC" : "DESC";
     const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
-    const pageSize = Math.min(100, Math.max(1, parseInt(url.searchParams.get("pageSize") || "50", 10)));
+    const pageSize = Math.min(250, Math.max(1, parseInt(url.searchParams.get("pageSize") || "50", 10)));
     const offset = (page - 1) * pageSize;
 
     const conditions: string[] = [];

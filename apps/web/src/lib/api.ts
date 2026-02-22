@@ -39,6 +39,7 @@ import { getAccessToken } from "./auth-token";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:7071/api";
 const MAX_CAPTURE_FRAME_BYTES = 5 * 1024 * 1024;
+const LIST_ALL_POLISHES_PAGE_SIZE = 250;
 
 class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -99,33 +100,39 @@ export async function listAllPolishes(
 ): Promise<Polish[]> {
   const dedupeKey = JSON.stringify({
     ...(filters ?? {}),
-    pageSize: filters?.pageSize ?? 100,
+    pageSize: filters?.pageSize ?? LIST_ALL_POLISHES_PAGE_SIZE,
   });
 
   if (!listAllPolishesInFlight.has(dedupeKey)) {
     listAllPolishesInFlight.set(
       dedupeKey,
       (async () => {
-        const pageSize = Math.min(100, Math.max(1, filters?.pageSize ?? 100));
-        const allPolishes: Polish[] = [];
-        let currentPage = 1;
-        let total = 0;
+        const pageSize = Math.min(
+          LIST_ALL_POLISHES_PAGE_SIZE,
+          Math.max(1, filters?.pageSize ?? LIST_ALL_POLISHES_PAGE_SIZE)
+        );
+        const firstPage = await listPolishes({
+          ...filters,
+          page: 1,
+          pageSize,
+        });
 
-        do {
-          const response = await listPolishes({
-            ...filters,
-            page: currentPage,
-            pageSize,
-          });
-
-          allPolishes.push(...response.polishes);
-          total = response.total;
-          currentPage += 1;
-
-          if (response.polishes.length === 0) {
-            break;
-          }
-        } while (allPolishes.length < total);
+        const totalPages = Math.ceil(firstPage.total / pageSize);
+        const remainingPageRequests =
+          totalPages > 1
+            ? Array.from({ length: totalPages - 1 }, (_, idx) =>
+                listPolishes({
+                  ...filters,
+                  page: idx + 2,
+                  pageSize,
+                })
+              )
+            : [];
+        const remainingPages = await Promise.all(remainingPageRequests);
+        const allPolishes = [
+          ...firstPage.polishes,
+          ...remainingPages.flatMap((page) => page.polishes),
+        ];
 
         // Defensive de-dupe by inventory item id in case of overlapping pages.
         return Array.from(
