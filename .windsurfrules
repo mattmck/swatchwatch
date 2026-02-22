@@ -14,7 +14,7 @@ infrastructure/    → Terraform (azurerm ~3.100) for all Azure resources
 
 **Data flow:** Clients → Azure Functions REST API (`/api/polishes`, `/api/auth/*`, `/api/voice`) → Azure Database for PostgreSQL Flexible Server (schema in `docs/schema.sql`). Voice input goes through Azure Speech Services → Azure OpenAI for parsing polish details from transcriptions. Full canonical schema uses `pg_trgm` for fuzzy shade matching and `pgvector` for swatch similarity/dupe search.
 
-**Auth:** Azure AD B2C (provisioned outside Terraform via portal). Functions read `AZURE_AD_B2C_TENANT` and `AZURE_AD_B2C_CLIENT_ID` from environment. Token validation is JWT-based via the `/api/auth/validate` endpoint.
+**Auth:** Provider-based auth (Auth0 or Stytch, configured via environment). Functions support `AUTH_PROVIDER` selection, validate provider JWT/session tokens in `/api/auth/validate`, and map identities to local users via linked identity records.
 
 ## Dev Commands
 
@@ -85,14 +85,14 @@ npm run build --workspace=packages/shared
 
 This project is in early development. The web UI is connected to the live API. Backend handlers have placeholder/stub implementations marked with `TODO` comments:
 - Postgres reads/writes in `polishes.ts` are stubbed — no DB client yet
-- JWT validation in `auth.ts` returns 501 — Azure AD B2C JWKS verification not implemented
+- JWT/session validation in `auth.ts` supports Auth0 and Stytch, with `AUTH_DEV_BYPASS` available for local development
 - Voice processing in `voice.ts` stubs Speech-to-text and OpenAI parsing
 - Infrastructure is migrating from Cosmos DB to Azure Database for PostgreSQL Flexible Server
 
 ## Environment Variables (Functions)
 
 Defined in `packages/functions/local.settings.json`. Required secrets:
-`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `AZURE_STORAGE_CONNECTION`, `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, `AZURE_AD_B2C_TENANT`, `AZURE_AD_B2C_CLIENT_ID`
+`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `AZURE_STORAGE_CONNECTION`, `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, `AUTH_DEV_BYPASS`, `AUTH_PROVIDER`, `AUTH0_DOMAIN`, `AUTH0_AUDIENCE`, `AUTH0_ISSUER_BASE_URL`, `AUTH0_CLIENT_ID`, `STYTCH_PROJECT_ID`, `STYTCH_SECRET`, `STYTCH_PUBLIC_TOKEN`
 
 ## Adding a New Azure Function
 

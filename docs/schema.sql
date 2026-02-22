@@ -199,6 +199,18 @@ CREATE TABLE app_user (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE user_identity (
+  user_identity_id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES app_user(user_id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  provider_user_id TEXT NOT NULL,
+  email_at_provider TEXT,
+  email_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (provider, provider_user_id)
+);
+
 CREATE TABLE user_inventory_item (
   inventory_item_id BIGSERIAL PRIMARY KEY,
   user_id BIGINT NOT NULL REFERENCES app_user(user_id) ON DELETE CASCADE,
@@ -262,6 +274,7 @@ CREATE INDEX idx_brand_alias_trgm ON brand_alias USING GIN (alias gin_trgm_ops);
 CREATE INDEX idx_shade_name_trgm ON shade USING GIN (shade_name_canonical gin_trgm_ops);
 CREATE INDEX idx_shade_alias_trgm ON shade_alias USING GIN (alias gin_trgm_ops);
 CREATE INDEX idx_swatch_embedding ON color_features USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+CREATE INDEX idx_user_identity_user_id ON user_identity (user_id);
 
 
 -- -----------------------------------------------------------------------------

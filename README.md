@@ -26,7 +26,7 @@ swatchwatch/
 ```
 Web / Mobile → Azure Functions REST API → Azure PostgreSQL Flexible Server
                   ├── /api/polishes       → CRUD operations (user inventory)
-                  ├── /api/auth/*         → Azure AD B2C token validation
+                  ├── /api/auth/*         → Auth provider token validation (Auth0 or Stytch)
                   └── /api/voice          → Azure Speech → Azure OpenAI → parsed polish details
 ```
 
@@ -116,8 +116,10 @@ Functions require secrets defined in `packages/functions/local.settings.json`:
 | `AZURE_SPEECH_REGION` | Azure Speech Services region |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint for voice parsing |
 | `AZURE_OPENAI_KEY` | Azure OpenAI key |
-| `AZURE_AD_B2C_TENANT` | B2C tenant name |
-| `AZURE_AD_B2C_CLIENT_ID` | B2C app client ID |
+| `AUTH_DEV_BYPASS` | Local-only bypass auth mode (`Bearer dev:<userId>`) |
+| `AUTH_PROVIDER` | Auth provider selector (`auth0` or `stytch`) when both are configured |
+| `AUTH0_DOMAIN`, `AUTH0_AUDIENCE`, `AUTH0_ISSUER_BASE_URL`, `AUTH0_CLIENT_ID` | Auth0 JWT verification + frontend config endpoint values |
+| `STYTCH_PROJECT_ID`, `STYTCH_SECRET`, `STYTCH_PUBLIC_TOKEN` | Stytch JWT/session verification + frontend config endpoint values |
 
 Migrations use `DATABASE_URL` from the root `.env` file (see `.env.example`).
 

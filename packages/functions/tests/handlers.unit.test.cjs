@@ -13,6 +13,9 @@ const registeredRoutes = {};
 // Mutable mock implementations — tests can override these
 let queryMock = async () => ({ rows: [] });
 let transactionMock = async (cb) => cb(fakeClient());
+let jwtVerifyMock = async () => ({ payload: {} });
+let stytchAuthenticateJwtMock = async () => ({ session: { user_id: "stytch-user-1" } });
+let stytchUserGetMock = async () => ({ emails: [] });
 
 function fakeClient() {
   return { query: async () => ({ rows: [] }) };
@@ -47,7 +50,20 @@ registerMock("@azure/functions", {
 
 registerMock("jose", {
   createRemoteJWKSet: () => {},
-  jwtVerify: async () => ({ payload: {} }),
+  jwtVerify: (...args) => jwtVerifyMock(...args),
+});
+
+registerMock("stytch", {
+  Client: class {
+    constructor() {
+      this.sessions = {
+        authenticateJwt: (...args) => stytchAuthenticateJwtMock(...args),
+      };
+      this.users = {
+        get: (...args) => stytchUserGetMock(...args),
+      };
+    }
+  },
 });
 
 // db mock needs to proxy to mutable queryMock/transactionMock
@@ -136,9 +152,18 @@ require("../dist/functions/voice");
 afterEach(() => {
   queryMock = async () => ({ rows: [] });
   transactionMock = async (cb) => cb(fakeClient());
+  jwtVerifyMock = async () => ({ payload: {} });
+  stytchAuthenticateJwtMock = async () => ({ session: { user_id: "stytch-user-1" } });
+  stytchUserGetMock = async () => ({ emails: [] });
   delete process.env.AUTH_DEV_BYPASS;
-  delete process.env.AZURE_AD_B2C_TENANT;
-  delete process.env.AZURE_AD_B2C_CLIENT_ID;
+  delete process.env.AUTH_PROVIDER;
+  delete process.env.AUTH0_DOMAIN;
+  delete process.env.AUTH0_AUDIENCE;
+  delete process.env.AUTH0_ISSUER_BASE_URL;
+  delete process.env.AUTH0_CLIENT_ID;
+  delete process.env.STYTCH_PROJECT_ID;
+  delete process.env.STYTCH_SECRET;
+  delete process.env.STYTCH_PUBLIC_TOKEN;
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -210,12 +235,68 @@ describe("lib/auth — authenticateRequest", () => {
     assert.equal(result.email, "test@example.com");
   });
 
-  it("production: throws when B2C not configured", async () => {
+  it("production: throws when no auth provider is configured", async () => {
     const req = fakeRequest({ headers: { authorization: "Bearer some.jwt.token" } });
     await assert.rejects(
       () => authLib.authenticateRequest(req, fakeContext()),
-      (err) => err instanceof authLib.AuthError && /not configured/.test(err.message)
+      (err) => err instanceof authLib.AuthError && /no auth provider configured/i.test(err.message)
     );
+  });
+
+  it("auth0: validates token and returns linked user", async () => {
+    process.env.AUTH_PROVIDER = "auth0";
+    process.env.AUTH0_DOMAIN = "example.us.auth0.com";
+    process.env.AUTH0_AUDIENCE = "https://api.swatchwatch.dev";
+    process.env.AUTH0_ISSUER_BASE_URL = "https://example.us.auth0.com/";
+
+    jwtVerifyMock = async () => ({
+      payload: {
+        sub: "auth0|123",
+        email: "auth0@example.com",
+        email_verified: true,
+      },
+    });
+
+    transactionMock = async (cb) => cb({
+      query: async (sql) => {
+        if (sql.includes("FROM user_identity")) return { rows: [{ user_id: 9 }] };
+        if (sql.includes("UPDATE app_user")) return { rows: [] };
+        return { rows: [] };
+      },
+    });
+
+    const req = fakeRequest({ headers: { authorization: "Bearer valid.auth0.jwt" } });
+    const result = await authLib.authenticateRequest(req, fakeContext());
+    assert.equal(result.userId, 9);
+    assert.equal(result.externalId, "auth0|123");
+    assert.equal(result.email, "auth0@example.com");
+  });
+
+  it("stytch: validates token and returns linked user", async () => {
+    process.env.AUTH_PROVIDER = "stytch";
+    process.env.STYTCH_PROJECT_ID = "project-test-123";
+    process.env.STYTCH_SECRET = "secret-test-123";
+
+    stytchAuthenticateJwtMock = async () => ({
+      session: { user_id: "user-test-abc" },
+    });
+    stytchUserGetMock = async () => ({
+      emails: [{ email: "stytch@example.com", verified: true }],
+    });
+
+    transactionMock = async (cb) => cb({
+      query: async (sql) => {
+        if (sql.includes("FROM user_identity")) return { rows: [{ user_id: 12 }] };
+        if (sql.includes("UPDATE app_user")) return { rows: [] };
+        return { rows: [] };
+      },
+    });
+
+    const req = fakeRequest({ headers: { authorization: "Bearer valid.stytch.jwt" } });
+    const result = await authLib.authenticateRequest(req, fakeContext());
+    assert.equal(result.userId, 12);
+    assert.equal(result.externalId, "user-test-abc");
+    assert.equal(result.email, "stytch@example.com");
   });
 });
 
@@ -265,22 +346,37 @@ describe("functions/auth — route registration", () => {
 });
 
 describe("functions/auth — getAuthConfig", () => {
-  it("returns 503 when B2C env vars not set", async () => {
+  it("returns 503 when auth env vars are not set", async () => {
     const handler = registeredRoutes["auth-config"].handler;
     const res = await handler(fakeRequest(), fakeContext());
     assert.equal(res.status, 503);
     assert.ok(res.jsonBody.error);
   });
 
-  it("returns config when B2C env vars are set", async () => {
-    process.env.AZURE_AD_B2C_TENANT = "mytenant";
-    process.env.AZURE_AD_B2C_CLIENT_ID = "my-client-id";
+  it("returns Auth0 config when Auth0 env vars are set", async () => {
+    process.env.AUTH_PROVIDER = "auth0";
+    process.env.AUTH0_DOMAIN = "example.us.auth0.com";
+    process.env.AUTH0_AUDIENCE = "https://api.swatchwatch.dev";
+    process.env.AUTH0_ISSUER_BASE_URL = "https://example.us.auth0.com/";
+    process.env.AUTH0_CLIENT_ID = "auth0-client-id";
     const handler = registeredRoutes["auth-config"].handler;
     const res = await handler(fakeRequest(), fakeContext());
     assert.equal(res.status, 200);
-    assert.equal(res.jsonBody.clientId, "my-client-id");
-    assert.ok(res.jsonBody.authority.includes("mytenant"));
-    assert.ok(res.jsonBody.knownAuthorities[0].includes("mytenant"));
+    assert.equal(res.jsonBody.provider, "auth0");
+    assert.equal(res.jsonBody.auth0.clientId, "auth0-client-id");
+    assert.equal(res.jsonBody.auth0.audience, "https://api.swatchwatch.dev");
+  });
+
+  it("returns Stytch config when Stytch env vars are set", async () => {
+    process.env.AUTH_PROVIDER = "stytch";
+    process.env.STYTCH_PROJECT_ID = "project-test-123";
+    process.env.STYTCH_PUBLIC_TOKEN = "public-token-test-123";
+    const handler = registeredRoutes["auth-config"].handler;
+    const res = await handler(fakeRequest(), fakeContext());
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.provider, "stytch");
+    assert.equal(res.jsonBody.stytch.projectId, "project-test-123");
+    assert.equal(res.jsonBody.stytch.publicToken, "public-token-test-123");
   });
 });
 

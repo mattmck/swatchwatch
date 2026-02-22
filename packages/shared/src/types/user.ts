@@ -9,12 +9,21 @@ export interface User {
   updatedAt: string;
 }
 
-export type AuthProvider = "apple" | "facebook" | "google" | "email";
+export type AuthProvider = "apple" | "facebook" | "github" | "google" | "email";
+
+export interface Auth0Config {
+  issuerBaseUrl: string;
+  audience: string;
+  clientId?: string;
+}
+
+export interface StytchConfig {
+  projectId: string;
+  publicToken?: string;
+}
 
 export interface AuthConfig {
-  authority: string;
-  clientId: string;
-  knownAuthorities: string[];
-  redirectUri: string;
-  scopes: string[];
+  provider: "auth0" | "stytch";
+  auth0?: Auth0Config;
+  stytch?: StytchConfig;
 }

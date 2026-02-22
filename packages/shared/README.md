@@ -35,8 +35,10 @@ The package is automatically linked via npm workspaces — no publishing require
 | Type | Description |
 |------|-------------|
 | `User` | User entity (id, email, displayName, avatarUrl, authProvider, timestamps) |
-| `AuthProvider` | `"apple" \| "facebook" \| "google" \| "email"` |
-| `AuthConfig` | B2C configuration (authority, clientId, knownAuthorities, redirectUri, scopes) |
+| `AuthProvider` | `"apple" \| "facebook" \| "github" \| "google" \| "email"` |
+| `Auth0Config` | Auth0 frontend-safe configuration (`issuerBaseUrl`, `audience`, optional `clientId`) |
+| `StytchConfig` | Stytch frontend-safe configuration (`projectId`, optional `publicToken`) |
+| `AuthConfig` | Auth configuration union (`provider` + optional `auth0`/`stytch` payloads) |
 
 ### `types/voice.ts`
 
