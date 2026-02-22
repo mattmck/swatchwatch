@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { ColorDot } from "@/components/color-dot";
 import { QuantityControls } from "@/components/quantity-controls";
 import { finishBadgeClassName, finishLabel } from "@/lib/constants";
+import { buildSwatchThumbnailUrl } from "@/lib/image-url";
 
 interface ColorSearchResultsProps {
   polishes: (Polish & {
@@ -114,7 +115,7 @@ export function ColorSearchResults({
             >
               {polish.swatchImageUrl ? (
                 <Image
-                  src={polish.swatchImageUrl}
+                  src={buildSwatchThumbnailUrl(polish.swatchImageUrl)}
                   alt={`${polish.brand} ${polish.name} swatch`}
                   width={40}
                   height={40}

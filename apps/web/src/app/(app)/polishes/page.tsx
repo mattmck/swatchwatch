@@ -34,6 +34,7 @@ import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
 import { FINISHES, finishBadgeClassName, finishLabel } from "@/lib/constants";
+import { buildSwatchThumbnailUrl } from "@/lib/image-url";
 import { runRecalcHexFlow } from "@/lib/recalc-hex-flow";
 import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
 import { useReferenceData } from "@/hooks/use-reference-data";
@@ -762,7 +763,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                           className="inline-block"
                         >
                           <Image
-                            src={polish.swatchImageUrl}
+                            src={buildSwatchThumbnailUrl(polish.swatchImageUrl)}
                             alt={`${polish.brand} ${polish.name} swatch`}
                             width={40}
                             height={40}
