@@ -188,10 +188,13 @@ node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_U
 ## Known Issues
 
 - Voice handler stubs Speech-to-text and OpenAI parsing
+- **0-functions on deploy (issue #96):** Root cause was a telemetry startup crash: `applicationinsights` was imported as a default export and threw `TypeError: Cannot read properties of undefined (reading 'setup')` when `APPLICATIONINSIGHTS_CONNECTION_STRING` was set. `src/lib/telemetry.ts` now uses a namespace import and wraps setup in `try/catch` so telemetry can never block function indexing.
+- **sharp binary (issue #85):** The `sharp` import in `blob-storage.ts` uses a dynamic `await import("sharp")` inside the function body (lazy load) so that a missing sharp binary does not crash the worker at startup. If `sharp` cannot be loaded at runtime, the API logs a warning and continues with original image bytes. The CI build currently builds the native binary for the ubuntu runner's architecture; a proper fix (installing the linux-x64 prebuilt variant) is tracked in issue #85.
 
 ## Troubleshooting
 
 - If the Function App starts but no functions are listed, check startup logs for module resolution errors and confirm runtime dependencies (for example `jose` for auth JWT validation) are in `dependencies`, not only dev deps.
+- If logs show `Worker was unable to load entry point "dist/index.js": Cannot read properties of undefined (reading 'setup')`, verify `applicationinsights` is imported as a namespace (`import * as appInsights`) and that telemetry init is guarded so startup cannot crash.
 - AI hex detection diagnostics are logged under the `[ai-color-detection]` prefix, including retry attempts, delay timings, upstream status codes, and Azure request IDs (`x-request-id`/`apim-request-id`) for failed calls.
 - If Azure OpenAI returns `400 content_filter` for the primary vision prompt, the detector automatically retries once with a safer prompt. If still filtered, ingestion continues and leaves `detected_hex` empty for that record.
 - AI image detection uses base64 image payloads only. If base64 preparation fails for a record, detection is skipped and a warning is logged to the Admin Jobs stream.

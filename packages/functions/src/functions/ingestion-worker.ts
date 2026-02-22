@@ -240,6 +240,6 @@ async function ingestionJobWorker(
 
 app.storageQueue("ingestion-job-worker", {
   queueName: INGESTION_JOB_QUEUE_NAME,
-  connection: "AzureWebJobsStorage",
+  connection: "Storage",
   handler: ingestionJobWorker,
 });

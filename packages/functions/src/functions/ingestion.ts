@@ -45,7 +45,8 @@ const MAX_RECORDS = 200;
 const MAX_RECENT_DAYS = 3650;
 const DEFAULT_SEARCH_TERM = "nail polish";
 const JOB_TYPE_CONNECTOR_VERIFY = "connector_verify";
-const INGESTION_QUEUE_CONNECTION_SETTING = "AzureWebJobsStorage";
+// Queue bindings resolve this to the AzureWebJobsStorage app setting.
+const INGESTION_QUEUE_CONNECTION_SETTING = "Storage";
 
 export const INGESTION_JOB_QUEUE_NAME =
   (process.env.INGESTION_JOB_QUEUE_NAME || "ingestion-jobs").trim().toLowerCase();

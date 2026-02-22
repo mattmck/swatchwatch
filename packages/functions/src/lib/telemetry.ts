@@ -1,20 +1,25 @@
-import appInsights from "applicationinsights";
+import * as appInsights from "applicationinsights";
 
 const connectionString = process.env.APPLICATIONINSIGHTS_CONNECTION_STRING?.trim();
 
 let client: appInsights.TelemetryClient | null = null;
 
 if (connectionString) {
-  appInsights
-    .setup(connectionString)
-    // Request telemetry is already collected by Azure Functions runtime.
-    .setAutoCollectRequests(false)
-    .setAutoCollectDependencies(true)
-    .setAutoCollectExceptions(false)
-    .setAutoCollectConsole(false)
-    .start();
+  try {
+    appInsights
+      .setup(connectionString)
+      // Request telemetry is already collected by Azure Functions runtime.
+      .setAutoCollectRequests(false)
+      .setAutoCollectDependencies(true)
+      .setAutoCollectExceptions(false)
+      .setAutoCollectConsole(false)
+      .start();
 
-  client = appInsights.defaultClient;
+    client = appInsights.defaultClient;
+  } catch (error) {
+    // Telemetry setup must never crash the worker at startup.
+    console.error("[telemetry] Failed to initialize applicationinsights:", error);
+  }
 }
 
 function toProperties(
