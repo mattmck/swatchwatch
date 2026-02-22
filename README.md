@@ -149,6 +149,7 @@ This project is in early development. The web UI is now fully API-driven. See [K
 | [This README](README.md) | All developers | Setup, architecture, quick start |
 | [.github/copilot-instructions.md](.github/copilot-instructions.md) | AI coding agents | Conventions, patterns, decision rationale |
 | [docs/auth0-migration-checklist.md](docs/auth0-migration-checklist.md) | Product + engineering | Step-by-step Auth0 migration plan and rollout checklist |
+| [docs/stytch-migration-checklist.md](docs/stytch-migration-checklist.md) | Product + engineering | Step-by-step Stytch migration plan and rollout checklist |
 | [apps/web/README.md](apps/web/README.md) | Web developers | Web app architecture, components, routing |
 | [packages/functions/README.md](packages/functions/README.md) | Backend developers | API routes, handler patterns, local dev |
 | [packages/shared/README.md](packages/shared/README.md) | All developers | Shared types, how to add new types |
