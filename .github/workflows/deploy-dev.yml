@@ -117,12 +117,6 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
-      - name: Deploy to Azure Functions
-        uses: Azure/functions-action@v1
-        with:
-          app-name: 'swatchwatch-dev-func-j5jij0be'
-          package: 'packages/functions/.deploy'
-
       - name: Configure function auth settings
         run: |
           az functionapp config appsettings set \
@@ -137,11 +131,53 @@ jobs:
           AZURE_AD_B2C_TENANT: ${{ vars.AZURE_AD_B2C_TENANT || vars.NEXT_PUBLIC_B2C_TENANT }}
           AZURE_AD_B2C_CLIENT_ID: ${{ secrets.AZURE_AD_B2C_CLIENT_ID }}
 
+      - name: Deploy to Azure Functions
+        uses: Azure/functions-action@v1
+        with:
+          app-name: 'swatchwatch-dev-func-j5jij0be'
+          package: 'packages/functions/.deploy'
+
+      - name: Wait for function app to start
+        run: |
+          set -euo pipefail
+          APP_NAME="swatchwatch-dev-func-j5jij0be"
+          RESOURCE_GROUP="swatchwatch-dev-rg"
+          HOST_STATUS_URL="https://${APP_NAME}.azurewebsites.net/admin/host/status"
+          MASTER_KEY="$(az functionapp keys list \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query masterKey -o tsv)"
+          ATTEMPTS=18
+          SLEEP_SECONDS=10
+          for attempt in $(seq 1 "$ATTEMPTS"); do
+            echo "Waiting for host readiness ($attempt/$ATTEMPTS)..."
+            state=$(curl -sf -H "x-functions-key: $MASTER_KEY" "$HOST_STATUS_URL" \
+              | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('state','unknown'))" 2>/dev/null || echo "unavailable")
+            fn_count=$(curl -sf -H "x-functions-key: $MASTER_KEY" \
+              "https://${APP_NAME}.azurewebsites.net/admin/functions" \
+              | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+            echo "  host state=$state  functions=$fn_count"
+            if [ "$state" = "Running" ] && [ "$fn_count" -gt "0" ]; then
+              echo "Host is running with $fn_count function(s) registered."
+              break
+            fi
+            if [ "$attempt" -eq "$ATTEMPTS" ]; then
+              echo "Host did not reach Running state with registered functions after ${ATTEMPTS} attempts."
+              echo "Final host status:"
+              curl -sf -H "x-functions-key: $MASTER_KEY" "$HOST_STATUS_URL" || true
+              echo "Final functions list:"
+              curl -sf -H "x-functions-key: $MASTER_KEY" \
+                "https://${APP_NAME}.azurewebsites.net/admin/functions" || true
+              exit 1
+            fi
+            sleep "$SLEEP_SECONDS"
+          done
+
       - name: Smoke test deployed API
         run: |
           set -euo pipefail
           API_BASE="https://swatchwatch-dev-func-j5jij0be.azurewebsites.net/api"
-          ATTEMPTS=8
+          ATTEMPTS=6
           SLEEP_SECONDS=10
           AUTH_DEV_BYPASS_VALUE="$(echo "${AUTH_DEV_BYPASS:-false}" | tr '[:upper:]' '[:lower:]')"
 

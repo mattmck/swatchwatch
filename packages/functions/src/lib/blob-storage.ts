@@ -1,5 +1,4 @@
 import { createHash, createHmac } from "node:crypto";
-import sharp from "sharp";
 
 const AZURE_STORAGE_API_VERSION = "2023-11-03";
 const DEFAULT_SOURCE_IMAGE_CONTAINER = "source-images";
@@ -63,9 +62,9 @@ export function validateImageUpload(contentType: string, sizeBytes: number): str
 
 export async function stripImageMetadata(bytes: Buffer): Promise<Buffer> {
   try {
-    return await sharp(bytes, { failOn: "none" })
-      .rotate()
-      .toBuffer();
+    const sharpModule = await import("sharp");
+    const sharp = sharpModule.default;
+    return await sharp(bytes, { failOn: "none" }).rotate().toBuffer();
   } catch (error) {
     console.warn("[blob-storage] Failed to strip image metadata, using original bytes:", error);
     return bytes;
