@@ -91,7 +91,7 @@ jobs:
 
           # Install production-only deps into the self-contained deploy dir
           cd "$DEPLOY_DIR"
-          npm install --omit=dev --ignore-scripts
+          npm install --omit=dev
 
           # Guardrail: ensure the shared package is materialized (not symlinked)
           if [ -L "node_modules/swatchwatch-shared" ]; then

@@ -225,6 +225,7 @@ Dev deploy note:
 - Secret: `AZURE_AD_B2C_CLIENT_ID`
 - Tenant source: `AZURE_AD_B2C_TENANT` variable (falls back to `NEXT_PUBLIC_B2C_TENANT`)
 - Deployment packaging installs `swatchwatch-shared` from a local `.tgz` tarball (not a `file:` directory symlink) so `WEBSITE_RUN_FROM_PACKAGE` can resolve it reliably.
+- Build artifacts run npm install scripts (no `--ignore-scripts`) so native dependencies like `sharp` can hydrate their platform-specific binaries.
 - Post-deploy smoke tests:
   - `POST /api/voice` with a JSON body should return `400` (host reachable + routing works).
   - When `AUTH_DEV_BYPASS=true`, `GET /api/polishes?pageSize=1` with `Authorization: Bearer dev:1` should return `200` (auth + DB path).
