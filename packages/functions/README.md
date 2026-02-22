@@ -22,7 +22,7 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `POST` | `/api/polishes` | `createPolish` | `polishes.ts` | ✅ Live |
 | `PUT` | `/api/polishes/{id}` | `updatePolish` | `polishes.ts` | ✅ Live |
 | `DELETE` | `/api/polishes/{id}` | `deletePolish` | `polishes.ts` | ✅ Live |
-| `POST` | `/api/auth/validate` | `validateToken` | `auth.ts` | ✅ Live (dev bypass + B2C) |
+| `POST` | `/api/auth/validate` | `validateToken` | `auth.ts` | ✅ Live (dev bypass + Auth0/Stytch) |
 | `GET` | `/api/auth/config` | `getAuthConfig` | `auth.ts` | ✅ Working |
 | `GET` | `/api/catalog/search?q=` | `searchCatalog` | `catalog.ts` | ✅ Live |
 | `GET` | `/api/catalog/shade/{id}` | `getShade` | `catalog.ts` | ✅ Live |
@@ -33,10 +33,13 @@ All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpReques
 
 ### Authentication
 
-Polish CRUD endpoints require a `Bearer` token in the `Authorization` header. The auth middleware (`src/lib/auth.ts`) supports two modes:
+Polish CRUD endpoints require a `Bearer` token in the `Authorization` header. The auth middleware (`src/lib/auth.ts`) supports:
 
 - **Dev bypass** (`AUTH_DEV_BYPASS=true` in `local.settings.json`): accepts `Bearer dev:<userId>` tokens (e.g., `Bearer dev:1`) — maps directly to `app_user.user_id`. No cryptographic validation.
-- **Production** (B2C configured): validates JWTs against Azure AD B2C JWKS, extracts the `oid` claim, and upserts the user by `external_id`.
+- **Auth0 mode** (`AUTH_PROVIDER=auth0`): validates JWTs with Auth0 issuer/audience, extracts `sub`, and links identity via `user_identity`.
+- **Stytch mode** (`AUTH_PROVIDER=stytch`): validates session JWT via Stytch SDK, resolves user identity from Stytch session/user info, and links identity via `user_identity`.
+
+The first time a provider identity logs in, we link by provider subject; if not found, we link by verified email when available, otherwise create a new `app_user`.
 
 To protect a handler, wrap it with `withAuth`:
 
@@ -78,6 +81,7 @@ npm run migrate:create -- my-migration-name   # Create a new migration file
 | `004_add_expiration_date.sql` | Adds expiration_date column to user_inventory_item |
 | `005_seed_production_reference_data.sql` | Prod reference data: finish_type table, data sources, 49 brands, brand aliases, claims, retailers, affiliate programs, disclosure config, INCI ingredients, product lines |
 | `006_add_user_external_id.sql` | Adds `external_id` (B2C oid) and `email` to `app_user`; sets demo user external_id |
+| `007_add_user_identity_table.sql` | Adds provider-linked `user_identity` table and backfills legacy `external_id` rows |
 
 node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_URL` is the preferred connection method; it also falls back to individual `PG*` env vars (`PGHOST`, `PGPORT`, etc.).
 
@@ -110,6 +114,13 @@ node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_U
 ## Environment Variables
 
 Defined in `local.settings.json` (git-ignored values). See the root README for the full list. For production, secrets are injected via Key Vault references.
+
+Auth-specific variables:
+
+- `AUTH_DEV_BYPASS` — local-only bypass (`Bearer dev:<userId>`)
+- `AUTH_PROVIDER` — `auth0` or `stytch` when both configs are present
+- Auth0: `AUTH0_DOMAIN`, `AUTH0_AUDIENCE`, `AUTH0_ISSUER_BASE_URL`, `AUTH0_CLIENT_ID` (optional for `/auth/config`)
+- Stytch: `STYTCH_PROJECT_ID`, `STYTCH_SECRET`, `STYTCH_PUBLIC_TOKEN` (optional for `/auth/config`)
 
 ## Build
 
