@@ -1,6 +1,6 @@
 # Stytch Migration Checklist (SwatchWatch)
 
-This is a repo-specific migration checklist to replace Azure AD B2C/Entra B2C auth with Stytch for web login (email/password + passkeys), while keeping the Azure Functions API and PostgreSQL user model.
+This is a repo-specific migration checklist to replace Azure AD B2C/Entra B2C auth with Stytch for web login (email/password + passkeys + social login), while keeping the Azure Functions API and PostgreSQL user model.
 
 ## Scope
 
@@ -28,6 +28,7 @@ This means migration risk is moderate and mostly isolated.
 - Use Stytch Consumer authentication with:
   - Email + password
   - Passkeys (WebAuthn)
+  - OAuth social providers: Google, Facebook, Apple, GitHub
 - Keep API auth model as bearer JWT/session token verification in Functions.
 - Keep DB column `app_user.external_id`, but treat it as provider-agnostic.
 
@@ -39,6 +40,12 @@ This means migration risk is moderate and mostly isolated.
   - [ ] `http://localhost:3000`
   - [ ] Production web URL(s)
 - [ ] Enable email/password and passkeys.
+- [ ] Enable OAuth social providers:
+  - [ ] Google
+  - [ ] Facebook
+  - [ ] Apple
+  - [ ] GitHub
+- [ ] Configure each social provider app with dev/prod callback URLs.
 - [ ] Capture values needed by backend validation:
   - [ ] `project_id`
   - [ ] `secret` (server-side only)
@@ -87,7 +94,7 @@ This means migration risk is moderate and mostly isolated.
 
 - [ ] Update `packages/shared/src/types/user.ts`:
   - [ ] Replace B2C-specific `AuthConfig` fields with provider-neutral/Stytch-ready fields.
-  - [ ] Ensure `AuthProvider` still models identity providers cleanly.
+  - [ ] Ensure `AuthProvider` includes `email`, `google`, `facebook`, `apple`, `github`.
 - [ ] Re-export any new types in `packages/shared/src/index.ts` (if needed).
 - [ ] Update `packages/shared/README.md` type catalog.
 - [ ] Build shared package:
@@ -110,6 +117,11 @@ This means migration risk is moderate and mostly isolated.
   - [ ] Attach auth token for protected API calls.
   - [ ] Keep catalog endpoints unauthenticated.
 - [ ] Add login/logout UI entry points (if not present).
+- [ ] Add social login entry points/buttons:
+  - [ ] Continue with Google
+  - [ ] Continue with Facebook
+  - [ ] Continue with Apple
+  - [ ] Continue with GitHub
 - [ ] Gate protected pages/actions where needed.
 
 ### 3.3 UX requirements
@@ -118,6 +130,10 @@ This means migration risk is moderate and mostly isolated.
   - [ ] Sign up with email/password
   - [ ] Log in with email/password
   - [ ] Use passkey login
+  - [ ] Log in with Google
+  - [ ] Log in with Facebook
+  - [ ] Log in with Apple
+  - [ ] Log in with GitHub
   - [ ] Log out cleanly
 - [ ] Ensure fallback behavior if passkeys unavailable on device/browser.
 
@@ -167,7 +183,13 @@ This means migration risk is moderate and mostly isolated.
 
 ## Acceptance Criteria
 
-- [ ] A new user can complete sign-up/login with email/password and passkey.
+- [ ] A new user can complete sign-up/login with:
+  - [ ] Email/password
+  - [ ] Passkey
+  - [ ] Google
+  - [ ] Facebook
+  - [ ] Apple
+  - [ ] GitHub
 - [ ] Protected `/api/polishes*` calls succeed with authenticated token/session.
 - [ ] Unauthorized requests still return 401 consistently.
 - [ ] Existing CRUD functionality remains unchanged after auth cutover.
@@ -177,4 +199,3 @@ This means migration risk is moderate and mostly isolated.
   - [ ] `npm run build:web`
   - [ ] `npm run test --workspaces --if-present`
   - [ ] `npm run typecheck`
-

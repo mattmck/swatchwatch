@@ -1,6 +1,6 @@
 # Auth0 Migration Checklist (SwatchWatch)
 
-This is a repo-specific migration checklist to replace Azure AD B2C/Entra B2C auth with Auth0 for web login (email/password + passkeys), while keeping the Azure Functions API and PostgreSQL user model.
+This is a repo-specific migration checklist to replace Azure AD B2C/Entra B2C auth with Auth0 for web login (email/password + passkeys + social login), while keeping the Azure Functions API and PostgreSQL user model.
 
 ## Scope
 
@@ -28,6 +28,7 @@ This means migration risk is moderate and mostly isolated.
 - Use Auth0 Universal Login with:
   - Database connection (email/password)
   - Passkeys enabled for that database connection
+  - Social connections: Google, Facebook, Apple, GitHub
 - Keep API auth model as bearer JWT verification in Functions.
 - Keep DB column `app_user.external_id`, but treat it as provider-agnostic (`auth0|...` style subject).
 
@@ -46,6 +47,12 @@ This means migration risk is moderate and mostly isolated.
   - [ ] Production web origin
 - [ ] Create/enable database connection for email/password login.
 - [ ] Enable passkeys for that database connection.
+- [ ] Create/enable social connections:
+  - [ ] Google
+  - [ ] Facebook
+  - [ ] Apple
+  - [ ] GitHub
+- [ ] Configure each social provider app with dev/prod callback URLs.
 - [ ] Capture tenant values needed by backend JWT validation:
   - [ ] Auth0 domain
   - [ ] API audience (if using custom API)
@@ -95,7 +102,7 @@ This means migration risk is moderate and mostly isolated.
 
 - [ ] Update `packages/shared/src/types/user.ts`:
   - [ ] Replace B2C-specific `AuthConfig` fields with provider-neutral/Auth0-ready fields.
-  - [ ] Ensure `AuthProvider` can represent Auth0-backed identity (usually still `email`, `google`, etc.).
+  - [ ] Ensure `AuthProvider` includes `email`, `google`, `facebook`, `apple`, `github`.
 - [ ] Re-export any new types in `packages/shared/src/index.ts` (if needed).
 - [ ] Update `packages/shared/README.md` type catalog.
 - [ ] Build shared package:
@@ -122,6 +129,11 @@ This means migration risk is moderate and mostly isolated.
   - [ ] Attach Auth0 access token for protected API calls.
   - [ ] Keep catalog endpoints unauthenticated.
 - [ ] Add login/logout UI entry points (if not present).
+- [ ] Add social login entry points/buttons:
+  - [ ] Continue with Google
+  - [ ] Continue with Facebook
+  - [ ] Continue with Apple
+  - [ ] Continue with GitHub
 - [ ] Gate protected pages/actions where needed.
 
 ### 3.3 UX requirements
@@ -130,6 +142,10 @@ This means migration risk is moderate and mostly isolated.
   - [ ] Sign up with email/password
   - [ ] Log in with email/password
   - [ ] Use passkey login
+  - [ ] Log in with Google
+  - [ ] Log in with Facebook
+  - [ ] Log in with Apple
+  - [ ] Log in with GitHub
   - [ ] Log out cleanly
 - [ ] Ensure fallback behavior if passkeys unavailable on device/browser.
 
@@ -179,7 +195,13 @@ This means migration risk is moderate and mostly isolated.
 
 ## Acceptance Criteria
 
-- [ ] A new user can complete sign-up/login with email/password and passkey.
+- [ ] A new user can complete sign-up/login with:
+  - [ ] Email/password
+  - [ ] Passkey
+  - [ ] Google
+  - [ ] Facebook
+  - [ ] Apple
+  - [ ] GitHub
 - [ ] Protected `/api/polishes*` calls succeed with Auth0 bearer token.
 - [ ] Unauthorized requests still return 401 consistently.
 - [ ] Existing CRUD functionality remains unchanged after auth cutover.
@@ -189,4 +211,3 @@ This means migration risk is moderate and mostly isolated.
   - [ ] `npm run build:web`
   - [ ] `npm run test --workspaces --if-present`
   - [ ] `npm run typecheck`
-
