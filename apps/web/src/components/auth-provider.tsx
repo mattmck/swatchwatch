@@ -2,13 +2,21 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { MsalProvider } from "@azure/msal-react";
-import { PublicClientApplication, EventType } from "@azure/msal-browser";
+import {
+  PublicClientApplication,
+  EventType,
+  InteractionRequiredAuthError,
+} from "@azure/msal-browser";
 import {
   buildApiTokenScopes,
+  buildLoginRequestScopes,
   buildMsalConfig,
   buildPolicyQueryParameters,
 } from "@/lib/msal-config";
 import { setAccessToken } from "@/lib/auth-token";
+
+const TOKEN_REDIRECT_GUARD_KEY = "swatchwatch:token-redirect-at";
+const TOKEN_REDIRECT_GUARD_WINDOW_MS = 30_000;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const msalConfig = useMemo(() => buildMsalConfig(), []);
@@ -42,6 +50,24 @@ function MsalAuthProvider({
   const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
+    const maybeAcquireTokenInteractively = async () => {
+      if (typeof window === "undefined") {
+        return;
+      }
+      const now = Date.now();
+      const lastAttemptRaw = window.sessionStorage.getItem(TOKEN_REDIRECT_GUARD_KEY);
+      const lastAttempt = lastAttemptRaw ? Number(lastAttemptRaw) : 0;
+      if (Number.isFinite(lastAttempt) && now - lastAttempt < TOKEN_REDIRECT_GUARD_WINDOW_MS) {
+        return;
+      }
+
+      window.sessionStorage.setItem(TOKEN_REDIRECT_GUARD_KEY, String(now));
+      await msalInstance.acquireTokenRedirect({
+        scopes: buildLoginRequestScopes(),
+        extraQueryParameters: buildPolicyQueryParameters(),
+      });
+    };
+
     const init = async () => {
       await msalInstance.initialize();
 
@@ -71,9 +97,15 @@ function MsalAuthProvider({
               extraQueryParameters: buildPolicyQueryParameters(),
             });
             setAccessToken(result.accessToken);
-          } catch {
-            // Token expired or unavailable — user will need to log in again
+          } catch (error) {
+            // Silent token acquisition commonly fails when an interaction is required.
+            // Do not continue with null tokens forever (causes repeating 401s).
             setAccessToken(null);
+            console.warn("[Auth] acquireTokenSilent failed", error);
+            if (error instanceof InteractionRequiredAuthError) {
+              await maybeAcquireTokenInteractively();
+              return;
+            }
           }
         }
       }
