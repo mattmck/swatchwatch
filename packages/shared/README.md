@@ -21,7 +21,7 @@ The package is automatically linked via npm workspaces — no publishing require
 | `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps) |
 | `PolishUpdateRequest` | Partial create fields + required `id` |
 | `PolishListResponse` | Paginated list: `{ polishes, total, page, pageSize }` |
-| `PolishFilters` | Query params: brand, finish, color, tags, search, sort, pagination |
+| `PolishFilters` | Query params: brand/finish/color/tags/search plus scope/availability/tone, sort, and pagination |
 | `Brand` | Canonical brand entity (`brand_id`, `name_canonical`) |
 | `Shade` | Canonical shade entity (`shade_id`, `brand_id`, `shade_name_canonical`, `finish`, `collection`, etc.) |
 | `CatalogSearchResult` | Single search hit: shade with brand name and similarity score |

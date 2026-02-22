@@ -4,9 +4,9 @@ import { Suspense, useState, useEffect, useMemo, useCallback, useRef } from "rea
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import type { Polish } from "swatchwatch-shared";
+import type { Polish, PolishFilters } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
-import { listAllPolishes, recalcPolishHex, updatePolish } from "@/lib/api";
+import { listAllPolishes, listPolishes, recalcPolishHex, updatePolish } from "@/lib/api";
 import { undertone, type Undertone } from "@/lib/color-utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -158,6 +158,19 @@ function parsePageSize(value: string | null): number {
     : DEFAULT_PAGE_SIZE;
 }
 
+function toApiSortBy(sortKey: SortKey): PolishFilters["sortBy"] {
+  switch (sortKey) {
+    case "status":
+    case "brand":
+    case "name":
+    case "finish":
+    case "collection":
+      return sortKey;
+    default:
+      return "name";
+  }
+}
+
 type PolishesListQueryState = {
   search: string;
   scope: ResultsScope;
@@ -176,7 +189,7 @@ function buildPolishesListQueryString(state: PolishesListQueryState): string {
   if (state.scope !== "all") params.set("scope", state.scope);
   if (state.toneFilter !== "all") params.set("tone", state.toneFilter);
   if (state.finishFilter !== "all") params.set("finish", state.finishFilter);
-  if (state.availabilityFilter !== "all") params.set("avail", state.availabilityFilter);
+  if (state.availabilityFilter !== "all") params.set("availability", state.availabilityFilter);
   if (state.sortKey !== "name") params.set("sort", state.sortKey);
   if (state.sortDirection !== "asc") params.set("dir", state.sortDirection);
   if (state.page !== 1) params.set("page", String(state.page));
@@ -249,9 +262,10 @@ function PolishesPageContentBoundary({ isAdmin }: { isAdmin: boolean }) {
  * Render the "All Polishes" page: a searchable, filterable, sortable and paginated list of polishes with inline actions.
  *
  * The component initializes list state from the URL query parameters and keeps the URL in sync as filters,
- * sorting, or pagination change. It fetches polishes on mount, shows loading and error states, applies
- * text/tone/finish/availability filters, supports stable sorting and optional favoring of owned items,
- * and provides optimistic quantity updates. When `isAdmin` is true, admin-only actions (Recalc Hex) are exposed.
+ * sorting, or pagination change. It fetches paginated rows from the API on filter/sort/page changes, with
+ * a tone-filter fallback path that hydrates all rows to keep undertone filtering accurate. The UI then shows
+ * loading/error states and supports optimistic quantity updates. When `isAdmin` is true, admin-only actions
+ * (Recalc Hex) are exposed.
  *
  * @param isAdmin - If true, include admin-only controls (e.g., Recalc Hex) in the UI.
  * @returns The page's React element containing header, filter controls, table of polishes, and pagination.
@@ -262,6 +276,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const searchParams = useSearchParams();
   const didMountRef = useRef(false);
   const [polishes, setPolishes] = useState<Polish[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { finishTypes } = useReferenceData();
@@ -287,7 +302,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     parseFinishFilter(searchParams.get("finish"))
   );
   const [availabilityFilter, setAvailabilityFilter] = useState<AvailabilityFilter>(() =>
-    parseAvailabilityFilter(searchParams.get("avail"))
+    parseAvailabilityFilter(searchParams.get("availability") ?? searchParams.get("avail"))
   );
   const [sortKey, setSortKey] = useState<SortKey>(() =>
     parseSortKey(searchParams.get("sort"))
@@ -304,22 +319,62 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const [recalcPendingById, setRecalcPendingById] = useState<
     Record<string, boolean>
   >({});
+  const [debouncedSearch, setDebouncedSearch] = useState(() => searchParams.get("q") ?? "");
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 200);
+    return () => window.clearTimeout(timeoutId);
+  }, [search]);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function fetchPolishes() {
+    async function fetchPolishesPage() {
       try {
         setLoading(true);
         setError(null);
 
-        const allPolishes = await listAllPolishes({
-          sortBy: "createdAt",
-          sortOrder: "desc",
+        const baseFilters: Omit<PolishFilters, "page" | "pageSize" | "tone"> = {
+          search: debouncedSearch.trim() || undefined,
+          finish: finishFilter !== "all" ? (finishFilter as PolishFilters["finish"]) : undefined,
+          scope,
+          availability: availabilityFilter,
+          sortBy: toApiSortBy(sortKey),
+          sortOrder: sortDirection,
+        };
+
+        if (toneFilter !== "all") {
+          const allRows = await listAllPolishes(baseFilters);
+          const toneRows = allRows.filter((polish) => {
+            const hex = resolveDisplayHex(polish);
+            return hex ? undertone(hex) === toneFilter : false;
+          });
+          const nextTotal = toneRows.length;
+          const totalPagesForTone = Math.ceil(nextTotal / pageSize);
+          const safePage = totalPagesForTone > 0 ? Math.min(page, totalPagesForTone) : 1;
+          const pagedRows = toneRows.slice((safePage - 1) * pageSize, safePage * pageSize);
+
+          if (!cancelled) {
+            setPolishes(pagedRows);
+            setTotal(nextTotal);
+            if (safePage !== page) {
+              setPage(safePage);
+            }
+          }
+          return;
+        }
+
+        const response = await listPolishes({
+          ...baseFilters,
+          page,
+          pageSize,
         });
 
         if (!cancelled) {
-          setPolishes(allPolishes);
+          setPolishes(response.polishes);
+          setTotal(response.total);
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Failed to load polishes";
@@ -332,12 +387,22 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
         }
       }
     }
-    fetchPolishes();
+    void fetchPolishesPage();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [
+    availabilityFilter,
+    debouncedSearch,
+    finishFilter,
+    page,
+    pageSize,
+    scope,
+    sortDirection,
+    sortKey,
+    toneFilter,
+  ]);
 
   // Reset page when filters change (but keep initial URL-restored page).
   useEffect(() => {
@@ -396,83 +461,12 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   ]);
 
   const isOwned = (p: Polish) => (p.quantity ?? 0) > 0;
-
-  const filtered = useMemo(() => {
-    let result = polishes;
-
-    // Text search
-    if (search) {
-      const q = search.toLowerCase();
-      result = result.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.brand.toLowerCase().includes(q) ||
-          (p.color && p.color.toLowerCase().includes(q)) ||
-          (p.collection && p.collection.toLowerCase().includes(q)) ||
-          (p.notes && p.notes.toLowerCase().includes(q))
-      );
-    }
-
-    // My Collection scope = owned only
-    if (scope === "collection") {
-      result = result.filter(isOwned);
-    }
-
-    if (toneFilter !== "all") {
-      result = result.filter((p) => {
-        const hex = resolveDisplayHex(p);
-        return hex && undertone(hex) === toneFilter;
-      });
-    }
-
-    if (finishFilter !== "all") {
-      result = result.filter((p) => p.finish === finishFilter);
-    }
-
-    if (availabilityFilter !== "all") {
-      result = result.filter((p) =>
-        availabilityFilter === "owned" ? isOwned(p) : !isOwned(p)
-      );
-    }
-
-    return result;
-  }, [polishes, search, scope, toneFilter, finishFilter, availabilityFilter]);
-
-  const sorted = useMemo(() => {
-    const result = [...filtered];
-
-    const normalize = (value: string | null | undefined) => (value ?? "").toLowerCase();
-    const compare = (a: Polish, b: Polish): number => {
-      switch (sortKey) {
-        case "status": {
-          const aOwned = isOwned(a) ? 0 : 1;
-          const bOwned = isOwned(b) ? 0 : 1;
-          return aOwned - bOwned;
-        }
-        case "brand":
-          return normalize(a.brand).localeCompare(normalize(b.brand));
-        case "name":
-          return normalize(a.name).localeCompare(normalize(b.name));
-        case "finish":
-          return normalize(a.finish).localeCompare(normalize(b.finish));
-        case "collection":
-          return normalize(a.collection).localeCompare(normalize(b.collection));
-        default:
-          return 0;
-      }
-    };
-
-    result.sort((a, b) => {
-      const primary = compare(a, b);
-      if (primary !== 0) return sortDirection === "asc" ? primary : -primary;
-
-      const byName = normalize(a.name).localeCompare(normalize(b.name));
-      if (byName !== 0) return byName;
-      return normalize(a.brand).localeCompare(normalize(b.brand));
-    });
-
-    return result;
-  }, [filtered, sortKey, sortDirection]);
+  const hasActiveFilters =
+    search.trim().length > 0 ||
+    scope !== "all" ||
+    toneFilter !== "all" ||
+    finishFilter !== "all" ||
+    availabilityFilter !== "all";
 
   const handleSort = useCallback((key: SortKey) => {
     if (sortKey === key) {
@@ -496,8 +490,8 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     return sortDirection === "asc" ? "ascending" : "descending";
   };
 
-  const totalPages = Math.ceil(sorted.length / pageSize);
-  const pageItems = sorted.slice((page - 1) * pageSize, page * pageSize);
+  const totalPages = Math.ceil(total / pageSize);
+  const pageItems = polishes;
   const columnCount = 9 + (isAdmin ? 1 : 0);
 
   useEffect(() => {
@@ -558,7 +552,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
         <div>
           <h1 className="heading-page">All Polishes</h1>
           <p className="text-muted-foreground">
-            {polishes.length} polishes &middot; {sorted.length} shown
+            {total} polishes &middot; {polishes.length} shown
           </p>
         </div>
         <Button asChild>
@@ -734,10 +728,10 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
               <TableRow>
                 <TableCell colSpan={columnCount} className="p-0">
                   <EmptyState
-                    title={polishes.length === 0 ? "No polishes yet" : "No matches"}
-                    description={polishes.length === 0 ? "Add your first polish to get started." : "Try adjusting your filters."}
-                    actionLabel={polishes.length === 0 ? "+ Add Polish" : undefined}
-                    actionHref={polishes.length === 0 ? "/polishes/new" : undefined}
+                    title={hasActiveFilters ? "No matches" : "No polishes yet"}
+                    description={hasActiveFilters ? "Try adjusting your filters." : "Add your first polish to get started."}
+                    actionLabel={hasActiveFilters ? undefined : "+ Add Polish"}
+                    actionHref={hasActiveFilters ? undefined : "/polishes/new"}
                   />
                 </TableCell>
               </TableRow>
@@ -852,7 +846,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       <Pagination
         currentPage={page}
         totalPages={totalPages}
-        totalItems={sorted.length}
+        totalItems={total}
         pageSize={pageSize}
         onPageChange={setPage}
         onPageSizeChange={(newSize) => {
