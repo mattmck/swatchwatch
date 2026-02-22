@@ -97,32 +97,50 @@ export async function listPolishes(filters?: PolishFilters): Promise<PolishListR
 export async function listAllPolishes(
   filters?: Omit<PolishFilters, "page" | "pageSize"> & { pageSize?: number }
 ): Promise<Polish[]> {
-  const pageSize = Math.min(100, Math.max(1, filters?.pageSize ?? 100));
-  const allPolishes: Polish[] = [];
-  let currentPage = 1;
-  let total = 0;
+  const dedupeKey = JSON.stringify({
+    ...(filters ?? {}),
+    pageSize: filters?.pageSize ?? 100,
+  });
 
-  do {
-    const response = await listPolishes({
-      ...filters,
-      page: currentPage,
-      pageSize,
-    });
+  if (!listAllPolishesInFlight.has(dedupeKey)) {
+    listAllPolishesInFlight.set(
+      dedupeKey,
+      (async () => {
+        const pageSize = Math.min(100, Math.max(1, filters?.pageSize ?? 100));
+        const allPolishes: Polish[] = [];
+        let currentPage = 1;
+        let total = 0;
 
-    allPolishes.push(...response.polishes);
-    total = response.total;
-    currentPage += 1;
+        do {
+          const response = await listPolishes({
+            ...filters,
+            page: currentPage,
+            pageSize,
+          });
 
-    if (response.polishes.length === 0) {
-      break;
-    }
-  } while (allPolishes.length < total);
+          allPolishes.push(...response.polishes);
+          total = response.total;
+          currentPage += 1;
 
-  // Defensive de-dupe by inventory item id in case of overlapping pages.
-  return Array.from(
-    new Map(allPolishes.map((polish) => [polish.id, polish])).values()
-  );
+          if (response.polishes.length === 0) {
+            break;
+          }
+        } while (allPolishes.length < total);
+
+        // Defensive de-dupe by inventory item id in case of overlapping pages.
+        return Array.from(
+          new Map(allPolishes.map((polish) => [polish.id, polish])).values()
+        );
+      })().finally(() => {
+        listAllPolishesInFlight.delete(dedupeKey);
+      })
+    );
+  }
+
+  return listAllPolishesInFlight.get(dedupeKey) as Promise<Polish[]>;
 }
+
+const listAllPolishesInFlight = new Map<string, Promise<Polish[]>>();
 
 export async function getPolish(id: string | number): Promise<Polish> {
   const response = await fetch(`${API_BASE_URL}/polishes/${id}`, {
