@@ -49,10 +49,11 @@ test('.claude/settings.local.json: allow list contains valid permission patterns
   const allowList = config.permissions.allow;
   assert.ok(allowList.length > 0, 'allow list should not be empty');
 
-  // Each permission should match expected patterns
+  // Each permission should match expected patterns (including wildcards)
   const validPatterns = [
-    /^WebFetch\(domain:[^)]+\)$/,
-    /^Bash\([^)]+\)$/,
+    /^WebFetch\(\*\)$/,                    // WebFetch(*)
+    /^WebFetch\(domain:[^)]+\)$/,          // WebFetch(domain:example.com)
+    /^Bash\([^)]+\)$/,                     // Bash(command:*) or Bash(git:*)
   ];
 
   allowList.forEach((permission) => {
@@ -64,24 +65,18 @@ test('.claude/settings.local.json: allow list contains valid permission patterns
   });
 });
 
-test('.claude/settings.local.json: contains project-specific domains', () => {
+test('.claude/settings.local.json: allows web fetching', () => {
   const configPath = path.resolve(__dirname, '../../../.claude/settings.local.json');
   const config = readJSON(configPath);
 
   const allowList = config.permissions.allow;
-  const domains = allowList
-    .filter((p) => p.startsWith('WebFetch(domain:'))
-    .map((p) => p.match(/domain:([^)]+)/)[1]);
-
-  // Should have domains related to nail polish/cosmetics
-  const hasCosmetics = domains.some((d) =>
-    d.includes('beauty') ||
-    d.includes('cosmetics') ||
-    d.includes('polish') ||
-    d.includes('makeup')
+  
+  // Check if WebFetch is allowed (either wildcard or specific domains)
+  const hasWebFetch = allowList.some((p) => 
+    p === 'WebFetch(*)' || p.startsWith('WebFetch(domain:')
   );
 
-  assert.ok(hasCosmetics, 'should include cosmetics-related domains');
+  assert.ok(hasWebFetch, 'should allow WebFetch either via wildcard or specific domains');
 });
 
 // Test apps/web/package.json

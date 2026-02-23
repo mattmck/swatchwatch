@@ -91,7 +91,7 @@ jobs:
 
           # Install production-only deps into the self-contained deploy dir
           cd "$DEPLOY_DIR"
-          npm install --omit=dev
+          npm install --omit=dev --ignore-scripts
 
           # Guardrail: ensure the shared package is materialized (not symlinked)
           if [ -L "node_modules/swatchwatch-shared" ]; then
@@ -117,6 +117,12 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
+      - name: Deploy to Azure Functions
+        uses: Azure/functions-action@v1
+        with:
+          app-name: 'swatchwatch-dev-func-j5jij0be'
+          package: 'packages/functions/.deploy'
+
       - name: Configure function auth settings
         run: |
           az functionapp config appsettings set \
@@ -125,15 +131,63 @@ jobs:
             --settings \
               AUTH_DEV_BYPASS="$AUTH_DEV_BYPASS" \
               AZURE_AD_B2C_TENANT="$AZURE_AD_B2C_TENANT" \
-              AZURE_AD_B2C_CLIENT_ID="$AZURE_AD_B2C_CLIENT_ID"
+              AZURE_AD_B2C_CLIENT_ID="$AZURE_AD_B2C_CLIENT_ID" \
+              FUNCTIONS_NODE_BLOCK_ON_ENTRY_POINT_ERROR="true"
         env:
           AUTH_DEV_BYPASS: ${{ vars.AUTH_DEV_BYPASS }}
           AZURE_AD_B2C_TENANT: ${{ vars.AZURE_AD_B2C_TENANT || vars.NEXT_PUBLIC_B2C_TENANT }}
           AZURE_AD_B2C_CLIENT_ID: ${{ secrets.AZURE_AD_B2C_CLIENT_ID }}
 
-      - name: Deploy to Azure Functions
-        uses: Azure/functions-action@v1
-        with:
-          app-name: 'swatchwatch-dev-func-j5jij0be'
-          package: 'packages/functions/.deploy'
+      - name: Smoke test deployed API
+        run: |
+          set -euo pipefail
+          API_BASE="https://swatchwatch-dev-func-j5jij0be.azurewebsites.net/api"
+          ATTEMPTS=8
+          SLEEP_SECONDS=10
+          AUTH_DEV_BYPASS_VALUE="$(echo "${AUTH_DEV_BYPASS:-false}" | tr '[:upper:]' '[:lower:]')"
 
+          VOICE_URL="$API_BASE/voice"
+          echo "Smoke test 1/2: route liveness ($VOICE_URL)"
+          for attempt in $(seq 1 "$ATTEMPTS"); do
+            echo "Attempt $attempt/$ATTEMPTS..."
+            status_code=$(curl -sS -o /tmp/swatchwatch-smoke-voice-body.json -w "%{http_code}" \
+              -X POST "$VOICE_URL" \
+              -H "Content-Type: application/json" \
+              --data '{"probe":"smoke-test"}' || true)
+
+      - name: Sync Functions triggers
+        run: |
+          az functionapp sync-functions \
+            --name 'swatchwatch-dev-func-j5jij0be' \
+            --resource-group 'swatchwatch-dev-rg'
+
+      - name: Smoke check function routes
+        run: |
+          set -euo pipefail
+
+          API_BASE='https://swatchwatch-dev-func-j5jij0be.azurewebsites.net/api'
+
+          voice_status=$(curl -sS -o /tmp/voice.json -w "%{http_code}" \
+            -H 'Content-Type: application/json' \
+            -X POST "$API_BASE/voice" \
+            -d '{"audioData":""}')
+
+          if [ "$voice_status" != "400" ]; then
+            echo "Expected POST /api/voice to return 400, got $voice_status"
+            cat /tmp/voice.json || true
+            exit 1
+          fi
+
+          if [ "${AUTH_DEV_BYPASS:-false}" = "true" ]; then
+            polishes_status=$(curl -sS -o /tmp/polishes.json -w "%{http_code}" \
+              -H 'Authorization: Bearer dev:1' \
+              "$API_BASE/polishes?pageSize=1")
+
+            if [ "$polishes_status" != "200" ]; then
+              echo "Expected GET /api/polishes?pageSize=1 to return 200 when AUTH_DEV_BYPASS=true, got $polishes_status"
+              cat /tmp/polishes.json || true
+              exit 1
+            fi
+          fi
+        env:
+          AUTH_DEV_BYPASS: ${{ vars.AUTH_DEV_BYPASS }}

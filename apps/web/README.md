@@ -20,11 +20,11 @@ src/app/
 │   └── page.tsx                  → /           Landing page (hero, features, interactive showcase, testimonials, CTA)
 ├── (admin)/
 │   └── admin/
-│       ├── page.tsx              → /admin  Unified admin console (tabs: Configuration, Job Runs, Admin Jobs)
+│       ├── page.tsx              → /admin  Unified admin console (tabs: Configuration, Job Runs, Admin Jobs). Renders with RequireAuth + AppShell at the page level.
 │       └── reference-data/
-│           ├── page.tsx          → /admin/reference-data  Legacy route redirect to `/admin?tab=configuration`
+│           ├── page.tsx          → /admin/reference-data  Legacy redirect → `/admin?tab=configuration`
 │           └── components/
-│               ├── jobs-tab.tsx  → Jobs tab (list `/api/reference-admin/jobs`, status/error inspection, filtering)
+│               ├── jobs-tab.tsx  → Job Runs tab (list `/api/reference-admin/jobs`, status/error inspection, filtering)
 │               └── config-tab.tsx → Configuration tab (finish/harmony CRUD + finish-normalization alias CRUD)
 ├── (app)/
 │   ├── layout.tsx                → App layout (AppShell sidebar wrapper)

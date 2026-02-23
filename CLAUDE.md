@@ -73,7 +73,9 @@ The web app uses Next.js route groups to separate public marketing pages from th
 |-------|------|-------|
 | `/` | `src/app/(marketing)/page.tsx` | Landing page — hero, features, color showcase, CTA |
 | `/dashboard` | `src/app/(app)/dashboard/page.tsx` | Client component, stats + recent additions |
-| `/admin/jobs` | `src/app/(app)/admin/jobs/page.tsx` | Client component, run ingestion jobs + monitor status/change metrics |
+| `/admin` | `src/app/(admin)/admin/page.tsx` | Unified admin console — tabs: Configuration, Job Runs, Admin Jobs |
+| `/admin/reference-data` | `src/app/(admin)/admin/reference-data/page.tsx` | Legacy redirect → `/admin?tab=configuration` |
+| `/admin/jobs` | `src/app/(app)/admin/jobs/page.tsx` | Legacy redirect → `/admin?tab=admin-jobs` |
 | `/polishes` | `src/app/(app)/polishes/page.tsx` | Client component, filterable/sortable table |
 | `/polishes/new` | `src/app/(app)/polishes/new/page.tsx` | Client component, form with color picker + star rating |
 | `/polishes/detail` | `src/app/(app)/polishes/detail/page.tsx` | Client component, detail shell driven by query params |
@@ -84,25 +86,34 @@ The web app uses Next.js route groups to separate public marketing pages from th
 **Route groups:**
 - `(marketing)` — Public pages with glass header + footer (no sidebar)
 - `(app)` — Authenticated app pages wrapped in `AppShell` (sidebar navigation)
+- `(admin)` — Admin-only pages with `RequireAuth` + `AppShell` at the page level
 
 ## Known State & TODOs
 
 This project is in early development. The web UI is now fully API-driven. Backend handlers have placeholder/stub implementations marked with `TODO` comments:
-- Voice processing in `voice.ts` stubs Speech-to-text and OpenAI parsing
-- `packages/functions` defines a local `Polish` interface that duplicates `packages/shared` — new code should import from `swatchwatch-shared` instead
-- Infrastructure is now on Azure Database for PostgreSQL Flexible Server
+- Voice processing in `voice.ts` stubs Speech-to-text and OpenAI parsing (returns empty transcription + zero-confidence parsed details)
 
 **Completed (M0):**
 - ✅ JWT validation in `packages/functions/src/lib/auth.ts` — Full JWKS-based validation with dev bypass mode, user auto-creation on first login
 - ✅ Web app B2C auth wiring — MSAL integration with graceful dev bypass fallback, auth guards on `(app)` routes, real user display in sidebar
+- ✅ Unified admin console at `/admin` — Configuration (finish/harmony CRUD + finish-normalization aliases), Job Runs (reference-admin job history), Admin Jobs (ingestion pipeline)
+- ✅ Capture API — barcode/label/color frame submission with adaptive question flow (`capture.ts`)
+- ✅ Catalog search — `pg_trgm`-based fuzzy search across brand/shade names and aliases (`catalog.ts`)
+- ✅ Image proxy — private blob storage served through `/api/images/{id}` (`images.ts`)
+- ✅ Connector ingestion pipeline — async queue-backed jobs for OpenBeautyFacts, MakeupAPI, HoloTacoShopify, and generic Shopify sources
+- ✅ AI hex detection — Azure OpenAI vision-based `detected_hex` from product images, with `recalc-hex` admin endpoint
+- ✅ Reference data management — `finish_type`, `harmony_type`, `finish_normalization` tables with admin CRUD and public read endpoints
 
 ## Environment Variables (Functions)
 
 Defined in `packages/functions/local.settings.json`. Required secrets:
 `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `AZURE_STORAGE_CONNECTION`, `INGESTION_JOB_QUEUE_NAME`, `SOURCE_IMAGE_CONTAINER`, `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, `AZURE_OPENAI_DEPLOYMENT_HEX`, `AZURE_AD_B2C_TENANT`, `AZURE_AD_B2C_CLIENT_ID`
 
-Optional telemetry:
-`APPLICATIONINSIGHTS_CONNECTION_STRING`
+Optional:
+- `AUTH_DEV_BYPASS` — enables `Bearer dev:<userId>` tokens for local dev (keep `false` outside isolated dev)
+- `AZURE_OPENAI_DEPLOYMENT` — fallback deployment name when `AZURE_OPENAI_DEPLOYMENT_HEX` is unset
+- `BLOB_READ_SAS_TTL_SECONDS` — signed read URL TTL for blob-backed images (default: `3600`)
+- `APPLICATIONINSIGHTS_CONNECTION_STRING` — custom telemetry sink for `trackEvent`/`trackMetric`/`trackException`
 
 ## Adding a New Azure Function
 

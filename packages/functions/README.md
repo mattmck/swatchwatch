@@ -68,7 +68,7 @@ All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpReques
 `GET /api/polishes` now returns the entire canonical shade catalog joined with the requesting user's inventory rows. `inventoryItemId` and user-facing fields are undefined when the user has not added that shade yet, but catalog metadata (brand, finish, color hexes, swatch) is still returned so the UI can show "not owned" entries. `GET /api/polishes/{id}` looks up a shade by `shade_id` and includes `sourceImageUrls` (all source images associated with that shade's swatches) for the detail page.
 For private blob storage, the API rewrites blob URLs to `/api/images/{id}` so image bytes are served through Functions (no public container access or client-side SAS required).
 `POST /api/polishes/{id}/recalc-hex` is admin-only, fetches the latest swatch image for the shade, runs Azure OpenAI hex detection, updates `detected_hex`, and returns a 200 with the detected hex and confidence (or a 422 if no image is available for detection). Vendor context is derived from shade metadata (for example `finish`) so the endpoint does not depend on source-specific external IDs.
-Image uploads now enforce a shared validation policy (`maxSizeBytes=5MB`; allowed mime types: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif`, `image/gif`) used by capture-frame data URLs and source-image ingestion. Source image bytes are auto-oriented and metadata-stripped with `sharp` before checksum generation and blob upload. If `sharp` cannot be loaded at runtime, the API logs a warning and continues with original image bytes.
+Image uploads now enforce a shared validation policy (`maxSizeBytes=5MB`; allowed mime types: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif`, `image/gif`) used by capture-frame data URLs and source-image ingestion. Source image bytes are auto-oriented and metadata-stripped with `sharp` before checksum generation and blob upload.
 
 Reference endpoints:
 - `GET /api/reference/finishes` and `GET /api/reference/harmonies` are public read endpoints for UI lookup data, sorted by `sort_order` and served with cache headers.
@@ -155,10 +155,19 @@ npm run migrate:create -- my-migration-name   # Create a new migration file
 | `001_initial_schema.sql` | Full schema: catalog, swatches, matching, users, inventory, capture, retail, provenance |
 | `002_add_user_facing_columns.sql` | Adds color_name, color_hex, rating, tags, size_display, updated_at to user_inventory_item |
 | `003_seed_dev_data.sql` | Inserts brands, shades, demo user, and 20 inventory items |
+| `004_add_expiration_date.sql` | Adds expiration_date to user_inventory_item |
+| `005_seed_production_reference_data.sql` | Seeds production reference data |
+| `006_add_user_external_id.sql` | Adds external_id column to app_user for Entra identity linking |
 | `007_add_makeup_api_data_source.sql` | Registers `MakeupAPI` in `data_source` for connector ingestion |
 | `008_add_holo_taco_shopify_data_source.sql` | Registers `HoloTacoShopify` in `data_source` for connector ingestion |
 | `009_add_admin_role_and_ingestion_queue_support.sql` | Adds `app_user.role`, seeds dev admin user (`user_id=2`), supports admin-gated async ingestion flow |
+| `010_add_ingestion_settings.sql` | Adds per-source and global ingestion settings tables |
+| `011_split_color_hex.sql` | Splits monolithic color_hex into vendor_hex, detected_hex, name_hex fields |
+| `012_move_color_data_to_shade.sql` | Moves color fields from user_inventory_item to the canonical shade table |
 | `013_shade_catalog_visibility.sql` | Adds timestamps to `shade`, enforces one `user_inventory_item` per user/shade to support catalog-wide visibility |
+| `014_add_user_inventory_unique_constraint.sql` | Adds unique constraint on (user_id, shade_id) in user_inventory_item |
+| `015_normalize_finish_creme.sql` | Normalizes finish values (cream → creme) across existing data |
+| `016_add_shade_detected_finishes.sql` | Adds detected_finishes array column to shade for AI-extracted finish tags |
 | `017_add_admin_support.sql` | Adds `finish_type` audit columns and creates/seeds `harmony_type` for admin-managed reference data |
 | `018_add_finish_normalizations.sql` | Adds editable `finish_normalization` mappings (source alias → canonical finish name) for AI/vendor finish parsing |
 
@@ -188,13 +197,10 @@ node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_U
 ## Known Issues
 
 - Voice handler stubs Speech-to-text and OpenAI parsing
-- **0-functions on deploy (issue #96):** Root cause was a telemetry startup crash: `applicationinsights` was imported as a default export and threw `TypeError: Cannot read properties of undefined (reading 'setup')` when `APPLICATIONINSIGHTS_CONNECTION_STRING` was set. `src/lib/telemetry.ts` now uses a namespace import and wraps setup in `try/catch` so telemetry can never block function indexing.
-- **sharp binary (issue #85):** The `sharp` import in `blob-storage.ts` uses a dynamic `await import("sharp")` inside the function body (lazy load) so that a missing sharp binary does not crash the worker at startup. If `sharp` cannot be loaded at runtime, the API logs a warning and continues with original image bytes. The CI build currently builds the native binary for the ubuntu runner's architecture; a proper fix (installing the linux-x64 prebuilt variant) is tracked in issue #85.
 
 ## Troubleshooting
 
 - If the Function App starts but no functions are listed, check startup logs for module resolution errors and confirm runtime dependencies (for example `jose` for auth JWT validation) are in `dependencies`, not only dev deps.
-- If logs show `Worker was unable to load entry point "dist/index.js": Cannot read properties of undefined (reading 'setup')`, verify `applicationinsights` is imported as a namespace (`import * as appInsights`) and that telemetry init is guarded so startup cannot crash.
 - AI hex detection diagnostics are logged under the `[ai-color-detection]` prefix, including retry attempts, delay timings, upstream status codes, and Azure request IDs (`x-request-id`/`apim-request-id`) for failed calls.
 - If Azure OpenAI returns `400 content_filter` for the primary vision prompt, the detector automatically retries once with a safer prompt. If still filtered, ingestion continues and leaves `detected_hex` empty for that record.
 - AI image detection uses base64 image payloads only. If base64 preparation fails for a record, detection is skipped and a warning is logged to the Admin Jobs stream.
@@ -229,6 +235,8 @@ Dev deploy note:
 - Tenant source: `AZURE_AD_B2C_TENANT` variable (falls back to `NEXT_PUBLIC_B2C_TENANT`)
 - Deployment packaging installs `swatchwatch-shared` from a local `.tgz` tarball (not a `file:` directory symlink) so `WEBSITE_RUN_FROM_PACKAGE` can resolve it reliably.
 - Build artifacts run npm install scripts (no `--ignore-scripts`) so native dependencies like `sharp` can hydrate their platform-specific binaries.
+- The workflow sets `FUNCTIONS_NODE_BLOCK_ON_ENTRY_POINT_ERROR=true` so entrypoint/import failures hard-fail startup instead of surfacing as misleading route-level `404` responses.
+- The workflow explicitly runs `az functionapp sync-functions` after zip deployment to force trigger refresh.
 - Post-deploy smoke tests:
   - `POST /api/voice` with a JSON body should return `400` (host reachable + routing works).
   - When `AUTH_DEV_BYPASS=true`, `GET /api/polishes?pageSize=1` with `Authorization: Bearer dev:1` should return `200` (auth + DB path).
