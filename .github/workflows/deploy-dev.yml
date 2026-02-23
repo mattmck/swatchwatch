@@ -198,12 +198,6 @@ jobs:
 
 
 
-      - name: Sync Functions triggers
-        run: |
-          az functionapp sync-functions \
-            --name 'swatchwatch-dev-func-j5jij0be' \
-            --resource-group 'swatchwatch-dev-rg'
-
       - name: Smoke check function routes
         run: |
           set -euo pipefail
