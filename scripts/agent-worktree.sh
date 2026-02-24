@@ -83,24 +83,15 @@ if [ -n "${SOURCE_LOCAL_SETTINGS:-}" ]; then
   copy_if_present "$SOURCE_LOCAL_SETTINGS" "$WORKTREE_DIR/packages/functions/local.settings.json" "packages/functions/local.settings.json"
 elif [ ! -f "$WORKTREE_DIR/packages/functions/local.settings.json" ]; then
   mkdir -p "$WORKTREE_DIR/packages/functions"
-  cat > "$WORKTREE_DIR/packages/functions/local.settings.json" <<'SETTINGS'
-{
-  "IsEncrypted": false,
-  "Values": {
-    "FUNCTIONS_WORKER_RUNTIME": "node",
-    "AzureWebJobsStorage": "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;QueueEndpoint=http://127.0.0.1:10001/devstoreaccount1;TableEndpoint=http://127.0.0.1:10002/devstoreaccount1;",
-    "AZURE_STORAGE_CONNECTION": "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;QueueEndpoint=http://127.0.0.1:10001/devstoreaccount1;TableEndpoint=http://127.0.0.1:10002/devstoreaccount1;",
-    "SOURCE_IMAGE_CONTAINER": "source-images",
-    "PGHOST": "localhost",
-    "PGPORT": "55432",
-    "PGDATABASE": "swatchwatch",
-    "PGUSER": "postgres",
-    "PGPASSWORD": "swatchwatch_dev",
-    "AUTH_DEV_BYPASS": "true"
-  }
-}
-SETTINGS
-  echo "Created packages/functions/local.settings.json with dev defaults (no existing file found to copy)."
+  # Fall back to the committed example file — it is the canonical reference for all settings.
+  EXAMPLE_FILE="$WORKTREE_DIR/packages/functions/local.settings.json.example"
+  if [ -f "$EXAMPLE_FILE" ]; then
+    cp "$EXAMPLE_FILE" "$WORKTREE_DIR/packages/functions/local.settings.json"
+    echo "Created packages/functions/local.settings.json from local.settings.json.example."
+    echo "  → Fill in <YOUR_*> placeholders before starting the Functions host."
+  else
+    echo "⚠ No local.settings.json or local.settings.json.example found. Create packages/functions/local.settings.json manually."
+  fi
 fi
 
 echo "Installing dependencies..."
