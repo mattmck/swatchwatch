@@ -100,6 +100,6 @@ output "redis_hostname" {
 
 output "redis_primary_access_key" {
   description = "Azure Managed Redis primary access key"
-  value       = azurerm_managed_redis.main.primary_access_key
+  value       = azurerm_managed_redis.main.default_database[0].primary_access_key
   sensitive   = true
 }

@@ -120,7 +120,7 @@ resource "azurerm_key_vault" "main" {
   purge_protection_enabled   = false # Set true for production
   soft_delete_retention_days = 7
 
-  enable_rbac_authorization = false # Using access policies for simplicity
+  rbac_authorization_enabled = false # Using access policies for simplicity
 }
 
 
@@ -306,7 +306,7 @@ resource "azurerm_linux_function_app" "main" {
     AZURE_AD_B2C_CLIENT_ID      = var.azure_ad_b2c_client_id
     AUTH_DEV_BYPASS             = var.auth_dev_bypass ? "true" : "false"
     REDIS_URL                   = "rediss://${azurerm_managed_redis.main.hostname}:10000"
-    REDIS_KEY                   = azurerm_managed_redis.main.primary_access_key
+    REDIS_KEY                   = azurerm_managed_redis.main.default_database[0].primary_access_key
   }
 
   lifecycle {
@@ -356,10 +356,11 @@ resource "azurerm_static_web_app_custom_domain" "dev" {
 # ── Azure Managed Redis ─────────────────────────────────────────
 
 resource "azurerm_managed_redis" "main" {
-  name                = "${local.resource_prefix}-redis-${local.unique_suffix}"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  sku_name            = "Balanced_B0"
+  name                             = "${local.resource_prefix}-redis-${local.unique_suffix}"
+  resource_group_name              = azurerm_resource_group.main.name
+  location                         = azurerm_resource_group.main.location
+  sku_name                         = "Balanced_B0"
+  access_keys_authentication_enabled = true
 
   default_database {}
 }
@@ -397,8 +398,8 @@ resource "azurerm_cognitive_deployment" "openai_hex" {
     version = var.openai_model_version
   }
 
-  scale {
-    type     = "Standard"
+  sku {
+    name     = "Standard"
     capacity = var.openai_deployment_capacity
   }
 }
