@@ -6,7 +6,7 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 3.100"
+      version = "~> 4.50"
     }
     azuread = {
       source  = "hashicorp/azuread"
@@ -20,6 +20,7 @@ terraform {
 }
 
 provider "azurerm" {
+  subscription_id = var.subscription_id
   features {
     key_vault {
       purge_soft_delete_on_destroy    = true
@@ -304,6 +305,8 @@ resource "azurerm_linux_function_app" "main" {
     AZURE_AD_B2C_TENANT         = var.azure_ad_b2c_tenant
     AZURE_AD_B2C_CLIENT_ID      = var.azure_ad_b2c_client_id
     AUTH_DEV_BYPASS             = var.auth_dev_bypass ? "true" : "false"
+    REDIS_URL                   = "rediss://${azurerm_managed_redis.main.hostname}:10000"
+    REDIS_KEY                   = azurerm_managed_redis.main.primary_access_key
   }
 
   lifecycle {
@@ -350,6 +353,17 @@ resource "azurerm_static_web_app_custom_domain" "dev" {
   }
 }
 
+# ── Azure Managed Redis ─────────────────────────────────────────
+
+resource "azurerm_managed_redis" "main" {
+  name                = "${local.resource_prefix}-redis-${local.unique_suffix}"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  sku_name            = "Balanced_B0"
+
+  default_database {}
+}
+
 # ── Azure Speech Services ──────────────────────────────────────
 # Azure AD B2C is provisioned separately via the portal
 
@@ -370,19 +384,6 @@ resource "azurerm_cognitive_account" "openai" {
   sku_name              = "S0"
   custom_subdomain_name = var.openai_custom_subdomain_name != null ? var.openai_custom_subdomain_name : "${local.resource_prefix}-openai-${local.unique_suffix}"
 
-  # Azure auto-migrated the resource from kind "OpenAI" to "AIServices".
-  # The azurerm v3 provider doesn't support "AIServices", so ignore the drift
-  # to prevent a destructive replacement. Also ignore immutable location/
-  # subdomain drift while retaining this legacy account in Terraform.
-  # Remove this after upgrading to v4 and decommissioning the legacy account.
-  lifecycle {
-    ignore_changes = [
-      kind,
-      location,
-      custom_subdomain_name,
-      tags,
-    ]
-  }
 }
 
 resource "azurerm_cognitive_deployment" "openai_hex" {

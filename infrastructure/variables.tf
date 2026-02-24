@@ -1,3 +1,8 @@
+variable "subscription_id" {
+  description = "Azure subscription ID (required by azurerm provider v4+)"
+  type        = string
+}
+
 variable "location" {
   description = "The Azure region for all resources"
   type        = string

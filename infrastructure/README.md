@@ -1,6 +1,6 @@
 # Infrastructure — Terraform
 
-All Azure resources for SwatchWatch are defined in this directory using Terraform (azurerm ~3.100).
+All Azure resources for SwatchWatch are defined in this directory using Terraform (azurerm ~4.50).
 
 ## Quick Start (Bootstrap)
 
@@ -63,6 +63,7 @@ Dev infra deploys are pinned to the shared experiment OpenAI endpoint (`swatchwa
 | Azure OpenAI Account *(optional)* | `azurerm_cognitive_account.openai` | Vision-capable OpenAI endpoint for hex color detection (`create_openai_resources=true`) |
 | Azure OpenAI Deployment *(optional)* | `azurerm_cognitive_deployment.openai_hex` | Model deployment used by `AZURE_OPENAI_DEPLOYMENT_HEX` when OpenAI resources are provisioned |
 | Azure OpenAI Diagnostic Setting *(optional)* | `azurerm_monitor_diagnostic_setting.openai` | Sends OpenAI logs/metrics to Log Analytics (when OpenAI resources are provisioned) |
+| Azure Managed Redis | `azurerm_managed_redis.main` | In-memory cache for polish lists, catalog search, and reference data (Balanced_B0, 0.5 GB) |
 | Custom Domain | `azurerm_static_web_app_custom_domain.dev` | Maps `dev.swatchwatch.app` to the Static Web App |
 | Azure AD Application | `azuread_application.github_actions` | GitHub Actions OIDC identity |
 | Service Principal | `azuread_service_principal.github_actions` | Grants GitHub Actions access |
@@ -74,6 +75,7 @@ Dev infra deploys are pinned to the shared experiment OpenAI endpoint (`swatchwa
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `subscription_id` | *(required)* | Azure subscription ID (required by azurerm provider v4+) |
 | `location` | `centralus` | Azure region |
 | `environment` | `dev` | Environment name (dev, staging, prod) |
 | `base_name` | `swatchwatch` | Base name prefix for resources |
@@ -143,6 +145,8 @@ Key outputs after `terraform apply`:
 | `github_client_id` | Azure AD app ID for GitHub Actions *(add to GitHub Secrets as `AZURE_CLIENT_ID`)* |
 | `github_tenant_id` | Azure AD tenant ID *(add to GitHub Secrets as `AZURE_TENANT_ID`)* |
 | `subscription_id` | Azure subscription ID *(add to GitHub Secrets as `AZURE_SUBSCRIPTION_ID`)* |
+| `redis_hostname` | Azure Managed Redis hostname |
+| `redis_primary_access_key` | Azure Managed Redis primary access key *(sensitive)* |
 
 The bootstrap script displays these values at the end.
 
@@ -155,6 +159,7 @@ cd infrastructure
 
 # Create terraform.tfvars
 cat > terraform.tfvars <<EOF
+subscription_id   = "your-azure-subscription-id"
 environment       = "dev"
 location          = "centralus"
 github_repository = "your-github-username/swatchwatch"
