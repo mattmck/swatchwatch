@@ -356,13 +356,14 @@ resource "azurerm_static_web_app_custom_domain" "dev" {
 # ── Azure Managed Redis ─────────────────────────────────────────
 
 resource "azurerm_managed_redis" "main" {
-  name                             = "${local.resource_prefix}-redis-${local.unique_suffix}"
-  resource_group_name              = azurerm_resource_group.main.name
-  location                         = azurerm_resource_group.main.location
-  sku_name                         = "Balanced_B0"
-  access_keys_authentication_enabled = true
+  name                = "${local.resource_prefix}-redis-${local.unique_suffix}"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  sku_name            = "Balanced_B0"
 
-  default_database {}
+  default_database {
+    access_keys_authentication_enabled = true
+  }
 }
 
 # ── Azure Speech Services ──────────────────────────────────────
@@ -416,9 +417,8 @@ resource "azurerm_monitor_diagnostic_setting" "openai" {
     category_group = "allLogs"
   }
 
-  metric {
+  enabled_metric {
     category = "AllMetrics"
-    enabled  = true
   }
 }
 
