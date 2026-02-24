@@ -86,6 +86,7 @@ jobs:
       TF_VAR_azure_ad_b2c_client_id: ${{ secrets.AZURE_AD_B2C_CLIENT_ID || 'to-be-added' }}
       TF_VAR_is_automation: true
       TF_VAR_create_openai_resources: false
+      TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
     steps:
       - uses: actions/checkout@v4
