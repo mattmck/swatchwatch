@@ -1,8 +1,8 @@
 name: Deploy Dev
 
 on:
-  push:
-    branches: [dev]
+  # Push trigger disabled while prod deployment workflow is being refactored (#106).
+  # Re-enable once deploy.yml is parameterized and both environments are wired up.
   workflow_dispatch:
 
 permissions:

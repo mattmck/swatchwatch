@@ -1,10 +1,8 @@
 name: Deploy Infrastructure Dev
 
 on:
-  push:
-    branches: [dev]
-    paths:
-      - 'infrastructure/**'
+  # Push trigger disabled while prod deployment workflow is being refactored (#106).
+  # Re-enable once deploy-infra.yml is parameterized and both environments are wired up.
   workflow_dispatch:
     inputs:
       apply:
