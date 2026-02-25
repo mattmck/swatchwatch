@@ -1,6 +1,6 @@
 {
   "name": "swatchwatch-functions",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Azure Functions for SwatchWatch",
   "main": "dist/index.js",
   "scripts": {

@@ -54,6 +54,7 @@ test('.claude/settings.local.json: allow list contains valid permission patterns
     /^WebFetch\(\*\)$/,                    // WebFetch(*)
     /^WebFetch\(domain:[^)]+\)$/,          // WebFetch(domain:example.com)
     /^Bash\([^)]+\)$/,                     // Bash(command:*) or Bash(git:*)
+    /^WebSearch$/,                         // WebSearch (no args)
   ];
 
   allowList.forEach((permission) => {
