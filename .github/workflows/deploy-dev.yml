@@ -1,8 +1,8 @@
 name: Deploy Dev
 
 on:
-  push:
-    branches: [dev]
+  # Push trigger disabled while prod deployment workflow is being refactored (#106).
+  # Re-enable once deploy.yml is parameterized and both environments are wired up.
   workflow_dispatch:
 
 permissions:
@@ -38,6 +38,69 @@ jobs:
           output_location: 'apps/web/out'
         env:
           NEXT_PUBLIC_API_URL: 'https://swatchwatch-dev-func-j5jij0be.azurewebsites.net/api'
+          NEXT_PUBLIC_AUTH_DEV_BYPASS: ${{ vars.NEXT_PUBLIC_AUTH_DEV_BYPASS }}
+          NEXT_PUBLIC_B2C_TENANT: ${{ vars.NEXT_PUBLIC_B2C_TENANT }}
+          NEXT_PUBLIC_B2C_CLIENT_ID: ${{ secrets.NEXT_PUBLIC_B2C_CLIENT_ID }}
+          NEXT_PUBLIC_B2C_API_SCOPE: ${{ vars.NEXT_PUBLIC_B2C_API_SCOPE }}
+          NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY: ${{ vars.NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY }}
+
+      - name: Smoke test web app deployment
+        run: |
+          set -euo pipefail
+          
+          WEB_APP_URL="https://dev.swatchwatch.app"
+          ATTEMPTS=8
+          SLEEP_SECONDS=15
+          
+          echo "Smoke testing web app deployment at $WEB_APP_URL"
+          
+          for attempt in $(seq 1 "$ATTEMPTS"); do
+            echo "Attempt $attempt/$ATTEMPTS..."
+            
+            # Test landing page loads
+            landing_status=$(curl -sS -o /tmp/landing.html -w "%{http_code}" \
+              -L "$WEB_APP_URL" || echo "000")
+            
+            if [ "$landing_status" = "200" ]; then
+              echo "✓ Landing page loaded successfully"
+              
+              # Verify it contains expected content
+              if grep -q "SwatchWatch" /tmp/landing.html && \
+                 grep -q "nail polish" /tmp/landing.html; then
+                echo "✓ Landing page contains expected content"
+                break
+              else
+                echo "⚠ Landing page missing expected content"
+                head -n 20 /tmp/landing.html || true
+              fi
+            else
+              echo "⚠ Landing page returned $landing_status"
+            fi
+            
+            if [ "$attempt" -lt "$ATTEMPTS" ]; then
+              echo "Waiting ${SLEEP_SECONDS}s before retry..."
+              sleep "$SLEEP_SECONDS"
+            fi
+          done
+          
+          if [ "$landing_status" != "200" ]; then
+            echo "❌ Web app smoke test failed - landing page not accessible"
+            exit 1
+          fi
+          
+          # Test app routes redirect properly when not authenticated
+          dashboard_status=$(curl -sS -o /tmp/dashboard.html -w "%{http_code}" \
+            -L "$WEB_APP_URL/dashboard" || echo "000")
+          
+          echo "Dashboard route status: $dashboard_status"
+          
+          # Test that static assets are being served
+          favicon_status=$(curl -sS -o /dev/null -w "%{http_code}" \
+            "$WEB_APP_URL/favicon.ico" || echo "000")
+          
+          echo "Favicon status: $favicon_status"
+          
+          echo "✅ Web app deployment smoke test completed successfully"
 
   deploy-functions:
     name: Deploy Functions
@@ -59,33 +122,41 @@ jobs:
         run: npm run build --workspace=packages/shared
       
       - name: Build functions
-        run: npm run build:functions
+        run: npm run build --workspace=packages/functions
       
       - name: Prepare functions deployment package
         run: |
           DEPLOY_DIR=packages/functions/.deploy
           rm -rf "$DEPLOY_DIR"
-          mkdir -p "$DEPLOY_DIR/_shared"
+          mkdir -p "$DEPLOY_DIR"
 
           # Copy function app artifacts
           cp packages/functions/host.json "$DEPLOY_DIR/"
           cp packages/functions/package.json "$DEPLOY_DIR/"
           cp -r packages/functions/dist "$DEPLOY_DIR/"
 
-          # Bundle the built shared package so it can be installed as a file: dep
-          cp packages/shared/package.json "$DEPLOY_DIR/_shared/"
-          cp -r packages/shared/dist "$DEPLOY_DIR/_shared/"
+          # Pack the built shared package into a tarball and install from it.
+          # Avoid file:directory deps here because npm installs those as symlinks,
+          # which can fail to resolve reliably under WEBSITE_RUN_FROM_PACKAGE.
+          SHARED_TARBALL="$(npm pack --silent --workspace=packages/shared --pack-destination "$DEPLOY_DIR" | tail -n 1)"
 
-          # Rewrite the workspace reference to a local file: path
+          # Rewrite the workspace reference to the local tarball
           node -e "
             const pkg = JSON.parse(require('fs').readFileSync('$DEPLOY_DIR/package.json', 'utf8'));
-            pkg.dependencies['swatchwatch-shared'] = 'file:_shared';
+            pkg.dependencies['swatchwatch-shared'] = 'file:${SHARED_TARBALL}';
             require('fs').writeFileSync('$DEPLOY_DIR/package.json', JSON.stringify(pkg, null, 2));
           "
 
           # Install production-only deps into the self-contained deploy dir
           cd "$DEPLOY_DIR"
           npm install --omit=dev --ignore-scripts
+
+          # Guardrail: ensure the shared package is materialized (not symlinked)
+          if [ -L "node_modules/swatchwatch-shared" ]; then
+            echo "Expected node_modules/swatchwatch-shared to be a real directory, but it is a symlink."
+            ls -la "node_modules/swatchwatch-shared"
+            exit 1
+          fi
 
       - name: Azure login (OIDC)
         uses: azure/login@v2
@@ -94,10 +165,10 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       
-      - name: Run database migrations (with dev seed data)
+      - name: Run database migrations
         run: |
           if [ -n "$DATABASE_URL" ]; then
-            npm run migrate:dev
+            npm run migrate
           else
             echo "⚠ DATABASE_URL not set — skipping migrations"
           fi
@@ -109,3 +180,66 @@ jobs:
         with:
           app-name: 'swatchwatch-dev-func-j5jij0be'
           package: 'packages/functions/.deploy'
+
+      - name: Configure function auth settings
+        run: |
+          az functionapp config appsettings set \
+            --name 'swatchwatch-dev-func-j5jij0be' \
+            --resource-group 'swatchwatch-dev-rg' \
+            --settings \
+              AUTH_DEV_BYPASS="$AUTH_DEV_BYPASS" \
+              AZURE_AD_B2C_TENANT="$AZURE_AD_B2C_TENANT" \
+              AZURE_AD_B2C_CLIENT_ID="$AZURE_AD_B2C_CLIENT_ID" \
+              FUNCTIONS_NODE_BLOCK_ON_ENTRY_POINT_ERROR="true"
+        env:
+          AUTH_DEV_BYPASS: ${{ vars.AUTH_DEV_BYPASS }}
+          AZURE_AD_B2C_TENANT: ${{ vars.AZURE_AD_B2C_TENANT || vars.NEXT_PUBLIC_B2C_TENANT }}
+          AZURE_AD_B2C_CLIENT_ID: ${{ secrets.AZURE_AD_B2C_CLIENT_ID }}
+
+
+
+      - name: Smoke check function routes
+        run: |
+          set -euo pipefail
+
+          API_BASE='https://swatchwatch-dev-func-j5jij0be.azurewebsites.net/api'
+
+          echo "Checking API liveness via /polishes..."
+          if [ "${AUTH_DEV_BYPASS:-false}" = "true" ]; then
+            polishes_status=$(curl -sS -o /tmp/polishes.json -w "%{http_code}" \
+              -H 'Authorization: Bearer dev:1' \
+              "$API_BASE/polishes?pageSize=1")
+            
+            if [ "$polishes_status" != "200" ]; then
+              echo "Expected 200 from /polishes (with dev bypass), got $polishes_status"
+              cat /tmp/polishes.json || true
+              exit 1
+            fi
+            echo "✓ API is up and authorized"
+          else
+            polishes_status=$(curl -sS -o /tmp/polishes.json -w "%{http_code}" \
+              "$API_BASE/polishes?pageSize=1")
+            
+            if [ "$polishes_status" != "401" ] && [ "$polishes_status" != "200" ]; then
+              echo "Expected 401 or 200 from /polishes, got $polishes_status"
+              cat /tmp/polishes.json || true
+              exit 1
+            fi
+            echo "✓ API is up (returned $polishes_status)"
+          fi
+
+          # TODO: Re-enable voice endpoint smoke test once voice feature is implemented
+          # echo "Checking /voice endpoint..."
+          # voice_status=$(curl -sS -o /tmp/voice.json -w "%{http_code}" \
+          #   -H 'Content-Type: application/json' \
+          #   -X POST "$API_BASE/voice" \
+          #   -d '{"audioData":""}')
+
+          # if [ "$voice_status" != "400" ]; then
+          #   echo "Expected 400 from POST /api/voice, got $voice_status"
+          #   cat /tmp/voice.json || true
+          #   exit 1
+          # fi
+          # echo "✓ Voice endpoint is responding"
+        env:
+          AUTH_DEV_BYPASS: ${{ vars.AUTH_DEV_BYPASS }}

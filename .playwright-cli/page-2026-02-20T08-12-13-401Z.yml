@@ -1,0 +1,114 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - generic [ref=e4]: SwatchWatch · Looks
+    - generic [ref=e5]:
+      - generic [ref=e6] [cursor=pointer]: Party
+      - generic [ref=e7] [cursor=pointer]: Work
+      - generic [ref=e8] [cursor=pointer]: Date
+      - generic [ref=e9] [cursor=pointer]: Everyday
+    - generic [ref=e10]:
+      - generic [ref=e11] [cursor=pointer]: Bold
+      - generic [ref=e12] [cursor=pointer]: Soft
+      - generic [ref=e13] [cursor=pointer]: Edgy
+      - generic [ref=e14] [cursor=pointer]: Playful
+    - generic [ref=e15]:
+      - generic [ref=e16] [cursor=pointer]: Holo
+      - generic [ref=e17] [cursor=pointer]: Gloss
+      - generic [ref=e18] [cursor=pointer]: Matte
+      - generic [ref=e19] [cursor=pointer]: Chrome
+    - generic [ref=e20]:
+      - generic [ref=e21]: Skin tone preview
+      - slider [ref=e22]: "45"
+    - generic [ref=e23]:
+      - checkbox [checked] [ref=e24]
+      - text: Owned only
+    - generic [ref=e25]:
+      - checkbox [checked] [ref=e26]
+      - text: Include toppers
+    - generic [ref=e27]:
+      - checkbox [ref=e28]
+      - text: Advanced Color Lab
+    - generic [ref=e29]: Prototype mock (static). Buttons are illustrative only.
+  - main [ref=e30]:
+    - generic [ref=e31]:
+      - heading "Ready-to-Wear Looks" [level=1] [ref=e32]
+      - generic [ref=e33]:
+        - generic [ref=e34] [cursor=pointer]: Looks
+        - generic [ref=e35] [cursor=pointer]: Shop Completers
+        - generic [ref=e36] [cursor=pointer]: Advanced Lab
+    - generic [ref=e37]:
+      - article [ref=e38]:
+        - generic [ref=e39]:
+          - generic [ref=e40]:
+            - generic [ref=e41]: Glazed Donut
+            - generic [ref=e42]: Soft · Gloss · 6 min
+          - generic [ref=e43]: Owned-first
+        - generic [ref=e48]:
+          - generic [ref=e49]:
+            - generic [ref=e50]: Base
+            - generic [ref=e51]: Milky Cloud
+            - generic [ref=e52]: Owned ✓
+          - generic [ref=e53]:
+            - generic [ref=e54]: Accent
+            - generic [ref=e55]: Chrome Pearl Veil
+            - generic [ref=e56]: Add $12
+          - generic [ref=e57]:
+            - generic [ref=e58]: Topper
+            - generic [ref=e59]: Glass Shine
+            - generic [ref=e60]: Owned ✓
+        - generic [ref=e61]:
+          - button "Wear this" [ref=e62] [cursor=pointer]
+          - button "Add missing items" [ref=e63] [cursor=pointer]
+          - button "Share" [ref=e64] [cursor=pointer]
+          - button "Save" [ref=e65] [cursor=pointer]
+      - article [ref=e66]:
+        - generic [ref=e67]:
+          - generic [ref=e68]:
+            - generic [ref=e69]: Cyber Violet
+            - generic [ref=e70]: Bold · Holo · 8 min
+          - generic [ref=e71]: Contrast+
+        - generic [ref=e76]:
+          - generic [ref=e77]:
+            - generic [ref=e78]: Base
+            - generic [ref=e79]: Night Mode
+            - generic [ref=e80]: Owned ✓
+          - generic [ref=e81]:
+            - generic [ref=e82]: Accent
+            - generic [ref=e83]: Holo Arc
+            - generic [ref=e84]: Add $14
+          - generic [ref=e85]:
+            - generic [ref=e86]: Topper
+            - generic [ref=e87]: Laser Dust
+            - generic [ref=e88]: Add $9
+        - generic [ref=e89]:
+          - button "Wear this" [ref=e90] [cursor=pointer]
+          - button "Add missing items" [ref=e91] [cursor=pointer]
+          - button "Share" [ref=e92] [cursor=pointer]
+          - button "Save" [ref=e93] [cursor=pointer]
+      - article [ref=e94]:
+        - generic [ref=e95]:
+          - generic [ref=e96]:
+            - generic [ref=e97]: Office Neutral
+            - generic [ref=e98]: Work · Matte · 5 min
+          - generic [ref=e99]: One swipe
+        - generic [ref=e104]:
+          - generic [ref=e105]:
+            - generic [ref=e106]: Base
+            - generic [ref=e107]: Latte Line
+            - generic [ref=e108]: Owned ✓
+          - generic [ref=e109]:
+            - generic [ref=e110]: Accent
+            - generic [ref=e111]: Steel Ink
+            - generic [ref=e112]: Owned ✓
+          - generic [ref=e113]:
+            - generic [ref=e114]: Topper
+            - generic [ref=e115]: Velvet Matte
+            - generic [ref=e116]: Add $11
+        - generic [ref=e117]:
+          - button "Wear this" [ref=e118] [cursor=pointer]
+          - button "Add missing items" [ref=e119] [cursor=pointer]
+          - button "Share" [ref=e120] [cursor=pointer]
+          - button "Save" [ref=e121] [cursor=pointer]
+    - generic [ref=e122]:
+      - strong [ref=e123]: Advanced Color Lab
+      - text: — Opens the current search canvas seeded with this vibe’s palette. Power users can still fine-tune via the wheel and OKLAB matching.

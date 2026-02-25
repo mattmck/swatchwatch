@@ -30,12 +30,6 @@ output "postgres_database_name" {
   value = azurerm_postgresql_flexible_server_database.main.name
 }
 
-output "postgres_admin_username" {
-  description = "PostgreSQL administrator username"
-  value       = var.pg_admin_username
-  sensitive   = true
-}
-
 output "storage_account_name" {
   value = azurerm_storage_account.main.name
 }
@@ -47,6 +41,35 @@ output "speech_service_name" {
 output "speech_service_key" {
   value     = azurerm_cognitive_account.speech.primary_access_key
   sensitive = true
+}
+
+output "openai_account_name" {
+  value = try(azurerm_cognitive_account.openai[0].name, "")
+}
+
+output "openai_endpoint" {
+  value = local.openai_endpoint_value
+}
+
+output "openai_hex_deployment_name" {
+  value     = local.openai_deployment_name_value
+  sensitive = true
+}
+
+output "openai_resources_provisioned" {
+  value = var.create_openai_resources
+}
+
+output "openai_diagnostic_setting_name" {
+  value = try(azurerm_monitor_diagnostic_setting.openai[0].name, "")
+}
+
+output "application_insights_name" {
+  value = azurerm_application_insights.main.name
+}
+
+output "log_analytics_workspace_name" {
+  value = azurerm_log_analytics_workspace.main.name
 }
 
 # Key Vault and GitHub Actions OIDC configuration
@@ -68,4 +91,15 @@ output "github_tenant_id" {
 output "subscription_id" {
   description = "Azure subscription ID - add to GitHub Secrets as AZURE_SUBSCRIPTION_ID"
   value       = data.azurerm_client_config.current.subscription_id
+}
+
+output "redis_hostname" {
+  description = "Azure Managed Redis hostname"
+  value       = azurerm_managed_redis.main.hostname
+}
+
+output "redis_primary_access_key" {
+  description = "Azure Managed Redis primary access key"
+  value       = azurerm_managed_redis.main.default_database[0].primary_access_key
+  sensitive   = true
 }

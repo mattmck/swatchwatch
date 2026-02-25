@@ -6,7 +6,7 @@ We use **GitHub Flow** — a simple branch-based workflow:
 
 ```
 main (always deployable)
-  └── feat/42-cosmos-db-client   ← your working branch
+  └── feat/42-catalog-search   ← your working branch
 ```
 
 ### Branch Naming
@@ -24,7 +24,7 @@ main (always deployable)
 | `refactor/` | Code improvement, no behavior change |
 | `test/` | Adding or updating tests |
 
-Examples: `feat/12-cosmos-db-client`, `fix/34-color-wheel-safari`, `chore/update-deps`
+Examples: `feat/12-catalog-search`, `fix/34-color-wheel-safari`, `chore/update-deps`
 
 ### Commits
 
@@ -64,10 +64,10 @@ Add scope labels (`web`, `mobile`, `functions`, `infra`) to help with filtering.
 ## Development Setup
 
 ```bash
-git clone https://github.com/mattmck/polish-inventory.git
-cd polish-inventory
+git clone https://github.com/mattmck/swatchwatch.git
+cd swatchwatch
 npm install
-npm run build --workspace=packages/shared   # build shared types first
+npm run build:shared                         # build shared types first
 npm run dev:web                              # start web dev server
 ```
 
@@ -87,28 +87,29 @@ See the [root README](README.md) for full setup instructions.
 
 If your change adds/removes/modifies any of the following, update the corresponding doc:
 
-- **Routes or pages** → `apps/web/README.md` + copilot instructions route table
+- **Routes or pages** → `apps/web/README.md` + `CLAUDE.md` route table
 - **API endpoints** → `packages/functions/README.md`
 - **Shared types** → `packages/shared/README.md`
 - **Components** → `apps/web/README.md`
-- **Env variables** → copilot instructions + `packages/functions/README.md`
+- **Env variables** → `CLAUDE.md` + `packages/functions/README.md`
 - **Infrastructure** → `infrastructure/README.md`
-- **Dev commands** → root `README.md` + copilot instructions
+- **Dev commands** → root `README.md` + `CLAUDE.md`
 
 The PR template checklist includes a docs checkbox — reviewers should verify it.
 
 ### AI Agent Instructions
 
-The canonical agent instruction file is `.github/copilot-instructions.md`. Mirror copies exist for other AI coding agents:
+The canonical agent instruction file is `CLAUDE.md`. All other agent files are symlinks:
 
 | Agent | File |
 |---|---|
-| GitHub Copilot | `.github/copilot-instructions.md` (canonical) |
-| Claude Code | `CLAUDE.md` |
-| Cursor | `.cursorrules` |
-| Windsurf | `.windsurfrules` |
+| Claude Code | `CLAUDE.md` (canonical) |
+| GitHub Copilot | `.github/copilot-instructions.md` → `CLAUDE.md` |
+| Cursor | `.cursorrules` → `CLAUDE.md` |
+| Windsurf | `.windsurfrules` → `CLAUDE.md` |
+| Aider / others | `AGENTS.md` → `CLAUDE.md` |
 
-When updating agent instructions, update all mirror files. They should stay in sync.
+Only edit `CLAUDE.md` — the symlinks keep everything in sync automatically.
 
 ## Future: GitFlow Migration
 

@@ -5,15 +5,18 @@ import { Slot } from "radix-ui"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
+  "relative isolate inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-semibold tracking-tight transition-all duration-200 ease-out disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive shadow-[0_10px_25px_rgba(66,16,126,0.12)] enabled:hover:scale-[1.02] enabled:hover:-translate-y-[1px] enabled:hover:shadow-[0_18px_38px_rgba(66,16,126,0.2)] enabled:active:translate-y-[1px] enabled:active:scale-[0.99] enabled:active:shadow-[0_10px_22px_rgba(66,16,126,0.18)] after:pointer-events-none after:absolute after:inset-0 after:bg-[color:oklch(0.852_0.107_341.3/.35)] after:opacity-0 after:transition-opacity after:duration-150 enabled:hover:after:opacity-100 enabled:active:after:opacity-60 data-[variant=ghost]:shadow-none data-[variant=ghost]:after:hidden data-[variant=ghost]:enabled:hover:scale-100 data-[variant=ghost]:enabled:hover:shadow-none data-[variant=ghost]:enabled:active:scale-100 data-[variant=ghost]:enabled:active:shadow-none data-[variant=link]:shadow-none data-[variant=link]:after:hidden data-[variant=link]:enabled:hover:scale-100 data-[variant=link]:enabled:hover:shadow-none data-[variant=link]:enabled:active:scale-100 data-[variant=link]:enabled:active:shadow-none",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        default:
+          "bg-primary text-primary-foreground hover:bg-primary/90",
         destructive:
-          "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
+          "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60 shadow-[0_12px_30px_rgba(240,68,56,0.35)]",
         outline:
-          "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
+          "border border-border/80 bg-background/90 hover:bg-brand-pink-light/20 hover:text-brand-purple-deep dark:bg-input/30 dark:border-input dark:hover:bg-brand-purple/20 dark:hover:text-brand-lilac",
+        brand:
+          "bg-gradient-brand text-white shadow-glow-brand hover:opacity-95",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost:

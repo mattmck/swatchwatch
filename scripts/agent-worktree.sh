@@ -74,9 +74,24 @@ SOURCE_LOCAL_SETTINGS="$(first_existing_path "$CURRENT_ROOT/packages/functions/l
 
 if [ -n "${SOURCE_ENV:-}" ]; then
   copy_if_present "$SOURCE_ENV" "$WORKTREE_DIR/.env" ".env"
+elif [ ! -f "$WORKTREE_DIR/.env" ] && [ -f "$WORKTREE_DIR/.env.example" ]; then
+  cp "$WORKTREE_DIR/.env.example" "$WORKTREE_DIR/.env"
+  echo "Created .env from .env.example (no existing .env found to copy)."
 fi
+
 if [ -n "${SOURCE_LOCAL_SETTINGS:-}" ]; then
   copy_if_present "$SOURCE_LOCAL_SETTINGS" "$WORKTREE_DIR/packages/functions/local.settings.json" "packages/functions/local.settings.json"
+elif [ ! -f "$WORKTREE_DIR/packages/functions/local.settings.json" ]; then
+  mkdir -p "$WORKTREE_DIR/packages/functions"
+  # Fall back to the committed example file — it is the canonical reference for all settings.
+  EXAMPLE_FILE="$WORKTREE_DIR/packages/functions/local.settings.json.example"
+  if [ -f "$EXAMPLE_FILE" ]; then
+    cp "$EXAMPLE_FILE" "$WORKTREE_DIR/packages/functions/local.settings.json"
+    echo "Created packages/functions/local.settings.json from local.settings.json.example."
+    echo "  → Fill in <YOUR_*> placeholders before starting the Functions host."
+  else
+    echo "⚠ No local.settings.json or local.settings.json.example found. Create packages/functions/local.settings.json manually."
+  fi
 fi
 
 echo "Installing dependencies..."

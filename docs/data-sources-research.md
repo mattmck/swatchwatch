@@ -1,6 +1,6 @@
 # Nail Polish Data Sources — Research & Integration Guide
 
-> **Version:** 1.0 · **Date:** 2026-02-07 · **Companion to:** `implementation-guide.md`, `seed_data_sources.sql`
+> **Version:** 1.1 · **Date:** 2026-02-11 · **Companion to:** `implementation-guide.md`, `seed_data_sources.sql`
 
 This document catalogs external data sources for populating the nail polish knowledge graph.
 It covers what data each source provides, how to access it, practical limits, and how each
@@ -15,6 +15,7 @@ maps to the canonical schema (brand → product_line → shade → sku → label
    - 2.1 Makeup API (Herokuapp)
    - 2.2 Open Beauty Facts
    - 2.3 EU CosIng
+   - 2.4 Holo Taco Shopify Storefront
 3. [Barcode / UPC Lookup APIs](#3-barcode--upc-lookup-apis)
    - 3.1 UPCitemdb
    - 3.2 Barcode Lookup
@@ -33,6 +34,7 @@ maps to the canonical schema (brand → product_line → shade → sku → label
    - 8.3 "Free-From" Tier Definitions
    - 8.4 Canonical Excluded-Ingredients Table
 9. [Recommended Integration Strategy](#9-recommended-integration-strategy)
+10. [Holo Taco Ingestion Options (Decision Record)](#10-holo-taco-ingestion-options-decision-record)
 
 ---
 
@@ -43,6 +45,7 @@ maps to the canonical schema (brand → product_line → shade → sku → label
 | **Makeup API** | 48 polishes | REST | None | ✅ hex + name | ❌ | ✅ (inconsistent) | ❌ | Stale (2016-18) | Unlimited |
 | **Open Beauty Facts** | ~109 polishes | REST | None | ❌ | ❌ (field empty) | ❌ | ✅ | Stale | Unlimited |
 | **EU CosIng** | 15,000+ ingredients | Bulk CSV | None | N/A | ✅ (reference) | N/A | N/A | Current | Open data |
+| **Holo Taco Shopify** | 341 nail-polish products (310 singles) | REST | None | ⚠️ (derived only; no explicit hex) | ❌ | ✅ | ✅ (variant barcode) | Current | Storefront API |
 | **UPCitemdb** | Millions (general) | REST | API key | ❌ | ❌ | ✅ (range + offers) | ✅ | Current | 100/day |
 | **Barcode Lookup** | Millions (general) | REST | API key | ❌ | ❌ | ✅ | ✅ | Current | 100/day |
 | **EWG Skin Deep** | ~4,000-5,700 polishes | ❌ | N/A | ❌ | ✅ (full + scores) | ❌ | ❌ | Updated Feb 2025 | N/A |
@@ -191,6 +194,43 @@ bootstrapping.
 **Assessment:** Import the full CSV as the `ingredient` reference table. This gives every
 ingredient a normalized INCI name, CAS number, and functional classification. When users
 or scrapers provide ingredient lists, match against this table to normalize names.
+
+---
+
+### 2.4 Holo Taco Shopify Storefront
+
+| | |
+|---|---|
+| **URL** | `https://www.holotaco.com/products.json` |
+| **Auth** | None |
+| **Rate limits** | No documented public limit (still use respectful polling/caching) |
+| **License/Terms** | Storefront terms apply; use as source metadata, not image redistribution |
+
+**Endpoint patterns:**
+```http
+GET /products.json?limit=250&page=1
+GET /products/{handle}.js
+```
+
+**Observed snapshot (queried on February 11, 2026):**
+- 427 total storefront products
+- 341 `product_type = "Nail Polish"` products
+- 310 nail-polish singles (`bundle:product` excluded)
+- 31 nail-polish bundles
+
+**What you get well:**
+- Current product cadence (recent launches visible quickly via `published_at`)
+- Product/variant metadata: `title`, `handle`, `tags`, `variants[].sku`, `variants[].barcode`, price/availability
+- Product images (`images[]`)
+
+**What is missing/weak:**
+- No explicit hex color field
+- No ingredient list
+- Bundle products require filtering to avoid duplicate shade-like entries
+
+**Assessment:** Best current source for **recent Holo Taco catalog ingestion**. Use tags + titles
+for searchable fields, and treat hex as optional derived data (from image pipeline) rather
+than source-of-truth.
 
 ---
 
@@ -709,3 +749,22 @@ checking which of these 28 items are absent. Store the `freeFromTier` as a deriv
 | **"Free-from" tier claims** | Parse from brand websites; compute from ingredient lists |
 | **Collection / product line** | Scrape from brand sites or affiliate feeds |
 | **Complete ingredient lists** (broadly) | EWG partnership, user contributions, label OCR |
+
+---
+
+## 10. Holo Taco Ingestion Options (Decision Record)
+
+Context: We need recent Holo Taco shades to remain searchable in-app, while acknowledging
+that Shopify storefront data does not provide explicit hex values.
+
+| Option | Scope | Effort | Pros | Risks/Limitations |
+|--------|-------|--------|------|-------------------|
+| 1. Ingest now, no hex | Import searchable metadata only (`brand`, `shade`, `collection`, `finish`, tags, image URL, SKU/barcode) | ~1 day | Fastest path; highest reliability; unblocks recent catalog updates | No precise color filtering by hex |
+| 2. Ingest + derived `approx_hex` | Option 1 + simple dominant-color extraction from product images | ~2-3 days | Enables basic color filters and color chips | Effect polishes (holo/magnetic/multichrome) can produce misleading single hex |
+| 3. Ingest + curated overrides | Option 2 + manual override table for key/new shades | Ongoing ops | Better accuracy where it matters most | Requires maintenance workflow |
+| 4. Embedding-first color search | Store image embeddings for similarity/dupe retrieval, keep hex optional | ~1-2 weeks initial | Better fit for effect-heavy finishes; avoids over-trusting single hex | Higher implementation complexity |
+
+**Recommended sequence:**
+1. Ship Option 1 immediately for searchable recency coverage.
+2. Add Option 2 with explicit `approx_hex` + confidence metadata.
+3. Add Option 4 when visual search/dupe ranking becomes priority.

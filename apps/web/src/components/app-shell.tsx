@@ -2,73 +2,149 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { LayoutDashboard, Sparkles, Search, PlusCircle, ShieldCheck, Grid2x2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { SwatchWatchWordmark } from "@/components/brand/swatchwatch-brand";
+import { ThemeToggle } from "@/components/marketing-theme-toggle";
+import { UserCard } from "@/components/user-card";
+import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
+import { buildMsalConfig } from "@/lib/msal-config";
+import type { LucideIcon } from "lucide-react";
 
-const navItems = [
-  { href: "/", label: "Dashboard", icon: "📊" },
-  { href: "/polishes", label: "Polishes", icon: "💅" },
-  { href: "/polishes/search", label: "Search", icon: "🎨" },
-  { href: "/polishes/new", label: "Add Polish", icon: "➕" },
+interface NavItem {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+}
+
+const baseNavItems: NavItem[] = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/polishes", label: "Polishes", icon: Sparkles },
+  { href: "/polishes/search", label: "Search", icon: Search },
+  { href: "/polishes/gaps", label: "Gap Map", icon: Grid2x2 },
+  { href: "/polishes/new", label: "Add Polish", icon: PlusCircle },
 ];
+const adminNavItems: NavItem[] = [
+  { href: "/admin", label: "Admin", icon: ShieldCheck },
+];
+const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
+const HAS_B2C_CONFIG = buildMsalConfig() !== null;
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  if (IS_DEV_BYPASS) {
+    return <DevAppShell>{children}</DevAppShell>;
+  }
+
+  if (!HAS_B2C_CONFIG) {
+    return <UnconfiguredAppShell>{children}</UnconfiguredAppShell>;
+  }
+
+  return <B2CAppShell>{children}</B2CAppShell>;
+}
+
+function DevAppShell({ children }: { children: React.ReactNode }) {
+  const { isAdmin } = useDevAuth();
+  return <AppShellLayout isAdmin={isAdmin}>{children}</AppShellLayout>;
+}
+
+function B2CAppShell({ children }: { children: React.ReactNode }) {
+  const { isAdmin } = useAuth();
+  return <AppShellLayout isAdmin={isAdmin}>{children}</AppShellLayout>;
+}
+
+function UnconfiguredAppShell({ children }: { children: React.ReactNode }) {
+  const { isAdmin } = useUnconfiguredAuth();
+  return <AppShellLayout isAdmin={isAdmin}>{children}</AppShellLayout>;
+}
+
+function AppShellLayout({
+  children,
+  isAdmin,
+}: {
+  children: React.ReactNode;
+  isAdmin: boolean;
+}) {
   const pathname = usePathname();
+  const navItems = isAdmin ? [...baseNavItems, ...adminNavItems] : baseNavItems;
+
+  const activeHref =
+    navItems
+      .filter((item) => pathname === item.href || pathname.startsWith(`${item.href}/`))
+      .sort((a, b) => b.href.length - a.href.length)[0]?.href ?? null;
+
+  function isActive(href: string) {
+    return activeHref === href;
+  }
 
   return (
     <div className="flex min-h-screen">
       {/* Sidebar */}
-      <aside className="hidden w-56 shrink-0 border-r border-border bg-sidebar md:block">
-        <div className="flex h-14 items-center border-b border-border px-4">
-          <Link href="/" className="flex items-center gap-2 font-semibold">
-            <span className="text-lg">💅</span>
-            <span>SwatchWatch</span>
+      <aside className="hidden w-56 shrink-0 border-r border-border bg-sidebar md:flex md:flex-col">
+        <div className="relative flex h-14 items-center justify-between border-b border-border/60 px-4">
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-x-4 bottom-0 h-px bg-gradient-to-r from-brand-pink-soft via-brand-lilac to-brand-purple"
+          />
+          <Link href="/dashboard">
+            <SwatchWatchWordmark iconSize={26} />
           </Link>
+          <ThemeToggle className="border-brand-purple/25 text-brand-purple-deep dark:text-brand-lilac" />
         </div>
         <nav className="flex flex-col gap-1 p-3">
           {navItems.map((item) => (
             <Button
               key={item.href}
-              variant={pathname === item.href ? "secondary" : "ghost"}
+              variant="ghost"
+              data-active={isActive(item.href) ? "true" : "false"}
               className={cn(
-                "justify-start gap-2",
-                pathname === item.href && "font-medium"
+                "nav-underline justify-start gap-2 rounded-xl border border-transparent px-3.5",
+                isActive(item.href)
+                  ? "font-medium border-brand-purple/25 bg-brand-pink-light/65 text-brand-purple-deep shadow-[0_12px_26px_rgba(66,16,126,0.14)] dark:bg-brand-purple/30 dark:text-brand-lilac"
+                  : "hover:border-brand-purple/15 hover:bg-brand-pink-light/30 dark:hover:bg-brand-purple/20",
               )}
               asChild
             >
               <Link href={item.href}>
-                <span>{item.icon}</span>
+                <item.icon className="size-4" />
                 {item.label}
               </Link>
             </Button>
           ))}
         </nav>
+
+        <div className="mt-auto border-t border-border/70 p-3">
+          <UserCard />
+        </div>
       </aside>
 
-      {/* Mobile header */}
+      {/* Mobile header + page content */}
       <div className="flex flex-1 flex-col">
         <header className="flex h-14 items-center gap-4 border-b border-border bg-background px-4 md:px-6">
           <div className="flex items-center gap-2 md:hidden">
-            <span className="text-lg">💅</span>
-            <span className="font-semibold">SwatchWatch</span>
+            <Link href="/dashboard">
+              <SwatchWatchWordmark iconSize={22} textClassName="text-sm" />
+            </Link>
           </div>
-          <nav className="flex items-center gap-1 md:hidden">
+          <nav className="flex flex-1 items-center gap-1 overflow-x-auto md:hidden">
             {navItems.map((item) => (
               <Button
                 key={item.href}
-                variant={pathname === item.href ? "secondary" : "ghost"}
+                variant={isActive(item.href) ? "secondary" : "ghost"}
                 size="sm"
                 asChild
               >
                 <Link href={item.href}>
-                  <span className="text-sm">{item.icon}</span>
+                  <item.icon className="size-4" />
                 </Link>
               </Button>
             ))}
           </nav>
+          <ThemeToggle
+            className="shrink-0 border-brand-purple/25 text-brand-purple-deep dark:text-brand-lilac md:hidden"
+          />
         </header>
 
-        {/* Page content */}
         <main className="flex-1 p-4 md:p-6">{children}</main>
       </div>
     </div>

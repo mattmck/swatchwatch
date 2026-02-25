@@ -1,11 +1,14 @@
 import Link from "next/link";
+import Image from "next/image";
 import type { Polish } from "swatchwatch-shared";
+import { resolveDisplayHex } from "swatchwatch-shared";
 import { BsPlusLg } from "react-icons/bs";
-import type { HarmonyType } from "@/lib/color-harmonies";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ColorDot } from "@/components/color-dot";
 import { QuantityControls } from "@/components/quantity-controls";
+import { finishBadgeClassName, finishLabel } from "@/lib/constants";
+import { buildSwatchThumbnailUrl } from "@/lib/image-url";
 
 interface ColorSearchResultsProps {
   polishes: (Polish & {
@@ -14,10 +17,10 @@ interface ColorSearchResultsProps {
     matchedHarmonyIndex: number;
   })[];
   harmonyColors: string[];
-  harmonyType: HarmonyType;
+  showMatchDots?: boolean;
   focusedTargetHex?: string | null;
   onQuantityChange?: (polishId: string, delta: number) => void;
-  onAddDesired?: (hex: string) => void;
+  onAddFocus?: (hex: string) => void;
   /** Header dot hover — affects wheel marker + table filter */
   onSwatchHover?: (hex: string) => void;
   onSwatchLeave?: () => void;
@@ -28,13 +31,32 @@ interface ColorSearchResultsProps {
   onColorLeave?: () => void;
 }
 
+/**
+ * Render a searchable list of polishes with color swatches, match indicators, ownership and quantity controls.
+ *
+ * Renders a header row of harmony color swatches and a scrolling list of polish rows. Each row shows an optional swatch image, a color dot (and optional matched-harmony dot), name/brand/collection, finish badge, match percentage, ownership indicator, and optional controls to add to focused colors or change collection quantity.
+ *
+ * @param polishes - Array of polish objects augmented with `distance`, `matchedHarmonyHex`, and `matchedHarmonyIndex`.
+ * @param harmonyColors - Array of hex color strings used to render the header swatches.
+ * @param showMatchDots - When true and more than one harmony color exists, show a small matched-harmony dot for each polish.
+ * @param focusedTargetHex - Hex string of the currently focused harmony swatch; used to highlight the corresponding header swatch.
+ * @param onQuantityChange - Optional handler invoked as `(polishId, delta)` when quantity is incremented/decremented/added.
+ * @param onAddFocus - Optional handler invoked with a hex string when the "add to focused colors" button is pressed.
+ * @param onSwatchHover - Optional handler invoked with a hex string when a header swatch is hovered.
+ * @param onSwatchLeave - Optional handler invoked when a header swatch hover ends.
+ * @param onSwatchClick - Optional handler invoked with a hex string when a header swatch is clicked.
+ * @param onColorSelect - Optional handler invoked with a hex string when a swatch or matched-harmony dot is clicked.
+ * @param onColorHover - Optional handler invoked with a hex string when a swatch or matched-harmony dot is hovered.
+ * @param onColorLeave - Optional handler invoked when a swatch or matched-harmony dot hover ends.
+ * @returns A React node containing the rendered color search results list.
+ */
 export function ColorSearchResults({
   polishes,
   harmonyColors,
-  harmonyType,
+  showMatchDots = false,
   focusedTargetHex,
   onQuantityChange,
-  onAddDesired,
+  onAddFocus,
   onSwatchHover,
   onSwatchLeave,
   onSwatchClick,
@@ -52,7 +74,7 @@ export function ColorSearchResults({
     );
   }
 
-  const showMatchDot = harmonyType !== "similar" && harmonyColors.length > 1;
+  const showMatchDot = showMatchDots && harmonyColors.length > 1;
 
   return (
     <div className="space-y-1">
@@ -62,8 +84,8 @@ export function ColorSearchResults({
             key={i}
             className={`inline-block h-4 w-4 rounded-full cursor-pointer transition-all ${
               focusedTargetHex === hex
-                ? "border-2 border-white ring-2 ring-primary scale-125"
-                : "border border-border hover:scale-110"
+                ? "border-2 border-white ring-2 ring-brand-purple/75 shadow-glow-brand scale-125"
+                : "border border-border hover:scale-110 hover:shadow-glow-purple"
             }`}
             style={{ backgroundColor: hex }}
             onMouseEnter={() => onSwatchHover?.(hex)}
@@ -88,20 +110,34 @@ export function ColorSearchResults({
             </span>
 
             <Link
-              href={`/polishes/${polish.id}`}
+              href={`/polishes/detail?id=${polish.id}`}
               className="flex min-w-0 flex-1 items-center gap-3"
             >
+              {polish.swatchImageUrl ? (
+                <Image
+                  src={buildSwatchThumbnailUrl(polish.swatchImageUrl)}
+                  alt={`${polish.brand} ${polish.name} swatch`}
+                  width={40}
+                  height={40}
+                  unoptimized
+                  sizes="40px"
+                  className="h-10 w-10 shrink-0 rounded-md border object-cover transition-opacity hover:opacity-85"
+                />
+              ) : (
+                <div className="h-10 w-10 shrink-0 rounded-md border bg-muted/40" />
+              )}
               <span
-                onMouseEnter={() => polish.colorHex && onColorHover?.(polish.colorHex)}
+                onMouseEnter={() => { const h = resolveDisplayHex(polish); if (h) onColorHover?.(h); }}
                 onMouseLeave={onColorLeave}
                 onClick={(e) => {
-                  if (!polish.colorHex) return;
+                  const h = resolveDisplayHex(polish);
+                  if (!h) return;
                   e.preventDefault();
                   e.stopPropagation();
-                  onColorSelect?.(polish.colorHex);
+                  onColorSelect?.(h);
                 }}
               >
-                <ColorDot hex={polish.colorHex} size="md" />
+                <ColorDot hex={resolveDisplayHex(polish)} size="md" />
               </span>
               {showMatchDot && (
                 <span
@@ -125,8 +161,8 @@ export function ColorSearchResults({
                 </p>
               </div>
               {polish.finish && (
-                <Badge variant="secondary" className="shrink-0">
-                  {polish.finish}
+                <Badge className={`shrink-0 ${finishBadgeClassName(polish.finish)}`}>
+                  {finishLabel(polish.finish)}
                 </Badge>
               )}
               <span className="shrink-0 text-xs tabular-nums text-muted-foreground w-12 text-right">
@@ -135,18 +171,18 @@ export function ColorSearchResults({
             </Link>
 
             {/* Quantity controls */}
-            {(onAddDesired || onQuantityChange) && (
+            {(onAddFocus || onQuantityChange) && (
               <div className="shrink-0 flex items-center gap-2">
-                {onAddDesired && polish.colorHex && (
+                {onAddFocus && resolveDisplayHex(polish) && (
                   <Button
                     type="button"
                     size="icon-sm"
                     variant="outline"
                     className="w-9"
-                    title="Add to desired colors"
+                    title="Add to focused colors"
                     onClick={() => {
-                      if (!polish.colorHex) return;
-                      onAddDesired(polish.colorHex);
+                      const h = resolveDisplayHex(polish);
+                      if (h) onAddFocus(h);
                     }}
                   >
                     <BsPlusLg className="h-3.5 w-3.5" />

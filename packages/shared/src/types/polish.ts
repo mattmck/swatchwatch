@@ -1,10 +1,20 @@
 export interface Polish {
+  /** Canonical shade identifier (global across all users) */
   id: string;
+  /** Alias for clarity when joining with catalog/shade tables */
+  shadeId: string;
+  /** User-specific inventory row id (undefined when the user does not own it) */
+  inventoryItemId?: string;
   userId: string;
   brand: string;
   name: string;
   color: string;
-  colorHex?: string;
+  /** Hex from vendor/retailer product data (e.g. Shopify variant options) */
+  vendorHex?: string;
+  /** Hex detected by AI from the product image */
+  detectedHex?: string;
+  /** Hex inferred from the product color name via AI or builtin lookup */
+  nameHex?: string;
   finish?: PolishFinish;
   collection?: string;
   quantity?: number;
@@ -14,15 +24,22 @@ export interface Polish {
   rating?: number;
   notes?: string;
   swatchImageUrl?: string;
+  sourceImageUrls?: string[];
   nailImageUrl?: string;
   tags?: string[];
   createdAt: string;
   updatedAt: string;
 }
 
+/** Returns the best available hex for display: vendor > detected > name */
+export function resolveDisplayHex(
+  polish: Pick<Polish, "vendorHex" | "detectedHex" | "nameHex">
+): string | undefined {
+  return polish.vendorHex || polish.detectedHex || polish.nameHex || undefined;
+}
+
 export type PolishFinish =
   | "creme"
-  | "cream"
   | "shimmer"
   | "glitter"
   | "metallic"
@@ -38,6 +55,9 @@ export type PolishFinish =
   | "flake"
   | "topper"
   | "sheer"
+  | "magnetic"
+  | "thermal"
+  | "crelly"
   | "other";
 
 // Canonical entities (from schema)
@@ -55,13 +75,24 @@ export interface Shade {
   collection?: string;
   release_year?: number;
   status: string;
+  color_name?: string;
+  vendor_hex?: string;
+  detected_hex?: string;
+  name_hex?: string;
 }
 
 export interface PolishCreateRequest {
+  /**
+   * Optional shade id when attaching an existing catalog entry to a user's collection.
+   * When omitted, a new shade (brand/name) will be created or matched by name.
+   */
+  shadeId?: string;
   brand: string;
   name: string;
   color: string;
-  colorHex?: string;
+  vendorHex?: string;
+  detectedHex?: string;
+  nameHex?: string;
   finish?: PolishFinish;
   collection?: string;
   quantity?: number;
@@ -73,9 +104,7 @@ export interface PolishCreateRequest {
   tags?: string[];
 }
 
-export interface PolishUpdateRequest extends Partial<PolishCreateRequest> {
-  id: string;
-}
+export type PolishUpdateRequest = Partial<PolishCreateRequest>;
 
 export interface PolishListResponse {
   polishes: Polish[];

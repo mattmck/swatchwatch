@@ -138,7 +138,7 @@ describe("Polishes API — pagination and quantity controls", () => {
       name: "Test Shade Alpha",
       color: "Red",
       colorHex: "#FF0000",
-      finish: "cream",
+      finish: "creme",
       quantity: 2,
       rating: 4,
     });

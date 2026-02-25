@@ -1,10 +1,16 @@
 terraform {
   required_version = ">= 1.5.0"
 
+  backend "azurerm" {}
+
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 3.100"
+      version = "~> 4.50"
+    }
+    azuread = {
+      source  = "hashicorp/azuread"
+      version = "~> 2.47"
     }
     azuread = {
       source  = "hashicorp/azuread"
@@ -18,6 +24,7 @@ terraform {
 }
 
 provider "azurerm" {
+  subscription_id = var.subscription_id
   features {
     key_vault {
       purge_soft_delete_on_destroy    = true
@@ -35,8 +42,67 @@ resource "random_string" "suffix" {
 }
 
 locals {
-  resource_prefix = "${var.base_name}-${var.environment}"
-  unique_suffix   = random_string.suffix.result
+  resource_prefix                      = "${var.base_name}-${var.environment}"
+  unique_suffix                        = random_string.suffix.result
+  openai_external_endpoint             = trimspace(var.openai_endpoint)
+  openai_external_api_key              = trimspace(var.openai_api_key)
+  openai_external_key_vault_secret_uri = trimspace(var.openai_key_vault_secret_uri)
+  openai_create_resources              = var.create_openai_resources
+  openai_uses_external_inline_key = (
+    local.openai_external_endpoint != "" &&
+    local.openai_external_api_key != ""
+  )
+  openai_uses_external_secret_uri = (
+    local.openai_external_endpoint != "" &&
+    local.openai_external_key_vault_secret_uri != ""
+  )
+  openai_enabled = (
+    local.openai_create_resources ||
+    local.openai_uses_external_inline_key ||
+    local.openai_uses_external_secret_uri
+  )
+  # AIServices kind returns a cognitiveservices.azure.com endpoint, but we need
+  # the openai.azure.com endpoint for the Azure OpenAI SDK. Construct it from
+  # the custom subdomain name instead.
+  openai_endpoint_value = (
+    local.openai_create_resources
+    ? "https://${try(azurerm_cognitive_account.openai[0].custom_subdomain_name, "")}.openai.azure.com/"
+    : local.openai_external_endpoint
+  )
+  openai_deployment_name_value = local.openai_enabled ? var.openai_deployment_name : ""
+  openai_key_secret_value = (
+    local.openai_create_resources
+    ? try(azurerm_cognitive_account.openai[0].primary_access_key, "")
+    : local.openai_external_api_key
+  )
+  openai_key_secret_uri = (
+    local.openai_uses_external_secret_uri
+    ? local.openai_external_key_vault_secret_uri
+    : try(azurerm_key_vault_secret.openai_key[0].versionless_id, "")
+  )
+}
+
+check "openai_configuration" {
+  assert {
+    condition = (
+      var.create_openai_resources ||
+      (
+        (
+          trimspace(var.openai_endpoint) == "" &&
+          trimspace(var.openai_api_key) == "" &&
+          trimspace(var.openai_key_vault_secret_uri) == ""
+        ) ||
+        (
+          trimspace(var.openai_endpoint) != "" &&
+          (
+            trimspace(var.openai_api_key) != "" ||
+            trimspace(var.openai_key_vault_secret_uri) != ""
+          )
+        )
+      )
+    )
+    error_message = "When create_openai_resources is false, set openai_endpoint with either openai_api_key or openai_key_vault_secret_uri, or leave all three empty."
+  }
 }
 
 # ── Resource Group ──────────────────────────────────────────────
@@ -58,17 +124,29 @@ resource "azurerm_key_vault" "main" {
   purge_protection_enabled   = false # Set true for production
   soft_delete_retention_days = 7
 
-  enable_rbac_authorization = false # Using access policies for simplicity
+  rbac_authorization_enabled = false # Using access policies for simplicity
 }
 
-# Grant your current user full access to Key Vault
+
+
+# Grant your current user full access to Key Vault (skip in CI — the
+# github_actions policy covers the service principal instead).
 resource "azurerm_key_vault_access_policy" "deployer" {
+  count        = var.is_automation ? 0 : 1
   key_vault_id = azurerm_key_vault.main.id
   tenant_id    = data.azurerm_client_config.current.tenant_id
   object_id    = data.azurerm_client_config.current.object_id
 
+  key_permissions = [
+    "Get", "List", "Update", "Create", "Import", "Delete", "Recover", "Backup", "Restore", "Purge"
+  ]
+
   secret_permissions = [
     "Get", "List", "Set", "Delete", "Purge", "Recover"
+  ]
+
+  certificate_permissions = [
+    "Get", "List", "Update", "Create", "Import", "Delete", "Recover", "Backup", "Restore", "Purge", "ManageContacts", "ManageIssuers", "GetIssuers", "ListIssuers", "SetIssuers", "DeleteIssuers"
   ]
 }
 
@@ -77,8 +155,10 @@ resource "azurerm_key_vault_secret" "pg_password" {
   name         = "pg-password"
   value        = var.pg_admin_password
   key_vault_id = azurerm_key_vault.main.id
-
-  depends_on = [azurerm_key_vault_access_policy.deployer]
+  depends_on = [
+    azurerm_key_vault_access_policy.deployer,
+    azurerm_key_vault_access_policy.github_actions,
+  ]
 }
 
 # ── Azure Database for PostgreSQL Flexible Server ───────────────
@@ -144,6 +224,30 @@ resource "azurerm_storage_container" "nail_photos" {
   container_access_type = "private"
 }
 
+resource "azurerm_storage_container" "tfstate" {
+  name                  = "tfstate"
+  storage_account_name  = azurerm_storage_account.main.name
+  container_access_type = "private"
+}
+
+# ── Monitoring (Application Insights + Log Analytics) ──────────
+
+resource "azurerm_log_analytics_workspace" "main" {
+  name                = "${local.resource_prefix}-law-${local.unique_suffix}"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  sku                 = "PerGB2018"
+  retention_in_days   = 30
+}
+
+resource "azurerm_application_insights" "main" {
+  name                = "${local.resource_prefix}-appi-${local.unique_suffix}"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  application_type    = "web"
+  workspace_id        = azurerm_log_analytics_workspace.main.id
+}
+
 # ── Azure Functions (Consumption/Serverless) ────────────────────
 
 resource "azurerm_service_plan" "main" {
@@ -168,6 +272,9 @@ resource "azurerm_linux_function_app" "main" {
   }
 
   site_config {
+    application_insights_connection_string = azurerm_application_insights.main.connection_string
+    application_insights_key               = azurerm_application_insights.main.instrumentation_key
+
     application_stack {
       node_version = "20"
     }
@@ -175,6 +282,7 @@ resource "azurerm_linux_function_app" "main" {
     cors {
       allowed_origins = [
         "https://jolly-desert-0c7f01510.2.azurestaticapps.net",
+        "https://dev.${var.domain_name}",
         "http://localhost:3000",
       ]
       support_credentials = false
@@ -189,16 +297,40 @@ resource "azurerm_linux_function_app" "main" {
     PGDATABASE                  = azurerm_postgresql_flexible_server_database.main.name
     PGUSER                      = var.pg_admin_username
     # Reference Key Vault secret instead of plaintext password
-    PGPASSWORD = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.pg_password.id})"
+    PGPASSWORD = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.pg_password.versionless_id})"
     # Placeholder for future secrets
-    AZURE_STORAGE_CONNECTION = azurerm_storage_account.main.primary_connection_string
-    AZURE_SPEECH_KEY         = "to-be-added"
-    AZURE_SPEECH_REGION      = azurerm_resource_group.main.location
-    AZURE_OPENAI_ENDPOINT    = "to-be-added"
-    AZURE_OPENAI_KEY         = "to-be-added"
-    AZURE_AD_B2C_TENANT      = "to-be-added"
-    AZURE_AD_B2C_CLIENT_ID   = "to-be-added"
+    AZURE_STORAGE_CONNECTION    = azurerm_storage_account.main.primary_connection_string
+    INGESTION_JOB_QUEUE_NAME    = "ingestion-jobs"
+    AZURE_SPEECH_KEY            = "to-be-added"
+    AZURE_SPEECH_REGION         = azurerm_resource_group.main.location
+    AZURE_OPENAI_ENDPOINT       = local.openai_enabled ? local.openai_endpoint_value : ""
+    AZURE_OPENAI_KEY            = local.openai_enabled ? "@Microsoft.KeyVault(SecretUri=${local.openai_key_secret_uri})" : ""
+    AZURE_OPENAI_DEPLOYMENT_HEX = local.openai_deployment_name_value
+    AZURE_AD_B2C_TENANT         = var.azure_ad_b2c_tenant
+    AZURE_AD_B2C_CLIENT_ID      = var.azure_ad_b2c_client_id
+    AUTH_DEV_BYPASS             = var.auth_dev_bypass ? "true" : "false"
+    REDIS_URL                   = "rediss://${azurerm_managed_redis.main.hostname}:10000"
+    REDIS_KEY                   = azurerm_managed_redis.main.default_database[0].primary_access_key
   }
+
+  lifecycle {
+    ignore_changes = [
+      app_settings["WEBSITE_RUN_FROM_PACKAGE"],
+      app_settings["WEBSITE_MOUNT_ENABLED"],
+      tags["hidden-link: /app-insights-resource-id"],
+      tags["hidden-link: /app-insights-instrumentation-key"],
+      tags["hidden-link: /app-insights-conn-string"],
+    ]
+  }
+}
+
+# Grant Function App access to Key Vault
+resource "azurerm_key_vault_access_policy" "function_app" {
+  key_vault_id = azurerm_key_vault.main.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = azurerm_linux_function_app.main.identity[0].principal_id
+
+  secret_permissions = ["Get", "List"]
 }
 
 # Grant Function App access to Key Vault
@@ -224,6 +356,29 @@ resource "azurerm_static_web_app" "main" {
   }
 }
 
+resource "azurerm_static_web_app_custom_domain" "dev" {
+  static_web_app_id = azurerm_static_web_app.main.id
+  domain_name       = "dev.${var.domain_name}"
+  validation_type   = "cname-delegation"
+
+  lifecycle {
+    ignore_changes = [validation_type]
+  }
+}
+
+# ── Azure Managed Redis ─────────────────────────────────────────
+
+resource "azurerm_managed_redis" "main" {
+  name                = "${local.resource_prefix}-redis-${local.unique_suffix}"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  sku_name            = "Balanced_B0"
+
+  default_database {
+    access_keys_authentication_enabled = true
+  }
+}
+
 # ── Azure Speech Services ──────────────────────────────────────
 # Azure AD B2C is provisioned separately via the portal
 
@@ -233,6 +388,63 @@ resource "azurerm_cognitive_account" "speech" {
   location            = azurerm_resource_group.main.location
   kind                = "SpeechServices"
   sku_name            = "S0"
+}
+
+resource "azurerm_cognitive_account" "openai" {
+  count                 = (local.openai_create_resources || var.retain_openai_account) ? 1 : 0
+  name                  = "${local.resource_prefix}-openai-${local.unique_suffix}"
+  resource_group_name   = azurerm_resource_group.main.name
+  location              = var.openai_location != null ? var.openai_location : azurerm_resource_group.main.location
+  kind                  = "OpenAI"
+  sku_name              = "S0"
+  custom_subdomain_name = var.openai_custom_subdomain_name != null ? var.openai_custom_subdomain_name : "${local.resource_prefix}-openai-${local.unique_suffix}"
+
+}
+
+resource "azurerm_cognitive_deployment" "openai_hex" {
+  count                = local.openai_create_resources ? 1 : 0
+  name                 = var.openai_deployment_name
+  cognitive_account_id = azurerm_cognitive_account.openai[0].id
+
+  model {
+    format  = "OpenAI"
+    name    = var.openai_model_name
+    version = var.openai_model_version
+  }
+
+  sku {
+    name     = "Standard"
+    capacity = var.openai_deployment_capacity
+  }
+}
+
+# Send Azure OpenAI diagnostics to the shared Log Analytics workspace
+# (same workspace backing Application Insights).
+resource "azurerm_monitor_diagnostic_setting" "openai" {
+  count                      = local.openai_create_resources ? 1 : 0
+  name                       = "openai-observability"
+  target_resource_id         = azurerm_cognitive_account.openai[0].id
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
+
+  enabled_log {
+    category_group = "allLogs"
+  }
+
+  enabled_metric {
+    category = "AllMetrics"
+  }
+}
+
+resource "azurerm_key_vault_secret" "openai_key" {
+  count        = (local.openai_create_resources || local.openai_uses_external_inline_key) ? 1 : 0
+  name         = "azure-openai-key"
+  value        = local.openai_key_secret_value
+  key_vault_id = azurerm_key_vault.main.id
+
+  depends_on = [
+    azurerm_key_vault_access_policy.deployer,
+    azurerm_key_vault_access_policy.github_actions,
+  ]
 }
 
 # ── GitHub Actions OIDC Federation (passwordless CI/CD) ────────
@@ -261,11 +473,18 @@ resource "azurerm_role_assignment" "github_contributor" {
   principal_id         = azuread_service_principal.github_actions.object_id
 }
 
+# Grant GitHub Actions service principal Cognitive Services Contributor access
+resource "azurerm_role_assignment" "github_cognitive_services_contributor" {
+  scope                = azurerm_resource_group.main.id
+  role_definition_name = "Cognitive Services Contributor"
+  principal_id         = azuread_service_principal.github_actions.object_id
+}
+
 # Grant GitHub Actions access to Key Vault
 resource "azurerm_key_vault_access_policy" "github_actions" {
   key_vault_id = azurerm_key_vault.main.id
   tenant_id    = data.azurerm_client_config.current.tenant_id
   object_id    = azuread_service_principal.github_actions.object_id
 
-  secret_permissions = ["Get", "List"]
+  secret_permissions = ["Get", "List", "Set", "Delete", "Purge"]
 }

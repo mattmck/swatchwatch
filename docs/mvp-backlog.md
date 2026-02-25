@@ -79,7 +79,7 @@ This backlog is organized as **Epics → Capabilities → Stories/Tasks**, optim
   - `GET /api/catalog/search?q=` (brand/shade trigram search)
   - `GET /api/catalog/shade/{id}`
 - Create `apps/web/src/lib/api.ts` — typed fetch wrappers for all endpoints
-- ✅ Connect web UI collection page to real API (replace mock data imports)
+- Connect web UI collection page to real API (replace mock data imports)
 - Add audit logging for user corrections/links
 
 **DoD**
@@ -221,3 +221,14 @@ This backlog is organized as **Epics → Capabilities → Stories/Tasks**, optim
 - **M2 (Week 5):** OpenBeautyFacts connector + provenance logging
 - **M3 (Week 6):** Retail links + in-store scan mode + disclosure
 - **M4 (Week 7+):** Ingredient OCR + basic normalization + admin tools
+
+### Security and Deprecation Fixes (2026-02)
+
+- JWT validation in `auth.ts` is implemented via JWKS/JOSE; keep `AUTH_DEV_BYPASS=false` outside isolated local dev.
+- Remove all dev auth bypasses (e.g., `NEXT_PUBLIC_AUTH_DEV_BYPASS`) from CI/CD and app settings once B2C is fully wired.
+- Voice processing in `voice.ts` is a stub; add input validation and security checks.
+- Ensure signed upload URLs, rate limiting, malware scanning, and least-privilege RBAC are enforced (see implementation-guide.md).
+- For production, migrate Postgres/Blob to VNet/private endpoints (currently public with firewall rules).
+- Address all deprecated npm packages: update `glob`, `rimraf`, replace `inflight` with `lru-cache`, and use native `DOMException`.
+- Run `npm audit` and `npm ls` to identify and update direct dependencies that bring in deprecated packages.
+- Add checklist items to verify dev auth bypass is disabled for shared/prod environments.

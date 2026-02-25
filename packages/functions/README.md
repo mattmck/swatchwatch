@@ -6,7 +6,9 @@ Azure Functions v4 HTTP API (Node 20, TypeScript).
 
 ```bash
 # From repo root
-npm run dev:functions    # Builds TypeScript then starts func host (dev CORS enabled) on http://localhost:7071
+npm run setup            # Install workspace dependencies first
+npm run dev:infra        # Start local Postgres + Azurite
+npm run dev:functions    # TypeScript watch + func host on http://localhost:7071
 
 # Or for debugging (VS Code):
 # Press F5 → "Attach to Node Functions" (builds, watches, starts with --inspect on port 9229)
@@ -22,35 +24,118 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `POST` | `/api/polishes` | `createPolish` | `polishes.ts` | ✅ Live |
 | `PUT` | `/api/polishes/{id}` | `updatePolish` | `polishes.ts` | ✅ Live |
 | `DELETE` | `/api/polishes/{id}` | `deletePolish` | `polishes.ts` | ✅ Live |
-| `POST` | `/api/auth/validate` | `validateToken` | `auth.ts` | ✅ Live (dev bypass + B2C) |
+| `POST` | `/api/polishes/{id}/recalc-hex` | `recalcHex` | `polishes.ts` | ✅ Live (admin-only) |
+| `GET` | `/api/catalog/search` | `searchCatalog` | `catalog.ts` | ✅ Working |
+| `GET` | `/api/catalog/shade/{id}` | `getShade` | `catalog.ts` | ✅ Working |
+| `POST` | `/api/auth/validate` | `validateToken` | `auth.ts` | ✅ Working |
 | `GET` | `/api/auth/config` | `getAuthConfig` | `auth.ts` | ✅ Working |
-| `GET` | `/api/catalog/search?q=` | `searchCatalog` | `catalog.ts` | ✅ Live |
-| `GET` | `/api/catalog/shade/{id}` | `getShade` | `catalog.ts` | ✅ Live |
+| `POST` | `/api/capture/start` | `startCapture` | `capture.ts` | ✅ Working |
+| `POST` | `/api/capture/{captureId}/frame` | `addCaptureFrame` | `capture.ts` | ✅ Working |
+| `POST` | `/api/capture/{captureId}/finalize` | `finalizeCapture` | `capture.ts` | ✅ Working |
+| `GET` | `/api/capture/{captureId}/status` | `getCaptureStatus` | `capture.ts` | ✅ Working |
+| `POST` | `/api/capture/{captureId}/answer` | `answerCaptureQuestion` | `capture.ts` | ✅ Working |
+| `GET` | `/api/ingestion/jobs` | `ingestionJobsHandler` | `ingestion.ts` | ✅ Working |
+| `POST` | `/api/ingestion/jobs` | `enqueueIngestionJob` | `ingestion.ts` | ✅ Working |
+| `GET` | `/api/ingestion/jobs/{id}` | `ingestionJobDetailHandler` | `ingestion.ts` | ✅ Working |
+| `DELETE` | `/api/ingestion/jobs/{id}/cancel` | `ingestionJobCancelHandler` | `ingestion.ts` | ✅ Working |
+| `GET` | `/api/ingestion/sources` | `dataSourcesHandler` | `ingestion.ts` | ✅ Working |
+| `PATCH` | `/api/ingestion/sources/{id}/settings` | `sourceSettingsHandler` | `ingestion.ts` | ✅ Working |
+| `GET` | `/api/ingestion/settings` | `globalSettingsHandler` | `ingestion.ts` | ✅ Working |
+| `PATCH` | `/api/ingestion/settings` | `globalSettingsHandler` | `ingestion.ts` | ✅ Working |
+| `GET` | `/api/ingestion/queue/stats` | `queueStatsHandler` | `ingestion.ts` | ✅ Working |
+| `DELETE` | `/api/ingestion/queue/messages` | `queueMessagesHandler` | `ingestion.ts` | ✅ Working |
+| `GET` | `/api/reference/finishes` | `getReferenceFinishes` | `reference.ts` | ✅ Working |
+| `GET` | `/api/reference/harmonies` | `getReferenceHarmonies` | `reference.ts` | ✅ Working |
+| `GET` | `/api/reference-admin/finishes` | `adminFinishesCollectionHandler` | `admin-reference.ts` | ✅ Working (admin-only) |
+| `POST` | `/api/reference-admin/finishes` | `adminFinishesCollectionHandler` | `admin-reference.ts` | ✅ Working (admin-only) |
+| `PUT` | `/api/reference-admin/finishes/{id}` | `adminFinishesItemHandler` | `admin-reference.ts` | ✅ Working (admin-only) |
+| `DELETE` | `/api/reference-admin/finishes/{id}` | `adminFinishesItemHandler` | `admin-reference.ts` | ✅ Working (admin-only) |
+| `GET` | `/api/reference-admin/harmonies` | `adminHarmoniesCollectionHandler` | `admin-reference.ts` | ✅ Working (admin-only) |
+| `POST` | `/api/reference-admin/harmonies` | `adminHarmoniesCollectionHandler` | `admin-reference.ts` | ✅ Working (admin-only) |
+| `PUT` | `/api/reference-admin/harmonies/{id}` | `adminHarmoniesItemHandler` | `admin-reference.ts` | ✅ Working (admin-only) |
+| `DELETE` | `/api/reference-admin/harmonies/{id}` | `adminHarmoniesItemHandler` | `admin-reference.ts` | ✅ Working (admin-only) |
+| `GET` | `/api/reference-admin/jobs` | `adminJobsHandler` | `admin-reference.ts` | ✅ Working (admin-only) |
+| `GET` | `/api/reference-admin/finish-normalizations` | `adminFinishNormalizationsCollectionHandler` | `admin-reference.ts` | ✅ Working (admin-only) |
+| `POST` | `/api/reference-admin/finish-normalizations` | `adminFinishNormalizationsCollectionHandler` | `admin-reference.ts` | ✅ Working (admin-only) |
+| `PUT` | `/api/reference-admin/finish-normalizations/{id}` | `adminFinishNormalizationsItemHandler` | `admin-reference.ts` | ✅ Working (admin-only) |
+| `DELETE` | `/api/reference-admin/finish-normalizations/{id}` | `adminFinishNormalizationsItemHandler` | `admin-reference.ts` | ✅ Working (admin-only) |
 | `POST` | `/api/voice` | `processVoiceInput` | `voice.ts` | ⬜ Stub |
+| `GET` | `/api/images/{id}` | `images` | `images.ts` | ✅ Working |
+
 
 
 All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpRequest, context: InvocationContext)`.
 
-### Authentication
+`GET /api/polishes` now returns the entire canonical shade catalog joined with the requesting user's inventory rows. `inventoryItemId` and user-facing fields are undefined when the user has not added that shade yet, but catalog metadata (brand, finish, color hexes, swatch) is still returned so the UI can show "not owned" entries. `GET /api/polishes/{id}` looks up a shade by `shade_id` and includes `sourceImageUrls` (all source images associated with that shade's swatches) for the detail page.
+For private blob storage, the API rewrites blob URLs to `/api/images/{id}` so image bytes are served through Functions (no public container access or client-side SAS required).
+`POST /api/polishes/{id}/recalc-hex` is admin-only, fetches the latest swatch image for the shade, runs Azure OpenAI hex detection, updates `detected_hex`, and returns a 200 with the detected hex and confidence (or a 422 if no image is available for detection). Vendor context is derived from shade metadata (for example `finish`) so the endpoint does not depend on source-specific external IDs.
+Image uploads now enforce a shared validation policy (`maxSizeBytes=5MB`; allowed mime types: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif`, `image/gif`) used by capture-frame data URLs and source-image ingestion. Source image bytes are auto-oriented and metadata-stripped with `sharp` before checksum generation and blob upload.
 
-Polish CRUD endpoints require a `Bearer` token in the `Authorization` header. The auth middleware (`src/lib/auth.ts`) supports two modes:
+Reference endpoints:
+- `GET /api/reference/finishes` and `GET /api/reference/harmonies` are public read endpoints for UI lookup data, sorted by `sort_order` and served with cache headers.
+- Admin CRUD endpoints under `/api/reference-admin/finishes` and `/api/reference-admin/harmonies` manage reference data and update audit columns (`updated_at`, `updated_by_user_id`) on writes.
+- Admin CRUD endpoints under `/api/reference-admin/finish-normalizations` manage aliases and misspellings used to normalize AI/vendor finish strings into canonical `finish_type.name` values.
+- `GET /api/reference-admin/jobs` lists recent ingestion jobs with pagination (`page`, `pageSize`) and optional `status` filter (`queued|running|succeeded|failed|cancelled`), joined with `data_source` for source metadata.
 
-- **Dev bypass** (`AUTH_DEV_BYPASS=true` in `local.settings.json`): accepts `Bearer dev:<userId>` tokens (e.g., `Bearer dev:1`) — maps directly to `app_user.user_id`. No cryptographic validation.
-- **Production** (B2C configured): validates JWTs against Azure AD B2C JWKS, extracts the `oid` claim, and upserts the user by `external_id`.
+Adding a new reference category (example: `texture_type`):
+1. Start with a migration that creates the DB table + audit columns, and seed rows using `ON CONFLICT DO NOTHING`.
+2. Implement public read endpoint(s) in `reference.ts` with `sort_order` ordering and cache headers.
+3. Wire admin CRUD endpoint(s) in `admin-reference.ts` via `withAdmin`, including audit updates on writes.
+4. Define shared contracts in `packages/shared/src/types/reference.ts`, then re-export from `packages/shared/src/index.ts`.
+5. Finish by adding web API helpers and a `use-reference-data` consumption path for fallback-safe UI behavior.
 
-To protect a handler, wrap it with `withAuth`:
+### Connector Ingestion Jobs
 
-```ts
-import { withAuth } from "../lib/auth";
+`POST /api/ingestion/jobs` now **queues** an async ingestion run and returns `202 Accepted` with a queued job record.
+Execution happens in a queue-triggered worker (`ingestion-worker.ts`) backed by Azure Storage Queue.
 
-async function myHandler(request: HttpRequest, context: InvocationContext, userId: number) {
-  // userId is the authenticated user's local DB ID
+Current source support:
+- `OpenBeautyFacts` (search-based pull)
+- `MakeupAPI` (nail-polish catalog pull)
+- `HoloTacoShopify` (current Shopify storefront pull, bundle-filtered)
+- Additional `*Shopify` sources from the generated connector list are auto-provisioned into `data_source` when missing, so they appear in `/api/ingestion/sources` and can be queued without manual SQL seeding.
+
+Auth requirement:
+- Ingestion endpoints are admin-only (`withAdmin`).
+- In production auth mode, admin is determined from the Entra access-token `roles` claim (`admin`).
+- In dev bypass mode, use an admin dev user token (for example `Bearer dev:2` with seeded admin user id 2).
+
+For `MakeupAPI`, ingestion also materializes product color variants into searchable `shade`
+rows and user inventory rows (`quantity=0`) by default. Set `materializeToInventory` to
+`false` to store only raw/normalized external records.
+
+For `HoloTacoShopify`, ingestion materializes searchable shade rows (brand/name/finish/collection)
+and user inventory rows (`quantity=0`) with source tags. Use `recentDays` to constrain to newer
+products by publish/create/update timestamps. It also uploads source product images to Azure Blob
+Storage (`image_asset` + `swatch`) and attempts Azure OpenAI-based representative `color_hex`
+detection from the product image.
+When `AZURE_STORAGE_CONNECTION` isn't configured (for example in a fresh local checkout), the connector
+falls back to storing the original Shopify `image.src` URL so images still appear in the app while
+you bring storage online.
+Materialization now commits per record while the job is running, so newly imported polishes become
+visible progressively instead of waiting for the final job commit.
+
+Holo Taco run options:
+- `detectHexFromImage` (default `true`) toggles image-based AI hex detection.
+- `overwriteDetectedHex` (default `false`) refreshes existing `color_hex` values on reruns instead of only filling blanks.
+
+Example request:
+```json
+{
+  "source": "HoloTacoShopify",
+  "searchTerm": "recent",
+  "page": 1,
+  "pageSize": 50,
+  "maxRecords": 50,
+  "recentDays": 120,
+  "materializeToInventory": true,
+  "detectHexFromImage": true,
+  "overwriteDetectedHex": true
 }
-
-app.http("my-route", { ..., handler: withAuth(myHandler) });
 ```
 
-Catalog endpoints (`/api/catalog/*`) remain public — no auth required.
+Use `GET /api/ingestion/jobs` and `GET /api/ingestion/jobs/{id}` to inspect queued/running/completed status and metrics.
+If a queue message is malformed but includes a valid `jobId`, the worker marks that ingestion job as `failed` with validation details in `error` and `metrics.pipeline`.
 
 ## Migrations
 
@@ -58,26 +143,34 @@ Schema migrations use [node-pg-migrate](https://github.com/salsita/node-pg-migra
 
 ```bash
 # From repo root (requires DATABASE_URL or PG* env vars)
-npm run migrate          # Apply pending migrations (prod-safe)
-npm run migrate:dev      # Apply pending migrations + seed dev data (demo user, mock polishes)
+npm run migrate          # Apply pending migrations
 npm run migrate:down     # Roll back last migration
-npm run migrate:down:dev # Roll back last migration (with dev seed awareness)
 
 # From packages/functions
 npm run migrate:create -- my-migration-name   # Create a new migration file
 ```
-
-`migrate:dev` sets `PGOPTIONS='-c app.seed_dev_data=true'` so migration 003 inserts the demo user and sample inventory. Without it (i.e. `migrate` in prod), 003 is a safe no-op.
 
 **Migration files:**
 | File | Description |
 |------|-------------|
 | `001_initial_schema.sql` | Full schema: catalog, swatches, matching, users, inventory, capture, retail, provenance |
 | `002_add_user_facing_columns.sql` | Adds color_name, color_hex, rating, tags, size_display, updated_at to user_inventory_item |
-| `003_seed_dev_data.sql` | Dev-only: demo user, sample shades, 20 inventory items (gated by `app.seed_dev_data` session var) |
-| `004_add_expiration_date.sql` | Adds expiration_date column to user_inventory_item |
-| `005_seed_production_reference_data.sql` | Prod reference data: finish_type table, data sources, 49 brands, brand aliases, claims, retailers, affiliate programs, disclosure config, INCI ingredients, product lines |
-| `006_add_user_external_id.sql` | Adds `external_id` (B2C oid) and `email` to `app_user`; sets demo user external_id |
+| `003_seed_dev_data.sql` | Inserts brands, shades, demo user, and 20 inventory items |
+| `004_add_expiration_date.sql` | Adds expiration_date to user_inventory_item |
+| `005_seed_production_reference_data.sql` | Seeds production reference data |
+| `006_add_user_external_id.sql` | Adds external_id column to app_user for Entra identity linking |
+| `007_add_makeup_api_data_source.sql` | Registers `MakeupAPI` in `data_source` for connector ingestion |
+| `008_add_holo_taco_shopify_data_source.sql` | Registers `HoloTacoShopify` in `data_source` for connector ingestion |
+| `009_add_admin_role_and_ingestion_queue_support.sql` | Adds `app_user.role`, seeds dev admin user (`user_id=2`), supports admin-gated async ingestion flow |
+| `010_add_ingestion_settings.sql` | Adds per-source and global ingestion settings tables |
+| `011_split_color_hex.sql` | Splits monolithic color_hex into vendor_hex, detected_hex, name_hex fields |
+| `012_move_color_data_to_shade.sql` | Moves color fields from user_inventory_item to the canonical shade table |
+| `013_shade_catalog_visibility.sql` | Adds timestamps to `shade`, enforces one `user_inventory_item` per user/shade to support catalog-wide visibility |
+| `014_add_user_inventory_unique_constraint.sql` | Adds unique constraint on (user_id, shade_id) in user_inventory_item |
+| `015_normalize_finish_creme.sql` | Normalizes finish values (cream → creme) across existing data |
+| `016_add_shade_detected_finishes.sql` | Adds detected_finishes array column to shade for AI-extracted finish tags |
+| `017_add_admin_support.sql` | Adds `finish_type` audit columns and creates/seeds `harmony_type` for admin-managed reference data |
+| `018_add_finish_normalizations.sql` | Adds editable `finish_normalization` mappings (source alias → canonical finish name) for AI/vendor finish parsing |
 
 node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_URL` is the preferred connection method; it also falls back to individual `PG*` env vars (`PGHOST`, `PGPORT`, etc.).
 
@@ -106,10 +199,48 @@ node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_U
 
 - Voice handler stubs Speech-to-text and OpenAI parsing
 
+## Troubleshooting
+
+- If the Function App starts but no functions are listed, check startup logs for module resolution errors and confirm runtime dependencies (for example `jose` for auth JWT validation) are in `dependencies`, not only dev deps.
+- AI hex detection diagnostics are logged under the `[ai-color-detection]` prefix, including retry attempts, delay timings, upstream status codes, and Azure request IDs (`x-request-id`/`apim-request-id`) for failed calls.
+- If Azure OpenAI returns `400 content_filter` for the primary vision prompt, the detector automatically retries once with a safer prompt. If still filtered, ingestion continues and leaves `detected_hex` empty for that record.
+- AI image detection uses base64 image payloads only. If base64 preparation fails for a record, detection is skipped and a warning is logged to the Admin Jobs stream.
+- On successful AI hex detection, ingestion logs a structured success entry with `brand`, `colorName`, and `hex` in job logs (Admin Jobs expandable log view).
+- For ingestion runs, those AI diagnostics are also mirrored into the job `metrics.logs` stream shown on `/admin/jobs`.
+
 
 ## Environment Variables
 
 Defined in `local.settings.json` (git-ignored values). See the root README for the full list. For production, secrets are injected via Key Vault references.
+
+Key variables:
+
+| Variable | Purpose |
+|----------|---------|
+| `AUTH_DEV_BYPASS` | Dev-only bypass mode. When `true`, auth accepts `Bearer dev:<userId>` tokens. Keep this disabled outside isolated dev scenarios. |
+| `INGESTION_JOB_QUEUE_NAME` | Optional queue name for async ingestion jobs. Defaults to `ingestion-jobs`. |
+| `SOURCE_IMAGE_CONTAINER` | Optional blob container override for source-ingested images. Defaults to `source-images`. |
+| `AZURE_STORAGE_CONNECTION` | Connection string for uploading source images to Azure Blob Storage. When unset (for local dev or bring-up), ingestion falls back to storing the original source image URLs so swatch images still appear. |
+| `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name dedicated to image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT` when unset). |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | Optional custom telemetry sink for `trackEvent` / `trackMetric` / `trackException` in `src/lib/telemetry.ts`. When unset, telemetry calls are no-ops. |
+
+JWT validation note:
+- In production mode (`AUTH_DEV_BYPASS=false`), auth discovery first tries Entra External ID (`ciamlogin.com`) metadata for `AZURE_AD_B2C_TENANT`, then falls back to legacy Azure AD B2C (`b2clogin.com`) metadata.
+- Accepted token audiences are `AZURE_AD_B2C_CLIENT_ID` and `api://AZURE_AD_B2C_CLIENT_ID` to support exposed-API scopes like `access_as_user`.
+- User records are still upserted in `app_user`; `role` is synchronized from Entra token roles on each authenticated request.
+
+Dev deploy note:
+`deploy-dev.yml` configures Function App auth settings from GitHub `dev` environment values on each deploy.
+- Variable: `AUTH_DEV_BYPASS`
+- Secret: `AZURE_AD_B2C_CLIENT_ID`
+- Tenant source: `AZURE_AD_B2C_TENANT` variable (falls back to `NEXT_PUBLIC_B2C_TENANT`)
+- Deployment packaging installs `swatchwatch-shared` from a local `.tgz` tarball (not a `file:` directory symlink) so `WEBSITE_RUN_FROM_PACKAGE` can resolve it reliably.
+- Build artifacts run npm install scripts (no `--ignore-scripts`) so native dependencies like `sharp` can hydrate their platform-specific binaries.
+- The workflow sets `FUNCTIONS_NODE_BLOCK_ON_ENTRY_POINT_ERROR=true` so entrypoint/import failures hard-fail startup instead of surfacing as misleading route-level `404` responses.
+- The workflow explicitly runs `az functionapp sync-functions` after zip deployment to force trigger refresh.
+- Post-deploy smoke tests:
+  - `POST /api/voice` with a JSON body should return `400` (host reachable + routing works).
+  - When `AUTH_DEV_BYPASS=true`, `GET /api/polishes?pageSize=1` with `Authorization: Bearer dev:1` should return `200` (auth + DB path).
 
 ## Build
 

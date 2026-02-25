@@ -1,27 +1,30 @@
 {
   "name": "swatchwatch",
+  "version": "0.1.0",
   "private": true,
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run dev:functions & npm run dev:web",
-    "dev:web": "npm run dev --workspace=apps/web",
+    "setup": "npm ci",
+    "predev:check": "node scripts/dev-preflight.mjs",
+    "dev": "npm run predev:check && concurrently -k -n shared,functions,web \"npm run dev:shared\" \"npm run dev:functions\" \"npm run dev:web\"",
+    "dev:infra": "docker compose up -d postgres azurite",
+    "dev:shared": "npm run predev:check && npm run watch --workspace=packages/shared",
+    "dev:web": "npm run predev:check && npm run build:shared && npm run dev --workspace=apps/web",
     "dev:mobile": "npm run start --workspace=apps/mobile",
-    "dev:functions": "npm run start:dev --workspace=packages/functions",
-    "dev:db": "docker compose up -d",
-    "dev:db:down": "docker compose down",
-    "build:web": "npm run build --workspace=apps/web",
-    "build:functions": "npm run build --workspace=packages/functions",
+    "dev:functions": "npm run predev:check && npm run build:shared && concurrently -k -n func-build,func-host \"npm run watch --workspace=packages/functions\" \"npm run start --workspace=packages/functions\"",
+    "build": "npm run build:shared && npm run build --workspace=apps/web && npm run build --workspace=packages/functions",
+    "build:shared": "npm run build --workspace=swatchwatch-shared",
+    "build:web": "npm run build:shared && npm run build --workspace=apps/web",
+    "build:functions": "npm run build:shared && npm run build --workspace=packages/functions",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "test:integration": "npm run test:integration --workspaces --if-present",
     "migrate": "npm run migrate --workspace=packages/functions",
-    "migrate:dev": "npm run migrate:dev --workspace=packages/functions",
     "migrate:down": "npm run migrate:down --workspace=packages/functions",
-    "migrate:down:dev": "npm run migrate:down:dev --workspace=packages/functions",
+    "generate:types": "node scripts/generate-connector-types.mjs",
     "prepare": "husky"
   },
   "engines": {
@@ -31,7 +34,9 @@
     "@commitlint/cli": "^20.4.1",
     "@commitlint/config-conventional": "^20.4.1",
     "@types/node": "^25.2.1",
+    "concurrently": "^9.2.1",
     "husky": "^9.1.7",
+    "next": "16.1.6",
     "typescript": "^5.9.3"
   }
 }

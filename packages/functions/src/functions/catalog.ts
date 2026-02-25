@@ -1,6 +1,8 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { CatalogSearchResponse, CatalogShadeDetail } from "swatchwatch-shared";
 import { query } from "../lib/db";
+import { withCors } from "../lib/http";
+import { trackEvent, trackException } from "../lib/telemetry";
 
 /**
  * GET /api/catalog/search?q=<term>&limit=<n>
@@ -74,10 +76,16 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
       query: q,
       total: sorted.length,
     };
+    trackEvent("catalog.search", {
+      queryLength: q.length,
+      resultCount: sorted.length,
+      limit,
+    });
 
     return { status: 200, jsonBody: response };
   } catch (error: any) {
     context.error("Error searching catalog:", error);
+    trackException(error, { endpoint: "catalog.search" });
     return { status: 500, jsonBody: { error: "Failed to search catalog", details: error.message } };
   }
 }
@@ -155,15 +163,15 @@ async function getShade(request: HttpRequest, context: InvocationContext): Promi
 }
 
 app.http("catalog-search", {
-  methods: ["GET"],
+  methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   route: "catalog/search",
-  handler: searchCatalog,
+  handler: withCors(searchCatalog),
 });
 
 app.http("catalog-shade", {
-  methods: ["GET"],
+  methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   route: "catalog/shade/{id}",
-  handler: getShade,
+  handler: withCors(getShade),
 });

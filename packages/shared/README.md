@@ -16,8 +16,8 @@ The package is automatically linked via npm workspaces — no publishing require
 
 | Type | Description |
 |------|-------------|
-| `Polish` | Full polish entity (id, userId, brand, name, color, colorHex, finish, tags, timestamps, etc.) |
-| `PolishFinish` | Union of finish types: `"cream" \| "shimmer" \| "glitter" \| "metallic" \| "matte" \| "jelly" \| "holographic" \| "duochrome" \| "multichrome" \| "flake" \| "topper" \| "sheer" \| "other"` |
+| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, finish, tags, timestamps, etc.) |
+| `PolishFinish` | Union of finish types: `"creme" \| "shimmer" \| "glitter" \| "metallic" \| "matte" \| "jelly" \| "holographic" \| "holo" \| "crushed holo" \| "linear holo" \| "scattered holo" \| "duochrome" \| "multichrome" \| "flake" \| "topper" \| "sheer" \| "magnetic" \| "thermal" \| "crelly" \| "other"` |
 | `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps) |
 | `PolishUpdateRequest` | Partial create fields + required `id` |
 | `PolishListResponse` | Paginated list: `{ polishes, total, page, pageSize }` |
@@ -47,6 +47,22 @@ The package is automatically linked via npm workspaces — no publishing require
 | `VoiceProcessResponse` | Parsed result + optional alternative suggestions |
 | `VoiceCommand` | Discriminated union: `add \| update \| delete \| search` actions |
 
+### `types/capture.ts`
+
+| Type | Description |
+|------|-------------|
+| `CaptureStatus` | Capture lifecycle status: `processing \| matched \| needs_question \| unmatched \| cancelled` |
+| `CaptureFrameType` | Frame classification: `barcode \| label \| color \| other` |
+| `CaptureQuestionType` | Clarifying question type for adaptive flow |
+| `CaptureQuestionStatus` | Question status: `open \| answered \| skipped \| expired` |
+| `CaptureGuidanceConfig` | Capture guidance contract returned by `/api/capture/start` |
+| `CaptureQuestion` | Open question payload used by status/finalize/answer responses |
+| `CaptureStartRequest` / `CaptureStartResponse` | Start capture session payloads |
+| `CaptureFrameRequest` / `CaptureFrameResponse` | Add frame payloads (`imageId` or `imageBlobUrl`) |
+| `CaptureFinalizeResponse` | Finalize response with session status and optional question |
+| `CaptureStatusResponse` | Session status payload with confidence/accepted entity/question |
+| `CaptureAnswerRequest` / `CaptureAnswerResponse` | Answer question payloads for adaptive loop |
+
 ### `types/palette.ts`
 
 | Type | Description |
@@ -55,9 +71,41 @@ The package is automatically linked via npm workspaces — no publishing require
 | `PaletteHarmonyType` | Harmony-only subset excluding `"similar"` |
 | `PaletteSuggestion` | Auto-detected harmony result for 2+ anchor colors (`confidence`, `sourceHex`, `targetHexes`, `completionHexes`) |
 | `HueFamily` | Gap-analysis hue bins: reds, oranges/corals, yellows/golds, greens, blues/teals, purples/violets, pinks/magentas, neutrals |
-| `LightnessBand` | Gap-analysis lightness bins: `dark \| medium \| light` |
+| `LightnessBand` | Gap-analysis lightness bins: `dark \| dark-medium \| medium \| medium-light \| light` |
 | `CollectionGapCell` | Count per hue/lightness cell |
 | `CollectionGapAnalysis` | Structured gap-analysis output (`cells`, `missing`, `underrepresented`) |
+
+### `types/ingestion.ts`
+
+| Type | Description |
+|------|-------------|
+| `IngestionSourceName` | Allowed source names for connector ingestion jobs (OpenBeautyFacts, MakeupAPI, HoloTacoShopify, CosIng, etc.) |
+| `IngestionJobStatus` | Job lifecycle status: `queued \| running \| succeeded \| failed \| cancelled` |
+| `IngestionJobRunRequest` | Request payload for `POST /api/ingestion/jobs` (includes optional `recentDays`, `materializeToInventory`, `detectHexFromImage`, and `overwriteDetectedHex`) |
+| `IngestionJobRecord` | Ingestion job summary payload (source, status, timestamps, metrics, error) |
+| `IngestionJobRunResponse` | Job-trigger response wrapper: `{ job }` |
+| `IngestionJobListResponse` | Job list payload: `{ jobs, total }` |
+
+### `types/reference.ts`
+
+| Type | Description |
+|------|-------------|
+| `FinishType` | Reference finish row contract (`finishTypeId`, `name`, `displayName`, `description`, `sortOrder`, audit fields) |
+| `HarmonyType` | Reference harmony row contract (`harmonyTypeId`, `name`, `displayName`, `description`, `sortOrder`, audit fields) |
+| `FinishTypeCreateRequest` / `FinishTypeUpdateRequest` | Request payloads for admin finish create/update endpoints |
+| `HarmonyTypeCreateRequest` / `HarmonyTypeUpdateRequest` | Request payloads for admin harmony create/update endpoints |
+| `FinishNormalization` | Alias mapping row (`sourceValue` → `normalizedFinishName`) with audit fields |
+| `FinishNormalizationCreateRequest` / `FinishNormalizationUpdateRequest` | Request payloads for admin finish-normalization create/update endpoints |
+| `FinishNormalizationListResponse` | Response wrapper for finish normalization list endpoint |
+| `FinishTypeListResponse` | Response wrapper for finish list endpoint |
+| `HarmonyTypeListResponse` | Response wrapper for harmony list endpoint |
+| `IngestionJob` | Jobs-tab oriented ingestion job row shape (status/timing/error/processed count) |
+| `AdminJobsListResponse` | Admin jobs page/list payload wrapper (`jobs`, `total`, `page`, `pageSize`) |
+
+Export note:
+- `HarmonyType` is already used by `types/palette.ts` for palette selection values.
+- `types/reference.ts` harmony row type is re-exported from package root as `ReferenceHarmonyType`.
+- These reference contracts are consumed by the web `use-reference-data` hook for API-backed finish/harmony option loading with fallback support.
 
 ## Adding New Types
 

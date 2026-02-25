@@ -66,8 +66,8 @@ ENVIRONMENT=${ENVIRONMENT:-dev}
 read -p "Azure region [centralus]: " LOCATION
 LOCATION=${LOCATION:-centralus}
 
-read -p "GitHub repository (owner/repo) [mattmck/swatchwatch]: " GITHUB_REPO
-GITHUB_REPO=${GITHUB_REPO:-mattmck/swatchwatch}
+read -p "GitHub repository (owner/repo) [mattmck/polish-inventory]: " GITHUB_REPO
+GITHUB_REPO=${GITHUB_REPO:-mattmck/polish-inventory}
 
 echo ""
 echo -e "${YELLOW}⚠ PostgreSQL Password:${NC}"

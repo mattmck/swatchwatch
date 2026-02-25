@@ -53,6 +53,12 @@ CREATE TABLE shade (
   collection TEXT,
   release_year INT,
   status TEXT NOT NULL DEFAULT 'unknown',
+  color_name TEXT,
+  vendor_hex TEXT,
+  detected_hex TEXT,
+  name_hex TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (brand_id, product_line_id, shade_name_canonical, COALESCE(finish,''))
 );
 
@@ -196,7 +202,31 @@ CREATE TABLE match_decision (
 CREATE TABLE app_user (
   user_id BIGSERIAL PRIMARY KEY,
   handle TEXT UNIQUE,
+  role TEXT NOT NULL DEFAULT 'user',
+  CONSTRAINT app_user_role_check CHECK (role IN ('user', 'admin')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE finish_type (
+  finish_type_id SMALLSERIAL PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL,
+  description TEXT,
+  sort_order SMALLINT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL
+);
+
+CREATE TABLE harmony_type (
+  harmony_type_id SMALLSERIAL PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL,
+  description TEXT,
+  sort_order SMALLINT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL
 );
 
 CREATE TABLE user_inventory_item (
@@ -212,6 +242,10 @@ CREATE TABLE user_inventory_item (
   notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE UNIQUE INDEX idx_user_inventory_unique_shade
+  ON user_inventory_item(user_id, shade_id)
+  WHERE shade_id IS NOT NULL;
 
 CREATE TABLE inventory_event (
   inventory_event_id BIGSERIAL PRIMARY KEY,
@@ -448,3 +482,105 @@ CREATE TABLE ingestion_job (
 );
 
 CREATE INDEX idx_ingestion_job_source_time ON ingestion_job(data_source_id, started_at DESC);
+
+
+-- -----------------------------------------------------------------------------
+-- Color Training Data (for building custom nail polish color AI)
+-- -----------------------------------------------------------------------------
+--
+-- ARCHITECTURE NOTES - Self-Hosted Color AI Path
+-- ==============================================
+--
+-- Goal: Build a portable, self-hosted color AI instead of relying on Azure OpenAI
+-- 
+-- Current: Ingestion calls Azure OpenAI API → returns hex for color names
+-- Target: Self-hosted model that runs locally (no API quotas/limits)
+--
+-- Path to Self-Hosting:
+-- ---------------------
+-- 1. COLLECT: Run ingestions with collectTrainingData=true
+--    - Stores image_url + ground-truth hex from vendor data
+--    - Use vendors with hex in options (Mooncat, Holo Taco, etc.)
+--
+-- 2. CURATE: Review training samples in color_training_sample
+--    - training_status: pending → approved/rejected
+--    - Filter out bad samples manually if needed
+--
+-- 3. TRAIN: Fine-tune a small open-source model
+--    - Recommended: Phi-3-mini or Llama 3.2 (small, fast, good quality)
+--    - Method: LoRA fine-tuning (low compute, effective)
+--    - Tools: Google Colab (free GPU), Hugging Face Transformers, PEFT
+--    - Input: color name + brand context → Output: hex
+--
+-- 4. DEPLOY: Run self-hosted
+--    - Option A: Ollama (easiest) - run Phi-3 locally via Docker
+--    - Option B: vLLM - higher throughput, needs more RAM
+--    - Option C: HF Inference Endpoints - still cloud but portable
+--
+-- 5. INTEGRATE: Swap Azure for local
+--    - In color-name-detection.ts: toggle between Azure and local endpoint
+--    - Local endpoint: http://localhost:11434/api/generate (Ollama)
+--
+-- Benefits:
+-- - No per-request costs
+-- - No rate limits
+-- - Your model learns BRAND-SPECIFIC colors (Mooncat "Wildberry" = specific purple)
+-- - Ownership: you own the model
+--
+-- Example training command (future):
+--   python train_color_model.py --samples 5000 --model phi-3-mini --output swatchwatch-color-v1
+--
+
+-- Collects image + hex pairs from vendor data for training custom color models
+-- When we have ground-truth hex from options, we capture the image for training
+CREATE TABLE color_training_sample (
+  training_sample_id BIGSERIAL PRIMARY KEY,
+  data_source_id BIGINT REFERENCES data_source(data_source_id) ON DELETE SET NULL,
+  external_product_id BIGINT REFERENCES external_product(external_product_id) ON DELETE SET NULL,
+  
+  -- Image data - can have multiple images per sample
+  image_urls JSONB NOT NULL DEFAULT '[]',     -- array of {url, storage_path, is_primary}
+  
+  -- Ground truth labels (from vendor data)
+  hex TEXT NOT NULL,                          -- ground truth hex from variant options
+  color_name TEXT,                            -- original color name from vendor
+  variant_option TEXT,                        -- which option contained the hex
+  
+  -- Product context
+  brand_name TEXT,
+  product_name TEXT,
+  product_handle TEXT,
+  
+  -- Processing metadata
+  source_type TEXT NOT NULL DEFAULT 'vendor_option',  -- vendor_option|ai_detected|manual|swatch
+  training_status TEXT NOT NULL DEFAULT 'pending',    -- pending|approved|rejected|used
+  confidence NUMERIC(4,3),                    -- confidence in the hex accuracy
+  notes TEXT,
+  
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Indexes for training data queries
+CREATE INDEX idx_color_training_hex ON color_training_sample(hex);
+CREATE INDEX idx_color_training_brand ON color_training_sample(brand_name);
+CREATE INDEX idx_color_training_status ON color_training_sample(training_status);
+CREATE INDEX idx_color_training_source_type ON color_training_sample(source_type);
+CREATE INDEX idx_color_training_created ON color_training_sample(created_at DESC);
+
+-- Track which samples have been used for model training
+CREATE TABLE color_model_version (
+  model_version_id BIGSERIAL PRIMARY KEY,
+  model_name TEXT NOT NULL,
+  version TEXT NOT NULL,
+  training_samples_used INT NOT NULL,
+  azure_deployment_name TEXT,                -- if deployed to Azure
+  training_started_at TIMESTAMPTZ NOT NULL,
+  training_completed_at TIMESTAMPTZ,
+  metrics_json JSONB,
+  status TEXT NOT NULL DEFAULT 'training',  -- training|deployed|failed|retired
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(model_name, version)
+);
+
+CREATE INDEX idx_color_model_status ON color_model_version(status, created_at DESC);

@@ -255,7 +255,7 @@ POST /v1/proposals/{id}/decide  body: { accept|reject, notes? }
 
 # 10. Postgres Schema
 
-A full DDL file is included separately as nail_polish_schema.sql. This section shows the key extensions and the most important tables for matching (shade, sku, barcode, swatch, entity_link).
+A full DDL file is included separately as `docs/schema.sql`. This section shows the key extensions and the most important tables for matching (shade, sku, barcode, swatch, entity_link).
 
 ```
 

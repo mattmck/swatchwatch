@@ -2,11 +2,15 @@ import type {
   HarmonyType,
   PaletteHarmonyType,
   PaletteSuggestion,
+  ReferenceHarmonyType,
 } from "swatchwatch-shared";
 import { colorDistance, hexToOklch, oklchToHex, type OKLCH } from "./color-utils";
 
 export type { HarmonyType, PaletteSuggestion } from "swatchwatch-shared";
 
+/**
+ * @deprecated Fallback-only harmony options. Prefer API-backed values via useReferenceData().
+ */
 export const HARMONY_TYPES = [
   { value: "similar", label: "Similar" },
   { value: "complementary", label: "Complementary" },
@@ -16,6 +20,32 @@ export const HARMONY_TYPES = [
   { value: "tetradic", label: "Tetradic" },
   { value: "monochromatic", label: "Monochromatic" },
 ] as const satisfies ReadonlyArray<{ value: HarmonyType; label: string }>;
+
+/**
+ * Build harmony selector options from API reference data when available.
+ * Falls back to `HARMONY_TYPES`, validates names against known `HarmonyType` values,
+ * and preserves labels via `fallbackLabelByValue` when display names are missing.
+ */
+export function getHarmonyTypeOptions(
+  harmonyTypes?: ReferenceHarmonyType[],
+): ReadonlyArray<{ value: HarmonyType; label: string }> {
+  if (!harmonyTypes || harmonyTypes.length === 0) {
+    return HARMONY_TYPES;
+  }
+
+  const fallbackLabelByValue = new Map(HARMONY_TYPES.map((item) => [item.value, item.label]));
+  const validTypes = new Set<HarmonyType>(HARMONY_TYPES.map((item) => item.value));
+
+  return harmonyTypes
+    .filter((harmony): harmony is ReferenceHarmonyType & { name: HarmonyType } =>
+      validTypes.has(harmony.name as HarmonyType)
+    )
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.displayName.localeCompare(b.displayName))
+    .map((harmony) => ({
+      value: harmony.name,
+      label: harmony.displayName || fallbackLabelByValue.get(harmony.name) || harmony.name,
+    }));
+}
 
 const DETECTABLE_HARMONIES: PaletteHarmonyType[] = [
   "complementary",

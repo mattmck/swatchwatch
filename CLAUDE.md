@@ -20,34 +20,28 @@ infrastructure/    → Terraform (azurerm ~3.100) for all Azure resources
 
 ```bash
 # From repo root — all use npm workspaces
-npm run dev              # Start functions + web concurrently
+npm run setup            # Install workspace dependencies (npm ci)
+npm run dev              # Shared types + Functions + web (parallel)
+npm run dev:infra        # Start local Postgres + Azurite containers
 npm run dev:web          # Next.js dev server (port 3000)
 npm run dev:mobile       # Expo start
-npm run dev:functions    # Build functions then start Azure Functions Core Tools with local dev CORS
-npm run dev:db           # Start local Postgres via Docker Compose
-npm run dev:db:down      # Stop local Postgres
-npm run build:web        # Next.js production build
-npm run build:functions  # TypeScript compile for functions
+npm run dev:functions    # Functions TypeScript watch + func host
+npm run build            # Build all workspaces (shared → web → functions)
+npm run build:shared     # Build shared types only
+npm run build:web        # Build shared types + Next.js production build
+npm run build:functions  # Build shared types + TypeScript compile for functions
 npm run lint             # ESLint across all workspaces
 npm run typecheck        # tsc --noEmit across all workspaces
-npm run migrate          # Run Postgres migrations — prod-safe (needs DATABASE_URL)
-npm run migrate:dev      # Run migrations + seed dev data (demo user, mock polishes)
+npm run migrate          # Run Postgres migrations (needs DATABASE_URL)
 npm run migrate:down     # Roll back last migration
-npm run migrate:down:dev # Roll back last migration (with dev seed awareness)
 ```
 
-**Local dev quick start:**
-```bash
-cp .env.example .env                       # Set DATABASE_URL (adjust port if needed)
-npm run dev:db                             # Start Postgres (pgvector, port 5434)
-npm run build --workspace=packages/shared  # Build shared types
-npm run migrate:dev                        # Apply migrations + seed data
-npm run dev                                # Start functions (7071) + web (3000)
-```
+**Important:** `dev`, `dev:web`, `dev:functions`, and `dev:shared` run a dependency preflight and
+print `npm run setup` if workspace dependencies are missing.
 
-**Important:** Build `packages/shared` first when starting fresh — other packages depend on its compiled output:
+If you run web/functions separately without the watcher flow, build `packages/shared` first:
 ```bash
-npm run build --workspace=packages/shared
+npm run build:shared
 ```
 
 **Azure Functions debugging:** Use the VS Code launch config "Attach to Node Functions" which runs the `func: host start` task (builds, watches, starts func on port 9229).
@@ -67,32 +61,61 @@ npm run build --workspace=packages/shared
 - **Shared types** live in `packages/shared/src/types/` and are re-exported from `packages/shared/src/index.ts`. The canonical domain types are `Polish`, `PolishFinish`, `User`, `AuthProvider`, `VoiceProcessRequest`, `VoiceProcessResponse`, etc. When adding new domain types, add them here and re-export.
 - **Web app** uses `@/*` path alias pointing to `apps/web/src/*`. Styling uses Tailwind v4 via `@tailwindcss/postcss`.
 - **UI components:** shadcn/ui primitives in `apps/web/src/components/ui/`. Custom components in `apps/web/src/components/`. Add new shadcn components with `cd apps/web && npx shadcn@latest add <name>`.
-- **Color utilities:** `apps/web/src/lib/color-utils.ts` provides Hex↔HSL↔RGB↔OKLAB↔OKLCH conversions, perceptual `colorDistance()`, harmony-safe gamut clamping, and hue/lightness gap analysis helpers.
-- **Mock data:** All pages now use the live API. Dev DB is seeded with realistic data via migration 003. The old `mock-data.ts` has been deleted.
+- **Color utilities:** `apps/web/src/lib/color-utils.ts` provides Hex↔HSL↔RGB↔OKLAB conversions and perceptual `colorDistance()`. Use OKLAB for any color matching/sorting logic.
+- **Mock data:** All pages now use the live API. The old `mock-data.ts` is no longer used. Dev DB is seeded with realistic data via migration 003.
 - **Infrastructure as Code:** All Azure resources defined in `infrastructure/main.tf`. Resource naming follows `${base_name}-${environment}-{resource}-${random_suffix}` convention.
 
 ## Web App Routes
 
+The web app uses Next.js route groups to separate public marketing pages from the authenticated app:
+
 | Route | File | Notes |
 |-------|------|-------|
-| `/` | `src/app/(dashboard)/page.tsx` | Client component, stats + recent additions + OKLCH collection gap analysis |
-| `/polishes` | `src/app/polishes/page.tsx` | Client component, filterable/sortable table |
-| `/polishes/new` | `src/app/polishes/new/page.tsx` | Client component, form with color picker + star rating |
-| `/polishes/[id]` | `src/app/polishes/[id]/page.tsx` | Server component, uses `generateStaticParams` |
-| `/polishes/search` | `src/app/polishes/search/page.tsx` | Client component, canvas color wheel + OKLCH harmonies + multi-color palette completion |
+| `/` | `src/app/(marketing)/page.tsx` | Landing page — hero, features, color showcase, CTA |
+| `/dashboard` | `src/app/(app)/dashboard/page.tsx` | Client component, stats + recent additions |
+| `/admin` | `src/app/(admin)/admin/page.tsx` | Unified admin console — tabs: Configuration, Job Runs, Admin Jobs |
+| `/admin/reference-data` | `src/app/(admin)/admin/reference-data/page.tsx` | Legacy redirect → `/admin?tab=configuration` |
+| `/admin/jobs` | `src/app/(app)/admin/jobs/page.tsx` | Legacy redirect → `/admin?tab=admin-jobs` |
+| `/polishes` | `src/app/(app)/polishes/page.tsx` | Client component, filterable/sortable table |
+| `/polishes/new` | `src/app/(app)/polishes/new/page.tsx` | Client component, form with color picker + star rating |
+| `/polishes/detail` | `src/app/(app)/polishes/detail/page.tsx` | Client component, detail shell driven by query params |
+| `/polishes/gaps` | `src/app/(app)/polishes/gaps/page.tsx` | Client component, collection gap heatmap (hue × lightness coverage + next-buy targets) |
+| `/polishes/search` | `src/app/(app)/polishes/search/page.tsx` | Client component, canvas color wheel + OKLAB matching |
+| `/rapid-add` | `src/app/rapid-add/page.tsx` | Client component, capture-first rapid add workflow |
+
+**Route groups:**
+- `(marketing)` — Public pages with glass header + footer (no sidebar)
+- `(app)` — Authenticated app pages wrapped in `AppShell` (sidebar navigation)
+- `(admin)` — Admin-only pages with `RequireAuth` + `AppShell` at the page level
 
 ## Known State & TODOs
 
-This project is in early development. The web UI is connected to the live API. Backend handlers have placeholder/stub implementations marked with `TODO` comments:
-- Postgres reads/writes in `polishes.ts` are stubbed — no DB client yet
-- JWT validation in `auth.ts` returns 501 — Azure AD B2C JWKS verification not implemented
-- Voice processing in `voice.ts` stubs Speech-to-text and OpenAI parsing
-- Infrastructure is migrating from Cosmos DB to Azure Database for PostgreSQL Flexible Server
+This project is in early development. The web UI is now fully API-driven. Backend handlers have placeholder/stub implementations marked with `TODO` comments:
+- Voice processing in `voice.ts` stubs Speech-to-text and OpenAI parsing (returns empty transcription + zero-confidence parsed details)
+
+**Completed (M0):**
+- ✅ JWT validation in `packages/functions/src/lib/auth.ts` — Full JWKS-based validation with dev bypass mode, user auto-creation on first login
+- ✅ Web app B2C auth wiring — MSAL integration with graceful dev bypass fallback, auth guards on `(app)` routes, real user display in sidebar
+- ✅ Unified admin console at `/admin` — Configuration (finish/harmony CRUD + finish-normalization aliases), Job Runs (reference-admin job history), Admin Jobs (ingestion pipeline)
+- ✅ Capture API — barcode/label/color frame submission with adaptive question flow (`capture.ts`)
+- ✅ Catalog search — `pg_trgm`-based fuzzy search across brand/shade names and aliases (`catalog.ts`)
+- ✅ Image proxy — private blob storage served through `/api/images/{id}` (`images.ts`)
+- ✅ Connector ingestion pipeline — async queue-backed jobs for OpenBeautyFacts, MakeupAPI, HoloTacoShopify, and generic Shopify sources
+- ✅ AI hex detection — Azure OpenAI vision-based `detected_hex` from product images, with `recalc-hex` admin endpoint
+- ✅ Reference data management — `finish_type`, `harmony_type`, `finish_normalization` tables with admin CRUD and public read endpoints
 
 ## Environment Variables (Functions)
 
-Defined in `packages/functions/local.settings.json`. Required secrets:
-`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `AZURE_STORAGE_CONNECTION`, `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, `AZURE_AD_B2C_TENANT`, `AZURE_AD_B2C_CLIENT_ID`
+**Canonical reference:** `packages/functions/local.settings.json.example` — this is the single source of truth for all settings. Copy it to `local.settings.json` (gitignored) and fill in the `<YOUR_*>` placeholders.
+
+Required:
+`AzureWebJobsStorage`, `FUNCTIONS_WORKER_RUNTIME`, `AZURE_STORAGE_CONNECTION`, `INGESTION_JOB_QUEUE_NAME`, `SOURCE_IMAGE_CONTAINER`, `BLOB_READ_SAS_TTL_SECONDS`, `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, `AZURE_OPENAI_DEPLOYMENT_HEX`, `AZURE_AD_B2C_TENANT`, `AZURE_AD_B2C_CLIENT_ID`, `REDIS_URL`, `REDIS_KEY`
+
+Optional / dev-only:
+- `AUTH_DEV_BYPASS` — enables `Bearer dev:<userId>` tokens for local dev (keep `false` outside isolated dev)
+- `AZURE_OPENAI_DEPLOYMENT` — fallback deployment name when `AZURE_OPENAI_DEPLOYMENT_HEX` is unset
+- `APPLICATIONINSIGHTS_CONNECTION_STRING` — custom telemetry sink for `trackEvent`/`trackMetric`/`trackException`
+- `NEXT_PUBLIC_*` — web client vars included in example for convenience; not used by the Functions host itself
 
 ## Adding a New Azure Function
 
@@ -120,7 +143,7 @@ When you add, remove, or modify functionality, update the relevant docs as part 
 
 Documentation files in this project:
 - `README.md` — project overview and quick start
-- `.github/copilot-instructions.md` — AI agent context (canonical source, mirrored to other agent files)
+- `.github/copilot-instructions.md` — AI agent context (symlink to `CLAUDE.md`)
 - `CONTRIBUTING.md` — git workflow, code standards, PR process
 - `docs/implementation-guide.md` — knowledge graph data model, matching, AI pipeline, Azure architecture, MVP plan
 - `docs/schema.sql` — canonical Postgres DDL (pg_trgm, pgvector, all tables + indexes)
@@ -129,16 +152,17 @@ Documentation files in this project:
 - `docs/azure-iac-bom.md` — per-environment Azure resource bill of materials
 - `apps/web/README.md` — web app routes, components, conventions
 - `packages/functions/README.md` — API routes, handler patterns
+- `packages/functions/local.settings.json.example` — canonical template for all Functions env vars (copy → `local.settings.json`, gitignored)
 - `packages/shared/README.md` — shared type catalog
 - `infrastructure/README.md` — Terraform resources and variables
 
-> **For AI agents:** This file is the canonical agent instruction source. It is mirrored to `CLAUDE.md`, `.cursorrules`, and `.windsurfrules` at the repo root. When updating this file, update those mirrors too.
+> **For AI agents:** `CLAUDE.md` is the canonical agent instruction source. `.github/copilot-instructions.md`, `.cursorrules`, `.windsurfrules`, and `AGENTS.md` are all symlinks to it.
 
 ## Git Workflow
 
 **GitHub Flow** with **Conventional Commits**. See `CONTRIBUTING.md` for full details.
 
-- **Branches:** `<type>/<issue#>-<description>` off `main` (e.g., `feat/12-cosmos-db-client`, `fix/34-color-wheel-safari`)
+- **Branches:** `<type>/<issue#>-<description>` off `main` (e.g., `feat/12-catalog-search`, `fix/34-color-wheel-safari`)
 - **Commits:** `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:` prefixes
 - **PRs:** Squash merge into `main`. PR title = conventional commit message. Reference issues with `Closes #N`.
 - **Issues:** Use GitHub Issue templates (Feature, Bug, Chore). Add scope labels (`web`, `mobile`, `functions`, `infra`).

@@ -1,0 +1,31 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="heroBg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffd7f0"/>
+      <stop offset="40%" stop-color="#c5a6ff"/>
+      <stop offset="100%" stop-color="#ffb3e3"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#heroBg)"/>
+
+  <!-- Subtle decorative circles -->
+  <circle cx="150" cy="480" r="120" fill="#ff4fb8" fill-opacity="0.08"/>
+  <circle cx="1050" cy="150" r="160" fill="#7b2eff" fill-opacity="0.06"/>
+
+  <!-- Drop mark — centered -->
+  <rect x="548" y="100" width="104" height="104" rx="28" fill="#42107e"/>
+  <path d="M600 118C600 118 574 146 574 164a26 26 0 0052 0c0-18-26-46-26-46z" fill="#ff4fb8"/>
+  <circle cx="589" cy="158" r="5.5" fill="#ffffff" fill-opacity="0.45"/>
+
+  <!-- Wordmark — two-tone -->
+  <text text-anchor="middle" font-family="'Inter', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="72" font-weight="700" letter-spacing="-2">
+    <tspan x="555" y="285" fill="#22123b">Swatch</tspan><tspan fill="#7b2eff">Watch</tspan>
+  </text>
+
+  <!-- Tagline -->
+  <text x="600" y="340" text-anchor="middle" font-family="'Inter', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="26" font-weight="400" fill="#42107e" fill-opacity="0.65">
+    Your smart nail polish collection manager
+  </text>
+</svg>
