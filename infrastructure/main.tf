@@ -382,7 +382,7 @@ resource "azurerm_cognitive_account" "openai" {
   name                  = "${local.resource_prefix}-openai-${local.unique_suffix}"
   resource_group_name   = azurerm_resource_group.main.name
   location              = var.openai_location != null ? var.openai_location : azurerm_resource_group.main.location
-  kind                  = "OpenAI"
+  kind                  = "AIServices"
   sku_name              = "S0"
   custom_subdomain_name = var.openai_custom_subdomain_name != null ? var.openai_custom_subdomain_name : "${local.resource_prefix}-openai-${local.unique_suffix}"
 
