@@ -386,6 +386,12 @@ resource "azurerm_cognitive_account" "openai" {
   sku_name              = "S0"
   custom_subdomain_name = var.openai_custom_subdomain_name != null ? var.openai_custom_subdomain_name : "${local.resource_prefix}-openai-${local.unique_suffix}"
 
+  lifecycle {
+    # Azure auto-migrates accounts from "OpenAI" to "AIServices" kind.
+    # kind is immutable so ignore drift to prevent a destructive replacement.
+    ignore_changes  = [kind]
+    prevent_destroy = true
+  }
 }
 
 resource "azurerm_cognitive_deployment" "openai_hex" {

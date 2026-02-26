@@ -175,6 +175,9 @@ jobs:
       - name: Terraform validate
         run: terraform -chdir=infrastructure validate -no-color
 
+      - name: Terraform refresh state
+        run: terraform -chdir=infrastructure apply -refresh-only -auto-approve -no-color
+
       - name: Terraform plan
         run: terraform -chdir=infrastructure plan -out=tfplan -no-color
 
