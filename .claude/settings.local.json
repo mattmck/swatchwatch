@@ -78,7 +78,21 @@
       "Bash(ls:*)",
       "Bash(git commit:*)",
       "Bash(scripts/agent-worktree.sh:*)",
-      "Bash(git config:*)"
+      "Bash(git config:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh pr view:*)",
+      "Bash(az functionapp show:*)",
+      "Bash(az functionapp config appsettings list:*)",
+      "Bash(head:*)",
+      "Bash(az functionapp keys list:*)",
+      "Bash(unzip:*)",
+      "Bash(npm pack:*)",
+      "Bash(PKG_URL=\"https://swatchwatchdevj5jij0be.blob.core.windows.net/github-actions-deploy/Functionapp_202622214424633.zip?sv=2026-02-06&st=2026-02-22T01%3A39%3A27Z&se=2027-02-22T01%3A44%3A27Z&sr=b&sp=r&sig=Bpl0yTr4XLQykTJYxPJ%2BMqoWKFQGFuXDbCLLmJXfuRo%3D\" curl -s -L \"$PKG_URL\" -o /tmp/func-deploy2.zip unzip -l /tmp/func-deploy2.zip)",
+      "Bash(node -e:*)",
+      "Bash(md5:*)",
+      "Bash(cmp:*)",
+      "Bash(# applicationinsights depends on @azure/functions AND @azure/functions-old ! # This is critical. When applicationinsights is loaded, it tries to require @azure/functions. # But in the worker context, @azure/functions is OUR version. # applicationinsights 3.x hooks into the Azure Functions runtime for telemetry. # # More importantly: applicationinsights depends on \"\"@azure/functions-old\"\" - let''s check if # that''s installed and what version it expects: ls /Users/matt.mcknight/swatchwatch/packages/functions/.deploy/node_modules/@azure/functions-old || echo \"\"not installed\"\" ls /Users/matt.mcknight/swatchwatch/packages/functions/.deploy/node_modules/@azure/)",
+      "Bash(git push:*)"
     ]
   }
 }

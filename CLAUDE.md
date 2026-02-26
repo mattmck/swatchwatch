@@ -73,8 +73,10 @@ The web app uses Next.js route groups to separate public marketing pages from th
 |-------|------|-------|
 | `/` | `src/app/(marketing)/page.tsx` | Landing page — hero, features, color showcase, CTA |
 | `/dashboard` | `src/app/(app)/dashboard/page.tsx` | Client component, stats + recent additions |
-| `/admin/jobs` | `src/app/(app)/admin/jobs/page.tsx` | Client component, run ingestion jobs + monitor status/change metrics |
-| `/polishes` | `src/app/(app)/polishes/page.tsx` | Client component, filterable/sortable table |
+| `/admin` | `src/app/(admin)/admin/page.tsx` | Unified admin console — Configuration, Job Runs, Admin Jobs tabs |
+| `/admin/reference-data` | `src/app/(admin)/admin/reference-data/page.tsx` | Legacy route, redirects to `/admin?tab=configuration` |
+| `/admin/jobs` | `src/app/(app)/admin/jobs/page.tsx` | Legacy route, redirects to `/admin?tab=admin-jobs` |
+| `/polishes` | `src/app/(app)/polishes/page.tsx` | Client component, filterable/sortable catalog table |
 | `/polishes/new` | `src/app/(app)/polishes/new/page.tsx` | Client component, form with color picker + star rating |
 | `/polishes/detail` | `src/app/(app)/polishes/detail/page.tsx` | Client component, detail shell driven by query params |
 | `/polishes/gaps` | `src/app/(app)/polishes/gaps/page.tsx` | Client component, collection gap heatmap (hue × lightness coverage + next-buy targets) |
@@ -84,6 +86,7 @@ The web app uses Next.js route groups to separate public marketing pages from th
 **Route groups:**
 - `(marketing)` — Public pages with glass header + footer (no sidebar)
 - `(app)` — Authenticated app pages wrapped in `AppShell` (sidebar navigation)
+- `(admin)` — Admin-only pages with `RequireAuth` + `AppShell` at the page level
 
 ## Known State & TODOs
 
@@ -95,6 +98,19 @@ This project is in early development. The web UI is now fully API-driven. Backen
 **Completed (M0):**
 - ✅ JWT validation in `packages/functions/src/lib/auth.ts` — Full JWKS-based validation with dev bypass mode, user auto-creation on first login
 - ✅ Web app B2C auth wiring — MSAL integration with graceful dev bypass fallback, auth guards on `(app)` routes, real user display in sidebar
+- ✅ `packages/shared/package.json` — `"files": ["dist/"]` added so `npm pack` includes compiled JS (was excluded by .gitignore)
+- ✅ `blob-storage.ts` — `sharp` import changed to dynamic `await import("sharp")` inside the function body so a missing sharp binary does not crash the worker at startup
+- ✅ Deploy pipeline — `appsettings set` now runs before `Deploy to Azure Functions` so only one cold-start occurs with the correct settings
+
+**Open M0 items:**
+- `#95` (open): Bundle `packages/shared` via esbuild/tsup to eliminate workspace dependency issues at deploy time — would also rule out path resolution as the cause of the 0-functions mystery
+- `#96` (open): Functions deploy 0-functions mystery — deploy completes successfully but `/admin/functions` returns `[]`; host state is Running, extensionBundle 4.28.0 loaded, all module-level code loads cleanly; root cause under investigation (possibly `@azure/functions-core` worker IPC handshake timing or run-from-package path resolution)
+- Smoke tests removed from `deploy-dev.yml` temporarily because the host reports Running but registers 0 functions, making the smoke tests always fail; they will be restored once #96 is resolved
+- `#85` (open): sharp binary cross-platform CI build — install linux-x64 variant on ubuntu runner instead of building locally
+- `#84` (open): add `@azure/functions-core` type stubs to devDependencies so TypeScript does not complain
+- Voice processing stub needs real implementation (Azure Speech + OpenAI)
+- Remove `NEXT_PUBLIC_AUTH_DEV_BYPASS` from prod/CI once B2C is stable
+- Mobile app (Expo) not started
 
 ## Environment Variables (Functions)
 

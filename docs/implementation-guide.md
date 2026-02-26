@@ -1020,3 +1020,38 @@ disclosure_config(env, disclosure_text, last_updated_at)
 - Duplicate-prevention events (how often you saved a user from rebuying).
 - Revenue per active user (affiliate) vs AI cost per active user.
 - Retailer coverage: % of catalog with at least one offer link.
+
+# 23. Deploy Pipeline (Current Implementation)
+
+This section documents how the current `deploy-dev.yml` GitHub Actions workflow deploys `packages/functions` and the known issues as of 2026-02.
+
+## 23.1 Workspace Dependency: Tarball Packaging
+
+The `packages/shared` package is a workspace dependency of `packages/functions`. When deploying with `WEBSITE_RUN_FROM_PACKAGE`, Azure mounts the uploaded zip as a read-only filesystem. npm workspace `file:` directory references resolve to symlinks at install time, and those symlinks do not work reliably within the mounted package.
+
+The fix (landed in PR #94, commit `d89b1bd`): pack `packages/shared` as a self-contained `.tgz` tarball using `npm pack`, rewrite the `swatchwatch-shared` entry in `packages/functions/package.json` to point to the tarball path, then run `npm install --omit=dev` inside the deploy directory. A guardrail check verifies the installed path is a real directory rather than a symlink before the zip is uploaded.
+
+This requires `"files": ["dist/"]` in `packages/shared/package.json` so the compiled JS is included in the tarball. Without this field, `.gitignore` rules exclude `dist/` from the packed output, making the tarball unusable.
+
+## 23.2 Settings Ordering: appsettings Before Deploy
+
+In the previous workflow layout, `az functionapp config appsettings set` ran after the `Azure/functions-action` deploy step. This caused the function host to cold-start twice: once immediately after deploy with potentially stale settings, and again after the settings update. The workflow now runs `appsettings set` before `Deploy to Azure Functions`, limiting the cold-start to one restart with the correct configuration.
+
+## 23.3 sharp: Dynamic Import
+
+`packages/functions/src/lib/blob-storage.ts` previously imported `sharp` at the top level. If the `sharp` native binary is not present for the current platform (for example, when the linux-x64 prebuilt variant is missing after a cross-platform build), the top-level import throws and prevents the entire worker from starting — registering zero functions.
+
+The fix: `sharp` is now imported with `await import("sharp")` inside the function body (lazy/dynamic import). If `sharp` fails to load at runtime, the function logs a warning and continues with the original unprocessed image bytes. This means a missing binary causes degraded behavior (no metadata stripping) rather than a full startup failure.
+
+## 23.4 Known Issue: 0 Functions Registered After Deploy (Issue #96)
+
+After a successful deploy, the Azure Functions host reports state Running, extensionBundle 4.28.0 loads, and processUptime shows the host has been up for several minutes — but `GET /admin/functions` returns an empty array. No functions are registered.
+
+All module-level code loads cleanly in local testing. The root cause is still under investigation. Two leading hypotheses:
+
+- Worker IPC handshake timing: the `@azure/functions-core` module is injected by the Azure worker bundle at runtime (not present in `node_modules`). If the IPC channel between the host and the Node worker is not established before the worker exits its initialization phase, function registrations may be lost silently.
+- Path resolution: despite the tarball packaging fix, some module resolution edge case under `WEBSITE_RUN_FROM_PACKAGE` may prevent `app.http()` calls from reaching the host.
+
+Issue #95 (bundle `packages/shared` via esbuild/tsup into a single file) would eliminate workspace resolution entirely and would serve as a diagnostic step: if bundling resolves the issue, path resolution was the cause.
+
+API smoke tests have been removed from `deploy-dev.yml` temporarily because the 0-functions condition makes them always fail, blocking all CI. They will be restored once issue #96 is resolved.

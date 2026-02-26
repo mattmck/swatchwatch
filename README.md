@@ -95,8 +95,12 @@ npm run dev:mobile       # → mobile via Expo
 
 | Workflow | Purpose | Trigger |
 |----------|---------|---------|
-| `.github/workflows/deploy-dev.yml` | Deploy web + function app code to dev, then run API smoke tests | Push to `dev`, manual dispatch |
+| `.github/workflows/deploy-dev.yml` | Deploy web + function app code to dev | Push to `dev`, manual dispatch |
 | `.github/workflows/deploy-infra-dev.yml` | Deploy Terraform infrastructure to dev | Push to `dev` when `infrastructure/**` changes, manual dispatch |
+
+**Known deploy issue (issue #96):** The functions deploy job completes successfully, but `/admin/functions` returns an empty list immediately after deploy. The host reports Running and the extension bundle loads, but zero functions are registered. Root cause is under investigation (possibly a `@azure/functions-core` worker IPC handshake timing issue or a run-from-package path resolution problem). API smoke tests have been removed from the workflow temporarily until this is resolved.
+
+**Functions deploy packaging:** `swatchwatch-shared` is packed as a local `.tgz` tarball via `npm pack` rather than a `file:` directory symlink. This is required so `WEBSITE_RUN_FROM_PACKAGE` can resolve the dependency reliably (symlinks do not survive the zip-deployment boundary).
 
 Dev auth deploy note:
 `deploy-dev.yml` reads auth config from the GitHub `dev` environment.

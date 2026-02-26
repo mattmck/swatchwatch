@@ -125,3 +125,5 @@ npm run typecheck --workspace=packages/shared # tsc --noEmit
 ```
 
 **Important:** You must build this package before other packages can resolve its types. The `main` and `types` fields in `package.json` point to `dist/`.
+
+**`"files": ["dist/"]` in package.json:** This field is required so that `npm pack` includes the compiled JavaScript output. Without it, `dist/` is excluded by `.gitignore` rules and the resulting tarball contains only source files — making the package unusable when installed from the tarball during CI deploy. Always ensure `dist/` is built before running `npm pack`.

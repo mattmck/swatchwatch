@@ -70,6 +70,8 @@ Dev infra deploys are pinned to the shared experiment OpenAI endpoint (`swatchwa
 
 **Not in Terraform:** Azure AD B2C tenant — provisioned manually via the Azure portal.
 
+**`WEBSITE_RUN_FROM_PACKAGE` note:** This Function App setting is managed by the `Azure/functions-action` deploy step in `.github/workflows/deploy-dev.yml`, not by Terraform. The deploy action packages the deploy directory as a zip and sets this flag automatically. Terraform does not set or override it.
+
 ## Variables
 
 | Variable | Default | Description |

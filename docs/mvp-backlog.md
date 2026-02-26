@@ -216,11 +216,32 @@ This backlog is organized as **Epics → Capabilities → Stories/Tasks**, optim
 ---
 
 ## Suggested MVP Milestones (fast path)
-- **M0 (Week 1–2):** Auth + inventory CRUD + media upload
-- **M1 (Week 3–4):** Rapid Add (camera) + finalize pipeline + 1-question loop
-- **M2 (Week 5):** OpenBeautyFacts connector + provenance logging
-- **M3 (Week 6):** Retail links + in-store scan mode + disclosure
-- **M4 (Week 7+):** Ingredient OCR + basic normalization + admin tools
+
+_Updated 2026-02-21. M0 is approximately 95% complete._
+
+**M0 (Week 1–2) — Auth + inventory CRUD + media upload**
+- ✅ npm workspaces monorepo + shared types package
+- ✅ Terraform IaC on Azure PostgreSQL Flexible Server
+- ✅ Canonical Postgres schema + migrations via node-pg-migrate
+- ✅ JWT auth (`auth.ts`) — JWKS/JOSE validation, dev bypass, user auto-creation
+- ✅ Web app B2C auth — MSAL integration, auth guards, dev bypass fallback
+- ✅ Full CRUD API (`/api/polishes`, `/api/catalog`, `/api/auth/*`, `/api/voice` stub, `/api/capture/*`, `/api/ingestion/*`, `/api/reference*`, `/api/images/*`)
+- ✅ Blob storage (`blob-storage.ts`) — source image uploads with sharp metadata-stripping (lazy-loaded)
+- ✅ Admin reference data + ingestion pipeline
+- ✅ CI/CD deploy pipeline (web + functions) — tarball packaging for workspace dep resolution, appsettings set before deploy
+- ✅ `packages/shared` `"files": ["dist/"]` — npm pack now includes compiled JS
+- ✅ Collection gap map, color wheel search, rapid-add UI
+- Open: Issue #96 — functions deploy 0-functions mystery (smoke tests removed from CI temporarily)
+- Open: Issue #95 — bundle shared package via esbuild/tsup
+- Open: Issue #85 — sharp linux-x64 prebuilt binary in CI
+- Open: Issue #84 — `@azure/functions-core` type stubs in devDependencies
+- Open: Voice processing real implementation (Azure Speech + OpenAI)
+- Open: Remove `NEXT_PUBLIC_AUTH_DEV_BYPASS` from CI/prod once B2C is stable
+
+**M1 (Week 3–4):** Rapid Add (camera) + finalize pipeline + 1-question loop
+**M2 (Week 5):** OpenBeautyFacts connector + provenance logging
+**M3 (Week 6):** Retail links + in-store scan mode + disclosure
+**M4 (Week 7+):** Ingredient OCR + basic normalization + admin tools
 
 ### Security and Deprecation Fixes (2026-02)
 
