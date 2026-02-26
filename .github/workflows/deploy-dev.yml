@@ -17,25 +17,20 @@ jobs:
     
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Azure login (OIDC)
-        uses: azure/login@v2
+
+      - uses: actions/setup-node@v4
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      
-      - name: Deploy to Azure Static Web Apps
-        uses: Azure/static-web-apps-deploy@v1
-        with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          action: 'upload'
-          app_location: '/'
-          app_build_command: 'npm run build --workspace=packages/shared && npm run build:web'
-          # Next.js SSR output (.next) does not include a static index.html.
-          # Static Web Apps expects static artifacts, so we deploy Next.js static export output instead.
-          output_location: 'apps/web/out'
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Build before the SWA action so Oryx never runs its own npm install.
+      # Oryx runs npm install outside the workspace root and can't resolve
+      # the swatchwatch-shared workspace package from the npm registry.
+      - name: Build web app
+        run: npm run build --workspace=packages/shared && npm run build:web
         env:
           NEXT_PUBLIC_API_URL: 'https://swatchwatch-dev-func-j5jij0be.azurewebsites.net/api'
           NEXT_PUBLIC_AUTH_DEV_BYPASS: ${{ vars.NEXT_PUBLIC_AUTH_DEV_BYPASS }}
@@ -43,6 +38,25 @@ jobs:
           NEXT_PUBLIC_B2C_CLIENT_ID: ${{ secrets.NEXT_PUBLIC_B2C_CLIENT_ID }}
           NEXT_PUBLIC_B2C_API_SCOPE: ${{ vars.NEXT_PUBLIC_B2C_API_SCOPE }}
           NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY: ${{ vars.NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY }}
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: 'upload'
+          # Point directly at the pre-built static export; output_location is
+          # relative to app_location so leave it empty.
+          app_location: 'apps/web/out'
+          output_location: ''
+          skip_app_build: true
 
       - name: Smoke test web app deployment
         run: |
