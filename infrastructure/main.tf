@@ -389,7 +389,8 @@ resource "azurerm_cognitive_account" "openai" {
   lifecycle {
     # Azure auto-migrates accounts from "OpenAI" to "AIServices" kind.
     # kind is immutable so ignore drift to prevent a destructive replacement.
-    ignore_changes  = [kind]
+    # project_management_enabled defaults changed in provider; ignore to prevent forced replacement.
+    ignore_changes  = [kind, project_management_enabled]
     prevent_destroy = true
   }
 }
