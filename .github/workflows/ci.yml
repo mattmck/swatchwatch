@@ -29,13 +29,14 @@ jobs:
           # npm ci in workspace monorepos can skip platform-specific optional
           # deps for transitive dependencies. Download directly from npm registry.
           install_native_pkg() {
-            local PKG_NAME=$1   # e.g. lightningcss-linux-x64-gnu
+            local PKG_NAME=$1   # e.g. lightningcss-linux-x64-gnu or @tailwindcss/oxide-linux-x64-gnu
             local VERSION=$2
             local TARGET_DIR=$3 # e.g. node_modules/lightningcss-linux-x64-gnu
             local FALLBACK=$4   # e.g. node_modules/lightningcss (for .node fallback)
+            local PKG_BASENAME="${PKG_NAME##*/}"  # strip scope for tgz filename
 
             echo "::group::Installing ${PKG_NAME}@${VERSION}"
-            curl -sL "https://registry.npmjs.org/${PKG_NAME}/-/${PKG_NAME}-${VERSION}.tgz" \
+            curl -sL "https://registry.npmjs.org/${PKG_NAME}/-/${PKG_BASENAME}-${VERSION}.tgz" \
               | tar xz -C /tmp
             rm -rf "${TARGET_DIR}"
             mkdir -p "${TARGET_DIR}"
@@ -92,9 +93,10 @@ jobs:
             local VERSION=$2
             local TARGET_DIR=$3
             local FALLBACK=$4
+            local PKG_BASENAME="${PKG_NAME##*/}"  # strip scope for tgz filename
 
             echo "::group::Installing ${PKG_NAME}@${VERSION}"
-            curl -sL "https://registry.npmjs.org/${PKG_NAME}/-/${PKG_NAME}-${VERSION}.tgz" \
+            curl -sL "https://registry.npmjs.org/${PKG_NAME}/-/${PKG_BASENAME}-${VERSION}.tgz" \
               | tar xz -C /tmp
             rm -rf "${TARGET_DIR}"
             mkdir -p "${TARGET_DIR}"
