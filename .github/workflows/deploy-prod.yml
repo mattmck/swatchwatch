@@ -1,0 +1,73 @@
+name: Deploy Prod
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  detect-infra-changes:
+    name: Detect Infra Changes
+    runs-on: ubuntu-latest
+    outputs:
+      infra_changed: ${{ steps.detect.outputs.infra_changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed infrastructure files
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          if [ "$EVENT_NAME" = "push" ] && [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            RANGE="$BEFORE_SHA..$CURRENT_SHA"
+          elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            RANGE="HEAD^..HEAD"
+          else
+            RANGE=""
+          fi
+
+          if [ -n "$RANGE" ]; then
+            CHANGED="$(git diff --name-only "$RANGE" | grep '^infrastructure/' || true)"
+          else
+            CHANGED="$(git show --name-only --pretty='' HEAD | grep '^infrastructure/' || true)"
+          fi
+
+          if [ -n "$CHANGED" ]; then
+            echo "infra_changed=true" >> "$GITHUB_OUTPUT"
+            echo "Infrastructure changes detected:"
+            echo "$CHANGED"
+          else
+            echo "infra_changed=false" >> "$GITHUB_OUTPUT"
+            echo "No infrastructure changes detected."
+          fi
+
+  deploy-infra:
+    name: Deploy Infrastructure First
+    needs: detect-infra-changes
+    if: ${{ needs.detect-infra-changes.outputs.infra_changed == 'true' }}
+    uses: ./.github/workflows/deploy-infra.yml
+    with:
+      environment: prod
+      apply: true
+    secrets: inherit
+
+  deploy:
+    needs:
+      - detect-infra-changes
+      - deploy-infra
+    if: ${{ always() && (needs.detect-infra-changes.outputs.infra_changed == 'false' || needs.deploy-infra.result == 'success') }}
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: prod
+      web_app_url: https://swatchwatch.app
+    secrets: inherit

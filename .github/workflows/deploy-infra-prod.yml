@@ -1,0 +1,22 @@
+name: Deploy Infrastructure Prod
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Apply Terraform changes
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-infra:
+    uses: ./.github/workflows/deploy-infra.yml
+    with:
+      environment: prod
+      apply: ${{ github.event_name == 'workflow_dispatch' && inputs.apply || true }}
+    secrets: inherit

@@ -1,0 +1,220 @@
+name: Deploy Infrastructure
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub environment to deploy (dev/prod)
+        required: true
+        type: string
+      apply:
+        description: Apply Terraform changes
+        required: false
+        default: true
+        type: boolean
+      openai_location:
+        description: Azure OpenAI region override
+        required: false
+        default: eastus
+        type: string
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment to deploy (dev/prod)
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+          - prod
+      apply:
+        description: Apply Terraform changes
+        required: true
+        default: true
+        type: boolean
+      openai_location:
+        description: Azure OpenAI region override
+        required: false
+        default: eastus
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-infra-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy-infra:
+    name: Terraform Apply (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VAR_environment: ${{ inputs.environment }}
+      TF_VAR_github_repository: ${{ github.repository }}
+      TF_VAR_openai_location: ${{ inputs.openai_location }}
+      TF_VAR_retain_openai_account: true
+      TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
+      TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
+      TFSTATE_CONTAINER: ${{ vars.TFSTATE_CONTAINER || 'tfstate' }}
+      TFSTATE_BLOB_NAME: ${{ vars.TFSTATE_BLOB_NAME || format('{0}.terraform.tfstate', inputs.environment) }}
+      TF_VAR_auth_dev_bypass: ${{ vars.AUTH_DEV_BYPASS || 'false' }}
+      TF_VAR_azure_ad_b2c_tenant: ${{ vars.AZURE_AD_B2C_TENANT || vars.NEXT_PUBLIC_B2C_TENANT || 'to-be-added' }}
+      TF_VAR_azure_ad_b2c_client_id: ${{ secrets.AZURE_AD_B2C_CLIENT_ID || 'to-be-added' }}
+      TF_VAR_is_automation: true
+      TF_VAR_create_openai_resources: false
+      TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_openai_endpoint: ${{ vars.OPENAI_ENDPOINT || '' }}
+      TF_VAR_openai_deployment_name: ${{ vars.OPENAI_DEPLOYMENT_NAME || '' }}
+      OPENAI_ACCOUNT_NAME: ${{ vars.OPENAI_ACCOUNT_NAME || '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Validate required backend settings
+        run: |
+          missing=0
+          if [ -z "$TFSTATE_RESOURCE_GROUP" ]; then
+            echo "::error::Missing variable TFSTATE_RESOURCE_GROUP"
+            missing=1
+          fi
+          if [ -z "$TFSTATE_STORAGE_ACCOUNT" ]; then
+            echo "::error::Missing variable TFSTATE_STORAGE_ACCOUNT"
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Terraform init
+        run: |
+          TFSTATE_ACCESS_KEY="$(az storage account keys list \
+            --resource-group "$TFSTATE_RESOURCE_GROUP" \
+            --account-name "$TFSTATE_STORAGE_ACCOUNT" \
+            --query '[0].value' -o tsv)"
+
+          az storage container create \
+            --name "$TFSTATE_CONTAINER" \
+            --account-name "$TFSTATE_STORAGE_ACCOUNT" \
+            --account-key "$TFSTATE_ACCESS_KEY" \
+            --output none
+
+          terraform -chdir=infrastructure init -reconfigure -no-color \
+            -backend-config="resource_group_name=$TFSTATE_RESOURCE_GROUP" \
+            -backend-config="storage_account_name=$TFSTATE_STORAGE_ACCOUNT" \
+            -backend-config="container_name=$TFSTATE_CONTAINER" \
+            -backend-config="key=$TFSTATE_BLOB_NAME" \
+            -backend-config="access_key=$TFSTATE_ACCESS_KEY"
+
+      - name: Resolve Terraform outputs and OpenAI settings
+        run: |
+          RESOURCE_GROUP_NAME="$(terraform -chdir=infrastructure output -raw resource_group_name 2>/dev/null || true)"
+          KEY_VAULT_NAME="$(terraform -chdir=infrastructure output -raw key_vault_name 2>/dev/null || true)"
+          TF_OUTPUT_OPENAI_ENDPOINT="$(terraform -chdir=infrastructure output -raw openai_endpoint 2>/dev/null || true)"
+          TF_OUTPUT_OPENAI_DEPLOYMENT="$(terraform -chdir=infrastructure output -raw openai_hex_deployment_name 2>/dev/null || true)"
+          TF_OUTPUT_OPENAI_ACCOUNT_NAME="$(terraform -chdir=infrastructure output -raw openai_account_name 2>/dev/null || true)"
+
+          if [ -z "$RESOURCE_GROUP_NAME" ] || [ -z "$KEY_VAULT_NAME" ]; then
+            echo "::error::Unable to resolve required Terraform outputs (resource_group_name, key_vault_name)."
+            exit 1
+          fi
+
+          RESOLVED_OPENAI_ENDPOINT="$TF_VAR_openai_endpoint"
+          if [ -z "$RESOLVED_OPENAI_ENDPOINT" ] && [ -n "$TF_OUTPUT_OPENAI_ENDPOINT" ]; then
+            RESOLVED_OPENAI_ENDPOINT="$TF_OUTPUT_OPENAI_ENDPOINT"
+          fi
+
+          if [ -n "$RESOLVED_OPENAI_ENDPOINT" ]; then
+            echo "TF_VAR_openai_endpoint=$RESOLVED_OPENAI_ENDPOINT" >> "$GITHUB_ENV"
+          fi
+
+          RESOLVED_OPENAI_DEPLOYMENT="$TF_VAR_openai_deployment_name"
+          if [ -z "$RESOLVED_OPENAI_DEPLOYMENT" ] && [ -n "$TF_OUTPUT_OPENAI_DEPLOYMENT" ]; then
+            RESOLVED_OPENAI_DEPLOYMENT="$TF_OUTPUT_OPENAI_DEPLOYMENT"
+          fi
+          if [ -z "$RESOLVED_OPENAI_DEPLOYMENT" ]; then
+            RESOLVED_OPENAI_DEPLOYMENT="gpt-4o-mini"
+          fi
+          echo "TF_VAR_openai_deployment_name=$RESOLVED_OPENAI_DEPLOYMENT" >> "$GITHUB_ENV"
+
+          RESOLVED_OPENAI_ACCOUNT_NAME="$OPENAI_ACCOUNT_NAME"
+          if [ -z "$RESOLVED_OPENAI_ACCOUNT_NAME" ] && [ -n "$TF_OUTPUT_OPENAI_ACCOUNT_NAME" ]; then
+            RESOLVED_OPENAI_ACCOUNT_NAME="$TF_OUTPUT_OPENAI_ACCOUNT_NAME"
+          fi
+          if [ -z "$RESOLVED_OPENAI_ACCOUNT_NAME" ] && [ -n "$RESOLVED_OPENAI_ENDPOINT" ]; then
+            RESOLVED_OPENAI_ACCOUNT_NAME="$(echo "$RESOLVED_OPENAI_ENDPOINT" | sed -E 's#https?://([^./]+).*#\1#')"
+          fi
+
+          echo "RESOLVED_RESOURCE_GROUP_NAME=$RESOURCE_GROUP_NAME" >> "$GITHUB_ENV"
+          echo "RESOLVED_KEY_VAULT_NAME=$KEY_VAULT_NAME" >> "$GITHUB_ENV"
+          echo "RESOLVED_OPENAI_ENDPOINT=$RESOLVED_OPENAI_ENDPOINT" >> "$GITHUB_ENV"
+          echo "RESOLVED_OPENAI_ACCOUNT_NAME=$RESOLVED_OPENAI_ACCOUNT_NAME" >> "$GITHUB_ENV"
+
+      - name: Load PostgreSQL password from Key Vault
+        run: |
+          PG_PASSWORD="$(az keyvault secret show \
+            --vault-name "$RESOLVED_KEY_VAULT_NAME" \
+            --name pg-password \
+            --query value -o tsv 2>/dev/null || true)"
+
+          if [ -z "$PG_PASSWORD" ]; then
+            echo "::error::Key Vault secret 'pg-password' not found in vault '$RESOLVED_KEY_VAULT_NAME'."
+            exit 1
+          fi
+
+          echo "::add-mask::$PG_PASSWORD"
+          echo "TF_VAR_pg_admin_password=$PG_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Load Azure OpenAI key from configured account
+        run: |
+          if [ -z "$RESOLVED_OPENAI_ENDPOINT" ]; then
+            echo "No OpenAI endpoint configured; skipping TF_VAR_openai_api_key injection."
+            exit 0
+          fi
+
+          if [ -z "$RESOLVED_OPENAI_ACCOUNT_NAME" ]; then
+            echo "::error::Unable to resolve OpenAI account name. Set OPENAI_ACCOUNT_NAME or OPENAI_ENDPOINT in environment variables."
+            exit 1
+          fi
+
+          OPENAI_KEY="$(az cognitiveservices account keys list \
+            --resource-group "$RESOLVED_RESOURCE_GROUP_NAME" \
+            --name "$RESOLVED_OPENAI_ACCOUNT_NAME" \
+            --query key1 -o tsv 2>/dev/null || true)"
+
+          if [ -z "$OPENAI_KEY" ]; then
+            echo "::error::Unable to load key for OpenAI account '$RESOLVED_OPENAI_ACCOUNT_NAME' in '$RESOLVED_RESOURCE_GROUP_NAME'."
+            exit 1
+          fi
+
+          echo "::add-mask::$OPENAI_KEY"
+          echo "TF_VAR_openai_api_key=$OPENAI_KEY" >> "$GITHUB_ENV"
+
+      - name: Terraform validate
+        run: terraform -chdir=infrastructure validate -no-color
+
+      - name: Terraform refresh state
+        run: terraform -chdir=infrastructure apply -refresh-only -auto-approve -no-color
+
+      - name: Terraform plan
+        run: terraform -chdir=infrastructure plan -out=tfplan -no-color
+
+      - name: Terraform apply
+        if: ${{ inputs.apply }}
+        run: terraform -chdir=infrastructure apply -auto-approve -no-color tfplan
