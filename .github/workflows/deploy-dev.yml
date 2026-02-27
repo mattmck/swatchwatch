@@ -26,18 +26,41 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install lightningcss native binary
+      - name: Install Tailwind CSS native binaries
         run: |
+          # npm ci in workspace monorepos can skip platform-specific optional
+          # deps for transitive dependencies. Download directly from npm registry.
+          install_native_pkg() {
+            local PKG_NAME=$1   # e.g. lightningcss-linux-x64-gnu
+            local VERSION=$2
+            local TARGET_DIR=$3 # e.g. node_modules/lightningcss-linux-x64-gnu
+            local FALLBACK=$4   # e.g. node_modules/lightningcss (for .node fallback)
+
+            echo "::group::Installing ${PKG_NAME}@${VERSION}"
+            curl -sL "https://registry.npmjs.org/${PKG_NAME}/-/${PKG_NAME}-${VERSION}.tgz" \
+              | tar xz -C /tmp
+            rm -rf "${TARGET_DIR}"
+            mkdir -p "${TARGET_DIR}"
+            cp /tmp/package/* "${TARGET_DIR}/"
+            if [ -n "${FALLBACK}" ]; then
+              cp /tmp/package/*.node "${FALLBACK}/"
+            fi
+            rm -rf /tmp/package
+            ls -la "${TARGET_DIR}/"
+            echo "::endgroup::"
+          }
+
           CSS_VERSION=$(node -p "require('./node_modules/lightningcss/package.json').version")
-          echo "Fetching lightningcss-linux-x64-gnu@${CSS_VERSION}"
-          curl -sL "https://registry.npmjs.org/lightningcss-linux-x64-gnu/-/lightningcss-linux-x64-gnu-${CSS_VERSION}.tgz" \
-            | tar xz -C /tmp
-          rm -rf node_modules/lightningcss-linux-x64-gnu
-          mkdir -p node_modules/lightningcss-linux-x64-gnu
-          cp /tmp/package/* node_modules/lightningcss-linux-x64-gnu/
-          cp /tmp/package/*.node node_modules/lightningcss/
-          ls -la node_modules/lightningcss-linux-x64-gnu/
+          OXIDE_VERSION=$(node -p "require('./node_modules/@tailwindcss/oxide/package.json').version")
+
+          install_native_pkg "lightningcss-linux-x64-gnu" "${CSS_VERSION}" \
+            "node_modules/lightningcss-linux-x64-gnu" "node_modules/lightningcss"
+
+          install_native_pkg "@tailwindcss/oxide-linux-x64-gnu" "${OXIDE_VERSION}" \
+            "node_modules/@tailwindcss/oxide-linux-x64-gnu" "node_modules/@tailwindcss/oxide"
+
           node -e "require('lightningcss')" && echo "✓ lightningcss loads OK"
+          node -e "require('@tailwindcss/oxide')" && echo "✓ @tailwindcss/oxide loads OK"
 
       # Build before the SWA action so Oryx never runs its own npm install.
       # Oryx runs npm install outside the workspace root and can't resolve
