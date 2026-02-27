@@ -24,6 +24,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install platform-specific native binaries
+        run: |
+          # npm ci in workspace monorepos can skip platform-specific optional
+          # deps for transitive dependencies (lightningcss, swc).
+          CSS_VERSION=$(node -p "require('./node_modules/lightningcss/package.json').version")
+          echo "Installing lightningcss-linux-x64-gnu@${CSS_VERSION}"
+          npm install --no-save "lightningcss-linux-x64-gnu@${CSS_VERSION}"
+
       - name: Build shared types
         run: npm run build --workspace=packages/shared
 
@@ -48,6 +56,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Install platform-specific native binaries
+        run: |
+          CSS_VERSION=$(node -p "require('./node_modules/lightningcss/package.json').version")
+          echo "Installing lightningcss-linux-x64-gnu@${CSS_VERSION}"
+          npm install --no-save "lightningcss-linux-x64-gnu@${CSS_VERSION}"
 
       - name: Build shared types
         run: npm run build --workspace=packages/shared

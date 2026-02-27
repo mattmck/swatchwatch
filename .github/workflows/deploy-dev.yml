@@ -26,6 +26,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install platform-specific native binaries
+        run: |
+          CSS_VERSION=$(node -p "require('./node_modules/lightningcss/package.json').version")
+          echo "Installing lightningcss-linux-x64-gnu@${CSS_VERSION}"
+          npm install --no-save "lightningcss-linux-x64-gnu@${CSS_VERSION}"
+
       # Build before the SWA action so Oryx never runs its own npm install.
       # Oryx runs npm install outside the workspace root and can't resolve
       # the swatchwatch-shared workspace package from the npm registry.
