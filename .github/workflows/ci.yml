@@ -24,13 +24,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install platform-specific native binaries
+      - name: Install lightningcss native binary
         run: |
           # npm ci in workspace monorepos can skip platform-specific optional
-          # deps for transitive dependencies (lightningcss, swc).
+          # deps for transitive dependencies. Download directly from the npm
+          # registry to bypass lockfile restrictions.
           CSS_VERSION=$(node -p "require('./node_modules/lightningcss/package.json').version")
-          echo "Installing lightningcss-linux-x64-gnu@${CSS_VERSION}"
-          npm install --no-save "lightningcss-linux-x64-gnu@${CSS_VERSION}"
+          echo "Fetching lightningcss-linux-x64-gnu@${CSS_VERSION}"
+          curl -sL "https://registry.npmjs.org/lightningcss-linux-x64-gnu/-/lightningcss-linux-x64-gnu-${CSS_VERSION}.tgz" \
+            | tar xz -C /tmp
+          cp -r /tmp/package node_modules/lightningcss-linux-x64-gnu
+          cp /tmp/package/*.node node_modules/lightningcss/ 2>/dev/null || true
+          ls node_modules/lightningcss-linux-x64-gnu/
 
       - name: Build shared types
         run: npm run build --workspace=packages/shared
@@ -57,11 +62,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install platform-specific native binaries
+      - name: Install lightningcss native binary
         run: |
           CSS_VERSION=$(node -p "require('./node_modules/lightningcss/package.json').version")
-          echo "Installing lightningcss-linux-x64-gnu@${CSS_VERSION}"
-          npm install --no-save "lightningcss-linux-x64-gnu@${CSS_VERSION}"
+          echo "Fetching lightningcss-linux-x64-gnu@${CSS_VERSION}"
+          curl -sL "https://registry.npmjs.org/lightningcss-linux-x64-gnu/-/lightningcss-linux-x64-gnu-${CSS_VERSION}.tgz" \
+            | tar xz -C /tmp
+          cp -r /tmp/package node_modules/lightningcss-linux-x64-gnu
+          cp /tmp/package/*.node node_modules/lightningcss/ 2>/dev/null || true
+          ls node_modules/lightningcss-linux-x64-gnu/
 
       - name: Build shared types
         run: npm run build --workspace=packages/shared
