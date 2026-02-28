@@ -106,7 +106,7 @@ variable "openai_model_version" {
 variable "openai_deployment_capacity" {
   description = "Azure OpenAI deployment capacity units for the hex detection deployment"
   type        = number
-  default     = 10
+  default     = 100
 }
 
 variable "is_automation" {

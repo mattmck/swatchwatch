@@ -415,7 +415,7 @@ resource "azurerm_cognitive_deployment" "openai_hex" {
   }
 
   sku {
-    name     = "Standard"
+    name     = "GlobalStandard"
     capacity = var.openai_deployment_capacity
   }
 }

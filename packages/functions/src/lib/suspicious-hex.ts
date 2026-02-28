@@ -56,11 +56,11 @@ const SUSPICIOUS_HEXES = new Set([
  * Null/undefined/empty values are always considered suspicious.
  */
 export function isSuspiciousHex(hex: string | null | undefined): boolean {
-  if (!hex) {
+  const normalized = hex?.trim().toUpperCase();
+  if (!normalized) {
     return true;
   }
 
-  const normalized = hex.trim().toUpperCase();
   if (!normalized.startsWith("#")) {
     return SUSPICIOUS_HEXES.has(`#${normalized}`);
   }

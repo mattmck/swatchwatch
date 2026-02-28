@@ -1,7 +1,6 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 
-// Import the built module
 const { isSuspiciousHex } = require("../dist/lib/suspicious-hex");
 
 describe("lib/suspicious-hex — isSuspiciousHex", () => {
@@ -18,11 +17,8 @@ describe("lib/suspicious-hex — isSuspiciousHex", () => {
       assert.equal(isSuspiciousHex(""), true);
     });
 
-    it("returns false for whitespace-only string (trims to empty but passes initial check)", () => {
-      // Note: whitespace-only strings pass the initial !hex check (non-empty string)
-      // but after trim() become empty, which doesn't match any suspicious hex.
-      // This is an edge case in the implementation.
-      assert.equal(isSuspiciousHex("   "), false);
+    it("returns true for whitespace-only string", () => {
+      assert.equal(isSuspiciousHex("   "), true);
     });
   });
 

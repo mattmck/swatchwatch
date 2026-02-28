@@ -33,6 +33,7 @@ jobs:
 
       - name: Run Claude Code Review
         id: claude-review
+        continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -44,3 +45,8 @@ jobs:
           prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
+
+      - name: Report non-blocking Claude review failure
+        if: ${{ steps.claude-review.outcome != 'success' }}
+        run: |
+          echo "::warning::Claude Code Review did not complete successfully (for example, out of credits). This check is non-blocking."

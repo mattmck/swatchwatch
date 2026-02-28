@@ -1,4 +1,4 @@
-const { describe, it, beforeEach, afterEach } = require("node:test");
+const { describe, it, beforeEach, afterEach, after } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const Module = require("node:module");
@@ -35,6 +35,13 @@ for (const [id, exports] of Object.entries(mockModules)) {
   };
 }
 
+after(() => {
+  Module._resolveFilename = originalResolve;
+  for (const id of Object.keys(mockModules)) {
+    delete require.cache[id];
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
@@ -54,6 +61,21 @@ function fakeRequest({ method = "GET", headers = {} } = {}) {
 
 function fakeContext() {
   return { log: () => {} };
+}
+
+function assertNoCorsHeaders(headers) {
+  if (!headers) {
+    return;
+  }
+
+  if (typeof headers.get === "function") {
+    assert.equal(headers.get("Access-Control-Allow-Origin"), null);
+    assert.equal(headers.get("Access-Control-Allow-Headers"), null);
+    assert.equal(headers.get("Access-Control-Allow-Methods"), null);
+    return;
+  }
+
+  assert.equal(Object.keys(headers).length, 0);
 }
 
 // Store original env values to restore after tests
@@ -127,7 +149,7 @@ describe("lib/http — withCors", () => {
 
       const res = await handler(req, fakeContext());
       assert.equal(res.status, 204);
-      assert.equal(res.headers, undefined);
+      assertNoCorsHeaders(res.headers);
     });
 
     it("returns 204 without CORS headers when no origin header", async () => {
@@ -142,7 +164,7 @@ describe("lib/http — withCors", () => {
       const req = fakeRequest({ method: "OPTIONS" });
       const res = await handler(req, fakeContext());
       assert.equal(res.status, 204);
-      assert.equal(res.headers, undefined);
+      assertNoCorsHeaders(res.headers);
     });
   });
 
@@ -204,7 +226,7 @@ describe("lib/http — withCors", () => {
       assert.equal(res.status, 200);
       assert.deepEqual(res.jsonBody, { secret: "data" });
       // Response should not have CORS headers added
-      assert.equal(res.headers, undefined);
+      assertNoCorsHeaders(res.headers);
     });
   });
 
@@ -235,7 +257,7 @@ describe("lib/http — withCors", () => {
         headers: { origin: "http://localhost:3000" },
       });
       const res2 = await handler(req2, fakeContext());
-      assert.equal(res2.headers, undefined);
+      assertNoCorsHeaders(res2.headers);
     });
 
     it("uses wildcard origin when configured", async () => {
