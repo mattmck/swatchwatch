@@ -186,7 +186,9 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const searchParamsString = searchParams.toString();
   const didMountRef = useRef(false);
+  const skipNextPageResetRef = useRef(false);
   const [polishes, setPolishes] = useState<Polish[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -232,6 +234,63 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     Record<string, boolean>
   >({});
   const [debouncedSearch, setDebouncedSearch] = useState(() => searchParams.get("q") ?? "");
+
+  // Keep local state in sync with browser URL changes (back/forward).
+  useEffect(() => {
+    const nextSearch = searchParams.get("q") ?? "";
+    const nextScope = parseResultsScope(searchParams.get("scope"), searchParams.get("all"));
+    const nextToneFilter = parseToneFilter(searchParams.get("tone"));
+    const nextFinishFilter = parseFinishFilter(searchParams.get("finish"));
+    const nextAvailabilityFilter = parseAvailabilityFilter(
+      searchParams.get("availability") ?? searchParams.get("avail")
+    );
+    const nextSortKey = parseSortKey(searchParams.get("sort"));
+    const nextSortDirection = parseSortDirection(searchParams.get("dir"));
+    const nextPage = parsePositiveInt(searchParams.get("page"), 1);
+    const nextPageSize = parsePageSize(searchParams.get("pageSize"));
+
+    const filtersChangedFromUrl =
+      search !== nextSearch ||
+      scope !== nextScope ||
+      toneFilter !== nextToneFilter ||
+      finishFilter !== nextFinishFilter ||
+      availabilityFilter !== nextAvailabilityFilter ||
+      sortKey !== nextSortKey ||
+      sortDirection !== nextSortDirection;
+    const paginationChangedFromUrl = page !== nextPage || pageSize !== nextPageSize;
+    const debouncedChangedFromUrl = debouncedSearch !== nextSearch;
+
+    if (!filtersChangedFromUrl && !paginationChangedFromUrl && !debouncedChangedFromUrl) {
+      return;
+    }
+
+    // Avoid resetting page to 1 when state updates are driven by URL navigation.
+    skipNextPageResetRef.current = true;
+
+    setSearch(nextSearch);
+    setDebouncedSearch(nextSearch);
+    setScope(nextScope);
+    setToneFilter(nextToneFilter);
+    setFinishFilter(nextFinishFilter);
+    setAvailabilityFilter(nextAvailabilityFilter);
+    setSortKey(nextSortKey);
+    setSortDirection(nextSortDirection);
+    setPage(nextPage);
+    setPageSize(nextPageSize);
+  }, [
+    availabilityFilter,
+    debouncedSearch,
+    finishFilter,
+    page,
+    pageSize,
+    scope,
+    search,
+    searchParams,
+    searchParamsString,
+    sortDirection,
+    sortKey,
+    toneFilter,
+  ]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -322,13 +381,17 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       didMountRef.current = true;
       return;
     }
+    if (skipNextPageResetRef.current) {
+      skipNextPageResetRef.current = false;
+      return;
+    }
     setPage(1);
   }, [search, scope, toneFilter, finishFilter, availabilityFilter, sortKey, sortDirection]);
 
   const queryString = useMemo(
     () =>
       buildPolishesListQueryString({
-        search,
+        search: debouncedSearch,
         scope,
         toneFilter,
         finishFilter,
@@ -339,7 +402,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
         pageSize,
       }),
     [
-      search,
+      debouncedSearch,
       scope,
       toneFilter,
       finishFilter,
@@ -355,7 +418,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   // Persist list state in URL to support back/forward restoration.
   useEffect(() => {
     const nextQuery = queryString;
-    const currentQuery = searchParams.toString();
+    const currentQuery = searchParamsString;
     if (nextQuery === currentQuery) return;
 
     router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, {
@@ -369,7 +432,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     pathname,
     queryString,
     router,
-    searchParams,
+    searchParamsString,
   ]);
 
   const isOwned = (p: Polish) => (p.quantity ?? 0) > 0;

@@ -38,9 +38,18 @@ resource "random_string" "suffix" {
 }
 
 locals {
-  resource_prefix                      = "${var.base_name}-${var.environment}"
-  unique_suffix                        = random_string.suffix.result
-  web_app_origin                       = var.environment == "prod" ? "https://${var.domain_name}" : "https://dev.${var.domain_name}"
+  resource_prefix = "${var.base_name}-${var.environment}"
+  unique_suffix   = random_string.suffix.result
+  web_app_origins = (
+    var.environment == "prod"
+    ? ["https://${var.domain_name}", "https://www.${var.domain_name}"]
+    : ["https://dev.${var.domain_name}"]
+  )
+  function_cors_allowed_origins = concat(
+    local.web_app_origins,
+    var.environment == "prod" ? [] : ["http://localhost:3000"],
+    ["https://*.azurestaticapps.net"]
+  )
   static_web_app_custom_domain_name    = var.environment == "prod" ? var.domain_name : "dev.${var.domain_name}"
   static_web_app_validation_method     = var.environment == "prod" ? "dns-txt-token" : "cname-delegation"
   key_vault_name_prefix                = lower(replace("${var.base_name}${var.environment}", "/[^0-9a-z]/", ""))
@@ -281,10 +290,7 @@ resource "azurerm_linux_function_app" "main" {
     }
 
     cors {
-      allowed_origins = concat(
-        [local.web_app_origin],
-        var.environment == "prod" ? [] : ["http://localhost:3000"]
-      )
+      allowed_origins     = concat(local.web_app_origins, var.environment == "prod" ? [] : ["http://localhost:3000"])
       support_credentials = false
     }
   }
@@ -309,6 +315,7 @@ resource "azurerm_linux_function_app" "main" {
     AZURE_AD_B2C_TENANT         = var.azure_ad_b2c_tenant
     AZURE_AD_B2C_CLIENT_ID      = var.azure_ad_b2c_client_id
     AUTH_DEV_BYPASS             = var.auth_dev_bypass ? "true" : "false"
+    CORS_ALLOWED_ORIGINS        = join(",", local.function_cors_allowed_origins)
     REDIS_URL                   = "rediss://${azurerm_managed_redis.main.hostname}:10000"
     REDIS_KEY                   = azurerm_managed_redis.main.default_database[0].primary_access_key
   }
