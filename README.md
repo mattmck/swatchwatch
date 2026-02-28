@@ -103,6 +103,8 @@ npm run dev:mobile       # → mobile via Expo
 | `.github/workflows/deploy-infra-dev.yml` | Deploy Terraform infrastructure to dev | Push to `dev` when `infrastructure/**` changes, manual dispatch |
 | `.github/workflows/deploy-infra-prod.yml` | Deploy Terraform infrastructure to prod (infra-only) | Manual dispatch |
 
+Claude assistant workflows (`.github/workflows/claude.yml`, `.github/workflows/claude-code-review.yml`) are advisory and configured as non-blocking, so quota/credit failures emit warnings without failing the overall run.
+
 App deploy workflow requirements (environment-scoped in GitHub `dev` / `prod` environments):
 - Variables: `AUTH_DEV_BYPASS`, `NEXT_PUBLIC_AUTH_DEV_BYPASS`, `NEXT_PUBLIC_B2C_TENANT`, `NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY`, `NEXT_PUBLIC_B2C_API_SCOPE` (optional)
 - Secrets: `AZURE_AD_B2C_CLIENT_ID`, `NEXT_PUBLIC_B2C_CLIENT_ID`, `AZURE_STATIC_WEB_APPS_API_TOKEN`, `DATABASE_URL`
