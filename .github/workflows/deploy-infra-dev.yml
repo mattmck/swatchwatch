@@ -25,5 +25,6 @@ jobs:
     uses: ./.github/workflows/deploy-infra.yml
     with:
       environment: dev
+      openai_location: eastus
       apply: ${{ github.event_name == 'workflow_dispatch' && inputs.apply || true }}
     secrets: inherit
