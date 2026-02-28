@@ -664,7 +664,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                   type="button"
                   className="flex w-full items-center justify-center gap-1 text-xs font-medium"
                   onClick={() => handleSort("status")}
-                  title="Sort by status"
+                  aria-label="Sort by status"
                 >
                   <span>Status</span>
                   {renderSortIcon("status")}
@@ -676,7 +676,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                   type="button"
                   className="flex items-center gap-1 text-xs font-medium"
                   onClick={() => handleSort("brand")}
-                  title="Sort by brand"
+                  aria-label="Sort by brand"
                 >
                   <span>Brand</span>
                   {renderSortIcon("brand")}
@@ -687,7 +687,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                   type="button"
                   className="flex items-center gap-1 text-xs font-medium"
                   onClick={() => handleSort("name")}
-                  title="Sort by name"
+                  aria-label="Sort by name"
                 >
                   <span>Name</span>
                   {renderSortIcon("name")}
@@ -700,7 +700,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                   type="button"
                   className="flex items-center gap-1 text-xs font-medium"
                   onClick={() => handleSort("finish")}
-                  title="Sort by finish"
+                  aria-label="Sort by finish"
                 >
                   <span>Finish</span>
                   {renderSortIcon("finish")}
@@ -711,7 +711,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                   type="button"
                   className="flex items-center gap-1 text-xs font-medium"
                   onClick={() => handleSort("collection")}
-                  title="Sort by collection"
+                  aria-label="Sort by collection"
                 >
                   <span>Collection</span>
                   {renderSortIcon("collection")}
@@ -745,7 +745,9 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                     className="transition-colors hover:bg-brand-pink-light/20"
                   >
                     <TableCell className="text-center text-lg">
-                      {owned ? "\u2714\uFE0F" : "\u2795"}
+                      <span aria-label={owned ? "In collection" : "Not in collection"}>
+                        {owned ? "\u2714\uFE0F" : "\u2795"}
+                      </span>
                     </TableCell>
                     <TableCell>
                       {polish.swatchImageUrl ? (
@@ -753,7 +755,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                           href={polish.swatchImageUrl}
                           target="_blank"
                           rel="noreferrer"
-                          title="Open image"
+                          aria-label={`Open ${polish.brand} ${polish.name} swatch image in new tab`}
                           className="inline-block"
                         >
                           <Image
@@ -791,9 +793,9 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                         <Link
                           href={`/polishes/search?color=${resolveDisplayHex(polish)!.replace("#", "")}`}
                           className="text-muted-foreground hover:text-primary"
-                          title="Find similar colors"
+                          aria-label={`Find colors similar to ${polish.name}`}
                         >
-                          🔍
+                          <span aria-hidden="true">🔍</span>
                         </Link>
                       )}
                     </TableCell>
