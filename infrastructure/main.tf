@@ -40,6 +40,11 @@ resource "random_string" "suffix" {
 locals {
   resource_prefix                      = "${var.base_name}-${var.environment}"
   unique_suffix                        = random_string.suffix.result
+  web_app_origin                       = var.environment == "prod" ? "https://${var.domain_name}" : "https://dev.${var.domain_name}"
+  static_web_app_custom_domain_name    = var.environment == "prod" ? var.domain_name : "dev.${var.domain_name}"
+  static_web_app_validation_method     = var.environment == "prod" ? "dns-txt-token" : "cname-delegation"
+  key_vault_name_prefix                = lower(replace("${var.base_name}${var.environment}", "/[^0-9a-z]/", ""))
+  key_vault_name                       = "kv${substr(local.key_vault_name_prefix, 0, 14)}${local.unique_suffix}"
   openai_external_endpoint             = trimspace(var.openai_endpoint)
   openai_external_api_key              = trimspace(var.openai_api_key)
   openai_external_key_vault_secret_uri = trimspace(var.openai_key_vault_secret_uri)
@@ -111,7 +116,7 @@ resource "azurerm_resource_group" "main" {
 # ── Azure Key Vault ─────────────────────────────────────────────
 
 resource "azurerm_key_vault" "main" {
-  name                = "kv${var.base_name}${var.environment}${local.unique_suffix}"
+  name                = local.key_vault_name
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   tenant_id           = data.azurerm_client_config.current.tenant_id
@@ -210,19 +215,19 @@ resource "azurerm_storage_account" "main" {
 
 resource "azurerm_storage_container" "swatches" {
   name                  = "swatches"
-  storage_account_name  = azurerm_storage_account.main.name
+  storage_account_id    = azurerm_storage_account.main.id
   container_access_type = "private"
 }
 
 resource "azurerm_storage_container" "nail_photos" {
   name                  = "nail-photos"
-  storage_account_name  = azurerm_storage_account.main.name
+  storage_account_id    = azurerm_storage_account.main.id
   container_access_type = "private"
 }
 
 resource "azurerm_storage_container" "tfstate" {
   name                  = "tfstate"
-  storage_account_name  = azurerm_storage_account.main.name
+  storage_account_id    = azurerm_storage_account.main.id
   container_access_type = "private"
 }
 
@@ -276,11 +281,10 @@ resource "azurerm_linux_function_app" "main" {
     }
 
     cors {
-      allowed_origins = [
-        "https://jolly-desert-0c7f01510.2.azurestaticapps.net",
-        "https://dev.${var.domain_name}",
-        "http://localhost:3000",
-      ]
+      allowed_origins = concat(
+        [local.web_app_origin],
+        var.environment == "prod" ? [] : ["http://localhost:3000"]
+      )
       support_credentials = false
     }
   }
@@ -345,8 +349,8 @@ resource "azurerm_static_web_app" "main" {
 
 resource "azurerm_static_web_app_custom_domain" "dev" {
   static_web_app_id = azurerm_static_web_app.main.id
-  domain_name       = "dev.${var.domain_name}"
-  validation_type   = "cname-delegation"
+  domain_name       = local.static_web_app_custom_domain_name
+  validation_type   = local.static_web_app_validation_method
 
   lifecycle {
     ignore_changes = [validation_type]

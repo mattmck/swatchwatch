@@ -140,8 +140,12 @@ jobs:
             local TARGET_DIR=$3 # e.g. node_modules/lightningcss-linux-x64-gnu
             local FALLBACK=$4   # e.g. node_modules/lightningcss (for .node fallback)
 
+            # npm tarball URLs use only the unscoped name in the filename
+            # e.g. @tailwindcss/oxide-linux-x64-gnu → oxide-linux-x64-gnu
+            local TARBALL_NAME="${PKG_NAME#*/}"  # strip @scope/ prefix (no-op for unscoped)
+
             echo "::group::Installing ${PKG_NAME}@${VERSION}"
-            curl -sL "https://registry.npmjs.org/${PKG_NAME}/-/${PKG_NAME}-${VERSION}.tgz" \
+            curl -fsSL "https://registry.npmjs.org/${PKG_NAME}/-/${TARBALL_NAME}-${VERSION}.tgz" \
               | tar xz -C /tmp
             rm -rf "${TARGET_DIR}"
             mkdir -p "${TARGET_DIR}"

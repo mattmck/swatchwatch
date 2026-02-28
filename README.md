@@ -96,19 +96,23 @@ npm run dev:mobile       # → mobile via Expo
 
 | Workflow | Purpose | Trigger |
 |----------|---------|---------|
-| `.github/workflows/deploy-dev.yml` | Deploy web + function app code to dev, then run API smoke tests | Push to `dev`, manual dispatch |
+| `.github/workflows/deploy.yml` | Reusable app deploy workflow (web + functions + smoke tests) | Called by env-specific workflows, manual dispatch |
+| `.github/workflows/deploy-dev.yml` | Deploy app stack to dev | Push to `dev`, manual dispatch |
+| `.github/workflows/deploy-prod.yml` | Deploy app stack to prod (runs infra first when `infrastructure/**` changed) | Push to `main`, manual dispatch |
+| `.github/workflows/deploy-infra.yml` | Reusable Terraform deploy workflow | Called by env-specific workflows, manual dispatch |
 | `.github/workflows/deploy-infra-dev.yml` | Deploy Terraform infrastructure to dev | Push to `dev` when `infrastructure/**` changes, manual dispatch |
+| `.github/workflows/deploy-infra-prod.yml` | Deploy Terraform infrastructure to prod (infra-only) | Manual dispatch |
 
-Dev auth deploy note:
-`deploy-dev.yml` reads auth config from the GitHub `dev` environment.
+App deploy workflow requirements (environment-scoped in GitHub `dev` / `prod` environments):
 - Variables: `AUTH_DEV_BYPASS`, `NEXT_PUBLIC_AUTH_DEV_BYPASS`, `NEXT_PUBLIC_B2C_TENANT`, `NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY`, `NEXT_PUBLIC_B2C_API_SCOPE` (optional)
-- Secrets: `AZURE_AD_B2C_CLIENT_ID`, `NEXT_PUBLIC_B2C_CLIENT_ID`
+- Secrets: `AZURE_AD_B2C_CLIENT_ID`, `NEXT_PUBLIC_B2C_CLIENT_ID`, `AZURE_STATIC_WEB_APPS_API_TOKEN`, `DATABASE_URL`
 
-Infrastructure deploy workflow requirements:
+Infrastructure deploy workflow requirements (environment-scoped in GitHub `dev` / `prod` environments):
 - GitHub secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`
-- GitHub variables: `TFSTATE_RESOURCE_GROUP`, `TFSTATE_STORAGE_ACCOUNT`, `TFSTATE_CONTAINER` (recommended: `tfstate`), `TFSTATE_BLOB_NAME` (recommended: `dev.terraform.tfstate`)
+- GitHub variables: `TFSTATE_RESOURCE_GROUP`, `TFSTATE_STORAGE_ACCOUNT`, `TFSTATE_CONTAINER` (recommended: `tfstate`), `TFSTATE_BLOB_NAME` (recommended: `<environment>.terraform.tfstate`)
+- Optional OpenAI variables (for external/shared accounts): `OPENAI_ENDPOINT`, `OPENAI_ACCOUNT_NAME`, `OPENAI_DEPLOYMENT_NAME`
 - Recommended for auth settings drift prevention in Terraform deploys: secret `AZURE_AD_B2C_CLIENT_ID`, variables `AUTH_DEV_BYPASS` and `AZURE_AD_B2C_TENANT` (or `NEXT_PUBLIC_B2C_TENANT`)
-The workflow reads `pg-password` from Azure Key Vault at runtime and sets `TF_VAR_pg_admin_password` automatically.
+The workflow reads `pg-password` from Azure Key Vault at runtime and sets `TF_VAR_pg_admin_password` automatically. If an OpenAI endpoint is configured, it resolves the account name and injects `TF_VAR_openai_api_key` from Azure Cognitive Services keys.
 
 ## Project Structure — Web App
 
