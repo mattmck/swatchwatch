@@ -112,9 +112,10 @@ App deploy workflow requirements (environment-scoped in GitHub `dev` / `prod` en
 Infrastructure deploy workflow requirements (environment-scoped in GitHub `dev` / `prod` environments):
 - GitHub secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`
 - GitHub variables: `TFSTATE_RESOURCE_GROUP`, `TFSTATE_STORAGE_ACCOUNT`, `TFSTATE_CONTAINER` (recommended: `tfstate`), `TFSTATE_BLOB_NAME` (recommended: `<environment>.terraform.tfstate`)
-- Optional OpenAI variables (for external/shared accounts): `OPENAI_ENDPOINT`, `OPENAI_ACCOUNT_NAME`, `OPENAI_DEPLOYMENT_NAME`
+- OpenAI mode variable: `CREATE_OPENAI_RESOURCES` (`true` to have Terraform manage OpenAI account/deployment; default in workflow is `true`)
+- Optional OpenAI variables (used when `CREATE_OPENAI_RESOURCES=false` for external/shared accounts): `OPENAI_ENDPOINT`, `OPENAI_ACCOUNT_NAME`, `OPENAI_DEPLOYMENT_NAME`
 - Recommended for auth settings drift prevention in Terraform deploys: secret `AZURE_AD_B2C_CLIENT_ID`, variables `AUTH_DEV_BYPASS` and `AZURE_AD_B2C_TENANT` (or `NEXT_PUBLIC_B2C_TENANT`)
-The workflow reads `pg-password` from Azure Key Vault at runtime and sets `TF_VAR_pg_admin_password` automatically. If an OpenAI endpoint is configured, it resolves the account name and injects `TF_VAR_openai_api_key` from Azure Cognitive Services keys.
+The workflow reads `pg-password` from Azure Key Vault at runtime and sets `TF_VAR_pg_admin_password` automatically. In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), it resolves the account name and injects `TF_VAR_openai_api_key` from Azure Cognitive Services keys.
 
 ## Project Structure — Web App
 
