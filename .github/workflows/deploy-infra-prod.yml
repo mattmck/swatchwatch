@@ -18,5 +18,6 @@ jobs:
     uses: ./.github/workflows/deploy-infra.yml
     with:
       environment: prod
+      openai_location: centralus
       apply: ${{ github.event_name == 'workflow_dispatch' && inputs.apply || true }}
     secrets: inherit
