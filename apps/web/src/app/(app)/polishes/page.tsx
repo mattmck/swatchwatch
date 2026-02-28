@@ -4,9 +4,9 @@ import { Suspense, useState, useEffect, useMemo, useCallback, useRef } from "rea
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import type { Polish } from "swatchwatch-shared";
+import type { Polish, PolishFilters } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
-import { listAllPolishes, recalcPolishHex, updatePolish } from "@/lib/api";
+import { listAllPolishes, listPolishes, recalcPolishHex, updatePolish } from "@/lib/api";
 import { undertone, type Undertone } from "@/lib/color-utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -51,28 +51,12 @@ const SORT_KEYS: readonly SortKey[] = ["status", "brand", "name", "finish", "col
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
 const HAS_B2C_CONFIG = buildMsalConfig() !== null;
 
-/**
- * Parse a string into a positive integer, returning a fallback when the input is absent or invalid.
- *
- * @param value - The string to parse (commonly a URL query parameter); may be null.
- * @param fallback - The value to return when `value` is missing or does not represent an integer greater than zero.
- * @returns The parsed integer if it is greater than zero, otherwise `fallback`.
- */
 function parsePositiveInt(value: string | null, fallback: number): number {
   if (!value) return fallback;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-/**
- * Parse a boolean-like query flag string into a boolean.
- *
- * Accepts the strings `"1"` and `"true"` as true, and `"0"` and `"false"` as false.
- *
- * @param value - The input string (often from a query parameter); may be `null`
- * @param fallback - Value to return when `value` is `null` or not recognized
- * @returns `true` if `value` is `"1"` or `"true"`, `false` if `value` is `"0"` or `"false"`, otherwise `fallback`
- */
 function parseBooleanFlag(value: string | null, fallback: boolean): boolean {
   if (!value) return fallback;
   if (value === "1" || value === "true") return true;
@@ -80,62 +64,27 @@ function parseBooleanFlag(value: string | null, fallback: boolean): boolean {
   return fallback;
 }
 
-/**
- * Normalize a string into a valid sort key.
- *
- * @param value - Candidate sort key (e.g., from user input or URL); may be `null`
- * @returns The input `value` if it matches a known sort key, otherwise `name`
- */
 function parseSortKey(value: string | null): SortKey {
   return SORT_KEYS.includes(value as SortKey) ? (value as SortKey) : "name";
 }
 
-/**
- * Normalize a sort direction string to either "asc" or "desc".
- *
- * @param value - Input sort direction; the string `"desc"` is preserved, all other values (including `null`) map to `"asc"`.
- * @returns `"desc"` if `value` is `"desc"`, `"asc"` otherwise.
- */
 function parseSortDirection(value: string | null): SortDirection {
   return value === "desc" ? "desc" : "asc";
 }
 
-/**
- * Normalize a raw tone filter string into a valid undertone value or "all".
- *
- * @param value - The raw filter string (may be `null`) typically from a query parameter
- * @returns `warm`, `cool`, or `neutral` when `value` matches one of those; `all` otherwise
- */
 function parseToneFilter(value: string | null): Undertone | "all" {
   return value === "warm" || value === "cool" || value === "neutral" ? value : "all";
 }
 
-/**
- * Validate and normalize a finish filter value.
- *
- * @param value - Raw finish filter value (e.g., from a query parameter); may be a finish name or `"all"`.
- * @returns The original finish name if it is one of the known finishes, otherwise `"all"`.
- */
 function parseFinishFilter(value: string | null): string {
   if (!value || value === "all") return "all";
   return value;
 }
 
-/**
- * Parse a query string into a valid availability filter.
- *
- * @param value - The raw input to interpret; expected values are `"owned"` or `"wishlist"`. `null` or any other string will be treated as no filter.
- * @returns The parsed availability filter: `"owned"`, `"wishlist"`, or `"all"`.
- */
 function parseAvailabilityFilter(value: string | null): AvailabilityFilter {
   return value === "owned" || value === "wishlist" ? value : "all";
 }
 
-/**
- * Parse list scope from query params.
- *
- * Supports both current `scope` and legacy `all` query params.
- */
 function parseResultsScope(
   scopeValue: string | null,
   legacyIncludeAllValue: string | null
@@ -145,17 +94,24 @@ function parseResultsScope(
   return parseBooleanFlag(legacyIncludeAllValue, true) ? "all" : "collection";
 }
 
-/**
- * Parse and validate a page-size query value against the allowed page-size options.
- *
- * @param value - The raw page-size string (e.g., from a URL query) or null
- * @returns A valid page size from `PAGE_SIZE_OPTIONS`; `DEFAULT_PAGE_SIZE` if the input is missing or invalid
- */
 function parsePageSize(value: string | null): number {
   const parsed = parsePositiveInt(value, DEFAULT_PAGE_SIZE);
   return PAGE_SIZE_OPTIONS.includes(parsed as (typeof PAGE_SIZE_OPTIONS)[number])
     ? parsed
     : DEFAULT_PAGE_SIZE;
+}
+
+function toApiSortBy(sortKey: SortKey): PolishFilters["sortBy"] {
+  switch (sortKey) {
+    case "status":
+    case "brand":
+    case "name":
+    case "finish":
+    case "collection":
+      return sortKey;
+    default:
+      return "name";
+  }
 }
 
 type PolishesListQueryState = {
@@ -176,7 +132,7 @@ function buildPolishesListQueryString(state: PolishesListQueryState): string {
   if (state.scope !== "all") params.set("scope", state.scope);
   if (state.toneFilter !== "all") params.set("tone", state.toneFilter);
   if (state.finishFilter !== "all") params.set("finish", state.finishFilter);
-  if (state.availabilityFilter !== "all") params.set("avail", state.availabilityFilter);
+  if (state.availabilityFilter !== "all") params.set("availability", state.availabilityFilter);
   if (state.sortKey !== "name") params.set("sort", state.sortKey);
   if (state.sortDirection !== "asc") params.set("dir", state.sortDirection);
   if (state.page !== 1) params.set("page", String(state.page));
@@ -184,11 +140,6 @@ function buildPolishesListQueryString(state: PolishesListQueryState): string {
   return params.toString();
 }
 
-/**
- * Renders the appropriate polishes page variant based on environment and authentication configuration.
- *
- * @returns The React element for the developer bypass page when developer bypass is enabled, the unconfigured page when B2C auth is not configured, or the B2C-enabled polishes page otherwise.
- */
 export default function PolishesPage() {
   return (
     <Suspense fallback={<PolishesPageFallback />}>
@@ -227,11 +178,6 @@ function B2CPolishesPage() {
   return <PolishesPageContentBoundary isAdmin={isAdmin} />;
 }
 
-/**
- * Render the polishes page for environments without B2C configuration.
- *
- * @returns A JSX element that renders PolishesPageContent with the `isAdmin` flag obtained from the unconfigured auth hook.
- */
 function UnconfiguredPolishesPage() {
   const { isAdmin } = useUnconfiguredAuth();
   return <PolishesPageContentBoundary isAdmin={isAdmin} />;
@@ -245,23 +191,13 @@ function PolishesPageContentBoundary({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
-/**
- * Render the "All Polishes" page: a searchable, filterable, sortable and paginated list of polishes with inline actions.
- *
- * The component initializes list state from the URL query parameters and keeps the URL in sync as filters,
- * sorting, or pagination change. It fetches polishes on mount, shows loading and error states, applies
- * text/tone/finish/availability filters, supports stable sorting and optional favoring of owned items,
- * and provides optimistic quantity updates. When `isAdmin` is true, admin-only actions (Recalc Hex) are exposed.
- *
- * @param isAdmin - If true, include admin-only controls (e.g., Recalc Hex) in the UI.
- * @returns The page's React element containing header, filter controls, table of polishes, and pagination.
- */
 function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const didMountRef = useRef(false);
   const [polishes, setPolishes] = useState<Polish[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { finishTypes } = useReferenceData();
@@ -287,7 +223,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     parseFinishFilter(searchParams.get("finish"))
   );
   const [availabilityFilter, setAvailabilityFilter] = useState<AvailabilityFilter>(() =>
-    parseAvailabilityFilter(searchParams.get("avail"))
+    parseAvailabilityFilter(searchParams.get("availability") ?? searchParams.get("avail"))
   );
   const [sortKey, setSortKey] = useState<SortKey>(() =>
     parseSortKey(searchParams.get("sort"))
@@ -304,22 +240,62 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const [recalcPendingById, setRecalcPendingById] = useState<
     Record<string, boolean>
   >({});
+  const [debouncedSearch, setDebouncedSearch] = useState(() => searchParams.get("q") ?? "");
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 200);
+    return () => window.clearTimeout(timeoutId);
+  }, [search]);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function fetchPolishes() {
+    async function fetchPolishesPage() {
       try {
         setLoading(true);
         setError(null);
 
-        const allPolishes = await listAllPolishes({
-          sortBy: "createdAt",
-          sortOrder: "desc",
+        const baseFilters: Omit<PolishFilters, "page" | "pageSize" | "tone"> = {
+          search: debouncedSearch.trim() || undefined,
+          finish: finishFilter !== "all" ? (finishFilter as PolishFilters["finish"]) : undefined,
+          scope,
+          availability: availabilityFilter,
+          sortBy: toApiSortBy(sortKey),
+          sortOrder: sortDirection,
+        };
+
+        if (toneFilter !== "all") {
+          const allRows = await listAllPolishes(baseFilters);
+          const toneRows = allRows.filter((polish) => {
+            const hex = resolveDisplayHex(polish);
+            return hex ? undertone(hex) === toneFilter : false;
+          });
+          const nextTotal = toneRows.length;
+          const totalPagesForTone = Math.ceil(nextTotal / pageSize);
+          const safePage = totalPagesForTone > 0 ? Math.min(page, totalPagesForTone) : 1;
+          const pagedRows = toneRows.slice((safePage - 1) * pageSize, safePage * pageSize);
+
+          if (!cancelled) {
+            setPolishes(pagedRows);
+            setTotal(nextTotal);
+            if (safePage !== page) {
+              setPage(safePage);
+            }
+          }
+          return;
+        }
+
+        const response = await listPolishes({
+          ...baseFilters,
+          page,
+          pageSize,
         });
 
         if (!cancelled) {
-          setPolishes(allPolishes);
+          setPolishes(response.polishes);
+          setTotal(response.total);
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Failed to load polishes";
@@ -332,12 +308,22 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
         }
       }
     }
-    fetchPolishes();
+    void fetchPolishesPage();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [
+    availabilityFilter,
+    debouncedSearch,
+    finishFilter,
+    page,
+    pageSize,
+    scope,
+    sortDirection,
+    sortKey,
+    toneFilter,
+  ]);
 
   // Reset page when filters change (but keep initial URL-restored page).
   useEffect(() => {
@@ -396,83 +382,12 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   ]);
 
   const isOwned = (p: Polish) => (p.quantity ?? 0) > 0;
-
-  const filtered = useMemo(() => {
-    let result = polishes;
-
-    // Text search
-    if (search) {
-      const q = search.toLowerCase();
-      result = result.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.brand.toLowerCase().includes(q) ||
-          (p.color && p.color.toLowerCase().includes(q)) ||
-          (p.collection && p.collection.toLowerCase().includes(q)) ||
-          (p.notes && p.notes.toLowerCase().includes(q))
-      );
-    }
-
-    // My Collection scope = owned only
-    if (scope === "collection") {
-      result = result.filter(isOwned);
-    }
-
-    if (toneFilter !== "all") {
-      result = result.filter((p) => {
-        const hex = resolveDisplayHex(p);
-        return hex && undertone(hex) === toneFilter;
-      });
-    }
-
-    if (finishFilter !== "all") {
-      result = result.filter((p) => p.finish === finishFilter);
-    }
-
-    if (availabilityFilter !== "all") {
-      result = result.filter((p) =>
-        availabilityFilter === "owned" ? isOwned(p) : !isOwned(p)
-      );
-    }
-
-    return result;
-  }, [polishes, search, scope, toneFilter, finishFilter, availabilityFilter]);
-
-  const sorted = useMemo(() => {
-    const result = [...filtered];
-
-    const normalize = (value: string | null | undefined) => (value ?? "").toLowerCase();
-    const compare = (a: Polish, b: Polish): number => {
-      switch (sortKey) {
-        case "status": {
-          const aOwned = isOwned(a) ? 0 : 1;
-          const bOwned = isOwned(b) ? 0 : 1;
-          return aOwned - bOwned;
-        }
-        case "brand":
-          return normalize(a.brand).localeCompare(normalize(b.brand));
-        case "name":
-          return normalize(a.name).localeCompare(normalize(b.name));
-        case "finish":
-          return normalize(a.finish).localeCompare(normalize(b.finish));
-        case "collection":
-          return normalize(a.collection).localeCompare(normalize(b.collection));
-        default:
-          return 0;
-      }
-    };
-
-    result.sort((a, b) => {
-      const primary = compare(a, b);
-      if (primary !== 0) return sortDirection === "asc" ? primary : -primary;
-
-      const byName = normalize(a.name).localeCompare(normalize(b.name));
-      if (byName !== 0) return byName;
-      return normalize(a.brand).localeCompare(normalize(b.brand));
-    });
-
-    return result;
-  }, [filtered, sortKey, sortDirection]);
+  const hasActiveFilters =
+    search.trim().length > 0 ||
+    scope !== "all" ||
+    toneFilter !== "all" ||
+    finishFilter !== "all" ||
+    availabilityFilter !== "all";
 
   const handleSort = useCallback((key: SortKey) => {
     if (sortKey === key) {
@@ -496,8 +411,8 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     return sortDirection === "asc" ? "ascending" : "descending";
   };
 
-  const totalPages = Math.ceil(sorted.length / pageSize);
-  const pageItems = sorted.slice((page - 1) * pageSize, page * pageSize);
+  const totalPages = Math.ceil(total / pageSize);
+  const pageItems = polishes;
   const columnCount = 9 + (isAdmin ? 1 : 0);
 
   useEffect(() => {
@@ -558,7 +473,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
         <div>
           <h1 className="heading-page">All Polishes</h1>
           <p className="text-muted-foreground">
-            {polishes.length} polishes &middot; {sorted.length} shown
+            {total} polishes &middot; {polishes.length} shown
           </p>
         </div>
         <Button asChild>
@@ -670,7 +585,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                   type="button"
                   className="flex w-full items-center justify-center gap-1 text-xs font-medium"
                   onClick={() => handleSort("status")}
-                  title="Sort by status"
+                  aria-label="Sort by status"
                 >
                   <span>Status</span>
                   {renderSortIcon("status")}
@@ -682,7 +597,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                   type="button"
                   className="flex items-center gap-1 text-xs font-medium"
                   onClick={() => handleSort("brand")}
-                  title="Sort by brand"
+                  aria-label="Sort by brand"
                 >
                   <span>Brand</span>
                   {renderSortIcon("brand")}
@@ -693,7 +608,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                   type="button"
                   className="flex items-center gap-1 text-xs font-medium"
                   onClick={() => handleSort("name")}
-                  title="Sort by name"
+                  aria-label="Sort by name"
                 >
                   <span>Name</span>
                   {renderSortIcon("name")}
@@ -706,7 +621,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                   type="button"
                   className="flex items-center gap-1 text-xs font-medium"
                   onClick={() => handleSort("finish")}
-                  title="Sort by finish"
+                  aria-label="Sort by finish"
                 >
                   <span>Finish</span>
                   {renderSortIcon("finish")}
@@ -717,7 +632,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                   type="button"
                   className="flex items-center gap-1 text-xs font-medium"
                   onClick={() => handleSort("collection")}
-                  title="Sort by collection"
+                  aria-label="Sort by collection"
                 >
                   <span>Collection</span>
                   {renderSortIcon("collection")}
@@ -734,10 +649,10 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
               <TableRow>
                 <TableCell colSpan={columnCount} className="p-0">
                   <EmptyState
-                    title={polishes.length === 0 ? "No polishes yet" : "No matches"}
-                    description={polishes.length === 0 ? "Add your first polish to get started." : "Try adjusting your filters."}
-                    actionLabel={polishes.length === 0 ? "+ Add Polish" : undefined}
-                    actionHref={polishes.length === 0 ? "/polishes/new" : undefined}
+                    title={hasActiveFilters ? "No matches" : "No polishes yet"}
+                    description={hasActiveFilters ? "Try adjusting your filters." : "Add your first polish to get started."}
+                    actionLabel={hasActiveFilters ? undefined : "+ Add Polish"}
+                    actionHref={hasActiveFilters ? undefined : "/polishes/new"}
                   />
                 </TableCell>
               </TableRow>
@@ -751,7 +666,9 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                     className="transition-colors hover:bg-brand-pink-light/20"
                   >
                     <TableCell className="text-center text-lg">
-                      {owned ? "\u2714\uFE0F" : "\u2795"}
+                      <span aria-label={owned ? "In collection" : "Not in collection"}>
+                        {owned ? "\u2714\uFE0F" : "\u2795"}
+                      </span>
                     </TableCell>
                     <TableCell>
                       {polish.swatchImageUrl ? (
@@ -759,7 +676,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                           href={polish.swatchImageUrl}
                           target="_blank"
                           rel="noreferrer"
-                          title="Open image"
+                          aria-label={`Open ${polish.brand} ${polish.name} swatch image in new tab`}
                           className="inline-block"
                         >
                           <Image
@@ -797,9 +714,9 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                         <Link
                           href={`/polishes/search?color=${resolveDisplayHex(polish)!.replace("#", "")}`}
                           className="text-muted-foreground hover:text-primary"
-                          title="Find similar colors"
+                          aria-label={`Find colors similar to ${polish.name}`}
                         >
-                          🔍
+                          <span aria-hidden="true">🔍</span>
                         </Link>
                       )}
                     </TableCell>
@@ -852,7 +769,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       <Pagination
         currentPage={page}
         totalPages={totalPages}
-        totalItems={sorted.length}
+        totalItems={total}
         pageSize={pageSize}
         onPageChange={setPage}
         onPageSizeChange={(newSize) => {

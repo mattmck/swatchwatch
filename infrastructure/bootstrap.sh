@@ -66,8 +66,43 @@ ENVIRONMENT=${ENVIRONMENT:-dev}
 read -p "Azure region [centralus]: " LOCATION
 LOCATION=${LOCATION:-centralus}
 
-read -p "GitHub repository (owner/repo) [mattmck/polish-inventory]: " GITHUB_REPO
-GITHUB_REPO=${GITHUB_REPO:-mattmck/polish-inventory}
+read -p "GitHub repository (owner/repo) [mattmck/swatchwatch]: " GITHUB_REPO
+GITHUB_REPO=${GITHUB_REPO:-mattmck/swatchwatch}
+
+DEFAULT_TFSTATE_RESOURCE_GROUP=${TFSTATE_RESOURCE_GROUP:-swatchwatch-tfstate-rg}
+DEFAULT_TFSTATE_STORAGE_ACCOUNT=${TFSTATE_STORAGE_ACCOUNT:-}
+DEFAULT_TFSTATE_CONTAINER=${TFSTATE_CONTAINER:-tfstate}
+DEFAULT_TFSTATE_BLOB_NAME=${TFSTATE_BLOB_NAME:-${ENVIRONMENT}.terraform.tfstate}
+
+echo ""
+echo -e "${BLUE}▶ Step 2b: Terraform remote state backend${NC}"
+echo "Use an existing storage account for Terraform state."
+read -p "Terraform state resource group [${DEFAULT_TFSTATE_RESOURCE_GROUP}]: " TFSTATE_RESOURCE_GROUP_INPUT
+TFSTATE_RESOURCE_GROUP=${TFSTATE_RESOURCE_GROUP_INPUT:-$DEFAULT_TFSTATE_RESOURCE_GROUP}
+
+if [ -n "$DEFAULT_TFSTATE_STORAGE_ACCOUNT" ]; then
+    read -p "Terraform state storage account [${DEFAULT_TFSTATE_STORAGE_ACCOUNT}]: " TFSTATE_STORAGE_ACCOUNT_INPUT
+    TFSTATE_STORAGE_ACCOUNT=${TFSTATE_STORAGE_ACCOUNT_INPUT:-$DEFAULT_TFSTATE_STORAGE_ACCOUNT}
+else
+    read -p "Terraform state storage account (required): " TFSTATE_STORAGE_ACCOUNT
+fi
+
+read -p "Terraform state container [${DEFAULT_TFSTATE_CONTAINER}]: " TFSTATE_CONTAINER_INPUT
+TFSTATE_CONTAINER=${TFSTATE_CONTAINER_INPUT:-$DEFAULT_TFSTATE_CONTAINER}
+
+read -p "Terraform state blob key [${DEFAULT_TFSTATE_BLOB_NAME}]: " TFSTATE_BLOB_NAME_INPUT
+TFSTATE_BLOB_NAME=${TFSTATE_BLOB_NAME_INPUT:-$DEFAULT_TFSTATE_BLOB_NAME}
+
+if [ -z "$TFSTATE_RESOURCE_GROUP" ] || [ -z "$TFSTATE_STORAGE_ACCOUNT" ]; then
+    echo -e "${YELLOW}✗ Terraform backend resource group and storage account are required.${NC}"
+    exit 1
+fi
+
+TARGET_RESOURCE_GROUP="swatchwatch-${ENVIRONMENT}-rg"
+if [ "$TFSTATE_RESOURCE_GROUP" = "$TARGET_RESOURCE_GROUP" ]; then
+    echo -e "${YELLOW}⚠ Terraform backend resource group matches deployment resource group (${TARGET_RESOURCE_GROUP}).${NC}"
+    echo -e "${YELLOW}  This can require manual import and can complicate destroy workflows. Prefer a separate backend RG.${NC}"
+fi
 
 echo ""
 echo -e "${YELLOW}⚠ PostgreSQL Password:${NC}"
@@ -98,8 +133,40 @@ echo ""
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 3. Terraform Init & Plan
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-echo -e "${BLUE}▶ Step 3: Initializing Terraform...${NC}"
-terraform init
+echo -e "${BLUE}▶ Step 3: Initializing Terraform backend...${NC}"
+
+if ! az group show --name "$TFSTATE_RESOURCE_GROUP" --query name -o tsv >/dev/null 2>&1; then
+    echo -e "${YELLOW}✗ Terraform state resource group not found: ${TFSTATE_RESOURCE_GROUP}${NC}"
+    exit 1
+fi
+
+if ! az storage account show --resource-group "$TFSTATE_RESOURCE_GROUP" --name "$TFSTATE_STORAGE_ACCOUNT" --query name -o tsv >/dev/null 2>&1; then
+    echo -e "${YELLOW}✗ Terraform state storage account not found: ${TFSTATE_STORAGE_ACCOUNT} (rg: ${TFSTATE_RESOURCE_GROUP})${NC}"
+    exit 1
+fi
+
+TFSTATE_ACCESS_KEY=$(az storage account keys list \
+  --resource-group "$TFSTATE_RESOURCE_GROUP" \
+  --account-name "$TFSTATE_STORAGE_ACCOUNT" \
+  --query '[0].value' -o tsv)
+
+if [ -z "$TFSTATE_ACCESS_KEY" ]; then
+    echo -e "${YELLOW}✗ Unable to resolve Terraform state storage account access key.${NC}"
+    exit 1
+fi
+
+az storage container create \
+  --name "$TFSTATE_CONTAINER" \
+  --account-name "$TFSTATE_STORAGE_ACCOUNT" \
+  --account-key "$TFSTATE_ACCESS_KEY" \
+  --output none
+
+terraform init -reconfigure \
+  -backend-config="resource_group_name=$TFSTATE_RESOURCE_GROUP" \
+  -backend-config="storage_account_name=$TFSTATE_STORAGE_ACCOUNT" \
+  -backend-config="container_name=$TFSTATE_CONTAINER" \
+  -backend-config="key=$TFSTATE_BLOB_NAME" \
+  -backend-config="access_key=$TFSTATE_ACCESS_KEY"
 
 echo ""
 echo -e "${BLUE}▶ Step 4: Planning infrastructure...${NC}"
@@ -196,7 +263,11 @@ echo ""
 echo -e "${GREEN}✓ Bootstrap complete! Infrastructure is ready.${NC}"
 echo ""
 echo "Saved outputs:"
-echo "  - Terraform state: terraform.tfstate"
+echo "  - Terraform state backend: azurerm"
+echo "  - Terraform state resource group: ${TFSTATE_RESOURCE_GROUP}"
+echo "  - Terraform state storage account: ${TFSTATE_STORAGE_ACCOUNT}"
+echo "  - Terraform state container: ${TFSTATE_CONTAINER}"
+echo "  - Terraform state key: ${TFSTATE_BLOB_NAME}"
 echo "  - Configuration: terraform.tfvars (gitignored)"
 echo "  - Plan file: tfplan (gitignored)"
 echo ""

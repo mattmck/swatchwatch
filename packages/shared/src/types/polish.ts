@@ -119,7 +119,17 @@ export interface PolishFilters {
   color?: string;
   tags?: string[];
   search?: string;
-  sortBy?: "name" | "brand" | "createdAt" | "rating";
+  scope?: "all" | "collection";
+  availability?: "all" | "owned" | "wishlist";
+  tone?: "warm" | "cool" | "neutral";
+  sortBy?:
+    | "name"
+    | "brand"
+    | "createdAt"
+    | "rating"
+    | "status"
+    | "finish"
+    | "collection";
   sortOrder?: "asc" | "desc";
   page?: number;
   pageSize?: number;

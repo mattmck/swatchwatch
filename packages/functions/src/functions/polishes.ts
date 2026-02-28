@@ -128,8 +128,11 @@ async function findOrCreateShade(
 
 /** Whitelist of allowed sort columns to prevent SQL injection */
 const SORT_COLUMNS: Record<string, string> = {
+  status: "CASE WHEN COALESCE(ui.quantity, 0) > 0 THEN 0 ELSE 1 END",
   name: "s.shade_name_canonical",
   brand: "b.name_canonical",
+  finish: "COALESCE(s.finish, '')",
+  collection: "COALESCE(s.collection, '')",
   createdAt: "COALESCE(ui.created_at, s.created_at)",
   rating: "ui.rating",
 };
@@ -266,6 +269,8 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
     const search = url.searchParams.get("search");
     const brandFilter = url.searchParams.get("brand");
     const finishFilter = url.searchParams.get("finish");
+    const scope = url.searchParams.get("scope");
+    const availability = url.searchParams.get("availability") || url.searchParams.get("avail");
     const tagsParam = url.searchParams.get("tags");
     const sortBy = url.searchParams.get("sortBy") || "createdAt";
     const sortOrder = url.searchParams.get("sortOrder")?.toUpperCase() === "ASC" ? "ASC" : "DESC";
@@ -308,6 +313,16 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
         params.push(filterValues);
         paramIndex++;
       }
+    }
+
+    if (scope === "collection") {
+      conditions.push(`COALESCE(ui.quantity, 0) > 0`);
+    }
+
+    if (availability === "owned") {
+      conditions.push(`COALESCE(ui.quantity, 0) > 0`);
+    } else if (availability === "wishlist") {
+      conditions.push(`COALESCE(ui.quantity, 0) <= 0`);
     }
 
     if (tagsParam) {

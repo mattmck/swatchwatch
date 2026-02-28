@@ -1,13 +1,6 @@
-name: Deploy Infrastructure Dev
+name: Deploy Infrastructure Prod
 
 on:
-  push:
-    branches:
-      - dev
-    paths:
-      - infrastructure/**
-      - .github/workflows/deploy-infra.yml
-      - .github/workflows/deploy-infra-dev.yml
   workflow_dispatch:
     inputs:
       apply:
@@ -24,6 +17,6 @@ jobs:
   deploy-infra:
     uses: ./.github/workflows/deploy-infra.yml
     with:
-      environment: dev
+      environment: prod
       apply: ${{ github.event_name == 'workflow_dispatch' && inputs.apply || true }}
     secrets: inherit

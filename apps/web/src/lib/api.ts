@@ -40,6 +40,7 @@ import { getAccessToken } from "./auth-token";
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:7071/api";
 const MAX_CAPTURE_FRAME_BYTES = 5 * 1024 * 1024;
 const LIST_ALL_POLISHES_PAGE_SIZE = 250;
+const listPolishesInFlight = new Map<string, Promise<PolishListResponse>>();
 
 class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -78,6 +79,11 @@ export async function listPolishes(filters?: PolishFilters): Promise<PolishListR
   if (filters?.search) params.set("search", filters.search);
   if (filters?.brand) params.set("brand", filters.brand);
   if (filters?.finish) params.set("finish", filters.finish);
+  if (filters?.scope && filters.scope !== "all") params.set("scope", filters.scope);
+  if (filters?.availability && filters.availability !== "all") {
+    params.set("availability", filters.availability);
+  }
+  if (filters?.tone) params.set("tone", filters.tone);
   if (filters?.tags?.length) params.set("tags", filters.tags.join(","));
   if (filters?.sortBy) params.set("sortBy", filters.sortBy);
   if (filters?.sortOrder) params.set("sortOrder", filters.sortOrder);
@@ -86,9 +92,19 @@ export async function listPolishes(filters?: PolishFilters): Promise<PolishListR
 
   const qs = params.toString();
   const url = `${API_BASE_URL}/polishes${qs ? `?${qs}` : ""}`;
-
-  const response = await fetch(url, { headers: await getAuthHeaders() });
-  return handleResponse<PolishListResponse>(response);
+  const cacheKey = url;
+  if (!listPolishesInFlight.has(cacheKey)) {
+    listPolishesInFlight.set(
+      cacheKey,
+      (async () => {
+        const response = await fetch(url, { headers: await getAuthHeaders() });
+        return handleResponse<PolishListResponse>(response);
+      })().finally(() => {
+        listPolishesInFlight.delete(cacheKey);
+      })
+    );
+  }
+  return listPolishesInFlight.get(cacheKey) as Promise<PolishListResponse>;
 }
 
 /**
