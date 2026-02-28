@@ -62,6 +62,8 @@ echo -e "${BLUE}▶ Step 2: Configuration${NC}"
 
 read -p "Environment (dev/staging/prod) [dev]: " ENVIRONMENT
 ENVIRONMENT=${ENVIRONMENT:-dev}
+TFVARS_FILE="terraform.${ENVIRONMENT}.tfvars"
+TFPLAN_FILE="tfplan.${ENVIRONMENT}"
 
 read -p "Azure region [centralus]: " LOCATION
 LOCATION=${LOCATION:-centralus}
@@ -118,8 +120,16 @@ if [ "$PG_PASSWORD" != "$PG_PASSWORD_CONFIRM" ]; then
     exit 1
 fi
 
-# Create tfvars file
-cat > terraform.tfvars <<EOF
+# Migrate legacy single-environment tfvars file out of the way to prevent
+# accidental cross-environment plans.
+if [ -f terraform.tfvars ]; then
+    LEGACY_TFVARS_BACKUP="terraform.tfvars.legacy.$(date +%Y%m%d%H%M%S)"
+    mv terraform.tfvars "$LEGACY_TFVARS_BACKUP"
+    echo -e "${YELLOW}⚠ Moved legacy terraform.tfvars to ${LEGACY_TFVARS_BACKUP}${NC}"
+fi
+
+# Create environment-specific tfvars file
+cat > "$TFVARS_FILE" <<EOF
 environment      = "$ENVIRONMENT"
 location         = "$LOCATION"
 github_repository = "$GITHUB_REPO"
@@ -127,7 +137,7 @@ pg_admin_username = "pgadmin"
 pg_admin_password = "$PG_PASSWORD"
 EOF
 
-echo -e "${GREEN}✓ Configuration saved to terraform.tfvars${NC}"
+echo -e "${GREEN}✓ Configuration saved to ${TFVARS_FILE}${NC}"
 echo ""
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -171,7 +181,7 @@ terraform init -reconfigure \
 echo ""
 echo -e "${BLUE}▶ Step 4: Planning infrastructure...${NC}"
 echo "This shows what will be created (no changes made yet)"
-terraform plan -out=tfplan
+terraform plan -var-file="$TFVARS_FILE" -out="$TFPLAN_FILE"
 
 echo ""
 read -p "Review the plan above. Deploy infrastructure? (yes/no): " CONFIRM
@@ -186,7 +196,7 @@ fi
 echo ""
 echo -e "${BLUE}▶ Step 5: Deploying infrastructure...${NC}"
 echo "This takes ~5-10 minutes (Postgres provisioning is slow)"
-terraform apply tfplan
+terraform apply "$TFPLAN_FILE"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 5. Capture Outputs
@@ -268,8 +278,8 @@ echo "  - Terraform state resource group: ${TFSTATE_RESOURCE_GROUP}"
 echo "  - Terraform state storage account: ${TFSTATE_STORAGE_ACCOUNT}"
 echo "  - Terraform state container: ${TFSTATE_CONTAINER}"
 echo "  - Terraform state key: ${TFSTATE_BLOB_NAME}"
-echo "  - Configuration: terraform.tfvars (gitignored)"
-echo "  - Plan file: tfplan (gitignored)"
+echo "  - Configuration: ${TFVARS_FILE} (gitignored)"
+echo "  - Plan file: ${TFPLAN_FILE} (gitignored)"
 echo ""
 echo "To destroy infrastructure later:"
-echo "  terraform destroy"
+echo "  terraform destroy -var-file=\"${TFVARS_FILE}\""
