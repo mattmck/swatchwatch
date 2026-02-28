@@ -102,16 +102,7 @@ function parsePageSize(value: string | null): number {
 }
 
 function toApiSortBy(sortKey: SortKey): PolishFilters["sortBy"] {
-  switch (sortKey) {
-    case "status":
-    case "brand":
-    case "name":
-    case "finish":
-    case "collection":
-      return sortKey;
-    default:
-      return "name";
-  }
+  return sortKey;
 }
 
 type PolishesListQueryState = {
