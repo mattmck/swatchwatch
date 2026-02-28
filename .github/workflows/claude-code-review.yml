@@ -36,6 +36,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           # Allow PRs opened/updated by the Continue GitHub App to run review jobs.
           allowed_bots: continue,continue[bot]
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
