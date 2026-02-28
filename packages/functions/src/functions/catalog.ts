@@ -2,7 +2,11 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/fu
 import { CatalogSearchResponse, CatalogShadeDetail } from "swatchwatch-shared";
 import { query } from "../lib/db";
 import { withCors } from "../lib/http";
+import { cacheGetJson, cacheSetJson, hashCacheKey } from "../lib/cache";
 import { trackEvent, trackException } from "../lib/telemetry";
+
+const CATALOG_SEARCH_CACHE_TTL_SECONDS = 120;
+const CATALOG_SHADE_CACHE_TTL_SECONDS = 300;
 
 /**
  * GET /api/catalog/search?q=<term>&limit=<n>
@@ -21,8 +25,15 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
   }
 
   const limit = Math.min(50, Math.max(1, parseInt(url.searchParams.get("limit") || "20", 10)));
+  const normalizedQuery = q.toLowerCase();
+  const searchCacheKey = `catalog:search:h:${hashCacheKey(`${normalizedQuery}|${limit}`)}`;
 
   try {
+    const cachedSearch = await cacheGetJson<CatalogSearchResponse>(searchCacheKey);
+    if (cachedSearch) {
+      return { status: 200, jsonBody: cachedSearch };
+    }
+
     // Search shades by name similarity + brand name similarity,
     // also checking shade_alias and brand_alias tables.
     // Best match wins — take the highest similarity score per shade.
@@ -82,6 +93,8 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
       limit,
     });
 
+    await cacheSetJson(searchCacheKey, response, CATALOG_SEARCH_CACHE_TTL_SECONDS);
+
     return { status: 200, jsonBody: response };
   } catch (error: any) {
     context.error("Error searching catalog:", error);
@@ -105,6 +118,14 @@ async function getShade(request: HttpRequest, context: InvocationContext): Promi
 
   try {
     const shadeId = parseInt(id, 10);
+    if (Number.isNaN(shadeId) || shadeId <= 0) {
+      return { status: 400, jsonBody: { error: "Shade id must be a positive integer" } };
+    }
+    const shadeCacheKey = `catalog:shade:id:${shadeId}`;
+    const cachedShade = await cacheGetJson<CatalogShadeDetail>(shadeCacheKey);
+    if (cachedShade) {
+      return { status: 200, jsonBody: cachedShade };
+    }
 
     const result = await query<{
       shadeId: string;
@@ -154,6 +175,8 @@ async function getShade(request: HttpRequest, context: InvocationContext): Promi
       status: shade.status,
       aliases: aliasResult.rows.map((r) => r.alias),
     };
+
+    await cacheSetJson(shadeCacheKey, response, CATALOG_SHADE_CACHE_TTL_SECONDS);
 
     return { status: 200, jsonBody: response };
   } catch (error: any) {
