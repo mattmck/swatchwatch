@@ -51,28 +51,12 @@ const SORT_KEYS: readonly SortKey[] = ["status", "brand", "name", "finish", "col
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
 const HAS_B2C_CONFIG = buildMsalConfig() !== null;
 
-/**
- * Parse a string into a positive integer, returning a fallback when the input is absent or invalid.
- *
- * @param value - The string to parse (commonly a URL query parameter); may be null.
- * @param fallback - The value to return when `value` is missing or does not represent an integer greater than zero.
- * @returns The parsed integer if it is greater than zero, otherwise `fallback`.
- */
 function parsePositiveInt(value: string | null, fallback: number): number {
   if (!value) return fallback;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-/**
- * Parse a boolean-like query flag string into a boolean.
- *
- * Accepts the strings `"1"` and `"true"` as true, and `"0"` and `"false"` as false.
- *
- * @param value - The input string (often from a query parameter); may be `null`
- * @param fallback - Value to return when `value` is `null` or not recognized
- * @returns `true` if `value` is `"1"` or `"true"`, `false` if `value` is `"0"` or `"false"`, otherwise `fallback`
- */
 function parseBooleanFlag(value: string | null, fallback: boolean): boolean {
   if (!value) return fallback;
   if (value === "1" || value === "true") return true;
@@ -80,62 +64,27 @@ function parseBooleanFlag(value: string | null, fallback: boolean): boolean {
   return fallback;
 }
 
-/**
- * Normalize a string into a valid sort key.
- *
- * @param value - Candidate sort key (e.g., from user input or URL); may be `null`
- * @returns The input `value` if it matches a known sort key, otherwise `name`
- */
 function parseSortKey(value: string | null): SortKey {
   return SORT_KEYS.includes(value as SortKey) ? (value as SortKey) : "name";
 }
 
-/**
- * Normalize a sort direction string to either "asc" or "desc".
- *
- * @param value - Input sort direction; the string `"desc"` is preserved, all other values (including `null`) map to `"asc"`.
- * @returns `"desc"` if `value` is `"desc"`, `"asc"` otherwise.
- */
 function parseSortDirection(value: string | null): SortDirection {
   return value === "desc" ? "desc" : "asc";
 }
 
-/**
- * Normalize a raw tone filter string into a valid undertone value or "all".
- *
- * @param value - The raw filter string (may be `null`) typically from a query parameter
- * @returns `warm`, `cool`, or `neutral` when `value` matches one of those; `all` otherwise
- */
 function parseToneFilter(value: string | null): Undertone | "all" {
   return value === "warm" || value === "cool" || value === "neutral" ? value : "all";
 }
 
-/**
- * Validate and normalize a finish filter value.
- *
- * @param value - Raw finish filter value (e.g., from a query parameter); may be a finish name or `"all"`.
- * @returns The original finish name if it is one of the known finishes, otherwise `"all"`.
- */
 function parseFinishFilter(value: string | null): string {
   if (!value || value === "all") return "all";
   return value;
 }
 
-/**
- * Parse a query string into a valid availability filter.
- *
- * @param value - The raw input to interpret; expected values are `"owned"` or `"wishlist"`. `null` or any other string will be treated as no filter.
- * @returns The parsed availability filter: `"owned"`, `"wishlist"`, or `"all"`.
- */
 function parseAvailabilityFilter(value: string | null): AvailabilityFilter {
   return value === "owned" || value === "wishlist" ? value : "all";
 }
 
-/**
- * Parse list scope from query params.
- *
- * Supports both current `scope` and legacy `all` query params.
- */
 function parseResultsScope(
   scopeValue: string | null,
   legacyIncludeAllValue: string | null
@@ -145,12 +94,6 @@ function parseResultsScope(
   return parseBooleanFlag(legacyIncludeAllValue, true) ? "all" : "collection";
 }
 
-/**
- * Parse and validate a page-size query value against the allowed page-size options.
- *
- * @param value - The raw page-size string (e.g., from a URL query) or null
- * @returns A valid page size from `PAGE_SIZE_OPTIONS`; `DEFAULT_PAGE_SIZE` if the input is missing or invalid
- */
 function parsePageSize(value: string | null): number {
   const parsed = parsePositiveInt(value, DEFAULT_PAGE_SIZE);
   return PAGE_SIZE_OPTIONS.includes(parsed as (typeof PAGE_SIZE_OPTIONS)[number])
@@ -197,11 +140,6 @@ function buildPolishesListQueryString(state: PolishesListQueryState): string {
   return params.toString();
 }
 
-/**
- * Renders the appropriate polishes page variant based on environment and authentication configuration.
- *
- * @returns The React element for the developer bypass page when developer bypass is enabled, the unconfigured page when B2C auth is not configured, or the B2C-enabled polishes page otherwise.
- */
 export default function PolishesPage() {
   return (
     <Suspense fallback={<PolishesPageFallback />}>
@@ -240,11 +178,6 @@ function B2CPolishesPage() {
   return <PolishesPageContentBoundary isAdmin={isAdmin} />;
 }
 
-/**
- * Render the polishes page for environments without B2C configuration.
- *
- * @returns A JSX element that renders PolishesPageContent with the `isAdmin` flag obtained from the unconfigured auth hook.
- */
 function UnconfiguredPolishesPage() {
   const { isAdmin } = useUnconfiguredAuth();
   return <PolishesPageContentBoundary isAdmin={isAdmin} />;
@@ -258,18 +191,6 @@ function PolishesPageContentBoundary({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
-/**
- * Render the "All Polishes" page: a searchable, filterable, sortable and paginated list of polishes with inline actions.
- *
- * The component initializes list state from the URL query parameters and keeps the URL in sync as filters,
- * sorting, or pagination change. It fetches paginated rows from the API on filter/sort/page changes, with
- * a tone-filter fallback path that hydrates all rows to keep undertone filtering accurate. The UI then shows
- * loading/error states and supports optimistic quantity updates. When `isAdmin` is true, admin-only actions
- * (Recalc Hex) are exposed.
- *
- * @param isAdmin - If true, include admin-only controls (e.g., Recalc Hex) in the UI.
- * @returns The page's React element containing header, filter controls, table of polishes, and pagination.
- */
 function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
