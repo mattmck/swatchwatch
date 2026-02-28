@@ -18,6 +18,10 @@ The interactive script handles everything:
 - Terraform backend init/reconfigure + plan/apply
 - Outputs GitHub Secrets for CI/CD
 
+Bootstrap writes environment-specific variable and plan files:
+- `terraform.<environment>.tfvars` (gitignored)
+- `tfplan.<environment>` (gitignored)
+
 
 **Seed data:** The dev database is seeded with realistic polish/brand/shade data via `packages/functions/migrations/003_seed_dev_data.sql`.
 
@@ -41,13 +45,14 @@ State is stored in Azure Blob Storage using Terraform's native `azurerm` backend
 Required GitHub Actions configuration (per GitHub environment):
 - Secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`
 - Variables: `TFSTATE_RESOURCE_GROUP`, `TFSTATE_STORAGE_ACCOUNT`, `TFSTATE_CONTAINER` (recommended: `tfstate`), `TFSTATE_BLOB_NAME` (recommended: `<environment>.terraform.tfstate`)
-- Optional variables for shared/external OpenAI accounts: `OPENAI_ENDPOINT`, `OPENAI_ACCOUNT_NAME`, `OPENAI_DEPLOYMENT_NAME`
+- OpenAI mode variable: `CREATE_OPENAI_RESOURCES` (`true` to let Terraform manage OpenAI account/deployment; default in workflow is `true`)
+- Optional variables for shared/external OpenAI accounts (used when `CREATE_OPENAI_RESOURCES=false`): `OPENAI_ENDPOINT`, `OPENAI_ACCOUNT_NAME`, `OPENAI_DEPLOYMENT_NAME`
 Recommended auth config (propagated to Terraform `TF_VAR_*` inputs):
 - Secrets: `AZURE_AD_B2C_CLIENT_ID`
 - Variables: `AUTH_DEV_BYPASS`, `AZURE_AD_B2C_TENANT` (falls back to `NEXT_PUBLIC_B2C_TENANT` if unset)
 The workflow creates the state container automatically if it does not exist.
 The workflow reads the `pg-password` secret from Key Vault and exports it as `TF_VAR_pg_admin_password` for Terraform.
-When an OpenAI endpoint is configured, the workflow resolves the OpenAI account name from `OPENAI_ACCOUNT_NAME`, Terraform output, or endpoint hostname and loads that account key into `TF_VAR_openai_api_key` before Terraform runs.
+In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves the OpenAI account name from `OPENAI_ACCOUNT_NAME`, Terraform output, or endpoint hostname and loads that account key into `TF_VAR_openai_api_key` before Terraform runs.
 
 ## Resources Provisioned
 
@@ -98,14 +103,16 @@ When an OpenAI endpoint is configured, the workflow resolves the OpenAI account 
 | `openai_deployment_name` | `hex-detector` | Azure OpenAI deployment name exposed to Functions as `AZURE_OPENAI_DEPLOYMENT_HEX` |
 | `openai_model_name` | `gpt-4o-mini` | Azure OpenAI model name for the hex detector deployment |
 | `openai_model_version` | `2024-07-18` | Azure OpenAI model version for the hex detector deployment |
-| `openai_deployment_capacity` | `10` | Provisioned throughput units for the OpenAI deployment |
+| `openai_deployment_capacity` | `100` | Provisioned throughput units for the OpenAI deployment (`GlobalStandard` SKU) |
 | `is_automation` | `false` | Flag for CI/CD pipelines (skips deployer Key Vault access policy) |
 | `domain_name` | `swatchwatch.app` | Root domain name for the application (used for custom domains and CORS) |
 | `azure_ad_b2c_tenant` | `to-be-added` | Azure AD B2C/Entra External ID tenant name applied to Function App setting `AZURE_AD_B2C_TENANT` |
 | `azure_ad_b2c_client_id` | `to-be-added` | Azure AD B2C/Entra External ID app client ID applied to Function App setting `AZURE_AD_B2C_CLIENT_ID` |
 | `auth_dev_bypass` | `false` | Controls Function App setting `AUTH_DEV_BYPASS`; keep `false` to require JWT validation |
 
-**Sensitive variables** are stored in `terraform.tfvars` (gitignored) and created by `bootstrap.sh`.
+**Sensitive variables** are stored in environment-specific tfvars files (gitignored), for example:
+- `terraform.dev.tfvars`
+- `terraform.prod.tfvars`
 
 ## Security Features
 
@@ -164,8 +171,8 @@ If you prefer manual control:
 ```bash
 cd infrastructure
 
-# Create terraform.tfvars
-cat > terraform.tfvars <<EOF
+# Create an environment-specific tfvars file
+cat > terraform.dev.tfvars <<EOF
 subscription_id   = "your-azure-subscription-id"
 environment       = "dev"
 location          = "centralus"
@@ -200,14 +207,16 @@ terraform init -reconfigure \
   -backend-config="access_key=$TFSTATE_ACCESS_KEY"
 
 # Plan
-terraform plan -out=tfplan
+terraform plan -var-file=terraform.dev.tfvars -out=tfplan.dev
 
 # Apply
-terraform apply tfplan
+terraform apply tfplan.dev
 
 # View outputs
 terraform output
 ```
+
+If you have a legacy `terraform.tfvars`, rename or remove it to avoid hidden overrides.
 
 ## Post-Deployment Steps
 
@@ -265,7 +274,7 @@ OpenAI settings are optional:
 
 ```bash
 cd infrastructure
-terraform destroy
+terraform destroy -var-file=terraform.dev.tfvars
 ```
 
 **Warning:** This permanently deletes all data. Key Vault secrets are soft-deleted (recoverable for 7 days).

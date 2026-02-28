@@ -84,7 +84,7 @@ npm run dev:mobile       # → mobile via Expo
 | `npm run build:web` | Build shared types + Next.js production build |
 | `npm run build:functions` | Build shared types + TypeScript compile for functions |
 | `npm run lint` | ESLint across all workspaces |
-| `npm run test` | Run workspace tests where present |
+| `npm run test` | Run workspace tests where present (includes Functions unit tests; builds shared + functions first) |
 | `npm run typecheck` | `tsc --noEmit` across all workspaces |
 
 `dev`, `dev:web`, `dev:functions`, and `dev:shared` run a dependency preflight and print a clear
@@ -103,6 +103,8 @@ npm run dev:mobile       # → mobile via Expo
 | `.github/workflows/deploy-infra-dev.yml` | Deploy Terraform infrastructure to dev | Push to `dev` when `infrastructure/**` changes, manual dispatch |
 | `.github/workflows/deploy-infra-prod.yml` | Deploy Terraform infrastructure to prod (infra-only) | Manual dispatch |
 
+Claude assistant workflows (`.github/workflows/claude.yml`, `.github/workflows/claude-code-review.yml`) are advisory and configured as non-blocking, so quota/credit failures emit warnings without failing the overall run.
+
 App deploy workflow requirements (environment-scoped in GitHub `dev` / `prod` environments):
 - Variables: `AUTH_DEV_BYPASS`, `NEXT_PUBLIC_AUTH_DEV_BYPASS`, `NEXT_PUBLIC_B2C_TENANT`, `NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY`, `NEXT_PUBLIC_B2C_API_SCOPE` (optional)
 - Secrets: `AZURE_AD_B2C_CLIENT_ID`, `NEXT_PUBLIC_B2C_CLIENT_ID`, `AZURE_STATIC_WEB_APPS_API_TOKEN`, `DATABASE_URL`
@@ -110,9 +112,10 @@ App deploy workflow requirements (environment-scoped in GitHub `dev` / `prod` en
 Infrastructure deploy workflow requirements (environment-scoped in GitHub `dev` / `prod` environments):
 - GitHub secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`
 - GitHub variables: `TFSTATE_RESOURCE_GROUP`, `TFSTATE_STORAGE_ACCOUNT`, `TFSTATE_CONTAINER` (recommended: `tfstate`), `TFSTATE_BLOB_NAME` (recommended: `<environment>.terraform.tfstate`)
-- Optional OpenAI variables (for external/shared accounts): `OPENAI_ENDPOINT`, `OPENAI_ACCOUNT_NAME`, `OPENAI_DEPLOYMENT_NAME`
+- OpenAI mode variable: `CREATE_OPENAI_RESOURCES` (`true` to have Terraform manage OpenAI account/deployment; default in workflow is `true`)
+- Optional OpenAI variables (used when `CREATE_OPENAI_RESOURCES=false` for external/shared accounts): `OPENAI_ENDPOINT`, `OPENAI_ACCOUNT_NAME`, `OPENAI_DEPLOYMENT_NAME`
 - Recommended for auth settings drift prevention in Terraform deploys: secret `AZURE_AD_B2C_CLIENT_ID`, variables `AUTH_DEV_BYPASS` and `AZURE_AD_B2C_TENANT` (or `NEXT_PUBLIC_B2C_TENANT`)
-The workflow reads `pg-password` from Azure Key Vault at runtime and sets `TF_VAR_pg_admin_password` automatically. If an OpenAI endpoint is configured, it resolves the account name and injects `TF_VAR_openai_api_key` from Azure Cognitive Services keys.
+The workflow reads `pg-password` from Azure Key Vault at runtime and sets `TF_VAR_pg_admin_password` automatically. In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), it resolves the account name and injects `TF_VAR_openai_api_key` from Azure Cognitive Services keys.
 
 ## Project Structure — Web App
 

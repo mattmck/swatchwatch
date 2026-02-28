@@ -66,10 +66,10 @@ jobs:
       TF_VAR_azure_ad_b2c_tenant: ${{ vars.AZURE_AD_B2C_TENANT || vars.NEXT_PUBLIC_B2C_TENANT || 'to-be-added' }}
       TF_VAR_azure_ad_b2c_client_id: ${{ secrets.AZURE_AD_B2C_CLIENT_ID || 'to-be-added' }}
       TF_VAR_is_automation: true
-      TF_VAR_create_openai_resources: false
+      TF_VAR_create_openai_resources: ${{ vars.CREATE_OPENAI_RESOURCES || 'true' }}
       TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       TF_VAR_openai_endpoint: ${{ vars.OPENAI_ENDPOINT || '' }}
-      TF_VAR_openai_deployment_name: ${{ vars.OPENAI_DEPLOYMENT_NAME || '' }}
+      TF_VAR_openai_deployment_name: ${{ vars.OPENAI_DEPLOYMENT_NAME || 'hex-detector' }}
       OPENAI_ACCOUNT_NAME: ${{ vars.OPENAI_ACCOUNT_NAME || '' }}
 
     steps:
@@ -183,6 +183,11 @@ jobs:
 
       - name: Load Azure OpenAI key from configured account
         run: |
+          if [ "$TF_VAR_create_openai_resources" = "true" ]; then
+            echo "Terraform manages OpenAI resources; skipping external OpenAI key injection."
+            exit 0
+          fi
+
           if [ -z "$RESOLVED_OPENAI_ENDPOINT" ]; then
             echo "No OpenAI endpoint configured; skipping TF_VAR_openai_api_key injection."
             exit 0

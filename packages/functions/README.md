@@ -9,6 +9,7 @@ Azure Functions v4 HTTP API (Node 20, TypeScript).
 npm run setup            # Install workspace dependencies first
 npm run dev:infra        # Start local Postgres + Azurite
 npm run dev:functions    # TypeScript watch + func host on http://localhost:7071
+npm run test --workspace=packages/functions  # Run Functions unit tests
 
 # Or for debugging (VS Code):
 # Press F5 → "Attach to Node Functions" (builds, watches, starts with --inspect on port 9229)
