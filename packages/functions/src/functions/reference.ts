@@ -7,8 +7,12 @@ import {
 } from "swatchwatch-shared";
 import { query } from "../lib/db";
 import { withCors } from "../lib/http";
+import { cacheGetJson, cacheSetJson } from "../lib/cache";
 
 const REFERENCE_CACHE_CONTROL = "public, max-age=300, stale-while-revalidate=900";
+const REFERENCE_CACHE_TTL_SECONDS = 900;
+const REFERENCE_FINISHES_CACHE_KEY = "reference:finishes";
+const REFERENCE_HARMONIES_CACHE_KEY = "reference:harmonies";
 
 const REFERENCE_CACHE_HEADERS = {
   "Cache-Control": REFERENCE_CACHE_CONTROL,
@@ -21,6 +25,15 @@ async function getReferenceFinishes(
   context.log("GET /api/reference/finishes");
 
   try {
+    const cachedResponse = await cacheGetJson<FinishTypeListResponse>(REFERENCE_FINISHES_CACHE_KEY);
+    if (cachedResponse) {
+      return {
+        status: 200,
+        headers: REFERENCE_CACHE_HEADERS,
+        jsonBody: cachedResponse,
+      };
+    }
+
     const result = await query<{
       finishTypeId: number;
       name: string;
@@ -55,10 +68,13 @@ async function getReferenceFinishes(
       updatedByUserId: row.updatedByUserId ?? undefined,
     }));
 
+    const responseBody = { finishTypes } satisfies FinishTypeListResponse;
+    await cacheSetJson(REFERENCE_FINISHES_CACHE_KEY, responseBody, REFERENCE_CACHE_TTL_SECONDS);
+
     return {
       status: 200,
       headers: REFERENCE_CACHE_HEADERS,
-      jsonBody: { finishTypes } satisfies FinishTypeListResponse,
+      jsonBody: responseBody,
     };
   } catch (error) {
     context.error("Error listing reference finishes:", error);
@@ -76,6 +92,15 @@ async function getReferenceHarmonies(
   context.log("GET /api/reference/harmonies");
 
   try {
+    const cachedResponse = await cacheGetJson<HarmonyTypeListResponse>(REFERENCE_HARMONIES_CACHE_KEY);
+    if (cachedResponse) {
+      return {
+        status: 200,
+        headers: REFERENCE_CACHE_HEADERS,
+        jsonBody: cachedResponse,
+      };
+    }
+
     const result = await query<{
       harmonyTypeId: number;
       name: string;
@@ -110,10 +135,13 @@ async function getReferenceHarmonies(
       updatedByUserId: row.updatedByUserId ?? undefined,
     }));
 
+    const responseBody = { harmonyTypes } satisfies HarmonyTypeListResponse;
+    await cacheSetJson(REFERENCE_HARMONIES_CACHE_KEY, responseBody, REFERENCE_CACHE_TTL_SECONDS);
+
     return {
       status: 200,
       headers: REFERENCE_CACHE_HEADERS,
-      jsonBody: { harmonyTypes } satisfies HarmonyTypeListResponse,
+      jsonBody: responseBody,
     };
   } catch (error) {
     context.error("Error listing reference harmonies:", error);

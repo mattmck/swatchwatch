@@ -18,11 +18,20 @@ import {
 import { withAdmin } from "../lib/auth";
 import { query } from "../lib/db";
 import { withCors } from "../lib/http";
+import { cacheDelete, cacheDeleteByPrefix } from "../lib/cache";
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
 const VALID_JOB_STATUSES = new Set(["queued", "running", "succeeded", "failed", "cancelled"]);
+
+async function invalidateReferenceCaches(): Promise<void> {
+  await Promise.all([
+    cacheDelete("reference:finishes"),
+    cacheDelete("reference:harmonies"),
+    cacheDeleteByPrefix("catalog:search:"),
+  ]);
+}
 
 function parseInteger(value: string | null, fallback: number, min: number, max: number): number {
   const parsed = Number.parseInt(value ?? "", 10);
@@ -293,6 +302,8 @@ async function createFinish(
       ]
     );
 
+    await invalidateReferenceCaches();
+
     return {
       status: 201,
       jsonBody: mapFinishTypeRow(result.rows[0]),
@@ -405,6 +416,8 @@ async function updateFinish(
       return { status: 404, jsonBody: { error: "Finish not found" } };
     }
 
+    await invalidateReferenceCaches();
+
     return { status: 200, jsonBody: mapFinishTypeRow(result.rows[0]) };
   } catch (error: unknown) {
     context.error("Error updating finish:", error);
@@ -437,6 +450,8 @@ async function deleteFinish(
     if (result.rows.length === 0) {
       return { status: 404, jsonBody: { error: "Finish not found" } };
     }
+
+    await invalidateReferenceCaches();
 
     return { status: 200, jsonBody: { message: "Finish deleted successfully", finishTypeId: id } };
   } catch (error) {
@@ -564,6 +579,8 @@ async function createHarmony(
       ]
     );
 
+    await invalidateReferenceCaches();
+
     return {
       status: 201,
       jsonBody: mapHarmonyTypeRow(result.rows[0]),
@@ -681,6 +698,8 @@ async function updateHarmony(
       return { status: 404, jsonBody: { error: "Harmony not found" } };
     }
 
+    await invalidateReferenceCaches();
+
     return { status: 200, jsonBody: mapHarmonyTypeRow(result.rows[0]) };
   } catch (error: unknown) {
     context.error("Error updating harmony:", error);
@@ -713,6 +732,8 @@ async function deleteHarmony(
     if (result.rows.length === 0) {
       return { status: 404, jsonBody: { error: "Harmony not found" } };
     }
+
+    await invalidateReferenceCaches();
 
     return { status: 200, jsonBody: { message: "Harmony deleted successfully", harmonyTypeId: id } };
   } catch (error) {
@@ -920,6 +941,8 @@ async function createFinishNormalization(
       [sourceField.value?.toLowerCase(), normalizedField.value?.toLowerCase(), userId]
     );
 
+    await invalidateReferenceCaches();
+
     return {
       status: 201,
       jsonBody: mapFinishNormalizationRow(result.rows[0]),
@@ -1015,6 +1038,8 @@ async function updateFinishNormalization(
       return { status: 404, jsonBody: { error: "Finish normalization not found" } };
     }
 
+    await invalidateReferenceCaches();
+
     return { status: 200, jsonBody: mapFinishNormalizationRow(result.rows[0]) };
   } catch (error: unknown) {
     context.error("Error updating finish normalization:", error);
@@ -1052,6 +1077,8 @@ async function deleteFinishNormalization(
     if (result.rows.length === 0) {
       return { status: 404, jsonBody: { error: "Finish normalization not found" } };
     }
+
+    await invalidateReferenceCaches();
 
     return { status: 200, jsonBody: { message: "Finish normalization deleted successfully", finishNormalizationId: id } };
   } catch (error) {

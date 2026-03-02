@@ -60,6 +60,7 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 |----------|-------------------|---------|
 | Resource Group | `azurerm_resource_group.main` | Container for all resources |
 | Key Vault | `azurerm_key_vault.main` | Secure secrets storage (PG password, API keys) |
+| Key Vault Secret (Redis key) | `azurerm_key_vault_secret.redis_key` | Stores Redis access key for Function App Key Vault reference |
 | PostgreSQL Flexible Server | `azurerm_postgresql_flexible_server.main` | PostgreSQL 16 with pg_trgm + pgvector |
 | PostgreSQL Database | `azurerm_postgresql_flexible_server_database.main` | `swatchwatch` database |
 | Storage Account | `azurerm_storage_account.main` | Blob storage for images |
@@ -105,7 +106,7 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | `openai_model_version` | `2024-07-18` | Azure OpenAI model version for the hex detector deployment |
 | `openai_deployment_capacity` | `100` | Provisioned throughput units for the OpenAI deployment (`GlobalStandard` SKU) |
 | `is_automation` | `false` | Flag for CI/CD pipelines (skips deployer Key Vault access policy) |
-| `domain_name` | `swatchwatch.app` | Root domain name for the application (used for custom domains and CORS) |
+| `domain_name` | `swatchwatch.app` | Root domain name for the application (used for custom domains and CORS; prod allows both apex and `www`) |
 | `azure_ad_b2c_tenant` | `to-be-added` | Azure AD B2C/Entra External ID tenant name applied to Function App setting `AZURE_AD_B2C_TENANT` |
 | `azure_ad_b2c_client_id` | `to-be-added` | Azure AD B2C/Entra External ID app client ID applied to Function App setting `AZURE_AD_B2C_CLIENT_ID` |
 | `auth_dev_bypass` | `false` | Controls Function App setting `AUTH_DEV_BYPASS`; keep `false` to require JWT validation |
