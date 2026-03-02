@@ -17,6 +17,11 @@ import {
 const DEFAULT_BATCH_POLL_SCHEDULE = "0 */2 * * * *";
 const DEFAULT_MAX_JOBS_PER_POLL = 10;
 
+interface BatchPollerRuntimeConfig {
+  enabled: boolean;
+  maxJobsPerPoll: number;
+}
+
 function envFlagTrue(value: string | undefined): boolean {
   if (!value) return false;
   const normalized = value.trim().toLowerCase();
@@ -31,15 +36,20 @@ function parseIntEnv(value: string | undefined, fallback: number, min: number, m
   return Math.min(max, Math.max(min, parsed));
 }
 
-const BATCH_POLLER_ENABLED = envFlagTrue(process.env.HEX_DETECTION_BATCH_ENABLED);
 const BATCH_POLL_SCHEDULE =
   process.env.INGESTION_AI_BATCH_POLL_SCHEDULE?.trim() || DEFAULT_BATCH_POLL_SCHEDULE;
-const MAX_JOBS_PER_POLL = parseIntEnv(
-  process.env.INGESTION_AI_BATCH_MAX_POLL_JOBS,
-  DEFAULT_MAX_JOBS_PER_POLL,
-  1,
-  100
-);
+
+function getBatchPollerRuntimeConfig(): BatchPollerRuntimeConfig {
+  return {
+    enabled: envFlagTrue(process.env.HEX_DETECTION_BATCH_ENABLED),
+    maxJobsPerPoll: parseIntEnv(
+      process.env.INGESTION_AI_BATCH_MAX_POLL_JOBS,
+      DEFAULT_MAX_JOBS_PER_POLL,
+      1,
+      100
+    ),
+  };
+}
 
 function withPipelineMetrics(
   baseMetrics: Record<string, unknown>,
@@ -215,21 +225,23 @@ async function ingestionAiBatchPoller(
   _timer: Timer,
   context: InvocationContext
 ): Promise<void> {
-  if (!BATCH_POLLER_ENABLED) {
+  const runtimeConfig = getBatchPollerRuntimeConfig();
+
+  if (!runtimeConfig.enabled) {
     context.log(
       "[ingestion-ai-batch-poller] Skipping run because HEX_DETECTION_BATCH_ENABLED is false"
     );
     return;
   }
 
-  const awaitingJobs = await listIngestionJobsAwaitingAiBatch(MAX_JOBS_PER_POLL);
+  const awaitingJobs = await listIngestionJobsAwaitingAiBatch(runtimeConfig.maxJobsPerPoll);
   if (awaitingJobs.length === 0) {
     context.log("[ingestion-ai-batch-poller] No awaiting_ai jobs found");
     return;
   }
 
   context.log(
-    `[ingestion-ai-batch-poller] Processing ${awaitingJobs.length} awaiting_ai job(s)`
+    `[ingestion-ai-batch-poller] Processing ${awaitingJobs.length} awaiting_ai job(s), maxJobsPerPoll=${runtimeConfig.maxJobsPerPoll}`
   );
 
   for (const job of awaitingJobs) {

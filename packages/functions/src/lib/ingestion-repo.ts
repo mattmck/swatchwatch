@@ -314,6 +314,14 @@ async function prepareHoloTacoImageData(
   console.log(
     `${sourceLogPrefix} Image preparation: processing ${records.length} records, detectHexFromImage=${detectHexFromImage}, detectHexOnSuspiciousOnly=${detectHexOnSuspiciousOnly}, estimatedBatchCandidates=${estimatedBatchCandidates}, useBatchForHexDetection=${useBatchForHexDetection}, batchMinImages=${batchMinImages}`
   );
+  progressLogger?.info(`${sourceLogPrefix} Image preparation config`, {
+    records: records.length,
+    detectHexFromImage,
+    detectHexOnSuspiciousOnly,
+    estimatedBatchCandidates,
+    useBatchForHexDetection,
+    batchMinImages,
+  });
 
   for (const record of records) {
     const emptyPrepared: HoloTacoPreparedImage = {

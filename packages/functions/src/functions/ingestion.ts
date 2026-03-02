@@ -59,13 +59,10 @@ function envFlagTrue(value: string | undefined): boolean {
   return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
 }
 
-const HEX_DETECTION_BATCH_ENABLED = envFlagTrue(process.env.HEX_DETECTION_BATCH_ENABLED);
-const HEX_DETECTION_BATCH_MIN_IMAGES = clampInt(
-  process.env.HEX_DETECTION_BATCH_MIN_IMAGES,
-  DEFAULT_HEX_BATCH_MIN_IMAGES,
-  1,
-  1000
-);
+interface HexBatchRuntimeConfig {
+  enabled: boolean;
+  minImages: number;
+}
 
 const ingestionJobQueueOutput = output.storageQueue({
   queueName: INGESTION_JOB_QUEUE_NAME,
@@ -109,6 +106,18 @@ function clampInt(
   }
 
   return Math.min(maxValue, Math.max(minValue, parsed));
+}
+
+function getHexBatchRuntimeConfig(): HexBatchRuntimeConfig {
+  return {
+    enabled: envFlagTrue(process.env.HEX_DETECTION_BATCH_ENABLED),
+    minImages: clampInt(
+      process.env.HEX_DETECTION_BATCH_MIN_IMAGES,
+      DEFAULT_HEX_BATCH_MIN_IMAGES,
+      1,
+      1000
+    ),
+  };
 }
 
 function isSupportedSource(value: string): value is SupportedConnectorSource {
@@ -319,6 +328,7 @@ export async function processIngestionJobQueueMessage(
   context: InvocationContext
 ): Promise<void> {
   const requestedMetrics = payload.requestedMetrics || buildRequestedMetrics(payload.request, payload.userId);
+  const hexBatchConfig = getHexBatchRuntimeConfig();
   let stage = "worker_started";
 
   // Initialize logger with base metrics - flushes every 3s automatically
@@ -337,6 +347,8 @@ export async function processIngestionJobQueueMessage(
       source: payload.request.source,
       searchTerm: payload.request.searchTerm,
       maxRecords: payload.request.maxRecords,
+      hexBatchEnabled: hexBatchConfig.enabled,
+      hexBatchMinImages: hexBatchConfig.minImages,
     });
 
     const existingJob = await getIngestionJobById(payload.jobId);
@@ -469,18 +481,18 @@ export async function processIngestionJobQueueMessage(
       }));
 
       const materializeStartTime = Date.now();
-      logger.info(`Materializing ${payload.request.source} records to inventory`, {
-        recordCount: connectorResult.records.length,
-        userId: payload.userId,
-        dataSourceId: source.dataSourceId,
-        detectHexFromImage: payload.request.detectHexFromImage,
-        overwriteDetectedHex: payload.request.overwriteDetectedHex,
-        hexBatchEnabled: HEX_DETECTION_BATCH_ENABLED,
-        hexBatchMinImages: HEX_DETECTION_BATCH_MIN_IMAGES,
-      });
+        logger.info(`Materializing ${payload.request.source} records to inventory`, {
+          recordCount: connectorResult.records.length,
+          userId: payload.userId,
+          dataSourceId: source.dataSourceId,
+          detectHexFromImage: payload.request.detectHexFromImage,
+          overwriteDetectedHex: payload.request.overwriteDetectedHex,
+          hexBatchEnabled: hexBatchConfig.enabled,
+          hexBatchMinImages: hexBatchConfig.minImages,
+        });
 
-      try {
-        materializationMetrics = (await materializeHoloTacoRecords(
+        try {
+          materializationMetrics = (await materializeHoloTacoRecords(
           payload.userId,
           source.dataSourceId,
           connectorResult.records,
@@ -488,8 +500,8 @@ export async function processIngestionJobQueueMessage(
             detectHexFromImage: payload.request.detectHexFromImage,
             detectHexOnSuspiciousOnly: payload.request.detectHexOnSuspiciousOnly,
             overwriteDetectedHex: payload.request.overwriteDetectedHex,
-            useBatchForHexDetection: HEX_DETECTION_BATCH_ENABLED,
-            batchMinImages: HEX_DETECTION_BATCH_MIN_IMAGES,
+            useBatchForHexDetection: hexBatchConfig.enabled,
+            batchMinImages: hexBatchConfig.minImages,
             progressLogger: {
               info: (message, data) => logger.info(message, data),
               warn: (message, data) => logger.warn(message, data),
