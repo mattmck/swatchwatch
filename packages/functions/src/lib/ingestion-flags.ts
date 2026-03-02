@@ -5,7 +5,7 @@ function parseBooleanEnv(value: string | undefined, defaultValue: boolean): bool
 
   const normalized = value.trim().toLowerCase();
 
-  // Accept common truthy/falsey variants used in env flags (e.g. 1/0, yes/no, on/off)
+  // Accept common truthy/falsy variants used in env flags (e.g. 1/0, yes/no, on/off)
   if (
     normalized === "true" ||
     normalized === "1" ||
