@@ -377,15 +377,18 @@ async function prepareHoloTacoImageData(
 
     const uploadResult = await uploadImagesForRecord(record, holo, sourceLogPrefix, metrics);
 
+    const shouldRunAiDetection =
+      detectHexFromImage && (!detectHexOnSuspiciousOnly || isSuspiciousHex(holo.vendorHex));
+
     uploaded.push({
       record,
       holo,
       storageUrl: uploadResult.storageUrl,
       checksumSha256: uploadResult.checksumSha256,
-      imageBase64DataUri: uploadResult.imageBase64DataUri,
+      // Only retain base64 data when AI detection may actually run to reduce memory usage
+      imageBase64DataUri: shouldRunAiDetection ? uploadResult.imageBase64DataUri : null,
       additionalImages: uploadResult.additionalImages,
-      shouldRunAiDetection:
-        detectHexFromImage && (!detectHexOnSuspiciousOnly || isSuspiciousHex(holo.vendorHex)),
+      shouldRunAiDetection,
     });
   }
 
