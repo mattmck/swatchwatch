@@ -686,7 +686,7 @@ function ColorSearchPageContent() {
     setAnchorFeedback(`Applied ${harmonyLabel} palette to search results`);
   }, [harmonyLabelByValue]);
 
-  const layoutCols = "xl:grid-cols-[minmax(320px,_380px)_minmax(0,_1fr)]";
+  const layoutCols = "xl:grid-cols-[minmax(360px,_460px)_minmax(0,_1fr)]";
 
   if (loading) {
     return <BrandSpinner label="Loading color inventory…" />;
