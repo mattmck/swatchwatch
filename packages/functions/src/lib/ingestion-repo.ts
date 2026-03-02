@@ -1620,9 +1620,9 @@ export async function applyBatchHexResults(
   customIdToShadeId: Record<string, number>,
   overwriteDetectedHex: boolean
 ): Promise<{ applied: number; skipped: number; failed: number }> {
-  let applied = 0;
+  // Partition into valid updates vs skipped/missing
+  const updates: Array<{ shadeId: number; hex: string }> = [];
   let skipped = 0;
-  let failed = 0;
 
   for (const item of batchOutputItems) {
     const shadeId = customIdToShadeId[item.customId];
@@ -1630,33 +1630,48 @@ export async function applyBatchHexResults(
       skipped += 1;
       continue;
     }
-
     if (!item.hex) {
       console.warn(`[applyBatchHexResults] No hex in batch result for customId=${item.customId}, shadeId=${shadeId}, error=${item.error}`);
       skipped += 1;
       continue;
     }
-
-    try {
-      await query(
-        `UPDATE shade
-         SET detected_hex = CASE
-               WHEN $2::boolean THEN $3::text
-               ELSE COALESCE(detected_hex, $3::text)
-             END,
-             updated_at = now()
-         WHERE shade_id = $1`,
-        [shadeId, overwriteDetectedHex, item.hex]
-      );
-      console.log(`[applyBatchHexResults] Applied hex ${item.hex} to shade ${shadeId} (customId=${item.customId})`);
-      applied += 1;
-    } catch (err) {
-      console.error(`[applyBatchHexResults] Failed to apply hex for customId=${item.customId}, shadeId=${shadeId}:`, String(err));
-      failed += 1;
-    }
+    updates.push({ shadeId, hex: item.hex });
   }
 
-  return { applied, skipped, failed };
+  if (updates.length === 0) {
+    return { applied: 0, skipped, failed: 0 };
+  }
+
+  // Build a single batched UPDATE using a VALUES list to minimize round trips
+  try {
+    // VALUES clause: ($1,$2), ($3,$4), ...
+    const valueParams: unknown[] = [];
+    const valuePlaceholders: string[] = [];
+    let paramIndex = 1;
+    for (const u of updates) {
+      valuePlaceholders.push(`($${paramIndex}::int, $${paramIndex + 1}::text)`);
+      valueParams.push(u.shadeId, u.hex);
+      paramIndex += 2;
+    }
+
+    await query(
+      `UPDATE shade
+       SET detected_hex = CASE
+             WHEN $${paramIndex}::boolean THEN v.hex
+             ELSE COALESCE(shade.detected_hex, v.hex)
+           END,
+           updated_at = now()
+       FROM (VALUES ${valuePlaceholders.join(", ")}) AS v(shade_id, hex)
+       WHERE shade.shade_id = v.shade_id`,
+      [...valueParams, overwriteDetectedHex]
+    );
+
+    console.log(`[applyBatchHexResults] Applied ${updates.length} hex values (overwrite=${overwriteDetectedHex})`);
+    return { applied: updates.length, skipped, failed: 0 };
+  } catch (err) {
+    console.error("[applyBatchHexResults] Batch UPDATE failed:", String(err));
+    return { applied: 0, skipped, failed: updates.length };
+  }
 }
 
 /**
@@ -1672,6 +1687,7 @@ export async function listAwaitingAiJobs(): Promise<
     submittedAt: string;
     customIdToShadeId: Record<string, number>;
     overwriteDetectedHex: boolean;
+    metricsJson: Record<string, unknown>;
   }>
 > {
   const result = await query<{
@@ -1714,6 +1730,7 @@ export async function listAwaitingAiJobs(): Promise<
         submittedAt,
         customIdToShadeId,
         overwriteDetectedHex,
+        metricsJson: m,
       },
     ];
   });

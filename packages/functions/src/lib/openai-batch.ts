@@ -188,7 +188,7 @@ function buildBatchRequestLine(
   const line = {
     custom_id: candidate.customId,
     method: "POST",
-    url: "/chat/completions",
+    url: `/openai/deployments/${deployment}/chat/completions`,
     body: requestBody,
   };
 
@@ -242,7 +242,7 @@ async function uploadBatchFile(
  */
 async function createBatchJob(
   inputFileId: string,
-  config: { endpoint: string; apiKey: string }
+  config: { endpoint: string; apiKey: string; deployment: string }
 ): Promise<string> {
   const url = `${config.endpoint}/openai/batches?api-version=${BATCH_API_VERSION}`;
 
@@ -254,7 +254,7 @@ async function createBatchJob(
     },
     body: JSON.stringify({
       input_file_id: inputFileId,
-      endpoint: "/chat/completions",
+      endpoint: `/openai/deployments/${config.deployment}/chat/completions`,
       completion_window: "24h",
     }),
   });

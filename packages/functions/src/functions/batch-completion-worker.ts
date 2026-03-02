@@ -60,15 +60,18 @@ async function processBatchCompletionWorker(
       if (status.status === "failed" || status.status === "expired" || status.status === "cancelled" || status.status === "cancelling") {
         const reason = `Batch ${job.batchId} ended with status: ${status.status}`;
         context.warn(`[batch-completion-worker] ${reason}`);
+        const now = new Date().toISOString();
         await markIngestionJobFailed(job.jobId, reason, {
+          ...job.metricsJson,
           pipeline: {
+            ...(job.metricsJson.pipeline as Record<string, unknown> | undefined),
             status: "failed",
             stage: "batch_completion_error",
-            updatedAt: new Date().toISOString(),
+            updatedAt: now,
           },
           batchFinalStatus: status.status,
           batchId: job.batchId,
-          completedAt: new Date().toISOString(),
+          completedAt: now,
         });
         continue;
       }
@@ -77,14 +80,17 @@ async function processBatchCompletionWorker(
       if (!status.outputFileId) {
         const reason = `Batch ${job.batchId} completed but has no output_file_id`;
         context.warn(`[batch-completion-worker] ${reason}`);
+        const now = new Date().toISOString();
         await markIngestionJobFailed(job.jobId, reason, {
+          ...job.metricsJson,
           pipeline: {
+            ...(job.metricsJson.pipeline as Record<string, unknown> | undefined),
             status: "failed",
             stage: "batch_completion_error",
-            updatedAt: new Date().toISOString(),
+            updatedAt: now,
           },
           batchId: job.batchId,
-          completedAt: new Date().toISOString(),
+          completedAt: now,
         });
         continue;
       }
@@ -106,7 +112,9 @@ async function processBatchCompletionWorker(
       });
 
       await markIngestionJobSucceeded(job.jobId, {
+        ...job.metricsJson,
         pipeline: {
+          ...(job.metricsJson.pipeline as Record<string, unknown> | undefined),
           status: "succeeded",
           stage: "apply_results",
           updatedAt: new Date().toISOString(),

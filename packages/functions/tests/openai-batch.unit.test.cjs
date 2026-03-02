@@ -9,8 +9,7 @@ const {
   BATCH_CUSTOM_ID_PREFIX,
 } = require("../dist/lib/openai-batch");
 
-// parseBatchOutput is tested by importing parseSingleBatchOutputLine indirectly
-// via parseBatchOutput — we call parseBatchOutput with mocked fetch.
+// These tests cover batch feature flags and related constants from openai-batch.
 
 describe("lib/openai-batch — isBatchEnabled", () => {
   let originalValue;
