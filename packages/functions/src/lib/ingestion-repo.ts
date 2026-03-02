@@ -61,6 +61,9 @@ export interface HoloTacoMaterializationMetrics {
   hexDetected: number;
   hexDetectionFailures: number;
   hexDetectionSkipped: number;
+  hexDetectionPromptTokens?: number;
+  hexDetectionCompletionTokens?: number;
+  hexDetectionTotalTokens?: number;
   batchRequestsQueued?: number;
   aiBatch?: HoloTacoAiBatchDetails;
   skipped: number;
@@ -120,6 +123,9 @@ interface HoloTacoImagePreparationMetrics {
   hexDetectionFailures: number;
   hexDetectionSkipped: number;
   batchRequestsQueued: number;
+  hexDetectionPromptTokens: number;
+  hexDetectionCompletionTokens: number;
+  hexDetectionTotalTokens: number;
 }
 
 export interface HoloTacoAiBatchDetails {
@@ -309,6 +315,9 @@ async function prepareHoloTacoImageData(
     hexDetectionFailures: 0,
     hexDetectionSkipped: 0,
     batchRequestsQueued: 0,
+    hexDetectionPromptTokens: 0,
+    hexDetectionCompletionTokens: 0,
+    hexDetectionTotalTokens: 0,
   };
 
   console.log(
@@ -462,7 +471,11 @@ async function prepareHoloTacoImageData(
         });
       } else {
         if (holo.vendorHex) {
-          console.log(`${sourceLogPrefix} Vendor hex (${holo.vendorHex}) is suspicious, running AI detection for ${record.externalId}`);
+          console.log(
+            detectHexOnSuspiciousOnly
+              ? `${sourceLogPrefix} Vendor hex (${holo.vendorHex}) is suspicious, running AI detection for ${record.externalId}`
+              : `${sourceLogPrefix} Vendor hex present (${holo.vendorHex}), running AI detection for ${record.externalId}`
+          );
         } else {
           console.log(`${sourceLogPrefix} No vendor hex for ${record.externalId}, running AI detection`);
         }
@@ -489,6 +502,23 @@ async function prepareHoloTacoImageData(
               },
             },
           });
+          const promptTokens = detection.usage?.promptTokens ?? 0;
+          const completionTokens = detection.usage?.completionTokens ?? 0;
+          const totalTokens = detection.usage?.totalTokens ?? 0;
+          metrics.hexDetectionPromptTokens += promptTokens;
+          metrics.hexDetectionCompletionTokens += completionTokens;
+          metrics.hexDetectionTotalTokens += totalTokens;
+          if (promptTokens > 0 || completionTokens > 0 || totalTokens > 0) {
+            const tokenUsageData = {
+              externalId: record.externalId,
+              promptTokens,
+              completionTokens,
+              totalTokens,
+            };
+            const tokenUsageMessage = `${sourceLogPrefix} ${record.externalId} [ai-color-detection] Token usage`;
+            console.log(tokenUsageMessage, tokenUsageData);
+            progressLogger?.info(tokenUsageMessage, tokenUsageData);
+          }
           console.log(`${sourceLogPrefix} AI detection result for ${record.externalId}:`, { detectedHex: detection.hex, vendorHex: holo.vendorHex });
           if (detection.hex) {
             detectedHex = detection.hex;
@@ -975,7 +1005,6 @@ export async function listIngestionJobsAwaitingAiBatch(
      JOIN data_source s ON s.data_source_id = j.data_source_id
      WHERE j.status = 'running'
        AND j.metrics_json -> 'pipeline' ->> 'stage' = 'awaiting_ai'
-       AND COALESCE(j.metrics_json -> 'aiBatch' ->> 'status', '') = 'submitted'
        AND COALESCE(j.metrics_json -> 'aiBatch' ->> 'batchId', '') <> ''
      ORDER BY j.started_at ASC
      LIMIT $1`,

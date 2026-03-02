@@ -13,6 +13,7 @@ import {
   parseVisionHexBatchDetections,
   parseVisionHexBatchOutput,
 } from "../lib/azure-openai-batch";
+import { trackMetric } from "../lib/telemetry";
 
 const DEFAULT_BATCH_POLL_SCHEDULE = "0 */2 * * * *";
 const DEFAULT_MAX_JOBS_PER_POLL = 10;
@@ -97,6 +98,66 @@ function isBatchStillRunning(status: string): boolean {
   return ["validating", "in_progress", "finalizing", "cancelling"].includes(status);
 }
 
+async function shouldApplyTerminalUpdate(
+  jobId: number,
+  context: InvocationContext,
+  updateType: "success" | "failure"
+): Promise<boolean> {
+  const latest = await getIngestionJobById(jobId);
+  if (!latest || latest.status !== "running") {
+    context.log(
+      `[ingestion-ai-batch-poller] Skipping ${updateType} update for job ${jobId}: no longer running`
+    );
+    return false;
+  }
+  return true;
+}
+
+function sumBatchTokenUsage(
+  rows: Array<{
+    usage: {
+      promptTokens: number | null;
+      completionTokens: number | null;
+      totalTokens: number | null;
+    } | null;
+  }>
+): {
+  rowsWithUsage: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+} {
+  let rowsWithUsage = 0;
+  let promptTokens = 0;
+  let completionTokens = 0;
+  let totalTokens = 0;
+
+  for (const row of rows) {
+    const usage = row.usage;
+    if (!usage) {
+      continue;
+    }
+
+    rowsWithUsage += 1;
+    if (typeof usage.promptTokens === "number") {
+      promptTokens += usage.promptTokens;
+    }
+    if (typeof usage.completionTokens === "number") {
+      completionTokens += usage.completionTokens;
+    }
+    if (typeof usage.totalTokens === "number") {
+      totalTokens += usage.totalTokens;
+    }
+  }
+
+  return {
+    rowsWithUsage,
+    promptTokens,
+    completionTokens,
+    totalTokens,
+  };
+}
+
 async function processAwaitingAiBatchJob(
   job: Awaited<ReturnType<typeof listIngestionJobsAwaitingAiBatch>>[number],
   context: InvocationContext
@@ -118,6 +179,9 @@ async function processAwaitingAiBatchJob(
       failedAt: new Date().toISOString(),
       failedStage: "awaiting_ai",
     });
+    if (!(await shouldApplyTerminalUpdate(job.jobId, context, "failure"))) {
+      return;
+    }
     await markIngestionJobFailed(job.jobId, message, failedMetrics);
     context.error(`[ingestion-ai-batch-poller] Job ${job.jobId} failed: ${message}`);
     return;
@@ -152,6 +216,32 @@ async function processAwaitingAiBatchJob(
     const outputJsonl = await downloadBatchFileContent(batchStatus.outputFileId);
     const outputRows = parseVisionHexBatchOutput(outputJsonl);
     const parsedDetections = await parseVisionHexBatchDetections(outputRows);
+    const tokenUsage = sumBatchTokenUsage(parsedDetections);
+    const tokenMetricProperties = {
+      source: job.source,
+      jobId: String(job.jobId),
+      batchId: batchStatus.id,
+    };
+    trackMetric(
+      "hex_detection.batch.rows_with_token_usage",
+      tokenUsage.rowsWithUsage,
+      tokenMetricProperties
+    );
+    trackMetric(
+      "hex_detection.batch.prompt_tokens",
+      tokenUsage.promptTokens,
+      tokenMetricProperties
+    );
+    trackMetric(
+      "hex_detection.batch.completion_tokens",
+      tokenUsage.completionTokens,
+      tokenMetricProperties
+    );
+    trackMetric(
+      "hex_detection.batch.total_tokens",
+      tokenUsage.totalTokens,
+      tokenMetricProperties
+    );
 
     const applyMetrics = await applyAiBatchShadeDetections(
       job.dataSourceId,
@@ -180,6 +270,10 @@ async function processAwaitingAiBatchJob(
           outputRows: outputRows.length,
           parsedRows: parsedDetections.length,
           parseErrors: parsedDetections.filter((row) => row.error).length,
+          rowsWithTokenUsage: tokenUsage.rowsWithUsage,
+          promptTokens: tokenUsage.promptTokens,
+          completionTokens: tokenUsage.completionTokens,
+          totalTokens: tokenUsage.totalTokens,
         },
       },
       "succeeded",
@@ -189,6 +283,9 @@ async function processAwaitingAiBatchJob(
       }
     );
 
+    if (!(await shouldApplyTerminalUpdate(job.jobId, context, "success"))) {
+      return;
+    }
     await markIngestionJobSucceeded(job.jobId, completionMetrics);
     context.log(
       `[ingestion-ai-batch-poller] Job ${job.jobId} completed from batch ${batchStatus.id}`,
@@ -197,6 +294,10 @@ async function processAwaitingAiBatchJob(
         parsedRows: parsedDetections.length,
         applied: applyMetrics.applied,
         noShadeMatch: applyMetrics.noShadeMatch,
+        rowsWithTokenUsage: tokenUsage.rowsWithUsage,
+        promptTokens: tokenUsage.promptTokens,
+        completionTokens: tokenUsage.completionTokens,
+        totalTokens: tokenUsage.totalTokens,
       }
     );
     return;
@@ -215,6 +316,9 @@ async function processAwaitingAiBatchJob(
       requestCounts: batchStatus.requestCounts,
     },
   });
+  if (!(await shouldApplyTerminalUpdate(job.jobId, context, "failure"))) {
+    return;
+  }
   await markIngestionJobFailed(job.jobId, failedMessage, failedMetrics);
   context.error(
     `[ingestion-ai-batch-poller] Job ${job.jobId} failed: ${failedMessage}`

@@ -11,6 +11,11 @@ describe("lib/azure-openai-batch — parseVisionHexBatchOutput", () => {
         response: {
           status_code: 200,
           body: {
+            usage: {
+              prompt_tokens: 456,
+              completion_tokens: 32,
+              total_tokens: 488,
+            },
             choices: [
               {
                 message: {
@@ -32,6 +37,11 @@ describe("lib/azure-openai-batch — parseVisionHexBatchOutput", () => {
       '{"hex":"#FF00AA","confidence":0.91,"finishes":["shimmer"]}'
     );
     assert.equal(parsed[0].error, null);
+    assert.deepEqual(parsed[0].usage, {
+      promptTokens: 456,
+      completionTokens: 32,
+      totalTokens: 488,
+    });
   });
 
   it("captures per-line errors", () => {
@@ -59,5 +69,6 @@ describe("lib/azure-openai-batch — parseVisionHexBatchOutput", () => {
     assert.equal(parsed[0].statusCode, 400);
     assert.equal(parsed[0].content, null);
     assert.equal(parsed[0].error, "Batch request failed");
+    assert.equal(parsed[0].usage, null);
   });
 });

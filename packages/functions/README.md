@@ -76,7 +76,7 @@ All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpReques
 `GET /api/polishes` returns a paginated canonical shade catalog joined with the requesting user's inventory rows. `inventoryItemId` and user-facing fields are undefined when the user has not added that shade yet, but catalog metadata (brand, finish, color hexes, swatch) is still returned so the UI can show "not owned" entries. Supported query params include `search`, `brand`, `finish`, `scope` (`all|collection`), `availability` (`all|owned|wishlist`), `tags`, `sortBy` (`status|brand|name|finish|collection|createdAt|rating`), `sortOrder`, `page`, and `pageSize`. `GET /api/polishes/{id}` looks up a shade by `shade_id` and includes `sourceImageUrls` (all source images associated with that shade's swatches) for the detail page.
 When `REDIS_URL` + `REDIS_KEY` are configured, list/detail reads are served through a Redis read-through cache (short TTL), and create/update/delete/recalc writes invalidate related user and catalog cache keys.
 For private blob storage, the API rewrites blob URLs to `/api/images/{id}` so image bytes are served through Functions (no public container access or client-side SAS required).
-`POST /api/polishes/{id}/recalc-hex` is admin-only, fetches the latest swatch image for the shade, runs Azure OpenAI hex detection, updates `detected_hex`, and returns a 200 with the detected hex and confidence (or a 422 if no image is available for detection). Vendor context is derived from shade metadata (for example `finish`) so the endpoint does not depend on source-specific external IDs.
+`POST /api/polishes/{id}/recalc-hex` is admin-only, fetches the latest swatch image for the shade, runs Azure OpenAI hex detection, updates `detected_hex`, and returns a 200 with the detected hex and confidence (or a 422 if no image is available for detection). Responses now also include `tokenUsage` (`promptTokens`, `completionTokens`, `totalTokens`) when Azure returns usage metadata. Vendor context is derived from shade metadata (for example `finish`) so the endpoint does not depend on source-specific external IDs.
 Image uploads now enforce a shared validation policy (`maxSizeBytes=5MB`; allowed mime types: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif`, `image/gif`) used by capture-frame data URLs and source-image ingestion. Source image bytes are auto-oriented and metadata-stripped with `sharp` before checksum generation and blob upload.
 
 Reference endpoints:
@@ -130,6 +130,7 @@ falls back to storing the original Shopify `image.src` URL so images still appea
 you bring storage online.
 Materialization now commits per record while the job is running, so newly imported polishes become
 visible progressively instead of waiting for the final job commit.
+Ingestion metrics now include token totals for synchronous image detection (`hexDetectionPromptTokens`, `hexDetectionCompletionTokens`, `hexDetectionTotalTokens`) and batch apply totals under `aiBatchApply` (`promptTokens`, `completionTokens`, `totalTokens`, `rowsWithTokenUsage`).
 
 Holo Taco run options:
 - `detectHexFromImage` (default `true`) toggles image-based AI hex detection.
@@ -224,6 +225,8 @@ node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_U
 - If Azure OpenAI returns `400 content_filter` for the primary vision prompt, the detector automatically retries once with a safer prompt. If still filtered, ingestion continues and leaves `detected_hex` empty for that record.
 - AI image detection uses base64 image payloads only. If base64 preparation fails for a record, detection is skipped and a warning is logged to the Admin Jobs stream.
 - On successful AI hex detection, ingestion logs a structured success entry with `brand`, `colorName`, and `hex` in job logs (Admin Jobs expandable log view).
+- Sync and batch hex detection logs now include Azure token usage when present, and those totals are persisted in ingestion job metrics for cost tracking.
+- When `APPLICATIONINSIGHTS_CONNECTION_STRING` is configured, token usage is also emitted as custom metrics: `hex_detection.sync.{prompt_tokens|completion_tokens|total_tokens}` and `hex_detection.batch.{rows_with_token_usage|prompt_tokens|completion_tokens|total_tokens}`.
 - For ingestion runs, those AI diagnostics are also mirrored into the job `metrics.logs` stream shown on `/admin/jobs`.
 
 

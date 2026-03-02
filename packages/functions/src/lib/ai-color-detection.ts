@@ -1,4 +1,5 @@
 import { query } from "./db";
+import { trackMetric } from "./telemetry";
 
 const OPENAI_API_VERSION = "2024-05-01-preview";
 const REQUEST_TIMEOUT_MS = 20000;
@@ -12,7 +13,14 @@ export interface HexDetectionResult {
   hex: string | null;
   confidence: number | null;
   finishes: string[] | null;
+  usage?: HexDetectionTokenUsage | null;
   provider: "azure-openai" | "none";
+}
+
+export interface HexDetectionTokenUsage {
+  promptTokens: number | null;
+  completionTokens: number | null;
+  totalTokens: number | null;
 }
 
 export type HexDetectionLogLevel = "info" | "warn" | "error";
@@ -84,6 +92,46 @@ function parseConfidence(value: unknown): number | null {
     }
   }
   return null;
+}
+
+function parseTokenCount(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return Math.floor(value);
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+export function parseHexDetectionTokenUsage(
+  value: unknown
+): HexDetectionTokenUsage | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const row = value as Record<string, unknown>;
+  const promptTokens = parseTokenCount(row.prompt_tokens);
+  const completionTokens = parseTokenCount(row.completion_tokens);
+  const totalTokens = parseTokenCount(row.total_tokens);
+
+  if (
+    promptTokens === null &&
+    completionTokens === null &&
+    totalTokens === null
+  ) {
+    return null;
+  }
+
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens,
+  };
 }
 
 const DEFAULT_FINISH_CANONICAL_MAP: Record<string, string> = {
@@ -231,7 +279,8 @@ async function parseFinishes(
 export async function parseHexDetectionContent(
   content: string,
   imageUrl: string,
-  options?: HexDetectionOptions
+  options?: HexDetectionOptions,
+  usage?: HexDetectionTokenUsage | null
 ): Promise<HexDetectionResult> {
   try {
     const parsed = JSON.parse(content) as Record<string, unknown>;
@@ -245,7 +294,7 @@ export async function parseHexDetectionContent(
     }
 
     if (hex) {
-      return { hex, confidence, finishes, provider: "azure-openai" };
+      return { hex, confidence, finishes, usage: usage || null, provider: "azure-openai" };
     }
 
     emitLog(options, "warn", `[ai-color-detection] No valid hex in response for ${imageUrl}: ${content}`);
@@ -266,6 +315,7 @@ export async function parseHexDetectionContent(
     hex,
     confidence: null,
     finishes: null,
+    usage: usage || null,
     provider: "azure-openai",
   };
 }
@@ -523,7 +573,7 @@ export async function detectHexWithAzureOpenAI(
         AZURE_OPENAI_DEPLOYMENT: process.env.AZURE_OPENAI_DEPLOYMENT ? "set" : "missing",
       },
     });
-    return { hex: null, confidence: null, finishes: null, provider: "none" };
+    return { hex: null, confidence: null, finishes: null, usage: null, provider: "none" };
   }
 
   const logLabel = imageUrlOrDataUri.startsWith("data:") ? "data:…(base64)" : imageUrlOrDataUri;
@@ -591,7 +641,7 @@ export async function detectHexWithAzureOpenAI(
           body: details || undefined,
         }
       );
-      return { hex: null, confidence: null, finishes: null, provider: "azure-openai" };
+      return { hex: null, confidence: null, finishes: null, usage: null, provider: "azure-openai" };
     }
 
     emitLog(
@@ -611,11 +661,37 @@ export async function detectHexWithAzureOpenAI(
     choices?: Array<{
       message?: { content?: string | null };
     }>;
+    usage?: {
+      prompt_tokens?: unknown;
+      completion_tokens?: unknown;
+      total_tokens?: unknown;
+    };
   };
+  const usage = parseHexDetectionTokenUsage(body.usage);
+  if (usage) {
+    emitLog(options, "info", `[ai-color-detection] Azure OpenAI token usage`, usage as unknown as Record<string, unknown>);
+    const metricProperties = {
+      provider: "azure-openai",
+      deployment,
+    };
+    if (typeof usage.promptTokens === "number") {
+      trackMetric("hex_detection.sync.prompt_tokens", usage.promptTokens, metricProperties);
+    }
+    if (typeof usage.completionTokens === "number") {
+      trackMetric(
+        "hex_detection.sync.completion_tokens",
+        usage.completionTokens,
+        metricProperties
+      );
+    }
+    if (typeof usage.totalTokens === "number") {
+      trackMetric("hex_detection.sync.total_tokens", usage.totalTokens, metricProperties);
+    }
+  }
   const content = body.choices?.[0]?.message?.content;
   if (!content || typeof content !== "string") {
-    return { hex: null, confidence: null, finishes: null, provider: "azure-openai" };
+    return { hex: null, confidence: null, finishes: null, usage: usage || null, provider: "azure-openai" };
   }
 
-  return parseHexDetectionContent(content, logLabel, options);
+  return parseHexDetectionContent(content, logLabel, options, usage);
 }

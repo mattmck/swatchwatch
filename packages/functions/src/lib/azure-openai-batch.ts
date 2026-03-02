@@ -1,8 +1,10 @@
 import {
   buildHexDetectionRequestPayload,
   parseHexDetectionContent,
+  parseHexDetectionTokenUsage,
   type HexDetectionResult,
   type HexDetectionOptions,
+  type HexDetectionTokenUsage,
 } from "./ai-color-detection";
 
 const DEFAULT_BATCH_API_VERSION = "2025-03-01-preview";
@@ -40,6 +42,7 @@ export interface VisionHexBatchOutputRow {
   content: string | null;
   statusCode: number | null;
   error: string | null;
+  usage: HexDetectionTokenUsage | null;
 }
 
 interface AzureOpenAiBatchConfig {
@@ -380,12 +383,19 @@ export function parseVisionHexBatchOutput(
         ? response.status_code
         : null;
     const responseBody = response?.body;
+    const responseUsage =
+      responseBody && typeof responseBody === "object"
+        ? parseHexDetectionTokenUsage(
+            (responseBody as Record<string, unknown>).usage
+          )
+        : null;
 
     rows.push({
       customId,
       statusCode,
       content: parseOutputBodyContent(responseBody),
       error: parseErrorMessage(error) || parseErrorMessage(responseBody),
+      usage: responseUsage,
     });
   }
 
@@ -399,24 +409,29 @@ export async function parseVisionHexBatchDetections(
     customId: string;
     detection: HexDetectionResult | null;
     error: string | null;
+    usage: HexDetectionTokenUsage | null;
   }>
 > {
   const detections: Array<{
     customId: string;
     detection: HexDetectionResult | null;
     error: string | null;
+    usage: HexDetectionTokenUsage | null;
   }> = [];
 
   for (const row of rows) {
     if (row.content) {
       const detection = await parseHexDetectionContent(
         row.content,
-        `batch:${row.customId}`
+        `batch:${row.customId}`,
+        undefined,
+        row.usage
       );
       detections.push({
         customId: row.customId,
         detection,
         error: row.error,
+        usage: row.usage,
       });
       continue;
     }
@@ -425,6 +440,7 @@ export async function parseVisionHexBatchDetections(
       customId: row.customId,
       detection: null,
       error: row.error || "Missing completion content",
+      usage: row.usage,
     });
   }
 
