@@ -61,6 +61,7 @@ async function mergeUsers(
            external_id AS "externalId"
          FROM app_user
          WHERE user_id = ANY($1::bigint[])
+         ORDER BY user_id ASC
          FOR UPDATE`,
         [[sourceUserId, targetUserId]]
       );
