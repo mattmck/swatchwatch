@@ -24,25 +24,17 @@ FROM (
 WHERE uei.user_id = ANY(sub.all_ids)
   AND uei.user_id <> sub.keep_id;
 
--- Step 2: Delete duplicate app_user rows, keeping the oldest (lowest user_id)
---         per normalized email.  ON DELETE CASCADE on child tables removes any
---         remaining child rows automatically.
-DELETE FROM app_user
-WHERE user_id IN (
-  SELECT user_id
-  FROM (
-    SELECT
-      user_id,
-      ROW_NUMBER() OVER (PARTITION BY lower(email) ORDER BY user_id) AS rn
-    FROM app_user
-    WHERE email IS NOT NULL
-  ) ranked
-  WHERE rn > 1
-);
+-- Step 2: Intentionally do NOT delete duplicate app_user rows here.
+--         Automatically deleting users can cascade-delete (or null out) child
+--         rows (inventory, submissions, sessions, etc.) and cause data loss.
+--         Instead, rely on a manual/admin merge flow that can safely re-home
+--         all related data before removing any duplicate users.
 
--- Step 3: Add the unique index.  NULLs are excluded so that users without a
---         known email address are still permitted.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_app_user_email_lower
+-- Step 3: Add a non-unique index on lower(email). NULLs are excluded so that
+--         users without a known email address are still permitted.
+--         This index improves lookup performance without enforcing uniqueness,
+--         so existing duplicates are preserved for manual resolution.
+CREATE INDEX IF NOT EXISTS idx_app_user_email_lower
   ON app_user (lower(email))
   WHERE email IS NOT NULL;
 
