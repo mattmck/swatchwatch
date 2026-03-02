@@ -4,8 +4,27 @@ function parseBooleanEnv(value: string | undefined, defaultValue: boolean): bool
   }
 
   const normalized = value.trim().toLowerCase();
-  if (normalized === "true") return true;
-  if (normalized === "false") return false;
+
+  // Accept common truthy/falsey variants used in env flags (e.g. 1/0, yes/no, on/off)
+  if (
+    normalized === "true" ||
+    normalized === "1" ||
+    normalized === "yes" ||
+    normalized === "y" ||
+    normalized === "on"
+  ) {
+    return true;
+  }
+
+  if (
+    normalized === "false" ||
+    normalized === "0" ||
+    normalized === "no" ||
+    normalized === "n" ||
+    normalized === "off"
+  ) {
+    return false;
+  }
   return defaultValue;
 }
 
