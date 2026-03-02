@@ -5,8 +5,25 @@
 -- for the same email address.  Deduplicates any existing rows first, keeping the
 -- oldest (lowest user_id) per normalized email and re-homing their external identities
 -- to the surviving user before deleting the extras.
+--
+-- Step 0 (below) fixes app_settings.updated_by FK to use ON DELETE SET NULL so the
+-- DELETE in Step 2 does not violate a RESTRICT constraint.  The same fix is shipped
+-- again as 021_fix_app_settings_updated_by_fk.sql so that environments which already
+-- applied this migration without Step 0 (i.e. before the fix was folded in) will also
+-- pick up the corrected FK via that catch-up migration.
 
 BEGIN;
+
+-- Step 0: Fix app_settings.updated_by FK so the DELETE in Step 2 doesn't violate it.
+ALTER TABLE app_settings
+  DROP CONSTRAINT IF EXISTS app_settings_updated_by_fkey;
+
+ALTER TABLE app_settings
+  ADD CONSTRAINT app_settings_updated_by_fkey
+  FOREIGN KEY (updated_by)
+  REFERENCES app_user(user_id)
+  ON DELETE SET NULL;
+
 -- Step 1: Re-home user_external_identities rows from duplicate users to the
 --         surviving (oldest) user before the duplicates are deleted.
 UPDATE user_external_identities uei
@@ -52,5 +69,14 @@ COMMIT;
 BEGIN;
 
 DROP INDEX IF EXISTS idx_app_user_email_lower;
+
+-- Restore the original FK without an explicit ON DELETE action (defaults to RESTRICT).
+ALTER TABLE app_settings
+  DROP CONSTRAINT IF EXISTS app_settings_updated_by_fkey;
+
+ALTER TABLE app_settings
+  ADD CONSTRAINT app_settings_updated_by_fkey
+  FOREIGN KEY (updated_by)
+  REFERENCES app_user(user_id);
 
 COMMIT;
