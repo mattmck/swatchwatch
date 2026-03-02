@@ -1,6 +1,6 @@
 import { HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { query } from "./db";
+import { query, transaction } from "./db";
 import { trackEvent, trackException } from "./telemetry";
 
 export interface AuthResult {
@@ -220,6 +220,169 @@ async function getOrCreateUser(
   email?: string,
   role: EntraRole = "user"
 ): Promise<{ userId: number; role: string }> {
+  const normalizedEmail = normalizeEmail(email);
+
+  try {
+    return await getOrCreateUserWithLinkedIdentities(externalId, normalizedEmail, role);
+  } catch (error: any) {
+    // Backward-compatible fallback when the new table has not been migrated yet.
+    if (error?.code === "42P01") {
+      return getOrCreateUserLegacy(externalId, normalizedEmail, role);
+    }
+    throw error;
+  }
+}
+
+function normalizeEmail(email?: string): string | null {
+  if (!email) return null;
+  const normalized = email.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+async function getOrCreateUserWithLinkedIdentities(
+  externalId: string,
+  email: string | null,
+  role: EntraRole
+): Promise<{ userId: number; role: string }> {
+  return transaction(async (client) => {
+    const linkedIdentity = await client.query<{ userId: number }>(
+      `SELECT u.user_id AS "userId"
+       FROM user_external_identities uei
+       INNER JOIN app_user u ON u.user_id = uei.user_id
+       WHERE uei.external_id = $1
+       LIMIT 1`,
+      [externalId]
+    );
+
+    if (linkedIdentity.rows.length > 0) {
+      return updateUserAndTouchIdentity(linkedIdentity.rows[0].userId, externalId, email, role);
+    }
+
+    const legacyExternalId = await client.query<{ userId: number }>(
+      `SELECT user_id AS "userId"
+       FROM app_user
+       WHERE external_id = $1
+       LIMIT 1`,
+      [externalId]
+    );
+
+    if (legacyExternalId.rows.length > 0) {
+      return updateUserAndTouchIdentity(legacyExternalId.rows[0].userId, externalId, email, role);
+    }
+
+    if (email) {
+      // Acquire a transaction-scoped advisory lock on a hash of the normalized email
+      // so that concurrent first-time logins with the same address are serialized.
+      // The lock is released automatically when the transaction commits or rolls back.
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [email]);
+
+      const emailMatch = await client.query<{ userId: number }>(
+        `SELECT user_id AS "userId"
+         FROM app_user
+         WHERE lower(email) = lower($1)
+         ORDER BY user_id ASC
+         LIMIT 1
+         FOR UPDATE`,
+        [email]
+      );
+
+      if (emailMatch.rows.length > 0) {
+        return updateUserAndTouchIdentity(emailMatch.rows[0].userId, externalId, email, role);
+      }
+    }
+
+    const createdUser = await (async () => {
+      try {
+        return await client.query<{ userId: number; role: string | null }>(
+          `INSERT INTO app_user (external_id, email, handle, role)
+           VALUES ($1, $2, $3, $4)
+           RETURNING user_id AS "userId", role`,
+          [externalId, email, email || externalId, role]
+        );
+      } catch (error: any) {
+        if (error?.code === "42703") {
+          return client.query<{ userId: number; role: string | null }>(
+            `INSERT INTO app_user (external_id, email, handle)
+             VALUES ($1, $2, $3)
+             RETURNING user_id AS "userId", 'user'::text AS role`,
+            [externalId, email, email || externalId]
+          );
+        }
+        throw error;
+      }
+    })();
+
+    const created = createdUser.rows[0];
+    await upsertExternalIdentity(created.userId, externalId, email);
+
+    return {
+      userId: created.userId,
+      role: created.role || role,
+    };
+
+    async function updateUserAndTouchIdentity(
+      userId: number,
+      nextExternalId: string,
+      nextEmail: string | null,
+      nextRole: EntraRole
+    ): Promise<{ userId: number; role: string }> {
+      const updated = await (async () => {
+        try {
+          return await client.query<{ role: string | null }>(
+            `UPDATE app_user
+             SET
+               email = COALESCE($2, app_user.email),
+               role = $3
+             WHERE user_id = $1
+             RETURNING role`,
+            [userId, nextEmail, nextRole]
+          );
+        } catch (error: any) {
+          if (error?.code === "42703") {
+            return client.query<{ role: string | null }>(
+              `UPDATE app_user
+               SET email = COALESCE($2, app_user.email)
+               WHERE user_id = $1
+               RETURNING 'user'::text AS role`,
+              [userId, nextEmail]
+            );
+          }
+          throw error;
+        }
+      })();
+
+      await upsertExternalIdentity(userId, nextExternalId, nextEmail);
+
+      return {
+        userId,
+        role: updated.rows[0]?.role || nextRole,
+      };
+    }
+
+    async function upsertExternalIdentity(
+      userId: number,
+      linkedExternalId: string,
+      linkedEmail: string | null
+    ): Promise<void> {
+      await client.query(
+        `INSERT INTO user_external_identities (user_id, external_id, email, last_seen_at)
+         VALUES ($1, $2, $3, now())
+         ON CONFLICT (external_id) DO UPDATE
+         SET
+           user_id = EXCLUDED.user_id,
+           email = COALESCE(EXCLUDED.email, user_external_identities.email),
+           last_seen_at = now()`,
+        [userId, linkedExternalId, linkedEmail]
+      );
+    }
+  });
+}
+
+async function getOrCreateUserLegacy(
+  externalId: string,
+  email: string | null,
+  role: EntraRole
+): Promise<{ userId: number; role: string }> {
   const result = await (async () => {
     try {
       return await query<{ user_id: number; role: string | null }>(
@@ -230,7 +393,7 @@ async function getOrCreateUser(
            email = COALESCE(EXCLUDED.email, app_user.email),
            role = EXCLUDED.role
          RETURNING user_id, role`,
-        [externalId, email || null, email || externalId, role]
+        [externalId, email, email || externalId, role]
       );
     } catch (error: any) {
       if (error?.code === "42703") {
@@ -239,12 +402,13 @@ async function getOrCreateUser(
            VALUES ($1, $2, $3)
            ON CONFLICT (external_id) DO UPDATE SET email = COALESCE(EXCLUDED.email, app_user.email)
            RETURNING user_id, 'user'::text AS role`,
-          [externalId, email || null, email || externalId]
+          [externalId, email, email || externalId]
         );
       }
       throw error;
     }
   })();
+
   return {
     userId: result.rows[0].user_id,
     role: result.rows[0].role || role,

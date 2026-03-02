@@ -213,6 +213,7 @@ require("../dist/functions/voice");
 require("../dist/functions/capture");
 require("../dist/functions/ingestion");
 require("../dist/functions/ingestion-worker");
+require("../dist/functions/admin-users");
 
 // Reset mocks between tests
 afterEach(() => {
@@ -395,6 +396,116 @@ describe("functions/auth — getAuthConfig", () => {
     assert.equal(res.jsonBody.clientId, "my-client-id");
     assert.ok(res.jsonBody.authority.includes("mytenant"));
     assert.ok(res.jsonBody.knownAuthorities[0].includes("mytenant"));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// functions/admin-users — route registration, validation
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("functions/admin-users — route registration", () => {
+  it("registers admin-users-list GET route", () => {
+    expectMethods("admin-users-list", ["GET"]);
+    assert.equal(registeredRoutes["admin-users-list"].route, "admin/users");
+  });
+
+  it("registers admin-users-merge POST route", () => {
+    expectMethods("admin-users-merge", ["POST"]);
+    assert.equal(registeredRoutes["admin-users-merge"].route, "admin/users/merge");
+  });
+});
+
+describe("functions/admin-users — merge validation", () => {
+  it("returns 400 when ids are missing", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async () => ({
+      rows: [{ user_id: 2, external_id: "dev-user-2", email: "admin@test", role: "admin" }],
+    });
+    const handler = registeredRoutes["admin-users-merge"].handler;
+    const req = fakeRequest({
+      method: "POST",
+      url: "http://localhost:7071/api/admin/users/merge",
+      headers: { authorization: "Bearer dev:2" },
+      body: {},
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 400);
+    assert.match(res.jsonBody.error, /sourceUserId/i);
+  });
+
+  it("returns 400 when ids are equal", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async () => ({
+      rows: [{ user_id: 2, external_id: "dev-user-2", email: "admin@test", role: "admin" }],
+    });
+    const handler = registeredRoutes["admin-users-merge"].handler;
+    const req = fakeRequest({
+      method: "POST",
+      url: "http://localhost:7071/api/admin/users/merge",
+      headers: { authorization: "Bearer dev:2" },
+      body: { sourceUserId: 2, targetUserId: 2 },
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 400);
+    assert.match(res.jsonBody.error, /must be different/i);
+  });
+
+  it("returns 200 and merge counters on successful merge", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async (...args) => {
+      if (args[0]?.includes("FROM app_user")) {
+        return {
+          rows: [{ user_id: 2, external_id: "dev-user-2", email: "admin@test", role: "admin" }],
+        };
+      }
+      return { rows: [] };
+    };
+
+    transactionMock = async (cb) => cb({
+      query: async (sql) => {
+        if (sql.includes("FROM app_user") && sql.includes("WHERE user_id = ANY")) {
+          return {
+            rows: [
+              { userId: 10, role: "user", email: "source@test.dev", externalId: "oid-source" },
+              { userId: 20, role: "user", email: "target@test.dev", externalId: "oid-target" },
+            ],
+          };
+        }
+        if (sql.includes("UPDATE user_inventory_item target")) return { rows: [], rowCount: 1 };
+        if (sql.includes("DELETE FROM user_inventory_item source")) return { rows: [], rowCount: 1 };
+        if (sql.includes("UPDATE user_inventory_item")) return { rows: [], rowCount: 2 };
+        if (sql.includes("UPDATE user_submission")) return { rows: [], rowCount: 3 };
+        if (sql.includes("UPDATE capture_session")) return { rows: [], rowCount: 4 };
+        if (sql.includes("UPDATE capture_answer")) return { rows: [], rowCount: 5 };
+        if (sql.includes("UPDATE click_event")) return { rows: [], rowCount: 6 };
+        if (sql.includes("INSERT INTO user_external_identities")) return { rows: [], rowCount: 2 };
+        if (sql.includes("UPDATE app_user")) return { rows: [], rowCount: 1 };
+        if (sql.includes("DELETE FROM app_user")) return { rows: [], rowCount: 1 };
+        return { rows: [], rowCount: 0 };
+      },
+    });
+
+    const handler = registeredRoutes["admin-users-merge"].handler;
+    const req = fakeRequest({
+      method: "POST",
+      url: "http://localhost:7071/api/admin/users/merge",
+      headers: { authorization: "Bearer dev:2" },
+      body: { sourceUserId: 10, targetUserId: 20 },
+    });
+    const res = await handler(req, fakeContext());
+
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.merged, true);
+    assert.equal(res.jsonBody.sourceUserId, 10);
+    assert.equal(res.jsonBody.targetUserId, 20);
+    assert.equal(res.jsonBody.mergedInventoryRows, 2);
+    assert.equal(res.jsonBody.mergedIdentityRows, 2);
+    assert.equal(res.jsonBody.mergedSubmissionRows, 3);
+    assert.equal(res.jsonBody.mergedCaptureRows, 4);
+    assert.equal(res.jsonBody.mergedCaptureAnswerRows, 5);
+    assert.equal(res.jsonBody.mergedClickEventRows, 6);
+    assert.equal(res.jsonBody.mergedInventoryDuplicateRows, 1);
+    assert.match(res.jsonBody.message, /Merged user 10 into 20/i);
   });
 });
 
