@@ -769,7 +769,7 @@ function ColorSearchPageContent() {
                         className="h-[200px] w-2 accent-primary"
                         aria-label="Lightness"
                         aria-orientation="vertical"
-                        orient="vertical"
+                        {...({ orient: "vertical" } as object)}
                         style={{
                           writingMode: "vertical-lr",
                           direction: "rtl",
