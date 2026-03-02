@@ -24,6 +24,7 @@ import {
   materializeHoloTacoRecords,
   materializeMakeupApiRecords,
   updateDataSourceSettings,
+  updateIngestionJobMetrics,
   updateGlobalSettings,
   upsertExternalProducts,
 } from "../lib/ingestion-repo";
@@ -47,9 +48,24 @@ const DEFAULT_SEARCH_TERM = "nail polish";
 const JOB_TYPE_CONNECTOR_VERIFY = "connector_verify";
 // Queue bindings resolve this to the AzureWebJobsStorage app setting.
 const INGESTION_QUEUE_CONNECTION_SETTING = "Storage";
+const DEFAULT_HEX_BATCH_MIN_IMAGES = 5;
 
 export const INGESTION_JOB_QUEUE_NAME =
   (process.env.INGESTION_JOB_QUEUE_NAME || "ingestion-jobs").trim().toLowerCase();
+
+function envFlagTrue(value: string | undefined): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+}
+
+const HEX_DETECTION_BATCH_ENABLED = envFlagTrue(process.env.HEX_DETECTION_BATCH_ENABLED);
+const HEX_DETECTION_BATCH_MIN_IMAGES = clampInt(
+  process.env.HEX_DETECTION_BATCH_MIN_IMAGES,
+  DEFAULT_HEX_BATCH_MIN_IMAGES,
+  1,
+  1000
+);
 
 const ingestionJobQueueOutput = output.storageQueue({
   queueName: INGESTION_JOB_QUEUE_NAME,
@@ -155,6 +171,20 @@ function withPipelineMetrics(
       updatedAt: new Date().toISOString(),
     },
   };
+}
+
+function getPipelineStage(metrics: Record<string, unknown> | undefined): string | null {
+  if (!metrics || typeof metrics !== "object") {
+    return null;
+  }
+
+  const pipeline = metrics.pipeline;
+  if (!pipeline || typeof pipeline !== "object") {
+    return null;
+  }
+
+  const stage = (pipeline as Record<string, unknown>).stage;
+  return typeof stage === "string" && stage.trim().length > 0 ? stage : null;
 }
 
 async function enqueueIngestionJob(
@@ -328,6 +358,15 @@ export async function processIngestionJobQueueMessage(
       return;
     }
 
+    const existingStage = getPipelineStage(existingJob.metrics);
+    if (existingJob.status === "running" && existingStage === "awaiting_ai") {
+      logger.info(
+        `Job ${payload.jobId} is waiting for Azure OpenAI batch completion, ignoring queue message`
+      );
+      await logger.dispose();
+      return;
+    }
+
     await markIngestionJobRunning(payload.jobId, logger.getMetricsWithLogs());
 
     // Source lookup
@@ -436,6 +475,8 @@ export async function processIngestionJobQueueMessage(
         dataSourceId: source.dataSourceId,
         detectHexFromImage: payload.request.detectHexFromImage,
         overwriteDetectedHex: payload.request.overwriteDetectedHex,
+        hexBatchEnabled: HEX_DETECTION_BATCH_ENABLED,
+        hexBatchMinImages: HEX_DETECTION_BATCH_MIN_IMAGES,
       });
 
       try {
@@ -447,6 +488,8 @@ export async function processIngestionJobQueueMessage(
             detectHexFromImage: payload.request.detectHexFromImage,
             detectHexOnSuspiciousOnly: payload.request.detectHexOnSuspiciousOnly,
             overwriteDetectedHex: payload.request.overwriteDetectedHex,
+            useBatchForHexDetection: HEX_DETECTION_BATCH_ENABLED,
+            batchMinImages: HEX_DETECTION_BATCH_MIN_IMAGES,
             progressLogger: {
               info: (message, data) => logger.info(message, data),
               warn: (message, data) => logger.warn(message, data),
@@ -473,6 +516,40 @@ export async function processIngestionJobQueueMessage(
         });
         throw materializeError;
       }
+    }
+
+    const aiBatch =
+      materializationMetrics &&
+      typeof materializationMetrics === "object" &&
+      materializationMetrics.aiBatch &&
+      typeof materializationMetrics.aiBatch === "object"
+        ? (materializationMetrics.aiBatch as Record<string, unknown>)
+        : null;
+
+    if (aiBatch && aiBatch.status === "submitted" && typeof aiBatch.batchId === "string") {
+      stage = "awaiting_ai";
+      const awaitingAiMetrics = {
+        ...requestedMetrics,
+        ...connectorResult.metadata,
+        ...persistenceMetrics,
+        ...(materializationMetrics || {}),
+      };
+
+      logger.updateBaseMetrics(
+        withPipelineMetrics(awaitingAiMetrics, "running", stage, {
+          queuedAt: payload.queuedAt,
+          workerPausedAt: new Date().toISOString(),
+          aiBatch,
+        })
+      );
+      logger.info(`Job ${payload.jobId} awaiting Azure OpenAI batch completion`, {
+        batchId: aiBatch.batchId,
+        requestCount: aiBatch.requestCount,
+      });
+
+      await updateIngestionJobMetrics(payload.jobId, logger.getMetricsWithLogs());
+      await logger.dispose();
+      return;
     }
 
     // Build final metrics with logs
