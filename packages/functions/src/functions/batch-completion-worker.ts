@@ -124,16 +124,26 @@ async function processBatchCompletionWorker(
       context.error(`[batch-completion-worker] Error processing batch ${job.batchId} for job ${job.jobId}:`, err);
 
       try {
-        await markIngestionJobFailed(job.jobId, message, {
+        const existingMetrics =
+          // Prefer camelCase if present, fall back to snake_case, otherwise empty.
+          (job as any).metricsJson ??
+          (job as any).metrics_json ??
+          {};
+        const now = new Date().toISOString();
+        const mergedMetrics = {
+          ...existingMetrics,
           pipeline: {
+            ...(existingMetrics as any).pipeline,
             status: "failed",
             stage: "batch_completion_error",
-            updatedAt: new Date().toISOString(),
+            updatedAt: now,
           },
           batchId: job.batchId,
-          failedAt: new Date().toISOString(),
+          failedAt: now,
           error: message,
-        });
+        };
+
+        await markIngestionJobFailed(job.jobId, message, mergedMetrics);
       } catch (markErr) {
         context.error(`[batch-completion-worker] Failed to mark job ${job.jobId} failed:`, markErr);
       }
