@@ -271,6 +271,11 @@ async function getOrCreateUserWithLinkedIdentities(
     }
 
     if (email) {
+      // Acquire a transaction-scoped advisory lock on a hash of the normalized email
+      // so that concurrent first-time logins with the same address are serialized.
+      // The lock is released automatically when the transaction commits or rolls back.
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [email]);
+
       const emailMatch = await client.query<{ userId: number }>(
         `SELECT user_id AS "userId"
          FROM app_user
