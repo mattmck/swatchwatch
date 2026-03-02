@@ -5,8 +5,23 @@
 -- for the same email address.  Deduplicates any existing rows first, keeping the
 -- oldest (lowest user_id) per normalized email and re-homing their external identities
 -- to the surviving user before deleting the extras.
+--
+-- Also fixes the app_settings.updated_by FK (created in migration 010 without an
+-- ON DELETE action, defaulting to RESTRICT) to use ON DELETE SET NULL.  This must
+-- run in the same transaction before the app_user DELETE below, otherwise the delete
+-- would fail in environments that have not yet applied the FK fix.
 
 BEGIN;
+
+-- Step 0: Fix app_settings.updated_by FK so the DELETE in Step 2 doesn't violate it.
+ALTER TABLE app_settings
+  DROP CONSTRAINT IF EXISTS app_settings_updated_by_fkey;
+
+ALTER TABLE app_settings
+  ADD CONSTRAINT app_settings_updated_by_fkey
+  FOREIGN KEY (updated_by)
+  REFERENCES app_user(user_id)
+  ON DELETE SET NULL;
 
 -- Step 1: Re-home user_external_identities rows from duplicate users to the
 --         surviving (oldest) user before the duplicates are deleted.
