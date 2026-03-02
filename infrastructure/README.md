@@ -103,7 +103,7 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | `openai_api_key` | `""` | Existing Azure OpenAI API key when reusing an external account (`create_openai_resources=false`) |
 | `openai_key_vault_secret_uri` | `""` | Existing Key Vault secret URI for Azure OpenAI key (preferred over `openai_api_key` to avoid passing key through Terraform) |
 | `openai_deployment_name` | `hex-detector` | Azure OpenAI deployment name exposed to Functions as `AZURE_OPENAI_DEPLOYMENT_HEX` |
-| `openai_batch_deployment_name` | `""` | Optional Azure OpenAI batch deployment name exposed as `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` (falls back to `openai_deployment_name` when empty). When set and different from `openai_deployment_name`, Terraform creates `azurerm_cognitive_deployment.openai_hex_batch`. |
+| `openai_batch_deployment_name` | `""` | Optional Azure OpenAI batch deployment name exposed as `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` (falls back to `openai_deployment_name` when empty). When `create_openai_resources=true` and this is set to a different value than `openai_deployment_name`, Terraform creates `azurerm_cognitive_deployment.openai_hex_batch`; when `create_openai_resources=false` (external OpenAI mode), this only affects the Functions app setting value. |
 | `openai_model_name` | `gpt-4o-mini` | Azure OpenAI model name for the hex detector deployment |
 | `openai_model_version` | `2024-07-18` | Azure OpenAI model version for the hex detector deployment |
 | `openai_deployment_capacity` | `100` | Provisioned throughput units for the OpenAI deployment (`GlobalStandard` SKU) |
