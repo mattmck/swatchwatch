@@ -32,6 +32,16 @@ export interface HexDetectionOptions {
   };
 }
 
+interface HexDetectionRequestPayload {
+  temperature: number;
+  max_tokens: number;
+  response_format: { type: "json_object" };
+  messages: Array<{
+    role: "system" | "user";
+    content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>;
+  }>;
+}
+
 function emitLog(
   options: HexDetectionOptions | undefined,
   level: HexDetectionLogLevel,
@@ -218,7 +228,7 @@ async function parseFinishes(
   return out.length ? out : null;
 }
 
-async function parseHexFromContent(
+export async function parseHexDetectionContent(
   content: string,
   imageUrl: string,
   options?: HexDetectionOptions
@@ -257,6 +267,67 @@ async function parseHexFromContent(
     confidence: null,
     finishes: null,
     provider: "azure-openai",
+  };
+}
+
+export function buildHexDetectionRequestPayload(
+  imageUrlOrDataUri: string,
+  options?: Pick<HexDetectionOptions, "vendorContext">,
+  safePrompt = false
+): HexDetectionRequestPayload {
+  const vendorContext = buildVendorContext({
+    vendorContext: options?.vendorContext,
+  });
+
+  return {
+    temperature: 0,
+    max_tokens: 120,
+    response_format: { type: "json_object" },
+    messages: safePrompt
+      ? [
+          {
+            role: "system",
+            content:
+              "Return one representative base polish color from the product image. Respond with valid JSON only: {\"hex\":\"#RRGGBB\",\"confidence\":0..1,\"finishes\":[\"creme\",\"shimmer\",...],\"error\":\"optional\"}. Always include hex and confidence.",
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text:
+                  "Return exactly one hex code for the primary polish shade. Ignore non-polish areas and reflections. Also identify all finishes mentioned or visible (e.g., creme, shimmer, glitter, metallic, matte, jelly, holographic, duochrome, multichrome, flake, topper, sheer, magnetic, thermal, crelly, velvet, etc.). If uncertain, provide best guess with low confidence.",
+              },
+              ...(vendorContext ? [{ type: "text", text: `Vendor context: ${vendorContext}` }] : []),
+              {
+                type: "image_url",
+                image_url: { url: imageUrlOrDataUri },
+              },
+            ],
+          },
+        ]
+      : [
+          {
+            role: "system",
+            content:
+              "You extract the primary base polish color and finishes from a nail polish product image. Ignore background, props, packaging/box, labels/text, bottle cap, nail brush, and glare. For glitter/shimmer/holo finishes, infer the underlying base lacquer color, not reflective particles. ALWAYS respond with valid JSON containing hex, confidence, finishes array, and optional error. Format: {\"hex\":\"#RRGGBB\",\"confidence\":0..1,\"finishes\":[\"creme\",\"shimmer\",...],\"error\":\"reason if low confidence\"}.",
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text:
+                  "Image may show either a bottle product shot or closeup painted nails. Return exactly one hex for the primary marketed base shade. Exclude background, brush, cap, box, and sparkle highlights. Identify any finishes mentioned or visible (creme, shimmer, glitter, metallic, matte, jelly, holographic, duochrome, multichrome, flake, topper, sheer, magnetic, thermal, crelly, velvet, etc.). ALWAYS return a hex value and confidence score. If the image is unclear or unusable, make your best guess and include an 'error' field explaining why confidence is low.",
+              },
+              ...(vendorContext ? [{ type: "text", text: `Vendor context: ${vendorContext}` }] : []),
+              {
+                type: "image_url",
+                image_url: { url: imageUrlOrDataUri },
+              },
+            ],
+          },
+        ],
   };
 }
 
@@ -456,7 +527,6 @@ export async function detectHexWithAzureOpenAI(
   }
 
   const logLabel = imageUrlOrDataUri.startsWith("data:") ? "data:…(base64)" : imageUrlOrDataUri;
-  const vendorContext = buildVendorContext(options);
   emitLog(options, "info", `[ai-color-detection] Config loaded, calling Azure OpenAI for ${logLabel}`);
 
   const requestUrl = `${endpoint.replace(/\/+$/, "")}/openai/deployments/${deployment}/chat/completions?api-version=${OPENAI_API_VERSION}`;
@@ -466,56 +536,13 @@ export async function detectHexWithAzureOpenAI(
       "Content-Type": "application/json",
       "api-key": apiKey,
     },
-    body: JSON.stringify({
-      temperature: 0,
-      max_tokens: 120,
-      response_format: { type: "json_object" },
-      messages: safePrompt
-        ? [
-            {
-              role: "system",
-              content:
-                "Return one representative base polish color from the product image. Respond with valid JSON only: {\"hex\":\"#RRGGBB\",\"confidence\":0..1,\"finishes\":[\"creme\",\"shimmer\",...],\"error\":\"optional\"}. Always include hex and confidence.",
-            },
-            {
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text:
-                    "Return exactly one hex code for the primary polish shade. Ignore non-polish areas and reflections. Also identify all finishes mentioned or visible (e.g., creme, shimmer, glitter, metallic, matte, jelly, holographic, duochrome, multichrome, flake, topper, sheer, magnetic, thermal, crelly, velvet, etc.). If uncertain, provide best guess with low confidence.",
-                },
-                ...(vendorContext ? [{ type: "text", text: `Vendor context: ${vendorContext}` }] : []),
-                {
-                  type: "image_url",
-                  image_url: { url: imageUrlOrDataUri },
-                },
-              ],
-            },
-          ]
-        : [
-            {
-              role: "system",
-              content:
-                "You extract the primary base polish color and finishes from a nail polish product image. Ignore background, props, packaging/box, labels/text, bottle cap, nail brush, and glare. For glitter/shimmer/holo finishes, infer the underlying base lacquer color, not reflective particles. ALWAYS respond with valid JSON containing hex, confidence, finishes array, and optional error. Format: {\"hex\":\"#RRGGBB\",\"confidence\":0..1,\"finishes\":[\"creme\",\"shimmer\",...],\"error\":\"reason if low confidence\"}.",
-            },
-            {
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text:
-                    "Image may show either a bottle product shot or closeup painted nails. Return exactly one hex for the primary marketed base shade. Exclude background, brush, cap, box, and sparkle highlights. Identify any finishes mentioned or visible (creme, shimmer, glitter, metallic, matte, jelly, holographic, duochrome, multichrome, flake, topper, sheer, magnetic, thermal, crelly, velvet, etc.). ALWAYS return a hex value and confidence score. If the image is unclear or unusable, make your best guess and include an 'error' field explaining why confidence is low.",
-                },
-                ...(vendorContext ? [{ type: "text", text: `Vendor context: ${vendorContext}` }] : []),
-                {
-                  type: "image_url",
-                  image_url: { url: imageUrlOrDataUri },
-                },
-              ],
-            },
-          ],
-    }),
+    body: JSON.stringify(
+      buildHexDetectionRequestPayload(
+        imageUrlOrDataUri,
+        { vendorContext: options?.vendorContext },
+        safePrompt
+      )
+    ),
   });
 
   let response = await fetchWithRetry(requestUrl, createRequestInit(false), options);
@@ -590,5 +617,5 @@ export async function detectHexWithAzureOpenAI(
     return { hex: null, confidence: null, finishes: null, provider: "azure-openai" };
   }
 
-  return parseHexFromContent(content, logLabel, options);
+  return parseHexDetectionContent(content, logLabel, options);
 }

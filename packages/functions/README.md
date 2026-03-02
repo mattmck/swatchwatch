@@ -66,6 +66,10 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `GET` | `/api/images/{id}` | `images` | `images.ts` | ✅ Working |
 
 
+Background triggers:
+- `ingestion-job-worker` (`ingestion-worker.ts`) — Azure Storage Queue trigger for async ingestion jobs.
+- `ingestion-ai-batch-poller` (`ingestion-ai-batch-poller.ts`) — Timer trigger that polls Azure OpenAI batch status and applies completed detections.
+
 
 All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpRequest, context: InvocationContext)`.
 
@@ -116,6 +120,11 @@ and user inventory rows (`quantity=0`) with source tags. Use `recentDays` to con
 products by publish/create/update timestamps. It also uploads source product images to Azure Blob
 Storage (`image_asset` + `swatch`) and attempts Azure OpenAI-based representative `color_hex`
 detection from the product image.
+When `HEX_DETECTION_BATCH_ENABLED=true`, Shopify image detection can switch to Azure OpenAI Batch API
+for larger runs (`HEX_DETECTION_BATCH_MIN_IMAGES` threshold). In that mode, the main worker submits
+the batch and leaves the job in `running` with pipeline stage `awaiting_ai`; a timer-triggered poller
+(`ingestion-ai-batch-poller`) later applies completed batch results and marks the job `succeeded`/`failed`.
+Batch deployment resolution order is `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` → `AZURE_OPENAI_DEPLOYMENT_HEX` → `AZURE_OPENAI_DEPLOYMENT`.
 When `AZURE_STORAGE_CONNECTION` isn't configured (for example in a fresh local checkout), the connector
 falls back to storing the original Shopify `image.src` URL so images still appear in the app while
 you bring storage online.
@@ -125,6 +134,7 @@ visible progressively instead of waiting for the final job commit.
 Holo Taco run options:
 - `detectHexFromImage` (default `true`) toggles image-based AI hex detection.
 - `overwriteDetectedHex` (default `false`) refreshes existing `color_hex` values on reruns instead of only filling blanks.
+- `detectHexOnSuspiciousOnly` (default `false`) only runs image AI when vendor hex is missing/suspicious.
 
 Example request:
 ```json
@@ -229,7 +239,14 @@ Key variables:
 | `INGESTION_JOB_QUEUE_NAME` | Optional queue name for async ingestion jobs. Defaults to `ingestion-jobs`. |
 | `SOURCE_IMAGE_CONTAINER` | Optional blob container override for source-ingested images. Defaults to `source-images`. |
 | `AZURE_STORAGE_CONNECTION` | Connection string for uploading source images to Azure Blob Storage. When unset (for local dev or bring-up), ingestion falls back to storing the original source image URLs so swatch images still appear. |
-| `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name dedicated to image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT` when unset). |
+| `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name for synchronous image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT` when unset). |
+| `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` | Optional Azure OpenAI deployment name for batch image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`). |
+| `AZURE_OPENAI_BATCH_API_VERSION` | Optional API version used for Azure OpenAI Files/Batch endpoints (default `2025-03-01-preview`). |
+| `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` | Optional completion window sent during batch creation (default `24h`). |
+| `HEX_DETECTION_BATCH_ENABLED` | Feature flag to enable Azure OpenAI Batch API for Shopify image detection (default `false`). |
+| `HEX_DETECTION_BATCH_MIN_IMAGES` | Minimum record count before switching from synchronous detection to batch submission (default `5`). |
+| `INGESTION_AI_BATCH_POLL_SCHEDULE` | NCRONTAB schedule for the timer poller that checks batch completion (default `0 */2 * * * *`). |
+| `INGESTION_AI_BATCH_MAX_POLL_JOBS` | Max `awaiting_ai` ingestion jobs the poller processes per run (default `10`). |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Optional custom telemetry sink for `trackEvent` / `trackMetric` / `trackException` in `src/lib/telemetry.ts`. When unset, telemetry calls are no-ops. |
 | `REDIS_URL` | Redis endpoint URL for API read-through caching (for example `rediss://<host>:10000`). |
 | `REDIS_KEY` | Redis access key paired with `REDIS_URL`. When either Redis var is missing, cache helpers become no-ops and requests fall back to Postgres. |

@@ -80,6 +80,15 @@ locals {
     : local.openai_external_endpoint
   )
   openai_deployment_name_value = local.openai_enabled ? var.openai_deployment_name : ""
+  openai_batch_deployment_name_value = (
+    local.openai_enabled
+    ? (
+      trimspace(var.openai_batch_deployment_name) != ""
+      ? trimspace(var.openai_batch_deployment_name)
+      : var.openai_deployment_name
+    )
+    : ""
+  )
   openai_key_secret_value = (
     local.openai_create_resources
     ? try(azurerm_cognitive_account.openai[0].primary_access_key, "")
@@ -305,19 +314,26 @@ resource "azurerm_linux_function_app" "main" {
     # Reference Key Vault secret instead of plaintext password
     PGPASSWORD = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.pg_password.versionless_id})"
     # Placeholder for future secrets
-    AZURE_STORAGE_CONNECTION    = azurerm_storage_account.main.primary_connection_string
-    INGESTION_JOB_QUEUE_NAME    = "ingestion-jobs"
-    AZURE_SPEECH_KEY            = "to-be-added"
-    AZURE_SPEECH_REGION         = azurerm_resource_group.main.location
-    AZURE_OPENAI_ENDPOINT       = local.openai_enabled ? local.openai_endpoint_value : ""
-    AZURE_OPENAI_KEY            = local.openai_enabled ? "@Microsoft.KeyVault(SecretUri=${local.openai_key_secret_uri})" : ""
-    AZURE_OPENAI_DEPLOYMENT_HEX = local.openai_deployment_name_value
-    AZURE_AD_B2C_TENANT         = var.azure_ad_b2c_tenant
-    AZURE_AD_B2C_CLIENT_ID      = var.azure_ad_b2c_client_id
-    AUTH_DEV_BYPASS             = var.auth_dev_bypass ? "true" : "false"
-    CORS_ALLOWED_ORIGINS        = join(",", local.function_cors_allowed_origins)
-    REDIS_URL                   = "rediss://${azurerm_managed_redis.main.hostname}:10000"
-    REDIS_KEY                   = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.redis_key.versionless_id})"
+    AZURE_STORAGE_CONNECTION             = azurerm_storage_account.main.primary_connection_string
+    INGESTION_JOB_QUEUE_NAME             = var.ingestion_job_queue_name
+    AZURE_SPEECH_KEY                     = "to-be-added"
+    AZURE_SPEECH_REGION                  = azurerm_resource_group.main.location
+    AZURE_OPENAI_ENDPOINT                = local.openai_enabled ? local.openai_endpoint_value : ""
+    AZURE_OPENAI_KEY                     = local.openai_enabled ? "@Microsoft.KeyVault(SecretUri=${local.openai_key_secret_uri})" : ""
+    AZURE_OPENAI_DEPLOYMENT_HEX          = local.openai_deployment_name_value
+    AZURE_OPENAI_DEPLOYMENT_HEX_BATCH    = local.openai_batch_deployment_name_value
+    AZURE_OPENAI_BATCH_API_VERSION       = var.azure_openai_batch_api_version
+    AZURE_OPENAI_BATCH_COMPLETION_WINDOW = var.azure_openai_batch_completion_window
+    HEX_DETECTION_BATCH_ENABLED          = var.hex_detection_batch_enabled ? "true" : "false"
+    HEX_DETECTION_BATCH_MIN_IMAGES       = tostring(var.hex_detection_batch_min_images)
+    INGESTION_AI_BATCH_POLL_SCHEDULE     = var.ingestion_ai_batch_poll_schedule
+    INGESTION_AI_BATCH_MAX_POLL_JOBS     = tostring(var.ingestion_ai_batch_max_poll_jobs)
+    AZURE_AD_B2C_TENANT                  = var.azure_ad_b2c_tenant
+    AZURE_AD_B2C_CLIENT_ID               = var.azure_ad_b2c_client_id
+    AUTH_DEV_BYPASS                      = var.auth_dev_bypass ? "true" : "false"
+    CORS_ALLOWED_ORIGINS                 = join(",", local.function_cors_allowed_origins)
+    REDIS_URL                            = "rediss://${azurerm_managed_redis.main.hostname}:10000"
+    REDIS_KEY                            = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.redis_key.versionless_id})"
   }
 
   lifecycle {
