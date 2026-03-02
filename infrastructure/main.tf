@@ -290,7 +290,7 @@ resource "azurerm_linux_function_app" "main" {
     }
 
     cors {
-      allowed_origins     = concat(local.web_app_origins, var.environment == "prod" ? [] : ["http://localhost:3000"])
+      allowed_origins     = local.function_cors_allowed_origins
       support_credentials = false
     }
   }
