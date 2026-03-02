@@ -18,3 +18,42 @@ export interface AuthConfig {
   redirectUri: string;
   scopes: string[];
 }
+
+export interface AdminUserMergeRequest {
+  sourceUserId: number;
+  targetUserId: number;
+}
+
+export interface AdminUserListItem {
+  userId: number;
+  role: string;
+  email?: string;
+  externalId?: string;
+  linkedExternalIds: string[];
+  handle?: string;
+  createdAt: string;
+  inventoryCount: number;
+  submissionCount: number;
+  captureSessionCount: number;
+}
+
+export interface AdminUserListResponse {
+  users: AdminUserListItem[];
+  total: number;
+}
+
+export interface AdminUserMergeResponse {
+  merged: boolean;
+  sourceUserId: number;
+  targetUserId: number;
+  mergedByUserId: number;
+  mergedInventoryRows: number;
+  mergedIdentityRows: number;
+  mergedSubmissionRows: number;
+  mergedCaptureRows: number;
+  mergedCaptureAnswerRows: number;
+  mergedClickEventRows: number;
+  message: string;
+  mergedInventoryDuplicateRows?: number;
+  targetRole?: string;
+}

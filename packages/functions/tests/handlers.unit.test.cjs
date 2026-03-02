@@ -213,6 +213,7 @@ require("../dist/functions/voice");
 require("../dist/functions/capture");
 require("../dist/functions/ingestion");
 require("../dist/functions/ingestion-worker");
+require("../dist/functions/admin-users");
 
 // Reset mocks between tests
 afterEach(() => {
@@ -395,6 +396,58 @@ describe("functions/auth — getAuthConfig", () => {
     assert.equal(res.jsonBody.clientId, "my-client-id");
     assert.ok(res.jsonBody.authority.includes("mytenant"));
     assert.ok(res.jsonBody.knownAuthorities[0].includes("mytenant"));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// functions/admin-users — route registration, validation
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("functions/admin-users — route registration", () => {
+  it("registers admin-users-list GET route", () => {
+    expectMethods("admin-users-list", ["GET"]);
+    assert.equal(registeredRoutes["admin-users-list"].route, "admin/users");
+  });
+
+  it("registers admin-users-merge POST route", () => {
+    expectMethods("admin-users-merge", ["POST"]);
+    assert.equal(registeredRoutes["admin-users-merge"].route, "admin/users/merge");
+  });
+});
+
+describe("functions/admin-users — merge validation", () => {
+  it("returns 400 when ids are missing", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async () => ({
+      rows: [{ user_id: 2, external_id: "dev-user-2", email: "admin@test", role: "admin" }],
+    });
+    const handler = registeredRoutes["admin-users-merge"].handler;
+    const req = fakeRequest({
+      method: "POST",
+      url: "http://localhost:7071/api/admin/users/merge",
+      headers: { authorization: "Bearer dev:2" },
+      body: {},
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 400);
+    assert.match(res.jsonBody.error, /sourceUserId/i);
+  });
+
+  it("returns 400 when ids are equal", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async () => ({
+      rows: [{ user_id: 2, external_id: "dev-user-2", email: "admin@test", role: "admin" }],
+    });
+    const handler = registeredRoutes["admin-users-merge"].handler;
+    const req = fakeRequest({
+      method: "POST",
+      url: "http://localhost:7071/api/admin/users/merge",
+      headers: { authorization: "Bearer dev:2" },
+      body: { sourceUserId: 2, targetUserId: 2 },
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 400);
+    assert.match(res.jsonBody.error, /must be different/i);
   });
 });
 
