@@ -770,6 +770,7 @@ function ColorSearchPageContent() {
                         aria-label="Lightness"
                         style={{
                           writingMode: "vertical-lr",
+                          WebkitAppearance: "slider-vertical",
                           direction: "rtl",
                           background: `linear-gradient(to top, #000, ${hslToHex({ h: selectedHsl?.h ?? 0, s: selectedHsl?.s ?? 1, l: 0.5 })}, #fff)`,
                           borderRadius: "9999px",
