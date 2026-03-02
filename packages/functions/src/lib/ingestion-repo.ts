@@ -3,6 +3,7 @@ import { ConnectorProductRecord } from "./connectors/types";
 import { SUPPORTED_SOURCES } from "./connectors/types";
 import { defaultShopifyBaseUrl } from "./connectors/shopify-generic";
 import { detectHexWithAzureOpenAI } from "./ai-color-detection";
+import { isImageHexDetectionEnabled } from "./ingestion-flags";
 import { uploadSourceImageToBlob } from "./blob-storage";
 import { isSuspiciousHex } from "./suspicious-hex";
 import { PoolClient } from "pg";
@@ -219,9 +220,15 @@ async function prepareHoloTacoImageData(
     preparedImage: HoloTacoPreparedImage
   ) => Promise<void>
 ): Promise<HoloTacoImagePreparationResult> {
-  const detectHexFromImage = options?.detectHexFromImage !== false;
+  const hexDetectionEnabled = isImageHexDetectionEnabled();
+  const detectHexFromImage = options?.detectHexFromImage !== false && hexDetectionEnabled;
   const detectHexOnSuspiciousOnly = options?.detectHexOnSuspiciousOnly === true;
   const progressLogger = options?.progressLogger;
+  if (!hexDetectionEnabled) {
+    console.log(
+      `${sourceLogPrefix} Image hex detection disabled via INGESTION_HEX_FROM_IMAGE_ENABLED`
+    );
+  }
   const byExternalId = new Map<string, HoloTacoPreparedImage>();
   const metrics: HoloTacoImagePreparationMetrics = {
     imageCandidates: 0,

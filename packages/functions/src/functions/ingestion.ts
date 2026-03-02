@@ -27,6 +27,7 @@ import {
   updateGlobalSettings,
   upsertExternalProducts,
 } from "../lib/ingestion-repo";
+import { isImageHexDetectionEnabled } from "../lib/ingestion-flags";
 
 
 import { JobLogger } from "../lib/job-logger";
@@ -190,7 +191,7 @@ async function enqueueIngestionJob(
     pageSize: clampInt(body.pageSize, DEFAULT_PAGE_SIZE, 1, MAX_PAGE_SIZE),
     maxRecords: clampInt(body.maxRecords, DEFAULT_MAX_RECORDS, 1, MAX_RECORDS),
     materializeToInventory: body.materializeToInventory !== false,
-    detectHexFromImage: body.detectHexFromImage !== false,
+    detectHexFromImage: body.detectHexFromImage !== false && isImageHexDetectionEnabled(),
     detectHexOnSuspiciousOnly: body.detectHexOnSuspiciousOnly === true,
     overwriteDetectedHex: body.overwriteDetectedHex === true,
     collectTrainingData: body.collectTrainingData === true,

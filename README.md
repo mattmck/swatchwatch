@@ -152,6 +152,7 @@ Functions require secrets defined in `packages/functions/local.settings.json`:
 | `PGPASSWORD` | PostgreSQL password |
 | `AZURE_STORAGE_CONNECTION` | Storage account (swatch/nail photos). In local dev this points to Azurite (see "Local storage emulator" below). |
 | `INGESTION_JOB_QUEUE_NAME` | Optional async ingestion queue name (default: `ingestion-jobs`) |
+| `INGESTION_HEX_FROM_IMAGE_ENABLED` | Toggle image-based AI hex detection on ingestion (default: `true`) |
 | `SOURCE_IMAGE_CONTAINER` | Optional container for source-ingested product images (default: `source-images`) |
 | `BLOB_READ_SAS_TTL_SECONDS` | Optional signed read URL TTL for blob-backed swatch images, in seconds (default: `3600`) |
 | `AZURE_SPEECH_KEY` | Azure Speech Services key |
