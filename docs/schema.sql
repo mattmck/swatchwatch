@@ -202,9 +202,31 @@ CREATE TABLE match_decision (
 CREATE TABLE app_user (
   user_id BIGSERIAL PRIMARY KEY,
   handle TEXT UNIQUE,
+  external_id TEXT UNIQUE,
+  email TEXT,
   role TEXT NOT NULL DEFAULT 'user',
   CONSTRAINT app_user_role_check CHECK (role IN ('user', 'admin')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE user_external_identities (
+  user_external_identity_id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES app_user(user_id) ON DELETE CASCADE,
+  external_id TEXT NOT NULL UNIQUE,
+  email TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_user_external_identities_user_id
+  ON user_external_identities(user_id);
+
+CREATE TABLE app_settings (
+  setting_key TEXT PRIMARY KEY,
+  setting_value JSONB NOT NULL,
+  description TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_by INTEGER REFERENCES app_user(user_id) ON DELETE SET NULL
 );
 
 CREATE TABLE finish_type (

@@ -12,6 +12,9 @@ import type {
   CaptureStartResponse,
   CaptureStatusResponse,
   AdminJobsListResponse,
+  AdminUserListResponse,
+  AdminUserMergeRequest,
+  AdminUserMergeResponse,
   Polish,
   PolishCreateRequest,
   PolishUpdateRequest,
@@ -622,4 +625,29 @@ export async function deleteFinishNormalization(
     }
   );
   return handleResponse<{ success?: boolean; message?: string }>(response);
+}
+
+/** List users for admin account-repair workflows (`GET /api/users-admin`). */
+export async function listAdminUsers(params?: {
+  limit?: number;
+}): Promise<AdminUserListResponse> {
+  const searchParams = new URLSearchParams();
+  if (typeof params?.limit === "number") searchParams.set("limit", String(params.limit));
+  const qs = searchParams.toString();
+  const response = await fetch(`${API_BASE_URL}/users-admin${qs ? `?${qs}` : ""}`, {
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<AdminUserListResponse>(response);
+}
+
+/** Merge one duplicate user into another (`POST /api/users-admin/merge`). */
+export async function mergeAdminUsers(
+  data: AdminUserMergeRequest
+): Promise<AdminUserMergeResponse> {
+  const response = await fetch(`${API_BASE_URL}/users-admin/merge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<AdminUserMergeResponse>(response);
 }

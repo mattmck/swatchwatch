@@ -2,7 +2,8 @@ import { query, transaction } from "./db";
 import { ConnectorProductRecord } from "./connectors/types";
 import { SUPPORTED_SOURCES } from "./connectors/types";
 import { defaultShopifyBaseUrl } from "./connectors/shopify-generic";
-import { detectHexWithAzureOpenAI } from "./ai-color-detection";
+import { detectHexWithAzureOpenAI, type HexDetectionOptions } from "./ai-color-detection";
+import { submitVisionHexBatch } from "./azure-openai-batch";
 import { uploadSourceImageToBlob } from "./blob-storage";
 import { isSuspiciousHex } from "./suspicious-hex";
 import { PoolClient } from "pg";
@@ -60,6 +61,11 @@ export interface HoloTacoMaterializationMetrics {
   hexDetected: number;
   hexDetectionFailures: number;
   hexDetectionSkipped: number;
+  hexDetectionPromptTokens?: number;
+  hexDetectionCompletionTokens?: number;
+  hexDetectionTotalTokens?: number;
+  batchRequestsQueued?: number;
+  aiBatch?: HoloTacoAiBatchDetails;
   skipped: number;
 }
 
@@ -67,6 +73,8 @@ export interface HoloTacoMaterializationOptions {
   detectHexFromImage?: boolean;
   overwriteDetectedHex?: boolean;
   detectHexOnSuspiciousOnly?: boolean;
+  useBatchForHexDetection?: boolean;
+  batchMinImages?: number;
   progressLogger?: {
     info: (message: string, data?: Record<string, unknown>) => void;
     warn: (message: string, data?: Record<string, unknown>) => void;
@@ -102,6 +110,7 @@ interface HoloTacoPreparedImage {
   storageUrl: string | null;
   checksumSha256: string | null;
   detectedHex: string | null;
+  detectedFinishes: string[] | null;
   additionalImages: Array<{ storageUrl: string; checksumSha256: string }>;
 }
 
@@ -113,11 +122,25 @@ interface HoloTacoImagePreparationMetrics {
   hexDetected: number;
   hexDetectionFailures: number;
   hexDetectionSkipped: number;
+  batchRequestsQueued: number;
+  hexDetectionPromptTokens: number;
+  hexDetectionCompletionTokens: number;
+  hexDetectionTotalTokens: number;
+}
+
+export interface HoloTacoAiBatchDetails {
+  batchId: string;
+  inputFileId: string;
+  requestCount: number;
+  submittedAt: string;
+  status: "submitted";
+  overwriteDetectedHex: boolean;
 }
 
 interface HoloTacoImagePreparationResult {
   byExternalId: Map<string, HoloTacoPreparedImage>;
   metrics: HoloTacoImagePreparationMetrics;
+  aiBatch: HoloTacoAiBatchDetails | null;
 }
 
 function asString(value: unknown): string | null {
@@ -205,9 +228,54 @@ function isHttpUrl(value: string | null): value is string {
 }
 
 const HEX_DETECTION_DELAY_MS = 6000;
+const DEFAULT_HEX_BATCH_MIN_IMAGES = 5;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function mergeStringArrays(
+  existing: string[] | null | undefined,
+  incoming: string[] | null | undefined
+): string[] | null {
+  const merged = Array.from(
+    new Set([...(existing || []), ...(incoming || [])].map((entry) => entry.trim()).filter(Boolean))
+  );
+  return merged.length ? merged : null;
+}
+
+function estimateBatchCandidateCount(
+  records: ConnectorProductRecord[],
+  detectHexFromImage: boolean,
+  detectHexOnSuspiciousOnly: boolean
+): number {
+  if (!detectHexFromImage) {
+    return 0;
+  }
+
+  let count = 0;
+  for (const record of records) {
+    const normalized =
+      record.normalized && typeof record.normalized === "object"
+        ? (record.normalized as Record<string, unknown>)
+        : null;
+    if (!normalized) {
+      continue;
+    }
+
+    const holo = parseHoloTacoNormalized(normalized);
+    if (!holo.name || !isHttpUrl(holo.primaryImageUrl)) {
+      continue;
+    }
+
+    const shouldRunAiDetection =
+      !detectHexOnSuspiciousOnly || isSuspiciousHex(holo.vendorHex);
+    if (shouldRunAiDetection) {
+      count += 1;
+    }
+  }
+
+  return count;
 }
 
 async function prepareHoloTacoImageData(
@@ -221,8 +289,23 @@ async function prepareHoloTacoImageData(
 ): Promise<HoloTacoImagePreparationResult> {
   const detectHexFromImage = options?.detectHexFromImage !== false;
   const detectHexOnSuspiciousOnly = options?.detectHexOnSuspiciousOnly === true;
+  const batchMinImages = Math.max(1, options?.batchMinImages ?? DEFAULT_HEX_BATCH_MIN_IMAGES);
+  const estimatedBatchCandidates = estimateBatchCandidateCount(
+    records,
+    detectHexFromImage,
+    detectHexOnSuspiciousOnly
+  );
+  const useBatchForHexDetection =
+    options?.useBatchForHexDetection === true &&
+    detectHexFromImage &&
+    estimatedBatchCandidates >= batchMinImages;
   const progressLogger = options?.progressLogger;
   const byExternalId = new Map<string, HoloTacoPreparedImage>();
+  const queuedBatchRequests: Array<{
+    customId: string;
+    imageUrlOrDataUri: string;
+    vendorContext: HexDetectionOptions["vendorContext"];
+  }> = [];
   const metrics: HoloTacoImagePreparationMetrics = {
     imageCandidates: 0,
     imageUploads: 0,
@@ -231,15 +314,30 @@ async function prepareHoloTacoImageData(
     hexDetected: 0,
     hexDetectionFailures: 0,
     hexDetectionSkipped: 0,
+    batchRequestsQueued: 0,
+    hexDetectionPromptTokens: 0,
+    hexDetectionCompletionTokens: 0,
+    hexDetectionTotalTokens: 0,
   };
 
-  console.log(`${sourceLogPrefix} Image preparation: processing ${records.length} records, detectHexFromImage=${detectHexFromImage}, detectHexOnSuspiciousOnly=${detectHexOnSuspiciousOnly}`);
+  console.log(
+    `${sourceLogPrefix} Image preparation: processing ${records.length} records, detectHexFromImage=${detectHexFromImage}, detectHexOnSuspiciousOnly=${detectHexOnSuspiciousOnly}, estimatedBatchCandidates=${estimatedBatchCandidates}, useBatchForHexDetection=${useBatchForHexDetection}, batchMinImages=${batchMinImages}`
+  );
+  progressLogger?.info(`${sourceLogPrefix} Image preparation config`, {
+    records: records.length,
+    detectHexFromImage,
+    detectHexOnSuspiciousOnly,
+    estimatedBatchCandidates,
+    useBatchForHexDetection,
+    batchMinImages,
+  });
 
   for (const record of records) {
     const emptyPrepared: HoloTacoPreparedImage = {
       storageUrl: null,
       checksumSha256: null,
       detectedHex: null,
+      detectedFinishes: null,
       additionalImages: [],
     };
 
@@ -283,6 +381,7 @@ async function prepareHoloTacoImageData(
     let storageUrl: string | null = null;
     let checksumSha256: string | null = null;
     let detectedHex: string | null = null;
+    let detectedFinishes: string[] | null = null;
     let imageBase64DataUri: string | null = null;
     const additionalImages: Array<{ storageUrl: string; checksumSha256: string }> = [];
 
@@ -347,47 +446,103 @@ async function prepareHoloTacoImageData(
           colorName: holo.name,
           uploadSucceeded: Boolean(storageUrl),
         });
-      } else {
-      if (holo.vendorHex) {
-        console.log(`${sourceLogPrefix} Vendor hex (${holo.vendorHex}) is suspicious, running AI detection for ${record.externalId}`);
-      } else {
-        console.log(`${sourceLogPrefix} No vendor hex for ${record.externalId}, running AI detection`);
-      }
-      try {
-        const detection = await detectHexWithAzureOpenAI(imageForAi, {
-          onLog: (level, message, data) => {
-            const withRecord = `${sourceLogPrefix} ${record.externalId} ${message}`;
-            if (level === "error") {
-              progressLogger?.error(withRecord, data);
-            } else if (level === "warn") {
-              progressLogger?.warn(withRecord, data);
-            } else {
-              progressLogger?.info(withRecord, data);
-            }
+      } else if (useBatchForHexDetection) {
+        queuedBatchRequests.push({
+          customId: record.externalId,
+          imageUrlOrDataUri: imageForAi,
+          vendorContext: {
+            shadeName: holo.name,
+            vendorHex: holo.vendorHex,
+            description: holo.collection,
+            tags: holo.tags,
+            vendorJson: {
+              finish: holo.finish,
+              colorName: holo.colorName,
+            },
           },
         });
-        console.log(`${sourceLogPrefix} AI detection result for ${record.externalId}:`, { detectedHex: detection.hex, vendorHex: holo.vendorHex });
-        if (detection.hex) {
-          detectedHex = detection.hex;
-          metrics.hexDetected += 1;
-          const successData = {
-            externalId: record.externalId,
-            brand: holo.brand || sourceLogPrefix.replace(/[\[\]]/g, ""),
-            colorName: holo.name,
-            hex: detection.hex,
-          };
-          const successMessage = `${sourceLogPrefix} ${record.externalId} [ai-color-detection] Success`;
-          console.log(successMessage, successData);
-          progressLogger?.info(successMessage, successData);
+        metrics.batchRequestsQueued += 1;
+        const queuedMessage = `${sourceLogPrefix} ${record.externalId} [ai-color-detection] Queued for batch submission`;
+        console.log(queuedMessage);
+        progressLogger?.info(queuedMessage, {
+          externalId: record.externalId,
+          colorName: holo.name,
+          vendorHex: holo.vendorHex,
+        });
+      } else {
+        if (holo.vendorHex) {
+          console.log(
+            detectHexOnSuspiciousOnly
+              ? `${sourceLogPrefix} Vendor hex (${holo.vendorHex}) is suspicious, running AI detection for ${record.externalId}`
+              : `${sourceLogPrefix} Vendor hex present (${holo.vendorHex}), running AI detection for ${record.externalId}`
+          );
         } else {
-          console.log(`${sourceLogPrefix} No hex returned from AI for ${record.externalId}`);
+          console.log(`${sourceLogPrefix} No vendor hex for ${record.externalId}, running AI detection`);
         }
-        console.log(`${sourceLogPrefix} Sleeping ${HEX_DETECTION_DELAY_MS}ms before next detection`);
-        await sleep(HEX_DETECTION_DELAY_MS);
-      } catch (err) {
-        metrics.hexDetectionFailures += 1;
-        console.error(`${sourceLogPrefix} AI hex detection failed for ${record.externalId}:`, String(err));
-      }
+        try {
+          const detection = await detectHexWithAzureOpenAI(imageForAi, {
+            onLog: (level, message, data) => {
+              const withRecord = `${sourceLogPrefix} ${record.externalId} ${message}`;
+              if (level === "error") {
+                progressLogger?.error(withRecord, data);
+              } else if (level === "warn") {
+                progressLogger?.warn(withRecord, data);
+              } else {
+                progressLogger?.info(withRecord, data);
+              }
+            },
+            vendorContext: {
+              shadeName: holo.name,
+              vendorHex: holo.vendorHex,
+              description: holo.collection,
+              tags: holo.tags,
+              vendorJson: {
+                finish: holo.finish,
+                colorName: holo.colorName,
+              },
+            },
+          });
+          const promptTokens = detection.usage?.promptTokens ?? 0;
+          const completionTokens = detection.usage?.completionTokens ?? 0;
+          const totalTokens = detection.usage?.totalTokens ?? 0;
+          metrics.hexDetectionPromptTokens += promptTokens;
+          metrics.hexDetectionCompletionTokens += completionTokens;
+          metrics.hexDetectionTotalTokens += totalTokens;
+          if (promptTokens > 0 || completionTokens > 0 || totalTokens > 0) {
+            const tokenUsageData = {
+              externalId: record.externalId,
+              promptTokens,
+              completionTokens,
+              totalTokens,
+            };
+            const tokenUsageMessage = `${sourceLogPrefix} ${record.externalId} [ai-color-detection] Token usage`;
+            console.log(tokenUsageMessage, tokenUsageData);
+            progressLogger?.info(tokenUsageMessage, tokenUsageData);
+          }
+          console.log(`${sourceLogPrefix} AI detection result for ${record.externalId}:`, { detectedHex: detection.hex, vendorHex: holo.vendorHex });
+          if (detection.hex) {
+            detectedHex = detection.hex;
+            detectedFinishes = detection.finishes;
+            metrics.hexDetected += 1;
+            const successData = {
+              externalId: record.externalId,
+              brand: holo.brand || sourceLogPrefix.replace(/[\[\]]/g, ""),
+              colorName: holo.name,
+              hex: detection.hex,
+              finishes: detection.finishes,
+            };
+            const successMessage = `${sourceLogPrefix} ${record.externalId} [ai-color-detection] Success`;
+            console.log(successMessage, successData);
+            progressLogger?.info(successMessage, successData);
+          } else {
+            console.log(`${sourceLogPrefix} No hex returned from AI for ${record.externalId}`);
+          }
+          console.log(`${sourceLogPrefix} Sleeping ${HEX_DETECTION_DELAY_MS}ms before next detection`);
+          await sleep(HEX_DETECTION_DELAY_MS);
+        } catch (err) {
+          metrics.hexDetectionFailures += 1;
+          console.error(`${sourceLogPrefix} AI hex detection failed for ${record.externalId}:`, String(err));
+        }
       }
     } else {
       metrics.hexDetectionSkipped += 1;
@@ -402,6 +557,7 @@ async function prepareHoloTacoImageData(
       storageUrl,
       checksumSha256,
       detectedHex,
+      detectedFinishes,
       additionalImages,
     };
     byExternalId.set(record.externalId, preparedImage);
@@ -412,9 +568,26 @@ async function prepareHoloTacoImageData(
 
   console.log(`${sourceLogPrefix} Image preparation complete:`, metrics);
 
+  let aiBatch: HoloTacoAiBatchDetails | null = null;
+  if (useBatchForHexDetection && queuedBatchRequests.length > 0) {
+    const batchResult = await submitVisionHexBatch(queuedBatchRequests);
+    aiBatch = {
+      batchId: batchResult.batchId,
+      inputFileId: batchResult.inputFileId,
+      requestCount: batchResult.requestCount,
+      submittedAt: batchResult.submittedAt,
+      status: "submitted",
+      overwriteDetectedHex: options?.overwriteDetectedHex === true,
+    };
+    const submittedMessage = `${sourceLogPrefix} Submitted Azure OpenAI batch ${batchResult.batchId} with ${batchResult.requestCount} request(s)`;
+    console.log(submittedMessage);
+    progressLogger?.info(submittedMessage, aiBatch as unknown as Record<string, unknown>);
+  }
+
   return {
     byExternalId,
     metrics,
+    aiBatch,
   };
 }
 
@@ -804,6 +977,149 @@ export async function getIngestionJobById(jobId: number): Promise<IngestionJobRe
   };
 }
 
+export interface AwaitingAiBatchJobRecord {
+  jobId: number;
+  source: string;
+  dataSourceId: number;
+  metrics: Record<string, unknown>;
+  startedAt: string;
+}
+
+export async function listIngestionJobsAwaitingAiBatch(
+  limit = 20
+): Promise<AwaitingAiBatchJobRecord[]> {
+  const result = await query<{
+    jobId: number;
+    source: string;
+    dataSourceId: number;
+    metrics: Record<string, unknown> | null;
+    startedAt: string;
+  }>(
+    `SELECT
+       j.ingestion_job_id AS "jobId",
+       s.name AS source,
+       s.data_source_id AS "dataSourceId",
+       j.metrics_json AS metrics,
+       j.started_at::text AS "startedAt"
+     FROM ingestion_job j
+     JOIN data_source s ON s.data_source_id = j.data_source_id
+     WHERE j.status = 'running'
+       AND j.metrics_json -> 'pipeline' ->> 'stage' = 'awaiting_ai'
+       AND COALESCE(j.metrics_json -> 'aiBatch' ->> 'batchId', '') <> ''
+     ORDER BY j.started_at ASC
+     LIMIT $1`,
+    [limit]
+  );
+
+  return result.rows.map((row) => ({
+    jobId: row.jobId,
+    source: row.source,
+    dataSourceId: row.dataSourceId,
+    metrics: row.metrics || {},
+    startedAt: row.startedAt,
+  }));
+}
+
+export interface AiBatchShadeDetectionInput {
+  externalId: string;
+  detectedHex: string | null;
+  detectedFinishes: string[] | null;
+}
+
+export interface ApplyAiBatchShadeDetectionsMetrics {
+  processed: number;
+  applied: number;
+  skippedNoDetection: number;
+  noShadeMatch: number;
+}
+
+export async function applyAiBatchShadeDetections(
+  dataSourceId: number,
+  detections: AiBatchShadeDetectionInput[],
+  overwriteDetectedHex: boolean
+): Promise<ApplyAiBatchShadeDetectionsMetrics> {
+  let applied = 0;
+  let skippedNoDetection = 0;
+  let noShadeMatch = 0;
+
+  for (const detection of detections) {
+    const externalId = detection.externalId.trim();
+    if (!externalId) {
+      skippedNoDetection += 1;
+      continue;
+    }
+
+    const detectedHex = detection.detectedHex;
+    const detectedFinishes = mergeStringArrays(null, detection.detectedFinishes);
+    if (!detectedHex && !detectedFinishes?.length) {
+      skippedNoDetection += 1;
+      continue;
+    }
+
+    const result = await query<{ shadeId: number }>(
+      `WITH ext AS (
+         SELECT
+           COALESCE(NULLIF(trim(normalized_json ->> 'brand'), ''), 'Holo Taco') AS brand_name,
+           NULLIF(trim(normalized_json ->> 'name'), '') AS shade_name,
+           NULLIF(trim((normalized_json -> 'finishes' ->> 0)), '') AS finish_name,
+           NULLIF(trim((normalized_json -> 'collections' ->> 0)), '') AS collection_name
+         FROM external_product
+         WHERE data_source_id = $1
+           AND external_id = $2
+         ORDER BY fetched_at DESC
+         LIMIT 1
+       ),
+       target AS (
+         SELECT sh.shade_id
+         FROM ext
+         JOIN brand b ON lower(b.name_canonical) = lower(ext.brand_name)
+         JOIN shade sh
+           ON sh.brand_id = b.brand_id
+          AND lower(sh.shade_name_canonical) = lower(ext.shade_name)
+          AND coalesce(sh.finish, '') = coalesce(ext.finish_name, '')
+          AND coalesce(sh.collection, '') = coalesce(ext.collection_name, '')
+         ORDER BY sh.shade_id DESC
+         LIMIT 1
+       )
+       UPDATE shade sh
+       SET detected_hex = CASE
+             WHEN $5::boolean AND $3::text IS NOT NULL THEN $3::text
+             ELSE COALESCE(sh.detected_hex, $3::text)
+           END,
+           detected_finishes = CASE
+             WHEN $5::boolean AND $4::text[] IS NOT NULL THEN $4::text[]
+             WHEN sh.detected_finishes IS NULL THEN $4::text[]
+             WHEN $4::text[] IS NULL THEN sh.detected_finishes
+             ELSE (
+               SELECT ARRAY(
+                 SELECT DISTINCT f
+                 FROM unnest(COALESCE(sh.detected_finishes, ARRAY[]::text[]) || $4::text[]) AS f
+                 ORDER BY f
+               )
+             )
+           END,
+           updated_at = now()
+       FROM target
+       WHERE sh.shade_id = target.shade_id
+       RETURNING sh.shade_id AS "shadeId"`,
+      [dataSourceId, externalId, detectedHex, detectedFinishes, overwriteDetectedHex]
+    );
+
+    if (result.rows.length > 0) {
+      applied += 1;
+    } else {
+      noShadeMatch += 1;
+    }
+  }
+
+  return {
+    processed: detections.length,
+    applied,
+    skippedNoDetection,
+    noShadeMatch,
+  };
+}
+
 export async function listIngestionJobs(
   limit: number,
   source?: string
@@ -1176,6 +1492,7 @@ async function materializePreparedHoloTacoRecord(
   const importNote = `Imported from ${sourceLogPrefix.replace(/[\[\]]/g, "")} external_id=${record.externalId}`;
   const vendorHex = holo.vendorHex;
   const detectedHex = preparedImage.detectedHex || null;
+  const detectedFinishes = preparedImage.detectedFinishes || null;
   const nameHex = holo.nameHex;
   const sourceTags = Array.from(
     new Set(
@@ -1193,9 +1510,14 @@ async function materializePreparedHoloTacoRecord(
   const currentShade = await client.query<{
     vendorHex: string | null;
     detectedHex: string | null;
+    detectedFinishes: string[] | null;
     nameHex: string | null;
   }>(
-    `SELECT vendor_hex AS "vendorHex", detected_hex AS "detectedHex", name_hex AS "nameHex"
+    `SELECT
+       vendor_hex AS "vendorHex",
+       detected_hex AS "detectedHex",
+       detected_finishes AS "detectedFinishes",
+       name_hex AS "nameHex"
      FROM shade WHERE shade_id = $1`,
     [shadeId]
   );
@@ -1205,6 +1527,9 @@ async function materializePreparedHoloTacoRecord(
     shouldOverwrite && currentShade.rows.length > 0 &&
     ((vendorHex && vendorHex !== currentShade.rows[0].vendorHex) ||
       (detectedHex && detectedHex !== currentShade.rows[0].detectedHex) ||
+      (detectedFinishes &&
+        JSON.stringify(detectedFinishes) !==
+          JSON.stringify(currentShade.rows[0].detectedFinishes || [])) ||
       (nameHex && nameHex !== currentShade.rows[0].nameHex))
   ) {
     delta.hexOverwritten += 1;
@@ -1222,13 +1547,25 @@ async function materializePreparedHoloTacoRecord(
            WHEN $6::boolean AND $4::text IS NOT NULL THEN $4::text
            ELSE COALESCE(detected_hex, $4::text)
          END,
+         detected_finishes = CASE
+           WHEN $6::boolean AND $5::text[] IS NOT NULL THEN $5::text[]
+           WHEN detected_finishes IS NULL THEN $5::text[]
+           WHEN $5::text[] IS NULL THEN detected_finishes
+           ELSE (
+             SELECT ARRAY(
+               SELECT DISTINCT f
+               FROM unnest(COALESCE(detected_finishes, ARRAY[]::text[]) || $5::text[]) AS f
+               ORDER BY f
+             )
+           )
+         END,
          name_hex = CASE
-           WHEN $6::boolean AND $5::text IS NOT NULL THEN $5::text
-           ELSE COALESCE(name_hex, $5::text)
+           WHEN $6::boolean AND $7::text IS NOT NULL THEN $7::text
+           ELSE COALESCE(name_hex, $7::text)
          END,
          updated_at = now()
      WHERE shade_id = $1`,
-    [shadeId, holo.name, vendorHex, detectedHex, nameHex, overwriteDetectedHex]
+    [shadeId, holo.name, vendorHex, detectedHex, detectedFinishes, overwriteDetectedHex, nameHex]
   );
 
   const inventory = await client.query<{
@@ -1458,6 +1795,7 @@ export async function materializeHoloTacoRecords(
     inventoryUpdated,
     hexOverwritten,
     ...preparedImageData.metrics,
+    ...(preparedImageData.aiBatch ? { aiBatch: preparedImageData.aiBatch } : {}),
     swatchesLinked,
     skipped,
   };

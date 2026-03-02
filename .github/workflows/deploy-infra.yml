@@ -70,6 +70,11 @@ jobs:
       TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       TF_VAR_openai_endpoint: ${{ vars.OPENAI_ENDPOINT || '' }}
       TF_VAR_openai_deployment_name: ${{ vars.OPENAI_DEPLOYMENT_NAME || 'hex-detector' }}
+      TF_VAR_openai_batch_deployment_name: ${{ vars.OPENAI_BATCH_DEPLOYMENT_NAME || 'hex-detector-batch' }}
+      TF_VAR_openai_batch_model_name: ${{ vars.OPENAI_BATCH_MODEL_NAME || '' }}
+      TF_VAR_openai_batch_model_version: ${{ vars.OPENAI_BATCH_MODEL_VERSION || '' }}
+      TF_VAR_openai_batch_deployment_sku_name: ${{ vars.OPENAI_BATCH_DEPLOYMENT_SKU_NAME || 'GlobalBatch' }}
+      TF_VAR_openai_batch_deployment_capacity: ${{ vars.OPENAI_BATCH_DEPLOYMENT_CAPACITY || '100' }}
       OPENAI_ACCOUNT_NAME: ${{ vars.OPENAI_ACCOUNT_NAME || '' }}
 
     steps:

@@ -815,6 +815,16 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
         tags: shade.vendor_tags,
       },
     });
+    const tokenUsage = result.usage || null;
+    if (tokenUsage) {
+      const tokenUsageLog = {
+        shadeId: String(shade.shade_id),
+        promptTokens: tokenUsage.promptTokens,
+        completionTokens: tokenUsage.completionTokens,
+        totalTokens: tokenUsage.totalTokens,
+      };
+      context.log("[recalc-hex] Azure OpenAI token usage", tokenUsageLog);
+    }
 
     const previousHex = shade.detected_hex;
     const vendorFinishes =
@@ -835,6 +845,7 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
           detectedHex: null,
           confidence: result.confidence,
           finishes: mergedFinishes.length ? mergedFinishes : null,
+          tokenUsage,
         },
       };
     }
@@ -865,6 +876,7 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
         detectedHex: result.hex,
         confidence: result.confidence,
         finishes: mergedFinishes.length ? mergedFinishes : null,
+        tokenUsage,
       },
     };
   } catch (error: any) {
