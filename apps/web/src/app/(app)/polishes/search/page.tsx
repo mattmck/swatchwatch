@@ -686,7 +686,7 @@ function ColorSearchPageContent() {
     setAnchorFeedback(`Applied ${harmonyLabel} palette to search results`);
   }, [harmonyLabelByValue]);
 
-  const layoutCols = "xl:grid-cols-[minmax(320px,_380px)_minmax(0,_1fr)]";
+  const layoutCols = "xl:grid-cols-[minmax(360px,_460px)_minmax(0,_1fr)]";
 
   if (loading) {
     return <BrandSpinner label="Loading color inventory…" />;
@@ -766,12 +766,13 @@ function ColorSearchPageContent() {
                         step={0.01}
                         value={lightness}
                         onChange={(e) => setLightness(parseFloat(e.target.value))}
-                        className="h-[200px] w-2 accent-primary"
+                        className="h-[200px] w-8 accent-primary"
                         aria-label="Lightness"
                         aria-orientation="vertical"
                         {...({ orient: "vertical" } as object)}
                         style={{
                           writingMode: "vertical-lr",
+                          WebkitAppearance: "slider-vertical",
                           direction: "rtl",
                           background: `linear-gradient(to top, #000, ${hslToHex({ h: selectedHsl?.h ?? 0, s: selectedHsl?.s ?? 1, l: 0.5 })}, #fff)`,
                           borderRadius: "9999px",
