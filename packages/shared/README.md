@@ -37,6 +37,10 @@ The package is automatically linked via npm workspaces — no publishing require
 | `User` | User entity (id, email, displayName, avatarUrl, authProvider, timestamps) |
 | `AuthProvider` | `"apple" \| "facebook" \| "google" \| "email"` |
 | `AuthConfig` | B2C configuration (authority, clientId, knownAuthorities, redirectUri, scopes) |
+| `AdminUserListItem` | Admin user-management table row (`userId`, role, linked identities, and activity counts) |
+| `AdminUserListResponse` | Admin user list payload wrapper (`users`, `total`) |
+| `AdminUserMergeRequest` | Admin payload for duplicate-account repair (`sourceUserId`, `targetUserId`) |
+| `AdminUserMergeResponse` | Admin merge result summary (moved row counts + merge status/message) |
 
 ### `types/voice.ts`
 

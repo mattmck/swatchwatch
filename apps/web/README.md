@@ -20,12 +20,13 @@ src/app/
 │   └── page.tsx                  → /           Landing page (hero, features, interactive showcase, testimonials, CTA)
 ├── (admin)/
 │   └── admin/
-│       ├── page.tsx              → /admin  Unified admin console (tabs: Configuration, Job Runs, Admin Jobs). Renders with RequireAuth + AppShell at the page level.
+│       ├── page.tsx              → /admin  Unified admin console (tabs: Configuration, Job Runs, Admin Jobs, User Management). Renders with RequireAuth + AppShell at the page level.
 │       └── reference-data/
 │           ├── page.tsx          → /admin/reference-data  Legacy redirect → `/admin?tab=configuration`
 │           └── components/
 │               ├── jobs-tab.tsx  → Job Runs tab (list `/api/reference-admin/jobs`, status/error inspection, filtering)
-│               └── config-tab.tsx → Configuration tab (finish/harmony CRUD + finish-normalization alias CRUD)
+│               ├── config-tab.tsx → Configuration tab (finish/harmony CRUD + finish-normalization alias CRUD)
+│               └── users-tab.tsx → User Management tab (`/api/users-admin` list + `/api/users-admin/merge` repair flow)
 ├── (app)/
 │   ├── layout.tsx                → App layout (AppShell sidebar wrapper)
 │   ├── admin/jobs/page.tsx       → /admin/jobs      Legacy route redirect to `/admin?tab=admin-jobs`
@@ -159,7 +160,7 @@ cd apps/web && npx shadcn@latest add <component-name>
 | `constants.ts` | `FINISHES`, `finishLabel()`, `finishBadgeClassName()` — fallback finish taxonomy and branded badge styling when reference APIs are unavailable |
 | `color-harmonies.ts` | Harmony palette generation + `getHarmonyTypeOptions()` for API-backed harmony option mapping (with fallback constants) |
 | `color-utils.ts` | Hex↔HSL↔RGB↔OKLAB↔OKLCH conversions, `colorDistance()`, harmony helpers, undertone breakdown, and `analyzeCollectionGaps()` |
-| `api.ts` | API client helpers including polish CRUD, rapid-add capture calls, ingestion admin methods (`listIngestionJobs`, `runIngestionJob`, `getIngestionJob`), reference-data admin methods (`listAdminJobs`, finish/harmony CRUD, finish-normalization CRUD), and public reference lookup methods (`listReferenceFinishTypes`, `listReferenceHarmonyTypes`) |
+| `api.ts` | API client helpers including polish CRUD, rapid-add capture calls, ingestion admin methods (`listIngestionJobs`, `runIngestionJob`, `getIngestionJob`), reference-data admin methods (`listAdminJobs`, finish/harmony CRUD, finish-normalization CRUD), user-management admin methods (`listAdminUsers`, `mergeAdminUsers`), and public reference lookup methods (`listReferenceFinishTypes`, `listReferenceHarmonyTypes`) |
 | `polish-filters.ts` | `buildBrandOptions()`, `filterPolishesForList()`, `matchesBrandFilter()` — shared catalog/search filter helpers with normalized brand matching |
 | `hooks/use-reference-data.ts` | API-backed reference data hook with in-memory + localStorage caching, resilient fallback data, and lookup helpers (`getFinishDisplayName`, `getHarmonyDisplayName`) |
 | `msal-config.ts` | `buildMsalConfig()` builder, `LOGIN_SCOPES` constant. Returns `null` if auth env is not configured |

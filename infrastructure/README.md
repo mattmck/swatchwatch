@@ -46,7 +46,8 @@ Required GitHub Actions configuration (per GitHub environment):
 - Secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`
 - Variables: `TFSTATE_RESOURCE_GROUP`, `TFSTATE_STORAGE_ACCOUNT`, `TFSTATE_CONTAINER` (recommended: `tfstate`), `TFSTATE_BLOB_NAME` (recommended: `<environment>.terraform.tfstate`)
 - OpenAI mode variable: `CREATE_OPENAI_RESOURCES` (`true` to let Terraform manage OpenAI account/deployment; default in workflow is `true`)
-- Optional variables for shared/external OpenAI accounts (used when `CREATE_OPENAI_RESOURCES=false`): `OPENAI_ENDPOINT`, `OPENAI_ACCOUNT_NAME`, `OPENAI_DEPLOYMENT_NAME`
+- OpenAI deployment variables (exported as `TF_VAR_*`): `OPENAI_DEPLOYMENT_NAME` (default `hex-detector`), `OPENAI_BATCH_DEPLOYMENT_NAME` (default `hex-detector-batch`), optional `OPENAI_BATCH_MODEL_NAME`, `OPENAI_BATCH_MODEL_VERSION`, `OPENAI_BATCH_DEPLOYMENT_SKU_NAME`, `OPENAI_BATCH_DEPLOYMENT_CAPACITY`
+- Optional variables for shared/external OpenAI accounts (used when `CREATE_OPENAI_RESOURCES=false`): `OPENAI_ENDPOINT`, `OPENAI_ACCOUNT_NAME`
 Recommended auth config (propagated to Terraform `TF_VAR_*` inputs):
 - Secrets: `AZURE_AD_B2C_CLIENT_ID`
 - Variables: `AUTH_DEV_BYPASS`, `AZURE_AD_B2C_TENANT` (falls back to `NEXT_PUBLIC_B2C_TENANT` if unset)
@@ -75,6 +76,7 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | Speech Services | `azurerm_cognitive_account.speech` | Speech-to-text for voice input |
 | Azure OpenAI Account *(optional)* | `azurerm_cognitive_account.openai` | Vision-capable OpenAI endpoint for hex color detection (`create_openai_resources=true`) |
 | Azure OpenAI Deployment *(optional)* | `azurerm_cognitive_deployment.openai_hex` | Model deployment used by `AZURE_OPENAI_DEPLOYMENT_HEX` when OpenAI resources are provisioned |
+| Azure OpenAI Batch Deployment *(optional)* | `azurerm_cognitive_deployment.openai_hex_batch` | Batch model deployment used by `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` when OpenAI resources are provisioned (`create_openai_resources=true`) and `openai_batch_deployment_name` is set and differs from `openai_deployment_name` |
 | Azure OpenAI Diagnostic Setting *(optional)* | `azurerm_monitor_diagnostic_setting.openai` | Sends OpenAI logs/metrics to Log Analytics (when OpenAI resources are provisioned) |
 | Azure Managed Redis | `azurerm_managed_redis.main` | In-memory cache for polish lists, catalog search, and reference data (Balanced_B0, 0.5 GB) |
 | Custom Domain | `azurerm_static_web_app_custom_domain.dev` | Maps `dev.swatchwatch.app` in dev and `swatchwatch.app` in prod |
@@ -102,14 +104,26 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | `openai_api_key` | `""` | Existing Azure OpenAI API key when reusing an external account (`create_openai_resources=false`) |
 | `openai_key_vault_secret_uri` | `""` | Existing Key Vault secret URI for Azure OpenAI key (preferred over `openai_api_key` to avoid passing key through Terraform) |
 | `openai_deployment_name` | `hex-detector` | Azure OpenAI deployment name exposed to Functions as `AZURE_OPENAI_DEPLOYMENT_HEX` |
+| `openai_batch_deployment_name` | `""` | Optional Azure OpenAI batch deployment name exposed as `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` (falls back to `openai_deployment_name` when empty). When `create_openai_resources=true` and this is set to a different value than `openai_deployment_name`, Terraform creates `azurerm_cognitive_deployment.openai_hex_batch`; when `create_openai_resources=false` (external OpenAI mode), this only affects the Functions app setting value. |
 | `openai_model_name` | `gpt-4o-mini` | Azure OpenAI model name for the hex detector deployment |
 | `openai_model_version` | `2024-07-18` | Azure OpenAI model version for the hex detector deployment |
 | `openai_deployment_capacity` | `100` | Provisioned throughput units for the OpenAI deployment (`GlobalStandard` SKU) |
+| `openai_batch_model_name` | `""` | Optional model name for the Terraform-managed batch deployment (falls back to `openai_model_name`). Only used when Terraform creates `azurerm_cognitive_deployment.openai_hex_batch` (`create_openai_resources=true` and `openai_batch_deployment_name` set and different from `openai_deployment_name`); has no effect for external OpenAI mode or the shared sync deployment. |
+| `openai_batch_model_version` | `""` | Optional model version for the Terraform-managed batch deployment (falls back to `openai_model_version`). Only used when Terraform creates `azurerm_cognitive_deployment.openai_hex_batch` (`create_openai_resources=true` and `openai_batch_deployment_name` set and different from `openai_deployment_name`); has no effect for external OpenAI mode or the shared sync deployment. |
+| `openai_batch_deployment_sku_name` | `GlobalBatch` | SKU name for Terraform-managed batch deployment |
+| `openai_batch_deployment_capacity` | `100` | Capacity for Terraform-managed batch deployment |
 | `is_automation` | `false` | Flag for CI/CD pipelines (skips deployer Key Vault access policy) |
 | `domain_name` | `swatchwatch.app` | Root domain name for the application (used for custom domains and CORS; prod allows both apex and `www`) |
 | `azure_ad_b2c_tenant` | `to-be-added` | Azure AD B2C/Entra External ID tenant name applied to Function App setting `AZURE_AD_B2C_TENANT` |
 | `azure_ad_b2c_client_id` | `to-be-added` | Azure AD B2C/Entra External ID app client ID applied to Function App setting `AZURE_AD_B2C_CLIENT_ID` |
 | `auth_dev_bypass` | `false` | Controls Function App setting `AUTH_DEV_BYPASS`; keep `false` to require JWT validation |
+| `ingestion_job_queue_name` | `ingestion-jobs` | Function App queue name for ingestion worker (`INGESTION_JOB_QUEUE_NAME`) |
+| `azure_openai_batch_api_version` | `2025-03-01-preview` | Function App setting `AZURE_OPENAI_BATCH_API_VERSION` for Files/Batch endpoints |
+| `azure_openai_batch_completion_window` | `24h` | Function App setting `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` sent during batch creation |
+| `hex_detection_batch_enabled` | `false` | Feature-flag Function App setting `HEX_DETECTION_BATCH_ENABLED` |
+| `hex_detection_batch_min_images` | `5` | Function App setting `HEX_DETECTION_BATCH_MIN_IMAGES` threshold before batch mode |
+| `ingestion_ai_batch_poll_schedule` | `0 */2 * * * *` | Function App setting `INGESTION_AI_BATCH_POLL_SCHEDULE` for timer polling |
+| `ingestion_ai_batch_max_poll_jobs` | `10` | Function App setting `INGESTION_AI_BATCH_MAX_POLL_JOBS` per poll run |
 
 **Sensitive variables** are stored in environment-specific tfvars files (gitignored), for example:
 - `terraform.dev.tfvars`
@@ -266,7 +280,7 @@ az functionapp config appsettings set \
 ```
 
 OpenAI settings are optional:
-- If `create_openai_resources=true`, Terraform provisions OpenAI and wires `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, and `AZURE_OPENAI_DEPLOYMENT_HEX`. Diagnostics flow to Log Analytics/Application Insights.
+- If `create_openai_resources=true`, Terraform provisions OpenAI and wires `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, `AZURE_OPENAI_DEPLOYMENT_HEX`, and `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH`. If `openai_batch_deployment_name` is set and differs from `openai_deployment_name`, Terraform also provisions `azurerm_cognitive_deployment.openai_hex_batch`; otherwise batch detection reuses the sync deployment. Diagnostics flow to Log Analytics/Application Insights.
 - If `create_openai_resources=false`, either:
   - set `openai_endpoint` + `openai_api_key`, or
   - set `openai_endpoint` + `openai_key_vault_secret_uri` (preferred).

@@ -1,5 +1,13 @@
 # 💅 SwatchWatch
 
+[![CI](https://github.com/mattmck/swatchwatch/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/mattmck/swatchwatch/actions/workflows/ci.yml)
+[![Deploy Dev](https://github.com/mattmck/swatchwatch/actions/workflows/deploy-dev.yml/badge.svg?branch=dev)](https://github.com/mattmck/swatchwatch/actions/workflows/deploy-dev.yml)
+[![Deploy Prod](https://github.com/mattmck/swatchwatch/actions/workflows/deploy-prod.yml/badge.svg?branch=main)](https://github.com/mattmck/swatchwatch/actions/workflows/deploy-prod.yml)
+![Last Commit](https://img.shields.io/github/last-commit/mattmck/swatchwatch)
+![Issues](https://img.shields.io/github/issues/mattmck/swatchwatch)
+![PRs](https://img.shields.io/github/issues-pr/mattmck/swatchwatch)
+![License](https://img.shields.io/github/license/mattmck/swatchwatch)
+
 Smart nail polish collection manager with voice input, color-based search, and cross-platform support.
 
 ## Architecture
@@ -34,6 +42,7 @@ Web / Mobile → Azure Functions REST API → Azure PostgreSQL Flexible Server
 Admin authorization note:
 - In production auth mode, admin access is determined by Entra token `roles` (expects `admin`).
 - The backend mirrors that role into `app_user.role` on authenticated requests.
+- External identities are linked to one local account by email via `user_external_identities`; admins can manually merge duplicates with `POST /api/users-admin/merge`. Apply the migration that creates `user_external_identities` first (`npm run migrate --workspace=packages/functions`) before relying on linkage or using `POST /api/users-admin/merge`.
 
 ### Deploy Targets
 
@@ -125,7 +134,7 @@ The web app is the most developed part of the project. Key pages:
 |-------|------|-------------|
 | `/` | `apps/web/src/app/(marketing)/page.tsx` | Marketing landing page |
 | `/dashboard` | `apps/web/src/app/(app)/dashboard/page.tsx` | Dashboard — stats cards, recent additions, finish breakdown |
-| `/admin` | `apps/web/src/app/(admin)/admin/page.tsx` | Unified admin console — tabs: Configuration (finish/harmony CRUD), Job Runs (reference-admin jobs), Admin Jobs (ingestion jobs) |
+| `/admin` | `apps/web/src/app/(admin)/admin/page.tsx` | Unified admin console — tabs: Configuration (finish/harmony CRUD), Job Runs (reference-admin jobs), Admin Jobs (ingestion jobs), User Management (duplicate-account repair + merges) |
 | `/admin/reference-data` | `apps/web/src/app/(admin)/admin/reference-data/page.tsx` | Legacy redirect → `/admin?tab=configuration` |
 | `/admin/jobs` | `apps/web/src/app/(app)/admin/jobs/page.tsx` | Legacy redirect → `/admin?tab=admin-jobs` |
 | `/polishes` | `apps/web/src/app/(app)/polishes/page.tsx` | Collection table — search/filter/sort with All/My Collection scope toggle and URL-persisted list state |
@@ -160,6 +169,13 @@ Functions require secrets defined in `packages/functions/local.settings.json`:
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint for voice parsing |
 | `AZURE_OPENAI_KEY` | Azure OpenAI key |
 | `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name for image-based hex detection |
+| `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` | Optional Azure OpenAI deployment name for batch image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`) |
+| `AZURE_OPENAI_BATCH_API_VERSION` | Optional API version used for Azure OpenAI Files/Batch endpoints (default `2025-03-01-preview`) |
+| `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` | Optional completion window sent during batch creation (default `24h`) |
+| `HEX_DETECTION_BATCH_ENABLED` | Feature flag for Azure OpenAI Batch API during Shopify image detection (default `false`) |
+| `HEX_DETECTION_BATCH_MIN_IMAGES` | Minimum record count before ingestion switches to batch detection (default `5`) |
+| `INGESTION_AI_BATCH_POLL_SCHEDULE` | NCRONTAB schedule for the timer poller that checks awaiting batch jobs (default `0 */2 * * * *`) |
+| `INGESTION_AI_BATCH_MAX_POLL_JOBS` | Max awaiting batch-backed ingestion jobs processed per poll run (default `10`) |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Optional App Insights connection string for custom function telemetry events/metrics |
 | `AZURE_AD_B2C_TENANT` | B2C tenant name |
 | `AZURE_AD_B2C_CLIENT_ID` | B2C app client ID |

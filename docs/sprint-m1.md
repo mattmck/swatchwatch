@@ -138,7 +138,7 @@ Prevent duplicate accounts when users sign in with multiple providers. One accou
 **Key work:**
 - `user_external_identities` table (migration)
 - Update auth middleware in `packages/functions/src/lib/auth.ts` for lookup → link → create flow
-- Admin `POST /api/admin/users/merge` endpoint for manual merges
+- Admin `POST /api/users-admin/merge` endpoint for manual merges
 - B2C policy must include email claim (document)
 
 **Checklist:**

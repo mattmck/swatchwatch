@@ -60,6 +60,36 @@ variable "openai_deployment_name" {
   default     = "hex-detector"
 }
 
+variable "openai_batch_deployment_name" {
+  description = "Optional Azure OpenAI deployment name used specifically for batch hex detection. When empty, openai_deployment_name is reused."
+  type        = string
+  default     = ""
+}
+
+variable "openai_batch_model_name" {
+  description = "Optional Azure OpenAI model name for the batch deployment. When empty, openai_model_name is reused."
+  type        = string
+  default     = ""
+}
+
+variable "openai_batch_model_version" {
+  description = "Optional Azure OpenAI model version for the batch deployment. When empty, openai_model_version is reused."
+  type        = string
+  default     = ""
+}
+
+variable "openai_batch_deployment_sku_name" {
+  description = "SKU name for the batch hex detection deployment"
+  type        = string
+  default     = "GlobalBatch"
+}
+
+variable "openai_batch_deployment_capacity" {
+  description = "Deployment capacity units for the batch hex detection deployment"
+  type        = number
+  default     = 100
+}
+
 variable "create_openai_resources" {
   description = "Create Azure OpenAI account/deployment resources. Set false when quota is unavailable and provide openai_endpoint/openai_api_key manually if needed."
   type        = bool
@@ -137,4 +167,46 @@ variable "auth_dev_bypass" {
   description = "Enable dev auth bypass in Functions (`Bearer dev:<userId>` tokens)"
   type        = bool
   default     = false
+}
+
+variable "ingestion_job_queue_name" {
+  description = "Azure Storage Queue name for ingestion jobs"
+  type        = string
+  default     = "ingestion-jobs"
+}
+
+variable "azure_openai_batch_api_version" {
+  description = "Azure OpenAI API version for Files/Batch endpoints"
+  type        = string
+  default     = "2025-03-01-preview"
+}
+
+variable "azure_openai_batch_completion_window" {
+  description = "Completion window sent to Azure OpenAI batch creation"
+  type        = string
+  default     = "24h"
+}
+
+variable "hex_detection_batch_enabled" {
+  description = "Enable Azure OpenAI Batch API for Shopify image-based hex detection"
+  type        = bool
+  default     = false
+}
+
+variable "hex_detection_batch_min_images" {
+  description = "Minimum candidate image count before switching ingestion to batch mode"
+  type        = number
+  default     = 5
+}
+
+variable "ingestion_ai_batch_poll_schedule" {
+  description = "NCRONTAB schedule for ingestion-ai-batch-poller"
+  type        = string
+  default     = "0 */2 * * * *"
+}
+
+variable "ingestion_ai_batch_max_poll_jobs" {
+  description = "Maximum awaiting batch jobs processed per poller run"
+  type        = number
+  default     = 10
 }
