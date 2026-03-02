@@ -1610,8 +1610,8 @@ export async function materializeHoloTacoRecords(
 }
 
 /**
- * Applies detected hex (and optionally finishes) from completed batch output
- * back to the shade rows identified during materialization.
+ * Applies detected hex from completed batch output back to the shade rows
+ * identified during materialization, optionally overwriting existing detected_hex.
  *
  * Called by the batch completion worker after a batch job reaches "completed" status.
  */
