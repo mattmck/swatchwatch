@@ -99,6 +99,22 @@ async function mergeUsers(
         [sourceUserId, targetUserId]
       );
 
+      // Migrate inventory_event rows from source duplicate items to target items
+      // before deleting the source rows, so cascade-delete does not erase history.
+      await client.query(
+        `UPDATE inventory_event ie
+         SET inventory_item_id = target.inventory_item_id
+         FROM user_inventory_item source
+         JOIN user_inventory_item target
+           ON target.user_id = $2
+          AND target.shade_id IS NOT NULL
+          AND target.shade_id = source.shade_id
+         WHERE source.user_id = $1
+           AND source.shade_id IS NOT NULL
+           AND ie.inventory_item_id = source.inventory_item_id`,
+        [sourceUserId, targetUserId]
+      );
+
       await client.query(
         `DELETE FROM user_inventory_item source
          USING user_inventory_item target
