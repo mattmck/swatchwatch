@@ -33,34 +33,54 @@ async function getClient(): Promise<CacheClient | null> {
   const nextClient = createClient({
     url: redisUrl,
     password: redisKey,
+    socket: {
+      connectTimeout: 5000,
+      reconnectStrategy: (retries: number) => {
+        if (retries >= 5) {
+          return false;
+        }
+        return Math.min((retries + 1) * 200, 2000);
+      },
+    },
   });
 
   nextClient.on("error", (error) => {
     trackException(error, { component: "redis", operation: "client.error" });
   });
 
-  connectPromise = nextClient
-    .connect()
-    .then(() => {
+  connectPromise = (async () => {
+    try {
+      await nextClient.connect();
       client = nextClient;
       trackEvent("cache.redis.connected");
       return nextClient;
-    })
-    .catch((error) => {
+    } catch (error) {
       trackException(error, { component: "redis", operation: "connect" });
       return null;
-    })
-    .finally(() => {
+    } finally {
       connectPromise = null;
-    });
+    }
+  })();
 
   return connectPromise;
 }
 
+/**
+ * Returns a short deterministic hash for cache key payloads.
+ *
+ * @param input - Raw string payload to hash.
+ * @returns First 24 hex chars of a SHA-256 digest.
+ */
 export function hashCacheKey(input: string): string {
   return createHash("sha256").update(input).digest("hex").slice(0, 24);
 }
 
+/**
+ * Reads and parses a JSON value from Redis.
+ *
+ * @param key - Fully-qualified Redis key (for example `catalog:search:h:<hash>`).
+ * @returns Parsed value, or `null` when key is missing, cache is disabled, or read/parse fails.
+ */
 export async function cacheGetJson<T>(key: string): Promise<T | null> {
   const redis = await getClient();
   if (!redis) return null;
@@ -81,11 +101,23 @@ export async function cacheGetJson<T>(key: string): Promise<T | null> {
   }
 }
 
+/**
+ * Serializes a value as JSON and stores it in Redis with a TTL.
+ *
+ * @param key - Fully-qualified Redis key to upsert.
+ * @param value - JSON-serializable payload to cache.
+ * @param ttlSeconds - TTL in seconds; values `<= 0` skip writing.
+ * @returns Resolves when write is complete (or skipped). Errors are tracked and not rethrown.
+ */
 export async function cacheSetJson(
   key: string,
   value: unknown,
   ttlSeconds: number
 ): Promise<void> {
+  if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) {
+    return;
+  }
+
   const redis = await getClient();
   if (!redis) return;
 
@@ -102,6 +134,12 @@ export async function cacheSetJson(
   }
 }
 
+/**
+ * Deletes a single Redis key.
+ *
+ * @param key - Fully-qualified Redis key to delete.
+ * @returns Resolves when deletion completes. Errors are tracked and not rethrown.
+ */
 export async function cacheDelete(key: string): Promise<void> {
   const redis = await getClient();
   if (!redis) return;
@@ -117,6 +155,12 @@ export async function cacheDelete(key: string): Promise<void> {
   }
 }
 
+/**
+ * Deletes all keys that match a prefix using Redis SCAN.
+ *
+ * @param prefix - Key prefix without wildcard (for example `polishes:list:u:42:`).
+ * @returns Resolves when scan/delete work completes. Errors are tracked and not rethrown.
+ */
 export async function cacheDeleteByPrefix(prefix: string): Promise<void> {
   const redis = await getClient();
   if (!redis) return;

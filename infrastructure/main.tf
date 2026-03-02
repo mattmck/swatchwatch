@@ -317,7 +317,7 @@ resource "azurerm_linux_function_app" "main" {
     AUTH_DEV_BYPASS             = var.auth_dev_bypass ? "true" : "false"
     CORS_ALLOWED_ORIGINS        = join(",", local.function_cors_allowed_origins)
     REDIS_URL                   = "rediss://${azurerm_managed_redis.main.hostname}:10000"
-    REDIS_KEY                   = azurerm_managed_redis.main.default_database[0].primary_access_key
+    REDIS_KEY                   = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.redis_key.versionless_id})"
   }
 
   lifecycle {
@@ -375,6 +375,17 @@ resource "azurerm_managed_redis" "main" {
   default_database {
     access_keys_authentication_enabled = true
   }
+}
+
+resource "azurerm_key_vault_secret" "redis_key" {
+  name         = "redis-key"
+  value        = azurerm_managed_redis.main.default_database[0].primary_access_key
+  key_vault_id = azurerm_key_vault.main.id
+
+  depends_on = [
+    azurerm_key_vault_access_policy.deployer,
+    azurerm_key_vault_access_policy.github_actions,
+  ]
 }
 
 # ── Azure Speech Services ──────────────────────────────────────

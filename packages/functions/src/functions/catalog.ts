@@ -31,7 +31,13 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
   try {
     const cachedSearch = await cacheGetJson<CatalogSearchResponse>(searchCacheKey);
     if (cachedSearch) {
-      return { status: 200, jsonBody: cachedSearch };
+      return {
+        status: 200,
+        jsonBody: {
+          ...cachedSearch,
+          query: q,
+        },
+      };
     }
 
     // Search shades by name similarity + brand name similarity,

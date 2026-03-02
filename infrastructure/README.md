@@ -60,6 +60,7 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 |----------|-------------------|---------|
 | Resource Group | `azurerm_resource_group.main` | Container for all resources |
 | Key Vault | `azurerm_key_vault.main` | Secure secrets storage (PG password, API keys) |
+| Key Vault Secret (Redis key) | `azurerm_key_vault_secret.redis_key` | Stores Redis access key for Function App Key Vault reference |
 | PostgreSQL Flexible Server | `azurerm_postgresql_flexible_server.main` | PostgreSQL 16 with pg_trgm + pgvector |
 | PostgreSQL Database | `azurerm_postgresql_flexible_server_database.main` | `swatchwatch` database |
 | Storage Account | `azurerm_storage_account.main` | Blob storage for images |
