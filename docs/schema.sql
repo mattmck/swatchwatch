@@ -221,6 +221,14 @@ CREATE TABLE user_external_identities (
 CREATE INDEX idx_user_external_identities_user_id
   ON user_external_identities(user_id);
 
+CREATE TABLE app_settings (
+  setting_key TEXT PRIMARY KEY,
+  setting_value JSONB NOT NULL,
+  description TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_by INTEGER REFERENCES app_user(user_id) ON DELETE SET NULL
+);
+
 CREATE TABLE finish_type (
   finish_type_id SMALLSERIAL PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,

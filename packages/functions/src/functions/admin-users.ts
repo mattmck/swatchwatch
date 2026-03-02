@@ -184,6 +184,13 @@ async function mergeUsers(
       );
 
       await client.query(
+        `UPDATE app_settings
+         SET updated_by = NULL
+         WHERE updated_by = $1`,
+        [sourceUserId]
+      );
+
+      await client.query(
         `DELETE FROM app_user
          WHERE user_id = $1`,
         [sourceUserId]
