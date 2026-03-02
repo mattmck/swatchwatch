@@ -10,9 +10,9 @@ import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
 import { buildMsalConfig } from "@/lib/msal-config";
 import { cn } from "@/lib/utils";
 import { AdminJobsContent } from "@/app/(app)/admin/jobs/page";
+import { UsersTab } from "@/app/(admin)/admin/reference-data/components/users-tab";
 import { ConfigTab } from "./reference-data/components/config-tab";
 import { JobsTab } from "./reference-data/components/jobs-tab";
-import { UsersTab } from "./reference-data/components/users-tab";
 
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
 const HAS_B2C_CONFIG = buildMsalConfig() !== null;

@@ -228,6 +228,11 @@ async function listUsers(
   const limit = parseListLimit(new URL(request.url).searchParams.get("limit"));
 
   try {
+    const countResult = await query<{ total: string }>(
+      `SELECT COUNT(*)::text AS total
+       FROM app_user`
+    );
+
     const usersResult = await query<{
       userId: number;
       role: string | null;
@@ -311,7 +316,7 @@ async function listUsers(
       status: 200,
       jsonBody: {
         users,
-        total: users.length,
+        total: Number.parseInt(countResult.rows[0]?.total ?? "0", 10) || 0,
       } satisfies AdminUserListResponse,
     };
   } catch (error) {

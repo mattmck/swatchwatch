@@ -15,12 +15,168 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+const NUMERIC_ID_PATTERN = /^\d+$/;
+
 function formatDateTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
 }
 
+/**
+ * Filter admin users by free-text query across key identity fields.
+ *
+ * @param users Full user list returned from the admin API.
+ * @param query Free-text query entered in the search input.
+ * @returns Filtered subset preserving original order.
+ */
+export function filterUsersByQuery(users: AdminUserListItem[], query: string): AdminUserListItem[] {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return users;
+  return users.filter((user) => {
+    const haystack = [
+      String(user.userId),
+      user.email ?? "",
+      user.handle ?? "",
+      user.role,
+      user.externalId ?? "",
+      user.linkedExternalIds.join(" "),
+    ]
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(normalized);
+  });
+}
+
+/**
+ * Parse and validate source/target user IDs for account merges.
+ *
+ * @param sourceRaw Raw source ID input value.
+ * @param targetRaw Raw target ID input value.
+ * @returns Parsed IDs or a user-facing validation error message.
+ */
+function parseMergeIds(
+  sourceRaw: string,
+  targetRaw: string
+): { source: number; target: number } | { error: string } {
+  const sourceValue = sourceRaw.trim();
+  const targetValue = targetRaw.trim();
+
+  if (!NUMERIC_ID_PATTERN.test(sourceValue) || !NUMERIC_ID_PATTERN.test(targetValue)) {
+    return { error: "Source and target user IDs must be numeric values." };
+  }
+
+  const source = Number.parseInt(sourceValue, 10);
+  const target = Number.parseInt(targetValue, 10);
+
+  if (source <= 0 || target <= 0) {
+    return { error: "Source and target user IDs must be positive numbers." };
+  }
+
+  if (source === target) {
+    return { error: "Source and target user IDs must be different." };
+  }
+
+  return { source, target };
+}
+
+/**
+ * Fetch users and update the component state holders.
+ *
+ * @param params.listUsers API request function.
+ * @param params.isMounted Guard to avoid state updates after unmount.
+ * @param params.setIsLoading Setter for loading state.
+ * @param params.setLoadError Setter for load error message.
+ * @param params.setUsers Setter for users collection.
+ */
+export async function loadUsersState(params: {
+  listUsers: typeof listAdminUsers;
+  isMounted: () => boolean;
+  setIsLoading: (loading: boolean) => void;
+  setLoadError: (message: string | null) => void;
+  setUsers: (users: AdminUserListItem[]) => void;
+}): Promise<void> {
+  const { listUsers: listUsersFn, isMounted, setIsLoading, setLoadError, setUsers } = params;
+
+  try {
+    if (isMounted()) {
+      setIsLoading(true);
+      setLoadError(null);
+    }
+    const response = await listUsersFn({ limit: 500 });
+    if (isMounted()) {
+      setUsers(response.users);
+    }
+  } catch (error) {
+    if (isMounted()) {
+      setLoadError(error instanceof Error ? error.message : "Failed to load users");
+    }
+  } finally {
+    if (isMounted()) {
+      setIsLoading(false);
+    }
+  }
+}
+
+/**
+ * Validate, confirm, and execute an admin merge operation.
+ *
+ * @param params.sourceUserId Raw source ID input.
+ * @param params.targetUserId Raw target ID input.
+ * @param params.confirm Confirmation gate callback (e.g. window.confirm).
+ * @param params.mergeUsers API call to execute merge.
+ * @param params.refreshUsers Callback to refresh the users table.
+ * @param params.setMergeError Setter for merge error state.
+ * @param params.setMergePending Setter for in-flight merge state.
+ * @param params.setLastMergeResult Setter for latest merge result.
+ * @param params.setSourceUserId Setter for source input field.
+ * @param params.setTargetUserId Setter for target input field.
+ */
+export async function handleMergeAction(params: {
+  sourceUserId: string;
+  targetUserId: string;
+  confirm: () => boolean;
+  mergeUsers: typeof mergeAdminUsers;
+  refreshUsers: () => Promise<void>;
+  setMergeError: (message: string | null) => void;
+  setMergePending: (pending: boolean) => void;
+  setLastMergeResult: (result: AdminUserMergeResponse | null) => void;
+  setSourceUserId: (value: string) => void;
+  setTargetUserId: (value: string) => void;
+}): Promise<void> {
+  const parsed = parseMergeIds(params.sourceUserId, params.targetUserId);
+  if ("error" in parsed) {
+    params.setMergeError(parsed.error);
+    return;
+  }
+
+  if (!params.confirm()) {
+    return;
+  }
+
+  try {
+    params.setMergePending(true);
+    params.setMergeError(null);
+    const response = await params.mergeUsers({
+      sourceUserId: parsed.source,
+      targetUserId: parsed.target,
+    });
+    params.setLastMergeResult(response);
+    params.setSourceUserId("");
+    params.setTargetUserId("");
+    await params.refreshUsers();
+  } catch (error) {
+    params.setMergeError(error instanceof Error ? error.message : "Failed to merge users");
+  } finally {
+    params.setMergePending(false);
+  }
+}
+
+/**
+ * Admin UI for user account management and duplicate-account merges.
+ *
+ * @returns A tab panel with user search, merge controls, and merge status feedback.
+ */
 export function UsersTab() {
   const mountedRef = useRef(true);
   const [users, setUsers] = useState<AdminUserListItem[]>([]);
@@ -33,25 +189,17 @@ export function UsersTab() {
   const [mergePending, setMergePending] = useState(false);
   const [lastMergeResult, setLastMergeResult] = useState<AdminUserMergeResponse | null>(null);
 
+  /**
+   * Load users from the admin API and synchronize loading/error state.
+   */
   const loadUsers = useCallback(async () => {
-    try {
-      if (mountedRef.current) {
-        setIsLoading(true);
-        setLoadError(null);
-      }
-      const response = await listAdminUsers({ limit: 500 });
-      if (mountedRef.current) {
-        setUsers(response.users);
-      }
-    } catch (error) {
-      if (mountedRef.current) {
-        setLoadError(error instanceof Error ? error.message : "Failed to load users");
-      }
-    } finally {
-      if (mountedRef.current) {
-        setIsLoading(false);
-      }
-    }
+    await loadUsersState({
+      listUsers: listAdminUsers,
+      isMounted: () => mountedRef.current,
+      setIsLoading,
+      setLoadError,
+      setUsers,
+    });
   }, []);
 
   useEffect(() => {
@@ -62,51 +210,35 @@ export function UsersTab() {
     };
   }, [loadUsers]);
 
-  const filteredUsers = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    if (!normalized) return users;
-    return users.filter((user) => {
-      const haystack = [
-        String(user.userId),
-        user.email ?? "",
-        user.handle ?? "",
-        user.role,
-        user.externalId ?? "",
-        user.linkedExternalIds.join(" "),
-      ]
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(normalized);
-    });
-  }, [query, users]);
+  /**
+   * Memoized filtered users derived from the active query.
+   */
+  const filteredUsersMemo = useMemo(() => filterUsersByQuery(users, query), [query, users]);
 
+  /**
+   * Validate and run a user merge after explicit admin confirmation.
+   */
   async function handleMerge() {
-    const source = Number.parseInt(sourceUserId, 10);
-    const target = Number.parseInt(targetUserId, 10);
-    if (!Number.isFinite(source) || !Number.isFinite(target) || source <= 0 || target <= 0) {
-      setMergeError("Source and target user IDs must be positive numbers.");
-      return;
-    }
-
-    try {
-      setMergePending(true);
-      setMergeError(null);
-      const response = await mergeAdminUsers({ sourceUserId: source, targetUserId: target });
-      setLastMergeResult(response);
-      setSourceUserId("");
-      setTargetUserId("");
-      await loadUsers();
-    } catch (error) {
-      setMergeError(error instanceof Error ? error.message : "Failed to merge users");
-    } finally {
-      setMergePending(false);
-    }
+    await handleMergeAction({
+      sourceUserId,
+      targetUserId,
+      confirm: () => window.confirm(
+        `Merge user ${sourceUserId.trim() || "?"} into ${targetUserId.trim() || "?"}? This cannot be undone.`
+      ),
+      mergeUsers: mergeAdminUsers,
+      refreshUsers: loadUsers,
+      setMergeError,
+      setMergePending,
+      setLastMergeResult,
+      setSourceUserId,
+      setTargetUserId,
+    });
   }
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Badge variant="outline">{filteredUsers.length} users</Badge>
+        <Badge variant="outline">{filteredUsersMemo.length} users</Badge>
         <Button variant="outline" onClick={() => void loadUsers()} disabled={isLoading}>
           {isLoading ? "Refreshing…" : "Refresh"}
         </Button>
@@ -164,7 +296,7 @@ export function UsersTab() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {!isLoading && filteredUsers.length === 0 && (
+            {!isLoading && filteredUsersMemo.length === 0 && (
               <TableRow>
                 <TableCell colSpan={8} className="text-center text-muted-foreground">
                   No users found.
@@ -178,7 +310,7 @@ export function UsersTab() {
                 </TableCell>
               </TableRow>
             )}
-            {filteredUsers.map((user) => (
+            {filteredUsersMemo.map((user) => (
               <TableRow key={user.userId}>
                 <TableCell>
                   <div className="font-medium">#{user.userId}</div>
