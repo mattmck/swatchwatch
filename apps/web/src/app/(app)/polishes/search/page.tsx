@@ -758,7 +758,7 @@ function ColorSearchPageContent() {
 
                   <div className="flex h-[292px] flex-col items-center justify-between rounded-xl border bg-muted/35 px-2 py-3">
                     <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Light</span>
-                    <div className="flex h-[220px] items-center">
+                    <div className="flex items-center justify-center">
                       <input
                         type="range"
                         min={0}
@@ -766,10 +766,12 @@ function ColorSearchPageContent() {
                         step={0.01}
                         value={lightness}
                         onChange={(e) => setLightness(parseFloat(e.target.value))}
-                        className="h-2 w-[220px] -rotate-90 accent-primary"
+                        className="h-[200px] w-2 accent-primary"
                         aria-label="Lightness"
                         style={{
-                          background: `linear-gradient(to right, #000, ${hslToHex({ h: selectedHsl?.h ?? 0, s: selectedHsl?.s ?? 1, l: 0.5 })}, #fff)`,
+                          writingMode: "vertical-lr",
+                          direction: "rtl",
+                          background: `linear-gradient(to top, #000, ${hslToHex({ h: selectedHsl?.h ?? 0, s: selectedHsl?.s ?? 1, l: 0.5 })}, #fff)`,
                           borderRadius: "9999px",
                         }}
                       />
