@@ -75,7 +75,7 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | Speech Services | `azurerm_cognitive_account.speech` | Speech-to-text for voice input |
 | Azure OpenAI Account *(optional)* | `azurerm_cognitive_account.openai` | Vision-capable OpenAI endpoint for hex color detection (`create_openai_resources=true`) |
 | Azure OpenAI Deployment *(optional)* | `azurerm_cognitive_deployment.openai_hex` | Model deployment used by `AZURE_OPENAI_DEPLOYMENT_HEX` when OpenAI resources are provisioned |
-| Azure OpenAI Batch Deployment *(optional)* | `azurerm_cognitive_deployment.openai_hex_batch` | Batch model deployment used by `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` when `openai_batch_deployment_name` is set and differs from `openai_deployment_name` |
+| Azure OpenAI Batch Deployment *(optional)* | `azurerm_cognitive_deployment.openai_hex_batch` | Batch model deployment used by `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` when OpenAI resources are provisioned (`create_openai_resources=true`) and `openai_batch_deployment_name` is set and differs from `openai_deployment_name` |
 | Azure OpenAI Diagnostic Setting *(optional)* | `azurerm_monitor_diagnostic_setting.openai` | Sends OpenAI logs/metrics to Log Analytics (when OpenAI resources are provisioned) |
 | Azure Managed Redis | `azurerm_managed_redis.main` | In-memory cache for polish lists, catalog search, and reference data (Balanced_B0, 0.5 GB) |
 | Custom Domain | `azurerm_static_web_app_custom_domain.dev` | Maps `dev.swatchwatch.app` in dev and `swatchwatch.app` in prod |
