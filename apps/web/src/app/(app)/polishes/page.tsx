@@ -237,17 +237,18 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
 
   // Keep local state in sync with browser URL changes (back/forward).
   useEffect(() => {
-    const nextSearch = searchParams.get("q") ?? "";
-    const nextScope = parseResultsScope(searchParams.get("scope"), searchParams.get("all"));
-    const nextToneFilter = parseToneFilter(searchParams.get("tone"));
-    const nextFinishFilter = parseFinishFilter(searchParams.get("finish"));
+    const urlParams = new URLSearchParams(searchParamsString);
+    const nextSearch = urlParams.get("q") ?? "";
+    const nextScope = parseResultsScope(urlParams.get("scope"), urlParams.get("all"));
+    const nextToneFilter = parseToneFilter(urlParams.get("tone"));
+    const nextFinishFilter = parseFinishFilter(urlParams.get("finish"));
     const nextAvailabilityFilter = parseAvailabilityFilter(
-      searchParams.get("availability") ?? searchParams.get("avail")
+      urlParams.get("availability") ?? urlParams.get("avail")
     );
-    const nextSortKey = parseSortKey(searchParams.get("sort"));
-    const nextSortDirection = parseSortDirection(searchParams.get("dir"));
-    const nextPage = parsePositiveInt(searchParams.get("page"), 1);
-    const nextPageSize = parsePageSize(searchParams.get("pageSize"));
+    const nextSortKey = parseSortKey(urlParams.get("sort"));
+    const nextSortDirection = parseSortDirection(urlParams.get("dir"));
+    const nextPage = parsePositiveInt(urlParams.get("page"), 1);
+    const nextPageSize = parsePageSize(urlParams.get("pageSize"));
 
     const filtersChangedFromUrl =
       search !== nextSearch ||
@@ -277,20 +278,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     setSortDirection(nextSortDirection);
     setPage(nextPage);
     setPageSize(nextPageSize);
-  }, [
-    availabilityFilter,
-    debouncedSearch,
-    finishFilter,
-    page,
-    pageSize,
-    scope,
-    search,
-    searchParams,
-    searchParamsString,
-    sortDirection,
-    sortKey,
-    toneFilter,
-  ]);
+  }, [searchParamsString]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
