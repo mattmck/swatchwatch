@@ -5,22 +5,41 @@ set -euo pipefail
 # Run from the infrastructure/ directory after a successful `terraform apply`.
 #
 # Usage:
-#   ./gh-secrets.sh              # print values only
-#   ./gh-secrets.sh --apply      # set secrets via `gh secret set`
+#   ./gh-secrets.sh                      # print values only
+#   ./gh-secrets.sh --apply              # set secrets via `gh secret set`
+#   TFVARS_FILE=terraform.prod.tfvars ./gh-secrets.sh --apply
 
 BOLD='\033[1m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-# Resolve the GitHub repo from terraform.tfvars or fall back to `gh` CLI
-if [ -f terraform.tfvars ]; then
-  GITHUB_REPO=$(grep 'github_repository' terraform.tfvars | sed 's/.*= *"\(.*\)"/\1/')
+# Resolve the tfvars file:
+# 1) explicit TFVARS_FILE env var
+# 2) legacy terraform.tfvars
+# 3) single terraform.<env>.tfvars file in this directory
+TFVARS_FILE_CANDIDATE="${TFVARS_FILE:-}"
+if [ -z "$TFVARS_FILE_CANDIDATE" ] && [ -f terraform.tfvars ]; then
+  TFVARS_FILE_CANDIDATE="terraform.tfvars"
+fi
+
+if [ -z "$TFVARS_FILE_CANDIDATE" ]; then
+  mapfile -t TFVARS_MATCHES < <(find . -maxdepth 1 -type f -name 'terraform.*.tfvars' -print | sed 's|^\./||' | sort)
+  if [ "${#TFVARS_MATCHES[@]}" -eq 1 ]; then
+    TFVARS_FILE_CANDIDATE="${TFVARS_MATCHES[0]}"
+  elif [ "${#TFVARS_MATCHES[@]}" -gt 1 ]; then
+    echo -e "${YELLOW}Multiple terraform.<env>.tfvars files found. Set TFVARS_FILE to pick one.${NC}"
+  fi
+fi
+
+# Resolve the GitHub repo from tfvars or fall back to `gh` CLI
+if [ -n "$TFVARS_FILE_CANDIDATE" ] && [ -f "$TFVARS_FILE_CANDIDATE" ]; then
+  GITHUB_REPO=$(grep 'github_repository' "$TFVARS_FILE_CANDIDATE" | sed 's/.*= *"\(.*\)"/\1/')
 fi
 GITHUB_REPO=${GITHUB_REPO:-$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)}
 
 if [ -z "$GITHUB_REPO" ]; then
-  echo -e "${YELLOW}Could not detect GitHub repo. Pass it via terraform.tfvars or run from a git repo with 'gh' configured.${NC}"
+  echo -e "${YELLOW}Could not detect GitHub repo. Set TFVARS_FILE or run from a git repo with 'gh' configured.${NC}"
   exit 1
 fi
 

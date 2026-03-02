@@ -1,0 +1,8 @@
+# Copy to terraform.prod.tfvars and fill in sensitive values.
+subscription_id         = "your-azure-subscription-id"
+environment             = "prod"
+location                = "centralus"
+github_repository       = "your-github-username/swatchwatch"
+pg_admin_username       = "pgadmin"
+pg_admin_password       = "<set-a-secure-password>"
+create_openai_resources = true

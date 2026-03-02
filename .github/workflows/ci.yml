@@ -24,6 +24,43 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Tailwind CSS native binaries
+        run: |
+          # npm ci in workspace monorepos can skip platform-specific optional
+          # deps for transitive dependencies. Download directly from npm registry.
+          install_native_pkg() {
+            local PKG_NAME=$1   # e.g. lightningcss-linux-x64-gnu or @tailwindcss/oxide-linux-x64-gnu
+            local VERSION=$2
+            local TARGET_DIR=$3 # e.g. node_modules/lightningcss-linux-x64-gnu
+            local FALLBACK=$4   # e.g. node_modules/lightningcss (for .node fallback)
+            local PKG_BASENAME="${PKG_NAME##*/}"  # strip scope for tgz filename
+
+            echo "::group::Installing ${PKG_NAME}@${VERSION}"
+            curl -sL "https://registry.npmjs.org/${PKG_NAME}/-/${PKG_BASENAME}-${VERSION}.tgz" \
+              | tar xz -C /tmp
+            rm -rf "${TARGET_DIR}"
+            mkdir -p "${TARGET_DIR}"
+            cp /tmp/package/* "${TARGET_DIR}/"
+            if [ -n "${FALLBACK}" ]; then
+              cp /tmp/package/*.node "${FALLBACK}/"
+            fi
+            rm -rf /tmp/package
+            ls -la "${TARGET_DIR}/"
+            echo "::endgroup::"
+          }
+
+          CSS_VERSION=$(node -p "require('./node_modules/lightningcss/package.json').version")
+          OXIDE_VERSION=$(node -p "require('./node_modules/@tailwindcss/oxide/package.json').version")
+
+          install_native_pkg "lightningcss-linux-x64-gnu" "${CSS_VERSION}" \
+            "node_modules/lightningcss-linux-x64-gnu" "node_modules/lightningcss"
+
+          install_native_pkg "@tailwindcss/oxide-linux-x64-gnu" "${OXIDE_VERSION}" \
+            "node_modules/@tailwindcss/oxide-linux-x64-gnu" "node_modules/@tailwindcss/oxide"
+
+          node -e "require('lightningcss')" && echo "✓ lightningcss loads OK"
+          node -e "require('@tailwindcss/oxide')" && echo "✓ @tailwindcss/oxide loads OK"
+
       - name: Build shared types
         run: npm run build --workspace=packages/shared
 
@@ -48,6 +85,41 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Install Tailwind CSS native binaries
+        run: |
+          install_native_pkg() {
+            local PKG_NAME=$1
+            local VERSION=$2
+            local TARGET_DIR=$3
+            local FALLBACK=$4
+            local PKG_BASENAME="${PKG_NAME##*/}"  # strip scope for tgz filename
+
+            echo "::group::Installing ${PKG_NAME}@${VERSION}"
+            curl -sL "https://registry.npmjs.org/${PKG_NAME}/-/${PKG_BASENAME}-${VERSION}.tgz" \
+              | tar xz -C /tmp
+            rm -rf "${TARGET_DIR}"
+            mkdir -p "${TARGET_DIR}"
+            cp /tmp/package/* "${TARGET_DIR}/"
+            if [ -n "${FALLBACK}" ]; then
+              cp /tmp/package/*.node "${FALLBACK}/"
+            fi
+            rm -rf /tmp/package
+            ls -la "${TARGET_DIR}/"
+            echo "::endgroup::"
+          }
+
+          CSS_VERSION=$(node -p "require('./node_modules/lightningcss/package.json').version")
+          OXIDE_VERSION=$(node -p "require('./node_modules/@tailwindcss/oxide/package.json').version")
+
+          install_native_pkg "lightningcss-linux-x64-gnu" "${CSS_VERSION}" \
+            "node_modules/lightningcss-linux-x64-gnu" "node_modules/lightningcss"
+
+          install_native_pkg "@tailwindcss/oxide-linux-x64-gnu" "${OXIDE_VERSION}" \
+            "node_modules/@tailwindcss/oxide-linux-x64-gnu" "node_modules/@tailwindcss/oxide"
+
+          node -e "require('lightningcss')" && echo "✓ lightningcss loads OK"
+          node -e "require('@tailwindcss/oxide')" && echo "✓ @tailwindcss/oxide loads OK"
 
       - name: Build shared types
         run: npm run build --workspace=packages/shared

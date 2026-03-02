@@ -6,6 +6,13 @@ import { withCors } from "../lib/http";
 import { toImageProxyUrl } from "../lib/image-proxy";
 import { detectHexWithAzureOpenAI } from "../lib/ai-color-detection";
 import { readBlobFromStorageUrl } from "../lib/blob-storage";
+import {
+  cacheDelete,
+  cacheDeleteByPrefix,
+  cacheGetJson,
+  cacheSetJson,
+  hashCacheKey,
+} from "../lib/cache";
 import { trackEvent, trackException } from "../lib/telemetry";
 import { PoolClient } from "pg";
 
@@ -128,11 +135,95 @@ async function findOrCreateShade(
 
 /** Whitelist of allowed sort columns to prevent SQL injection */
 const SORT_COLUMNS: Record<string, string> = {
+  status: "CASE WHEN COALESCE(ui.quantity, 0) > 0 THEN 0 ELSE 1 END",
   name: "s.shade_name_canonical",
   brand: "b.name_canonical",
+  finish: "COALESCE(s.finish, '')",
+  collection: "COALESCE(s.collection, '')",
   createdAt: "COALESCE(ui.created_at, s.created_at)",
   rating: "ui.rating",
 };
+
+const POLISH_LIST_CACHE_TTL_SECONDS = 45;
+const POLISH_DETAIL_CACHE_TTL_SECONDS = 90;
+
+function getRequestOrigin(requestUrl: string): string {
+  try {
+    return new URL(requestUrl).origin.toLowerCase();
+  } catch {
+    return "unknown";
+  }
+}
+
+function normalizeFilterValue(value?: string | null): string {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+function parseTagsFilter(tagsParam?: string | null): string[] {
+  if (!tagsParam) {
+    return [];
+  }
+  return tagsParam
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter((tag): tag is string => tag.length > 0);
+}
+
+function canonicalizeTagsForCache(tags: string[]): string {
+  if (tags.length === 0) {
+    return "";
+  }
+  return Array.from(new Set(tags))
+    .sort((a, b) => a.localeCompare(b))
+    .join(",");
+}
+
+function buildPolishDetailCacheKey(userId: number, shadeId: number, requestOrigin: string): string {
+  const originHash = hashCacheKey(requestOrigin.toLowerCase());
+  return `polishes:detail:u:${userId}:id:${shadeId}:o:${originHash}`;
+}
+
+function buildPolishListCacheKey(
+  userId: number,
+  requestOrigin: string,
+  payload: {
+    search: string;
+    brand: string;
+    finish: string;
+    scope: string;
+    availability: string;
+    tags: string;
+    sortBy: string;
+    sortOrder: "ASC" | "DESC";
+    page: number;
+    pageSize: number;
+  }
+): string {
+  const originHash = hashCacheKey(requestOrigin.toLowerCase());
+  const hash = hashCacheKey(JSON.stringify(payload));
+  return `polishes:list:u:${userId}:o:${originHash}:h:${hash}`;
+}
+
+async function invalidatePolishCachesForUser(userId: number, shadeIds: number[] = []): Promise<void> {
+  await Promise.all([
+    cacheDeleteByPrefix(`polishes:list:u:${userId}:`),
+    ...shadeIds.map((shadeId) => cacheDeleteByPrefix(`polishes:detail:u:${userId}:id:${shadeId}:`)),
+  ]);
+}
+
+async function invalidateGlobalPolishCaches(): Promise<void> {
+  await Promise.all([
+    cacheDeleteByPrefix("polishes:list:u:"),
+    cacheDeleteByPrefix("polishes:detail:u:"),
+  ]);
+}
+
+async function invalidateCatalogCaches(shadeIds: number[] = []): Promise<void> {
+  await Promise.all([
+    cacheDeleteByPrefix("catalog:search:"),
+    ...shadeIds.map((shadeId) => cacheDelete(`catalog:shade:id:${shadeId}`)),
+  ]);
+}
 
 function withReadableSwatchUrl<T extends { swatchImageUrl?: string | null; sourceImageUrls?: string[] }>(
   row: T,
@@ -206,6 +297,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
   context.log("GET /api/polishes");
 
   const id = request.params.id;
+  const requestOrigin = getRequestOrigin(request.url);
 
   // Single polish by shade id
   if (id) {
@@ -213,6 +305,11 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       const shadeId = parseInt(id, 10);
       if (Number.isNaN(shadeId) || shadeId <= 0) {
         return { status: 400, jsonBody: { error: "Invalid polish id" } };
+      }
+      const detailCacheKey = buildPolishDetailCacheKey(userId, shadeId, requestOrigin);
+      const cachedPolish = await cacheGetJson<Record<string, unknown>>(detailCacheKey);
+      if (cachedPolish) {
+        return { status: 200, jsonBody: cachedPolish };
       }
 
       const result = await query(
@@ -243,15 +340,19 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
         )
       );
 
+      const responseBody = withReadableSwatchUrl(
+        {
+          ...result.rows[0],
+          sourceImageUrls: sourceImageUrls.length > 0 ? sourceImageUrls : undefined,
+        },
+        request.url
+      );
+
+      await cacheSetJson(detailCacheKey, responseBody, POLISH_DETAIL_CACHE_TTL_SECONDS);
+
       return {
         status: 200,
-        jsonBody: withReadableSwatchUrl(
-          {
-            ...result.rows[0],
-            sourceImageUrls: sourceImageUrls.length > 0 ? sourceImageUrls : undefined,
-          },
-          request.url
-        ),
+        jsonBody: responseBody,
       };
     } catch (error: any) {
       context.error("Error fetching polish:", error);
@@ -266,18 +367,45 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
     const search = url.searchParams.get("search");
     const brandFilter = url.searchParams.get("brand");
     const finishFilter = url.searchParams.get("finish");
+    const scope = url.searchParams.get("scope");
+    const availability = url.searchParams.get("availability") || url.searchParams.get("avail");
     const tagsParam = url.searchParams.get("tags");
-    const sortBy = url.searchParams.get("sortBy") || "createdAt";
+    const sortBy = url.searchParams.get("sortBy")?.trim() || "createdAt";
     const sortOrder = url.searchParams.get("sortOrder")?.toUpperCase() === "ASC" ? "ASC" : "DESC";
     const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
     const pageSize = Math.min(250, Math.max(1, parseInt(url.searchParams.get("pageSize") || "50", 10)));
     const offset = (page - 1) * pageSize;
+    const normalizedSearch = normalizeFilterValue(search);
+    const normalizedBrandFilter = normalizeFilterValue(brandFilter);
+    const normalizedFinishFilter = normalizeFinish(finishFilter) ?? "";
+    const normalizedScope = normalizeFilterValue(scope);
+    const normalizedAvailability = normalizeFilterValue(availability);
+    const parsedTags = parseTagsFilter(tagsParam);
+    const listCacheKey = buildPolishListCacheKey(userId, requestOrigin, {
+      search: normalizedSearch,
+      brand: normalizedBrandFilter,
+      finish: normalizedFinishFilter,
+      scope: normalizedScope,
+      availability: normalizedAvailability,
+      tags: canonicalizeTagsForCache(parsedTags),
+      sortBy,
+      sortOrder,
+      page,
+      pageSize,
+    });
+    const cachedList = await cacheGetJson<PolishListResponse>(listCacheKey);
+    if (cachedList) {
+      return {
+        status: 200,
+        jsonBody: cachedList,
+      };
+    }
 
     const conditions: string[] = [];
     const params: Array<number | string | string[]> = [userId];
     let paramIndex = 2;
 
-    if (search) {
+    if (normalizedSearch) {
       conditions.push(
         `(b.name_canonical ILIKE $${paramIndex}
           OR s.shade_name_canonical ILIKE $${paramIndex}
@@ -289,20 +417,19 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
             WHERE tag ILIKE $${paramIndex}
           ))`
       );
-      params.push(`%${search}%`);
+      params.push(`%${normalizedSearch}%`);
       paramIndex++;
     }
 
-    if (brandFilter) {
+    if (normalizedBrandFilter) {
       conditions.push(`b.name_canonical = $${paramIndex}`);
-      params.push(brandFilter);
+      params.push(normalizedBrandFilter);
       paramIndex++;
     }
 
-    if (finishFilter) {
-      const normalizedFilter = normalizeFinish(finishFilter);
+    if (normalizedFinishFilter) {
       const filterValues =
-        normalizedFilter === "creme" ? ["creme", "cream"] : normalizedFilter ? [normalizedFilter] : [];
+        normalizedFinishFilter === "creme" ? ["creme", "cream"] : [normalizedFinishFilter];
       if (filterValues.length > 0) {
         conditions.push(`LOWER(s.finish) = ANY($${paramIndex}::text[])`);
         params.push(filterValues);
@@ -310,13 +437,20 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       }
     }
 
-    if (tagsParam) {
-      const tags = tagsParam.split(",").map((t) => t.trim()).filter(Boolean);
-      if (tags.length > 0) {
-        conditions.push(`ui.tags @> $${paramIndex}`);
-        params.push(tags);
-        paramIndex++;
-      }
+    if (normalizedScope === "collection") {
+      conditions.push(`COALESCE(ui.quantity, 0) > 0`);
+    }
+
+    if (normalizedAvailability === "owned") {
+      conditions.push(`COALESCE(ui.quantity, 0) > 0`);
+    } else if (normalizedAvailability === "wishlist") {
+      conditions.push(`COALESCE(ui.quantity, 0) <= 0`);
+    }
+
+    if (parsedTags.length > 0) {
+      conditions.push(`ui.tags @> $${paramIndex}`);
+      params.push(parsedTags);
+      paramIndex++;
     }
 
     const sortColumn = SORT_COLUMNS[sortBy] || SORT_COLUMNS.createdAt;
@@ -341,14 +475,18 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       params
     );
 
+    const responseBody = {
+      polishes: mapReadableSwatchUrls(result.rows, request.url),
+      total: parseInt(countResult.rows[0].total, 10),
+      page,
+      pageSize,
+    } as PolishListResponse;
+
+    await cacheSetJson(listCacheKey, responseBody, POLISH_LIST_CACHE_TTL_SECONDS);
+
     return {
       status: 200,
-      jsonBody: {
-        polishes: mapReadableSwatchUrls(result.rows, request.url),
-        total: parseInt(countResult.rows[0].total, 10),
-        page,
-        pageSize,
-      } as PolishListResponse,
+      jsonBody: responseBody,
     };
   } catch (error: any) {
     context.error("Error fetching polishes:", error);
@@ -446,6 +584,11 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
     if (created.rows.length === 0) {
       return { status: 500, jsonBody: { error: "Created polish not found" } };
     }
+
+    await Promise.all([
+      invalidatePolishCachesForUser(userId, [shadeId]),
+      invalidateCatalogCaches([shadeId]),
+    ]);
 
     trackEvent("polish.created", {
       shadeId,
@@ -552,6 +695,11 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
       return { status: 500, jsonBody: { error: "Failed to load polish after update" } };
     }
 
+    await Promise.all([
+      invalidatePolishCachesForUser(userId, [shadeId, updatedShadeId]),
+      invalidateCatalogCaches([updatedShadeId]),
+    ]);
+
     return { status: 200, jsonBody: withReadableSwatchUrl(fullResult.rows[0], request.url) };
   } catch (error: any) {
     context.error("Error updating polish:", error);
@@ -584,6 +732,8 @@ async function deletePolish(request: HttpRequest, context: InvocationContext, us
     if (result.rows.length === 0) {
       return { status: 404, jsonBody: { error: "Polish not found for user" } };
     }
+
+    await invalidatePolishCachesForUser(userId, [shadeId]);
 
     return { status: 200, jsonBody: { message: "Polish deleted successfully", id: result.rows[0].id } };
   } catch (error: any) {
@@ -697,6 +847,11 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
        WHERE shade_id = $1`,
       [shadeId, result.hex, mergedFinishes.length ? mergedFinishes : null]
     );
+
+    await Promise.all([
+      invalidateGlobalPolishCaches(),
+      invalidateCatalogCaches([shadeId]),
+    ]);
 
     return {
       status: 200,

@@ -22,7 +22,7 @@ local.settings.json
 *.tfstate
 *.tfstate.backup
 terraform.tfvars
-tfplan
+tfplan*
 # .terraform.lock.hcl is intentionally committed — it pins provider versions for CI
 crash.log
 override.tf

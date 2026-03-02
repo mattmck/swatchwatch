@@ -9,6 +9,7 @@ Azure Functions v4 HTTP API (Node 20, TypeScript).
 npm run setup            # Install workspace dependencies first
 npm run dev:infra        # Start local Postgres + Azurite
 npm run dev:functions    # TypeScript watch + func host on http://localhost:7071
+npm run test --workspace=packages/functions  # Run Functions unit tests
 
 # Or for debugging (VS Code):
 # Press F5 → "Attach to Node Functions" (builds, watches, starts with --inspect on port 9229)
@@ -59,6 +60,8 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `POST` | `/api/reference-admin/finish-normalizations` | `adminFinishNormalizationsCollectionHandler` | `admin-reference.ts` | ✅ Working (admin-only) |
 | `PUT` | `/api/reference-admin/finish-normalizations/{id}` | `adminFinishNormalizationsItemHandler` | `admin-reference.ts` | ✅ Working (admin-only) |
 | `DELETE` | `/api/reference-admin/finish-normalizations/{id}` | `adminFinishNormalizationsItemHandler` | `admin-reference.ts` | ✅ Working (admin-only) |
+| `GET` | `/api/admin/users` | `listUsers` | `admin-users.ts` | ✅ Working (admin-only) |
+| `POST` | `/api/admin/users/merge` | `mergeUsers` | `admin-users.ts` | ✅ Working (admin-only) |
 | `POST` | `/api/voice` | `processVoiceInput` | `voice.ts` | ⬜ Stub |
 | `GET` | `/api/images/{id}` | `images` | `images.ts` | ✅ Working |
 
@@ -66,7 +69,8 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 
 All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpRequest, context: InvocationContext)`.
 
-`GET /api/polishes` now returns the entire canonical shade catalog joined with the requesting user's inventory rows. `inventoryItemId` and user-facing fields are undefined when the user has not added that shade yet, but catalog metadata (brand, finish, color hexes, swatch) is still returned so the UI can show "not owned" entries. `GET /api/polishes/{id}` looks up a shade by `shade_id` and includes `sourceImageUrls` (all source images associated with that shade's swatches) for the detail page.
+`GET /api/polishes` returns a paginated canonical shade catalog joined with the requesting user's inventory rows. `inventoryItemId` and user-facing fields are undefined when the user has not added that shade yet, but catalog metadata (brand, finish, color hexes, swatch) is still returned so the UI can show "not owned" entries. Supported query params include `search`, `brand`, `finish`, `scope` (`all|collection`), `availability` (`all|owned|wishlist`), `tags`, `sortBy` (`status|brand|name|finish|collection|createdAt|rating`), `sortOrder`, `page`, and `pageSize`. `GET /api/polishes/{id}` looks up a shade by `shade_id` and includes `sourceImageUrls` (all source images associated with that shade's swatches) for the detail page.
+When `REDIS_URL` + `REDIS_KEY` are configured, list/detail reads are served through a Redis read-through cache (short TTL), and create/update/delete/recalc writes invalidate related user and catalog cache keys.
 For private blob storage, the API rewrites blob URLs to `/api/images/{id}` so image bytes are served through Functions (no public container access or client-side SAS required).
 `POST /api/polishes/{id}/recalc-hex` is admin-only, fetches the latest swatch image for the shade, runs Azure OpenAI hex detection, updates `detected_hex`, and returns a 200 with the detected hex and confidence (or a 422 if no image is available for detection). Vendor context is derived from shade metadata (for example `finish`) so the endpoint does not depend on source-specific external IDs.
 Image uploads now enforce a shared validation policy (`maxSizeBytes=5MB`; allowed mime types: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif`, `image/gif`) used by capture-frame data URLs and source-image ingestion. Source image bytes are auto-oriented and metadata-stripped with `sharp` before checksum generation and blob upload.
@@ -76,6 +80,9 @@ Reference endpoints:
 - Admin CRUD endpoints under `/api/reference-admin/finishes` and `/api/reference-admin/harmonies` manage reference data and update audit columns (`updated_at`, `updated_by_user_id`) on writes.
 - Admin CRUD endpoints under `/api/reference-admin/finish-normalizations` manage aliases and misspellings used to normalize AI/vendor finish strings into canonical `finish_type.name` values.
 - `GET /api/reference-admin/jobs` lists recent ingestion jobs with pagination (`page`, `pageSize`) and optional `status` filter (`queued|running|succeeded|failed|cancelled`), joined with `data_source` for source metadata.
+- `GET /api/admin/users` lists users with linked identities plus quick counts (inventory, submissions, capture sessions) for account-repair workflows.
+- `POST /api/admin/users/merge` manually merges one local user account into another (inventory, capture sessions, submissions, click events, and linked external identities), intended for repairing duplicate accounts created before identity linking was enabled.
+- Public reference reads and catalog lookups also use Redis read-through caching when configured; admin reference writes clear those cache entries.
 
 Adding a new reference category (example: `texture_type`):
 1. Start with a migration that creates the DB table + audit columns, and seed rows using `ON CONFLICT DO NOTHING`.
@@ -171,6 +178,7 @@ npm run migrate:create -- my-migration-name   # Create a new migration file
 | `016_add_shade_detected_finishes.sql` | Adds detected_finishes array column to shade for AI-extracted finish tags |
 | `017_add_admin_support.sql` | Adds `finish_type` audit columns and creates/seeds `harmony_type` for admin-managed reference data |
 | `018_add_finish_normalizations.sql` | Adds editable `finish_normalization` mappings (source alias → canonical finish name) for AI/vendor finish parsing |
+| `019_add_user_external_identities.sql` | Adds `user_external_identities` and backfills existing `app_user.external_id` values to support multi-provider identity linking |
 
 node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_URL` is the preferred connection method; it also falls back to individual `PG*` env vars (`PGHOST`, `PGPORT`, etc.).
 
@@ -223,11 +231,14 @@ Key variables:
 | `AZURE_STORAGE_CONNECTION` | Connection string for uploading source images to Azure Blob Storage. When unset (for local dev or bring-up), ingestion falls back to storing the original source image URLs so swatch images still appear. |
 | `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name dedicated to image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT` when unset). |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Optional custom telemetry sink for `trackEvent` / `trackMetric` / `trackException` in `src/lib/telemetry.ts`. When unset, telemetry calls are no-ops. |
+| `REDIS_URL` | Redis endpoint URL for API read-through caching (for example `rediss://<host>:10000`). |
+| `REDIS_KEY` | Redis access key paired with `REDIS_URL`. When either Redis var is missing, cache helpers become no-ops and requests fall back to Postgres. |
 
 JWT validation note:
 - In production mode (`AUTH_DEV_BYPASS=false`), auth discovery first tries Entra External ID (`ciamlogin.com`) metadata for `AZURE_AD_B2C_TENANT`, then falls back to legacy Azure AD B2C (`b2clogin.com`) metadata.
 - Accepted token audiences are `AZURE_AD_B2C_CLIENT_ID` and `api://AZURE_AD_B2C_CLIENT_ID` to support exposed-API scopes like `access_as_user`.
-- User records are still upserted in `app_user`; `role` is synchronized from Entra token roles on each authenticated request.
+- Auth links identities by `external_id` first, then by email (`one app_user per email`) using `user_external_identities`.
+- `role` is synchronized from Entra token roles on each authenticated request.
 
 Dev deploy note:
 `deploy-dev.yml` configures Function App auth settings from GitHub `dev` environment values on each deploy.

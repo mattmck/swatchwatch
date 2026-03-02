@@ -768,6 +768,8 @@ function ColorSearchPageContent() {
                         onChange={(e) => setLightness(parseFloat(e.target.value))}
                         className="h-[200px] w-2 accent-primary"
                         aria-label="Lightness"
+                        aria-orientation="vertical"
+                        {...({ orient: "vertical" } as object)}
                         style={{
                           writingMode: "vertical-lr",
                           WebkitAppearance: "slider-vertical",

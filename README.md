@@ -1,5 +1,13 @@
 # 💅 SwatchWatch
 
+[![CI](https://github.com/mattmck/swatchwatch/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/mattmck/swatchwatch/actions/workflows/ci.yml)
+[![Deploy Dev](https://github.com/mattmck/swatchwatch/actions/workflows/deploy-dev.yml/badge.svg?branch=dev)](https://github.com/mattmck/swatchwatch/actions/workflows/deploy-dev.yml)
+[![Deploy Prod](https://github.com/mattmck/swatchwatch/actions/workflows/deploy-prod.yml/badge.svg?branch=main)](https://github.com/mattmck/swatchwatch/actions/workflows/deploy-prod.yml)
+![Last Commit](https://img.shields.io/github/last-commit/mattmck/swatchwatch)
+![Issues](https://img.shields.io/github/issues/mattmck/swatchwatch)
+![PRs](https://img.shields.io/github/issues-pr/mattmck/swatchwatch)
+![License](https://img.shields.io/github/license/mattmck/swatchwatch)
+
 Smart nail polish collection manager with voice input, color-based search, and cross-platform support.
 
 ## Architecture
@@ -34,6 +42,7 @@ Web / Mobile → Azure Functions REST API → Azure PostgreSQL Flexible Server
 Admin authorization note:
 - In production auth mode, admin access is determined by Entra token `roles` (expects `admin`).
 - The backend mirrors that role into `app_user.role` on authenticated requests.
+- External identities are linked to one local account by email via `user_external_identities`; admins can manually merge duplicates with `POST /api/admin/users/merge`. Apply the migration that creates `user_external_identities` first (`npm run migrate --workspace=packages/functions`) before relying on linkage or using `POST /api/admin/users/merge`.
 
 ### Deploy Targets
 
@@ -84,7 +93,7 @@ npm run dev:mobile       # → mobile via Expo
 | `npm run build:web` | Build shared types + Next.js production build |
 | `npm run build:functions` | Build shared types + TypeScript compile for functions |
 | `npm run lint` | ESLint across all workspaces |
-| `npm run test` | Run workspace tests where present |
+| `npm run test` | Run workspace tests where present (includes Functions unit tests; builds shared + functions first) |
 | `npm run typecheck` | `tsc --noEmit` across all workspaces |
 
 `dev`, `dev:web`, `dev:functions`, and `dev:shared` run a dependency preflight and print a clear
@@ -96,19 +105,26 @@ npm run dev:mobile       # → mobile via Expo
 
 | Workflow | Purpose | Trigger |
 |----------|---------|---------|
-| `.github/workflows/deploy-dev.yml` | Deploy web + function app code to dev, then run API smoke tests | Push to `dev`, manual dispatch |
+| `.github/workflows/deploy.yml` | Reusable app deploy workflow (web + functions + smoke tests) | Called by env-specific workflows, manual dispatch |
+| `.github/workflows/deploy-dev.yml` | Deploy app stack to dev | Push to `dev`, manual dispatch |
+| `.github/workflows/deploy-prod.yml` | Deploy app stack to prod (runs infra first when `infrastructure/**` changed) | Push to `main`, manual dispatch |
+| `.github/workflows/deploy-infra.yml` | Reusable Terraform deploy workflow | Called by env-specific workflows, manual dispatch |
 | `.github/workflows/deploy-infra-dev.yml` | Deploy Terraform infrastructure to dev | Push to `dev` when `infrastructure/**` changes, manual dispatch |
+| `.github/workflows/deploy-infra-prod.yml` | Deploy Terraform infrastructure to prod (infra-only) | Manual dispatch |
 
-Dev auth deploy note:
-`deploy-dev.yml` reads auth config from the GitHub `dev` environment.
+Claude assistant workflows (`.github/workflows/claude.yml`, `.github/workflows/claude-code-review.yml`) are advisory and configured as non-blocking, so quota/credit failures emit warnings without failing the overall run.
+
+App deploy workflow requirements (environment-scoped in GitHub `dev` / `prod` environments):
 - Variables: `AUTH_DEV_BYPASS`, `NEXT_PUBLIC_AUTH_DEV_BYPASS`, `NEXT_PUBLIC_B2C_TENANT`, `NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY`, `NEXT_PUBLIC_B2C_API_SCOPE` (optional)
-- Secrets: `AZURE_AD_B2C_CLIENT_ID`, `NEXT_PUBLIC_B2C_CLIENT_ID`
+- Secrets: `AZURE_AD_B2C_CLIENT_ID`, `NEXT_PUBLIC_B2C_CLIENT_ID`, `AZURE_STATIC_WEB_APPS_API_TOKEN`, `DATABASE_URL`
 
-Infrastructure deploy workflow requirements:
+Infrastructure deploy workflow requirements (environment-scoped in GitHub `dev` / `prod` environments):
 - GitHub secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`
-- GitHub variables: `TFSTATE_RESOURCE_GROUP`, `TFSTATE_STORAGE_ACCOUNT`, `TFSTATE_CONTAINER` (recommended: `tfstate`), `TFSTATE_BLOB_NAME` (recommended: `dev.terraform.tfstate`)
+- GitHub variables: `TFSTATE_RESOURCE_GROUP`, `TFSTATE_STORAGE_ACCOUNT`, `TFSTATE_CONTAINER` (recommended: `tfstate`), `TFSTATE_BLOB_NAME` (recommended: `<environment>.terraform.tfstate`)
+- OpenAI mode variable: `CREATE_OPENAI_RESOURCES` (`true` to have Terraform manage OpenAI account/deployment; default in workflow is `true`)
+- Optional OpenAI variables (used when `CREATE_OPENAI_RESOURCES=false` for external/shared accounts): `OPENAI_ENDPOINT`, `OPENAI_ACCOUNT_NAME`, `OPENAI_DEPLOYMENT_NAME`
 - Recommended for auth settings drift prevention in Terraform deploys: secret `AZURE_AD_B2C_CLIENT_ID`, variables `AUTH_DEV_BYPASS` and `AZURE_AD_B2C_TENANT` (or `NEXT_PUBLIC_B2C_TENANT`)
-The workflow reads `pg-password` from Azure Key Vault at runtime and sets `TF_VAR_pg_admin_password` automatically.
+The workflow reads `pg-password` from Azure Key Vault at runtime and sets `TF_VAR_pg_admin_password` automatically. In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), it resolves the account name and injects `TF_VAR_openai_api_key` from Azure Cognitive Services keys.
 
 ## Project Structure — Web App
 
@@ -118,7 +134,7 @@ The web app is the most developed part of the project. Key pages:
 |-------|------|-------------|
 | `/` | `apps/web/src/app/(marketing)/page.tsx` | Marketing landing page |
 | `/dashboard` | `apps/web/src/app/(app)/dashboard/page.tsx` | Dashboard — stats cards, recent additions, finish breakdown |
-| `/admin` | `apps/web/src/app/(admin)/admin/page.tsx` | Unified admin console — tabs: Configuration (finish/harmony CRUD), Job Runs (reference-admin jobs), Admin Jobs (ingestion jobs) |
+| `/admin` | `apps/web/src/app/(admin)/admin/page.tsx` | Unified admin console — tabs: Configuration (finish/harmony CRUD), Job Runs (reference-admin jobs), Admin Jobs (ingestion jobs), User Management (duplicate-account repair + merges) |
 | `/admin/reference-data` | `apps/web/src/app/(admin)/admin/reference-data/page.tsx` | Legacy redirect → `/admin?tab=configuration` |
 | `/admin/jobs` | `apps/web/src/app/(app)/admin/jobs/page.tsx` | Legacy redirect → `/admin?tab=admin-jobs` |
 | `/polishes` | `apps/web/src/app/(app)/polishes/page.tsx` | Collection table — search/filter/sort with All/My Collection scope toggle and URL-persisted list state |

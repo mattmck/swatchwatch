@@ -13,10 +13,14 @@ cd infrastructure
 
 The interactive script handles everything:
 - Prerequisites check (Azure CLI, Terraform)
-- Configuration prompts (environment, region, GitHub repo)
+- Configuration prompts (environment, region, GitHub repo, remote state backend)
 - Secure password input (stored in Key Vault)
-- Terraform init/plan/apply
+- Terraform backend init/reconfigure + plan/apply
 - Outputs GitHub Secrets for CI/CD
+
+Bootstrap writes environment-specific variable and plan files:
+- `terraform.<environment>.tfvars` (gitignored)
+- `tfplan.<environment>` (gitignored)
 
 
 **Seed data:** The dev database is seeded with realistic polish/brand/shade data via `packages/functions/migrations/003_seed_dev_data.sql`.
@@ -24,23 +28,31 @@ The interactive script handles everything:
 
 **Time:** ~5-10 minutes (Postgres provisioning is slow)
 
+Bootstrap expects an existing Terraform state resource group + storage account and creates the state container automatically if needed. By default, it suggests `swatchwatch-tfstate-rg` and `<environment>.terraform.tfstate`.
+
 See full bootstrap guide at end of this file.
 
-## GitHub Infra Deployment (Dev)
+## GitHub Infra Deployment (Dev + Prod)
 
-Terraform infrastructure deploys in CI via `.github/workflows/deploy-infra-dev.yml`.
+Terraform infrastructure deploys in CI via:
+- `.github/workflows/deploy-infra.yml` (reusable)
+- `.github/workflows/deploy-infra-dev.yml` (caller, `dev`)
+- `.github/workflows/deploy-infra-prod.yml` (caller, `prod`, manual infra-only)
+- `.github/workflows/deploy-prod.yml` (on `main`, runs infra first when `infrastructure/**` changed, then app deploy)
 
 State is stored in Azure Blob Storage using Terraform's native `azurerm` backend (configured in `main.tf` with `backend "azurerm" {}`).
 
-Required GitHub Actions configuration:
+Required GitHub Actions configuration (per GitHub environment):
 - Secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`
-- Variables: `TFSTATE_RESOURCE_GROUP`, `TFSTATE_STORAGE_ACCOUNT`, `TFSTATE_CONTAINER` (recommended: `tfstate`), `TFSTATE_BLOB_NAME` (recommended: `dev.terraform.tfstate`)
+- Variables: `TFSTATE_RESOURCE_GROUP`, `TFSTATE_STORAGE_ACCOUNT`, `TFSTATE_CONTAINER` (recommended: `tfstate`), `TFSTATE_BLOB_NAME` (recommended: `<environment>.terraform.tfstate`)
+- OpenAI mode variable: `CREATE_OPENAI_RESOURCES` (`true` to let Terraform manage OpenAI account/deployment; default in workflow is `true`)
+- Optional variables for shared/external OpenAI accounts (used when `CREATE_OPENAI_RESOURCES=false`): `OPENAI_ENDPOINT`, `OPENAI_ACCOUNT_NAME`, `OPENAI_DEPLOYMENT_NAME`
 Recommended auth config (propagated to Terraform `TF_VAR_*` inputs):
 - Secrets: `AZURE_AD_B2C_CLIENT_ID`
 - Variables: `AUTH_DEV_BYPASS`, `AZURE_AD_B2C_TENANT` (falls back to `NEXT_PUBLIC_B2C_TENANT` if unset)
 The workflow creates the state container automatically if it does not exist.
 The workflow reads the `pg-password` secret from Key Vault and exports it as `TF_VAR_pg_admin_password` for Terraform.
-Dev infra deploys are pinned to the shared experiment OpenAI endpoint (`swatchwatch-experiment-resource`) with deployment `gpt-4o-mini`, and the workflow loads that resource key into `TF_VAR_openai_api_key` before Terraform runs.
+In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves the OpenAI account name from `OPENAI_ACCOUNT_NAME`, Terraform output, or endpoint hostname and loads that account key into `TF_VAR_openai_api_key` before Terraform runs.
 
 ## Resources Provisioned
 
@@ -48,6 +60,7 @@ Dev infra deploys are pinned to the shared experiment OpenAI endpoint (`swatchwa
 |----------|-------------------|---------|
 | Resource Group | `azurerm_resource_group.main` | Container for all resources |
 | Key Vault | `azurerm_key_vault.main` | Secure secrets storage (PG password, API keys) |
+| Key Vault Secret (Redis key) | `azurerm_key_vault_secret.redis_key` | Stores Redis access key for Function App Key Vault reference |
 | PostgreSQL Flexible Server | `azurerm_postgresql_flexible_server.main` | PostgreSQL 16 with pg_trgm + pgvector |
 | PostgreSQL Database | `azurerm_postgresql_flexible_server_database.main` | `swatchwatch` database |
 | Storage Account | `azurerm_storage_account.main` | Blob storage for images |
@@ -64,7 +77,7 @@ Dev infra deploys are pinned to the shared experiment OpenAI endpoint (`swatchwa
 | Azure OpenAI Deployment *(optional)* | `azurerm_cognitive_deployment.openai_hex` | Model deployment used by `AZURE_OPENAI_DEPLOYMENT_HEX` when OpenAI resources are provisioned |
 | Azure OpenAI Diagnostic Setting *(optional)* | `azurerm_monitor_diagnostic_setting.openai` | Sends OpenAI logs/metrics to Log Analytics (when OpenAI resources are provisioned) |
 | Azure Managed Redis | `azurerm_managed_redis.main` | In-memory cache for polish lists, catalog search, and reference data (Balanced_B0, 0.5 GB) |
-| Custom Domain | `azurerm_static_web_app_custom_domain.dev` | Maps `dev.swatchwatch.app` to the Static Web App |
+| Custom Domain | `azurerm_static_web_app_custom_domain.dev` | Maps `dev.swatchwatch.app` in dev and `swatchwatch.app` in prod |
 | Azure AD Application | `azuread_application.github_actions` | GitHub Actions OIDC identity |
 | Service Principal | `azuread_service_principal.github_actions` | Grants GitHub Actions access |
 | Federated Credential | `azuread_application_federated_identity_credential.github_actions` | Passwordless OIDC trust |
@@ -91,14 +104,16 @@ Dev infra deploys are pinned to the shared experiment OpenAI endpoint (`swatchwa
 | `openai_deployment_name` | `hex-detector` | Azure OpenAI deployment name exposed to Functions as `AZURE_OPENAI_DEPLOYMENT_HEX` |
 | `openai_model_name` | `gpt-4o-mini` | Azure OpenAI model name for the hex detector deployment |
 | `openai_model_version` | `2024-07-18` | Azure OpenAI model version for the hex detector deployment |
-| `openai_deployment_capacity` | `10` | Provisioned throughput units for the OpenAI deployment |
+| `openai_deployment_capacity` | `100` | Provisioned throughput units for the OpenAI deployment (`GlobalStandard` SKU) |
 | `is_automation` | `false` | Flag for CI/CD pipelines (skips deployer Key Vault access policy) |
-| `domain_name` | `swatchwatch.app` | Root domain name for the application (used for custom domains and CORS) |
+| `domain_name` | `swatchwatch.app` | Root domain name for the application (used for custom domains and CORS; prod allows both apex and `www`) |
 | `azure_ad_b2c_tenant` | `to-be-added` | Azure AD B2C/Entra External ID tenant name applied to Function App setting `AZURE_AD_B2C_TENANT` |
 | `azure_ad_b2c_client_id` | `to-be-added` | Azure AD B2C/Entra External ID app client ID applied to Function App setting `AZURE_AD_B2C_CLIENT_ID` |
 | `auth_dev_bypass` | `false` | Controls Function App setting `AUTH_DEV_BYPASS`; keep `false` to require JWT validation |
 
-**Sensitive variables** are stored in `terraform.tfvars` (gitignored) and created by `bootstrap.sh`.
+**Sensitive variables** are stored in environment-specific tfvars files (gitignored), for example:
+- `terraform.dev.tfvars`
+- `terraform.prod.tfvars`
 
 ## Security Features
 
@@ -157,8 +172,8 @@ If you prefer manual control:
 ```bash
 cd infrastructure
 
-# Create terraform.tfvars
-cat > terraform.tfvars <<EOF
+# Create an environment-specific tfvars file
+cat > terraform.dev.tfvars <<EOF
 subscription_id   = "your-azure-subscription-id"
 environment       = "dev"
 location          = "centralus"
@@ -168,18 +183,41 @@ pg_admin_password = "your-secure-password"
 create_openai_resources = false
 EOF
 
-# Initialize
-terraform init
+# Initialize remote backend (example values)
+TFSTATE_RESOURCE_GROUP="swatchwatch-dev-rg"
+TFSTATE_STORAGE_ACCOUNT="swatchwatchdevj5jij0be"
+TFSTATE_CONTAINER="tfstate"
+TFSTATE_BLOB_NAME="dev.terraform.tfstate"
+
+TFSTATE_ACCESS_KEY=$(az storage account keys list \
+  --resource-group "$TFSTATE_RESOURCE_GROUP" \
+  --account-name "$TFSTATE_STORAGE_ACCOUNT" \
+  --query '[0].value' -o tsv)
+
+az storage container create \
+  --name "$TFSTATE_CONTAINER" \
+  --account-name "$TFSTATE_STORAGE_ACCOUNT" \
+  --account-key "$TFSTATE_ACCESS_KEY" \
+  --output none
+
+terraform init -reconfigure \
+  -backend-config="resource_group_name=$TFSTATE_RESOURCE_GROUP" \
+  -backend-config="storage_account_name=$TFSTATE_STORAGE_ACCOUNT" \
+  -backend-config="container_name=$TFSTATE_CONTAINER" \
+  -backend-config="key=$TFSTATE_BLOB_NAME" \
+  -backend-config="access_key=$TFSTATE_ACCESS_KEY"
 
 # Plan
-terraform plan -out=tfplan
+terraform plan -var-file=terraform.dev.tfvars -out=tfplan.dev
 
 # Apply
-terraform apply tfplan
+terraform apply tfplan.dev
 
 # View outputs
 terraform output
 ```
+
+If you have a legacy `terraform.tfvars`, rename or remove it to avoid hidden overrides.
 
 ## Post-Deployment Steps
 
@@ -237,7 +275,7 @@ OpenAI settings are optional:
 
 ```bash
 cd infrastructure
-terraform destroy
+terraform destroy -var-file=terraform.dev.tfvars
 ```
 
 **Warning:** This permanently deletes all data. Key Vault secrets are soft-deleted (recoverable for 7 days).
