@@ -55,6 +55,36 @@ export interface BatchOutputItem {
   error: string | null;
 }
 
+function parseEnvFlag(value: string | undefined, defaultValue: boolean): boolean {
+  if (value === undefined || value === null) {
+    return defaultValue;
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  if (
+    normalized === "true" ||
+    normalized === "1" ||
+    normalized === "yes" ||
+    normalized === "y" ||
+    normalized === "on"
+  ) {
+    return true;
+  }
+
+  if (
+    normalized === "false" ||
+    normalized === "0" ||
+    normalized === "no" ||
+    normalized === "n" ||
+    normalized === "off"
+  ) {
+    return false;
+  }
+
+  return defaultValue;
+}
+
 /**
  * Returns whether the Azure OpenAI Batch API path is enabled.
  *
@@ -63,7 +93,7 @@ export interface BatchOutputItem {
  * worker restart.  Do NOT cache this at module load time.
  */
 export function isBatchEnabled(): boolean {
-  return process.env.AZURE_OPENAI_BATCH_ENABLED?.trim().toLowerCase() === "true";
+  return parseEnvFlag(process.env.AZURE_OPENAI_BATCH_ENABLED, false);
 }
 
 /**

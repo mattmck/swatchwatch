@@ -124,7 +124,7 @@ Holo Taco run options:
 
 #### Batch AI detection (large jobs)
 
-When `AZURE_OPENAI_BATCH_ENABLED=true` and a job produces **5 or more** image candidates, hex
+When `AZURE_OPENAI_BATCH_ENABLED` is set to a truthy value (`true`/`1`/`yes`/`on`) and a job produces **5 or more** image candidates, hex
 detection switches from per-image synchronous calls to the Azure OpenAI Batch API:
 
 1. **Submit phase** — images are uploaded + all requests are submitted as a single batch file.
@@ -247,7 +247,7 @@ Key variables:
 | `SOURCE_IMAGE_CONTAINER` | Optional blob container override for source-ingested images. Defaults to `source-images`. |
 | `AZURE_STORAGE_CONNECTION` | Connection string for uploading source images to Azure Blob Storage. When unset (for local dev or bring-up), ingestion falls back to storing the original source image URLs so swatch images still appear. |
 | `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name dedicated to image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT` when unset). |
-| `AZURE_OPENAI_BATCH_ENABLED` | Set to `"true"` to enable Azure OpenAI Batch API for Shopify ingestion jobs with ≥ 5 image candidates. Read at call time so no worker restart is needed after toggling. Defaults to `false` (synchronous path). |
+| `AZURE_OPENAI_BATCH_ENABLED` | Set to a truthy value (`true`/`1`/`yes`/`on`) to enable Azure OpenAI Batch API for Shopify ingestion jobs with ≥ 5 image candidates. Read at call time so no worker restart is needed after toggling. Defaults to `false` (synchronous path). |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Optional custom telemetry sink for `trackEvent` / `trackMetric` / `trackException` in `src/lib/telemetry.ts`. When unset, telemetry calls are no-ops. |
 | `REDIS_URL` | Redis endpoint URL for API read-through caching (for example `rediss://<host>:10000`). |
 | `REDIS_KEY` | Redis access key paired with `REDIS_URL`. When either Redis var is missing, cache helpers become no-ops and requests fall back to Postgres. |

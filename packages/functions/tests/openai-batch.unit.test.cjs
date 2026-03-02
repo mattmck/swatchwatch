@@ -42,6 +42,11 @@ describe("lib/openai-batch — isBatchEnabled", () => {
     assert.equal(isBatchEnabled(), false);
   });
 
+  it("returns false when env var is 'off'", () => {
+    process.env.AZURE_OPENAI_BATCH_ENABLED = "off";
+    assert.equal(isBatchEnabled(), false);
+  });
+
   it("returns false when env var is empty string", () => {
     process.env.AZURE_OPENAI_BATCH_ENABLED = "";
     assert.equal(isBatchEnabled(), false);
@@ -54,6 +59,21 @@ describe("lib/openai-batch — isBatchEnabled", () => {
 
   it("returns true when env var is 'TRUE' (case-insensitive)", () => {
     process.env.AZURE_OPENAI_BATCH_ENABLED = "TRUE";
+    assert.equal(isBatchEnabled(), true);
+  });
+
+  it("returns true when env var is '1'", () => {
+    process.env.AZURE_OPENAI_BATCH_ENABLED = "1";
+    assert.equal(isBatchEnabled(), true);
+  });
+
+  it("returns true when env var is 'yes'", () => {
+    process.env.AZURE_OPENAI_BATCH_ENABLED = "yes";
+    assert.equal(isBatchEnabled(), true);
+  });
+
+  it("returns true when env var is 'on' (common portal toggle value)", () => {
+    process.env.AZURE_OPENAI_BATCH_ENABLED = "on";
     assert.equal(isBatchEnabled(), true);
   });
 
