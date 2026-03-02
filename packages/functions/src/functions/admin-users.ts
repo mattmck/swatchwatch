@@ -21,7 +21,7 @@ async function mergeUsers(
   context: InvocationContext,
   adminUserId: number
 ): Promise<HttpResponseInit> {
-  context.log("POST /api/admin/users/merge");
+  context.log("POST /api/users-admin/merge");
 
   let body: Partial<AdminUserMergeRequest>;
   try {
@@ -247,7 +247,7 @@ async function listUsers(
   request: HttpRequest,
   context: InvocationContext
 ): Promise<HttpResponseInit> {
-  context.log("GET /api/admin/users");
+  context.log("GET /api/users-admin");
 
   const limit = parseListLimit(new URL(request.url).searchParams.get("limit"));
 
@@ -355,13 +355,13 @@ async function listUsers(
 app.http("admin-users-list", {
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  route: "admin/users",
+  route: "users-admin",
   handler: withCors(withAdmin(async (request, context) => listUsers(request, context))),
 });
 
 app.http("admin-users-merge", {
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  route: "admin/users/merge",
+  route: "users-admin/merge",
   handler: withCors(withAdmin(mergeUsers)),
 });

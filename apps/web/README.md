@@ -26,7 +26,7 @@ src/app/
 │           └── components/
 │               ├── jobs-tab.tsx  → Job Runs tab (list `/api/reference-admin/jobs`, status/error inspection, filtering)
 │               ├── config-tab.tsx → Configuration tab (finish/harmony CRUD + finish-normalization alias CRUD)
-│               └── users-tab.tsx → User Management tab (`/api/admin/users` list + `/api/admin/users/merge` repair flow)
+│               └── users-tab.tsx → User Management tab (`/api/users-admin` list + `/api/users-admin/merge` repair flow)
 ├── (app)/
 │   ├── layout.tsx                → App layout (AppShell sidebar wrapper)
 │   ├── admin/jobs/page.tsx       → /admin/jobs      Legacy route redirect to `/admin?tab=admin-jobs`

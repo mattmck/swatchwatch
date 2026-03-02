@@ -42,7 +42,7 @@ Web / Mobile → Azure Functions REST API → Azure PostgreSQL Flexible Server
 Admin authorization note:
 - In production auth mode, admin access is determined by Entra token `roles` (expects `admin`).
 - The backend mirrors that role into `app_user.role` on authenticated requests.
-- External identities are linked to one local account by email via `user_external_identities`; admins can manually merge duplicates with `POST /api/admin/users/merge`. Apply the migration that creates `user_external_identities` first (`npm run migrate --workspace=packages/functions`) before relying on linkage or using `POST /api/admin/users/merge`.
+- External identities are linked to one local account by email via `user_external_identities`; admins can manually merge duplicates with `POST /api/users-admin/merge`. Apply the migration that creates `user_external_identities` first (`npm run migrate --workspace=packages/functions`) before relying on linkage or using `POST /api/users-admin/merge`.
 
 ### Deploy Targets
 

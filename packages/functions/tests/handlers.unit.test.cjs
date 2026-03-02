@@ -406,12 +406,12 @@ describe("functions/auth — getAuthConfig", () => {
 describe("functions/admin-users — route registration", () => {
   it("registers admin-users-list GET route", () => {
     expectMethods("admin-users-list", ["GET"]);
-    assert.equal(registeredRoutes["admin-users-list"].route, "admin/users");
+    assert.equal(registeredRoutes["admin-users-list"].route, "users-admin");
   });
 
   it("registers admin-users-merge POST route", () => {
     expectMethods("admin-users-merge", ["POST"]);
-    assert.equal(registeredRoutes["admin-users-merge"].route, "admin/users/merge");
+    assert.equal(registeredRoutes["admin-users-merge"].route, "users-admin/merge");
   });
 });
 
@@ -424,7 +424,7 @@ describe("functions/admin-users — merge validation", () => {
     const handler = registeredRoutes["admin-users-merge"].handler;
     const req = fakeRequest({
       method: "POST",
-      url: "http://localhost:7071/api/admin/users/merge",
+      url: "http://localhost:7071/api/users-admin/merge",
       headers: { authorization: "Bearer dev:2" },
       body: {},
     });
@@ -441,7 +441,7 @@ describe("functions/admin-users — merge validation", () => {
     const handler = registeredRoutes["admin-users-merge"].handler;
     const req = fakeRequest({
       method: "POST",
-      url: "http://localhost:7071/api/admin/users/merge",
+      url: "http://localhost:7071/api/users-admin/merge",
       headers: { authorization: "Bearer dev:2" },
       body: { sourceUserId: 2, targetUserId: 2 },
     });
@@ -488,7 +488,7 @@ describe("functions/admin-users — merge validation", () => {
     const handler = registeredRoutes["admin-users-merge"].handler;
     const req = fakeRequest({
       method: "POST",
-      url: "http://localhost:7071/api/admin/users/merge",
+      url: "http://localhost:7071/api/users-admin/merge",
       headers: { authorization: "Bearer dev:2" },
       body: { sourceUserId: 10, targetUserId: 20 },
     });
