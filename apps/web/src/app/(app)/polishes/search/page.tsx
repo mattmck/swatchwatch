@@ -766,7 +766,7 @@ function ColorSearchPageContent() {
                         step={0.01}
                         value={lightness}
                         onChange={(e) => setLightness(parseFloat(e.target.value))}
-                        className="h-[200px] w-2 accent-primary"
+                        className="h-[200px] w-8 accent-primary"
                         aria-label="Lightness"
                         aria-orientation="vertical"
                         {...({ orient: "vertical" } as object)}
