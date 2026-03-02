@@ -79,15 +79,31 @@ locals {
     ? "https://${try(azurerm_cognitive_account.openai[0].custom_subdomain_name, "")}.openai.azure.com/"
     : local.openai_external_endpoint
   )
-  openai_deployment_name_value = local.openai_enabled ? var.openai_deployment_name : ""
+  openai_deployment_name_value         = local.openai_enabled ? var.openai_deployment_name : ""
+  openai_batch_deployment_name_trimmed = trimspace(var.openai_batch_deployment_name)
   openai_batch_deployment_name_value = (
     local.openai_enabled
     ? (
-      trimspace(var.openai_batch_deployment_name) != ""
-      ? trimspace(var.openai_batch_deployment_name)
+      local.openai_batch_deployment_name_trimmed != ""
+      ? local.openai_batch_deployment_name_trimmed
       : var.openai_deployment_name
     )
     : ""
+  )
+  openai_batch_model_name_value = (
+    trimspace(var.openai_batch_model_name) != ""
+    ? trimspace(var.openai_batch_model_name)
+    : var.openai_model_name
+  )
+  openai_batch_model_version_value = (
+    trimspace(var.openai_batch_model_version) != ""
+    ? trimspace(var.openai_batch_model_version)
+    : var.openai_model_version
+  )
+  openai_batch_deployment_managed = (
+    local.openai_create_resources &&
+    local.openai_batch_deployment_name_trimmed != "" &&
+    local.openai_batch_deployment_name_trimmed != var.openai_deployment_name
   )
   openai_key_secret_value = (
     local.openai_create_resources
@@ -451,6 +467,23 @@ resource "azurerm_cognitive_deployment" "openai_hex" {
   sku {
     name     = "GlobalStandard"
     capacity = var.openai_deployment_capacity
+  }
+}
+
+resource "azurerm_cognitive_deployment" "openai_hex_batch" {
+  count                = local.openai_batch_deployment_managed ? 1 : 0
+  name                 = local.openai_batch_deployment_name_trimmed
+  cognitive_account_id = azurerm_cognitive_account.openai[0].id
+
+  model {
+    format  = "OpenAI"
+    name    = local.openai_batch_model_name_value
+    version = local.openai_batch_model_version_value
+  }
+
+  sku {
+    name     = var.openai_batch_deployment_sku_name
+    capacity = var.openai_batch_deployment_capacity
   }
 }
 

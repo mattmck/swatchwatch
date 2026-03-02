@@ -6,7 +6,7 @@ github_repository       = "your-github-username/swatchwatch"
 pg_admin_username       = "pgadmin"
 pg_admin_password       = "<set-a-secure-password>"
 create_openai_resources = true
-# openai_batch_deployment_name = "hex-detector-batch"
+openai_batch_deployment_name = "hex-detector-batch"
 
 # Optional batch-hex detection toggles
 # hex_detection_batch_enabled      = true

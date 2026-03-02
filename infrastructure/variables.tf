@@ -66,6 +66,30 @@ variable "openai_batch_deployment_name" {
   default     = ""
 }
 
+variable "openai_batch_model_name" {
+  description = "Optional Azure OpenAI model name for the batch deployment. When empty, openai_model_name is reused."
+  type        = string
+  default     = ""
+}
+
+variable "openai_batch_model_version" {
+  description = "Optional Azure OpenAI model version for the batch deployment. When empty, openai_model_version is reused."
+  type        = string
+  default     = ""
+}
+
+variable "openai_batch_deployment_sku_name" {
+  description = "SKU name for the batch hex detection deployment"
+  type        = string
+  default     = "GlobalBatch"
+}
+
+variable "openai_batch_deployment_capacity" {
+  description = "Deployment capacity units for the batch hex detection deployment"
+  type        = number
+  default     = 100
+}
+
 variable "create_openai_resources" {
   description = "Create Azure OpenAI account/deployment resources. Set false when quota is unavailable and provide openai_endpoint/openai_api_key manually if needed."
   type        = bool
