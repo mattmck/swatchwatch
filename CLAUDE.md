@@ -114,6 +114,7 @@ Required:
 Optional / dev-only:
 - `AUTH_DEV_BYPASS` — enables `Bearer dev:<userId>` tokens for local dev (keep `false` outside isolated dev)
 - `AZURE_OPENAI_DEPLOYMENT` — fallback deployment name when `AZURE_OPENAI_DEPLOYMENT_HEX` is unset
+- `AZURE_OPENAI_BATCH_ENABLED` — set to `"true"` to use Azure OpenAI Batch API for Shopify ingestion jobs with ≥ 5 image candidates; read at call time so no restart needed after toggling; defaults to `false`
 - `APPLICATIONINSIGHTS_CONNECTION_STRING` — custom telemetry sink for `trackEvent`/`trackMetric`/`trackException`
 - `NEXT_PUBLIC_*` — web client vars included in example for convenience; not used by the Functions host itself
 

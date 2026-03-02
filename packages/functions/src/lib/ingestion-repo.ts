@@ -6,6 +6,14 @@ import { detectHexWithAzureOpenAI } from "./ai-color-detection";
 import { uploadSourceImageToBlob } from "./blob-storage";
 import { isSuspiciousHex } from "./suspicious-hex";
 import { PoolClient } from "pg";
+import {
+  BatchImageCandidate,
+  BatchSubmitResult,
+  BatchOutputItem,
+  BATCH_CUSTOM_ID_PREFIX,
+  shouldUseBatch,
+  submitBatch,
+} from "./openai-batch";
 
 export interface DataSourceRecord {
   dataSourceId: number;
@@ -61,6 +69,13 @@ export interface HoloTacoMaterializationMetrics {
   hexDetectionFailures: number;
   hexDetectionSkipped: number;
   skipped: number;
+  /** Present when the Batch API path was taken for this job. */
+  batchSubmit?: BatchSubmitResult;
+  /**
+   * Maps batch custom_id values to shade row IDs.
+   * Used by the batch completion worker to apply `detected_hex` results.
+   */
+  batchCustomIdToShadeId?: Record<string, number>;
 }
 
 export interface HoloTacoMaterializationOptions {
@@ -102,6 +117,7 @@ interface HoloTacoPreparedImage {
   storageUrl: string | null;
   checksumSha256: string | null;
   detectedHex: string | null;
+  detectedFinishes: string[] | null;
   additionalImages: Array<{ storageUrl: string; checksumSha256: string }>;
 }
 
@@ -118,6 +134,13 @@ interface HoloTacoImagePreparationMetrics {
 interface HoloTacoImagePreparationResult {
   byExternalId: Map<string, HoloTacoPreparedImage>;
   metrics: HoloTacoImagePreparationMetrics;
+  /** Set when the batch path was taken; caller should handle awaiting_ai transition. */
+  batchSubmit?: BatchSubmitResult;
+  /**
+   * Maps batch custom_id → externalId.
+   * Only populated when the batch path is taken.
+   */
+  batchCustomIdToExternalId?: Map<string, string>;
 }
 
 function asString(value: unknown): string | null {
@@ -210,6 +233,62 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Collect image upload metadata for a single record without running AI detection. */
+async function uploadImagesForRecord(
+  record: ConnectorProductRecord,
+  holo: HoloTacoProductNormalized,
+  sourceLogPrefix: string,
+  metrics: HoloTacoImagePreparationMetrics
+): Promise<{
+  storageUrl: string | null;
+  checksumSha256: string | null;
+  imageBase64DataUri: string | null;
+  additionalImages: Array<{ storageUrl: string; checksumSha256: string }>;
+}> {
+  let storageUrl: string | null = null;
+  let checksumSha256: string | null = null;
+  let imageBase64DataUri: string | null = null;
+  const additionalImages: Array<{ storageUrl: string; checksumSha256: string }> = [];
+
+  try {
+    console.log(`${sourceLogPrefix} Uploading primary image for ${record.externalId} from ${holo.primaryImageUrl}`);
+    const upload = await uploadSourceImageToBlob({
+      sourceImageUrl: holo.primaryImageUrl as string,
+      source: sourceLogPrefix.replace(/[\[\]]/g, ""),
+      externalId: record.externalId,
+    });
+    storageUrl = upload.storageUrl;
+    checksumSha256 = upload.checksumSha256;
+    imageBase64DataUri = upload.imageBase64DataUri;
+    metrics.imageUploads += 1;
+    console.log(`${sourceLogPrefix} Primary image uploaded: checksum=${checksumSha256}, storageUrl=${storageUrl}`);
+  } catch (err) {
+    metrics.imageUploadFailures += 1;
+    console.error(`${sourceLogPrefix} Primary image upload failed for ${record.externalId}:`, String(err));
+  }
+
+  for (let i = 1; i < holo.imageUrls.length; i++) {
+    const imgUrl = holo.imageUrls[i];
+    if (!isHttpUrl(imgUrl)) continue;
+    try {
+      const upload = await uploadSourceImageToBlob({
+        sourceImageUrl: imgUrl,
+        source: sourceLogPrefix.replace(/[\[\]]/g, ""),
+        externalId: `${record.externalId}-img${i}`,
+      });
+      additionalImages.push({
+        storageUrl: upload.storageUrl,
+        checksumSha256: upload.checksumSha256,
+      });
+      metrics.additionalImagesUploaded += 1;
+    } catch (err) {
+      console.error(`${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId}:`, String(err));
+    }
+  }
+
+  return { storageUrl, checksumSha256, imageBase64DataUri, additionalImages };
+}
+
 async function prepareHoloTacoImageData(
   records: ConnectorProductRecord[],
   options?: HoloTacoMaterializationOptions,
@@ -235,11 +314,27 @@ async function prepareHoloTacoImageData(
 
   console.log(`${sourceLogPrefix} Image preparation: processing ${records.length} records, detectHexFromImage=${detectHexFromImage}, detectHexOnSuspiciousOnly=${detectHexOnSuspiciousOnly}`);
 
+  // -------------------------------------------------------------------------
+  // Phase 1: Upload images for all candidates
+  // -------------------------------------------------------------------------
+  interface UploadedRecord {
+    record: ConnectorProductRecord;
+    holo: HoloTacoProductNormalized;
+    storageUrl: string | null;
+    checksumSha256: string | null;
+    imageBase64DataUri: string | null;
+    additionalImages: Array<{ storageUrl: string; checksumSha256: string }>;
+    shouldRunAiDetection: boolean;
+  }
+
+  const uploaded: UploadedRecord[] = [];
+
   for (const record of records) {
     const emptyPrepared: HoloTacoPreparedImage = {
       storageUrl: null,
       checksumSha256: null,
       detectedHex: null,
+      detectedFinishes: null,
       additionalImages: [],
     };
 
@@ -280,133 +375,155 @@ async function prepareHoloTacoImageData(
     console.log(`${sourceLogPrefix} Image candidate: externalId=${record.externalId}, name=${holo.name}, imageUrl=${holo.primaryImageUrl}`);
     metrics.imageCandidates += 1;
 
-    let storageUrl: string | null = null;
-    let checksumSha256: string | null = null;
-    let detectedHex: string | null = null;
-    let imageBase64DataUri: string | null = null;
-    const additionalImages: Array<{ storageUrl: string; checksumSha256: string }> = [];
+    const uploadResult = await uploadImagesForRecord(record, holo, sourceLogPrefix, metrics);
 
-    // Step 1: Upload primary image to blob storage
+    uploaded.push({
+      record,
+      holo,
+      storageUrl: uploadResult.storageUrl,
+      checksumSha256: uploadResult.checksumSha256,
+      imageBase64DataUri: uploadResult.imageBase64DataUri,
+      additionalImages: uploadResult.additionalImages,
+      shouldRunAiDetection:
+        detectHexFromImage && (!detectHexOnSuspiciousOnly || isSuspiciousHex(holo.vendorHex)),
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Phase 2: Decide batch vs sync, optionally submit batch
+  // -------------------------------------------------------------------------
+  const aiCandidates = uploaded.filter(
+    (u) => u.shouldRunAiDetection && Boolean(u.imageBase64DataUri)
+  );
+
+  let batchSubmit: BatchSubmitResult | undefined;
+  let batchCustomIdToExternalId: Map<string, string> | undefined;
+
+  if (shouldUseBatch(aiCandidates.length)) {
+    progressLogger?.info(`${sourceLogPrefix} Using Batch API for ${aiCandidates.length} image candidates`);
+    console.log(`${sourceLogPrefix} Submitting batch for ${aiCandidates.length} candidates`);
+
+    const batchCandidates: BatchImageCandidate[] = aiCandidates.map((u) => ({
+      customId: `${BATCH_CUSTOM_ID_PREFIX}${u.record.externalId}`,
+      imageUrlOrDataUri: u.imageBase64DataUri as string,
+      vendorContext: {
+        shadeName: u.holo.name,
+        vendorHex: u.holo.vendorHex,
+        tags: u.holo.tags,
+      },
+    }));
+
     try {
-      console.log(`${sourceLogPrefix} BEFORE: Uploading primary image for ${record.externalId} from ${holo.primaryImageUrl}`);
-      const upload = await uploadSourceImageToBlob({
-        sourceImageUrl: holo.primaryImageUrl,
-        source: sourceLogPrefix.replace(/[\[\]]/g, ""),
-        externalId: record.externalId,
+      batchSubmit = await submitBatch(batchCandidates);
+      batchCustomIdToExternalId = new Map(
+        batchCandidates.map((c) => [c.customId, c.customId.slice(BATCH_CUSTOM_ID_PREFIX.length)])
+      );
+      metrics.hexDetectionSkipped += aiCandidates.length;
+      progressLogger?.info(`${sourceLogPrefix} Batch submitted`, {
+        batchId: batchSubmit.batchId,
+        requestCount: batchSubmit.requestCount,
       });
-      storageUrl = upload.storageUrl;
-      checksumSha256 = upload.checksumSha256;
-      imageBase64DataUri = upload.imageBase64DataUri;
-      metrics.imageUploads += 1;
-      console.log(`${sourceLogPrefix} AFTER: Primary image uploaded: checksum=${checksumSha256}, storageUrl=${storageUrl}`);
-    } catch (err) {
-      metrics.imageUploadFailures += 1;
-      console.error(`${sourceLogPrefix} Primary image upload failed for ${record.externalId}:`, String(err));
+      console.log(`${sourceLogPrefix} Batch submitted: batchId=${batchSubmit.batchId}, requestCount=${batchSubmit.requestCount}`);
+    } catch (batchErr) {
+      const errMsg = batchErr instanceof Error ? batchErr.message : String(batchErr);
+      progressLogger?.warn(`${sourceLogPrefix} Batch submission failed, falling back to synchronous detection: ${errMsg}`);
+      console.warn(`${sourceLogPrefix} Batch submission failed (${errMsg}), falling back to sync path`);
+      // batchSubmit stays undefined → sync path runs below
     }
+  }
 
-    // Step 2: Upload additional images (index 1+) — no AI detection on these
-    for (let i = 1; i < holo.imageUrls.length; i++) {
-      const imgUrl = holo.imageUrls[i];
-      if (!isHttpUrl(imgUrl)) continue;
-      try {
-        const upload = await uploadSourceImageToBlob({
-          sourceImageUrl: imgUrl,
-          source: sourceLogPrefix.replace(/[\[\]]/g, ""),
-          externalId: `${record.externalId}-img${i}`,
-        });
-        additionalImages.push({
-          storageUrl: upload.storageUrl,
-          checksumSha256: upload.checksumSha256,
-        });
-        metrics.additionalImagesUploaded += 1;
-      } catch (err) {
-        console.error(`${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId}:`, String(err));
-      }
-    }
+  const usingSyncPath = !batchSubmit;
 
-    // Step 3: AI hex detection on primary image only
-    // Conditions: detectHexFromImage must be true, and if detectHexOnSuspiciousOnly
-    // is set, only run when vendor hex is suspicious/missing
-    const shouldRunAiDetection = detectHexFromImage &&
-      (!detectHexOnSuspiciousOnly || isSuspiciousHex(holo.vendorHex));
-    const imageForAi = imageBase64DataUri;
+  // -------------------------------------------------------------------------
+  // Phase 3: Build prepared images; run sync AI detection when not batching
+  // -------------------------------------------------------------------------
+  for (const u of uploaded) {
+    let detectedHex: string | null = null;
+    let detectedFinishes: string[] | null = null;
 
-    if (shouldRunAiDetection) {
-      if (!imageForAi) {
+    if (u.shouldRunAiDetection) {
+      if (!u.imageBase64DataUri) {
         metrics.hexDetectionSkipped += 1;
-        const skipMessage = `${sourceLogPrefix} ${record.externalId} [ai-color-detection] Skipping AI: missing base64 image payload`;
+        const skipMessage = `${sourceLogPrefix} ${u.record.externalId} [ai-color-detection] Skipping AI: missing base64 image payload`;
         console.warn(skipMessage, {
-          externalId: record.externalId,
-          brand: holo.brand || sourceLogPrefix.replace(/[\[\]]/g, ""),
-          colorName: holo.name,
-          uploadSucceeded: Boolean(storageUrl),
+          externalId: u.record.externalId,
+          brand: u.holo.brand || sourceLogPrefix.replace(/[\[\]]/g, ""),
+          colorName: u.holo.name,
+          uploadSucceeded: Boolean(u.storageUrl),
         });
         progressLogger?.warn(skipMessage, {
-          externalId: record.externalId,
-          brand: holo.brand || sourceLogPrefix.replace(/[\[\]]/g, ""),
-          colorName: holo.name,
-          uploadSucceeded: Boolean(storageUrl),
+          externalId: u.record.externalId,
+          brand: u.holo.brand || sourceLogPrefix.replace(/[\[\]]/g, ""),
+          colorName: u.holo.name,
+          uploadSucceeded: Boolean(u.storageUrl),
         });
-      } else {
-      if (holo.vendorHex) {
-        console.log(`${sourceLogPrefix} Vendor hex (${holo.vendorHex}) is suspicious, running AI detection for ${record.externalId}`);
-      } else {
-        console.log(`${sourceLogPrefix} No vendor hex for ${record.externalId}, running AI detection`);
-      }
-      try {
-        const detection = await detectHexWithAzureOpenAI(imageForAi, {
-          onLog: (level, message, data) => {
-            const withRecord = `${sourceLogPrefix} ${record.externalId} ${message}`;
-            if (level === "error") {
-              progressLogger?.error(withRecord, data);
-            } else if (level === "warn") {
-              progressLogger?.warn(withRecord, data);
-            } else {
-              progressLogger?.info(withRecord, data);
-            }
-          },
-        });
-        console.log(`${sourceLogPrefix} AI detection result for ${record.externalId}:`, { detectedHex: detection.hex, vendorHex: holo.vendorHex });
-        if (detection.hex) {
-          detectedHex = detection.hex;
-          metrics.hexDetected += 1;
-          const successData = {
-            externalId: record.externalId,
-            brand: holo.brand || sourceLogPrefix.replace(/[\[\]]/g, ""),
-            colorName: holo.name,
-            hex: detection.hex,
-          };
-          const successMessage = `${sourceLogPrefix} ${record.externalId} [ai-color-detection] Success`;
-          console.log(successMessage, successData);
-          progressLogger?.info(successMessage, successData);
+      } else if (usingSyncPath) {
+        if (u.holo.vendorHex) {
+          console.log(`${sourceLogPrefix} Vendor hex (${u.holo.vendorHex}) is suspicious, running AI detection for ${u.record.externalId}`);
         } else {
-          console.log(`${sourceLogPrefix} No hex returned from AI for ${record.externalId}`);
+          console.log(`${sourceLogPrefix} No vendor hex for ${u.record.externalId}, running AI detection`);
         }
-        console.log(`${sourceLogPrefix} Sleeping ${HEX_DETECTION_DELAY_MS}ms before next detection`);
-        await sleep(HEX_DETECTION_DELAY_MS);
-      } catch (err) {
-        metrics.hexDetectionFailures += 1;
-        console.error(`${sourceLogPrefix} AI hex detection failed for ${record.externalId}:`, String(err));
+        try {
+          const detection = await detectHexWithAzureOpenAI(u.imageBase64DataUri, {
+            onLog: (level, message, data) => {
+              const withRecord = `${sourceLogPrefix} ${u.record.externalId} ${message}`;
+              if (level === "error") {
+                progressLogger?.error(withRecord, data);
+              } else if (level === "warn") {
+                progressLogger?.warn(withRecord, data);
+              } else {
+                progressLogger?.info(withRecord, data);
+              }
+            },
+            vendorContext: {
+              shadeName: u.holo.name,
+              vendorHex: u.holo.vendorHex,
+              tags: u.holo.tags,
+            },
+          });
+          console.log(`${sourceLogPrefix} AI detection result for ${u.record.externalId}:`, { detectedHex: detection.hex });
+          if (detection.hex) {
+            detectedHex = detection.hex;
+            detectedFinishes = detection.finishes;
+            metrics.hexDetected += 1;
+            const successMessage = `${sourceLogPrefix} ${u.record.externalId} [ai-color-detection] Success`;
+            console.log(successMessage, { hex: detection.hex });
+            progressLogger?.info(successMessage, {
+              externalId: u.record.externalId,
+              brand: u.holo.brand || sourceLogPrefix.replace(/[\[\]]/g, ""),
+              colorName: u.holo.name,
+              hex: detection.hex,
+            });
+          } else {
+            console.log(`${sourceLogPrefix} No hex returned from AI for ${u.record.externalId}`);
+          }
+          console.log(`${sourceLogPrefix} Sleeping ${HEX_DETECTION_DELAY_MS}ms before next detection`);
+          await sleep(HEX_DETECTION_DELAY_MS);
+        } catch (err) {
+          metrics.hexDetectionFailures += 1;
+          console.error(`${sourceLogPrefix} AI hex detection failed for ${u.record.externalId}:`, String(err));
+        }
       }
-      }
+      // else: batch path active — completion worker will apply hex later
     } else {
       metrics.hexDetectionSkipped += 1;
-      if (detectHexOnSuspiciousOnly && holo.vendorHex && !isSuspiciousHex(holo.vendorHex)) {
-        console.log(`${sourceLogPrefix} Skipping AI for ${record.externalId}: vendor hex ${holo.vendorHex} not suspicious`);
+      if (detectHexOnSuspiciousOnly && u.holo.vendorHex && !isSuspiciousHex(u.holo.vendorHex)) {
+        console.log(`${sourceLogPrefix} Skipping AI for ${u.record.externalId}: vendor hex ${u.holo.vendorHex} not suspicious`);
       } else {
-        console.log(`${sourceLogPrefix} Skipping AI detection for ${record.externalId} (detectHexFromImage=${detectHexFromImage})`);
+        console.log(`${sourceLogPrefix} Skipping AI detection for ${u.record.externalId} (detectHexFromImage=${detectHexFromImage})`);
       }
     }
 
     const preparedImage: HoloTacoPreparedImage = {
-      storageUrl,
-      checksumSha256,
+      storageUrl: u.storageUrl,
+      checksumSha256: u.checksumSha256,
       detectedHex,
-      additionalImages,
+      detectedFinishes,
+      additionalImages: u.additionalImages,
     };
-    byExternalId.set(record.externalId, preparedImage);
+    byExternalId.set(u.record.externalId, preparedImage);
     if (onRecordPrepared) {
-      await onRecordPrepared(record, preparedImage);
+      await onRecordPrepared(u.record, preparedImage);
     }
   }
 
@@ -415,6 +532,8 @@ async function prepareHoloTacoImageData(
   return {
     byExternalId,
     metrics,
+    batchSubmit,
+    batchCustomIdToExternalId,
   };
 }
 
@@ -1074,6 +1193,7 @@ interface HoloTacoRecordMaterializationDelta {
   hexOverwritten: number;
   swatchesLinked: number;
   skipped: number;
+  shadeId: number | null;
 }
 
 async function materializePreparedHoloTacoRecord(
@@ -1095,6 +1215,7 @@ async function materializePreparedHoloTacoRecord(
     hexOverwritten: 0,
     swatchesLinked: 0,
     skipped: 0,
+    shadeId: null,
   };
 
   const normalized =
@@ -1172,6 +1293,8 @@ async function materializePreparedHoloTacoRecord(
     shadeId = insertedShade.rows[0].shadeId;
     delta.shadesCreated += 1;
   }
+
+  delta.shadeId = shadeId;
 
   const importNote = `Imported from ${sourceLogPrefix.replace(/[\[\]]/g, "")} external_id=${record.externalId}`;
   const vendorHex = holo.vendorHex;
@@ -1416,6 +1539,8 @@ export async function materializeHoloTacoRecords(
   let skipped = 0;
 
   const brandCache = new Map<string, number>();
+  // Maps batch customId → shadeId, populated during materialization when batch path is used.
+  const batchCustomIdToShadeId: Record<string, number> = {};
 
   console.log(
     `${sourceLogPrefix} Starting materialization for ${records.length} records, userId=${userId}, dataSourceId=${dataSourceId}, overwriteDetectedHex=${overwriteDetectedHex}`
@@ -1447,10 +1572,16 @@ export async function materializeHoloTacoRecords(
       hexOverwritten += delta.hexOverwritten;
       swatchesLinked += delta.swatchesLinked;
       skipped += delta.skipped;
+
+      // Collect customId → shadeId for batch tracking
+      if (delta.shadeId !== null) {
+        const customId = `${BATCH_CUSTOM_ID_PREFIX}${record.externalId}`;
+        batchCustomIdToShadeId[customId] = delta.shadeId;
+      }
     }
   );
 
-  const result = {
+  const result: HoloTacoMaterializationMetrics = {
     processed,
     brandsCreated,
     shadesCreated,
@@ -1460,8 +1591,127 @@ export async function materializeHoloTacoRecords(
     ...preparedImageData.metrics,
     swatchesLinked,
     skipped,
+    batchSubmit: preparedImageData.batchSubmit,
+    batchCustomIdToShadeId: preparedImageData.batchSubmit
+      ? batchCustomIdToShadeId
+      : undefined,
   };
 
-  console.log(`${sourceLogPrefix} Materialization complete:`, result);
+  console.log(`${sourceLogPrefix} Materialization complete:`, {
+    ...result,
+    batchCustomIdToShadeId: result.batchCustomIdToShadeId
+      ? `${Object.keys(result.batchCustomIdToShadeId).length} entries`
+      : undefined,
+  });
   return result;
+}
+
+/**
+ * Applies detected hex (and optionally finishes) from completed batch output
+ * back to the shade rows identified during materialization.
+ *
+ * Called by the batch completion worker after a batch job reaches "completed" status.
+ */
+export async function applyBatchHexResults(
+  batchOutputItems: BatchOutputItem[],
+  customIdToShadeId: Record<string, number>,
+  overwriteDetectedHex: boolean
+): Promise<{ applied: number; skipped: number; failed: number }> {
+  let applied = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  for (const item of batchOutputItems) {
+    const shadeId = customIdToShadeId[item.customId];
+    if (!shadeId) {
+      skipped += 1;
+      continue;
+    }
+
+    if (!item.hex) {
+      console.warn(`[applyBatchHexResults] No hex in batch result for customId=${item.customId}, shadeId=${shadeId}, error=${item.error}`);
+      skipped += 1;
+      continue;
+    }
+
+    try {
+      await query(
+        `UPDATE shade
+         SET detected_hex = CASE
+               WHEN $2::boolean THEN $3::text
+               ELSE COALESCE(detected_hex, $3::text)
+             END,
+             updated_at = now()
+         WHERE shade_id = $1`,
+        [shadeId, overwriteDetectedHex, item.hex]
+      );
+      console.log(`[applyBatchHexResults] Applied hex ${item.hex} to shade ${shadeId} (customId=${item.customId})`);
+      applied += 1;
+    } catch (err) {
+      console.error(`[applyBatchHexResults] Failed to apply hex for customId=${item.customId}, shadeId=${shadeId}:`, String(err));
+      failed += 1;
+    }
+  }
+
+  return { applied, skipped, failed };
+}
+
+/**
+ * Fetches running ingestion jobs that are in the "awaiting_ai" pipeline stage
+ * and have batch tracking metadata.
+ */
+export async function listAwaitingAiJobs(): Promise<
+  Array<{
+    jobId: number;
+    batchId: string;
+    inputFileId: string;
+    requestCount: number;
+    submittedAt: string;
+    customIdToShadeId: Record<string, number>;
+    overwriteDetectedHex: boolean;
+  }>
+> {
+  const result = await query<{
+    jobId: number;
+    metrics: Record<string, unknown> | null;
+  }>(
+    `SELECT ingestion_job_id AS "jobId", metrics_json AS metrics
+     FROM ingestion_job
+     WHERE status = 'running'
+       AND metrics_json->'pipeline'->>'stage' = 'awaiting_ai'
+     ORDER BY started_at ASC`,
+    []
+  );
+
+  return result.rows.flatMap((row) => {
+    const m = row.metrics;
+    if (!m) return [];
+
+    const batch = m.batchTracking as Record<string, unknown> | undefined;
+    if (!batch) return [];
+
+    const batchId = typeof batch.batchId === "string" ? batch.batchId : null;
+    const inputFileId = typeof batch.inputFileId === "string" ? batch.inputFileId : null;
+    const requestCount = typeof batch.requestCount === "number" ? batch.requestCount : 0;
+    const submittedAt = typeof batch.submittedAt === "string" ? batch.submittedAt : new Date().toISOString();
+    const customIdToShadeId =
+      batch.customIdToShadeId && typeof batch.customIdToShadeId === "object"
+        ? (batch.customIdToShadeId as Record<string, number>)
+        : {};
+    const overwriteDetectedHex = m.overwriteDetectedHex === true;
+
+    if (!batchId || !inputFileId) return [];
+
+    return [
+      {
+        jobId: row.jobId,
+        batchId,
+        inputFileId,
+        requestCount,
+        submittedAt,
+        customIdToShadeId,
+        overwriteDetectedHex,
+      },
+    ];
+  });
 }

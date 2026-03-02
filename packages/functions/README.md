@@ -122,6 +122,26 @@ Holo Taco run options:
 - `detectHexFromImage` (default `true`) toggles image-based AI hex detection.
 - `overwriteDetectedHex` (default `false`) refreshes existing `color_hex` values on reruns instead of only filling blanks.
 
+#### Batch AI detection (large jobs)
+
+When `AZURE_OPENAI_BATCH_ENABLED=true` and a job produces **5 or more** image candidates, hex
+detection switches from per-image synchronous calls to the Azure OpenAI Batch API:
+
+1. **Submit phase** — images are uploaded + all requests are submitted as a single batch file.
+   The ingestion job remains in `running` status with `pipeline.stage = "awaiting_ai"` and
+   batch tracking metadata (`batchId`, `inputFileId`, `customIdToShadeId`) stored in `metrics_json`.
+2. **Apply phase** — the `batch-completion-worker` timer trigger (fires every 5 min) polls batch
+   status; on `completed` it downloads the output JSONL, applies `detected_hex` to the relevant
+   shade rows, and marks the job `succeeded`.
+
+Benefits: no per-image sleep throttling, lower inference cost on large catalogs.
+
+Fallback: if the batch submission fails (network error, missing config), the job automatically
+falls back to the synchronous per-image path for that run and logs the reason.
+
+**Small jobs** (< 5 candidates) and the **`/api/polishes/{id}/recalc-hex`** admin endpoint always
+use the synchronous path regardless of `AZURE_OPENAI_BATCH_ENABLED`.
+
 Example request:
 ```json
 {
@@ -210,6 +230,8 @@ node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_U
 - AI image detection uses base64 image payloads only. If base64 preparation fails for a record, detection is skipped and a warning is logged to the Admin Jobs stream.
 - On successful AI hex detection, ingestion logs a structured success entry with `brand`, `colorName`, and `hex` in job logs (Admin Jobs expandable log view).
 - For ingestion runs, those AI diagnostics are also mirrored into the job `metrics.logs` stream shown on `/admin/jobs`.
+- **Batch AI flag not picked up**: `AZURE_OPENAI_BATCH_ENABLED` is read from `process.env` at *call time* (inside `isBatchEnabled()`), so updating the App Service application setting takes effect on the next job run without requiring a worker restart or redeploy. Confirm the value in the portal under Configuration → Application settings.
+- **Batch jobs stuck in `awaiting_ai`**: The `batch-completion-worker` timer runs every 5 minutes. Confirm it appears in the Functions list after deploy. If the batch itself failed, the job will be marked `failed` with `batchFinalStatus` in its metrics.
 
 
 ## Environment Variables
@@ -225,6 +247,7 @@ Key variables:
 | `SOURCE_IMAGE_CONTAINER` | Optional blob container override for source-ingested images. Defaults to `source-images`. |
 | `AZURE_STORAGE_CONNECTION` | Connection string for uploading source images to Azure Blob Storage. When unset (for local dev or bring-up), ingestion falls back to storing the original source image URLs so swatch images still appear. |
 | `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name dedicated to image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT` when unset). |
+| `AZURE_OPENAI_BATCH_ENABLED` | Set to `"true"` to enable Azure OpenAI Batch API for Shopify ingestion jobs with ≥ 5 image candidates. Read at call time so no worker restart is needed after toggling. Defaults to `false` (synchronous path). |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Optional custom telemetry sink for `trackEvent` / `trackMetric` / `trackException` in `src/lib/telemetry.ts`. When unset, telemetry calls are no-ops. |
 | `REDIS_URL` | Redis endpoint URL for API read-through caching (for example `rediss://<host>:10000`). |
 | `REDIS_KEY` | Redis access key paired with `REDIS_URL`. When either Redis var is missing, cache helpers become no-ops and requests fall back to Postgres. |

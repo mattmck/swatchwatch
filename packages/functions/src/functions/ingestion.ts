@@ -462,6 +462,38 @@ export async function processIngestionJobQueueMessage(
           durationMs: materializeDuration,
           recordsProcessed: connectorResult.records.length,
         });
+
+        // If a batch was submitted, transition to awaiting_ai instead of completing.
+        const batchSubmit = materializationMetrics?.batchSubmit as Record<string, unknown> | undefined;
+        if (batchSubmit?.batchId) {
+          stage = "awaiting_ai";
+          const batchTracking = {
+            batchId: batchSubmit.batchId,
+            inputFileId: batchSubmit.inputFileId,
+            requestCount: batchSubmit.requestCount,
+            submittedAt: batchSubmit.submittedAt,
+            customIdToShadeId: materializationMetrics?.batchCustomIdToShadeId || {},
+          };
+          const awaitingMetrics = {
+            ...requestedMetrics,
+            ...connectorResult.metadata,
+            ...persistenceMetrics,
+            ...materializationMetrics,
+            overwriteDetectedHex: payload.request.overwriteDetectedHex,
+            batchTracking,
+          };
+          logger.updateBaseMetrics(withPipelineMetrics(awaitingMetrics, "running", stage, {
+            queuedAt: payload.queuedAt,
+            awaitingAiSince: new Date().toISOString(),
+          }));
+          logger.info(`Job ${payload.jobId} waiting for batch AI results`, {
+            batchId: batchSubmit.batchId,
+            requestCount: batchSubmit.requestCount,
+          });
+          await markIngestionJobRunning(payload.jobId, logger.getMetricsWithLogs());
+          await logger.dispose();
+          return;
+        }
       } catch (materializeError) {
         const materializeDuration = Date.now() - materializeStartTime;
         logger.error(`${payload.request.source} materialization failed`, {
