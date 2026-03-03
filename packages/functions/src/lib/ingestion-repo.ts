@@ -4,7 +4,8 @@ import { SUPPORTED_SOURCES } from "./connectors/types";
 import { defaultShopifyBaseUrl } from "./connectors/shopify-generic";
 import { detectHexWithAzureOpenAI, type HexDetectionOptions } from "./ai-color-detection";
 import { submitVisionHexBatch } from "./azure-openai-batch";
-import { uploadSourceImageToBlob } from "./blob-storage";
+import { uploadSourceImageToBlob, ensureContainer, blobExists } from "./blob-storage";
+import pLimit = require("p-limit");
 import { isSuspiciousHex } from "./suspicious-hex";
 import { PoolClient } from "pg";
 
@@ -332,117 +333,152 @@ async function prepareHoloTacoImageData(
     batchMinImages,
   });
 
-  for (const record of records) {
-    const emptyPrepared: HoloTacoPreparedImage = {
-      storageUrl: null,
-      checksumSha256: null,
-      detectedHex: null,
-      detectedFinishes: null,
-      additionalImages: [],
-    };
+  // Ensure blob container exists once before parallel uploads
+  const connectionString = process.env.AZURE_STORAGE_CONNECTION?.trim() || null;
+  if (connectionString) {
+    const containerName = process.env.SOURCE_IMAGE_CONTAINER || "source-images";
+    console.log(`${sourceLogPrefix} Ensuring container exists before parallel uploads`);
+    await ensureContainer(connectionString, containerName);
+  }
 
-    const normalized =
-      record.normalized && typeof record.normalized === "object"
-        ? (record.normalized as Record<string, unknown>)
-        : null;
-    if (!normalized) {
-      console.log(`${sourceLogPrefix} Skipping record ${record.externalId}: no normalized data`);
-      byExternalId.set(record.externalId, emptyPrepared);
-      if (onRecordPrepared) {
-        await onRecordPrepared(record, emptyPrepared);
+  const sourceName = sourceLogPrefix.replace(/[\[\]]/g, "");
+
+  // --- Phase 1: Parallel image download/upload ---
+  interface ImageUploadResult {
+    record: ConnectorProductRecord;
+    holo: HoloTacoProductNormalized | null;
+    storageUrl: string | null;
+    checksumSha256: string | null;
+    imageBase64DataUri: string | null;
+    additionalImages: Array<{ storageUrl: string; checksumSha256: string }>;
+    isCandidate: boolean;
+  }
+
+  const limit = pLimit(4);
+  const startTime = Date.now();
+
+  const uploadTasks = records.map((record) =>
+    limit(async (): Promise<ImageUploadResult> => {
+      const normalized =
+        record.normalized && typeof record.normalized === "object"
+          ? (record.normalized as Record<string, unknown>)
+          : null;
+      if (!normalized) {
+        console.log(`${sourceLogPrefix} Skipping record ${record.externalId}: no normalized data`);
+        return { record, holo: null, storageUrl: null, checksumSha256: null, imageBase64DataUri: null, additionalImages: [], isCandidate: false };
       }
-      continue;
-    }
 
-    const holo = parseHoloTacoNormalized(normalized);
-    if (!holo.name) {
-      byExternalId.set(record.externalId, emptyPrepared);
-      if (onRecordPrepared) {
-        await onRecordPrepared(record, emptyPrepared);
+      const holo = parseHoloTacoNormalized(normalized);
+      if (!holo.name || !isHttpUrl(holo.primaryImageUrl)) {
+        if (holo.name) {
+          console.log(`${sourceLogPrefix} Skipping record ${record.externalId}: invalid image URL`, {
+            name: holo.name,
+            imageUrl: holo.primaryImageUrl,
+          });
+        }
+        return { record, holo, storageUrl: null, checksumSha256: null, imageBase64DataUri: null, additionalImages: [], isCandidate: false };
       }
-      continue;
-    }
 
-    if (!isHttpUrl(holo.primaryImageUrl)) {
-      console.log(`${sourceLogPrefix} Skipping record ${record.externalId}: missing name or invalid image URL`, {
-        name: holo.name,
-        imageUrl: holo.primaryImageUrl,
-      });
-      byExternalId.set(record.externalId, emptyPrepared);
-      if (onRecordPrepared) {
-        await onRecordPrepared(record, emptyPrepared);
-      }
-      continue;
-    }
+      console.log(`${sourceLogPrefix} Image candidate: externalId=${record.externalId}, name=${holo.name}, imageUrl=${holo.primaryImageUrl}`);
 
-    console.log(`${sourceLogPrefix} Image candidate: externalId=${record.externalId}, name=${holo.name}, imageUrl=${holo.primaryImageUrl}`);
-    metrics.imageCandidates += 1;
+      let storageUrl: string | null = null;
+      let checksumSha256: string | null = null;
+      let imageBase64DataUri: string | null = null;
+      const additionalImages: Array<{ storageUrl: string; checksumSha256: string }> = [];
 
-    let storageUrl: string | null = null;
-    let checksumSha256: string | null = null;
-    let detectedHex: string | null = null;
-    let detectedFinishes: string[] | null = null;
-    let imageBase64DataUri: string | null = null;
-    const additionalImages: Array<{ storageUrl: string; checksumSha256: string }> = [];
-
-    // Step 1: Upload primary image to blob storage
-    try {
-      console.log(`${sourceLogPrefix} BEFORE: Uploading primary image for ${record.externalId} from ${holo.primaryImageUrl}`);
-      const upload = await uploadSourceImageToBlob({
-        sourceImageUrl: holo.primaryImageUrl,
-        source: sourceLogPrefix.replace(/[\[\]]/g, ""),
-        externalId: record.externalId,
-      });
-      storageUrl = upload.storageUrl;
-      checksumSha256 = upload.checksumSha256;
-      imageBase64DataUri = upload.imageBase64DataUri;
-      metrics.imageUploads += 1;
-      console.log(`${sourceLogPrefix} AFTER: Primary image uploaded: checksum=${checksumSha256}, storageUrl=${storageUrl}`);
-    } catch (err) {
-      metrics.imageUploadFailures += 1;
-      console.error(`${sourceLogPrefix} Primary image upload failed for ${record.externalId}:`, String(err));
-    }
-
-    // Step 2: Upload additional images (index 1+) — no AI detection on these
-    for (let i = 1; i < holo.imageUrls.length; i++) {
-      const imgUrl = holo.imageUrls[i];
-      if (!isHttpUrl(imgUrl)) continue;
+      // Upload primary image (container already ensured)
       try {
         const upload = await uploadSourceImageToBlob({
-          sourceImageUrl: imgUrl,
-          source: sourceLogPrefix.replace(/[\[\]]/g, ""),
-          externalId: `${record.externalId}-img${i}`,
+          sourceImageUrl: holo.primaryImageUrl,
+          source: sourceName,
+          externalId: record.externalId,
+          skipContainerEnsure: true,
         });
-        additionalImages.push({
-          storageUrl: upload.storageUrl,
-          checksumSha256: upload.checksumSha256,
-        });
-        metrics.additionalImagesUploaded += 1;
+        storageUrl = upload.storageUrl;
+        checksumSha256 = upload.checksumSha256;
+        imageBase64DataUri = upload.imageBase64DataUri;
+        console.log(`${sourceLogPrefix} Primary image uploaded for ${record.externalId}: checksum=${checksumSha256}`);
       } catch (err) {
-        console.error(`${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId}:`, String(err));
+        console.error(`${sourceLogPrefix} Primary image upload failed for ${record.externalId}:`, String(err));
       }
+
+      // Upload additional images
+      for (let i = 1; i < holo.imageUrls.length; i++) {
+        const imgUrl = holo.imageUrls[i];
+        if (!isHttpUrl(imgUrl)) continue;
+        try {
+          const upload = await uploadSourceImageToBlob({
+            sourceImageUrl: imgUrl,
+            source: sourceName,
+            externalId: `${record.externalId}-img${i}`,
+            skipContainerEnsure: true,
+          });
+          additionalImages.push({
+            storageUrl: upload.storageUrl,
+            checksumSha256: upload.checksumSha256,
+          });
+        } catch (err) {
+          console.error(`${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId}:`, String(err));
+        }
+      }
+
+      return { record, holo, storageUrl, checksumSha256, imageBase64DataUri, additionalImages, isCandidate: true };
+    })
+  );
+
+  const uploadResults = await Promise.all(uploadTasks);
+  const uploadElapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.log(`${sourceLogPrefix} Phase 1 (parallel image upload) completed in ${uploadElapsed}s for ${records.length} records`);
+
+  // --- Phase 2: Sequential AI detection + callbacks ---
+  for (const result of uploadResults) {
+    const { record, holo, additionalImages } = result;
+    const { storageUrl, checksumSha256, imageBase64DataUri } = result;
+
+    if (!result.isCandidate) {
+      const emptyPrepared: HoloTacoPreparedImage = {
+        storageUrl: null,
+        checksumSha256: null,
+        detectedHex: null,
+        detectedFinishes: null,
+        additionalImages: [],
+      };
+      byExternalId.set(record.externalId, emptyPrepared);
+      if (onRecordPrepared) {
+        await onRecordPrepared(record, emptyPrepared);
+      }
+      continue;
     }
 
-    // Step 3: AI hex detection on primary image only
-    // Conditions: detectHexFromImage must be true, and if detectHexOnSuspiciousOnly
-    // is set, only run when vendor hex is suspicious/missing
+    metrics.imageCandidates += 1;
+    if (storageUrl) {
+      metrics.imageUploads += 1;
+    } else {
+      metrics.imageUploadFailures += 1;
+    }
+    metrics.additionalImagesUploaded += additionalImages.length;
+
+    let detectedHex: string | null = null;
+    let detectedFinishes: string[] | null = null;
+
+    // AI hex detection on primary image only
     const shouldRunAiDetection = detectHexFromImage &&
-      (!detectHexOnSuspiciousOnly || isSuspiciousHex(holo.vendorHex));
+      holo && (!detectHexOnSuspiciousOnly || isSuspiciousHex(holo.vendorHex));
     const imageForAi = imageBase64DataUri;
 
-    if (shouldRunAiDetection) {
+    if (shouldRunAiDetection && holo) {
       if (!imageForAi) {
         metrics.hexDetectionSkipped += 1;
         const skipMessage = `${sourceLogPrefix} ${record.externalId} [ai-color-detection] Skipping AI: missing base64 image payload`;
         console.warn(skipMessage, {
           externalId: record.externalId,
-          brand: holo.brand || sourceLogPrefix.replace(/[\[\]]/g, ""),
+          brand: holo.brand || sourceName,
           colorName: holo.name,
           uploadSucceeded: Boolean(storageUrl),
         });
         progressLogger?.warn(skipMessage, {
           externalId: record.externalId,
-          brand: holo.brand || sourceLogPrefix.replace(/[\[\]]/g, ""),
+          brand: holo.brand || sourceName,
           colorName: holo.name,
           uploadSucceeded: Boolean(storageUrl),
         });
@@ -451,7 +487,7 @@ async function prepareHoloTacoImageData(
           customId: record.externalId,
           imageUrlOrDataUri: imageForAi,
           vendorContext: {
-            shadeName: holo.name,
+            shadeName: holo.name!,
             vendorHex: holo.vendorHex,
             description: holo.collection,
             tags: holo.tags,
@@ -492,7 +528,7 @@ async function prepareHoloTacoImageData(
               }
             },
             vendorContext: {
-              shadeName: holo.name,
+              shadeName: holo.name!,
               vendorHex: holo.vendorHex,
               description: holo.collection,
               tags: holo.tags,
@@ -526,7 +562,7 @@ async function prepareHoloTacoImageData(
             metrics.hexDetected += 1;
             const successData = {
               externalId: record.externalId,
-              brand: holo.brand || sourceLogPrefix.replace(/[\[\]]/g, ""),
+              brand: holo.brand || sourceName,
               colorName: holo.name,
               hex: detection.hex,
               finishes: detection.finishes,
@@ -546,7 +582,7 @@ async function prepareHoloTacoImageData(
       }
     } else {
       metrics.hexDetectionSkipped += 1;
-      if (detectHexOnSuspiciousOnly && holo.vendorHex && !isSuspiciousHex(holo.vendorHex)) {
+      if (holo && detectHexOnSuspiciousOnly && holo.vendorHex && !isSuspiciousHex(holo.vendorHex)) {
         console.log(`${sourceLogPrefix} Skipping AI for ${record.externalId}: vendor hex ${holo.vendorHex} not suspicious`);
       } else {
         console.log(`${sourceLogPrefix} Skipping AI detection for ${record.externalId} (detectHexFromImage=${detectHexFromImage})`);
