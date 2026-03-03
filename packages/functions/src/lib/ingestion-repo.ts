@@ -264,18 +264,26 @@ function resolveAiImageUrl(storageUrl: string | null): string | null {
     return null;
   }
 
-  if (HAS_STORAGE_CONNECTION && INGESTION_AI_IMAGE_PROXY_ORIGIN) {
+  if (HAS_STORAGE_CONNECTION) {
+    if (!INGESTION_AI_IMAGE_PROXY_ORIGIN) {
+      // When using storage but no proxy origin is available, skip AI detection.
+      return null;
+    }
+
     try {
       return toImageProxyUrlFromOrigin(INGESTION_AI_IMAGE_PROXY_ORIGIN, storageUrl);
     } catch (error) {
       console.warn(
-        `[ingestion-repo] Failed to build image proxy URL for AI detection, falling back to raw URL: ${
+        `[ingestion-repo] Failed to build image proxy URL for AI detection, skipping image: ${
           error instanceof Error ? error.message : String(error)
         }`
       );
+      // Avoid falling back to a likely-private blob URL that Azure OpenAI cannot fetch.
+      return null;
     }
   }
 
+  // No storage connection configured: the raw URL is expected to be directly accessible.
   return storageUrl;
 }
 
