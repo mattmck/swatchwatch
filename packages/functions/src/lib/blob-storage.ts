@@ -28,13 +28,14 @@ export interface UploadedBlobImage {
   checksumSha256: string;
   contentType: string;
   sizeBytes: number;
-  imageBase64DataUri: string;
+  imageBase64DataUri?: string | null;
 }
 
 interface UploadSourceImageOptions {
   sourceImageUrl: string;
   source: string;
   externalId: string;
+  includeBase64DataUri?: boolean;
 }
 
 function normalizeImageContentType(contentType: string): string {
@@ -395,11 +396,14 @@ export async function uploadSourceImageToBlob(params: UploadSourceImageOptions):
   validateImageUpload(contentType, cleanBytes.length);
 
   const checksumSha256 = createHash("sha256").update(cleanBytes).digest("hex");
-  const imageBase64DataUri = `data:${contentType};base64,${cleanBytes.toString("base64")}`;
+  const includeBase64DataUri = params.includeBase64DataUri === true;
+  const imageBase64DataUri = includeBase64DataUri
+    ? `data:${contentType};base64,${cleanBytes.toString("base64")}`
+    : null;
   const connectionString = asNonEmpty(process.env.AZURE_STORAGE_CONNECTION);
 
   // If storage isn't configured (e.g., local dev), fall back to the source URL so we can still
-  // associate images with records and run AI detection using the downloaded bytes.
+  // associate images with records and display source assets.
   if (!connectionString) {
     console.warn(
       `[blob-storage] AZURE_STORAGE_CONNECTION not configured; using source image URL directly for ${params.source}:${params.externalId}`

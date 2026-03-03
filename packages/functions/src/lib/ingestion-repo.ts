@@ -5,6 +5,7 @@ import { defaultShopifyBaseUrl } from "./connectors/shopify-generic";
 import { detectHexWithAzureOpenAI, type HexDetectionOptions } from "./ai-color-detection";
 import { submitVisionHexBatch } from "./azure-openai-batch";
 import { uploadSourceImageToBlob } from "./blob-storage";
+import { toImageProxyUrlFromOrigin } from "./image-proxy";
 import { isSuspiciousHex } from "./suspicious-hex";
 import { PoolClient } from "pg";
 
@@ -229,9 +230,52 @@ function isHttpUrl(value: string | null): value is string {
 
 const HEX_DETECTION_DELAY_MS = 6000;
 const DEFAULT_HEX_BATCH_MIN_IMAGES = 5;
+const INGESTION_AI_IMAGE_PROXY_ORIGIN = resolveIngestionAiImageProxyOrigin();
+const HAS_STORAGE_CONNECTION = Boolean(process.env.AZURE_STORAGE_CONNECTION?.trim());
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function resolveIngestionAiImageProxyOrigin(): string | null {
+  const configured = process.env.INGESTION_AI_IMAGE_PROXY_ORIGIN?.trim();
+  if (configured) {
+    try {
+      const parsed = new URL(configured);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+        return `${parsed.protocol}//${parsed.host}`;
+      }
+    } catch {
+      // Fall through to WEBSITE_HOSTNAME.
+    }
+  }
+
+  const hostname = process.env.WEBSITE_HOSTNAME?.trim();
+  if (hostname) {
+    return `https://${hostname}`;
+  }
+
+  return null;
+}
+
+function resolveAiImageUrl(storageUrl: string | null): string | null {
+  if (!storageUrl || !isHttpUrl(storageUrl)) {
+    return null;
+  }
+
+  if (HAS_STORAGE_CONNECTION && INGESTION_AI_IMAGE_PROXY_ORIGIN) {
+    try {
+      return toImageProxyUrlFromOrigin(INGESTION_AI_IMAGE_PROXY_ORIGIN, storageUrl);
+    } catch (error) {
+      console.warn(
+        `[ingestion-repo] Failed to build image proxy URL for AI detection, falling back to raw URL: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  }
+
+  return storageUrl;
 }
 
 function mergeStringArrays(
@@ -382,7 +426,6 @@ async function prepareHoloTacoImageData(
     let checksumSha256: string | null = null;
     let detectedHex: string | null = null;
     let detectedFinishes: string[] | null = null;
-    let imageBase64DataUri: string | null = null;
     const additionalImages: Array<{ storageUrl: string; checksumSha256: string }> = [];
 
     // Step 1: Upload primary image to blob storage
@@ -395,7 +438,6 @@ async function prepareHoloTacoImageData(
       });
       storageUrl = upload.storageUrl;
       checksumSha256 = upload.checksumSha256;
-      imageBase64DataUri = upload.imageBase64DataUri;
       metrics.imageUploads += 1;
       console.log(`${sourceLogPrefix} AFTER: Primary image uploaded: checksum=${checksumSha256}, storageUrl=${storageUrl}`);
     } catch (err) {
@@ -428,12 +470,12 @@ async function prepareHoloTacoImageData(
     // is set, only run when vendor hex is suspicious/missing
     const shouldRunAiDetection = detectHexFromImage &&
       (!detectHexOnSuspiciousOnly || isSuspiciousHex(holo.vendorHex));
-    const imageForAi = imageBase64DataUri;
+    const imageForAi = resolveAiImageUrl(storageUrl);
 
     if (shouldRunAiDetection) {
       if (!imageForAi) {
         metrics.hexDetectionSkipped += 1;
-        const skipMessage = `${sourceLogPrefix} ${record.externalId} [ai-color-detection] Skipping AI: missing base64 image payload`;
+        const skipMessage = `${sourceLogPrefix} ${record.externalId} [ai-color-detection] Skipping AI: missing image URL payload`;
         console.warn(skipMessage, {
           externalId: record.externalId,
           brand: holo.brand || sourceLogPrefix.replace(/[\[\]]/g, ""),
