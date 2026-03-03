@@ -221,7 +221,7 @@ async function runWithTimeout<T>(promise: Promise<T>, timeoutMs: number, label: 
 
 async function sendStorageRequest(
   config: StorageAccountConfig,
-  method: "PUT" | "GET",
+  method: "PUT" | "GET" | "HEAD",
   url: URL,
   headers: Record<string, string>,
   body?: Buffer
@@ -370,7 +370,56 @@ export async function readBlobFromStorageUrl(storageUrl: string): Promise<ReadBl
   };
 }
 
-export async function uploadSourceImageToBlob(params: UploadSourceImageOptions): Promise<UploadedBlobImage> {
+export async function blobExists(
+  connectionString: string,
+  containerName: string,
+  blobName: string
+): Promise<boolean> {
+  const config = parseStorageConnectionString(connectionString);
+  const container = normalizeContainerName(containerName);
+  const blobUrl = new URL(
+    `${config.blobEndpoint}/${container}/${encodeBlobPath(blobName)}`
+  );
+  const response = await sendStorageRequest(config, "HEAD", blobUrl, {});
+
+  if (response.status === 200) {
+    return true;
+  }
+
+  if (response.status === 404) {
+    return false;
+  }
+
+  const details = await response.text().catch(() => "");
+  throw new Error(
+    `Failed to check blob existence for '${container}/${blobName}': ${response.status} ${response.statusText} ${details}`.trim()
+  );
+}
+
+export async function ensureContainer(
+  connectionString: string,
+  containerName: string
+): Promise<void> {
+  const config = parseStorageConnectionString(connectionString);
+  const container = normalizeContainerName(containerName);
+  const containerUrl = new URL(`${config.blobEndpoint}/${container}`);
+  const response = await sendStorageRequest(
+    config,
+    "PUT",
+    new URL(`${containerUrl.toString()}?restype=container`),
+    { "Content-Length": "0" }
+  );
+  if (![201, 202, 409].includes(response.status)) {
+    const details = await response.text().catch(() => "");
+    throw new Error(
+      `Failed to ensure blob container '${container}': ${response.status} ${details}`
+    );
+  }
+}
+
+export async function uploadSourceImageToBlob(
+  params: UploadSourceImageOptions & { skipContainerEnsure?: boolean }
+): Promise<UploadedBlobImage> {
   console.log(`[blob-storage] Downloading image from ${params.sourceImageUrl}`);
   const sourceResponse = await runWithTimeout(
     fetch(params.sourceImageUrl, {
@@ -423,20 +472,9 @@ export async function uploadSourceImageToBlob(params: UploadSourceImageOptions):
   );
 
   const containerUrl = new URL(`${config.blobEndpoint}/${containerName}`);
-  console.log(`[blob-storage] Ensuring container exists: ${containerName}`);
-  const createContainerResponse = await sendStorageRequest(
-    config,
-    "PUT",
-    new URL(`${containerUrl.toString()}?restype=container`),
-    {
-      "Content-Length": "0",
-    }
-  );
-  if (![201, 202, 409].includes(createContainerResponse.status)) {
-    const details = await createContainerResponse.text().catch(() => "");
-    throw new Error(
-      `Failed to ensure blob container '${containerName}': ${createContainerResponse.status} ${details}`
-    );
+  if (!params.skipContainerEnsure) {
+    console.log(`[blob-storage] Ensuring container exists: ${containerName}`);
+    await ensureContainer(connectionString, containerName);
   }
 
   const blobUrl = new URL(`${containerUrl.toString()}/${encodeBlobPath(blobName)}`);
