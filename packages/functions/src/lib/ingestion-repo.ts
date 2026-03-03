@@ -338,7 +338,25 @@ async function prepareHoloTacoImageData(
   if (connectionString) {
     const containerName = process.env.SOURCE_IMAGE_CONTAINER || "source-images";
     console.log(`${sourceLogPrefix} Ensuring container exists before parallel uploads`);
-    await ensureContainer(connectionString, containerName);
+    try {
+      await ensureContainer(connectionString, containerName);
+    } catch (error) {
+      console.error(
+        `${sourceLogPrefix} Failed to ensure container before parallel uploads; continuing with per-record handling`,
+        error
+      );
+      // Best-effort logging; do not abort the entire ingestion pipeline.
+      progressLogger?.error?.(
+        `${sourceLogPrefix} Failed to ensure container before parallel uploads; continuing with per-record handling`,
+        {
+          containerName,
+          error:
+            error instanceof Error
+              ? { message: error.message, stack: error.stack }
+              : String(error),
+        }
+      );
+    }
   }
 
   const sourceName = sourceLogPrefix.replace(/[\[\]]/g, "");
