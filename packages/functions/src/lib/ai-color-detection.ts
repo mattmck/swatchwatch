@@ -548,7 +548,10 @@ async function fetchWithRetry(
 /**
  * Detect hex color from an image using Azure OpenAI vision.
  * @param imageUrlOrDataUri - Either a publicly-accessible URL or a base64 data URI (data:image/...;base64,...).
- *   URL inputs are preferred for ingestion (for example proxied blob URLs) to avoid large base64 payloads.
+ *   Azure OpenAI fetches image URLs server-side, so the URL must be publicly reachable from Azure
+ *   (for example, a proxied blob URL). Localhost or other private-network URLs will not work; for
+ *   local development or private origins, prefer base64 data URIs. When available, public URLs are
+ *   still preferred to avoid large base64 payloads.
  */
 export async function detectHexWithAzureOpenAI(
   imageUrlOrDataUri: string,
