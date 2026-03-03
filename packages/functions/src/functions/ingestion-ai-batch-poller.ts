@@ -15,8 +15,9 @@ import {
 } from "../lib/azure-openai-batch";
 import { trackMetric } from "../lib/telemetry";
 
-const DEFAULT_BATCH_POLL_SCHEDULE = "0 */2 * * * *";
+const DEFAULT_BATCH_POLL_SCHEDULE = "0 * * * * *";
 const DEFAULT_MAX_JOBS_PER_POLL = 10;
+const MAX_JOB_LOG_ENTRIES = 500;
 
 interface BatchPollerRuntimeConfig {
   enabled: boolean;
@@ -71,6 +72,33 @@ function withPipelineMetrics(
 
 function toRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function appendJobLog(
+  metrics: Record<string, unknown>,
+  level: "debug" | "info" | "warn" | "error",
+  msg: string,
+  data?: Record<string, unknown>
+): Record<string, unknown> {
+  const existingLogs = Array.isArray(metrics.logs) ? metrics.logs : [];
+  const trimmedLogs =
+    existingLogs.length >= MAX_JOB_LOG_ENTRIES
+      ? existingLogs.slice(existingLogs.length - (MAX_JOB_LOG_ENTRIES - 1))
+      : existingLogs;
+
+  const entry: Record<string, unknown> = {
+    ts: new Date().toISOString(),
+    level,
+    msg,
+  };
+  if (data && Object.keys(data).length > 0) {
+    entry.data = data;
+  }
+
+  return {
+    ...metrics,
+    logs: [...trimmedLogs, entry],
+  };
 }
 
 function readAiBatchFromMetrics(metrics: Record<string, unknown>): {
@@ -175,10 +203,15 @@ async function processAwaitingAiBatchJob(
 
   if (!aiBatchMetrics) {
     const message = "Missing aiBatch metadata for awaiting_ai ingestion job";
-    const failedMetrics = withPipelineMetrics(metrics, "failed", "awaiting_ai", {
-      failedAt: new Date().toISOString(),
-      failedStage: "awaiting_ai",
-    });
+    const failedMetrics = withPipelineMetrics(
+      appendJobLog(metrics, "error", message),
+      "failed",
+      "awaiting_ai",
+      {
+        failedAt: new Date().toISOString(),
+        failedStage: "awaiting_ai",
+      }
+    );
     if (!(await shouldApplyTerminalUpdate(job.jobId, context, "failure"))) {
       return;
     }
@@ -191,16 +224,25 @@ async function processAwaitingAiBatchJob(
   const polledAt = new Date().toISOString();
 
   if (isBatchStillRunning(batchStatus.status)) {
-    const runningMetrics = withPipelineMetrics(metrics, "running", "awaiting_ai", {
-      aiBatch: {
-        ...toRecord(metrics.aiBatch),
-        status: batchStatus.status,
-        lastPolledAt: polledAt,
+    const runningMetrics = withPipelineMetrics(
+      appendJobLog(metrics, "info", `Batch ${batchStatus.id} polled: ${batchStatus.status}`, {
         outputFileId: batchStatus.outputFileId,
         errorFileId: batchStatus.errorFileId,
-        requestCounts: batchStatus.requestCounts,
-      },
-    });
+        requestCounts: batchStatus.requestCounts || undefined,
+      }),
+      "running",
+      "awaiting_ai",
+      {
+        aiBatch: {
+          ...toRecord(metrics.aiBatch),
+          status: batchStatus.status,
+          lastPolledAt: polledAt,
+          outputFileId: batchStatus.outputFileId,
+          errorFileId: batchStatus.errorFileId,
+          requestCounts: batchStatus.requestCounts,
+        },
+      }
+    );
     await updateIngestionJobMetrics(job.jobId, runningMetrics);
     context.log(
       `[ingestion-ai-batch-poller] Job ${job.jobId} batch ${batchStatus.id} still ${batchStatus.status}`
@@ -253,11 +295,26 @@ async function processAwaitingAiBatchJob(
       aiBatchMetrics.overwriteDetectedHex
     );
 
+    const completionLogs = appendJobLog(
+      appendJobLog(metrics, "info", `Batch ${batchStatus.id} completed`, {
+        outputRows: outputRows.length,
+        parsedRows: parsedDetections.length,
+        parseErrors: parsedDetections.filter((row) => row.error).length,
+      }),
+      "info",
+      `Applied ${applyMetrics.applied} batch detections`,
+      {
+        processed: applyMetrics.processed,
+        skippedNoDetection: applyMetrics.skippedNoDetection,
+        noShadeMatch: applyMetrics.noShadeMatch,
+      }
+    );
+
     const completionMetrics = withPipelineMetrics(
       {
-        ...metrics,
+        ...completionLogs,
         aiBatch: {
-          ...toRecord(metrics.aiBatch),
+          ...toRecord(completionLogs.aiBatch),
           status: "completed",
           completedAt: polledAt,
           lastPolledAt: polledAt,
@@ -304,18 +361,26 @@ async function processAwaitingAiBatchJob(
   }
 
   const failedMessage = `Azure OpenAI batch ${batchStatus.id} ended with status ${batchStatus.status}`;
-  const failedMetrics = withPipelineMetrics(metrics, "failed", "awaiting_ai", {
-    failedAt: polledAt,
-    failedStage: "awaiting_ai",
-    aiBatch: {
-      ...toRecord(metrics.aiBatch),
-      status: batchStatus.status,
-      lastPolledAt: polledAt,
+  const failedMetrics = withPipelineMetrics(
+    appendJobLog(metrics, "error", failedMessage, {
       outputFileId: batchStatus.outputFileId,
       errorFileId: batchStatus.errorFileId,
-      requestCounts: batchStatus.requestCounts,
-    },
-  });
+    }),
+    "failed",
+    "awaiting_ai",
+    {
+      failedAt: polledAt,
+      failedStage: "awaiting_ai",
+      aiBatch: {
+        ...toRecord(metrics.aiBatch),
+        status: batchStatus.status,
+        lastPolledAt: polledAt,
+        outputFileId: batchStatus.outputFileId,
+        errorFileId: batchStatus.errorFileId,
+        requestCounts: batchStatus.requestCounts,
+      },
+    }
+  );
   if (!(await shouldApplyTerminalUpdate(job.jobId, context, "failure"))) {
     return;
   }
@@ -367,7 +432,11 @@ async function ingestionAiBatchPoller(
         failedAt: new Date().toISOString(),
         failedStage: "awaiting_ai",
       });
-      await markIngestionJobFailed(job.jobId, message, failedMetrics);
+      await markIngestionJobFailed(
+        job.jobId,
+        message,
+        appendJobLog(failedMetrics, "error", `[poller] ${message}`)
+      );
     }
   }
 }
