@@ -259,12 +259,24 @@ function resolveIngestionAiImageProxyOrigin(): string | null {
   return null;
 }
 
+function isAzureBlobStorageUrl(value: string): boolean {
+  try {
+    return new URL(value).host.toLowerCase().includes(".blob.");
+  } catch {
+    return false;
+  }
+}
+
 function resolveAiImageUrl(storageUrl: string | null): string | null {
   if (!storageUrl || !isHttpUrl(storageUrl)) {
     return null;
   }
 
-  if (HAS_STORAGE_CONNECTION && INGESTION_AI_IMAGE_PROXY_ORIGIN) {
+  if (
+    HAS_STORAGE_CONNECTION &&
+    INGESTION_AI_IMAGE_PROXY_ORIGIN &&
+    isAzureBlobStorageUrl(storageUrl)
+  ) {
     try {
       return toImageProxyUrlFromOrigin(INGESTION_AI_IMAGE_PROXY_ORIGIN, storageUrl);
     } catch (error) {

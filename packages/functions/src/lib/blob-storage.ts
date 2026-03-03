@@ -466,47 +466,61 @@ export async function uploadSourceImageToBlob(
     };
   }
 
-  const config = parseStorageConnectionString(connectionString);
-  const containerName = normalizeContainerName(process.env.SOURCE_IMAGE_CONTAINER);
-  const extension = inferExtension(contentType, params.sourceImageUrl);
-  const blobName = buildBlobName(params.source, params.externalId, checksumSha256, extension);
+  try {
+    const config = parseStorageConnectionString(connectionString);
+    const containerName = normalizeContainerName(process.env.SOURCE_IMAGE_CONTAINER);
+    const extension = inferExtension(contentType, params.sourceImageUrl);
+    const blobName = buildBlobName(params.source, params.externalId, checksumSha256, extension);
 
-  console.log(
-    `[blob-storage] Image downloaded: ${bytes.length} bytes (${cleanBytes.length} after metadata strip), checksum=${checksumSha256}, extension=${extension}`
-  );
+    console.log(
+      `[blob-storage] Image downloaded: ${bytes.length} bytes (${cleanBytes.length} after metadata strip), checksum=${checksumSha256}, extension=${extension}`
+    );
 
-  const containerUrl = new URL(`${config.blobEndpoint}/${containerName}`);
-  if (!params.skipContainerEnsure) {
-    console.log(`[blob-storage] Ensuring container exists: ${containerName}`);
-    await ensureContainer(connectionString, containerName);
+    const containerUrl = new URL(`${config.blobEndpoint}/${containerName}`);
+    if (!params.skipContainerEnsure) {
+      console.log(`[blob-storage] Ensuring container exists: ${containerName}`);
+      await ensureContainer(connectionString, containerName);
+    }
+
+    const blobUrl = new URL(`${containerUrl.toString()}/${encodeBlobPath(blobName)}`);
+    console.log(`[blob-storage] Uploading blob: ${blobName}`);
+    const uploadResponse = await sendStorageRequest(
+      config,
+      "PUT",
+      blobUrl,
+      {
+        "Content-Type": contentType,
+        "Content-Length": String(cleanBytes.length),
+        "x-ms-blob-type": "BlockBlob",
+      },
+      cleanBytes
+    );
+
+    if (uploadResponse.status !== 201) {
+      const details = await uploadResponse.text().catch(() => "");
+      throw new Error(`Blob upload failed: ${uploadResponse.status} ${details}`);
+    }
+
+    console.log(`[blob-storage] Blob uploaded successfully: ${blobUrl.toString()}`);
+
+    return {
+      storageUrl: blobUrl.toString(),
+      checksumSha256,
+      contentType,
+      sizeBytes: cleanBytes.length,
+      imageBase64DataUri,
+    };
+  } catch (error) {
+    console.warn(
+      `[blob-storage] Blob upload unavailable; falling back to source URL for ${params.source}:${params.externalId}`,
+      error
+    );
+    return {
+      storageUrl: params.sourceImageUrl,
+      checksumSha256,
+      contentType,
+      sizeBytes: cleanBytes.length,
+      imageBase64DataUri,
+    };
   }
-
-  const blobUrl = new URL(`${containerUrl.toString()}/${encodeBlobPath(blobName)}`);
-  console.log(`[blob-storage] Uploading blob: ${blobName}`);
-  const uploadResponse = await sendStorageRequest(
-    config,
-    "PUT",
-    blobUrl,
-    {
-      "Content-Type": contentType,
-      "Content-Length": String(cleanBytes.length),
-      "x-ms-blob-type": "BlockBlob",
-    },
-    cleanBytes
-  );
-
-  if (uploadResponse.status !== 201) {
-    const details = await uploadResponse.text().catch(() => "");
-    throw new Error(`Blob upload failed: ${uploadResponse.status} ${details}`);
-  }
-
-  console.log(`[blob-storage] Blob uploaded successfully: ${blobUrl.toString()}`);
-
-  return {
-    storageUrl: blobUrl.toString(),
-    checksumSha256,
-    contentType,
-    sizeBytes: cleanBytes.length,
-    imageBase64DataUri,
-  };
 }

@@ -159,7 +159,7 @@ Functions require secrets defined in `packages/functions/local.settings.json`:
 | `PGDATABASE` | PostgreSQL database name |
 | `PGUSER` | PostgreSQL username |
 | `PGPASSWORD` | PostgreSQL password |
-| `AZURE_STORAGE_CONNECTION` | Storage account (swatch/nail photos). In local dev this points to Azurite (see "Local storage emulator" below). |
+| `AZURE_STORAGE_CONNECTION` | Storage account (swatch/nail photos). In local dev this points to Azurite; if unset or Blob writes fail at runtime, ingestion falls back to source image URLs (see "Local storage emulator" below). |
 | `INGESTION_JOB_QUEUE_NAME` | Optional async ingestion queue name (default: `ingestion-jobs`) |
 | `SOURCE_IMAGE_CONTAINER` | Optional container for source-ingested product images (default: `source-images`) |
 | `BLOB_READ_SAS_TTL_SECONDS` | Optional signed read URL TTL for blob-backed swatch images, in seconds (default: `3600`) |
