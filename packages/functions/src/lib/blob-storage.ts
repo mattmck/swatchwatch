@@ -381,7 +381,19 @@ export async function blobExists(
     `${config.blobEndpoint}/${container}/${encodeBlobPath(blobName)}`
   );
   const response = await sendStorageRequest(config, "HEAD", blobUrl, {});
-  return response.status === 200;
+
+  if (response.status === 200) {
+    return true;
+  }
+
+  if (response.status === 404) {
+    return false;
+  }
+
+  const details = await response.text().catch(() => "");
+  throw new Error(
+    `Failed to check blob existence for '${container}/${blobName}': ${response.status} ${response.statusText} ${details}`.trim()
+  );
 }
 
 export async function ensureContainer(
