@@ -57,7 +57,9 @@ interface AzureOpenAiBatchConfig {
 function getBatchConfig(): AzureOpenAiBatchConfig {
   const directEndpoint = process.env.AZURE_OPENAI_ENDPOINT?.trim();
   const gatewayEndpoint = process.env.AZURE_OPENAI_GATEWAY_ENDPOINT?.trim();
-  const useGateway = process.env.AZURE_OPENAI_USE_GATEWAY?.trim()?.toLowerCase() === "true";
+  const useGateway =
+    (process.env.AZURE_OPENAI_USE_GATEWAY ?? "").trim().toLowerCase() === "true";
+  const endpoint = (useGateway ? gatewayEndpoint : directEndpoint) || directEndpoint;
   const apiKey = process.env.AZURE_OPENAI_KEY?.trim();
   const gatewaySubscriptionKey = process.env.AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY?.trim();
   // effectiveUseGateway is true only when all three gateway settings are present.
