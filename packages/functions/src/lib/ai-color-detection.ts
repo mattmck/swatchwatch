@@ -558,15 +558,16 @@ export async function detectHexWithAzureOpenAI(
   const directEndpoint = process.env.AZURE_OPENAI_ENDPOINT?.trim();
   const gatewayEndpoint = process.env.AZURE_OPENAI_GATEWAY_ENDPOINT?.trim();
   const useGateway = process.env.AZURE_OPENAI_USE_GATEWAY?.trim()?.toLowerCase() === "true";
-  const endpoint = (useGateway ? gatewayEndpoint : directEndpoint) || directEndpoint;
   const apiKey = process.env.AZURE_OPENAI_KEY?.trim();
   const gatewaySubscriptionKey = process.env.AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY?.trim();
+  // effectiveUseGateway is true only when all three gateway settings are present.
+  // This ensures endpoint selection and auth-header selection are always in sync.
+  const effectiveUseGateway = useGateway && !!gatewayEndpoint && !!gatewaySubscriptionKey;
+  const endpoint = (effectiveUseGateway ? gatewayEndpoint : directEndpoint) || directEndpoint;
   const deployment =
     process.env.AZURE_OPENAI_DEPLOYMENT_HEX?.trim() ||
     process.env.AZURE_OPENAI_DEPLOYMENT?.trim();
-  const hasAuthHeader = useGateway
-    ? !!gatewaySubscriptionKey || !!apiKey
-    : !!apiKey;
+  const hasAuthHeader = effectiveUseGateway || !!apiKey;
 
   if (!endpoint || !hasAuthHeader || !deployment) {
     emitLog(options, "error", `[ai-color-detection] Missing Azure OpenAI config`, {
@@ -575,6 +576,7 @@ export async function detectHexWithAzureOpenAI(
       hasGatewaySubscriptionKey: !!gatewaySubscriptionKey,
       hasDeployment: !!deployment,
       useGateway,
+      effectiveUseGateway,
       availableEnvVars: {
         AZURE_OPENAI_ENDPOINT: process.env.AZURE_OPENAI_ENDPOINT ? "set" : "missing",
         AZURE_OPENAI_KEY: process.env.AZURE_OPENAI_KEY ? "set" : "missing",
@@ -596,12 +598,9 @@ export async function detectHexWithAzureOpenAI(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...(useGateway && gatewaySubscriptionKey
-        ? { "Ocp-Apim-Subscription-Key": gatewaySubscriptionKey }
-        : {}),
-      ...(!useGateway || !gatewaySubscriptionKey
-        ? { "api-key": apiKey ?? "" }
-        : {}),
+      ...(effectiveUseGateway
+        ? { "Ocp-Apim-Subscription-Key": gatewaySubscriptionKey! }
+        : { "api-key": apiKey ?? "" }),
     },
     body: JSON.stringify(
       buildHexDetectionRequestPayload(

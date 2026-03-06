@@ -59,18 +59,19 @@ function getBatchConfig(): AzureOpenAiBatchConfig {
   const gatewayEndpoint = process.env.AZURE_OPENAI_GATEWAY_ENDPOINT?.trim();
   const useGateway =
     (process.env.AZURE_OPENAI_USE_GATEWAY ?? "").trim().toLowerCase() === "true";
-  const endpoint = (useGateway ? gatewayEndpoint : directEndpoint) || directEndpoint;
   const apiKey = process.env.AZURE_OPENAI_KEY?.trim();
   const gatewaySubscriptionKey = process.env.AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY?.trim();
+  // effectiveUseGateway is true only when all three gateway settings are present.
+  // This ensures endpoint selection and auth-header selection are always in sync.
+  const effectiveUseGateway = useGateway && !!gatewayEndpoint && !!gatewaySubscriptionKey;
+  const endpoint = (effectiveUseGateway ? gatewayEndpoint : directEndpoint) || directEndpoint;
   const deployment =
     process.env.AZURE_OPENAI_DEPLOYMENT_HEX_BATCH?.trim() ||
     process.env.AZURE_OPENAI_DEPLOYMENT_HEX?.trim() ||
     process.env.AZURE_OPENAI_DEPLOYMENT?.trim();
   const apiVersion =
     process.env.AZURE_OPENAI_BATCH_API_VERSION?.trim() || DEFAULT_BATCH_API_VERSION;
-  const hasAuthHeader = useGateway
-    ? !!gatewaySubscriptionKey || !!apiKey
-    : !!apiKey;
+  const hasAuthHeader = effectiveUseGateway || !!apiKey;
 
   if (!endpoint || !hasAuthHeader || !deployment) {
     throw new Error(
@@ -82,7 +83,7 @@ function getBatchConfig(): AzureOpenAiBatchConfig {
     endpoint: endpoint.replace(/\/+$/, ""),
     apiKey: apiKey || null,
     gatewaySubscriptionKey: gatewaySubscriptionKey || null,
-    useGateway,
+    useGateway: effectiveUseGateway,
     deployment,
     apiVersion,
   };
