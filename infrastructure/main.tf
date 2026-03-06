@@ -58,6 +58,7 @@ locals {
   openai_external_api_key              = trimspace(var.openai_api_key)
   openai_external_key_vault_secret_uri = trimspace(var.openai_key_vault_secret_uri)
   apim_openai_subscription_key_value   = trimspace(var.apim_openai_subscription_key)
+  apim_openai_subscription_key_uri     = trimspace(var.apim_openai_subscription_key_uri)
   openai_create_resources              = var.create_openai_resources
   openai_uses_external_inline_key = (
     local.openai_external_endpoint != "" &&
@@ -123,9 +124,10 @@ locals {
     ? "${trimsuffix(local.apim_gateway_url, "/")}/${local.apim_openai_api_suffix_trimmed}"
     : ""
   )
-  apim_openai_subscription_key_secret_uri = try(
-    azurerm_key_vault_secret.apim_openai_subscription_key[0].versionless_id,
-    ""
+  apim_openai_subscription_key_secret_uri = (
+    local.apim_openai_subscription_key_uri != ""
+    ? local.apim_openai_subscription_key_uri
+    : try(azurerm_key_vault_secret.apim_openai_subscription_key[0].versionless_id, "")
   )
   openai_gateway_enabled_value = (
     var.openai_gateway_enabled &&
@@ -164,6 +166,19 @@ check "apim_openai_suffix_configuration" {
       trimspace(trim(var.apim_openai_api_suffix, "/")) != ""
     )
     error_message = "When apim_enabled is true, apim_openai_api_suffix must contain a non-empty path."
+  }
+}
+
+check "openai_gateway_configuration" {
+  assert {
+    condition = (
+      !var.openai_gateway_enabled ||
+      (
+        local.apim_openai_gateway_base_url != "" &&
+        local.apim_openai_subscription_key_secret_uri != ""
+      )
+    )
+    error_message = "When openai_gateway_enabled is true, both APIM gateway URL and APIM subscription key secret URI are required. Set apim_enabled=true and provide apim_openai_subscription_key or apim_openai_subscription_key_uri."
   }
 }
 
@@ -327,7 +342,7 @@ resource "azurerm_api_management" "main" {
 }
 
 resource "azurerm_key_vault_secret" "apim_openai_subscription_key" {
-  count        = local.apim_openai_subscription_key_value != "" ? 1 : 0
+  count        = local.apim_openai_subscription_key_value != "" && local.apim_openai_subscription_key_uri == "" ? 1 : 0
   name         = "apim-openai-subscription-key"
   value        = local.apim_openai_subscription_key_value
   key_vault_id = azurerm_key_vault.main.id

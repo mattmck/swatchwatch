@@ -1,3 +1,5 @@
+import { resolveAzureOpenAiConfig } from "../azure-openai-config";
+
 /**
  * Color Name to Hex Detection
  * 
@@ -134,34 +136,23 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
  * Detect hex from color name using Azure OpenAI
  */
 async function detectWithAzureOpenAI(colorName: string): Promise<ColorNameDetectionResult> {
-  const directEndpoint = process.env.AZURE_OPENAI_ENDPOINT?.trim();
-  const gatewayEndpoint = process.env.AZURE_OPENAI_GATEWAY_ENDPOINT?.trim();
-  const useGateway = (process.env.AZURE_OPENAI_USE_GATEWAY ?? "").trim().toLowerCase() === "true";
-  const apiKey = process.env.AZURE_OPENAI_KEY?.trim();
-  const gatewaySubscriptionKey = process.env.AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY?.trim();
-  // effectiveUseGateway is true only when all three gateway settings are present.
-  // This ensures endpoint selection and auth-header selection are always in sync.
-  const effectiveUseGateway = useGateway && !!gatewayEndpoint && !!gatewaySubscriptionKey;
-  const endpoint = (effectiveUseGateway ? gatewayEndpoint : directEndpoint) || directEndpoint;
-  const deployment =
-    process.env.AZURE_OPENAI_DEPLOYMENT_HEX?.trim() ||
-    process.env.AZURE_OPENAI_DEPLOYMENT?.trim();
-  const hasAuthHeader = effectiveUseGateway || !!apiKey;
+  const resolved = resolveAzureOpenAiConfig({
+    deploymentEnvKeys: ["AZURE_OPENAI_DEPLOYMENT_HEX", "AZURE_OPENAI_DEPLOYMENT"],
+  });
+  const { endpoint, deployment, headers } = resolved;
 
-  if (!endpoint || !hasAuthHeader || !deployment) {
+  if (!resolved.isValid || !endpoint || !deployment) {
     return { hex: null, confidence: null, provider: "none" };
   }
 
-  const requestUrl = `${endpoint.replace(/\/+$/, "")}/openai/deployments/${deployment}/chat/completions?api-version=${OPENAI_API_VERSION}`;
+  const requestUrl = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${OPENAI_API_VERSION}`;
 
   try {
     const response = await fetchWithTimeout(requestUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(effectiveUseGateway
-          ? { "Ocp-Apim-Subscription-Key": gatewaySubscriptionKey! }
-          : { "api-key": apiKey ?? "" }),
+        ...headers,
       },
       body: JSON.stringify({
         temperature: 0,

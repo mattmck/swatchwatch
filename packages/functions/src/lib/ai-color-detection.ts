@@ -1,5 +1,6 @@
 import { query } from "./db";
 import { trackMetric } from "./telemetry";
+import { resolveAzureOpenAiConfig } from "./azure-openai-config";
 
 const OPENAI_API_VERSION = "2024-05-01-preview";
 const REQUEST_TIMEOUT_MS = 20000;
@@ -548,35 +549,53 @@ async function fetchWithRetry(
 /**
  * Detect hex color from an image using Azure OpenAI vision.
  * @param imageUrlOrDataUri - Either a publicly-accessible URL or a base64 data URI (data:image/...;base64,...).
- *   Data URIs are preferred because Azure OpenAI fetches URL images server-side, which fails for
- *   localhost (Azurite) URLs and Shopify CDN URLs with bot protection.
+ *   Azure OpenAI fetches image URLs server-side, so the URL must be publicly reachable from Azure
+ *   (for example, a proxied blob URL). Localhost or other private-network URLs will not work; for
+ *   local development or private origins, prefer base64 data URIs. When available, public URLs are
+ *   still preferred to avoid large base64 payloads.
  */
 export async function detectHexWithAzureOpenAI(
   imageUrlOrDataUri: string,
   options?: HexDetectionOptions
 ): Promise<HexDetectionResult> {
-  const directEndpoint = process.env.AZURE_OPENAI_ENDPOINT?.trim();
-  const gatewayEndpoint = process.env.AZURE_OPENAI_GATEWAY_ENDPOINT?.trim();
-  const useGateway = process.env.AZURE_OPENAI_USE_GATEWAY?.trim()?.toLowerCase() === "true";
-  const apiKey = process.env.AZURE_OPENAI_KEY?.trim();
-  const gatewaySubscriptionKey = process.env.AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY?.trim();
-  // effectiveUseGateway is true only when all three gateway settings are present.
-  // This ensures endpoint selection and auth-header selection are always in sync.
-  const effectiveUseGateway = useGateway && !!gatewayEndpoint && !!gatewaySubscriptionKey;
-  const endpoint = (effectiveUseGateway ? gatewayEndpoint : directEndpoint) || directEndpoint;
-  const deployment =
-    process.env.AZURE_OPENAI_DEPLOYMENT_HEX?.trim() ||
-    process.env.AZURE_OPENAI_DEPLOYMENT?.trim();
-  const hasAuthHeader = effectiveUseGateway || !!apiKey;
+  const resolved = resolveAzureOpenAiConfig({
+    deploymentEnvKeys: ["AZURE_OPENAI_DEPLOYMENT_HEX", "AZURE_OPENAI_DEPLOYMENT"],
+  });
+  const {
+    useGateway,
+    effectiveUseGateway,
+    endpoint,
+    apiKey,
+    gatewaySubscriptionKey,
+    deployment,
+    missingGatewayPrerequisites,
+    headers: authHeaders,
+  } = resolved;
 
-  if (!endpoint || !hasAuthHeader || !deployment) {
+  if (useGateway && !effectiveUseGateway) {
+    emitLog(
+      options,
+      "warn",
+      "[ai-color-detection] AZURE_OPENAI_USE_GATEWAY=true but gateway prerequisites are missing; falling back to direct endpoint",
+      {
+        missingGatewayPrerequisites,
+        hasDirectEndpoint: !!resolved.directEndpoint,
+        hasApiKey: !!apiKey,
+      }
+    );
+  }
+
+  if (!resolved.isValid || !endpoint || !deployment) {
     emitLog(options, "error", `[ai-color-detection] Missing Azure OpenAI config`, {
       hasEndpoint: !!endpoint,
+      hasDirectEndpoint: !!resolved.directEndpoint,
+      hasGatewayEndpoint: !!resolved.gatewayEndpoint,
       hasApiKey: !!apiKey,
       hasGatewaySubscriptionKey: !!gatewaySubscriptionKey,
       hasDeployment: !!deployment,
       useGateway,
       effectiveUseGateway,
+      missingGatewayPrerequisites,
       availableEnvVars: {
         AZURE_OPENAI_ENDPOINT: process.env.AZURE_OPENAI_ENDPOINT ? "set" : "missing",
         AZURE_OPENAI_KEY: process.env.AZURE_OPENAI_KEY ? "set" : "missing",
@@ -593,14 +612,12 @@ export async function detectHexWithAzureOpenAI(
   const logLabel = imageUrlOrDataUri.startsWith("data:") ? "data:…(base64)" : imageUrlOrDataUri;
   emitLog(options, "info", `[ai-color-detection] Config loaded, calling Azure OpenAI for ${logLabel}`);
 
-  const requestUrl = `${endpoint.replace(/\/+$/, "")}/openai/deployments/${deployment}/chat/completions?api-version=${OPENAI_API_VERSION}`;
+  const requestUrl = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${OPENAI_API_VERSION}`;
   const createRequestInit = (safePrompt: boolean): RequestInit => ({
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...(effectiveUseGateway
-        ? { "Ocp-Apim-Subscription-Key": gatewaySubscriptionKey! }
-        : { "api-key": apiKey ?? "" }),
+      ...authHeaders,
     },
     body: JSON.stringify(
       buildHexDetectionRequestPayload(

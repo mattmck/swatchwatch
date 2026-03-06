@@ -1,7 +1,11 @@
 const { describe, it, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 
-const { parseVisionHexBatchOutput, getVisionHexBatchStatus } = require("../dist/lib/azure-openai-batch");
+const {
+  parseVisionHexBatchOutput,
+  getVisionHexBatchStatus,
+  submitVisionHexBatch,
+} = require("../dist/lib/azure-openai-batch");
 
 describe("lib/azure-openai-batch — parseVisionHexBatchOutput", () => {
   it("parses successful output lines", () => {
@@ -76,6 +80,7 @@ describe("lib/azure-openai-batch — parseVisionHexBatchOutput", () => {
 describe("lib/azure-openai-batch — getBatchConfig gateway/direct matrix", () => {
   // Saved env vars restored after each test to avoid cross-test pollution.
   let savedEnv;
+  let savedFetch;
 
   const GATEWAY_VARS = [
     "AZURE_OPENAI_USE_GATEWAY",
@@ -87,10 +92,12 @@ describe("lib/azure-openai-batch — getBatchConfig gateway/direct matrix", () =
     "AZURE_OPENAI_DEPLOYMENT",
     "AZURE_OPENAI_DEPLOYMENT_HEX_BATCH",
     "AZURE_OPENAI_BATCH_API_VERSION",
+    "AZURE_OPENAI_BATCH_COMPLETION_WINDOW",
   ];
 
   beforeEach(() => {
     savedEnv = {};
+    savedFetch = global.fetch;
     for (const key of GATEWAY_VARS) {
       savedEnv[key] = process.env[key];
       delete process.env[key];
@@ -105,6 +112,7 @@ describe("lib/azure-openai-batch — getBatchConfig gateway/direct matrix", () =
         process.env[key] = savedEnv[key];
       }
     }
+    global.fetch = savedFetch;
   });
 
   function makeOkResponse(body) {
@@ -179,5 +187,24 @@ describe("lib/azure-openai-batch — getBatchConfig gateway/direct matrix", () =
     assert.ok(capturedUrl.startsWith("https://direct.openai.azure.com"), `Expected direct endpoint fallback, got: ${capturedUrl}`);
     assert.equal(capturedHeaders["api-key"], "direct-api-key");
     assert.equal(capturedHeaders["Ocp-Apim-Subscription-Key"], undefined);
+  });
+
+  it("includes gateway toggle hint when required configuration is missing", async () => {
+    await assert.rejects(
+      () =>
+        submitVisionHexBatch([
+          {
+            customId: "ext-999",
+            imageUrlOrDataUri: "data:image/png;base64,AAAA",
+          },
+        ]),
+      (error) => {
+        assert.match(
+          error.message,
+          /AZURE_OPENAI_USE_GATEWAY=true with AZURE_OPENAI_GATEWAY_ENDPOINT and AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY/
+        );
+        return true;
+      }
+    );
   });
 });

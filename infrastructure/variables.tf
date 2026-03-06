@@ -57,7 +57,7 @@ variable "openai_custom_subdomain_name" {
 variable "apim_enabled" {
   description = "Create an Azure API Management instance for Azure OpenAI gateway routing."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "apim_sku_name" {
@@ -89,6 +89,12 @@ variable "apim_openai_subscription_key" {
   type        = string
   default     = ""
   sensitive   = true
+}
+
+variable "apim_openai_subscription_key_uri" {
+  description = "Optional existing Key Vault secret URI for the APIM subscription key. When set, Terraform will not create the APIM key secret."
+  type        = string
+  default     = ""
 }
 
 variable "openai_gateway_enabled" {

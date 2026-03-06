@@ -6,6 +6,7 @@ import {
   type HexDetectionOptions,
   type HexDetectionTokenUsage,
 } from "./ai-color-detection";
+import { resolveAzureOpenAiConfig } from "./azure-openai-config";
 
 const DEFAULT_BATCH_API_VERSION = "2025-03-01-preview";
 const DEFAULT_BATCH_COMPLETION_WINDOW = "24h";
@@ -55,54 +56,39 @@ interface AzureOpenAiBatchConfig {
 }
 
 function getBatchConfig(): AzureOpenAiBatchConfig {
-  const directEndpoint = process.env.AZURE_OPENAI_ENDPOINT?.trim();
-  const gatewayEndpoint = process.env.AZURE_OPENAI_GATEWAY_ENDPOINT?.trim();
-  const useGateway =
-    (process.env.AZURE_OPENAI_USE_GATEWAY ?? "").trim().toLowerCase() === "true";
-  const apiKey = process.env.AZURE_OPENAI_KEY?.trim();
-  const gatewaySubscriptionKey = process.env.AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY?.trim();
-  // effectiveUseGateway is true only when all three gateway settings are present.
-  // This ensures endpoint selection and auth-header selection are always in sync.
-  const effectiveUseGateway = useGateway && !!gatewayEndpoint && !!gatewaySubscriptionKey;
-  const endpoint = (effectiveUseGateway ? gatewayEndpoint : directEndpoint) || directEndpoint;
-  const deployment =
-    process.env.AZURE_OPENAI_DEPLOYMENT_HEX_BATCH?.trim() ||
-    process.env.AZURE_OPENAI_DEPLOYMENT_HEX?.trim() ||
-    process.env.AZURE_OPENAI_DEPLOYMENT?.trim();
+  const resolved = resolveAzureOpenAiConfig({
+    deploymentEnvKeys: [
+      "AZURE_OPENAI_DEPLOYMENT_HEX_BATCH",
+      "AZURE_OPENAI_DEPLOYMENT_HEX",
+      "AZURE_OPENAI_DEPLOYMENT",
+    ],
+  });
   const apiVersion =
     process.env.AZURE_OPENAI_BATCH_API_VERSION?.trim() || DEFAULT_BATCH_API_VERSION;
-  const hasAuthHeader = effectiveUseGateway || !!apiKey;
 
-  if (!endpoint || !hasAuthHeader || !deployment) {
+  if (!resolved.isValid || !resolved.endpoint || !resolved.deployment) {
     throw new Error(
-      "Azure OpenAI batch configuration is incomplete (AZURE_OPENAI_ENDPOINT|AZURE_OPENAI_GATEWAY_ENDPOINT, AZURE_OPENAI_KEY|AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY, AZURE_OPENAI_DEPLOYMENT_HEX_BATCH|AZURE_OPENAI_DEPLOYMENT_HEX|AZURE_OPENAI_DEPLOYMENT)"
+      "Azure OpenAI batch configuration is incomplete (AZURE_OPENAI_ENDPOINT|AZURE_OPENAI_GATEWAY_ENDPOINT, AZURE_OPENAI_KEY|AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY, AZURE_OPENAI_DEPLOYMENT_HEX_BATCH|AZURE_OPENAI_DEPLOYMENT_HEX|AZURE_OPENAI_DEPLOYMENT). For gateway-only mode, set AZURE_OPENAI_USE_GATEWAY=true with AZURE_OPENAI_GATEWAY_ENDPOINT and AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY."
     );
   }
 
   return {
-    endpoint: endpoint.replace(/\/+$/, ""),
-    apiKey: apiKey || null,
-    gatewaySubscriptionKey: gatewaySubscriptionKey || null,
-    useGateway: effectiveUseGateway,
-    deployment,
+    endpoint: resolved.endpoint,
+    apiKey: resolved.apiKey,
+    gatewaySubscriptionKey: resolved.gatewaySubscriptionKey,
+    useGateway: resolved.effectiveUseGateway,
+    deployment: resolved.deployment,
     apiVersion,
   };
 }
 
 function buildAuthHeaders(cfg: AzureOpenAiBatchConfig): Record<string, string> {
-  const hasGatewayKey = !!cfg.gatewaySubscriptionKey;
-  const hasApiKey = !!cfg.apiKey;
-
-  // cfg.useGateway already reflects effectiveUseGateway (requires a non-empty
-  // gateway endpoint AND subscription key), so endpoint selection and auth-header
-  // selection are always in sync — a gateway subscription key will never be sent
-  // to the direct Azure OpenAI endpoint.
-  if (cfg.useGateway && hasGatewayKey) {
-    return { "Ocp-Apim-Subscription-Key": cfg.gatewaySubscriptionKey as string };
+  if (cfg.useGateway && cfg.gatewaySubscriptionKey) {
+    return { "Ocp-Apim-Subscription-Key": cfg.gatewaySubscriptionKey };
   }
 
-  if (hasApiKey) {
-    return { "api-key": cfg.apiKey as string };
+  if (cfg.apiKey) {
+    return { "api-key": cfg.apiKey };
   }
 
   return {};
