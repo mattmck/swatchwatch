@@ -64,6 +64,18 @@ output "openai_diagnostic_setting_name" {
   value = try(azurerm_monitor_diagnostic_setting.openai[0].name, "")
 }
 
+output "apim_name" {
+  value = try(azurerm_api_management.main[0].name, "")
+}
+
+output "apim_gateway_url" {
+  value = try(azurerm_api_management.main[0].gateway_url, "")
+}
+
+output "openai_gateway_endpoint" {
+  value = local.apim_openai_gateway_base_url
+}
+
 output "application_insights_name" {
   value = azurerm_application_insights.main.name
 }
