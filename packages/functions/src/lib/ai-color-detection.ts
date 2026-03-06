@@ -555,20 +555,32 @@ export async function detectHexWithAzureOpenAI(
   imageUrlOrDataUri: string,
   options?: HexDetectionOptions
 ): Promise<HexDetectionResult> {
-  const endpoint = process.env.AZURE_OPENAI_ENDPOINT?.trim();
+  const directEndpoint = process.env.AZURE_OPENAI_ENDPOINT?.trim();
+  const gatewayEndpoint = process.env.AZURE_OPENAI_GATEWAY_ENDPOINT?.trim();
+  const useGateway = process.env.AZURE_OPENAI_USE_GATEWAY?.trim().toLowerCase() === "true";
+  const endpoint = (useGateway ? gatewayEndpoint : directEndpoint) || directEndpoint;
   const apiKey = process.env.AZURE_OPENAI_KEY?.trim();
+  const gatewaySubscriptionKey = process.env.AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY?.trim();
   const deployment =
     process.env.AZURE_OPENAI_DEPLOYMENT_HEX?.trim() ||
     process.env.AZURE_OPENAI_DEPLOYMENT?.trim();
+  const hasAuthHeader = useGateway
+    ? !!gatewaySubscriptionKey || !!apiKey
+    : !!apiKey;
 
-  if (!endpoint || !apiKey || !deployment) {
+  if (!endpoint || !hasAuthHeader || !deployment) {
     emitLog(options, "error", `[ai-color-detection] Missing Azure OpenAI config`, {
       hasEndpoint: !!endpoint,
       hasApiKey: !!apiKey,
+      hasGatewaySubscriptionKey: !!gatewaySubscriptionKey,
       hasDeployment: !!deployment,
+      useGateway,
       availableEnvVars: {
         AZURE_OPENAI_ENDPOINT: process.env.AZURE_OPENAI_ENDPOINT ? "set" : "missing",
         AZURE_OPENAI_KEY: process.env.AZURE_OPENAI_KEY ? "set" : "missing",
+        AZURE_OPENAI_GATEWAY_ENDPOINT: process.env.AZURE_OPENAI_GATEWAY_ENDPOINT ? "set" : "missing",
+        AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY: process.env.AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY ? "set" : "missing",
+        AZURE_OPENAI_USE_GATEWAY: process.env.AZURE_OPENAI_USE_GATEWAY ? "set" : "missing",
         AZURE_OPENAI_DEPLOYMENT_HEX: process.env.AZURE_OPENAI_DEPLOYMENT_HEX ? "set" : "missing",
         AZURE_OPENAI_DEPLOYMENT: process.env.AZURE_OPENAI_DEPLOYMENT ? "set" : "missing",
       },
@@ -584,7 +596,12 @@ export async function detectHexWithAzureOpenAI(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "api-key": apiKey,
+      ...(useGateway && gatewaySubscriptionKey
+        ? { "Ocp-Apim-Subscription-Key": gatewaySubscriptionKey }
+        : {}),
+      ...(!useGateway || !gatewaySubscriptionKey
+        ? { "api-key": apiKey ?? "" }
+        : {}),
     },
     body: JSON.stringify(
       buildHexDetectionRequestPayload(

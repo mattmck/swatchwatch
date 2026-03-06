@@ -167,6 +167,9 @@ Functions require secrets defined in `packages/functions/local.settings.json`:
 | `AZURE_SPEECH_REGION` | Azure Speech Services region |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint for voice parsing |
 | `AZURE_OPENAI_KEY` | Azure OpenAI key |
+| `AZURE_OPENAI_GATEWAY_ENDPOINT` | Optional APIM gateway base URL for Azure OpenAI proxying |
+| `AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY` | Optional APIM subscription key used when gateway mode is enabled |
+| `AZURE_OPENAI_USE_GATEWAY` | Feature flag (`true`/`false`) to route OpenAI calls through APIM |
 | `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name for image-based hex detection |
 | `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` | Optional Azure OpenAI deployment name for batch image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`) |
 | `AZURE_OPENAI_BATCH_API_VERSION` | Optional API version used for Azure OpenAI Files/Batch endpoints (default `2025-03-01-preview`) |

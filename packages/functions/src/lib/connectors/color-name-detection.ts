@@ -134,13 +134,20 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
  * Detect hex from color name using Azure OpenAI
  */
 async function detectWithAzureOpenAI(colorName: string): Promise<ColorNameDetectionResult> {
-  const endpoint = process.env.AZURE_OPENAI_ENDPOINT?.trim();
+  const directEndpoint = process.env.AZURE_OPENAI_ENDPOINT?.trim();
+  const gatewayEndpoint = process.env.AZURE_OPENAI_GATEWAY_ENDPOINT?.trim();
+  const useGateway = process.env.AZURE_OPENAI_USE_GATEWAY?.trim().toLowerCase() === "true";
+  const endpoint = (useGateway ? gatewayEndpoint : directEndpoint) || directEndpoint;
   const apiKey = process.env.AZURE_OPENAI_KEY?.trim();
+  const gatewaySubscriptionKey = process.env.AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY?.trim();
   const deployment =
     process.env.AZURE_OPENAI_DEPLOYMENT_HEX?.trim() ||
     process.env.AZURE_OPENAI_DEPLOYMENT?.trim();
+  const hasAuthHeader = useGateway
+    ? !!gatewaySubscriptionKey || !!apiKey
+    : !!apiKey;
 
-  if (!endpoint || !apiKey || !deployment) {
+  if (!endpoint || !hasAuthHeader || !deployment) {
     return { hex: null, confidence: null, provider: "none" };
   }
 
@@ -151,7 +158,12 @@ async function detectWithAzureOpenAI(colorName: string): Promise<ColorNameDetect
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "api-key": apiKey,
+        ...(useGateway && gatewaySubscriptionKey
+          ? { "Ocp-Apim-Subscription-Key": gatewaySubscriptionKey }
+          : {}),
+        ...(!useGateway || !gatewaySubscriptionKey
+          ? { "api-key": apiKey ?? "" }
+          : {}),
       },
       body: JSON.stringify({
         temperature: 0,

@@ -54,6 +54,49 @@ variable "openai_custom_subdomain_name" {
   nullable    = true
 }
 
+variable "apim_enabled" {
+  description = "Create an Azure API Management instance for Azure OpenAI gateway routing."
+  type        = bool
+  default     = true
+}
+
+variable "apim_sku_name" {
+  description = "Azure API Management SKU name."
+  type        = string
+  default     = "Consumption_0"
+}
+
+variable "apim_publisher_name" {
+  description = "Publisher display name for Azure API Management."
+  type        = string
+  default     = "SwatchWatch"
+}
+
+variable "apim_publisher_email" {
+  description = "Publisher email address for Azure API Management."
+  type        = string
+  default     = "platform@swatchwatch.app"
+}
+
+variable "apim_openai_api_suffix" {
+  description = "API path suffix in APIM used for Azure OpenAI proxy calls."
+  type        = string
+  default     = "openai-gateway"
+}
+
+variable "apim_openai_subscription_key" {
+  description = "Optional APIM subscription key for Azure OpenAI gateway calls. Stored in Key Vault when provided."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "openai_gateway_enabled" {
+  description = "Enable Function App gateway mode (`AZURE_OPENAI_USE_GATEWAY=true`). Keep false until APIM routes/policies are configured."
+  type        = bool
+  default     = false
+}
+
 variable "openai_deployment_name" {
   description = "Azure OpenAI deployment name used for hex detection"
   type        = string

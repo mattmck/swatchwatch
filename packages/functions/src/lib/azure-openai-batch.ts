@@ -47,33 +47,56 @@ export interface VisionHexBatchOutputRow {
 
 interface AzureOpenAiBatchConfig {
   endpoint: string;
-  apiKey: string;
+  apiKey: string | null;
+  gatewaySubscriptionKey: string | null;
+  useGateway: boolean;
   deployment: string;
   apiVersion: string;
 }
 
 function getBatchConfig(): AzureOpenAiBatchConfig {
-  const endpoint = process.env.AZURE_OPENAI_ENDPOINT?.trim();
+  const directEndpoint = process.env.AZURE_OPENAI_ENDPOINT?.trim();
+  const gatewayEndpoint = process.env.AZURE_OPENAI_GATEWAY_ENDPOINT?.trim();
+  const useGateway = process.env.AZURE_OPENAI_USE_GATEWAY?.trim().toLowerCase() === "true";
+  const endpoint = (useGateway ? gatewayEndpoint : directEndpoint) || directEndpoint;
   const apiKey = process.env.AZURE_OPENAI_KEY?.trim();
+  const gatewaySubscriptionKey = process.env.AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY?.trim();
   const deployment =
     process.env.AZURE_OPENAI_DEPLOYMENT_HEX_BATCH?.trim() ||
     process.env.AZURE_OPENAI_DEPLOYMENT_HEX?.trim() ||
     process.env.AZURE_OPENAI_DEPLOYMENT?.trim();
   const apiVersion =
     process.env.AZURE_OPENAI_BATCH_API_VERSION?.trim() || DEFAULT_BATCH_API_VERSION;
+  const hasAuthHeader = useGateway
+    ? !!gatewaySubscriptionKey || !!apiKey
+    : !!apiKey;
 
-  if (!endpoint || !apiKey || !deployment) {
+  if (!endpoint || !hasAuthHeader || !deployment) {
     throw new Error(
-      "Azure OpenAI batch configuration is incomplete (AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_KEY, AZURE_OPENAI_DEPLOYMENT_HEX_BATCH|AZURE_OPENAI_DEPLOYMENT_HEX|AZURE_OPENAI_DEPLOYMENT)"
+      "Azure OpenAI batch configuration is incomplete (AZURE_OPENAI_ENDPOINT|AZURE_OPENAI_GATEWAY_ENDPOINT, AZURE_OPENAI_KEY|AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY, AZURE_OPENAI_DEPLOYMENT_HEX_BATCH|AZURE_OPENAI_DEPLOYMENT_HEX|AZURE_OPENAI_DEPLOYMENT)"
     );
   }
 
   return {
     endpoint: endpoint.replace(/\/+$/, ""),
-    apiKey,
+    apiKey: apiKey || null,
+    gatewaySubscriptionKey: gatewaySubscriptionKey || null,
+    useGateway,
     deployment,
     apiVersion,
   };
+}
+
+function buildAuthHeaders(cfg: AzureOpenAiBatchConfig): Record<string, string> {
+  if (cfg.useGateway && cfg.gatewaySubscriptionKey) {
+    return { "Ocp-Apim-Subscription-Key": cfg.gatewaySubscriptionKey };
+  }
+
+  if (cfg.apiKey) {
+    return { "api-key": cfg.apiKey };
+  }
+
+  return {};
 }
 
 function parseErrorBody(bodyText: string): string {
@@ -175,9 +198,7 @@ export async function submitVisionHexBatch(
 
   const uploadResponse = await fetchWithTimeout(uploadUrl, {
     method: "POST",
-    headers: {
-      "api-key": cfg.apiKey,
-    },
+    headers: buildAuthHeaders(cfg),
     body: form,
   });
 
@@ -195,7 +216,7 @@ export async function submitVisionHexBatch(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "api-key": cfg.apiKey,
+      ...buildAuthHeaders(cfg),
     },
     body: JSON.stringify({
       input_file_id: inputFileId,
@@ -239,9 +260,7 @@ export async function getVisionHexBatchStatus(
     `${cfg.endpoint}/openai/batches/${encodeURIComponent(batchId)}?api-version=${cfg.apiVersion}`,
     {
       method: "GET",
-      headers: {
-        "api-key": cfg.apiKey,
-      },
+      headers: buildAuthHeaders(cfg),
     }
   );
 
@@ -283,9 +302,7 @@ export async function downloadBatchFileContent(fileId: string): Promise<string> 
     `${cfg.endpoint}/openai/files/${encodeURIComponent(fileId)}/content?api-version=${cfg.apiVersion}`,
     {
       method: "GET",
-      headers: {
-        "api-key": cfg.apiKey,
-      },
+      headers: buildAuthHeaders(cfg),
     }
   );
 
