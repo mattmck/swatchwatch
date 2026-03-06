@@ -6,6 +6,7 @@ github_repository       = "your-github-username/swatchwatch"
 pg_admin_username       = "pgadmin"
 pg_admin_password       = "<set-a-secure-password>"
 create_openai_resources = true
+openai_regions          = ["centralus", "southcentralus", "eastus", "eastus2"]
 apim_enabled            = true
 apim_sku_name           = "Consumption_0"
 openai_gateway_enabled  = false

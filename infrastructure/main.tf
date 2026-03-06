@@ -60,6 +60,54 @@ locals {
   apim_openai_subscription_key_value   = trimspace(var.apim_openai_subscription_key)
   apim_openai_subscription_key_uri     = trimspace(var.apim_openai_subscription_key_uri)
   openai_create_resources              = var.create_openai_resources
+  openai_regions_normalized = distinct([
+    for region in var.openai_regions : lower(trimspace(region))
+    if trimspace(region) != ""
+  ])
+  openai_primary_region_fallback = lower(trimspace(
+    coalesce(var.openai_location, var.location)
+  ))
+  openai_target_regions = (
+    length(local.openai_regions_normalized) > 0
+    ? local.openai_regions_normalized
+    : [local.openai_primary_region_fallback]
+  )
+  openai_primary_region_key = local.openai_target_regions[0]
+  openai_managed_regions = (
+    local.openai_create_resources
+    ? local.openai_target_regions
+    : (
+      var.retain_openai_account
+      ? [local.openai_primary_region_key]
+      : []
+    )
+  )
+  openai_region_slug_by_region = {
+    for region in local.openai_managed_regions :
+    region => replace(region, "/[^0-9a-z]/", "")
+  }
+  openai_account_name_by_region = {
+    for region in local.openai_managed_regions :
+    region => (
+      region == local.openai_primary_region_key
+      ? "${local.resource_prefix}-openai-${local.unique_suffix}"
+      : "${local.resource_prefix}-openai-${local.openai_region_slug_by_region[region]}-${local.unique_suffix}"
+    )
+  }
+  openai_custom_subdomain_default = "${local.resource_prefix}-openai-${local.unique_suffix}"
+  openai_custom_subdomain_name_trimmed = (
+    var.openai_custom_subdomain_name != null && trimspace(var.openai_custom_subdomain_name) != ""
+    ? trimspace(var.openai_custom_subdomain_name)
+    : null
+  )
+  openai_custom_subdomain_by_region = {
+    for region in local.openai_managed_regions :
+    region => (
+      region == local.openai_primary_region_key
+      ? coalesce(local.openai_custom_subdomain_name_trimmed, local.openai_custom_subdomain_default)
+      : "${local.resource_prefix}-openai-${local.openai_region_slug_by_region[region]}-${local.unique_suffix}"
+    )
+  }
   openai_uses_external_inline_key = (
     local.openai_external_endpoint != "" &&
     local.openai_external_api_key != ""
@@ -78,7 +126,7 @@ locals {
   # the custom subdomain name instead.
   openai_endpoint_value = (
     local.openai_create_resources
-    ? "https://${try(azurerm_cognitive_account.openai[0].custom_subdomain_name, "")}.openai.azure.com/"
+    ? "https://${try(azurerm_cognitive_account.openai[local.openai_primary_region_key].custom_subdomain_name, "")}.openai.azure.com/"
     : local.openai_external_endpoint
   )
   openai_deployment_name_value         = local.openai_enabled ? var.openai_deployment_name : ""
@@ -109,7 +157,7 @@ locals {
   )
   openai_key_secret_value = (
     local.openai_create_resources
-    ? try(azurerm_cognitive_account.openai[0].primary_access_key, "")
+    ? try(azurerm_cognitive_account.openai[local.openai_primary_region_key].primary_access_key, "")
     : local.openai_external_api_key
   )
   openai_key_secret_uri = (
@@ -504,13 +552,13 @@ resource "azurerm_cognitive_account" "speech" {
 }
 
 resource "azurerm_cognitive_account" "openai" {
-  count                 = (local.openai_create_resources || var.retain_openai_account) ? 1 : 0
-  name                  = "${local.resource_prefix}-openai-${local.unique_suffix}"
+  for_each              = toset(local.openai_managed_regions)
+  name                  = local.openai_account_name_by_region[each.key]
   resource_group_name   = azurerm_resource_group.main.name
-  location              = var.openai_location != null ? var.openai_location : azurerm_resource_group.main.location
+  location              = each.key
   kind                  = "AIServices"
   sku_name              = "S0"
-  custom_subdomain_name = var.openai_custom_subdomain_name != null ? var.openai_custom_subdomain_name : "${local.resource_prefix}-openai-${local.unique_suffix}"
+  custom_subdomain_name = local.openai_custom_subdomain_by_region[each.key]
 
   identity {
     type = "SystemAssigned"
@@ -526,9 +574,9 @@ resource "azurerm_cognitive_account" "openai" {
 }
 
 resource "azurerm_cognitive_deployment" "openai_hex" {
-  count                = local.openai_create_resources ? 1 : 0
+  for_each             = local.openai_create_resources ? azurerm_cognitive_account.openai : {}
   name                 = var.openai_deployment_name
-  cognitive_account_id = azurerm_cognitive_account.openai[0].id
+  cognitive_account_id = each.value.id
 
   model {
     format  = "OpenAI"
@@ -543,9 +591,9 @@ resource "azurerm_cognitive_deployment" "openai_hex" {
 }
 
 resource "azurerm_cognitive_deployment" "openai_hex_batch" {
-  count                = local.openai_batch_deployment_managed ? 1 : 0
+  for_each             = local.openai_batch_deployment_managed ? azurerm_cognitive_account.openai : {}
   name                 = local.openai_batch_deployment_name_trimmed
-  cognitive_account_id = azurerm_cognitive_account.openai[0].id
+  cognitive_account_id = each.value.id
 
   model {
     format  = "OpenAI"
@@ -562,9 +610,9 @@ resource "azurerm_cognitive_deployment" "openai_hex_batch" {
 # Send Azure OpenAI diagnostics to the shared Log Analytics workspace
 # (same workspace backing Application Insights).
 resource "azurerm_monitor_diagnostic_setting" "openai" {
-  count                      = local.openai_create_resources ? 1 : 0
-  name                       = "openai-observability"
-  target_resource_id         = azurerm_cognitive_account.openai[0].id
+  for_each                   = local.openai_create_resources ? azurerm_cognitive_account.openai : {}
+  name                       = "openai-observability-${local.openai_region_slug_by_region[each.key]}"
+  target_resource_id         = each.value.id
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
 
   enabled_log {

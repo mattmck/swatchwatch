@@ -13,7 +13,7 @@ on:
         default: true
         type: boolean
       openai_location:
-        description: Azure OpenAI region override
+        description: Fallback Azure OpenAI region when OPENAI_REGIONS is not provided
         required: false
         default: eastus
         type: string
@@ -33,7 +33,7 @@ on:
         default: true
         type: boolean
       openai_location:
-        description: Azure OpenAI region override
+        description: Fallback Azure OpenAI region when OPENAI_REGIONS is not provided
         required: false
         default: eastus
         type: string
@@ -57,6 +57,7 @@ jobs:
       TF_VAR_environment: ${{ inputs.environment }}
       TF_VAR_github_repository: ${{ github.repository }}
       TF_VAR_openai_location: ${{ inputs.openai_location }}
+      TF_VAR_openai_regions: ${{ vars.OPENAI_REGIONS || '[]' }}
       TF_VAR_retain_openai_account: true
       TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
       TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}

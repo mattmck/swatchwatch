@@ -10,10 +10,16 @@ variable "location" {
 }
 
 variable "openai_location" {
-  description = "Optional override region for Azure OpenAI resources (defaults to `location` when null)"
+  description = "Optional fallback region for Azure OpenAI resources when `openai_regions` is empty (defaults to `location` when null)"
   type        = string
   default     = null
   nullable    = true
+}
+
+variable "openai_regions" {
+  description = "Azure OpenAI regions to provision when create_openai_resources=true. First region is treated as primary for function settings and backwards-compatible outputs."
+  type        = list(string)
+  default     = []
 }
 
 variable "environment" {
