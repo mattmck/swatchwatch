@@ -1,5 +1,6 @@
 import { query } from "./db";
 import { trackMetric } from "./telemetry";
+import { resolveAzureOpenAiConfig } from "./azure-openai-config";
 
 const OPENAI_API_VERSION = "2024-05-01-preview";
 const REQUEST_TIMEOUT_MS = 20000;
@@ -557,20 +558,50 @@ export async function detectHexWithAzureOpenAI(
   imageUrlOrDataUri: string,
   options?: HexDetectionOptions
 ): Promise<HexDetectionResult> {
-  const endpoint = process.env.AZURE_OPENAI_ENDPOINT?.trim();
-  const apiKey = process.env.AZURE_OPENAI_KEY?.trim();
-  const deployment =
-    process.env.AZURE_OPENAI_DEPLOYMENT_HEX?.trim() ||
-    process.env.AZURE_OPENAI_DEPLOYMENT?.trim();
+  const resolved = resolveAzureOpenAiConfig({
+    deploymentEnvKeys: ["AZURE_OPENAI_DEPLOYMENT_HEX", "AZURE_OPENAI_DEPLOYMENT"],
+  });
+  const {
+    useGateway,
+    effectiveUseGateway,
+    endpoint,
+    apiKey,
+    gatewaySubscriptionKey,
+    deployment,
+    missingGatewayPrerequisites,
+    headers: authHeaders,
+  } = resolved;
 
-  if (!endpoint || !apiKey || !deployment) {
+  if (useGateway && !effectiveUseGateway) {
+    emitLog(
+      options,
+      "warn",
+      "[ai-color-detection] AZURE_OPENAI_USE_GATEWAY=true but gateway prerequisites are missing; falling back to direct endpoint",
+      {
+        missingGatewayPrerequisites,
+        hasDirectEndpoint: !!resolved.directEndpoint,
+        hasApiKey: !!apiKey,
+      }
+    );
+  }
+
+  if (!resolved.isValid || !endpoint || !deployment) {
     emitLog(options, "error", `[ai-color-detection] Missing Azure OpenAI config`, {
       hasEndpoint: !!endpoint,
+      hasDirectEndpoint: !!resolved.directEndpoint,
+      hasGatewayEndpoint: !!resolved.gatewayEndpoint,
       hasApiKey: !!apiKey,
+      hasGatewaySubscriptionKey: !!gatewaySubscriptionKey,
       hasDeployment: !!deployment,
+      useGateway,
+      effectiveUseGateway,
+      missingGatewayPrerequisites,
       availableEnvVars: {
         AZURE_OPENAI_ENDPOINT: process.env.AZURE_OPENAI_ENDPOINT ? "set" : "missing",
         AZURE_OPENAI_KEY: process.env.AZURE_OPENAI_KEY ? "set" : "missing",
+        AZURE_OPENAI_GATEWAY_ENDPOINT: process.env.AZURE_OPENAI_GATEWAY_ENDPOINT ? "set" : "missing",
+        AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY: process.env.AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY ? "set" : "missing",
+        AZURE_OPENAI_USE_GATEWAY: process.env.AZURE_OPENAI_USE_GATEWAY ? "set" : "missing",
         AZURE_OPENAI_DEPLOYMENT_HEX: process.env.AZURE_OPENAI_DEPLOYMENT_HEX ? "set" : "missing",
         AZURE_OPENAI_DEPLOYMENT: process.env.AZURE_OPENAI_DEPLOYMENT ? "set" : "missing",
       },
@@ -581,12 +612,12 @@ export async function detectHexWithAzureOpenAI(
   const logLabel = imageUrlOrDataUri.startsWith("data:") ? "data:…(base64)" : imageUrlOrDataUri;
   emitLog(options, "info", `[ai-color-detection] Config loaded, calling Azure OpenAI for ${logLabel}`);
 
-  const requestUrl = `${endpoint.replace(/\/+$/, "")}/openai/deployments/${deployment}/chat/completions?api-version=${OPENAI_API_VERSION}`;
+  const requestUrl = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${OPENAI_API_VERSION}`;
   const createRequestInit = (safePrompt: boolean): RequestInit => ({
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "api-key": apiKey,
+      ...authHeaders,
     },
     body: JSON.stringify(
       buildHexDetectionRequestPayload(

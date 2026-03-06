@@ -70,6 +70,7 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | Storage Container | `azurerm_storage_container.tfstate` | Terraform remote state container |
 | Log Analytics Workspace | `azurerm_log_analytics_workspace.main` | Centralized log storage/query backend |
 | Application Insights | `azurerm_application_insights.main` | Function telemetry, traces, requests, and exceptions |
+| API Management *(optional)* | `azurerm_api_management.main` | Azure API Management Consumption gateway for Azure OpenAI traffic (`apim_enabled=true`) |
 | App Service Plan | `azurerm_service_plan.main` | Linux Consumption plan (Y1) |
 | Function App | `azurerm_linux_function_app.main` | Node 20 function host (Managed Identity enabled) |
 | Static Web App | `azurerm_static_web_app.main` | Next.js frontend (Standard tier) |
@@ -97,6 +98,14 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | `pg_admin_username` | `pgadmin` | PostgreSQL admin username |
 | `pg_admin_password` | *(required)* | PostgreSQL admin password (stored in Key Vault) |
 | `github_repository` | `your-github-username/swatchwatch` | GitHub repo for OIDC federation |
+| `apim_enabled` | `false` | Provision an Azure API Management instance for Azure OpenAI gateway routing (opt-in) |
+| `apim_sku_name` | `Consumption_0` | APIM SKU (Consumption tier default for cost control) |
+| `apim_publisher_name` | `SwatchWatch` | APIM publisher display name |
+| `apim_publisher_email` | `platform@swatchwatch.app` | APIM publisher contact email |
+| `apim_openai_api_suffix` | `openai-gateway` | APIM API path suffix for Azure OpenAI proxy calls |
+| `apim_openai_subscription_key` | `""` | Optional APIM subscription key stored in Key Vault and exposed to Functions as `AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY` |
+| `apim_openai_subscription_key_uri` | `""` | Optional existing Key Vault secret URI for APIM subscription key. When set, Terraform reuses it and does not create `apim-openai-subscription-key`. |
+| `openai_gateway_enabled` | `false` | Function App setting `AZURE_OPENAI_USE_GATEWAY`; keep false until APIM API routes/policies are configured |
 | `openai_custom_subdomain_name` | `null` | Optional custom subdomain for the Azure OpenAI account. If not set, a name is generated. |
 | `create_openai_resources` | `false` | Provision Azure OpenAI account/deployment in this stack (disable when quota is unavailable) |
 | `retain_openai_account` | `true` | Keep the legacy in-stack OpenAI account when `create_openai_resources=false` (avoids deletes blocked by nested Foundry project resources) |
@@ -168,6 +177,9 @@ Key outputs after `terraform apply`:
 | `openai_hex_deployment_name` | Azure OpenAI deployment name used by Functions (empty when OpenAI is disabled) |
 | `openai_diagnostic_setting_name` | Azure OpenAI diagnostic setting attached to Log Analytics |
 | `openai_resources_provisioned` | Whether this stack provisioned Azure OpenAI resources |
+| `apim_name` | APIM service name (empty when `apim_enabled=false`) |
+| `apim_gateway_url` | APIM gateway URL (empty when `apim_enabled=false`) |
+| `openai_gateway_endpoint` | APIM OpenAI gateway base URL exposed to Functions via `AZURE_OPENAI_GATEWAY_ENDPOINT` |
 | `application_insights_name` | Application Insights resource name |
 | `log_analytics_workspace_name` | Log Analytics workspace name |
 | `key_vault_name` | Key Vault name |
@@ -284,6 +296,10 @@ OpenAI settings are optional:
 - If `create_openai_resources=false`, either:
   - set `openai_endpoint` + `openai_api_key`, or
   - set `openai_endpoint` + `openai_key_vault_secret_uri` (preferred).
+- When `apim_enabled=true`, Terraform also provisions APIM (Consumption by default) and sets Function App gateway settings:
+  - `AZURE_OPENAI_GATEWAY_ENDPOINT`
+  - `AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY` (from `apim_openai_subscription_key_uri` when provided, otherwise from a Terraform-managed Key Vault secret created from `apim_openai_subscription_key`)
+  - `AZURE_OPENAI_USE_GATEWAY` (controlled by `openai_gateway_enabled`, with Terraform validation to fail fast if gateway endpoint/secret wiring is incomplete)
 
 ## Destroying Infrastructure
 

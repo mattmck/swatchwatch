@@ -6,6 +6,7 @@ import {
   type HexDetectionOptions,
   type HexDetectionTokenUsage,
 } from "./ai-color-detection";
+import { resolveAzureOpenAiConfig } from "./azure-openai-config";
 
 const DEFAULT_BATCH_API_VERSION = "2025-03-01-preview";
 const DEFAULT_BATCH_COMPLETION_WINDOW = "24h";
@@ -47,33 +48,50 @@ export interface VisionHexBatchOutputRow {
 
 interface AzureOpenAiBatchConfig {
   endpoint: string;
-  apiKey: string;
+  apiKey: string | null;
+  gatewaySubscriptionKey: string | null;
+  useGateway: boolean;
   deployment: string;
   apiVersion: string;
 }
 
 function getBatchConfig(): AzureOpenAiBatchConfig {
-  const endpoint = process.env.AZURE_OPENAI_ENDPOINT?.trim();
-  const apiKey = process.env.AZURE_OPENAI_KEY?.trim();
-  const deployment =
-    process.env.AZURE_OPENAI_DEPLOYMENT_HEX_BATCH?.trim() ||
-    process.env.AZURE_OPENAI_DEPLOYMENT_HEX?.trim() ||
-    process.env.AZURE_OPENAI_DEPLOYMENT?.trim();
+  const resolved = resolveAzureOpenAiConfig({
+    deploymentEnvKeys: [
+      "AZURE_OPENAI_DEPLOYMENT_HEX_BATCH",
+      "AZURE_OPENAI_DEPLOYMENT_HEX",
+      "AZURE_OPENAI_DEPLOYMENT",
+    ],
+  });
   const apiVersion =
     process.env.AZURE_OPENAI_BATCH_API_VERSION?.trim() || DEFAULT_BATCH_API_VERSION;
 
-  if (!endpoint || !apiKey || !deployment) {
+  if (!resolved.isValid || !resolved.endpoint || !resolved.deployment) {
     throw new Error(
-      "Azure OpenAI batch configuration is incomplete (AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_KEY, AZURE_OPENAI_DEPLOYMENT_HEX_BATCH|AZURE_OPENAI_DEPLOYMENT_HEX|AZURE_OPENAI_DEPLOYMENT)"
+      "Azure OpenAI batch configuration is incomplete (AZURE_OPENAI_ENDPOINT|AZURE_OPENAI_GATEWAY_ENDPOINT, AZURE_OPENAI_KEY|AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY, AZURE_OPENAI_DEPLOYMENT_HEX_BATCH|AZURE_OPENAI_DEPLOYMENT_HEX|AZURE_OPENAI_DEPLOYMENT). For gateway-only mode, set AZURE_OPENAI_USE_GATEWAY=true with AZURE_OPENAI_GATEWAY_ENDPOINT and AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY."
     );
   }
 
   return {
-    endpoint: endpoint.replace(/\/+$/, ""),
-    apiKey,
-    deployment,
+    endpoint: resolved.endpoint,
+    apiKey: resolved.apiKey,
+    gatewaySubscriptionKey: resolved.gatewaySubscriptionKey,
+    useGateway: resolved.effectiveUseGateway,
+    deployment: resolved.deployment,
     apiVersion,
   };
+}
+
+function buildAuthHeaders(cfg: AzureOpenAiBatchConfig): Record<string, string> {
+  if (cfg.useGateway && cfg.gatewaySubscriptionKey) {
+    return { "Ocp-Apim-Subscription-Key": cfg.gatewaySubscriptionKey };
+  }
+
+  if (cfg.apiKey) {
+    return { "api-key": cfg.apiKey };
+  }
+
+  return {};
 }
 
 function parseErrorBody(bodyText: string): string {
@@ -175,9 +193,7 @@ export async function submitVisionHexBatch(
 
   const uploadResponse = await fetchWithTimeout(uploadUrl, {
     method: "POST",
-    headers: {
-      "api-key": cfg.apiKey,
-    },
+    headers: buildAuthHeaders(cfg),
     body: form,
   });
 
@@ -195,7 +211,7 @@ export async function submitVisionHexBatch(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "api-key": cfg.apiKey,
+      ...buildAuthHeaders(cfg),
     },
     body: JSON.stringify({
       input_file_id: inputFileId,
@@ -239,9 +255,7 @@ export async function getVisionHexBatchStatus(
     `${cfg.endpoint}/openai/batches/${encodeURIComponent(batchId)}?api-version=${cfg.apiVersion}`,
     {
       method: "GET",
-      headers: {
-        "api-key": cfg.apiKey,
-      },
+      headers: buildAuthHeaders(cfg),
     }
   );
 
@@ -283,9 +297,7 @@ export async function downloadBatchFileContent(fileId: string): Promise<string> 
     `${cfg.endpoint}/openai/files/${encodeURIComponent(fileId)}/content?api-version=${cfg.apiVersion}`,
     {
       method: "GET",
-      headers: {
-        "api-key": cfg.apiKey,
-      },
+      headers: buildAuthHeaders(cfg),
     }
   );
 
