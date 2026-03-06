@@ -90,12 +90,19 @@ function getBatchConfig(): AzureOpenAiBatchConfig {
 }
 
 function buildAuthHeaders(cfg: AzureOpenAiBatchConfig): Record<string, string> {
-  if (cfg.useGateway && cfg.gatewaySubscriptionKey) {
-    return { "Ocp-Apim-Subscription-Key": cfg.gatewaySubscriptionKey };
+  const hasGatewayKey = !!cfg.gatewaySubscriptionKey;
+  const hasApiKey = !!cfg.apiKey;
+
+  // cfg.useGateway already reflects effectiveUseGateway (requires a non-empty
+  // gateway endpoint AND subscription key), so endpoint selection and auth-header
+  // selection are always in sync — a gateway subscription key will never be sent
+  // to the direct Azure OpenAI endpoint.
+  if (cfg.useGateway && hasGatewayKey) {
+    return { "Ocp-Apim-Subscription-Key": cfg.gatewaySubscriptionKey as string };
   }
 
-  if (cfg.apiKey) {
-    return { "api-key": cfg.apiKey };
+  if (hasApiKey) {
+    return { "api-key": cfg.apiKey as string };
   }
 
   return {};
