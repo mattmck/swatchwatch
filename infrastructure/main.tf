@@ -129,7 +129,8 @@ locals {
   )
   openai_gateway_enabled_value = (
     var.openai_gateway_enabled &&
-    local.apim_openai_gateway_base_url != ""
+    local.apim_openai_gateway_base_url != "" &&
+    local.apim_openai_subscription_key_secret_uri != ""
   )
 }
 
