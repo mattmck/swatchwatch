@@ -176,8 +176,18 @@ Functions require secrets defined in `packages/functions/local.settings.json`:
 | `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` | Optional completion window sent during batch creation (default `24h`) |
 | `HEX_DETECTION_BATCH_ENABLED` | Feature flag for Azure OpenAI Batch API during Shopify image detection (default `false`) |
 | `HEX_DETECTION_BATCH_MIN_IMAGES` | Minimum record count before ingestion switches to batch detection (default `5`) |
-| `INGESTION_AI_BATCH_POLL_SCHEDULE` | NCRONTAB schedule for the timer poller that checks awaiting batch jobs (default `0 */2 * * * *`) |
+| `INGESTION_AI_BATCH_POLL_SCHEDULE` | NCRONTAB schedule for the timer poller that checks awaiting batch jobs (default `0 * * * * *`, every minute) |
 | `INGESTION_AI_BATCH_MAX_POLL_JOBS` | Max awaiting batch-backed ingestion jobs processed per poll run (default `10`) |
+| `INGESTION_AI_IMAGE_PROXY_ORIGIN` | Optional public origin used to build AI image-proxy URLs for Azure OpenAI vision calls (defaults to `https://$WEBSITE_HOSTNAME`) |
+| `INGESTION_LOG_FLUSH_INTERVAL_MS` | Interval for ingestion worker metric/log flushes while a job runs (default `10000`) |
+| `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS` | Per-request timeout for Shopify `products.json` downloads (default `45000`) |
+| `SHOPIFY_CONNECTOR_MAX_RETRIES` | Retry count for transient Shopify request errors (default `2`) |
+| `SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS` | Linear backoff base delay for Shopify retries (default `1000`) |
+| `PG_POOL_MAX` | Postgres pool max client count for Functions process (default `10`) |
+| `PG_IDLE_TIMEOUT_MS` | Idle timeout for pooled Postgres clients (default `30000`) |
+| `PG_CONNECTION_TIMEOUT_MS` | Connection acquisition timeout for Postgres clients (default `15000`) |
+| `PG_QUERY_MAX_RETRIES` | Retries for retry-safe DB queries (`SELECT` and `UPDATE ingestion_job`) on connection timeouts (default `2`) |
+| `PG_QUERY_RETRY_BASE_MS` | Linear backoff base delay for retry-safe DB query retries (default `250`) |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Optional App Insights connection string for custom function telemetry events/metrics |
 | `AZURE_AD_B2C_TENANT` | B2C tenant name |
 | `AZURE_AD_B2C_CLIENT_ID` | B2C app client ID |

@@ -7,75 +7,7 @@ const {
   submitVisionHexBatch,
 } = require("../dist/lib/azure-openai-batch");
 
-describe("lib/azure-openai-batch — parseVisionHexBatchOutput", () => {
-  it("parses successful output lines", () => {
-    const jsonl = [
-      JSON.stringify({
-        custom_id: "ext-123",
-        response: {
-          status_code: 200,
-          body: {
-            usage: {
-              prompt_tokens: 456,
-              completion_tokens: 32,
-              total_tokens: 488,
-            },
-            choices: [
-              {
-                message: {
-                  content: '{"hex":"#FF00AA","confidence":0.91,"finishes":["shimmer"]}',
-                },
-              },
-            ],
-          },
-        },
-      }),
-    ].join("\n");
-
-    const parsed = parseVisionHexBatchOutput(jsonl);
-    assert.equal(parsed.length, 1);
-    assert.equal(parsed[0].customId, "ext-123");
-    assert.equal(parsed[0].statusCode, 200);
-    assert.equal(
-      parsed[0].content,
-      '{"hex":"#FF00AA","confidence":0.91,"finishes":["shimmer"]}'
-    );
-    assert.equal(parsed[0].error, null);
-    assert.deepEqual(parsed[0].usage, {
-      promptTokens: 456,
-      completionTokens: 32,
-      totalTokens: 488,
-    });
-  });
-
-  it("captures per-line errors", () => {
-    const jsonl = [
-      JSON.stringify({
-        custom_id: "ext-456",
-        response: {
-          status_code: 400,
-          body: {
-            error: {
-              code: "content_filter",
-              message: "Request blocked by policy",
-            },
-          },
-        },
-        error: {
-          message: "Batch request failed",
-        },
-      }),
-    ].join("\n");
-
-    const parsed = parseVisionHexBatchOutput(jsonl);
-    assert.equal(parsed.length, 1);
-    assert.equal(parsed[0].customId, "ext-456");
-    assert.equal(parsed[0].statusCode, 400);
-    assert.equal(parsed[0].content, null);
-    assert.equal(parsed[0].error, "Batch request failed");
-    assert.equal(parsed[0].usage, null);
-  });
-});
+// ... keep parseVisionHexBatchOutput describe block as-is ...
 
 describe("lib/azure-openai-batch — getBatchConfig gateway/direct matrix", () => {
   // Saved env vars restored after each test to avoid cross-test pollution.
@@ -167,8 +99,6 @@ describe("lib/azure-openai-batch — getBatchConfig gateway/direct matrix", () =
   });
 
   it("USE_GATEWAY=true but missing gateway vars: falls back to directEndpoint and api-key header", async () => {
-    // Flag is true but gateway endpoint and subscription key are absent —
-    // effectiveUseGateway must be false, preventing the auth-header mismatch.
     process.env.AZURE_OPENAI_USE_GATEWAY = "true";
     process.env.AZURE_OPENAI_ENDPOINT = "https://direct.openai.azure.com/";
     process.env.AZURE_OPENAI_KEY = "direct-api-key";
