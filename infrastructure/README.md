@@ -32,6 +32,35 @@ Bootstrap expects an existing Terraform state resource group + storage account a
 
 See full bootstrap guide at end of this file.
 
+## State Migration: OpenAI count → for_each
+
+The OpenAI resources were refactored from `count`-based to `for_each`-based (keyed by region) in the multi-region PR. Existing stacks whose state still references the old indexed addresses (`[0]`) must be migrated before running `terraform apply`, or Terraform will try to destroy and recreate the resources.
+
+Run these commands once per environment, substituting your primary OpenAI region:
+
+```bash
+PRIMARY_REGION="centralus"  # replace with your actual primary region
+
+terraform state mv \
+  'azurerm_cognitive_account.openai[0]' \
+  "azurerm_cognitive_account.openai[\"${PRIMARY_REGION}\"]"
+
+terraform state mv \
+  'azurerm_cognitive_deployment.openai_hex[0]' \
+  "azurerm_cognitive_deployment.openai_hex[\"${PRIMARY_REGION}\"]"
+
+# Only if a separate batch deployment exists in state:
+terraform state mv \
+  'azurerm_cognitive_deployment.openai_hex_batch[0]' \
+  "azurerm_cognitive_deployment.openai_hex_batch[\"${PRIMARY_REGION}\"]"
+
+terraform state mv \
+  'azurerm_monitor_diagnostic_setting.openai[0]' \
+  "azurerm_monitor_diagnostic_setting.openai[\"${PRIMARY_REGION}\"]"
+```
+
+After migration, run `terraform plan` — it should show no destructive changes to OpenAI resources.
+
 ## GitHub Infra Deployment (Dev + Prod)
 
 Terraform infrastructure deploys in CI via:
@@ -46,7 +75,7 @@ Required GitHub Actions configuration (per GitHub environment):
 - Secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`
 - Variables: `TFSTATE_RESOURCE_GROUP`, `TFSTATE_STORAGE_ACCOUNT`, `TFSTATE_CONTAINER` (recommended: `tfstate`), `TFSTATE_BLOB_NAME` (recommended: `<environment>.terraform.tfstate`)
 - OpenAI mode variable: `CREATE_OPENAI_RESOURCES` (`true` to let Terraform manage OpenAI account/deployment; default in workflow is `true`)
-- OpenAI deployment variables (exported as `TF_VAR_*`): `OPENAI_REGIONS` (JSON list, for example `["centralus","southcentralus","eastus","eastus2"]`), `OPENAI_DEPLOYMENT_NAME` (default `hex-detector`), `OPENAI_BATCH_DEPLOYMENT_NAME` (default `hex-detector-batch`), optional `OPENAI_BATCH_MODEL_NAME`, `OPENAI_BATCH_MODEL_VERSION`, `OPENAI_BATCH_DEPLOYMENT_SKU_NAME`, `OPENAI_BATCH_DEPLOYMENT_CAPACITY`
+- OpenAI deployment variables (exported as `TF_VAR_*`): `OPENAI_REGIONS` (JSON list; single-region default e.g. `["centralus"]`, multi-region opt-in e.g. `["centralus","southcentralus","eastus","eastus2"]`), `OPENAI_DEPLOYMENT_NAME` (default `hex-detector`), `OPENAI_BATCH_DEPLOYMENT_NAME` (default `hex-detector-batch`), optional `OPENAI_BATCH_MODEL_NAME`, `OPENAI_BATCH_MODEL_VERSION`, `OPENAI_BATCH_DEPLOYMENT_SKU_NAME`, `OPENAI_BATCH_DEPLOYMENT_CAPACITY`
 - Optional variables for shared/external OpenAI accounts (used when `CREATE_OPENAI_RESOURCES=false`): `OPENAI_ENDPOINT`, `OPENAI_ACCOUNT_NAME`
 Recommended auth config (propagated to Terraform `TF_VAR_*` inputs):
 - Secrets: `AZURE_AD_B2C_CLIENT_ID`
@@ -110,7 +139,6 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | `openai_gateway_enabled` | `false` | Function App setting `AZURE_OPENAI_USE_GATEWAY`; keep false until APIM API routes/policies are configured |
 | `openai_custom_subdomain_name` | `null` | Optional custom subdomain override for the primary Azure OpenAI account. Additional regions always use generated per-region subdomains. |
 | `create_openai_resources` | `false` | Provision Azure OpenAI account/deployment in this stack (disable when quota is unavailable) |
-| `retain_openai_account` | `true` | Keep the legacy in-stack OpenAI account when `create_openai_resources=false` (avoids deletes blocked by nested Foundry project resources) |
 | `openai_endpoint` | `""` | Existing Azure OpenAI endpoint when reusing an external account (`create_openai_resources=false`) |
 | `openai_api_key` | `""` | Existing Azure OpenAI API key when reusing an external account (`create_openai_resources=false`) |
 | `openai_key_vault_secret_uri` | `""` | Existing Key Vault secret URI for Azure OpenAI key (preferred over `openai_api_key` to avoid passing key through Terraform) |

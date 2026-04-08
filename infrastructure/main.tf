@@ -76,11 +76,7 @@ locals {
   openai_managed_regions = (
     local.openai_create_resources
     ? local.openai_target_regions
-    : (
-      var.retain_openai_account
-      ? [local.openai_primary_region_key]
-      : []
-    )
+    : []
   )
   openai_region_slug_by_region = {
     for region in local.openai_managed_regions :
@@ -568,8 +564,7 @@ resource "azurerm_cognitive_account" "openai" {
     # Azure auto-migrates accounts from "OpenAI" to "AIServices" kind.
     # kind is immutable so ignore drift to prevent a destructive replacement.
     # project_management_enabled defaults changed in provider; ignore to prevent forced replacement.
-    ignore_changes  = [kind, project_management_enabled]
-    prevent_destroy = true
+    ignore_changes = [kind, project_management_enabled]
   }
 }
 
