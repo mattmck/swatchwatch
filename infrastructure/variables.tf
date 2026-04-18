@@ -249,6 +249,12 @@ variable "hex_detection_batch_min_images" {
   default     = 5
 }
 
+variable "enable_document_intelligence" {
+  description = "Provision Azure AI Document Intelligence for server-side OCR in the capture pipeline"
+  type        = bool
+  default     = false
+}
+
 variable "ingestion_ai_batch_poll_schedule" {
   description = "NCRONTAB schedule for ingestion-ai-batch-poller"
   type        = string
