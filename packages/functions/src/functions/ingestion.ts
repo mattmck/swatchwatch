@@ -4,6 +4,7 @@ import {
   IngestionJobRunRequest,
   IngestionJobRunResponse,
 } from "swatchwatch-shared";
+import { saveConnectorRawSnapshot } from "../lib/connector-raw-storage";
 import { withAdmin } from "../lib/auth";
 import { withCors } from "../lib/http";
 import { getQueueStats, purgeQueue } from "../lib/queue-management";
@@ -418,6 +419,15 @@ export async function processIngestionJobQueueMessage(
     });
 
     logger.info(`Connector returned ${connectorResult.records.length} records`, connectorResult.metadata);
+
+    // Persist raw payload snapshot for reprocessing / model training
+    await saveConnectorRawSnapshot({
+      jobId: payload.jobId,
+      source: payload.request.source,
+      page: payload.request.page,
+      records: connectorResult.records,
+      metadata: connectorResult.metadata,
+    });
 
     // Upsert external products
     stage = "upsert_external_products";

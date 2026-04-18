@@ -510,3 +510,33 @@ export async function uploadSourceImageToBlob(
     imageBase64DataUri,
   };
 }
+
+/**
+ * Upload arbitrary bytes to a blob storage container.
+ * Low-level generic upload — no image validation or metadata stripping.
+ *
+ * @returns The full blob URL on success.
+ * @throws On upload failure (caller should catch and handle gracefully).
+ */
+export async function uploadBytesToBlob(params: {
+  connectionString: string;
+  containerName: string;
+  blobName: string;
+  bytes: Buffer;
+  contentType: string;
+}): Promise<string> {
+  const config = parseStorageConnectionString(params.connectionString);
+  const container = normalizeContainerName(params.containerName);
+  await ensureContainer(params.connectionString, params.containerName);
+  const blobUrl = new URL(`${config.blobEndpoint}/${container}/${encodeBlobPath(params.blobName)}`);
+  const response = await sendStorageRequest(config, "PUT", blobUrl, {
+    "Content-Type": params.contentType,
+    "Content-Length": String(params.bytes.length),
+    "x-ms-blob-type": "BlockBlob",
+  }, params.bytes);
+  if (response.status !== 201) {
+    const details = await response.text().catch(() => "");
+    throw new Error(`Blob upload failed for '${container}/${params.blobName}': ${response.status} ${details}`);
+  }
+  return blobUrl.toString();
+}

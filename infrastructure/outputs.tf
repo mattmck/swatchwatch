@@ -34,6 +34,11 @@ output "storage_account_name" {
   value = azurerm_storage_account.main.name
 }
 
+output "connector_raw_container_name" {
+  description = "Storage container name for raw connector payload snapshots"
+  value       = azurerm_storage_container.connector_raw.name
+}
+
 output "speech_service_name" {
   value = azurerm_cognitive_account.speech.name
 }
