@@ -6,7 +6,24 @@ import {
 } from "./types";
 
 const DEFAULT_BASE_URL = "https://www.holotaco.com";
-const REQUEST_TIMEOUT_MS = 20000;
+const REQUEST_TIMEOUT_MS = parseIntEnv(
+  process.env.SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS,
+  45000,
+  5000,
+  180000
+);
+const MAX_REQUEST_RETRIES = parseIntEnv(
+  process.env.SHOPIFY_CONNECTOR_MAX_RETRIES,
+  2,
+  0,
+  6
+);
+const RETRY_BASE_DELAY_MS = parseIntEnv(
+  process.env.SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS,
+  1000,
+  100,
+  30000
+);
 const USER_AGENT = "SwatchWatch/connector-ingestion (+https://github.com/mattmck/swatchwatch)";
 const SHOPIFY_PAGE_LIMIT = 250;
 const MAX_SHOPIFY_PAGES = 30;
@@ -42,6 +59,86 @@ interface ShopifyProduct {
   updated_at?: string | null;
   published_at?: string | null;
   [key: string]: unknown;
+}
+
+function parseIntEnv(
+  value: string | undefined,
+  fallback: number,
+  min: number,
+  max: number
+): number {
+  const parsed = Number.parseInt(value || "", 10);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function summarizeResponseBody(bodyText: string): string {
+  const normalized = bodyText.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "";
+  }
+  return normalized.length > 220 ? `${normalized.slice(0, 220)}…` : normalized;
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+function isRetryableRequestError(error: Error): boolean {
+  if (error.name === "AbortError") {
+    return true;
+  }
+
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("timed out") ||
+    message.includes("fetch failed") ||
+    message.includes("econnreset") ||
+    message.includes("econnrefused") ||
+    message.includes("etimedout") ||
+    message.includes("enotfound") ||
+    message.includes("eai_again")
+  );
+}
+
+function asShopifyProducts(value: unknown): ShopifyProduct[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  return value
+    .filter((entry) => entry && typeof entry === "object")
+    .map((entry) => entry as ShopifyProduct);
+}
+
+function describePayloadShape(payload: unknown): string {
+  if (!payload || typeof payload !== "object") {
+    return `payload type=${typeof payload}`;
+  }
+
+  const root = payload as Record<string, unknown>;
+  const keys = Object.keys(root);
+  const keySummary = keys.length > 0 ? keys.slice(0, 8).join(", ") : "(no keys)";
+  const errors =
+    typeof root.errors === "string"
+      ? root.errors
+      : typeof root.error === "string"
+      ? root.error
+      : null;
+  const message =
+    typeof root.message === "string"
+      ? root.message
+      : typeof root.description === "string"
+      ? root.description
+      : null;
+
+  const details = [errors, message].filter((value): value is string => Boolean(value)).join(" | ");
+  return details ? `keys=[${keySummary}] details="${details}"` : `keys=[${keySummary}]`;
 }
 
 function asNonEmptyString(value: unknown): string | null {
@@ -326,18 +423,20 @@ export class HoloTacoShopifyConnector implements ProductConnector {
       const endpoint = `${this.baseUrl}/products.json?${params.toString()}`;
       const payload = await this.fetchJson(endpoint);
 
-      const root =
-        payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
-      if (!root || !Array.isArray(root.products)) {
-        throw new Error("HoloTacoShopify response missing products array");
+      const pageProducts = asShopifyProducts(
+        payload && typeof payload === "object"
+          ? (payload as Record<string, unknown>).products
+          : null
+      );
+      if (!pageProducts) {
+        throw new Error(
+          `HoloTacoShopify response missing products array (${describePayloadShape(payload)})`
+        );
       }
 
-      const pageProducts = root.products
-        .filter((entry) => entry && typeof entry === "object")
-        .map((entry) => entry as ShopifyProduct);
       allProducts.push(...pageProducts);
 
-      if (pageProducts.length < SHOPIFY_PAGE_LIMIT) {
+      if (pageProducts.length === 0 || pageProducts.length < SHOPIFY_PAGE_LIMIT) {
         break;
       }
     }
@@ -346,31 +445,91 @@ export class HoloTacoShopifyConnector implements ProductConnector {
   }
 
   private async fetchJson(url: string): Promise<unknown> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const attemptCount = MAX_REQUEST_RETRIES + 1;
+    let lastError: Error | null = null;
 
-    try {
-      const response = await fetch(url, {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-          "User-Agent": USER_AGENT,
-        },
-        signal: controller.signal,
-      });
+    for (let attempt = 1; attempt <= attemptCount; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-      if (!response.ok) {
-        throw new Error(`HoloTacoShopify request failed: ${response.status} ${response.statusText}`);
+      try {
+        const response = await fetch(url, {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            "User-Agent": USER_AGENT,
+          },
+          signal: controller.signal,
+        });
+
+        const bodyText = await response.text();
+        if (!response.ok) {
+          const bodyPreview = summarizeResponseBody(bodyText);
+          const statusMessage = `HoloTacoShopify request failed: ${response.status} ${response.statusText}`;
+          const errorMessage = bodyPreview ? `${statusMessage} :: ${bodyPreview}` : statusMessage;
+          const statusError = new Error(errorMessage);
+
+          if (attempt < attemptCount && isRetryableStatus(response.status)) {
+            const backoffMs = RETRY_BASE_DELAY_MS * attempt;
+            console.warn(
+              `HoloTacoShopify request retry ${attempt}/${MAX_REQUEST_RETRIES} after HTTP ${response.status}; waiting ${backoffMs}ms`,
+              { url }
+            );
+            await sleep(backoffMs);
+            continue;
+          }
+
+          throw statusError;
+        }
+
+        try {
+          return bodyText ? JSON.parse(bodyText) : {};
+        } catch (parseError) {
+          const parseMessage = parseError instanceof Error ? parseError.message : String(parseError);
+          const bodyPreview = summarizeResponseBody(bodyText);
+          const jsonError = new Error(
+            `HoloTacoShopify returned invalid JSON: ${parseMessage}${
+              bodyPreview ? ` :: ${bodyPreview}` : ""
+            }`
+          );
+
+          if (attempt < attemptCount) {
+            const backoffMs = RETRY_BASE_DELAY_MS * attempt;
+            console.warn(
+              `HoloTacoShopify invalid JSON retry ${attempt}/${MAX_REQUEST_RETRIES}; waiting ${backoffMs}ms`,
+              { url }
+            );
+            await sleep(backoffMs);
+            continue;
+          }
+
+          throw jsonError;
+        }
+      } catch (error) {
+        let normalizedError = error instanceof Error ? error : new Error(String(error));
+        if (normalizedError.name === "AbortError") {
+          normalizedError = new Error(
+            `HoloTacoShopify request timed out after ${REQUEST_TIMEOUT_MS}ms`
+          );
+        }
+
+        if (attempt < attemptCount && isRetryableRequestError(normalizedError)) {
+          const backoffMs = RETRY_BASE_DELAY_MS * attempt;
+          console.warn(
+            `HoloTacoShopify request retry ${attempt}/${MAX_REQUEST_RETRIES} after error: ${normalizedError.message}; waiting ${backoffMs}ms`,
+            { url }
+          );
+          await sleep(backoffMs);
+          continue;
+        }
+
+        lastError = normalizedError;
+        break;
+      } finally {
+        clearTimeout(timeout);
       }
-
-      return response.json();
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") {
-        throw new Error("HoloTacoShopify request timed out");
-      }
-      throw error;
-    } finally {
-      clearTimeout(timeout);
     }
+
+    throw lastError || new Error("HoloTacoShopify request failed");
   }
 }

@@ -15,9 +15,26 @@ function fromBase64Url(input: string): string {
   return Buffer.from(padded, "base64").toString("utf8");
 }
 
+export function encodeImageProxyId(sourceImageUrl: string): string {
+  const parsed = new URL(sourceImageUrl);
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error("Invalid proxied image URL protocol");
+  }
+  return toBase64Url(parsed.toString());
+}
+
+export function toImageProxyUrlFromOrigin(origin: string, sourceImageUrl: string): string {
+  const parsedOrigin = new URL(origin);
+  if (!["http:", "https:"].includes(parsedOrigin.protocol)) {
+    throw new Error("Invalid image proxy origin protocol");
+  }
+  const normalizedOrigin = `${parsedOrigin.protocol}//${parsedOrigin.host}`;
+  return `${normalizedOrigin}${IMAGE_PROXY_ROUTE_PREFIX}${encodeImageProxyId(sourceImageUrl)}`;
+}
+
 export function toImageProxyUrl(requestUrl: string, sourceImageUrl: string): string {
   const origin = new URL(requestUrl).origin;
-  return `${origin}${IMAGE_PROXY_ROUTE_PREFIX}${toBase64Url(sourceImageUrl)}`;
+  return toImageProxyUrlFromOrigin(origin, sourceImageUrl);
 }
 
 export function decodeImageProxyId(id: string): string {
@@ -28,4 +45,3 @@ export function decodeImageProxyId(id: string): string {
   }
   return parsed.toString();
 }
-

@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(terraform validate:*)",
+      "Bash(az account:*)",
+      "Bash(az ad:*)",
+      "Bash(az keyvault:*)",
+      "Bash(terraform import:*)",
+      "Bash(terraform init:*)",
+      "Bash(az group:*)",
+      "Bash(az resource:*)",
+      "Bash(az storage:*)",
+      "Bash(az redis:*)",
+      "Bash(az redisenterprise:*)",
+      "Bash(terraform state:*)"
+    ]
+  }
+}

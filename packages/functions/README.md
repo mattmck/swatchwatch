@@ -124,6 +124,10 @@ When `HEX_DETECTION_BATCH_ENABLED=true`, Shopify image detection can switch to A
 for larger runs (`HEX_DETECTION_BATCH_MIN_IMAGES` threshold). In that mode, the main worker submits
 the batch and leaves the job in `running` with pipeline stage `awaiting_ai`; a timer-triggered poller
 (`ingestion-ai-batch-poller`) later applies completed batch results and marks the job `succeeded`/`failed`.
+Batch and sync image detection now send URL inputs to Azure OpenAI (instead of base64 payloads) using
+the Functions image proxy route (`/api/images/{id}`) when storage is configured.
+The proxy origin is resolved from `INGESTION_AI_IMAGE_PROXY_ORIGIN` or falls back to
+`https://$WEBSITE_HOSTNAME` in Azure.
 Batch deployment resolution order is `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` → `AZURE_OPENAI_DEPLOYMENT_HEX` → `AZURE_OPENAI_DEPLOYMENT`.
 When `AZURE_STORAGE_CONNECTION` isn't configured (for example in a fresh local checkout), the connector
 falls back to storing the original Shopify `image.src` URL so images still appear in the app while
@@ -223,11 +227,11 @@ node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_U
 - If the Function App starts but no functions are listed, check startup logs for module resolution errors and confirm runtime dependencies (for example `jose` for auth JWT validation) are in `dependencies`, not only dev deps.
 - AI hex detection diagnostics are logged under the `[ai-color-detection]` prefix, including retry attempts, delay timings, upstream status codes, and Azure request IDs (`x-request-id`/`apim-request-id`) for failed calls.
 - If Azure OpenAI returns `400 content_filter` for the primary vision prompt, the detector automatically retries once with a safer prompt. If still filtered, ingestion continues and leaves `detected_hex` empty for that record.
-- AI image detection uses base64 image payloads only. If base64 preparation fails for a record, detection is skipped and a warning is logged to the Admin Jobs stream.
+- AI image detection uses URL payloads (image-proxy or source URL fallback). If no usable image URL is available for a record, detection is skipped and a warning is logged to the Admin Jobs stream.
 - On successful AI hex detection, ingestion logs a structured success entry with `brand`, `colorName`, and `hex` in job logs (Admin Jobs expandable log view).
 - Sync and batch hex detection logs now include Azure token usage when present, and those totals are persisted in ingestion job metrics for cost tracking.
 - When `APPLICATIONINSIGHTS_CONNECTION_STRING` is configured, token usage is also emitted as custom metrics: `hex_detection.sync.{prompt_tokens|completion_tokens|total_tokens}` and `hex_detection.batch.{rows_with_token_usage|prompt_tokens|completion_tokens|total_tokens}`.
-- For ingestion runs, those AI diagnostics are also mirrored into the job `metrics.logs` stream shown on `/admin/jobs`.
+- For ingestion runs, those AI diagnostics are mirrored into the job `metrics.logs` stream shown on `/admin/jobs`; poller status events (`awaiting_ai` checks and apply results) are appended to that same stream.
 
 
 ## Environment Variables
@@ -242,14 +246,27 @@ Key variables:
 | `INGESTION_JOB_QUEUE_NAME` | Optional queue name for async ingestion jobs. Defaults to `ingestion-jobs`. |
 | `SOURCE_IMAGE_CONTAINER` | Optional blob container override for source-ingested images. Defaults to `source-images`. |
 | `AZURE_STORAGE_CONNECTION` | Connection string for uploading source images to Azure Blob Storage. When unset (for local dev or bring-up), ingestion falls back to storing the original source image URLs so swatch images still appear. |
+| `AZURE_OPENAI_GATEWAY_ENDPOINT` | Optional APIM gateway base URL used when `AZURE_OPENAI_USE_GATEWAY=true`. |
+| `AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY` | Optional APIM subscription key header value (`Ocp-Apim-Subscription-Key`) used in gateway mode. |
+| `AZURE_OPENAI_USE_GATEWAY` | Feature flag (`true`/`false`) to route Azure OpenAI calls through APIM gateway endpoint. |
 | `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name for synchronous image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT` when unset). |
 | `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` | Optional Azure OpenAI deployment name for batch image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`). |
 | `AZURE_OPENAI_BATCH_API_VERSION` | Optional API version used for Azure OpenAI Files/Batch endpoints (default `2025-03-01-preview`). |
 | `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` | Optional completion window sent during batch creation (default `24h`). |
 | `HEX_DETECTION_BATCH_ENABLED` | Feature flag to enable Azure OpenAI Batch API for Shopify image detection (default `false`). |
 | `HEX_DETECTION_BATCH_MIN_IMAGES` | Minimum record count before switching from synchronous detection to batch submission (default `5`). |
-| `INGESTION_AI_BATCH_POLL_SCHEDULE` | NCRONTAB schedule for the timer poller that checks batch completion (default `0 */2 * * * *`). |
+| `INGESTION_AI_BATCH_POLL_SCHEDULE` | NCRONTAB schedule for the timer poller that checks batch completion (default `0 * * * * *`, every minute). |
 | `INGESTION_AI_BATCH_MAX_POLL_JOBS` | Max `awaiting_ai` ingestion jobs the poller processes per run (default `10`). |
+| `INGESTION_AI_IMAGE_PROXY_ORIGIN` | Optional public origin used when building AI image-proxy URLs (for example `https://<func-app>.azurewebsites.net`). Falls back to `https://$WEBSITE_HOSTNAME`. |
+| `INGESTION_LOG_FLUSH_INTERVAL_MS` | Interval for ingestion worker metric/log flushes while a job runs (default `10000`). Increase to reduce write pressure on Postgres. |
+| `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS` | Per-request timeout for Shopify `products.json` downloads (default `45000`). |
+| `SHOPIFY_CONNECTOR_MAX_RETRIES` | Retry count for transient Shopify request errors (default `2`, total attempts = retries + 1). |
+| `SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS` | Linear backoff base delay for Shopify retries (default `1000`). |
+| `PG_POOL_MAX` | Postgres pool max client count for Functions process (default `10`). |
+| `PG_IDLE_TIMEOUT_MS` | Idle timeout for pooled Postgres clients (default `30000`). |
+| `PG_CONNECTION_TIMEOUT_MS` | Connection acquisition timeout for Postgres clients (default `15000`). |
+| `PG_QUERY_MAX_RETRIES` | Retries for retry-safe DB queries (`SELECT` and `UPDATE ingestion_job`) when connection timeouts occur (default `2`). |
+| `PG_QUERY_RETRY_BASE_MS` | Linear backoff base delay in ms for retry-safe DB query retries (default `250`). |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Optional custom telemetry sink for `trackEvent` / `trackMetric` / `trackException` in `src/lib/telemetry.ts`. When unset, telemetry calls are no-ops. |
 | `REDIS_URL` | Redis endpoint URL for API read-through caching (for example `rediss://<host>:10000`). |
 | `REDIS_KEY` | Redis access key paired with `REDIS_URL`. When either Redis var is missing, cache helpers become no-ops and requests fall back to Postgres. |

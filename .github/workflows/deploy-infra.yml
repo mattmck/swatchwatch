@@ -13,7 +13,7 @@ on:
         default: true
         type: boolean
       openai_location:
-        description: Azure OpenAI region override
+        description: Fallback Azure OpenAI region when OPENAI_REGIONS is not provided
         required: false
         default: eastus
         type: string
@@ -33,7 +33,7 @@ on:
         default: true
         type: boolean
       openai_location:
-        description: Azure OpenAI region override
+        description: Fallback Azure OpenAI region when OPENAI_REGIONS is not provided
         required: false
         default: eastus
         type: string
@@ -57,7 +57,7 @@ jobs:
       TF_VAR_environment: ${{ inputs.environment }}
       TF_VAR_github_repository: ${{ github.repository }}
       TF_VAR_openai_location: ${{ inputs.openai_location }}
-      TF_VAR_retain_openai_account: true
+      TF_VAR_openai_regions: ${{ vars.OPENAI_REGIONS || '[]' }}
       TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
       TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
       TFSTATE_CONTAINER: ${{ vars.TFSTATE_CONTAINER || 'tfstate' }}
@@ -76,6 +76,11 @@ jobs:
       TF_VAR_openai_batch_deployment_sku_name: ${{ vars.OPENAI_BATCH_DEPLOYMENT_SKU_NAME || 'GlobalBatch' }}
       TF_VAR_openai_batch_deployment_capacity: ${{ vars.OPENAI_BATCH_DEPLOYMENT_CAPACITY || '100' }}
       OPENAI_ACCOUNT_NAME: ${{ vars.OPENAI_ACCOUNT_NAME || '' }}
+      TF_VAR_apim_enabled: ${{ vars.APIM_ENABLED || 'false' }}
+      TF_VAR_apim_sku_name: ${{ vars.APIM_SKU_NAME || 'Consumption_0' }}
+      TF_VAR_openai_gateway_enabled: ${{ vars.OPENAI_GATEWAY_ENABLED || 'false' }}
+      TF_VAR_apim_openai_subscription_key_uri: ${{ vars.APIM_OPENAI_SUBSCRIPTION_KEY_URI || '' }}
+
 
     steps:
       - uses: actions/checkout@v4

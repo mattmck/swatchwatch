@@ -10,10 +10,16 @@ variable "location" {
 }
 
 variable "openai_location" {
-  description = "Optional override region for Azure OpenAI resources (defaults to `location` when null)"
+  description = "Optional fallback region for Azure OpenAI resources when `openai_regions` is empty (defaults to `location` when null)"
   type        = string
   default     = null
   nullable    = true
+}
+
+variable "openai_regions" {
+  description = "Azure OpenAI regions to provision when create_openai_resources=true. First region is treated as primary for function settings and backwards-compatible outputs."
+  type        = list(string)
+  default     = []
 }
 
 variable "environment" {
@@ -52,6 +58,55 @@ variable "openai_custom_subdomain_name" {
   type        = string
   default     = null
   nullable    = true
+}
+
+variable "apim_enabled" {
+  description = "Create an Azure API Management instance for Azure OpenAI gateway routing."
+  type        = bool
+  default     = false
+}
+
+variable "apim_sku_name" {
+  description = "Azure API Management SKU name."
+  type        = string
+  default     = "Consumption_0"
+}
+
+variable "apim_publisher_name" {
+  description = "Publisher display name for Azure API Management."
+  type        = string
+  default     = "SwatchWatch"
+}
+
+variable "apim_publisher_email" {
+  description = "Publisher email address for Azure API Management."
+  type        = string
+  default     = "platform@swatchwatch.app"
+}
+
+variable "apim_openai_api_suffix" {
+  description = "API path suffix in APIM used for Azure OpenAI proxy calls."
+  type        = string
+  default     = "openai-gateway"
+}
+
+variable "apim_openai_subscription_key" {
+  description = "Optional APIM subscription key for Azure OpenAI gateway calls. Stored in Key Vault when provided."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "apim_openai_subscription_key_uri" {
+  description = "Optional existing Key Vault secret URI for the APIM subscription key. When set, Terraform will not create the APIM key secret."
+  type        = string
+  default     = ""
+}
+
+variable "openai_gateway_enabled" {
+  description = "Enable Function App gateway mode (`AZURE_OPENAI_USE_GATEWAY=true`). Keep false until APIM routes/policies are configured."
+  type        = bool
+  default     = false
 }
 
 variable "openai_deployment_name" {
@@ -96,11 +151,6 @@ variable "create_openai_resources" {
   default     = false
 }
 
-variable "retain_openai_account" {
-  description = "Retain the legacy in-stack OpenAI account even when create_openai_resources=false (prevents destroy failures when nested Foundry project resources exist)."
-  type        = bool
-  default     = true
-}
 
 variable "openai_endpoint" {
   description = "Optional existing Azure OpenAI endpoint (used when create_openai_resources=false)."

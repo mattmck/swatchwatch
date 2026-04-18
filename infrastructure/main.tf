@@ -57,7 +57,53 @@ locals {
   openai_external_endpoint             = trimspace(var.openai_endpoint)
   openai_external_api_key              = trimspace(var.openai_api_key)
   openai_external_key_vault_secret_uri = trimspace(var.openai_key_vault_secret_uri)
+  apim_openai_subscription_key_value   = trimspace(var.apim_openai_subscription_key)
+  apim_openai_subscription_key_uri     = trimspace(var.apim_openai_subscription_key_uri)
   openai_create_resources              = var.create_openai_resources
+  openai_regions_normalized = distinct([
+    for region in var.openai_regions : lower(trimspace(region))
+    if trimspace(region) != ""
+  ])
+  openai_primary_region_fallback = lower(trimspace(
+    coalesce(var.openai_location, var.location)
+  ))
+  openai_target_regions = (
+    length(local.openai_regions_normalized) > 0
+    ? local.openai_regions_normalized
+    : [local.openai_primary_region_fallback]
+  )
+  openai_primary_region_key = local.openai_target_regions[0]
+  openai_managed_regions = (
+    local.openai_create_resources
+    ? local.openai_target_regions
+    : []
+  )
+  openai_region_slug_by_region = {
+    for region in local.openai_managed_regions :
+    region => replace(region, "/[^0-9a-z]/", "")
+  }
+  openai_account_name_by_region = {
+    for region in local.openai_managed_regions :
+    region => (
+      region == local.openai_primary_region_key
+      ? "${local.resource_prefix}-openai-${local.unique_suffix}"
+      : "${local.resource_prefix}-openai-${local.openai_region_slug_by_region[region]}-${local.unique_suffix}"
+    )
+  }
+  openai_custom_subdomain_default = "${local.resource_prefix}-openai-${local.unique_suffix}"
+  openai_custom_subdomain_name_trimmed = (
+    var.openai_custom_subdomain_name != null && try(trimspace(var.openai_custom_subdomain_name), "") != ""
+    ? trimspace(var.openai_custom_subdomain_name)
+    : null
+  )
+  openai_custom_subdomain_by_region = {
+    for region in local.openai_managed_regions :
+    region => (
+      region == local.openai_primary_region_key
+      ? coalesce(local.openai_custom_subdomain_name_trimmed, local.openai_custom_subdomain_default)
+      : "${local.resource_prefix}-openai-${local.openai_region_slug_by_region[region]}-${local.unique_suffix}"
+    )
+  }
   openai_uses_external_inline_key = (
     local.openai_external_endpoint != "" &&
     local.openai_external_api_key != ""
@@ -76,7 +122,7 @@ locals {
   # the custom subdomain name instead.
   openai_endpoint_value = (
     local.openai_create_resources
-    ? "https://${try(azurerm_cognitive_account.openai[0].custom_subdomain_name, "")}.openai.azure.com/"
+    ? "https://${try(azurerm_cognitive_account.openai[local.openai_primary_region_key].custom_subdomain_name, "")}.openai.azure.com/"
     : local.openai_external_endpoint
   )
   openai_deployment_name_value         = local.openai_enabled ? var.openai_deployment_name : ""
@@ -107,13 +153,30 @@ locals {
   )
   openai_key_secret_value = (
     local.openai_create_resources
-    ? try(azurerm_cognitive_account.openai[0].primary_access_key, "")
+    ? try(azurerm_cognitive_account.openai[local.openai_primary_region_key].primary_access_key, "")
     : local.openai_external_api_key
   )
   openai_key_secret_uri = (
     local.openai_uses_external_secret_uri
     ? local.openai_external_key_vault_secret_uri
     : try(azurerm_key_vault_secret.openai_key[0].versionless_id, "")
+  )
+  apim_openai_api_suffix_trimmed = trimspace(trim(var.apim_openai_api_suffix, "/"))
+  apim_gateway_url               = var.apim_enabled ? try(azurerm_api_management.main[0].gateway_url, "") : ""
+  apim_openai_gateway_base_url = (
+    var.apim_enabled && local.apim_openai_api_suffix_trimmed != ""
+    ? "${trimsuffix(local.apim_gateway_url, "/")}/${local.apim_openai_api_suffix_trimmed}"
+    : ""
+  )
+  apim_openai_subscription_key_secret_uri = (
+    local.apim_openai_subscription_key_uri != ""
+    ? local.apim_openai_subscription_key_uri
+    : try(azurerm_key_vault_secret.apim_openai_subscription_key[0].versionless_id, "")
+  )
+  openai_gateway_enabled_value = (
+    var.openai_gateway_enabled &&
+    local.apim_openai_gateway_base_url != "" &&
+    local.apim_openai_subscription_key_secret_uri != ""
   )
 }
 
@@ -137,6 +200,29 @@ check "openai_configuration" {
       )
     )
     error_message = "When create_openai_resources is false, set openai_endpoint with either openai_api_key or openai_key_vault_secret_uri, or leave all three empty."
+  }
+}
+
+check "apim_openai_suffix_configuration" {
+  assert {
+    condition = (
+      !var.apim_enabled ||
+      trimspace(trim(var.apim_openai_api_suffix, "/")) != ""
+    )
+    error_message = "When apim_enabled is true, apim_openai_api_suffix must contain a non-empty path."
+  }
+}
+
+check "openai_gateway_configuration" {
+  assert {
+    condition = (
+      !var.openai_gateway_enabled ||
+      (
+        local.apim_openai_gateway_base_url != "" &&
+        local.apim_openai_subscription_key_secret_uri != ""
+      )
+    )
+    error_message = "When openai_gateway_enabled is true, both APIM gateway URL and APIM subscription key secret URI are required. Set apim_enabled=true and provide apim_openai_subscription_key or apim_openai_subscription_key_uri."
   }
 }
 
@@ -283,6 +369,33 @@ resource "azurerm_application_insights" "main" {
   workspace_id        = azurerm_log_analytics_workspace.main.id
 }
 
+# ── Azure API Management (OpenAI Gateway) ──────────────────────
+
+resource "azurerm_api_management" "main" {
+  count               = var.apim_enabled ? 1 : 0
+  name                = "${local.resource_prefix}-apim-${local.unique_suffix}"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  publisher_name      = var.apim_publisher_name
+  publisher_email     = var.apim_publisher_email
+  sku_name            = var.apim_sku_name
+
+  identity {
+    type = "SystemAssigned"
+  }
+}
+
+resource "azurerm_key_vault_secret" "apim_openai_subscription_key" {
+  count        = local.apim_openai_subscription_key_value != "" && local.apim_openai_subscription_key_uri == "" ? 1 : 0
+  name         = "apim-openai-subscription-key"
+  value        = local.apim_openai_subscription_key_value
+  key_vault_id = azurerm_key_vault.main.id
+  depends_on = [
+    azurerm_key_vault_access_policy.deployer,
+    azurerm_key_vault_access_policy.github_actions,
+  ]
+}
+
 # ── Azure Functions (Consumption/Serverless) ────────────────────
 
 resource "azurerm_service_plan" "main" {
@@ -330,26 +443,27 @@ resource "azurerm_linux_function_app" "main" {
     # Reference Key Vault secret instead of plaintext password
     PGPASSWORD = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.pg_password.versionless_id})"
     # Placeholder for future secrets
-    AZURE_STORAGE_CONNECTION             = azurerm_storage_account.main.primary_connection_string
-    INGESTION_JOB_QUEUE_NAME             = var.ingestion_job_queue_name
-    AZURE_SPEECH_KEY                     = "to-be-added"
-    AZURE_SPEECH_REGION                  = azurerm_resource_group.main.location
-    AZURE_OPENAI_ENDPOINT                = local.openai_enabled ? local.openai_endpoint_value : ""
-    AZURE_OPENAI_KEY                     = local.openai_enabled ? "@Microsoft.KeyVault(SecretUri=${local.openai_key_secret_uri})" : ""
-    AZURE_OPENAI_DEPLOYMENT_HEX          = local.openai_deployment_name_value
-    AZURE_OPENAI_DEPLOYMENT_HEX_BATCH    = local.openai_batch_deployment_name_value
-    AZURE_OPENAI_BATCH_API_VERSION       = var.azure_openai_batch_api_version
-    AZURE_OPENAI_BATCH_COMPLETION_WINDOW = var.azure_openai_batch_completion_window
-    HEX_DETECTION_BATCH_ENABLED          = var.hex_detection_batch_enabled ? "true" : "false"
-    HEX_DETECTION_BATCH_MIN_IMAGES       = tostring(var.hex_detection_batch_min_images)
-    INGESTION_AI_BATCH_POLL_SCHEDULE     = var.ingestion_ai_batch_poll_schedule
-    INGESTION_AI_BATCH_MAX_POLL_JOBS     = tostring(var.ingestion_ai_batch_max_poll_jobs)
-    AZURE_AD_B2C_TENANT                  = var.azure_ad_b2c_tenant
-    AZURE_AD_B2C_CLIENT_ID               = var.azure_ad_b2c_client_id
-    AUTH_DEV_BYPASS                      = var.auth_dev_bypass ? "true" : "false"
-    CORS_ALLOWED_ORIGINS                 = join(",", local.function_cors_allowed_origins)
-    REDIS_URL                            = "rediss://${azurerm_managed_redis.main.hostname}:10000"
-    REDIS_KEY                            = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.redis_key.versionless_id})"
+    AZURE_STORAGE_CONNECTION              = azurerm_storage_account.main.primary_connection_string
+    INGESTION_JOB_QUEUE_NAME              = var.ingestion_job_queue_name
+    AZURE_SPEECH_KEY                      = "to-be-added"
+    AZURE_SPEECH_REGION                   = azurerm_resource_group.main.location
+    AZURE_OPENAI_ENDPOINT                 = local.openai_enabled ? local.openai_endpoint_value : ""
+    AZURE_OPENAI_KEY                      = local.openai_enabled ? "@Microsoft.KeyVault(SecretUri=${local.openai_key_secret_uri})" : ""
+    AZURE_OPENAI_GATEWAY_ENDPOINT         = local.apim_openai_gateway_base_url
+    AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY = local.apim_openai_subscription_key_secret_uri != "" ? "@Microsoft.KeyVault(SecretUri=${local.apim_openai_subscription_key_secret_uri})" : ""
+    AZURE_OPENAI_USE_GATEWAY              = local.openai_gateway_enabled_value ? "true" : "false"
+    AZURE_OPENAI_DEPLOYMENT_HEX           = local.openai_deployment_name_value
+    AZURE_OPENAI_DEPLOYMENT_HEX_BATCH     = local.openai_batch_deployment_name_value
+    AZURE_OPENAI_BATCH_API_VERSION        = var.azure_openai_batch_api_version
+    AZURE_OPENAI_BATCH_COMPLETION_WINDOW  = var.azure_openai_batch_completion_window
+    HEX_DETECTION_BATCH_ENABLED           = var.hex_detection_batch_enabled ? "true" : "false"
+    HEX_DETECTION_BATCH_MIN_IMAGES        = tostring(var.hex_detection_batch_min_images)
+    INGESTION_AI_BATCH_POLL_SCHEDULE      = var.ingestion_ai_batch_poll_schedule
+    INGESTION_AI_BATCH_MAX_POLL_JOBS      = tostring(var.ingestion_ai_batch_max_poll_jobs)
+    AZURE_AD_B2C_TENANT                   = var.azure_ad_b2c_tenant
+    AZURE_AD_B2C_CLIENT_ID                = var.azure_ad_b2c_client_id
+    AUTH_DEV_BYPASS                       = var.auth_dev_bypass ? "true" : "false"
+    CORS_ALLOWED_ORIGINS                  = join(",", local.function_cors_allowed_origins)
   }
 
   lifecycle {
@@ -396,29 +510,6 @@ resource "azurerm_static_web_app_custom_domain" "dev" {
   }
 }
 
-# ── Azure Managed Redis ─────────────────────────────────────────
-
-resource "azurerm_managed_redis" "main" {
-  name                = "${local.resource_prefix}-redis-${local.unique_suffix}"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  sku_name            = "Balanced_B0"
-
-  default_database {
-    access_keys_authentication_enabled = true
-  }
-}
-
-resource "azurerm_key_vault_secret" "redis_key" {
-  name         = "redis-key"
-  value        = azurerm_managed_redis.main.default_database[0].primary_access_key
-  key_vault_id = azurerm_key_vault.main.id
-
-  depends_on = [
-    azurerm_key_vault_access_policy.deployer,
-    azurerm_key_vault_access_policy.github_actions,
-  ]
-}
 
 # ── Azure Speech Services ──────────────────────────────────────
 # Azure AD B2C is provisioned separately via the portal
@@ -432,13 +523,13 @@ resource "azurerm_cognitive_account" "speech" {
 }
 
 resource "azurerm_cognitive_account" "openai" {
-  count                 = (local.openai_create_resources || var.retain_openai_account) ? 1 : 0
-  name                  = "${local.resource_prefix}-openai-${local.unique_suffix}"
+  for_each              = toset(local.openai_managed_regions)
+  name                  = local.openai_account_name_by_region[each.key]
   resource_group_name   = azurerm_resource_group.main.name
-  location              = var.openai_location != null ? var.openai_location : azurerm_resource_group.main.location
+  location              = each.key
   kind                  = "AIServices"
   sku_name              = "S0"
-  custom_subdomain_name = var.openai_custom_subdomain_name != null ? var.openai_custom_subdomain_name : "${local.resource_prefix}-openai-${local.unique_suffix}"
+  custom_subdomain_name = local.openai_custom_subdomain_by_region[each.key]
 
   identity {
     type = "SystemAssigned"
@@ -448,15 +539,14 @@ resource "azurerm_cognitive_account" "openai" {
     # Azure auto-migrates accounts from "OpenAI" to "AIServices" kind.
     # kind is immutable so ignore drift to prevent a destructive replacement.
     # project_management_enabled defaults changed in provider; ignore to prevent forced replacement.
-    ignore_changes  = [kind, project_management_enabled]
-    prevent_destroy = true
+    ignore_changes = [kind, project_management_enabled]
   }
 }
 
 resource "azurerm_cognitive_deployment" "openai_hex" {
-  count                = local.openai_create_resources ? 1 : 0
+  for_each             = local.openai_create_resources ? azurerm_cognitive_account.openai : {}
   name                 = var.openai_deployment_name
-  cognitive_account_id = azurerm_cognitive_account.openai[0].id
+  cognitive_account_id = each.value.id
 
   model {
     format  = "OpenAI"
@@ -471,9 +561,9 @@ resource "azurerm_cognitive_deployment" "openai_hex" {
 }
 
 resource "azurerm_cognitive_deployment" "openai_hex_batch" {
-  count                = local.openai_batch_deployment_managed ? 1 : 0
+  for_each             = local.openai_batch_deployment_managed ? azurerm_cognitive_account.openai : {}
   name                 = local.openai_batch_deployment_name_trimmed
-  cognitive_account_id = azurerm_cognitive_account.openai[0].id
+  cognitive_account_id = each.value.id
 
   model {
     format  = "OpenAI"
@@ -490,9 +580,9 @@ resource "azurerm_cognitive_deployment" "openai_hex_batch" {
 # Send Azure OpenAI diagnostics to the shared Log Analytics workspace
 # (same workspace backing Application Insights).
 resource "azurerm_monitor_diagnostic_setting" "openai" {
-  count                      = local.openai_create_resources ? 1 : 0
-  name                       = "openai-observability"
-  target_resource_id         = azurerm_cognitive_account.openai[0].id
+  for_each                   = local.openai_create_resources ? azurerm_cognitive_account.openai : {}
+  name                       = "openai-observability-${local.openai_region_slug_by_region[each.key]}"
+  target_resource_id         = each.value.id
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
 
   enabled_log {

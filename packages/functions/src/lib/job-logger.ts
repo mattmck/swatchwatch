@@ -18,6 +18,19 @@ export interface JobLoggerOptions {
   maxEntries?: number;
 }
 
+function parseIntEnv(
+  value: string | undefined,
+  fallback: number,
+  min: number,
+  max: number
+): number {
+  const parsed = Number.parseInt(value || "", 10);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, parsed));
+}
+
 /**
  * JobLogger accumulates structured log entries during job execution
  * and periodically flushes them to the job's metrics_json field.
@@ -39,7 +52,9 @@ export class JobLogger {
     this.baseMetrics = options.baseMetrics || {};
     this.maxEntries = options.maxEntries || 500;
 
-    const flushInterval = options.flushIntervalMs ?? 3000;
+    const flushInterval =
+      options.flushIntervalMs ??
+      parseIntEnv(process.env.INGESTION_LOG_FLUSH_INTERVAL_MS, 10000, 1000, 120000);
     if (flushInterval > 0) {
       this.flushTimer = setInterval(() => {
         void this.flush();
