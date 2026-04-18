@@ -14,7 +14,12 @@
       "Bash(gh:*)",
       "Bash(npm:*)",
       "Bash(npx:*)",
-      "Bash(scripts/*:*)"
+      "Bash(scripts/*:*)",
+      "Bash(terraform -chdir=/Users/matt/swatchwatch/infrastructure validate:*)",
+      "Bash(terraform providers:*)",
+      "mcp__azure__redis",
+      "Bash(terraform apply:*)",
+      "Bash(terraform workspace:*)"
     ]
   }
 }

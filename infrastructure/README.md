@@ -90,7 +90,6 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 |----------|-------------------|---------|
 | Resource Group | `azurerm_resource_group.main` | Container for all resources |
 | Key Vault | `azurerm_key_vault.main` | Secure secrets storage (PG password, API keys) |
-| Key Vault Secret (Redis key) | `azurerm_key_vault_secret.redis_key` | Stores Redis access key for Function App Key Vault reference |
 | PostgreSQL Flexible Server | `azurerm_postgresql_flexible_server.main` | PostgreSQL 16 with pg_trgm + pgvector |
 | PostgreSQL Database | `azurerm_postgresql_flexible_server_database.main` | `swatchwatch` database |
 | Storage Account | `azurerm_storage_account.main` | Blob storage for images |
@@ -108,7 +107,6 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | Azure OpenAI Deployment(s) *(optional)* | `azurerm_cognitive_deployment.openai_hex` | `hex-detector` deployment created in every Terraform-managed OpenAI region |
 | Azure OpenAI Batch Deployment(s) *(optional)* | `azurerm_cognitive_deployment.openai_hex_batch` | `hex-detector-batch` deployment created in every Terraform-managed OpenAI region when batch deployment name differs |
 | Azure OpenAI Diagnostic Setting(s) *(optional)* | `azurerm_monitor_diagnostic_setting.openai` | Sends per-region OpenAI logs/metrics to Log Analytics (when OpenAI resources are provisioned) |
-| Azure Managed Redis | `azurerm_managed_redis.main` | In-memory cache for polish lists, catalog search, and reference data (Balanced_B0, 0.5 GB) |
 | Custom Domain | `azurerm_static_web_app_custom_domain.dev` | Maps `dev.swatchwatch.app` in dev and `swatchwatch.app` in prod |
 | Azure AD Application | `azuread_application.github_actions` | GitHub Actions OIDC identity |
 | Service Principal | `azuread_service_principal.github_actions` | Grants GitHub Actions access |
@@ -219,8 +217,6 @@ Key outputs after `terraform apply`:
 | `github_client_id` | Azure AD app ID for GitHub Actions *(add to GitHub Secrets as `AZURE_CLIENT_ID`)* |
 | `github_tenant_id` | Azure AD tenant ID *(add to GitHub Secrets as `AZURE_TENANT_ID`)* |
 | `subscription_id` | Azure subscription ID *(add to GitHub Secrets as `AZURE_SUBSCRIPTION_ID`)* |
-| `redis_hostname` | Azure Managed Redis hostname |
-| `redis_primary_access_key` | Azure Managed Redis primary access key *(sensitive)* |
 
 The bootstrap script displays these values at the end.
 
