@@ -14,6 +14,7 @@ import {
   listDataSources,
   listIngestionJobs,
   purgeQueue,
+  runBulkIngestion,
   runIngestionJob,
   type DataSource,
   type QueueStatsResponse,
@@ -303,6 +304,14 @@ export function AdminJobsContent() {
   const [purgeMessage, setPurgeMessage] = useState<string | null>(null);
   const [purgeError, setPurgeError] = useState<string | null>(null);
 
+  const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set());
+  const [bulkMaterialize, setBulkMaterialize] = useState<"true" | "false">("true");
+  const [bulkDetectHex, setBulkDetectHex] = useState<"true" | "false">("true");
+  const [bulkOverwriteHex, setBulkOverwriteHex] = useState<"true" | "false">("false");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkMessage, setBulkMessage] = useState<string | null>(null);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+
   const refreshJobs = useCallback(async () => {
     const response = await listIngestionJobs({
       limit: 50,
@@ -496,6 +505,29 @@ export function AdminJobsContent() {
       setPurgeError(error instanceof Error ? error.message : "Failed to purge queue");
     } finally {
       setPurging(false);
+    }
+  }
+
+  async function handleBulkRun() {
+    if (bulkSelected.size === 0) return;
+    try {
+      setBulkBusy(true);
+      setBulkMessage(null);
+      setBulkError(null);
+      const response = await runBulkIngestion({
+        sources: Array.from(bulkSelected),
+        options: {
+          materializeToInventory: bulkMaterialize === "true",
+          detectHexFromImage: bulkDetectHex === "true",
+          overwriteDetectedHex: bulkOverwriteHex === "true",
+        },
+      });
+      setBulkMessage(`${response.enqueued} job${response.enqueued !== 1 ? "s" : ""} queued.`);
+      await refreshJobs();
+    } catch (error: unknown) {
+      setBulkError(error instanceof Error ? error.message : "Failed to queue bulk run");
+    } finally {
+      setBulkBusy(false);
     }
   }
 
@@ -747,6 +779,39 @@ export function AdminJobsContent() {
         </CardContent>
       </Card>
 
+      <BulkRunCard
+        availableSources={availableSources}
+        selected={bulkSelected}
+        onToggleSource={(name) =>
+          setBulkSelected((prev) => {
+            const next = new Set(prev);
+            if (next.has(name)) next.delete(name);
+            else next.add(name);
+            return next;
+          })
+        }
+        onToggleGroup={(names, select) =>
+          setBulkSelected((prev) => {
+            const next = new Set(prev);
+            for (const n of names) {
+              if (select) next.add(n);
+              else next.delete(n);
+            }
+            return next;
+          })
+        }
+        materialize={bulkMaterialize}
+        onMaterializeChange={setBulkMaterialize}
+        detectHex={bulkDetectHex}
+        onDetectHexChange={setBulkDetectHex}
+        overwriteHex={bulkOverwriteHex}
+        onOverwriteHexChange={setBulkOverwriteHex}
+        busy={bulkBusy}
+        message={bulkMessage}
+        error={bulkError}
+        onRun={() => void handleBulkRun()}
+      />
+
       <Card>
         <CardHeader className="gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -913,5 +978,185 @@ export function AdminJobsContent() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// ─── Bulk Run Card ───────────────────────────────────────────────────────────
+
+function getSourceProtocol(name: string): string {
+  if (name.endsWith("Shopify")) return "Shopify";
+  if (name === "OpenBeautyFacts") return "OpenBeautyFacts";
+  if (name === "MakeupAPI") return "MakeupAPI";
+  if (name === "CosIng" || name === "GS1Lookup") return "GS1";
+  return "Custom";
+}
+
+interface BulkRunCardProps {
+  availableSources: DataSource[];
+  selected: Set<string>;
+  onToggleSource: (name: string) => void;
+  onToggleGroup: (names: string[], select: boolean) => void;
+  materialize: "true" | "false";
+  onMaterializeChange: (v: "true" | "false") => void;
+  detectHex: "true" | "false";
+  onDetectHexChange: (v: "true" | "false") => void;
+  overwriteHex: "true" | "false";
+  onOverwriteHexChange: (v: "true" | "false") => void;
+  busy: boolean;
+  message: string | null;
+  error: string | null;
+  onRun: () => void;
+}
+
+function BulkRunCard({
+  availableSources,
+  selected,
+  onToggleSource,
+  onToggleGroup,
+  materialize,
+  onMaterializeChange,
+  detectHex,
+  onDetectHexChange,
+  overwriteHex,
+  onOverwriteHexChange,
+  busy,
+  message,
+  error,
+  onRun,
+}: BulkRunCardProps) {
+  // Group sources by protocol, only including Shopify and known API sources
+  const groups = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const s of availableSources) {
+      const protocol = getSourceProtocol(s.name);
+      // Only show sources that have a real connector implemented
+      if (
+        !s.name.endsWith("Shopify") &&
+        s.name !== "OpenBeautyFacts" &&
+        s.name !== "MakeupAPI"
+      ) {
+        continue;
+      }
+      if (!map.has(protocol)) map.set(protocol, []);
+      map.get(protocol)!.push(s.name);
+    }
+    return Array.from(map.entries()).map(([protocol, names]) => ({ protocol, names }));
+  }, [availableSources]);
+
+  const allSelectableNames = useMemo(
+    () => groups.flatMap((g) => g.names),
+    [groups]
+  );
+
+  const allSelected = allSelectableNames.length > 0 && allSelectableNames.every((n) => selected.has(n));
+  const someSelected = allSelectableNames.some((n) => selected.has(n));
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Bulk Ingestion Run</CardTitle>
+        <CardDescription>
+          Queue exhaustive full-catalog pulls for multiple sources. Each selected source gets its own job.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-3">
+          {/* Select All */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onToggleGroup(allSelectableNames, !allSelected)}
+              className="text-xs font-medium text-muted-foreground hover:text-foreground"
+            >
+              {allSelected ? "Deselect all" : "Select all"}
+            </button>
+            {someSelected && !allSelected && (
+              <span className="text-xs text-muted-foreground">({selected.size} selected)</span>
+            )}
+          </div>
+
+          {/* Groups */}
+          {groups.map(({ protocol, names }) => {
+            const groupAllSelected = names.every((n) => selected.has(n));
+            return (
+              <div key={protocol} className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {protocol}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onToggleGroup(names, !groupAllSelected)}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    {groupAllSelected ? "deselect all" : "select all"}
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {names.map((name) => {
+                    const isSelected = selected.has(name);
+                    return (
+                      <button
+                        key={name}
+                        type="button"
+                        onClick={() => onToggleSource(name)}
+                        className={`rounded-md border px-2 py-0.5 text-xs transition-colors ${
+                          isSelected
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-background text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                        }`}
+                      >
+                        {name.replace(/Shopify$/, "")}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">Materialize to inventory</p>
+            <Select value={materialize} onValueChange={(v) => onMaterializeChange(v as "true" | "false")}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="true">Yes</SelectItem>
+                <SelectItem value="false">No</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">Detect hex from image (AI)</p>
+            <Select value={detectHex} onValueChange={(v) => onDetectHexChange(v as "true" | "false")}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="true">Yes</SelectItem>
+                <SelectItem value="false">No</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">Overwrite detected hex</p>
+            <Select value={overwriteHex} onValueChange={(v) => onOverwriteHexChange(v as "true" | "false")}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="false">No (fill blanks only)</SelectItem>
+                <SelectItem value="true">Yes (refresh all)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={onRun} disabled={busy || selected.size === 0}>
+            {busy ? "Queueing…" : `Run Bulk (${selected.size} source${selected.size !== 1 ? "s" : ""})`}
+          </Button>
+          {message && <p className="text-sm text-emerald-700">{message}</p>}
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

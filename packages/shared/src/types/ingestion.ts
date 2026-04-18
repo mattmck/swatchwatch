@@ -8,6 +8,13 @@ export type IngestionSourceName =
   | "ManualEntry"
   | "UserCapture";
 
+export type ConnectorProtocol =
+  | "Shopify"
+  | "OpenBeautyFacts"
+  | "MakeupAPI"
+  | "GS1"
+  | "Custom";
+
 export type IngestionJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
 export type IngestionLogLevel = "debug" | "info" | "warn" | "error";
@@ -35,6 +42,22 @@ export interface IngestionJobRunRequest {
   collectTrainingData?: boolean;
   /** When true and collectTrainingData=true, download images to blob storage. When false, just store vendor URLs (default: false) */
   downloadTrainingImages?: boolean;
+  /** When true, loop through all pages until source returns empty (ignores maxRecords cap) */
+  exhaustive?: boolean;
+}
+
+export interface BulkIngestionRequest {
+  sources: string[];
+  options?: {
+    materializeToInventory?: boolean;
+    detectHexFromImage?: boolean;
+    overwriteDetectedHex?: boolean;
+  };
+}
+
+export interface BulkIngestionResponse {
+  enqueued: number;
+  jobs: IngestionJobRecord[];
 }
 
 export interface IngestionJobRecord {

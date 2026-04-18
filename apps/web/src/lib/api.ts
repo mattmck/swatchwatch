@@ -1,4 +1,6 @@
 import type {
+  BulkIngestionRequest,
+  BulkIngestionResponse,
   CaptureAnswerRequest,
   CaptureAnswerResponse,
   CaptureFinalizeResponse,
@@ -270,6 +272,17 @@ export async function runIngestionJob(
     body: JSON.stringify(data),
   });
   return handleResponse<IngestionJobRunResponse>(response);
+}
+
+export async function runBulkIngestion(
+  data: BulkIngestionRequest
+): Promise<BulkIngestionResponse> {
+  const response = await fetch(`${API_BASE_URL}/ingestion/bulk`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<BulkIngestionResponse>(response);
 }
 
 export async function getIngestionJob(id: string | number): Promise<IngestionJobRunResponse> {

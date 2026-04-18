@@ -1,6 +1,9 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext, output } from "@azure/functions";
 import {
+  BulkIngestionRequest,
+  BulkIngestionResponse,
   IngestionJobListResponse,
+  IngestionJobRecord,
   IngestionJobRunRequest,
   IngestionJobRunResponse,
 } from "swatchwatch-shared";
@@ -84,6 +87,8 @@ interface NormalizedIngestionJobRequest {
   detectHexOnSuspiciousOnly: boolean;
   overwriteDetectedHex: boolean;
   collectTrainingData: boolean;
+  /** When true, loop through all pages until source returns empty (ignores maxRecords cap) */
+  exhaustive: boolean;
 }
 
 export interface IngestionJobQueueMessage {
@@ -233,6 +238,7 @@ async function enqueueIngestionJob(
     detectHexOnSuspiciousOnly: body.detectHexOnSuspiciousOnly === true,
     overwriteDetectedHex: body.overwriteDetectedHex === true,
     collectTrainingData: body.collectTrainingData === true,
+    exhaustive: body.exhaustive === true,
     recentDays:
       body.recentDays === null || body.recentDays === undefined
         ? undefined
@@ -409,13 +415,57 @@ export async function processIngestionJobQueueMessage(
     });
 
     const connector = createConnector(payload.request.source, source.baseUrl);
-    const connectorResult = await connector.pullProducts({
-      searchTerm: payload.request.searchTerm,
-      page: payload.request.page,
-      pageSize: payload.request.pageSize,
-      maxRecords: payload.request.maxRecords,
-      recentDays: payload.request.recentDays,
-    });
+
+    const EXHAUSTIVE_PAGE_LIMIT = 500;
+    let connectorResult: Awaited<ReturnType<typeof connector.pullProducts>>;
+
+    if (payload.request.exhaustive) {
+      // Exhaustive mode: loop through all pages until empty
+      let currentPage = payload.request.page;
+      const allRecords: (typeof connectorResult)["records"] = [];
+      let lastMetadata: Record<string, unknown> = {};
+      let pagesFetched = 0;
+
+      logger.info(`Exhaustive mode: paging through all records from ${payload.request.source}`, {
+        startPage: currentPage,
+        pageSize: payload.request.pageSize,
+      });
+
+      while (pagesFetched < EXHAUSTIVE_PAGE_LIMIT) {
+        const pageResult = await connector.pullProducts({
+          searchTerm: payload.request.searchTerm,
+          page: currentPage,
+          pageSize: payload.request.pageSize,
+          maxRecords: payload.request.pageSize,
+          recentDays: payload.request.recentDays,
+        });
+
+        logger.info(
+          `Exhaustive page ${currentPage}: ${pageResult.records.length} records`,
+          { page: currentPage, ...pageResult.metadata }
+        );
+
+        allRecords.push(...pageResult.records);
+        lastMetadata = { ...pageResult.metadata };
+        pagesFetched++;
+
+        if (pageResult.records.length === 0 || pageResult.records.length < payload.request.pageSize) {
+          break;
+        }
+        currentPage++;
+      }
+
+      connectorResult = { records: allRecords, source: payload.request.source, metadata: { ...lastMetadata, pagesFetched, exhaustive: true } };
+      logger.info(`Exhaustive pull complete: ${allRecords.length} total records across ${pagesFetched} pages`);
+    } else {
+      connectorResult = await connector.pullProducts({
+        searchTerm: payload.request.searchTerm,
+        page: payload.request.page,
+        pageSize: payload.request.pageSize,
+        maxRecords: payload.request.maxRecords,
+        recentDays: payload.request.recentDays,
+      });
+    }
 
     logger.info(`Connector returned ${connectorResult.records.length} records`, connectorResult.metadata);
 
@@ -976,6 +1026,108 @@ async function queueMessagesHandler(
   return { status: 405, jsonBody: { error: "Method not allowed" } };
 }
 
+async function bulkIngestionHandler(
+  request: HttpRequest,
+  context: InvocationContext,
+  userId: number
+): Promise<HttpResponseInit> {
+  context.log(`POST /api/ingestion/bulk by admin user ${userId}`);
+
+  let body: Partial<BulkIngestionRequest>;
+  try {
+    body = (await request.json()) as Partial<BulkIngestionRequest>;
+  } catch {
+    return { status: 400, jsonBody: { error: "Request body must be valid JSON" } };
+  }
+
+  if (!Array.isArray(body.sources) || body.sources.length === 0) {
+    return { status: 400, jsonBody: { error: "sources must be a non-empty array" } };
+  }
+
+  const invalidSources = body.sources.filter((s) => !isSupportedSource(s));
+  if (invalidSources.length > 0) {
+    return {
+      status: 400,
+      jsonBody: { error: `Unsupported sources: ${invalidSources.join(", ")}` },
+    };
+  }
+
+  const sources = body.sources as SupportedConnectorSource[];
+  const options = body.options ?? {};
+  const queuedAt = new Date().toISOString();
+  const queueMessages: string[] = [];
+  const jobs: IngestionJobRecord[] = [];
+
+  try {
+    for (const source of sources) {
+      const normalizedRequest: NormalizedIngestionJobRequest = {
+        source,
+        page: DEFAULT_PAGE,
+        pageSize: MAX_PAGE_SIZE,
+        maxRecords: DEFAULT_MAX_RECORDS,
+        searchTerm: DEFAULT_SEARCH_TERM,
+        materializeToInventory: options.materializeToInventory !== false,
+        detectHexFromImage: options.detectHexFromImage !== false,
+        detectHexOnSuspiciousOnly: false,
+        overwriteDetectedHex: options.overwriteDetectedHex === true,
+        collectTrainingData: false,
+        exhaustive: true,
+      };
+
+      const requestedMetrics = buildRequestedMetrics(normalizedRequest, userId);
+
+      const dataSource = await ensureDataSourceByName(source);
+      if (!dataSource) {
+        context.warn(`Bulk: data source '${source}' not found, skipping`);
+        continue;
+      }
+
+      const queuedMetrics = withPipelineMetrics(requestedMetrics, "queued", "queued", {
+        queuedAt,
+        queueName: INGESTION_JOB_QUEUE_NAME,
+        bulkRun: true,
+      });
+
+      const job = await createIngestionJob(
+        dataSource.dataSourceId,
+        JOB_TYPE_CONNECTOR_VERIFY,
+        queuedMetrics,
+        "queued"
+      );
+
+      const queueMessage: IngestionJobQueueMessage = {
+        jobId: job.jobId,
+        userId,
+        queuedAt,
+        request: normalizedRequest,
+        requestedMetrics,
+      };
+      queueMessages.push(JSON.stringify(queueMessage));
+
+      const loadedJob = await getIngestionJobById(job.jobId);
+      if (loadedJob) {
+        jobs.push(loadedJob);
+      }
+    }
+
+    if (queueMessages.length === 0) {
+      return { status: 400, jsonBody: { error: "No valid sources could be queued" } };
+    }
+
+    // Enqueue all messages at once — Azure Functions queue output accepts arrays
+    context.extraOutputs.set(ingestionJobQueueOutput, queueMessages);
+
+    return {
+      status: 202,
+      jsonBody: { enqueued: queueMessages.length, jobs } satisfies BulkIngestionResponse,
+    };
+  } catch (error: unknown) {
+    const message = getErrorMessage(error);
+    context.error("Bulk ingestion enqueue failed:", error);
+    return { status: 500, jsonBody: { error: message } };
+  }
+}
+
 app.http("ingestion-jobs", {
   methods: ["GET", "POST", "OPTIONS"],
   authLevel: "anonymous",
@@ -996,6 +1148,14 @@ app.http("ingestion-job-cancel", {
   authLevel: "anonymous",
   route: "ingestion/jobs/{id}/cancel",
   handler: withCors(withAdmin(ingestionJobCancelHandler)),
+});
+
+app.http("ingestion-bulk", {
+  methods: ["POST", "OPTIONS"],
+  authLevel: "anonymous",
+  route: "ingestion/bulk",
+  extraOutputs: [ingestionJobQueueOutput],
+  handler: withCors(withAdmin(bulkIngestionHandler)),
 });
 
 app.http("ingestion-sources", {
