@@ -627,6 +627,10 @@ export async function processIngestionJobQueueMessage(
           ...pageResult.metadata,
         });
 
+        if (pageResult.records.length === 0) {
+          break;
+        }
+
         pagesFetched++;
         connectorMetadata = {
           ...connectorMetadata,
@@ -634,10 +638,6 @@ export async function processIngestionJobQueueMessage(
           pagesFetched,
           exhaustive: true,
         };
-
-        if (pageResult.records.length === 0) {
-          break;
-        }
 
         const shouldPauseForAiBatch = await persistPageRecords(pageResult);
         if (shouldPauseForAiBatch) {
