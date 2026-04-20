@@ -5,6 +5,10 @@ const OPENAI_API_VERSION = "2024-06-01";
 const REQUEST_TIMEOUT_MS = 15000;
 const RATE_LIMIT_RETRY_DELAY_MS = 2000;
 const MAX_ERROR_BODY_LOG_CHARS = 400;
+// Number of hex characters from the SHA-256 hash included in parse-failure logs.
+// 12 chars (48 bits) is enough to correlate a specific bad payload in log aggregators
+// without exposing the full content.
+const HASH_PREFIX_LENGTH = 12;
 const LOG_PREFIX = "[ocr-parser]";
 
 // ---------------------------------------------------------------------------
@@ -245,7 +249,7 @@ export async function parseLabelText(
   try {
     parsed = JSON.parse(content) as Record<string, unknown>;
   } catch (error) {
-    const contentHash = createHash("sha256").update(content).digest("hex").slice(0, 12);
+    const contentHash = createHash("sha256").update(content).digest("hex").slice(0, HASH_PREFIX_LENGTH);
     const contentSnippet =
       content.length > MAX_ERROR_BODY_LOG_CHARS
         ? `${content.slice(0, MAX_ERROR_BODY_LOG_CHARS)}…`

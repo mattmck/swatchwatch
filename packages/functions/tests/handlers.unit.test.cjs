@@ -2133,6 +2133,7 @@ describe("functions/capture — addCaptureFrame AI extraction", () => {
     const qualityJson = frameInsertParams[0]?.[3];
     assert.ok(qualityJson?.ai?.ocrRawText, "ocrRawText should be present");
     assert.ok(
+      // MAX_CAPTURE_AI_RAW_TEXT_CHARS = 2000 in capture.ts; +1 for the "…" ellipsis character
       qualityJson.ai.ocrRawText.length <= 2001,
       `ocrRawText should be truncated, got length ${qualityJson.ai.ocrRawText.length}`
     );

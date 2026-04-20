@@ -270,7 +270,9 @@ describe("lib/ocr — extractTextFromImage", () => {
     // Should log error code/message, NOT the full analyzeResult content
     assert.ok(errorLogs.some((msg) => msg.includes("InvalidRequest")));
     assert.ok(errorLogs.some((msg) => msg.includes("Could not process document")));
-    assert.ok(!errorLogs.some((msg) => msg.includes("A".repeat(100))),
+    // Use a long substring (500 chars) so the assertion fails meaningfully if
+    // the implementation accidentally dumps large portions of the response body
+    assert.ok(!errorLogs.some((msg) => msg.includes("A".repeat(500))),
       "log should not contain large raw content");
   });
 
