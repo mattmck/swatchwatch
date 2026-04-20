@@ -44,7 +44,11 @@ export async function saveConnectorRawSnapshot(params: {
   if (!containerName) {
     return;
   }
-  if (!process.env.CONNECTOR_RAW_CONTAINER && process.env.RAW_SNAPSHOT_CONTAINER && !warnedLegacyRawSnapshotContainer) {
+  const shouldWarnLegacyContainer =
+    !process.env.CONNECTOR_RAW_CONTAINER &&
+    Boolean(process.env.RAW_SNAPSHOT_CONTAINER) &&
+    !warnedLegacyRawSnapshotContainer;
+  if (shouldWarnLegacyContainer) {
     console.warn(
       `${LOG_PREFIX} RAW_SNAPSHOT_CONTAINER is deprecated; use CONNECTOR_RAW_CONTAINER`
     );
