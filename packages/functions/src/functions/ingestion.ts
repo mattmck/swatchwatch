@@ -443,7 +443,7 @@ export async function processIngestionJobQueueMessage(
     let materializationMetricsAggregate: Record<string, unknown> | null = null;
     let totalRecordsProcessed = 0;
 
-    const handleConnectorResult = async (
+    const persistPageRecords = async (
       connectorResult: Awaited<ReturnType<typeof connector.pullProducts>>
     ): Promise<boolean> => {
       connectorMetadata = { ...connectorMetadata, ...connectorResult.metadata };
@@ -639,8 +639,8 @@ export async function processIngestionJobQueueMessage(
           break;
         }
 
-        const awaitingAi = await handleConnectorResult(pageResult);
-        if (awaitingAi) {
+        const shouldPauseForAiBatch = await persistPageRecords(pageResult);
+        if (shouldPauseForAiBatch) {
           return;
         }
 
@@ -658,8 +658,8 @@ export async function processIngestionJobQueueMessage(
       });
 
       connectorMetadata = { ...connectorMetadata, ...connectorResult.metadata };
-      const awaitingAi = await handleConnectorResult(connectorResult);
-      if (awaitingAi) {
+      const shouldPauseForAiBatch = await persistPageRecords(connectorResult);
+      if (shouldPauseForAiBatch) {
         return;
       }
     }
