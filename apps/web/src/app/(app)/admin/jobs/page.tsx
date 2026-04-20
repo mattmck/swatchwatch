@@ -983,12 +983,28 @@ export function AdminJobsContent() {
 
 // ─── Bulk Run Card ───────────────────────────────────────────────────────────
 
+const SOURCE_PROTOCOL_BY_NAME = {
+  OpenBeautyFacts: "OpenBeautyFacts",
+  MakeupAPI: "MakeupAPI",
+  CosIng: "GS1",
+  GS1Lookup: "GS1",
+} as const satisfies Record<string, string>;
+
+const SOURCE_PROTOCOL_SUFFIX_RULES = [
+  { suffix: "Shopify", protocol: "Shopify" },
+] as const;
+
 function getSourceProtocol(name: string): string {
-  if (name.endsWith("Shopify")) return "Shopify";
-  if (name === "OpenBeautyFacts") return "OpenBeautyFacts";
-  if (name === "MakeupAPI") return "MakeupAPI";
-  if (name === "CosIng" || name === "GS1Lookup") return "GS1";
-  return "Custom";
+  for (const rule of SOURCE_PROTOCOL_SUFFIX_RULES) {
+    if (name.endsWith(rule.suffix)) {
+      return rule.protocol;
+    }
+  }
+
+  const directProtocol =
+    SOURCE_PROTOCOL_BY_NAME[name as keyof typeof SOURCE_PROTOCOL_BY_NAME];
+
+  return directProtocol ?? "Custom";
 }
 
 interface BulkRunCardProps {
