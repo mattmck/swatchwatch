@@ -995,16 +995,20 @@ const SOURCE_PROTOCOL_SUFFIX_RULES = [
 ] as const;
 
 function getSourceProtocol(name: string): string {
+  const directProtocol =
+    SOURCE_PROTOCOL_BY_NAME[name as keyof typeof SOURCE_PROTOCOL_BY_NAME];
+
+  if (directProtocol !== undefined) {
+    return directProtocol;
+  }
+
   for (const rule of SOURCE_PROTOCOL_SUFFIX_RULES) {
     if (name.endsWith(rule.suffix)) {
       return rule.protocol;
     }
   }
 
-  const directProtocol =
-    SOURCE_PROTOCOL_BY_NAME[name as keyof typeof SOURCE_PROTOCOL_BY_NAME];
-
-  return directProtocol ?? "Custom";
+  return "Custom";
 }
 
 interface BulkRunCardProps {
