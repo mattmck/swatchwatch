@@ -1044,6 +1044,10 @@ async function bulkIngestionHandler(
     return { status: 400, jsonBody: { error: "sources must be a non-empty array" } };
   }
 
+function hasRunnableConnector(source: SupportedConnectorSource): boolean {
+  return source === "OpenBeautyFacts" || source === "MakeupAPI" || source.endsWith("Shopify");
+}
+
   const invalidSources = body.sources.filter((s) => !isSupportedSource(s));
   if (invalidSources.length > 0) {
     return {
@@ -1053,6 +1057,13 @@ async function bulkIngestionHandler(
   }
 
   const sources = body.sources as SupportedConnectorSource[];
+  const nonRunnableSources = sources.filter((source) => !hasRunnableConnector(source));
+  if (nonRunnableSources.length > 0) {
+    return {
+      status: 400,
+      jsonBody: { error: `No ingestion connector available for: ${nonRunnableSources.join(", ")}` },
+    };
+  }
   const options = body.options ?? {};
   const queuedAt = new Date().toISOString();
   const queueMessages: string[] = [];
