@@ -206,10 +206,42 @@ async function runFrameAiExtraction(
 
   const extracted: Record<string, unknown> = {};
 
-  // Extract GTIN from barcodes (prefer EAN/UPC types)
+  // Extract GTIN from barcodes, preferring EAN/UPC types over other kinds.
+  const getBarcodeKindPreference = (kind: string | null | undefined): number => {
+    const normalizedKind = kind?.toUpperCase();
+
+    if (normalizedKind === "EAN_13" || normalizedKind === "EAN13") {
+      return 0;
+    }
+
+    if (
+      normalizedKind === "UPC_A" ||
+      normalizedKind === "UPCA" ||
+      normalizedKind === "UPC_E" ||
+      normalizedKind === "UPCE"
+    ) {
+      return 1;
+    }
+
+    if (normalizedKind === "EAN_8" || normalizedKind === "EAN8") {
+      return 2;
+    }
+
+    return 3;
+  };
+
   const gtin = ocrResult.barcodes
     .filter((b) => b.confidence >= 0.5)
-    .sort((a, b) => b.confidence - a.confidence)
+    .sort((a, b) => {
+      const kindPreferenceDifference =
+        getBarcodeKindPreference(a.kind) - getBarcodeKindPreference(b.kind);
+
+      if (kindPreferenceDifference !== 0) {
+        return kindPreferenceDifference;
+      }
+
+      return b.confidence - a.confidence;
+    })
     .map((b) => b.value)
     .find((v) => v.length >= 8);
 
