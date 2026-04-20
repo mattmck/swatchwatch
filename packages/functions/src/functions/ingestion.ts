@@ -47,6 +47,7 @@ const DEFAULT_RECENT_DAYS = 120;
 const MAX_PAGE_SIZE = 100;
 const MAX_RECORDS = 200;
 const MAX_RECENT_DAYS = 3650;
+const MAX_BULK_SOURCES = SUPPORTED_SOURCES.length;
 const DEFAULT_SEARCH_TERM = "nail polish";
 const JOB_TYPE_CONNECTOR_VERIFY = "connector_verify";
 // Queue bindings resolve this to the AzureWebJobsStorage app setting.
@@ -1044,11 +1045,19 @@ async function bulkIngestionHandler(
     return { status: 400, jsonBody: { error: "sources must be a non-empty array" } };
   }
 
+  if (body.sources.length > MAX_BULK_SOURCES) {
+    return {
+      status: 400,
+      jsonBody: { error: `sources must not contain more than ${MAX_BULK_SOURCES} entries` },
+    };
+  }
+
 function hasRunnableConnector(source: SupportedConnectorSource): boolean {
   return source === "OpenBeautyFacts" || source === "MakeupAPI" || source.endsWith("Shopify");
 }
 
-  const invalidSources = body.sources.filter((s) => !isSupportedSource(s));
+  const dedupedSources = [...new Set(body.sources)];
+  const invalidSources = dedupedSources.filter((s) => !isSupportedSource(s));
   if (invalidSources.length > 0) {
     return {
       status: 400,
@@ -1056,7 +1065,7 @@ function hasRunnableConnector(source: SupportedConnectorSource): boolean {
     };
   }
 
-  const sources = body.sources as SupportedConnectorSource[];
+  const sources = dedupedSources as SupportedConnectorSource[];
   const nonRunnableSources = sources.filter((source) => !hasRunnableConnector(source));
   if (nonRunnableSources.length > 0) {
     return {
