@@ -1,14 +1,42 @@
 export type IngestionSourceName =
-  | "OpenBeautyFacts"
-  | "MakeupAPI"
-  | "HoloTacoShopify"
+  | "BeesKneesLacquerShopify"
+  | "ChinaGlazeShopify"
+  | "ClionadhShopify"
+  | "ColorClubShopify"
   | "CosIng"
+  | "CrackedPolishShopify"
+  | "CupcakePolishShopify"
+  | "DrunkFairyPolishShopify"
+  | "GS1Lookup"
+  | "GardenPathLacquersShopify"
+  | "GreatLakesLacquerShopify"
+  | "HoloTacoShopify"
   | "ImpactAffiliateNetwork"
+  | "KathleenAndCoShopify"
+  | "LeMiniMacaronShopify"
+  | "LightsLacquerShopify"
+  | "LoudBabbsShopify"
+  | "MakeupAPI"
+  | "MooncatShopify"
+  | "OliveAvePolishShopify"
+  | "OpenBeautyFacts"
+  | "OrlyShopify"
+  | "PaintItPrettyPolishShopify"
+  | "PotionPolishShopify"
+  | "PrismParadeShopify"
   | "RakutenAdvertising"
-  | "ManualEntry"
-  | "UserCapture";
+  | "RedEyedLacquerShopify"
+  | "RogueLacquerShopify"
+  | "RoylaleeShopify"
+  | "SassysaucePolishShopify"
+  | "StarrilyShopify"
+  | "TylerStrinketsShopify"
+  | "UserCapture"
+  | "ZombieClawPolishShopify"
+  | "openFDA_CosmeticEvents";
 
 export type ConnectorProtocol =
+  | "HoloTaco"
   | "Shopify"
   | "OpenBeautyFacts"
   | "MakeupAPI"
@@ -47,7 +75,7 @@ export interface IngestionJobRunRequest {
 }
 
 export interface BulkIngestionRequest {
-  sources: string[];
+  sources: IngestionSourceName[];
   options?: {
     materializeToInventory?: boolean;
     detectHexFromImage?: boolean;

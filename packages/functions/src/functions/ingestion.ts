@@ -38,7 +38,12 @@ import { OpenBeautyFactsConnector } from "../lib/connectors/open-beauty-facts";
 import { MakeupApiConnector } from "../lib/connectors/makeup-api";
 import { HoloTacoShopifyConnector } from "../lib/connectors/holo-taco-shopify";
 import { ShopifyGenericConnector } from "../lib/connectors/shopify-generic";
-import { ProductConnector, SupportedConnectorSource, SUPPORTED_SOURCES } from "../lib/connectors/types";
+import {
+  ProductConnector,
+  SOURCE_PROTOCOL_MAP,
+  SupportedConnectorSource,
+  SUPPORTED_SOURCES,
+} from "../lib/connectors/types";
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
@@ -130,6 +135,14 @@ function isSupportedSource(value: string): value is SupportedConnectorSource {
   return (SUPPORTED_SOURCES as readonly string[]).includes(value);
 }
 
+function hasRunnableConnector(source: SupportedConnectorSource): boolean {
+  return source === "OpenBeautyFacts" || source === "MakeupAPI" || source.endsWith("Shopify");
+}
+
+function isRunnableConnectorSource(value: string): value is SupportedConnectorSource {
+  return isSupportedSource(value) && hasRunnableConnector(value);
+}
+
 function createConnector(source: SupportedConnectorSource, baseUrl?: string | null): ProductConnector {
   if (source === "OpenBeautyFacts") {
     return new OpenBeautyFactsConnector(baseUrl);
@@ -153,6 +166,39 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown error";
 }
 
+const ADDITIVE_METRIC_KEYS = new Set([
+  "processed",
+  "inserted",
+  "updated",
+  "skipped",
+  "variantRowsProcessed",
+  "brandsCreated",
+  "shadesCreated",
+  "inventoryInserted",
+  "inventoryUpdated",
+  "legacyRowsDeleted",
+  "hexOverwritten",
+  "imageCandidates",
+  "imageUploads",
+  "imageUploadFailures",
+  "additionalImagesUploaded",
+  "swatchesLinked",
+  "hexDetected",
+  "hexDetectionFailures",
+  "hexDetectionSkipped",
+  "hexDetectionPromptTokens",
+  "hexDetectionCompletionTokens",
+  "hexDetectionTotalTokens",
+  "batchRequestsQueued",
+  "applied",
+  "skippedNoDetection",
+  "noShadeMatch",
+]);
+
+/**
+ * Merge per-page metric objects while only summing known additive counters.
+ * Non-additive values are overwritten by the latest incoming page metrics.
+ */
 function mergeMetrics(
   target: Record<string, unknown>,
   incoming: Record<string, unknown> | null | undefined
@@ -163,7 +209,11 @@ function mergeMetrics(
 
   for (const [key, value] of Object.entries(incoming)) {
     const currentValue = target[key];
-    if (typeof currentValue === "number" && typeof value === "number") {
+    if (
+      ADDITIVE_METRIC_KEYS.has(key) &&
+      typeof currentValue === "number" &&
+      typeof value === "number"
+    ) {
       target[key] = currentValue + value;
       continue;
     }
@@ -171,6 +221,47 @@ function mergeMetrics(
   }
 
   return target;
+}
+
+function asFinitePositiveNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function getExhaustiveStopReason(
+  pageResult: Awaited<ReturnType<ProductConnector["pullProducts"]>>,
+  currentPage: number
+): string | null {
+  if (pageResult.records.length === 0) {
+    return "empty page";
+  }
+
+  const metadata = pageResult.metadata ?? {};
+  if (metadata.hasMore === false) {
+    return "metadata.hasMore=false";
+  }
+
+  const sourcePageCount = asFinitePositiveNumber(metadata.sourcePageCount);
+  if (sourcePageCount !== null && currentPage >= sourcePageCount) {
+    return `sourcePageCount=${sourcePageCount}`;
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(metadata, "nextPage") &&
+    (metadata.nextPage === null || metadata.nextPage === false || metadata.nextPage === "")
+  ) {
+    return "metadata.nextPage absent";
+  }
+
+  return null;
 }
 
 function buildRequestedMetrics(
@@ -607,12 +698,16 @@ export async function processIngestionJobQueueMessage(
       // Exhaustive mode: loop through all pages and process each page incrementally.
       let currentPage = payload.request.page;
       let pagesFetched = 0;
+      let lastPageRecordCount = 0;
+      let lastFetchedPage = currentPage;
+      let completedByConnectorSignal = false;
 
       logger.info(`Exhaustive mode: paging through all records from ${payload.request.source}`, {
         startPage: currentPage,
         pageSize: payload.request.pageSize,
       });
 
+      let capped = false;
       while (pagesFetched < EXHAUSTIVE_PAGE_LIMIT) {
         const pageResult = await connector.pullProducts({
           searchTerm: payload.request.searchTerm,
@@ -627,16 +722,38 @@ export async function processIngestionJobQueueMessage(
           ...pageResult.metadata,
         });
 
+        const stopReason = getExhaustiveStopReason(pageResult, currentPage);
         if (pageResult.records.length === 0) {
+          completedByConnectorSignal = true;
+          connectorMetadata = {
+            ...connectorMetadata,
+            ...pageResult.metadata,
+            pagesFetched,
+            exhaustive: true,
+            requestedExhaustive: true,
+            capped: false,
+            pageLimit: EXHAUSTIVE_PAGE_LIMIT,
+          };
+          logger.info(`Exhaustive mode stopping after page ${currentPage}: ${stopReason ?? "empty page"}`, {
+            page: currentPage,
+            pagesFetched,
+            source: payload.request.source,
+            recordCount: pageResult.records.length,
+          });
           break;
         }
 
         pagesFetched++;
+        lastFetchedPage = currentPage;
+        lastPageRecordCount = pageResult.records.length;
         connectorMetadata = {
           ...connectorMetadata,
           ...pageResult.metadata,
           pagesFetched,
           exhaustive: true,
+          requestedExhaustive: true,
+          capped: false,
+          pageLimit: EXHAUSTIVE_PAGE_LIMIT,
         };
 
         const shouldPauseForAiBatch = await persistPageRecords(pageResult);
@@ -644,10 +761,42 @@ export async function processIngestionJobQueueMessage(
           return;
         }
 
+        if (stopReason) {
+          completedByConnectorSignal = true;
+          logger.info(`Exhaustive mode stopping after page ${currentPage}: ${stopReason}`, {
+            page: currentPage,
+            pagesFetched,
+            source: payload.request.source,
+            recordCount: pageResult.records.length,
+          });
+          break;
+        }
+
         currentPage++;
       }
 
-      logger.info(`Exhaustive pull complete: ${totalRecordsProcessed} total records across ${pagesFetched} pages`);
+      if (!completedByConnectorSignal && pagesFetched >= EXHAUSTIVE_PAGE_LIMIT && lastPageRecordCount > 0) {
+        capped = true;
+        connectorMetadata = {
+          ...connectorMetadata,
+          pagesFetched,
+          exhaustive: false,
+          requestedExhaustive: true,
+          capped: true,
+          pageLimit: EXHAUSTIVE_PAGE_LIMIT,
+        };
+        logger.warn(`Exhaustive mode reached page safety cap for ${payload.request.source}`, {
+          source: payload.request.source,
+          pagesFetched,
+          currentPage: lastFetchedPage,
+          pageLimit: EXHAUSTIVE_PAGE_LIMIT,
+          totalRecordsProcessed,
+        });
+      }
+
+      logger.info(`Exhaustive pull complete: ${totalRecordsProcessed} total records across ${pagesFetched} pages`, {
+        capped,
+      });
     } else {
       const connectorResult = await connector.pullProducts({
         searchTerm: payload.request.searchTerm,
@@ -854,7 +1003,13 @@ async function handleListDataSources(_request: HttpRequest, context: InvocationC
     const sources = await listDataSources(true);
     return {
       status: 200,
-      jsonBody: { sources },
+      jsonBody: {
+        sources: sources.map((source) => ({
+          ...source,
+          protocol: isSupportedSource(source.name) ? SOURCE_PROTOCOL_MAP[source.name] : "Custom",
+          queueable: isRunnableConnectorSource(source.name),
+        })),
+      },
     };
   } catch (error) {
     context.error("Error listing data sources:", error);
@@ -1102,10 +1257,6 @@ async function bulkIngestionHandler(
     };
   }
 
-function hasRunnableConnector(source: SupportedConnectorSource): boolean {
-  return source === "OpenBeautyFacts" || source === "MakeupAPI" || source.endsWith("Shopify");
-}
-
   const dedupedSources = [...new Set(body.sources)];
   const invalidSources = dedupedSources.filter((s) => !isSupportedSource(s));
   if (invalidSources.length > 0) {
@@ -1127,6 +1278,11 @@ function hasRunnableConnector(source: SupportedConnectorSource): boolean {
   const queuedAt = new Date().toISOString();
   const queueMessages: string[] = [];
   const jobs: IngestionJobRecord[] = [];
+  const createdJobs: Array<{
+    jobId: number;
+    requestedMetrics: Record<string, unknown>;
+    source: SupportedConnectorSource;
+  }> = [];
 
   try {
     for (const source of sources) {
@@ -1164,6 +1320,7 @@ function hasRunnableConnector(source: SupportedConnectorSource): boolean {
         queuedMetrics,
         "queued"
       );
+      createdJobs.push({ jobId: job.jobId, requestedMetrics, source });
 
       const queueMessage: IngestionJobQueueMessage = {
         jobId: job.jobId,
@@ -1194,6 +1351,26 @@ function hasRunnableConnector(source: SupportedConnectorSource): boolean {
   } catch (error: unknown) {
     const message = getErrorMessage(error);
     context.error("Bulk ingestion enqueue failed:", error);
+
+    for (const createdJob of createdJobs) {
+      try {
+        await markIngestionJobFailed(
+          createdJob.jobId,
+          message,
+          withPipelineMetrics(createdJob.requestedMetrics, "failed", "queue_enqueue", {
+            queuedAt,
+            queueName: INGESTION_JOB_QUEUE_NAME,
+            bulkRun: true,
+            source: createdJob.source,
+            failedAt: new Date().toISOString(),
+            failedStage: "queue_enqueue",
+          })
+        );
+      } catch (markFailedError) {
+        context.error(`Failed to mark bulk ingestion job ${createdJob.jobId} as failed:`, markFailedError);
+      }
+    }
+
     return { status: 500, jsonBody: { error: message } };
   }
 }

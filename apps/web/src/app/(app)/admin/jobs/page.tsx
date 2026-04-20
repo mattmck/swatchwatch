@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  BulkIngestionRequest,
   IngestionJobRecord,
   IngestionJobRunRequest,
   IngestionLogEntry,
@@ -515,7 +516,7 @@ export function AdminJobsContent() {
       setBulkMessage(null);
       setBulkError(null);
       const response = await runBulkIngestion({
-        sources: Array.from(bulkSelected),
+        sources: Array.from(bulkSelected) as BulkIngestionRequest["sources"],
         options: {
           materializeToInventory: bulkMaterialize === "true",
           detectHexFromImage: bulkDetectHex === "true",
@@ -983,34 +984,6 @@ export function AdminJobsContent() {
 
 // ─── Bulk Run Card ───────────────────────────────────────────────────────────
 
-const SOURCE_PROTOCOL_BY_NAME = {
-  OpenBeautyFacts: "OpenBeautyFacts",
-  MakeupAPI: "MakeupAPI",
-  CosIng: "GS1",
-  GS1Lookup: "GS1",
-} as const satisfies Record<string, string>;
-
-const SOURCE_PROTOCOL_SUFFIX_RULES = [
-  { suffix: "Shopify", protocol: "Shopify" },
-] as const;
-
-function getSourceProtocol(name: string): string {
-  const directProtocol =
-    SOURCE_PROTOCOL_BY_NAME[name as keyof typeof SOURCE_PROTOCOL_BY_NAME];
-
-  if (directProtocol !== undefined) {
-    return directProtocol;
-  }
-
-  for (const rule of SOURCE_PROTOCOL_SUFFIX_RULES) {
-    if (name.endsWith(rule.suffix)) {
-      return rule.protocol;
-    }
-  }
-
-  return "Custom";
-}
-
 interface BulkRunCardProps {
   availableSources: DataSource[];
   selected: Set<string>;
@@ -1044,19 +1017,14 @@ function BulkRunCard({
   error,
   onRun,
 }: BulkRunCardProps) {
-  // Group sources by protocol, only including Shopify and known API sources
+  // Group queueable sources by API-provided connector protocol.
   const groups = useMemo(() => {
     const map = new Map<string, string[]>();
     for (const s of availableSources) {
-      const protocol = getSourceProtocol(s.name);
-      // Only show sources that have a real connector implemented
-      if (
-        !s.name.endsWith("Shopify") &&
-        s.name !== "OpenBeautyFacts" &&
-        s.name !== "MakeupAPI"
-      ) {
+      if (s.queueable !== true) {
         continue;
       }
+      const protocol = s.protocol ?? "Custom";
       if (!map.has(protocol)) map.set(protocol, []);
       map.get(protocol)!.push(s.name);
     }
@@ -1119,6 +1087,7 @@ function BulkRunCard({
                       <button
                         key={name}
                         type="button"
+                        aria-pressed={isSelected}
                         onClick={() => onToggleSource(name)}
                         className={`rounded-md border px-2 py-0.5 text-xs transition-colors ${
                           isSelected
