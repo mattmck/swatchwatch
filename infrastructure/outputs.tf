@@ -43,6 +43,16 @@ output "speech_service_key" {
   sensitive = true
 }
 
+output "document_intelligence_name" {
+  description = "Azure AI Document Intelligence account name (empty when disabled)"
+  value       = try(azurerm_cognitive_account.document_intelligence[0].name, "")
+}
+
+output "document_intelligence_endpoint" {
+  description = "Azure AI Document Intelligence endpoint URL (empty when disabled)"
+  value       = try(azurerm_cognitive_account.document_intelligence[0].endpoint, "")
+}
+
 output "openai_account_name" {
   value = try(azurerm_cognitive_account.openai[local.openai_primary_region_key].name, "")
 }

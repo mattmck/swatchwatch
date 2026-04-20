@@ -18,11 +18,16 @@ import { withAuth } from "../lib/auth";
 import { validateImageUpload } from "../lib/blob-storage";
 import { withCors } from "../lib/http";
 import { trackEvent, trackException } from "../lib/telemetry";
+import { extractTextFromImage, OcrResult } from "../lib/ocr";
+import { parseLabelText, ParsedLabelFields } from "../lib/ocr-parser";
 
 const GUIDANCE_CONFIG = {
   recommendedFrameTypes: ["barcode", "label", "color"],
   maxFrames: 6,
 } as const;
+
+// Maximum chars stored in quality_json.ai.ocrRawText to keep jsonb rows bounded
+const MAX_CAPTURE_AI_RAW_TEXT_CHARS = 2000;
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -161,6 +166,139 @@ function buildImageIngestionPatch(details: {
       checksumSha256: details.checksumSha256,
       host: details.host,
     },
+  };
+}
+
+interface FrameAiExtractionResult {
+  extracted: Record<string, unknown>;
+  ocrRawText?: string;
+  ocrConfidence?: number;
+  ocrBarcodeCount?: number;
+  llmConfidence?: number;
+}
+
+/**
+ * Sanitize image input before passing to the AI extraction pipeline.
+ * Strips internal whitespace from base64 data URL payloads (whitespace in
+ * the payload is valid client-side but rejected by the Document Intelligence API).
+ * Plain HTTPS URLs are trimmed only.
+ */
+function sanitizeImageInputForAi(imageInput: string): string {
+  if (imageInput.startsWith("data:")) {
+    const commaIndex = imageInput.indexOf(",");
+    if (commaIndex > 0) {
+      return imageInput.slice(0, commaIndex + 1) + imageInput.slice(commaIndex + 1).replace(/\s/g, "");
+    }
+  }
+  return imageInput.trim();
+}
+
+/**
+ * Run AI extraction pipeline on a capture frame image:
+ * 1. OCR via Azure Document Intelligence (extracts text + barcodes)
+ * 2. LLM structured parsing of OCR text (extracts brand, shade, finish, etc.)
+ * 3. Barcode GTIN extraction from OCR barcodes
+ *
+ * Returns extracted fields for quality_json.extracted, or null if no AI services are configured.
+ */
+async function runFrameAiExtraction(
+  imageInput: string,
+  frameType: string,
+  hints?: { brand?: string; shadeName?: string; finish?: string }
+): Promise<FrameAiExtractionResult | null> {
+  if (frameType !== "label" && frameType !== "barcode") {
+    return null;
+  }
+
+  let ocrResult: OcrResult | null = null;
+  try {
+    ocrResult = await extractTextFromImage(imageInput);
+  } catch (error) {
+    console.warn(
+      `[capture] OCR extraction failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+
+  if (!ocrResult) {
+    return null;
+  }
+
+  const extracted: Record<string, unknown> = {};
+
+  // Extract GTIN from barcodes, preferring EAN/UPC types over other kinds.
+  const getBarcodeKindPreference = (kind: string | null | undefined): number => {
+    const normalizedKind = kind?.toUpperCase();
+
+    if (normalizedKind === "EAN_13" || normalizedKind === "EAN13") {
+      return 0;
+    }
+
+    if (
+      normalizedKind === "UPC_A" ||
+      normalizedKind === "UPCA" ||
+      normalizedKind === "UPC_E" ||
+      normalizedKind === "UPCE"
+    ) {
+      return 1;
+    }
+
+    if (normalizedKind === "EAN_8" || normalizedKind === "EAN8") {
+      return 2;
+    }
+
+    return 3;
+  };
+
+  const gtin = ocrResult.barcodes
+    .filter((b) => b.confidence >= 0.5)
+    .sort((a, b) => {
+      const kindPreferenceDifference =
+        getBarcodeKindPreference(a.kind) - getBarcodeKindPreference(b.kind);
+
+      if (kindPreferenceDifference !== 0) {
+        return kindPreferenceDifference;
+      }
+
+      return b.confidence - a.confidence;
+    })
+    .map((b) => b.value)
+    .find((v) => v.length >= 8);
+
+  if (gtin) {
+    extracted.gtin = gtin;
+  }
+
+  // Run LLM parsing on label frames
+  let llmResult: ParsedLabelFields | null = null;
+  if (frameType === "label" && ocrResult.rawText.trim().length > 0) {
+    try {
+      llmResult = await parseLabelText(ocrResult.rawText, hints);
+    } catch (error) {
+      console.warn(
+        `[capture] LLM label parsing failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  if (llmResult) {
+    if (llmResult.brand) extracted.brand = llmResult.brand;
+    if (llmResult.shadeName) extracted.shadeName = llmResult.shadeName;
+    if (llmResult.finish) extracted.finish = llmResult.finish;
+    if (llmResult.collection) extracted.collection = llmResult.collection;
+    if (llmResult.gtin && !extracted.gtin) extracted.gtin = llmResult.gtin;
+    if (llmResult.sizeMl) extracted.sizeMl = llmResult.sizeMl;
+  }
+
+  if (Object.keys(extracted).length === 0) {
+    return null;
+  }
+
+  return {
+    extracted,
+    ocrRawText: ocrResult.rawText,
+    ocrConfidence: ocrResult.confidence,
+    ocrBarcodeCount: ocrResult.barcodes.length,
+    llmConfidence: llmResult?.confidence,
   };
 }
 
@@ -1053,18 +1191,58 @@ async function addCaptureFrame(
       return { status: 409, jsonBody: { error: "Cannot add frames to a cancelled session" } };
     }
 
+    // Pre-transaction: normalize image and run AI extraction pipeline
+    let normalizedImage: PreparedImageInput | null = null;
+    let preQualityJson: Record<string, unknown> | null = body.quality ?? null;
+
+    if (!body.imageId && body.imageBlobUrl) {
+      normalizedImage = normalizeCaptureImageInput(body.imageBlobUrl, session.captureId);
+      preQualityJson = mergeQualityJson(body.quality, normalizedImage.qualityPatch);
+    }
+
+    // Run AI extraction on label/barcode frames (outside transaction to avoid long locks)
+    // Use sanitized image input so data URL whitespace doesn't cause OCR API failures.
+    const imageInputForAi = body.imageBlobUrl ? sanitizeImageInputForAi(body.imageBlobUrl) : null;
+    let aiExtraction: FrameAiExtractionResult | null = null;
+    if (imageInputForAi) {
+      const existingEvidence = collectCaptureEvidence(
+        session.metadata,
+        await getCaptureFrameEvidence(session.id)
+      );
+      aiExtraction = await runFrameAiExtraction(imageInputForAi, body.frameType, {
+        brand: existingEvidence.brand,
+        shadeName: existingEvidence.shadeName,
+        finish: existingEvidence.finish,
+      });
+    }
+
     const result = await transaction(async (client) => {
       let imageId = body.imageId ?? null;
-      let qualityJson = body.quality ?? null;
-      let normalizedImage: PreparedImageInput | null = null;
+      let qualityJson = preQualityJson;
 
-      if (!imageId && body.imageBlobUrl) {
-        normalizedImage = normalizeCaptureImageInput(body.imageBlobUrl, session.captureId);
-        qualityJson = mergeQualityJson(body.quality, normalizedImage.qualityPatch);
+      // Merge AI extraction results into quality_json.extracted
+      if (aiExtraction) {
+        const ocrRawTextRaw = aiExtraction.ocrRawText;
+        const ocrRawText = ocrRawTextRaw
+          ? ocrRawTextRaw.length > MAX_CAPTURE_AI_RAW_TEXT_CHARS
+            ? `${ocrRawTextRaw.slice(0, MAX_CAPTURE_AI_RAW_TEXT_CHARS)}…`
+            : ocrRawTextRaw
+          : undefined;
+        qualityJson = mergeQualityJson(qualityJson ?? undefined, {
+          extracted: aiExtraction.extracted,
+          ai: {
+            ocrRawText,
+            ocrConfidence: aiExtraction.ocrConfidence,
+            ocrBarcodeCount: aiExtraction.ocrBarcodeCount,
+            llmConfidence: aiExtraction.llmConfidence,
+            processedAt: new Date().toISOString(),
+          },
+        });
       }
 
       const normalizedExtraction = extractFrameEvidence(qualityJson);
-      if (normalizedExtraction) {
+      if (normalizedExtraction && !aiExtraction) {
+        // Only set extracted from request quality if AI didn't already populate it
         qualityJson = mergeQualityJson(qualityJson ?? undefined, {
           extracted: normalizedExtraction,
         });
@@ -1072,8 +1250,8 @@ async function addCaptureFrame(
       const ingestMetadataPatch = buildIngestMetadataPatch(
         session.metadata,
         body.frameType,
-        Boolean(normalizedExtraction),
-        normalizedExtraction?.source ?? "none"
+        Boolean(normalizedExtraction || aiExtraction),
+        aiExtraction ? "pipeline" : (normalizedExtraction?.source ?? "none")
       );
 
       if (!imageId && body.imageBlobUrl) {
@@ -1484,6 +1662,91 @@ async function answerCaptureQuestion(
         [session.id, openQuestion.key, answerJson]
       );
     });
+
+    // Re-resolve after non-selection answers (e.g., brand_shade free-text)
+    if (body.answer !== "skip" && openQuestion.key !== "candidate_select") {
+      const refreshedSession = await getCaptureSession(captureId, userId);
+      if (refreshedSession && refreshedSession.status === "processing") {
+        const reResolveRunId = randomUUID();
+        const reResolveStartedAt = new Date().toISOString();
+        const outcome = await resolveCaptureSession(refreshedSession);
+        const metadataPatch = withFinalizeAuditPatch(
+          refreshedSession.metadata,
+          outcome.metadataPatch,
+          outcome.status,
+          reResolveRunId,
+          reResolveStartedAt
+        );
+
+        trackEvent("capture.re_resolved", {
+          captureId: refreshedSession.captureId,
+          outcome: outcome.status,
+          confidence: outcome.confidence,
+          trigger: openQuestion.key,
+          runId: reResolveRunId,
+        });
+
+        if (outcome.status === "matched") {
+          updatedStatus = "matched";
+          await transaction(async (client) => {
+            const inventoryItemId = await addToInventoryFromMatch(
+              client,
+              userId,
+              outcome.entityType,
+              outcome.entityId
+            );
+            await client.query(
+              `UPDATE capture_question SET status = 'expired' WHERE capture_session_id = $1 AND status = 'open'`,
+              [refreshedSession.id]
+            );
+            await client.query(
+              `UPDATE capture_session
+               SET status = 'matched',
+                   top_confidence = $2,
+                   accepted_entity_type = $3,
+                   accepted_entity_id = $4,
+                   metadata = COALESCE(metadata, '{}'::jsonb) || $5::jsonb || jsonb_build_object('inventoryItemId', $6),
+                   updated_at = now()
+               WHERE capture_session_id = $1`,
+              [refreshedSession.id, outcome.confidence, outcome.entityType, outcome.entityId, metadataPatch, inventoryItemId]
+            );
+          });
+        } else if (outcome.status === "needs_question") {
+          updatedStatus = "needs_question";
+          await transaction(async (client) => {
+            await client.query(
+              `UPDATE capture_question SET status = 'expired' WHERE capture_session_id = $1 AND status = 'open'`,
+              [refreshedSession.id]
+            );
+            await client.query(
+              `UPDATE capture_session
+               SET status = 'needs_question', top_confidence = $2, metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb, updated_at = now()
+               WHERE capture_session_id = $1`,
+              [refreshedSession.id, outcome.confidence, metadataPatch]
+            );
+            await client.query(
+              `INSERT INTO capture_question (capture_session_id, question_key, prompt, question_type, options_json, status)
+               VALUES ($1, $2, $3, $4, $5::jsonb, 'open')`,
+              [refreshedSession.id, outcome.question.key, outcome.question.prompt, outcome.question.type, outcome.question.options ?? null]
+            );
+          });
+        } else {
+          updatedStatus = "unmatched";
+          await transaction(async (client) => {
+            await client.query(
+              `UPDATE capture_question SET status = 'expired' WHERE capture_session_id = $1 AND status = 'open'`,
+              [refreshedSession.id]
+            );
+            await client.query(
+              `UPDATE capture_session
+               SET status = 'unmatched', top_confidence = $2, metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb, updated_at = now()
+               WHERE capture_session_id = $1`,
+              [refreshedSession.id, outcome.confidence, metadataPatch]
+            );
+          });
+        }
+      }
+    }
 
     const nextQuestion = await getOpenQuestion(session.id);
     const response: CaptureAnswerResponse = {
