@@ -1,12 +1,47 @@
 export type IngestionSourceName =
+  | "BeesKneesLacquerShopify"
+  | "ChinaGlazeShopify"
+  | "ClionadhShopify"
+  | "ColorClubShopify"
+  | "CosIng"
+  | "CrackedPolishShopify"
+  | "CupcakePolishShopify"
+  | "DrunkFairyPolishShopify"
+  | "GS1Lookup"
+  | "GardenPathLacquersShopify"
+  | "GreatLakesLacquerShopify"
+  | "HoloTacoShopify"
+  | "ImpactAffiliateNetwork"
+  | "KathleenAndCoShopify"
+  | "LeMiniMacaronShopify"
+  | "LightsLacquerShopify"
+  | "LoudBabbsShopify"
+  | "MakeupAPI"
+  | "MooncatShopify"
+  | "OliveAvePolishShopify"
+  | "OpenBeautyFacts"
+  | "OrlyShopify"
+  | "PaintItPrettyPolishShopify"
+  | "PotionPolishShopify"
+  | "PrismParadeShopify"
+  | "RakutenAdvertising"
+  | "RedEyedLacquerShopify"
+  | "RogueLacquerShopify"
+  | "RoylaleeShopify"
+  | "SassysaucePolishShopify"
+  | "StarrilyShopify"
+  | "TylerStrinketsShopify"
+  | "UserCapture"
+  | "ZombieClawPolishShopify"
+  | "openFDA_CosmeticEvents";
+
+export type ConnectorProtocol =
+  | "HoloTaco"
+  | "Shopify"
   | "OpenBeautyFacts"
   | "MakeupAPI"
-  | "HoloTacoShopify"
-  | "CosIng"
-  | "ImpactAffiliateNetwork"
-  | "RakutenAdvertising"
-  | "ManualEntry"
-  | "UserCapture";
+  | "GS1"
+  | "Custom";
 
 export type IngestionJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
@@ -35,6 +70,22 @@ export interface IngestionJobRunRequest {
   collectTrainingData?: boolean;
   /** When true and collectTrainingData=true, download images to blob storage. When false, just store vendor URLs (default: false) */
   downloadTrainingImages?: boolean;
+  /** When true, loop through all pages until source returns empty (ignores maxRecords cap) */
+  exhaustive?: boolean;
+}
+
+export interface BulkIngestionRequest {
+  sources: IngestionSourceName[];
+  options?: {
+    materializeToInventory?: boolean;
+    detectHexFromImage?: boolean;
+    overwriteDetectedHex?: boolean;
+  };
+}
+
+export interface BulkIngestionResponse {
+  enqueued: number;
+  jobs: IngestionJobRecord[];
 }
 
 export interface IngestionJobRecord {

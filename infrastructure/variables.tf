@@ -10,10 +10,16 @@ variable "location" {
 }
 
 variable "openai_location" {
-  description = "Optional override region for Azure OpenAI resources (defaults to `location` when null)"
+  description = "Optional fallback region for Azure OpenAI resources when `openai_regions` is empty (defaults to `location` when null)"
   type        = string
   default     = null
   nullable    = true
+}
+
+variable "openai_regions" {
+  description = "Azure OpenAI regions to provision when create_openai_resources=true. First region is treated as primary for function settings and backwards-compatible outputs."
+  type        = list(string)
+  default     = []
 }
 
 variable "environment" {
@@ -145,11 +151,6 @@ variable "create_openai_resources" {
   default     = false
 }
 
-variable "retain_openai_account" {
-  description = "Retain the legacy in-stack OpenAI account even when create_openai_resources=false (prevents destroy failures when nested Foundry project resources exist)."
-  type        = bool
-  default     = true
-}
 
 variable "openai_endpoint" {
   description = "Optional existing Azure OpenAI endpoint (used when create_openai_resources=false)."
@@ -246,6 +247,18 @@ variable "hex_detection_batch_min_images" {
   description = "Minimum candidate image count before switching ingestion to batch mode"
   type        = number
   default     = 5
+}
+
+variable "enable_document_intelligence" {
+  description = "Provision Azure AI Document Intelligence for server-side OCR in the capture pipeline"
+  type        = bool
+  default     = false
+}
+
+variable "openai_label_deployment_name" {
+  description = "Azure OpenAI deployment name used for label OCR structured extraction. Falls back to AZURE_OPENAI_DEPLOYMENT_HEX when empty."
+  type        = string
+  default     = ""
 }
 
 variable "ingestion_ai_batch_poll_schedule" {

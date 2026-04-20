@@ -1,10 +1,10 @@
 // Auto-generated from docs/seed_data_sources.sql
 // Do not edit manually - run "node scripts/generate-connector-types.mjs" to regenerate
 import type { SupportedConnectorSource } from "./generated-types";
-import { SUPPORTED_SOURCES } from "./generated-types";
+import { SOURCE_PROTOCOL_MAP, SUPPORTED_SOURCES } from "./generated-types";
 
 export type { SupportedConnectorSource };
-export { SUPPORTED_SOURCES };
+export { SOURCE_PROTOCOL_MAP, SUPPORTED_SOURCES };
 
 export interface ConnectorPullOptions {
   searchTerm: string;

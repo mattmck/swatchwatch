@@ -1,4 +1,7 @@
 import type {
+  BulkIngestionRequest,
+  BulkIngestionResponse,
+  ConnectorProtocol,
   CaptureAnswerRequest,
   CaptureAnswerResponse,
   CaptureFinalizeResponse,
@@ -272,6 +275,24 @@ export async function runIngestionJob(
   return handleResponse<IngestionJobRunResponse>(response);
 }
 
+/**
+ * Call the admin-only POST /ingestion/bulk endpoint.
+ *
+ * Accepts a BulkIngestionRequest and returns a Promise that resolves to a
+ * BulkIngestionResponse containing the queued jobs. Adds admin auth headers
+ * with getAuthHeaders() and parses the response with handleResponse().
+ */
+export async function runBulkIngestion(
+  data: BulkIngestionRequest
+): Promise<BulkIngestionResponse> {
+  const response = await fetch(`${API_BASE_URL}/ingestion/bulk`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<BulkIngestionResponse>(response);
+}
+
 export async function getIngestionJob(id: string | number): Promise<IngestionJobRunResponse> {
   const response = await fetch(`${API_BASE_URL}/ingestion/jobs/${id}`, {
     headers: await getAuthHeaders({ admin: true }),
@@ -295,6 +316,8 @@ export interface DataSource {
   dataSourceId: number;
   name: string;
   baseUrl: string | null;
+  protocol?: ConnectorProtocol;
+  queueable?: boolean;
 }
 
 export interface ListDataSourcesResponse {

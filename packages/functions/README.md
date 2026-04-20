@@ -39,6 +39,7 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `POST` | `/api/ingestion/jobs` | `enqueueIngestionJob` | `ingestion.ts` | ✅ Working |
 | `GET` | `/api/ingestion/jobs/{id}` | `ingestionJobDetailHandler` | `ingestion.ts` | ✅ Working |
 | `DELETE` | `/api/ingestion/jobs/{id}/cancel` | `ingestionJobCancelHandler` | `ingestion.ts` | ✅ Working |
+| `POST` | `/api/ingestion/bulk` | `bulkIngestionHandler` | `ingestion.ts` | ✅ Working (admin-only) |
 | `GET` | `/api/ingestion/sources` | `dataSourcesHandler` | `ingestion.ts` | ✅ Working |
 | `PATCH` | `/api/ingestion/sources/{id}/settings` | `sourceSettingsHandler` | `ingestion.ts` | ✅ Working |
 | `GET` | `/api/ingestion/settings` | `globalSettingsHandler` | `ingestion.ts` | ✅ Working |
@@ -99,6 +100,51 @@ Adding a new reference category (example: `texture_type`):
 
 `POST /api/ingestion/jobs` now **queues** an async ingestion run and returns `202 Accepted` with a queued job record.
 Execution happens in a queue-triggered worker (`ingestion-worker.ts`) backed by Azure Storage Queue.
+
+`POST /api/ingestion/bulk` is admin-only and queues one exhaustive ingestion job per
+source. Use it when an admin needs to refresh complete catalogs across multiple
+connectors, for example reindexing all enabled Shopify sources after improving
+normalization or AI hex detection.
+
+Request payload:
+- `sources: IngestionSourceName[]` — supported source names with runnable connectors.
+- `options.materializeToInventory?: boolean` — defaults to `true`.
+- `options.detectHexFromImage?: boolean` — defaults to `true`.
+- `options.overwriteDetectedHex?: boolean` — defaults to `false`.
+
+Response payload:
+- `enqueued: number` — number of queue messages created.
+- `jobs: IngestionJobRecord[]` — queued ingestion job records.
+
+Example request:
+
+```json
+{
+  "sources": ["HoloTacoShopify", "MooncatShopify"],
+  "options": {
+    "materializeToInventory": true,
+    "detectHexFromImage": true,
+    "overwriteDetectedHex": false
+  }
+}
+```
+
+Example response:
+
+```json
+{
+  "enqueued": 2,
+  "jobs": [
+    {
+      "jobId": "123",
+      "source": "HoloTacoShopify",
+      "jobType": "connector_verify",
+      "status": "queued",
+      "startedAt": "2026-04-18T22:13:11.000Z"
+    }
+  ]
+}
+```
 
 Current source support:
 - `OpenBeautyFacts` (search-based pull)
@@ -249,6 +295,7 @@ Key variables:
 | `AZURE_OPENAI_GATEWAY_ENDPOINT` | Optional APIM gateway base URL used when `AZURE_OPENAI_USE_GATEWAY=true`. |
 | `AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY` | Optional APIM subscription key header value (`Ocp-Apim-Subscription-Key`) used in gateway mode. |
 | `AZURE_OPENAI_USE_GATEWAY` | Feature flag (`true`/`false`) to route Azure OpenAI calls through APIM gateway endpoint. |
+| `AZURE_OPENAI_DEPLOYMENT_LABEL` | Optional Azure OpenAI deployment name for label OCR structured extraction (`src/lib/ocr-parser.ts`). Falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`. |
 | `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name for synchronous image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT` when unset). |
 | `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` | Optional Azure OpenAI deployment name for batch image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`). |
 | `AZURE_OPENAI_BATCH_API_VERSION` | Optional API version used for Azure OpenAI Files/Batch endpoints (default `2025-03-01-preview`). |
@@ -267,6 +314,8 @@ Key variables:
 | `PG_CONNECTION_TIMEOUT_MS` | Connection acquisition timeout for Postgres clients (default `15000`). |
 | `PG_QUERY_MAX_RETRIES` | Retries for retry-safe DB queries (`SELECT` and `UPDATE ingestion_job`) when connection timeouts occur (default `2`). |
 | `PG_QUERY_RETRY_BASE_MS` | Linear backoff base delay in ms for retry-safe DB query retries (default `250`). |
+| `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` | Azure AI Document Intelligence endpoint for server-side OCR (`src/lib/ocr.ts`). Graceful degradation when missing. |
+| `AZURE_DOCUMENT_INTELLIGENCE_KEY` | Azure AI Document Intelligence subscription key for OCR. |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Optional custom telemetry sink for `trackEvent` / `trackMetric` / `trackException` in `src/lib/telemetry.ts`. When unset, telemetry calls are no-ops. |
 | `REDIS_URL` | Redis endpoint URL for API read-through caching (for example `rediss://<host>:10000`). |
 | `REDIS_KEY` | Redis access key paired with `REDIS_URL`. When either Redis var is missing, cache helpers become no-ops and requests fall back to Postgres. |

@@ -6,10 +6,11 @@ const NEXT_CONFIG_PATH = path.resolve(__dirname, '../../../apps/web/next.config.
 
 // Dynamic import helper for ESM modules
 async function importNextConfig() {
-  // Use dynamic import to load the TypeScript/ESM config
-  // This requires the config to be transpiled or we read it as text
-  const module = await import(NEXT_CONFIG_PATH);
-  return module.default || module;
+  // Use dynamic import to load the TypeScript/ESM config.
+  // tsx/esm wraps `export default` under an extra `.default` when loaded
+  // via dynamic import() from a CJS file — unwrap both layers defensively.
+  const mod = await import(NEXT_CONFIG_PATH);
+  return mod.default?.default ?? mod.default ?? mod;
 }
 
 test('next.config.ts: exports a valid Next.js configuration', async () => {

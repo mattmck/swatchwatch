@@ -18,7 +18,7 @@ This sprint delivers production deployment, platform hardening, and lays the gro
 ## Items
 
 ### #1 — Merge `dev` → `main`
-**Status:** 🔲 Not started
+**Status:** ✅ Done (PR #175, merged 2026-04-18)
 **Type:** Chore / Release
 _No GitHub issue — this is a workflow step._
 
@@ -100,7 +100,7 @@ Save raw JSON from each connector page pull to blob storage for reprocessing and
 - [ ] `connector-raw` container in Terraform
 - [ ] `connector_raw_snapshots` migration
 - [ ] Worker saves blob + DB row per page
-- [ ] `RAW_SNAPSHOT_CONTAINER` env var in `local.settings.json.example`
+- [ ] `CONNECTOR_RAW_CONTAINER` env var in `local.settings.json.example`
 - [ ] Admin surfaces snapshot stats
 
 ---
@@ -129,7 +129,7 @@ Establish mobile-side architecture parity: auth, API client, navigation, first r
 ---
 
 ### #6 — Merge External Identities by Email
-**Status:** 🔲 Not started
+**Status:** ✅ Done (admin-users.ts merge endpoint + Users tab in admin console)
 **GitHub:** #110
 **Labels:** feature, functions, shared
 
@@ -151,7 +151,7 @@ Prevent duplicate accounts when users sign in with multiple providers. One accou
 ---
 
 ### #7 — Fix Lightness Slider on Color Wheel
-**Status:** 🔲 Not started
+**Status:** ✅ Done (native vertical slider + touch target accessibility fix)
 **GitHub:** #111
 **Labels:** bug, web
 
@@ -189,10 +189,10 @@ The vertical lightness slider next to the color wheel is not rendering. Replace 
 
 | # | Title | GH Issue | Status |
 |---|-------|----------|--------|
-| 1 | Merge dev → main | — | 🔲 |
+| 1 | Merge dev → main | — | ✅ |
 | 2 | Prod deployment | #106 | 🔲 |
 | 3 | Bulk ingestion runner | #107 | 🔲 |
 | 4 | Persist raw payloads | #108 | 🔲 |
 | 5 | Mobile scaffold | #109 | 🔲 |
-| 6 | Identity merge by email | #110 | 🔲 |
-| 7 | Fix lightness slider | #111 | 🔲 |
+| 6 | Identity merge by email | #110 | ✅ |
+| 7 | Fix lightness slider | #111 | ✅ |

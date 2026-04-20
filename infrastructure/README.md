@@ -32,6 +32,35 @@ Bootstrap expects an existing Terraform state resource group + storage account a
 
 See full bootstrap guide at end of this file.
 
+## State Migration: OpenAI count → for_each
+
+The OpenAI resources were refactored from `count`-based to `for_each`-based (keyed by region) in the multi-region PR. Existing stacks whose state still references the old indexed addresses (`[0]`) must be migrated before running `terraform apply`, or Terraform will try to destroy and recreate the resources.
+
+Run these commands once per environment, substituting your primary OpenAI region:
+
+```bash
+PRIMARY_REGION="centralus"  # replace with your actual primary region
+
+terraform state mv \
+  'azurerm_cognitive_account.openai[0]' \
+  "azurerm_cognitive_account.openai[\"${PRIMARY_REGION}\"]"
+
+terraform state mv \
+  'azurerm_cognitive_deployment.openai_hex[0]' \
+  "azurerm_cognitive_deployment.openai_hex[\"${PRIMARY_REGION}\"]"
+
+# Only if a separate batch deployment exists in state:
+terraform state mv \
+  'azurerm_cognitive_deployment.openai_hex_batch[0]' \
+  "azurerm_cognitive_deployment.openai_hex_batch[\"${PRIMARY_REGION}\"]"
+
+terraform state mv \
+  'azurerm_monitor_diagnostic_setting.openai[0]' \
+  "azurerm_monitor_diagnostic_setting.openai[\"${PRIMARY_REGION}\"]"
+```
+
+After migration, run `terraform plan` — it should show no destructive changes to OpenAI resources.
+
 ## GitHub Infra Deployment (Dev + Prod)
 
 Terraform infrastructure deploys in CI via:
@@ -46,7 +75,7 @@ Required GitHub Actions configuration (per GitHub environment):
 - Secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`
 - Variables: `TFSTATE_RESOURCE_GROUP`, `TFSTATE_STORAGE_ACCOUNT`, `TFSTATE_CONTAINER` (recommended: `tfstate`), `TFSTATE_BLOB_NAME` (recommended: `<environment>.terraform.tfstate`)
 - OpenAI mode variable: `CREATE_OPENAI_RESOURCES` (`true` to let Terraform manage OpenAI account/deployment; default in workflow is `true`)
-- OpenAI deployment variables (exported as `TF_VAR_*`): `OPENAI_DEPLOYMENT_NAME` (default `hex-detector`), `OPENAI_BATCH_DEPLOYMENT_NAME` (default `hex-detector-batch`), optional `OPENAI_BATCH_MODEL_NAME`, `OPENAI_BATCH_MODEL_VERSION`, `OPENAI_BATCH_DEPLOYMENT_SKU_NAME`, `OPENAI_BATCH_DEPLOYMENT_CAPACITY`
+- OpenAI deployment variables (exported as `TF_VAR_*`): `OPENAI_REGIONS` (JSON list; single-region default e.g. `["centralus"]`, multi-region opt-in e.g. `["centralus","southcentralus","eastus","eastus2"]`), `OPENAI_DEPLOYMENT_NAME` (default `hex-detector`), `OPENAI_BATCH_DEPLOYMENT_NAME` (default `hex-detector-batch`), optional `OPENAI_BATCH_MODEL_NAME`, `OPENAI_BATCH_MODEL_VERSION`, `OPENAI_BATCH_DEPLOYMENT_SKU_NAME`, `OPENAI_BATCH_DEPLOYMENT_CAPACITY`
 - Optional variables for shared/external OpenAI accounts (used when `CREATE_OPENAI_RESOURCES=false`): `OPENAI_ENDPOINT`, `OPENAI_ACCOUNT_NAME`
 Recommended auth config (propagated to Terraform `TF_VAR_*` inputs):
 - Secrets: `AZURE_AD_B2C_CLIENT_ID`
@@ -61,7 +90,6 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 |----------|-------------------|---------|
 | Resource Group | `azurerm_resource_group.main` | Container for all resources |
 | Key Vault | `azurerm_key_vault.main` | Secure secrets storage (PG password, API keys) |
-| Key Vault Secret (Redis key) | `azurerm_key_vault_secret.redis_key` | Stores Redis access key for Function App Key Vault reference |
 | PostgreSQL Flexible Server | `azurerm_postgresql_flexible_server.main` | PostgreSQL 16 with pg_trgm + pgvector |
 | PostgreSQL Database | `azurerm_postgresql_flexible_server_database.main` | `swatchwatch` database |
 | Storage Account | `azurerm_storage_account.main` | Blob storage for images |
@@ -74,12 +102,12 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | App Service Plan | `azurerm_service_plan.main` | Linux Consumption plan (Y1) |
 | Function App | `azurerm_linux_function_app.main` | Node 20 function host (Managed Identity enabled) |
 | Static Web App | `azurerm_static_web_app.main` | Next.js frontend (Standard tier) |
+| Document Intelligence *(optional)* | `azurerm_cognitive_account.document_intelligence` | Server-side OCR for capture pipeline label/barcode extraction (`enable_document_intelligence=true`) |
 | Speech Services | `azurerm_cognitive_account.speech` | Speech-to-text for voice input |
-| Azure OpenAI Account *(optional)* | `azurerm_cognitive_account.openai` | Vision-capable OpenAI endpoint for hex color detection (`create_openai_resources=true`) |
-| Azure OpenAI Deployment *(optional)* | `azurerm_cognitive_deployment.openai_hex` | Model deployment used by `AZURE_OPENAI_DEPLOYMENT_HEX` when OpenAI resources are provisioned |
-| Azure OpenAI Batch Deployment *(optional)* | `azurerm_cognitive_deployment.openai_hex_batch` | Batch model deployment used by `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` when OpenAI resources are provisioned (`create_openai_resources=true`) and `openai_batch_deployment_name` is set and differs from `openai_deployment_name` |
-| Azure OpenAI Diagnostic Setting *(optional)* | `azurerm_monitor_diagnostic_setting.openai` | Sends OpenAI logs/metrics to Log Analytics (when OpenAI resources are provisioned) |
-| Azure Managed Redis | `azurerm_managed_redis.main` | In-memory cache for polish lists, catalog search, and reference data (Balanced_B0, 0.5 GB) |
+| Azure OpenAI Account(s) *(optional)* | `azurerm_cognitive_account.openai` | One OpenAI account per configured region for hex color detection (`create_openai_resources=true`; `openai_regions` list) |
+| Azure OpenAI Deployment(s) *(optional)* | `azurerm_cognitive_deployment.openai_hex` | `hex-detector` deployment created in every Terraform-managed OpenAI region |
+| Azure OpenAI Batch Deployment(s) *(optional)* | `azurerm_cognitive_deployment.openai_hex_batch` | `hex-detector-batch` deployment created in every Terraform-managed OpenAI region when batch deployment name differs |
+| Azure OpenAI Diagnostic Setting(s) *(optional)* | `azurerm_monitor_diagnostic_setting.openai` | Sends per-region OpenAI logs/metrics to Log Analytics (when OpenAI resources are provisioned) |
 | Custom Domain | `azurerm_static_web_app_custom_domain.dev` | Maps `dev.swatchwatch.app` in dev and `swatchwatch.app` in prod |
 | Azure AD Application | `azuread_application.github_actions` | GitHub Actions OIDC identity |
 | Service Principal | `azuread_service_principal.github_actions` | Grants GitHub Actions access |
@@ -93,6 +121,8 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 |----------|---------|-------------|
 | `subscription_id` | *(required)* | Azure subscription ID (required by azurerm provider v4+) |
 | `location` | `centralus` | Azure region |
+| `openai_location` | `null` | Fallback OpenAI region when `openai_regions` is empty (defaults to `location`) |
+| `openai_regions` | `[]` | OpenAI regions to provision when `create_openai_resources=true`; first region is primary for `AZURE_OPENAI_ENDPOINT`/`AZURE_OPENAI_KEY` outputs and Function settings |
 | `environment` | `dev` | Environment name (dev, staging, prod) |
 | `base_name` | `swatchwatch` | Base name prefix for resources |
 | `pg_admin_username` | `pgadmin` | PostgreSQL admin username |
@@ -106,9 +136,8 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | `apim_openai_subscription_key` | `""` | Optional APIM subscription key stored in Key Vault and exposed to Functions as `AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY` |
 | `apim_openai_subscription_key_uri` | `""` | Optional existing Key Vault secret URI for APIM subscription key. When set, Terraform reuses it and does not create `apim-openai-subscription-key`. |
 | `openai_gateway_enabled` | `false` | Function App setting `AZURE_OPENAI_USE_GATEWAY`; keep false until APIM API routes/policies are configured |
-| `openai_custom_subdomain_name` | `null` | Optional custom subdomain for the Azure OpenAI account. If not set, a name is generated. |
+| `openai_custom_subdomain_name` | `null` | Optional custom subdomain override for the primary Azure OpenAI account. Additional regions always use generated per-region subdomains. |
 | `create_openai_resources` | `false` | Provision Azure OpenAI account/deployment in this stack (disable when quota is unavailable) |
-| `retain_openai_account` | `true` | Keep the legacy in-stack OpenAI account when `create_openai_resources=false` (avoids deletes blocked by nested Foundry project resources) |
 | `openai_endpoint` | `""` | Existing Azure OpenAI endpoint when reusing an external account (`create_openai_resources=false`) |
 | `openai_api_key` | `""` | Existing Azure OpenAI API key when reusing an external account (`create_openai_resources=false`) |
 | `openai_key_vault_secret_uri` | `""` | Existing Key Vault secret URI for Azure OpenAI key (preferred over `openai_api_key` to avoid passing key through Terraform) |
@@ -121,6 +150,7 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | `openai_batch_model_version` | `""` | Optional model version for the Terraform-managed batch deployment (falls back to `openai_model_version`). Only used when Terraform creates `azurerm_cognitive_deployment.openai_hex_batch` (`create_openai_resources=true` and `openai_batch_deployment_name` set and different from `openai_deployment_name`); has no effect for external OpenAI mode or the shared sync deployment. |
 | `openai_batch_deployment_sku_name` | `GlobalBatch` | SKU name for Terraform-managed batch deployment |
 | `openai_batch_deployment_capacity` | `100` | Capacity for Terraform-managed batch deployment |
+| `enable_document_intelligence` | `false` | Provision Azure AI Document Intelligence for server-side OCR in capture pipeline |
 | `is_automation` | `false` | Flag for CI/CD pipelines (skips deployer Key Vault access policy) |
 | `domain_name` | `swatchwatch.app` | Root domain name for the application (used for custom domains and CORS; prod allows both apex and `www`) |
 | `azure_ad_b2c_tenant` | `to-be-added` | Azure AD B2C/Entra External ID tenant name applied to Function App setting `AZURE_AD_B2C_TENANT` |
@@ -172,10 +202,15 @@ Key outputs after `terraform apply`:
 | `postgres_server_name` | PostgreSQL server name |
 | `postgres_fqdn` | PostgreSQL connection hostname |
 | `postgres_database_name` | Database name (`swatchwatch`) |
-| `openai_account_name` | Azure OpenAI account name |
+| `document_intelligence_name` | Document Intelligence account name (empty when disabled) |
+| `document_intelligence_endpoint` | Document Intelligence endpoint URL (empty when disabled) |
+| `openai_account_name` | Primary Azure OpenAI account name |
+| `openai_account_names_by_region` | Map of OpenAI account names by region |
 | `openai_endpoint` | Azure OpenAI endpoint URL |
+| `openai_endpoints_by_region` | Map of OpenAI endpoints by region |
 | `openai_hex_deployment_name` | Azure OpenAI deployment name used by Functions (empty when OpenAI is disabled) |
-| `openai_diagnostic_setting_name` | Azure OpenAI diagnostic setting attached to Log Analytics |
+| `openai_diagnostic_setting_name` | Primary region Azure OpenAI diagnostic setting attached to Log Analytics |
+| `openai_regions_provisioned` | List of regions where OpenAI accounts were provisioned/retained |
 | `openai_resources_provisioned` | Whether this stack provisioned Azure OpenAI resources |
 | `apim_name` | APIM service name (empty when `apim_enabled=false`) |
 | `apim_gateway_url` | APIM gateway URL (empty when `apim_enabled=false`) |
@@ -186,8 +221,6 @@ Key outputs after `terraform apply`:
 | `github_client_id` | Azure AD app ID for GitHub Actions *(add to GitHub Secrets as `AZURE_CLIENT_ID`)* |
 | `github_tenant_id` | Azure AD tenant ID *(add to GitHub Secrets as `AZURE_TENANT_ID`)* |
 | `subscription_id` | Azure subscription ID *(add to GitHub Secrets as `AZURE_SUBSCRIPTION_ID`)* |
-| `redis_hostname` | Azure Managed Redis hostname |
-| `redis_primary_access_key` | Azure Managed Redis primary access key *(sensitive)* |
 
 The bootstrap script displays these values at the end.
 
@@ -207,6 +240,7 @@ github_repository = "your-github-username/swatchwatch"
 pg_admin_username = "pgadmin"
 pg_admin_password = "your-secure-password"
 create_openai_resources = false
+# openai_regions = ["centralus", "southcentralus", "eastus", "eastus2"]
 EOF
 
 # Initialize remote backend (example values)
@@ -292,7 +326,7 @@ az functionapp config appsettings set \
 ```
 
 OpenAI settings are optional:
-- If `create_openai_resources=true`, Terraform provisions OpenAI and wires `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, `AZURE_OPENAI_DEPLOYMENT_HEX`, and `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH`. If `openai_batch_deployment_name` is set and differs from `openai_deployment_name`, Terraform also provisions `azurerm_cognitive_deployment.openai_hex_batch`; otherwise batch detection reuses the sync deployment. Diagnostics flow to Log Analytics/Application Insights.
+- If `create_openai_resources=true`, Terraform provisions OpenAI account/deployment resources across `openai_regions` (or `openai_location`/`location` fallback when `openai_regions` is empty), wires `AZURE_OPENAI_ENDPOINT` and `AZURE_OPENAI_KEY` from the first region in that list, and sets `AZURE_OPENAI_DEPLOYMENT_HEX`/`AZURE_OPENAI_DEPLOYMENT_HEX_BATCH`. If `openai_batch_deployment_name` is set and differs from `openai_deployment_name`, Terraform also provisions `azurerm_cognitive_deployment.openai_hex_batch` in each managed region; otherwise batch detection reuses the sync deployment. Diagnostics flow to Log Analytics/Application Insights.
 - If `create_openai_resources=false`, either:
   - set `openai_endpoint` + `openai_api_key`, or
   - set `openai_endpoint` + `openai_key_vault_secret_uri` (preferred).

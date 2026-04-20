@@ -34,6 +34,11 @@ output "storage_account_name" {
   value = azurerm_storage_account.main.name
 }
 
+output "connector_raw_container_name" {
+  description = "Storage container name for raw connector payload snapshots"
+  value       = azurerm_storage_container.connector_raw.name
+}
+
 output "speech_service_name" {
   value = azurerm_cognitive_account.speech.name
 }
@@ -43,8 +48,39 @@ output "speech_service_key" {
   sensitive = true
 }
 
+output "document_intelligence_name" {
+  description = "Azure AI Document Intelligence account name (empty when disabled)"
+  value       = try(azurerm_cognitive_account.document_intelligence[0].name, "")
+}
+
+output "document_intelligence_endpoint" {
+  description = "Azure AI Document Intelligence endpoint URL (empty when disabled)"
+  value       = try(azurerm_cognitive_account.document_intelligence[0].endpoint, "")
+}
+
 output "openai_account_name" {
-  value = try(azurerm_cognitive_account.openai[0].name, "")
+  value = try(azurerm_cognitive_account.openai[local.openai_primary_region_key].name, "")
+}
+
+output "openai_account_names_by_region" {
+  description = "Map of provisioned Azure OpenAI account names by region."
+  value = {
+    for region, account in azurerm_cognitive_account.openai :
+    region => account.name
+  }
+}
+
+output "openai_endpoints_by_region" {
+  description = "Map of provisioned Azure OpenAI endpoints by region."
+  value = {
+    for region, account in azurerm_cognitive_account.openai :
+    region => "https://${account.custom_subdomain_name}.openai.azure.com/"
+  }
+}
+
+output "openai_regions_provisioned" {
+  description = "List of regions where Terraform provisioned or retained Azure OpenAI accounts."
+  value       = sort(keys(azurerm_cognitive_account.openai))
 }
 
 output "openai_endpoint" {
@@ -61,7 +97,7 @@ output "openai_resources_provisioned" {
 }
 
 output "openai_diagnostic_setting_name" {
-  value = try(azurerm_monitor_diagnostic_setting.openai[0].name, "")
+  value = try(azurerm_monitor_diagnostic_setting.openai[local.openai_primary_region_key].name, "")
 }
 
 output "apim_name" {
@@ -103,15 +139,4 @@ output "github_tenant_id" {
 output "subscription_id" {
   description = "Azure subscription ID - add to GitHub Secrets as AZURE_SUBSCRIPTION_ID"
   value       = data.azurerm_client_config.current.subscription_id
-}
-
-output "redis_hostname" {
-  description = "Azure Managed Redis hostname"
-  value       = azurerm_managed_redis.main.hostname
-}
-
-output "redis_primary_access_key" {
-  description = "Azure Managed Redis primary access key"
-  value       = azurerm_managed_redis.main.default_database[0].primary_access_key
-  sensitive   = true
 }
