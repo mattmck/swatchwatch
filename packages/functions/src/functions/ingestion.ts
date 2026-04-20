@@ -449,7 +449,7 @@ export async function processIngestionJobQueueMessage(
         lastMetadata = { ...pageResult.metadata };
         pagesFetched++;
 
-        if (pageResult.records.length === 0 || pageResult.records.length < payload.request.pageSize) {
+        if (pageResult.records.length === 0) {
           break;
         }
         currentPage++;
