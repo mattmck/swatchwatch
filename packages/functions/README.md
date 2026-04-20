@@ -39,6 +39,7 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `POST` | `/api/ingestion/jobs` | `enqueueIngestionJob` | `ingestion.ts` | ✅ Working |
 | `GET` | `/api/ingestion/jobs/{id}` | `ingestionJobDetailHandler` | `ingestion.ts` | ✅ Working |
 | `DELETE` | `/api/ingestion/jobs/{id}/cancel` | `ingestionJobCancelHandler` | `ingestion.ts` | ✅ Working |
+| `POST` | `/api/ingestion/bulk` | `bulkIngestionHandler` | `ingestion.ts` | ✅ Working (admin-only) |
 | `GET` | `/api/ingestion/sources` | `dataSourcesHandler` | `ingestion.ts` | ✅ Working |
 | `PATCH` | `/api/ingestion/sources/{id}/settings` | `sourceSettingsHandler` | `ingestion.ts` | ✅ Working |
 | `GET` | `/api/ingestion/settings` | `globalSettingsHandler` | `ingestion.ts` | ✅ Working |
@@ -99,6 +100,51 @@ Adding a new reference category (example: `texture_type`):
 
 `POST /api/ingestion/jobs` now **queues** an async ingestion run and returns `202 Accepted` with a queued job record.
 Execution happens in a queue-triggered worker (`ingestion-worker.ts`) backed by Azure Storage Queue.
+
+`POST /api/ingestion/bulk` is admin-only and queues one exhaustive ingestion job per
+source. Use it when an admin needs to refresh complete catalogs across multiple
+connectors, for example reindexing all enabled Shopify sources after improving
+normalization or AI hex detection.
+
+Request payload:
+- `sources: IngestionSourceName[]` — supported source names with runnable connectors.
+- `options.materializeToInventory?: boolean` — defaults to `true`.
+- `options.detectHexFromImage?: boolean` — defaults to `true`.
+- `options.overwriteDetectedHex?: boolean` — defaults to `false`.
+
+Response payload:
+- `enqueued: number` — number of queue messages created.
+- `jobs: IngestionJobRecord[]` — queued ingestion job records.
+
+Example request:
+
+```json
+{
+  "sources": ["HoloTacoShopify", "MooncatShopify"],
+  "options": {
+    "materializeToInventory": true,
+    "detectHexFromImage": true,
+    "overwriteDetectedHex": false
+  }
+}
+```
+
+Example response:
+
+```json
+{
+  "enqueued": 2,
+  "jobs": [
+    {
+      "jobId": "123",
+      "source": "HoloTacoShopify",
+      "jobType": "connector_verify",
+      "status": "queued",
+      "startedAt": "2026-04-18T22:13:11.000Z"
+    }
+  ]
+}
+```
 
 Current source support:
 - `OpenBeautyFacts` (search-based pull)

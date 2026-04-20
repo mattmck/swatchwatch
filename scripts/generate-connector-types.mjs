@@ -40,18 +40,45 @@ while ((match = sourcePattern.exec(sql)) !== null) {
 // Sort for deterministic output
 const sortedSources = Array.from(sources).sort();
 
+function protocolForSource(source) {
+  if (source === "HoloTacoShopify") {
+    return "HoloTaco";
+  }
+  if (source.endsWith("Shopify")) {
+    return "Shopify";
+  }
+  if (source === "OpenBeautyFacts") {
+    return "OpenBeautyFacts";
+  }
+  if (source === "MakeupAPI") {
+    return "MakeupAPI";
+  }
+  if (source === "CosIng" || source === "GS1Lookup") {
+    return "GS1";
+  }
+  return "Custom";
+}
+
 // Generate TypeScript - both type and runtime array
 const typeContent = `/**
  * Auto-generated from docs/seed_data_sources.sql
  * Do not edit manually - run "npm run generate:types" to regenerate
  */
 
+import type { ConnectorProtocol } from "swatchwatch-shared";
+
 export type SupportedConnectorSource =
 ${sortedSources.map((s) => `  | "${s}"`).join("\n")};
 
+/** Maps each connector source to its protocol group for UI grouping and bulk selection. */
+export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProtocol> = {
+${sortedSources.map((s) => `  ${s}: "${protocolForSource(s)}",`).join("\n")}
+};
+
 // Runtime array for validation - same values as the type above
 export const SUPPORTED_SOURCES: SupportedConnectorSource[] = [
-${sortedSources.map((s) => `  "${s}",`).join("\n")}];
+${sortedSources.map((s) => `  "${s}",`).join("\n")}
+];
 `;
 
 // Write the generated file
