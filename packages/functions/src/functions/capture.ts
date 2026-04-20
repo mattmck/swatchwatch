@@ -26,6 +26,9 @@ const GUIDANCE_CONFIG = {
   maxFrames: 6,
 } as const;
 
+// Maximum chars stored in quality_json.ai.ocrRawText to keep jsonb rows bounded
+const MAX_CAPTURE_AI_RAW_TEXT_CHARS = 2000;
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -172,6 +175,22 @@ interface FrameAiExtractionResult {
   ocrConfidence?: number;
   ocrBarcodeCount?: number;
   llmConfidence?: number;
+}
+
+/**
+ * Sanitize image input before passing to the AI extraction pipeline.
+ * Strips internal whitespace from base64 data URL payloads (whitespace in
+ * the payload is valid client-side but rejected by the Document Intelligence API).
+ * Plain HTTPS URLs are trimmed only.
+ */
+function sanitizeImageInputForAi(imageInput: string): string {
+  if (imageInput.startsWith("data:")) {
+    const commaIndex = imageInput.indexOf(",");
+    if (commaIndex > 0) {
+      return imageInput.slice(0, commaIndex + 1) + imageInput.slice(commaIndex + 1).replace(/\s/g, "");
+    }
+  }
+  return imageInput.trim();
 }
 
 /**
@@ -1182,7 +1201,8 @@ async function addCaptureFrame(
     }
 
     // Run AI extraction on label/barcode frames (outside transaction to avoid long locks)
-    const imageInputForAi = body.imageBlobUrl ?? null;
+    // Use sanitized image input so data URL whitespace doesn't cause OCR API failures.
+    const imageInputForAi = body.imageBlobUrl ? sanitizeImageInputForAi(body.imageBlobUrl) : null;
     let aiExtraction: FrameAiExtractionResult | null = null;
     if (imageInputForAi) {
       const existingEvidence = collectCaptureEvidence(
@@ -1202,10 +1222,16 @@ async function addCaptureFrame(
 
       // Merge AI extraction results into quality_json.extracted
       if (aiExtraction) {
+        const ocrRawTextRaw = aiExtraction.ocrRawText;
+        const ocrRawText = ocrRawTextRaw
+          ? ocrRawTextRaw.length > MAX_CAPTURE_AI_RAW_TEXT_CHARS
+            ? `${ocrRawTextRaw.slice(0, MAX_CAPTURE_AI_RAW_TEXT_CHARS)}…`
+            : ocrRawTextRaw
+          : undefined;
         qualityJson = mergeQualityJson(qualityJson ?? undefined, {
           extracted: aiExtraction.extracted,
           ai: {
-            ocrRawText: aiExtraction.ocrRawText,
+            ocrRawText,
             ocrConfidence: aiExtraction.ocrConfidence,
             ocrBarcodeCount: aiExtraction.ocrBarcodeCount,
             llmConfidence: aiExtraction.llmConfidence,

@@ -255,6 +255,12 @@ variable "enable_document_intelligence" {
   default     = false
 }
 
+variable "openai_label_deployment_name" {
+  description = "Azure OpenAI deployment name used for label OCR structured extraction. Falls back to AZURE_OPENAI_DEPLOYMENT_HEX when empty."
+  type        = string
+  default     = ""
+}
+
 variable "ingestion_ai_batch_poll_schedule" {
   description = "NCRONTAB schedule for ingestion-ai-batch-poller"
   type        = string

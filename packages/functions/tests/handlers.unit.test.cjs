@@ -103,6 +103,17 @@ registerMock("../lib/ai-color-detection", {
   }),
 });
 
+// Mutable OCR + LLM mocks — individual tests can override these
+let extractTextFromImageMock = async () => null;
+let parseLabelTextMock = async () => null;
+
+registerMock("../lib/ocr", {
+  get extractTextFromImage() { return extractTextFromImageMock; },
+});
+registerMock("../lib/ocr-parser", {
+  get parseLabelText() { return parseLabelTextMock; },
+});
+
 // Stub blob storage reader to avoid network
 registerMock("../lib/blob-storage", {
   readBlobFromStorageUrl: async () => ({
@@ -219,6 +230,8 @@ require("../dist/functions/admin-users");
 afterEach(() => {
   queryMock = async () => ({ rows: [] });
   transactionMock = async (cb) => cb(fakeClient());
+  extractTextFromImageMock = async () => null;
+  parseLabelTextMock = async () => null;
   delete process.env.AUTH_DEV_BYPASS;
   delete process.env.AZURE_AD_B2C_TENANT;
   delete process.env.AZURE_AD_B2C_CLIENT_ID;
@@ -1977,5 +1990,416 @@ describe("functions/capture — finalize/status/answer workflow", () => {
     assert.ok(updateParams[2].includes("\"shadeName\":\"Big Apple Red\""));
     assert.equal(res.status, 200);
     assert.equal(res.jsonBody.status, "processing");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// functions/capture — addCaptureFrame AI extraction (OCR + LLM pipeline)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("functions/capture — addCaptureFrame AI extraction", () => {
+  it("persists merged quality_json.extracted and quality_json.ai when OCR + LLM succeed", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+
+    extractTextFromImageMock = async () => ({
+      rawText: "OPI\nBig Apple Red",
+      lines: [
+        { text: "OPI", confidence: 0.99 },
+        { text: "Big Apple Red", confidence: 0.97 },
+      ],
+      barcodes: [],
+      confidence: 0.98,
+      provider: "azure-document-intelligence",
+    });
+
+    parseLabelTextMock = async () => ({
+      brand: "OPI",
+      shadeName: "Big Apple Red",
+      finish: "creme",
+      collection: null,
+      gtin: null,
+      sizeMl: null,
+      confidence: 0.92,
+      rawFields: {},
+    });
+
+    let callCount = 0;
+    queryMock = async (text) => {
+      callCount++;
+      if (callCount === 1) return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      if (callCount === 2) return { rows: [{ id: 10, captureId: "22222222-2222-4222-8222-222222222222", status: "processing", topConfidence: null, acceptedEntityType: null, acceptedEntityId: null, metadata: null }] };
+      // getCaptureFrameEvidence
+      if (text && text.includes("capture_frame") && text.includes("ORDER BY created_at")) return { rows: [] };
+      return { rows: [] };
+    };
+
+    const frameInsertParams = [];
+    const sessionUpdateParams = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          if (text.includes("INSERT INTO image_asset")) return { rows: [{ imageId: "500" }] };
+          if (text.includes("INSERT INTO capture_frame")) {
+            frameInsertParams.push(params);
+            return { rows: [{ frameId: "999" }] };
+          }
+          if (text.includes("UPDATE capture_session")) {
+            sessionUpdateParams.push(params);
+          }
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["capture-frame"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/capture/22222222-2222-4222-8222-222222222222/frame",
+        headers: { authorization: "Bearer dev:1" },
+        params: { captureId: "22222222-2222-4222-8222-222222222222" },
+        body: {
+          frameType: "label",
+          imageBlobUrl: "https://blob.example/label.png",
+        },
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 201);
+    assert.ok(frameInsertParams.length > 0, "frame should be inserted");
+
+    const qualityJson = frameInsertParams[0][3];
+    assert.ok(qualityJson, "quality_json should be present");
+    assert.equal(qualityJson.extracted?.brand, "OPI");
+    assert.equal(qualityJson.extracted?.shadeName, "Big Apple Red");
+    assert.ok(qualityJson.ai, "quality_json.ai should be present");
+    assert.equal(qualityJson.ai.ocrRawText, "OPI\nBig Apple Red");
+    assert.ok(typeof qualityJson.ai.ocrConfidence === "number");
+    assert.ok(qualityJson.ai.processedAt);
+
+    const metadataPatch = sessionUpdateParams[0]?.[1];
+    assert.ok(metadataPatch);
+    assert.equal(metadataPatch.pipeline.ingest.lastExtractionSource, "pipeline");
+  });
+
+  it("truncates ocrRawText that exceeds MAX_CAPTURE_AI_RAW_TEXT_CHARS", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+
+    const longRawText = "A".repeat(5000);
+    extractTextFromImageMock = async () => ({
+      rawText: longRawText,
+      lines: [],
+      // Include a barcode so extracted is non-empty and runFrameAiExtraction doesn't short-circuit
+      barcodes: [{ value: "012345678901", kind: "EAN_13", confidence: 0.97 }],
+      confidence: 0.5,
+      provider: "azure-document-intelligence",
+    });
+    parseLabelTextMock = async () => null;
+
+    let callCount = 0;
+    queryMock = async (text) => {
+      callCount++;
+      if (callCount === 1) return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      if (callCount === 2) return { rows: [{ id: 10, captureId: "33333333-3333-4333-8333-333333333333", status: "processing", topConfidence: null, acceptedEntityType: null, acceptedEntityId: null, metadata: null }] };
+      if (text && text.includes("capture_frame") && text.includes("ORDER BY created_at")) return { rows: [] };
+      return { rows: [] };
+    };
+
+    const frameInsertParams = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          if (text.includes("INSERT INTO image_asset")) return { rows: [{ imageId: "501" }] };
+          if (text.includes("INSERT INTO capture_frame")) {
+            frameInsertParams.push(params);
+            return { rows: [{ frameId: "1000" }] };
+          }
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["capture-frame"].handler;
+    await handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/capture/33333333-3333-4333-8333-333333333333/frame",
+        headers: { authorization: "Bearer dev:1" },
+        params: { captureId: "33333333-3333-4333-8333-333333333333" },
+        body: { frameType: "label", imageBlobUrl: "https://blob.example/label.png" },
+      }),
+      fakeContext()
+    );
+
+    const qualityJson = frameInsertParams[0]?.[3];
+    assert.ok(qualityJson?.ai?.ocrRawText, "ocrRawText should be present");
+    assert.ok(
+      qualityJson.ai.ocrRawText.length <= 2001,
+      `ocrRawText should be truncated, got length ${qualityJson.ai.ocrRawText.length}`
+    );
+    assert.ok(qualityJson.ai.ocrRawText.endsWith("…"), "truncated text should end with ellipsis");
+  });
+
+  it("skips AI extraction gracefully when OCR returns null", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+
+    // Both mocks return null (no DI/OpenAI configured)
+    extractTextFromImageMock = async () => null;
+    parseLabelTextMock = async () => null;
+
+    let callCount = 0;
+    queryMock = async () => {
+      callCount++;
+      if (callCount === 1) return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      if (callCount === 2) return { rows: [{ id: 10, captureId: "44444444-4444-4444-8444-444444444444", status: "processing", topConfidence: null, acceptedEntityType: null, acceptedEntityId: null, metadata: null }] };
+      return { rows: [] };
+    };
+
+    const frameInsertParams = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          if (text.includes("INSERT INTO image_asset")) return { rows: [{ imageId: "502" }] };
+          if (text.includes("INSERT INTO capture_frame")) {
+            frameInsertParams.push(params);
+            return { rows: [{ frameId: "1001" }] };
+          }
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["capture-frame"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/capture/44444444-4444-4444-8444-444444444444/frame",
+        headers: { authorization: "Bearer dev:1" },
+        params: { captureId: "44444444-4444-4444-8444-444444444444" },
+        body: { frameType: "label", imageBlobUrl: "https://blob.example/label.png" },
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 201);
+    // quality_json.ai should not be set when OCR returned null
+    const qualityJson = frameInsertParams[0]?.[3];
+    assert.equal(qualityJson?.ai, undefined);
+  });
+
+  it("extracts GTIN from OCR barcode and includes in quality_json.extracted", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+
+    extractTextFromImageMock = async () => ({
+      rawText: "",
+      lines: [],
+      barcodes: [
+        { value: "012345678901", kind: "EAN_13", confidence: 0.97 },
+      ],
+      confidence: 0,
+      provider: "azure-document-intelligence",
+    });
+    parseLabelTextMock = async () => null;
+
+    let callCount = 0;
+    queryMock = async (text) => {
+      callCount++;
+      if (callCount === 1) return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      if (callCount === 2) return { rows: [{ id: 10, captureId: "55555555-5555-4555-8555-555555555555", status: "processing", topConfidence: null, acceptedEntityType: null, acceptedEntityId: null, metadata: null }] };
+      if (text && text.includes("capture_frame") && text.includes("ORDER BY created_at")) return { rows: [] };
+      return { rows: [] };
+    };
+
+    const frameInsertParams = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          if (text.includes("INSERT INTO image_asset")) return { rows: [{ imageId: "503" }] };
+          if (text.includes("INSERT INTO capture_frame")) {
+            frameInsertParams.push(params);
+            return { rows: [{ frameId: "1002" }] };
+          }
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["capture-frame"].handler;
+    await handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/capture/55555555-5555-4555-8555-555555555555/frame",
+        headers: { authorization: "Bearer dev:1" },
+        params: { captureId: "55555555-5555-4555-8555-555555555555" },
+        body: { frameType: "barcode", imageBlobUrl: "https://blob.example/barcode.png" },
+      }),
+      fakeContext()
+    );
+
+    const qualityJson = frameInsertParams[0]?.[3];
+    assert.equal(qualityJson?.extracted?.gtin, "012345678901");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// functions/capture — answerCaptureQuestion re-resolve flow
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("functions/capture — answerCaptureQuestion re-resolve flow", () => {
+  const CAPTURE_ID = "66666666-6666-4666-8666-666666666666";
+  const SESSION_ID = 20;
+
+  function makeSessionRow(status = "processing") {
+    return { id: SESSION_ID, captureId: CAPTURE_ID, status, topConfidence: null, acceptedEntityType: null, acceptedEntityId: null, metadata: null };
+  }
+
+  function makeQuestionRow() {
+    return { id: "q-1", key: "brand_shade", prompt: "What brand and shade?", type: "text", options: null, status: "open", createdAt: new Date().toISOString() };
+  }
+
+  it("re-resolves to 'matched' after brand_shade answer and session becomes matched", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let callCount = 0;
+
+    queryMock = async (text) => {
+      callCount++;
+      // auth
+      if (callCount === 1) return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      // getCaptureSession (first call)
+      if (callCount === 2) return { rows: [makeSessionRow("processing")] };
+      // getOpenQuestion
+      if (text && text.includes("capture_question") && text.includes("open")) return { rows: [makeQuestionRow()] };
+      // getCaptureSession (refresh after answer)
+      if (callCount === 4) return { rows: [makeSessionRow("processing")] };
+      // getCaptureFrameEvidence (for re-resolve)
+      if (text && text.includes("capture_frame") && text.includes("ORDER BY created_at")) {
+        return { rows: [{ frameType: "label", quality: { extracted: { brand: "OPI", shadeName: "Big Apple Red", source: "pipeline" } } }] };
+      }
+      // resolveShadeCandidates — return a high-confidence match
+      if (text && text.includes("similarity")) {
+        return { rows: [{ shadeId: "100", brand: "OPI", shadeName: "Big Apple Red", score: 0.97 }] };
+      }
+      // getOpenQuestion after re-resolve
+      return { rows: [] };
+    };
+
+    const captureSessionUpdateParams = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          if (text.includes("UPDATE capture_session")) captureSessionUpdateParams.push({ text, params });
+          // addToInventoryFromMatch: check existing → no results
+          if (text.includes("SELECT inventory_item_id")) return { rows: [] };
+          // addToInventoryFromMatch: insert new item → return id
+          if (text.includes("INSERT INTO user_inventory_item")) return { rows: [{ id: 777 }] };
+          // expire open questions
+          if (text.includes("UPDATE capture_question")) return { rows: [] };
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["capture-answer"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: `http://localhost:7071/api/capture/${CAPTURE_ID}/answer`,
+        headers: { authorization: "Bearer dev:1" },
+        params: { captureId: CAPTURE_ID },
+        body: { answer: { brand: "OPI", shadeName: "Big Apple Red" }, questionKey: "brand_shade" },
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.status, "matched");
+  });
+
+  it("re-resolves to 'needs_question' when resolver asks a follow-up", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let callCount = 0;
+
+    queryMock = async (text) => {
+      callCount++;
+      if (callCount === 1) return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      if (callCount === 2) return { rows: [makeSessionRow("processing")] };
+      if (text && text.includes("capture_question") && text.includes("open") && callCount === 3) return { rows: [makeQuestionRow()] };
+      // getCaptureSession (refresh)
+      if (callCount === 4) return { rows: [makeSessionRow("processing")] };
+      // getCaptureFrameEvidence — no evidence so resolver asks for brand/shade
+      if (text && text.includes("capture_frame") && text.includes("ORDER BY created_at")) return { rows: [] };
+      // resolveShadeCandidates — no results
+      if (text && text.includes("similarity")) return { rows: [] };
+      // getOpenQuestion after re-resolve (new question inserted)
+      if (text && text.includes("capture_question") && text.includes("open")) {
+        return { rows: [{ id: "q-2", key: "brand_shade", prompt: "Which brand and shade?", type: "text", options: null, status: "open", createdAt: new Date().toISOString() }] };
+      }
+      return { rows: [] };
+    };
+
+    transactionMock = async (cb) =>
+      cb({
+        query: async () => ({ rows: [] }),
+      });
+
+    const handler = registeredRoutes["capture-answer"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: `http://localhost:7071/api/capture/${CAPTURE_ID}/answer`,
+        headers: { authorization: "Bearer dev:1" },
+        params: { captureId: CAPTURE_ID },
+        body: { answer: { brand: "OPI", shadeName: "" }, questionKey: "brand_shade" },
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.status, "needs_question");
+  });
+
+  it("re-resolves to 'unmatched' when resolver finds no match", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let callCount = 0;
+
+    queryMock = async (text) => {
+      callCount++;
+      if (callCount === 1) return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      if (callCount === 2) return { rows: [makeSessionRow("processing")] };
+      if (text && text.includes("capture_question") && text.includes("open") && callCount === 3) return { rows: [makeQuestionRow()] };
+      if (callCount === 4) return { rows: [makeSessionRow("processing")] };
+      if (text && text.includes("capture_frame") && text.includes("ORDER BY created_at")) {
+        // Evidence exists (brand + shadeName)
+        return { rows: [{ frameType: "label", quality: { extracted: { brand: "XYZ", shadeName: "No Match", source: "pipeline" } } }] };
+      }
+      // Shade search returns low-confidence candidates — falls through to unmatched
+      if (text && text.includes("similarity")) {
+        return { rows: [{ shadeId: "200", brand: "XYZ", shadeName: "No Match", score: 0.3 }] };
+      }
+      return { rows: [] };
+    };
+
+    const captureSessionUpdateParams = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          if (text.includes("UPDATE capture_session")) captureSessionUpdateParams.push({ text, params });
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["capture-answer"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: `http://localhost:7071/api/capture/${CAPTURE_ID}/answer`,
+        headers: { authorization: "Bearer dev:1" },
+        params: { captureId: CAPTURE_ID },
+        body: { answer: { brand: "XYZ", shadeName: "No Match" }, questionKey: "brand_shade" },
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.status, "unmatched");
+
+    const unmatchedUpdate = captureSessionUpdateParams.find((p) => p.text.includes("'unmatched'") || (p.params && Array.isArray(p.params) && p.params.includes("unmatched")));
+    assert.ok(unmatchedUpdate, "capture_session should be updated to unmatched");
   });
 });

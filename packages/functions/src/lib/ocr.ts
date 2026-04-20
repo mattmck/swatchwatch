@@ -102,6 +102,10 @@ interface AnalyzeResultBody {
     content?: string;
     pages?: AnalyzeResultPage[];
   };
+  error?: {
+    code?: string;
+    message?: string;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -219,7 +223,11 @@ export async function extractTextFromImage(imageInput: string): Promise<OcrResul
     }
 
     if (pollBody.status === "failed") {
-      console.error(`${LOG_PREFIX} Analysis failed`, pollBody);
+      const errorCode = pollBody.error?.code ?? "unknown";
+      const errorMessage = String(pollBody.error?.message ?? "n/a").slice(0, MAX_ERROR_BODY_LOG_CHARS);
+      console.error(
+        `${LOG_PREFIX} Analysis failed: status=failed, errorCode=${errorCode}, errorMessage=${errorMessage}`
+      );
       return null;
     }
 

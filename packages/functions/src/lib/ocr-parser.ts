@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { resolveAzureOpenAiConfig } from "./azure-openai-config";
 
 const OPENAI_API_VERSION = "2024-06-01";
@@ -244,8 +245,13 @@ export async function parseLabelText(
   try {
     parsed = JSON.parse(content) as Record<string, unknown>;
   } catch (error) {
+    const contentHash = createHash("sha256").update(content).digest("hex").slice(0, 12);
+    const contentSnippet =
+      content.length > MAX_ERROR_BODY_LOG_CHARS
+        ? `${content.slice(0, MAX_ERROR_BODY_LOG_CHARS)}…`
+        : content;
     console.error(
-      `${LOG_PREFIX} Failed to parse LLM content as JSON: ${error instanceof Error ? error.message : String(error)}, content: ${content}`
+      `${LOG_PREFIX} Failed to parse LLM content as JSON: ${error instanceof Error ? error.message : String(error)}, sha256prefix=${contentHash}, len=${content.length}, snippet=${contentSnippet}`
     );
     return null;
   }
