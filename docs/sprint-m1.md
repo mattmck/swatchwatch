@@ -100,7 +100,7 @@ Save raw JSON from each connector page pull to blob storage for reprocessing and
 - [ ] `connector-raw` container in Terraform
 - [ ] `connector_raw_snapshots` migration
 - [ ] Worker saves blob + DB row per page
-- [ ] `RAW_SNAPSHOT_CONTAINER` env var in `local.settings.json.example`
+- [ ] `CONNECTOR_RAW_CONTAINER` env var in `local.settings.json.example`
 - [ ] Admin surfaces snapshot stats
 
 ---

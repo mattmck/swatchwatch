@@ -7,6 +7,7 @@ import {
   IngestionJobRunRequest,
   IngestionJobRunResponse,
 } from "swatchwatch-shared";
+import { saveConnectorRawSnapshot } from "../lib/connector-raw-storage";
 import { withAdmin } from "../lib/auth";
 import { withCors } from "../lib/http";
 import { getQueueStats, purgeQueue } from "../lib/queue-management";
