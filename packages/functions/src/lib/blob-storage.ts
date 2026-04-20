@@ -524,16 +524,27 @@ export async function uploadBytesToBlob(params: {
   blobName: string;
   bytes: Buffer;
   contentType: string;
+  contentEncoding?: string;
+  skipContainerEnsure?: boolean;
 }): Promise<string> {
   const config = parseStorageConnectionString(params.connectionString);
   const container = normalizeContainerName(params.containerName);
-  await ensureContainer(params.connectionString, params.containerName);
+  if (!params.skipContainerEnsure) {
+    await ensureContainer(params.connectionString, params.containerName);
+  }
   const blobUrl = new URL(`${config.blobEndpoint}/${container}/${encodeBlobPath(params.blobName)}`);
-  const response = await sendStorageRequest(config, "PUT", blobUrl, {
-    "Content-Type": params.contentType,
-    "Content-Length": String(params.bytes.length),
-    "x-ms-blob-type": "BlockBlob",
-  }, params.bytes);
+  const response = await sendStorageRequest(
+    config,
+    "PUT",
+    blobUrl,
+    {
+      "Content-Type": params.contentType,
+      ...(params.contentEncoding ? { "Content-Encoding": params.contentEncoding } : {}),
+      "Content-Length": String(params.bytes.length),
+      "x-ms-blob-type": "BlockBlob",
+    },
+    params.bytes
+  );
   if (response.status !== 201) {
     const details = await response.text().catch(() => "");
     throw new Error(`Blob upload failed for '${container}/${params.blobName}': ${response.status} ${details}`);

@@ -9,6 +9,7 @@ import { query } from "./db";
 
 const gzipAsync = promisify(gzip);
 const LOG_PREFIX = "[connector-raw]";
+let warnedLegacyRawSnapshotContainer = false;
 
 function asNonEmpty(value: string | undefined): string | null {
   const trimmed = value?.trim();
@@ -37,9 +38,17 @@ export async function saveConnectorRawSnapshot(params: {
   metadata: Record<string, unknown>;
   capturedAt?: Date;
 }): Promise<void> {
-  const containerName = asNonEmpty(process.env.CONNECTOR_RAW_CONTAINER);
+  const containerName =
+    asNonEmpty(process.env.CONNECTOR_RAW_CONTAINER) ??
+    asNonEmpty(process.env.RAW_SNAPSHOT_CONTAINER);
   if (!containerName) {
     return;
+  }
+  if (!process.env.CONNECTOR_RAW_CONTAINER && process.env.RAW_SNAPSHOT_CONTAINER && !warnedLegacyRawSnapshotContainer) {
+    console.warn(
+      `${LOG_PREFIX} RAW_SNAPSHOT_CONTAINER is deprecated; use CONNECTOR_RAW_CONTAINER`
+    );
+    warnedLegacyRawSnapshotContainer = true;
   }
 
   const connectionString = asNonEmpty(process.env.AZURE_STORAGE_CONNECTION);
@@ -63,13 +72,15 @@ export async function saveConnectorRawSnapshot(params: {
       containerName,
       blobName: blobPath,
       bytes: compressed as Buffer,
-      contentType: "application/gzip",
+      contentType: "application/json",
+      contentEncoding: "gzip",
+      skipContainerEnsure: true,
     });
 
     await query(
-      `INSERT INTO connector_raw_snapshots (job_id, source, page, blob_path, record_count, captured_at)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT DO NOTHING`,
+       `INSERT INTO connector_raw_snapshots (job_id, source, page, blob_path, record_count, captured_at)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (job_id, source, page) DO NOTHING`,
       [params.jobId, params.source, params.page, blobPath, params.records.length, capturedAt.toISOString()]
     );
 
