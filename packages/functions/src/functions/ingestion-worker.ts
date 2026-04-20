@@ -100,6 +100,10 @@ function parseNormalizedRequest(
     value.collectTrainingData === undefined
       ? false
       : parseBoolean(value.collectTrainingData);
+  const exhaustive =
+    value.exhaustive === undefined
+      ? false
+      : parseBoolean(value.exhaustive);
 
   let recentDays: number | undefined;
   if (value.recentDays === undefined || value.recentDays === null) {
@@ -121,7 +125,8 @@ function parseNormalizedRequest(
     materializeToInventory === null ||
     detectHexFromImage === null ||
     overwriteDetectedHex === null ||
-    collectTrainingData === null
+    collectTrainingData === null ||
+    exhaustive === null
   ) {
     return null;
   }
@@ -137,6 +142,7 @@ function parseNormalizedRequest(
     detectHexOnSuspiciousOnly: false,
     overwriteDetectedHex,
     collectTrainingData,
+    exhaustive,
     recentDays,
   };
 }

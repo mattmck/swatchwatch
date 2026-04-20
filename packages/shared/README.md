@@ -83,9 +83,12 @@ The package is automatically linked via npm workspaces — no publishing require
 
 | Type | Description |
 |------|-------------|
-| `IngestionSourceName` | Allowed source names for connector ingestion jobs (OpenBeautyFacts, MakeupAPI, HoloTacoShopify, CosIng, etc.) |
+| `IngestionSourceName` | Allowed generated source names for connector ingestion jobs (OpenBeautyFacts, MakeupAPI, HoloTacoShopify, Shopify sources, CosIng, etc.) |
+| `ConnectorProtocol` | Connector protocol group: `"HoloTaco" \| "Shopify" \| "OpenBeautyFacts" \| "MakeupAPI" \| "GS1" \| "Custom"` |
 | `IngestionJobStatus` | Job lifecycle status: `queued \| running \| succeeded \| failed \| cancelled` |
-| `IngestionJobRunRequest` | Request payload for `POST /api/ingestion/jobs` (includes optional `recentDays`, `materializeToInventory`, `detectHexFromImage`, and `overwriteDetectedHex`) |
+| `IngestionJobRunRequest` | Request payload for `POST /api/ingestion/jobs` (includes optional `recentDays`, `materializeToInventory`, `detectHexFromImage`, `overwriteDetectedHex`, and `exhaustive` for full-catalog pulls) |
+| `BulkIngestionRequest` | Request payload for `POST /api/ingestion/bulk` (`sources: IngestionSourceName[]`, optional `options` for `materializeToInventory`, `detectHexFromImage`, and `overwriteDetectedHex`) |
+| `BulkIngestionResponse` | Bulk run response: `{ enqueued: number, jobs: IngestionJobRecord[] }` |
 | `IngestionJobRecord` | Ingestion job summary payload (source, status, timestamps, metrics, error) |
 | `IngestionJobRunResponse` | Job-trigger response wrapper: `{ job }` |
 | `IngestionJobListResponse` | Job list payload: `{ jobs, total }` |

@@ -469,6 +469,9 @@ resource "azurerm_linux_function_app" "main" {
     INGESTION_AI_BATCH_MAX_POLL_JOBS      = tostring(var.ingestion_ai_batch_max_poll_jobs)
     AZURE_AD_B2C_TENANT                   = var.azure_ad_b2c_tenant
     AZURE_AD_B2C_CLIENT_ID                = var.azure_ad_b2c_client_id
+    AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT  = var.enable_document_intelligence ? azurerm_cognitive_account.document_intelligence[0].endpoint : ""
+    AZURE_DOCUMENT_INTELLIGENCE_KEY       = var.enable_document_intelligence ? "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.document_intelligence_key[0].versionless_id})" : ""
+    AZURE_OPENAI_DEPLOYMENT_LABEL         = var.openai_label_deployment_name
     AUTH_DEV_BYPASS                       = var.auth_dev_bypass ? "true" : "false"
     CORS_ALLOWED_ORIGINS                  = join(",", local.function_cors_allowed_origins)
   }
@@ -517,6 +520,29 @@ resource "azurerm_static_web_app_custom_domain" "dev" {
   }
 }
 
+
+# ── Azure AI Document Intelligence (OCR for capture pipeline) ──
+
+resource "azurerm_cognitive_account" "document_intelligence" {
+  count               = var.enable_document_intelligence ? 1 : 0
+  name                = "${local.resource_prefix}-docint-${local.unique_suffix}"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  kind                = "FormRecognizer"
+  sku_name            = "S0"
+}
+
+resource "azurerm_key_vault_secret" "document_intelligence_key" {
+  count        = var.enable_document_intelligence ? 1 : 0
+  name         = "document-intelligence-key"
+  value        = azurerm_cognitive_account.document_intelligence[0].primary_access_key
+  key_vault_id = azurerm_key_vault.main.id
+  depends_on = [
+    azurerm_key_vault_access_policy.deployer,
+    azurerm_key_vault_access_policy.github_actions,
+    azurerm_cognitive_account.document_intelligence,
+  ]
+}
 
 # ── Azure Speech Services ──────────────────────────────────────
 # Azure AD B2C is provisioned separately via the portal

@@ -102,6 +102,7 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | App Service Plan | `azurerm_service_plan.main` | Linux Consumption plan (Y1) |
 | Function App | `azurerm_linux_function_app.main` | Node 20 function host (Managed Identity enabled) |
 | Static Web App | `azurerm_static_web_app.main` | Next.js frontend (Standard tier) |
+| Document Intelligence *(optional)* | `azurerm_cognitive_account.document_intelligence` | Server-side OCR for capture pipeline label/barcode extraction (`enable_document_intelligence=true`) |
 | Speech Services | `azurerm_cognitive_account.speech` | Speech-to-text for voice input |
 | Azure OpenAI Account(s) *(optional)* | `azurerm_cognitive_account.openai` | One OpenAI account per configured region for hex color detection (`create_openai_resources=true`; `openai_regions` list) |
 | Azure OpenAI Deployment(s) *(optional)* | `azurerm_cognitive_deployment.openai_hex` | `hex-detector` deployment created in every Terraform-managed OpenAI region |
@@ -149,6 +150,7 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | `openai_batch_model_version` | `""` | Optional model version for the Terraform-managed batch deployment (falls back to `openai_model_version`). Only used when Terraform creates `azurerm_cognitive_deployment.openai_hex_batch` (`create_openai_resources=true` and `openai_batch_deployment_name` set and different from `openai_deployment_name`); has no effect for external OpenAI mode or the shared sync deployment. |
 | `openai_batch_deployment_sku_name` | `GlobalBatch` | SKU name for Terraform-managed batch deployment |
 | `openai_batch_deployment_capacity` | `100` | Capacity for Terraform-managed batch deployment |
+| `enable_document_intelligence` | `false` | Provision Azure AI Document Intelligence for server-side OCR in capture pipeline |
 | `is_automation` | `false` | Flag for CI/CD pipelines (skips deployer Key Vault access policy) |
 | `domain_name` | `swatchwatch.app` | Root domain name for the application (used for custom domains and CORS; prod allows both apex and `www`) |
 | `azure_ad_b2c_tenant` | `to-be-added` | Azure AD B2C/Entra External ID tenant name applied to Function App setting `AZURE_AD_B2C_TENANT` |
@@ -200,6 +202,8 @@ Key outputs after `terraform apply`:
 | `postgres_server_name` | PostgreSQL server name |
 | `postgres_fqdn` | PostgreSQL connection hostname |
 | `postgres_database_name` | Database name (`swatchwatch`) |
+| `document_intelligence_name` | Document Intelligence account name (empty when disabled) |
+| `document_intelligence_endpoint` | Document Intelligence endpoint URL (empty when disabled) |
 | `openai_account_name` | Primary Azure OpenAI account name |
 | `openai_account_names_by_region` | Map of OpenAI account names by region |
 | `openai_endpoint` | Azure OpenAI endpoint URL |

@@ -1,6 +1,9 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext, output } from "@azure/functions";
 import {
+  BulkIngestionRequest,
+  BulkIngestionResponse,
   IngestionJobListResponse,
+  IngestionJobRecord,
   IngestionJobRunRequest,
   IngestionJobRunResponse,
 } from "swatchwatch-shared";
@@ -36,7 +39,12 @@ import { OpenBeautyFactsConnector } from "../lib/connectors/open-beauty-facts";
 import { MakeupApiConnector } from "../lib/connectors/makeup-api";
 import { HoloTacoShopifyConnector } from "../lib/connectors/holo-taco-shopify";
 import { ShopifyGenericConnector } from "../lib/connectors/shopify-generic";
-import { ProductConnector, SupportedConnectorSource, SUPPORTED_SOURCES } from "../lib/connectors/types";
+import {
+  ProductConnector,
+  SOURCE_PROTOCOL_MAP,
+  SupportedConnectorSource,
+  SUPPORTED_SOURCES,
+} from "../lib/connectors/types";
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
@@ -45,6 +53,7 @@ const DEFAULT_RECENT_DAYS = 120;
 const MAX_PAGE_SIZE = 100;
 const MAX_RECORDS = 200;
 const MAX_RECENT_DAYS = 3650;
+const MAX_BULK_SOURCES = SUPPORTED_SOURCES.length;
 const DEFAULT_SEARCH_TERM = "nail polish";
 const JOB_TYPE_CONNECTOR_VERIFY = "connector_verify";
 // Queue bindings resolve this to the AzureWebJobsStorage app setting.
@@ -85,6 +94,8 @@ interface NormalizedIngestionJobRequest {
   detectHexOnSuspiciousOnly: boolean;
   overwriteDetectedHex: boolean;
   collectTrainingData: boolean;
+  /** When true, loop through all pages until source returns empty (ignores maxRecords cap) */
+  exhaustive: boolean;
 }
 
 export interface IngestionJobQueueMessage {
@@ -125,6 +136,14 @@ function isSupportedSource(value: string): value is SupportedConnectorSource {
   return (SUPPORTED_SOURCES as readonly string[]).includes(value);
 }
 
+function hasRunnableConnector(source: SupportedConnectorSource): boolean {
+  return source === "OpenBeautyFacts" || source === "MakeupAPI" || source.endsWith("Shopify");
+}
+
+function isRunnableConnectorSource(value: string): value is SupportedConnectorSource {
+  return isSupportedSource(value) && hasRunnableConnector(value);
+}
+
 function createConnector(source: SupportedConnectorSource, baseUrl?: string | null): ProductConnector {
   if (source === "OpenBeautyFacts") {
     return new OpenBeautyFactsConnector(baseUrl);
@@ -146,6 +165,104 @@ function createConnector(source: SupportedConnectorSource, baseUrl?: string | nu
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown error";
+}
+
+const ADDITIVE_METRIC_KEYS = new Set([
+  "processed",
+  "inserted",
+  "updated",
+  "skipped",
+  "variantRowsProcessed",
+  "brandsCreated",
+  "shadesCreated",
+  "inventoryInserted",
+  "inventoryUpdated",
+  "legacyRowsDeleted",
+  "hexOverwritten",
+  "imageCandidates",
+  "imageUploads",
+  "imageUploadFailures",
+  "additionalImagesUploaded",
+  "swatchesLinked",
+  "hexDetected",
+  "hexDetectionFailures",
+  "hexDetectionSkipped",
+  "hexDetectionPromptTokens",
+  "hexDetectionCompletionTokens",
+  "hexDetectionTotalTokens",
+  "batchRequestsQueued",
+  "applied",
+  "skippedNoDetection",
+  "noShadeMatch",
+]);
+
+/**
+ * Merge per-page metric objects while only summing known additive counters.
+ * Non-additive values are overwritten by the latest incoming page metrics.
+ */
+function mergeMetrics(
+  target: Record<string, unknown>,
+  incoming: Record<string, unknown> | null | undefined
+): Record<string, unknown> {
+  if (!incoming) {
+    return target;
+  }
+
+  for (const [key, value] of Object.entries(incoming)) {
+    const currentValue = target[key];
+    if (
+      ADDITIVE_METRIC_KEYS.has(key) &&
+      typeof currentValue === "number" &&
+      typeof value === "number"
+    ) {
+      target[key] = currentValue + value;
+      continue;
+    }
+    target[key] = value;
+  }
+
+  return target;
+}
+
+function asFinitePositiveNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function getExhaustiveStopReason(
+  pageResult: Awaited<ReturnType<ProductConnector["pullProducts"]>>,
+  currentPage: number
+): string | null {
+  if (pageResult.records.length === 0) {
+    return "empty page";
+  }
+
+  const metadata = pageResult.metadata ?? {};
+  if (metadata.hasMore === false) {
+    return "metadata.hasMore=false";
+  }
+
+  const sourcePageCount = asFinitePositiveNumber(metadata.sourcePageCount);
+  if (sourcePageCount !== null && currentPage >= sourcePageCount) {
+    return `sourcePageCount=${sourcePageCount}`;
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(metadata, "nextPage") &&
+    (metadata.nextPage === null || metadata.nextPage === false || metadata.nextPage === "")
+  ) {
+    return "metadata.nextPage absent";
+  }
+
+  return null;
 }
 
 function buildRequestedMetrics(
@@ -234,6 +351,7 @@ async function enqueueIngestionJob(
     detectHexOnSuspiciousOnly: body.detectHexOnSuspiciousOnly === true,
     overwriteDetectedHex: body.overwriteDetectedHex === true,
     collectTrainingData: body.collectTrainingData === true,
+    exhaustive: body.exhaustive === true,
     recentDays:
       body.recentDays === null || body.recentDays === undefined
         ? undefined
@@ -410,87 +528,81 @@ export async function processIngestionJobQueueMessage(
     });
 
     const connector = createConnector(payload.request.source, source.baseUrl);
-    const connectorResult = await connector.pullProducts({
-      searchTerm: payload.request.searchTerm,
-      page: payload.request.page,
-      pageSize: payload.request.pageSize,
-      maxRecords: payload.request.maxRecords,
-      recentDays: payload.request.recentDays,
-    });
 
-    logger.info(`Connector returned ${connectorResult.records.length} records`, connectorResult.metadata);
+    const EXHAUSTIVE_PAGE_LIMIT = 500;
+    let connectorMetadata: Record<string, unknown> = {};
+    const persistenceMetricsAggregate: Record<string, unknown> = {};
+    let materializationMetricsAggregate: Record<string, unknown> | null = null;
+    let totalRecordsProcessed = 0;
 
-    // Persist raw payload snapshot for reprocessing / model training
-    await saveConnectorRawSnapshot({
-      jobId: payload.jobId,
-      source: payload.request.source,
-      page: payload.request.page,
-      records: connectorResult.records,
-      metadata: connectorResult.metadata,
-    });
+    const persistPageRecords = async (
+      connectorResult: Awaited<ReturnType<typeof connector.pullProducts>>
+    ): Promise<boolean> => {
+      connectorMetadata = { ...connectorMetadata, ...connectorResult.metadata };
+      totalRecordsProcessed += connectorResult.records.length;
 
-    // Upsert external products
-    stage = "upsert_external_products";
-    logger.updateBaseMetrics(withPipelineMetrics(requestedMetrics, "running", stage, {
-      queuedAt: payload.queuedAt,
-      ...connectorResult.metadata,
-    }));
-    logger.info(`Upserting ${connectorResult.records.length} external products`);
+      logger.info(`Connector returned ${connectorResult.records.length} records`, connectorResult.metadata);
 
-    const persistenceMetrics = await upsertExternalProducts(
-      source.dataSourceId,
-      connectorResult.records
-    );
-    logger.info(`Upsert complete`, persistenceMetrics as unknown as Record<string, unknown>);
-
-    let materializationMetrics: Record<string, unknown> | null = null;
-
-    if (payload.request.source === "MakeupAPI" && payload.request.materializeToInventory) {
-      stage = "materialize_inventory";
+      // Upsert external products
+      stage = "upsert_external_products";
       logger.updateBaseMetrics(withPipelineMetrics(requestedMetrics, "running", stage, {
         queuedAt: payload.queuedAt,
-        ...connectorResult.metadata,
-        ...persistenceMetrics,
+        ...connectorMetadata,
       }));
+      logger.info(`Upserting ${connectorResult.records.length} external products`);
 
-      const materializeStartTime = Date.now();
-      logger.info(`Materializing MakeupAPI records to inventory`, {
-        recordCount: connectorResult.records.length,
-        userId: payload.userId,
-      });
+      const persistenceMetrics = await upsertExternalProducts(source.dataSourceId, connectorResult.records);
+      mergeMetrics(persistenceMetricsAggregate, persistenceMetrics as unknown as Record<string, unknown>);
+      logger.info(`Upsert complete`, persistenceMetrics as unknown as Record<string, unknown>);
 
-      try {
-        materializationMetrics = (await materializeMakeupApiRecords(
-          payload.userId,
-          connectorResult.records
-        )) as unknown as Record<string, unknown>;
+      let materializationMetrics: Record<string, unknown> | null = null;
 
-        const materializeDuration = Date.now() - materializeStartTime;
-        logger.info(`MakeupAPI materialization complete`, {
-          ...materializationMetrics,
-          durationMs: materializeDuration,
-          recordsProcessed: connectorResult.records.length,
-        });
-      } catch (materializeError) {
-        const materializeDuration = Date.now() - materializeStartTime;
-        logger.error(`MakeupAPI materialization failed`, {
-          error: getErrorMessage(materializeError),
-          durationMs: materializeDuration,
+      if (payload.request.source === "MakeupAPI" && payload.request.materializeToInventory) {
+        stage = "materialize_inventory";
+        logger.updateBaseMetrics(withPipelineMetrics(requestedMetrics, "running", stage, {
+          queuedAt: payload.queuedAt,
+          ...connectorMetadata,
+          ...persistenceMetricsAggregate,
+        }));
+
+        const materializeStartTime = Date.now();
+        logger.info(`Materializing MakeupAPI records to inventory`, {
           recordCount: connectorResult.records.length,
+          userId: payload.userId,
         });
-        throw materializeError;
+
+        try {
+          materializationMetrics = (await materializeMakeupApiRecords(
+            payload.userId,
+            connectorResult.records
+          )) as unknown as Record<string, unknown>;
+
+          const materializeDuration = Date.now() - materializeStartTime;
+          logger.info(`MakeupAPI materialization complete`, {
+            ...materializationMetrics,
+            durationMs: materializeDuration,
+            recordsProcessed: connectorResult.records.length,
+          });
+        } catch (materializeError) {
+          const materializeDuration = Date.now() - materializeStartTime;
+          logger.error(`MakeupAPI materialization failed`, {
+            error: getErrorMessage(materializeError),
+            durationMs: materializeDuration,
+            recordCount: connectorResult.records.length,
+          });
+          throw materializeError;
+        }
       }
-    }
 
-    if (payload.request.source.endsWith("Shopify") && payload.request.materializeToInventory) {
-      stage = "materialize_inventory";
-      logger.updateBaseMetrics(withPipelineMetrics(requestedMetrics, "running", stage, {
-        queuedAt: payload.queuedAt,
-        ...connectorResult.metadata,
-        ...persistenceMetrics,
-      }));
+      if (payload.request.source.endsWith("Shopify") && payload.request.materializeToInventory) {
+        stage = "materialize_inventory";
+        logger.updateBaseMetrics(withPipelineMetrics(requestedMetrics, "running", stage, {
+          queuedAt: payload.queuedAt,
+          ...connectorMetadata,
+          ...persistenceMetricsAggregate,
+        }));
 
-      const materializeStartTime = Date.now();
+        const materializeStartTime = Date.now();
         logger.info(`Materializing ${payload.request.source} records to inventory`, {
           recordCount: connectorResult.records.length,
           userId: payload.userId,
@@ -503,83 +615,212 @@ export async function processIngestionJobQueueMessage(
 
         try {
           materializationMetrics = (await materializeHoloTacoRecords(
-          payload.userId,
-          source.dataSourceId,
-          connectorResult.records,
-          {
-            detectHexFromImage: payload.request.detectHexFromImage,
-            detectHexOnSuspiciousOnly: payload.request.detectHexOnSuspiciousOnly,
-            overwriteDetectedHex: payload.request.overwriteDetectedHex,
-            useBatchForHexDetection: hexBatchConfig.enabled,
-            batchMinImages: hexBatchConfig.minImages,
-            progressLogger: {
-              info: (message, data) => logger.info(message, data),
-              warn: (message, data) => logger.warn(message, data),
-              error: (message, data) => logger.error(message, data),
+            payload.userId,
+            source.dataSourceId,
+            connectorResult.records,
+            {
+              detectHexFromImage: payload.request.detectHexFromImage,
+              detectHexOnSuspiciousOnly: payload.request.detectHexOnSuspiciousOnly,
+              overwriteDetectedHex: payload.request.overwriteDetectedHex,
+              useBatchForHexDetection: hexBatchConfig.enabled,
+              batchMinImages: hexBatchConfig.minImages,
+              progressLogger: {
+                info: (message, data) => logger.info(message, data),
+                warn: (message, data) => logger.warn(message, data),
+                error: (message, data) => logger.error(message, data),
+              },
             },
-          },
-          `[${payload.request.source}]`
-        )) as unknown as Record<string, unknown>;
+            `[${payload.request.source}]`
+          )) as unknown as Record<string, unknown>;
 
-        const materializeDuration = Date.now() - materializeStartTime;
-        logger.info(`${payload.request.source} materialization complete`, {
-          ...materializationMetrics,
-          durationMs: materializeDuration,
-          recordsProcessed: connectorResult.records.length,
-        });
-      } catch (materializeError) {
-        const materializeDuration = Date.now() - materializeStartTime;
-        logger.error(`${payload.request.source} materialization failed`, {
-          error: getErrorMessage(materializeError),
-          durationMs: materializeDuration,
-          recordCount: connectorResult.records.length,
-          detectHexFromImage: payload.request.detectHexFromImage,
-          overwriteDetectedHex: payload.request.overwriteDetectedHex,
-        });
-        throw materializeError;
+          const materializeDuration = Date.now() - materializeStartTime;
+          logger.info(`${payload.request.source} materialization complete`, {
+            ...materializationMetrics,
+            durationMs: materializeDuration,
+            recordsProcessed: connectorResult.records.length,
+          });
+        } catch (materializeError) {
+          const materializeDuration = Date.now() - materializeStartTime;
+          logger.error(`${payload.request.source} materialization failed`, {
+            error: getErrorMessage(materializeError),
+            durationMs: materializeDuration,
+            recordCount: connectorResult.records.length,
+            detectHexFromImage: payload.request.detectHexFromImage,
+            overwriteDetectedHex: payload.request.overwriteDetectedHex,
+          });
+          throw materializeError;
+        }
       }
-    }
 
-    const aiBatch =
-      materializationMetrics &&
-      typeof materializationMetrics === "object" &&
-      materializationMetrics.aiBatch &&
-      typeof materializationMetrics.aiBatch === "object"
-        ? (materializationMetrics.aiBatch as Record<string, unknown>)
-        : null;
-
-    if (aiBatch && aiBatch.status === "submitted" && typeof aiBatch.batchId === "string") {
-      stage = "awaiting_ai";
-      const awaitingAiMetrics = {
-        ...requestedMetrics,
-        ...connectorResult.metadata,
-        ...persistenceMetrics,
-        ...(materializationMetrics || {}),
-      };
-
-      logger.updateBaseMetrics(
-        withPipelineMetrics(awaitingAiMetrics, "running", stage, {
-          queuedAt: payload.queuedAt,
-          workerPausedAt: new Date().toISOString(),
-          aiBatch,
-        })
+      materializationMetricsAggregate = mergeMetrics(
+        materializationMetricsAggregate ?? {},
+        materializationMetrics
       );
-      logger.info(`Job ${payload.jobId} awaiting Azure OpenAI batch completion`, {
-        batchId: aiBatch.batchId,
-        requestCount: aiBatch.requestCount,
+
+      const aiBatch =
+        materializationMetrics &&
+        typeof materializationMetrics === "object" &&
+        materializationMetrics.aiBatch &&
+        typeof materializationMetrics.aiBatch === "object"
+          ? (materializationMetrics.aiBatch as Record<string, unknown>)
+          : null;
+
+      if (aiBatch && aiBatch.status === "submitted" && typeof aiBatch.batchId === "string") {
+        stage = "awaiting_ai";
+        const awaitingAiMetrics = {
+          ...requestedMetrics,
+          ...connectorMetadata,
+          ...persistenceMetricsAggregate,
+          ...(materializationMetricsAggregate || {}),
+          recordsProcessed: totalRecordsProcessed,
+        };
+
+        logger.updateBaseMetrics(
+          withPipelineMetrics(awaitingAiMetrics, "running", stage, {
+            queuedAt: payload.queuedAt,
+            workerPausedAt: new Date().toISOString(),
+            aiBatch,
+          })
+        );
+        logger.info(`Job ${payload.jobId} awaiting Azure OpenAI batch completion`, {
+          batchId: aiBatch.batchId,
+          requestCount: aiBatch.requestCount,
+        });
+
+        await updateIngestionJobMetrics(payload.jobId, logger.getMetricsWithLogs());
+        await logger.dispose();
+        return true;
+      }
+
+      return false;
+    };
+
+    if (payload.request.exhaustive) {
+      // Exhaustive mode: loop through all pages and process each page incrementally.
+      let currentPage = payload.request.page;
+      let pagesFetched = 0;
+      let lastPageRecordCount = 0;
+      let lastFetchedPage = currentPage;
+      let completedByConnectorSignal = false;
+
+      logger.info(`Exhaustive mode: paging through all records from ${payload.request.source}`, {
+        startPage: currentPage,
+        pageSize: payload.request.pageSize,
       });
 
-      await updateIngestionJobMetrics(payload.jobId, logger.getMetricsWithLogs());
-      await logger.dispose();
-      return;
+      let capped = false;
+      while (pagesFetched < EXHAUSTIVE_PAGE_LIMIT) {
+        const pageResult = await connector.pullProducts({
+          searchTerm: payload.request.searchTerm,
+          page: currentPage,
+          pageSize: payload.request.pageSize,
+          maxRecords: payload.request.pageSize,
+          recentDays: payload.request.recentDays,
+        });
+
+        logger.info(`Exhaustive page ${currentPage}: ${pageResult.records.length} records`, {
+          page: currentPage,
+          ...pageResult.metadata,
+        });
+
+        const stopReason = getExhaustiveStopReason(pageResult, currentPage);
+        if (pageResult.records.length === 0) {
+          completedByConnectorSignal = true;
+          connectorMetadata = {
+            ...connectorMetadata,
+            ...pageResult.metadata,
+            pagesFetched,
+            exhaustive: true,
+            requestedExhaustive: true,
+            capped: false,
+            pageLimit: EXHAUSTIVE_PAGE_LIMIT,
+          };
+          logger.info(`Exhaustive mode stopping after page ${currentPage}: ${stopReason ?? "empty page"}`, {
+            page: currentPage,
+            pagesFetched,
+            source: payload.request.source,
+            recordCount: pageResult.records.length,
+          });
+          break;
+        }
+
+        pagesFetched++;
+        lastFetchedPage = currentPage;
+        lastPageRecordCount = pageResult.records.length;
+        connectorMetadata = {
+          ...connectorMetadata,
+          ...pageResult.metadata,
+          pagesFetched,
+          exhaustive: true,
+          requestedExhaustive: true,
+          capped: false,
+          pageLimit: EXHAUSTIVE_PAGE_LIMIT,
+        };
+
+        const shouldPauseForAiBatch = await persistPageRecords(pageResult);
+        if (shouldPauseForAiBatch) {
+          return;
+        }
+
+        if (stopReason) {
+          completedByConnectorSignal = true;
+          logger.info(`Exhaustive mode stopping after page ${currentPage}: ${stopReason}`, {
+            page: currentPage,
+            pagesFetched,
+            source: payload.request.source,
+            recordCount: pageResult.records.length,
+          });
+          break;
+        }
+
+        currentPage++;
+      }
+
+      if (!completedByConnectorSignal && pagesFetched >= EXHAUSTIVE_PAGE_LIMIT && lastPageRecordCount > 0) {
+        capped = true;
+        connectorMetadata = {
+          ...connectorMetadata,
+          pagesFetched,
+          exhaustive: false,
+          requestedExhaustive: true,
+          capped: true,
+          pageLimit: EXHAUSTIVE_PAGE_LIMIT,
+        };
+        logger.warn(`Exhaustive mode reached page safety cap for ${payload.request.source}`, {
+          source: payload.request.source,
+          pagesFetched,
+          currentPage: lastFetchedPage,
+          pageLimit: EXHAUSTIVE_PAGE_LIMIT,
+          totalRecordsProcessed,
+        });
+      }
+
+      logger.info(`Exhaustive pull complete: ${totalRecordsProcessed} total records across ${pagesFetched} pages`, {
+        capped,
+      });
+    } else {
+      const connectorResult = await connector.pullProducts({
+        searchTerm: payload.request.searchTerm,
+        page: payload.request.page,
+        pageSize: payload.request.pageSize,
+        maxRecords: payload.request.maxRecords,
+        recentDays: payload.request.recentDays,
+      });
+
+      connectorMetadata = { ...connectorMetadata, ...connectorResult.metadata };
+      const shouldPauseForAiBatch = await persistPageRecords(connectorResult);
+      if (shouldPauseForAiBatch) {
+        return;
+      }
     }
 
     // Build final metrics with logs
     const baseMetrics = {
       ...requestedMetrics,
-      ...connectorResult.metadata,
-      ...persistenceMetrics,
-      ...(materializationMetrics || {}),
+      ...connectorMetadata,
+      ...persistenceMetricsAggregate,
+      ...(materializationMetricsAggregate || {}),
+      recordsProcessed: totalRecordsProcessed,
     };
     logger.updateBaseMetrics(withPipelineMetrics(baseMetrics, "succeeded", "completed", {
       queuedAt: payload.queuedAt,
@@ -763,7 +1004,13 @@ async function handleListDataSources(_request: HttpRequest, context: InvocationC
     const sources = await listDataSources(true);
     return {
       status: 200,
-      jsonBody: { sources },
+      jsonBody: {
+        sources: sources.map((source) => ({
+          ...source,
+          protocol: isSupportedSource(source.name) ? SOURCE_PROTOCOL_MAP[source.name] : "Custom",
+          queueable: isRunnableConnectorSource(source.name),
+        })),
+      },
     };
   } catch (error) {
     context.error("Error listing data sources:", error);
@@ -986,6 +1233,149 @@ async function queueMessagesHandler(
   return { status: 405, jsonBody: { error: "Method not allowed" } };
 }
 
+async function bulkIngestionHandler(
+  request: HttpRequest,
+  context: InvocationContext,
+  userId: number
+): Promise<HttpResponseInit> {
+  context.log(`POST /api/ingestion/bulk by admin user ${userId}`);
+
+  let body: Partial<BulkIngestionRequest>;
+  try {
+    body = (await request.json()) as Partial<BulkIngestionRequest>;
+  } catch {
+    return { status: 400, jsonBody: { error: "Request body must be valid JSON" } };
+  }
+
+  if (!Array.isArray(body.sources) || body.sources.length === 0) {
+    return { status: 400, jsonBody: { error: "sources must be a non-empty array" } };
+  }
+
+  if (body.sources.length > MAX_BULK_SOURCES) {
+    return {
+      status: 400,
+      jsonBody: { error: `sources must not contain more than ${MAX_BULK_SOURCES} entries` },
+    };
+  }
+
+  const dedupedSources = [...new Set(body.sources)];
+  const invalidSources = dedupedSources.filter((s) => !isSupportedSource(s));
+  if (invalidSources.length > 0) {
+    return {
+      status: 400,
+      jsonBody: { error: `Unsupported sources: ${invalidSources.join(", ")}` },
+    };
+  }
+
+  const sources = dedupedSources as SupportedConnectorSource[];
+  const nonRunnableSources = sources.filter((source) => !hasRunnableConnector(source));
+  if (nonRunnableSources.length > 0) {
+    return {
+      status: 400,
+      jsonBody: { error: `No ingestion connector available for: ${nonRunnableSources.join(", ")}` },
+    };
+  }
+  const options = body.options ?? {};
+  const queuedAt = new Date().toISOString();
+  const queueMessages: string[] = [];
+  const jobs: IngestionJobRecord[] = [];
+  const createdJobs: Array<{
+    jobId: number;
+    requestedMetrics: Record<string, unknown>;
+    source: SupportedConnectorSource;
+  }> = [];
+
+  try {
+    for (const source of sources) {
+      const normalizedRequest: NormalizedIngestionJobRequest = {
+        source,
+        page: DEFAULT_PAGE,
+        pageSize: MAX_PAGE_SIZE,
+        maxRecords: DEFAULT_MAX_RECORDS,
+        searchTerm: DEFAULT_SEARCH_TERM,
+        materializeToInventory: options.materializeToInventory !== false,
+        detectHexFromImage: options.detectHexFromImage !== false,
+        detectHexOnSuspiciousOnly: false,
+        overwriteDetectedHex: options.overwriteDetectedHex === true,
+        collectTrainingData: false,
+        exhaustive: true,
+      };
+
+      const requestedMetrics = buildRequestedMetrics(normalizedRequest, userId);
+
+      const dataSource = await ensureDataSourceByName(source);
+      if (!dataSource) {
+        context.warn(`Bulk: data source '${source}' not found, skipping`);
+        continue;
+      }
+
+      const queuedMetrics = withPipelineMetrics(requestedMetrics, "queued", "queued", {
+        queuedAt,
+        queueName: INGESTION_JOB_QUEUE_NAME,
+        bulkRun: true,
+      });
+
+      const job = await createIngestionJob(
+        dataSource.dataSourceId,
+        JOB_TYPE_CONNECTOR_VERIFY,
+        queuedMetrics,
+        "queued"
+      );
+      createdJobs.push({ jobId: job.jobId, requestedMetrics, source });
+
+      const queueMessage: IngestionJobQueueMessage = {
+        jobId: job.jobId,
+        userId,
+        queuedAt,
+        request: normalizedRequest,
+        requestedMetrics,
+      };
+      queueMessages.push(JSON.stringify(queueMessage));
+
+      const loadedJob = await getIngestionJobById(job.jobId);
+      if (loadedJob) {
+        jobs.push(loadedJob);
+      }
+    }
+
+    if (queueMessages.length === 0) {
+      return { status: 400, jsonBody: { error: "No valid sources could be queued" } };
+    }
+
+    // Enqueue all messages at once — Azure Functions queue output accepts arrays
+    context.extraOutputs.set(ingestionJobQueueOutput, queueMessages);
+
+    return {
+      status: 202,
+      jsonBody: { enqueued: queueMessages.length, jobs } satisfies BulkIngestionResponse,
+    };
+  } catch (error: unknown) {
+    const message = getErrorMessage(error);
+    context.error("Bulk ingestion enqueue failed:", error);
+
+    for (const createdJob of createdJobs) {
+      try {
+        await markIngestionJobFailed(
+          createdJob.jobId,
+          message,
+          withPipelineMetrics(createdJob.requestedMetrics, "failed", "queue_enqueue", {
+            queuedAt,
+            queueName: INGESTION_JOB_QUEUE_NAME,
+            bulkRun: true,
+            source: createdJob.source,
+            failedAt: new Date().toISOString(),
+            failedStage: "queue_enqueue",
+          })
+        );
+      } catch (markFailedError) {
+        context.error(`Failed to mark bulk ingestion job ${createdJob.jobId} as failed:`, markFailedError);
+      }
+    }
+
+    return { status: 500, jsonBody: { error: message } };
+  }
+}
+
 app.http("ingestion-jobs", {
   methods: ["GET", "POST", "OPTIONS"],
   authLevel: "anonymous",
@@ -1006,6 +1396,14 @@ app.http("ingestion-job-cancel", {
   authLevel: "anonymous",
   route: "ingestion/jobs/{id}/cancel",
   handler: withCors(withAdmin(ingestionJobCancelHandler)),
+});
+
+app.http("ingestion-bulk", {
+  methods: ["POST", "OPTIONS"],
+  authLevel: "anonymous",
+  route: "ingestion/bulk",
+  extraOutputs: [ingestionJobQueueOutput],
+  handler: withCors(withAdmin(bulkIngestionHandler)),
 });
 
 app.http("ingestion-sources", {
