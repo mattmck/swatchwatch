@@ -402,18 +402,34 @@ function extractTaggedValues(tags: string[], prefix: string): string[] {
     .filter(Boolean);
 }
 
-function isNailPolish(productType: string | null, tags: string[]): boolean {
-  if (productType && productType.toLowerCase().includes("nail")) {
-    return true;
+const NON_POLISH_KEYWORDS = [
+  "stamp",
+  "plate",
+  "brush",
+  "tool",
+  "file",
+  "buffer",
+  "lamp",
+  "decal",
+  "sticker",
+  "kit",
+  "remover",
+  "wipe",
+  "cuticle",
+  "treatment",
+  "primer",
+  "dehydrator",
+  "bond",
+];
+
+const POLISH_SIGNAL_REGEX = /\b(polish|lacquer|varnish|enamel)\b/;
+
+export function isNailPolish(productType: string | null, tags: string[]): boolean {
+  const haystack = [productType ?? "", ...tags].join(" ").toLowerCase();
+  if (NON_POLISH_KEYWORDS.some((kw) => haystack.includes(kw))) {
+    return false;
   }
-  const normalizedTags = tags.map((t) => t.toLowerCase());
-  return normalizedTags.some(
-    (tag) =>
-      tag.includes("nail") ||
-      tag.includes("polish") ||
-      tag.includes("lacquer") ||
-      tag.includes("gel")
-  );
+  return POLISH_SIGNAL_REGEX.test(haystack);
 }
 
 function isBundle(tags: string[]): boolean {
