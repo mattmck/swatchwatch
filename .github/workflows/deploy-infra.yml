@@ -77,8 +77,12 @@ jobs:
       TF_VAR_openai_batch_deployment_capacity: ${{ vars.OPENAI_BATCH_DEPLOYMENT_CAPACITY || '100' }}
       OPENAI_ACCOUNT_NAME: ${{ vars.OPENAI_ACCOUNT_NAME || '' }}
       TF_VAR_apim_enabled: ${{ vars.APIM_ENABLED || 'false' }}
+      # vars first, then literal default
       TF_VAR_apim_sku_name: ${{ vars.APIM_SKU_NAME || 'Consumption_0' }}
+      # vars first, then literal default
       TF_VAR_openai_gateway_enabled: ${{ vars.OPENAI_GATEWAY_ENABLED || 'false' }}
+      # secrets first (recommended for prod), then vars fallback, else empty string
+      # (Terraform will validate when gateway is enabled)
       TF_VAR_apim_openai_subscription_key_uri: ${{ secrets.APIM_OPENAI_SUBSCRIPTION_KEY_URI || vars.APIM_OPENAI_SUBSCRIPTION_KEY_URI || '' }}
 
     steps:
