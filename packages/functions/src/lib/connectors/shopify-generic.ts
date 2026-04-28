@@ -422,14 +422,16 @@ const NON_POLISH_KEYWORDS = [
   "bond",
 ];
 
-const POLISH_SIGNAL_REGEX = /\b(polish|lacquer|varnish|enamel)\b/;
+const POLISH_SIGNAL_REGEX =
+  /\b(?:nail\s*polish|polish|lacquer|varnish|enamel)\b|\bnailpolish\b/;
 
 export function isNailPolish(productType: string | null, tags: string[]): boolean {
   const haystack = [productType ?? "", ...tags].join(" ").toLowerCase();
-  if (NON_POLISH_KEYWORDS.some((kw) => haystack.includes(kw))) {
+  const normalizedHaystack = haystack.replace(/[_-]+/g, " ");
+  if (NON_POLISH_KEYWORDS.some((kw) => normalizedHaystack.includes(kw))) {
     return false;
   }
-  return POLISH_SIGNAL_REGEX.test(haystack);
+  return POLISH_SIGNAL_REGEX.test(normalizedHaystack);
 }
 
 function isBundle(tags: string[]): boolean {
