@@ -422,8 +422,7 @@ const NON_POLISH_KEYWORDS = [
   "bond",
 ];
 
-const POLISH_SIGNAL_REGEX =
-  /\b(?:nail\s*polish|polish|lacquer|varnish|enamel)\b|\bnailpolish\b/;
+const POLISH_SIGNAL_REGEX = /\b(?:nail\s*polish|polish|lacquer|varnish|enamel)\b/;
 
 export function isNailPolish(productType: string | null, tags: string[]): boolean {
   const haystack = [productType ?? "", ...tags].join(" ").toLowerCase();
