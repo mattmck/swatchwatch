@@ -24,16 +24,9 @@ describe("lib/connectors/shopify-generic — isNailPolish", () => {
     it("accepts a polish identified by concatenated tags", () => {
       assert.equal(isNailPolish(null, ["nailpolish", "creme"]), true);
     });
+
     it("accepts a lacquer identified only by tags", () => {
       assert.equal(isNailPolish(null, ["lacquer", "shimmer"]), true);
-    });
-
-    it("accepts a polish identified by underscore-separated tags", () => {
-      assert.equal(isNailPolish(null, ["nail_polish", "creme"]), true);
-    });
-
-    it("accepts a polish identified by concatenated tags", () => {
-      assert.equal(isNailPolish(null, ["nailpolish", "creme"]), true);
     });
 
     it("accepts product_type containing 'Nail Enamel'", () => {
