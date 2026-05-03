@@ -402,18 +402,50 @@ function extractTaggedValues(tags: string[], prefix: string): string[] {
     .filter(Boolean);
 }
 
-function isNailPolish(productType: string | null, tags: string[]): boolean {
-  if (productType && productType.toLowerCase().includes("nail")) {
-    return true;
+const NON_POLISH_KEYWORDS = [
+  "stamp",
+  "plate",
+  "brush",
+  "tool",
+  "file",
+  "buffer",
+  "lamp",
+  "decal",
+  "sticker",
+  "kit",
+  "remover",
+  "wipe",
+  "cuticle",
+  "treatment",
+  "primer",
+  "dehydrator",
+  "bond",
+];
+
+const POLISH_SIGNAL_REGEX = /\b(?:nail\s*polish|polish|lacquer|varnish|enamel)\b/;
+const NON_POLISH_REGEX = new RegExp(`\\b(?:${NON_POLISH_KEYWORDS.join("|")})\\b`);
+
+/**
+ * Classifies whether a Shopify product is a nail polish based on its
+ * `product_type` and tags. Returns true only when at least one polish signal
+ * (`nail polish`, `polish`, `lacquer`, `varnish`, `enamel`) is present AND no
+ * non-polish keyword (stamp, plate, brush, tool, file, buffer, lamp, decal,
+ * sticker, kit, remover, wipe, cuticle, treatment, primer, dehydrator, bond)
+ * appears.
+ *
+ * Inputs are matched case-insensitively. Tag separators `_` and `-` are
+ * normalized to spaces so `nail-polish`/`nail_polish` are recognized; the
+ * polish-signal regex also matches the concatenated form `nailpolish` via
+ * `\s*`. All matching uses word boundaries to avoid substring false positives
+ * (e.g., `kit` won't match inside an unrelated word).
+ */
+export function isNailPolish(productType: string | null, tags: string[]): boolean {
+  const haystack = [productType ?? "", ...tags].join(" ").toLowerCase();
+  const normalizedHaystack = haystack.replace(/[_-]+/g, " ");
+  if (NON_POLISH_REGEX.test(normalizedHaystack)) {
+    return false;
   }
-  const normalizedTags = tags.map((t) => t.toLowerCase());
-  return normalizedTags.some(
-    (tag) =>
-      tag.includes("nail") ||
-      tag.includes("polish") ||
-      tag.includes("lacquer") ||
-      tag.includes("gel")
-  );
+  return POLISH_SIGNAL_REGEX.test(normalizedHaystack);
 }
 
 function isBundle(tags: string[]): boolean {
