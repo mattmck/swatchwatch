@@ -150,9 +150,9 @@ cd apps/web && npx shadcn@latest add <component-name>
 **Deterministic sign-out:** `useAuth().logout()` calls `logoutRedirect()` with explicit parameters so behavior is consistent in multi-account browser sessions:
 - `account` — the active account (`getActiveAccount()`, falling back to the first cached account), so MSAL signs out the specific SwatchWatch session instead of prompting "which account to sign out of"
 - `postLogoutRedirectUri` — `window.location.origin + "/"`, returning the user to the app root
-- `logoutHint` — sourced from the account's `login_hint` optional claim when present, which lets the IdP skip the account picker entirely
+- `logoutHint` — sourced from the account's `login_hint` optional claim when present (recommended), falling back to `account.username`, which can let the IdP skip the account picker entirely
 
-This works for both `ciamlogin.com` (External ID) and `b2clogin.com` (legacy B2C) authorities. For a fully promptless logout, configure the `login_hint` optional claim on the Entra app registration so it is emitted in the ID token.
+This works for both `ciamlogin.com` (External ID) and `b2clogin.com` (legacy B2C) authorities. For the most reliable promptless logout, configure the `login_hint` optional claim on the Entra app registration so it is emitted in the ID token.
 
 **Hooks:**
 - `useAuth()` — B2C mode only, calls MSAL hooks (`useMsal`, `useIsAuthenticated`). Returns `{ isAuthenticated, user, role, isAdmin, login, logout }`. Must be inside `<MsalProvider>`
