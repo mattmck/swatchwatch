@@ -36,17 +36,21 @@ export function HarmonyPalette({
         </div>
         <div className="flex h-8 overflow-hidden rounded-lg border border-border">
           {targetColors.map((hex, i) => (
-            <div
+            <button
+              type="button"
               key={i}
-              className={`flex-1 cursor-pointer transition-all ${
+              className={`flex-1 cursor-pointer border-0 p-0 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
                 focusedTargetHex === hex
                   ? "ring-2 ring-white ring-inset opacity-90 z-10"
                   : "hover:opacity-80"
               }`}
               style={{ backgroundColor: hex }}
               title={i === 0 ? `Source: ${hex}` : `Harmony ${i}: ${hex}`}
+              aria-label={i === 0 ? `Source color: ${hex}` : `Harmony color ${i}: ${hex}`}
               onMouseEnter={() => onSwatchHover?.(hex)}
               onMouseLeave={onSwatchLeave}
+              onFocus={() => onSwatchHover?.(hex)}
+              onBlur={onSwatchLeave}
               onClick={() => onSwatchClick?.(hex)}
             />
           ))}
@@ -60,31 +64,36 @@ export function HarmonyPalette({
           <div className="flex h-8 overflow-hidden rounded-lg border border-border">
             {targetColors.map((_, i) => {
               const matchHex = matchColors[i] ?? null;
+              if (!matchHex) {
+                return (
+                  <div
+                    key={i}
+                    className="flex-1"
+                    style={{
+                      backgroundImage:
+                        "repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(128,128,128,0.15) 4px, rgba(128,128,128,0.15) 8px)",
+                    }}
+                    title={`No match in ${matchLabel.toLowerCase()}`}
+                  />
+                );
+              }
               return (
-                <div
+                <button
+                  type="button"
                   key={i}
-                  className={`flex-1 ${
-                    matchHex
-                      ? `cursor-pointer transition-all ${
-                          focusedTargetHex === matchHex
-                            ? "ring-2 ring-white ring-inset opacity-90 z-10"
-                            : "hover:opacity-80"
-                        }`
-                      : ""
+                  className={`flex-1 cursor-pointer border-0 p-0 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
+                    focusedTargetHex === matchHex
+                      ? "ring-2 ring-white ring-inset opacity-90 z-10"
+                      : "hover:opacity-80"
                   }`}
-                  style={{
-                    backgroundColor: matchHex ?? undefined,
-                    backgroundImage: matchHex
-                      ? undefined
-                      : "repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(128,128,128,0.15) 4px, rgba(128,128,128,0.15) 8px)",
-                  }}
-                  title={matchHex ? `Closest in ${matchLabel}: ${matchHex}` : `No match in ${matchLabel.toLowerCase()}`}
-                  onMouseEnter={() => matchHex && onSwatchHover?.(matchHex)}
+                  style={{ backgroundColor: matchHex }}
+                  title={`Closest in ${matchLabel}: ${matchHex}`}
+                  aria-label={`Closest match in ${matchLabel}: ${matchHex}`}
+                  onMouseEnter={() => onSwatchHover?.(matchHex)}
                   onMouseLeave={onSwatchLeave}
-                  onClick={() => {
-                    if (!matchHex) return;
-                    onSwatchClick?.(matchHex);
-                  }}
+                  onFocus={() => onSwatchHover?.(matchHex)}
+                  onBlur={onSwatchLeave}
+                  onClick={() => onSwatchClick?.(matchHex)}
                 />
               );
             })}
