@@ -423,7 +423,7 @@ const NON_POLISH_KEYWORDS = [
 ];
 
 const POLISH_SIGNAL_REGEX = /\b(?:nail\s*polish|polish|lacquer|varnish|enamel)\b/;
-const NON_POLISH_REGEX = new RegExp(`\\b(?:${NON_POLISH_KEYWORDS.join("|")})\\b`);
+const NON_POLISH_REGEX = new RegExp(`\\b(?:${NON_POLISH_KEYWORDS.join("|")})(?:s|es)?\\b`);
 
 /**
  * Classifies whether a Shopify product is a nail polish based on its
