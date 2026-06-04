@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const { tsImport } = require('tsx/esm/api');
 
 const DETECT_CHANGES_PATH = path.resolve(__dirname, '../../../.husky/detect-changes.sh');
 
@@ -205,7 +206,9 @@ test('.env.example: handles edge case variable values', () => {
 // Regression tests
 test('next.config.ts: does not use deprecated target option', async () => {
   const configPath = path.resolve(__dirname, '../../../apps/web/next.config.ts');
-  const config = await import(configPath);
+  // Use tsx's programmatic loader instead of a bare `import()` to avoid Node's
+  // `require(esm)` cycle guard when loading a `.ts` file from this `.cjs` test.
+  const config = await tsImport(configPath, __filename);
   const nextConfig = config.default || config;
 
   assert.equal(
