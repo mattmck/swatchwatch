@@ -736,6 +736,9 @@ async function prepareHoloTacoImageData(
             String(detectionError)
           );
         }
+
+        // Match the non-batch pacing to reduce rate-limit failures.
+        await sleep(HEX_DETECTION_DELAY_MS);
       }
 
       if (fallbackDetections.length > 0) {
