@@ -1,6 +1,6 @@
 # Azure Functions — `packages/functions`
 
-Azure Functions v4 HTTP API (Node 20, TypeScript).
+Azure Functions v4 HTTP API (Node 22, TypeScript).
 
 ## Running Locally
 

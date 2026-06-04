@@ -18,7 +18,7 @@ swatchwatch/
 │   ├── web/              → Next.js 16 (App Router) + Tailwind v4 + shadcn/ui
 │   └── mobile/           → Expo / React Native (SDK 54)
 ├── packages/
-│   ├── functions/        → Azure Functions v4 (Node 20, TypeScript)
+│   ├── functions/        → Azure Functions v4 (Node 22, TypeScript)
 │   └── shared/           → Shared TypeScript types (polish, user, voice)
 └── infrastructure/       → Terraform (azurerm ~3.100)
 ```

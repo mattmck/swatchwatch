@@ -100,7 +100,7 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | Application Insights | `azurerm_application_insights.main` | Function telemetry, traces, requests, and exceptions |
 | API Management *(optional)* | `azurerm_api_management.main` | Azure API Management Consumption gateway for Azure OpenAI traffic (`apim_enabled=true`) |
 | App Service Plan | `azurerm_service_plan.main` | Linux Consumption plan (Y1) |
-| Function App | `azurerm_linux_function_app.main` | Node 20 function host (Managed Identity enabled) |
+| Function App | `azurerm_linux_function_app.main` | Node 22 function host (Managed Identity enabled) |
 | Static Web App | `azurerm_static_web_app.main` | Next.js frontend (Standard tier) |
 | Document Intelligence *(optional)* | `azurerm_cognitive_account.document_intelligence` | Server-side OCR for capture pipeline label/barcode extraction (`enable_document_intelligence=true`) |
 | Speech Services | `azurerm_cognitive_account.speech` | Speech-to-text for voice input |
