@@ -170,6 +170,9 @@ When `HEX_DETECTION_BATCH_ENABLED=true`, Shopify image detection can switch to A
 for larger runs (`HEX_DETECTION_BATCH_MIN_IMAGES` threshold). In that mode, the main worker submits
 the batch and leaves the job in `running` with pipeline stage `awaiting_ai`; a timer-triggered poller
 (`ingestion-ai-batch-poller`) later applies completed batch results and marks the job `succeeded`/`failed`.
+If batch submission itself fails, the worker logs the reason and falls back to synchronous detection for
+that run (applying detections through the same shade write path the poller uses), recording the count in
+the `batchFallbacks` metric instead of failing the job.
 Batch and sync image detection now send URL inputs to Azure OpenAI (instead of base64 payloads) using
 the Functions image proxy route (`/api/images/{id}`) when storage is configured.
 The proxy origin is resolved from `INGESTION_AI_IMAGE_PROXY_ORIGIN` or falls back to

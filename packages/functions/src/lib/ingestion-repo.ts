@@ -125,6 +125,7 @@ interface HoloTacoImagePreparationMetrics {
   hexDetectionFailures: number;
   hexDetectionSkipped: number;
   batchRequestsQueued: number;
+  batchFallbacks: number;
   hexDetectionPromptTokens: number;
   hexDetectionCompletionTokens: number;
   hexDetectionTotalTokens: number;
@@ -333,6 +334,7 @@ function estimateBatchCandidateCount(
 
 async function prepareHoloTacoImageData(
   records: ConnectorProductRecord[],
+  dataSourceId: number,
   options?: HoloTacoMaterializationOptions,
   sourceLogPrefix: string = "[HoloTaco]",
   onRecordPrepared?: (
@@ -368,6 +370,7 @@ async function prepareHoloTacoImageData(
     hexDetectionFailures: 0,
     hexDetectionSkipped: 0,
     batchRequestsQueued: 0,
+    batchFallbacks: 0,
     hexDetectionPromptTokens: 0,
     hexDetectionCompletionTokens: 0,
     hexDetectionTotalTokens: 0,
@@ -673,18 +676,79 @@ async function prepareHoloTacoImageData(
 
   let aiBatch: HoloTacoAiBatchDetails | null = null;
   if (useBatchForHexDetection && queuedBatchRequests.length > 0) {
-    const batchResult = await submitVisionHexBatch(queuedBatchRequests);
-    aiBatch = {
-      batchId: batchResult.batchId,
-      inputFileId: batchResult.inputFileId,
-      requestCount: batchResult.requestCount,
-      submittedAt: batchResult.submittedAt,
-      status: "submitted",
-      overwriteDetectedHex: options?.overwriteDetectedHex === true,
-    };
-    const submittedMessage = `${sourceLogPrefix} Submitted Azure OpenAI batch ${batchResult.batchId} with ${batchResult.requestCount} request(s)`;
-    console.log(submittedMessage);
-    progressLogger?.info(submittedMessage, aiBatch as unknown as Record<string, unknown>);
+    try {
+      const batchResult = await submitVisionHexBatch(queuedBatchRequests);
+      aiBatch = {
+        batchId: batchResult.batchId,
+        inputFileId: batchResult.inputFileId,
+        requestCount: batchResult.requestCount,
+        submittedAt: batchResult.submittedAt,
+        status: "submitted",
+        overwriteDetectedHex: options?.overwriteDetectedHex === true,
+      };
+      const submittedMessage = `${sourceLogPrefix} Submitted Azure OpenAI batch ${batchResult.batchId} with ${batchResult.requestCount} request(s)`;
+      console.log(submittedMessage);
+      progressLogger?.info(submittedMessage, aiBatch as unknown as Record<string, unknown>);
+    } catch (error) {
+      // Batch submission failed: degrade to synchronous detection for this run so the
+      // job still materializes detected hex instead of failing outright. Detections are
+      // applied via the same shade write path the batch poller uses.
+      const reason = error instanceof Error ? error.message : String(error);
+      metrics.batchFallbacks += 1;
+      const fallbackMessage = `${sourceLogPrefix} Batch submission failed (${reason}); falling back to synchronous hex detection for ${queuedBatchRequests.length} request(s)`;
+      console.warn(fallbackMessage);
+      progressLogger?.warn(fallbackMessage, {
+        reason,
+        requestCount: queuedBatchRequests.length,
+      });
+
+      const fallbackDetections: AiBatchShadeDetectionInput[] = [];
+      for (const queued of queuedBatchRequests) {
+        try {
+          const detection = await detectHexWithAzureOpenAI(queued.imageUrlOrDataUri, {
+            vendorContext: queued.vendorContext,
+            onLog: (level, message, data) => {
+              const withRecord = `${sourceLogPrefix} ${queued.customId} ${message}`;
+              if (level === "error") {
+                progressLogger?.error(withRecord, data);
+              } else if (level === "warn") {
+                progressLogger?.warn(withRecord, data);
+              } else {
+                progressLogger?.info(withRecord, data);
+              }
+            },
+          });
+          metrics.hexDetectionPromptTokens += detection.usage?.promptTokens ?? 0;
+          metrics.hexDetectionCompletionTokens += detection.usage?.completionTokens ?? 0;
+          metrics.hexDetectionTotalTokens += detection.usage?.totalTokens ?? 0;
+          if (detection.hex) {
+            metrics.hexDetected += 1;
+            fallbackDetections.push({
+              externalId: queued.customId,
+              detectedHex: detection.hex,
+              detectedFinishes: detection.finishes,
+            });
+          }
+        } catch (detectionError) {
+          metrics.hexDetectionFailures += 1;
+          console.error(
+            `${sourceLogPrefix} Fallback AI hex detection failed for ${queued.customId}:`,
+            String(detectionError)
+          );
+        }
+      }
+
+      if (fallbackDetections.length > 0) {
+        const applyMetrics = await applyAiBatchShadeDetections(
+          dataSourceId,
+          fallbackDetections,
+          options?.overwriteDetectedHex === true
+        );
+        const appliedMessage = `${sourceLogPrefix} Applied ${applyMetrics.applied} synchronous fallback detection(s)`;
+        console.log(appliedMessage, applyMetrics);
+        progressLogger?.info(appliedMessage, applyMetrics as unknown as Record<string, unknown>);
+      }
+    }
   }
 
   return {
@@ -1863,6 +1927,7 @@ export async function materializeHoloTacoRecords(
 
   const preparedImageData = await prepareHoloTacoImageData(
     records,
+    dataSourceId,
     options,
     sourceLogPrefix,
     async (record, preparedImage) => {
