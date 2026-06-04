@@ -59,13 +59,13 @@ export function useAuth(): UseAuthReturn {
     // the app root. `logoutHint` (sourced from the `login_hint` optional
     // claim, when configured) lets the IdP skip the account picker entirely.
     // Works for both ciamlogin.com (External ID) and b2clogin.com authorities.
-    const activeAccount = instance.getActiveAccount() ?? accounts[0] ?? null;
+    const activeAccount = instance.getActiveAccount() ?? accounts[0];
     const logoutHint = (
       activeAccount?.idTokenClaims as { login_hint?: string } | undefined
     )?.login_hint;
 
     instance.logoutRedirect({
-      account: activeAccount,
+      ...(activeAccount ? { account: activeAccount } : {}),
       postLogoutRedirectUri: window.location.origin + "/",
       ...(logoutHint ? { logoutHint } : {}),
     });
