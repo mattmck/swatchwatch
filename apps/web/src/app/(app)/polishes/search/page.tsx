@@ -820,9 +820,10 @@ function ColorSearchPageContent() {
                         className="h-6 w-6 rounded-full"
                         onClick={() => addPaletteAnchorHex(selectedHex)}
                         disabled={!selectedHex}
+                        aria-label="Add focused color"
                         title="Add focused color"
                       >
-                        <BsPlusLg className="h-3 w-3" />
+                        <BsPlusLg className="h-3 w-3" aria-hidden="true" />
                       </Button>
                     </div>
                   </div>
@@ -949,9 +950,10 @@ function ColorSearchPageContent() {
                         variant="outline"
                         className="h-6 w-6 border-brand-lilac/60 text-muted-foreground hover:border-brand-purple/60 hover:text-foreground"
                         onClick={handleClearPaletteAnchors}
+                        aria-label="Clear focused colors"
                         title="Clear focused colors"
                       >
-                        <BsTrash3Fill className="h-3.5 w-3.5" />
+                        <BsTrash3Fill className="h-3.5 w-3.5" aria-hidden="true" />
                       </Button>
                     )}
                   </div>
@@ -1006,9 +1008,10 @@ function ColorSearchPageContent() {
                       className="h-10 w-10"
                       onClick={handleAddFocusedPaletteAnchor}
                       disabled={!focusedTargetHex && !selectedHex}
+                      aria-label="Add focused color"
                       title="Add focused color"
                     >
-                      <BsPlusLg className="h-4 w-4" />
+                      <BsPlusLg className="h-4 w-4" aria-hidden="true" />
                     </Button>
                     <Button
                       type="button"
@@ -1017,9 +1020,10 @@ function ColorSearchPageContent() {
                       className="h-10 w-10"
                       onClick={handleRemoveSelectedPaletteColor}
                       disabled={paletteAnchors.length === 0 || (!focusedTargetHex && !selectedHex)}
+                      aria-label="Remove focused color"
                       title="Remove focused color"
                     >
-                      <BsTrash3Fill className="h-4 w-4" />
+                      <BsTrash3Fill className="h-4 w-4" aria-hidden="true" />
                     </Button>
                   </div>
                 </div>
