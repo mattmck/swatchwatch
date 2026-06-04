@@ -4,7 +4,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { execFileSync } = require('node:child_process');
-const { tsImport } = require('tsx/esm/api');
 
 const DETECT_CHANGES_PATH = path.resolve(__dirname, '../../../.husky/detect-changes.sh');
 

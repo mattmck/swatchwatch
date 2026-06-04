@@ -1,7 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { tsImport } = require('tsx/esm/api');
 
 const NEXT_CONFIG_PATH = path.resolve(__dirname, '../../../apps/web/next.config.ts');
 
