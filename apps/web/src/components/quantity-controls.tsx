@@ -28,12 +28,32 @@ export function QuantityControls({
 
   return (
     <div className="inline-flex w-[88px] items-center justify-between gap-1">
-      <Button variant="outline" size="icon-xs" onClick={onDecrement}>
-        {quantity === 1 ? <BsTrash3Fill className="h-3 w-3" /> : <BsDashLg className="h-3 w-3" />}
+      <Button
+        variant="outline"
+        size="icon-xs"
+        onClick={onDecrement}
+        aria-label={quantity === 1 ? "Remove from collection" : "Decrease quantity"}
+      >
+        {quantity === 1 ? (
+          <BsTrash3Fill className="h-3 w-3" aria-hidden="true" />
+        ) : (
+          <BsDashLg className="h-3 w-3" aria-hidden="true" />
+        )}
       </Button>
-      <span className="w-6 text-center text-sm tabular-nums">{quantity}</span>
-      <Button variant="outline" size="icon-xs" onClick={onIncrement}>
-        <BsPlusLg className="h-3 w-3" />
+      <span
+        className="w-6 text-center text-sm tabular-nums"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {quantity}
+      </span>
+      <Button
+        variant="outline"
+        size="icon-xs"
+        onClick={onIncrement}
+        aria-label="Increase quantity"
+      >
+        <BsPlusLg className="h-3 w-3" aria-hidden="true" />
       </Button>
     </div>
   );
