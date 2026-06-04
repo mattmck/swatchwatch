@@ -54,7 +54,22 @@ export function useAuth(): UseAuthReturn {
   };
 
   const logout = () => {
-    instance.logoutRedirect();
+    // Target the active SwatchWatch account explicitly so sign-out is
+    // deterministic in multi-account browser sessions, and redirect back to
+    // the app root. `logoutHint` (sourced from the `login_hint` optional
+    // claim, when configured) lets the IdP skip the account picker entirely.
+    // Works for both ciamlogin.com (External ID) and b2clogin.com authorities.
+    const activeAccount = instance.getActiveAccount() ?? accounts[0];
+    const logoutHint =
+      (
+        activeAccount?.idTokenClaims as { login_hint?: string } | undefined
+      )?.login_hint ?? activeAccount?.username;
+
+    instance.logoutRedirect({
+      ...(activeAccount ? { account: activeAccount } : {}),
+      postLogoutRedirectUri: window.location.origin + "/",
+      ...(logoutHint ? { logoutHint } : {}),
+    });
   };
 
   return { isAuthenticated, user, role, isAdmin, login, logout };
