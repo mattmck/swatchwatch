@@ -1,15 +1,19 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const { tsImport } = require('tsx/esm/api');
 
 const NEXT_CONFIG_PATH = path.resolve(__dirname, '../../../apps/web/next.config.ts');
 
 // Dynamic import helper for ESM modules
 async function importNextConfig() {
-  // Use dynamic import to load the TypeScript/ESM config.
-  // tsx/esm wraps `export default` under an extra `.default` when loaded
-  // via dynamic import() from a CJS file — unwrap both layers defensively.
-  const mod = await import(NEXT_CONFIG_PATH);
+  // Load the TypeScript/ESM config via tsx's programmatic loader. A bare
+  // `import()` of a `.ts` file from this `.cjs` test trips Node's
+  // `require(esm)` cycle guard (Node 22+); `tsImport` performs the transpile
+  // and load out-of-band, avoiding the cycle.
+  // tsx wraps `export default` under an extra `.default` — unwrap both layers
+  // defensively.
+  const mod = await tsImport(NEXT_CONFIG_PATH, __filename);
   return mod.default?.default ?? mod.default ?? mod;
 }
 
