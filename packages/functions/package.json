@@ -26,7 +26,7 @@
     "swatchwatch-shared": "*"
   },
   "devDependencies": {
-    "@types/node": "^20.11.0",
+    "@types/node": "^22.10.0",
     "@types/pg": "^8.16.0",
     "azure-functions-core-tools": "^4.6.0",
     "node-pg-migrate": "^8.0.4",
