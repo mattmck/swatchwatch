@@ -140,3 +140,14 @@ output "subscription_id" {
   description = "Azure subscription ID - add to GitHub Secrets as AZURE_SUBSCRIPTION_ID"
   value       = data.azurerm_client_config.current.subscription_id
 }
+
+output "redis_hostname" {
+  description = "Azure Managed Redis hostname (empty when create_redis = false)"
+  value       = var.create_redis ? azurerm_managed_redis.main[0].hostname : ""
+}
+
+output "redis_primary_access_key" {
+  description = "Azure Managed Redis primary access key (empty when create_redis = false)"
+  value       = var.create_redis ? azurerm_managed_redis.main[0].default_database[0].primary_access_key : ""
+  sensitive   = true
+}

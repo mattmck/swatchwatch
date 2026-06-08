@@ -272,3 +272,9 @@ variable "ingestion_ai_batch_max_poll_jobs" {
   type        = number
   default     = 10
 }
+
+variable "create_redis" {
+  description = "Provision Azure Managed Redis and wire REDIS_URL/REDIS_KEY into the Function App. Disabled by default; the API caching layer (lib/cache.ts) degrades gracefully when these settings are empty. Set to true to enable read-through caching."
+  type        = bool
+  default     = false
+}
