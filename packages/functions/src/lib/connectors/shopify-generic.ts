@@ -715,6 +715,7 @@ export class ShopifyGenericConnector implements ProductConnector {
 // Shared map used by connector runtime and data_source auto-provisioning.
 export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
   MooncatShopify: "https://www.mooncat.com",
+  DamNailPolishShopify: "https://damnailpolish.com",
   ClionadhShopify: "https://clionadhcosmetics.com",
   OrlyShopify: "https://orlybeauty.com",
   BeesKneesLacquerShopify: "https://www.beeskneeslacquer.com",
