@@ -54,6 +54,7 @@ export function Pagination({
           size="sm"
           disabled={currentPage <= 1}
           onClick={() => onPageChange(1)}
+          aria-label="First page"
           title="First page"
         >
           «
@@ -63,6 +64,7 @@ export function Pagination({
           size="sm"
           disabled={currentPage <= 1}
           onClick={() => onPageChange(Math.max(1, currentPage - 5))}
+          aria-label="Back 5 pages"
           title="Back 5 pages"
         >
           ‹‹
@@ -104,6 +106,7 @@ export function Pagination({
           size="sm"
           disabled={currentPage >= totalPages}
           onClick={() => onPageChange(Math.min(totalPages, currentPage + 5))}
+          aria-label="Forward 5 pages"
           title="Forward 5 pages"
         >
           ››
@@ -113,6 +116,7 @@ export function Pagination({
           size="sm"
           disabled={currentPage >= totalPages}
           onClick={() => onPageChange(totalPages)}
+          aria-label="Last page"
           title="Last page"
         >
           »
