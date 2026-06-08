@@ -61,6 +61,15 @@ VALUES
     '{"priority":"high","mvp":"yes","notes":"Mooncat Shopify store. Rich tags with color/finish metadata. Hex extraction from option values."}'::jsonb
   ),
   (
+    'DamNailPolishShopify',
+    'api',
+    'https://damnailpolish.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    NULL,
+    true,
+    '{"priority":"medium","mvp":"no","notes":"Dam Nail Polish Shopify store (vendor \"Dam Nail Polish\"). Indie polish + bundles; tags include finishes (Glitter, Shimmer). Uses generic Shopify connector."}'::jsonb
+  ),
+  (
     'ClionadhShopify',
     'api',
     'https://clionadhcosmetics.com',

@@ -205,6 +205,8 @@ test('.env.example: handles edge case variable values', () => {
 // Regression tests
 test('next.config.ts: does not use deprecated target option', async () => {
   const configPath = path.resolve(__dirname, '../../../apps/web/next.config.ts');
+  // Run under the `tsx --test` runner, whose loader transpiles and imports this
+  // .ts/ESM config without tripping Node's `require(esm)` cycle guard (Node 22+).
   const config = await import(configPath);
   const nextConfig = config.default || config;
 

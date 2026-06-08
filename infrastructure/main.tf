@@ -430,7 +430,7 @@ resource "azurerm_linux_function_app" "main" {
     application_insights_key               = azurerm_application_insights.main.instrumentation_key
 
     application_stack {
-      node_version = "20"
+      node_version = "22"
     }
 
     cors {
@@ -474,6 +474,10 @@ resource "azurerm_linux_function_app" "main" {
     AZURE_OPENAI_DEPLOYMENT_LABEL         = var.openai_label_deployment_name
     AUTH_DEV_BYPASS                       = var.auth_dev_bypass ? "true" : "false"
     CORS_ALLOWED_ORIGINS                  = join(",", local.function_cors_allowed_origins)
+    # Optional Redis read-through cache. Empty when create_redis = false; the app
+    # caching layer (lib/cache.ts) no-ops gracefully when these are unset.
+    REDIS_URL = var.create_redis ? "rediss://${azurerm_managed_redis.main[0].hostname}:10000" : ""
+    REDIS_KEY = var.create_redis ? "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.redis_key[0].versionless_id})" : ""
   }
 
   lifecycle {
@@ -541,6 +545,37 @@ resource "azurerm_key_vault_secret" "document_intelligence_key" {
     azurerm_key_vault_access_policy.deployer,
     azurerm_key_vault_access_policy.github_actions,
     azurerm_cognitive_account.document_intelligence,
+  ]
+}
+
+# ── Azure Managed Redis (optional) ─────────────────────────────
+# Disabled by default (create_redis = false). The API caching layer reads
+# REDIS_URL/REDIS_KEY and degrades gracefully when they are empty, so the app
+# runs identically with or without this. Set create_redis = true to provision
+# the cache and wire the connection settings into the Function App.
+
+resource "azurerm_managed_redis" "main" {
+  count               = var.create_redis ? 1 : 0
+  name                = "${local.resource_prefix}-redis-${local.unique_suffix}"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  sku_name            = "Balanced_B0"
+
+  default_database {
+    access_keys_authentication_enabled = true
+  }
+}
+
+resource "azurerm_key_vault_secret" "redis_key" {
+  count        = var.create_redis ? 1 : 0
+  name         = "redis-key"
+  value        = azurerm_managed_redis.main[0].default_database[0].primary_access_key
+  key_vault_id = azurerm_key_vault.main.id
+
+  depends_on = [
+    azurerm_key_vault_access_policy.deployer,
+    azurerm_key_vault_access_policy.github_actions,
+    azurerm_managed_redis.main,
   ]
 }
 

@@ -179,13 +179,14 @@ export function ColorSearchResults({
                     size="icon-sm"
                     variant="outline"
                     className="w-9"
+                    aria-label="Add to focused colors"
                     title="Add to focused colors"
                     onClick={() => {
                       const h = resolveDisplayHex(polish);
                       if (h) onAddFocus(h);
                     }}
                   >
-                    <BsPlusLg className="h-3.5 w-3.5" />
+                    <BsPlusLg className="h-3.5 w-3.5" aria-hidden="true" />
                   </Button>
                 )}
               </div>
