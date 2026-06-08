@@ -212,6 +212,14 @@ If a queue message is malformed but includes a valid `jobId`, the worker marks t
 
 Schema migrations use [node-pg-migrate](https://github.com/salsita/node-pg-migrate) with raw SQL files in `migrations/`. Each file contains an up migration and a `-- Down Migration` section for rollback.
 
+### Naming convention (dated filenames)
+
+**New migrations use a UTC timestamp prefix:** `YYYYMMDDHHMMSSsss_description.sql` — a 17-digit UTC datetime down to the millisecond, e.g. `20260608021420930_add-swatch-index.sql`. `npm run migrate:create -- "add swatch index"` generates this automatically (`--migration-filename-format utc`).
+
+Timestamp prefixes are monotonic and globally unique, which avoids the prefix collisions the old sequential `NNN_` scheme is prone to (this repo already has two `020_` files). They also sort *after* the legacy `0NN_` files lexicographically, so ordering is preserved.
+
+> **Existing `001_`–`022_` files are intentionally left as-is.** node-pg-migrate records applied migrations by filename in the `pgmigrations` table — renaming an already-applied migration would make it look unapplied and re-run it. Only new migrations adopt the dated format; the legacy files are migrated forward by convention, not by rename.
+
 ```bash
 # From repo root (requires DATABASE_URL or PG* env vars)
 npm run migrate          # Apply pending migrations
