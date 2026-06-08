@@ -143,11 +143,11 @@ output "subscription_id" {
 
 output "redis_hostname" {
   description = "Azure Managed Redis hostname (empty when create_redis = false)"
-  value       = var.create_redis ? azurerm_managed_redis.main[0].hostname : ""
+  value       = try(azurerm_managed_redis.main[0].hostname, "")
 }
 
 output "redis_primary_access_key" {
   description = "Azure Managed Redis primary access key (empty when create_redis = false)"
-  value       = var.create_redis ? azurerm_managed_redis.main[0].default_database[0].primary_access_key : ""
+  value       = try(azurerm_managed_redis.main[0].default_database[0].primary_access_key, "")
   sensitive   = true
 }
