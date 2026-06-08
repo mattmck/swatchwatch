@@ -66,6 +66,7 @@ export function Pagination({
           onClick={() => onPageChange(Math.max(1, currentPage - 5))}
           aria-label="Back up to 5 pages"
           title="Back up to 5 pages"
+        >
           ‹‹
         </Button>
         <Button
@@ -107,6 +108,7 @@ export function Pagination({
           onClick={() => onPageChange(Math.min(totalPages, currentPage + 5))}
           aria-label="Forward up to 5 pages"
           title="Forward up to 5 pages"
+        >
           ››
         </Button>
         <Button
