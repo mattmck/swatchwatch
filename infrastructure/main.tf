@@ -463,6 +463,7 @@ resource "azurerm_linux_function_app" "main" {
     AZURE_OPENAI_DEPLOYMENT_HEX_BATCH     = local.openai_batch_deployment_name_value
     AZURE_OPENAI_BATCH_API_VERSION        = var.azure_openai_batch_api_version
     AZURE_OPENAI_BATCH_COMPLETION_WINDOW  = var.azure_openai_batch_completion_window
+    AZURE_OPENAI_VISION_DETAIL            = var.azure_openai_vision_detail
     HEX_DETECTION_BATCH_ENABLED           = var.hex_detection_batch_enabled ? "true" : "false"
     HEX_DETECTION_BATCH_MIN_IMAGES        = tostring(var.hex_detection_batch_min_images)
     INGESTION_AI_BATCH_POLL_SCHEDULE      = var.ingestion_ai_batch_poll_schedule
