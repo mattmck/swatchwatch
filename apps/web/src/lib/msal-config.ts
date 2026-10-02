@@ -7,6 +7,7 @@ import { LogLevel, type Configuration } from "@azure/msal-browser";
  */
 export function buildMsalConfig(): Configuration | null {
   const tenant = process.env.NEXT_PUBLIC_B2C_TENANT;
+  const tenantId = process.env.NEXT_PUBLIC_B2C_TENANT_ID?.trim();
   const clientId = process.env.NEXT_PUBLIC_B2C_CLIENT_ID;
   const policy =
     process.env.NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY || "B2C_1_signupsignin";
@@ -25,9 +26,18 @@ export function buildMsalConfig(): Configuration | null {
   const authorityHost = isLegacyB2CPolicy
     ? `${tenant}.b2clogin.com`
     : `${tenant}.ciamlogin.com`;
+  // CIAM metadata reports its issuer as https://<tenant-id>.ciamlogin.com/<tenant-id>/v2.0,
+  // and msal-browser >=5.x rejects metadata whose issuer doesn't match the authority
+  // (endpoints_resolution_error). Keying the authority path on the tenant GUID makes
+  // MSAL's CIAM issuer check pass; the domain-name path only works on older MSAL.
+  if (!isLegacyB2CPolicy && !tenantId) {
+    console.warn(
+      "[MSAL] NEXT_PUBLIC_B2C_TENANT_ID is not set; CIAM sign-in will fail issuer validation."
+    );
+  }
   const authority = isLegacyB2CPolicy
     ? `https://${authorityHost}/${tenant}.onmicrosoft.com/${policy}`
-    : `https://${authorityHost}/${tenant}.onmicrosoft.com`;
+    : `https://${authorityHost}/${tenantId || `${tenant}.onmicrosoft.com`}`;
 
   return {
     auth: {
