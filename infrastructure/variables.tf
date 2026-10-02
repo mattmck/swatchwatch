@@ -237,6 +237,17 @@ variable "azure_openai_batch_completion_window" {
   default     = "24h"
 }
 
+variable "azure_openai_vision_detail" {
+  description = "Image detail level for vision hex detection (low | high | auto)"
+  type        = string
+  default     = "low"
+
+  validation {
+    condition     = contains(["low", "high", "auto"], var.azure_openai_vision_detail)
+    error_message = "azure_openai_vision_detail must be one of: low, high, auto."
+  }
+}
+
 variable "hex_detection_batch_enabled" {
   description = "Enable Azure OpenAI Batch API for Shopify image-based hex detection"
   type        = bool

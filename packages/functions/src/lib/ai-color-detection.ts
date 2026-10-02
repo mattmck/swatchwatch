@@ -41,14 +41,35 @@ export interface HexDetectionOptions {
   };
 }
 
+export type VisionImageDetail = "low" | "high" | "auto";
+
+const VISION_IMAGE_DETAILS: readonly VisionImageDetail[] = ["low", "high", "auto"];
+
 interface HexDetectionRequestPayload {
   temperature: number;
   max_tokens: number;
   response_format: { type: "json_object" };
   messages: Array<{
     role: "system" | "user";
-    content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>;
+    content:
+      | string
+      | Array<{
+          type: string;
+          text?: string;
+          image_url?: { url: string; detail: VisionImageDetail };
+        }>;
   }>;
+}
+
+/**
+ * Vision detail level for hex detection. "low" sends a single 512px view
+ * (flat ~85 tokens) instead of high-detail tiles — the base lacquer hex
+ * survives downsampling. Override via AZURE_OPENAI_VISION_DETAIL if finish
+ * detection (glitter/flake/holo) needs more resolution.
+ */
+function resolveVisionImageDetail(): VisionImageDetail {
+  const raw = process.env.AZURE_OPENAI_VISION_DETAIL?.trim().toLowerCase();
+  return VISION_IMAGE_DETAILS.find((detail) => detail === raw) ?? "low";
 }
 
 function emitLog(
@@ -329,6 +350,7 @@ export function buildHexDetectionRequestPayload(
   const vendorContext = buildVendorContext({
     vendorContext: options?.vendorContext,
   });
+  const imageUrl = { url: imageUrlOrDataUri, detail: resolveVisionImageDetail() };
 
   return {
     temperature: 0,
@@ -352,7 +374,7 @@ export function buildHexDetectionRequestPayload(
               ...(vendorContext ? [{ type: "text", text: `Vendor context: ${vendorContext}` }] : []),
               {
                 type: "image_url",
-                image_url: { url: imageUrlOrDataUri },
+                image_url: imageUrl,
               },
             ],
           },
@@ -374,7 +396,7 @@ export function buildHexDetectionRequestPayload(
               ...(vendorContext ? [{ type: "text", text: `Vendor context: ${vendorContext}` }] : []),
               {
                 type: "image_url",
-                image_url: { url: imageUrlOrDataUri },
+                image_url: imageUrl,
               },
             ],
           },
