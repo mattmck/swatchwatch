@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import type { FinishNormalization, FinishType, ReferenceHarmonyType } from "swatchwatch-shared";
 import {
   createFinishNormalization,
@@ -133,6 +133,7 @@ function ReferenceSection<T extends ReferenceRecord>({
   onUpdate,
   onDelete,
 }: ReferenceSectionProps<T>) {
+  const fieldId = useId();
   const [query, setQuery] = useState("");
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editMode, setEditMode] = useState<"create" | "update">("create");
@@ -250,6 +251,7 @@ function ReferenceSection<T extends ReferenceRecord>({
       </CardHeader>
       <CardContent className="space-y-3">
         <Input
+          aria-label={`Filter ${title.toLowerCase()}`}
           placeholder={`Filter ${title.toLowerCase()}`}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -325,27 +327,53 @@ function ReferenceSection<T extends ReferenceRecord>({
           </DialogHeader>
 
           <div className="space-y-3">
-            <Input
-              placeholder="Name"
-              value={formValues.name}
-              onChange={(event) => setFormValues((prev) => ({ ...prev, name: event.target.value }))}
-            />
-            <Input
-              placeholder="Display name"
-              value={formValues.displayName}
-              onChange={(event) => setFormValues((prev) => ({ ...prev, displayName: event.target.value }))}
-            />
-            <Input
-              placeholder="Description"
-              value={formValues.description}
-              onChange={(event) => setFormValues((prev) => ({ ...prev, description: event.target.value }))}
-            />
-            <Input
-              placeholder="Sort order"
-              value={formValues.sortOrder}
-              onChange={(event) => setFormValues((prev) => ({ ...prev, sortOrder: event.target.value }))}
-              type="number"
-            />
+            <div className="space-y-1">
+              <label htmlFor={`${fieldId}-name`} className="text-sm font-medium">
+                Name <span className="text-destructive">*</span>
+              </label>
+              <Input
+                id={`${fieldId}-name`}
+                placeholder="Name"
+                aria-required="true"
+                value={formValues.name}
+                onChange={(event) => setFormValues((prev) => ({ ...prev, name: event.target.value }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <label htmlFor={`${fieldId}-display-name`} className="text-sm font-medium">
+                Display name <span className="text-destructive">*</span>
+              </label>
+              <Input
+                id={`${fieldId}-display-name`}
+                placeholder="Display name"
+                aria-required="true"
+                value={formValues.displayName}
+                onChange={(event) => setFormValues((prev) => ({ ...prev, displayName: event.target.value }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <label htmlFor={`${fieldId}-description`} className="text-sm font-medium">
+                Description
+              </label>
+              <Input
+                id={`${fieldId}-description`}
+                placeholder="Description"
+                value={formValues.description}
+                onChange={(event) => setFormValues((prev) => ({ ...prev, description: event.target.value }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <label htmlFor={`${fieldId}-sort-order`} className="text-sm font-medium">
+                Sort order
+              </label>
+              <Input
+                id={`${fieldId}-sort-order`}
+                placeholder="Sort order"
+                value={formValues.sortOrder}
+                onChange={(event) => setFormValues((prev) => ({ ...prev, sortOrder: event.target.value }))}
+                type="number"
+              />
+            </div>
             {formError && <p className="text-sm text-destructive">{formError}</p>}
           </div>
 
@@ -411,6 +439,7 @@ function FinishNormalizationsSection({
   onUpdate,
   onDelete,
 }: FinishNormalizationsSectionProps) {
+  const fieldId = useId();
   const [query, setQuery] = useState("");
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editMode, setEditMode] = useState<"create" | "update">("create");
@@ -526,6 +555,7 @@ function FinishNormalizationsSection({
       </CardHeader>
       <CardContent className="space-y-3">
         <Input
+          aria-label="Filter finish normalizations"
           placeholder="Filter finish normalizations"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -601,33 +631,45 @@ function FinishNormalizationsSection({
           </DialogHeader>
 
           <div className="space-y-3">
-            <Input
-              placeholder="Source value (e.g. crushed holo)"
-              value={formValues.sourceValue}
-              onChange={(event) =>
-                setFormValues((prev) => ({
-                  ...prev,
-                  sourceValue: event.target.value,
-                }))
-              }
-            />
-            <Select
-              value={formValues.normalizedFinishName}
-              onValueChange={(value) =>
-                setFormValues((prev) => ({ ...prev, normalizedFinishName: value }))
-              }
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select canonical finish" />
-              </SelectTrigger>
-              <SelectContent>
-                {finishTypeOptions.map((finishType) => (
-                  <SelectItem key={finishType.finishTypeId} value={finishType.name}>
-                    {finishType.displayName} ({finishType.name})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="space-y-1">
+              <label htmlFor={`${fieldId}-source-value`} className="text-sm font-medium">
+                Source value <span className="text-destructive">*</span>
+              </label>
+              <Input
+                id={`${fieldId}-source-value`}
+                placeholder="Source value (e.g. crushed holo)"
+                aria-required="true"
+                value={formValues.sourceValue}
+                onChange={(event) =>
+                  setFormValues((prev) => ({
+                    ...prev,
+                    sourceValue: event.target.value,
+                  }))
+                }
+              />
+            </div>
+            <div className="space-y-1">
+              <label htmlFor={`${fieldId}-canonical-finish`} className="text-sm font-medium">
+                Canonical finish <span className="text-destructive">*</span>
+              </label>
+              <Select
+                value={formValues.normalizedFinishName}
+                onValueChange={(value) =>
+                  setFormValues((prev) => ({ ...prev, normalizedFinishName: value }))
+                }
+              >
+                <SelectTrigger id={`${fieldId}-canonical-finish`} aria-label="Canonical finish">
+                  <SelectValue placeholder="Select canonical finish" />
+                </SelectTrigger>
+                <SelectContent>
+                  {finishTypeOptions.map((finishType) => (
+                    <SelectItem key={finishType.finishTypeId} value={finishType.name}>
+                      {finishType.displayName} ({finishType.name})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             {formError && <p className="text-sm text-destructive">{formError}</p>}
           </div>
 

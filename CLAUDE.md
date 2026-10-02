@@ -7,9 +7,9 @@ Smart nail polish collection manager. **npm workspaces monorepo** with three dep
 ```
 apps/web          → Next.js 16 (App Router) + Tailwind v4 + shadcn/ui → Azure Static Web App
 apps/mobile       → Expo / React Native (SDK 54, RN 0.81)
-packages/functions → Azure Functions v4 (Node 20, TS)    → Azure Linux Function App
+packages/functions → Azure Functions v4 (Node 22, TS)    → Azure Linux Function App
 packages/shared    → Shared TypeScript types (polish, user, voice)
-infrastructure/    → Terraform (azurerm ~3.100) for all Azure resources
+infrastructure/    → Terraform (azurerm ~4.50) for all Azure resources
 ```
 
 **Data flow:** Clients → Azure Functions REST API (`/api/polishes`, `/api/auth/*`, `/api/voice`) → Azure Database for PostgreSQL Flexible Server (schema in `docs/schema.sql`). Voice input goes through Azure Speech Services → Azure OpenAI for parsing polish details from transcriptions. Full canonical schema uses `pg_trgm` for fuzzy shade matching and `pgvector` for swatch similarity/dupe search.

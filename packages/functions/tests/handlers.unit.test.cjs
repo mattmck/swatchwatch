@@ -106,6 +106,7 @@ registerMock("../lib/ai-color-detection", {
 // Mutable OCR + LLM mocks — individual tests can override these
 let extractTextFromImageMock = async () => null;
 let parseLabelTextMock = async () => null;
+let stripImageMetadataMock = async (bytes) => bytes;
 
 registerMock("../lib/ocr", {
   get extractTextFromImage() { return extractTextFromImageMock; },
@@ -149,6 +150,8 @@ registerMock("../lib/blob-storage", {
 
     return normalizedType;
   },
+  // Identity strip by default; individual tests can observe the call via stripImageMetadataMock.
+  stripImageMetadata: async (bytes) => stripImageMetadataMock(bytes),
 });
 
 // Pre-populate require.cache for mocked modules
@@ -232,6 +235,7 @@ afterEach(() => {
   transactionMock = async (cb) => cb(fakeClient());
   extractTextFromImageMock = async () => null;
   parseLabelTextMock = async () => null;
+  stripImageMetadataMock = async (bytes) => bytes;
   delete process.env.AUTH_DEV_BYPASS;
   delete process.env.AZURE_AD_B2C_TENANT;
   delete process.env.AZURE_AD_B2C_CLIENT_ID;
@@ -1320,6 +1324,88 @@ describe("functions/capture — addCaptureFrame", () => {
     assert.equal(frameInsertParams[0][3].ingestion.source, "data_url");
     assert.equal(frameInsertParams[0][3].ingestion.mimeType, "image/png");
     assert.equal(frameInsertParams[0][3].ingestion.byteSize, 3);
+  });
+
+  it("strips EXIF from data URL frames before checksum, storage, and AI", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+
+    // Simulate metadata stripping: client sends bytes "abcdef", stripped to "abc".
+    const strippedBytes = Buffer.from("abc");
+    const stripCalls = [];
+    stripImageMetadataMock = async (bytes) => {
+      stripCalls.push(Buffer.from(bytes));
+      return strippedBytes;
+    };
+    // Capture the payload forwarded to OCR to assert it is the stripped data URL.
+    const ocrInputs = [];
+    extractTextFromImageMock = async (input) => {
+      ocrInputs.push(input);
+      return null;
+    };
+
+    let callCount = 0;
+    const imageInsertParams = [];
+    const frameInsertParams = [];
+    queryMock = async (text) => {
+      callCount++;
+      if (callCount === 1) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (callCount === 2) {
+        return { rows: [{ id: 10, captureId: "11111111-1111-4111-8111-111111111111", status: "processing", topConfidence: null, acceptedEntityType: null, acceptedEntityId: null, metadata: null }] };
+      }
+      if (text && text.includes("capture_frame") && text.includes("ORDER BY created_at")) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    };
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          if (text.includes("INSERT INTO image_asset")) {
+            imageInsertParams.push(params);
+            return { rows: [{ imageId: "500" }] };
+          }
+          if (text.includes("INSERT INTO capture_frame")) {
+            frameInsertParams.push(params);
+            return { rows: [{ frameId: "950" }] };
+          }
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["capture-frame"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/capture/11111111-1111-4111-8111-111111111111/frame",
+        headers: { authorization: "Bearer dev:1" },
+        params: { captureId: "11111111-1111-4111-8111-111111111111" },
+        body: {
+          frameType: "label",
+          // base64 of "abcdef" — 6 raw bytes, stripped down to 3.
+          imageBlobUrl: "data:image/png;base64,YWJjZGVm",
+        },
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 201);
+    // Strip ran on the raw decoded bytes.
+    assert.equal(stripCalls.length, 1);
+    assert.equal(stripCalls[0].toString(), "abcdef");
+
+    // Checksum + byteSize reflect the STRIPPED bytes, not the original upload.
+    const crypto = require("node:crypto");
+    const expectedChecksum = crypto.createHash("sha256").update(strippedBytes).digest("hex");
+    assert.equal(imageInsertParams[0][2], expectedChecksum);
+    assert.equal(frameInsertParams[0][3].ingestion.byteSize, 3);
+    assert.equal(frameInsertParams[0][3].ingestion.exifStripped, true);
+    assert.ok(imageInsertParams[0][1].endsWith(`${expectedChecksum}.png`));
+
+    // OCR received the stripped payload, never the original EXIF-bearing bytes.
+    assert.equal(ocrInputs.length, 1);
+    assert.equal(ocrInputs[0], `data:image/png;base64,${strippedBytes.toString("base64")}`);
   });
 
   it("normalizes request quality hints into quality.extracted", async () => {

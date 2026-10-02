@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "test": "node --import tsx/esm --test tests/*.test.cjs"
+    "test": "tsx --test tests/*.test.cjs"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.4"
   }
 }

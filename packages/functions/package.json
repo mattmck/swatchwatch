@@ -5,6 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
+    "build:deploy": "esbuild src/index.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist-bundle/index.js --external:@azure/functions --external:@azure/storage-queue --external:applicationinsights --external:jose --external:p-limit --external:pg --external:redis --external:sharp",
     "pretest": "npm run build --workspace=swatchwatch-shared && npm run build",
     "test": "node --test tests/*.unit.test.cjs",
     "pack": "func pack --output ./dist/functions.zip --skip-install",
@@ -12,7 +13,7 @@
     "watch": "tsc -w",
     "migrate": "node -e \"try{const s=require('./local.settings.json');Object.entries(s.Values).forEach(([k,v])=>process.env[k]=v)}catch{} require('child_process').execSync('node-pg-migrate up --migrations-dir migrations --decamelize',{stdio:'inherit'})\"",
     "migrate:down": "node -e \"try{const s=require('./local.settings.json');Object.entries(s.Values).forEach(([k,v])=>process.env[k]=v)}catch{} require('child_process').execSync('node-pg-migrate down --migrations-dir migrations --decamelize',{stdio:'inherit'})\"",
-    "migrate:create": "node-pg-migrate create --migrations-dir migrations"
+    "migrate:create": "node-pg-migrate create --migrations-dir migrations --migration-filename-format utc --migration-file-language sql"
   },
   "dependencies": {
     "@azure/functions": "^4.0.0",
@@ -26,9 +27,10 @@
     "swatchwatch-shared": "*"
   },
   "devDependencies": {
-    "@types/node": "^20.11.0",
+    "@types/node": "^22.10.0",
     "@types/pg": "^8.16.0",
     "azure-functions-core-tools": "^4.6.0",
+    "esbuild": "^0.28.0",
     "node-pg-migrate": "^8.0.4",
     "typescript": "^5.3.0"
   }

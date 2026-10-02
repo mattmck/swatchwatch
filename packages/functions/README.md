@@ -1,6 +1,6 @@
 # Azure Functions — `packages/functions`
 
-Azure Functions v4 HTTP API (Node 20, TypeScript).
+Azure Functions v4 HTTP API (Node 22, TypeScript).
 
 ## Running Locally
 
@@ -78,7 +78,7 @@ All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpReques
 When `REDIS_URL` + `REDIS_KEY` are configured, list/detail reads are served through a Redis read-through cache (short TTL), and create/update/delete/recalc writes invalidate related user and catalog cache keys.
 For private blob storage, the API rewrites blob URLs to `/api/images/{id}` so image bytes are served through Functions (no public container access or client-side SAS required).
 `POST /api/polishes/{id}/recalc-hex` is admin-only, fetches the latest swatch image for the shade, runs Azure OpenAI hex detection, updates `detected_hex`, and returns a 200 with the detected hex and confidence (or a 422 if no image is available for detection). Responses now also include `tokenUsage` (`promptTokens`, `completionTokens`, `totalTokens`) when Azure returns usage metadata. Vendor context is derived from shade metadata (for example `finish`) so the endpoint does not depend on source-specific external IDs.
-Image uploads now enforce a shared validation policy (`maxSizeBytes=5MB`; allowed mime types: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif`, `image/gif`) used by capture-frame data URLs and source-image ingestion. Source image bytes are auto-oriented and metadata-stripped with `sharp` before checksum generation and blob upload.
+Image uploads now enforce a shared validation policy (`maxSizeBytes=5MB`; allowed mime types: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif`, `image/gif`) used by capture-frame data URLs and source-image ingestion; uploads outside these limits are rejected with a 400. All uploaded image bytes are auto-oriented and metadata-stripped with `sharp` (removing EXIF/GPS and other embedded metadata) before any checksum generation, persistence, or forwarding to AI/OCR services. This applies to both source-image ingestion (before blob upload) and capture-frame data URLs (`quality_json.ingestion.exifStripped` records whether stripping ran). `sharp` failures degrade gracefully to the original bytes.
 
 Reference endpoints:
 - `GET /api/reference/finishes` and `GET /api/reference/harmonies` are public read endpoints for UI lookup data, sorted by `sort_order` and served with cache headers.
@@ -170,6 +170,9 @@ When `HEX_DETECTION_BATCH_ENABLED=true`, Shopify image detection can switch to A
 for larger runs (`HEX_DETECTION_BATCH_MIN_IMAGES` threshold). In that mode, the main worker submits
 the batch and leaves the job in `running` with pipeline stage `awaiting_ai`; a timer-triggered poller
 (`ingestion-ai-batch-poller`) later applies completed batch results and marks the job `succeeded`/`failed`.
+If batch submission itself fails, the worker logs the reason and falls back to synchronous detection for
+that run (applying detections through the same shade write path the poller uses), recording the count in
+the `batchFallbacks` metric instead of failing the job.
 Batch and sync image detection now send URL inputs to Azure OpenAI (instead of base64 payloads) using
 the Functions image proxy route (`/api/images/{id}`) when storage is configured.
 The proxy origin is resolved from `INGESTION_AI_IMAGE_PROXY_ORIGIN` or falls back to
@@ -208,6 +211,14 @@ If a queue message is malformed but includes a valid `jobId`, the worker marks t
 ## Migrations
 
 Schema migrations use [node-pg-migrate](https://github.com/salsita/node-pg-migrate) with raw SQL files in `migrations/`. Each file contains an up migration and a `-- Down Migration` section for rollback.
+
+### Naming convention (dated filenames)
+
+**New migrations use a UTC timestamp prefix:** `YYYYMMDDHHMMSSsss_description.sql` — a 17-digit UTC datetime down to the millisecond, e.g. `20260608021420930_add-swatch-index.sql`. `npm run migrate:create -- "add swatch index"` generates this automatically (`--migration-filename-format utc`).
+
+Timestamp prefixes are monotonic and globally unique, which avoids the prefix collisions the old sequential `NNN_` scheme is prone to (this repo already has two `020_` files). They also sort *after* the legacy `0NN_` files lexicographically, so ordering is preserved.
+
+> **Existing `001_`–`022_` files are intentionally left as-is.** node-pg-migrate records applied migrations by filename in the `pgmigrations` table — renaming an already-applied migration would make it look unapplied and re-run it. Only new migrations adopt the dated format; the legacy files are migrated forward by convention, not by rename.
 
 ```bash
 # From repo root (requires DATABASE_URL or PG* env vars)

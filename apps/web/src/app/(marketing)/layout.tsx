@@ -20,6 +20,12 @@ export default function MarketingLayout({
 }>) {
   return (
     <div className="flex min-h-screen flex-col">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:shadow-lg focus:ring-2 focus:ring-ring"
+      >
+        Skip to main content
+      </a>
       <header className="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur">
         <div className="relative mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:h-16 sm:px-6">
           <span
@@ -75,7 +81,9 @@ export default function MarketingLayout({
         </div>
       </header>
 
-      <main className="flex-1">{children}</main>
+      <main id="main-content" tabIndex={-1} className="flex-1">
+        {children}
+      </main>
 
       <footer className="border-t border-border/70 bg-muted/35 py-8 text-center text-sm text-muted-foreground">
         <div className="flex flex-col items-center gap-2">

@@ -1,5 +1,5 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
-import { PolishCreateRequest, PolishUpdateRequest, PolishListResponse } from "swatchwatch-shared";
+import { Polish, PolishCreateRequest, PolishUpdateRequest, PolishListResponse } from "swatchwatch-shared";
 import { query, transaction } from "../lib/db";
 import { withAuth, withAdmin } from "../lib/auth";
 import { withCors } from "../lib/http";
@@ -312,7 +312,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
         return { status: 200, jsonBody: cachedPolish };
       }
 
-      const result = await query(
+      const result = await query<Polish>(
         `${POLISH_SELECT}
          WHERE s.shade_id = $2`,
         [userId, shadeId]
@@ -456,7 +456,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
     const sortColumn = SORT_COLUMNS[sortBy] || SORT_COLUMNS.createdAt;
     const whereClause = conditions.length > 0 ? conditions.join(" AND ") : "TRUE";
 
-    const result = await query(
+    const result = await query<Polish>(
       `${POLISH_SELECT}
        WHERE ${whereClause}
        ORDER BY ${sortColumn} ${sortOrder} NULLS LAST
@@ -575,7 +575,7 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       return { shadeId: resolvedShadeId };
     });
 
-    const created = await query(
+    const created = await query<Polish>(
       `${POLISH_SELECT}
        WHERE s.shade_id = $2`,
       [userId, shadeId]
@@ -685,7 +685,7 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
       return targetShadeId;
     });
 
-    const fullResult = await query(
+    const fullResult = await query<Polish>(
       `${POLISH_SELECT}
        WHERE s.shade_id = $2`,
       [userId, updatedShadeId]

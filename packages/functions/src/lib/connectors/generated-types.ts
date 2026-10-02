@@ -13,6 +13,7 @@ export type SupportedConnectorSource =
   | "CosIng"
   | "CrackedPolishShopify"
   | "CupcakePolishShopify"
+  | "DamNailPolishShopify"
   | "DrunkFairyPolishShopify"
   | "GS1Lookup"
   | "GardenPathLacquersShopify"
@@ -51,6 +52,7 @@ export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProt
   CosIng: "GS1",
   CrackedPolishShopify: "Shopify",
   CupcakePolishShopify: "Shopify",
+  DamNailPolishShopify: "Shopify",
   DrunkFairyPolishShopify: "Shopify",
   GS1Lookup: "GS1",
   GardenPathLacquersShopify: "Shopify",
@@ -90,6 +92,7 @@ export const SUPPORTED_SOURCES: SupportedConnectorSource[] = [
   "CosIng",
   "CrackedPolishShopify",
   "CupcakePolishShopify",
+  "DamNailPolishShopify",
   "DrunkFairyPolishShopify",
   "GS1Lookup",
   "GardenPathLacquersShopify",

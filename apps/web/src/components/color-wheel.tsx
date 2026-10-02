@@ -626,6 +626,9 @@ export function ColorWheel({
           ref={canvasRef}
           width={size}
           height={size}
+          role="img"
+          aria-label="Color wheel picker. Click to select a color, scroll to zoom, drag to pan when zoomed."
+          aria-describedby="color-wheel-instructions"
           className={zoom > 1 ? "cursor-grab active:cursor-grabbing" : "cursor-crosshair"}
           style={{ width: size, height: size }}
           onMouseMove={handleMouseMove}
@@ -633,6 +636,10 @@ export function ColorWheel({
           onMouseDown={handleMouseDown}
           onMouseLeave={handleMouseLeave}
         />
+        <span id="color-wheel-instructions" className="sr-only">
+          Interactive color wheel. Use the mouse to select colors.
+          {selectedHex ? ` Currently selected: ${selectedHex}.` : ""}
+        </span>
         {/* Hover cursor indicator */}
         {hoveredPos && !isPanning && (
           <div

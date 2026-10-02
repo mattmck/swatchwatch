@@ -75,6 +75,7 @@ jobs:
       TF_VAR_openai_batch_model_version: ${{ vars.OPENAI_BATCH_MODEL_VERSION || '' }}
       TF_VAR_openai_batch_deployment_sku_name: ${{ vars.OPENAI_BATCH_DEPLOYMENT_SKU_NAME || 'GlobalBatch' }}
       TF_VAR_openai_batch_deployment_capacity: ${{ vars.OPENAI_BATCH_DEPLOYMENT_CAPACITY || '100' }}
+      TF_VAR_hex_detection_batch_enabled: ${{ vars.HEX_DETECTION_BATCH_ENABLED || 'false' }}
       OPENAI_ACCOUNT_NAME: ${{ vars.OPENAI_ACCOUNT_NAME || '' }}
       TF_VAR_apim_enabled: ${{ vars.APIM_ENABLED || 'false' }}
       # vars first, then literal default
@@ -86,17 +87,17 @@ jobs:
       TF_VAR_apim_openai_subscription_key_uri: ${{ secrets.APIM_OPENAI_SUBSCRIPTION_KEY_URI || vars.APIM_OPENAI_SUBSCRIPTION_KEY_URI || '' }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Azure login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
         with:
           terraform_wrapper: false
 

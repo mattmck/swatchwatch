@@ -6,9 +6,10 @@ const NEXT_CONFIG_PATH = path.resolve(__dirname, '../../../apps/web/next.config.
 
 // Dynamic import helper for ESM modules
 async function importNextConfig() {
-  // Use dynamic import to load the TypeScript/ESM config.
-  // tsx/esm wraps `export default` under an extra `.default` when loaded
-  // via dynamic import() from a CJS file — unwrap both layers defensively.
+  // Run under the `tsx --test` runner (see package.json), whose loader
+  // transpiles and imports this .ts/ESM config without tripping Node's
+  // `require(esm)` cycle guard (Node 22+). tsx may wrap `export default`
+  // under an extra `.default` -- unwrap both layers defensively.
   const mod = await import(NEXT_CONFIG_PATH);
   return mod.default?.default ?? mod.default ?? mod;
 }

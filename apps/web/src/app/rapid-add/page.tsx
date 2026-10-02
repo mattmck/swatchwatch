@@ -232,11 +232,13 @@ export default function RapidAddPage() {
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <Input
+              aria-label="Brand hint"
               value={brandHint}
               onChange={(e) => setBrandHint(e.target.value)}
               placeholder="Brand (e.g. OPI)"
             />
             <Input
+              aria-label="Shade hint"
               value={shadeHint}
               onChange={(e) => setShadeHint(e.target.value)}
               placeholder="Shade (e.g. Big Apple Red)"
@@ -247,7 +249,7 @@ export default function RapidAddPage() {
               value={finishHint}
               onValueChange={(value) => setFinishHint(value as PolishFinish)}
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="Finish hint">
                 <SelectValue placeholder="Optional finish hint" />
               </SelectTrigger>
               <SelectContent>
@@ -259,6 +261,7 @@ export default function RapidAddPage() {
               </SelectContent>
             </Select>
             <Input
+              aria-label="Collection hint"
               value={collectionHint}
               onChange={(e) => setCollectionHint(e.target.value)}
               placeholder="Collection (optional)"
@@ -304,7 +307,7 @@ export default function RapidAddPage() {
               value={captureFrameType}
               onValueChange={(value) => setCaptureFrameType(value as FrameType)}
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="Capture frame type">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -314,7 +317,11 @@ export default function RapidAddPage() {
                 <SelectItem value="other">other</SelectItem>
               </SelectContent>
             </Select>
+            <label htmlFor="capture-frame-file" className="sr-only">
+              Choose image file for capture frame
+            </label>
             <input
+              id="capture-frame-file"
               type="file"
               accept="image/*"
               capture="environment"

@@ -54,6 +54,7 @@ export function Pagination({
           size="sm"
           disabled={currentPage <= 1}
           onClick={() => onPageChange(1)}
+          aria-label="First page"
           title="First page"
         >
           «
@@ -63,7 +64,8 @@ export function Pagination({
           size="sm"
           disabled={currentPage <= 1}
           onClick={() => onPageChange(Math.max(1, currentPage - 5))}
-          title="Back 5 pages"
+          aria-label="Back up to 5 pages"
+          title="Back up to 5 pages"
         >
           ‹‹
         </Button>
@@ -104,7 +106,8 @@ export function Pagination({
           size="sm"
           disabled={currentPage >= totalPages}
           onClick={() => onPageChange(Math.min(totalPages, currentPage + 5))}
-          title="Forward 5 pages"
+          aria-label="Forward up to 5 pages"
+          title="Forward up to 5 pages"
         >
           ››
         </Button>
@@ -113,6 +116,7 @@ export function Pagination({
           size="sm"
           disabled={currentPage >= totalPages}
           onClick={() => onPageChange(totalPages)}
+          aria-label="Last page"
           title="Last page"
         >
           »

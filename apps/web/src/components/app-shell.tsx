@@ -79,6 +79,12 @@ function AppShellLayout({
 
   return (
     <div className="flex min-h-screen">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:shadow-lg focus:ring-2 focus:ring-ring"
+      >
+        Skip to main content
+      </a>
       {/* Sidebar */}
       <aside className="hidden w-56 shrink-0 border-r border-border bg-sidebar md:flex md:flex-col">
         <div className="relative flex h-14 items-center justify-between border-b border-border/60 px-4">
@@ -126,7 +132,10 @@ function AppShellLayout({
               <SwatchWatchWordmark iconSize={22} textClassName="text-sm" />
             </Link>
           </div>
-          <nav className="flex flex-1 items-center gap-1 overflow-x-auto md:hidden">
+          <nav
+            className="flex flex-1 items-center gap-1 overflow-x-auto md:hidden"
+            aria-label="Mobile navigation"
+          >
             {navItems.map((item) => (
               <Button
                 key={item.href}
@@ -134,8 +143,13 @@ function AppShellLayout({
                 size="sm"
                 asChild
               >
-                <Link href={item.href}>
-                  <item.icon className="size-4" />
+                <Link
+                  href={item.href}
+                  aria-label={item.label}
+                  aria-current={isActive(item.href) ? "page" : undefined}
+                >
+                  <item.icon className="size-4" aria-hidden="true" />
+                  <span className="sr-only">{item.label}</span>
                 </Link>
               </Button>
             ))}
@@ -145,7 +159,9 @@ function AppShellLayout({
           />
         </header>
 
-        <main className="flex-1 p-4 md:p-6">{children}</main>
+        <main id="main-content" tabIndex={-1} className="flex-1 p-4 md:p-6">
+          {children}
+        </main>
       </div>
     </div>
   );

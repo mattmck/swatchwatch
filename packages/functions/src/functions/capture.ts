@@ -15,7 +15,7 @@ import {
 } from "swatchwatch-shared";
 import { query, transaction } from "../lib/db";
 import { withAuth } from "../lib/auth";
-import { validateImageUpload } from "../lib/blob-storage";
+import { stripImageMetadata, validateImageUpload } from "../lib/blob-storage";
 import { withCors } from "../lib/http";
 import { trackEvent, trackException } from "../lib/telemetry";
 import { extractTextFromImage, OcrResult } from "../lib/ocr";
@@ -119,6 +119,11 @@ interface PreparedImageInput {
   storageUrl: string;
   checksumSha256: string | null;
   qualityPatch: Record<string, unknown> | null;
+  /**
+   * Image input safe to forward to AI/OCR services. For base64 data URLs this is
+   * the EXIF-stripped payload; for remote URLs it is the trimmed original URL.
+   */
+  sanitizedImageInput: string;
 }
 
 function isValidUuid(value: string): boolean {
@@ -157,6 +162,7 @@ function buildImageIngestionPatch(details: {
   byteSize?: number;
   checksumSha256?: string;
   host?: string;
+  exifStripped?: boolean;
 }): Record<string, unknown> {
   return {
     ingestion: {
@@ -165,6 +171,7 @@ function buildImageIngestionPatch(details: {
       byteSize: details.byteSize,
       checksumSha256: details.checksumSha256,
       host: details.host,
+      exifStripped: details.exifStripped,
     },
   };
 }
@@ -302,7 +309,10 @@ async function runFrameAiExtraction(
   };
 }
 
-function normalizeCaptureImageInput(imageBlobUrl: string, captureId: string): PreparedImageInput {
+async function normalizeCaptureImageInput(
+  imageBlobUrl: string,
+  captureId: string
+): Promise<PreparedImageInput> {
   const trimmed = imageBlobUrl.trim();
 
   if (trimmed.startsWith("blob:")) {
@@ -341,18 +351,32 @@ function normalizeCaptureImageInput(imageBlobUrl: string, captureId: string): Pr
       throw new CaptureInputError(error instanceof Error ? error.message : "Invalid capture frame image");
     }
 
-    const checksumSha256 = createHash("sha256").update(bytes).digest("hex");
+    // Strip EXIF (and any other) metadata before the bytes are checksummed,
+    // referenced, or forwarded to third-party AI/OCR services. stripImageMetadata
+    // degrades gracefully to the original bytes if the payload can't be decoded.
+    const cleanBytes = await stripImageMetadata(bytes);
+    try {
+      validateImageUpload(normalizedMimeType, cleanBytes.length);
+    } catch (error) {
+      throw new CaptureInputError(error instanceof Error ? error.message : "Invalid capture frame image");
+    }
+    const exifStripped = cleanBytes !== bytes;
+
+    const checksumSha256 = createHash("sha256").update(cleanBytes).digest("hex");
     const extension = getImageExtension(normalizedMimeType);
     const storageUrl = `inline://capture/${captureId}/${checksumSha256}.${extension}`;
+    const sanitizedImageInput = `data:${normalizedMimeType};base64,${cleanBytes.toString("base64")}`;
 
     return {
       storageUrl,
       checksumSha256,
+      sanitizedImageInput,
       qualityPatch: buildImageIngestionPatch({
         source: "data_url",
         mimeType: normalizedMimeType,
-        byteSize: bytes.length,
+        byteSize: cleanBytes.length,
         checksumSha256,
+        exifStripped,
       }),
     };
   }
@@ -371,6 +395,7 @@ function normalizeCaptureImageInput(imageBlobUrl: string, captureId: string): Pr
   return {
     storageUrl: trimmed,
     checksumSha256: null,
+    sanitizedImageInput: trimmed,
     qualityPatch: buildImageIngestionPatch({
       source: "remote_url",
       host: parsedUrl.host,
@@ -1196,13 +1221,18 @@ async function addCaptureFrame(
     let preQualityJson: Record<string, unknown> | null = body.quality ?? null;
 
     if (!body.imageId && body.imageBlobUrl) {
-      normalizedImage = normalizeCaptureImageInput(body.imageBlobUrl, session.captureId);
+      normalizedImage = await normalizeCaptureImageInput(body.imageBlobUrl, session.captureId);
       preQualityJson = mergeQualityJson(body.quality, normalizedImage.qualityPatch);
     }
 
-    // Run AI extraction on label/barcode frames (outside transaction to avoid long locks)
-    // Use sanitized image input so data URL whitespace doesn't cause OCR API failures.
-    const imageInputForAi = body.imageBlobUrl ? sanitizeImageInputForAi(body.imageBlobUrl) : null;
+    // Run AI extraction on label/barcode frames (outside transaction to avoid long locks).
+    // Prefer the EXIF-stripped payload from normalization; otherwise sanitize the raw
+    // input so data URL whitespace doesn't cause OCR API failures.
+    const imageInputForAi = normalizedImage
+      ? normalizedImage.sanitizedImageInput
+      : body.imageBlobUrl
+        ? sanitizeImageInputForAi(body.imageBlobUrl)
+        : null;
     let aiExtraction: FrameAiExtractionResult | null = null;
     if (imageInputForAi) {
       const existingEvidence = collectCaptureEvidence(
