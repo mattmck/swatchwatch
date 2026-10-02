@@ -288,8 +288,8 @@ jobs:
       - name: Build shared package
         run: npm run build --workspace=packages/shared
 
-      - name: Build functions
-        run: npm run build --workspace=packages/functions
+      - name: Bundle functions (inlines swatchwatch-shared)
+        run: npm run build:deploy --workspace=packages/functions
 
       - name: Prepare functions deployment package
         run: |
@@ -297,33 +297,27 @@ jobs:
           rm -rf "$DEPLOY_DIR"
           mkdir -p "$DEPLOY_DIR"
 
-          # Copy function app artifacts
+          # Function app artifacts: host.json + the single bundled entry.
+          # swatchwatch-shared is bundled into the entry, so the deploy package
+          # has no workspace dependency to materialize — eliminating the tarball
+          # pack, package.json rewrite, and symlink guardrail this step used to need.
           cp packages/functions/host.json "$DEPLOY_DIR/"
-          cp packages/functions/package.json "$DEPLOY_DIR/"
-          cp -r packages/functions/dist "$DEPLOY_DIR/"
+          cp packages/functions/dist-bundle/index.js "$DEPLOY_DIR/index.js"
 
-          # Pack the built shared package into a tarball and install from it.
-          # Avoid file:directory deps here because npm installs those as symlinks,
-          # which can fail to resolve reliably under WEBSITE_RUN_FROM_PACKAGE.
-          SHARED_TARBALL="$(npm pack --silent --workspace=packages/shared --pack-destination "$DEPLOY_DIR" | tail -n 1)"
-
-          # Rewrite the workspace reference to the local tarball
+          # Minimal package.json: entry point + external runtime deps only
+          # (everything not bundled). Generated from the source package.json with
+          # the workspace dependency dropped.
           node -e "
-            const pkg = JSON.parse(require('fs').readFileSync('$DEPLOY_DIR/package.json', 'utf8'));
-            pkg.dependencies['swatchwatch-shared'] = 'file:${SHARED_TARBALL}';
-            require('fs').writeFileSync('$DEPLOY_DIR/package.json', JSON.stringify(pkg, null, 2));
+            const src = JSON.parse(require('fs').readFileSync('packages/functions/package.json', 'utf8'));
+            const deps = { ...src.dependencies };
+            delete deps['swatchwatch-shared'];
+            const out = { name: src.name, version: src.version, main: 'index.js', dependencies: deps };
+            require('fs').writeFileSync('$DEPLOY_DIR/package.json', JSON.stringify(out, null, 2));
           "
 
-          # Install production-only deps into the self-contained deploy dir
+          # Install production (external) deps into the self-contained deploy dir.
           cd "$DEPLOY_DIR"
           npm install --omit=dev --ignore-scripts
-
-          # Guardrail: ensure the shared package is materialized (not symlinked)
-          if [ -L "node_modules/swatchwatch-shared" ]; then
-            echo "Expected node_modules/swatchwatch-shared to be a real directory, but it is a symlink."
-            ls -la "node_modules/swatchwatch-shared"
-            exit 1
-          fi
 
       - name: Azure login (OIDC)
         uses: azure/login@v3
