@@ -928,7 +928,11 @@ async function matchImage(
 
   let body: unknown;
   try {
-    body = await request.json();
+    const raw = await request.arrayBuffer();
+    if (raw.byteLength > MATCH_IMAGE_MAX_BODY_BYTES) {
+      return { status: 413, jsonBody: { error: "Image too large (max 5MB)" } };
+    }
+    body = JSON.parse(new TextDecoder().decode(raw));
   } catch {
     return { status: 400, jsonBody: { error: "Request body must be valid JSON" } };
   }
