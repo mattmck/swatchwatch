@@ -26,6 +26,14 @@ import {
   parseMatchImageRequest,
   rankPolishMatches,
 } from "../lib/color-match";
+import {
+  canonicalizeFinish,
+  canonicalizeFinishes,
+  loadFinishAliasMap,
+  requestCarriesFinishData,
+  resolveRequestedFinishes,
+  type ShadeFinishUpdate,
+} from "../lib/finishes";
 import { PoolClient } from "pg";
 
 const FINISH_NORMALIZATION_MAP: Record<string, string> = {
@@ -36,6 +44,43 @@ function normalizeFinish(value?: string | null): string | null {
   if (!value) return null;
   const normalized = value.trim().toLowerCase();
   return FINISH_NORMALIZATION_MAP[normalized] || normalized || null;
+}
+
+/** Legacy single finish to store/match on `shade.finish` for a request. */
+function primaryFinishForRequest(
+  body: Pick<PolishCreateRequest, "finish">,
+  finishUpdate: ShadeFinishUpdate | undefined
+): string | undefined {
+  return body.finish || finishUpdate?.values[0] || undefined;
+}
+
+async function applyShadeFinishUpdate(
+  client: PoolClient,
+  shadeId: number,
+  finishUpdate: ShadeFinishUpdate | undefined
+): Promise<void> {
+  if (!finishUpdate) return;
+  if (finishUpdate.mode === "replace") {
+    await client.query(
+      `UPDATE shade SET finishes = $2::text[], updated_at = now() WHERE shade_id = $1`,
+      [shadeId, finishUpdate.values]
+    );
+    return;
+  }
+  if (finishUpdate.values.length === 0) return;
+  // Append new finishes, keeping existing order (primary first) and de-duplicating.
+  await client.query(
+    `UPDATE shade
+     SET finishes = ARRAY(
+           SELECT f
+           FROM unnest(COALESCE(finishes, ARRAY[]::text[]) || $2::text[]) WITH ORDINALITY AS u(f, ord)
+           GROUP BY f
+           ORDER BY min(ord)
+         ),
+         updated_at = now()
+     WHERE shade_id = $1`,
+    [shadeId, finishUpdate.values]
+  );
 }
 
 /**
@@ -54,7 +99,9 @@ const POLISH_SELECT = `
     s.vendor_hex                                 AS "vendorHex",
     s.detected_hex                               AS "detectedHex",
     s.name_hex                                   AS "nameHex",
-    COALESCE(s.finish, '')                       AS finish,
+    -- Legacy single finish; falls back to the primary multi-finish value when unset.
+    COALESCE(NULLIF(s.finish, ''), s.finishes[1], '') AS finish,
+    COALESCE(s.finishes, ARRAY[]::text[])        AS finishes,
     COALESCE(s.collection, '')                   AS collection,
     ui.quantity,
     ui.size_display                              AS size,
@@ -90,7 +137,8 @@ async function findOrCreateShade(
   shadeName: string,
   finish?: string,
   collection?: string,
-  colorData?: { colorName?: string; vendorHex?: string; detectedHex?: string; nameHex?: string }
+  colorData?: { colorName?: string; vendorHex?: string; detectedHex?: string; nameHex?: string },
+  finishUpdate?: ShadeFinishUpdate
 ): Promise<number> {
   // Find or create brand
   await client.query(
@@ -128,18 +176,20 @@ async function findOrCreateShade(
         [shadeId, colorData.colorName || null, colorData.vendorHex || null, colorData.detectedHex || null, colorData.nameHex || null]
       );
     }
+    await applyShadeFinishUpdate(client, shadeId, finishUpdate);
     return shadeId;
   }
 
   // Create new shade with color data
   const newShade = await client.query<{ shade_id: number }>(
-    `INSERT INTO shade (brand_id, shade_name_canonical, finish, collection, status, color_name, vendor_hex, detected_hex, name_hex)
-     VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, $8)
+    `INSERT INTO shade (brand_id, shade_name_canonical, finish, collection, status, color_name, vendor_hex, detected_hex, name_hex, finishes)
+     VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, $8, $9::text[])
      RETURNING shade_id`,
     [
       brandId, shadeName, normalizeFinish(finish), collection || null,
       colorData?.colorName || null, colorData?.vendorHex || null,
       colorData?.detectedHex || null, colorData?.nameHex || null,
+      finishUpdate?.values ?? [],
     ]
   );
   return newShade.rows[0].shade_id;
@@ -150,7 +200,7 @@ const SORT_COLUMNS: Record<string, string> = {
   status: "CASE WHEN COALESCE(ui.quantity, 0) > 0 THEN 0 ELSE 1 END",
   name: "s.shade_name_canonical",
   brand: "b.name_canonical",
-  finish: "COALESCE(s.finish, '')",
+  finish: "COALESCE(s.finishes[1], NULLIF(s.finish, ''), '')",
   collection: "COALESCE(s.collection, '')",
   createdAt: "COALESCE(ui.created_at, s.created_at)",
   rating: "ui.rating",
@@ -202,6 +252,7 @@ function buildPolishListCacheKey(
     search: string;
     brand: string;
     finish: string;
+    finishes: string;
     scope: string;
     availability: string;
     tags: string;
@@ -379,6 +430,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
     const search = url.searchParams.get("search");
     const brandFilter = url.searchParams.get("brand");
     const finishFilter = url.searchParams.get("finish");
+    const finishesParam = url.searchParams.get("finishes");
     const scope = url.searchParams.get("scope");
     const availability = url.searchParams.get("availability") || url.searchParams.get("avail");
     const tagsParam = url.searchParams.get("tags");
@@ -390,6 +442,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
     const normalizedSearch = normalizeFilterValue(search);
     const normalizedBrandFilter = normalizeFilterValue(brandFilter);
     const normalizedFinishFilter = normalizeFinish(finishFilter) ?? "";
+    const parsedFinishesFilter = parseTagsFilter(finishesParam).map((value) => value.toLowerCase());
     const normalizedScope = normalizeFilterValue(scope);
     const normalizedAvailability = normalizeFilterValue(availability);
     const parsedTags = parseTagsFilter(tagsParam);
@@ -397,6 +450,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       search: normalizedSearch,
       brand: normalizedBrandFilter,
       finish: normalizedFinishFilter,
+      finishes: canonicalizeTagsForCache(parsedFinishesFilter),
       scope: normalizedScope,
       availability: normalizedAvailability,
       tags: canonicalizeTagsForCache(parsedTags),
@@ -439,13 +493,26 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       paramIndex++;
     }
 
+    const finishFilterGroups: string[][] = [];
     if (normalizedFinishFilter) {
-      const filterValues =
-        normalizedFinishFilter === "creme" ? ["creme", "cream"] : [normalizedFinishFilter];
-      if (filterValues.length > 0) {
-        conditions.push(`LOWER(s.finish) = ANY($${paramIndex}::text[])`);
-        params.push(filterValues);
-        paramIndex++;
+      finishFilterGroups.push([normalizedFinishFilter]);
+    }
+    if (parsedFinishesFilter.length > 0) {
+      finishFilterGroups.push(parsedFinishesFilter);
+    }
+    if (finishFilterGroups.length > 0) {
+      const aliases = await loadFinishAliasMap();
+      for (const group of finishFilterGroups) {
+        // Match the multi-finish array (canonical values) or the legacy single finish column.
+        const canonicalValues = canonicalizeFinishes(group, aliases);
+        const legacyValues = Array.from(
+          new Set([...group, ...canonicalValues, ...(canonicalValues.includes("creme") ? ["cream"] : [])])
+        );
+        conditions.push(
+          `(COALESCE(s.finishes, ARRAY[]::text[]) && $${paramIndex}::text[] OR LOWER(s.finish) = ANY($${paramIndex + 1}::text[]))`
+        );
+        params.push(canonicalValues, legacyValues);
+        paramIndex += 2;
       }
     }
 
@@ -532,6 +599,10 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       }
     }
 
+    const finishUpdate = requestCarriesFinishData(body)
+      ? resolveRequestedFinishes(body, await loadFinishAliasMap())
+      : undefined;
+
     const { shadeId } = await transaction(async (client) => {
       const resolvedShadeId =
         shadeIdFromBody ??
@@ -539,10 +610,15 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
           client,
           body.brand!,
           body.name!,
-          body.finish,
+          primaryFinishForRequest(body, finishUpdate),
           body.collection,
-          { colorName: body.color, vendorHex: body.vendorHex, detectedHex: body.detectedHex, nameHex: body.nameHex }
+          { colorName: body.color, vendorHex: body.vendorHex, detectedHex: body.detectedHex, nameHex: body.nameHex },
+          finishUpdate
         ));
+
+      if (adoptingExistingShade) {
+        await applyShadeFinishUpdate(client, resolvedShadeId, finishUpdate);
+      }
 
       if (adoptingExistingShade && (body.color || body.vendorHex || body.detectedHex || body.nameHex)) {
         await client.query(
@@ -606,7 +682,8 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       shadeId,
       userId,
       source: adoptingExistingShade ? "existing_shade" : "new_shade",
-      hasFinish: Boolean(body.finish),
+      hasFinish: Boolean(body.finish) || Boolean(finishUpdate?.values.length),
+      finishCount: finishUpdate?.values.length ?? 0,
       hasCollection: Boolean(body.collection),
     });
 
@@ -636,6 +713,9 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
 
   try {
     const body = (await request.json()) as PolishUpdateRequest;
+    const finishUpdate = requestCarriesFinishData(body)
+      ? resolveRequestedFinishes(body, await loadFinishAliasMap())
+      : undefined;
 
     const updatedShadeId = await transaction(async (client) => {
       let targetShadeId = shadeId;
@@ -645,11 +725,16 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
           client,
           body.brand,
           body.name,
-          body.finish,
+          primaryFinishForRequest(body, finishUpdate),
           body.collection,
-          { colorName: body.color, vendorHex: body.vendorHex, detectedHex: body.detectedHex, nameHex: body.nameHex }
+          { colorName: body.color, vendorHex: body.vendorHex, detectedHex: body.detectedHex, nameHex: body.nameHex },
+          finishUpdate
         );
-      } else if (body.color || body.vendorHex || body.detectedHex || body.nameHex) {
+      } else {
+        await applyShadeFinishUpdate(client, targetShadeId, finishUpdate);
+      }
+
+      if (!(body.brand && body.name) && (body.color || body.vendorHex || body.detectedHex || body.nameHex)) {
         await client.query(
           `UPDATE shade SET
              color_name   = COALESCE($2, color_name),
@@ -782,6 +867,8 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
               s.vendor_hex,
               ia.storage_url,
               CASE
+                WHEN cardinality(s.finishes) > 0
+                  THEN s.finishes
                 WHEN s.finish IS NOT NULL AND btrim(s.finish) <> ''
                   THEN ARRAY[s.finish]::text[]
                 ELSE NULL::text[]
@@ -841,7 +928,7 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
     const previousHex = shade.detected_hex;
     const vendorFinishes =
       shade.vendor_tags
-        ?.map((t) => normalizeFinish(t) || t.trim().toLowerCase())
+        ?.map((t) => canonicalizeFinish(t) || normalizeFinish(t) || t.trim().toLowerCase())
         .filter((v): v is string => Boolean(v)) ?? [];
     const aiFinishes = result.finishes ?? [];
     const mergedFinishes = Array.from(new Set([...vendorFinishes, ...aiFinishes]));

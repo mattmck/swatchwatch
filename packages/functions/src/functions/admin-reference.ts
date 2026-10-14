@@ -19,6 +19,7 @@ import { withAdmin } from "../lib/auth";
 import { query } from "../lib/db";
 import { withCors } from "../lib/http";
 import { cacheDelete, cacheDeleteByPrefix } from "../lib/cache";
+import { resetFinishAliasCache } from "../lib/finishes";
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
@@ -26,6 +27,8 @@ const MAX_PAGE_SIZE = 100;
 const VALID_JOB_STATUSES = new Set(["queued", "running", "succeeded", "failed", "cancelled"]);
 
 async function invalidateReferenceCaches(): Promise<void> {
+  // In-process finish alias cache (other instances pick up changes within its 5 min TTL).
+  resetFinishAliasCache();
   await Promise.all([
     cacheDelete("reference:finishes"),
     cacheDelete("reference:harmonies"),

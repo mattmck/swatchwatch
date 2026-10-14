@@ -1,4 +1,4 @@
-import { query } from "./db";
+import { canonicalizeFinishes, loadFinishAliasMap } from "./finishes";
 import { trackMetric } from "./telemetry";
 import { resolveAzureOpenAiConfig } from "./azure-openai-config";
 
@@ -8,7 +8,6 @@ const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 2000;
 const RATE_LIMIT_DELAY_MS = 10000;
 const MAX_ERROR_BODY_LOG_CHARS = 400;
-const FINISH_NORMALIZATION_CACHE_TTL_MS = 5 * 60 * 1000;
 
 export interface HexDetectionResult {
   hex: string | null;
@@ -156,145 +155,21 @@ export function parseHexDetectionTokenUsage(
   };
 }
 
-const DEFAULT_FINISH_CANONICAL_MAP: Record<string, string> = {
-  creme: "creme",
-  cream: "creme",
-  creamy: "creme",
-  shimmer: "shimmer",
-  glitter: "glitter",
-  metallic: "metallic",
-  matte: "matte",
-  jelly: "jelly",
-  holographic: "holographic",
-  holo: "holographic",
-  "holo finish": "holographic",
-  "crushed holo": "holographic",
-  "crushed-holo": "holographic",
-  crushedholo: "holographic",
-  "linear holo": "holographic",
-  "linear-holo": "holographic",
-  linearholo: "holographic",
-  "scattered holo": "holographic",
-  "scattered-holo": "holographic",
-  scatteredholo: "holographic",
-  "micro holo": "holographic",
-  "micro-holo": "holographic",
-  microholo: "holographic",
-  "holo glitter": "holographic",
-  "holo-glitter": "holographic",
-  "holographic glitter": "holographic",
-  "holo flake": "holographic",
-  "holo-flake": "holographic",
-  "holo flakes": "holographic",
-  "holo-flakes": "holographic",
-  duochrome: "duochrome",
-  multichrome: "multichrome",
-  flake: "flake",
-  flakes: "flake",
-  topper: "topper",
-  sheer: "sheer",
-  magnetic: "magnetic",
-  thermal: "thermal",
-  crelly: "crelly",
-  glow: "glow",
-  other: "other",
-};
-
-let finishNormalizationCache:
-  | {
-      values: Map<string, string>;
-      expiresAtMs: number;
-    }
-  | null = null;
-let pendingFinishNormalizationLoad: Promise<Map<string, string>> | null = null;
-
-async function loadFinishNormalizationMap(
-  options?: HexDetectionOptions
-): Promise<Map<string, string>> {
-  const now = Date.now();
-  if (finishNormalizationCache && finishNormalizationCache.expiresAtMs > now) {
-    return finishNormalizationCache.values;
-  }
-
-  if (pendingFinishNormalizationLoad) {
-    return pendingFinishNormalizationLoad;
-  }
-
-  pendingFinishNormalizationLoad = (async () => {
-    try {
-      const result = await query<{
-        sourceValue: string;
-        normalizedFinishName: string;
-      }>(
-        `SELECT DISTINCT ON ("sourceValue")
-           "sourceValue",
-           "normalizedFinishName"
-         FROM (
-           SELECT
-             source_value AS "sourceValue",
-             normalized_finish_name AS "normalizedFinishName",
-             1 AS source_priority
-           FROM finish_normalization
-           UNION ALL
-           SELECT
-             name AS "sourceValue",
-             name AS "normalizedFinishName",
-             2 AS source_priority
-           FROM finish_type
-         ) x
-         ORDER BY "sourceValue", source_priority`
-      );
-
-      const values = new Map<string, string>();
-      for (const row of result.rows) {
-        const source = row.sourceValue?.trim().toLowerCase();
-        const normalized = row.normalizedFinishName?.trim().toLowerCase();
-        if (!source || !normalized) continue;
-        values.set(source, normalized);
-      }
-
-      finishNormalizationCache = {
-        values,
-        expiresAtMs: now + FINISH_NORMALIZATION_CACHE_TTL_MS,
-      };
-      return values;
-    } catch (error: unknown) {
-      const code =
-        typeof error === "object" && error !== null && "code" in error
-          ? String(error.code)
-          : undefined;
-      const message = error instanceof Error ? error.message : String(error);
-
-      emitLog(
-        options,
-        "warn",
-        `[ai-color-detection] Falling back to default finish normalization map (${message})`,
-        { code }
-      );
-      return new Map(Object.entries(DEFAULT_FINISH_CANONICAL_MAP));
-    } finally {
-      pendingFinishNormalizationLoad = null;
-    }
-  })();
-
-  return pendingFinishNormalizationLoad;
-}
-
 async function parseFinishes(
   value: unknown,
   options?: HexDetectionOptions
 ): Promise<string[] | null> {
   if (!Array.isArray(value)) return null;
-  const finishMap = await loadFinishNormalizationMap(options);
-  const out: string[] = [];
-  for (const entry of value) {
-    if (typeof entry !== "string") continue;
-    const normalized = entry.trim().toLowerCase();
-    const mapped = finishMap.get(normalized);
-    if (mapped && !out.includes(mapped)) {
-      out.push(mapped);
-    }
-  }
+  const aliases = await loadFinishAliasMap({
+    onFallback: (message, code) =>
+      emitLog(
+        options,
+        "warn",
+        `[ai-color-detection] Falling back to default finish normalization map (${message})`,
+        { code }
+      ),
+  });
+  const out = canonicalizeFinishes(value, aliases);
   return out.length ? out : null;
 }
 

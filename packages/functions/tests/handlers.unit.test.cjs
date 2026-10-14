@@ -978,6 +978,217 @@ describe("functions/polishes — matchImage", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// functions/polishes — multi-finish contract (#43)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("functions/polishes — multi-finish", () => {
+  const finishLib = require("../dist/lib/finishes");
+
+  afterEach(() => {
+    finishLib.resetFinishAliasCache();
+  });
+
+  function aliasRows() {
+    return [
+      { sourceValue: "holo", normalizedFinishName: "holographic" },
+      { sourceValue: "holographic", normalizedFinishName: "holographic" },
+      { sourceValue: "shimmer", normalizedFinishName: "shimmer" },
+      { sourceValue: "creme", normalizedFinishName: "creme" },
+      { sourceValue: "cream", normalizedFinishName: "creme" },
+    ];
+  }
+
+  it("selects finishes and filters by finish against the multi-finish array and legacy column", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    const listCalls = [];
+    queryMock = async (text, params) => {
+      if (text.includes("FROM app_user")) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (text.includes("FROM finish_normalization")) {
+        return { rows: aliasRows() };
+      }
+      if (text.includes("COUNT(*)")) {
+        return { rows: [{ total: "1" }] };
+      }
+      listCalls.push({ text, params });
+      return {
+        rows: [
+          {
+            id: "7",
+            brand: "Holo Taco",
+            name: "Rainbow Road",
+            color: "",
+            finish: "shimmer",
+            finishes: ["shimmer", "holographic"],
+            swatchImageUrl: null,
+          },
+        ],
+      };
+    };
+
+    const handler = registeredRoutes["polishes-list"].handler;
+    const req = fakeRequest({
+      url: "http://localhost:7071/api/polishes?finish=holo&finishes=Shimmer,cream",
+      headers: { authorization: "Bearer dev:1" },
+      params: {},
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.jsonBody.polishes[0].finishes, ["shimmer", "holographic"]);
+    assert.equal(res.jsonBody.polishes[0].finish, "shimmer");
+
+    assert.equal(listCalls.length, 1);
+    const { text, params } = listCalls[0];
+    assert.ok(text.includes("AS finishes"), "POLISH_SELECT should project finishes");
+    assert.ok(text.includes("s.finishes, ARRAY[]::text[]) &&"), "should use array overlap for finish filter");
+    // finish=holo → canonical holographic (+ raw legacy value)
+    assert.ok(params.some((p) => Array.isArray(p) && p.length === 1 && p[0] === "holographic"));
+    assert.ok(params.some((p) => Array.isArray(p) && p.includes("holo") && p.includes("holographic")));
+    // finishes=Shimmer,cream → any-of canonical [shimmer, creme]; legacy column also matches "cream"
+    assert.ok(params.some((p) => Array.isArray(p) && p.join(",") === "shimmer,creme"));
+    assert.ok(params.some((p) => Array.isArray(p) && p.includes("cream") && p.includes("creme")));
+  });
+
+  it("creates a new shade with finishes and keeps the legacy finish populated", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async (text) => {
+      if (text.includes("FROM app_user")) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (text.includes("FROM finish_normalization")) {
+        return { rows: aliasRows() };
+      }
+      return {
+        rows: [
+          {
+            id: "55",
+            brand: "OPI",
+            name: "Prism",
+            finish: "shimmer",
+            finishes: ["shimmer", "holographic"],
+            swatchImageUrl: null,
+          },
+        ],
+      };
+    };
+
+    const clientCalls = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          clientCalls.push({ text, params });
+          if (text.includes("SELECT brand_id FROM brand")) return { rows: [{ brand_id: 3 }] };
+          if (text.includes("SELECT shade_id FROM shade")) return { rows: [] };
+          if (text.includes("INSERT INTO shade")) return { rows: [{ shade_id: 55 }] };
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["polishes-create"].handler;
+    const req = fakeRequest({
+      method: "POST",
+      url: "http://localhost:7071/api/polishes",
+      headers: { authorization: "Bearer dev:1" },
+      body: {
+        brand: "OPI",
+        name: "Prism",
+        color: "Silver",
+        finishes: ["Shimmer", "holo", "not-a-finish"],
+        tags: ["finish:holographic", "favorite"],
+      },
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 201);
+    assert.deepEqual(res.jsonBody.finishes, ["shimmer", "holographic"]);
+
+    const lookup = clientCalls.find((c) => c.text.includes("SELECT shade_id FROM shade"));
+    assert.equal(lookup.params[2], "shimmer", "legacy finish key should be the primary finish");
+    const insert = clientCalls.find((c) => c.text.includes("INSERT INTO shade"));
+    assert.ok(insert.text.includes("finishes"));
+    assert.equal(insert.params[2], "shimmer");
+    assert.deepEqual(insert.params[8], ["shimmer", "holographic"]);
+  });
+
+  it("replaces finishes on an existing shade when only finishes are updated", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async (text) => {
+      if (text.includes("FROM app_user")) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (text.includes("FROM finish_normalization")) {
+        return { rows: aliasRows() };
+      }
+      return { rows: [{ id: "9", brand: "OPI", name: "X", finish: "creme", finishes: ["creme", "shimmer"] }] };
+    };
+
+    const clientCalls = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          clientCalls.push({ text, params });
+          if (text.includes("INSERT INTO user_inventory_item")) return { rows: [{ inventoryItemId: "1" }] };
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["polishes-mutate"].handler;
+    const req = fakeRequest({
+      method: "PUT",
+      url: "http://localhost:7071/api/polishes/9",
+      headers: { authorization: "Bearer dev:1" },
+      params: { id: "9" },
+      body: { finishes: ["cream", "shimmer"] },
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 200);
+
+    const replace = clientCalls.find((c) => c.text.includes("SET finishes = $2::text[]"));
+    assert.ok(replace, "should replace shade.finishes");
+    assert.equal(replace.params[0], 9);
+    assert.deepEqual(replace.params[1], ["creme", "shimmer"]);
+  });
+
+  it("does not touch finishes when the update carries no finish data", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let aliasQueries = 0;
+    queryMock = async (text) => {
+      if (text.includes("FROM app_user")) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (text.includes("FROM finish_normalization")) {
+        aliasQueries++;
+        return { rows: aliasRows() };
+      }
+      return { rows: [{ id: "9", brand: "OPI", name: "X", finish: "creme", finishes: ["creme"] }] };
+    };
+
+    const clientCalls = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          clientCalls.push({ text, params });
+          if (text.includes("INSERT INTO user_inventory_item")) return { rows: [{ inventoryItemId: "1" }] };
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["polishes-mutate"].handler;
+    const req = fakeRequest({
+      method: "PUT",
+      url: "http://localhost:7071/api/polishes/9",
+      headers: { authorization: "Bearer dev:1" },
+      params: { id: "9" },
+      body: { quantity: 3 },
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 200);
+    assert.equal(aliasQueries, 0);
+    assert.ok(!clientCalls.some((c) => c.text.includes("finishes")));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // functions/catalog — input validation, search results
 // ═══════════════════════════════════════════════════════════════════════════
 
