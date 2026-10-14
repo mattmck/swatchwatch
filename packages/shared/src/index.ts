@@ -3,6 +3,7 @@ export * from "./types/user";
 export * from "./types/voice";
 export * from "./types/capture";
 export * from "./types/palette";
+export * from "./types/color-match";
 export * from "./types/ingestion";
 export {
   type FinishType,

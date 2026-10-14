@@ -79,6 +79,16 @@ The package is automatically linked via npm workspaces — no publishing require
 | `CollectionGapCell` | Count per hue/lightness cell |
 | `CollectionGapAnalysis` | Structured gap-analysis output (`cells`, `missing`, `underrepresented`) |
 
+### `types/color-match.ts`
+
+| Type | Description |
+|------|-------------|
+| `MatchConfidence` | `"high" \| "medium" \| "low"` — bucketed OKLAB distance (thresholds in Functions `lib/color-match.ts`) |
+| `ExtractedColor` | Dominant image color: uppercase `hex` + pixel `fraction` (0–1) |
+| `PolishImageMatchRequest` | Body for `POST /api/polishes/match-image`: `image` (base64 data URL), optional `maxColors` (1–10), `limit` (1–50) |
+| `PolishMatch` | `{ polish, matchedColor, distance, confidence }` — one owned polish matched to its closest extracted color |
+| `PolishImageMatchResponse` | `{ extractedColors, matches, candidateCount }` |
+
 ### `types/ingestion.ts`
 
 | Type | Description |
