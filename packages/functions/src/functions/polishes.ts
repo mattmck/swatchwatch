@@ -115,14 +115,15 @@ async function findOrCreateShade(
 
   if (existingShade.rows.length > 0) {
     const shadeId = existingShade.rows[0].shade_id;
-    // Backfill color data if provided
+    // Backfill color data if provided. Shades are shared catalog rows, so user input
+    // only fills NULL columns — it never overwrites values other users already see.
     if (colorData) {
       await client.query(
         `UPDATE shade SET
-           color_name   = COALESCE($2, color_name),
-           vendor_hex   = COALESCE($3, vendor_hex),
-           detected_hex = COALESCE($4, detected_hex),
-           name_hex     = COALESCE($5, name_hex),
+           color_name   = COALESCE(color_name, $2),
+           vendor_hex   = COALESCE(vendor_hex, $3),
+           detected_hex = COALESCE(detected_hex, $4),
+           name_hex     = COALESCE(name_hex, $5),
            updated_at   = now()
          WHERE shade_id = $1`,
         [shadeId, colorData.colorName || null, colorData.vendorHex || null, colorData.detectedHex || null, colorData.nameHex || null]
@@ -248,7 +249,9 @@ function withReadableSwatchUrl<T extends { swatchImageUrl?: string | null; sourc
   }
 
   const readableSourceImageUrls = Array.isArray(normalizedRow.sourceImageUrls)
-    ? normalizedRow.sourceImageUrls.map((url) => withReadableImageUrl(url, requestUrl))
+    ? normalizedRow.sourceImageUrls
+        .map((url) => withReadableImageUrl(url, requestUrl))
+        .filter((url): url is string => Boolean(url))
     : normalizedRow.sourceImageUrls;
 
   return {
@@ -295,14 +298,29 @@ function isStorageUrlProxied(url: string): boolean {
   return false;
 }
 
-function withReadableImageUrl(imageUrl: string, requestUrl: string): string {
+/**
+ * Rewrite private blob URLs to signed `/api/images/{id}` capability URLs.
+ * Fails closed: if a URL cannot be signed (e.g. IMAGE_PROXY_SIGNING_KEY missing), the image is
+ * omitted (null) rather than leaking the raw storage URL or failing the whole response.
+ */
+function withReadableImageUrl(imageUrl: string, requestUrl: string): string | null {
   const normalized = imageUrl.trim();
   if (!normalized) {
     return normalized;
   }
-  return isStorageUrlProxied(normalized)
-    ? toImageProxyUrl(requestUrl, normalized)
-    : normalized;
+  if (!isStorageUrlProxied(normalized)) {
+    return normalized;
+  }
+  try {
+    return toImageProxyUrl(requestUrl, normalized);
+  } catch (error) {
+    console.error(
+      `[polishes] Omitting image: failed to build signed image proxy URL (${
+        error instanceof Error ? error.message : String(error)
+      })`
+    );
+    return null;
+  }
 }
 
 async function getPolishes(request: HttpRequest, context: InvocationContext, userId: number): Promise<HttpResponseInit> {
@@ -349,6 +367,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
             .map((r) => r.storageUrl)
             .filter((url): url is string => typeof url === "string" && url.trim().length > 0)
             .map((url) => withReadableImageUrl(url, request.url))
+            .filter((url): url is string => Boolean(url))
         )
       );
 
@@ -547,10 +566,10 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       if (adoptingExistingShade && (body.color || body.vendorHex || body.detectedHex || body.nameHex)) {
         await client.query(
           `UPDATE shade SET
-             color_name   = COALESCE($2, color_name),
-             vendor_hex   = COALESCE($3, vendor_hex),
-             detected_hex = COALESCE($4, detected_hex),
-             name_hex     = COALESCE($5, name_hex),
+             color_name   = COALESCE(color_name, $2),
+             vendor_hex   = COALESCE(vendor_hex, $3),
+             detected_hex = COALESCE(detected_hex, $4),
+             name_hex     = COALESCE(name_hex, $5),
              updated_at   = now()
            WHERE shade_id = $1`,
           [resolvedShadeId, body.color ?? null, body.vendorHex ?? null, body.detectedHex ?? null, body.nameHex ?? null]
@@ -652,10 +671,10 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
       } else if (body.color || body.vendorHex || body.detectedHex || body.nameHex) {
         await client.query(
           `UPDATE shade SET
-             color_name   = COALESCE($2, color_name),
-             vendor_hex   = COALESCE($3, vendor_hex),
-             detected_hex = COALESCE($4, detected_hex),
-             name_hex     = COALESCE($5, name_hex),
+             color_name   = COALESCE(color_name, $2),
+             vendor_hex   = COALESCE(vendor_hex, $3),
+             detected_hex = COALESCE(detected_hex, $4),
+             name_hex     = COALESCE(name_hex, $5),
              updated_at   = now()
            WHERE shade_id = $1`,
           [targetShadeId, body.color ?? null, body.vendorHex ?? null, body.detectedHex ?? null, body.nameHex ?? null]

@@ -1103,11 +1103,34 @@ describe("functions/voice — route registration", () => {
 });
 
 describe("functions/voice — processVoiceInput validation", () => {
-  it("returns 400 for non-audio content type", async () => {
+  // voice-process requires auth; authenticate as dev user 1 for validation tests.
+  const authenticateAsDevUser = () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async () => ({
+      rows: [{ user_id: 1, external_id: "dev-user-1", email: null, role: "user" }],
+    });
+  };
+
+  it("returns 401 without an Authorization header", async () => {
+    authenticateAsDevUser();
     const handler = registeredRoutes["voice-process"].handler;
     const req = fakeRequest({
       method: "POST",
       url: "http://localhost:7071/api/voice",
+      contentType: "audio/wav",
+    });
+    req.arrayBuffer = async () => new ArrayBuffer(1024);
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 401);
+  });
+
+  it("returns 400 for non-audio content type", async () => {
+    authenticateAsDevUser();
+    const handler = registeredRoutes["voice-process"].handler;
+    const req = fakeRequest({
+      method: "POST",
+      url: "http://localhost:7071/api/voice",
+      headers: { authorization: "Bearer dev:1" },
       contentType: "application/json",
     });
     const res = await handler(req, fakeContext());
@@ -1116,10 +1139,12 @@ describe("functions/voice — processVoiceInput validation", () => {
   });
 
   it("returns 400 for empty audio body", async () => {
+    authenticateAsDevUser();
     const handler = registeredRoutes["voice-process"].handler;
     const req = fakeRequest({
       method: "POST",
       url: "http://localhost:7071/api/voice",
+      headers: { authorization: "Bearer dev:1" },
       contentType: "audio/wav",
     });
     req.arrayBuffer = async () => new ArrayBuffer(0);
@@ -1129,10 +1154,12 @@ describe("functions/voice — processVoiceInput validation", () => {
   });
 
   it("accepts multipart/form-data content type", async () => {
+    authenticateAsDevUser();
     const handler = registeredRoutes["voice-process"].handler;
     const req = fakeRequest({
       method: "POST",
       url: "http://localhost:7071/api/voice",
+      headers: { authorization: "Bearer dev:1" },
       contentType: "multipart/form-data; boundary=---",
     });
     req.arrayBuffer = async () => new ArrayBuffer(1024);
@@ -1141,10 +1168,12 @@ describe("functions/voice — processVoiceInput validation", () => {
   });
 
   it("returns stub response for valid audio", async () => {
+    authenticateAsDevUser();
     const handler = registeredRoutes["voice-process"].handler;
     const req = fakeRequest({
       method: "POST",
       url: "http://localhost:7071/api/voice",
+      headers: { authorization: "Bearer dev:1" },
       contentType: "audio/wav",
     });
     req.arrayBuffer = async () => new ArrayBuffer(1024);

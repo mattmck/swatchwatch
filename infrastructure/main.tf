@@ -282,6 +282,23 @@ resource "azurerm_key_vault_secret" "pg_password" {
   ]
 }
 
+# HMAC key for signed /api/images/{id} capability URLs (see packages/functions/src/lib/image-proxy.ts).
+# Rotating it (terraform taint / replace) invalidates previously issued image URLs.
+resource "random_password" "image_proxy_signing_key" {
+  length  = 64
+  special = false
+}
+
+resource "azurerm_key_vault_secret" "image_proxy_signing_key" {
+  name         = "image-proxy-signing-key"
+  value        = random_password.image_proxy_signing_key.result
+  key_vault_id = azurerm_key_vault.main.id
+  depends_on = [
+    azurerm_key_vault_access_policy.deployer,
+    azurerm_key_vault_access_policy.github_actions,
+  ]
+}
+
 # ── Azure Database for PostgreSQL Flexible Server ───────────────
 
 resource "azurerm_postgresql_flexible_server" "main" {
@@ -474,6 +491,7 @@ resource "azurerm_linux_function_app" "main" {
     AZURE_DOCUMENT_INTELLIGENCE_KEY       = var.enable_document_intelligence ? "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.document_intelligence_key[0].versionless_id})" : ""
     AZURE_OPENAI_DEPLOYMENT_LABEL         = var.openai_label_deployment_name
     AUTH_DEV_BYPASS                       = var.auth_dev_bypass ? "true" : "false"
+    IMAGE_PROXY_SIGNING_KEY               = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.image_proxy_signing_key.versionless_id})"
     CORS_ALLOWED_ORIGINS                  = join(",", local.function_cors_allowed_origins)
     # Optional Redis read-through cache. Empty when create_redis = false; the app
     # caching layer (lib/cache.ts) no-ops gracefully when these are unset.

@@ -8,6 +8,7 @@
     "build:deploy": "esbuild src/index.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist-bundle/index.js --external:@azure/functions --external:@azure/storage-queue --external:applicationinsights --external:jose --external:p-limit --external:pg --external:redis --external:sharp",
     "pretest": "npm run build --workspace=swatchwatch-shared && npm run build",
     "test": "node --test tests/*.unit.test.cjs",
+    "test:e2e": "node --test tests/api.test.cjs tests/access-control.e2e.test.cjs",
     "pack": "func pack --output ./dist/functions.zip --skip-install",
     "start": "func start",
     "watch": "tsc -w",

@@ -10,10 +10,26 @@ npm run setup            # Install workspace dependencies first
 npm run dev:infra        # Start local Postgres + Azurite
 npm run dev:functions    # TypeScript watch + func host on http://localhost:7071
 npm run test --workspace=packages/functions  # Run Functions unit tests
+npm run test:e2e --workspace=packages/functions  # E2E tests against the running local host
 
 # Or for debugging (VS Code):
 # Press F5 → "Attach to Node Functions" (builds, watches, starts with --inspect on port 9229)
 ```
+
+### Tests
+
+- **Unit** (`npm run test`): `tests/*.unit.test.cjs`, no DB or host required; runs in CI.
+  `tests/access-control.unit.test.cjs` covers cross-user isolation (issue #53): every inventory /
+  capture-session query must be bound to the caller's `user_id`, cross-user GET/PUT/DELETE and
+  capture status/frame/finalize/answer must not read or mutate the owner's rows, user-scoped routes
+  return 401 without credentials, admin routes return 403 for regular users, and `/api/images/{id}`
+  rejects unsigned/forged/tampered ids (the `images signed-id (requires #47)` block).
+- **E2E** (`npm run test:e2e`): `tests/api.test.cjs` + `tests/access-control.e2e.test.cjs` against
+  a live host at `http://localhost:7071/api` started with `AUTH_DEV_BYPASS=true` and migrated dev
+  data (seed users `dev:1` and `dev:2`). The access-control suite has user 2 attempt to read/modify
+  user 1's polish and capture session, verifies user 1's data is unchanged, and checks tampered image
+  ids. It skips itself when the host is unreachable. Override with `E2E_API_BASE`,
+  `E2E_OWNER_TOKEN`, `E2E_ATTACKER_TOKEN`.
 
 Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools@4`).
 
@@ -64,8 +80,8 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `DELETE` | `/api/reference-admin/finish-normalizations/{id}` | `adminFinishNormalizationsItemHandler` | `admin-reference.ts` | ✅ Working (admin-only) |
 | `GET` | `/api/users-admin` | `listUsers` | `admin-users.ts` | ✅ Working (admin-only) |
 | `POST` | `/api/users-admin/merge` | `mergeUsers` | `admin-users.ts` | ✅ Working (admin-only) |
-| `POST` | `/api/voice` | `processVoiceInput` | `voice.ts` | ⬜ Stub |
-| `GET` | `/api/images/{id}` | `images` | `images.ts` | ✅ Working |
+| `POST` | `/api/voice` | `processVoiceInput` | `voice.ts` | ⬜ Stub (auth required) |
+| `GET` | `/api/images/{id}` | `images` | `images.ts` | ✅ Working (signed ids only) |
 
 
 Background triggers:
@@ -78,6 +94,13 @@ All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpReques
 `GET /api/polishes` returns a paginated canonical shade catalog joined with the requesting user's inventory rows. `inventoryItemId` and user-facing fields are undefined when the user has not added that shade yet, but catalog metadata (brand, finish, color hexes, swatch) is still returned so the UI can show "not owned" entries. Supported query params include `search`, `brand`, `finish`, `scope` (`all|collection`), `availability` (`all|owned|wishlist`), `tags`, `sortBy` (`status|brand|name|finish|collection|createdAt|rating`), `sortOrder`, `page`, and `pageSize`. `GET /api/polishes/{id}` looks up a shade by `shade_id` and includes `sourceImageUrls` (all source images associated with that shade's swatches) for the detail page.
 When `REDIS_URL` + `REDIS_KEY` are configured, list/detail reads are served through a Redis read-through cache (short TTL), and create/update/delete/recalc writes invalidate related user and catalog cache keys.
 For private blob storage, the API rewrites blob URLs to `/api/images/{id}` so image bytes are served through Functions (no public container access or client-side SAS required).
+
+Access control (issue #47):
+- Every user-data route (`/api/polishes*`, `/api/capture/*`, `/api/voice`) is wrapped in `withAuth`, and every query is scoped to the caller's `user_id` (inventory upserts/deletes key on `(user_id, shade_id)`; capture sessions are looked up by `capture_uuid` **and** `user_id`, and questions/answers/frames hang off that session). Admin/ops routes (`/api/ingestion/*`, `/api/reference-admin/*`, `/api/users-admin*`, `/api/polishes/{id}/recalc-hex`) use `withAdmin`. Only `/api/auth/*`, `/api/catalog/*`, `/api/reference/*`, and `/api/images/{id}` are anonymous, and none of them return per-user data.
+- Shades are a shared catalog. Color fields (`color`, `vendorHex`, `detectedHex`, `nameHex`) sent to `POST`/`PUT /api/polishes` only **backfill NULL** shade columns (`COALESCE(column, $new)`); a regular user can never overwrite catalog color data other users see. Corrections to existing values go through admin tooling (e.g. `recalc-hex`).
+- `POST /api/capture/{captureId}/frame` with an `imageId` only accepts image assets owned by the caller (`image_asset.owner_type='user' AND owner_id=<caller>`); anything else returns `404`.
+- `GET /api/images/{id}` is anonymous because ids are embedded in `<img src>` (no `Authorization` header). The id is therefore a signed capability: `base64url(storageUrl) + "." + base64url(HMAC-SHA256(IMAGE_PROXY_SIGNING_KEY, storageUrl))`, minted only by the API (`src/lib/image-proxy.ts`). Unsigned (legacy), forged, or tampered ids return `403 {"error":"Forbidden"}` without touching storage. The decoded URL must also be a plain blob URL (no query string/credentials) on the configured storage account inside the source-image container (`SOURCE_IMAGE_CONTAINER`), otherwise `403`. Ids are deterministic per URL+key, so rotating `IMAGE_PROXY_SIGNING_KEY` invalidates previously issued image URLs (clients pick up new ones on the next API read; Redis-cached polish responses expire within ~90s).
+- If `IMAGE_PROXY_SIGNING_KEY` is missing, signing fails closed: polish responses omit proxied image URLs (`swatchImageUrl: null`) and `/api/images/{id}` returns `500` — unless `AUTH_DEV_BYPASS=true`, in which case an ephemeral per-process key is generated (with a warning) for local development.
 `POST /api/polishes/{id}/recalc-hex` is admin-only, fetches the latest swatch image for the shade, runs Azure OpenAI hex detection, updates `detected_hex`, and returns a 200 with the detected hex and confidence (or a 422 if no image is available for detection). Responses now also include `tokenUsage` (`promptTokens`, `completionTokens`, `totalTokens`) when Azure returns usage metadata. Vendor context is derived from shade metadata (for example `finish`) so the endpoint does not depend on source-specific external IDs.
 
 `POST /api/polishes/match-image` (authenticated) matches a photo against the **caller's owned polishes** (`quantity > 0`). Body (`PolishImageMatchRequest`): `{ image: "data:image/<type>;base64,…", maxColors?: 1–10 (default 6), limit?: 1–50 (default 20) }` — the same base64 data-URL convention as capture frames and the same upload policy (5 MB decoded, JPEG/PNG/WebP/GIF/HEIC/HEIF MIME allowlist). Bodies larger than the base64-encoded 5 MB limit are rejected with 413; missing/invalid images, non-image MIME types, undecodable bytes, images over 40 MP, and out-of-range options return 400. The handler decodes the image in memory with `sharp`, extracts dominant colors (`lib/dominant-color.ts`), merges perceptually near-duplicate colors (OKLAB < 0.04) and drops colors under 1% of pixels, then scores each owned polish's display hex (`vendorHex > detectedHex > nameHex`) by its minimum OKLAB distance to any extracted color. Response (`PolishImageMatchResponse`): `{ extractedColors: [{ hex, fraction }], matches: [{ polish, matchedColor, distance, confidence }], candidateCount }`, sorted by ascending distance. `confidence` comes from `confidenceForDistance()` in `src/lib/color-match.ts` (`high` ≤ 0.05, `medium` ≤ 0.10, else `low`; tune via `HIGH_CONFIDENCE_MAX_DISTANCE` / `MEDIUM_CONFIDENCE_MAX_DISTANCE`). **Privacy:** the image is never persisted — not to blob storage, the database, Redis, or logs — and responses are not cached.
@@ -331,6 +354,7 @@ Key variables:
 | Variable | Purpose |
 |----------|---------|
 | `AUTH_DEV_BYPASS` | Dev-only bypass mode. When `true`, auth accepts `Bearer dev:<userId>` tokens. Keep this disabled outside isolated dev scenarios. |
+| `IMAGE_PROXY_SIGNING_KEY` | Secret (>= 32 chars) used to HMAC-sign `/api/images/{id}` ids. Required outside dev: when unset and `AUTH_DEV_BYPASS` is not `true`, image URLs are omitted and the proxy refuses every request. When unset with `AUTH_DEV_BYPASS=true`, an ephemeral per-process key is used (URLs break on restart). Generate with `openssl rand -base64 48`. Terraform stores a generated value in Key Vault (`image-proxy-signing-key`). |
 | `INGESTION_JOB_QUEUE_NAME` | Optional queue name for async ingestion jobs. Defaults to `ingestion-jobs`. |
 | `SOURCE_IMAGE_CONTAINER` | Optional blob container override for source-ingested images. Defaults to `source-images`. |
 | `AZURE_STORAGE_CONNECTION` | Connection string for uploading source images to Azure Blob Storage. When unset (for local dev or bring-up), ingestion falls back to storing the original source image URLs so swatch images still appear. |
@@ -383,7 +407,7 @@ Dev deploy note:
 - The workflow sets `FUNCTIONS_NODE_BLOCK_ON_ENTRY_POINT_ERROR=true` so entrypoint/import failures hard-fail startup instead of surfacing as misleading route-level `404` responses.
 - The workflow explicitly runs `az functionapp sync-functions` after zip deployment to force trigger refresh.
 - Post-deploy smoke tests:
-  - `POST /api/voice` with a JSON body should return `400` (host reachable + routing works).
+  - `POST /api/voice` without a token should return `401` (host reachable + routing + auth wrapper works; the workflow check is currently commented out).
   - When `AUTH_DEV_BYPASS=true`, `GET /api/polishes?pageSize=1` with `Authorization: Bearer dev:1` should return `200` (auth + DB path).
 
 ## Build

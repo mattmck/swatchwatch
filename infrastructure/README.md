@@ -90,6 +90,7 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 |----------|-------------------|---------|
 | Resource Group | `azurerm_resource_group.main` | Container for all resources |
 | Key Vault | `azurerm_key_vault.main` | Secure secrets storage (PG password, API keys) |
+| Key Vault Secret | `azurerm_key_vault_secret.image_proxy_signing_key` (from `random_password.image_proxy_signing_key`) | 64-char HMAC key exposed to Functions as `IMAGE_PROXY_SIGNING_KEY` (Key Vault reference) to sign `/api/images/{id}` capability URLs. Replace the `random_password` to rotate; previously issued image URLs stop working. |
 | PostgreSQL Flexible Server | `azurerm_postgresql_flexible_server.main` | PostgreSQL 16 with pg_trgm + pgvector |
 | PostgreSQL Database | `azurerm_postgresql_flexible_server_database.main` | `swatchwatch` database |
 | Storage Account | `azurerm_storage_account.main` | Blob storage for images |

@@ -1216,6 +1216,26 @@ async function addCaptureFrame(
       return { status: 409, jsonBody: { error: "Cannot add frames to a cancelled session" } };
     }
 
+    // A caller may only attach image assets they own; never link another user's media.
+    if (body.imageId !== undefined && body.imageId !== null) {
+      const requestedImageId = Number(body.imageId);
+      if (!Number.isSafeInteger(requestedImageId) || requestedImageId <= 0) {
+        return { status: 400, jsonBody: { error: "imageId must be a positive integer" } };
+      }
+      const owned = await query<{ imageId: string }>(
+        `SELECT image_id::text AS "imageId"
+         FROM image_asset
+         WHERE image_id = $1
+           AND owner_type = 'user'
+           AND owner_id = $2`,
+        [requestedImageId, userId]
+      );
+      if (owned.rows.length === 0) {
+        return { status: 404, jsonBody: { error: "Image not found" } };
+      }
+      body.imageId = requestedImageId;
+    }
+
     // Pre-transaction: normalize image and run AI extraction pipeline
     let normalizedImage: PreparedImageInput | null = null;
     let preQualityJson: Record<string, unknown> | null = body.quality ?? null;
