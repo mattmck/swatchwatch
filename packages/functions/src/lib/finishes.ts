@@ -132,6 +132,9 @@ export function canonicalizeFinishes(
  * - Order: explicit `finish:` tags first (in tag order), then bare tags (in tag
  *   order). The first entry is treated as the primary finish by callers.
  *
+ * Used by ingestion connectors only. User request `tags` on polish create/update are
+ * deliberately NOT parsed into catalog finishes (see `resolveRequestedFinishes`).
+ *
  * Pure: pass the DB-backed alias map from `loadFinishAliasMap()` to honor
  * admin-managed `finish_normalization` rows.
  */
@@ -174,39 +177,43 @@ export function mergeFinishLists(
 /**
  * How a create/update request changes `shade.finishes`:
  * - `replace`: an explicit `finishes` array was sent (it may be empty to clear).
- * - `merge`: only the legacy `finish` and/or finish tags were sent; values are appended.
+ * - `merge`: only the legacy `finish` was sent; its value is appended.
  */
 export interface ShadeFinishUpdate {
   mode: "replace" | "merge";
   values: string[];
 }
 
-export function requestCarriesFinishData(
-  body: Pick<PolishCreateRequest, "finish" | "finishes" | "tags">
-): boolean {
-  return Array.isArray(body.finishes) || Boolean(body.finish) || (Array.isArray(body.tags) && body.tags.length > 0);
+/**
+ * True when a create/update request asks to change shade finishes. Only the explicit
+ * `finishes` array and the legacy `finish` count. Request `tags` never do: shades are
+ * shared catalog rows, and a user's personal inventory tags must not rewrite them
+ * (only ingestion connectors parse finishes from product tags).
+ */
+export function requestCarriesFinishData(body: Pick<PolishCreateRequest, "finish" | "finishes">): boolean {
+  return Array.isArray(body.finishes) || Boolean(body.finish);
 }
 
 /**
- * Resolve the canonical finishes a request asks for. Explicit `finishes` (or the legacy
- * `finish`) come first, then finishes parsed from `tags` (`finish:<value>` / bare `<value>`).
- * Returns `undefined` when the request carries no finish information at all.
+ * Resolve the canonical finishes a request asks for from explicit `finishes` (replace
+ * mode) or the legacy `finish` (merge mode). Request `tags` are ignored (see
+ * `requestCarriesFinishData`). Returns `undefined` when the request carries no finish
+ * information at all, meaning "leave `shade.finishes` untouched".
  */
 export function resolveRequestedFinishes(
-  body: Pick<PolishCreateRequest, "finish" | "finishes" | "tags">,
+  body: Pick<PolishCreateRequest, "finish" | "finishes">,
   aliases?: FinishAliasMap
 ): ShadeFinishUpdate | undefined {
   const explicitList = Array.isArray(body.finishes) ? body.finishes : null;
   const explicit = explicitList ?? (body.finish ? [body.finish] : []);
-  const fromTags = parseFinishesFromTags(body.tags, aliases);
 
-  if (!explicitList && explicit.length === 0 && fromTags.length === 0) {
+  if (!explicitList && explicit.length === 0) {
     return undefined;
   }
 
   return {
     mode: explicitList ? "replace" : "merge",
-    values: canonicalizeFinishes([...explicit, ...fromTags], aliases),
+    values: canonicalizeFinishes(explicit, aliases),
   };
 }
 

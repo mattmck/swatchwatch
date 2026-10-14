@@ -14,7 +14,7 @@ infrastructure/    → Terraform (azurerm ~4.50) for all Azure resources
 
 **Data flow:** Clients → Azure Functions REST API (`/api/polishes`, `/api/auth/*`, `/api/voice`) → Azure Database for PostgreSQL Flexible Server (schema in `docs/schema.sql`). Voice input goes through Azure Speech Services → Azure OpenAI for parsing polish details from transcriptions. Full canonical schema uses `pg_trgm` for fuzzy shade matching and `pgvector` for swatch similarity/dupe search.
 
-**Finishes:** shades carry `shade.finishes text[]` (canonical, primary first) plus the legacy `shade.finish` (identity key, kept for backward compat). Valid values come from the build-time `CANONICAL_FINISHES` list in `packages/shared` (test-enforced to match the `finish_type` seed); alias spellings come from the DB-backed `finish_normalization` table via `packages/functions/src/lib/finishes.ts`.
+**Finishes:** shades carry `shade.finishes text[]` (canonical, primary first) plus the legacy `shade.finish` (identity key, kept for backward compat). Valid values come from the build-time `CANONICAL_FINISHES` list in `packages/shared` (test-enforced to match the `finish_type` seed); alias spellings come from the DB-backed `finish_normalization` table via `packages/functions/src/lib/finishes.ts`. Request `tags` on polish create/update never modify catalog finishes (shades are shared); only ingestion connectors parse finishes from product tags.
 
 **Auth:** Azure AD B2C (provisioned outside Terraform via portal). Functions read `AZURE_AD_B2C_TENANT` and `AZURE_AD_B2C_CLIENT_ID` from environment. Token validation is JWT-based via the `/api/auth/validate` endpoint.
 

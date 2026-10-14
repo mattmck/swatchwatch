@@ -258,7 +258,13 @@ describe("lib/finishes — resolveRequestedFinishes", () => {
     assert.equal(resolveRequestedFinishes({}), undefined);
     assert.equal(resolveRequestedFinishes({ tags: ["favorite"] }), undefined);
     assert.equal(requestCarriesFinishData({ quantity: 1 }), false);
-    assert.equal(requestCarriesFinishData({ tags: ["x"] }), true);
+  });
+
+  it("ignores request tags entirely: tags never carry or change finish data", () => {
+    assert.equal(requestCarriesFinishData({ tags: ["holographic"] }), false);
+    assert.equal(requestCarriesFinishData({ tags: ["finish:glitter", "shimmer"] }), false);
+    assert.equal(resolveRequestedFinishes({ tags: ["holographic"] }), undefined);
+    assert.equal(resolveRequestedFinishes({ tags: ["finish:holographic", "shimmer"] }), undefined);
   });
 
   it("treats a legacy single finish as a merge of [finish]", () => {
@@ -274,15 +280,15 @@ describe("lib/finishes — resolveRequestedFinishes", () => {
     assert.deepEqual(resolveRequestedFinishes({ finishes: [] }), { mode: "replace", values: [] });
   });
 
-  it("appends finishes parsed from tags after explicit values", () => {
+  it("uses only explicit finishes/finish when finish-like tags are also sent", () => {
     assert.deepEqual(
-      resolveRequestedFinishes({ finish: "jelly", tags: ["finish:glitter", "favorite", "jelly"] }),
-      { mode: "merge", values: ["jelly", "glitter"] }
+      resolveRequestedFinishes({ finishes: ["shimmer"], tags: ["finish:glitter", "holographic", "favorite"] }),
+      { mode: "replace", values: ["shimmer"] }
     );
-    assert.deepEqual(resolveRequestedFinishes({ tags: ["finish:holographic"] }), {
-      mode: "merge",
-      values: ["holographic"],
-    });
+    assert.deepEqual(
+      resolveRequestedFinishes({ finish: "jelly", tags: ["finish:glitter", "favorite", "creme"] }),
+      { mode: "merge", values: ["jelly"] }
+    );
   });
 });
 

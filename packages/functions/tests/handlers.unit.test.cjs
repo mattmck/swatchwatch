@@ -1095,7 +1095,8 @@ describe("functions/polishes — multi-finish", () => {
         name: "Prism",
         color: "Silver",
         finishes: ["Shimmer", "holo", "not-a-finish"],
-        tags: ["finish:holographic", "favorite"],
+        // Finish-like tags must be ignored; only the explicit `finishes` list counts.
+        tags: ["finish:glitter", "jelly", "favorite"],
       },
     });
     const res = await handler(req, fakeContext());
@@ -1108,6 +1109,85 @@ describe("functions/polishes — multi-finish", () => {
     assert.ok(insert.text.includes("finishes"));
     assert.equal(insert.params[2], "shimmer");
     assert.deepEqual(insert.params[8], ["shimmer", "holographic"]);
+  });
+
+  it("does not write finishes from request tags when creating a shade", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let aliasQueries = 0;
+    queryMock = async (text) => {
+      if (text.includes("FROM app_user")) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (text.includes("FROM finish_normalization")) {
+        aliasQueries++;
+        return { rows: aliasRows() };
+      }
+      return { rows: [{ id: "56", brand: "OPI", name: "Tagged", finish: "", finishes: [], swatchImageUrl: null }] };
+    };
+
+    const clientCalls = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          clientCalls.push({ text, params });
+          if (text.includes("SELECT brand_id FROM brand")) return { rows: [{ brand_id: 3 }] };
+          if (text.includes("SELECT shade_id FROM shade")) return { rows: [] };
+          if (text.includes("INSERT INTO shade")) return { rows: [{ shade_id: 56 }] };
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["polishes-create"].handler;
+    const req = fakeRequest({
+      method: "POST",
+      url: "http://localhost:7071/api/polishes",
+      headers: { authorization: "Bearer dev:1" },
+      body: { brand: "OPI", name: "Tagged", tags: ["holographic", "finish:shimmer"] },
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 201);
+    assert.equal(aliasQueries, 0, "tags-only request carries no finish data");
+    const insert = clientCalls.find((c) => c.text.includes("INSERT INTO shade"));
+    assert.deepEqual(insert.params[8], [], "shade.finishes must stay empty");
+    assert.equal(insert.params[2], null, "legacy finish must not be derived from tags");
+  });
+
+  it("does not touch shade.finishes when an update only carries finish-like tags", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async (text) => {
+      if (text.includes("FROM app_user")) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      return { rows: [{ id: "9", brand: "OPI", name: "X", finish: "creme", finishes: ["creme"] }] };
+    };
+
+    const clientCalls = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          clientCalls.push({ text, params });
+          if (text.includes("INSERT INTO user_inventory_item")) return { rows: [{ inventoryItemId: "1" }] };
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["polishes-mutate"].handler;
+    const req = fakeRequest({
+      method: "PUT",
+      url: "http://localhost:7071/api/polishes/9",
+      headers: { authorization: "Bearer dev:1" },
+      params: { id: "9" },
+      body: { tags: ["holographic", "finish:shimmer"] },
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 200);
+    assert.ok(
+      !clientCalls.some((c) => /SET finishes|finishes = ARRAY/.test(c.text)),
+      "no shade.finishes write expected"
+    );
+    // The user's own inventory tags are still saved.
+    const inv = clientCalls.find((c) => c.text.includes("INSERT INTO user_inventory_item"));
+    assert.ok(inv.params.some((p) => Array.isArray(p) && p.includes("holographic")));
   });
 
   it("replaces finishes on an existing shade when only finishes are updated", async () => {
