@@ -125,9 +125,11 @@ Optional / dev-only:
 - `AZURE_OPENAI_VISION_DETAIL` — image detail level for vision hex detection, sync and batch: `low` (default, flat ~85 tokens/image), `high`, or `auto`; raise if finish detection needs more resolution
 - `HEX_DETECTION_BATCH_ENABLED` — enables batch mode for Shopify vision hex detection and the `ingestion-ai-batch-poller` timer workflow
 - `HEX_DETECTION_BATCH_MIN_IMAGES` — minimum record count required before ingestion switches to batch mode (default: `5`)
+- `HEX_DETECTION_DELAY_MS` — pause between synchronous (non-batch) hex detection calls (default: `1000`, max `60000`; `0` disables); 429s are still retried with `Retry-After`
 - `INGESTION_AI_BATCH_POLL_SCHEDULE` — NCRONTAB schedule for the batch completion poller (default: `0 * * * * *`, every minute)
 - `INGESTION_AI_BATCH_MAX_POLL_JOBS` — maximum awaiting jobs processed per poller run (default: `10`)
 - `INGESTION_AI_IMAGE_PROXY_ORIGIN` — optional public origin used to build `/api/images/{id}` URLs for Azure OpenAI vision calls (defaults to `https://$WEBSITE_HOSTNAME`)
+- `INGESTION_WORKER_TIME_BUDGET_MS` — wall-clock budget per ingestion worker invocation (default: `240000`, clamped to `30000`–`270000`); when spent, the worker saves `metrics.checkpoint`, sets stage `continuation_queued`, and enqueues a continuation message so long jobs survive the Consumption plan timeout
 - `INGESTION_LOG_FLUSH_INTERVAL_MS` — interval for ingestion worker log/metrics flushes while jobs run (default: `10000`)
 - `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS` — per-request timeout for Shopify `products.json` downloads (default: `45000`)
 - `SHOPIFY_CONNECTOR_MAX_RETRIES` — retry count for transient Shopify request errors (default: `2`)

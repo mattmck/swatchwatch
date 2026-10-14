@@ -11,6 +11,7 @@ import {
   ConnectorPullOptions,
   ConnectorPullResult,
   ConnectorProductRecord,
+  loadCatalogWithCache,
   ProductConnector,
 } from "./types.js";
 import { detectHexFromColorName } from "./color-name-detection.js";
@@ -531,7 +532,9 @@ export class ShopifyGenericConnector implements ProductConnector {
   }
 
   async pullProducts(options: ConnectorPullOptions): Promise<ConnectorPullResult> {
-    const allProducts = await this.fetchAllProducts();
+    const allProducts = await loadCatalogWithCache<ShopifyProduct>(options.catalogCache, () =>
+      this.fetchAllProducts()
+    );
     const normalizedRecords = await Promise.all(
       allProducts.map((product) => toNormalizedRecord(product, this.baseUrl, this.brandName))
     );

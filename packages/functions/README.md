@@ -172,7 +172,12 @@ detection from the product image.
 When `HEX_DETECTION_BATCH_ENABLED=true`, Shopify image detection can switch to Azure OpenAI Batch API
 for larger runs (`HEX_DETECTION_BATCH_MIN_IMAGES` threshold). In that mode, the main worker submits
 the batch and leaves the job in `running` with pipeline stage `awaiting_ai`; a timer-triggered poller
-(`ingestion-ai-batch-poller`) later applies completed batch results and marks the job `succeeded`/`failed`.
+(`ingestion-ai-batch-poller`) later applies completed batch results. If the worker stored
+`metrics.resumeMessage` when pausing, the poller writes `metrics.checkpoint` from it, removes
+`resumeMessage`, sets pipeline stage `continuation_queued`, persists, and then re-enqueues the message so
+the worker continues with the next page; otherwise it marks the job `succeeded`. A failed batch, a
+malformed `resumeMessage`, or an enqueue failure marks the job `failed` (enqueue/resume problems use stage
+`continuation_enqueue`).
 If batch submission itself fails, the worker logs the reason and falls back to synchronous detection for
 that run (applying detections through the same shade write path the poller uses), recording the count in
 the `batchFallbacks` metric instead of failing the job.
@@ -186,7 +191,30 @@ falls back to storing the original Shopify `image.src` URL so images still appea
 you bring storage online.
 Materialization now commits per record while the job is running, so newly imported polishes become
 visible progressively instead of waiting for the final job commit.
-Ingestion metrics now include token totals for synchronous image detection (`hexDetectionPromptTokens`, `hexDetectionCompletionTokens`, `hexDetectionTotalTokens`) and batch apply totals under `aiBatchApply` (`promptTokens`, `completionTokens`, `totalTokens`, `rowsWithTokenUsage`).
+
+**Long-running jobs (continuations).** The Function App runs on the Consumption plan, which kills an
+invocation at `functionTimeout` (`host.json`: 10 min; default 5 min). The ingestion worker therefore
+processes each page in chunks (10 records with synchronous hex detection; the rest of the page in batch
+mode) and saves `metrics.checkpoint` (`nextPage`, `recordOffset`, `pagesCompleted`, `recordsProcessed`,
+`continuationCount`) after every chunk, so a hard kill loses at most one chunk. Once
+`INGESTION_WORKER_TIME_BUDGET_MS` is spent, it persists the checkpoint with pipeline stage
+`continuation_queued`, enqueues a continuation message carrying that checkpoint on `ingestion-jobs`, and
+returns; the job stays `running` and the next invocation resumes from the checkpoint, keeping cumulative
+totals (separate persistence/materialization totals live in `metrics.workerTotals`) and the log history.
+Duplicate or redelivered messages are resolved by `resolveIngestionResumePoint` (`ingestion.ts`): a message
+whose `continuationCount` is behind the job's checkpoint is dropped as stale; a current one resumes from
+whichever checkpoint is further along. Between chunks the worker re-reads the job and stops without writing
+if it was cancelled/finished or superseded. When a chunk pauses for an AI batch, the worker stores
+`metrics.resumeMessage` (the continuation for the next unprocessed position, omitted when no work remains);
+after applying the batch, the poller enqueues it instead of completing the job. `host.json` processes one
+queue message per instance at a time (`batchSize: 1`, `newBatchThreshold: 0`) and moves a message to
+`ingestion-jobs-poison` after 5 dequeues.
+Shopify connectors download the whole store catalog per pull, so the worker gives each job a catalog
+cache: the first download is kept in memory for the rest of the invocation and, when
+`CONNECTOR_RAW_CONTAINER` is configured, saved as `catalog-cache/<source>/<jobId>.json.gz` with its URL in
+`metrics.catalogSnapshot`. Continuations reuse that snapshot, so every invocation pages through the same
+catalog; an unreadable snapshot just triggers a fresh download.
+Ingestion metrics now include token totals for synchronous image detection (`hexDetectionPromptTokens`, `hexDetectionCompletionTokens`, `hexDetectionTotalTokens`) and batch apply totals under `aiBatchApply` (`promptTokens`, `completionTokens`, `totalTokens`, `rowsWithTokenUsage`) for the latest batch; `aiBatchApplyTotals` and `aiBatchesCompleted` accumulate across every batch in a job.
 
 Holo Taco run options:
 - `detectHexFromImage` (default `true`) toggles image-based AI hex detection.
@@ -317,9 +345,11 @@ Key variables:
 | `AZURE_OPENAI_VISION_DETAIL` | Optional image detail level for vision hex detection, sync and batch (`low` default — flat ~85 tokens/image; `high`/`auto` for more resolution). Unrecognized values fall back to `low`. |
 | `HEX_DETECTION_BATCH_ENABLED` | Feature flag to enable Azure OpenAI Batch API for Shopify image detection (default `false`). |
 | `HEX_DETECTION_BATCH_MIN_IMAGES` | Minimum record count before switching from synchronous detection to batch submission (default `5`). |
+| `HEX_DETECTION_DELAY_MS` | Pause between synchronous (non-batch) hex detection calls (default `1000`, max `60000`, `0` disables). The old fixed 6s pacing predates low-detail images; 429s are still retried with `Retry-After`. |
 | `INGESTION_AI_BATCH_POLL_SCHEDULE` | NCRONTAB schedule for the timer poller that checks batch completion (default `0 * * * * *`, every minute). |
 | `INGESTION_AI_BATCH_MAX_POLL_JOBS` | Max `awaiting_ai` ingestion jobs the poller processes per run (default `10`). |
 | `INGESTION_AI_IMAGE_PROXY_ORIGIN` | Optional public origin used when building AI image-proxy URLs (for example `https://<func-app>.azurewebsites.net`). Falls back to `https://$WEBSITE_HOSTNAME`. |
+| `INGESTION_WORKER_TIME_BUDGET_MS` | Wall-clock budget per ingestion worker invocation before it checkpoints and enqueues a continuation message (default `240000`, clamped to `30000`–`270000` to stay under the Consumption plan timeout). |
 | `INGESTION_LOG_FLUSH_INTERVAL_MS` | Interval for ingestion worker metric/log flushes while a job runs (default `10000`). Increase to reduce write pressure on Postgres. |
 | `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS` | Per-request timeout for Shopify `products.json` downloads (default `45000`). |
 | `SHOPIFY_CONNECTOR_MAX_RETRIES` | Retry count for transient Shopify request errors (default `2`, total attempts = retries + 1). |

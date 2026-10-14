@@ -1,5 +1,6 @@
 import { app, InvocationContext } from "@azure/functions";
 import { getIngestionJobById, markIngestionJobFailed } from "../lib/ingestion-repo";
+import { parseIngestionCheckpoint } from "../lib/ingestion-continuation";
 import {
   INGESTION_JOB_QUEUE_NAME,
   IngestionJobQueueMessage,
@@ -92,6 +93,10 @@ function parseNormalizedRequest(
     value.detectHexFromImage === undefined
       ? true
       : parseBoolean(value.detectHexFromImage);
+  const detectHexOnSuspiciousOnly =
+    value.detectHexOnSuspiciousOnly === undefined
+      ? false
+      : parseBoolean(value.detectHexOnSuspiciousOnly);
   const overwriteDetectedHex =
     value.overwriteDetectedHex === undefined
       ? false
@@ -124,6 +129,7 @@ function parseNormalizedRequest(
     maxRecords === null ||
     materializeToInventory === null ||
     detectHexFromImage === null ||
+    detectHexOnSuspiciousOnly === null ||
     overwriteDetectedHex === null ||
     collectTrainingData === null ||
     exhaustive === null
@@ -139,7 +145,7 @@ function parseNormalizedRequest(
     maxRecords,
     materializeToInventory,
     detectHexFromImage,
-    detectHexOnSuspiciousOnly: false,
+    detectHexOnSuspiciousOnly,
     overwriteDetectedHex,
     collectTrainingData,
     exhaustive,
@@ -228,6 +234,17 @@ async function ingestionJobWorker(
     return;
   }
 
+  // Continuation messages carry a checkpoint; first messages for a job do not.
+  let checkpoint: IngestionJobQueueMessage["checkpoint"];
+  if (rawPayload.checkpoint !== undefined && rawPayload.checkpoint !== null) {
+    const parsedCheckpoint = parseIngestionCheckpoint(rawPayload.checkpoint);
+    if (!parsedCheckpoint) {
+      await markQueuePayloadInvalid(context, rawPayload, jobId, "checkpoint is invalid");
+      return;
+    }
+    checkpoint = parsedCheckpoint;
+  }
+
   const queuedAt =
     typeof rawPayload.queuedAt === "string" && rawPayload.queuedAt.trim().length > 0
       ? rawPayload.queuedAt
@@ -239,6 +256,7 @@ async function ingestionJobWorker(
     queuedAt,
     request,
     requestedMetrics: isRecord(rawPayload.requestedMetrics) ? rawPayload.requestedMetrics : {},
+    ...(checkpoint ? { checkpoint } : {}),
   };
 
   await processIngestionJobQueueMessage(payload, context);
