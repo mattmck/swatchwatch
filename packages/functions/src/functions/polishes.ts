@@ -980,7 +980,7 @@ async function matchImage(
   } catch (error: any) {
     context.error("Error matching polishes to image:", error);
     trackException(error, { route: "polishes-match-image", stage: "match" });
-    return { status: 500, jsonBody: { error: "Failed to match polishes", details: error.message } };
+    return { status: 500, jsonBody: { error: "Failed to match polishes" } };
   }
 }
 
