@@ -4,19 +4,13 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { PolishFinish } from "swatchwatch-shared";
-import { resolveDisplayHex } from "swatchwatch-shared";
+import { isCanonicalFinish, resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
 import { FINISHES } from "@/lib/constants";
+import { ToggleChip } from "@/components/toggle-chip";
 import { createPolish, getPolish, updatePolish } from "@/lib/api";
 import { useReferenceData } from "@/hooks/use-reference-data";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Card,
   CardContent,
@@ -70,7 +64,8 @@ export default function PolishForm() {
     name: "",
     color: "",
     colorHex: "#000000",
-    finish: "" as PolishFinish | "",
+    /** Selected canonical finishes in selection order; the first is the primary finish. */
+    finishes: [] as PolishFinish[],
     collection: "",
     quantity: 1,
     size: "",
@@ -81,19 +76,43 @@ export default function PolishForm() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [loadingExisting, setLoadingExisting] = useState(false);
+  // Edit mode: the shade's stored legacy `finish` (its identity key) and the initial primary
+  // finish, so finish-only edits update the same shade instead of re-keying it.
+  const [originalShadeFinish, setOriginalShadeFinish] = useState<{
+    legacyFinish: string;
+    primary: string | undefined;
+  } | null>(null);
   const { finishTypes } = useReferenceData();
   const finishOptions = useMemo(
     () =>
       (
         finishTypes.length > 0
-          ? finishTypes.map((finish) => ({ value: finish.name, label: finish.displayName }))
+          ? finishTypes
+            .filter((finish) => isCanonicalFinish(finish.name))
+            .map((finish) => ({ value: finish.name as PolishFinish, label: finish.displayName }))
           : FINISHES.map((finish) => ({
-            value: finish,
+            value: finish as PolishFinish,
             label: finish.charAt(0).toUpperCase() + finish.slice(1),
           }))
       ).sort((a, b) => a.label.localeCompare(b.label)),
     [finishTypes]
   );
+
+  function toggleFinish(value: PolishFinish, pressed: boolean) {
+    setForm((prev) => {
+      const without = prev.finishes.filter((finish) => finish !== value);
+      return { ...prev, finishes: pressed ? [...without, value] : without };
+    });
+  }
+
+  /** Legacy single `finish` to send alongside `finishes` (kept for backward compatibility). */
+  function legacyFinishForSubmit(): PolishFinish | undefined {
+    const primary = form.finishes[0];
+    if (originalShadeFinish && primary === originalShadeFinish.primary) {
+      return (originalShadeFinish.legacyFinish || undefined) as PolishFinish | undefined;
+    }
+    return primary;
+  }
 
   function update(field: string, value: string | number) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -104,12 +123,20 @@ export default function PolishForm() {
     setLoadingExisting(true);
     getPolish(editId)
       .then((data) => {
+        const existingFinishes = resolvePolishFinishes(data)
+          .map((finish) => finish.trim().toLowerCase())
+          .map((finish) => (finish === "cream" ? "creme" : finish))
+          .filter((finish): finish is PolishFinish => isCanonicalFinish(finish));
+        setOriginalShadeFinish({
+          legacyFinish: data.finish ?? "",
+          primary: existingFinishes[0],
+        });
         setForm({
           brand: data.brand ?? "",
           name: data.name ?? "",
           color: data.color ?? "",
           colorHex: resolveDisplayHex(data) ?? "#000000",
-          finish: (data.finish as PolishFinish | "") ?? "",
+          finishes: Array.from(new Set(existingFinishes)),
           collection: data.collection ?? "",
           quantity: data.quantity ?? 1,
           size: data.size ?? "",
@@ -133,7 +160,8 @@ export default function PolishForm() {
       name: form.name,
       color: form.color,
       vendorHex: form.colorHex,
-      finish: (form.finish || undefined) as PolishFinish | undefined,
+      finish: legacyFinishForSubmit(),
+      finishes: form.finishes,
       collection: form.collection || undefined,
       quantity: form.quantity,
       size: form.size || undefined,
@@ -282,22 +310,34 @@ export default function PolishForm() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Finish</label>
-                <Select value={form.finish} onValueChange={(val) => update("finish", val)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select finish type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {finishOptions.map((finish) => (
-                      <SelectItem key={finish.value} value={finish.value}>
-                        {finish.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            <div className="space-y-2">
+              <span id="finish-label" className="text-sm font-medium">
+                Finishes
+              </span>
+              <div role="group" aria-labelledby="finish-label" className="flex flex-wrap gap-1.5">
+                {finishOptions.map((finish) => {
+                  const index = form.finishes.indexOf(finish.value);
+                  return (
+                    <ToggleChip
+                      key={finish.value}
+                      pressed={index >= 0}
+                      onPressedChange={(pressed) => toggleFinish(finish.value, pressed)}
+                      className="rounded-full border border-border"
+                    >
+                      {finish.label}
+                      {index === 0 && form.finishes.length > 1 ? (
+                        <span className="text-[10px] uppercase opacity-80">primary</span>
+                      ) : null}
+                    </ToggleChip>
+                  );
+                })}
               </div>
+              <p className="text-xs text-muted-foreground">
+                Select every finish that applies. The first one selected is the primary finish.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label htmlFor="collection" className="text-sm font-medium">
                   Collection

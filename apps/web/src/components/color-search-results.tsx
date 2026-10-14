@@ -3,11 +3,10 @@ import Image from "next/image";
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
 import { BsPlusLg } from "react-icons/bs";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ColorDot } from "@/components/color-dot";
 import { QuantityControls } from "@/components/quantity-controls";
-import { finishBadgeClassName, finishLabel } from "@/lib/constants";
+import { FinishBadges } from "@/components/finish-badges";
 import { buildSwatchThumbnailUrl } from "@/lib/image-url";
 
 interface ColorSearchResultsProps {
@@ -160,11 +159,7 @@ export function ColorSearchResults({
                   {polish.collection ? ` · ${polish.collection}` : ""}
                 </p>
               </div>
-              {polish.finish && (
-                <Badge className={`shrink-0 ${finishBadgeClassName(polish.finish)}`}>
-                  {finishLabel(polish.finish)}
-                </Badge>
-              )}
+              <FinishBadges polish={polish} max={2} className="shrink-0 justify-end" />
               <span className="shrink-0 text-xs tabular-nums text-muted-foreground w-12 text-right">
                 {((1 - polish.distance) * 100).toFixed(0)}%
               </span>

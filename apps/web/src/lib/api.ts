@@ -87,6 +87,7 @@ export async function listPolishes(filters?: PolishFilters): Promise<PolishListR
   if (filters?.search) params.set("search", filters.search);
   if (filters?.brand) params.set("brand", filters.brand);
   if (filters?.finish) params.set("finish", filters.finish);
+  if (filters?.finishes?.length) params.set("finishes", filters.finishes.join(","));
   if (filters?.scope && filters.scope !== "all") params.set("scope", filters.scope);
   if (filters?.availability && filters.availability !== "all") {
     params.set("availability", filters.availability);

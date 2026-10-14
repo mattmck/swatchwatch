@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import type { Polish } from "swatchwatch-shared";
-import { resolveDisplayHex } from "swatchwatch-shared";
+import { resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
 import { listAllPolishes } from "@/lib/api";
 import {
   Card,
@@ -13,7 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { FinishBadges } from "@/components/finish-badges";
 import { ColorDot } from "@/components/color-dot";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
@@ -68,8 +68,11 @@ export default function DashboardPage() {
     totalPolishes > 0
       ? polishes.reduce((sum, p) => sum + (p.rating ?? 0), 0) / totalPolishes
       : 0;
+  // Multi-finish shades count once toward each of their finishes.
   const finishCounts = polishes.reduce((acc, polish) => {
-    if (polish.finish) acc[polish.finish] = (acc[polish.finish] || 0) + 1;
+    for (const finish of resolvePolishFinishes(polish)) {
+      acc[finish] = (acc[finish] || 0) + 1;
+    }
     return acc;
   }, {} as Record<string, number>);
   const topFinishes = Object.entries(finishCounts)
@@ -213,11 +216,7 @@ export default function DashboardPage() {
                         <p className="truncate font-medium">{polish.name}</p>
                         <p className="text-sm text-muted-foreground">{polish.brand}</p>
                       </div>
-                      {polish.finish && (
-                        <Badge variant="secondary" className="shrink-0">
-                          {polish.finish}
-                        </Badge>
-                      )}
+                      <FinishBadges polish={polish} max={2} className="shrink-0 justify-end" />
                     </Link>
                   ))}
                 </div>

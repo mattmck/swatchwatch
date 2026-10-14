@@ -10,7 +10,6 @@ import { listAllPolishes, listPolishes, recalcPolishHex, updatePolish } from "@/
 import { undertone, type Undertone } from "@/lib/color-utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -33,7 +32,8 @@ import { Pagination } from "@/components/pagination";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
-import { FINISHES, finishBadgeClassName, finishLabel } from "@/lib/constants";
+import { FINISHES, finishLabel } from "@/lib/constants";
+import { FinishBadges } from "@/components/finish-badges";
 import { buildSwatchThumbnailUrl } from "@/lib/image-url";
 import { runRecalcHexFlow } from "@/lib/recalc-hex-flow";
 import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
@@ -763,11 +763,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                       )}
                     </TableCell>
                     <TableCell>
-                      {polish.finish && (
-                        <Badge className={finishBadgeClassName(polish.finish)}>
-                          {finishLabel(polish.finish)}
-                        </Badge>
-                      )}
+                      <FinishBadges polish={polish} max={3} />
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {polish.collection ?? "\u2014"}

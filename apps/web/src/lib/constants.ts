@@ -1,26 +1,11 @@
+import { CANONICAL_FINISHES } from "swatchwatch-shared";
+
 /**
- * @deprecated Fallback-only constant. Prefer API-backed finish types via useReferenceData().
- * Keep this list for resilience when reference endpoints are unavailable.
+ * Canonical finish list (re-exported from `swatchwatch-shared`, the build-time source of truth).
+ * Prefer API-backed finish types via useReferenceData() for labels/ordering; keep this for
+ * resilience when reference endpoints are unavailable.
  */
-export const FINISHES = [
-  "creme",
-  "shimmer",
-  "glitter",
-  "metallic",
-  "matte",
-  "jelly",
-  "holographic",
-  "duochrome",
-  "multichrome",
-  "flake",
-  "topper",
-  "sheer",
-  "magnetic",
-  "thermal",
-  "glow",
-  "crelly",
-  "other",
-] as const;
+export const FINISHES = CANONICAL_FINISHES;
 
 const DEFAULT_FINISH_BADGE =
   "border border-brand-pink-soft/60 bg-brand-pink-soft/30 text-brand-ink dark:border-brand-pink/40 dark:bg-brand-pink/10 dark:text-brand-pink-light";

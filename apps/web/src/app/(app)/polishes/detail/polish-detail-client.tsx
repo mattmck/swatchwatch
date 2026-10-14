@@ -5,10 +5,11 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import type { Polish } from "swatchwatch-shared";
-import { resolveDisplayHex } from "swatchwatch-shared";
+import { resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
 import { getPolish, deletePolish, listPolishes } from "@/lib/api";
 import { colorDistance, hexToOklch, oklchToHex } from "@/lib/color-utils";
-import { finishBadgeClassName, finishLabel } from "@/lib/constants";
+import { finishLabel } from "@/lib/constants";
+import { FinishBadges } from "@/components/finish-badges";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -293,16 +294,12 @@ export default function PolishDetailClient({
               </p>
             </div>
             <div>
-              <p className="text-muted-foreground">Finish</p>
-              <p className="font-medium">
-                {polish.finish ? (
-                  <Badge className={finishBadgeClassName(polish.finish)}>
-                    {finishLabel(polish.finish)}
-                  </Badge>
-                ) : (
-                  "—"
-                )}
+              <p className="text-muted-foreground">
+                {resolvePolishFinishes(polish).length > 1 ? "Finishes" : "Finish"}
               </p>
+              <div className="font-medium">
+                <FinishBadges polish={polish} empty="—" />
+              </div>
             </div>
             <div>
               <p className="text-muted-foreground">Collection</p>
@@ -463,7 +460,9 @@ export default function PolishDetailClient({
                     <p className="truncate font-medium">{related.name}</p>
                     <p className="truncate text-sm text-muted-foreground">
                       {related.brand}
-                      {related.finish ? ` · ${finishLabel(related.finish)}` : ""}
+                      {resolvePolishFinishes(related).length > 0
+                        ? ` · ${resolvePolishFinishes(related).map(finishLabel).join(", ")}`
+                        : ""}
                     </p>
                   </div>
                   <Badge variant="outline" className="shrink-0">

@@ -6,6 +6,7 @@ import {
   buildBrandOptions,
   filterPolishesForList,
   matchesBrandFilter,
+  matchesFinishFilter,
 } from "./polish-filters";
 
 function polish(overrides: Partial<Polish>): Polish {
@@ -231,5 +232,38 @@ describe("filterPolishesForList", () => {
     });
 
     assert.deepEqual(result.map((p) => p.id), ["collection"]);
+  });
+});
+
+describe("matchesFinishFilter (multi-finish)", () => {
+  it("matches any finish in the finishes array, case-insensitively", () => {
+    const p = polish({ finish: "shimmer", finishes: ["shimmer", "holographic"] });
+    assert.equal(matchesFinishFilter(p, "holographic"), true);
+    assert.equal(matchesFinishFilter(p, "SHIMMER"), true);
+    assert.equal(matchesFinishFilter(p, "creme"), false);
+  });
+
+  it("falls back to the legacy single finish when finishes is empty", () => {
+    assert.equal(matchesFinishFilter(polish({ finish: "creme", finishes: [] }), "creme"), true);
+    assert.equal(matchesFinishFilter(polish({ finish: "creme" }), "creme"), true);
+    assert.equal(matchesFinishFilter(polish({}), "creme"), false);
+  });
+
+  it("filterPolishesForList keeps multi-finish shades for any of their finishes", () => {
+    const rows = [
+      polish({ id: "a", quantity: 1, finish: "shimmer", finishes: ["shimmer", "holographic"] }),
+      polish({ id: "b", quantity: 1, finish: "holographic" }),
+      polish({ id: "c", quantity: 1, finish: "creme", finishes: ["creme"] }),
+    ];
+    const result = filterPolishesForList({
+      polishes: rows,
+      search: "",
+      includeAll: true,
+      toneFilter: "all",
+      brandFilter: "all",
+      finishFilter: "holographic",
+      availabilityFilter: "all",
+    });
+    assert.deepEqual(result.map((p) => p.id), ["a", "b"]);
   });
 });
