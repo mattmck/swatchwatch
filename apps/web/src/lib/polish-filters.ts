@@ -16,10 +16,25 @@ export interface ListFilterInput {
   toneFilter: Undertone | "all";
   /** Brand filter value, or `"all"` to disable brand filtering. */
   brandFilter: string;
-  /** Exact finish value, or `"all"` to disable finish filtering. */
+  /** Finish value (matches any of a polish's finishes), or `"all"` to disable finish filtering. */
   finishFilter: string;
   /** Explicit availability filter (takes precedence over includeAll when not `"all"`). */
   availabilityFilter: InventoryAvailabilityFilter;
+}
+
+/**
+ * True when the polish has `finish` among its finishes (multi-finish `finishes`, falling back to
+ * the legacy single `finish`). Mirrors `polishHasFinish` from `swatchwatch-shared`; kept local so
+ * this module only has type-level imports (the devtools test transpiles it standalone).
+ */
+export function matchesFinishFilter(
+  polish: Pick<Polish, "finish" | "finishes">,
+  finishFilter: string
+): boolean {
+  const target = finishFilter.trim().toLowerCase();
+  if (!target) return false;
+  const finishes: string[] = polish.finishes?.length ? polish.finishes : polish.finish ? [polish.finish] : [];
+  return finishes.some((finish) => finish.trim().toLowerCase() === target);
 }
 
 /**
@@ -116,7 +131,7 @@ export function filterPolishesForList(input: ListFilterInput): Polish[] {
   }
 
   if (finishFilter !== "all") {
-    result = result.filter((p) => p.finish === finishFilter);
+    result = result.filter((p) => matchesFinishFilter(p, finishFilter));
   }
 
   if (availabilityFilter !== "all") {

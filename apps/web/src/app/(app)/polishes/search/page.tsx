@@ -3,7 +3,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import type { Polish } from "swatchwatch-shared";
-import { resolveDisplayHex } from "swatchwatch-shared";
+import { polishHasFinish, resolveDisplayHex } from "swatchwatch-shared";
 import type { IconType } from "react-icons";
 import { BsCurrencyDollar, BsPlusLg, BsQuestionCircleFill, BsTrash3Fill } from "react-icons/bs";
 import { GiPerfumeBottle } from "react-icons/gi";
@@ -320,7 +320,7 @@ function ColorSearchPageContent() {
       result = result.filter((p) => matchesBrandFilter(p.brand, normalizedBrand));
     }
     if (finishFilter !== "all") {
-      result = result.filter((p) => p.finish === finishFilter);
+      result = result.filter((p) => polishHasFinish(p, finishFilter));
     }
     if (toneFilter !== "all") {
       result = result.filter((p) => undertone(p.colorHex) === toneFilter);
@@ -1231,6 +1231,7 @@ function ColorSearchPageContent() {
                 polishes={sortedPolishes}
                 harmonyColors={targetColors}
                 showMatchDots={!isSimilarMode}
+                finishTypes={finishTypes}
                 focusedTargetHex={focusedTargetHex}
                 onQuantityChange={handleQuantityChange}
                 onAddFocus={(hex) => {

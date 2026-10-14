@@ -49,7 +49,9 @@ CREATE TABLE shade (
   brand_id BIGINT NOT NULL REFERENCES brand(brand_id),
   product_line_id BIGINT REFERENCES product_line(product_line_id),
   shade_name_canonical TEXT NOT NULL,
-  finish TEXT,
+  finish TEXT,                                   -- legacy single finish; part of the identity key below
+  finishes TEXT[] NOT NULL DEFAULT ARRAY[]::text[], -- canonical multi-finish list, primary first (migration 023)
+  detected_finishes TEXT[],                      -- AI-detected finishes (migration 016)
   collection TEXT,
   release_year INT,
   status TEXT NOT NULL DEFAULT 'unknown',
@@ -61,6 +63,8 @@ CREATE TABLE shade (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (brand_id, product_line_id, shade_name_canonical, COALESCE(finish,''))
 );
+
+CREATE INDEX idx_shade_finishes ON shade USING GIN (finishes);
 
 CREATE TABLE shade_alias (
   shade_alias_id BIGSERIAL PRIMARY KEY,

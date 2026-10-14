@@ -5,6 +5,7 @@ import type { FinishType, ReferenceHarmonyType } from "swatchwatch-shared";
 import { listReferenceFinishTypes, listReferenceHarmonyTypes } from "@/lib/api";
 import { HARMONY_TYPES } from "@/lib/color-harmonies";
 import { FINISHES, finishLabel } from "@/lib/constants";
+import { resolveFinishLabel } from "@/lib/finish-options";
 
 const REFERENCE_DATA_STORAGE_KEY = "swatchwatch.reference-data.v1";
 const CACHE_TTL_MS = 10 * 60 * 1000;
@@ -80,10 +81,7 @@ function writeCachedReferenceData(data: CachedReferenceData): void {
  * @returns User-facing finish display label.
  */
 export function getFinishDisplayName(name: string, finishTypes?: FinishType[]): string {
-  const normalized = name.trim().toLowerCase();
-  if (!normalized) return "";
-  const found = finishTypes?.find((finish) => finish.name.toLowerCase() === normalized);
-  return found?.displayName ?? finishLabel(normalized);
+  return resolveFinishLabel(name, finishTypes);
 }
 
 /**

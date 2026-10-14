@@ -312,6 +312,9 @@ function toNormalizedRecord(
   const handle = asNonEmptyString(product.handle);
   const brand = asNonEmptyString(product.vendor) || "Holo Taco";
   const collections = extractTaggedValues(tags, "collection:");
+  // Raw `finish:` tag values. finishes[0] is the legacy shade identity key (shade.finish);
+  // canonical multi-finish values are derived from `tags` at materialization time via
+  // parseFinishesFromTags (lib/finishes.ts).
   const finishes = extractTaggedValues(tags, "finish:");
   const imageUrls = normalizeImageUrls(product.images);
   const variants = normalizeVariants(product.variants);

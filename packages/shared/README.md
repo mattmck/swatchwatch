@@ -16,19 +16,31 @@ The package is automatically linked via npm workspaces — no publishing require
 
 | Type | Description |
 |------|-------------|
-| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, finish, tags, timestamps, etc.) |
-| `PolishFinish` | Union of finish types: `"creme" \| "shimmer" \| "glitter" \| "metallic" \| "matte" \| "jelly" \| "holographic" \| "holo" \| "crushed holo" \| "linear holo" \| "scattered holo" \| "duochrome" \| "multichrome" \| "flake" \| "topper" \| "sheer" \| "magnetic" \| "thermal" \| "crelly" \| "other"` |
-| `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps) |
+| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, legacy `finish`, multi-finish `finishes`, tags, timestamps, etc.) |
+| `PolishFinish` | Built-in finish name, derived as `(typeof CANONICAL_FINISHES)[number]` |
+| `FinishName` | `PolishFinish \| (string & {})` — any finish name on API-facing fields (`Polish.finishes`, request `finish`/`finishes`); admits runtime names from admin-managed `finish_type` rows while keeping autocomplete for built-ins |
+| `resolvePolishFinishes(polish)` | Finishes to display: `finishes` when non-empty, else `[finish]` (backward compatible) |
+| `polishHasFinish(polish, finish)` | Case-insensitive membership check over `resolvePolishFinishes` |
+| `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps); accepts `finishes` (replace) and legacy `finish` |
 | `PolishUpdateRequest` | Partial create fields + required `id` |
 | `PolishListResponse` | Paginated list: `{ polishes, total, page, pageSize }` |
-| `PolishFilters` | Query params: brand/finish/color/tags/search plus scope/availability/tone, sort, and pagination |
+| `PolishFilters` | Query params: brand/finish/finishes/color/tags/search plus scope/availability/tone, sort, and pagination |
 | `Brand` | Canonical brand entity (`brand_id`, `name_canonical`) |
-| `Shade` | Canonical shade entity (`shade_id`, `brand_id`, `shade_name_canonical`, `finish`, `collection`, etc.) |
-| `CatalogSearchResult` | Single search hit: shade with brand name and similarity score |
+| `Shade` | Canonical shade entity (`shade_id`, `brand_id`, `shade_name_canonical`, `finish`, `finishes`, `collection`, etc.) |
+| `CatalogSearchResult` | Single search hit: shade with brand name, `finish`/`finishes`, and similarity score |
 | `CatalogSearchResponse` | Search response: `{ results, query, total }` |
 | `CatalogShadeDetail` | Full shade detail with brand info and aliases |
 
 **Note:** All frontend pages now use the live API. The mock-data.ts file is no longer used.
+
+### `constants/finishes.ts`
+
+| Export | Description |
+|--------|-------------|
+| `CANONICAL_FINISHES` | Built-in seeded default finishes — typing + offline fallback, not the runtime authority (`creme`, `sheer`, `jelly`, `shimmer`, `metallic`, `glitter`, `holographic`, `duochrome`, `multichrome`, `flake`, `matte`, `topper`, `magnetic`, `thermal`, `crelly`, `glow`, `other`) in `finish_type.sort_order` order |
+| `isCanonicalFinish(value)` | Type guard for exact BUILT-IN names (unaware of finish types added at runtime) |
+
+**Multi-finish contract (#43):** `finishes` is the source of truth for display/filtering; `finish` is the legacy single value kept populated for older consumers (it is the shade's identity key in the DB). At runtime the admin-managed `finish_type` table decides *which* finishes are valid; `CANONICAL_FINISHES` is only the built-in seeded defaults (used for typing and as the fallback when the DB is unavailable) and is kept equal to the seeded `finish_type` rows by `packages/functions/tests/finishes.unit.test.cjs`. Alias spellings (`holo`, `cream`, `flakie`, …) are not listed here — they live in the DB-backed `finish_normalization` table (see `packages/functions/README.md`).
 
 ### `types/user.ts`
 

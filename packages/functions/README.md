@@ -92,6 +92,7 @@ Background triggers:
 All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpRequest, context: InvocationContext)`.
 
 `GET /api/polishes` returns a paginated canonical shade catalog joined with the requesting user's inventory rows. `inventoryItemId` and user-facing fields are undefined when the user has not added that shade yet, but catalog metadata (brand, finish, color hexes, swatch) is still returned so the UI can show "not owned" entries. Supported query params include `search`, `brand`, `finish`, `scope` (`all|collection`), `availability` (`all|owned|wishlist`), `tags`, `sortBy` (`status|brand|name|finish|collection|createdAt|rating`), `sortOrder`, `page`, and `pageSize`. `GET /api/polishes/{id}` looks up a shade by `shade_id` and includes `sourceImageUrls` (all source images associated with that shade's swatches) for the detail page.
+**Multi-finish contract (#43):** polish list/detail responses include `finishes: string[]` (all canonical finishes for the shade, primary first) alongside the legacy `finish` string. `finish` stays populated for older consumers: it is the shade's stored `finish` column (its identity/dedup key) and falls back to `finishes[0]` when that column is empty. Filters: `finish=<value>` matches shades that have the finish anywhere in `finishes` *or* as the legacy `finish`; `finishes=a,b` matches shades with ANY of the listed finishes; both accept aliases (`holo`, `cream`, …). `sortBy=finish` sorts by the primary finish. `POST /api/polishes` and `PUT /api/polishes/{id}` accept `finishes` (explicit list → replaces the shade's finishes; `[]` clears) in addition to `finish` (legacy → merged). Request `tags` are the caller's personal inventory tags and are **not** used to change finishes: shades are shared catalog rows, so only an explicit `finishes`/`finish` can modify `shade.finishes` (a tags-only request leaves them untouched; only ingestion connectors parse finishes from product tags). Unknown values are ignored; a value is accepted when it is (or aliases to) a `finish_type` row, including types added through the admin UI. When only `finishes` is sent, the legacy `finish`/identity key defaults to `finishes[0]`.
 When `REDIS_URL` + `REDIS_KEY` are configured, list/detail reads are served through a Redis read-through cache (short TTL), and create/update/delete/recalc writes invalidate related user and catalog cache keys.
 For private blob storage, the API rewrites blob URLs to `/api/images/{id}` so image bytes are served through Functions (no public container access or client-side SAS required).
 
@@ -110,6 +111,17 @@ Reference endpoints:
 - `GET /api/reference/finishes` and `GET /api/reference/harmonies` are public read endpoints for UI lookup data, sorted by `sort_order` and served with cache headers.
 - Admin CRUD endpoints under `/api/reference-admin/finishes` and `/api/reference-admin/harmonies` manage reference data and update audit columns (`updated_at`, `updated_by_user_id`) on writes.
 - Admin CRUD endpoints under `/api/reference-admin/finish-normalizations` manage aliases and misspellings used to normalize AI/vendor finish strings into canonical `finish_type.name` values.
+- `GET /api/catalog/search` results and `GET /api/catalog/shade/{id}` include `finishes: string[]` next to the legacy `finish`.
+
+### Finish canonicalization (`src/lib/finishes.ts`)
+
+Source-of-truth split (decided in #43):
+
+- **Which finishes exist** — the DB `finish_type` table (admin-managed via `/api/reference-admin/finishes`). A finish type created only through the admin UI is a valid finish for parsing, validation, `finish=`/`finishes=` list filters, ingestion, and AI finish detection. The build-time `CANONICAL_FINISHES` list in `packages/shared/src/constants/finishes.ts` is only the built-in seeded defaults: it types `PolishFinish` and is the fallback when the DB lookup fails. `tests/finishes.unit.test.cjs` fails if it drifts from the `finish_type` rows seeded by migrations 005/018.
+- **How messy spellings map onto them** — the DB-backed `finish_normalization` table (admin-editable). An alias only resolves when its target is an existing `finish_type`.
+- **One loader** — `loadFinishCatalog()` runs a single query over both tables and returns a `FinishCatalog` `{ aliases, validNames }` (`validNames` = every normalized `finish_type.name`). It is cached in-process for 5 minutes (cleared by `resetFinishAliasCache()` on every admin finish_type / finish_normalization create/update/delete; other instances pick changes up within the TTL) and falls back to `DEFAULT_FINISH_CATALOG` (`CANONICAL_FINISHES` + `DEFAULT_FINISH_ALIASES`, a mirror of the seeded alias rows also asserted by the test) if the query fails. If `finish_type` returns no rows, the built-in names are used.
+
+Helpers (all take an optional `FinishCatalog`, defaulting to the built-ins): `canonicalizeFinish(value, catalog?)`, `canonicalizeFinishes(values, catalog?)`, `mergeFinishLists(lists, catalog?)`, and the pure tag parser `parseFinishesFromTags(tags, catalog?)` (used by ingestion connectors only, never for user request `tags`) — recognizes `finish:<value>` (prefix case-insensitive) and bare `<value>` tags, trims, lowercases, de-duplicates, ignores unknown values and other namespaces (`collection:holographic`, `color:blue`), and orders explicit `finish:` tags before bare tags. AI hex detection (`ai-color-detection.ts`) uses the same catalog loader for `detected_finishes`, so runtime finish types are accepted there too.
 - `GET /api/reference-admin/jobs` lists recent ingestion jobs with pagination (`page`, `pageSize`) and optional `status` filter (`queued|running|succeeded|failed|cancelled`), joined with `data_source` for source metadata.
 - `GET /api/users-admin` lists users with linked identities plus quick counts (inventory, submissions, capture sessions) for account-repair workflows.
 - `POST /api/users-admin/merge` manually merges one local user account into another (inventory, capture sessions, submissions, click events, and linked external identities), intended for repairing duplicate accounts created before identity linking was enabled.
@@ -188,7 +200,11 @@ rows and user inventory rows (`quantity=0`) by default. Set `materializeToInvent
 `false` to store only raw/normalized external records.
 
 For `HoloTacoShopify`, ingestion materializes searchable shade rows (brand/name/finish/collection)
-and user inventory rows (`quantity=0`) with source tags. Use `recentDays` to constrain to newer
+and user inventory rows (`quantity=0`) with source tags. `shade.finishes` is filled from the product
+tags via `parseFinishesFromTags` (merged with any existing values, never removed). The legacy
+`shade.finish` is still the raw first `finish:` tag value because it is part of the shade dedup key;
+it is intentionally not canonicalized so re-imports keep matching existing shades. The same applies to
+generic `*Shopify` sources; `MakeupAPI` materialization also merges finishes parsed from `tag_list`. Use `recentDays` to constrain to newer
 products by publish/create/update timestamps. It also uploads source product images to Azure Blob
 Storage (`image_asset` + `swatch`) and attempts Azure OpenAI-based representative `color_hex`
 detection from the product image.
@@ -305,6 +321,7 @@ npm run migrate:create -- my-migration-name   # Create a new migration file
 | `017_add_admin_support.sql` | Adds `finish_type` audit columns and creates/seeds `harmony_type` for admin-managed reference data |
 | `018_add_finish_normalizations.sql` | Adds editable `finish_normalization` mappings (source alias → canonical finish name) for AI/vendor finish parsing |
 | `019_add_user_external_identities.sql` | Adds `user_external_identities` and backfills existing `app_user.external_id` values to support multi-provider identity linking |
+| `023_add_shade_finishes.sql` | Adds `shade.finishes text[] NOT NULL DEFAULT '{}'` + GIN index for multi-finish shades, backfills `ARRAY[canonical(finish)]` from the legacy column (canonical names + `finish_normalization` aliases), and seeds `flakie`/`flakies`/`toppers` aliases. Down drops the column/index and those alias rows |
 
 node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_URL` is the preferred connection method; it also falls back to individual `PG*` env vars (`PGHOST`, `PGPORT`, etc.).
 

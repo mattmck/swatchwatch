@@ -48,6 +48,7 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
       brand: string;
       name: string;
       finish: string | null;
+      finishes: string[] | null;
       collection: string | null;
       similarity: number;
     }>(
@@ -55,7 +56,8 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
          s.shade_id::text              AS "shadeId",
          b.name_canonical              AS brand,
          s.shade_name_canonical        AS name,
-         s.finish,
+         COALESCE(NULLIF(s.finish, ''), s.finishes[1]) AS finish,
+         COALESCE(s.finishes, ARRAY[]::text[]) AS finishes,
          s.collection,
          GREATEST(
            similarity(s.shade_name_canonical, $1),
@@ -87,6 +89,7 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
         brand: r.brand,
         name: r.name,
         finish: r.finish || undefined,
+        finishes: r.finishes ?? [],
         collection: r.collection || undefined,
         similarity: Math.round(r.similarity * 1000) / 1000,
       })),
@@ -139,6 +142,7 @@ async function getShade(request: HttpRequest, context: InvocationContext): Promi
       brandId: string;
       name: string;
       finish: string | null;
+      finishes: string[] | null;
       collection: string | null;
       releaseYear: number | null;
       status: string;
@@ -148,7 +152,8 @@ async function getShade(request: HttpRequest, context: InvocationContext): Promi
          b.name_canonical          AS brand,
          b.brand_id::text          AS "brandId",
          s.shade_name_canonical    AS name,
-         s.finish,
+         COALESCE(NULLIF(s.finish, ''), s.finishes[1]) AS finish,
+         COALESCE(s.finishes, ARRAY[]::text[]) AS finishes,
          s.collection,
          s.release_year            AS "releaseYear",
          s.status
@@ -176,6 +181,7 @@ async function getShade(request: HttpRequest, context: InvocationContext): Promi
       brandId: shade.brandId,
       name: shade.name,
       finish: shade.finish || undefined,
+      finishes: shade.finishes ?? [],
       collection: shade.collection || undefined,
       releaseYear: shade.releaseYear || undefined,
       status: shade.status,

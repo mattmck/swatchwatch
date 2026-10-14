@@ -8,6 +8,12 @@ import { uploadSourceImageToBlob, ensureContainer } from "./blob-storage";
 import { toImageProxyUrlFromOrigin } from "./image-proxy";
 import pLimit = require("p-limit");
 import { isSuspiciousHex } from "./suspicious-hex";
+import {
+  loadFinishCatalog,
+  mergeFinishLists,
+  parseFinishesFromTags,
+  type FinishCatalog,
+} from "./finishes";
 import { PoolClient } from "pg";
 
 export interface DataSourceRecord {
@@ -93,12 +99,17 @@ interface MakeupProductNormalized {
   brand: string | null;
   name: string | null;
   colorVariants: MakeupColorVariant[];
+  tags: string[];
 }
 
 interface HoloTacoProductNormalized {
   brand: string | null;
   name: string | null;
   collection: string | null;
+  /**
+   * Legacy single finish: raw first `finishes` value from the connector. Still the
+   * shade identity key (shade.finish), so it is intentionally NOT canonicalized here.
+   */
   finish: string | null;
   primaryImageUrl: string | null;
   imageUrls: string[];
@@ -196,6 +207,7 @@ function parseMakeupNormalized(
     brand: asString(normalized.brand),
     name: asString(normalized.name),
     colorVariants: parseMakeupVariants(normalized.colorVariants),
+    tags: asStringArray(normalized.tags),
   };
 }
 
@@ -216,6 +228,18 @@ function parseHoloTacoNormalized(
     nameHex: asString(normalized.nameHex),
     colorName: asString(normalized.colorName),
   };
+}
+
+/**
+ * Canonical finishes for an ingested product, derived from its vendor tags
+ * (`finish:<value>` + bare `<value>` tags) via `parseFinishesFromTags`.
+ */
+export function resolveIngestedShadeFinishes(
+  normalized: Record<string, unknown> | null | undefined,
+  catalog?: FinishCatalog
+): string[] {
+  if (!normalized) return [];
+  return parseFinishesFromTags(asStringArray(normalized.tags), catalog);
 }
 
 function isHttpUrl(value: string | null): value is string {
@@ -1375,6 +1399,7 @@ export async function materializeMakeupApiRecords(
   userId: number,
   records: ConnectorProductRecord[]
 ): Promise<MakeupApiMaterializationMetrics> {
+  const finishCatalog = await loadFinishCatalog();
   return transaction(async (client) => {
     let variantRowsProcessed = 0;
     let brandsCreated = 0;
@@ -1398,6 +1423,7 @@ export async function materializeMakeupApiRecords(
       }
 
       const makeup = parseMakeupNormalized(normalized);
+      const tagFinishes = parseFinishesFromTags(makeup.tags, finishCatalog);
       if (!makeup.brand || !makeup.name) {
         skipped += 1;
         continue;
@@ -1508,9 +1534,18 @@ export async function materializeMakeupApiRecords(
           `UPDATE shade SET
              color_name = COALESCE($2, color_name),
              vendor_hex = COALESCE($3, vendor_hex),
+             finishes = CASE
+               WHEN cardinality($4::text[]) = 0 THEN finishes
+               ELSE ARRAY(
+                 SELECT f
+                 FROM unnest(finishes || $4::text[]) WITH ORDINALITY AS u(f, ord)
+                 GROUP BY f
+                 ORDER BY min(ord)
+               )
+             END,
              updated_at = now()
            WHERE shade_id = $1`,
-          [shadeId, resolvedColorName, resolvedVendorHex]
+          [shadeId, resolvedColorName, resolvedVendorHex, tagFinishes]
         );
 
         const inventory = await client.query<{
@@ -1585,7 +1620,8 @@ async function materializePreparedHoloTacoRecord(
   preparedImage: HoloTacoPreparedImage,
   overwriteDetectedHex: boolean,
   sourceLogPrefix: string,
-  brandCache: Map<string, number>
+  brandCache: Map<string, number>,
+  finishCatalog?: FinishCatalog
 ): Promise<HoloTacoRecordMaterializationDelta> {
   const delta: HoloTacoRecordMaterializationDelta = {
     processed: 0,
@@ -1613,6 +1649,7 @@ async function materializePreparedHoloTacoRecord(
     delta.skipped += 1;
     return delta;
   }
+  const tagFinishes = resolveIngestedShadeFinishes(normalized, finishCatalog);
 
   console.log(`${sourceLogPrefix} Processing record: externalId=${record.externalId}, name=${holo.name}`);
 
@@ -1665,10 +1702,10 @@ async function materializePreparedHoloTacoRecord(
     shadeId = existingShade.rows[0].shadeId;
   } else {
     const insertedShade = await client.query<{ shadeId: number }>(
-      `INSERT INTO shade (brand_id, shade_name_canonical, finish, collection, status)
-       VALUES ($1, $2, $3, $4, 'active')
+      `INSERT INTO shade (brand_id, shade_name_canonical, finish, collection, status, finishes)
+       VALUES ($1, $2, $3, $4, 'active', $5::text[])
        RETURNING shade_id AS "shadeId"`,
-      [brandId, holo.name, holo.finish, holo.collection]
+      [brandId, holo.name, holo.finish, holo.collection, tagFinishes]
     );
     shadeId = insertedShade.rows[0].shadeId;
     delta.shadesCreated += 1;
@@ -1697,15 +1734,20 @@ async function materializePreparedHoloTacoRecord(
     detectedHex: string | null;
     detectedFinishes: string[] | null;
     nameHex: string | null;
+    finishes: string[] | null;
   }>(
     `SELECT
        vendor_hex AS "vendorHex",
        detected_hex AS "detectedHex",
        detected_finishes AS "detectedFinishes",
-       name_hex AS "nameHex"
+       name_hex AS "nameHex",
+       finishes
      FROM shade WHERE shade_id = $1`,
     [shadeId]
   );
+  // Vendor tag finishes are merged (never removed) so manual edits survive re-imports.
+  const currentFinishes = currentShade.rows[0]?.finishes ?? [];
+  const mergedFinishes = mergeFinishLists([currentFinishes, tagFinishes], finishCatalog);
 
   const shouldOverwrite = overwriteDetectedHex;
   if (
@@ -1748,9 +1790,19 @@ async function materializePreparedHoloTacoRecord(
            WHEN $6::boolean AND $7::text IS NOT NULL THEN $7::text
            ELSE COALESCE(name_hex, $7::text)
          END,
+         finishes = $8::text[],
          updated_at = now()
      WHERE shade_id = $1`,
-    [shadeId, holo.name, vendorHex, detectedHex, detectedFinishes, overwriteDetectedHex, nameHex]
+    [
+      shadeId,
+      holo.name,
+      vendorHex,
+      detectedHex,
+      detectedFinishes,
+      overwriteDetectedHex,
+      nameHex,
+      mergedFinishes,
+    ]
   );
 
   const inventory = await client.query<{
@@ -1938,6 +1990,10 @@ export async function materializeHoloTacoRecords(
   let skipped = 0;
 
   const brandCache = new Map<string, number>();
+  const finishCatalog = await loadFinishCatalog({
+    onFallback: (message) =>
+      console.warn(`${sourceLogPrefix} Falling back to built-in finish catalog (${message})`),
+  });
 
   console.log(
     `${sourceLogPrefix} Starting materialization for ${records.length} records, userId=${userId}, dataSourceId=${dataSourceId}, overwriteDetectedHex=${overwriteDetectedHex}`
@@ -1958,7 +2014,8 @@ export async function materializeHoloTacoRecords(
           preparedImage,
           overwriteDetectedHex,
           sourceLogPrefix,
-          brandCache
+          brandCache,
+          finishCatalog
         )
       );
 
