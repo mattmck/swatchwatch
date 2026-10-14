@@ -1,4 +1,4 @@
-const { describe, it, afterEach } = require("node:test");
+const { describe, it, afterEach, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const Module = require("node:module");
@@ -988,15 +988,77 @@ describe("functions/polishes — multi-finish", () => {
     finishLib.resetFinishAliasCache();
   });
 
-  function aliasRows() {
+  /** Rows as returned by the single finish catalog query (finish_type + finish_normalization). */
+  function aliasRows({ withChrome = false } = {}) {
+    const types = ["holographic", "shimmer", "creme", ...(withChrome ? ["chrome"] : [])].map((name) => ({
+      kind: "type",
+      sourceValue: name,
+      normalizedFinishName: name,
+    }));
     return [
-      { sourceValue: "holo", normalizedFinishName: "holographic" },
-      { sourceValue: "holographic", normalizedFinishName: "holographic" },
-      { sourceValue: "shimmer", normalizedFinishName: "shimmer" },
-      { sourceValue: "creme", normalizedFinishName: "creme" },
-      { sourceValue: "cream", normalizedFinishName: "creme" },
+      ...types,
+      { kind: "alias", sourceValue: "holo", normalizedFinishName: "holographic" },
+      { kind: "alias", sourceValue: "cream", normalizedFinishName: "creme" },
+      ...(withChrome ? [{ kind: "alias", sourceValue: "mirror", normalizedFinishName: "chrome" }] : []),
     ];
   }
+
+  describe("loadFinishCatalog", () => {
+    beforeEach(() => {
+      // Earlier tests in this file may have cached a (fallback) catalog.
+      finishLib.resetFinishAliasCache();
+    });
+
+    it("builds aliases and validNames from one query and caches it", async () => {
+      let queries = 0;
+      queryMock = async () => {
+        queries++;
+        return { rows: aliasRows({ withChrome: true }) };
+      };
+      const catalog = await finishLib.loadFinishCatalog();
+      assert.deepEqual([...catalog.validNames].sort(), ["chrome", "creme", "holographic", "shimmer"]);
+      assert.equal(catalog.aliases.get("mirror"), "chrome");
+      assert.equal(catalog.aliases.get("holo"), "holographic");
+      assert.equal(catalog.aliases.get("chrome"), "chrome");
+      await finishLib.loadFinishCatalog();
+      assert.equal(queries, 1, "second load should be served from the cache");
+      finishLib.resetFinishAliasCache();
+      await finishLib.loadFinishCatalog();
+      assert.equal(queries, 2, "reset should force a reload");
+    });
+
+    it("ignores alias rows whose target is not a finish_type", async () => {
+      queryMock = async () => ({
+        rows: [
+          ...aliasRows(),
+          { kind: "alias", sourceValue: "suede", normalizedFinishName: "velvet" },
+        ],
+      });
+      const catalog = await finishLib.loadFinishCatalog();
+      assert.ok(!catalog.validNames.has("velvet"));
+      assert.equal(catalog.aliases.has("suede"), false);
+    });
+
+    it("falls back to the built-in finishes and aliases when the query throws", async () => {
+      const { CANONICAL_FINISHES } = require("swatchwatch-shared");
+      queryMock = async () => {
+        throw new Error("db down");
+      };
+      let fallbackMessage = null;
+      const catalog = await finishLib.loadFinishCatalog({ onFallback: (message) => (fallbackMessage = message) });
+      assert.equal(fallbackMessage, "db down");
+      assert.deepEqual([...catalog.validNames].sort(), [...CANONICAL_FINISHES].sort());
+      assert.equal(catalog.aliases, finishLib.DEFAULT_FINISH_ALIAS_MAP);
+      assert.equal(finishLib.canonicalizeFinish("holo", catalog), "holographic");
+    });
+
+    it("uses the built-in names when finish_type returns no rows", async () => {
+      const { CANONICAL_FINISHES } = require("swatchwatch-shared");
+      queryMock = async () => ({ rows: [] });
+      const catalog = await finishLib.loadFinishCatalog();
+      assert.deepEqual([...catalog.validNames].sort(), [...CANONICAL_FINISHES].sort());
+    });
+  });
 
   it("selects finishes and filters by finish against the multi-finish array and legacy column", async () => {
     process.env.AUTH_DEV_BYPASS = "true";
@@ -1048,6 +1110,123 @@ describe("functions/polishes — multi-finish", () => {
     // finishes=Shimmer,cream → any-of canonical [shimmer, creme]; legacy column also matches "cream"
     assert.ok(params.some((p) => Array.isArray(p) && p.join(",") === "shimmer,creme"));
     assert.ok(params.some((p) => Array.isArray(p) && p.includes("cream") && p.includes("creme")));
+  });
+
+  it("filters the list by a runtime-only finish type (finishes=chrome, alias mirror)", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    const listCalls = [];
+    queryMock = async (text, params) => {
+      if (text.includes("FROM app_user")) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (text.includes("FROM finish_normalization")) {
+        return { rows: aliasRows({ withChrome: true }) };
+      }
+      if (text.includes("COUNT(*)")) {
+        return { rows: [{ total: "1" }] };
+      }
+      listCalls.push({ text, params });
+      return {
+        rows: [
+          { id: "8", brand: "X", name: "Mirror Ball", color: "", finish: "chrome", finishes: ["chrome"], swatchImageUrl: null },
+        ],
+      };
+    };
+
+    const handler = registeredRoutes["polishes-list"].handler;
+    const req = fakeRequest({
+      url: "http://localhost:7071/api/polishes?finishes=chrome&finish=Mirror",
+      headers: { authorization: "Bearer dev:1" },
+      params: {},
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.jsonBody.polishes[0].finishes, ["chrome"]);
+
+    const { text, params } = listCalls[0];
+    assert.ok(text.includes("s.finishes, ARRAY[]::text[]) &&"));
+    // Both filter groups resolve to the runtime finish and are matched against the finishes array.
+    // finish=Mirror (alias) → canonical chrome (+ raw legacy value); finishes=chrome → chrome.
+    assert.ok(params.some((p) => Array.isArray(p) && p.length === 1 && p[0] === "chrome"));
+    assert.ok(params.some((p) => Array.isArray(p) && p.includes("mirror") && p.includes("chrome")));
+    assert.equal(
+      params.filter((p) => Array.isArray(p) && p.length === 1 && p[0] === "chrome").length,
+      3,
+      "both groups resolve to chrome (canonical + legacy for the alias group, canonical for finishes=)"
+    );
+  });
+
+  it("stores a runtime-only finish type on create when finish_type has it", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async (text) => {
+      if (text.includes("FROM app_user")) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (text.includes("FROM finish_normalization")) {
+        return { rows: aliasRows({ withChrome: true }) };
+      }
+      return { rows: [{ id: "57", brand: "OPI", name: "Mirror", finish: "chrome", finishes: ["chrome"], swatchImageUrl: null }] };
+    };
+    const clientCalls = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          clientCalls.push({ text, params });
+          if (text.includes("SELECT brand_id FROM brand")) return { rows: [{ brand_id: 3 }] };
+          if (text.includes("SELECT shade_id FROM shade")) return { rows: [] };
+          if (text.includes("INSERT INTO shade")) return { rows: [{ shade_id: 57 }] };
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["polishes-create"].handler;
+    const req = fakeRequest({
+      method: "POST",
+      url: "http://localhost:7071/api/polishes",
+      headers: { authorization: "Bearer dev:1" },
+      body: { brand: "OPI", name: "Mirror", color: "Silver", finishes: ["chrome", "Mirror"] },
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 201);
+    const insert = clientCalls.find((c) => c.text.includes("INSERT INTO shade"));
+    assert.deepEqual(insert.params[8], ["chrome"]);
+    assert.equal(insert.params[2], "chrome", "legacy finish key defaults to the primary finish");
+  });
+
+  it("drops a finish that is not in finish_type (no chrome row)", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async (text) => {
+      if (text.includes("FROM app_user")) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (text.includes("FROM finish_normalization")) {
+        return { rows: aliasRows() };
+      }
+      return { rows: [{ id: "58", brand: "OPI", name: "Mirror", finish: "", finishes: [], swatchImageUrl: null }] };
+    };
+    const clientCalls = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          clientCalls.push({ text, params });
+          if (text.includes("SELECT brand_id FROM brand")) return { rows: [{ brand_id: 3 }] };
+          if (text.includes("SELECT shade_id FROM shade")) return { rows: [] };
+          if (text.includes("INSERT INTO shade")) return { rows: [{ shade_id: 58 }] };
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["polishes-create"].handler;
+    const req = fakeRequest({
+      method: "POST",
+      url: "http://localhost:7071/api/polishes",
+      headers: { authorization: "Bearer dev:1" },
+      body: { brand: "OPI", name: "Mirror", color: "Silver", finishes: ["chrome"] },
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 201);
+    const insert = clientCalls.find((c) => c.text.includes("INSERT INTO shade"));
+    assert.deepEqual(insert.params[8], []);
   });
 
   it("creates a new shade with finishes and keeps the legacy finish populated", async () => {

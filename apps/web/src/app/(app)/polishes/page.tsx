@@ -32,7 +32,7 @@ import { Pagination } from "@/components/pagination";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
-import { FINISHES, finishLabel } from "@/lib/constants";
+import { buildFinishOptions, knownFinishNames } from "@/lib/finish-options";
 import { FinishBadges } from "@/components/finish-badges";
 import { buildSwatchThumbnailUrl } from "@/lib/image-url";
 import { runRecalcHexFlow } from "@/lib/recalc-hex-flow";
@@ -194,15 +194,8 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { finishTypes } = useReferenceData();
-  const finishOptions = useMemo(
-    () =>
-      (
-        finishTypes.length > 0
-          ? finishTypes.map((finish) => ({ value: finish.name, label: finish.displayName }))
-          : FINISHES.map((finish) => ({ value: finish, label: finishLabel(finish) }))
-      ).sort((a, b) => a.label.localeCompare(b.label)),
-    [finishTypes],
-  );
+  const finishOptions = useMemo(() => buildFinishOptions(finishTypes), [finishTypes]);
+  const knownFinishes = useMemo(() => knownFinishNames(finishTypes), [finishTypes]);
 
   // Filters
   const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
@@ -495,12 +488,12 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     await runRecalcHexFlow({
       polishId,
       recalc: recalcPolishHex,
-      knownFinishes: FINISHES as readonly string[],
+      knownFinishes,
       setPendingById: setRecalcPendingById,
       setPolishes,
       toast,
     });
-  }, []);
+  }, [knownFinishes]);
 
   if (loading) return <BrandSpinner label="Loading polishes…" />;
 
@@ -763,7 +756,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                       )}
                     </TableCell>
                     <TableCell>
-                      <FinishBadges polish={polish} max={3} />
+                      <FinishBadges polish={polish} finishTypes={finishTypes} max={3} />
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {polish.collection ?? "\u2014"}

@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import type { PolishFinish } from "swatchwatch-shared";
-import { isCanonicalFinish, resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
-import { FINISHES } from "@/lib/constants";
+import type { FinishName } from "swatchwatch-shared";
+import { resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
+import { buildFinishOptions } from "@/lib/finish-options";
 import { ToggleChip } from "@/components/toggle-chip";
 import { createPolish, getPolish, updatePolish } from "@/lib/api";
 import { useReferenceData } from "@/hooks/use-reference-data";
@@ -64,8 +64,8 @@ export default function PolishForm() {
     name: "",
     color: "",
     colorHex: "#000000",
-    /** Selected canonical finishes in selection order; the first is the primary finish. */
-    finishes: [] as PolishFinish[],
+    /** Selected finishes in selection order; the first is the primary finish. */
+    finishes: [] as FinishName[],
     collection: "",
     quantity: 1,
     size: "",
@@ -82,23 +82,16 @@ export default function PolishForm() {
     legacyFinish: string;
     primary: string | undefined;
   } | null>(null);
+  // Finishes already saved on the polish being edited. They stay visible/selectable even when
+  // they are not (or no longer) in the reference finish list, so editing never silently drops them.
+  const [savedFinishes, setSavedFinishes] = useState<string[]>([]);
   const { finishTypes } = useReferenceData();
   const finishOptions = useMemo(
-    () =>
-      (
-        finishTypes.length > 0
-          ? finishTypes
-            .filter((finish) => isCanonicalFinish(finish.name))
-            .map((finish) => ({ value: finish.name as PolishFinish, label: finish.displayName }))
-          : FINISHES.map((finish) => ({
-            value: finish as PolishFinish,
-            label: finish.charAt(0).toUpperCase() + finish.slice(1),
-          }))
-      ).sort((a, b) => a.label.localeCompare(b.label)),
-    [finishTypes]
+    () => buildFinishOptions(finishTypes, savedFinishes),
+    [finishTypes, savedFinishes]
   );
 
-  function toggleFinish(value: PolishFinish, pressed: boolean) {
+  function toggleFinish(value: FinishName, pressed: boolean) {
     setForm((prev) => {
       const without = prev.finishes.filter((finish) => finish !== value);
       return { ...prev, finishes: pressed ? [...without, value] : without };
@@ -106,10 +99,10 @@ export default function PolishForm() {
   }
 
   /** Legacy single `finish` to send alongside `finishes` (kept for backward compatibility). */
-  function legacyFinishForSubmit(): PolishFinish | undefined {
+  function legacyFinishForSubmit(): FinishName | undefined {
     const primary = form.finishes[0];
     if (originalShadeFinish && primary === originalShadeFinish.primary) {
-      return (originalShadeFinish.legacyFinish || undefined) as PolishFinish | undefined;
+      return originalShadeFinish.legacyFinish || undefined;
     }
     return primary;
   }
@@ -126,7 +119,8 @@ export default function PolishForm() {
         const existingFinishes = resolvePolishFinishes(data)
           .map((finish) => finish.trim().toLowerCase())
           .map((finish) => (finish === "cream" ? "creme" : finish))
-          .filter((finish): finish is PolishFinish => isCanonicalFinish(finish));
+          .filter(Boolean);
+        setSavedFinishes(existingFinishes);
         setOriginalShadeFinish({
           legacyFinish: data.finish ?? "",
           primary: existingFinishes[0],

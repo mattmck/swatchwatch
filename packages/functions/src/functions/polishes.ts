@@ -29,7 +29,7 @@ import {
 import {
   canonicalizeFinish,
   canonicalizeFinishes,
-  loadFinishAliasMap,
+  loadFinishCatalog,
   requestCarriesFinishData,
   resolveRequestedFinishes,
   type ShadeFinishUpdate,
@@ -501,10 +501,10 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       finishFilterGroups.push(parsedFinishesFilter);
     }
     if (finishFilterGroups.length > 0) {
-      const aliases = await loadFinishAliasMap();
+      const catalog = await loadFinishCatalog();
       for (const group of finishFilterGroups) {
         // Match the multi-finish array (canonical values) or the legacy single finish column.
-        const canonicalValues = canonicalizeFinishes(group, aliases);
+        const canonicalValues = canonicalizeFinishes(group, catalog);
         const legacyValues = Array.from(
           new Set([...group, ...canonicalValues, ...(canonicalValues.includes("creme") ? ["cream"] : [])])
         );
@@ -600,7 +600,7 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
     }
 
     const finishUpdate = requestCarriesFinishData(body)
-      ? resolveRequestedFinishes(body, await loadFinishAliasMap())
+      ? resolveRequestedFinishes(body, await loadFinishCatalog())
       : undefined;
 
     const { shadeId } = await transaction(async (client) => {
@@ -714,7 +714,7 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
   try {
     const body = (await request.json()) as PolishUpdateRequest;
     const finishUpdate = requestCarriesFinishData(body)
-      ? resolveRequestedFinishes(body, await loadFinishAliasMap())
+      ? resolveRequestedFinishes(body, await loadFinishCatalog())
       : undefined;
 
     const updatedShadeId = await transaction(async (client) => {
@@ -926,9 +926,10 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
     }
 
     const previousHex = shade.detected_hex;
+    const finishCatalog = await loadFinishCatalog();
     const vendorFinishes =
       shade.vendor_tags
-        ?.map((t) => canonicalizeFinish(t) || normalizeFinish(t) || t.trim().toLowerCase())
+        ?.map((t) => canonicalizeFinish(t, finishCatalog) || normalizeFinish(t) || t.trim().toLowerCase())
         .filter((v): v is string => Boolean(v)) ?? [];
     const aiFinishes = result.finishes ?? [];
     const mergedFinishes = Array.from(new Set([...vendorFinishes, ...aiFinishes]));

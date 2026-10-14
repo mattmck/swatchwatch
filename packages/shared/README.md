@@ -17,7 +17,8 @@ The package is automatically linked via npm workspaces — no publishing require
 | Type | Description |
 |------|-------------|
 | `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, legacy `finish`, multi-finish `finishes`, tags, timestamps, etc.) |
-| `PolishFinish` | Canonical finish name, derived as `(typeof CANONICAL_FINISHES)[number]` |
+| `PolishFinish` | Built-in finish name, derived as `(typeof CANONICAL_FINISHES)[number]` |
+| `FinishName` | `PolishFinish \| (string & {})` — any finish name on API-facing fields (`Polish.finishes`, request `finish`/`finishes`); admits runtime names from admin-managed `finish_type` rows while keeping autocomplete for built-ins |
 | `resolvePolishFinishes(polish)` | Finishes to display: `finishes` when non-empty, else `[finish]` (backward compatible) |
 | `polishHasFinish(polish, finish)` | Case-insensitive membership check over `resolvePolishFinishes` |
 | `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps); accepts `finishes` (replace) and legacy `finish` |
@@ -36,10 +37,10 @@ The package is automatically linked via npm workspaces — no publishing require
 
 | Export | Description |
 |--------|-------------|
-| `CANONICAL_FINISHES` | Build-time canonical finish list (`creme`, `sheer`, `jelly`, `shimmer`, `metallic`, `glitter`, `holographic`, `duochrome`, `multichrome`, `flake`, `matte`, `topper`, `magnetic`, `thermal`, `crelly`, `glow`, `other`) in `finish_type.sort_order` order |
-| `isCanonicalFinish(value)` | Type guard for exact canonical names |
+| `CANONICAL_FINISHES` | Built-in seeded default finishes — typing + offline fallback, not the runtime authority (`creme`, `sheer`, `jelly`, `shimmer`, `metallic`, `glitter`, `holographic`, `duochrome`, `multichrome`, `flake`, `matte`, `topper`, `magnetic`, `thermal`, `crelly`, `glow`, `other`) in `finish_type.sort_order` order |
+| `isCanonicalFinish(value)` | Type guard for exact BUILT-IN names (unaware of finish types added at runtime) |
 
-**Multi-finish contract (#43):** `finishes` is the source of truth for display/filtering; `finish` is the legacy single value kept populated for older consumers (it is the shade's identity key in the DB). The canonical list is the single source of truth for *which* finishes are valid and is kept in sync with the seeded `finish_type` rows by `packages/functions/tests/finishes.unit.test.cjs`. Alias spellings (`holo`, `cream`, `flakie`, …) are not listed here — they live in the DB-backed `finish_normalization` table (see `packages/functions/README.md`).
+**Multi-finish contract (#43):** `finishes` is the source of truth for display/filtering; `finish` is the legacy single value kept populated for older consumers (it is the shade's identity key in the DB). At runtime the admin-managed `finish_type` table decides *which* finishes are valid; `CANONICAL_FINISHES` is only the built-in seeded defaults (used for typing and as the fallback when the DB is unavailable) and is kept equal to the seeded `finish_type` rows by `packages/functions/tests/finishes.unit.test.cjs`. Alias spellings (`holo`, `cream`, `flakie`, …) are not listed here — they live in the DB-backed `finish_normalization` table (see `packages/functions/README.md`).
 
 ### `types/user.ts`
 

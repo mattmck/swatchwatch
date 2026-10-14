@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { CaptureQuestion, CaptureStatus, PolishFinish } from "swatchwatch-shared";
+import type { CaptureQuestion, CaptureStatus, FinishName } from "swatchwatch-shared";
 import {
   addCaptureFrameFromFile,
   answerCaptureQuestion,
@@ -11,7 +11,7 @@ import {
   getCaptureStatus,
   startCapture,
 } from "@/lib/api";
-import { FINISHES, finishLabel } from "@/lib/constants";
+import { buildFinishOptions } from "@/lib/finish-options";
 import { useReferenceData } from "@/hooks/use-reference-data";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -35,15 +35,11 @@ type FrameType = "barcode" | "label" | "color" | "other";
 export default function RapidAddPage() {
   const router = useRouter();
   const { finishTypes } = useReferenceData();
-  const finishOptions = (
-    finishTypes.length > 0
-      ? finishTypes.map((finish) => ({ value: finish.name, label: finish.displayName }))
-      : FINISHES.map((finish) => ({ value: finish, label: finishLabel(finish) }))
-  ).sort((a, b) => a.label.localeCompare(b.label));
+  const finishOptions = useMemo(() => buildFinishOptions(finishTypes), [finishTypes]);
 
   const [brandHint, setBrandHint] = useState("");
   const [shadeHint, setShadeHint] = useState("");
-  const [finishHint, setFinishHint] = useState<PolishFinish | "">("");
+  const [finishHint, setFinishHint] = useState<FinishName | "">("");
   const [collectionHint, setCollectionHint] = useState("");
 
   const [captureId, setCaptureId] = useState<string | null>(null);
@@ -247,7 +243,7 @@ export default function RapidAddPage() {
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <Select
               value={finishHint}
-              onValueChange={(value) => setFinishHint(value as PolishFinish)}
+              onValueChange={(value) => setFinishHint(value)}
             >
               <SelectTrigger aria-label="Finish hint">
                 <SelectValue placeholder="Optional finish hint" />

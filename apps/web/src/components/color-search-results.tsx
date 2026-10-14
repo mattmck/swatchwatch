@@ -8,6 +8,7 @@ import { ColorDot } from "@/components/color-dot";
 import { QuantityControls } from "@/components/quantity-controls";
 import { FinishBadges } from "@/components/finish-badges";
 import { buildSwatchThumbnailUrl } from "@/lib/image-url";
+import type { FinishTypeLike } from "@/lib/finish-options";
 
 interface ColorSearchResultsProps {
   polishes: (Polish & {
@@ -17,6 +18,8 @@ interface ColorSearchResultsProps {
   })[];
   harmonyColors: string[];
   showMatchDots?: boolean;
+  /** Reference finish rows used for finish badge labels. */
+  finishTypes?: readonly FinishTypeLike[] | null;
   focusedTargetHex?: string | null;
   onQuantityChange?: (polishId: string, delta: number) => void;
   onAddFocus?: (hex: string) => void;
@@ -37,6 +40,7 @@ interface ColorSearchResultsProps {
  *
  * @param polishes - Array of polish objects augmented with `distance`, `matchedHarmonyHex`, and `matchedHarmonyIndex`.
  * @param harmonyColors - Array of hex color strings used to render the header swatches.
+ * @param finishTypes - Optional reference finish rows used for finish badge labels.
  * @param showMatchDots - When true and more than one harmony color exists, show a small matched-harmony dot for each polish.
  * @param focusedTargetHex - Hex string of the currently focused harmony swatch; used to highlight the corresponding header swatch.
  * @param onQuantityChange - Optional handler invoked as `(polishId, delta)` when quantity is incremented/decremented/added.
@@ -53,6 +57,7 @@ export function ColorSearchResults({
   polishes,
   harmonyColors,
   showMatchDots = false,
+  finishTypes,
   focusedTargetHex,
   onQuantityChange,
   onAddFocus,
@@ -159,7 +164,7 @@ export function ColorSearchResults({
                   {polish.collection ? ` · ${polish.collection}` : ""}
                 </p>
               </div>
-              <FinishBadges polish={polish} max={2} className="shrink-0 justify-end" />
+              <FinishBadges polish={polish} finishTypes={finishTypes} max={2} className="shrink-0 justify-end" />
               <span className="shrink-0 text-xs tabular-nums text-muted-foreground w-12 text-right">
                 {((1 - polish.distance) * 100).toFixed(0)}%
               </span>

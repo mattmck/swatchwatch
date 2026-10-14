@@ -1231,6 +1231,7 @@ function ColorSearchPageContent() {
                 polishes={sortedPolishes}
                 harmonyColors={targetColors}
                 showMatchDots={!isSimilarMode}
+                finishTypes={finishTypes}
                 focusedTargetHex={focusedTargetHex}
                 onQuantityChange={handleQuantityChange}
                 onAddFocus={(hex) => {

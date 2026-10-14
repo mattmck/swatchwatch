@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FinishBadges } from "@/components/finish-badges";
+import { useReferenceData } from "@/hooks/use-reference-data";
 import { ColorDot } from "@/components/color-dot";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
@@ -33,6 +34,7 @@ type StatCard = {
 };
 
 export default function DashboardPage() {
+  const { finishTypes } = useReferenceData();
   const [polishes, setPolishes] = useState<Polish[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -216,7 +218,7 @@ export default function DashboardPage() {
                         <p className="truncate font-medium">{polish.name}</p>
                         <p className="text-sm text-muted-foreground">{polish.brand}</p>
                       </div>
-                      <FinishBadges polish={polish} max={2} className="shrink-0 justify-end" />
+                      <FinishBadges polish={polish} finishTypes={finishTypes} max={2} className="shrink-0 justify-end" />
                     </Link>
                   ))}
                 </div>

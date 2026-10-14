@@ -11,6 +11,7 @@ const {
 } = require("swatchwatch-shared");
 const {
   DEFAULT_FINISH_ALIASES,
+  DEFAULT_FINISH_CATALOG,
   canonicalizeFinish,
   canonicalizeFinishes,
   parseFinishesFromTags,
@@ -18,6 +19,24 @@ const {
   resolveRequestedFinishes,
   requestCarriesFinishData,
 } = require("../dist/lib/finishes");
+
+/** Build a FinishCatalog: `validNames` defaults to the built-in finishes. */
+function makeCatalog(aliasEntries, extraValidNames = [], validNames = CANONICAL_FINISHES) {
+  return {
+    aliases: new Map(aliasEntries),
+    validNames: new Set([...validNames, ...extraValidNames]),
+  };
+}
+
+/** Catalog where `chrome` exists only as a runtime (admin-added) finish_type, aliased from `mirror`. */
+const CHROME_CATALOG = makeCatalog(
+  [
+    ["chrome", "chrome"],
+    ["mirror", "chrome"],
+    ["holo", "holographic"],
+  ],
+  ["chrome"]
+);
 
 const MIGRATIONS_DIR = path.resolve(__dirname, "../migrations");
 
@@ -52,11 +71,11 @@ function parseInsertTuples(sql, table) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Canonical list ↔ DB seed sync
+// Built-in defaults ↔ DB seed sync (runtime validity comes from the finish_type table)
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("canonical finish list — sync with finish_type seed", () => {
-  it("matches the finish_type rows seeded by migration 005 (same names, sort_order order)", () => {
+describe("built-in finish defaults (CANONICAL_FINISHES) — sync with finish_type seed", () => {
+  it("built-in defaults equal the finish_type rows seeded by migration 005 (same names, sort_order order)", () => {
     const rows = parseInsertTuples(upSection(readMigration("005_seed_production_reference_data.sql")), "finish_type");
     assert.ok(rows.length > 0, "expected finish_type seed rows in 005");
     const seeded = rows
@@ -127,18 +146,40 @@ describe("lib/finishes — canonicalizeFinish", () => {
     assert.equal(canonicalizeFinish(42), null);
   });
 
-  it("uses a caller-supplied (DB-backed) alias map", () => {
-    const aliases = new Map([["iridescent", "duochrome"]]);
-    assert.equal(canonicalizeFinish("Iridescent", aliases), "duochrome");
-    // Canonical names still resolve without an alias row.
-    assert.equal(canonicalizeFinish("matte", aliases), "matte");
-    // Default aliases are not consulted when a custom map is supplied.
-    assert.equal(canonicalizeFinish("holo", aliases), null);
+  it("uses a caller-supplied (DB-backed) catalog", () => {
+    const catalog = makeCatalog([["iridescent", "duochrome"]]);
+    assert.equal(canonicalizeFinish("Iridescent", catalog), "duochrome");
+    // Valid names still resolve without an alias row.
+    assert.equal(canonicalizeFinish("matte", catalog), "matte");
+    // Default aliases are not consulted when a custom catalog is supplied.
+    assert.equal(canonicalizeFinish("holo", catalog), null);
   });
 
-  it("ignores alias rows that point at a non-canonical finish_type", () => {
-    const aliases = new Map([["suede", "velvet"]]);
-    assert.equal(canonicalizeFinish("suede", aliases), null);
+  it("ignores alias rows that point at a name that is not a valid finish_type", () => {
+    const catalog = makeCatalog([["suede", "velvet"]]);
+    assert.equal(canonicalizeFinish("suede", catalog), null);
+  });
+
+  it("accepts runtime-only finish types (admin-added) when the catalog knows them", () => {
+    assert.equal(canonicalizeFinish("Chrome", CHROME_CATALOG), "chrome");
+    assert.equal(canonicalizeFinish("  CHROME ", CHROME_CATALOG), "chrome");
+    assert.equal(canonicalizeFinish("mirror", CHROME_CATALOG), "chrome");
+    // Built-ins keep working in the same catalog.
+    assert.equal(canonicalizeFinish("holo", CHROME_CATALOG), "holographic");
+  });
+
+  it("rejects the runtime-only finish without the catalog (built-in defaults)", () => {
+    assert.equal(canonicalizeFinish("chrome"), null);
+    assert.equal(canonicalizeFinish("chrome", DEFAULT_FINISH_CATALOG), null);
+    assert.equal(canonicalizeFinish("mirror"), null);
+  });
+
+  it("canonicalizeFinishes validates every entry against the catalog", () => {
+    assert.deepEqual(canonicalizeFinishes(["Mirror", "chrome", "holo", "nope"], CHROME_CATALOG), [
+      "chrome",
+      "holographic",
+    ]);
+    assert.deepEqual(canonicalizeFinishes(["chrome", "holo"]), ["holographic"]);
   });
 
   it("canonicalizeFinishes de-duplicates while preserving order", () => {
@@ -212,12 +253,22 @@ describe("lib/finishes — parseFinishesFromTags", () => {
     assert.deepEqual(parseFinishesFromTags([null, 3, { a: 1 }, "matte"]), ["matte"]);
   });
 
-  it("honors a DB-backed alias map", () => {
-    const aliases = new Map([["iridescent", "duochrome"]]);
-    assert.deepEqual(parseFinishesFromTags(["finish:iridescent", "glitter"], aliases), [
+  it("honors a DB-backed catalog (aliases)", () => {
+    const catalog = makeCatalog([["iridescent", "duochrome"]]);
+    assert.deepEqual(parseFinishesFromTags(["finish:iridescent", "glitter"], catalog), [
       "duochrome",
       "glitter",
     ]);
+  });
+
+  it("recognizes runtime-only finish types and their aliases (ingestion path)", () => {
+    assert.deepEqual(parseFinishesFromTags(["finish:chrome", "mirror"], CHROME_CATALOG), ["chrome"]);
+    assert.deepEqual(parseFinishesFromTags(["finish:chrome", "mirror", "holo"], CHROME_CATALOG), [
+      "chrome",
+      "holographic",
+    ]);
+    // Without the catalog neither is recognized.
+    assert.deepEqual(parseFinishesFromTags(["finish:chrome", "mirror"]), []);
   });
 
   it("parses real Holo Taco tag sets", () => {
@@ -240,12 +291,19 @@ describe("lib/finishes — parseFinishesFromTags", () => {
 
 describe("lib/finishes — mergeFinishLists", () => {
   it("keeps the existing order first and appends new canonical values", () => {
-    assert.deepEqual(mergeFinishLists(["creme"], ["shimmer", "creme"], ["holo"]), [
+    assert.deepEqual(mergeFinishLists([["creme"], ["shimmer", "creme"], ["holo"]]), [
       "creme",
       "shimmer",
       "holographic",
     ]);
-    assert.deepEqual(mergeFinishLists(null, undefined), []);
+    assert.deepEqual(mergeFinishLists([null, undefined]), []);
+  });
+
+  it("keeps runtime-only finishes already stored on a shade when the catalog knows them", () => {
+    assert.deepEqual(mergeFinishLists([["chrome"], ["mirror", "holo"]], CHROME_CATALOG), [
+      "chrome",
+      "holographic",
+    ]);
   });
 });
 
@@ -278,6 +336,18 @@ describe("lib/finishes — resolveRequestedFinishes", () => {
       values: ["shimmer", "holographic"],
     });
     assert.deepEqual(resolveRequestedFinishes({ finishes: [] }), { mode: "replace", values: [] });
+  });
+
+  it("validates explicit finishes against the catalog (runtime-only finish kept, bogus dropped)", () => {
+    assert.deepEqual(resolveRequestedFinishes({ finishes: ["Mirror", "holo", "bogus"] }, CHROME_CATALOG), {
+      mode: "replace",
+      values: ["chrome", "holographic"],
+    });
+    assert.deepEqual(resolveRequestedFinishes({ finishes: ["chrome"] }), { mode: "replace", values: [] });
+    assert.deepEqual(resolveRequestedFinishes({ finish: "chrome" }, CHROME_CATALOG), {
+      mode: "merge",
+      values: ["chrome"],
+    });
   });
 
   it("uses only explicit finishes/finish when finish-like tags are also sent", () => {

@@ -8,7 +8,8 @@ import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
 import { getPolish, deletePolish, listPolishes } from "@/lib/api";
 import { colorDistance, hexToOklch, oklchToHex } from "@/lib/color-utils";
-import { finishLabel } from "@/lib/constants";
+import { resolveFinishLabel } from "@/lib/finish-options";
+import { useReferenceData } from "@/hooks/use-reference-data";
 import { FinishBadges } from "@/components/finish-badges";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,7 @@ export default function PolishDetailClient({
   returnTo?: string | null;
 }) {
   const router = useRouter();
+  const { finishTypes } = useReferenceData();
   const listHref = resolveReturnTo(returnTo ?? null);
   const [polish, setPolish] = useState<Polish | null>(null);
   const [allPolishes, setAllPolishes] = useState<Polish[]>([]);
@@ -298,7 +300,7 @@ export default function PolishDetailClient({
                 {resolvePolishFinishes(polish).length > 1 ? "Finishes" : "Finish"}
               </p>
               <div className="font-medium">
-                <FinishBadges polish={polish} empty="—" />
+                <FinishBadges polish={polish} finishTypes={finishTypes} empty="—" />
               </div>
             </div>
             <div>
@@ -461,7 +463,7 @@ export default function PolishDetailClient({
                     <p className="truncate text-sm text-muted-foreground">
                       {related.brand}
                       {resolvePolishFinishes(related).length > 0
-                        ? ` · ${resolvePolishFinishes(related).map(finishLabel).join(", ")}`
+                        ? ` · ${resolvePolishFinishes(related).map((finish) => resolveFinishLabel(finish, finishTypes)).join(", ")}`
                         : ""}
                     </p>
                   </div>

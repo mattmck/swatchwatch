@@ -1,18 +1,23 @@
 /**
  * Finish canonicalization + tag parsing.
  *
- * Source-of-truth split:
- * - WHICH finishes are valid: the build-time `CANONICAL_FINISHES` list in
- *   `swatchwatch-shared` (kept in sync with the seeded `finish_type` rows).
- * - HOW messy input spellings map onto them: the DB-backed `finish_normalization`
+ * Source-of-truth split (runtime):
+ * - WHICH finishes are valid: the DB `finish_type` table (admin-managed). A
+ *   finish type created only through the admin UI is a valid finish.
+ * - HOW messy input spellings map onto them: the DB `finish_normalization`
  *   table (admin-editable via `/api/reference-admin/finish-normalizations`).
- *   `DEFAULT_FINISH_ALIASES` below mirrors the seeded rows and is only used as a
- *   fallback when the DB lookup fails, or by pure callers that have no DB map.
+ * - `CANONICAL_FINISHES` in `swatchwatch-shared` is only the set of BUILT-IN
+ *   seeded defaults (kept equal to the migration seeds by a test). It types the
+ *   known built-ins and is the fallback when the DB is unreachable or pure
+ *   callers pass no catalog; `DEFAULT_FINISH_ALIASES` below mirrors the seeded
+ *   alias rows for the same purpose.
  *
- * Every value returned by this module is a member of `CANONICAL_FINISHES`, even if
- * an alias row points at a runtime-only `finish_type` name.
+ * Both halves are loaded together by `loadFinishCatalog()` (one query, one
+ * cache) and passed into the pure helpers as a `FinishCatalog`. Every value
+ * returned by this module is a member of the catalog's `validNames`; alias rows
+ * pointing at a name that is not a `finish_type` are ignored.
  */
-import { isCanonicalFinish, type PolishCreateRequest, type PolishFinish } from "swatchwatch-shared";
+import { CANONICAL_FINISHES, type PolishCreateRequest } from "swatchwatch-shared";
 import { query } from "./db";
 
 /**
@@ -20,7 +25,7 @@ import { query } from "./db";
  * `finish_normalization` rows seeded by migrations 018 and 023; the unit test
  * `finishes.unit.test.cjs` asserts they stay identical.
  */
-export const DEFAULT_FINISH_ALIASES: Readonly<Record<string, PolishFinish>> = Object.freeze({
+export const DEFAULT_FINISH_ALIASES: Readonly<Record<string, string>> = Object.freeze({
   creme: "creme",
   cream: "creme",
   creamy: "creme",
@@ -74,6 +79,22 @@ export type FinishAliasMap = ReadonlyMap<string, string>;
 
 export const DEFAULT_FINISH_ALIAS_MAP: FinishAliasMap = new Map(Object.entries(DEFAULT_FINISH_ALIASES));
 
+/**
+ * Everything needed to validate and normalize a finish string at runtime:
+ * - `aliases`: lowercased source spelling → finish name (from `finish_normalization`)
+ * - `validNames`: the finish names that exist (from `finish_type`)
+ */
+export interface FinishCatalog {
+  aliases: FinishAliasMap;
+  validNames: ReadonlySet<string>;
+}
+
+/** Built-in seeded defaults: used when no DB catalog is available. */
+export const DEFAULT_FINISH_CATALOG: FinishCatalog = Object.freeze({
+  aliases: DEFAULT_FINISH_ALIAS_MAP,
+  validNames: new Set<string>(CANONICAL_FINISHES),
+});
+
 /** Tag prefix for explicit finish tags (`finish:holographic`). */
 export const FINISH_TAG_PREFIX = "finish:";
 
@@ -84,25 +105,24 @@ function normalizeFinishKey(value: string): string {
 }
 
 /**
- * Resolve one raw finish string to a canonical finish, or `null` when it is not a
- * known finish. Matching is case-insensitive and whitespace-tolerant; canonical
- * names always resolve to themselves, other values go through `aliases`.
+ * Resolve one raw finish string to a valid finish name, or `null` when it is not a
+ * known finish. Matching is case-insensitive and whitespace-tolerant; valid names
+ * always resolve to themselves, other values go through `catalog.aliases`.
+ * Defaults to the built-in finishes; pass `await loadFinishCatalog()` to honor
+ * admin-managed finish types.
  */
-export function canonicalizeFinish(
-  value: unknown,
-  aliases: FinishAliasMap = DEFAULT_FINISH_ALIAS_MAP
-): PolishFinish | null {
+export function canonicalizeFinish(value: unknown, catalog: FinishCatalog = DEFAULT_FINISH_CATALOG): string | null {
   if (typeof value !== "string") return null;
   const key = normalizeFinishKey(value);
   if (!key) return null;
-  if (isCanonicalFinish(key)) return key;
+  if (catalog.validNames.has(key)) return key;
 
   const candidates = [key, key.replace(/[-_]+/g, " "), key.replace(/[\s_]+/g, "-")];
   for (const candidate of candidates) {
-    const mapped = aliases.get(candidate);
+    const mapped = catalog.aliases.get(candidate);
     if (!mapped) continue;
     const normalized = normalizeFinishKey(mapped);
-    if (isCanonicalFinish(normalized)) return normalized;
+    if (catalog.validNames.has(normalized)) return normalized;
   }
   return null;
 }
@@ -110,19 +130,19 @@ export function canonicalizeFinish(
 /** Canonicalize a list of raw finish strings, dropping unknowns and de-duplicating (order preserved). */
 export function canonicalizeFinishes(
   values: Iterable<unknown> | null | undefined,
-  aliases: FinishAliasMap = DEFAULT_FINISH_ALIAS_MAP
-): PolishFinish[] {
-  const out: PolishFinish[] = [];
+  catalog: FinishCatalog = DEFAULT_FINISH_CATALOG
+): string[] {
+  const out: string[] = [];
   if (!values) return out;
   for (const value of values) {
-    const canonical = canonicalizeFinish(value, aliases);
+    const canonical = canonicalizeFinish(value, catalog);
     if (canonical && !out.includes(canonical)) out.push(canonical);
   }
   return out;
 }
 
 /**
- * Extract canonical finishes from product/import tags.
+ * Extract valid finishes from product/import tags.
  *
  * - `finish:<value>` tags (prefix is case-insensitive, whitespace-tolerant) and
  *   bare `<value>` tags are both recognized; e.g. `holographic`,
@@ -135,13 +155,10 @@ export function canonicalizeFinishes(
  * Used by ingestion connectors only. User request `tags` on polish create/update are
  * deliberately NOT parsed into catalog finishes (see `resolveRequestedFinishes`).
  *
- * Pure: pass the DB-backed alias map from `loadFinishAliasMap()` to honor
- * admin-managed `finish_normalization` rows.
+ * Pure: pass the DB-backed catalog from `loadFinishCatalog()` to honor
+ * admin-managed `finish_type` and `finish_normalization` rows.
  */
-export function parseFinishesFromTags(
-  tags: unknown,
-  aliases: FinishAliasMap = DEFAULT_FINISH_ALIAS_MAP
-): PolishFinish[] {
+export function parseFinishesFromTags(tags: unknown, catalog: FinishCatalog = DEFAULT_FINISH_CATALOG): string[] {
   if (!Array.isArray(tags)) return [];
 
   const explicit: string[] = [];
@@ -159,15 +176,18 @@ export function parseFinishesFromTags(
     }
   }
 
-  return canonicalizeFinishes([...explicit, ...bare], aliases);
+  return canonicalizeFinishes([...explicit, ...bare], catalog);
 }
 
-/** Merge finish lists, keeping `primary` order first and de-duplicating. */
+/** Merge finish lists, keeping the first list's order first and de-duplicating. */
 export function mergeFinishLists(
-  primary: readonly string[] | null | undefined,
-  ...rest: Array<readonly string[] | null | undefined>
-): PolishFinish[] {
-  return canonicalizeFinishes([...(primary ?? []), ...rest.flatMap((list) => list ?? [])]);
+  lists: ReadonlyArray<readonly string[] | null | undefined>,
+  catalog: FinishCatalog = DEFAULT_FINISH_CATALOG
+): string[] {
+  return canonicalizeFinishes(
+    lists.flatMap((list) => list ?? []),
+    catalog
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -202,7 +222,7 @@ export function requestCarriesFinishData(body: Pick<PolishCreateRequest, "finish
  */
 export function resolveRequestedFinishes(
   body: Pick<PolishCreateRequest, "finish" | "finishes">,
-  aliases?: FinishAliasMap
+  catalog?: FinishCatalog
 ): ShadeFinishUpdate | undefined {
   const explicitList = Array.isArray(body.finishes) ? body.finishes : null;
   const explicit = explicitList ?? (body.finish ? [body.finish] : []);
@@ -213,71 +233,90 @@ export function resolveRequestedFinishes(
 
   return {
     mode: explicitList ? "replace" : "merge",
-    values: canonicalizeFinishes(explicit, aliases),
+    values: canonicalizeFinishes(explicit, catalog),
   };
 }
 
 // ---------------------------------------------------------------------------
-// DB-backed alias map (finish_normalization ∪ finish_type), cached in-process.
+// DB-backed finish catalog (finish_type + finish_normalization), cached in-process.
 // ---------------------------------------------------------------------------
 
-const FINISH_ALIAS_CACHE_TTL_MS = 5 * 60 * 1000;
+const FINISH_CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
 
-let aliasCache: { values: FinishAliasMap; expiresAtMs: number } | null = null;
-let pendingAliasLoad: Promise<FinishAliasMap> | null = null;
+let catalogCache: { value: FinishCatalog; expiresAtMs: number } | null = null;
+let pendingCatalogLoad: Promise<FinishCatalog> | null = null;
 
-export interface LoadFinishAliasMapOptions {
-  /** Called when the DB lookup fails and the built-in fallback map is used. */
+export interface LoadFinishCatalogOptions {
+  /** Called when the DB lookup fails and the built-in fallback catalog is used. */
   onFallback?: (message: string, code?: string) => void;
 }
 
+interface FinishCatalogRow {
+  kind: string;
+  sourceValue: string;
+  normalizedFinishName: string;
+}
+
 /**
- * Load the alias map from `finish_normalization` (priority) plus identity rows
- * for every `finish_type.name`. Cached for 5 minutes; falls back to
- * `DEFAULT_FINISH_ALIAS_MAP` if the query fails.
+ * Load the finish catalog in ONE query: `finish_type` names (the valid finishes, plus
+ * identity aliases) and `finish_normalization` rows (aliases, which win over identity
+ * rows). An alias only resolves when its target is a `finish_type` name. Cached for
+ * 5 minutes (cleared on admin reference edits); falls back to
+ * `DEFAULT_FINISH_CATALOG` (built-in finishes + `DEFAULT_FINISH_ALIAS_MAP`) if the
+ * query fails.
  */
-export async function loadFinishAliasMap(options?: LoadFinishAliasMapOptions): Promise<FinishAliasMap> {
+export async function loadFinishCatalog(options?: LoadFinishCatalogOptions): Promise<FinishCatalog> {
   const now = Date.now();
-  if (aliasCache && aliasCache.expiresAtMs > now) {
-    return aliasCache.values;
+  if (catalogCache && catalogCache.expiresAtMs > now) {
+    return catalogCache.value;
   }
-  if (pendingAliasLoad) {
-    return pendingAliasLoad;
+  if (pendingCatalogLoad) {
+    return pendingCatalogLoad;
   }
 
-  pendingAliasLoad = (async () => {
+  pendingCatalogLoad = (async () => {
     try {
-      const result = await query<{ sourceValue: string; normalizedFinishName: string }>(
-        `SELECT DISTINCT ON ("sourceValue")
-           "sourceValue",
-           "normalizedFinishName"
-         FROM (
-           SELECT
-             source_value AS "sourceValue",
-             normalized_finish_name AS "normalizedFinishName",
-             1 AS source_priority
-           FROM finish_normalization
-           UNION ALL
-           SELECT
-             name AS "sourceValue",
-             name AS "normalizedFinishName",
-             2 AS source_priority
-           FROM finish_type
-         ) x
-         ORDER BY "sourceValue", source_priority`
+      const result = await query<FinishCatalogRow>(
+        `SELECT 'alias' AS kind,
+                source_value AS "sourceValue",
+                normalized_finish_name AS "normalizedFinishName"
+         FROM finish_normalization
+         UNION ALL
+         SELECT 'type' AS kind,
+                name AS "sourceValue",
+                name AS "normalizedFinishName"
+         FROM finish_type`
       );
 
-      const values = new Map<string, string>();
+      const validNames = new Set<string>();
+      const aliases = new Map<string, string>();
+      const aliasRows: Array<[string, string]> = [];
       for (const row of result.rows ?? []) {
         if (typeof row?.sourceValue !== "string" || typeof row?.normalizedFinishName !== "string") continue;
         const source = normalizeFinishKey(row.sourceValue);
         const normalized = normalizeFinishKey(row.normalizedFinishName);
         if (!source || !normalized) continue;
-        values.set(source, normalized);
+        if (row.kind === "type") {
+          validNames.add(normalized);
+          aliases.set(source, normalized);
+        } else {
+          aliasRows.push([source, normalized]);
+        }
+      }
+      // An empty finish_type table is a misconfiguration, not "no finish is valid".
+      if (validNames.size === 0) {
+        for (const name of CANONICAL_FINISHES) {
+          validNames.add(name);
+        }
+      }
+      // Alias rows take priority over identity rows; only keep ones that resolve to a real finish.
+      for (const [source, normalized] of aliasRows) {
+        if (validNames.has(normalized)) aliases.set(source, normalized);
       }
 
-      aliasCache = { values, expiresAtMs: now + FINISH_ALIAS_CACHE_TTL_MS };
-      return values;
+      const value: FinishCatalog = { aliases, validNames };
+      catalogCache = { value, expiresAtMs: now + FINISH_CATALOG_CACHE_TTL_MS };
+      return value;
     } catch (error: unknown) {
       const code =
         typeof error === "object" && error !== null && "code" in error
@@ -285,17 +324,17 @@ export async function loadFinishAliasMap(options?: LoadFinishAliasMapOptions): P
           : undefined;
       const message = error instanceof Error ? error.message : String(error);
       options?.onFallback?.(message, code);
-      return DEFAULT_FINISH_ALIAS_MAP;
+      return DEFAULT_FINISH_CATALOG;
     } finally {
-      pendingAliasLoad = null;
+      pendingCatalogLoad = null;
     }
   })();
 
-  return pendingAliasLoad;
+  return pendingCatalogLoad;
 }
 
-/** Clear the in-process alias cache (tests, or after admin edits in the same process). */
+/** Clear the in-process catalog cache (tests, or after admin edits in the same process). */
 export function resetFinishAliasCache(): void {
-  aliasCache = null;
-  pendingAliasLoad = null;
+  catalogCache = null;
+  pendingCatalogLoad = null;
 }

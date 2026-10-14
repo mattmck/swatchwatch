@@ -21,9 +21,9 @@ export interface Polish {
    * Legacy single finish (the shade's identity/primary finish). Kept populated for
    * backward compatibility; prefer `finishes` (or `resolvePolishFinishes`) for display.
    */
-  finish?: PolishFinish;
-  /** All canonical finishes for the shade, primary first (e.g. `["shimmer", "holographic"]`). */
-  finishes?: PolishFinish[];
+  finish?: FinishName;
+  /** All finishes for the shade, primary first (e.g. `["shimmer", "holographic"]`). */
+  finishes?: FinishName[];
   collection?: string;
   quantity?: number;
   size?: string;
@@ -46,8 +46,15 @@ export function resolveDisplayHex(
   return polish.vendorHex || polish.detectedHex || polish.nameHex || undefined;
 }
 
-/** Canonical finish name, derived from the build-time `CANONICAL_FINISHES` list. */
+/** A built-in finish name, derived from the `CANONICAL_FINISHES` seeded-defaults list. */
 export type PolishFinish = (typeof CANONICAL_FINISHES)[number];
+
+/**
+ * Any finish name the API accepts or returns: the built-in `PolishFinish` names (kept for
+ * editor autocomplete) plus runtime names from admin-managed `finish_type` rows.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export type FinishName = PolishFinish | (string & {});
 
 /**
  * Returns the finishes to display for a polish: the multi-finish `finishes` list when
@@ -115,12 +122,12 @@ export interface PolishCreateRequest {
   detectedHex?: string;
   nameHex?: string;
   /** Legacy single finish. When `finishes` is omitted it is treated as `[finish]`. */
-  finish?: PolishFinish;
+  finish?: FinishName;
   /**
    * Multi-finish list. The first entry is the primary finish (used for the legacy
    * `finish` column). Unknown values are ignored; aliases are normalized.
    */
-  finishes?: PolishFinish[];
+  finishes?: FinishName[];
   collection?: string;
   quantity?: number;
   size?: string;
@@ -143,9 +150,9 @@ export interface PolishListResponse {
 export interface PolishFilters {
   brand?: string;
   /** Matches shades that have this finish among their finishes (or as the legacy `finish`). */
-  finish?: PolishFinish;
+  finish?: FinishName;
   /** Matches shades that have ANY of these finishes. */
-  finishes?: PolishFinish[];
+  finishes?: FinishName[];
   color?: string;
   tags?: string[];
   search?: string;

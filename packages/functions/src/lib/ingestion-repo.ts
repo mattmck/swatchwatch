@@ -9,10 +9,10 @@ import { toImageProxyUrlFromOrigin } from "./image-proxy";
 import pLimit = require("p-limit");
 import { isSuspiciousHex } from "./suspicious-hex";
 import {
-  loadFinishAliasMap,
+  loadFinishCatalog,
   mergeFinishLists,
   parseFinishesFromTags,
-  type FinishAliasMap,
+  type FinishCatalog,
 } from "./finishes";
 import { PoolClient } from "pg";
 
@@ -236,10 +236,10 @@ function parseHoloTacoNormalized(
  */
 export function resolveIngestedShadeFinishes(
   normalized: Record<string, unknown> | null | undefined,
-  aliases?: FinishAliasMap
+  catalog?: FinishCatalog
 ): string[] {
   if (!normalized) return [];
-  return parseFinishesFromTags(asStringArray(normalized.tags), aliases);
+  return parseFinishesFromTags(asStringArray(normalized.tags), catalog);
 }
 
 function isHttpUrl(value: string | null): value is string {
@@ -1384,7 +1384,7 @@ export async function materializeMakeupApiRecords(
   userId: number,
   records: ConnectorProductRecord[]
 ): Promise<MakeupApiMaterializationMetrics> {
-  const finishAliases = await loadFinishAliasMap();
+  const finishCatalog = await loadFinishCatalog();
   return transaction(async (client) => {
     let variantRowsProcessed = 0;
     let brandsCreated = 0;
@@ -1408,7 +1408,7 @@ export async function materializeMakeupApiRecords(
       }
 
       const makeup = parseMakeupNormalized(normalized);
-      const tagFinishes = parseFinishesFromTags(makeup.tags, finishAliases);
+      const tagFinishes = parseFinishesFromTags(makeup.tags, finishCatalog);
       if (!makeup.brand || !makeup.name) {
         skipped += 1;
         continue;
@@ -1606,7 +1606,7 @@ async function materializePreparedHoloTacoRecord(
   overwriteDetectedHex: boolean,
   sourceLogPrefix: string,
   brandCache: Map<string, number>,
-  finishAliases?: FinishAliasMap
+  finishCatalog?: FinishCatalog
 ): Promise<HoloTacoRecordMaterializationDelta> {
   const delta: HoloTacoRecordMaterializationDelta = {
     processed: 0,
@@ -1634,7 +1634,7 @@ async function materializePreparedHoloTacoRecord(
     delta.skipped += 1;
     return delta;
   }
-  const tagFinishes = resolveIngestedShadeFinishes(normalized, finishAliases);
+  const tagFinishes = resolveIngestedShadeFinishes(normalized, finishCatalog);
 
   console.log(`${sourceLogPrefix} Processing record: externalId=${record.externalId}, name=${holo.name}`);
 
@@ -1732,7 +1732,7 @@ async function materializePreparedHoloTacoRecord(
   );
   // Vendor tag finishes are merged (never removed) so manual edits survive re-imports.
   const currentFinishes = currentShade.rows[0]?.finishes ?? [];
-  const mergedFinishes = mergeFinishLists(currentFinishes, tagFinishes);
+  const mergedFinishes = mergeFinishLists([currentFinishes, tagFinishes], finishCatalog);
 
   const shouldOverwrite = overwriteDetectedHex;
   if (
@@ -1975,9 +1975,9 @@ export async function materializeHoloTacoRecords(
   let skipped = 0;
 
   const brandCache = new Map<string, number>();
-  const finishAliases = await loadFinishAliasMap({
+  const finishCatalog = await loadFinishCatalog({
     onFallback: (message) =>
-      console.warn(`${sourceLogPrefix} Falling back to default finish aliases (${message})`),
+      console.warn(`${sourceLogPrefix} Falling back to built-in finish catalog (${message})`),
   });
 
   console.log(
@@ -2000,7 +2000,7 @@ export async function materializeHoloTacoRecords(
           overwriteDetectedHex,
           sourceLogPrefix,
           brandCache,
-          finishAliases
+          finishCatalog
         )
       );
 

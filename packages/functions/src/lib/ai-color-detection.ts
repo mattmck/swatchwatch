@@ -1,4 +1,4 @@
-import { canonicalizeFinishes, loadFinishAliasMap } from "./finishes";
+import { canonicalizeFinishes, loadFinishCatalog } from "./finishes";
 import { trackMetric } from "./telemetry";
 import { resolveAzureOpenAiConfig } from "./azure-openai-config";
 
@@ -160,16 +160,17 @@ async function parseFinishes(
   options?: HexDetectionOptions
 ): Promise<string[] | null> {
   if (!Array.isArray(value)) return null;
-  const aliases = await loadFinishAliasMap({
+  // Uses the runtime finish catalog so admin-added finish types are accepted too.
+  const catalog = await loadFinishCatalog({
     onFallback: (message, code) =>
       emitLog(
         options,
         "warn",
-        `[ai-color-detection] Falling back to default finish normalization map (${message})`,
+        `[ai-color-detection] Falling back to built-in finish catalog (${message})`,
         { code }
       ),
   });
-  const out = canonicalizeFinishes(value, aliases);
+  const out = canonicalizeFinishes(value, catalog);
   return out.length ? out : null;
 }
 

@@ -1,8 +1,13 @@
 /**
- * Build-time canonical finish list — the single source of truth for which
- * finish values the app accepts.
+ * Built-in seeded default finishes (typing + offline fallback).
  *
- * Kept in sync with the `finish_type` rows seeded by migrations
+ * At runtime the admin-managed `finish_type` table is the source of truth for which
+ * finishes are valid (see `packages/functions/src/lib/finishes.ts`); finish types
+ * added through the admin UI are valid even though they are not listed here. This list
+ * is used to type the known built-ins (`PolishFinish`) and as the fallback when the
+ * database or reference API is unavailable.
+ *
+ * Kept equal to the `finish_type` rows seeded by migrations
  * `005_seed_production_reference_data.sql` / `018_add_finish_normalizations.sql`
  * (ordered by `sort_order`). `packages/functions/tests/finishes.unit.test.cjs`
  * fails if the two drift apart.
@@ -35,7 +40,10 @@ type CanonicalFinish = (typeof CANONICAL_FINISHES)[number];
 
 const CANONICAL_FINISH_SET: ReadonlySet<string> = new Set(CANONICAL_FINISHES);
 
-/** True when `value` is exactly one of the canonical finish names (case-sensitive). */
+/**
+ * True when `value` is exactly one of the BUILT-IN finish names (case-sensitive). This does
+ * not know about finish types added at runtime; use the reference data / DB catalog for those.
+ */
 export function isCanonicalFinish(value: unknown): value is CanonicalFinish {
   return typeof value === "string" && CANONICAL_FINISH_SET.has(value);
 }
