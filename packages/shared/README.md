@@ -79,6 +79,16 @@ The package is automatically linked via npm workspaces — no publishing require
 | `CollectionGapCell` | Count per hue/lightness cell |
 | `CollectionGapAnalysis` | Structured gap-analysis output (`cells`, `missing`, `underrepresented`) |
 
+### `types/color-match.ts`
+
+| Type | Description |
+|------|-------------|
+| `MatchConfidence` | `"high" \| "medium" \| "low"` — bucketed OKLAB distance (thresholds in Functions `lib/color-match.ts`) |
+| `ExtractedColor` | Dominant image color: uppercase `hex` + pixel `fraction` (0–1) |
+| `PolishImageMatchRequest` | Body for `POST /api/polishes/match-image`: `image` (base64 data URL), optional `maxColors` (1–10), `limit` (1–50) |
+| `PolishMatch` | `{ polish, matchedColor, distance, confidence }` — one owned polish matched to its closest extracted color |
+| `PolishImageMatchResponse` | `{ extractedColors, matches, candidateCount }` |
+
 ### `types/ingestion.ts`
 
 | Type | Description |
@@ -113,6 +123,22 @@ Export note:
 - `HarmonyType` is already used by `types/palette.ts` for palette selection values.
 - `types/reference.ts` harmony row type is re-exported from package root as `ReferenceHarmonyType`.
 - These reference contracts are consumed by the web `use-reference-data` hook for API-backed finish/harmony option loading with fallback support.
+
+## Utilities
+
+### `color/oklab.ts`
+
+Pure, dependency-free OKLAB color math shared by the web app (`apps/web/src/lib/color-utils.ts` re-exports it) and Azure Functions (`packages/functions/src/lib/color-match.ts`), so perceptual distances are identical on client and server. Euclidean OKLAB distance: black↔white ≈ 1.0, ~0.02 ≈ just-noticeable difference.
+
+| Export | Description |
+|--------|-------------|
+| `OKLab` | `{ L, a, b }` OKLAB coordinates |
+| `rgbToOklab(rgb)` | 0–255 sRGB `{ r, g, b }` → OKLAB |
+| `hexToOklab(hex)` | `#RRGGBB` / `RRGGBB` → OKLAB |
+| `oklabDistance(a, b)` | Euclidean distance between two OKLAB colors |
+| `colorDistance(hex1, hex2)` | OKLAB distance between two hex colors |
+
+Pinned-distance tests in `packages/functions/tests/color-match.unit.test.cjs` and `apps/web/src/lib/color-utils.test.ts` guard against numeric drift.
 
 ## Adding New Types
 

@@ -1,5 +1,11 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
-import { Polish, PolishCreateRequest, PolishUpdateRequest, PolishListResponse } from "swatchwatch-shared";
+import {
+  Polish,
+  PolishCreateRequest,
+  PolishUpdateRequest,
+  PolishListResponse,
+  PolishImageMatchResponse,
+} from "swatchwatch-shared";
 import { query, transaction } from "../lib/db";
 import { withAuth, withAdmin } from "../lib/auth";
 import { withCors } from "../lib/http";
@@ -14,6 +20,12 @@ import {
   hashCacheKey,
 } from "../lib/cache";
 import { trackEvent, trackException } from "../lib/telemetry";
+import {
+  extractImagePalette,
+  MatchImageInputError,
+  parseMatchImageRequest,
+  rankPolishMatches,
+} from "../lib/color-match";
 import { PoolClient } from "pg";
 
 const FINISH_NORMALIZATION_MAP: Record<string, string> = {
@@ -888,6 +900,94 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
   }
 }
 
+/**
+ * Upper bound on the raw JSON body. The decoded image is capped at 5 MB by
+ * validateImageUpload; base64 inflates that by 4/3, plus a little slack for the
+ * data-URL prefix and option fields.
+ */
+const MATCH_IMAGE_MAX_BODY_BYTES = Math.ceil((5 * 1024 * 1024 * 4) / 3) + 16 * 1024;
+
+/**
+ * POST /api/polishes/match-image — extract the dominant colors of an uploaded
+ * photo and rank the caller's owned polishes by OKLAB distance to them.
+ *
+ * Privacy: the image is decoded in memory only. It is never written to blob
+ * storage, the database, the cache, or logs.
+ */
+async function matchImage(
+  request: HttpRequest,
+  context: InvocationContext,
+  userId: number
+): Promise<HttpResponseInit> {
+  context.log("POST /api/polishes/match-image");
+
+  const contentLength = parseInt(request.headers.get("content-length") || "", 10);
+  if (Number.isFinite(contentLength) && contentLength > MATCH_IMAGE_MAX_BODY_BYTES) {
+    return { status: 413, jsonBody: { error: "Image too large (max 5MB)" } };
+  }
+
+  let body: unknown;
+  try {
+    const raw = await request.arrayBuffer();
+    if (raw.byteLength > MATCH_IMAGE_MAX_BODY_BYTES) {
+      return { status: 413, jsonBody: { error: "Image too large (max 5MB)" } };
+    }
+    body = JSON.parse(new TextDecoder().decode(raw));
+  } catch {
+    return { status: 400, jsonBody: { error: "Request body must be valid JSON" } };
+  }
+
+  let extractedColors: PolishImageMatchResponse["extractedColors"];
+  let limit: number;
+  try {
+    const parsed = parseMatchImageRequest(body);
+    limit = parsed.limit;
+    extractedColors = await extractImagePalette(parsed.bytes, parsed.maxColors);
+  } catch (error) {
+    if (error instanceof MatchImageInputError) {
+      return { status: 400, jsonBody: { error: error.message } };
+    }
+    context.error("Error extracting image colors:", error);
+    trackException(error, { route: "polishes-match-image", stage: "extract" });
+    return { status: 500, jsonBody: { error: "Failed to process image" } };
+  }
+
+  if (extractedColors.length === 0) {
+    const emptyBody: PolishImageMatchResponse = { extractedColors: [], matches: [], candidateCount: 0 };
+    return { status: 200, jsonBody: emptyBody };
+  }
+
+  try {
+    // Owned polishes only: POLISH_SELECT's inventory LEFT JOIN is scoped to $1,
+    // so requiring an inventory row with quantity > 0 limits this to the
+    // caller's own collection.
+    const result = await query<Polish>(
+      `${POLISH_SELECT}
+       WHERE ui.inventory_item_id IS NOT NULL
+         AND COALESCE(ui.quantity, 0) > 0`,
+      [userId]
+    );
+
+    const polishes = mapReadableSwatchUrls(result.rows, request.url);
+    const { matches, candidateCount } = rankPolishMatches(polishes, extractedColors, limit);
+
+    trackEvent("polish.match_image", {
+      userId,
+      extractedColorCount: extractedColors.length,
+      candidateCount,
+      matchCount: matches.length,
+      highConfidenceCount: matches.filter((m) => m.confidence === "high").length,
+    });
+
+    const responseBody: PolishImageMatchResponse = { extractedColors, matches, candidateCount };
+    return { status: 200, jsonBody: responseBody };
+  } catch (error: any) {
+    context.error("Error matching polishes to image:", error);
+    trackException(error, { route: "polishes-match-image", stage: "match" });
+    return { status: 500, jsonBody: { error: "Failed to match polishes" } };
+  }
+}
+
 app.http("polishes-list", {
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
@@ -924,4 +1024,11 @@ app.http("polishes-recalc-hex", {
   authLevel: "anonymous",
   route: "polishes/{id}/recalc-hex",
   handler: withCors(withAdmin(recalcHex)),
+});
+
+app.http("polishes-match-image", {
+  methods: ["POST", "OPTIONS"],
+  authLevel: "anonymous",
+  route: "polishes/match-image",
+  handler: withCors(withAuth(matchImage)),
 });

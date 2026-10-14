@@ -72,10 +72,20 @@ async function importFilters() {
         path.join(os.tmpdir(), "swatchwatch-polish-filters-")
       );
 
+      // color-utils imports runtime helpers (OKLAB math) from swatchwatch-shared.
+      // The temp dir can't resolve workspace packages, so point it at the
+      // built shared entry resolved from this repo.
+      const sharedEntry = require.resolve("swatchwatch-shared");
+      const colorUtilsSource = (await fs.readFile(COLOR_UTILS_PATH, "utf8")).replaceAll(
+        'from "swatchwatch-shared"',
+        `from ${JSON.stringify(sharedEntry)}`
+      );
+
       await transpileToJsFile({
         sourcePath: COLOR_UTILS_PATH,
         outputDir: tempDir,
         outputFileName: "color-utils.js",
+        sourceText: colorUtilsSource,
       });
 
       const filtersSource = await fs.readFile(FILTERS_TS_PATH, "utf8");
