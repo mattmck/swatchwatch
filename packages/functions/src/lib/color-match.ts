@@ -1,10 +1,11 @@
 import type {
   ExtractedColor,
   MatchConfidence,
+  OKLab,
   Polish,
   PolishMatch,
 } from "swatchwatch-shared";
-import { resolveDisplayHex } from "swatchwatch-shared";
+import { hexToOklab, oklabDistance, resolveDisplayHex } from "swatchwatch-shared";
 import sharp from "sharp";
 import { validateImageUpload } from "./blob-storage";
 import { extractDominantColors } from "./dominant-color";
@@ -53,15 +54,9 @@ export const MATCH_IMAGE_LIMITS = {
   minColorFraction: 0.01,
 } as const;
 
-// ── OKLAB ────────────────────────────────────────────────────────────────────
-// Mirrors apps/web/src/lib/color-utils.ts (rgbToOklab / oklabDistance) so
-// server-side match distances agree with what the web search page computes.
-
-export interface OKLab {
-  L: number;
-  a: number;
-  b: number;
-}
+// ── Hex helpers ──────────────────────────────────────────────────────────────
+// OKLAB math (hexToOklab / oklabDistance) comes from swatchwatch-shared, the
+// same implementation the web app uses, so distances agree across client and API.
 
 const HEX_PATTERN = /^#?([0-9a-f]{6})$/i;
 
@@ -70,31 +65,6 @@ export function normalizeHex(value: string | null | undefined): string | null {
   if (!value) return null;
   const match = HEX_PATTERN.exec(value.trim());
   return match ? `#${match[1].toUpperCase()}` : null;
-}
-
-function linearize(c: number): number {
-  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-}
-
-export function hexToOklab(hex: string): OKLab {
-  const cleaned = hex.replace("#", "");
-  const lr = linearize(parseInt(cleaned.substring(0, 2), 16) / 255);
-  const lg = linearize(parseInt(cleaned.substring(2, 4), 16) / 255);
-  const lb = linearize(parseInt(cleaned.substring(4, 6), 16) / 255);
-
-  const l_ = Math.cbrt(0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb);
-  const m_ = Math.cbrt(0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb);
-  const s_ = Math.cbrt(0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb);
-
-  return {
-    L: 0.2104542553 * l_ + 0.793617785 * m_ - 0.0040720468 * s_,
-    a: 1.9779984951 * l_ - 2.428592205 * m_ + 0.4505937099 * s_,
-    b: 0.0259040371 * l_ + 0.7827717662 * m_ - 0.808675766 * s_,
-  };
-}
-
-export function oklabDistance(a: OKLab, b: OKLab): number {
-  return Math.sqrt((a.L - b.L) ** 2 + (a.a - b.a) ** 2 + (a.b - b.b) ** 2);
 }
 
 // ── Palette cleanup ──────────────────────────────────────────────────────────

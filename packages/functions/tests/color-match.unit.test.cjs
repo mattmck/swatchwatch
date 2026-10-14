@@ -7,8 +7,6 @@ const {
   HIGH_CONFIDENCE_MAX_DISTANCE,
   MEDIUM_CONFIDENCE_MAX_DISTANCE,
   MATCH_IMAGE_LIMITS,
-  hexToOklab,
-  oklabDistance,
   normalizeHex,
   mergeSimilarColors,
   rankPolishMatches,
@@ -16,6 +14,7 @@ const {
   extractImagePalette,
   MatchImageInputError,
 } = require("../dist/lib/color-match");
+const { hexToOklab, oklabDistance, colorDistance } = require("swatchwatch-shared");
 
 function polish(id, hex, extra = {}) {
   return {
@@ -67,6 +66,32 @@ describe("lib/color-match — confidenceForDistance", () => {
     assert.equal(confidenceForDistance(MEDIUM_CONFIDENCE_MAX_DISTANCE), "medium");
     assert.equal(confidenceForDistance(MEDIUM_CONFIDENCE_MAX_DISTANCE + 0.0001), "low");
     assert.equal(confidenceForDistance(1), "low");
+  });
+});
+
+describe("swatchwatch-shared OKLAB — pinned distances", () => {
+  // Values captured from the original apps/web color-utils implementation
+  // before the math moved to swatchwatch-shared; they must not drift.
+  const pinned = [
+    ["#FFFFFF", "#000000", 0.9999999934735468],
+    ["#D01020", "#D11121", 0.0023739654423271216],
+    ["#1030C0", "#1838B8", 0.02035764616527137],
+    ["#C8A27C", "#98FF98", 0.24239714736904028],
+    ["#FF0000", "#00FF00", 0.5198128892674524],
+  ];
+  for (const [a, b, expected] of pinned) {
+    it(`colorDistance(${a}, ${b}) = ${expected}`, () => {
+      assert.equal(colorDistance(a, b), expected);
+      assert.equal(oklabDistance(hexToOklab(a), hexToOklab(b)), expected);
+    });
+  }
+
+  it("pins hexToOklab(#D01020)", () => {
+    assert.deepEqual(hexToOklab("#D01020"), {
+      L: 0.5441241136986579,
+      a: 0.19323916249464554,
+      b: 0.09460852498382955,
+    });
   });
 });
 
