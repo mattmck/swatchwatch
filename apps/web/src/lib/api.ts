@@ -23,6 +23,8 @@ import type {
   PolishUpdateRequest,
   PolishListResponse,
   PolishFilters,
+  PolishImageMatchRequest,
+  PolishImageMatchResponse,
   CatalogSearchResponse,
   CatalogShadeDetail,
   PolishFinish,
@@ -232,6 +234,25 @@ export async function recalcPolishHex(id: string | number): Promise<RecalcPolish
     headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
   });
   return handleResponse<RecalcPolishHexResponse>(response);
+}
+
+/**
+ * Match the caller's owned polishes against the dominant colors of a photo.
+ * `imageDataUrl` must be a base64 `data:image/...` URL; downscale it first
+ * (see `downscaleImageFile`) to keep the payload small. The server never
+ * stores the image.
+ */
+export async function matchPolishesToImage(
+  imageDataUrl: string,
+  options?: Omit<PolishImageMatchRequest, "image">
+): Promise<PolishImageMatchResponse> {
+  const body: PolishImageMatchRequest = { image: imageDataUrl, ...options };
+  const response = await fetch(`${API_BASE_URL}/polishes/match-image`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
+    body: JSON.stringify(body),
+  });
+  return handleResponse<PolishImageMatchResponse>(response);
 }
 
 export async function searchCatalog(q: string, limit?: number): Promise<CatalogSearchResponse> {
