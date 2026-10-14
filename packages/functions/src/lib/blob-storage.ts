@@ -313,12 +313,65 @@ function parseStorageUrl(value: string): URL {
   return parsed;
 }
 
+/**
+ * A storage URL points outside what the API is allowed to read (wrong account/host, wrong
+ * container, or carries query/credential components that would change the storage operation).
+ */
+export class BlobAccessDeniedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BlobAccessDeniedError";
+  }
+}
+
 function assertStorageHostMatches(config: StorageAccountConfig, storageUrl: URL): void {
   const configuredHost = new URL(config.blobEndpoint).host.toLowerCase();
   const storageHost = storageUrl.host.toLowerCase();
 
   if (configuredHost !== storageHost) {
-    throw new Error(`Blob storage URL host mismatch: expected ${configuredHost}, got ${storageHost}`);
+    throw new BlobAccessDeniedError(
+      `Blob storage URL host mismatch: expected ${configuredHost}, got ${storageHost}`
+    );
+  }
+}
+
+/**
+ * Restrict reads to plain blob GETs inside an allowlisted container of the configured account.
+ * Rejects query strings (e.g. `?comp=list&restype=container`), fragments, embedded credentials,
+ * protocol downgrades, and paths outside `<blobEndpoint>/<allowed-container>/<blob>`.
+ */
+function assertStorageReadAllowed(
+  config: StorageAccountConfig,
+  storageUrl: URL,
+  allowedContainers: readonly string[]
+): void {
+  const endpoint = new URL(config.blobEndpoint);
+  assertStorageHostMatches(config, storageUrl);
+
+  if (storageUrl.protocol !== endpoint.protocol) {
+    throw new BlobAccessDeniedError("Blob storage URL protocol does not match the configured endpoint");
+  }
+  if (storageUrl.username || storageUrl.password) {
+    throw new BlobAccessDeniedError("Blob storage URL must not include credentials");
+  }
+  if (storageUrl.search || storageUrl.hash) {
+    throw new BlobAccessDeniedError("Blob storage URL must not include a query string or fragment");
+  }
+
+  const endpointPath = endpoint.pathname.replace(/\/+$/, "");
+  if (!storageUrl.pathname.startsWith(`${endpointPath}/`)) {
+    throw new BlobAccessDeniedError("Blob storage URL is outside the configured blob endpoint");
+  }
+  const segments = storageUrl.pathname.slice(endpointPath.length + 1).split("/");
+  const container = (segments[0] || "").toLowerCase();
+  const blobPath = segments.slice(1).join("/");
+  if (!container || !blobPath) {
+    throw new BlobAccessDeniedError("Blob storage URL must reference a blob inside a container");
+  }
+
+  const allowed = new Set(allowedContainers.map((name) => normalizeContainerName(name)));
+  if (!allowed.has(container)) {
+    throw new BlobAccessDeniedError(`Blob container '${container}' is not readable through the API`);
   }
 }
 
@@ -337,7 +390,28 @@ export class BlobReadError extends Error {
   }
 }
 
-export async function readBlobFromStorageUrl(storageUrl: string): Promise<ReadBlobResult> {
+export interface ReadBlobOptions {
+  /**
+   * Containers this read may target. Defaults to the source-image container
+   * (`SOURCE_IMAGE_CONTAINER`, default `source-images`).
+   */
+  allowedContainers?: readonly string[];
+}
+
+export function defaultReadableContainers(): string[] {
+  return [normalizeContainerName(process.env.SOURCE_IMAGE_CONTAINER)];
+}
+
+/**
+ * Read a blob from the configured storage account using the Functions' storage credentials.
+ *
+ * Only plain blob URLs on the configured account, inside an allowlisted container, are accepted;
+ * anything else throws `BlobAccessDeniedError` before any request is made.
+ */
+export async function readBlobFromStorageUrl(
+  storageUrl: string,
+  options: ReadBlobOptions = {}
+): Promise<ReadBlobResult> {
   const connectionString = asNonEmpty(process.env.AZURE_STORAGE_CONNECTION);
   if (!connectionString) {
     throw new Error("AZURE_STORAGE_CONNECTION is required for source image reads");
@@ -345,7 +419,11 @@ export async function readBlobFromStorageUrl(storageUrl: string): Promise<ReadBl
 
   const config = parseStorageConnectionString(connectionString);
   const parsedStorageUrl = parseStorageUrl(storageUrl);
-  assertStorageHostMatches(config, parsedStorageUrl);
+  assertStorageReadAllowed(
+    config,
+    parsedStorageUrl,
+    options.allowedContainers ?? defaultReadableContainers()
+  );
 
   const response = await sendStorageRequest(config, "GET", parsedStorageUrl, {});
   if (!response.ok) {

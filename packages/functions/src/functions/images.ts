@@ -1,7 +1,7 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { createHash } from "node:crypto";
-import { BlobReadError, readBlobFromStorageUrl } from "../lib/blob-storage";
-import { decodeImageProxyId } from "../lib/image-proxy";
+import { BlobAccessDeniedError, BlobReadError, readBlobFromStorageUrl } from "../lib/blob-storage";
+import { decodeImageProxyId, ImageProxyConfigError, ImageProxyTokenError } from "../lib/image-proxy";
 import { withCors } from "../lib/http";
 import sharp from "sharp";
 
@@ -96,6 +96,11 @@ async function transformImage(
 /**
  * Proxy private blob-backed swatch images
  * GET /api/images/:id
+ *
+ * Anonymous by design (ids are embedded in <img src>, which cannot send Authorization headers),
+ * so the id itself is the capability: it must be an HMAC-signed id minted by the API
+ * (see lib/image-proxy.ts). Unsigned, forged, or tampered ids are rejected with 403, and the
+ * decoded URL must still point at an allowlisted container of the configured storage account.
  */
 app.http("images", {
   methods: ["GET"],
@@ -109,7 +114,7 @@ app.http("images", {
       if (!id) {
         return {
           status: 400,
-          body: JSON.stringify({ error: "Missing image ID" }),
+          jsonBody: { error: "Missing image ID" },
         };
       }
 
@@ -143,24 +148,37 @@ app.http("images", {
         body: bodyBytes,
       };
     } catch (error) {
-      if (error instanceof TypeError || (error instanceof Error && error.message.includes("Invalid proxied image URL"))) {
+      if (error instanceof ImageProxyTokenError || error instanceof BlobAccessDeniedError) {
+        if (error instanceof BlobAccessDeniedError) {
+          // A validly signed id that points outside the readable containers indicates a
+          // server-side bug or key compromise; log it, but never echo details to the caller.
+          context.warn(`[images] Refused signed image read: ${error.message}`);
+        }
         return {
-          status: 400,
-          body: JSON.stringify({ error: "Invalid image URL token" }),
+          status: 403,
+          jsonBody: { error: "Forbidden" },
+        };
+      }
+
+      if (error instanceof ImageProxyConfigError) {
+        context.error(`[images] Image proxy signing is not configured: ${error.message}`);
+        return {
+          status: 500,
+          jsonBody: { error: "Failed to serve image" },
         };
       }
 
       if (error instanceof BlobReadError && error.status === 404) {
         return {
           status: 404,
-          body: JSON.stringify({ error: "Image not found" }),
+          jsonBody: { error: "Image not found" },
         };
       }
 
       context.error(`[images] Error serving image:`, error);
       return {
         status: 500,
-        body: JSON.stringify({ error: "Failed to serve image" }),
+        jsonBody: { error: "Failed to serve image" },
       };
     }
     }
