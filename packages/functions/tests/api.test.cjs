@@ -1,7 +1,7 @@
 const { describe, it, before, after } = require("node:test");
 const assert = require("node:assert/strict");
 
-const BASE = "http://localhost:7071/api";
+const BASE = process.env.API_BASE_URL ?? "http://localhost:7071/api";
 const TEST_BRAND = "__TEST__";
 const AUTH_HEADERS = { Authorization: "Bearer dev:1" };
 
@@ -239,11 +239,16 @@ describe("Polishes API — pagination and quantity controls", () => {
     });
     assert.equal(delRes.status, 200);
 
-    // Verify it's gone
+    // Verify it's gone from the collection. GET /polishes/:id is a catalog view,
+    // so the shade itself may still resolve — but with no inventory row.
     const getRes = await fetch(`${BASE}/polishes/${created.id}`, {
       headers: AUTH_HEADERS,
     });
-    assert.equal(getRes.status, 404);
+    assert.ok([200, 404].includes(getRes.status), `unexpected status ${getRes.status}`);
+    if (getRes.status === 200) {
+      const after = await getRes.json();
+      assert.equal(after.inventoryItemId ?? null, null, "inventory row removed");
+    }
   });
 });
 
@@ -254,9 +259,14 @@ describe("Polishes API — pagination and quantity controls", () => {
 // app_user): A = 1 (demo-user), B = 2 (seeded admin; the polish/capture
 // handlers do not grant admins cross-user access).
 //
-// Media isolation (`/api/images/{id}` is anonymous with no ownership check) is
-// a known gap covered by a pinned known-gap unit test and a follow-up issue,
-// so it is intentionally not asserted here.
+// Media isolation is a known gap: `/api/images/{id}` is anonymous and its ids
+// are HMAC-signed but not owner-scoped. It is pinned in
+// cross-user-isolation.unit.test.cjs and tracked in #227, so it is
+// intentionally not asserted here.
+//
+// Note: GET /polishes/:id and the default list are catalog views LEFT JOINed
+// to the caller's own inventory, so isolation means "no other user's inventory
+// fields", not "404". `scope=collection` restricts the list to owned items.
 // ---------------------------------------------------------------------------
 
 describe("Cross-user data isolation (#53)", () => {
@@ -330,21 +340,57 @@ describe("Cross-user data isolation (#53)", () => {
     }
   });
 
-  it("user B cannot GET user A's polish by id and does not see it in their list", async () => {
-    const created = await createAsA("Isolation Read Shade");
+  /**
+   * GET /polishes/:id is a catalog-shade lookup LEFT JOINed to the caller's own
+   * inventory row, so another user gets the public shade back (200) — but none
+   * of the owner's private inventory fields.
+   */
+  function assertNoInventoryFor(body, ownerLabel) {
+    assert.equal(body.inventoryItemId ?? null, null, `${ownerLabel} inventoryItemId must not leak`);
+    assert.equal(body.quantity ?? null, null, `${ownerLabel} quantity must not leak`);
+    assert.equal(body.notes ?? null, null, `${ownerLabel} notes must not leak`);
+    assert.equal(body.rating ?? null, null, `${ownerLabel} rating must not leak`);
+  }
+
+  it("user B cannot see user A's inventory data for a shade, by id or in their list", async () => {
+    const created = await createAsA("Isolation Read Shade", { rating: 4 });
 
     const asA = await call("GET", `/polishes/${created.id}`, USER_A);
     assert.equal(asA.status, 200);
     assert.equal(asA.body.name, "Isolation Read Shade");
+    assert.equal(asA.body.notes, "A-private-notes");
 
     const asB = await call("GET", `/polishes/${created.id}`, USER_B);
-    assert.equal(asB.status, 404);
+    assert.ok([200, 404].includes(asB.status), `unexpected status ${asB.status}`);
+    if (asB.status === 200) {
+      assert.equal(String(asB.body.userId), "2", "response is scoped to the caller");
+      assertNoInventoryFor(asB.body, "A's");
+    }
 
-    const list = await call("GET", `/polishes?search=${TEST_BRAND}&pageSize=100`, USER_B);
-    assert.equal(list.status, 200);
+    // The list is also a catalog view; scope=collection restricts it to owned items.
+    const collectionB = await call(
+      "GET",
+      `/polishes?search=${TEST_BRAND}&scope=collection&pageSize=100`,
+      USER_B
+    );
+    assert.equal(collectionB.status, 200);
     assert.ok(
-      !list.body.polishes.some((p) => String(p.id) === String(created.id)),
-      "A's polish must not appear in B's list"
+      !collectionB.body.polishes.some((p) => String(p.id) === String(created.id)),
+      "A's polish must not appear in B's collection"
+    );
+
+    const catalogB = await call("GET", `/polishes?search=${TEST_BRAND}&pageSize=100`, USER_B);
+    assert.equal(catalogB.status, 200);
+    for (const p of catalogB.body.polishes.filter((p) => String(p.id) === String(created.id))) {
+      assertNoInventoryFor(p, "A's");
+    }
+
+    // Searching B's list by A's private notes text must not surface A's shade.
+    const notesSearch = await call("GET", "/polishes?search=A-private-notes&pageSize=100", USER_B);
+    assert.equal(notesSearch.status, 200);
+    assert.ok(
+      !notesSearch.body.polishes.some((p) => String(p.id) === String(created.id)),
+      "search must not match on another user's notes"
     );
   });
 
@@ -384,6 +430,7 @@ describe("Cross-user data isolation (#53)", () => {
       colorHex: "#0000FF",
       finish: "creme",
       quantity: 1,
+      notes: "B-private-notes",
       userId: 1,
       user_id: 1,
     });
@@ -392,12 +439,24 @@ describe("Cross-user data isolation (#53)", () => {
 
     const asB = await call("GET", `/polishes/${body.id}`, USER_B);
     assert.equal(asB.status, 200);
+    assert.equal(asB.body.notes, "B-private-notes", "item lands in B's inventory");
 
     const asA = await call("GET", `/polishes/${body.id}`, USER_A);
-    assert.equal(asA.status, 404, "spoofed userId must not place the item in A's inventory");
+    assert.ok([200, 404].includes(asA.status), `unexpected status ${asA.status}`);
+    if (asA.status === 200) {
+      assertNoInventoryFor(asA.body, "B's (spoofed userId must not place it in A's inventory)");
+    }
 
-    const listA = await call("GET", `/polishes?search=${TEST_BRAND}&pageSize=100`, USER_A);
-    assert.ok(!listA.body.polishes.some((p) => String(p.id) === String(body.id)));
+    const collectionA = await call(
+      "GET",
+      `/polishes?search=${TEST_BRAND}&scope=collection&pageSize=100`,
+      USER_A
+    );
+    assert.equal(collectionA.status, 200);
+    assert.ok(
+      !collectionA.body.polishes.some((p) => String(p.id) === String(body.id)),
+      "B's item must not appear in A's collection"
+    );
   });
 
   it("user B cannot read, answer or finalize user A's capture session", async () => {
