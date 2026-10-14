@@ -230,7 +230,19 @@ function isHttpUrl(value: string | null): value is string {
   }
 }
 
-const HEX_DETECTION_DELAY_MS = 6000;
+// Pause between synchronous hex detection calls. The original 6s pacing targeted
+// high-detail images (~26k prompt tokens each on gpt-4o-mini); low-detail calls cost ~3k,
+// and 429s are already retried with Retry-After in ai-color-detection.
+const DEFAULT_HEX_DETECTION_DELAY_MS = 1000;
+const MAX_HEX_DETECTION_DELAY_MS = 60000;
+
+function getHexDetectionDelayMs(): number {
+  const parsed = Number.parseInt(process.env.HEX_DETECTION_DELAY_MS || "", 10);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_HEX_DETECTION_DELAY_MS;
+  }
+  return Math.min(MAX_HEX_DETECTION_DELAY_MS, Math.max(0, parsed));
+}
 const DEFAULT_HEX_BATCH_MIN_IMAGES = 5;
 const INGESTION_AI_IMAGE_PROXY_ORIGIN = resolveIngestionAiImageProxyOrigin();
 const HAS_STORAGE_CONNECTION = Boolean(process.env.AZURE_STORAGE_CONNECTION?.trim());
@@ -643,8 +655,11 @@ async function prepareHoloTacoImageData(
           } else {
             console.log(`${sourceLogPrefix} No hex returned from AI for ${record.externalId}`);
           }
-          console.log(`${sourceLogPrefix} Sleeping ${HEX_DETECTION_DELAY_MS}ms before next detection`);
-          await sleep(HEX_DETECTION_DELAY_MS);
+          const delayMs = getHexDetectionDelayMs();
+          if (delayMs > 0) {
+            console.log(`${sourceLogPrefix} Sleeping ${delayMs}ms before next detection`);
+            await sleep(delayMs);
+          }
         } catch (err) {
           metrics.hexDetectionFailures += 1;
           console.error(`${sourceLogPrefix} AI hex detection failed for ${record.externalId}:`, String(err));
@@ -738,7 +753,7 @@ async function prepareHoloTacoImageData(
         }
 
         // Match the non-batch pacing to reduce rate-limit failures.
-        await sleep(HEX_DETECTION_DELAY_MS);
+        await sleep(getHexDetectionDelayMs());
       }
 
       if (fallbackDetections.length > 0) {

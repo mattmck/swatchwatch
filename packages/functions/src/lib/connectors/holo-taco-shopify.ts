@@ -2,6 +2,7 @@ import {
   ConnectorPullOptions,
   ConnectorPullResult,
   ConnectorProductRecord,
+  loadCatalogWithCache,
   ProductConnector,
 } from "./types";
 
@@ -356,7 +357,9 @@ export class HoloTacoShopifyConnector implements ProductConnector {
   }
 
   async pullProducts(options: ConnectorPullOptions): Promise<ConnectorPullResult> {
-    const allProducts = await this.fetchAllProducts();
+    const allProducts = await loadCatalogWithCache<ShopifyProduct>(options.catalogCache, () =>
+      this.fetchAllProducts()
+    );
     const normalizedRecords = allProducts
       .map((product) => toNormalizedRecord(product, this.baseUrl))
       .filter((record): record is ConnectorProductRecord => Boolean(record));
