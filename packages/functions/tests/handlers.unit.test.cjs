@@ -850,6 +850,133 @@ describe("functions/polishes — getPolishes", () => {
   });
 });
 
+describe("functions/polishes — matchImage", () => {
+  const sharp = require("sharp");
+
+  async function splitPngDataUrl() {
+    const width = 40;
+    const height = 40;
+    const buf = Buffer.alloc(width * height * 3);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const [r, g, b] = x < 20 ? [208, 16, 32] : [16, 48, 192];
+        const i = (y * width + x) * 3;
+        buf[i] = r;
+        buf[i + 1] = g;
+        buf[i + 2] = b;
+      }
+    }
+    const png = await sharp(buf, { raw: { width, height, channels: 3 } }).png().toBuffer();
+    return `data:image/png;base64,${png.toString("base64")}`;
+  }
+
+  function matchRequest(body, extraHeaders = {}) {
+    return fakeRequest({
+      method: "POST",
+      url: "http://localhost:7071/api/polishes/match-image",
+      headers: { authorization: "Bearer dev:1", ...extraHeaders },
+      body,
+    });
+  }
+
+  function mockAuthThen(rowsForPolishQuery, seenQueries = []) {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async (sql, params) => {
+      if (sql.includes("FROM app_user")) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null, role: "user" }] };
+      }
+      seenQueries.push({ sql, params });
+      return { rows: rowsForPolishQuery };
+    };
+  }
+
+  it("registers POST polishes/match-image", () => {
+    expectMethods("polishes-match-image", ["POST"]);
+    assert.equal(registeredRoutes["polishes-match-image"].route, "polishes/match-image");
+  });
+
+  it("returns 401 without auth", async () => {
+    const handler = registeredRoutes["polishes-match-image"].handler;
+    const req = fakeRequest({ method: "POST", url: "http://localhost:7071/api/polishes/match-image", body: {} });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 401);
+  });
+
+  it("returns 400 when image is missing", async () => {
+    mockAuthThen([]);
+    const handler = registeredRoutes["polishes-match-image"].handler;
+    const res = await handler(matchRequest({}), fakeContext());
+    assert.equal(res.status, 400);
+    assert.match(res.jsonBody.error, /image/i);
+  });
+
+  it("returns 400 for a non-image MIME type", async () => {
+    mockAuthThen([]);
+    const handler = registeredRoutes["polishes-match-image"].handler;
+    const res = await handler(
+      matchRequest({ image: `data:application/pdf;base64,${Buffer.from("%PDF").toString("base64")}` }),
+      fakeContext()
+    );
+    assert.equal(res.status, 400);
+  });
+
+  it("returns 400 when the bytes are not a decodable image", async () => {
+    const seen = [];
+    mockAuthThen([], seen);
+    const handler = registeredRoutes["polishes-match-image"].handler;
+    const res = await handler(
+      matchRequest({ image: `data:image/png;base64,${Buffer.from("not really a png").toString("base64")}` }),
+      fakeContext()
+    );
+    assert.equal(res.status, 400);
+    assert.match(res.jsonBody.error, /decode/i);
+    assert.equal(seen.length, 0, "should not query polishes for an invalid image");
+  });
+
+  it("returns 413 when content-length exceeds the body limit", async () => {
+    mockAuthThen([]);
+    const handler = registeredRoutes["polishes-match-image"].handler;
+    const res = await handler(
+      matchRequest({ image: "data:image/png;base64,AAAA" }, { "content-length": String(20 * 1024 * 1024) }),
+      fakeContext()
+    );
+    assert.equal(res.status, 413);
+  });
+
+  it("matches only the caller's owned polishes and returns sorted results", async () => {
+    const seen = [];
+    mockAuthThen(
+      [
+        { id: "10", shadeId: "10", userId: "1", brand: "OPI", name: "Big Apple Red", color: "", vendorHex: "#D11121", finish: "cream", swatchImageUrl: null },
+        { id: "11", shadeId: "11", userId: "1", brand: "Essie", name: "Butler Please", color: "", detectedHex: "#1131C1", finish: "creme", swatchImageUrl: null },
+        { id: "12", shadeId: "12", userId: "1", brand: "Zoya", name: "No Hex", color: "", swatchImageUrl: null },
+        { id: "13", shadeId: "13", userId: "1", brand: "ILNP", name: "Mint", color: "", vendorHex: "#98FF98", swatchImageUrl: null },
+      ],
+      seen
+    );
+    const handler = registeredRoutes["polishes-match-image"].handler;
+    const res = await handler(matchRequest({ image: await splitPngDataUrl(), limit: 2 }), fakeContext());
+
+    assert.equal(res.status, 200);
+    assert.equal(seen.length, 1);
+    assert.deepEqual(seen[0].params, [1]);
+    assert.match(seen[0].sql, /COALESCE\(ui\.quantity, 0\) > 0/);
+
+    const body = res.jsonBody;
+    const hexes = body.extractedColors.map((c) => c.hex);
+    assert.ok(hexes.includes("#D01020") && hexes.includes("#1030C0"), hexes.join(","));
+    assert.equal(body.candidateCount, 3);
+    assert.equal(body.matches.length, 2);
+    assert.deepEqual(body.matches.map((m) => m.polish.id).sort(), ["10", "11"]);
+    for (const m of body.matches) {
+      assert.equal(m.confidence, "high");
+      assert.ok(["#D01020", "#1030C0"].includes(m.matchedColor));
+    }
+    assert.ok(body.matches[0].distance <= body.matches[1].distance);
+    assert.equal(body.matches.find((m) => m.polish.id === "10").polish.finish, "creme");
+  });
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 // functions/catalog — input validation, search results
 // ═══════════════════════════════════════════════════════════════════════════
