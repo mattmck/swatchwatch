@@ -73,6 +73,9 @@ npm run dev:web                              # start web dev server
 
 See the [root README](README.md) for full setup instructions.
 
+The devtools duplicate-permissions check skips when the optional, ignored
+`.claude/settings.local.json` file is absent; it validates the file when present.
+
 ## Code Standards
 
 - **TypeScript strict mode** — no `any` unless absolutely necessary
