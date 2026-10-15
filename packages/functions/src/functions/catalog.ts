@@ -2,8 +2,9 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/fu
 import { CatalogSearchResponse, CatalogShadeDetail } from "swatchwatch-shared";
 import { query } from "../lib/db";
 import { withCors } from "../lib/http";
+import { internalServerError } from "../lib/errors";
 import { cacheGetJson, cacheSetJson, hashCacheKey } from "../lib/cache";
-import { trackEvent, trackException } from "../lib/telemetry";
+import { trackEvent } from "../lib/telemetry";
 
 const CATALOG_SEARCH_CACHE_TTL_SECONDS = 120;
 const CATALOG_SHADE_CACHE_TTL_SECONDS = 300;
@@ -106,9 +107,7 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
 
     return { status: 200, jsonBody: response };
   } catch (error: any) {
-    context.error("Error searching catalog:", error);
-    trackException(error, { endpoint: "catalog.search" });
-    return { status: 500, jsonBody: { error: "Failed to search catalog", details: error.message } };
+    return internalServerError(context, error, "Failed to search catalog", "catalog.search");
   }
 }
 
@@ -192,8 +191,7 @@ async function getShade(request: HttpRequest, context: InvocationContext): Promi
 
     return { status: 200, jsonBody: response };
   } catch (error: any) {
-    context.error("Error fetching shade:", error);
-    return { status: 500, jsonBody: { error: "Failed to fetch shade", details: error.message } };
+    return internalServerError(context, error, "Failed to fetch shade", "catalog.shade");
   }
 }
 

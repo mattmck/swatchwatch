@@ -9,6 +9,7 @@ import {
 import { query, transaction } from "../lib/db";
 import { withAuth, withAdmin } from "../lib/auth";
 import { withCors } from "../lib/http";
+import { internalServerError } from "../lib/errors";
 import { toImageProxyUrl } from "../lib/image-proxy";
 import { detectHexWithAzureOpenAI } from "../lib/ai-color-detection";
 import { readBlobFromStorageUrl } from "../lib/blob-storage";
@@ -437,8 +438,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
         jsonBody: responseBody,
       };
     } catch (error: any) {
-      context.error("Error fetching polish:", error);
-      return { status: 500, jsonBody: { error: "Failed to fetch polish", details: error.message } };
+      return internalServerError(context, error, "Failed to fetch polish", "polishes.get");
     }
   }
 
@@ -587,8 +587,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       jsonBody: responseBody,
     };
   } catch (error: any) {
-    context.error("Error fetching polishes:", error);
-    return { status: 500, jsonBody: { error: "Failed to fetch polishes", details: error.message } };
+    return internalServerError(context, error, "Failed to fetch polishes", "polishes.list");
   }
 }
 
@@ -711,9 +710,7 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       jsonBody: withReadableSwatchUrl(created.rows[0], request.url),
     };
   } catch (error: any) {
-    context.error("Error creating polish:", error);
-    trackException(error, { endpoint: "polishes.create" });
-    return { status: 500, jsonBody: { error: "Failed to create polish", details: error.message } };
+    return internalServerError(context, error, "Failed to create polish", "polishes.create");
   }
 }
 
@@ -818,8 +815,7 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
 
     return { status: 200, jsonBody: withReadableSwatchUrl(fullResult.rows[0], request.url) };
   } catch (error: any) {
-    context.error("Error updating polish:", error);
-    return { status: 500, jsonBody: { error: "Failed to update polish", details: error.message } };
+    return internalServerError(context, error, "Failed to update polish", "polishes.update");
   }
 }
 
@@ -853,8 +849,7 @@ async function deletePolish(request: HttpRequest, context: InvocationContext, us
 
     return { status: 200, jsonBody: { message: "Polish deleted successfully", id: result.rows[0].id } };
   } catch (error: any) {
-    context.error("Error deleting polish:", error);
-    return { status: 500, jsonBody: { error: "Failed to delete polish", details: error.message } };
+    return internalServerError(context, error, "Failed to delete polish", "polishes.delete");
   }
 }
 
@@ -999,11 +994,7 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
       },
     };
   } catch (error: any) {
-    context.error("Error recalculating hex:", error);
-    return {
-      status: 500,
-      jsonBody: { error: "Failed to recalculate hex", details: error.message },
-    };
+    return internalServerError(context, error, "Failed to recalculate hex", "polishes.recalc-hex");
   }
 }
 
