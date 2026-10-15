@@ -33,7 +33,8 @@ npm run test:e2e --workspace=packages/functions  # E2E tests against the running
   user 1's polish and capture session (including spoofed `userId` bodies/query params and searching by
   user 1's private notes/tags), verifies user 1's data is unchanged, and checks tampered image ids. It
   skips itself when the host is unreachable. Override with `E2E_API_BASE` (honored by both files),
-  `E2E_OWNER_TOKEN`, `E2E_ATTACKER_TOKEN`. Note that `GET /polishes/{id}` and the default list are
+  `E2E_OWNER_TOKEN`, `E2E_ATTACKER_TOKEN`, and `E2E_OWNER_ID` (the owner's `app_user` id; needed for the
+  `userId`-spoofing cases when the owner token isn't `dev:<id>`, otherwise those cases skip). Note that `GET /polishes/{id}` and the default list are
   catalog views joined to the caller's own inventory, so cross-user isolation means "no other user's
   inventory fields", not a 404; `scope=collection` restricts the list to owned items.
 
