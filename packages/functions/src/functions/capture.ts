@@ -1242,8 +1242,8 @@ async function addCaptureFrame(
     }
 
     // Run AI extraction on label/barcode frames (outside transaction to avoid long locks).
-    // Prefer the EXIF-stripped payload from normalization; otherwise sanitize the raw
-    // input so data URL whitespace doesn't cause OCR API failures.
+    // Only normalized input is forwarded: EXIF-stripped, whitespace-free data URLs or
+    // allowlisted storage-account URLs.
     const imageInputForAi = normalizedImage ? normalizedImage.sanitizedImageInput : null;
     let aiExtraction: FrameAiExtractionResult | null = null;
     if (imageInputForAi) {
