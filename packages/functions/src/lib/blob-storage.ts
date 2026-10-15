@@ -375,6 +375,70 @@ function assertStorageReadAllowed(
   }
 }
 
+/**
+ * Host (including any non-default port) of the configured storage account's blob endpoint,
+ * lowercased, or null when AZURE_STORAGE_CONNECTION is unset or unparseable (fail closed).
+ */
+export function getConfiguredBlobHost(): string | null {
+  const connectionString = asNonEmpty(process.env.AZURE_STORAGE_CONNECTION);
+  if (!connectionString) {
+    return null;
+  }
+  try {
+    return new URL(parseStorageConnectionString(connectionString).blobEndpoint).host.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Decide whether a client-supplied remote image URL may be stored and forwarded to AI/OCR
+ * services. Only plain `https://<configured-account-blob-host>/<allowed-container>/<blob>` URLs
+ * qualify: no userinfo, no non-default port, no query string/fragment (so no SAS/list tricks),
+ * and the container must be one the API itself writes images to (`SOURCE_IMAGE_CONTAINER`
+ * by default). Returns a reason string when rejected, or null when accepted.
+ * Fails closed when no storage account is configured.
+ */
+export function checkStorageImageUrl(
+  value: string,
+  allowedContainers: readonly string[] = defaultReadableContainers()
+): string | null {
+  const connectionString = asNonEmpty(process.env.AZURE_STORAGE_CONNECTION);
+  if (!connectionString) {
+    return "no storage account is configured";
+  }
+
+  let config: StorageAccountConfig;
+  try {
+    config = parseStorageConnectionString(connectionString);
+  } catch {
+    return "no storage account is configured";
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return "not a valid URL";
+  }
+
+  if (parsed.protocol !== "https:") {
+    return "URL must use https";
+  }
+  if (parsed.username || parsed.password) {
+    return "URL must not include credentials";
+  }
+  if (parsed.port) {
+    return "URL must not specify a port";
+  }
+  try {
+    assertStorageReadAllowed(config, parsed, allowedContainers);
+  } catch (error) {
+    return error instanceof BlobAccessDeniedError ? error.message : "URL is not allowed";
+  }
+  return null;
+}
+
 export interface ReadBlobResult {
   bytes: Buffer;
   contentType: string;

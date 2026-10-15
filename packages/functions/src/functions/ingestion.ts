@@ -10,6 +10,7 @@ import {
 import { saveConnectorRawSnapshot } from "../lib/connector-raw-storage";
 import { withAdmin } from "../lib/auth";
 import { withCors } from "../lib/http";
+import { internalServerError } from "../lib/errors";
 import { getQueueStats, purgeQueue } from "../lib/queue-management";
 import {
   cancelIngestionJob,
@@ -497,7 +498,7 @@ async function enqueueIngestionJob(
         if (failedJob) {
           return {
             status: 500,
-            jsonBody: { error: message, job: failedJob },
+            jsonBody: { error: "Failed to enqueue ingestion job", job: failedJob, requestId: context.invocationId },
           };
         }
       } catch (markFailedError) {
@@ -505,10 +506,7 @@ async function enqueueIngestionJob(
       }
     }
 
-    return {
-      status: 500,
-      jsonBody: { error: message },
-    };
+    return internalServerError(context, error, "Failed to enqueue ingestion job", "ingestion.enqueue");
   }
 }
 
@@ -1510,7 +1508,7 @@ async function handlePurgeQueue(
       context.error("Error purging queue:", result.error);
       return {
         status: 500,
-        jsonBody: { error: result.error || "Failed to purge queue" },
+        jsonBody: { error: "Failed to purge queue", requestId: context.invocationId },
       };
     }
     return {
@@ -1689,7 +1687,7 @@ async function bulkIngestionHandler(
       }
     }
 
-    return { status: 500, jsonBody: { error: message } };
+    return internalServerError(context, error, "Failed to enqueue bulk ingestion", "ingestion.bulk-enqueue");
   }
 }
 

@@ -15,9 +15,10 @@ import {
 } from "swatchwatch-shared";
 import { query, transaction } from "../lib/db";
 import { withAuth } from "../lib/auth";
-import { stripImageMetadata, validateImageUpload } from "../lib/blob-storage";
+import { checkStorageImageUrl, stripImageMetadata, validateImageUpload } from "../lib/blob-storage";
 import { withCors } from "../lib/http";
-import { trackEvent, trackException } from "../lib/telemetry";
+import { internalServerError } from "../lib/errors";
+import { trackEvent } from "../lib/telemetry";
 import { extractTextFromImage, OcrResult } from "../lib/ocr";
 import { parseLabelText, ParsedLabelFields } from "../lib/ocr-parser";
 
@@ -108,6 +109,9 @@ type ResolverOutcome =
       metadataPatch: Record<string, unknown>;
     };
 
+const REMOTE_IMAGE_URL_ERROR =
+  "imageBlobUrl must be a base64 data URL or an https URL on the configured storage account";
+
 class CaptureInputError extends Error {
   constructor(message: string) {
     super(message);
@@ -182,22 +186,6 @@ interface FrameAiExtractionResult {
   ocrConfidence?: number;
   ocrBarcodeCount?: number;
   llmConfidence?: number;
-}
-
-/**
- * Sanitize image input before passing to the AI extraction pipeline.
- * Strips internal whitespace from base64 data URL payloads (whitespace in
- * the payload is valid client-side but rejected by the Document Intelligence API).
- * Plain HTTPS URLs are trimmed only.
- */
-function sanitizeImageInputForAi(imageInput: string): string {
-  if (imageInput.startsWith("data:")) {
-    const commaIndex = imageInput.indexOf(",");
-    if (commaIndex > 0) {
-      return imageInput.slice(0, commaIndex + 1) + imageInput.slice(commaIndex + 1).replace(/\s/g, "");
-    }
-  }
-  return imageInput.trim();
 }
 
 /**
@@ -313,11 +301,14 @@ async function normalizeCaptureImageInput(
   imageBlobUrl: string,
   captureId: string
 ): Promise<PreparedImageInput> {
+  if (typeof imageBlobUrl !== "string") {
+    throw new CaptureInputError(REMOTE_IMAGE_URL_ERROR);
+  }
   const trimmed = imageBlobUrl.trim();
 
   if (trimmed.startsWith("blob:")) {
     throw new CaptureInputError(
-      "blob: image URLs are browser-local only. Send a base64 data URL or an https URL instead."
+      "blob: image URLs are browser-local only. Send a base64 data URL instead."
     );
   }
 
@@ -385,11 +376,13 @@ async function normalizeCaptureImageInput(
   try {
     parsedUrl = new URL(trimmed);
   } catch {
-    throw new CaptureInputError("imageBlobUrl must be a valid data URL or https URL");
+    throw new CaptureInputError(REMOTE_IMAGE_URL_ERROR);
   }
 
-  if (parsedUrl.protocol !== "https:" && parsedUrl.protocol !== "http:") {
-    throw new CaptureInputError("imageBlobUrl must use http or https when passing a URL");
+  // Remote URLs are forwarded to Azure Document Intelligence / OpenAI vision and persisted, so
+  // only plain https blob URLs on our own storage account/container are accepted.
+  if (checkStorageImageUrl(trimmed) !== null) {
+    throw new CaptureInputError(REMOTE_IMAGE_URL_ERROR);
   }
 
   return {
@@ -1191,8 +1184,7 @@ async function startCapture(
 
     return { status: 201, jsonBody: response };
   } catch (error: any) {
-    context.error("Error starting capture:", error);
-    return { status: 500, jsonBody: { error: "Failed to start capture", details: error.message } };
+    return internalServerError(context, error, "Failed to start capture", "capture.start");
   }
 }
 
@@ -1265,19 +1257,19 @@ async function addCaptureFrame(
     let normalizedImage: PreparedImageInput | null = null;
     let preQualityJson: Record<string, unknown> | null = body.quality ?? null;
 
-    if (!body.imageId && body.imageBlobUrl) {
+    // Always validate imageBlobUrl when present (even alongside imageId) so an unvalidated
+    // remote URL can never reach the AI services.
+    if (body.imageBlobUrl) {
       normalizedImage = await normalizeCaptureImageInput(body.imageBlobUrl, session.captureId);
-      preQualityJson = mergeQualityJson(body.quality, normalizedImage.qualityPatch);
+      if (!body.imageId) {
+        preQualityJson = mergeQualityJson(body.quality, normalizedImage.qualityPatch);
+      }
     }
 
     // Run AI extraction on label/barcode frames (outside transaction to avoid long locks).
-    // Prefer the EXIF-stripped payload from normalization; otherwise sanitize the raw
-    // input so data URL whitespace doesn't cause OCR API failures.
-    const imageInputForAi = normalizedImage
-      ? normalizedImage.sanitizedImageInput
-      : body.imageBlobUrl
-        ? sanitizeImageInputForAi(body.imageBlobUrl)
-        : null;
+    // Only normalized input is forwarded: EXIF-stripped, whitespace-free data URLs or
+    // allowlisted storage-account URLs.
+    const imageInputForAi = normalizedImage ? normalizedImage.sanitizedImageInput : null;
     let aiExtraction: FrameAiExtractionResult | null = null;
     if (imageInputForAi) {
       const existingEvidence = collectCaptureEvidence(
@@ -1372,8 +1364,7 @@ async function addCaptureFrame(
     if (error instanceof CaptureInputError) {
       return { status: 400, jsonBody: { error: error.message } };
     }
-    context.error("Error adding capture frame:", error);
-    return { status: 500, jsonBody: { error: "Failed to save capture frame", details: error.message } };
+    return internalServerError(context, error, "Failed to save capture frame", "capture.frame");
   }
 }
 
@@ -1552,9 +1543,7 @@ async function finalizeCapture(
     };
     return { status: 200, jsonBody: response };
   } catch (error: any) {
-    context.error("Error finalizing capture:", error);
-    trackException(error, { endpoint: "capture.finalize" });
-    return { status: 500, jsonBody: { error: "Failed to finalize capture", details: error.message } };
+    return internalServerError(context, error, "Failed to finalize capture", "capture.finalize");
   }
 }
 
@@ -1593,8 +1582,7 @@ async function getCaptureStatus(
 
     return { status: 200, jsonBody: response };
   } catch (error: any) {
-    context.error("Error fetching capture status:", error);
-    return { status: 500, jsonBody: { error: "Failed to fetch capture status", details: error.message } };
+    return internalServerError(context, error, "Failed to fetch capture status", "capture.status");
   }
 }
 
@@ -1835,8 +1823,7 @@ async function answerCaptureQuestion(
     if (error instanceof CaptureShadeNotFoundError) {
       return { status: 404, jsonBody: { error: "Shade not found" } };
     }
-    context.error("Error answering capture question:", error);
-    return { status: 500, jsonBody: { error: "Failed to answer capture question", details: error.message } };
+    return internalServerError(context, error, "Failed to answer capture question", "capture.answer");
   }
 }
 

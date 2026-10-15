@@ -1155,9 +1155,9 @@ describe("images signed-id (requires #47)", () => {
     assert.deepEqual(sideEffects.blobReads, [], "blob storage must not be read for an unverified id");
   }
 
-  it("server-minted ids use the signed `<payload>.<signature>` format", () => {
+  it("server-minted ids use the signed, expiring `v2.<payload>.<exp>.<signature>` format", () => {
     const id = mintId(PRIVATE_URL);
-    assert.match(id, /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+    assert.match(id, /^v2\.[A-Za-z0-9_-]+\.[0-9a-z]+\.[A-Za-z0-9_-]+$/);
   });
 
   it("serves an image for a server-minted signed id (positive control)", async () => {
