@@ -1173,7 +1173,7 @@ describe("functions/polishes — multi-finish", () => {
         query: async (text, params) => {
           clientCalls.push({ text, params });
           if (text.includes("SELECT brand_id FROM brand")) return { rows: [{ brand_id: 3 }] };
-          if (text.includes("SELECT shade_id FROM shade")) return { rows: [] };
+          if (text.includes("AS own_submitted")) return { rows: [] };
           if (text.includes("INSERT INTO shade")) return { rows: [{ shade_id: 57 }] };
           return { rows: [] };
         },
@@ -1189,7 +1189,7 @@ describe("functions/polishes — multi-finish", () => {
     const res = await handler(req, fakeContext());
     assert.equal(res.status, 201);
     const insert = clientCalls.find((c) => c.text.includes("INSERT INTO shade"));
-    assert.deepEqual(insert.params[8], ["chrome"]);
+    assert.deepEqual(insert.params[9], ["chrome"]);
     assert.equal(insert.params[2], "chrome", "legacy finish key defaults to the primary finish");
   });
 
@@ -1210,7 +1210,7 @@ describe("functions/polishes — multi-finish", () => {
         query: async (text, params) => {
           clientCalls.push({ text, params });
           if (text.includes("SELECT brand_id FROM brand")) return { rows: [{ brand_id: 3 }] };
-          if (text.includes("SELECT shade_id FROM shade")) return { rows: [] };
+          if (text.includes("AS own_submitted")) return { rows: [] };
           if (text.includes("INSERT INTO shade")) return { rows: [{ shade_id: 58 }] };
           return { rows: [] };
         },
@@ -1226,7 +1226,7 @@ describe("functions/polishes — multi-finish", () => {
     const res = await handler(req, fakeContext());
     assert.equal(res.status, 201);
     const insert = clientCalls.find((c) => c.text.includes("INSERT INTO shade"));
-    assert.deepEqual(insert.params[8], []);
+    assert.deepEqual(insert.params[9], []);
   });
 
   it("creates a new shade with finishes and keeps the legacy finish populated", async () => {
@@ -1258,7 +1258,7 @@ describe("functions/polishes — multi-finish", () => {
         query: async (text, params) => {
           clientCalls.push({ text, params });
           if (text.includes("SELECT brand_id FROM brand")) return { rows: [{ brand_id: 3 }] };
-          if (text.includes("SELECT shade_id FROM shade")) return { rows: [] };
+          if (text.includes("AS own_submitted")) return { rows: [] };
           if (text.includes("INSERT INTO shade")) return { rows: [{ shade_id: 55 }] };
           return { rows: [] };
         },
@@ -1282,12 +1282,12 @@ describe("functions/polishes — multi-finish", () => {
     assert.equal(res.status, 201);
     assert.deepEqual(res.jsonBody.finishes, ["shimmer", "holographic"]);
 
-    const lookup = clientCalls.find((c) => c.text.includes("SELECT shade_id FROM shade"));
+    const lookup = clientCalls.find((c) => c.text.includes("AS own_submitted"));
     assert.equal(lookup.params[2], "shimmer", "legacy finish key should be the primary finish");
     const insert = clientCalls.find((c) => c.text.includes("INSERT INTO shade"));
     assert.ok(insert.text.includes("finishes"));
     assert.equal(insert.params[2], "shimmer");
-    assert.deepEqual(insert.params[8], ["shimmer", "holographic"]);
+    assert.deepEqual(insert.params[9], ["shimmer", "holographic"]);
   });
 
   it("does not write finishes from request tags when creating a shade", async () => {
@@ -1310,7 +1310,7 @@ describe("functions/polishes — multi-finish", () => {
         query: async (text, params) => {
           clientCalls.push({ text, params });
           if (text.includes("SELECT brand_id FROM brand")) return { rows: [{ brand_id: 3 }] };
-          if (text.includes("SELECT shade_id FROM shade")) return { rows: [] };
+          if (text.includes("AS own_submitted")) return { rows: [] };
           if (text.includes("INSERT INTO shade")) return { rows: [{ shade_id: 56 }] };
           return { rows: [] };
         },
@@ -1327,7 +1327,7 @@ describe("functions/polishes — multi-finish", () => {
     assert.equal(res.status, 201);
     assert.equal(aliasQueries, 0, "tags-only request carries no finish data");
     const insert = clientCalls.find((c) => c.text.includes("INSERT INTO shade"));
-    assert.deepEqual(insert.params[8], [], "shade.finishes must stay empty");
+    assert.deepEqual(insert.params[9], [], "shade.finishes must stay empty");
     assert.equal(insert.params[2], null, "legacy finish must not be derived from tags");
   });
 
@@ -2338,6 +2338,7 @@ describe("functions/capture — finalize/status/answer workflow", () => {
           if (text.includes("SET status = 'matched'")) {
             capturedMetadataPatch = params[4];
           }
+          if (text.includes("s.created_by_user_id")) return { rows: [{ "?column?": 1 }] }; // shade visible to caller
           if (text.includes("SELECT inventory_item_id AS id")) {
             return { rows: [] };
           }
@@ -2407,6 +2408,7 @@ describe("functions/capture — finalize/status/answer workflow", () => {
     transactionMock = async (cb) =>
       cb({
         query: async (text) => {
+          if (text.includes("s.created_by_user_id")) return { rows: [{ "?column?": 1 }] }; // shade visible to caller
           if (text.includes("SELECT inventory_item_id AS id")) {
             return { rows: [] };
           }
@@ -2544,6 +2546,7 @@ describe("functions/capture — finalize/status/answer workflow", () => {
     transactionMock = async (cb) =>
       cb({
         query: async (text) => {
+          if (text.includes("s.created_by_user_id")) return { rows: [{ "?column?": 1 }] }; // shade visible to caller
           if (text.includes("SELECT inventory_item_id AS id")) {
             return { rows: [] };
           }
@@ -2612,6 +2615,7 @@ describe("functions/capture — finalize/status/answer workflow", () => {
     transactionMock = async (cb) =>
       cb({
         query: async (text) => {
+          if (text.includes("s.created_by_user_id")) return { rows: [{ "?column?": 1 }] }; // shade visible to caller
           if (text.includes("SELECT inventory_item_id AS id")) {
             return { rows: [] };
           }
@@ -2998,6 +3002,8 @@ describe("functions/capture — answerCaptureQuestion re-resolve flow", () => {
       cb({
         query: async (text, params) => {
           if (text.includes("UPDATE capture_session")) captureSessionUpdateParams.push({ text, params });
+          // addToInventoryFromMatch: shade visible to the caller
+          if (text.includes("s.created_by_user_id")) return { rows: [{ "?column?": 1 }] };
           // addToInventoryFromMatch: check existing → no results
           if (text.includes("SELECT inventory_item_id")) return { rows: [] };
           // addToInventoryFromMatch: insert new item → return id
