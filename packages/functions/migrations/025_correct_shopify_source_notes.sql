@@ -26,6 +26,8 @@ WHERE ds.name = v.name;
 
 -- Sources the Shopify connector cannot read. Upserted (not just updated) so that
 -- ensureSupportedShopifyDataSources() cannot later auto-provision them as enabled.
+-- metadata.disabledByMigration / enabledBeforeMigration record the prior state so
+-- the down migration can restore it (no enabledBeforeMigration = row was inserted).
 INSERT INTO data_source (name, source_type, base_url, license, enabled, metadata)
 SELECT
   v.name,
@@ -33,7 +35,7 @@ SELECT
   v.base_url,
   'Storefront terms apply (verify metadata/image usage obligations)',
   false,
-  jsonb_build_object('priority', 'medium', 'mvp', 'no', 'notes', v.notes)
+  jsonb_build_object('priority', 'medium', 'mvp', 'no', 'notes', v.notes, 'disabledByMigration', '023')
 FROM (VALUES
   ('ClionadhShopify', 'https://clionadhcosmetics.com', 'Clionadh Cosmetics Shopify store. Storefront is password-locked (/products.json returns 401 as of 2026-10-14); disabled.'),
   ('GardenPathLacquersShopify', 'https://gardenpathlacquers.com', 'Garden Path Lacquers Shopify store. Storefront is password-locked (/products.json returns 401 as of 2026-10-14); disabled.'),
@@ -43,13 +45,24 @@ FROM (VALUES
 ON CONFLICT (name) DO UPDATE
 SET
   enabled = false,
-  metadata = COALESCE(data_source.metadata, '{}'::jsonb) || jsonb_build_object('notes', EXCLUDED.metadata->>'notes');
+  metadata = COALESCE(data_source.metadata, '{}'::jsonb) || jsonb_build_object(
+    'notes', EXCLUDED.metadata->>'notes',
+    'disabledByMigration', '023',
+    'enabledBeforeMigration', data_source.enabled
+  );
 
 
 -- Down Migration
 
--- Re-enable the four sources disabled above. Notes are left as corrected; the
--- previous text was factually wrong.
+-- Restore the four disabled sources to their pre-023 state: remove rows this
+-- migration inserted, and restore the previous enabled flag on rows it updated.
+-- Corrected notes are left in place; the previous text was factually wrong.
+DELETE FROM data_source
+WHERE metadata->>'disabledByMigration' = '023'
+  AND NOT metadata ? 'enabledBeforeMigration';
+
 UPDATE data_source
-SET enabled = true
-WHERE name IN ('ClionadhShopify', 'GardenPathLacquersShopify', 'RoylaleeShopify', 'PotionPolishShopify');
+SET
+  enabled = (metadata->>'enabledBeforeMigration')::boolean,
+  metadata = metadata - 'disabledByMigration' - 'enabledBeforeMigration'
+WHERE metadata->>'disabledByMigration' = '023';
