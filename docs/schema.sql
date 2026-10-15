@@ -54,7 +54,8 @@ CREATE TABLE shade (
   detected_finishes TEXT[],                      -- AI-detected finishes (migration 016)
   collection TEXT,
   release_year INT,
-  status TEXT NOT NULL DEFAULT 'unknown',
+  status TEXT NOT NULL DEFAULT 'unknown',       -- active|user_submitted|...; user_submitted = private to creator/inventory holders until an admin sets 'active' (migration 024)
+  created_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL, -- creator of a user-API shade; NULL for catalog/ingestion rows (migration 024)
   color_name TEXT,
   vendor_hex TEXT,
   detected_hex TEXT,
@@ -65,6 +66,7 @@ CREATE TABLE shade (
 );
 
 CREATE INDEX idx_shade_finishes ON shade USING GIN (finishes);
+CREATE INDEX idx_shade_created_by_user ON shade (created_by_user_id) WHERE created_by_user_id IS NOT NULL;
 
 CREATE TABLE shade_alias (
   shade_alias_id BIGSERIAL PRIMARY KEY,
