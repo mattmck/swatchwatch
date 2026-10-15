@@ -492,7 +492,7 @@ describe("processIngestionJobQueueMessage — continuations", () => {
     const payload = makePayload({ request: { exhaustive: true, pageSize: 30 } });
     await processIngestionJobQueueMessage(payload, context);
 
-    // Batch mode processes the rest of the page as one unit.
+    // Batch mode processes up to INGESTION_BATCH_CHUNK_SIZE (50) records as one unit.
     assert.deepEqual(materializeCalls().map((ids) => ids.length), [30]);
     assert.equal(enqueued().length, 0);
     assert.equal(job.status, "running");
@@ -515,6 +515,52 @@ describe("processIngestionJobQueueMessage — continuations", () => {
         updatedAt: undefined,
       }
     );
+  });
+
+  it("caps batch-mode chunks at 50 records so a sync fallback stays bounded", async () => {
+    process.env.HEX_DETECTION_BATCH_ENABLED = "true";
+    pages[1] = { records: makeRecords(1, 100), metadata: {} };
+    materializeMock = async (records) => ({ processed: records.length });
+
+    await processIngestionJobQueueMessage(makePayload({ request: { pageSize: 100 } }), context);
+
+    assert.deepEqual(materializeCalls().map((ids) => ids.length), [50, 50]);
+    assert.equal(job.status, "succeeded");
+  });
+
+  it("switches to synchronous chunks for the rest of the job after a batch fallback", async () => {
+    process.env.HEX_DETECTION_BATCH_ENABLED = "true";
+    pages[1] = { records: makeRecords(1, 80), metadata: {} };
+    const batchFlags = [];
+    materializeMock = async (records, options) => {
+      batchFlags.push(options.useBatchForHexDetection);
+      // The first (batch-sized) chunk hits the enqueued-token limit and falls back.
+      return { processed: records.length, batchFallbacks: batchFlags.length === 1 ? 1 : 0 };
+    };
+
+    await processIngestionJobQueueMessage(makePayload({ request: { pageSize: 100 } }), context);
+
+    assert.deepEqual(materializeCalls().map((ids) => ids.length), [50, 10, 10, 10]);
+    assert.deepEqual(batchFlags, [true, false, false, false]);
+    assert.equal(job.metrics.hexBatchDegraded, true);
+    assert.equal(job.status, "succeeded");
+  });
+
+  it("keeps synchronous chunks on a continuation of a job whose batch already failed", async () => {
+    process.env.HEX_DETECTION_BATCH_ENABLED = "true";
+    pages[1] = { records: makeRecords(1, 40), metadata: {} };
+    const cp = checkpoint({ recordOffset: 20, recordsProcessed: 20, continuationCount: 1 });
+    job = { status: "running", metrics: { checkpoint: cp, hexBatchDegraded: true } };
+    const batchFlags = [];
+    materializeMock = async (records, options) => {
+      batchFlags.push(options.useBatchForHexDetection);
+      return { processed: records.length };
+    };
+
+    await processIngestionJobQueueMessage(makePayload({ checkpoint: cp }), context);
+
+    assert.deepEqual(materializeCalls().map((ids) => ids.length), [10, 10]);
+    assert.deepEqual(batchFlags, [false, false]);
   });
 
   it("omits the resumeMessage when the paused unit was the last one", async () => {

@@ -140,9 +140,9 @@ variable "openai_batch_deployment_sku_name" {
 }
 
 variable "openai_batch_deployment_capacity" {
-  description = "Deployment capacity units for the batch hex detection deployment"
+  description = "Capacity for the batch hex detection deployment. For GlobalBatch this is the enqueued-token limit in thousands (5000 = 5M tokens); it is not billed — batch is billed per token processed."
   type        = number
-  default     = 100
+  default     = 5000
 }
 
 variable "create_openai_resources" {

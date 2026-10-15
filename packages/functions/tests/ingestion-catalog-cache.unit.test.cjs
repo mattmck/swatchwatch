@@ -25,7 +25,13 @@ require.cache[blobStoragePath] = {
       uploads.push({ url, contentType });
       return url;
     },
-    readBlobFromStorageUrl: async (url) => {
+    // Mirrors the real allowlist: reads default to the source-image container only.
+    readBlobFromStorageUrl: async (url, options = {}) => {
+      const container = new URL(url).pathname.split("/")[1];
+      const allowed = options.allowedContainers ?? ["source-images"];
+      if (!allowed.includes(container)) {
+        throw new Error(`Blob container '${container}' is not readable through the API`);
+      }
       if (failReads || !blobs.has(url)) throw new Error("read boom");
       return { bytes: blobs.get(url) };
     },
