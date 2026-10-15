@@ -22,14 +22,21 @@ npm run test:e2e --workspace=packages/functions  # E2E tests against the running
   `tests/access-control.unit.test.cjs` covers cross-user isolation (issue #53): every inventory /
   capture-session query must be bound to the caller's `user_id`, cross-user GET/PUT/DELETE and
   capture status/frame/finalize/answer must not read or mutate the owner's rows, user-scoped routes
-  return 401 without credentials, admin routes return 403 for regular users, and `/api/images/{id}`
-  rejects unsigned/forged/tampered ids (the `images signed-id (requires #47)` block).
+  return 401 without credentials, admin routes return 403 for regular users, `userId`/`user_id` in
+  request bodies or query params is ignored in favor of the authenticated caller, and `/api/images/{id}`
+  rejects unsigned/forged/tampered ids (the `images signed-id (requires #47)` block). A nested
+  `known gap #227` block pins that a valid signed image id is currently served to any caller (ids are
+  not owner-scoped or expiring) — flip it when #227 lands.
 - **E2E** (`npm run test:e2e`): `tests/api.test.cjs` + `tests/access-control.e2e.test.cjs` against
   a live host at `http://localhost:7071/api` started with `AUTH_DEV_BYPASS=true` and migrated dev
   data (seed users `dev:1` and `dev:2`). The access-control suite has user 2 attempt to read/modify
-  user 1's polish and capture session, verifies user 1's data is unchanged, and checks tampered image
-  ids. It skips itself when the host is unreachable. Override with `E2E_API_BASE`,
-  `E2E_OWNER_TOKEN`, `E2E_ATTACKER_TOKEN`.
+  user 1's polish and capture session (including spoofed `userId` bodies/query params and searching by
+  user 1's private notes/tags), verifies user 1's data is unchanged, and checks tampered image ids. It
+  skips itself when the host is unreachable. Override with `E2E_API_BASE` (honored by both files),
+  `E2E_OWNER_TOKEN`, `E2E_ATTACKER_TOKEN`, and `E2E_OWNER_ID` (the owner's `app_user` id; needed for the
+  `userId`-spoofing cases when the owner token isn't `dev:<id>`, otherwise those cases skip). Note that `GET /polishes/{id}` and the default list are
+  catalog views joined to the caller's own inventory, so cross-user isolation means "no other user's
+  inventory fields", not a 404; `scope=collection` restricts the list to owned items.
 
 Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools@4`).
 
