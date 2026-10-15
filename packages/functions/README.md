@@ -276,6 +276,13 @@ Holo Taco run options:
 - `overwriteDetectedHex` (default `false`) refreshes existing `color_hex` values on reruns instead of only filling blanks.
 - `detectHexOnSuspiciousOnly` (default `false`) only runs image AI when vendor hex is missing/suspicious.
 
+Reruns skip work that cannot change anything. Without `overwriteDetectedHex`, a record whose shade already has a
+`detected_hex` and already has a swatch on the same image (same checksum) skips AI detection, because the shade write
+would keep the existing hex anyway. These are counted in `hexDetectionSkippedUnchanged` (a subset of
+`hexDetectionSkipped`). Source images are still downloaded to compute the checksum, but the blob upload is skipped
+when the checksum-named blob already exists. Set `overwriteDetectedHex: true` to re-detect everything, for example after
+a prompt or model change.
+
 Example request:
 ```json
 {
@@ -404,7 +411,8 @@ Key variables:
 | `AZURE_OPENAI_VISION_DETAIL` | Optional image detail level for vision hex detection, sync and batch (`low` default — flat ~85 tokens/image; `high`/`auto` for more resolution). Unrecognized values fall back to `low`. |
 | `HEX_DETECTION_BATCH_ENABLED` | Feature flag to enable Azure OpenAI Batch API for Shopify image detection (default `false`). |
 | `HEX_DETECTION_BATCH_MIN_IMAGES` | Minimum record count before switching from synchronous detection to batch submission (default `5`). |
-| `HEX_DETECTION_DELAY_MS` | Pause between synchronous (non-batch) hex detection calls (default `1000`, max `60000`, `0` disables). The old fixed 6s pacing predates low-detail images; 429s are still retried with `Retry-After`. |
+| `HEX_DETECTION_DELAY_MS` | Pause after each synchronous (non-batch) hex detection call, per concurrency slot (default `1000`, max `60000`, `0` disables). The old fixed 6s pacing predates low-detail images; 429s are still retried with `Retry-After`. |
+| `HEX_DETECTION_CONCURRENCY` | Synchronous hex detection calls in flight at once (default `4`, max `32`). Records still commit to Postgres one at a time, in order. The deployment's tokens-per-minute quota is the real ceiling, so raise this together with `openai_deployment_capacity`. |
 | `INGESTION_AI_BATCH_POLL_SCHEDULE` | NCRONTAB schedule for the timer poller that checks batch completion (default `0 * * * * *`, every minute). |
 | `INGESTION_AI_BATCH_MAX_POLL_JOBS` | Max `awaiting_ai` ingestion jobs the poller processes per run (default `10`). |
 | `INGESTION_AI_IMAGE_PROXY_ORIGIN` | Optional public origin used when building AI image-proxy URLs (for example `https://<func-app>.azurewebsites.net`). Falls back to `https://$WEBSITE_HOSTNAME`. |
