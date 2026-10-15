@@ -1148,6 +1148,10 @@ describe("functions/polishes — multi-finish", () => {
 
     const { text, params } = listCalls[0];
     assert.ok(text.includes("s.finishes, ARRAY[]::text[]) &&"));
+    // The legacy single-finish column only matches shades with no finishes array: once a creator
+    // replaces ["creme"] with ["glitter"], ?finishes=creme must stop returning that shade.
+    assert.match(text, /cardinality\(COALESCE\(s\.finishes, ARRAY\[\]::text\[\]\)\) = 0 AND LOWER\(s\.finish\)/);
+    assert.ok(!/OR LOWER\(s\.finish\) = ANY/.test(text), "legacy finish must not match unconditionally");
     // Both filter groups resolve to the runtime finish and are matched against the finishes array.
     // finish=Mirror (alias) → canonical chrome (+ raw legacy value); finishes=chrome → chrome.
     assert.ok(params.some((p) => Array.isArray(p) && p.length === 1 && p[0] === "chrome"));

@@ -62,6 +62,13 @@ registerMock("../lib/ingestion-repo", {
     calls.push({ type: "update", jobId, metrics: structuredClone(metrics) });
     dbJob.metrics = structuredClone(metrics);
   },
+  // Mirrors the real conditional UPDATE ... AND status = 'running'.
+  updateRunningIngestionJobMetrics: async (jobId, metrics) => {
+    if (!dbJob || dbJob.status !== "running") return false;
+    calls.push({ type: "update", jobId, metrics: structuredClone(metrics) });
+    dbJob.metrics = structuredClone(metrics);
+    return true;
+  },
   markIngestionJobSucceeded: async (jobId, metrics) => {
     calls.push({ type: "succeeded", jobId, metrics: structuredClone(metrics) });
     dbJob.status = "succeeded";

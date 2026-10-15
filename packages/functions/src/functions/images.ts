@@ -100,7 +100,12 @@ export function selectImageCacheControl(params: {
 
   const blobDirective = params.blobCacheControl?.toLowerCase() ?? "";
   if (params.catalog && !params.transformed && /\b(no-store|no-cache|private)\b/.test(blobDirective)) {
-    return params.blobCacheControl as string;
+    // Keep the blob's directive, but its lifetimes still must not outlive the signed id.
+    return (params.blobCacheControl as string).replace(
+      /\b(max-age|s-maxage|stale-while-revalidate)=(\d+)/gi,
+      (_match, directive: string, seconds: string) =>
+        `${directive}=${Math.min(Number.parseInt(seconds, 10), remaining)}`
+    );
   }
 
   let maxAge = params.transformed ? TRANSFORM_MAX_AGE_SECONDS : DEFAULT_MAX_AGE_SECONDS;

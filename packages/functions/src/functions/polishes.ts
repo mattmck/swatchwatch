@@ -121,10 +121,13 @@ const POLISH_VISIBLE_SQL = `(s.status <> 'user_submitted' OR s.created_by_user_i
 async function getVisibleShade(
   shadeId: number,
   userId: number
-): Promise<{ ownSubmitted: boolean } | null> {
-  const result = await query<{ ownSubmitted: boolean }>(
-    `SELECT (s.status = 'user_submitted' AND s.created_by_user_id = $2) AS "ownSubmitted"
+): Promise<{ ownSubmitted: boolean; brand: string | null; shadeName: string | null } | null> {
+  const result = await query<{ ownSubmitted: boolean; brand: string | null; shadeName: string | null }>(
+    `SELECT (s.status = 'user_submitted' AND s.created_by_user_id = $2) AS "ownSubmitted",
+            b.name_canonical AS brand,
+            s.shade_name_canonical AS "shadeName"
      FROM shade s
+     LEFT JOIN brand b ON b.brand_id = s.brand_id
      WHERE s.shade_id = $1
        AND (
          s.status <> 'user_submitted'
@@ -135,7 +138,38 @@ async function getVisibleShade(
     [shadeId, userId]
   );
   if (result.rows.length === 0) return null;
-  return { ownSubmitted: Boolean(result.rows[0].ownSubmitted) };
+  const row = result.rows[0];
+  return { ownSubmitted: Boolean(row.ownSubmitted), brand: row.brand ?? null, shadeName: row.shadeName ?? null };
+}
+
+/**
+ * Write color data to a shade. Shared catalog shades are fill-only: user input only fills NULL
+ * columns and never overwrites values other users see. The caller's own private submission
+ * takes explicit corrections ($6 = true lets provided values replace stored ones).
+ */
+async function applyShadeColorUpdate(
+  client: PoolClient,
+  shadeId: number,
+  colorData: { colorName?: string | null; vendorHex?: string | null; detectedHex?: string | null; nameHex?: string | null },
+  ownSubmitted: boolean
+): Promise<void> {
+  await client.query(
+    `UPDATE shade SET
+       color_name   = CASE WHEN $6 THEN COALESCE($2, color_name)   ELSE COALESCE(color_name, $2)   END,
+       vendor_hex   = CASE WHEN $6 THEN COALESCE($3, vendor_hex)   ELSE COALESCE(vendor_hex, $3)   END,
+       detected_hex = CASE WHEN $6 THEN COALESCE($4, detected_hex) ELSE COALESCE(detected_hex, $4) END,
+       name_hex     = CASE WHEN $6 THEN COALESCE($5, name_hex)     ELSE COALESCE(name_hex, $5)     END,
+       updated_at   = now()
+     WHERE shade_id = $1`,
+    [
+      shadeId,
+      colorData.colorName || null,
+      colorData.vendorHex || null,
+      colorData.detectedHex || null,
+      colorData.nameHex || null,
+      ownSubmitted,
+    ]
+  );
 }
 
 /**
@@ -232,19 +266,8 @@ async function findOrCreateShade(
   if (existingShade.rows.length > 0) {
     const shadeId = existingShade.rows[0].shade_id;
     const ownSubmitted = Boolean(existingShade.rows[0].own_submitted);
-    // Backfill color data if provided. Shades are shared catalog rows, so user input
-    // only fills NULL columns — it never overwrites values other users already see.
     if (colorData) {
-      await client.query(
-        `UPDATE shade SET
-           color_name   = COALESCE(color_name, $2),
-           vendor_hex   = COALESCE(vendor_hex, $3),
-           detected_hex = COALESCE(detected_hex, $4),
-           name_hex     = COALESCE(name_hex, $5),
-           updated_at   = now()
-         WHERE shade_id = $1`,
-        [shadeId, colorData.colorName || null, colorData.vendorHex || null, colorData.detectedHex || null, colorData.nameHex || null]
-      );
+      await applyShadeColorUpdate(client, shadeId, colorData, ownSubmitted);
     }
     await applyShadeFinishUpdate(client, shadeId, finishUpdate, ownSubmitted);
     return shadeId;
@@ -592,13 +615,14 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
     if (finishFilterGroups.length > 0) {
       const catalog = await loadFinishCatalog();
       for (const group of finishFilterGroups) {
-        // Match the multi-finish array (canonical values) or the legacy single finish column.
+        // Match the multi-finish array (canonical values), or the legacy single finish column
+        // only for shades that have no finishes array yet (a populated array is authoritative).
         const canonicalValues = canonicalizeFinishes(group, catalog);
         const legacyValues = Array.from(
           new Set([...group, ...canonicalValues, ...(canonicalValues.includes("creme") ? ["cream"] : [])])
         );
         conditions.push(
-          `(COALESCE(s.finishes, ARRAY[]::text[]) && $${paramIndex}::text[] OR LOWER(s.finish) = ANY($${paramIndex + 1}::text[]))`
+          `(COALESCE(s.finishes, ARRAY[]::text[]) && $${paramIndex}::text[] OR (cardinality(COALESCE(s.finishes, ARRAY[]::text[])) = 0 AND LOWER(s.finish) = ANY($${paramIndex + 1}::text[])))`
         );
         params.push(canonicalValues, legacyValues);
         paramIndex += 2;
@@ -810,12 +834,21 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
       if (!targetShade) {
         return { status: 404, jsonBody: { error: "Polish not found" } };
       }
+    } else {
+      // Brand + name unchanged: edit the URL's shade in place. Resolving by identity would key
+      // the lookup on the requested primary finish, so a finish-only edit could land on (or
+      // create) a different shade and leave the original inventory item behind.
+      const visible = await getVisibleShade(shadeId, userId);
+      if (visible && visible.brand === body.brand && visible.shadeName === body.name) {
+        targetShade = visible;
+      }
     }
+    const resolveByIdentity = targetShade === null;
 
     const updatedShadeId = await transaction(async (client) => {
       let targetShadeId = shadeId;
 
-      if (body.brand && body.name) {
+      if (resolveByIdentity && body.brand && body.name) {
         targetShadeId = await findOrCreateShade(
           client,
           userId,
@@ -830,16 +863,12 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
         await applyShadeFinishUpdate(client, targetShadeId, finishUpdate, targetShade!.ownSubmitted);
       }
 
-      if (!(body.brand && body.name) && (body.color || body.vendorHex || body.detectedHex || body.nameHex)) {
-        await client.query(
-          `UPDATE shade SET
-             color_name   = COALESCE(color_name, $2),
-             vendor_hex   = COALESCE(vendor_hex, $3),
-             detected_hex = COALESCE(detected_hex, $4),
-             name_hex     = COALESCE(name_hex, $5),
-             updated_at   = now()
-           WHERE shade_id = $1`,
-          [targetShadeId, body.color ?? null, body.vendorHex ?? null, body.detectedHex ?? null, body.nameHex ?? null]
+      if (!resolveByIdentity && (body.color || body.vendorHex || body.detectedHex || body.nameHex)) {
+        await applyShadeColorUpdate(
+          client,
+          targetShadeId,
+          { colorName: body.color, vendorHex: body.vendorHex, detectedHex: body.detectedHex, nameHex: body.nameHex },
+          targetShade!.ownSubmitted
         );
       }
 

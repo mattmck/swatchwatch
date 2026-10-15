@@ -464,6 +464,25 @@ describe("processIngestionJobQueueMessage — continuations", () => {
     assert.equal(job.status, "succeeded");
   });
 
+  it("stops when a duplicate worker of the same generation saved a later checkpoint", async () => {
+    pages[1] = { records: makeRecords(1, 34), metadata: {} };
+    materializeMock = async (records) => {
+      // Another delivery of the same message got further while this chunk ran.
+      job.metrics = {
+        ...job.metrics,
+        checkpoint: checkpoint({ recordOffset: 30, recordsProcessed: 30, continuationCount: 0 }),
+      };
+      return { processed: records.length };
+    };
+
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    assert.equal(materializeCalls().length, 1);
+    assert.equal(job.metrics.checkpoint.recordOffset, 30, "the further-along checkpoint is not regressed");
+    const firstMaterialize = events.findIndex((e) => e.type === "materialize");
+    assert.ok(!events.slice(firstMaterialize).some((e) => e.type === "metrics"), "no writes after losing ownership");
+  });
+
   it("stops between chunks when the job is cancelled, without overwriting its status", async () => {
     pages[1] = { records: makeRecords(1, 34), metadata: {} };
     materializeMock = async (records) => {

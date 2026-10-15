@@ -969,6 +969,22 @@ describe("access control — polishes inventory is scoped to the caller", () => 
     for (const write of shadeWrites) {
       for (const col of SHADE_COLOR_COLUMNS) {
         if (!new RegExp(`\\b${col}\\s*=`, "i").test(write.sql)) continue;
+        // Owner corrections use `CASE WHEN $N THEN COALESCE($x, col) ELSE COALESCE(col, $x) END`;
+        // that is fill-only exactly when the $N guard is bound to false.
+        const guarded = write.sql.match(
+          new RegExp(
+            `\\b${col}\\s*=\\s*CASE\\s+WHEN\\s+\\$(\\d+)\\s+THEN\\s+COALESCE\\(\\s*\\$\\d+\\s*,\\s*${col}\\s*\\)\\s+ELSE\\s+COALESCE\\(\\s*${col}\\s*,\\s*\\$\\d+\\s*\\)\\s+END`,
+            "i"
+          )
+        );
+        if (guarded) {
+          assert.equal(
+            write.params[Number(guarded[1]) - 1],
+            false,
+            `non-admin shade write may only fill NULL ${col} (owner override must be off): ${describeCall(write)}`
+          );
+          continue;
+        }
         assert.match(
           write.sql,
           new RegExp(`\\b${col}\\s*=\\s*COALESCE\\(\\s*${col}\\s*,\\s*\\$\\d+\\s*\\)`, "i"),
@@ -1170,25 +1186,49 @@ describe("images signed-id (requires #47)", () => {
     assertRejected(await getImage(b64url(PRIVATE_URL)));
   });
 
+  // Forgeries below keep the full minted `v2.<payload>.<exp>.<signature>` envelope and change only
+  // the part under test, so they exercise signature / URL binding rather than format parsing.
+  function envelope(id) {
+    const [version, payload, exp, signature] = id.split(".");
+    return { version, payload, exp, signature };
+  }
+
   it("rejects an id with an empty signature", async () => {
-    assertRejected(await getImage(`${b64url(PRIVATE_URL)}.`));
+    const { version, payload, exp } = envelope(mintId(PRIVATE_URL));
+    assertRejected(await getImage(`${version}.${payload}.${exp}.`));
   });
 
   it("rejects an id with a garbage signature", async () => {
-    assertRejected(await getImage(`${b64url(PRIVATE_URL)}.${b64url("not-a-real-mac")}`));
+    const { version, payload, exp } = envelope(mintId(PRIVATE_URL));
+    assertRejected(await getImage(`${version}.${payload}.${exp}.${b64url("not-a-real-mac")}`));
   });
 
   it("rejects an id signed with the wrong key", async () => {
-    const forgedMac = crypto.createHmac("sha256", "attacker-key").update(b64url(PRIVATE_URL)).digest();
-    const forgedMacOverUrl = crypto.createHmac("sha256", "attacker-key").update(PRIVATE_URL).digest();
-    assertRejected(await getImage(`${b64url(PRIVATE_URL)}.${b64url(forgedMac)}`));
-    assertRejected(await getImage(`${b64url(PRIVATE_URL)}.${b64url(forgedMacOverUrl)}`));
+    const { version, payload, exp } = envelope(mintId(PRIVATE_URL));
+    // Same message layout the server signs (expiry as decimal seconds; the id carries base36),
+    // but the attacker's key.
+    const expiresAt = Number.parseInt(exp, 36);
+    const forgedMac = crypto
+      .createHmac("sha256", "attacker-key")
+      .update(`swatchwatch:image-proxy:v2:${expiresAt}:${PRIVATE_URL}`)
+      .digest();
+    const forgedMacOverPayload = crypto.createHmac("sha256", "attacker-key").update(payload).digest();
+    // Control: the identical construction with the real key is accepted, so the rejections
+    // below are caused by the key alone, not by a malformed id.
+    const realMac = crypto
+      .createHmac("sha256", process.env.IMAGE_PROXY_SIGNING_KEY)
+      .update(`swatchwatch:image-proxy:v2:${expiresAt}:${PRIVATE_URL}`)
+      .digest();
+    assert.equal((await getImage(`${version}.${payload}.${exp}.${b64url(realMac)}`)).status, 200);
+    sideEffects.blobReads.length = 0;
+    assertRejected(await getImage(`${version}.${payload}.${exp}.${b64url(forgedMac)}`));
+    assertRejected(await getImage(`${version}.${payload}.${exp}.${b64url(forgedMacOverPayload)}`));
   });
 
   it("rejects a valid signature transplanted onto a different URL", async () => {
-    const legit = mintId(OTHER_URL);
-    const signature = legit.split(".").pop();
-    assertRejected(await getImage(`${b64url(PRIVATE_URL)}.${signature}`));
+    // Keep OTHER_URL's version, expiry and signature; swap in PRIVATE_URL's payload only.
+    const { version, exp, signature } = envelope(mintId(OTHER_URL));
+    assertRejected(await getImage(`${version}.${b64url(PRIVATE_URL)}.${exp}.${signature}`));
   });
 
   it("rejects a tampered signature (single character flipped)", async () => {

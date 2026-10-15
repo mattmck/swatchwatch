@@ -213,4 +213,16 @@ describe("images cache headers", () => {
     assert.equal(select({ transformed: true, expiresAt: nowS + 100 }), "public, max-age=100");
     assert.equal(select({ expiresAt: nowS - 5 }), "public, max-age=0");
   });
+
+  it("caps lifetimes in a passed-through private/no-cache catalog header too", () => {
+    assert.equal(
+      select({ blobCacheControl: "private, max-age=31536000", expiresAt: nowS + 600 }),
+      "private, max-age=600"
+    );
+    assert.equal(select({ blobCacheControl: "no-store" }), "no-store");
+    assert.equal(
+      select({ blobCacheControl: "no-cache, max-age=120", expiresAt: nowS + 600 }),
+      "no-cache, max-age=120"
+    );
+  });
 });

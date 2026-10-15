@@ -132,6 +132,14 @@ describe("createIngestionCatalogCache", () => {
     assert.deepEqual(products, [{ id: 1 }]);
   });
 
+  it("treats an empty snapshot as a miss and refetches", async () => {
+    const emptyCache = { load: async () => [], save: async () => {} };
+    const fetcher = countingFetcher([{ id: "fresh" }]);
+
+    assert.deepEqual(await loadCatalogWithCache(emptyCache, fetcher), [{ id: "fresh" }]);
+    assert.equal(fetcher.calls, 1);
+  });
+
   it("falls back to a fresh download when the snapshot is unreadable", async () => {
     failReads = true;
     const logs = [];

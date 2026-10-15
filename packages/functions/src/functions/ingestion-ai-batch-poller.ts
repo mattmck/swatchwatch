@@ -6,6 +6,7 @@ import {
   markIngestionJobFailed,
   markIngestionJobSucceeded,
   updateIngestionJobMetrics,
+  updateRunningIngestionJobMetrics,
 } from "../lib/ingestion-repo";
 import {
   downloadBatchFileContent,
@@ -442,12 +443,16 @@ async function processAwaitingAiBatchJob(
         }
       );
 
-      if (!(await shouldApplyJobUpdate(job.jobId, context, "continuation"))) {
-        return;
-      }
       // Persist the checkpoint + stage BEFORE enqueueing so a fast-starting worker never
       // sees a stale awaiting_ai stage or an older continuationCount and drops the message.
-      await updateIngestionJobMetrics(job.jobId, continuationMetrics);
+      // The write is conditional on status = 'running', so a job cancelled while the batch
+      // was being applied is neither overwritten nor continued.
+      if (!(await updateRunningIngestionJobMetrics(job.jobId, continuationMetrics))) {
+        context.log(
+          `[ingestion-ai-batch-poller] Skipping continuation for job ${job.jobId}: no longer running`
+        );
+        return;
+      }
 
       try {
         await enqueueIngestionContinuation(resumeMessage);
