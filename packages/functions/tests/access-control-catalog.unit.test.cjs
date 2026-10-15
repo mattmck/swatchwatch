@@ -518,7 +518,7 @@ describe("edits to the caller's own submitted shade", () => {
     assert.equal(state.shades.get(A_PRIVATE_SHADE).vendorHex, "#222222");
 
     const shared = await put(USER_B, CATALOG_SHADE, { vendorHex: "#000000" });
-    assert.ok(shared.status < 500);
+    assert.ok(shared.status < 400, `shared-shade request must succeed, got ${shared.status}`);
     assert.equal(state.shades.get(CATALOG_SHADE).vendorHex, "#aa0000", "shared catalog value must not be overwritten");
   });
 
@@ -528,7 +528,7 @@ describe("edits to the caller's own submitted shade", () => {
     assert.equal(state.shades.get(A_PRIVATE_SHADE).vendorHex, "#333333");
 
     const shared = await post(USER_B, { shadeId: String(CATALOG_SHADE), quantity: 1, vendorHex: "#000000" });
-    assert.ok(shared.status < 500);
+    assert.ok(shared.status < 400, `shared-shade request must succeed, got ${shared.status}`);
     assert.equal(state.shades.get(CATALOG_SHADE).vendorHex, "#aa0000", "shared catalog value must not be overwritten");
   });
 

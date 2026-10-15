@@ -229,6 +229,12 @@ describe("images cache headers", () => {
       select({ blobCacheControl: "private, max-age=300, stale-while-revalidate=600", expiresAt: nowS + 600 }),
       "private, max-age=300, stale-while-revalidate=300"
     );
+    // Quoted arguments (RFC 9111) are capped too; an unparseable lifetime fails closed to 0.
+    assert.equal(
+      select({ blobCacheControl: 'private, max-age="3600"', expiresAt: nowS + 60 }),
+      "private, max-age=60"
+    );
+    assert.equal(select({ blobCacheControl: "private, max-age=soon", expiresAt: nowS + 60 }), "private, max-age=0");
     assert.equal(
       select({ blobCacheControl: "no-cache, max-age=120", expiresAt: nowS + 600 }),
       "no-cache, max-age=120"

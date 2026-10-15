@@ -79,6 +79,51 @@ export function isCatalogImageUrl(storageUrl: string): boolean {
   return container.length > 0 && defaultReadableContainers().includes(container);
 }
 
+const LIFETIME_DIRECTIVES = new Set(["max-age", "s-maxage", "stale-while-revalidate"]);
+
+/**
+ * Keep a blob's own private/no-cache directive, but make sure its lifetimes cannot outlive the
+ * signed id: max-age / s-maxage are capped at `remaining`, and stale-while-revalidate at whatever
+ * is left after the longest freshness window (dropped when nothing is left). Directive arguments
+ * may be quoted (RFC 9111), so the header is parsed rather than pattern-matched; a lifetime whose
+ * argument is not a non-negative integer is treated as 0 (fail closed).
+ */
+function capPassthroughCacheControl(header: string, remaining: number): string {
+  const directives = header
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const eq = part.indexOf("=");
+      const name = (eq === -1 ? part : part.slice(0, eq)).trim();
+      const rawValue = eq === -1 ? null : part.slice(eq + 1).trim().replace(/^"(.*)"$/, "$1");
+      return { name, key: name.toLowerCase(), rawValue };
+    });
+
+  const seconds = (rawValue: string | null): number =>
+    rawValue !== null && /^\d+$/.test(rawValue) ? Number.parseInt(rawValue, 10) : 0;
+
+  let freshFor = 0;
+  for (const d of directives) {
+    if (d.key === "max-age" || d.key === "s-maxage") {
+      freshFor = Math.max(freshFor, Math.min(seconds(d.rawValue), remaining));
+    }
+  }
+
+  const out: string[] = [];
+  for (const d of directives) {
+    if (!LIFETIME_DIRECTIVES.has(d.key)) {
+      out.push(d.rawValue === null ? d.name : `${d.name}=${d.rawValue}`);
+    } else if (d.key === "stale-while-revalidate") {
+      const swr = Math.min(seconds(d.rawValue), remaining - freshFor);
+      if (swr > 0) out.push(`${d.name}=${swr}`);
+    } else {
+      out.push(`${d.name}=${Math.min(seconds(d.rawValue), remaining)}`);
+    }
+  }
+  return out.join(", ");
+}
+
 /**
  * Choose the Cache-Control header for a proxied image.
  *
@@ -100,24 +145,7 @@ export function selectImageCacheControl(params: {
 
   const blobDirective = params.blobCacheControl?.toLowerCase() ?? "";
   if (params.catalog && !params.transformed && /\b(no-store|no-cache|private)\b/.test(blobDirective)) {
-    // Keep the blob's directive, but its lifetimes still must not outlive the signed id:
-    // max-age / s-maxage are capped at the remaining lifetime, and stale-while-revalidate at
-    // whatever is left after the longest freshness window (dropped when nothing is left).
-    const header = params.blobCacheControl as string;
-    const freshness = (name: string): number => {
-      const match = header.match(new RegExp(`\\b${name}=(\\d+)`, "i"));
-      return match ? Math.min(Number.parseInt(match[1], 10), remaining) : 0;
-    };
-    const freshFor = Math.max(freshness("max-age"), freshness("s-maxage"));
-    return header
-      .replace(/\b(max-age|s-maxage)=(\d+)/gi, (_match, directive: string, seconds: string) =>
-        `${directive}=${Math.min(Number.parseInt(seconds, 10), remaining)}`
-      )
-      .replace(/\s*,?\s*\bstale-while-revalidate=(\d+)/gi, (_match, seconds: string) => {
-        const swr = Math.min(Number.parseInt(seconds, 10), remaining - freshFor);
-        return swr > 0 ? `, stale-while-revalidate=${swr}` : "";
-      })
-      .replace(/^\s*,\s*/, "");
+    return capPassthroughCacheControl(params.blobCacheControl as string, remaining);
   }
 
   let maxAge = params.transformed ? TRANSFORM_MAX_AGE_SECONDS : DEFAULT_MAX_AGE_SECONDS;
