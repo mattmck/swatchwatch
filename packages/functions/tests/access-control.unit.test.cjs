@@ -1232,9 +1232,10 @@ describe("images signed-id (requires #47)", () => {
   });
 
   it("rejects a tampered signature (single character flipped)", async () => {
-    const legit = mintId(PRIVATE_URL);
-    const last = legit.slice(-1);
-    const tampered = legit.slice(0, -1) + (last === "A" ? "B" : "A");
+    // Flip the signature's FIRST character: its last base64url char carries unused bits, so a
+    // change there can decode to the same MAC and make this test pass or fail by chance.
+    const { version, payload, exp, signature } = envelope(mintId(PRIVATE_URL));
+    const tampered = `${version}.${payload}.${exp}.${(signature[0] === "A" ? "B" : "A") + signature.slice(1)}`;
     assertRejected(await getImage(tampered));
   });
 

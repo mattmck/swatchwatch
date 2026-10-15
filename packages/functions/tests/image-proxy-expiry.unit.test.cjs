@@ -220,6 +220,15 @@ describe("images cache headers", () => {
       "private, max-age=600"
     );
     assert.equal(select({ blobCacheControl: "no-store" }), "no-store");
+    // max-age + stale-while-revalidate together must not outlive the id.
+    assert.equal(
+      select({ blobCacheControl: "private, max-age=600, stale-while-revalidate=600", expiresAt: nowS + 600 }),
+      "private, max-age=600"
+    );
+    assert.equal(
+      select({ blobCacheControl: "private, max-age=300, stale-while-revalidate=600", expiresAt: nowS + 600 }),
+      "private, max-age=300, stale-while-revalidate=300"
+    );
     assert.equal(
       select({ blobCacheControl: "no-cache, max-age=120", expiresAt: nowS + 600 }),
       "no-cache, max-age=120"

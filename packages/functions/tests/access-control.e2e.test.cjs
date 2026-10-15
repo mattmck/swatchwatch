@@ -443,7 +443,9 @@ test("access control e2e: users cannot access or modify each other's data", asyn
     const [version, payload, exp, signature] = legitId.split(".");
     assert.equal(version, "v2", `unexpected image id format: ${legitId}`);
     const storageUrl = fromB64url(payload);
-    const flipped = signature.slice(0, -1) + (signature.endsWith("A") ? "B" : "A");
+    // Flip the FIRST character: the last base64url char of a 32-byte MAC carries unused bits,
+    // so changing it can decode to the same signature.
+    const flipped = (signature[0] === "A" ? "B" : "A") + signature.slice(1);
     const otherBlob = storageUrl.replace(/[^/]+$/, `forged-${RUN_ID}.png`);
 
     const attempts = {

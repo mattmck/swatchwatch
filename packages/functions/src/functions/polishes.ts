@@ -733,15 +733,12 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       }
 
       if (adoptingExistingShade && (body.color || body.vendorHex || body.detectedHex || body.nameHex)) {
-        await client.query(
-          `UPDATE shade SET
-             color_name   = COALESCE(color_name, $2),
-             vendor_hex   = COALESCE(vendor_hex, $3),
-             detected_hex = COALESCE(detected_hex, $4),
-             name_hex     = COALESCE(name_hex, $5),
-             updated_at   = now()
-           WHERE shade_id = $1`,
-          [resolvedShadeId, body.color ?? null, body.vendorHex ?? null, body.detectedHex ?? null, body.nameHex ?? null]
+        // Same rule as PUT: owners may correct their own submission; shared shades are fill-only.
+        await applyShadeColorUpdate(
+          client,
+          resolvedShadeId,
+          { colorName: body.color, vendorHex: body.vendorHex, detectedHex: body.detectedHex, nameHex: body.nameHex },
+          adoptedShade!.ownSubmitted
         );
       }
 

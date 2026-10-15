@@ -522,6 +522,16 @@ describe("edits to the caller's own submitted shade", () => {
     assert.equal(state.shades.get(CATALOG_SHADE).vendorHex, "#aa0000", "shared catalog value must not be overwritten");
   });
 
+  it("POST adopting your own submitted shade by id applies the same owner color rule as PUT", async () => {
+    const own = await post(USER_A, { shadeId: String(A_PRIVATE_SHADE), quantity: 1, vendorHex: "#333333" });
+    assert.ok(own.status < 400, `owner adopt failed: ${own.status}`);
+    assert.equal(state.shades.get(A_PRIVATE_SHADE).vendorHex, "#333333");
+
+    const shared = await post(USER_B, { shadeId: String(CATALOG_SHADE), quantity: 1, vendorHex: "#000000" });
+    assert.ok(shared.status < 500);
+    assert.equal(state.shades.get(CATALOG_SHADE).vendorHex, "#aa0000", "shared catalog value must not be overwritten");
+  });
+
   it("a finish-only edit with unchanged brand + name updates the same shade instead of creating one", async () => {
     const before = state.shades.size;
     const res = await put(USER_A, A_PRIVATE_SHADE, { brand: "Acme", name: "A Secret", finishes: ["glitter"] });
