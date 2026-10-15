@@ -117,6 +117,9 @@ registerMock("../lib/ocr-parser", {
 
 // Stub blob storage reader to avoid network
 registerMock("../lib/blob-storage", {
+  // Remote capture image URLs are allowlisted by the real validator (see capture-image-url tests);
+  // here only the fixture host is "on the configured storage account".
+  checkStorageImageUrl: (url) => (String(url).startsWith("https://blob.example/") ? null : "not allowed"),
   readBlobFromStorageUrl: async () => ({
     bytes: Buffer.from("fakeimg"),
     contentType: "image/png",
