@@ -127,8 +127,12 @@ jobs:
           node-version: '24'
           cache: 'npm'
 
+      # Install only the workspaces this job builds (skips mobile/Expo and the
+      # functions toolchain). --ignore-scripts skips postinstall downloads such
+      # as husky and azure-functions-core-tools; prebuilt native binaries come
+      # from optional deps (Tailwind ones are patched in the next step).
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts --no-audit --no-fund --workspace=apps/web --workspace=packages/shared --include-workspace-root
 
       - name: Install Tailwind CSS native binaries
         run: |
@@ -283,8 +287,11 @@ jobs:
           node-version: '24'
           cache: 'npm'
 
+      # Install only shared + functions. --ignore-scripts skips the
+      # azure-functions-core-tools postinstall, which downloads the full func
+      # host binary that this job never runs (deploys go through functions-action).
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts --no-audit --no-fund --workspace=packages/functions --workspace=packages/shared
 
       - name: Build shared package
         run: npm run build --workspace=packages/shared
@@ -318,7 +325,9 @@ jobs:
 
           # Install production (external) deps into the self-contained deploy dir.
           cd "$DEPLOY_DIR"
-          npm install --omit=dev --ignore-scripts
+          # --prefer-offline reuses tarballs already in ~/.npm from the install
+          # above instead of re-checking the registry for every package.
+          npm install --omit=dev --ignore-scripts --no-audit --no-fund --prefer-offline
 
       - name: Azure login (OIDC)
         uses: azure/login@v3
