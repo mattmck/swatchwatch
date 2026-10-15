@@ -2,6 +2,7 @@ import { HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functio
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { query, transaction } from "./db";
 import { trackEvent, trackException } from "./telemetry";
+import { isDevBypassEnabled, reportDevBypassRefusedIfNeeded } from "./runtime-env";
 
 export interface AuthResult {
   userId: number;
@@ -15,8 +16,10 @@ type EntraRole = "admin" | "user";
 /**
  * Authenticate an incoming request.
  *
- * - **Dev bypass** (`AUTH_DEV_BYPASS=true`): accepts `Bearer dev:<userId>` tokens.
- *   Looks up the user by user_id directly — meant for local development only.
+ * - **Dev bypass** (`AUTH_DEV_BYPASS=true` and NOT hosted in Azure): accepts `Bearer dev:<userId>`
+ *   tokens. Looks up the user by user_id directly — local development only. When hosted in Azure
+ *   (see `isHostedInAzure`) the flag is refused (logged once + `auth.dev_bypass_refused`) and the
+ *   token goes through normal JWT validation, so `dev:*` tokens fail with 401.
  * - **Production** (Entra/B2C configured): validates JWT against tenant JWKS,
  *   extracts `oid` claim, and upserts the user by external_id.
  */
@@ -37,9 +40,10 @@ export async function authenticateRequest(
   }
 
   // Dev bypass mode
-  if (process.env.AUTH_DEV_BYPASS === "true") {
+  if (isDevBypassEnabled()) {
     return handleDevBypass(token, context);
   }
+  reportDevBypassRefusedIfNeeded();
 
   // Production B2C JWT validation
   return handleB2CToken(token, context);
