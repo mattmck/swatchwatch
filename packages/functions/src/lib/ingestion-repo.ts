@@ -1220,10 +1220,12 @@ export async function listIngestionJobsAwaitingAiBatch(
     [limit]
   );
 
+  // node-postgres returns BIGINT columns as strings; normalise so callers can compare ids
+  // against numeric queue payloads (the poller checks resumeMessage.jobId === job.jobId).
   return result.rows.map((row) => ({
-    jobId: row.jobId,
+    jobId: Number(row.jobId),
     source: row.source,
-    dataSourceId: row.dataSourceId,
+    dataSourceId: Number(row.dataSourceId),
     metrics: row.metrics || {},
     startedAt: row.startedAt,
   }));
