@@ -81,6 +81,11 @@ const DEFAULT_HEX_BATCH_MIN_IMAGES = 5;
 // Records persisted per unit of work when hex detection runs synchronously (one AI call +
 // HEX_DETECTION_DELAY_MS per record). Small enough that a hard kill loses little work.
 const INGESTION_SYNC_CHUNK_SIZE = 10;
+// Bounded so that if batch submission fails and the materializer falls back to synchronous
+// detection, one chunk (uploads + ~3.5s per AI call) still fits well inside functionTimeout.
+const INGESTION_BATCH_CHUNK_SIZE = 50;
+/** Set once batch submission has failed for a job; later chunks use synchronous detection. */
+const HEX_BATCH_DEGRADED_METRICS_KEY = "hexBatchDegraded";
 // Key in metrics_json holding the worker's separated persistence/materialization totals so
 // a continuation can keep summing them (the flattened top-level keys overlap, e.g. `skipped`).
 const WORKER_TOTALS_METRICS_KEY = "workerTotals";
@@ -661,6 +666,9 @@ export async function processIngestionJobQueueMessage(
     let materializationMetricsAggregate: Record<string, unknown> | null =
       priorTotals.materialization ? toMetricsRecord(priorTotals.materialization) : null;
     let totalRecordsProcessed = startCheckpoint?.recordsProcessed ?? 0;
+    let hexBatchDegraded = startCheckpoint
+      ? existingMetrics[HEX_BATCH_DEGRADED_METRICS_KEY] === true
+      : false;
 
     // Position of the next unprocessed record; persisted after every chunk.
     let checkpoint: IngestionCheckpoint = startCheckpoint ?? {
@@ -779,7 +787,7 @@ export async function processIngestionJobQueueMessage(
               detectHexFromImage: payload.request.detectHexFromImage,
               detectHexOnSuspiciousOnly: payload.request.detectHexOnSuspiciousOnly,
               overwriteDetectedHex: payload.request.overwriteDetectedHex,
-              useBatchForHexDetection: hexBatchConfig.enabled,
+              useBatchForHexDetection: hexBatchConfig.enabled && !hexBatchDegraded,
               batchMinImages: hexBatchConfig.minImages,
               progressLogger: {
                 info: (message, data) => logger.info(message, data),
@@ -796,6 +804,17 @@ export async function processIngestionJobQueueMessage(
             durationMs: materializeDuration,
             recordsProcessed: connectorResult.records.length,
           });
+
+          // Batch submission failed and the materializer fell back to synchronous detection
+          // (e.g. the batch deployment's enqueued-token limit). Use small synchronous chunks
+          // for the rest of the job so the time budget keeps applying.
+          if (!hexBatchDegraded && Number(materializationMetrics?.batchFallbacks) > 0) {
+            hexBatchDegraded = true;
+            logger.updateBaseMetrics({ [HEX_BATCH_DEGRADED_METRICS_KEY]: true });
+            logger.warn(
+              `Batch hex detection unavailable; continuing ${payload.request.source} with synchronous chunks of ${INGESTION_SYNC_CHUNK_SIZE}`
+            );
+          }
         } catch (materializeError) {
           const materializeDuration = Date.now() - materializeStartTime;
           logger.error(`${payload.request.source} materialization failed`, {
@@ -854,14 +873,15 @@ export async function processIngestionJobQueueMessage(
       return false;
     };
 
-    // Batch hex detection only submits a batch per call, so a whole page is quick; sync
+    // Batch hex detection only submits a batch per call, so chunks can be larger; sync
     // detection costs an AI call + delay per record, so it runs in small chunks.
     const usesBatchHexDetection =
       hexBatchConfig.enabled &&
       payload.request.source.endsWith("Shopify") &&
       payload.request.materializeToInventory &&
       payload.request.detectHexFromImage;
-    const chunkSize = usesBatchHexDetection ? Number.MAX_SAFE_INTEGER : INGESTION_SYNC_CHUNK_SIZE;
+    const currentChunkSize = (): number =>
+      usesBatchHexDetection && !hexBatchDegraded ? INGESTION_BATCH_CHUNK_SIZE : INGESTION_SYNC_CHUNK_SIZE;
     let chunksThisInvocation = 0;
     let longestChunkMs = 0;
 
@@ -1054,7 +1074,7 @@ export async function processIngestionJobQueueMessage(
           return;
         }
 
-        const chunk = records.slice(offset, offset + chunkSize);
+        const chunk = records.slice(offset, offset + currentChunkSize());
         const chunkEnd = offset + chunk.length;
         const checkpointAfter: IngestionCheckpoint = {
           ...checkpoint,

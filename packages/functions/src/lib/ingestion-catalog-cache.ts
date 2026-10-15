@@ -32,6 +32,10 @@ function asNonEmpty(value: string | undefined): string | null {
   return trimmed && trimmed.length > 0 ? trimmed : null;
 }
 
+function resolveCatalogContainer(): string | null {
+  return asNonEmpty(process.env.CONNECTOR_RAW_CONTAINER) ?? asNonEmpty(process.env.RAW_SNAPSHOT_CONTAINER);
+}
+
 /** Read the snapshot pointer a previous invocation stored on the job row. */
 export function readCatalogSnapshotFromMetrics(
   metrics: Record<string, unknown> | undefined | null
@@ -69,8 +73,14 @@ export function createIngestionCatalogCache(params: {
         return null;
       }
 
+      const containerName = resolveCatalogContainer();
+      if (!containerName) {
+        return null;
+      }
+
       try {
-        const blob = await readBlobFromStorageUrl(snapshot.url);
+        // Snapshots live in the connector raw container, not the default image allowlist.
+        const blob = await readBlobFromStorageUrl(snapshot.url, { allowedContainers: [containerName] });
         const parsed: unknown = JSON.parse((await gunzipAsync(blob.bytes)).toString("utf-8"));
         if (!Array.isArray(parsed)) {
           throw new Error("snapshot is not an array");
@@ -94,9 +104,7 @@ export function createIngestionCatalogCache(params: {
     async save(products) {
       memo = products;
 
-      const containerName =
-        asNonEmpty(process.env.CONNECTOR_RAW_CONTAINER) ??
-        asNonEmpty(process.env.RAW_SNAPSHOT_CONTAINER);
+      const containerName = resolveCatalogContainer();
       const connectionString = asNonEmpty(process.env.AZURE_STORAGE_CONNECTION);
       if (!containerName || !connectionString) {
         return;

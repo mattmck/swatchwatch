@@ -233,8 +233,9 @@ visible progressively instead of waiting for the final job commit.
 
 **Long-running jobs (continuations).** The Function App runs on the Consumption plan, which kills an
 invocation at `functionTimeout` (`host.json`: 10 min; default 5 min). The ingestion worker therefore
-processes each page in chunks (10 records with synchronous hex detection; the rest of the page in batch
-mode) and saves `metrics.checkpoint` (`nextPage`, `recordOffset`, `pagesCompleted`, `recordsProcessed`,
+processes each page in chunks (10 records with synchronous hex detection; up to 50 in batch mode, dropping
+to 10 for the rest of the job once a batch submission fails and falls back to synchronous detection —
+`metrics.hexBatchDegraded`) and saves `metrics.checkpoint` (`nextPage`, `recordOffset`, `pagesCompleted`, `recordsProcessed`,
 `continuationCount`) after every chunk, so a hard kill loses at most one chunk. Once
 `INGESTION_WORKER_TIME_BUDGET_MS` is spent, it persists the checkpoint with pipeline stage
 `continuation_queued`, enqueues a continuation message carrying that checkpoint on `ingestion-jobs`, and
