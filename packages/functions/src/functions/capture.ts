@@ -1033,6 +1033,13 @@ async function getCaptureSession(captureId: string, userId: number): Promise<Cap
   return result.rows[0] ?? null;
 }
 
+class CaptureShadeNotFoundError extends Error {
+  constructor() {
+    super("Shade not found");
+    this.name = "CaptureShadeNotFoundError";
+  }
+}
+
 async function addToInventoryFromMatch(
   client: PoolClient,
   userId: number,
@@ -1076,6 +1083,24 @@ async function addToInventoryFromMatch(
     );
 
     return inserted.rows[0].id;
+  }
+
+  // The entity id can come from the client (candidate_select), so refuse shades the caller
+  // cannot see: another user's private `user_submitted` shade must not be claimable by id.
+  const visible = await client.query(
+    `SELECT 1
+     FROM shade s
+     WHERE s.shade_id = $2
+       AND (
+         s.status <> 'user_submitted'
+         OR s.created_by_user_id = $1
+         OR EXISTS (SELECT 1 FROM user_inventory_item ui WHERE ui.shade_id = s.shade_id AND ui.user_id = $1)
+       )
+     LIMIT 1`,
+    [userId, entityId]
+  );
+  if (visible.rows.length === 0) {
+    throw new CaptureShadeNotFoundError();
   }
 
   const existing = await client.query<{ id: number }>(
@@ -1807,6 +1832,9 @@ async function answerCaptureQuestion(
 
     return { status: 200, jsonBody: response };
   } catch (error: any) {
+    if (error instanceof CaptureShadeNotFoundError) {
+      return { status: 404, jsonBody: { error: "Shade not found" } };
+    }
     context.error("Error answering capture question:", error);
     return { status: 500, jsonBody: { error: "Failed to answer capture question", details: error.message } };
   }

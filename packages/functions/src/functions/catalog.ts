@@ -115,7 +115,8 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
 /**
  * GET /api/catalog/shade/{id}
  *
- * Returns a single shade with brand info and aliases.
+ * Returns a single shade with brand info and aliases. Anonymous and globally cached, so
+ * private `user_submitted` shades are excluded (same 404 as a missing shade).
  */
 async function getShade(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   context.log("GET /api/catalog/shade");
@@ -159,7 +160,8 @@ async function getShade(request: HttpRequest, context: InvocationContext): Promi
          s.status
        FROM shade s
        JOIN brand b ON s.brand_id = b.brand_id
-       WHERE s.shade_id = $1`,
+       WHERE s.shade_id = $1
+         AND s.status <> 'user_submitted'`,
       [shadeId]
     );
 

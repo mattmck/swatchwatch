@@ -1543,6 +1543,8 @@ export async function materializeMakeupApiRecords(
                  ORDER BY min(ord)
                )
              END,
+             -- Catalog data confirms a user-submitted shade: promote it to the shared catalog.
+             status = CASE WHEN status = 'user_submitted' THEN 'active' ELSE status END,
              updated_at = now()
            WHERE shade_id = $1`,
           [shadeId, resolvedColorName, resolvedVendorHex, tagFinishes]
@@ -1791,6 +1793,8 @@ async function materializePreparedHoloTacoRecord(
            ELSE COALESCE(name_hex, $7::text)
          END,
          finishes = $8::text[],
+         -- Catalog data confirms a user-submitted shade: promote it to the shared catalog.
+         status = CASE WHEN status = 'user_submitted' THEN 'active' ELSE status END,
          updated_at = now()
      WHERE shade_id = $1`,
     [
