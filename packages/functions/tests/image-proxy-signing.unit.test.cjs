@@ -140,7 +140,7 @@ describe("lib/image-proxy — signed ids", () => {
   it("round-trips a storage URL through encode/decode", () => {
     process.env.IMAGE_PROXY_SIGNING_KEY = TEST_KEY;
     const id = imageProxy.encodeImageProxyId(BLOB_URL);
-    assert.match(id, /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+    assert.match(id, /^v2\.[A-Za-z0-9_-]+\.[0-9a-z]+\.[A-Za-z0-9_-]+$/);
     assert.equal(imageProxy.decodeImageProxyId(id), BLOB_URL);
   });
 
@@ -159,21 +159,21 @@ describe("lib/image-proxy — signed ids", () => {
 
   it("rejects an id whose URL part was swapped for another blob", () => {
     process.env.IMAGE_PROXY_SIGNING_KEY = TEST_KEY;
-    const [, signature] = imageProxy.encodeImageProxyId(BLOB_URL).split(".");
+    const [version, , exp, signature] = imageProxy.encodeImageProxyId(BLOB_URL).split(".");
     const otherUrl = "https://swatchtest.blob.core.windows.net/source-images/other-user/secret.png";
-    const forged = `${toBase64Url(otherUrl)}.${signature}`;
+    const forged = `${version}.${toBase64Url(otherUrl)}.${exp}.${signature}`;
     assert.throws(() => imageProxy.decodeImageProxyId(forged), imageProxy.ImageProxyTokenError);
   });
 
   it("rejects an id with a tampered signature", () => {
     process.env.IMAGE_PROXY_SIGNING_KEY = TEST_KEY;
-    const [urlPart, signature] = imageProxy.encodeImageProxyId(BLOB_URL).split(".");
+    const [version, urlPart, exp, signature] = imageProxy.encodeImageProxyId(BLOB_URL).split(".");
     assert.throws(
-      () => imageProxy.decodeImageProxyId(`${urlPart}.${flipLastChar(signature)}`),
+      () => imageProxy.decodeImageProxyId(`${version}.${urlPart}.${exp}.${flipLastChar(signature)}`),
       imageProxy.ImageProxyTokenError
     );
     assert.throws(
-      () => imageProxy.decodeImageProxyId(`${urlPart}.${signature.slice(0, 10)}`),
+      () => imageProxy.decodeImageProxyId(`${version}.${urlPart}.${exp}.${signature.slice(0, 10)}`),
       imageProxy.ImageProxyTokenError
     );
   });
@@ -357,10 +357,10 @@ describe("functions/images — signed id enforcement", () => {
   it("returns 403 for a forged id pointing at another blob", async () => {
     process.env.IMAGE_PROXY_SIGNING_KEY = TEST_KEY;
     const calls = mockBlobFetch();
-    const [, signature] = imageProxy.encodeImageProxyId(BLOB_URL).split(".");
-    const forged = `${toBase64Url(
+    const [version, , exp, signature] = imageProxy.encodeImageProxyId(BLOB_URL).split(".");
+    const forged = `${version}.${toBase64Url(
       "https://swatchtest.blob.core.windows.net/source-images/someone-else.png"
-    )}.${signature}`;
+    )}.${exp}.${signature}`;
     const res = await handler()(fakeRequest(forged), fakeContext());
     assert.equal(res.status, 403);
     assert.equal(calls.length, 0);
