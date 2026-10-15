@@ -11,7 +11,9 @@
  * The whole suite is skipped (not failed) when the host is unreachable or not in
  * dev-bypass mode, so it is safe to include in any test run.
  *
- * Override with env vars: E2E_API_BASE, E2E_OWNER_TOKEN, E2E_ATTACKER_TOKEN.
+ * Override with env vars: E2E_API_BASE, E2E_OWNER_TOKEN, E2E_ATTACKER_TOKEN, and E2E_OWNER_ID
+ * (the owner's numeric app_user id; required for the userId-spoofing cases when E2E_OWNER_TOKEN is
+ * not a `dev:<id>` token — without it those cases are skipped rather than spoofing a guessed id).
  *
  * Run: npm run test:e2e --workspace=swatchwatch-functions
  */
@@ -21,6 +23,24 @@ const assert = require("node:assert/strict");
 const BASE = (process.env.E2E_API_BASE || "http://localhost:7071/api").replace(/\/+$/, "");
 const OWNER = { Authorization: `Bearer ${process.env.E2E_OWNER_TOKEN || "dev:1"}` };
 const ATTACKER = { Authorization: `Bearer ${process.env.E2E_ATTACKER_TOKEN || "dev:2"}` };
+/**
+ * Owner's numeric app_user id — the value an attacker tries to spoof in bodies/query params.
+ * Taken from E2E_OWNER_ID, else parsed from a `dev:<id>` token; null for other tokens (e.g. B2C
+ * JWTs), in which case the id-dependent spoofing cases are skipped instead of testing a guess.
+ */
+function resolveOwnerId() {
+  const explicit = process.env.E2E_OWNER_ID?.trim();
+  if (explicit) {
+    const id = Number(explicit);
+    if (!Number.isInteger(id) || id <= 0) throw new Error(`E2E_OWNER_ID must be a positive integer, got "${explicit}"`);
+    return id;
+  }
+  const match = (process.env.E2E_OWNER_TOKEN || "dev:1").match(/^dev:(\d+)$/);
+  return match ? Number(match[1]) : null;
+}
+const OWNER_ID = resolveOwnerId();
+const SKIP_OWNER_ID_SPOOF =
+  OWNER_ID === null ? "set E2E_OWNER_ID to the owner's app_user id to run userId-spoofing cases" : false;
 
 const RUN_ID = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 // Distinct from api.test.cjs's "__TEST__" brand so parallel cleanups never collide.
@@ -242,6 +262,37 @@ test("access control e2e: users cannot access or modify each other's data", asyn
     );
   });
 
+  await t.test("attacker search by the owner's private notes text does not match", async () => {
+    // List search also matches ui.notes / ui.tags — those must only be the caller's own.
+    for (const term of [OWNER_NOTES, OWNER_TAG]) {
+      const res = await api(`/polishes?search=${encodeURIComponent(term)}&pageSize=250`, { headers: ATTACKER });
+      assert.equal(res.status, 200, `attacker search "${term}" → ${res.status}`);
+      assert.ok(
+        !res.body.polishes.some((p) => p.id === shadeId),
+        `searching "${term}" must not surface the owner's polish`
+      );
+      assertNoOwnerData(res.body, `attacker search "${term}"`);
+    }
+
+    const ownerSearch = await api(`/polishes?search=${encodeURIComponent(OWNER_NOTES)}&pageSize=250`, {
+      headers: OWNER,
+    });
+    assert.ok(
+      ownerSearch.body.polishes.some((p) => p.id === shadeId),
+      "positive control: owner can search by their own notes"
+    );
+  });
+
+  await t.test("attacker cannot spoof ownership via userId query params", { skip: SKIP_OWNER_ID_SPOOF }, async () => {
+    const res = await api(
+      `/polishes?search=${encodeURIComponent(SHADE_NAME)}&scope=collection&userId=${OWNER_ID}&user_id=${OWNER_ID}&pageSize=250`,
+      { headers: ATTACKER }
+    );
+    assert.equal(res.status, 200);
+    assert.ok(!res.body.polishes.some((p) => p.id === shadeId), "query userId must be ignored");
+    assertNoOwnerData(res.body, "attacker spoofed-query list");
+  });
+
   // ── Inventory writes ────────────────────────────────────────────────────
   // DELETE runs before PUT: PUT upserts a row into the *attacker's own* inventory, after which an
   // attacker DELETE would legitimately remove that row.
@@ -257,11 +308,47 @@ test("access control e2e: users cannot access or modify each other's data", asyn
     const res = await api(`/polishes/${shadeId}`, {
       method: "PUT",
       headers: ATTACKER,
-      body: { quantity: 0, notes: "pwned", rating: 1, tags: ["pwned"] },
+      // userId/user_id in the body (when the owner id is known) must be ignored in favor of the
+      // authenticated caller.
+      body: {
+        quantity: 0,
+        notes: "pwned",
+        rating: 1,
+        tags: ["pwned"],
+        ...(OWNER_ID !== null ? { userId: OWNER_ID, user_id: OWNER_ID } : {}),
+      },
     });
     assert.ok(res.status < 500, `attacker PUT → ${res.status} ${res.text.slice(0, 200)}`);
     assertNoOwnerData(res.body, "attacker PUT response");
     assertOwnerRowUnchanged(await ownerView(), "after attacker PUT");
+  });
+
+  await t.test("attacker POST with a spoofed userId lands in the attacker's inventory", { skip: SKIP_OWNER_ID_SPOOF }, async () => {
+    const spoofName = `ACL Spoof ${RUN_ID}`;
+    const spoofNotes = `attacker-notes-${RUN_ID}`;
+    const res = await api("/polishes", {
+      method: "POST",
+      headers: ATTACKER,
+      body: { brand: TEST_BRAND, name: spoofName, finish: "creme", quantity: 1, notes: spoofNotes, userId: OWNER_ID, user_id: OWNER_ID },
+    });
+    assert.equal(res.status, 201, `attacker POST → ${res.status} ${res.text.slice(0, 200)}`);
+    const spoofId = res.body.id;
+
+    const asAttacker = await api(`/polishes/${spoofId}`, { headers: ATTACKER });
+    assert.equal(asAttacker.status, 200);
+    assert.equal(asAttacker.body.notes, spoofNotes, "item belongs to the attacker");
+
+    const asOwner = await api(`/polishes/${spoofId}`, { headers: OWNER });
+    assert.ok([200, 404].includes(asOwner.status), `owner GET → ${asOwner.status}`);
+    if (asOwner.status === 200) {
+      assert.ok(asOwner.body.inventoryItemId == null, "spoofed POST must not create an owner inventory row");
+    }
+    const ownerCollection = await api(
+      `/polishes?search=${encodeURIComponent(spoofName)}&scope=collection&pageSize=250`,
+      { headers: OWNER }
+    );
+    assert.ok(!ownerCollection.body.polishes.some((p) => p.id === spoofId), "not in owner's collection");
+    // Cleaned up by deleteTestPolishes(ATTACKER) in t.after.
   });
 
   // ── Capture sessions ────────────────────────────────────────────────────

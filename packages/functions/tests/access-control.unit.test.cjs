@@ -888,6 +888,76 @@ describe("access control — polishes inventory is scoped to the caller", () => 
     assertOwnerInventoryUnchanged();
   });
 
+  function inventoryWriteCalls() {
+    return handlerCalls().filter((c) => isMutation(c.sql) && /user_inventory_item/i.test(c.sql));
+  }
+
+  function assertInventoryWritesBindOnlyCaller(callerId) {
+    const writes = inventoryWriteCalls();
+    assert.ok(writes.length > 0, "expected at least one inventory write (guards against a vacuous pass)");
+    for (const write of writes) {
+      assert.equal(
+        Number(insertedValue(write.sql, write.params, "user_id")),
+        callerId,
+        `inventory write must bind user_id to the caller: ${describeCall(write)}`
+      );
+      assert.ok(
+        !write.params.some((p) => Number(p) === OWNER && callerId !== OWNER),
+        `inventory write bound the owner's id: ${describeCall(write)}`
+      );
+    }
+  }
+
+  it("POST create ignores body userId/user_id spoofing (inventory insert binds the caller)", async () => {
+    const res = await invoke("polishes-create", {
+      method: "POST",
+      userId: ATTACKER,
+      url: "http://localhost:7071/api/polishes",
+      body: { shadeId: String(OWNED_SHADE_ID), quantity: 4, userId: OWNER, user_id: OWNER },
+    });
+    assert.equal(res.status, 201, `unexpected status ${res.status}: ${JSON.stringify(res.jsonBody)}`);
+    assertInventoryWritesBindOnlyCaller(ATTACKER);
+    assertScopedToCaller(ATTACKER);
+    assertOwnerInventoryUnchanged();
+  });
+
+  it("PUT ignores body userId/user_id spoofing (inventory upsert binds the caller)", async () => {
+    const res = await invoke("polishes-mutate", {
+      method: "PUT",
+      userId: ATTACKER,
+      url: detailUrl,
+      params: { id: String(OWNED_SHADE_ID) },
+      body: { quantity: 9, notes: "pwn", userId: OWNER, user_id: OWNER },
+    });
+    assert.equal(res.status, 200, `unexpected status ${res.status}: ${JSON.stringify(res.jsonBody)}`);
+    assertInventoryWritesBindOnlyCaller(ATTACKER);
+    assertScopedToCaller(ATTACKER);
+    assertOwnerInventoryUnchanged();
+    assertNoOwnerDataInBody(res.jsonBody);
+  });
+
+  it("GET list ignores ?userId=/?user_id= query spoofing (query scoped to caller, no owner fields)", async () => {
+    const res = await invoke("polishes-list", {
+      method: "GET",
+      userId: ATTACKER,
+      url: `http://localhost:7071/api/polishes?scope=collection&userId=${OWNER}&user_id=${OWNER}`,
+      params: {},
+    });
+    assert.equal(res.status, 200);
+    assertNoOwnerDataInBody(res.jsonBody);
+    for (const polish of res.jsonBody.polishes) {
+      assert.ok(polish.inventoryItemId == null, "attacker must not see the owner's inventory rows");
+    }
+    const scoped = handlerCalls().filter((c) => /user_inventory_item/i.test(c.sql));
+    assert.ok(scoped.length > 0, "expected the list query to touch user_inventory_item");
+    for (const call of scoped) {
+      assert.ok(userIdPlaceholders(call.sql).length > 0, `missing user_id predicate: ${describeCall(call)}`);
+      assert.ok(!call.params.some((p) => Number(p) === OWNER), `list params carried owner id: ${describeCall(call)}`);
+    }
+    assertScopedToCaller(ATTACKER);
+    assertNoMutations();
+  });
+
   // Shades are a shared catalog: a regular user may backfill missing color data,
   // but must never overwrite a value other users already see. Every shade write
   // from a user route must therefore be fill-only: `col = COALESCE(col, $n)`.
@@ -982,6 +1052,21 @@ describe("access control — capture sessions are scoped to the owner", () => {
     assertScopedToCaller(ATTACKER);
   });
 
+  it("capture-start ignores body userId spoofing (session insert binds the caller)", async () => {
+    const res = await invoke("capture-start", {
+      method: "POST",
+      userId: ATTACKER,
+      url: "http://localhost:7071/api/capture/start",
+      body: { userId: OWNER, user_id: OWNER },
+    });
+    assert.equal(res.status, 201);
+    const inserts = handlerCalls().filter((c) => /INSERT\s+INTO\s+capture_session/i.test(c.sql));
+    assert.equal(inserts.length, 1);
+    assert.equal(Number(insertedValue(inserts[0].sql, inserts[0].params, "user_id")), ATTACKER);
+    assert.ok(!inserts[0].params.some((p) => Number(p) === OWNER), "session insert must not bind the owner's id");
+    assertScopedToCaller(ATTACKER);
+  });
+
   function seedAttackerSession() {
     const attackerUuid = "22222222-2222-4222-8222-222222222222";
     state.captureSessions.set(attackerUuid, {
@@ -1055,9 +1140,11 @@ describe("images signed-id (requires #47)", () => {
     return decodeURIComponent(id);
   }
 
-  async function getImage(id) {
+  async function getImage(id, { userId, headers } = {}) {
     return invoke("images", {
       method: "GET",
+      userId,
+      headers,
       url: `http://localhost:7071/api/images/${encodeURIComponent(id)}`,
       params: { id },
     });
@@ -1109,5 +1196,28 @@ describe("images signed-id (requires #47)", () => {
     const last = legit.slice(-1);
     const tampered = legit.slice(0, -1) + (last === "A" ? "B" : "A");
     assertRejected(await getImage(tampered));
+  });
+
+  // KNOWN GAP (#227): signed ids are bearer capabilities. They are not scoped to an owner and do
+  // not expire, and the route is anonymous, so anyone holding a server-minted id can fetch the
+  // blob with another user's token or with no Authorization header at all.
+  // These assertions PIN TODAY'S BEHAVIOR. When owner-scoped, expiring image URLs land (#227),
+  // flip them to expect a 401/403 (and `blobReads` to stay empty).
+  describe("known gap #227 — signed ids are not owner-scoped or expiring", () => {
+    it("serves the owner's private URL to a request carrying the ATTACKER's token", async () => {
+      const id = mintId(PRIVATE_URL); // minted for the owner's private blob
+      const res = await getImage(id, { userId: ATTACKER });
+      assert.equal(res.status, 200);
+      assert.deepEqual(sideEffects.blobReads, [PRIVATE_URL]);
+      assert.deepEqual(sqlCalls, [], "images handler performs no caller lookup");
+    });
+
+    it("serves the owner's private URL to a request with no Authorization header at all", async () => {
+      const id = mintId(PRIVATE_URL);
+      const res = await getImage(id);
+      assert.equal(res.status, 200);
+      assert.deepEqual(sideEffects.blobReads, [PRIVATE_URL]);
+      assert.deepEqual(sqlCalls, [], "images handler performs no caller lookup");
+    });
   });
 });

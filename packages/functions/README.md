@@ -22,14 +22,21 @@ npm run test:e2e --workspace=packages/functions  # E2E tests against the running
   `tests/access-control.unit.test.cjs` covers cross-user isolation (issue #53): every inventory /
   capture-session query must be bound to the caller's `user_id`, cross-user GET/PUT/DELETE and
   capture status/frame/finalize/answer must not read or mutate the owner's rows, user-scoped routes
-  return 401 without credentials, admin routes return 403 for regular users, and `/api/images/{id}`
-  rejects unsigned/forged/tampered ids (the `images signed-id (requires #47)` block).
+  return 401 without credentials, admin routes return 403 for regular users, `userId`/`user_id` in
+  request bodies or query params is ignored in favor of the authenticated caller, and `/api/images/{id}`
+  rejects unsigned/forged/tampered ids (the `images signed-id (requires #47)` block). A nested
+  `known gap #227` block pins that a valid signed image id is currently served to any caller (ids are
+  not owner-scoped or expiring) — flip it when #227 lands.
 - **E2E** (`npm run test:e2e`): `tests/api.test.cjs` + `tests/access-control.e2e.test.cjs` against
   a live host at `http://localhost:7071/api` started with `AUTH_DEV_BYPASS=true` and migrated dev
   data (seed users `dev:1` and `dev:2`). The access-control suite has user 2 attempt to read/modify
-  user 1's polish and capture session, verifies user 1's data is unchanged, and checks tampered image
-  ids. It skips itself when the host is unreachable. Override with `E2E_API_BASE`,
-  `E2E_OWNER_TOKEN`, `E2E_ATTACKER_TOKEN`.
+  user 1's polish and capture session (including spoofed `userId` bodies/query params and searching by
+  user 1's private notes/tags), verifies user 1's data is unchanged, and checks tampered image ids. It
+  skips itself when the host is unreachable. Override with `E2E_API_BASE` (honored by both files),
+  `E2E_OWNER_TOKEN`, `E2E_ATTACKER_TOKEN`, and `E2E_OWNER_ID` (the owner's `app_user` id; needed for the
+  `userId`-spoofing cases when the owner token isn't `dev:<id>`, otherwise those cases skip). Note that `GET /polishes/{id}` and the default list are
+  catalog views joined to the caller's own inventory, so cross-user isolation means "no other user's
+  inventory fields", not a 404; `scope=collection` restricts the list to owned items.
 
 Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools@4`).
 
@@ -98,6 +105,9 @@ For private blob storage, the API rewrites blob URLs to `/api/images/{id}` so im
 
 Access control (issue #47):
 - Every user-data route (`/api/polishes*`, `/api/capture/*`, `/api/voice`) is wrapped in `withAuth`, and every query is scoped to the caller's `user_id` (inventory upserts/deletes key on `(user_id, shade_id)`; capture sessions are looked up by `capture_uuid` **and** `user_id`, and questions/answers/frames hang off that session). Admin/ops routes (`/api/ingestion/*`, `/api/reference-admin/*`, `/api/users-admin*`, `/api/polishes/{id}/recalc-hex`) use `withAdmin`. Only `/api/auth/*`, `/api/catalog/*`, `/api/reference/*`, and `/api/images/{id}` are anonymous, and none of them return per-user data.
+- Shared catalog shades are never rewritten by regular users: color fields and `finishes` are **fill-only** (a user request may only fill NULL colors / an empty `shade.finishes`, never replace, clear or append to existing values), and `shade.finish` (the dedup key) is never changed. The one exception is a user's own `user_submitted` shade, whose finishes they may edit freely.
+- Shades created through `POST/PUT /api/polishes` start as `status = 'user_submitted'` with `created_by_user_id` (migration 024) and are private until an admin promotes them (sets `status = 'active'`; no approval endpoint yet). A `user_submitted` shade is visible only to its creator and to users holding it in their inventory: it is excluded from other users' polish list/count/detail (`GET /api/polishes*`), `polishes/match-image`, `GET /api/catalog/shade/{id}` (404) and catalog search/capture matching (`status = 'active'` only). Adopting such a shade by id (`POST shadeId`, `PUT /polishes/{id}`, capture `candidate_select`) returns 404. A brand + name that only matches another user's private shade creates the caller's own row (idx_shade_unique includes the NULL `product_line_id`, so it does not block this). Ingestion promotes a matching `user_submitted` shade to `active`. New brand rows are still created immediately.
+- Account linking: a new external identity links to an existing `app_user` by email only when the token proves the email is verified (`email_verified` true or Entra `xms_edov` true). Otherwise a separate user is created with no stored email and `auth.email_link_skipped` is tracked. Identities already linked (by `external_id`) are unaffected.
 - Shades are a shared catalog. Color fields (`color`, `vendorHex`, `detectedHex`, `nameHex`) sent to `POST`/`PUT /api/polishes` only **backfill NULL** shade columns (`COALESCE(column, $new)`); a regular user can never overwrite catalog color data other users see. Corrections to existing values go through admin tooling (e.g. `recalc-hex`).
 - `POST /api/capture/{captureId}/frame` with an `imageId` only accepts image assets owned by the caller (`image_asset.owner_type='user' AND owner_id=<caller>`); anything else returns `404`.
 - `GET /api/images/{id}` is anonymous because ids are embedded in `<img src>` (no `Authorization` header). The id is therefore an expiring signed capability: `v2.<base64url(storageUrl)>.<exp base36>.<base64url(HMAC-SHA256(IMAGE_PROXY_SIGNING_KEY, "swatchwatch:image-proxy:v2:" + exp + ":" + storageUrl))>`, minted only by the API (`src/lib/image-proxy.ts`). The expiry is covered by the HMAC; ids stay valid for at least `IMAGE_PROXY_ID_TTL_SECONDS` (default 3 days, well past the 24h Azure OpenAI batch window) and are bucketed to day boundaries so the same image keeps a stable, cacheable URL. Unsigned, forged, tampered, or expired ids return `403 {"error":"Forbidden"}` without touching storage. Legacy non-expiring v1 ids are never minted and are rejected unless `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL` is set to a future timestamp (rollout grace window; each acceptance emits `image_proxy.legacy_id_accepted`). The decoded URL must also be a plain blob URL (no query string/credentials) on the configured storage account inside the source-image container (`SOURCE_IMAGE_CONTAINER`), otherwise `403`. Ids are deterministic per URL+key+expiry bucket, so rotating `IMAGE_PROXY_SIGNING_KEY` invalidates previously issued image URLs (clients pick up new ones on the next API read; Redis-cached polish responses expire within ~90s).

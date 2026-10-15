@@ -55,12 +55,34 @@ function primaryFinishForRequest(
   return body.finish || finishUpdate?.values[0] || undefined;
 }
 
+/**
+ * Apply a requested finish change to a shade.
+ *
+ * Shades are shared catalog rows, so (mirroring the color rule) user input may only FILL an
+ * EMPTY `shade.finishes`; it never replaces, removes or appends to a non-empty array.
+ * The only exception is the caller's own `user_submitted` shade (`ownSubmitted`), which is
+ * private to them until approved and can be edited freely. `shade.finish` (the legacy single
+ * field and part of the dedup key) is never written here.
+ */
 async function applyShadeFinishUpdate(
   client: PoolClient,
   shadeId: number,
-  finishUpdate: ShadeFinishUpdate | undefined
+  finishUpdate: ShadeFinishUpdate | undefined,
+  ownSubmitted: boolean
 ): Promise<void> {
   if (!finishUpdate) return;
+
+  if (!ownSubmitted) {
+    if (finishUpdate.values.length === 0) return;
+    // Fill-only: the guard is part of the statement so a concurrent write cannot be clobbered.
+    await client.query(
+      `UPDATE shade SET finishes = $2::text[], updated_at = now()
+       WHERE shade_id = $1 AND cardinality(COALESCE(finishes, ARRAY[]::text[])) = 0`,
+      [shadeId, finishUpdate.values]
+    );
+    return;
+  }
+
   if (finishUpdate.mode === "replace") {
     await client.query(
       `UPDATE shade SET finishes = $2::text[], updated_at = now() WHERE shade_id = $1`,
@@ -82,6 +104,38 @@ async function applyShadeFinishUpdate(
      WHERE shade_id = $1`,
     [shadeId, finishUpdate.values]
   );
+}
+
+/**
+ * Visibility of a shade to a user (alias `s` = shade, `ui` = the caller's inventory join,
+ * `$1` = caller id as in POLISH_SELECT). Shades created through the user API start as
+ * `user_submitted` and stay private to their creator (and anyone holding them in inventory)
+ * until an admin promotes them to `active`.
+ */
+const POLISH_VISIBLE_SQL = `(s.status <> 'user_submitted' OR s.created_by_user_id = $1 OR ui.inventory_item_id IS NOT NULL)`;
+
+/**
+ * Look up a shade by id if the caller may see it. Returns null when it is missing or another
+ * user's private `user_submitted` shade (callers answer 404 for both, so existence never leaks).
+ */
+async function getVisibleShade(
+  shadeId: number,
+  userId: number
+): Promise<{ ownSubmitted: boolean } | null> {
+  const result = await query<{ ownSubmitted: boolean }>(
+    `SELECT (s.status = 'user_submitted' AND s.created_by_user_id = $2) AS "ownSubmitted"
+     FROM shade s
+     WHERE s.shade_id = $1
+       AND (
+         s.status <> 'user_submitted'
+         OR s.created_by_user_id = $2
+         OR EXISTS (SELECT 1 FROM user_inventory_item ui WHERE ui.shade_id = s.shade_id AND ui.user_id = $2)
+       )
+     LIMIT 1`,
+    [shadeId, userId]
+  );
+  if (result.rows.length === 0) return null;
+  return { ownSubmitted: Boolean(result.rows[0].ownSubmitted) };
 }
 
 /**
@@ -134,6 +188,7 @@ const POLISH_SELECT = `
  */
 async function findOrCreateShade(
   client: PoolClient,
+  userId: number,
   brandName: string,
   shadeName: string,
   finish?: string,
@@ -152,18 +207,31 @@ async function findOrCreateShade(
   );
   const brandId = brandResult.rows[0].brand_id;
 
-  // Find existing shade (match on brand + name + finish, with NULL-safe finish comparison)
-  const existingShade = await client.query<{ shade_id: number }>(
-    `SELECT shade_id FROM shade
-     WHERE brand_id = $1
-       AND shade_name_canonical = $2
-       AND product_line_id IS NULL
-       AND COALESCE(finish, '') = COALESCE($3, '')`,
-    [brandId, shadeName, normalizeFinish(finish)]
+  // Find an existing shade the caller can see (match on brand + name + finish, with NULL-safe
+  // finish comparison). Another user's private `user_submitted` shade is never matched: the
+  // caller must not be linked to (or learn about) it. idx_shade_unique includes product_line_id
+  // (NULL here, and NULLs are distinct in a unique index), so the caller can still get their own
+  // row with the same brand + name + finish. Catalog rows are preferred over private ones.
+  const existingShade = await client.query<{ shade_id: number; own_submitted: boolean }>(
+    `SELECT s.shade_id, (s.status = 'user_submitted' AND s.created_by_user_id = $4) AS own_submitted
+     FROM shade s
+     WHERE s.brand_id = $1
+       AND s.shade_name_canonical = $2
+       AND s.product_line_id IS NULL
+       AND COALESCE(s.finish, '') = COALESCE($3, '')
+       AND (
+         s.status <> 'user_submitted'
+         OR s.created_by_user_id = $4
+         OR EXISTS (SELECT 1 FROM user_inventory_item ui WHERE ui.shade_id = s.shade_id AND ui.user_id = $4)
+       )
+     ORDER BY (s.status = 'user_submitted') ASC, s.shade_id ASC
+     LIMIT 1`,
+    [brandId, shadeName, normalizeFinish(finish), userId]
   );
 
   if (existingShade.rows.length > 0) {
     const shadeId = existingShade.rows[0].shade_id;
+    const ownSubmitted = Boolean(existingShade.rows[0].own_submitted);
     // Backfill color data if provided. Shades are shared catalog rows, so user input
     // only fills NULL columns — it never overwrites values other users already see.
     if (colorData) {
@@ -178,17 +246,18 @@ async function findOrCreateShade(
         [shadeId, colorData.colorName || null, colorData.vendorHex || null, colorData.detectedHex || null, colorData.nameHex || null]
       );
     }
-    await applyShadeFinishUpdate(client, shadeId, finishUpdate);
+    await applyShadeFinishUpdate(client, shadeId, finishUpdate, ownSubmitted);
     return shadeId;
   }
 
-  // Create new shade with color data
+  // Create a new shade owned by the caller. It stays private ('user_submitted') until an admin
+  // promotes it to 'active'.
   const newShade = await client.query<{ shade_id: number }>(
-    `INSERT INTO shade (brand_id, shade_name_canonical, finish, collection, status, color_name, vendor_hex, detected_hex, name_hex, finishes)
-     VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, $8, $9::text[])
+    `INSERT INTO shade (brand_id, shade_name_canonical, finish, collection, status, created_by_user_id, color_name, vendor_hex, detected_hex, name_hex, finishes)
+     VALUES ($1, $2, $3, $4, 'user_submitted', $5, $6, $7, $8, $9, $10::text[])
      RETURNING shade_id`,
     [
-      brandId, shadeName, normalizeFinish(finish), collection || null,
+      brandId, shadeName, normalizeFinish(finish), collection || null, userId,
       colorData?.colorName || null, colorData?.vendorHex || null,
       colorData?.detectedHex || null, colorData?.nameHex || null,
       finishUpdate?.values ?? [],
@@ -396,7 +465,8 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
 
       const result = await query<Polish>(
         `${POLISH_SELECT}
-         WHERE s.shade_id = $2`,
+         WHERE s.shade_id = $2
+           AND ${POLISH_VISIBLE_SQL}`,
         [userId, shadeId]
       );
 
@@ -486,7 +556,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       };
     }
 
-    const conditions: string[] = [];
+    const conditions: string[] = [POLISH_VISIBLE_SQL];
     const params: Array<number | string | string[]> = [userId];
     let paramIndex = 2;
 
@@ -607,12 +677,11 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       return { status: 400, jsonBody: { error: "Invalid shadeId" } };
     }
 
+    // Adopting by id: another user's private user_submitted shade is indistinguishable from a missing one.
+    let adoptedShade: { ownSubmitted: boolean } | null = null;
     if (adoptingExistingShade) {
-      const exists = await query(
-        `SELECT 1 FROM shade WHERE shade_id = $1 LIMIT 1`,
-        [shadeIdFromBody]
-      );
-      if (exists.rows.length === 0) {
+      adoptedShade = await getVisibleShade(shadeIdFromBody!, userId);
+      if (!adoptedShade) {
         return { status: 404, jsonBody: { error: "Shade not found" } };
       }
     }
@@ -626,6 +695,7 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
         shadeIdFromBody ??
         (await findOrCreateShade(
           client,
+          userId,
           body.brand!,
           body.name!,
           primaryFinishForRequest(body, finishUpdate),
@@ -635,7 +705,7 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
         ));
 
       if (adoptingExistingShade) {
-        await applyShadeFinishUpdate(client, resolvedShadeId, finishUpdate);
+        await applyShadeFinishUpdate(client, resolvedShadeId, finishUpdate, adoptedShade!.ownSubmitted);
       }
 
       if (adoptingExistingShade && (body.color || body.vendorHex || body.detectedHex || body.nameHex)) {
@@ -733,12 +803,22 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
       ? resolveRequestedFinishes(body, await loadFinishCatalog())
       : undefined;
 
+    // Updating by id (no brand + name): the target must be visible to the caller.
+    let targetShade: { ownSubmitted: boolean } | null = null;
+    if (!(body.brand && body.name)) {
+      targetShade = await getVisibleShade(shadeId, userId);
+      if (!targetShade) {
+        return { status: 404, jsonBody: { error: "Polish not found" } };
+      }
+    }
+
     const updatedShadeId = await transaction(async (client) => {
       let targetShadeId = shadeId;
 
       if (body.brand && body.name) {
         targetShadeId = await findOrCreateShade(
           client,
+          userId,
           body.brand,
           body.name,
           primaryFinishForRequest(body, finishUpdate),
@@ -747,7 +827,7 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
           finishUpdate
         );
       } else {
-        await applyShadeFinishUpdate(client, targetShadeId, finishUpdate);
+        await applyShadeFinishUpdate(client, targetShadeId, finishUpdate, targetShade!.ownSubmitted);
       }
 
       if (!(body.brand && body.name) && (body.color || body.vendorHex || body.detectedHex || body.nameHex)) {
@@ -1062,7 +1142,8 @@ async function matchImage(
     const result = await query<Polish>(
       `${POLISH_SELECT}
        WHERE ui.inventory_item_id IS NOT NULL
-         AND COALESCE(ui.quantity, 0) > 0`,
+         AND COALESCE(ui.quantity, 0) > 0
+         AND ${POLISH_VISIBLE_SQL}`,
       [userId]
     );
 
