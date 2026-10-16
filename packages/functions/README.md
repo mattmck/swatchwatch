@@ -245,6 +245,20 @@ the Functions image proxy route (`/api/images/{id}`) when storage is configured.
 The proxy origin is resolved from `INGESTION_AI_IMAGE_PROXY_ORIGIN` or falls back to
 `https://$WEBSITE_HOSTNAME` in Azure.
 Batch deployment resolution order is `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` → `AZURE_OPENAI_DEPLOYMENT_HEX` → `AZURE_OPENAI_DEPLOYMENT`.
+**Which image AI detection sees.** Both Shopify connectors (`shopify-generic.ts`, `holo-taco-shopify.ts`)
+store `normalized.images` — `{ url, alt, position }` per Shopify image (via `connectors/shopify-images.ts`)
+— next to the unchanged `imageUrls` / `primaryImageUrl`. Before AI detection, `prepareHoloTacoImageData`
+ranks the images with `rankImagesForColorDetection` (`src/lib/image-selection.ts`): alt-text keywords score
+high (`swatch`, `nail(s)`, `hand`, `macro`, `close-up`, `finger`) or low (`bottle`, `cap`, `box`,
+`packaging`, `collection`, `set`, `lifestyle`); URL/filename words are a weak signal (`hand2`, `macro2`,
+`BottleHeroes`, camelCase split). Detection uses the top-ranked image only when its **alt text** is a
+confident on-nail signal and that image was uploaded; otherwise it uses the primary image as before.
+Each decision is logged to the job's progress log as `[image-selection] …` with the chosen URL, the
+primary URL and the reason. Blob uploads are unchanged (primary + additional images). Records ingested
+before `images` existed fall back to `imageUrls` with no alt text. As of 2026-10-16 neither Holo Taco nor
+Mooncat sets image alt text, so production still uses the primary image for them; filename hints are
+measured by the `image-select` eval strategy before production trusts them.
+
 When `AZURE_STORAGE_CONNECTION` isn't configured (for example in a fresh local checkout), the connector
 falls back to storing the original Shopify `image.src` URL so images still appear in the app while
 you bring storage online.
@@ -311,6 +325,7 @@ the shade write path.
 npm run eval:hex --workspace=swatchwatch-functions -- --strategy pixel            # offline pixel baseline
 npm run eval:hex --workspace=swatchwatch-functions -- --strategy azure-current,azure-blind --verbose
 npm run eval:hex --workspace=swatchwatch-functions -- --strategy all --fixture eval/hex/fixtures/color-training-sample.json
+npm run eval:hex --workspace=swatchwatch-functions -- --strategy image-select,azure-blind --fixture eval/hex/fixtures/sample-with-images.json
 npm run eval:hex --workspace=swatchwatch-functions -- --list-strategies
 npm run eval:hex:populate --workspace=swatchwatch-functions -- --dry-run         # DB → color_training_sample → fixture
 ```
@@ -326,6 +341,8 @@ overriding variables already set), so the same Postgres / Azure OpenAI config th
 | `azure-current` | `detectHexWithAzureOpenAI` exactly as ingestion calls it: image + vendor context (shade name, description, tags, and the vendor hex only when the ground truth *is* a vendor option). | yes |
 | `azure-blind` | The same call with `vendorContext` removed — what the model gets from the image alone. | yes |
 | `pixel` | Top dominant color from `extractDominantColors` over the whole image. A deliberately naive baseline (product shots mostly return the background). | no |
+| `image-select` | Ranks the case's `images` with the production `rankImagesForColorDetection`, then runs `azure-blind` detection on the top image (any positive score, so filename hints count; `meta.chosenImage.confident` says whether alt text backed it). Cases without `images`, or with no positive signal, use the case image. `meta` records the chosen image, the reason and the full ranking. (`src/eval/hex/strategies/image-select.ts`) | yes |
+| `image-select-ai` | `image-select`, plus one low-detail vision call that asks which photo (up to 8) shows painted nails when no image has alt text; `meta.swatchPick` records the answer. Compare with `image-select` to price the extra call. | yes |
 
 When Azure OpenAI is not configured (`AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_KEY` + `AZURE_OPENAI_DEPLOYMENT_HEX`/`AZURE_OPENAI_DEPLOYMENT`,
 or the APIM gateway equivalents), Azure strategies print `Skipping strategy …` and the run still exits 0.
@@ -366,6 +383,11 @@ table) and written as JSON to `eval/hex/results/<strategy>-<timestamp>.json` plu
 ```
 
 - `imageUrl` (http/https) **or** `imagePath` (relative to the fixture file, no `..`) — exactly one.
+  This is the primary image every single-image strategy sees (`input.image`).
+- `images` (optional): `[{ "url": "https://…", "alt": "optional", "position": 1 }]`, every product image.
+  Strategies receive it as `input.images`, lazy loaders (`{ index, url, alt, position, load() }`) that
+  download through the same cache only when called; it is absent when the case has no `images`, so
+  existing strategies and fixtures are unaffected.
 - `groundTruthSource` is one of `vendor_option` (hex published by the vendor), `swatch_measured`
   (measured from the vendor's own painted-nail photo), `manual`, `ai_detected` (approved AI output).
 - `finishes[0]` is the "primary finish" used for the per-finish breakdown (`unknown` when empty).
@@ -374,13 +396,18 @@ table) and written as JSON to `eval/hex/results/<strategy>-<timestamp>.json` plu
 metallics). Its image is the first Shopify product image (what ingestion sends to the model) and its
 ground truth was measured from a *different* vendor photo of painted nails (each case's `notes` says
 which). It is a curated sample for exercising the runner, not vendor-published hex data.
+`eval/hex/fixtures/sample-with-images.json` is the same 18 cases plus each product's full Shopify image
+list (captured 2026-10-16; no alt text on either store). Note that each case's ground-truth photo is one of
+those images, so an image-selection strategy that finds it is partly being graded on its own input.
 
 **Populating from ingested data** (`src/eval/hex/populate.ts`, migration `025`): reads shades whose
 `vendor_hex` is set and not a known placeholder (`src/lib/suspicious-hex.ts`), matches each to its
 latest `external_product` row (same brand + shade name) for the public product image, upserts one
 `color_training_sample` row per external product (`source_type = 'vendor_option'`,
 `training_status = 'pending'`; re-runs refresh instead of duplicating), and exports rows with status
-`pending`/`approved` to `eval/hex/fixtures/color-training-sample.json` (gitignored — copy it to a named
+`pending`/`approved` to `eval/hex/fixtures/color-training-sample.json`
+(image rows keep `alt`/`position` from `normalized_json.images` when the connector stored them, and
+multi-image samples export an `images` list) (gitignored — copy it to a named
 fixture to check one in). Curate by setting `training_status` to `approved`/`rejected`, then export
 again with `--export-only --status approved`. Options: `--source <names>`, `--limit <n>`,
 `--status <list>`, `--out <path>`, `--export-only`, `--dry-run`. Note that in the current dev data most

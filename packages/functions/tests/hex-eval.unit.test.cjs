@@ -211,7 +211,7 @@ describe("eval/hex report formatting", () => {
 
 describe("eval/hex strategies", () => {
   it("registers the three day-one strategies", () => {
-    assert.deepEqual(STRATEGIES.map((s) => s.name), ["azure-current", "azure-blind", "pixel"]);
+    assert.deepEqual(STRATEGIES.map((s) => s.name).slice(0, 3), ["azure-current", "azure-blind", "pixel"]);
     assert.equal(getStrategy("PIXEL"), pixelStrategy);
     assert.equal(getStrategy("nope"), null);
     assert.equal(getStrategy("azure-current").requiresAzureOpenAI, true);
@@ -279,7 +279,7 @@ describe("eval/hex cli", () => {
     assert.equal(args.cacheDir, null);
     assert.equal(args.verbose, true);
     assert.equal(args.only, "mooncat");
-    assert.deepEqual(parseArgs(["--strategy", "all"]).strategies, ["azure-current", "azure-blind", "pixel"]);
+    assert.deepEqual(parseArgs(["--strategy", "all"]).strategies, STRATEGIES.map((s) => s.name));
     assert.throws(() => parseArgs(["--limit", "0"]), /--limit/);
     assert.throws(() => parseArgs(["--bogus"]), /Unknown argument/);
   });

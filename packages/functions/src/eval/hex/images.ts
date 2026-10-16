@@ -2,7 +2,7 @@ import { createHash } from "crypto";
 import { promises as fs } from "fs";
 import path from "path";
 import sharp from "sharp";
-import type { CaseImage, EvalCase } from "./types";
+import type { CaseImage, EvalCase, StrategyCaseImage } from "./types";
 
 const FETCH_TIMEOUT_MS = 30000;
 
@@ -67,6 +67,44 @@ async function fetchBytes(url: string, fetchImpl: typeof fetch): Promise<Buffer>
   }
 }
 
+async function loadUrl(url: string, options: LoadCaseImageOptions): Promise<Buffer> {
+  const cached = await readCached(options.cacheDir, url);
+  if (cached) return cached;
+  const bytes = await fetchBytes(url, options.fetchImpl ?? fetch);
+  await writeCached(options.cacheDir, url, bytes);
+  return bytes;
+}
+
+async function toCaseImage(bytes: Buffer, sourceUrl: string | null): Promise<CaseImage> {
+  const contentType = await detectContentType(bytes);
+  return {
+    bytes,
+    contentType,
+    dataUri: `data:${contentType};base64,${bytes.toString("base64")}`,
+    sourceUrl,
+  };
+}
+
+/**
+ * Lazy loaders for a case's `images` list (empty when the case has none).
+ * Nothing is fetched until a strategy calls `load()`; each loader memoizes.
+ */
+export function buildStrategyCaseImages(evalCase: EvalCase, options: LoadCaseImageOptions): StrategyCaseImage[] {
+  return (evalCase.images ?? []).map((ref, index) => {
+    let pending: Promise<CaseImage> | null = null;
+    return {
+      index,
+      url: ref.url,
+      alt: ref.alt ?? null,
+      position: ref.position ?? null,
+      load: () => {
+        pending ??= loadUrl(ref.url, options).then((bytes) => toCaseImage(bytes, ref.url));
+        return pending;
+      },
+    };
+  });
+}
+
 /** Resolve a case's image to bytes (local file or cached/downloaded URL). */
 export async function loadCaseImage(evalCase: EvalCase, options: LoadCaseImageOptions): Promise<CaseImage> {
   let bytes: Buffer;
@@ -81,22 +119,10 @@ export async function loadCaseImage(evalCase: EvalCase, options: LoadCaseImageOp
     bytes = await fs.readFile(resolved);
   } else if (evalCase.imageUrl) {
     sourceUrl = evalCase.imageUrl;
-    const cached = await readCached(options.cacheDir, sourceUrl);
-    if (cached) {
-      bytes = cached;
-    } else {
-      bytes = await fetchBytes(sourceUrl, options.fetchImpl ?? fetch);
-      await writeCached(options.cacheDir, sourceUrl, bytes);
-    }
+    bytes = await loadUrl(sourceUrl, options);
   } else {
     throw new Error(`Case ${evalCase.id} has neither imageUrl nor imagePath`);
   }
 
-  const contentType = await detectContentType(bytes);
-  return {
-    bytes,
-    contentType,
-    dataUri: `data:${contentType};base64,${bytes.toString("base64")}`,
-    sourceUrl,
-  };
+  return toCaseImage(bytes, sourceUrl);
 }
