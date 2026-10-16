@@ -343,9 +343,33 @@ overriding variables already set), so the same Postgres / Azure OpenAI config th
 | `azure-current` | `detectHexWithAzureOpenAI` exactly as ingestion calls it: image + vendor context (shade name, description, tags, and the vendor hex only when the ground truth *is* a vendor option). | yes |
 | `azure-blind` | The same call with `vendorContext` removed — what the model gets from the image alone. | yes |
 | `pixel` | Top dominant color from `extractDominantColors` over the whole image. A deliberately naive baseline (product shots mostly return the background). | no |
+| `palette-pick` | Pixels measure, the model chooses: 8–12 perceptually distinct candidate colors are extracted from the image, drawn as labeled chips (A, B, C, …) beside the photo in one composite, and the model is asked which chip is the base lacquer. The answer is the chosen chip's *measured* hex, so the model can never answer in CSS named colors. | yes |
 
 When Azure OpenAI is not configured (`AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_KEY` + `AZURE_OPENAI_DEPLOYMENT_HEX`/`AZURE_OPENAI_DEPLOYMENT`,
 or the APIM gateway equivalents), Azure strategies print `Skipping strategy …` and the run still exits 0.
+
+**Palette pick** (`src/lib/palette-pick-detection.ts`, strategy file `src/eval/hex/strategies/palette-pick.ts`)
+is a reusable library piece, not just an eval strategy, so ingestion can adopt it later; today nothing in the
+production write path calls it. `detectHexByPalettePick(imageBytes, options)` runs the whole pipeline:
+
+1. `extractPaletteCandidates` — `extractDominantColors` (96 px sample, 4-bit quantization, 48 raw buckets)
+   merged with `mergeSimilarColors` in OKLAB. The merge distance is loosened→tightened (`0.04`, `0.025`,
+   `0.015`) until at least 8 candidates survive, capped at 12; each gets a letter label in prominence order.
+2. `renderPaletteComposite` — sharp draws the photo (longest edge ≤ 512 px) at the left and a strip of solid
+   chips at the right (one column up to 6 chips, two columns row-major above that; chips sized to fit the photo
+   height, 56–128 px, with a big contrasting letter). `computeCompositeLayout` is the pure geometry.
+3. `requestAzureOpenAIChatCompletion` (the lower-level helper in `ai-color-detection.ts` that the production
+   detector also uses: config resolution, timeout/retry on 429/5xx, one content-filter retry with a safe
+   prompt) sends the composite with a prompt that asks for `{"choice":"B","confidence":0..1,"finishes":[...]}`
+   — ignore cap, brush, packaging, background, glitter; pick the underlying base for effect finishes. The chip
+   hexes are *not* in the prompt.
+4. `parsePaletteChoice` maps the letter back to its chip (tolerating `"b"`, `"chip B"`, `2`); an unknown or
+   missing letter yields `hex: null` with a `reason` rather than a guessed color.
+
+The eval strategy records `candidates`, `choice`, `composite` (width/height/chip size/grid) and token `usage`
+in each case's `meta`, plus `rawContent` when no hex was produced. Vision detail follows
+`AZURE_OPENAI_VISION_DETAIL` (default `low`, i.e. a single 512 px view — the chips are sized to stay legible
+at that scale). Token-usage metrics are emitted under `hex_detection.palette_pick.*`.
 
 **Scoring** (`src/eval/hex/scoring.ts`): each case's predicted hex is compared with its ground truth by
 OKLAB Euclidean distance (`hexToOklab` / `oklabDistance` from `swatchwatch-shared`, the same math as

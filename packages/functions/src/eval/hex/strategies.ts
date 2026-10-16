@@ -1,6 +1,7 @@
 import { detectHexWithAzureOpenAI, type HexDetectionOptions } from "../../lib/ai-color-detection";
 import { resolveAzureOpenAiConfig } from "../../lib/azure-openai-config";
 import { extractDominantColors } from "../../lib/dominant-color";
+import { palettePickStrategy } from "./strategies/palette-pick";
 import type { HexDetectionStrategy, StrategyInput, StrategyOutput } from "./types";
 
 /**
@@ -80,6 +81,7 @@ export const STRATEGIES: readonly HexDetectionStrategy[] = [
   azureCurrentStrategy,
   azureBlindStrategy,
   pixelStrategy,
+  palettePickStrategy,
 ];
 
 export function getStrategy(name: string): HexDetectionStrategy | null {
