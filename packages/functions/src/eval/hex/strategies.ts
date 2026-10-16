@@ -2,6 +2,7 @@ import { detectHexWithAzureOpenAI, type HexDetectionOptions } from "../../lib/ai
 import { resolveAzureOpenAiConfig } from "../../lib/azure-openai-config";
 import { extractDominantColors } from "../../lib/dominant-color";
 import type { HexDetectionStrategy, StrategyInput, StrategyOutput } from "./types";
+import { ensembleStrategy } from "./strategies/ensemble";
 
 /**
  * Detection strategies under evaluation. Adding one is a single entry here: a
@@ -80,6 +81,7 @@ export const STRATEGIES: readonly HexDetectionStrategy[] = [
   azureCurrentStrategy,
   azureBlindStrategy,
   pixelStrategy,
+  ensembleStrategy,
 ];
 
 export function getStrategy(name: string): HexDetectionStrategy | null {
