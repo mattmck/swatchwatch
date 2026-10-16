@@ -84,9 +84,12 @@ function toBase64Url(value) {
     .replace(/=+$/g, "");
 }
 
-function flipLastChar(value) {
-  const last = value[value.length - 1];
-  return value.slice(0, -1) + (last === "A" ? "B" : "A");
+// Flips a bit in the first decoded byte. Editing the last base64url character is not enough:
+// for a 32-byte HMAC its low bits are padding, so some edits decode to the same signature.
+function tamperSignature(signature) {
+  const bytes = Buffer.from(signature, "base64url");
+  bytes[0] ^= 0x01;
+  return bytes.toString("base64url");
 }
 
 function fakeRequest(id, url) {
@@ -169,7 +172,7 @@ describe("lib/image-proxy — signed ids", () => {
     process.env.IMAGE_PROXY_SIGNING_KEY = TEST_KEY;
     const [version, urlPart, exp, signature] = imageProxy.encodeImageProxyId(BLOB_URL).split(".");
     assert.throws(
-      () => imageProxy.decodeImageProxyId(`${version}.${urlPart}.${exp}.${flipLastChar(signature)}`),
+      () => imageProxy.decodeImageProxyId(`${version}.${urlPart}.${exp}.${tamperSignature(signature)}`),
       imageProxy.ImageProxyTokenError
     );
     assert.throws(
