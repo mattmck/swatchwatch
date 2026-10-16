@@ -38,6 +38,11 @@ npm run test:e2e --workspace=packages/functions  # E2E tests against the running
   catalog views joined to the caller's own inventory, so cross-user isolation means "no other user's
   inventory fields", not a 404; `scope=collection` restricts the list to owned items.
 
+- **Hex-detection eval** (`npm run eval:hex -- --strategy <name>`): not a test — a ground-truth
+  harness that scores detection strategies against a fixture (see
+  [Hex detection evaluation harness](#hex-detection-evaluation-harness)). The pixel baseline runs
+  offline; Azure strategies are skipped when Azure OpenAI is not configured.
+
 Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools@4`).
 
 ## API Routes
@@ -311,6 +316,94 @@ Example request:
 Use `GET /api/ingestion/jobs` and `GET /api/ingestion/jobs/{id}` to inspect queued/running/completed status and metrics.
 If a queue message is malformed but includes a valid `jobId`, the worker marks that ingestion job as `failed` with validation details in `error` and `metrics.pipeline`.
 
+## Hex detection evaluation harness
+
+`src/eval/hex/` measures how well vendor-image hex detection recovers a shade's true color, so
+prompt and pipeline changes (palette-pick, region crops, image selection, blind prompts) can be
+compared with numbers instead of by eye. Nothing in it touches the production detection prompt or
+the shade write path.
+
+```bash
+# From repo root
+npm run eval:hex --workspace=swatchwatch-functions -- --strategy pixel            # offline pixel baseline
+npm run eval:hex --workspace=swatchwatch-functions -- --strategy azure-current,azure-blind --verbose
+npm run eval:hex --workspace=swatchwatch-functions -- --strategy all --fixture eval/hex/fixtures/color-training-sample.json
+npm run eval:hex --workspace=swatchwatch-functions -- --list-strategies
+npm run eval:hex:populate --workspace=swatchwatch-functions -- --dry-run         # DB → color_training_sample → fixture
+```
+
+Both scripts build `swatchwatch-shared` and this package first, then run `dist/eval/hex/cli.js` /
+`dist/eval/hex/populate.js`. They load `local.settings.json` `Values` into the environment (without
+overriding variables already set), so the same Postgres / Azure OpenAI config the host uses applies.
+
+**Strategies** (`src/eval/hex/strategies.ts`, one object each — add a new one by appending to `STRATEGIES`):
+
+| Name | What it does | Needs Azure OpenAI |
+|---|---|---|
+| `azure-current` | `detectHexWithAzureOpenAI` exactly as ingestion calls it: image + vendor context (shade name, description, tags, and the vendor hex only when the ground truth *is* a vendor option). | yes |
+| `azure-blind` | The same call with `vendorContext` removed — what the model gets from the image alone. | yes |
+| `pixel` | Top dominant color from `extractDominantColors` over the whole image. A deliberately naive baseline (product shots mostly return the background). | no |
+
+When Azure OpenAI is not configured (`AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_KEY` + `AZURE_OPENAI_DEPLOYMENT_HEX`/`AZURE_OPENAI_DEPLOYMENT`,
+or the APIM gateway equivalents), Azure strategies print `Skipping strategy …` and the run still exits 0.
+
+**Scoring** (`src/eval/hex/scoring.ts`): each case's predicted hex is compared with its ground truth by
+OKLAB Euclidean distance (`hexToOklab` / `oklabDistance` from `swatchwatch-shared`, the same math as
+`/api/polishes/match-image`). The report gives, overall and per brand and per primary finish: case count,
+scored count, median and p90 distance (nearest-rank, over cases with a prediction), and the share of
+**all** cases within the HIGH (`0.05`) and MEDIUM (`0.10`) thresholds from `src/lib/color-match.ts`
+(a missing prediction counts as outside both). It is printed as a table (`--verbose` adds a per-case
+table) and written as JSON to `eval/hex/results/<strategy>-<timestamp>.json` plus
+`<strategy>-latest.json` (gitignored). Downloaded images are cached in `eval/hex/.cache/` (gitignored;
+`--no-cache` to refetch).
+
+**Fixture format** (`eval/hex/fixtures/*.json`, validated by `src/eval/hex/fixture.ts`):
+
+```json
+{
+  "version": 1,
+  "description": "optional",
+  "cases": [
+    {
+      "id": "holotaco:pier-pressure",
+      "brand": "Holo Taco",
+      "shadeName": "Pier Pressure",
+      "finishes": ["creme"],
+      "groundTruthHex": "#22BACC",
+      "groundTruthSource": "swatch_measured",
+      "source": "HoloTacoShopify",
+      "imageUrl": "https://cdn.shopify.com/.../bottle.jpg",
+      "description": "optional vendor copy forwarded as context",
+      "tags": ["finish:creme", "color:teal"],
+      "externalId": "7902303944794",
+      "notes": "optional provenance"
+    }
+  ]
+}
+```
+
+- `imageUrl` (http/https) **or** `imagePath` (relative to the fixture file, no `..`) — exactly one.
+- `groundTruthSource` is one of `vendor_option` (hex published by the vendor), `swatch_measured`
+  (measured from the vendor's own painted-nail photo), `manual`, `ai_detected` (approved AI output).
+- `finishes[0]` is the "primary finish" used for the per-finish breakdown (`unknown` when empty).
+
+`eval/hex/fixtures/sample.json` is a checked-in 18-case smoke set (Holo Taco + Mooncat cremes, mattes,
+metallics). Its image is the first Shopify product image (what ingestion sends to the model) and its
+ground truth was measured from a *different* vendor photo of painted nails (each case's `notes` says
+which). It is a curated sample for exercising the runner, not vendor-published hex data.
+
+**Populating from ingested data** (`src/eval/hex/populate.ts`, migration `025`): reads shades whose
+`vendor_hex` is set and not a known placeholder (`src/lib/suspicious-hex.ts`), matches each to its
+latest `external_product` row (same brand + shade name) for the public product image, upserts one
+`color_training_sample` row per external product (`source_type = 'vendor_option'`,
+`training_status = 'pending'`; re-runs refresh instead of duplicating), and exports rows with status
+`pending`/`approved` to `eval/hex/fixtures/color-training-sample.json` (gitignored — copy it to a named
+fixture to check one in). Curate by setting `training_status` to `approved`/`rejected`, then export
+again with `--export-only --status approved`. Options: `--source <names>`, `--limit <n>`,
+`--status <list>`, `--out <path>`, `--export-only`, `--dry-run`. Note that in the current dev data most
+`vendor_hex` values are placeholders or CSS named colors left by older runs, so treat exported ground
+truth as "pending" until reviewed.
+
 ## Migrations
 
 Schema migrations use [node-pg-migrate](https://github.com/salsita/node-pg-migrate) with raw SQL files in `migrations/`. Each file contains an up migration and a `-- Down Migration` section for rollback.
@@ -360,6 +453,7 @@ npm run migrate:create -- my-migration-name   # Create a new migration file
 | `20261016030127700_clear-fake-shopify-vendor-hex.sql` | Nulls `shade.vendor_hex` values the generic Shopify connector invented before PR #238: regex false positives (hex digits found in the shade name/color name/raw Shopify title or options but never as a literal `#RRGGBB` token, e.g. "Facade" → `#FACADE`) and the `#000000`/`#D3D3D3` placeholders. Only Shopify-sourced shades (inventory tagged `shopify` or swatch owned by a `*Shopify` data source); MakeupAPI-linked shades and `detected_hex`/`name_hex` are untouched. Old values go to `shade_vendor_hex_cleanup_backup`; down restores them where `vendor_hex` is still null, then drops the table |
 | `20261016030938732_move-ai-hex-out-of-shopify-vendor-hex.sql` | Moves AI-detected hex values out of `shade.vendor_hex` on Shopify-sourced shades. Before 011 the Holo Taco connector stored only the Azure OpenAI vision result in `color_hex`, which 011/012 relabeled as `vendor_hex`. A value moves when its hex digits appear nowhere in the shade name, color name or raw Shopify title/options (so the connector regex could not have produced it). It goes to `detected_hex` when that is empty; otherwise `vendor_hex` is only cleared. Same Shopify-sourced/MakeupAPI-exclusion rules as `20261016030127700_clear-fake-shopify-vendor-hex.sql`; `#000000`/`#D3D3D3` placeholders and user-created shades are skipped. Old values go to `shade_vendor_hex_to_detected_backup`; down resets `detected_hex` where it still holds the moved value, restores `vendor_hex` where it is still null, then drops the table |
 | `20261016033423000_cleanup-gallery-swatches-on-primary-image.sql` | Deletes `source_gallery` swatches that re-ingestion had repointed at the shade's primary image (duplicates of the `source_product` swatch) and collapses duplicate gallery swatches per shade + image. Idempotent; down is a no-op |
+| `025_add_color_training_sample.sql` | Creates `color_training_sample` (ground-truth hex samples from `docs/schema.sql`) plus a partial unique index on `(external_product_id, source_type)` so the eval harness populate script is idempotent |
 
 node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_URL` is the preferred connection method; it also falls back to individual `PG*` env vars (`PGHOST`, `PGPORT`, etc.).
 
