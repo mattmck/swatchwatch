@@ -1,0 +1,498 @@
+{
+  "version": 1,
+  "description": "Smoke/sample fixture for the hex-detection eval harness: 18 Holo Taco and Mooncat shades. The image under evaluation is the first Shopify product image (what ingestion sends to the model); the ground truth was measured from a different vendor photo of painted nails (see each case's notes). It is a curated sample, not vendor-published hex data — regenerate from color_training_sample with `npm run eval:hex:populate` once trusted vendor hexes exist.",
+  "cases": [
+    {
+      "id": "mooncat:noseboop",
+      "brand": "Mooncat",
+      "shadeName": "Noseboop",
+      "finishes": [
+        "creme"
+      ],
+      "groundTruthHex": "#B2A6C5",
+      "groundTruthSource": "swatch_measured",
+      "source": "MooncatShopify",
+      "imageUrl": "https://cdn.shopify.com/s/files/1/0571/6957/6096/files/mc_cremes_pdp_NOSEBOOP_7.jpg?v=1789506893",
+      "description": "MAY INSPIRE PUPPY LOVE. NOSEBOOP is a dusty light lavender creme lacquer. From the SUNDOG SET",
+      "tags": [
+        "collection:everything",
+        "collection:sundog",
+        "collection:trending-now",
+        "collection:whats-new",
+        "color:purple",
+        "finish:creme"
+      ],
+      "externalId": "15862886367392",
+      "notes": "Ground truth = median RGB over two nail regions of the vendor's \"2 coats indirect light\" swatch photo: https://cdn.shopify.com/s/files/1/0571/6957/6096/files/mc_cremes_pdp_NOSEBOOP_8.png"
+    },
+    {
+      "id": "mooncat:bloodhound",
+      "brand": "Mooncat",
+      "shadeName": "Bloodhound",
+      "finishes": [
+        "creme"
+      ],
+      "groundTruthHex": "#670128",
+      "groundTruthSource": "swatch_measured",
+      "source": "MooncatShopify",
+      "imageUrl": "https://cdn.shopify.com/s/files/1/0571/6957/6096/files/mc_cremes_pdp_BLOODHOUND_8.jpg?v=1789506837",
+      "description": "BEWARE OF THE LACQUER. BLOODHOUND is a deep cranberry red lacquer. From the SUNDOG SET",
+      "tags": [
+        "collection:everything",
+        "collection:sundog",
+        "collection:trending-now",
+        "collection:whats-new",
+        "color:red",
+        "finish:creme"
+      ],
+      "externalId": "15862886006944",
+      "notes": "Ground truth = median RGB over two nail regions of the vendor's \"2 coats indirect light\" swatch photo: https://cdn.shopify.com/s/files/1/0571/6957/6096/files/mc_cremes_pdp_BLOODHOUND_8.jpg"
+    },
+    {
+      "id": "mooncat:all-bark",
+      "brand": "Mooncat",
+      "shadeName": "All Bark",
+      "finishes": [
+        "creme"
+      ],
+      "groundTruthHex": "#705351",
+      "groundTruthSource": "swatch_measured",
+      "source": "MooncatShopify",
+      "imageUrl": "https://cdn.shopify.com/s/files/1/0571/6957/6096/files/mc_cremes_pdp_AllBark_10.jpg?v=1789153654",
+      "description": "DEFINITELY WORTH FETCHING. ALL BARK is a warm ash brown creme lacquer. From the SUNDOG SET",
+      "tags": [
+        "collection:everything",
+        "collection:sundog",
+        "collection:trending-now",
+        "collection:whats-new",
+        "color:brown",
+        "finish:creme"
+      ],
+      "externalId": "15862885580960",
+      "notes": "Ground truth = median RGB over two nail regions of the vendor's 2 coats direct light: https://cdn.shopify.com/s/files/1/0571/6957/6096/files/mc_cremes_pdp_AllBark_8.png"
+    },
+    {
+      "id": "mooncat:puppy-breath",
+      "brand": "Mooncat",
+      "shadeName": "Puppy Breath",
+      "finishes": [
+        "creme"
+      ],
+      "groundTruthHex": "#95B7AD",
+      "groundTruthSource": "swatch_measured",
+      "source": "MooncatShopify",
+      "imageUrl": "https://cdn.shopify.com/s/files/1/0571/6957/6096/files/mc_cremes_pdp_PUPPYBREATH_3.5.jpg?v=1789153678",
+      "description": "LIKE A WALK IN THE PARK. PUPPY BREATH is a sage green creme lacquer. From the SUNDOG SET",
+      "tags": [
+        "collection:everything",
+        "collection:sundog",
+        "collection:trending-now",
+        "collection:whats-new",
+        "color:green",
+        "finish:creme"
+      ],
+      "externalId": "15862885449888",
+      "notes": "Ground truth = median RGB over two nail regions of the vendor's \"2 coats indirect light\" swatch photo: https://cdn.shopify.com/s/files/1/0571/6957/6096/files/mc_cremes_pdp_PUPPYBREATH_8.png"
+    },
+    {
+      "id": "mooncat:underdog",
+      "brand": "Mooncat",
+      "shadeName": "Underdog",
+      "finishes": [
+        "creme"
+      ],
+      "groundTruthHex": "#7B7172",
+      "groundTruthSource": "swatch_measured",
+      "source": "MooncatShopify",
+      "imageUrl": "https://cdn.shopify.com/s/files/1/0571/6957/6096/files/mc_cremes_pdp_UNDERDOG_6.5.jpg?v=1789154116",
+      "description": "NOT TO BE OVERLOOKED. UNDERDOG is a taupe creme lacquer. From the SUNDOG SET",
+      "tags": [
+        "collection:everything",
+        "collection:sundog",
+        "collection:trending-now",
+        "collection:whats-new",
+        "color:brown",
+        "color:gray",
+        "finish:creme"
+      ],
+      "externalId": "15862885253280",
+      "notes": "Ground truth = median RGB over two nail regions of the vendor's \"2 coats indirect light\" swatch photo: https://cdn.shopify.com/s/files/1/0571/6957/6096/files/mc_cremes_pdp_UNDERDOG_8.png"
+    },
+    {
+      "id": "mooncat:wishbone",
+      "brand": "Mooncat",
+      "shadeName": "Wishbone",
+      "finishes": [
+        "creme"
+      ],
+      "groundTruthHex": "#F5E6D8",
+      "groundTruthSource": "swatch_measured",
+      "source": "MooncatShopify",
+      "imageUrl": "https://cdn.shopify.com/s/files/1/0571/6957/6096/files/mc_cremes_pdp_WISHBONE_8.jpg?v=1789153707",
+      "description": "DOG’S BEST FRIEND. WISHBONE is an ivory creme lacquer. From the SUNDOG SET",
+      "tags": [
+        "collection:everything",
+        "collection:sundog",
+        "collection:trending-now",
+        "collection:whats-new",
+        "color:white",
+        "finish:creme"
+      ],
+      "externalId": "15862884630688",
+      "notes": "Ground truth = median RGB over two nail regions of the vendor's \"2 coats indirect light\" swatch photo: https://cdn.shopify.com/s/files/1/0571/6957/6096/files/mc_cremes_pdp_WISHBONE_8.jpg"
+    },
+    {
+      "id": "mooncat:dream-within-a-dream",
+      "brand": "Mooncat",
+      "shadeName": "Dream Within A Dream",
+      "finishes": [
+        "matte"
+      ],
+      "groundTruthHex": "#311B51",
+      "groundTruthSource": "swatch_measured",
+      "source": "MooncatShopify",
+      "imageUrl": "https://cdn.shopify.com/s/files/1/0571/6957/6096/products/dreamwithinadreamnew.jpg?v=1664495678",
+      "description": "IS THIS REAL OR JUST A DREAM? like a beautiful nightmare, this deep purple matte lacquer is much more complex than it initially seems. once unearthed from the clouds, disorienting hints of red, violet, and blue shimmer…",
+      "tags": [
+        "all-products",
+        "collection:all-products",
+        "color:purple",
+        "fall-picks",
+        "finish:matte",
+        "lunar-sale",
+        "matte",
+        "purple",
+        "shimmer"
+      ],
+      "externalId": "7060295155872",
+      "notes": "Ground truth = median RGB over two nail regions of the vendor's customer hand photo: https://cdn.shopify.com/s/files/1/0571/6957/6096/files/mooncat_pdp_dreamwithinadream_new6.jpg"
+    },
+    {
+      "id": "mooncat:nightbreak",
+      "brand": "Mooncat",
+      "shadeName": "Nightbreak",
+      "finishes": [
+        "metallic"
+      ],
+      "groundTruthHex": "#B994A7",
+      "groundTruthSource": "swatch_measured",
+      "source": "MooncatShopify",
+      "imageUrl": "https://cdn.shopify.com/s/files/1/0571/6957/6096/files/mc_MISFITS_PDP_NIGHTBREAK_SET_OP2_blank.jpg?v=1773244009",
+      "description": "TWILIGHT MADE ETERNAL. NIGHTBREAK is a light lavender purple metallic lacquer. from the BAND OF MISFITS II SET – and available for a limited",
+      "tags": [
+        "collection:band-of-misfits-ii",
+        "collection:everything",
+        "collection:shimmer",
+        "collection:trending-now",
+        "collection:whats-new",
+        "color:pink",
+        "color:purple",
+        "finish:metallic",
+        "lunar-sale",
+        "metallic",
+        "pink",
+        "purple",
+        "restrict:qty-limit-5"
+      ],
+      "externalId": "15621625544864",
+      "notes": "Ground truth = median RGB over two nail regions of the vendor's \"2 coats indirect light\" swatch photo: https://cdn.shopify.com/s/files/1/0571/6957/6096/files/LABELED_mc_MISFITS_PDP_NIGHTBREAK_4.jpg"
+    },
+    {
+      "id": "mooncat:insomniac",
+      "brand": "Mooncat",
+      "shadeName": "Insomniac",
+      "finishes": [
+        "creme"
+      ],
+      "groundTruthHex": "#AD8BE4",
+      "groundTruthSource": "swatch_measured",
+      "source": "MooncatShopify",
+      "imageUrl": "https://cdn.shopify.com/s/files/1/0571/6957/6096/products/mooncat_pdp_Crop_insomniac_michelle_2.jpg?v=1646838958",
+      "description": "ARE YOU STILL AWAKE? because sleeping on this sweet lilac lacquer may just keep you up at night. with a lunar glow and a fully-caffeinated jolt of energy, it’ll feel right at home in your late-night lifestyle. a must…",
+      "tags": [
+        "all-products",
+        "collection:all-products",
+        "collection:everything",
+        "color:purple",
+        "creme",
+        "current-product",
+        "finish:creme",
+        "lunar-sale",
+        "purple",
+        "technicolor-dreams-collection"
+      ],
+      "externalId": "7279120449696",
+      "notes": "Ground truth = median RGB over two nail regions of the vendor's hand photo (outdoor): https://cdn.shopify.com/s/files/1/0571/6957/6096/products/mooncat_pdp_insomniac_2.jpg"
+    },
+    {
+      "id": "mooncat:beowulf",
+      "brand": "Mooncat",
+      "shadeName": "Beowulf",
+      "finishes": [
+        "creme"
+      ],
+      "groundTruthHex": "#014D42",
+      "groundTruthSource": "swatch_measured",
+      "source": "MooncatShopify",
+      "imageUrl": "https://cdn.shopify.com/s/files/1/0571/6957/6096/products/mooncat_pdp_beowulf_1.jpg?v=1674581290",
+      "description": "BEHOLD! A KNIGHT IN SHINING EMERALD. in the days of yore, amid deeds of valor, one most honorable green lacquer emerged victorious. sharpen your claws and help them stand guard in this suitably valiant coat of lacquered…",
+      "tags": [
+        "all-products",
+        "collection:a-tale-of-5-lacquers-set",
+        "collection:all-products",
+        "collection:everything",
+        "color:green",
+        "creme",
+        "current-product",
+        "everything",
+        "finish:creme",
+        "green",
+        "lunar-sale",
+        "nail-polish",
+        "type:nail-polish"
+      ],
+      "externalId": "7701770666144",
+      "notes": "Ground truth = median RGB over two nail regions of the vendor's \"low light\" half of the comparison photo: https://cdn.shopify.com/s/files/1/0571/6957/6096/products/mooncat_pdp_beowulf_Comp.jpg"
+    },
+    {
+      "id": "holotaco:velvet-room",
+      "brand": "Holo Taco",
+      "shadeName": "Velvet Room",
+      "finishes": [
+        "chrome",
+        "metallic"
+      ],
+      "groundTruthHex": "#B2141E",
+      "groundTruthSource": "swatch_measured",
+      "source": "HoloTacoShopify",
+      "imageUrl": "https://cdn.shopify.com/s/files/1/0050/3001/9162/files/0035_HT---Jackpot---Bottle-Heroes---Velvet-Room.png?v=1782944840",
+      "description": "The Velvet Room awaits. Slip into this sleek, rich red metallic that’s reserved for the VIP",
+      "tags": [
+        "all-products",
+        "chrome",
+        "collection:7th-anniversary",
+        "collection:chrome",
+        "collection:limited-and-seasonal",
+        "collection:limited-edition",
+        "collection:metallic",
+        "color:red",
+        "finish:chrome",
+        "finish:metallic",
+        "metallic",
+        "nail-polish",
+        "polish",
+        "red",
+        "status:no-restock"
+      ],
+      "externalId": "7934079271002",
+      "notes": "Ground truth = median RGB over two nail regions of the vendor's vendor hand swatch photo: https://cdn.shopify.com/s/files/1/0050/3001/9162/files/DSC_2768_hand2_Velvet_Room_sq.jpg"
+    },
+    {
+      "id": "holotaco:sweeten-the-pot",
+      "brand": "Holo Taco",
+      "shadeName": "Sweeten The Pot",
+      "finishes": [
+        "chrome",
+        "metallic"
+      ],
+      "groundTruthHex": "#C09536",
+      "groundTruthSource": "swatch_measured",
+      "source": "HoloTacoShopify",
+      "imageUrl": "https://cdn.shopify.com/s/files/1/0050/3001/9162/files/0036_HT---Jackpot---Bottle-Heroes---Sweeten-The-Pot.png?v=1782945301",
+      "description": "Feeling gutsy? Sweeten The Pot with this lustrous gold chrome that’s rich in high-roller",
+      "tags": [
+        "all-products",
+        "chrome",
+        "collection:7th-anniversary",
+        "collection:chrome",
+        "collection:limited-and-seasonal",
+        "collection:limited-edition",
+        "collection:metallic",
+        "color:gold",
+        "finish:chrome",
+        "finish:metallic",
+        "gold",
+        "metallic",
+        "nail-polish",
+        "polish",
+        "status:no-restock"
+      ],
+      "externalId": "7934074126426",
+      "notes": "Ground truth = median RGB over two nail regions of the vendor's vendor hand swatch photo: https://cdn.shopify.com/s/files/1/0050/3001/9162/files/DSC_1624_hand2_SweetenThePot_sq_91be17c3-ee4a-4511-b1f9-62010cfb2406.jpg"
+    },
+    {
+      "id": "holotaco:dockside-drama",
+      "brand": "Holo Taco",
+      "shadeName": "Dockside Drama",
+      "finishes": [
+        "creme"
+      ],
+      "groundTruthHex": "#C228B0",
+      "groundTruthSource": "swatch_measured",
+      "source": "HoloTacoShopify",
+      "imageUrl": "https://cdn.shopify.com/s/files/1/0050/3001/9162/files/HT-CoastalCremes-_0005_HT-CoastalCremes-BottleHero-DocksideDrama.jpg?v=1781152398",
+      "description": "Save us the Dockside Drama... said no one ever. This fuchsia-purple crème was born to be the talk of the",
+      "tags": [
+        "all-products",
+        "collection:coastal-cremes",
+        "collection:creme",
+        "collection:trending",
+        "color:purple",
+        "creme",
+        "finish:creme",
+        "nail-polish",
+        "polish",
+        "purple",
+        "summer-cremes"
+      ],
+      "externalId": "7902305845338",
+      "notes": "Ground truth = median RGB over two nail regions of the vendor's vendor hand swatch photo: https://cdn.shopify.com/s/files/1/0050/3001/9162/files/DSC_1489_hand2_DocksideDrama_sq.jpg"
+    },
+    {
+      "id": "holotaco:pier-pressure",
+      "brand": "Holo Taco",
+      "shadeName": "Pier Pressure",
+      "finishes": [
+        "creme"
+      ],
+      "groundTruthHex": "#22BACC",
+      "groundTruthSource": "swatch_measured",
+      "source": "HoloTacoShopify",
+      "imageUrl": "https://cdn.shopify.com/s/files/1/0050/3001/9162/files/HT-CoastalCremes-_0011_HT-CoastalCremes-BottleHeroes-PierPressure.jpg?v=1781152513",
+      "description": "Don't fall for the Pier Pressure, go with the flow with this bright ocean-teal crème. Perfect for carefree coastal manis and days spent chasing",
+      "tags": [
+        "all-products",
+        "collection:coastal-cremes",
+        "collection:creme",
+        "collection:trending",
+        "color:teal",
+        "creme",
+        "finish:creme",
+        "nail-polish",
+        "polish",
+        "summer-cremes"
+      ],
+      "externalId": "7902303944794",
+      "notes": "Ground truth = median RGB over two nail regions of the vendor's vendor hand swatch photo: https://cdn.shopify.com/s/files/1/0050/3001/9162/files/DSC_1441_hand2_PierPressure_sq.jpg"
+    },
+    {
+      "id": "holotaco:summer-scandal",
+      "brand": "Holo Taco",
+      "shadeName": "Summer Scandal",
+      "finishes": [
+        "creme"
+      ],
+      "groundTruthHex": "#FF6557",
+      "groundTruthSource": "swatch_measured",
+      "source": "HoloTacoShopify",
+      "imageUrl": "https://cdn.shopify.com/s/files/1/0050/3001/9162/files/HT-CoastalCremes-_0008_HT-CoastalCremes-BottleHeroes-SummerScandal.jpg?v=1781152652",
+      "description": "Ready to get caught in a Summer Scandal? This daring bright coral crème was made for sun-soaked adventures and questionable",
+      "tags": [
+        "all-products",
+        "collection:coastal-cremes",
+        "collection:creme",
+        "collection:trending",
+        "color:orange",
+        "creme",
+        "finish:creme",
+        "nail-polish",
+        "orange",
+        "polish",
+        "summer-cremes"
+      ],
+      "externalId": "7902301814874",
+      "notes": "Ground truth = median RGB over two nail regions of the vendor's vendor hand swatch photo: https://cdn.shopify.com/s/files/1/0050/3001/9162/files/DSC_1464_hand2_SummerScandal_sq.jpg"
+    },
+    {
+      "id": "holotaco:midnight-marina",
+      "brand": "Holo Taco",
+      "shadeName": "Midnight Marina",
+      "finishes": [
+        "creme"
+      ],
+      "groundTruthHex": "#446CE1",
+      "groundTruthSource": "swatch_measured",
+      "source": "HoloTacoShopify",
+      "imageUrl": "https://cdn.shopify.com/s/files/1/0050/3001/9162/files/HT-CoastalCremes-_0012_HT-CoastalCremes-BottleHeroes-MidnightMarina.jpg?v=1781153104",
+      "description": "Late night mischief meets deep dockside blues in Midnight Marina. A creamy, sunbleached indigo crème that belongs by the",
+      "tags": [
+        "all-products",
+        "blue",
+        "collection:coastal-cremes",
+        "collection:creme",
+        "collection:trending",
+        "color:blue",
+        "color:indigo",
+        "creme",
+        "finish:creme",
+        "indigo",
+        "nail-polish",
+        "polish",
+        "summer-cremes"
+      ],
+      "externalId": "7902287495258",
+      "notes": "Ground truth = median RGB over two nail regions of the vendor's vendor hand swatch photo: https://cdn.shopify.com/s/files/1/0050/3001/9162/files/DSC_1397_hand2_MidnightMarina_sq.jpg"
+    },
+    {
+      "id": "holotaco:favourite-sister",
+      "brand": "Holo Taco",
+      "shadeName": "Favourite Sister",
+      "finishes": [
+        "metallic"
+      ],
+      "groundTruthHex": "#C9312D",
+      "groundTruthSource": "swatch_measured",
+      "source": "HoloTacoShopify",
+      "imageUrl": "https://cdn.shopify.com/s/files/1/0050/3001/9162/products/HT-Favourite-Sister-1.jpg?v=1663966924",
+      "description": "**DOES NOT INCLUDE LIMITED EDITION BOX** She is my Favourite Sister… who also happens to be my only sister. Designed by Simply Nailogical’s sister Jen, this bright red frosted metal polish is fit for a blood relative.…",
+      "tags": [
+        "birthday-2022",
+        "blackfriday2022",
+        "collection:holographic",
+        "collection:metallic",
+        "collection:retirement",
+        "color:red",
+        "finish:metallic",
+        "flakes",
+        "frosted-metals",
+        "holographic",
+        "metallic",
+        "nail-polish",
+        "notified:under-150",
+        "polish",
+        "red"
+      ],
+      "externalId": "6796253003866",
+      "notes": "Ground truth = median RGB over two nail regions of the vendor's vendor hand swatch photo: https://cdn.shopify.com/s/files/1/0050/3001/9162/products/HT-BirthdayPDP_0003_DSC_0777_jen_sister_hand1_sq.jpg Vendor tag says metallic; the swatch shows dense red glitter — expect a hard case."
+    },
+    {
+      "id": "holotaco:keep-it-evergreen",
+      "brand": "Holo Taco",
+      "shadeName": "Keep It Evergreen",
+      "finishes": [
+        "metallic"
+      ],
+      "groundTruthHex": "#46736E",
+      "groundTruthSource": "swatch_measured",
+      "source": "HoloTacoShopify",
+      "imageUrl": "https://cdn.shopify.com/s/files/1/0050/3001/9162/files/HT-RoyaltyGardenVariety-PDPs_0006s_0004_HT-RoyaltyGardenVariety-BottleHeroes-KeepItEvergreen.jpg?v=1776275366",
+      "description": "Some things never go out of season. This deep evergreen shimmering metallic is no exception, with reflective sparkle and scattered holo that keep it standing out in the",
+      "tags": [
+        "all-products",
+        "collection:limited-edition",
+        "collection:metallic",
+        "collection:royalty-2026",
+        "collection:royalty-garden-variety",
+        "color:green",
+        "finish:metallic",
+        "green",
+        "loyalty:sale-excluded",
+        "metallic",
+        "nail-polish",
+        "polish"
+      ],
+      "externalId": "7820832374874",
+      "notes": "Ground truth = median RGB over two nail regions of the vendor's vendor hand swatch photo: https://cdn.shopify.com/s/files/1/0050/3001/9162/files/DSC_2209_hand2_Keep_It_Evergreen_sq_036dbe43-74c7-4f68-a06a-9a76af46841c.jpg"
+    }
+  ]
+}
