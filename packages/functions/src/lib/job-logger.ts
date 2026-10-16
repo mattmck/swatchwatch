@@ -120,6 +120,33 @@ export class JobLogger {
   }
 
   /**
+   * Restore log entries persisted by an earlier invocation of the same job (ingestion
+   * continuations), so the job's log history spans every invocation. Malformed entries are
+   * dropped and the oldest entries are trimmed to stay within `maxEntries`.
+   */
+  restoreEntries(entries: unknown): void {
+    if (!Array.isArray(entries)) {
+      return;
+    }
+
+    const restored = entries.filter(
+      (entry): entry is LogEntry =>
+        !!entry &&
+        typeof entry === "object" &&
+        typeof (entry as LogEntry).ts === "string" &&
+        typeof (entry as LogEntry).level === "string" &&
+        typeof (entry as LogEntry).msg === "string"
+    );
+    const combined = [...restored, ...this.entries];
+    if (combined.length > this.maxEntries) {
+      combined.splice(0, combined.length - this.maxEntries);
+    }
+    this.entries.splice(0, this.entries.length, ...combined);
+    // Force the next flush to write the merged history.
+    this.lastFlushIndex = 0;
+  }
+
+  /**
    * Update base metrics that get merged with logs on flush.
    */
   updateBaseMetrics(metrics: Record<string, unknown>): void {
@@ -161,12 +188,16 @@ export class JobLogger {
   }
 
   /**
-   * Stop the flush timer and do a final flush.
+   * Stop the flush timer and do a final flush. Pass `{ flush: false }` when this invocation
+   * must not write to the job row any more (e.g. another invocation now owns the job).
    */
-  async dispose(): Promise<void> {
+  async dispose(options?: { flush?: boolean }): Promise<void> {
     if (this.flushTimer) {
       clearInterval(this.flushTimer);
       this.flushTimer = null;
+    }
+    if (options?.flush === false) {
+      return;
     }
     await this.flush();
   }

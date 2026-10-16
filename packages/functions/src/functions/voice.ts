@@ -1,4 +1,5 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
+import { withAuth } from "../lib/auth";
 import { withCors } from "../lib/http";
 
 interface ParsedPolishDetails {
@@ -11,7 +12,11 @@ interface ParsedPolishDetails {
   confidence: number;
 }
 
-async function processVoiceInput(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+async function processVoiceInput(
+  request: HttpRequest,
+  context: InvocationContext,
+  _userId: number
+): Promise<HttpResponseInit> {
   context.log("POST /api/voice - Processing voice input");
 
   const contentType = request.headers.get("content-type") || "";
@@ -77,5 +82,5 @@ app.http("voice-process", {
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   route: "voice",
-  handler: withCors(processVoiceInput),
+  handler: withCors(withAuth(processVoiceInput)),
 });

@@ -1,8 +1,15 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
-import { Polish, PolishCreateRequest, PolishUpdateRequest, PolishListResponse } from "swatchwatch-shared";
+import {
+  Polish,
+  PolishCreateRequest,
+  PolishUpdateRequest,
+  PolishListResponse,
+  PolishImageMatchResponse,
+} from "swatchwatch-shared";
 import { query, transaction } from "../lib/db";
 import { withAuth, withAdmin } from "../lib/auth";
 import { withCors } from "../lib/http";
+import { internalServerError } from "../lib/errors";
 import { toImageProxyUrl } from "../lib/image-proxy";
 import { detectHexWithAzureOpenAI } from "../lib/ai-color-detection";
 import { readBlobFromStorageUrl } from "../lib/blob-storage";
@@ -14,6 +21,20 @@ import {
   hashCacheKey,
 } from "../lib/cache";
 import { trackEvent, trackException } from "../lib/telemetry";
+import {
+  extractImagePalette,
+  MatchImageInputError,
+  parseMatchImageRequest,
+  rankPolishMatches,
+} from "../lib/color-match";
+import {
+  canonicalizeFinish,
+  canonicalizeFinishes,
+  loadFinishCatalog,
+  requestCarriesFinishData,
+  resolveRequestedFinishes,
+  type ShadeFinishUpdate,
+} from "../lib/finishes";
 import { PoolClient } from "pg";
 
 const FINISH_NORMALIZATION_MAP: Record<string, string> = {
@@ -24,6 +45,97 @@ function normalizeFinish(value?: string | null): string | null {
   if (!value) return null;
   const normalized = value.trim().toLowerCase();
   return FINISH_NORMALIZATION_MAP[normalized] || normalized || null;
+}
+
+/** Legacy single finish to store/match on `shade.finish` for a request. */
+function primaryFinishForRequest(
+  body: Pick<PolishCreateRequest, "finish">,
+  finishUpdate: ShadeFinishUpdate | undefined
+): string | undefined {
+  return body.finish || finishUpdate?.values[0] || undefined;
+}
+
+/**
+ * Apply a requested finish change to a shade.
+ *
+ * Shades are shared catalog rows, so (mirroring the color rule) user input may only FILL an
+ * EMPTY `shade.finishes`; it never replaces, removes or appends to a non-empty array.
+ * The only exception is the caller's own `user_submitted` shade (`ownSubmitted`), which is
+ * private to them until approved and can be edited freely. `shade.finish` (the legacy single
+ * field and part of the dedup key) is never written here.
+ */
+async function applyShadeFinishUpdate(
+  client: PoolClient,
+  shadeId: number,
+  finishUpdate: ShadeFinishUpdate | undefined,
+  ownSubmitted: boolean
+): Promise<void> {
+  if (!finishUpdate) return;
+
+  if (!ownSubmitted) {
+    if (finishUpdate.values.length === 0) return;
+    // Fill-only: the guard is part of the statement so a concurrent write cannot be clobbered.
+    await client.query(
+      `UPDATE shade SET finishes = $2::text[], updated_at = now()
+       WHERE shade_id = $1 AND cardinality(COALESCE(finishes, ARRAY[]::text[])) = 0`,
+      [shadeId, finishUpdate.values]
+    );
+    return;
+  }
+
+  if (finishUpdate.mode === "replace") {
+    await client.query(
+      `UPDATE shade SET finishes = $2::text[], updated_at = now() WHERE shade_id = $1`,
+      [shadeId, finishUpdate.values]
+    );
+    return;
+  }
+  if (finishUpdate.values.length === 0) return;
+  // Append new finishes, keeping existing order (primary first) and de-duplicating.
+  await client.query(
+    `UPDATE shade
+     SET finishes = ARRAY(
+           SELECT f
+           FROM unnest(COALESCE(finishes, ARRAY[]::text[]) || $2::text[]) WITH ORDINALITY AS u(f, ord)
+           GROUP BY f
+           ORDER BY min(ord)
+         ),
+         updated_at = now()
+     WHERE shade_id = $1`,
+    [shadeId, finishUpdate.values]
+  );
+}
+
+/**
+ * Visibility of a shade to a user (alias `s` = shade, `ui` = the caller's inventory join,
+ * `$1` = caller id as in POLISH_SELECT). Shades created through the user API start as
+ * `user_submitted` and stay private to their creator (and anyone holding them in inventory)
+ * until an admin promotes them to `active`.
+ */
+const POLISH_VISIBLE_SQL = `(s.status <> 'user_submitted' OR s.created_by_user_id = $1 OR ui.inventory_item_id IS NOT NULL)`;
+
+/**
+ * Look up a shade by id if the caller may see it. Returns null when it is missing or another
+ * user's private `user_submitted` shade (callers answer 404 for both, so existence never leaks).
+ */
+async function getVisibleShade(
+  shadeId: number,
+  userId: number
+): Promise<{ ownSubmitted: boolean } | null> {
+  const result = await query<{ ownSubmitted: boolean }>(
+    `SELECT (s.status = 'user_submitted' AND s.created_by_user_id = $2) AS "ownSubmitted"
+     FROM shade s
+     WHERE s.shade_id = $1
+       AND (
+         s.status <> 'user_submitted'
+         OR s.created_by_user_id = $2
+         OR EXISTS (SELECT 1 FROM user_inventory_item ui WHERE ui.shade_id = s.shade_id AND ui.user_id = $2)
+       )
+     LIMIT 1`,
+    [shadeId, userId]
+  );
+  if (result.rows.length === 0) return null;
+  return { ownSubmitted: Boolean(result.rows[0].ownSubmitted) };
 }
 
 /**
@@ -42,7 +154,9 @@ const POLISH_SELECT = `
     s.vendor_hex                                 AS "vendorHex",
     s.detected_hex                               AS "detectedHex",
     s.name_hex                                   AS "nameHex",
-    COALESCE(s.finish, '')                       AS finish,
+    -- Legacy single finish; falls back to the primary multi-finish value when unset.
+    COALESCE(NULLIF(s.finish, ''), s.finishes[1], '') AS finish,
+    COALESCE(s.finishes, ARRAY[]::text[])        AS finishes,
     COALESCE(s.collection, '')                   AS collection,
     ui.quantity,
     ui.size_display                              AS size,
@@ -74,11 +188,13 @@ const POLISH_SELECT = `
  */
 async function findOrCreateShade(
   client: PoolClient,
+  userId: number,
   brandName: string,
   shadeName: string,
   finish?: string,
   collection?: string,
-  colorData?: { colorName?: string; vendorHex?: string; detectedHex?: string; nameHex?: string }
+  colorData?: { colorName?: string; vendorHex?: string; detectedHex?: string; nameHex?: string },
+  finishUpdate?: ShadeFinishUpdate
 ): Promise<number> {
   // Find or create brand
   await client.query(
@@ -91,43 +207,60 @@ async function findOrCreateShade(
   );
   const brandId = brandResult.rows[0].brand_id;
 
-  // Find existing shade (match on brand + name + finish, with NULL-safe finish comparison)
-  const existingShade = await client.query<{ shade_id: number }>(
-    `SELECT shade_id FROM shade
-     WHERE brand_id = $1
-       AND shade_name_canonical = $2
-       AND product_line_id IS NULL
-       AND COALESCE(finish, '') = COALESCE($3, '')`,
-    [brandId, shadeName, normalizeFinish(finish)]
+  // Find an existing shade the caller can see (match on brand + name + finish, with NULL-safe
+  // finish comparison). Another user's private `user_submitted` shade is never matched: the
+  // caller must not be linked to (or learn about) it. idx_shade_unique includes product_line_id
+  // (NULL here, and NULLs are distinct in a unique index), so the caller can still get their own
+  // row with the same brand + name + finish. Catalog rows are preferred over private ones.
+  const existingShade = await client.query<{ shade_id: number; own_submitted: boolean }>(
+    `SELECT s.shade_id, (s.status = 'user_submitted' AND s.created_by_user_id = $4) AS own_submitted
+     FROM shade s
+     WHERE s.brand_id = $1
+       AND s.shade_name_canonical = $2
+       AND s.product_line_id IS NULL
+       AND COALESCE(s.finish, '') = COALESCE($3, '')
+       AND (
+         s.status <> 'user_submitted'
+         OR s.created_by_user_id = $4
+         OR EXISTS (SELECT 1 FROM user_inventory_item ui WHERE ui.shade_id = s.shade_id AND ui.user_id = $4)
+       )
+     ORDER BY (s.status = 'user_submitted') ASC, s.shade_id ASC
+     LIMIT 1`,
+    [brandId, shadeName, normalizeFinish(finish), userId]
   );
 
   if (existingShade.rows.length > 0) {
     const shadeId = existingShade.rows[0].shade_id;
-    // Backfill color data if provided
+    const ownSubmitted = Boolean(existingShade.rows[0].own_submitted);
+    // Backfill color data if provided. Shades are shared catalog rows, so user input
+    // only fills NULL columns — it never overwrites values other users already see.
     if (colorData) {
       await client.query(
         `UPDATE shade SET
-           color_name   = COALESCE($2, color_name),
-           vendor_hex   = COALESCE($3, vendor_hex),
-           detected_hex = COALESCE($4, detected_hex),
-           name_hex     = COALESCE($5, name_hex),
+           color_name   = COALESCE(color_name, $2),
+           vendor_hex   = COALESCE(vendor_hex, $3),
+           detected_hex = COALESCE(detected_hex, $4),
+           name_hex     = COALESCE(name_hex, $5),
            updated_at   = now()
          WHERE shade_id = $1`,
         [shadeId, colorData.colorName || null, colorData.vendorHex || null, colorData.detectedHex || null, colorData.nameHex || null]
       );
     }
+    await applyShadeFinishUpdate(client, shadeId, finishUpdate, ownSubmitted);
     return shadeId;
   }
 
-  // Create new shade with color data
+  // Create a new shade owned by the caller. It stays private ('user_submitted') until an admin
+  // promotes it to 'active'.
   const newShade = await client.query<{ shade_id: number }>(
-    `INSERT INTO shade (brand_id, shade_name_canonical, finish, collection, status, color_name, vendor_hex, detected_hex, name_hex)
-     VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, $8)
+    `INSERT INTO shade (brand_id, shade_name_canonical, finish, collection, status, created_by_user_id, color_name, vendor_hex, detected_hex, name_hex, finishes)
+     VALUES ($1, $2, $3, $4, 'user_submitted', $5, $6, $7, $8, $9, $10::text[])
      RETURNING shade_id`,
     [
-      brandId, shadeName, normalizeFinish(finish), collection || null,
+      brandId, shadeName, normalizeFinish(finish), collection || null, userId,
       colorData?.colorName || null, colorData?.vendorHex || null,
       colorData?.detectedHex || null, colorData?.nameHex || null,
+      finishUpdate?.values ?? [],
     ]
   );
   return newShade.rows[0].shade_id;
@@ -138,7 +271,7 @@ const SORT_COLUMNS: Record<string, string> = {
   status: "CASE WHEN COALESCE(ui.quantity, 0) > 0 THEN 0 ELSE 1 END",
   name: "s.shade_name_canonical",
   brand: "b.name_canonical",
-  finish: "COALESCE(s.finish, '')",
+  finish: "COALESCE(s.finishes[1], NULLIF(s.finish, ''), '')",
   collection: "COALESCE(s.collection, '')",
   createdAt: "COALESCE(ui.created_at, s.created_at)",
   rating: "ui.rating",
@@ -190,6 +323,7 @@ function buildPolishListCacheKey(
     search: string;
     brand: string;
     finish: string;
+    finishes: string;
     scope: string;
     availability: string;
     tags: string;
@@ -236,7 +370,9 @@ function withReadableSwatchUrl<T extends { swatchImageUrl?: string | null; sourc
   }
 
   const readableSourceImageUrls = Array.isArray(normalizedRow.sourceImageUrls)
-    ? normalizedRow.sourceImageUrls.map((url) => withReadableImageUrl(url, requestUrl))
+    ? normalizedRow.sourceImageUrls
+        .map((url) => withReadableImageUrl(url, requestUrl))
+        .filter((url): url is string => Boolean(url))
     : normalizedRow.sourceImageUrls;
 
   return {
@@ -283,14 +419,29 @@ function isStorageUrlProxied(url: string): boolean {
   return false;
 }
 
-function withReadableImageUrl(imageUrl: string, requestUrl: string): string {
+/**
+ * Rewrite private blob URLs to signed `/api/images/{id}` capability URLs.
+ * Fails closed: if a URL cannot be signed (e.g. IMAGE_PROXY_SIGNING_KEY missing), the image is
+ * omitted (null) rather than leaking the raw storage URL or failing the whole response.
+ */
+function withReadableImageUrl(imageUrl: string, requestUrl: string): string | null {
   const normalized = imageUrl.trim();
   if (!normalized) {
     return normalized;
   }
-  return isStorageUrlProxied(normalized)
-    ? toImageProxyUrl(requestUrl, normalized)
-    : normalized;
+  if (!isStorageUrlProxied(normalized)) {
+    return normalized;
+  }
+  try {
+    return toImageProxyUrl(requestUrl, normalized);
+  } catch (error) {
+    console.error(
+      `[polishes] Omitting image: failed to build signed image proxy URL (${
+        error instanceof Error ? error.message : String(error)
+      })`
+    );
+    return null;
+  }
 }
 
 async function getPolishes(request: HttpRequest, context: InvocationContext, userId: number): Promise<HttpResponseInit> {
@@ -314,7 +465,8 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
 
       const result = await query<Polish>(
         `${POLISH_SELECT}
-         WHERE s.shade_id = $2`,
+         WHERE s.shade_id = $2
+           AND ${POLISH_VISIBLE_SQL}`,
         [userId, shadeId]
       );
 
@@ -337,6 +489,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
             .map((r) => r.storageUrl)
             .filter((url): url is string => typeof url === "string" && url.trim().length > 0)
             .map((url) => withReadableImageUrl(url, request.url))
+            .filter((url): url is string => Boolean(url))
         )
       );
 
@@ -355,8 +508,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
         jsonBody: responseBody,
       };
     } catch (error: any) {
-      context.error("Error fetching polish:", error);
-      return { status: 500, jsonBody: { error: "Failed to fetch polish", details: error.message } };
+      return internalServerError(context, error, "Failed to fetch polish", "polishes.get");
     }
   }
 
@@ -367,6 +519,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
     const search = url.searchParams.get("search");
     const brandFilter = url.searchParams.get("brand");
     const finishFilter = url.searchParams.get("finish");
+    const finishesParam = url.searchParams.get("finishes");
     const scope = url.searchParams.get("scope");
     const availability = url.searchParams.get("availability") || url.searchParams.get("avail");
     const tagsParam = url.searchParams.get("tags");
@@ -378,6 +531,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
     const normalizedSearch = normalizeFilterValue(search);
     const normalizedBrandFilter = normalizeFilterValue(brandFilter);
     const normalizedFinishFilter = normalizeFinish(finishFilter) ?? "";
+    const parsedFinishesFilter = parseTagsFilter(finishesParam).map((value) => value.toLowerCase());
     const normalizedScope = normalizeFilterValue(scope);
     const normalizedAvailability = normalizeFilterValue(availability);
     const parsedTags = parseTagsFilter(tagsParam);
@@ -385,6 +539,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       search: normalizedSearch,
       brand: normalizedBrandFilter,
       finish: normalizedFinishFilter,
+      finishes: canonicalizeTagsForCache(parsedFinishesFilter),
       scope: normalizedScope,
       availability: normalizedAvailability,
       tags: canonicalizeTagsForCache(parsedTags),
@@ -401,7 +556,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       };
     }
 
-    const conditions: string[] = [];
+    const conditions: string[] = [POLISH_VISIBLE_SQL];
     const params: Array<number | string | string[]> = [userId];
     let paramIndex = 2;
 
@@ -427,13 +582,26 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       paramIndex++;
     }
 
+    const finishFilterGroups: string[][] = [];
     if (normalizedFinishFilter) {
-      const filterValues =
-        normalizedFinishFilter === "creme" ? ["creme", "cream"] : [normalizedFinishFilter];
-      if (filterValues.length > 0) {
-        conditions.push(`LOWER(s.finish) = ANY($${paramIndex}::text[])`);
-        params.push(filterValues);
-        paramIndex++;
+      finishFilterGroups.push([normalizedFinishFilter]);
+    }
+    if (parsedFinishesFilter.length > 0) {
+      finishFilterGroups.push(parsedFinishesFilter);
+    }
+    if (finishFilterGroups.length > 0) {
+      const catalog = await loadFinishCatalog();
+      for (const group of finishFilterGroups) {
+        // Match the multi-finish array (canonical values) or the legacy single finish column.
+        const canonicalValues = canonicalizeFinishes(group, catalog);
+        const legacyValues = Array.from(
+          new Set([...group, ...canonicalValues, ...(canonicalValues.includes("creme") ? ["cream"] : [])])
+        );
+        conditions.push(
+          `(COALESCE(s.finishes, ARRAY[]::text[]) && $${paramIndex}::text[] OR LOWER(s.finish) = ANY($${paramIndex + 1}::text[]))`
+        );
+        params.push(canonicalValues, legacyValues);
+        paramIndex += 2;
       }
     }
 
@@ -489,8 +657,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       jsonBody: responseBody,
     };
   } catch (error: any) {
-    context.error("Error fetching polishes:", error);
-    return { status: 500, jsonBody: { error: "Failed to fetch polishes", details: error.message } };
+    return internalServerError(context, error, "Failed to fetch polishes", "polishes.list");
   }
 }
 
@@ -510,35 +677,44 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       return { status: 400, jsonBody: { error: "Invalid shadeId" } };
     }
 
+    // Adopting by id: another user's private user_submitted shade is indistinguishable from a missing one.
+    let adoptedShade: { ownSubmitted: boolean } | null = null;
     if (adoptingExistingShade) {
-      const exists = await query(
-        `SELECT 1 FROM shade WHERE shade_id = $1 LIMIT 1`,
-        [shadeIdFromBody]
-      );
-      if (exists.rows.length === 0) {
+      adoptedShade = await getVisibleShade(shadeIdFromBody!, userId);
+      if (!adoptedShade) {
         return { status: 404, jsonBody: { error: "Shade not found" } };
       }
     }
+
+    const finishUpdate = requestCarriesFinishData(body)
+      ? resolveRequestedFinishes(body, await loadFinishCatalog())
+      : undefined;
 
     const { shadeId } = await transaction(async (client) => {
       const resolvedShadeId =
         shadeIdFromBody ??
         (await findOrCreateShade(
           client,
+          userId,
           body.brand!,
           body.name!,
-          body.finish,
+          primaryFinishForRequest(body, finishUpdate),
           body.collection,
-          { colorName: body.color, vendorHex: body.vendorHex, detectedHex: body.detectedHex, nameHex: body.nameHex }
+          { colorName: body.color, vendorHex: body.vendorHex, detectedHex: body.detectedHex, nameHex: body.nameHex },
+          finishUpdate
         ));
+
+      if (adoptingExistingShade) {
+        await applyShadeFinishUpdate(client, resolvedShadeId, finishUpdate, adoptedShade!.ownSubmitted);
+      }
 
       if (adoptingExistingShade && (body.color || body.vendorHex || body.detectedHex || body.nameHex)) {
         await client.query(
           `UPDATE shade SET
-             color_name   = COALESCE($2, color_name),
-             vendor_hex   = COALESCE($3, vendor_hex),
-             detected_hex = COALESCE($4, detected_hex),
-             name_hex     = COALESCE($5, name_hex),
+             color_name   = COALESCE(color_name, $2),
+             vendor_hex   = COALESCE(vendor_hex, $3),
+             detected_hex = COALESCE(detected_hex, $4),
+             name_hex     = COALESCE(name_hex, $5),
              updated_at   = now()
            WHERE shade_id = $1`,
           [resolvedShadeId, body.color ?? null, body.vendorHex ?? null, body.detectedHex ?? null, body.nameHex ?? null]
@@ -594,7 +770,8 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       shadeId,
       userId,
       source: adoptingExistingShade ? "existing_shade" : "new_shade",
-      hasFinish: Boolean(body.finish),
+      hasFinish: Boolean(body.finish) || Boolean(finishUpdate?.values.length),
+      finishCount: finishUpdate?.values.length ?? 0,
       hasCollection: Boolean(body.collection),
     });
 
@@ -603,9 +780,7 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       jsonBody: withReadableSwatchUrl(created.rows[0], request.url),
     };
   } catch (error: any) {
-    context.error("Error creating polish:", error);
-    trackException(error, { endpoint: "polishes.create" });
-    return { status: 500, jsonBody: { error: "Failed to create polish", details: error.message } };
+    return internalServerError(context, error, "Failed to create polish", "polishes.create");
   }
 }
 
@@ -624,6 +799,18 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
 
   try {
     const body = (await request.json()) as PolishUpdateRequest;
+    const finishUpdate = requestCarriesFinishData(body)
+      ? resolveRequestedFinishes(body, await loadFinishCatalog())
+      : undefined;
+
+    // Updating by id (no brand + name): the target must be visible to the caller.
+    let targetShade: { ownSubmitted: boolean } | null = null;
+    if (!(body.brand && body.name)) {
+      targetShade = await getVisibleShade(shadeId, userId);
+      if (!targetShade) {
+        return { status: 404, jsonBody: { error: "Polish not found" } };
+      }
+    }
 
     const updatedShadeId = await transaction(async (client) => {
       let targetShadeId = shadeId;
@@ -631,19 +818,25 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
       if (body.brand && body.name) {
         targetShadeId = await findOrCreateShade(
           client,
+          userId,
           body.brand,
           body.name,
-          body.finish,
+          primaryFinishForRequest(body, finishUpdate),
           body.collection,
-          { colorName: body.color, vendorHex: body.vendorHex, detectedHex: body.detectedHex, nameHex: body.nameHex }
+          { colorName: body.color, vendorHex: body.vendorHex, detectedHex: body.detectedHex, nameHex: body.nameHex },
+          finishUpdate
         );
-      } else if (body.color || body.vendorHex || body.detectedHex || body.nameHex) {
+      } else {
+        await applyShadeFinishUpdate(client, targetShadeId, finishUpdate, targetShade!.ownSubmitted);
+      }
+
+      if (!(body.brand && body.name) && (body.color || body.vendorHex || body.detectedHex || body.nameHex)) {
         await client.query(
           `UPDATE shade SET
-             color_name   = COALESCE($2, color_name),
-             vendor_hex   = COALESCE($3, vendor_hex),
-             detected_hex = COALESCE($4, detected_hex),
-             name_hex     = COALESCE($5, name_hex),
+             color_name   = COALESCE(color_name, $2),
+             vendor_hex   = COALESCE(vendor_hex, $3),
+             detected_hex = COALESCE(detected_hex, $4),
+             name_hex     = COALESCE(name_hex, $5),
              updated_at   = now()
            WHERE shade_id = $1`,
           [targetShadeId, body.color ?? null, body.vendorHex ?? null, body.detectedHex ?? null, body.nameHex ?? null]
@@ -702,8 +895,7 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
 
     return { status: 200, jsonBody: withReadableSwatchUrl(fullResult.rows[0], request.url) };
   } catch (error: any) {
-    context.error("Error updating polish:", error);
-    return { status: 500, jsonBody: { error: "Failed to update polish", details: error.message } };
+    return internalServerError(context, error, "Failed to update polish", "polishes.update");
   }
 }
 
@@ -737,8 +929,7 @@ async function deletePolish(request: HttpRequest, context: InvocationContext, us
 
     return { status: 200, jsonBody: { message: "Polish deleted successfully", id: result.rows[0].id } };
   } catch (error: any) {
-    context.error("Error deleting polish:", error);
-    return { status: 500, jsonBody: { error: "Failed to delete polish", details: error.message } };
+    return internalServerError(context, error, "Failed to delete polish", "polishes.delete");
   }
 }
 
@@ -770,6 +961,8 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
               s.vendor_hex,
               ia.storage_url,
               CASE
+                WHEN cardinality(s.finishes) > 0
+                  THEN s.finishes
                 WHEN s.finish IS NOT NULL AND btrim(s.finish) <> ''
                   THEN ARRAY[s.finish]::text[]
                 ELSE NULL::text[]
@@ -827,9 +1020,10 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
     }
 
     const previousHex = shade.detected_hex;
+    const finishCatalog = await loadFinishCatalog();
     const vendorFinishes =
       shade.vendor_tags
-        ?.map((t) => normalizeFinish(t) || t.trim().toLowerCase())
+        ?.map((t) => canonicalizeFinish(t, finishCatalog) || normalizeFinish(t) || t.trim().toLowerCase())
         .filter((v): v is string => Boolean(v)) ?? [];
     const aiFinishes = result.finishes ?? [];
     const mergedFinishes = Array.from(new Set([...vendorFinishes, ...aiFinishes]));
@@ -880,11 +1074,96 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
       },
     };
   } catch (error: any) {
-    context.error("Error recalculating hex:", error);
-    return {
-      status: 500,
-      jsonBody: { error: "Failed to recalculate hex", details: error.message },
-    };
+    return internalServerError(context, error, "Failed to recalculate hex", "polishes.recalc-hex");
+  }
+}
+
+/**
+ * Upper bound on the raw JSON body. The decoded image is capped at 5 MB by
+ * validateImageUpload; base64 inflates that by 4/3, plus a little slack for the
+ * data-URL prefix and option fields.
+ */
+const MATCH_IMAGE_MAX_BODY_BYTES = Math.ceil((5 * 1024 * 1024 * 4) / 3) + 16 * 1024;
+
+/**
+ * POST /api/polishes/match-image — extract the dominant colors of an uploaded
+ * photo and rank the caller's owned polishes by OKLAB distance to them.
+ *
+ * Privacy: the image is decoded in memory only. It is never written to blob
+ * storage, the database, the cache, or logs.
+ */
+async function matchImage(
+  request: HttpRequest,
+  context: InvocationContext,
+  userId: number
+): Promise<HttpResponseInit> {
+  context.log("POST /api/polishes/match-image");
+
+  const contentLength = parseInt(request.headers.get("content-length") || "", 10);
+  if (Number.isFinite(contentLength) && contentLength > MATCH_IMAGE_MAX_BODY_BYTES) {
+    return { status: 413, jsonBody: { error: "Image too large (max 5MB)" } };
+  }
+
+  let body: unknown;
+  try {
+    const raw = await request.arrayBuffer();
+    if (raw.byteLength > MATCH_IMAGE_MAX_BODY_BYTES) {
+      return { status: 413, jsonBody: { error: "Image too large (max 5MB)" } };
+    }
+    body = JSON.parse(new TextDecoder().decode(raw));
+  } catch {
+    return { status: 400, jsonBody: { error: "Request body must be valid JSON" } };
+  }
+
+  let extractedColors: PolishImageMatchResponse["extractedColors"];
+  let limit: number;
+  try {
+    const parsed = parseMatchImageRequest(body);
+    limit = parsed.limit;
+    extractedColors = await extractImagePalette(parsed.bytes, parsed.maxColors);
+  } catch (error) {
+    if (error instanceof MatchImageInputError) {
+      return { status: 400, jsonBody: { error: error.message } };
+    }
+    context.error("Error extracting image colors:", error);
+    trackException(error, { route: "polishes-match-image", stage: "extract" });
+    return { status: 500, jsonBody: { error: "Failed to process image" } };
+  }
+
+  if (extractedColors.length === 0) {
+    const emptyBody: PolishImageMatchResponse = { extractedColors: [], matches: [], candidateCount: 0 };
+    return { status: 200, jsonBody: emptyBody };
+  }
+
+  try {
+    // Owned polishes only: POLISH_SELECT's inventory LEFT JOIN is scoped to $1,
+    // so requiring an inventory row with quantity > 0 limits this to the
+    // caller's own collection.
+    const result = await query<Polish>(
+      `${POLISH_SELECT}
+       WHERE ui.inventory_item_id IS NOT NULL
+         AND COALESCE(ui.quantity, 0) > 0
+         AND ${POLISH_VISIBLE_SQL}`,
+      [userId]
+    );
+
+    const polishes = mapReadableSwatchUrls(result.rows, request.url);
+    const { matches, candidateCount } = rankPolishMatches(polishes, extractedColors, limit);
+
+    trackEvent("polish.match_image", {
+      userId,
+      extractedColorCount: extractedColors.length,
+      candidateCount,
+      matchCount: matches.length,
+      highConfidenceCount: matches.filter((m) => m.confidence === "high").length,
+    });
+
+    const responseBody: PolishImageMatchResponse = { extractedColors, matches, candidateCount };
+    return { status: 200, jsonBody: responseBody };
+  } catch (error: any) {
+    context.error("Error matching polishes to image:", error);
+    trackException(error, { route: "polishes-match-image", stage: "match" });
+    return { status: 500, jsonBody: { error: "Failed to match polishes" } };
   }
 }
 
@@ -924,4 +1203,11 @@ app.http("polishes-recalc-hex", {
   authLevel: "anonymous",
   route: "polishes/{id}/recalc-hex",
   handler: withCors(withAdmin(recalcHex)),
+});
+
+app.http("polishes-match-image", {
+  methods: ["POST", "OPTIONS"],
+  authLevel: "anonymous",
+  route: "polishes/match-image",
+  handler: withCors(withAuth(matchImage)),
 });

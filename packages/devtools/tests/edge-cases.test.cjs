@@ -307,9 +307,19 @@ test('configuration files: no merge conflict markers', () => {
   });
 });
 
-test('.claude/settings.local.json: no duplicate permissions', () => {
+test('.claude/settings.local.json: no duplicate permissions', (t) => {
   const configPath = path.resolve(__dirname, '../../../.claude/settings.local.json');
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  let content;
+  try {
+    content = fs.readFileSync(configPath, 'utf8');
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      t.skip('per-user Claude settings are absent from a clean checkout');
+      return;
+    }
+    throw error;
+  }
+  const config = JSON.parse(content);
 
   const allowList = config.permissions.allow;
   const uniqueSet = new Set(allowList);

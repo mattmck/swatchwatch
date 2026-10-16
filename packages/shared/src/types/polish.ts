@@ -1,3 +1,5 @@
+import type { CANONICAL_FINISHES } from "../constants/finishes";
+
 export interface Polish {
   /** Canonical shade identifier (global across all users) */
   id: string;
@@ -15,7 +17,13 @@ export interface Polish {
   detectedHex?: string;
   /** Hex inferred from the product color name via AI or builtin lookup */
   nameHex?: string;
-  finish?: PolishFinish;
+  /**
+   * Legacy single finish (the shade's identity/primary finish). Kept populated for
+   * backward compatibility; prefer `finishes` (or `resolvePolishFinishes`) for display.
+   */
+  finish?: FinishName;
+  /** All finishes for the shade, primary first (e.g. `["shimmer", "holographic"]`). */
+  finishes?: FinishName[];
   collection?: string;
   quantity?: number;
   size?: string;
@@ -38,27 +46,45 @@ export function resolveDisplayHex(
   return polish.vendorHex || polish.detectedHex || polish.nameHex || undefined;
 }
 
-export type PolishFinish =
-  | "creme"
-  | "shimmer"
-  | "glitter"
-  | "metallic"
-  | "matte"
-  | "jelly"
-  | "holographic"
-  | "holo"
-  | "crushed holo"
-  | "linear holo"
-  | "scattered holo"
-  | "duochrome"
-  | "multichrome"
-  | "flake"
-  | "topper"
-  | "sheer"
-  | "magnetic"
-  | "thermal"
-  | "crelly"
-  | "other";
+/** A built-in finish name, derived from the `CANONICAL_FINISHES` seeded-defaults list. */
+export type PolishFinish = (typeof CANONICAL_FINISHES)[number];
+
+/**
+ * Any finish name the API accepts or returns: the built-in `PolishFinish` names (kept for
+ * editor autocomplete) plus runtime names from admin-managed `finish_type` rows.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export type FinishName = PolishFinish | (string & {});
+
+/**
+ * Returns the finishes to display for a polish: the multi-finish `finishes` list when
+ * present, otherwise the legacy single `finish` (so older payloads keep rendering).
+ */
+export function resolvePolishFinishes(
+  polish: { finish?: string | null; finishes?: readonly string[] | null }
+): string[] {
+  const out: string[] = [];
+  const push = (value: string | null | undefined) => {
+    const trimmed = value?.trim();
+    if (trimmed && !out.includes(trimmed)) out.push(trimmed);
+  };
+  if (polish.finishes && polish.finishes.length > 0) {
+    polish.finishes.forEach(push);
+  } else {
+    push(polish.finish);
+  }
+  return out;
+}
+
+/** True when the polish has `finish` among its finishes (case-insensitive). */
+export function polishHasFinish(
+  polish: { finish?: string | null; finishes?: readonly string[] | null },
+  finish: string
+): boolean {
+  const target = finish.trim().toLowerCase();
+  if (!target) return false;
+  return resolvePolishFinishes(polish).some((value) => value.toLowerCase() === target);
+}
 
 // Canonical entities (from schema)
 export interface Brand {
@@ -72,6 +98,8 @@ export interface Shade {
   product_line_id?: number;
   shade_name_canonical: string;
   finish?: string;
+  /** Canonical multi-finish list (`shade.finishes text[]`). */
+  finishes?: string[];
   collection?: string;
   release_year?: number;
   status: string;
@@ -93,7 +121,13 @@ export interface PolishCreateRequest {
   vendorHex?: string;
   detectedHex?: string;
   nameHex?: string;
-  finish?: PolishFinish;
+  /** Legacy single finish. When `finishes` is omitted it is treated as `[finish]`. */
+  finish?: FinishName;
+  /**
+   * Multi-finish list. The first entry is the primary finish (used for the legacy
+   * `finish` column). Unknown values are ignored; aliases are normalized.
+   */
+  finishes?: FinishName[];
   collection?: string;
   quantity?: number;
   size?: string;
@@ -115,7 +149,10 @@ export interface PolishListResponse {
 
 export interface PolishFilters {
   brand?: string;
-  finish?: PolishFinish;
+  /** Matches shades that have this finish among their finishes (or as the legacy `finish`). */
+  finish?: FinishName;
+  /** Matches shades that have ANY of these finishes. */
+  finishes?: FinishName[];
   color?: string;
   tags?: string[];
   search?: string;
@@ -141,6 +178,7 @@ export interface CatalogSearchResult {
   brand: string;
   name: string;
   finish?: string;
+  finishes?: string[];
   collection?: string;
   similarity: number;
 }
@@ -157,6 +195,7 @@ export interface CatalogShadeDetail {
   brandId: string;
   name: string;
   finish?: string;
+  finishes?: string[];
   collection?: string;
   releaseYear?: number;
   status: string;

@@ -90,6 +90,7 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 |----------|-------------------|---------|
 | Resource Group | `azurerm_resource_group.main` | Container for all resources |
 | Key Vault | `azurerm_key_vault.main` | Secure secrets storage (PG password, API keys) |
+| Key Vault Secret | `azurerm_key_vault_secret.image_proxy_signing_key` (from `random_password.image_proxy_signing_key`) | 64-char HMAC key exposed to Functions as `IMAGE_PROXY_SIGNING_KEY` (Key Vault reference) to sign `/api/images/{id}` capability URLs. Replace the `random_password` to rotate; previously issued image URLs stop working. |
 | PostgreSQL Flexible Server | `azurerm_postgresql_flexible_server.main` | PostgreSQL 16 with pg_trgm + pgvector |
 | PostgreSQL Database | `azurerm_postgresql_flexible_server_database.main` | `swatchwatch` database |
 | Storage Account | `azurerm_storage_account.main` | Blob storage for images |
@@ -149,7 +150,7 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | `openai_batch_model_name` | `""` | Optional model name for the Terraform-managed batch deployment (falls back to `openai_model_name`). Only used when Terraform creates `azurerm_cognitive_deployment.openai_hex_batch` (`create_openai_resources=true` and `openai_batch_deployment_name` set and different from `openai_deployment_name`); has no effect for external OpenAI mode or the shared sync deployment. |
 | `openai_batch_model_version` | `""` | Optional model version for the Terraform-managed batch deployment (falls back to `openai_model_version`). Only used when Terraform creates `azurerm_cognitive_deployment.openai_hex_batch` (`create_openai_resources=true` and `openai_batch_deployment_name` set and different from `openai_deployment_name`); has no effect for external OpenAI mode or the shared sync deployment. |
 | `openai_batch_deployment_sku_name` | `GlobalBatch` | SKU name for Terraform-managed batch deployment |
-| `openai_batch_deployment_capacity` | `100` | Capacity for Terraform-managed batch deployment |
+| `openai_batch_deployment_capacity` | `5000` | Capacity for the Terraform-managed batch deployment. For `GlobalBatch` this is the enqueued-token limit in thousands (5000 = 5M tokens), not a billed throughput reservation. At `100` (100K tokens) a single 100-image ingestion page was rejected with `token_limit_exceeded`. |
 | `enable_document_intelligence` | `false` | Provision Azure AI Document Intelligence for server-side OCR in capture pipeline |
 | `is_automation` | `false` | Flag for CI/CD pipelines (skips deployer Key Vault access policy) |
 | `domain_name` | `swatchwatch.app` | Root domain name for the application (used for custom domains and CORS; prod allows both apex and `www`) |

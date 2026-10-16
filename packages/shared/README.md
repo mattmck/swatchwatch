@@ -16,19 +16,31 @@ The package is automatically linked via npm workspaces — no publishing require
 
 | Type | Description |
 |------|-------------|
-| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, finish, tags, timestamps, etc.) |
-| `PolishFinish` | Union of finish types: `"creme" \| "shimmer" \| "glitter" \| "metallic" \| "matte" \| "jelly" \| "holographic" \| "holo" \| "crushed holo" \| "linear holo" \| "scattered holo" \| "duochrome" \| "multichrome" \| "flake" \| "topper" \| "sheer" \| "magnetic" \| "thermal" \| "crelly" \| "other"` |
-| `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps) |
+| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, legacy `finish`, multi-finish `finishes`, tags, timestamps, etc.) |
+| `PolishFinish` | Built-in finish name, derived as `(typeof CANONICAL_FINISHES)[number]` |
+| `FinishName` | `PolishFinish \| (string & {})` — any finish name on API-facing fields (`Polish.finishes`, request `finish`/`finishes`); admits runtime names from admin-managed `finish_type` rows while keeping autocomplete for built-ins |
+| `resolvePolishFinishes(polish)` | Finishes to display: `finishes` when non-empty, else `[finish]` (backward compatible) |
+| `polishHasFinish(polish, finish)` | Case-insensitive membership check over `resolvePolishFinishes` |
+| `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps); accepts `finishes` (replace) and legacy `finish` |
 | `PolishUpdateRequest` | Partial create fields + required `id` |
 | `PolishListResponse` | Paginated list: `{ polishes, total, page, pageSize }` |
-| `PolishFilters` | Query params: brand/finish/color/tags/search plus scope/availability/tone, sort, and pagination |
+| `PolishFilters` | Query params: brand/finish/finishes/color/tags/search plus scope/availability/tone, sort, and pagination |
 | `Brand` | Canonical brand entity (`brand_id`, `name_canonical`) |
-| `Shade` | Canonical shade entity (`shade_id`, `brand_id`, `shade_name_canonical`, `finish`, `collection`, etc.) |
-| `CatalogSearchResult` | Single search hit: shade with brand name and similarity score |
+| `Shade` | Canonical shade entity (`shade_id`, `brand_id`, `shade_name_canonical`, `finish`, `finishes`, `collection`, etc.) |
+| `CatalogSearchResult` | Single search hit: shade with brand name, `finish`/`finishes`, and similarity score |
 | `CatalogSearchResponse` | Search response: `{ results, query, total }` |
 | `CatalogShadeDetail` | Full shade detail with brand info and aliases |
 
 **Note:** All frontend pages now use the live API. The mock-data.ts file is no longer used.
+
+### `constants/finishes.ts`
+
+| Export | Description |
+|--------|-------------|
+| `CANONICAL_FINISHES` | Built-in seeded default finishes — typing + offline fallback, not the runtime authority (`creme`, `sheer`, `jelly`, `shimmer`, `metallic`, `glitter`, `holographic`, `duochrome`, `multichrome`, `flake`, `matte`, `topper`, `magnetic`, `thermal`, `crelly`, `glow`, `other`) in `finish_type.sort_order` order |
+| `isCanonicalFinish(value)` | Type guard for exact BUILT-IN names (unaware of finish types added at runtime) |
+
+**Multi-finish contract (#43):** `finishes` is the source of truth for display/filtering; `finish` is the legacy single value kept populated for older consumers (it is the shade's identity key in the DB). At runtime the admin-managed `finish_type` table decides *which* finishes are valid; `CANONICAL_FINISHES` is only the built-in seeded defaults (used for typing and as the fallback when the DB is unavailable) and is kept equal to the seeded `finish_type` rows by `packages/functions/tests/finishes.unit.test.cjs`. Alias spellings (`holo`, `cream`, `flakie`, …) are not listed here — they live in the DB-backed `finish_normalization` table (see `packages/functions/README.md`).
 
 ### `types/user.ts`
 
@@ -79,6 +91,16 @@ The package is automatically linked via npm workspaces — no publishing require
 | `CollectionGapCell` | Count per hue/lightness cell |
 | `CollectionGapAnalysis` | Structured gap-analysis output (`cells`, `missing`, `underrepresented`) |
 
+### `types/color-match.ts`
+
+| Type | Description |
+|------|-------------|
+| `MatchConfidence` | `"high" \| "medium" \| "low"` — bucketed OKLAB distance (thresholds in Functions `lib/color-match.ts`) |
+| `ExtractedColor` | Dominant image color: uppercase `hex` + pixel `fraction` (0–1) |
+| `PolishImageMatchRequest` | Body for `POST /api/polishes/match-image`: `image` (base64 data URL), optional `maxColors` (1–10), `limit` (1–50) |
+| `PolishMatch` | `{ polish, matchedColor, distance, confidence }` — one owned polish matched to its closest extracted color |
+| `PolishImageMatchResponse` | `{ extractedColors, matches, candidateCount }` |
+
 ### `types/ingestion.ts`
 
 | Type | Description |
@@ -113,6 +135,22 @@ Export note:
 - `HarmonyType` is already used by `types/palette.ts` for palette selection values.
 - `types/reference.ts` harmony row type is re-exported from package root as `ReferenceHarmonyType`.
 - These reference contracts are consumed by the web `use-reference-data` hook for API-backed finish/harmony option loading with fallback support.
+
+## Utilities
+
+### `color/oklab.ts`
+
+Pure, dependency-free OKLAB color math shared by the web app (`apps/web/src/lib/color-utils.ts` re-exports it) and Azure Functions (`packages/functions/src/lib/color-match.ts`), so perceptual distances are identical on client and server. Euclidean OKLAB distance: black↔white ≈ 1.0, ~0.02 ≈ just-noticeable difference.
+
+| Export | Description |
+|--------|-------------|
+| `OKLab` | `{ L, a, b }` OKLAB coordinates |
+| `rgbToOklab(rgb)` | 0–255 sRGB `{ r, g, b }` → OKLAB |
+| `hexToOklab(hex)` | `#RRGGBB` / `RRGGBB` → OKLAB |
+| `oklabDistance(a, b)` | Euclidean distance between two OKLAB colors |
+| `colorDistance(hex1, hex2)` | OKLAB distance between two hex colors |
+
+Pinned-distance tests in `packages/functions/tests/color-match.unit.test.cjs` and `apps/web/src/lib/color-utils.test.ts` guard against numeric drift.
 
 ## Adding New Types
 

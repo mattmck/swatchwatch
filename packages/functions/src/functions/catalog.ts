@@ -2,8 +2,9 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/fu
 import { CatalogSearchResponse, CatalogShadeDetail } from "swatchwatch-shared";
 import { query } from "../lib/db";
 import { withCors } from "../lib/http";
+import { internalServerError } from "../lib/errors";
 import { cacheGetJson, cacheSetJson, hashCacheKey } from "../lib/cache";
-import { trackEvent, trackException } from "../lib/telemetry";
+import { trackEvent } from "../lib/telemetry";
 
 const CATALOG_SEARCH_CACHE_TTL_SECONDS = 120;
 const CATALOG_SHADE_CACHE_TTL_SECONDS = 300;
@@ -48,6 +49,7 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
       brand: string;
       name: string;
       finish: string | null;
+      finishes: string[] | null;
       collection: string | null;
       similarity: number;
     }>(
@@ -55,7 +57,8 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
          s.shade_id::text              AS "shadeId",
          b.name_canonical              AS brand,
          s.shade_name_canonical        AS name,
-         s.finish,
+         COALESCE(NULLIF(s.finish, ''), s.finishes[1]) AS finish,
+         COALESCE(s.finishes, ARRAY[]::text[]) AS finishes,
          s.collection,
          GREATEST(
            similarity(s.shade_name_canonical, $1),
@@ -87,6 +90,7 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
         brand: r.brand,
         name: r.name,
         finish: r.finish || undefined,
+        finishes: r.finishes ?? [],
         collection: r.collection || undefined,
         similarity: Math.round(r.similarity * 1000) / 1000,
       })),
@@ -103,16 +107,15 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
 
     return { status: 200, jsonBody: response };
   } catch (error: any) {
-    context.error("Error searching catalog:", error);
-    trackException(error, { endpoint: "catalog.search" });
-    return { status: 500, jsonBody: { error: "Failed to search catalog", details: error.message } };
+    return internalServerError(context, error, "Failed to search catalog", "catalog.search");
   }
 }
 
 /**
  * GET /api/catalog/shade/{id}
  *
- * Returns a single shade with brand info and aliases.
+ * Returns a single shade with brand info and aliases. Anonymous and globally cached, so
+ * private `user_submitted` shades are excluded (same 404 as a missing shade).
  */
 async function getShade(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   context.log("GET /api/catalog/shade");
@@ -139,6 +142,7 @@ async function getShade(request: HttpRequest, context: InvocationContext): Promi
       brandId: string;
       name: string;
       finish: string | null;
+      finishes: string[] | null;
       collection: string | null;
       releaseYear: number | null;
       status: string;
@@ -148,13 +152,15 @@ async function getShade(request: HttpRequest, context: InvocationContext): Promi
          b.name_canonical          AS brand,
          b.brand_id::text          AS "brandId",
          s.shade_name_canonical    AS name,
-         s.finish,
+         COALESCE(NULLIF(s.finish, ''), s.finishes[1]) AS finish,
+         COALESCE(s.finishes, ARRAY[]::text[]) AS finishes,
          s.collection,
          s.release_year            AS "releaseYear",
          s.status
        FROM shade s
        JOIN brand b ON s.brand_id = b.brand_id
-       WHERE s.shade_id = $1`,
+       WHERE s.shade_id = $1
+         AND s.status <> 'user_submitted'`,
       [shadeId]
     );
 
@@ -176,6 +182,7 @@ async function getShade(request: HttpRequest, context: InvocationContext): Promi
       brandId: shade.brandId,
       name: shade.name,
       finish: shade.finish || undefined,
+      finishes: shade.finishes ?? [],
       collection: shade.collection || undefined,
       releaseYear: shade.releaseYear || undefined,
       status: shade.status,
@@ -186,8 +193,7 @@ async function getShade(request: HttpRequest, context: InvocationContext): Promi
 
     return { status: 200, jsonBody: response };
   } catch (error: any) {
-    context.error("Error fetching shade:", error);
-    return { status: 500, jsonBody: { error: "Failed to fetch shade", details: error.message } };
+    return internalServerError(context, error, "Failed to fetch shade", "catalog.shade");
   }
 }
 

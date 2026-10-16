@@ -31,14 +31,18 @@ src/app/
 │   ├── layout.tsx                → App layout (AppShell sidebar wrapper)
 │   ├── admin/jobs/page.tsx       → /admin/jobs      Legacy route redirect to `/admin?tab=admin-jobs`
 │   ├── dashboard/
-│   │   ├── page.tsx              → /dashboard       Stats, recent additions (computed from full paginated inventory)
+│   │   ├── page.tsx              → /dashboard       Stats, recent additions (computed from full paginated inventory; "By Finish" counts a multi-finish polish once per finish)
 │   │   └── opengraph-image.tsx   → /dashboard OG image route
 │   └── polishes/
 │       ├── page.tsx              → /polishes         Global polish catalog + personal inventory overlay (server-side paging/filter/sort with URL-synced state; tone filter uses a fallback full-fetch path; single All/My Collection scope toggle; detail/edit flows carry `returnTo` context; swatch thumbnails open full image; admins see per-row "Recalc Hex" action)
 │       ├── opengraph-image.tsx   → /polishes OG image route
-│       ├── new/page.tsx          → /polishes/new     Add polish form
+│       ├── new/page.tsx          → /polishes/new     Add polish form (multi-select finish chips built from all reference finish types, so admin-added finishes are selectable; a polish's saved finishes missing from the list stay visible and selected on edit; first selected = primary finish, sent as `finishes` + legacy `finish`)
 │       ├── detail/page.tsx       → /polishes/detail  Polish detail view + image preview + OKLCH profile + related shades
 │       ├── gaps/page.tsx         → /polishes/gaps    Collection gap map heatmap (8 hue families × 5 lightness bands, missing/thin coverage, next-buy suggestions, deep-link into color search)
+│       ├── match/
+│       │   ├── page.tsx          → /polishes/match   Photo match: choose/drop/take a photo → client-side downscale (`lib/image-downscale.ts`) → `POST /api/polishes/match-image`; shows preview, extracted palette (click a swatch to filter matches to that color), and owned polishes ranked by OKLAB distance with confidence badges
+│       │   ├── match-components.tsx → `ImageDropZone` (drag-and-drop + file picker + `capture` camera input), `ImagePreview`, `ExtractedPalette`, `ConfidenceBadge`, `MatchResultsList`
+│       │   └── match-utils.ts    → Confidence badge metadata, match % (same 0.5 normalization as search), per-color filtering/counting
 │       └── search/page.tsx       → /polishes/search  Color wheel search (two-column layout, collapsible wheel/harmonies, single full-width harmony-only selector with All mode, one-click swatch focus, focus workflow, standardized Brand/Tone/Finish/Availability dropdown filters)
 ├── layout.tsx                    → Root layout (fonts, metadata — no AppShell)
 └── globals.css                   → Tailwind v4 + brand theme tokens + utility classes
@@ -104,7 +108,7 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 
 | Component | Purpose |
 |-----------|---------|
-| `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with exact active-route matching, branded active-nav pills, logo accent divider, app theme toggle, and `<UserCard>` footer with auth state. A single Admin link (`/admin`) is shown only for admin users & Gap Map route in primary navigation |
+| `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with exact active-route matching, branded active-nav pills, logo accent divider, app theme toggle, and `<UserCard>` footer with auth state. A single Admin link (`/admin`) is shown only for admin users & Gap Map and Photo Match routes in primary navigation |
 | `auth-provider.tsx` | MSAL provider wrapper with three modes: dev bypass (no MSAL), B2C via MSAL, unconfigured fallback. Manages token lifecycle and stores in module-level `auth-token.ts` |
 | `require-auth.tsx` | Route guard for `(app)` routes. Dev bypass → render children; B2C unconfigured → show "Sign in" button; B2C authenticated → render children; unauthenticated → show "Sign in" button |
 | `user-card.tsx` | Sidebar footer: displays user initials, name, email, and sign-out button. Conditionally uses `useAuth()` (B2C) or `useDevAuth()` (dev bypass) |
@@ -116,6 +120,7 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 | `marketing-theme-toggle.tsx` | Reusable system/light/dark theme selector used in marketing and authenticated app shells |
 | `color-dot.tsx` | Colored circle swatch (`sm`/`md`/`lg`) with subtle hover scale micro-interaction |
 | `color-wheel.tsx` | Canvas HSL color wheel with hover preview, click selection, owned-shade snap mode, and glow-forward selected marker |
+| `finish-badges.tsx` | `<FinishBadges polish finishTypes? max? empty? />` — one branded badge per finish (multi-finish shades show several, overflow collapses into `+N`), falling back to the legacy single `finish`. Pass `finishTypes` (from `useReferenceData()`) to label badges with the reference `displayName`. Used by the polish table, detail page, dashboard recent additions, and color search results |
 | `color-search-results.tsx` | Polish list sorted by OKLAB color distance, with branded finish badges, high-contrast focus-state swatch highlights, and harmony interactions (palette selection affects table targeting without mutating focused colors) |
 
 ### shadcn/ui (`src/components/ui/`)
@@ -164,10 +169,12 @@ This works for both `ciamlogin.com` (External ID) and `b2clogin.com` (legacy B2C
 | File | Exports |
 |------|---------|
 | `utils.ts` | `cn()` — Tailwind class merging (shadcn standard) |
-| `constants.ts` | `FINISHES`, `finishLabel()`, `finishBadgeClassName()` — fallback finish taxonomy and branded badge styling when reference APIs are unavailable |
+| `constants.ts` | `FINISHES` (re-export of the shared built-in `CANONICAL_FINISHES` defaults), `finishLabel()`, `finishBadgeClassName()` — fallback finish taxonomy and branded badge styling when reference APIs are unavailable |
+| `finish-options.ts` | `buildFinishOptions(finishTypes, extraValues?)`, `knownFinishNames()`, `resolveFinishLabel()` — finish select/chip options and labels built from ALL reference `finish_type` rows (including admin-added, non-built-in types), falling back to `FINISHES` only when reference data is empty; `extraValues` keeps a polish's saved finishes selectable when they are missing from the list |
 | `color-harmonies.ts` | Harmony palette generation + `getHarmonyTypeOptions()` for API-backed harmony option mapping (with fallback constants) |
-| `color-utils.ts` | Hex↔HSL↔RGB↔OKLAB↔OKLCH conversions, `colorDistance()`, harmony helpers, undertone breakdown, and `analyzeCollectionGaps()` |
-| `api.ts` | API client helpers including polish CRUD, rapid-add capture calls, ingestion admin methods (`listIngestionJobs`, `runIngestionJob`, `getIngestionJob`), reference-data admin methods (`listAdminJobs`, finish/harmony CRUD, finish-normalization CRUD), user-management admin methods (`listAdminUsers`, `mergeAdminUsers`), and public reference lookup methods (`listReferenceFinishTypes`, `listReferenceHarmonyTypes`) |
+| `color-utils.ts` | Hex↔HSL↔RGB↔OKLAB↔OKLCH conversions, `colorDistance()`, harmony helpers, undertone breakdown, and `analyzeCollectionGaps()`. The forward OKLAB math (`rgbToOklab`, `hexToOklab`, `oklabDistance`, `colorDistance`, `OKLab`) is re-exported from `swatchwatch-shared` so it matches the Functions API exactly |
+| `api.ts` | API client helpers including polish CRUD, rapid-add capture calls, ingestion admin methods (`listIngestionJobs`, `runIngestionJob`, `getIngestionJob`), reference-data admin methods (`listAdminJobs`, finish/harmony CRUD, finish-normalization CRUD), user-management admin methods (`listAdminUsers`, `mergeAdminUsers`), public reference lookup methods (`listReferenceFinishTypes`, `listReferenceHarmonyTypes`), and `matchPolishesToImage()` for photo matching |
+| `image-downscale.ts` | `downscaleImageFile()` — browser canvas downscale (longest edge `MATCH_IMAGE_MAX_EDGE` = 640px, JPEG for photos / PNG when the source may have alpha) returning a data URL + dimensions; `computeScaledSize()` / `outputMimeTypeFor()` pure helpers |
 | `polish-filters.ts` | `buildBrandOptions()`, `filterPolishesForList()`, `matchesBrandFilter()` — shared catalog/search filter helpers with normalized brand matching |
 | `hooks/use-reference-data.ts` | API-backed reference data hook with in-memory + localStorage caching, resilient fallback data, and lookup helpers (`getFinishDisplayName`, `getHarmonyDisplayName`) |
 | `msal-config.ts` | `buildMsalConfig()` builder, `LOGIN_SCOPES` constant. Returns `null` if auth env is not configured |

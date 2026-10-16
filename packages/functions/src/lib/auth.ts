@@ -2,6 +2,7 @@ import { HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functio
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { query, transaction } from "./db";
 import { trackEvent, trackException } from "./telemetry";
+import { isDevBypassEnabled, reportDevBypassRefusedIfNeeded } from "./runtime-env";
 
 export interface AuthResult {
   userId: number;
@@ -15,8 +16,10 @@ type EntraRole = "admin" | "user";
 /**
  * Authenticate an incoming request.
  *
- * - **Dev bypass** (`AUTH_DEV_BYPASS=true`): accepts `Bearer dev:<userId>` tokens.
- *   Looks up the user by user_id directly — meant for local development only.
+ * - **Dev bypass** (`AUTH_DEV_BYPASS=true` and NOT hosted in Azure): accepts `Bearer dev:<userId>`
+ *   tokens. Looks up the user by user_id directly — local development only. When hosted in Azure
+ *   (see `isHostedInAzure`) the flag is refused (logged once + `auth.dev_bypass_refused`) and the
+ *   token goes through normal JWT validation, so `dev:*` tokens fail with 401.
  * - **Production** (Entra/B2C configured): validates JWT against tenant JWKS,
  *   extracts `oid` claim, and upserts the user by external_id.
  */
@@ -37,9 +40,10 @@ export async function authenticateRequest(
   }
 
   // Dev bypass mode
-  if (process.env.AUTH_DEV_BYPASS === "true") {
+  if (isDevBypassEnabled()) {
     return handleDevBypass(token, context);
   }
+  reportDevBypassRefusedIfNeeded();
 
   // Production B2C JWT validation
   return handleB2CToken(token, context);
@@ -193,13 +197,28 @@ async function handleB2CToken(
   const email = (payload.emails as string[] | undefined)?.[0]
     || (payload.email as string | undefined);
   const role = resolveEntraRole(payload.roles);
+  const emailVerified = isEmailVerifiedClaim(payload);
 
   context.log(`Auth B2C: oid=${externalId} role=${role}`);
 
-  const user = await getOrCreateUser(externalId, email, role);
+  const user = await getOrCreateUser(externalId, email, role, emailVerified);
   trackEvent("auth.success", { mode: "jwt", role, userId: user.userId });
 
   return { userId: user.userId, externalId, email, role: user.role };
+}
+
+function isTrueClaim(value: unknown): boolean {
+  return value === true || (typeof value === "string" && value.trim().toLowerCase() === "true");
+}
+
+/**
+ * True only when the token itself proves the email address is verified: the standard
+ * `email_verified` claim, or Entra's `xms_edov` ("email domain owner verified") claim.
+ * Boolean and the strings "true"/"TRUE" are accepted; everything else is unverified.
+ * Only a verified email may link a new external identity to an existing account.
+ */
+export function isEmailVerifiedClaim(payload: Record<string, unknown>): boolean {
+  return isTrueClaim(payload.email_verified) || isTrueClaim(payload.xms_edov);
 }
 
 function resolveEntraRole(rolesClaim: unknown): EntraRole {
@@ -215,12 +234,21 @@ function resolveEntraRole(rolesClaim: unknown): EntraRole {
 /**
  * Upsert a user by external_id. Returns the local user_id.
  */
-async function getOrCreateUser(
+export async function getOrCreateUser(
   externalId: string,
   email?: string,
-  role: EntraRole = "user"
+  role: EntraRole = "user",
+  emailVerified = false
 ): Promise<{ userId: number; role: string }> {
-  const normalizedEmail = normalizeEmail(email);
+  // An unverified email is attacker-controllable (anyone can claim any address at some
+  // identity providers), so it is never trusted: it cannot link accounts, and it is not
+  // stored either (a stored unverified address would let the claimant squat the address
+  // and later capture the real owner's login via the email match).
+  const claimedEmail = normalizeEmail(email);
+  if (claimedEmail && !emailVerified) {
+    trackEvent("auth.email_link_skipped", { reason: "email_unverified" });
+  }
+  const normalizedEmail = emailVerified ? claimedEmail : null;
 
   try {
     return await getOrCreateUserWithLinkedIdentities(externalId, normalizedEmail, role);

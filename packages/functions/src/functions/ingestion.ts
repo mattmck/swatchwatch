@@ -10,6 +10,7 @@ import {
 import { saveConnectorRawSnapshot } from "../lib/connector-raw-storage";
 import { withAdmin } from "../lib/auth";
 import { withCors } from "../lib/http";
+import { internalServerError } from "../lib/errors";
 import { getQueueStats, purgeQueue } from "../lib/queue-management";
 import {
   cancelIngestionJob,
@@ -34,6 +35,23 @@ import {
 } from "../lib/ingestion-repo";
 
 
+import {
+  CHECKPOINT_METRICS_KEY,
+  CONTINUATION_QUEUED_STAGE,
+  enqueueIngestionContinuation,
+  getWorkerTimeBudgetMs,
+  INGESTION_JOB_QUEUE_NAME,
+  IngestionCheckpoint,
+  IngestionJobQueueMessage,
+  IngestionJobRequest,
+  readCheckpointFromMetrics,
+  RESUME_MESSAGE_METRICS_KEY,
+} from "../lib/ingestion-continuation";
+import {
+  CATALOG_SNAPSHOT_METRICS_KEY,
+  createIngestionCatalogCache,
+  readCatalogSnapshotFromMetrics,
+} from "../lib/ingestion-catalog-cache";
 import { JobLogger } from "../lib/job-logger";
 import { OpenBeautyFactsConnector } from "../lib/connectors/open-beauty-facts";
 import { MakeupApiConnector } from "../lib/connectors/makeup-api";
@@ -58,10 +76,24 @@ const DEFAULT_SEARCH_TERM = "nail polish";
 const JOB_TYPE_CONNECTOR_VERIFY = "connector_verify";
 // Queue bindings resolve this to the AzureWebJobsStorage app setting.
 const INGESTION_QUEUE_CONNECTION_SETTING = "Storage";
-const DEFAULT_HEX_BATCH_MIN_IMAGES = 5;
 
-export const INGESTION_JOB_QUEUE_NAME =
-  (process.env.INGESTION_JOB_QUEUE_NAME || "ingestion-jobs").trim().toLowerCase();
+export { INGESTION_JOB_QUEUE_NAME, type IngestionJobQueueMessage };
+const DEFAULT_HEX_BATCH_MIN_IMAGES = 5;
+// Records persisted per unit of work when hex detection runs synchronously (one AI call +
+// HEX_DETECTION_DELAY_MS per record). Small enough that a hard kill loses little work.
+const INGESTION_SYNC_CHUNK_SIZE = 10;
+// Bounded so that if batch submission fails and the materializer falls back to synchronous
+// detection, one chunk (uploads + ~3.5s per AI call) still fits well inside functionTimeout.
+const INGESTION_BATCH_CHUNK_SIZE = 50;
+/** Set once batch submission has failed for a job; later chunks use synchronous detection. */
+const HEX_BATCH_DEGRADED_METRICS_KEY = "hexBatchDegraded";
+// Key in metrics_json holding the worker's separated persistence/materialization totals so
+// a continuation can keep summing them (the flattened top-level keys overlap, e.g. `skipped`).
+const WORKER_TOTALS_METRICS_KEY = "workerTotals";
+const CONTINUATION_ENQUEUE_STAGE = "continuation_enqueue";
+// Per-invocation keys that must not be carried into a continuation's metrics.
+const NON_CARRIED_METRIC_KEYS = new Set(["logs", "pipeline", RESUME_MESSAGE_METRICS_KEY]);
+
 
 function envFlagTrue(value: string | undefined): boolean {
   if (!value) return false;
@@ -82,29 +114,7 @@ const ingestionJobQueueOutput = output.storageQueue({
 // Supported sources are now derived from seed_data_sources.sql
 // Run "npm run generate:types" to regenerate after adding new sources
 
-interface NormalizedIngestionJobRequest {
-  source: SupportedConnectorSource;
-  searchTerm: string;
-  page: number;
-  pageSize: number;
-  maxRecords: number;
-  recentDays?: number;
-  materializeToInventory: boolean;
-  detectHexFromImage: boolean;
-  detectHexOnSuspiciousOnly: boolean;
-  overwriteDetectedHex: boolean;
-  collectTrainingData: boolean;
-  /** When true, loop through all pages until source returns empty (ignores maxRecords cap) */
-  exhaustive: boolean;
-}
-
-export interface IngestionJobQueueMessage {
-  jobId: number;
-  userId: number;
-  queuedAt: string;
-  request: NormalizedIngestionJobRequest;
-  requestedMetrics: Record<string, unknown>;
-}
+type NormalizedIngestionJobRequest = IngestionJobRequest;
 
 function clampInt(
   value: unknown,
@@ -263,6 +273,67 @@ function getExhaustiveStopReason(
   }
 
   return null;
+}
+
+export type IngestionResumeDecision =
+  | { action: "drop"; reason: string }
+  | { action: "start"; checkpoint: IngestionCheckpoint | null; source: "fresh" | "message" | "database" };
+
+/** True when `a` points at a later position in the source than `b`. */
+function isCheckpointAhead(a: IngestionCheckpoint, b: IngestionCheckpoint): boolean {
+  if (a.nextPage !== b.nextPage) {
+    return a.nextPage > b.nextPage;
+  }
+  return a.recordOffset > b.recordOffset;
+}
+
+/**
+ * Decide where a queue message should start, given the checkpoint it carries and the one
+ * persisted on the job row. Queue delivery is at-least-once and a killed invocation is
+ * redelivered unchanged, so a message may be a duplicate or out of date.
+ *
+ * `continuationCount` identifies the hand-off generation (a message with no checkpoint is
+ * generation 0). The worker persists the incremented count to the DB *before* it enqueues
+ * the next continuation, so:
+ *
+ * - DB count > message count: a newer continuation already exists; this message is stale.
+ *   Drop it so two invocations never process the same job.
+ * - DB count == message count: this is the current message, possibly redelivered after a
+ *   kill. The worker saves progress to the DB after every chunk, so resume from whichever
+ *   checkpoint is further along (the DB wins ties).
+ * - DB count < message count: the DB write was lost; trust the message.
+ * - Neither has a checkpoint: a fresh job; start from the request's first page.
+ */
+export function resolveIngestionResumePoint(
+  messageCheckpoint: IngestionCheckpoint | null | undefined,
+  dbCheckpoint: IngestionCheckpoint | null | undefined
+): IngestionResumeDecision {
+  const messageCount = messageCheckpoint?.continuationCount ?? 0;
+  const dbCount = dbCheckpoint?.continuationCount ?? 0;
+
+  if (dbCheckpoint && dbCount > messageCount) {
+    return {
+      action: "drop",
+      reason: `stale continuation ${messageCount}; job is already at continuation ${dbCount}`,
+    };
+  }
+
+  if (!dbCheckpoint || dbCount < messageCount) {
+    return messageCheckpoint
+      ? { action: "start", checkpoint: messageCheckpoint, source: "message" }
+      : { action: "start", checkpoint: null, source: "fresh" };
+  }
+
+  if (messageCheckpoint && isCheckpointAhead(messageCheckpoint, dbCheckpoint)) {
+    return { action: "start", checkpoint: messageCheckpoint, source: "message" };
+  }
+  return { action: "start", checkpoint: dbCheckpoint, source: "database" };
+}
+
+function toMetricsRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? { ...(value as Record<string, unknown>) }
+    : {};
 }
 
 function buildRequestedMetrics(
@@ -427,7 +498,7 @@ async function enqueueIngestionJob(
         if (failedJob) {
           return {
             status: 500,
-            jsonBody: { error: message, job: failedJob },
+            jsonBody: { error: "Failed to enqueue ingestion job", job: failedJob, requestId: context.invocationId },
           };
         }
       } catch (markFailedError) {
@@ -435,10 +506,7 @@ async function enqueueIngestionJob(
       }
     }
 
-    return {
-      status: 500,
-      jsonBody: { error: message },
-    };
+    return internalServerError(context, error, "Failed to enqueue ingestion job", "ingestion.enqueue");
   }
 }
 
@@ -446,6 +514,10 @@ export async function processIngestionJobQueueMessage(
   payload: IngestionJobQueueMessage,
   context: InvocationContext
 ): Promise<void> {
+  // Wall-clock budget for this invocation; when spent, checkpoint and hand off to a
+  // continuation message so the Consumption plan's hard timeout never kills the job.
+  const invocationStartedAt = Date.now();
+  const timeBudgetMs = getWorkerTimeBudgetMs();
   const requestedMetrics = payload.requestedMetrics || buildRequestedMetrics(payload.request, payload.userId);
   const hexBatchConfig = getHexBatchRuntimeConfig();
   let stage = "worker_started";
@@ -468,24 +540,28 @@ export async function processIngestionJobQueueMessage(
       maxRecords: payload.request.maxRecords,
       hexBatchEnabled: hexBatchConfig.enabled,
       hexBatchMinImages: hexBatchConfig.minImages,
+      continuationCount: payload.checkpoint?.continuationCount ?? 0,
+      timeBudgetMs,
     });
 
+    // Messages that are ignored never write to the job row: it belongs to someone else
+    // (a finished job, the AI batch poller, or a newer continuation).
     const existingJob = await getIngestionJobById(payload.jobId);
     if (!existingJob) {
       logger.warn(`Job ${payload.jobId} not found in database, ignoring queue message`);
-      await logger.dispose();
+      await logger.dispose({ flush: false });
       return;
     }
 
     if (existingJob.status === "succeeded" || existingJob.status === "cancelled") {
       logger.info(`Job ${payload.jobId} already ${existingJob.status}, ignoring queue message`);
-      await logger.dispose();
+      await logger.dispose({ flush: false });
       return;
     }
 
     if (existingJob.status === "failed") {
       logger.info(`Job ${payload.jobId} already failed, ignoring queue message`);
-      await logger.dispose();
+      await logger.dispose({ flush: false });
       return;
     }
 
@@ -494,8 +570,45 @@ export async function processIngestionJobQueueMessage(
       logger.info(
         `Job ${payload.jobId} is waiting for Azure OpenAI batch completion, ignoring queue message`
       );
-      await logger.dispose();
+      await logger.dispose({ flush: false });
       return;
+    }
+
+    const existingMetrics = toMetricsRecord(existingJob.metrics);
+    const resumeDecision = resolveIngestionResumePoint(
+      payload.checkpoint,
+      readCheckpointFromMetrics(existingMetrics)
+    );
+    if (resumeDecision.action === "drop") {
+      logger.info(`Job ${payload.jobId} ignoring queue message: ${resumeDecision.reason}`);
+      await logger.dispose({ flush: false });
+      return;
+    }
+
+    const startCheckpoint = resumeDecision.checkpoint;
+    if (startCheckpoint) {
+      // Continuation: carry metrics written by earlier invocations (and the AI batch poller,
+      // e.g. aiBatchApplyTotals) plus their logs, so the job row describes the whole job.
+      const carriedMetrics: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(existingMetrics)) {
+        if (!NON_CARRIED_METRIC_KEYS.has(key)) {
+          carriedMetrics[key] = value;
+        }
+      }
+      logger.restoreEntries(existingMetrics.logs);
+      logger.updateBaseMetrics({
+        ...carriedMetrics,
+        ...withPipelineMetrics(requestedMetrics, "running", stage, {
+          queuedAt: payload.queuedAt,
+          queueName: INGESTION_JOB_QUEUE_NAME,
+          workerStartedAt: new Date().toISOString(),
+          [CHECKPOINT_METRICS_KEY]: startCheckpoint,
+        }),
+      });
+      logger.info(`Job ${payload.jobId} resuming from checkpoint`, {
+        ...startCheckpoint,
+        checkpointSource: resumeDecision.source,
+      });
     }
 
     await markIngestionJobRunning(payload.jobId, logger.getMetricsWithLogs());
@@ -521,22 +634,72 @@ export async function processIngestionJobQueueMessage(
     }));
     logger.info(`Pulling products from ${payload.request.source}`, {
       searchTerm: payload.request.searchTerm,
-      page: payload.request.page,
+      page: startCheckpoint?.nextPage ?? payload.request.page,
+      recordOffset: startCheckpoint?.recordOffset ?? 0,
       pageSize: payload.request.pageSize,
       maxRecords: payload.request.maxRecords,
       recentDays: payload.request.recentDays,
     });
 
     const connector = createConnector(payload.request.source, source.baseUrl);
+    // One catalog download per job, reused across pages and continuation invocations.
+    const catalogCache = createIngestionCatalogCache({
+      jobId: payload.jobId,
+      source: payload.request.source,
+      snapshot: startCheckpoint ? readCatalogSnapshotFromMetrics(existingMetrics) : null,
+      onSnapshotSaved: (snapshot) =>
+        logger.updateBaseMetrics({ [CATALOG_SNAPSHOT_METRICS_KEY]: snapshot }),
+      log: (level, message, data) =>
+        level === "warn" ? logger.warn(message, data) : logger.info(message, data),
+    });
 
     const EXHAUSTIVE_PAGE_LIMIT = 500;
+    // Totals from earlier invocations; the flattened top-level metrics can't be split back
+    // into persistence vs materialization counters, so they are persisted separately.
+    const priorTotals = startCheckpoint
+      ? toMetricsRecord(existingMetrics[WORKER_TOTALS_METRICS_KEY])
+      : {};
     let connectorMetadata: Record<string, unknown> = {};
-    const persistenceMetricsAggregate: Record<string, unknown> = {};
-    let materializationMetricsAggregate: Record<string, unknown> | null = null;
-    let totalRecordsProcessed = 0;
+    const persistenceMetricsAggregate: Record<string, unknown> = toMetricsRecord(priorTotals.persistence);
+    let materializationMetricsAggregate: Record<string, unknown> | null =
+      priorTotals.materialization ? toMetricsRecord(priorTotals.materialization) : null;
+    let totalRecordsProcessed = startCheckpoint?.recordsProcessed ?? 0;
+    let hexBatchDegraded = startCheckpoint
+      ? existingMetrics[HEX_BATCH_DEGRADED_METRICS_KEY] === true
+      : false;
+
+    // Position of the next unprocessed record; persisted after every chunk.
+    let checkpoint: IngestionCheckpoint = startCheckpoint ?? {
+      nextPage: payload.request.page,
+      recordOffset: 0,
+      pagesCompleted: 0,
+      recordsProcessed: 0,
+      continuationCount: 0,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const buildCumulativeMetrics = (): Record<string, unknown> => ({
+      ...requestedMetrics,
+      ...connectorMetadata,
+      ...persistenceMetricsAggregate,
+      ...(materializationMetricsAggregate || {}),
+      recordsProcessed: totalRecordsProcessed,
+    });
+
+    const buildWorkerTotals = (): Record<string, unknown> => {
+      // aiBatch is per-batch state owned by the poller once submitted; never replay it.
+      const { aiBatch: _aiBatch, ...materialization } = materializationMetricsAggregate ?? {};
+      return { persistence: { ...persistenceMetricsAggregate }, materialization };
+    };
 
     const persistPageRecords = async (
-      connectorResult: Awaited<ReturnType<typeof connector.pullProducts>>
+      connectorResult: Awaited<ReturnType<typeof connector.pullProducts>>,
+      unit: {
+        /** Checkpoint once these records are done; persisted if the worker pauses for AI. */
+        checkpointAfter: IngestionCheckpoint;
+        /** Continuation for the poller to enqueue after the batch; null if no work remains. */
+        resumeMessage: IngestionJobQueueMessage | null;
+      }
     ): Promise<boolean> => {
       connectorMetadata = { ...connectorMetadata, ...connectorResult.metadata };
       totalRecordsProcessed += connectorResult.records.length;
@@ -622,7 +785,7 @@ export async function processIngestionJobQueueMessage(
               detectHexFromImage: payload.request.detectHexFromImage,
               detectHexOnSuspiciousOnly: payload.request.detectHexOnSuspiciousOnly,
               overwriteDetectedHex: payload.request.overwriteDetectedHex,
-              useBatchForHexDetection: hexBatchConfig.enabled,
+              useBatchForHexDetection: hexBatchConfig.enabled && !hexBatchDegraded,
               batchMinImages: hexBatchConfig.minImages,
               progressLogger: {
                 info: (message, data) => logger.info(message, data),
@@ -639,6 +802,17 @@ export async function processIngestionJobQueueMessage(
             durationMs: materializeDuration,
             recordsProcessed: connectorResult.records.length,
           });
+
+          // Batch submission failed and the materializer fell back to synchronous detection
+          // (e.g. the batch deployment's enqueued-token limit). Use small synchronous chunks
+          // for the rest of the job so the time budget keeps applying.
+          if (!hexBatchDegraded && Number(materializationMetrics?.batchFallbacks) > 0) {
+            hexBatchDegraded = true;
+            logger.updateBaseMetrics({ [HEX_BATCH_DEGRADED_METRICS_KEY]: true });
+            logger.warn(
+              `Batch hex detection unavailable; continuing ${payload.request.source} with synchronous chunks of ${INGESTION_SYNC_CHUNK_SIZE}`
+            );
+          }
         } catch (materializeError) {
           const materializeDuration = Date.now() - materializeStartTime;
           logger.error(`${payload.request.source} materialization failed`, {
@@ -667,12 +841,13 @@ export async function processIngestionJobQueueMessage(
 
       if (aiBatch && aiBatch.status === "submitted" && typeof aiBatch.batchId === "string") {
         stage = "awaiting_ai";
+        checkpoint = unit.checkpointAfter;
         const awaitingAiMetrics = {
-          ...requestedMetrics,
-          ...connectorMetadata,
-          ...persistenceMetricsAggregate,
-          ...(materializationMetricsAggregate || {}),
-          recordsProcessed: totalRecordsProcessed,
+          ...buildCumulativeMetrics(),
+          [CHECKPOINT_METRICS_KEY]: checkpoint,
+          [WORKER_TOTALS_METRICS_KEY]: buildWorkerTotals(),
+          // The poller enqueues this after applying the batch; absent means the job is done.
+          [RESUME_MESSAGE_METRICS_KEY]: unit.resumeMessage ?? undefined,
         };
 
         logger.updateBaseMetrics(
@@ -685,6 +860,7 @@ export async function processIngestionJobQueueMessage(
         logger.info(`Job ${payload.jobId} awaiting Azure OpenAI batch completion`, {
           batchId: aiBatch.batchId,
           requestCount: aiBatch.requestCount,
+          resumeAt: unit.resumeMessage?.checkpoint ?? null,
         });
 
         await updateIngestionJobMetrics(payload.jobId, logger.getMetricsWithLogs());
@@ -695,88 +871,108 @@ export async function processIngestionJobQueueMessage(
       return false;
     };
 
-    if (payload.request.exhaustive) {
-      // Exhaustive mode: loop through all pages and process each page incrementally.
-      let currentPage = payload.request.page;
-      let pagesFetched = 0;
-      let lastPageRecordCount = 0;
-      let lastFetchedPage = currentPage;
-      let completedByConnectorSignal = false;
+    // Batch hex detection only submits a batch per call, so chunks can be larger; sync
+    // detection costs an AI call + delay per record, so it runs in small chunks.
+    const usesBatchHexDetection =
+      hexBatchConfig.enabled &&
+      payload.request.source.endsWith("Shopify") &&
+      payload.request.materializeToInventory &&
+      payload.request.detectHexFromImage;
+    const currentChunkSize = (): number =>
+      usesBatchHexDetection && !hexBatchDegraded ? INGESTION_BATCH_CHUNK_SIZE : INGESTION_SYNC_CHUNK_SIZE;
+    let chunksThisInvocation = 0;
+    let longestChunkMs = 0;
 
+    // Always process at least one chunk per invocation so every continuation makes progress.
+    const hasBudgetFor = (estimatedMs: number): boolean =>
+      chunksThisInvocation === 0 ||
+      Date.now() - invocationStartedAt + estimatedMs < timeBudgetMs;
+
+    // Between chunks, stop if the job was cancelled/finished elsewhere or a newer
+    // continuation has taken over. Never write to the job row after this returns false.
+    const stillOwnsJob = async (): Promise<boolean> => {
+      const currentJob = await getIngestionJobById(payload.jobId);
+      if (!currentJob || currentJob.status !== "running") {
+        context.log(
+          `Job ${payload.jobId} is ${currentJob?.status ?? "missing"}; stopping worker without updating it`
+        );
+        return false;
+      }
+      const dbCheckpoint = readCheckpointFromMetrics(currentJob.metrics);
+      if (dbCheckpoint && dbCheckpoint.continuationCount > checkpoint.continuationCount) {
+        context.warn(
+          `Job ${payload.jobId} superseded by continuation ${dbCheckpoint.continuationCount}; stopping worker`
+        );
+        return false;
+      }
+      return true;
+    };
+
+    // Persist the checkpoint so a hard kill loses at most one chunk of work.
+    const saveProgress = async (): Promise<void> => {
+      logger.updateBaseMetrics(withPipelineMetrics(buildCumulativeMetrics(), "running", stage, {
+        queuedAt: payload.queuedAt,
+        [CHECKPOINT_METRICS_KEY]: checkpoint,
+        [WORKER_TOTALS_METRICS_KEY]: buildWorkerTotals(),
+      }));
+      try {
+        await updateIngestionJobMetrics(payload.jobId, logger.getMetricsWithLogs());
+      } catch (error) {
+        // Not fatal: a restart would redo work since the last saved checkpoint.
+        logger.warn(`Failed to save ingestion checkpoint`, { error: getErrorMessage(error) });
+      }
+    };
+
+    // Time budget spent with work remaining: persist the checkpoint, then enqueue a
+    // continuation. The job stays `running` and the next invocation picks it up.
+    const handOffToContinuation = async (): Promise<void> => {
+      const continuationCheckpoint: IngestionCheckpoint = {
+        ...checkpoint,
+        continuationCount: checkpoint.continuationCount + 1,
+        updatedAt: new Date().toISOString(),
+      };
+      stage = CONTINUATION_QUEUED_STAGE;
+      logger.updateBaseMetrics(withPipelineMetrics(buildCumulativeMetrics(), "running", stage, {
+        queuedAt: payload.queuedAt,
+        workerPausedAt: new Date().toISOString(),
+        [CHECKPOINT_METRICS_KEY]: continuationCheckpoint,
+        [WORKER_TOTALS_METRICS_KEY]: buildWorkerTotals(),
+      }));
+      logger.info(
+        `Job ${payload.jobId} used ${Date.now() - invocationStartedAt}ms of its ${timeBudgetMs}ms budget; continuing in a new invocation`,
+        { ...continuationCheckpoint }
+      );
+
+      // Stop periodic flushes first: once the continuation is enqueued the next invocation
+      // owns the row, and a late flush from here would overwrite its progress.
+      await logger.dispose({ flush: false });
+      await updateIngestionJobMetrics(payload.jobId, logger.getMetricsWithLogs());
+
+      stage = CONTINUATION_ENQUEUE_STAGE;
+      await enqueueIngestionContinuation({ ...payload, checkpoint: continuationCheckpoint });
+      context.log(
+        `Job ${payload.jobId} continuation ${continuationCheckpoint.continuationCount} enqueued`,
+        { nextPage: continuationCheckpoint.nextPage, recordOffset: continuationCheckpoint.recordOffset }
+      );
+    };
+
+    const exhaustive = payload.request.exhaustive;
+    // Pages pulled across all invocations. A partially processed page is not in
+    // pagesCompleted, so re-pulling it on resume counts it exactly once.
+    let pagesFetched = exhaustive ? checkpoint.pagesCompleted : 0;
+    let capped = false;
+
+    if (exhaustive) {
       logger.info(`Exhaustive mode: paging through all records from ${payload.request.source}`, {
-        startPage: currentPage,
+        startPage: checkpoint.nextPage,
+        startOffset: checkpoint.recordOffset,
         pageSize: payload.request.pageSize,
       });
+    }
 
-      let capped = false;
-      while (pagesFetched < EXHAUSTIVE_PAGE_LIMIT) {
-        const pageResult = await connector.pullProducts({
-          searchTerm: payload.request.searchTerm,
-          page: currentPage,
-          pageSize: payload.request.pageSize,
-          maxRecords: payload.request.pageSize,
-          recentDays: payload.request.recentDays,
-        });
-
-        logger.info(`Exhaustive page ${currentPage}: ${pageResult.records.length} records`, {
-          page: currentPage,
-          ...pageResult.metadata,
-        });
-
-        const stopReason = getExhaustiveStopReason(pageResult, currentPage);
-        if (pageResult.records.length === 0) {
-          completedByConnectorSignal = true;
-          connectorMetadata = {
-            ...connectorMetadata,
-            ...pageResult.metadata,
-            pagesFetched,
-            exhaustive: true,
-            requestedExhaustive: true,
-            capped: false,
-            pageLimit: EXHAUSTIVE_PAGE_LIMIT,
-          };
-          logger.info(`Exhaustive mode stopping after page ${currentPage}: ${stopReason ?? "empty page"}`, {
-            page: currentPage,
-            pagesFetched,
-            source: payload.request.source,
-            recordCount: pageResult.records.length,
-          });
-          break;
-        }
-
-        pagesFetched++;
-        lastFetchedPage = currentPage;
-        lastPageRecordCount = pageResult.records.length;
-        connectorMetadata = {
-          ...connectorMetadata,
-          ...pageResult.metadata,
-          pagesFetched,
-          exhaustive: true,
-          requestedExhaustive: true,
-          capped: false,
-          pageLimit: EXHAUSTIVE_PAGE_LIMIT,
-        };
-
-        const shouldPauseForAiBatch = await persistPageRecords(pageResult);
-        if (shouldPauseForAiBatch) {
-          return;
-        }
-
-        if (stopReason) {
-          completedByConnectorSignal = true;
-          logger.info(`Exhaustive mode stopping after page ${currentPage}: ${stopReason}`, {
-            page: currentPage,
-            pagesFetched,
-            source: payload.request.source,
-            recordCount: pageResult.records.length,
-          });
-          break;
-        }
-
-        currentPage++;
-      }
-
-      if (!completedByConnectorSignal && pagesFetched >= EXHAUSTIVE_PAGE_LIMIT && lastPageRecordCount > 0) {
+    // Non-exhaustive runs are a single page (up to maxRecords) but checkpoint the same way.
+    while (true) {
+      if (exhaustive && pagesFetched >= EXHAUSTIVE_PAGE_LIMIT) {
         capped = true;
         connectorMetadata = {
           ...connectorMetadata,
@@ -789,42 +985,161 @@ export async function processIngestionJobQueueMessage(
         logger.warn(`Exhaustive mode reached page safety cap for ${payload.request.source}`, {
           source: payload.request.source,
           pagesFetched,
-          currentPage: lastFetchedPage,
+          currentPage: checkpoint.nextPage - 1,
           pageLimit: EXHAUSTIVE_PAGE_LIMIT,
           totalRecordsProcessed,
         });
+        break;
       }
 
-      logger.info(`Exhaustive pull complete: ${totalRecordsProcessed} total records across ${pagesFetched} pages`, {
-        capped,
-      });
-    } else {
-      const connectorResult = await connector.pullProducts({
-        searchTerm: payload.request.searchTerm,
-        page: payload.request.page,
-        pageSize: payload.request.pageSize,
-        maxRecords: payload.request.maxRecords,
-        recentDays: payload.request.recentDays,
-      });
-
-      connectorMetadata = { ...connectorMetadata, ...connectorResult.metadata };
-      const shouldPauseForAiBatch = await persistPageRecords(connectorResult);
-      if (shouldPauseForAiBatch) {
+      if (!hasBudgetFor(longestChunkMs)) {
+        await handOffToContinuation();
         return;
+      }
+
+      const pageNumber = checkpoint.nextPage;
+      const pageResult = await connector.pullProducts({
+        searchTerm: payload.request.searchTerm,
+        page: pageNumber,
+        pageSize: payload.request.pageSize,
+        maxRecords: exhaustive ? payload.request.pageSize : payload.request.maxRecords,
+        recentDays: payload.request.recentDays,
+        catalogCache,
+      });
+      const records = pageResult.records;
+
+      // Stop decisions always use the FULL page, never a chunk of it.
+      let stopReason: string | null = null;
+      if (exhaustive) {
+        logger.info(`Exhaustive page ${pageNumber}: ${records.length} records`, {
+          page: pageNumber,
+          ...pageResult.metadata,
+        });
+
+        stopReason = getExhaustiveStopReason(pageResult, pageNumber);
+        if (records.length === 0) {
+          connectorMetadata = {
+            ...connectorMetadata,
+            ...pageResult.metadata,
+            pagesFetched,
+            exhaustive: true,
+            requestedExhaustive: true,
+            capped: false,
+            pageLimit: EXHAUSTIVE_PAGE_LIMIT,
+          };
+          logger.info(`Exhaustive mode stopping after page ${pageNumber}: ${stopReason ?? "empty page"}`, {
+            page: pageNumber,
+            pagesFetched,
+            source: payload.request.source,
+            recordCount: records.length,
+          });
+          break;
+        }
+
+        pagesFetched++;
+        connectorMetadata = {
+          ...connectorMetadata,
+          ...pageResult.metadata,
+          pagesFetched,
+          exhaustive: true,
+          requestedExhaustive: true,
+          capped: false,
+          pageLimit: EXHAUSTIVE_PAGE_LIMIT,
+        };
+      } else {
+        connectorMetadata = { ...connectorMetadata, ...pageResult.metadata };
+      }
+
+      const hasNextPage = exhaustive && !stopReason && pagesFetched < EXHAUSTIVE_PAGE_LIMIT;
+      const pagesCompletedBeforePage = checkpoint.pagesCompleted;
+      const positionAfter = (recordEnd: number) =>
+        recordEnd < records.length
+          ? { nextPage: pageNumber, recordOffset: recordEnd, pagesCompleted: pagesCompletedBeforePage }
+          : { nextPage: pageNumber + 1, recordOffset: 0, pagesCompleted: pagesCompletedBeforePage + 1 };
+
+      let offset = Math.min(checkpoint.recordOffset, records.length);
+      if (offset > 0) {
+        logger.info(`Resuming page ${pageNumber} at record ${offset} of ${records.length}`);
+      }
+      if (offset >= records.length) {
+        // The page shrank since the checkpoint was written; nothing left on it.
+        checkpoint = { ...checkpoint, ...positionAfter(records.length), updatedAt: new Date().toISOString() };
+      }
+
+      while (offset < records.length) {
+        if (!hasBudgetFor(longestChunkMs)) {
+          await handOffToContinuation();
+          return;
+        }
+
+        const chunk = records.slice(offset, offset + currentChunkSize());
+        const chunkEnd = offset + chunk.length;
+        const checkpointAfter: IngestionCheckpoint = {
+          ...checkpoint,
+          ...positionAfter(chunkEnd),
+          recordsProcessed: totalRecordsProcessed + chunk.length,
+          updatedAt: new Date().toISOString(),
+        };
+        const workRemainsAfterChunk = chunkEnd < records.length || hasNextPage;
+        const resumeMessage: IngestionJobQueueMessage | null = workRemainsAfterChunk
+          ? {
+              ...payload,
+              checkpoint: { ...checkpointAfter, continuationCount: checkpointAfter.continuationCount + 1 },
+            }
+          : null;
+
+        if (chunk.length < records.length) {
+          logger.info(`Processing records ${offset + 1}-${chunkEnd} of ${records.length} on page ${pageNumber}`);
+        }
+
+        const chunkStartedAt = Date.now();
+        const shouldPauseForAiBatch = await persistPageRecords(
+          { ...pageResult, records: chunk },
+          { checkpointAfter, resumeMessage }
+        );
+        if (shouldPauseForAiBatch) {
+          return;
+        }
+
+        longestChunkMs = Math.max(longestChunkMs, Date.now() - chunkStartedAt);
+        chunksThisInvocation++;
+        offset = chunkEnd;
+        checkpoint = checkpointAfter;
+
+        if (!(await stillOwnsJob())) {
+          await logger.dispose({ flush: false });
+          return;
+        }
+        await saveProgress();
+      }
+
+      if (!exhaustive) {
+        break;
+      }
+
+      if (stopReason) {
+        logger.info(`Exhaustive mode stopping after page ${pageNumber}: ${stopReason}`, {
+          page: pageNumber,
+          pagesFetched,
+          source: payload.request.source,
+          recordCount: records.length,
+        });
+        break;
       }
     }
 
+    if (exhaustive) {
+      logger.info(`Exhaustive pull complete: ${totalRecordsProcessed} total records across ${pagesFetched} pages`, {
+        capped,
+      });
+    }
+
     // Build final metrics with logs
-    const baseMetrics = {
-      ...requestedMetrics,
-      ...connectorMetadata,
-      ...persistenceMetricsAggregate,
-      ...(materializationMetricsAggregate || {}),
-      recordsProcessed: totalRecordsProcessed,
-    };
-    logger.updateBaseMetrics(withPipelineMetrics(baseMetrics, "succeeded", "completed", {
+    logger.updateBaseMetrics(withPipelineMetrics(buildCumulativeMetrics(), "succeeded", "completed", {
       queuedAt: payload.queuedAt,
       workerCompletedAt: new Date().toISOString(),
+      [CHECKPOINT_METRICS_KEY]: checkpoint,
+      [WORKER_TOTALS_METRICS_KEY]: buildWorkerTotals(),
     }));
     logger.info(`Job ${payload.jobId} completed successfully`);
 
@@ -1193,7 +1508,7 @@ async function handlePurgeQueue(
       context.error("Error purging queue:", result.error);
       return {
         status: 500,
-        jsonBody: { error: result.error || "Failed to purge queue" },
+        jsonBody: { error: "Failed to purge queue", requestId: context.invocationId },
       };
     }
     return {
@@ -1372,7 +1687,7 @@ async function bulkIngestionHandler(
       }
     }
 
-    return { status: 500, jsonBody: { error: message } };
+    return internalServerError(context, error, "Failed to enqueue bulk ingestion", "ingestion.bulk-enqueue");
   }
 }
 

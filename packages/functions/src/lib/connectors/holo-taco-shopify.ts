@@ -2,6 +2,7 @@ import {
   ConnectorPullOptions,
   ConnectorPullResult,
   ConnectorProductRecord,
+  loadCatalogWithCache,
   ProductConnector,
 } from "./types";
 
@@ -311,6 +312,9 @@ function toNormalizedRecord(
   const handle = asNonEmptyString(product.handle);
   const brand = asNonEmptyString(product.vendor) || "Holo Taco";
   const collections = extractTaggedValues(tags, "collection:");
+  // Raw `finish:` tag values. finishes[0] is the legacy shade identity key (shade.finish);
+  // canonical multi-finish values are derived from `tags` at materialization time via
+  // parseFinishesFromTags (lib/finishes.ts).
   const finishes = extractTaggedValues(tags, "finish:");
   const imageUrls = normalizeImageUrls(product.images);
   const variants = normalizeVariants(product.variants);
@@ -356,7 +360,9 @@ export class HoloTacoShopifyConnector implements ProductConnector {
   }
 
   async pullProducts(options: ConnectorPullOptions): Promise<ConnectorPullResult> {
-    const allProducts = await this.fetchAllProducts();
+    const allProducts = await loadCatalogWithCache<ShopifyProduct>(options.catalogCache, () =>
+      this.fetchAllProducts()
+    );
     const normalizedRecords = allProducts
       .map((product) => toNormalizedRecord(product, this.baseUrl))
       .filter((record): record is ConnectorProductRecord => Boolean(record));

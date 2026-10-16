@@ -127,8 +127,12 @@ jobs:
           node-version: '24'
           cache: 'npm'
 
+      # Install only the workspaces this job builds (skips mobile/Expo and the
+      # functions toolchain). --ignore-scripts skips postinstall downloads such
+      # as husky and azure-functions-core-tools; prebuilt native binaries come
+      # from optional deps (Tailwind ones are patched in the next step).
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts --no-audit --no-fund --workspace=apps/web --workspace=packages/shared --include-workspace-root
 
       - name: Install Tailwind CSS native binaries
         run: |
@@ -283,8 +287,11 @@ jobs:
           node-version: '24'
           cache: 'npm'
 
+      # Install only shared + functions. --ignore-scripts skips the
+      # azure-functions-core-tools postinstall, which downloads the full func
+      # host binary that this job never runs (deploys go through functions-action).
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts --no-audit --no-fund --workspace=packages/functions --workspace=packages/shared
 
       - name: Build shared package
         run: npm run build --workspace=packages/shared
@@ -318,7 +325,9 @@ jobs:
 
           # Install production (external) deps into the self-contained deploy dir.
           cd "$DEPLOY_DIR"
-          npm install --omit=dev --ignore-scripts
+          # --prefer-offline reuses tarballs already in ~/.npm from the install
+          # above instead of re-checking the registry for every package.
+          npm install --omit=dev --ignore-scripts --no-audit --no-fund --prefer-offline
 
       - name: Azure login (OIDC)
         uses: azure/login@v3
@@ -349,12 +358,11 @@ jobs:
             --name '${{ needs.resolve-infra-outputs.outputs.function_app_name }}' \
             --resource-group '${{ needs.resolve-infra-outputs.outputs.resource_group_name }}' \
             --settings \
-              AUTH_DEV_BYPASS="$AUTH_DEV_BYPASS" \
+              AUTH_DEV_BYPASS="false" \
               AZURE_AD_B2C_TENANT="$AZURE_AD_B2C_TENANT" \
               AZURE_AD_B2C_CLIENT_ID="$AZURE_AD_B2C_CLIENT_ID" \
               FUNCTIONS_NODE_BLOCK_ON_ENTRY_POINT_ERROR="true"
         env:
-          AUTH_DEV_BYPASS: ${{ vars.AUTH_DEV_BYPASS }}
           AZURE_AD_B2C_TENANT: ${{ vars.AZURE_AD_B2C_TENANT || vars.NEXT_PUBLIC_B2C_TENANT }}
           AZURE_AD_B2C_CLIENT_ID: ${{ secrets.AZURE_AD_B2C_CLIENT_ID }}
 
@@ -365,28 +373,15 @@ jobs:
           API_BASE='https://${{ needs.resolve-infra-outputs.outputs.function_app_hostname }}/api'
 
           echo "Checking API liveness via /polishes..."
-          if [ "${AUTH_DEV_BYPASS:-false}" = "true" ]; then
-            polishes_status=$(curl -sS -o /tmp/polishes.json -w "%{http_code}" \
-              -H 'Authorization: Bearer dev:1' \
-              "$API_BASE/polishes?pageSize=1")
+          polishes_status=$(curl -sS -o /tmp/polishes.json -w "%{http_code}" \
+            "$API_BASE/polishes?pageSize=1")
 
-            if [ "$polishes_status" != "200" ]; then
-              echo "Expected 200 from /polishes (with dev bypass), got $polishes_status"
-              cat /tmp/polishes.json || true
-              exit 1
-            fi
-            echo "✓ API is up and authorized"
-          else
-            polishes_status=$(curl -sS -o /tmp/polishes.json -w "%{http_code}" \
-              "$API_BASE/polishes?pageSize=1")
-
-            if [ "$polishes_status" != "401" ] && [ "$polishes_status" != "200" ]; then
-              echo "Expected 401 or 200 from /polishes, got $polishes_status"
-              cat /tmp/polishes.json || true
-              exit 1
-            fi
-            echo "✓ API is up (returned $polishes_status)"
+          if [ "$polishes_status" != "401" ] && [ "$polishes_status" != "200" ]; then
+            echo "Expected 401 or 200 from /polishes, got $polishes_status"
+            cat /tmp/polishes.json || true
+            exit 1
           fi
+          echo "✓ API is up (returned $polishes_status)"
 
           # TODO: Re-enable voice endpoint smoke test once voice feature is implemented
           # echo "Checking /voice endpoint..."
@@ -401,5 +396,3 @@ jobs:
           #   exit 1
           # fi
           # echo "✓ Voice endpoint is responding"
-        env:
-          AUTH_DEV_BYPASS: ${{ vars.AUTH_DEV_BYPASS }}

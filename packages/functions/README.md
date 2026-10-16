@@ -10,10 +10,33 @@ npm run setup            # Install workspace dependencies first
 npm run dev:infra        # Start local Postgres + Azurite
 npm run dev:functions    # TypeScript watch + func host on http://localhost:7071
 npm run test --workspace=packages/functions  # Run Functions unit tests
+npm run test:e2e --workspace=packages/functions  # E2E tests against the running local host
 
 # Or for debugging (VS Code):
 # Press F5 → "Attach to Node Functions" (builds, watches, starts with --inspect on port 9229)
 ```
+
+### Tests
+
+- **Unit** (`npm run test`): `tests/*.unit.test.cjs`, no DB or host required; runs in CI.
+  `tests/access-control.unit.test.cjs` covers cross-user isolation (issue #53): every inventory /
+  capture-session query must be bound to the caller's `user_id`, cross-user GET/PUT/DELETE and
+  capture status/frame/finalize/answer must not read or mutate the owner's rows, user-scoped routes
+  return 401 without credentials, admin routes return 403 for regular users, `userId`/`user_id` in
+  request bodies or query params is ignored in favor of the authenticated caller, and `/api/images/{id}`
+  rejects unsigned/forged/tampered ids (the `images signed-id (requires #47)` block). A nested
+  `known gap #227` block pins that a valid signed image id is currently served to any caller (ids are
+  not owner-scoped or expiring) — flip it when #227 lands.
+- **E2E** (`npm run test:e2e`): `tests/api.test.cjs` + `tests/access-control.e2e.test.cjs` against
+  a live host at `http://localhost:7071/api` started with `AUTH_DEV_BYPASS=true` and migrated dev
+  data (seed users `dev:1` and `dev:2`). The access-control suite has user 2 attempt to read/modify
+  user 1's polish and capture session (including spoofed `userId` bodies/query params and searching by
+  user 1's private notes/tags), verifies user 1's data is unchanged, and checks tampered image ids. It
+  skips itself when the host is unreachable. Override with `E2E_API_BASE` (honored by both files),
+  `E2E_OWNER_TOKEN`, `E2E_ATTACKER_TOKEN`, and `E2E_OWNER_ID` (the owner's `app_user` id; needed for the
+  `userId`-spoofing cases when the owner token isn't `dev:<id>`, otherwise those cases skip). Note that `GET /polishes/{id}` and the default list are
+  catalog views joined to the caller's own inventory, so cross-user isolation means "no other user's
+  inventory fields", not a 404; `scope=collection` restricts the list to owned items.
 
 Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools@4`).
 
@@ -26,6 +49,7 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `PUT` | `/api/polishes/{id}` | `updatePolish` | `polishes.ts` | ✅ Live |
 | `DELETE` | `/api/polishes/{id}` | `deletePolish` | `polishes.ts` | ✅ Live |
 | `POST` | `/api/polishes/{id}/recalc-hex` | `recalcHex` | `polishes.ts` | ✅ Live (admin-only) |
+| `POST` | `/api/polishes/match-image` | `matchImage` | `polishes.ts` | ✅ Live |
 | `GET` | `/api/catalog/search` | `searchCatalog` | `catalog.ts` | ✅ Working |
 | `GET` | `/api/catalog/shade/{id}` | `getShade` | `catalog.ts` | ✅ Working |
 | `POST` | `/api/auth/validate` | `validateToken` | `auth.ts` | ✅ Working |
@@ -63,8 +87,8 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `DELETE` | `/api/reference-admin/finish-normalizations/{id}` | `adminFinishNormalizationsItemHandler` | `admin-reference.ts` | ✅ Working (admin-only) |
 | `GET` | `/api/users-admin` | `listUsers` | `admin-users.ts` | ✅ Working (admin-only) |
 | `POST` | `/api/users-admin/merge` | `mergeUsers` | `admin-users.ts` | ✅ Working (admin-only) |
-| `POST` | `/api/voice` | `processVoiceInput` | `voice.ts` | ⬜ Stub |
-| `GET` | `/api/images/{id}` | `images` | `images.ts` | ✅ Working |
+| `POST` | `/api/voice` | `processVoiceInput` | `voice.ts` | ⬜ Stub (auth required) |
+| `GET` | `/api/images/{id}` | `images` | `images.ts` | ✅ Working (signed ids only) |
 
 
 Background triggers:
@@ -75,15 +99,44 @@ Background triggers:
 All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpRequest, context: InvocationContext)`.
 
 `GET /api/polishes` returns a paginated canonical shade catalog joined with the requesting user's inventory rows. `inventoryItemId` and user-facing fields are undefined when the user has not added that shade yet, but catalog metadata (brand, finish, color hexes, swatch) is still returned so the UI can show "not owned" entries. Supported query params include `search`, `brand`, `finish`, `scope` (`all|collection`), `availability` (`all|owned|wishlist`), `tags`, `sortBy` (`status|brand|name|finish|collection|createdAt|rating`), `sortOrder`, `page`, and `pageSize`. `GET /api/polishes/{id}` looks up a shade by `shade_id` and includes `sourceImageUrls` (all source images associated with that shade's swatches) for the detail page.
+**Multi-finish contract (#43):** polish list/detail responses include `finishes: string[]` (all canonical finishes for the shade, primary first) alongside the legacy `finish` string. `finish` stays populated for older consumers: it is the shade's stored `finish` column (its identity/dedup key) and falls back to `finishes[0]` when that column is empty. Filters: `finish=<value>` matches shades that have the finish anywhere in `finishes` *or* as the legacy `finish`; `finishes=a,b` matches shades with ANY of the listed finishes; both accept aliases (`holo`, `cream`, …). `sortBy=finish` sorts by the primary finish. `POST /api/polishes` and `PUT /api/polishes/{id}` accept `finishes` (explicit list → replaces the shade's finishes; `[]` clears) in addition to `finish` (legacy → merged). Request `tags` are the caller's personal inventory tags and are **not** used to change finishes: shades are shared catalog rows, so only an explicit `finishes`/`finish` can modify `shade.finishes` (a tags-only request leaves them untouched; only ingestion connectors parse finishes from product tags). Unknown values are ignored; a value is accepted when it is (or aliases to) a `finish_type` row, including types added through the admin UI. When only `finishes` is sent, the legacy `finish`/identity key defaults to `finishes[0]`.
 When `REDIS_URL` + `REDIS_KEY` are configured, list/detail reads are served through a Redis read-through cache (short TTL), and create/update/delete/recalc writes invalidate related user and catalog cache keys.
 For private blob storage, the API rewrites blob URLs to `/api/images/{id}` so image bytes are served through Functions (no public container access or client-side SAS required).
+
+Access control (issue #47):
+- Every user-data route (`/api/polishes*`, `/api/capture/*`, `/api/voice`) is wrapped in `withAuth`, and every query is scoped to the caller's `user_id` (inventory upserts/deletes key on `(user_id, shade_id)`; capture sessions are looked up by `capture_uuid` **and** `user_id`, and questions/answers/frames hang off that session). Admin/ops routes (`/api/ingestion/*`, `/api/reference-admin/*`, `/api/users-admin*`, `/api/polishes/{id}/recalc-hex`) use `withAdmin`. Only `/api/auth/*`, `/api/catalog/*`, `/api/reference/*`, and `/api/images/{id}` are anonymous, and none of them return per-user data.
+- Shared catalog shades are never rewritten by regular users: color fields and `finishes` are **fill-only** (a user request may only fill NULL colors / an empty `shade.finishes`, never replace, clear or append to existing values), and `shade.finish` (the dedup key) is never changed. The one exception is a user's own `user_submitted` shade, whose finishes they may edit freely.
+- Shades created through `POST/PUT /api/polishes` start as `status = 'user_submitted'` with `created_by_user_id` (migration 024) and are private until an admin promotes them (sets `status = 'active'`; no approval endpoint yet). A `user_submitted` shade is visible only to its creator and to users holding it in their inventory: it is excluded from other users' polish list/count/detail (`GET /api/polishes*`), `polishes/match-image`, `GET /api/catalog/shade/{id}` (404) and catalog search/capture matching (`status = 'active'` only). Adopting such a shade by id (`POST shadeId`, `PUT /polishes/{id}`, capture `candidate_select`) returns 404. A brand + name that only matches another user's private shade creates the caller's own row (idx_shade_unique includes the NULL `product_line_id`, so it does not block this). Ingestion promotes a matching `user_submitted` shade to `active`. New brand rows are still created immediately.
+- Account linking: a new external identity links to an existing `app_user` by email only when the token proves the email is verified (`email_verified` true or Entra `xms_edov` true). Otherwise a separate user is created with no stored email and `auth.email_link_skipped` is tracked. Identities already linked (by `external_id`) are unaffected.
+- Shades are a shared catalog. Color fields (`color`, `vendorHex`, `detectedHex`, `nameHex`) sent to `POST`/`PUT /api/polishes` only **backfill NULL** shade columns (`COALESCE(column, $new)`); a regular user can never overwrite catalog color data other users see. Corrections to existing values go through admin tooling (e.g. `recalc-hex`).
+- `POST /api/capture/{captureId}/frame` with an `imageId` only accepts image assets owned by the caller (`image_asset.owner_type='user' AND owner_id=<caller>`); anything else returns `404`.
+- `GET /api/images/{id}` is anonymous because ids are embedded in `<img src>` (no `Authorization` header). The id is therefore an expiring signed capability: `v2.<base64url(storageUrl)>.<exp base36>.<base64url(HMAC-SHA256(IMAGE_PROXY_SIGNING_KEY, "swatchwatch:image-proxy:v2:" + exp + ":" + storageUrl))>`, minted only by the API (`src/lib/image-proxy.ts`). The expiry is covered by the HMAC; ids stay valid for at least `IMAGE_PROXY_ID_TTL_SECONDS` (default 3 days, well past the 24h Azure OpenAI batch window) and are bucketed to day boundaries so the same image keeps a stable, cacheable URL. Unsigned, forged, tampered, or expired ids return `403 {"error":"Forbidden"}` without touching storage. Legacy non-expiring v1 ids are never minted and are rejected unless `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL` is set to a future timestamp (rollout grace window; each acceptance emits `image_proxy.legacy_id_accepted`). The decoded URL must also be a plain blob URL (no query string/credentials) on the configured storage account inside the source-image container (`SOURCE_IMAGE_CONTAINER`), otherwise `403`. Ids are deterministic per URL+key+expiry bucket, so rotating `IMAGE_PROXY_SIGNING_KEY` invalidates previously issued image URLs (clients pick up new ones on the next API read; Redis-cached polish responses expire within ~90s).
+- If `IMAGE_PROXY_SIGNING_KEY` is missing, signing fails closed: polish responses omit proxied image URLs (`swatchImageUrl: null`) and `/api/images/{id}` returns `500` — unless dev bypass is active (`AUTH_DEV_BYPASS=true` and not hosted in Azure), in which case an ephemeral per-process key is generated (with a warning) for local development.
+- Image proxy caching: only catalog blobs (the `SOURCE_IMAGE_CONTAINER` container) are served `Cache-Control: public`; any other media gets `private, max-age=<n>` with no `stale-while-revalidate`. `max-age` never exceeds the id's remaining lifetime.
+- `AUTH_DEV_BYPASS` fails closed when hosted in Azure (`WEBSITE_INSTANCE_ID` set, or a non-loopback `WEBSITE_HOSTNAME`; Core Tools' `localhost:7071` still counts as local). In that case the flag is ignored, a one-time error is logged plus an `auth.dev_bypass_refused` event, and `dev:*` tokens go through JWT validation (401). There is no override.
+- `POST /api/capture/{captureId}/frame` `imageBlobUrl` accepts only a base64 `data:image/*` URL or a plain `https://` blob URL on the configured storage account (`AZURE_STORAGE_CONNECTION`) inside `SOURCE_IMAGE_CONTAINER`, with no credentials, port, query string or fragment. `http:`, other hosts and SAS URLs are rejected with `400`, as are all remote URLs when no storage account is configured. The URL is validated even when `imageId` is also sent, so only validated input reaches Document Intelligence / Azure OpenAI.
+
+Error responses: unexpected `500`s return only a generic message and a correlation id, `{ "error": "Failed to …", "requestId": "<invocationId>" }`. The full error (including Postgres messages) is logged server-side via `context.error` and `trackException` (`src/lib/errors.ts` → `internalServerError()`), never sent to the client.
 `POST /api/polishes/{id}/recalc-hex` is admin-only, fetches the latest swatch image for the shade, runs Azure OpenAI hex detection, updates `detected_hex`, and returns a 200 with the detected hex and confidence (or a 422 if no image is available for detection). Responses now also include `tokenUsage` (`promptTokens`, `completionTokens`, `totalTokens`) when Azure returns usage metadata. Vendor context is derived from shade metadata (for example `finish`) so the endpoint does not depend on source-specific external IDs.
+
+`POST /api/polishes/match-image` (authenticated) matches a photo against the **caller's owned polishes** (`quantity > 0`). Body (`PolishImageMatchRequest`): `{ image: "data:image/<type>;base64,…", maxColors?: 1–10 (default 6), limit?: 1–50 (default 20) }` — the same base64 data-URL convention as capture frames and the same upload policy (5 MB decoded, JPEG/PNG/WebP/GIF/HEIC/HEIF MIME allowlist). Bodies larger than the base64-encoded 5 MB limit are rejected with 413; missing/invalid images, non-image MIME types, undecodable bytes, images over 40 MP, and out-of-range options return 400. The handler decodes the image in memory with `sharp`, extracts dominant colors (`lib/dominant-color.ts`), merges perceptually near-duplicate colors (OKLAB < 0.04) and drops colors under 1% of pixels, then scores each owned polish's display hex (`vendorHex > detectedHex > nameHex`) by its minimum OKLAB distance to any extracted color. Response (`PolishImageMatchResponse`): `{ extractedColors: [{ hex, fraction }], matches: [{ polish, matchedColor, distance, confidence }], candidateCount }`, sorted by ascending distance. `confidence` comes from `confidenceForDistance()` in `src/lib/color-match.ts` (`high` ≤ 0.05, `medium` ≤ 0.10, else `low`; tune via `HIGH_CONFIDENCE_MAX_DISTANCE` / `MEDIUM_CONFIDENCE_MAX_DISTANCE`). **Privacy:** the image is never persisted — not to blob storage, the database, Redis, or logs — and responses are not cached.
 Image uploads now enforce a shared validation policy (`maxSizeBytes=5MB`; allowed mime types: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif`, `image/gif`) used by capture-frame data URLs and source-image ingestion; uploads outside these limits are rejected with a 400. All uploaded image bytes are auto-oriented and metadata-stripped with `sharp` (removing EXIF/GPS and other embedded metadata) before any checksum generation, persistence, or forwarding to AI/OCR services. This applies to both source-image ingestion (before blob upload) and capture-frame data URLs (`quality_json.ingestion.exifStripped` records whether stripping ran). `sharp` failures degrade gracefully to the original bytes.
 
 Reference endpoints:
 - `GET /api/reference/finishes` and `GET /api/reference/harmonies` are public read endpoints for UI lookup data, sorted by `sort_order` and served with cache headers.
 - Admin CRUD endpoints under `/api/reference-admin/finishes` and `/api/reference-admin/harmonies` manage reference data and update audit columns (`updated_at`, `updated_by_user_id`) on writes.
 - Admin CRUD endpoints under `/api/reference-admin/finish-normalizations` manage aliases and misspellings used to normalize AI/vendor finish strings into canonical `finish_type.name` values.
+- `GET /api/catalog/search` results and `GET /api/catalog/shade/{id}` include `finishes: string[]` next to the legacy `finish`.
+
+### Finish canonicalization (`src/lib/finishes.ts`)
+
+Source-of-truth split (decided in #43):
+
+- **Which finishes exist** — the DB `finish_type` table (admin-managed via `/api/reference-admin/finishes`). A finish type created only through the admin UI is a valid finish for parsing, validation, `finish=`/`finishes=` list filters, ingestion, and AI finish detection. The build-time `CANONICAL_FINISHES` list in `packages/shared/src/constants/finishes.ts` is only the built-in seeded defaults: it types `PolishFinish` and is the fallback when the DB lookup fails. `tests/finishes.unit.test.cjs` fails if it drifts from the `finish_type` rows seeded by migrations 005/018.
+- **How messy spellings map onto them** — the DB-backed `finish_normalization` table (admin-editable). An alias only resolves when its target is an existing `finish_type`.
+- **One loader** — `loadFinishCatalog()` runs a single query over both tables and returns a `FinishCatalog` `{ aliases, validNames }` (`validNames` = every normalized `finish_type.name`). It is cached in-process for 5 minutes (cleared by `resetFinishAliasCache()` on every admin finish_type / finish_normalization create/update/delete; other instances pick changes up within the TTL) and falls back to `DEFAULT_FINISH_CATALOG` (`CANONICAL_FINISHES` + `DEFAULT_FINISH_ALIASES`, a mirror of the seeded alias rows also asserted by the test) if the query fails. If `finish_type` returns no rows, the built-in names are used.
+
+Helpers (all take an optional `FinishCatalog`, defaulting to the built-ins): `canonicalizeFinish(value, catalog?)`, `canonicalizeFinishes(values, catalog?)`, `mergeFinishLists(lists, catalog?)`, and the pure tag parser `parseFinishesFromTags(tags, catalog?)` (used by ingestion connectors only, never for user request `tags`) — recognizes `finish:<value>` (prefix case-insensitive) and bare `<value>` tags, trims, lowercases, de-duplicates, ignores unknown values and other namespaces (`collection:holographic`, `color:blue`), and orders explicit `finish:` tags before bare tags. AI hex detection (`ai-color-detection.ts`) uses the same catalog loader for `detected_finishes`, so runtime finish types are accepted there too.
 - `GET /api/reference-admin/jobs` lists recent ingestion jobs with pagination (`page`, `pageSize`) and optional `status` filter (`queued|running|succeeded|failed|cancelled`), joined with `data_source` for source metadata.
 - `GET /api/users-admin` lists users with linked identities plus quick counts (inventory, submissions, capture sessions) for account-repair workflows.
 - `POST /api/users-admin/merge` manually merges one local user account into another (inventory, capture sessions, submissions, click events, and linked external identities), intended for repairing duplicate accounts created before identity linking was enabled.
@@ -162,14 +215,23 @@ rows and user inventory rows (`quantity=0`) by default. Set `materializeToInvent
 `false` to store only raw/normalized external records.
 
 For `HoloTacoShopify`, ingestion materializes searchable shade rows (brand/name/finish/collection)
-and user inventory rows (`quantity=0`) with source tags. Use `recentDays` to constrain to newer
+and user inventory rows (`quantity=0`) with source tags. `shade.finishes` is filled from the product
+tags via `parseFinishesFromTags` (merged with any existing values, never removed). The legacy
+`shade.finish` is still the raw first `finish:` tag value because it is part of the shade dedup key;
+it is intentionally not canonicalized so re-imports keep matching existing shades. The same applies to
+generic `*Shopify` sources; `MakeupAPI` materialization also merges finishes parsed from `tag_list`. Use `recentDays` to constrain to newer
 products by publish/create/update timestamps. It also uploads source product images to Azure Blob
 Storage (`image_asset` + `swatch`) and attempts Azure OpenAI-based representative `color_hex`
 detection from the product image.
 When `HEX_DETECTION_BATCH_ENABLED=true`, Shopify image detection can switch to Azure OpenAI Batch API
 for larger runs (`HEX_DETECTION_BATCH_MIN_IMAGES` threshold). In that mode, the main worker submits
 the batch and leaves the job in `running` with pipeline stage `awaiting_ai`; a timer-triggered poller
-(`ingestion-ai-batch-poller`) later applies completed batch results and marks the job `succeeded`/`failed`.
+(`ingestion-ai-batch-poller`) later applies completed batch results. If the worker stored
+`metrics.resumeMessage` when pausing, the poller writes `metrics.checkpoint` from it, removes
+`resumeMessage`, sets pipeline stage `continuation_queued`, persists, and then re-enqueues the message so
+the worker continues with the next page; otherwise it marks the job `succeeded`. A failed batch, a
+malformed `resumeMessage`, or an enqueue failure marks the job `failed` (enqueue/resume problems use stage
+`continuation_enqueue`).
 If batch submission itself fails, the worker logs the reason and falls back to synchronous detection for
 that run (applying detections through the same shade write path the poller uses), recording the count in
 the `batchFallbacks` metric instead of failing the job.
@@ -183,7 +245,31 @@ falls back to storing the original Shopify `image.src` URL so images still appea
 you bring storage online.
 Materialization now commits per record while the job is running, so newly imported polishes become
 visible progressively instead of waiting for the final job commit.
-Ingestion metrics now include token totals for synchronous image detection (`hexDetectionPromptTokens`, `hexDetectionCompletionTokens`, `hexDetectionTotalTokens`) and batch apply totals under `aiBatchApply` (`promptTokens`, `completionTokens`, `totalTokens`, `rowsWithTokenUsage`).
+
+**Long-running jobs (continuations).** The Function App runs on the Consumption plan, which kills an
+invocation at `functionTimeout` (`host.json`: 10 min; default 5 min). The ingestion worker therefore
+processes each page in chunks (10 records with synchronous hex detection; up to 50 in batch mode, dropping
+to 10 for the rest of the job once a batch submission fails and falls back to synchronous detection —
+`metrics.hexBatchDegraded`) and saves `metrics.checkpoint` (`nextPage`, `recordOffset`, `pagesCompleted`, `recordsProcessed`,
+`continuationCount`) after every chunk, so a hard kill loses at most one chunk. Once
+`INGESTION_WORKER_TIME_BUDGET_MS` is spent, it persists the checkpoint with pipeline stage
+`continuation_queued`, enqueues a continuation message carrying that checkpoint on `ingestion-jobs`, and
+returns; the job stays `running` and the next invocation resumes from the checkpoint, keeping cumulative
+totals (separate persistence/materialization totals live in `metrics.workerTotals`) and the log history.
+Duplicate or redelivered messages are resolved by `resolveIngestionResumePoint` (`ingestion.ts`): a message
+whose `continuationCount` is behind the job's checkpoint is dropped as stale; a current one resumes from
+whichever checkpoint is further along. Between chunks the worker re-reads the job and stops without writing
+if it was cancelled/finished or superseded. When a chunk pauses for an AI batch, the worker stores
+`metrics.resumeMessage` (the continuation for the next unprocessed position, omitted when no work remains);
+after applying the batch, the poller enqueues it instead of completing the job. `host.json` processes one
+queue message per instance at a time (`batchSize: 1`, `newBatchThreshold: 0`) and moves a message to
+`ingestion-jobs-poison` after 5 dequeues.
+Shopify connectors download the whole store catalog per pull, so the worker gives each job a catalog
+cache: the first download is kept in memory for the rest of the invocation and, when
+`CONNECTOR_RAW_CONTAINER` is configured, saved as `catalog-cache/<source>/<jobId>.json.gz` with its URL in
+`metrics.catalogSnapshot`. Continuations reuse that snapshot, so every invocation pages through the same
+catalog; an unreadable snapshot just triggers a fresh download.
+Ingestion metrics now include token totals for synchronous image detection (`hexDetectionPromptTokens`, `hexDetectionCompletionTokens`, `hexDetectionTotalTokens`) and batch apply totals under `aiBatchApply` (`promptTokens`, `completionTokens`, `totalTokens`, `rowsWithTokenUsage`) for the latest batch; `aiBatchApplyTotals` and `aiBatchesCompleted` accumulate across every batch in a job.
 
 Holo Taco run options:
 - `detectHexFromImage` (default `true`) toggles image-based AI hex detection.
@@ -251,6 +337,7 @@ npm run migrate:create -- my-migration-name   # Create a new migration file
 | `017_add_admin_support.sql` | Adds `finish_type` audit columns and creates/seeds `harmony_type` for admin-managed reference data |
 | `018_add_finish_normalizations.sql` | Adds editable `finish_normalization` mappings (source alias → canonical finish name) for AI/vendor finish parsing |
 | `019_add_user_external_identities.sql` | Adds `user_external_identities` and backfills existing `app_user.external_id` values to support multi-provider identity linking |
+| `023_add_shade_finishes.sql` | Adds `shade.finishes text[] NOT NULL DEFAULT '{}'` + GIN index for multi-finish shades, backfills `ARRAY[canonical(finish)]` from the legacy column (canonical names + `finish_normalization` aliases), and seeds `flakie`/`flakies`/`toppers` aliases. Down drops the column/index and those alias rows |
 
 node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_URL` is the preferred connection method; it also falls back to individual `PG*` env vars (`PGHOST`, `PGPORT`, etc.).
 
@@ -299,7 +386,10 @@ Key variables:
 
 | Variable | Purpose |
 |----------|---------|
-| `AUTH_DEV_BYPASS` | Dev-only bypass mode. When `true`, auth accepts `Bearer dev:<userId>` tokens. Keep this disabled outside isolated dev scenarios. |
+| `AUTH_DEV_BYPASS` | Local-dev-only bypass mode. When `true` **and the host is not running in Azure**, auth accepts `Bearer dev:<userId>` tokens. Ignored (fail closed, logged + `auth.dev_bypass_refused`) on Azure-hosted Function Apps; the deploy workflow always sets it to `false`. |
+| `IMAGE_PROXY_SIGNING_KEY` | Secret (>= 32 chars) used to HMAC-sign `/api/images/{id}` ids. Required outside dev: when unset and dev bypass is not active, image URLs are omitted and the proxy refuses every request. When unset with dev bypass active (local only), an ephemeral per-process key is used (URLs break on restart). Generate with `openssl rand -base64 48`. Terraform stores a generated value in Key Vault (`image-proxy-signing-key`). |
+| `IMAGE_PROXY_ID_TTL_SECONDS` | Minimum remaining lifetime of newly minted `/api/images/{id}` ids (default `259200` = 3 days, clamped to 3600–2592000). Keep it above the Azure OpenAI batch completion window. |
+| `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL` | Optional ISO-8601 timestamp until which legacy non-expiring (v1) image ids are still accepted. Unset or in the past means they are rejected (`403`). |
 | `INGESTION_JOB_QUEUE_NAME` | Optional queue name for async ingestion jobs. Defaults to `ingestion-jobs`. |
 | `SOURCE_IMAGE_CONTAINER` | Optional blob container override for source-ingested images. Defaults to `source-images`. |
 | `AZURE_STORAGE_CONNECTION` | Connection string for uploading source images to Azure Blob Storage. When unset (for local dev or bring-up), ingestion falls back to storing the original source image URLs so swatch images still appear. |
@@ -314,9 +404,11 @@ Key variables:
 | `AZURE_OPENAI_VISION_DETAIL` | Optional image detail level for vision hex detection, sync and batch (`low` default — flat ~85 tokens/image; `high`/`auto` for more resolution). Unrecognized values fall back to `low`. |
 | `HEX_DETECTION_BATCH_ENABLED` | Feature flag to enable Azure OpenAI Batch API for Shopify image detection (default `false`). |
 | `HEX_DETECTION_BATCH_MIN_IMAGES` | Minimum record count before switching from synchronous detection to batch submission (default `5`). |
+| `HEX_DETECTION_DELAY_MS` | Pause between synchronous (non-batch) hex detection calls (default `1000`, max `60000`, `0` disables). The old fixed 6s pacing predates low-detail images; 429s are still retried with `Retry-After`. |
 | `INGESTION_AI_BATCH_POLL_SCHEDULE` | NCRONTAB schedule for the timer poller that checks batch completion (default `0 * * * * *`, every minute). |
 | `INGESTION_AI_BATCH_MAX_POLL_JOBS` | Max `awaiting_ai` ingestion jobs the poller processes per run (default `10`). |
 | `INGESTION_AI_IMAGE_PROXY_ORIGIN` | Optional public origin used when building AI image-proxy URLs (for example `https://<func-app>.azurewebsites.net`). Falls back to `https://$WEBSITE_HOSTNAME`. |
+| `INGESTION_WORKER_TIME_BUDGET_MS` | Wall-clock budget per ingestion worker invocation before it checkpoints and enqueues a continuation message (default `240000`, clamped to `30000`–`270000` to stay under the Consumption plan timeout). |
 | `INGESTION_LOG_FLUSH_INTERVAL_MS` | Interval for ingestion worker metric/log flushes while a job runs (default `10000`). Increase to reduce write pressure on Postgres. |
 | `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS` | Per-request timeout for Shopify `products.json` downloads (default `45000`). |
 | `SHOPIFY_CONNECTOR_MAX_RETRIES` | Retry count for transient Shopify request errors (default `2`, total attempts = retries + 1). |
@@ -342,7 +434,7 @@ JWT validation note:
 
 Dev deploy note:
 `deploy-dev.yml` configures Function App auth settings from GitHub `dev` environment values on each deploy.
-- Variable: `AUTH_DEV_BYPASS`
+- `AUTH_DEV_BYPASS` is always set to `false` (the `vars.AUTH_DEV_BYPASS` GitHub variable is no longer read; the host would refuse it in Azure anyway)
 - Secret: `AZURE_AD_B2C_CLIENT_ID`
 - Tenant source: `AZURE_AD_B2C_TENANT` variable (falls back to `NEXT_PUBLIC_B2C_TENANT`)
 - Deployment packaging installs `swatchwatch-shared` from a local `.tgz` tarball (not a `file:` directory symlink) so `WEBSITE_RUN_FROM_PACKAGE` can resolve it reliably.
@@ -350,8 +442,8 @@ Dev deploy note:
 - The workflow sets `FUNCTIONS_NODE_BLOCK_ON_ENTRY_POINT_ERROR=true` so entrypoint/import failures hard-fail startup instead of surfacing as misleading route-level `404` responses.
 - The workflow explicitly runs `az functionapp sync-functions` after zip deployment to force trigger refresh.
 - Post-deploy smoke tests:
-  - `POST /api/voice` with a JSON body should return `400` (host reachable + routing works).
-  - When `AUTH_DEV_BYPASS=true`, `GET /api/polishes?pageSize=1` with `Authorization: Bearer dev:1` should return `200` (auth + DB path).
+  - `POST /api/voice` without a token should return `401` (host reachable + routing + auth wrapper works; the workflow check is currently commented out).
+  - `GET /api/polishes?pageSize=1` without a token should return `401` (or `200`): host reachable + routing + auth wrapper.
 
 ## Build
 

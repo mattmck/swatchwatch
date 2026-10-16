@@ -11,6 +11,7 @@ import {
   ConnectorPullOptions,
   ConnectorPullResult,
   ConnectorProductRecord,
+  loadCatalogWithCache,
   ProductConnector,
 } from "./types.js";
 import { detectHexFromColorName } from "./color-name-detection.js";
@@ -353,7 +354,11 @@ function extractColorNameFromProduct(product: ShopifyProduct): string | null {
 }
 
 /**
- * Extract finish/type from tags (common patterns: finish:, type:, collection:)
+ * Extract raw finish/type values from tags (common patterns: finish:, type:, collection:).
+ *
+ * Legacy: the first value becomes the shade identity key (shade.finish), so this is kept
+ * unchanged for dedup stability. Canonical multi-finish values (shade.finishes) are derived
+ * from `tags` at materialization time via parseFinishesFromTags (lib/finishes.ts).
  */
 function extractFinishFromTags(tags: string[]): string[] {
   const finishes: string[] = [];
@@ -531,7 +536,9 @@ export class ShopifyGenericConnector implements ProductConnector {
   }
 
   async pullProducts(options: ConnectorPullOptions): Promise<ConnectorPullResult> {
-    const allProducts = await this.fetchAllProducts();
+    const allProducts = await loadCatalogWithCache<ShopifyProduct>(options.catalogCache, () =>
+      this.fetchAllProducts()
+    );
     const normalizedRecords = await Promise.all(
       allProducts.map((product) => toNormalizedRecord(product, this.baseUrl, this.brandName))
     );

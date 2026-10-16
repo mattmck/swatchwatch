@@ -1,0 +1,77 @@
+name: Setup Node + workspace dependencies
+description: >
+  Restores node_modules from cache keyed on the lockfile. On a miss, installs
+  only the workspaces CI builds (web, functions, shared — never mobile) with
+  install scripts disabled, then patches Tailwind's native binaries.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v6
+      with:
+        node-version: '24'
+
+    # Caching node_modules (not just ~/.npm) lets a hit skip npm ci entirely.
+    # This file is part of the key so changing the install flags invalidates it.
+    - name: Restore node_modules
+      id: nm-cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          node_modules
+          apps/*/node_modules
+          packages/*/node_modules
+        key: nm-${{ runner.os }}-node24-${{ hashFiles('package-lock.json', '.github/actions/setup-deps/action.yml') }}
+
+    - name: Restore npm download cache
+      if: steps.nm-cache.outputs.cache-hit != 'true'
+      uses: actions/cache@v4
+      with:
+        path: ~/.npm
+        key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+        restore-keys: npm-${{ runner.os }}-
+
+    - name: Install dependencies
+      if: steps.nm-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: >
+        npm ci --ignore-scripts --no-audit --no-fund --include-workspace-root
+        --workspace=apps/web --workspace=packages/functions --workspace=packages/shared
+
+    - name: Install Tailwind CSS native binaries
+      if: steps.nm-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        # npm ci in workspace monorepos can skip platform-specific optional
+        # deps for transitive dependencies. Download directly from npm registry.
+        install_native_pkg() {
+          local PKG_NAME=$1   # e.g. lightningcss-linux-x64-gnu or @tailwindcss/oxide-linux-x64-gnu
+          local VERSION=$2
+          local TARGET_DIR=$3 # e.g. node_modules/lightningcss-linux-x64-gnu
+          local FALLBACK=$4   # e.g. node_modules/lightningcss (for .node fallback)
+          local TARBALL_NAME="${PKG_NAME#*/}"  # strip @scope/ prefix (no-op for unscoped)
+
+          echo "::group::Installing ${PKG_NAME}@${VERSION}"
+          curl -fsSL "https://registry.npmjs.org/${PKG_NAME}/-/${TARBALL_NAME}-${VERSION}.tgz" \
+            | tar xz -C /tmp
+          rm -rf "${TARGET_DIR}"
+          mkdir -p "${TARGET_DIR}"
+          cp /tmp/package/* "${TARGET_DIR}/"
+          if [ -n "${FALLBACK}" ]; then
+            cp /tmp/package/*.node "${FALLBACK}/"
+          fi
+          rm -rf /tmp/package
+          echo "::endgroup::"
+        }
+
+        CSS_VERSION=$(node -p "require('./node_modules/lightningcss/package.json').version")
+        OXIDE_VERSION=$(node -p "require('./node_modules/@tailwindcss/oxide/package.json').version")
+
+        install_native_pkg "lightningcss-linux-x64-gnu" "${CSS_VERSION}" \
+          "node_modules/lightningcss-linux-x64-gnu" "node_modules/lightningcss"
+
+        install_native_pkg "@tailwindcss/oxide-linux-x64-gnu" "${OXIDE_VERSION}" \
+          "node_modules/@tailwindcss/oxide-linux-x64-gnu" "node_modules/@tailwindcss/oxide"
+
+        node -e "require('lightningcss')" && echo "✓ lightningcss loads OK"
+        node -e "require('@tailwindcss/oxide')" && echo "✓ @tailwindcss/oxide loads OK"

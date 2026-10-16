@@ -1,7 +1,16 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { createHash } from "node:crypto";
-import { BlobReadError, readBlobFromStorageUrl } from "../lib/blob-storage";
-import { decodeImageProxyId } from "../lib/image-proxy";
+import {
+  BlobAccessDeniedError,
+  BlobReadError,
+  defaultReadableContainers,
+  readBlobFromStorageUrl,
+} from "../lib/blob-storage";
+import {
+  decodeImageProxyIdWithExpiry,
+  ImageProxyConfigError,
+  ImageProxyTokenError,
+} from "../lib/image-proxy";
 import { withCors } from "../lib/http";
 import sharp from "sharp";
 
@@ -45,6 +54,70 @@ function parseTransformOptions(requestUrl: string): TransformOptions {
 
 function hasTransformRequest(options: TransformOptions): boolean {
   return Boolean(options.width || options.height || options.format);
+}
+
+const DEFAULT_MAX_AGE_SECONDS = 3600;
+const TRANSFORM_MAX_AGE_SECONDS = 86400;
+const TRANSFORM_STALE_WHILE_REVALIDATE_SECONDS = 604800;
+
+/**
+ * True when the blob lives in the shared catalog/source-image container (public product imagery).
+ * Anything else (e.g. user-uploaded media) must never be stored by shared caches.
+ * Handles virtual-host style (`<account>.blob.core.windows.net/<container>/...`) and path-style
+ * (Azurite: `host/<account>/<container>/...`) endpoints.
+ */
+export function isCatalogImageUrl(storageUrl: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(storageUrl);
+  } catch {
+    return false;
+  }
+  const segments = parsed.pathname.split("/").filter(Boolean);
+  const virtualHost = /^[^.]+\.blob\./i.test(parsed.hostname);
+  const container = (segments[virtualHost ? 0 : 1] ?? "").toLowerCase();
+  return container.length > 0 && defaultReadableContainers().includes(container);
+}
+
+/**
+ * Choose the Cache-Control header for a proxied image.
+ *
+ * - Catalog blobs: `public`, honoring the blob's own max-age (default 1h; 1d + SWR for transforms).
+ * - Everything else: `private, max-age=<n>` only, no `public` and no stale-while-revalidate;
+ *   the blob's own cacheControl is ignored.
+ * - max-age (and SWR) never outlive the signed id: the browser must not keep serving an image
+ *   past the point where the capability URL stops working.
+ */
+export function selectImageCacheControl(params: {
+  catalog: boolean;
+  transformed: boolean;
+  blobCacheControl?: string | null;
+  expiresAt: number;
+  nowMs?: number;
+}): string {
+  const nowSeconds = Math.floor((params.nowMs ?? Date.now()) / 1000);
+  const remaining = Math.max(0, params.expiresAt - nowSeconds);
+
+  const blobDirective = params.blobCacheControl?.toLowerCase() ?? "";
+  if (params.catalog && !params.transformed && /\b(no-store|no-cache|private)\b/.test(blobDirective)) {
+    return params.blobCacheControl as string;
+  }
+
+  let maxAge = params.transformed ? TRANSFORM_MAX_AGE_SECONDS : DEFAULT_MAX_AGE_SECONDS;
+  if (params.catalog && !params.transformed) {
+    const match = blobDirective.match(/max-age=(\d+)/);
+    if (match) maxAge = Number.parseInt(match[1], 10);
+  }
+  maxAge = Math.min(maxAge, remaining);
+
+  if (!params.catalog) {
+    return `private, max-age=${maxAge}`;
+  }
+  if (params.transformed) {
+    const swr = Math.min(TRANSFORM_STALE_WHILE_REVALIDATE_SECONDS, remaining - maxAge);
+    if (swr > 0) return `public, max-age=${maxAge}, stale-while-revalidate=${swr}`;
+  }
+  return `public, max-age=${maxAge}`;
 }
 
 function isTransformableContentType(contentType: string): boolean {
@@ -96,6 +169,11 @@ async function transformImage(
 /**
  * Proxy private blob-backed swatch images
  * GET /api/images/:id
+ *
+ * Anonymous by design (ids are embedded in <img src>, which cannot send Authorization headers),
+ * so the id itself is the capability: it must be an HMAC-signed id minted by the API
+ * (see lib/image-proxy.ts). Unsigned, forged, tampered, or expired ids are rejected with 403, and the
+ * decoded URL must still point at an allowlisted container of the configured storage account.
  */
 app.http("images", {
   methods: ["GET"],
@@ -109,26 +187,33 @@ app.http("images", {
       if (!id) {
         return {
           status: 400,
-          body: JSON.stringify({ error: "Missing image ID" }),
+          jsonBody: { error: "Missing image ID" },
         };
       }
 
-      const storageUrl = decodeImageProxyId(id);
+      const { url: storageUrl, expiresAt } = decodeImageProxyIdWithExpiry(id);
       const blob = await readBlobFromStorageUrl(storageUrl);
       const transform = parseTransformOptions(request.url);
 
       let bodyBytes = blob.bytes;
       let contentType = blob.contentType;
-      let cacheControl = blob.cacheControl || "public, max-age=3600";
+      let transformed = false;
       let etag = blob.etag;
 
       if (hasTransformRequest(transform) && isTransformableContentType(blob.contentType)) {
-        const transformed = await transformImage(blob.bytes, transform);
-        bodyBytes = transformed.bytes;
-        contentType = transformed.contentType;
-        cacheControl = "public, max-age=86400, stale-while-revalidate=604800";
+        const result = await transformImage(blob.bytes, transform);
+        bodyBytes = result.bytes;
+        contentType = result.contentType;
+        transformed = true;
         etag = `"${createHash("sha1").update(bodyBytes).digest("hex")}"`;
       }
+
+      const cacheControl = selectImageCacheControl({
+        catalog: isCatalogImageUrl(storageUrl),
+        transformed,
+        blobCacheControl: blob.cacheControl,
+        expiresAt,
+      });
 
       const headers = new Headers({
         "Content-Type": contentType,
@@ -143,24 +228,37 @@ app.http("images", {
         body: bodyBytes,
       };
     } catch (error) {
-      if (error instanceof TypeError || (error instanceof Error && error.message.includes("Invalid proxied image URL"))) {
+      if (error instanceof ImageProxyTokenError || error instanceof BlobAccessDeniedError) {
+        if (error instanceof BlobAccessDeniedError) {
+          // A validly signed id that points outside the readable containers indicates a
+          // server-side bug or key compromise; log it, but never echo details to the caller.
+          context.warn(`[images] Refused signed image read: ${error.message}`);
+        }
         return {
-          status: 400,
-          body: JSON.stringify({ error: "Invalid image URL token" }),
+          status: 403,
+          jsonBody: { error: "Forbidden" },
+        };
+      }
+
+      if (error instanceof ImageProxyConfigError) {
+        context.error(`[images] Image proxy signing is not configured: ${error.message}`);
+        return {
+          status: 500,
+          jsonBody: { error: "Failed to serve image" },
         };
       }
 
       if (error instanceof BlobReadError && error.status === 404) {
         return {
           status: 404,
-          body: JSON.stringify({ error: "Image not found" }),
+          jsonBody: { error: "Image not found" },
         };
       }
 
       context.error(`[images] Error serving image:`, error);
       return {
         status: 500,
-        body: JSON.stringify({ error: "Failed to serve image" }),
+        jsonBody: { error: "Failed to serve image" },
       };
     }
     }

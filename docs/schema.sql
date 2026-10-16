@@ -49,10 +49,13 @@ CREATE TABLE shade (
   brand_id BIGINT NOT NULL REFERENCES brand(brand_id),
   product_line_id BIGINT REFERENCES product_line(product_line_id),
   shade_name_canonical TEXT NOT NULL,
-  finish TEXT,
+  finish TEXT,                                   -- legacy single finish; part of the identity key below
+  finishes TEXT[] NOT NULL DEFAULT ARRAY[]::text[], -- canonical multi-finish list, primary first (migration 023)
+  detected_finishes TEXT[],                      -- AI-detected finishes (migration 016)
   collection TEXT,
   release_year INT,
-  status TEXT NOT NULL DEFAULT 'unknown',
+  status TEXT NOT NULL DEFAULT 'unknown',       -- active|user_submitted|...; user_submitted = private to creator/inventory holders until an admin sets 'active' (migration 024)
+  created_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL, -- creator of a user-API shade; NULL for catalog/ingestion rows (migration 024)
   color_name TEXT,
   vendor_hex TEXT,
   detected_hex TEXT,
@@ -61,6 +64,9 @@ CREATE TABLE shade (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (brand_id, product_line_id, shade_name_canonical, COALESCE(finish,''))
 );
+
+CREATE INDEX idx_shade_finishes ON shade USING GIN (finishes);
+CREATE INDEX idx_shade_created_by_user ON shade (created_by_user_id) WHERE created_by_user_id IS NOT NULL;
 
 CREATE TABLE shade_alias (
   shade_alias_id BIGSERIAL PRIMARY KEY,

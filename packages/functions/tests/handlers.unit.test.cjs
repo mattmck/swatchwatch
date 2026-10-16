@@ -1,4 +1,4 @@
-const { describe, it, afterEach } = require("node:test");
+const { describe, it, afterEach, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const Module = require("node:module");
@@ -117,6 +117,9 @@ registerMock("../lib/ocr-parser", {
 
 // Stub blob storage reader to avoid network
 registerMock("../lib/blob-storage", {
+  // Remote capture image URLs are allowlisted by the real validator (see capture-image-url tests);
+  // here only the fixture host is "on the configured storage account".
+  checkStorageImageUrl: (url) => (String(url).startsWith("https://blob.example/") ? null : "not allowed"),
   readBlobFromStorageUrl: async () => ({
     bytes: Buffer.from("fakeimg"),
     contentType: "image/png",
@@ -850,6 +853,603 @@ describe("functions/polishes — getPolishes", () => {
   });
 });
 
+describe("functions/polishes — matchImage", () => {
+  const sharp = require("sharp");
+
+  async function splitPngDataUrl() {
+    const width = 40;
+    const height = 40;
+    const buf = Buffer.alloc(width * height * 3);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const [r, g, b] = x < 20 ? [208, 16, 32] : [16, 48, 192];
+        const i = (y * width + x) * 3;
+        buf[i] = r;
+        buf[i + 1] = g;
+        buf[i + 2] = b;
+      }
+    }
+    const png = await sharp(buf, { raw: { width, height, channels: 3 } }).png().toBuffer();
+    return `data:image/png;base64,${png.toString("base64")}`;
+  }
+
+  function matchRequest(body, extraHeaders = {}) {
+    return fakeRequest({
+      method: "POST",
+      url: "http://localhost:7071/api/polishes/match-image",
+      headers: { authorization: "Bearer dev:1", ...extraHeaders },
+      body,
+    });
+  }
+
+  function mockAuthThen(rowsForPolishQuery, seenQueries = []) {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async (sql, params) => {
+      if (sql.includes("FROM app_user")) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null, role: "user" }] };
+      }
+      seenQueries.push({ sql, params });
+      return { rows: rowsForPolishQuery };
+    };
+  }
+
+  it("registers POST polishes/match-image", () => {
+    expectMethods("polishes-match-image", ["POST"]);
+    assert.equal(registeredRoutes["polishes-match-image"].route, "polishes/match-image");
+  });
+
+  it("returns 401 without auth", async () => {
+    const handler = registeredRoutes["polishes-match-image"].handler;
+    const req = fakeRequest({ method: "POST", url: "http://localhost:7071/api/polishes/match-image", body: {} });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 401);
+  });
+
+  it("returns 400 when image is missing", async () => {
+    mockAuthThen([]);
+    const handler = registeredRoutes["polishes-match-image"].handler;
+    const res = await handler(matchRequest({}), fakeContext());
+    assert.equal(res.status, 400);
+    assert.match(res.jsonBody.error, /image/i);
+  });
+
+  it("returns 400 for a non-image MIME type", async () => {
+    mockAuthThen([]);
+    const handler = registeredRoutes["polishes-match-image"].handler;
+    const res = await handler(
+      matchRequest({ image: `data:application/pdf;base64,${Buffer.from("%PDF").toString("base64")}` }),
+      fakeContext()
+    );
+    assert.equal(res.status, 400);
+  });
+
+  it("returns 400 when the bytes are not a decodable image", async () => {
+    const seen = [];
+    mockAuthThen([], seen);
+    const handler = registeredRoutes["polishes-match-image"].handler;
+    const res = await handler(
+      matchRequest({ image: `data:image/png;base64,${Buffer.from("not really a png").toString("base64")}` }),
+      fakeContext()
+    );
+    assert.equal(res.status, 400);
+    assert.match(res.jsonBody.error, /decode/i);
+    assert.equal(seen.length, 0, "should not query polishes for an invalid image");
+  });
+
+  it("returns 413 when content-length exceeds the body limit", async () => {
+    mockAuthThen([]);
+    const handler = registeredRoutes["polishes-match-image"].handler;
+    const res = await handler(
+      matchRequest({ image: "data:image/png;base64,AAAA" }, { "content-length": String(20 * 1024 * 1024) }),
+      fakeContext()
+    );
+    assert.equal(res.status, 413);
+  });
+
+  it("matches only the caller's owned polishes and returns sorted results", async () => {
+    const seen = [];
+    mockAuthThen(
+      [
+        { id: "10", shadeId: "10", userId: "1", brand: "OPI", name: "Big Apple Red", color: "", vendorHex: "#D11121", finish: "cream", swatchImageUrl: null },
+        { id: "11", shadeId: "11", userId: "1", brand: "Essie", name: "Butler Please", color: "", detectedHex: "#1131C1", finish: "creme", swatchImageUrl: null },
+        { id: "12", shadeId: "12", userId: "1", brand: "Zoya", name: "No Hex", color: "", swatchImageUrl: null },
+        { id: "13", shadeId: "13", userId: "1", brand: "ILNP", name: "Mint", color: "", vendorHex: "#98FF98", swatchImageUrl: null },
+      ],
+      seen
+    );
+    const handler = registeredRoutes["polishes-match-image"].handler;
+    const res = await handler(matchRequest({ image: await splitPngDataUrl(), limit: 2 }), fakeContext());
+
+    assert.equal(res.status, 200);
+    assert.equal(seen.length, 1);
+    assert.deepEqual(seen[0].params, [1]);
+    assert.match(seen[0].sql, /COALESCE\(ui\.quantity, 0\) > 0/);
+
+    const body = res.jsonBody;
+    const hexes = body.extractedColors.map((c) => c.hex);
+    assert.ok(hexes.includes("#D01020") && hexes.includes("#1030C0"), hexes.join(","));
+    assert.equal(body.candidateCount, 3);
+    assert.equal(body.matches.length, 2);
+    assert.deepEqual(body.matches.map((m) => m.polish.id).sort(), ["10", "11"]);
+    for (const m of body.matches) {
+      assert.equal(m.confidence, "high");
+      assert.ok(["#D01020", "#1030C0"].includes(m.matchedColor));
+    }
+    assert.ok(body.matches[0].distance <= body.matches[1].distance);
+    assert.equal(body.matches.find((m) => m.polish.id === "10").polish.finish, "creme");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// functions/polishes — multi-finish contract (#43)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("functions/polishes — multi-finish", () => {
+  const finishLib = require("../dist/lib/finishes");
+
+  afterEach(() => {
+    finishLib.resetFinishAliasCache();
+  });
+
+  /** Rows as returned by the single finish catalog query (finish_type + finish_normalization). */
+  function aliasRows({ withChrome = false } = {}) {
+    const types = ["holographic", "shimmer", "creme", ...(withChrome ? ["chrome"] : [])].map((name) => ({
+      kind: "type",
+      sourceValue: name,
+      normalizedFinishName: name,
+    }));
+    return [
+      ...types,
+      { kind: "alias", sourceValue: "holo", normalizedFinishName: "holographic" },
+      { kind: "alias", sourceValue: "cream", normalizedFinishName: "creme" },
+      ...(withChrome ? [{ kind: "alias", sourceValue: "mirror", normalizedFinishName: "chrome" }] : []),
+    ];
+  }
+
+  describe("loadFinishCatalog", () => {
+    beforeEach(() => {
+      // Earlier tests in this file may have cached a (fallback) catalog.
+      finishLib.resetFinishAliasCache();
+    });
+
+    it("builds aliases and validNames from one query and caches it", async () => {
+      let queries = 0;
+      queryMock = async () => {
+        queries++;
+        return { rows: aliasRows({ withChrome: true }) };
+      };
+      const catalog = await finishLib.loadFinishCatalog();
+      assert.deepEqual([...catalog.validNames].sort(), ["chrome", "creme", "holographic", "shimmer"]);
+      assert.equal(catalog.aliases.get("mirror"), "chrome");
+      assert.equal(catalog.aliases.get("holo"), "holographic");
+      assert.equal(catalog.aliases.get("chrome"), "chrome");
+      await finishLib.loadFinishCatalog();
+      assert.equal(queries, 1, "second load should be served from the cache");
+      finishLib.resetFinishAliasCache();
+      await finishLib.loadFinishCatalog();
+      assert.equal(queries, 2, "reset should force a reload");
+    });
+
+    it("ignores alias rows whose target is not a finish_type", async () => {
+      queryMock = async () => ({
+        rows: [
+          ...aliasRows(),
+          { kind: "alias", sourceValue: "suede", normalizedFinishName: "velvet" },
+        ],
+      });
+      const catalog = await finishLib.loadFinishCatalog();
+      assert.ok(!catalog.validNames.has("velvet"));
+      assert.equal(catalog.aliases.has("suede"), false);
+    });
+
+    it("falls back to the built-in finishes and aliases when the query throws", async () => {
+      const { CANONICAL_FINISHES } = require("swatchwatch-shared");
+      queryMock = async () => {
+        throw new Error("db down");
+      };
+      let fallbackMessage = null;
+      const catalog = await finishLib.loadFinishCatalog({ onFallback: (message) => (fallbackMessage = message) });
+      assert.equal(fallbackMessage, "db down");
+      assert.deepEqual([...catalog.validNames].sort(), [...CANONICAL_FINISHES].sort());
+      assert.equal(catalog.aliases, finishLib.DEFAULT_FINISH_ALIAS_MAP);
+      assert.equal(finishLib.canonicalizeFinish("holo", catalog), "holographic");
+    });
+
+    it("uses the built-in names when finish_type returns no rows", async () => {
+      const { CANONICAL_FINISHES } = require("swatchwatch-shared");
+      queryMock = async () => ({ rows: [] });
+      const catalog = await finishLib.loadFinishCatalog();
+      assert.deepEqual([...catalog.validNames].sort(), [...CANONICAL_FINISHES].sort());
+    });
+  });
+
+  it("selects finishes and filters by finish against the multi-finish array and legacy column", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    const listCalls = [];
+    queryMock = async (text, params) => {
+      if (text.includes("FROM app_user")) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (text.includes("FROM finish_normalization")) {
+        return { rows: aliasRows() };
+      }
+      if (text.includes("COUNT(*)")) {
+        return { rows: [{ total: "1" }] };
+      }
+      listCalls.push({ text, params });
+      return {
+        rows: [
+          {
+            id: "7",
+            brand: "Holo Taco",
+            name: "Rainbow Road",
+            color: "",
+            finish: "shimmer",
+            finishes: ["shimmer", "holographic"],
+            swatchImageUrl: null,
+          },
+        ],
+      };
+    };
+
+    const handler = registeredRoutes["polishes-list"].handler;
+    const req = fakeRequest({
+      url: "http://localhost:7071/api/polishes?finish=holo&finishes=Shimmer,cream",
+      headers: { authorization: "Bearer dev:1" },
+      params: {},
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.jsonBody.polishes[0].finishes, ["shimmer", "holographic"]);
+    assert.equal(res.jsonBody.polishes[0].finish, "shimmer");
+
+    assert.equal(listCalls.length, 1);
+    const { text, params } = listCalls[0];
+    assert.ok(text.includes("AS finishes"), "POLISH_SELECT should project finishes");
+    assert.ok(text.includes("s.finishes, ARRAY[]::text[]) &&"), "should use array overlap for finish filter");
+    // finish=holo → canonical holographic (+ raw legacy value)
+    assert.ok(params.some((p) => Array.isArray(p) && p.length === 1 && p[0] === "holographic"));
+    assert.ok(params.some((p) => Array.isArray(p) && p.includes("holo") && p.includes("holographic")));
+    // finishes=Shimmer,cream → any-of canonical [shimmer, creme]; legacy column also matches "cream"
+    assert.ok(params.some((p) => Array.isArray(p) && p.join(",") === "shimmer,creme"));
+    assert.ok(params.some((p) => Array.isArray(p) && p.includes("cream") && p.includes("creme")));
+  });
+
+  it("filters the list by a runtime-only finish type (finishes=chrome, alias mirror)", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    const listCalls = [];
+    queryMock = async (text, params) => {
+      if (text.includes("FROM app_user")) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (text.includes("FROM finish_normalization")) {
+        return { rows: aliasRows({ withChrome: true }) };
+      }
+      if (text.includes("COUNT(*)")) {
+        return { rows: [{ total: "1" }] };
+      }
+      listCalls.push({ text, params });
+      return {
+        rows: [
+          { id: "8", brand: "X", name: "Mirror Ball", color: "", finish: "chrome", finishes: ["chrome"], swatchImageUrl: null },
+        ],
+      };
+    };
+
+    const handler = registeredRoutes["polishes-list"].handler;
+    const req = fakeRequest({
+      url: "http://localhost:7071/api/polishes?finishes=chrome&finish=Mirror",
+      headers: { authorization: "Bearer dev:1" },
+      params: {},
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.jsonBody.polishes[0].finishes, ["chrome"]);
+
+    const { text, params } = listCalls[0];
+    assert.ok(text.includes("s.finishes, ARRAY[]::text[]) &&"));
+    // Both filter groups resolve to the runtime finish and are matched against the finishes array.
+    // finish=Mirror (alias) → canonical chrome (+ raw legacy value); finishes=chrome → chrome.
+    assert.ok(params.some((p) => Array.isArray(p) && p.length === 1 && p[0] === "chrome"));
+    assert.ok(params.some((p) => Array.isArray(p) && p.includes("mirror") && p.includes("chrome")));
+    assert.equal(
+      params.filter((p) => Array.isArray(p) && p.length === 1 && p[0] === "chrome").length,
+      3,
+      "both groups resolve to chrome (canonical + legacy for the alias group, canonical for finishes=)"
+    );
+  });
+
+  it("stores a runtime-only finish type on create when finish_type has it", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async (text) => {
+      if (text.includes("FROM app_user")) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (text.includes("FROM finish_normalization")) {
+        return { rows: aliasRows({ withChrome: true }) };
+      }
+      return { rows: [{ id: "57", brand: "OPI", name: "Mirror", finish: "chrome", finishes: ["chrome"], swatchImageUrl: null }] };
+    };
+    const clientCalls = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          clientCalls.push({ text, params });
+          if (text.includes("SELECT brand_id FROM brand")) return { rows: [{ brand_id: 3 }] };
+          if (text.includes("AS own_submitted")) return { rows: [] };
+          if (text.includes("INSERT INTO shade")) return { rows: [{ shade_id: 57 }] };
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["polishes-create"].handler;
+    const req = fakeRequest({
+      method: "POST",
+      url: "http://localhost:7071/api/polishes",
+      headers: { authorization: "Bearer dev:1" },
+      body: { brand: "OPI", name: "Mirror", color: "Silver", finishes: ["chrome", "Mirror"] },
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 201);
+    const insert = clientCalls.find((c) => c.text.includes("INSERT INTO shade"));
+    assert.deepEqual(insert.params[9], ["chrome"]);
+    assert.equal(insert.params[2], "chrome", "legacy finish key defaults to the primary finish");
+  });
+
+  it("drops a finish that is not in finish_type (no chrome row)", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async (text) => {
+      if (text.includes("FROM app_user")) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (text.includes("FROM finish_normalization")) {
+        return { rows: aliasRows() };
+      }
+      return { rows: [{ id: "58", brand: "OPI", name: "Mirror", finish: "", finishes: [], swatchImageUrl: null }] };
+    };
+    const clientCalls = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          clientCalls.push({ text, params });
+          if (text.includes("SELECT brand_id FROM brand")) return { rows: [{ brand_id: 3 }] };
+          if (text.includes("AS own_submitted")) return { rows: [] };
+          if (text.includes("INSERT INTO shade")) return { rows: [{ shade_id: 58 }] };
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["polishes-create"].handler;
+    const req = fakeRequest({
+      method: "POST",
+      url: "http://localhost:7071/api/polishes",
+      headers: { authorization: "Bearer dev:1" },
+      body: { brand: "OPI", name: "Mirror", color: "Silver", finishes: ["chrome"] },
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 201);
+    const insert = clientCalls.find((c) => c.text.includes("INSERT INTO shade"));
+    assert.deepEqual(insert.params[9], []);
+  });
+
+  it("creates a new shade with finishes and keeps the legacy finish populated", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async (text) => {
+      if (text.includes("FROM app_user")) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (text.includes("FROM finish_normalization")) {
+        return { rows: aliasRows() };
+      }
+      return {
+        rows: [
+          {
+            id: "55",
+            brand: "OPI",
+            name: "Prism",
+            finish: "shimmer",
+            finishes: ["shimmer", "holographic"],
+            swatchImageUrl: null,
+          },
+        ],
+      };
+    };
+
+    const clientCalls = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          clientCalls.push({ text, params });
+          if (text.includes("SELECT brand_id FROM brand")) return { rows: [{ brand_id: 3 }] };
+          if (text.includes("AS own_submitted")) return { rows: [] };
+          if (text.includes("INSERT INTO shade")) return { rows: [{ shade_id: 55 }] };
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["polishes-create"].handler;
+    const req = fakeRequest({
+      method: "POST",
+      url: "http://localhost:7071/api/polishes",
+      headers: { authorization: "Bearer dev:1" },
+      body: {
+        brand: "OPI",
+        name: "Prism",
+        color: "Silver",
+        finishes: ["Shimmer", "holo", "not-a-finish"],
+        // Finish-like tags must be ignored; only the explicit `finishes` list counts.
+        tags: ["finish:glitter", "jelly", "favorite"],
+      },
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 201);
+    assert.deepEqual(res.jsonBody.finishes, ["shimmer", "holographic"]);
+
+    const lookup = clientCalls.find((c) => c.text.includes("AS own_submitted"));
+    assert.equal(lookup.params[2], "shimmer", "legacy finish key should be the primary finish");
+    const insert = clientCalls.find((c) => c.text.includes("INSERT INTO shade"));
+    assert.ok(insert.text.includes("finishes"));
+    assert.equal(insert.params[2], "shimmer");
+    assert.deepEqual(insert.params[9], ["shimmer", "holographic"]);
+  });
+
+  it("does not write finishes from request tags when creating a shade", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let aliasQueries = 0;
+    queryMock = async (text) => {
+      if (text.includes("FROM app_user")) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (text.includes("FROM finish_normalization")) {
+        aliasQueries++;
+        return { rows: aliasRows() };
+      }
+      return { rows: [{ id: "56", brand: "OPI", name: "Tagged", finish: "", finishes: [], swatchImageUrl: null }] };
+    };
+
+    const clientCalls = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          clientCalls.push({ text, params });
+          if (text.includes("SELECT brand_id FROM brand")) return { rows: [{ brand_id: 3 }] };
+          if (text.includes("AS own_submitted")) return { rows: [] };
+          if (text.includes("INSERT INTO shade")) return { rows: [{ shade_id: 56 }] };
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["polishes-create"].handler;
+    const req = fakeRequest({
+      method: "POST",
+      url: "http://localhost:7071/api/polishes",
+      headers: { authorization: "Bearer dev:1" },
+      body: { brand: "OPI", name: "Tagged", tags: ["holographic", "finish:shimmer"] },
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 201);
+    assert.equal(aliasQueries, 0, "tags-only request carries no finish data");
+    const insert = clientCalls.find((c) => c.text.includes("INSERT INTO shade"));
+    assert.deepEqual(insert.params[9], [], "shade.finishes must stay empty");
+    assert.equal(insert.params[2], null, "legacy finish must not be derived from tags");
+  });
+
+  it("does not touch shade.finishes when an update only carries finish-like tags", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async (text) => {
+      if (text.includes("FROM app_user")) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      return { rows: [{ id: "9", brand: "OPI", name: "X", finish: "creme", finishes: ["creme"] }] };
+    };
+
+    const clientCalls = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          clientCalls.push({ text, params });
+          if (text.includes("INSERT INTO user_inventory_item")) return { rows: [{ inventoryItemId: "1" }] };
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["polishes-mutate"].handler;
+    const req = fakeRequest({
+      method: "PUT",
+      url: "http://localhost:7071/api/polishes/9",
+      headers: { authorization: "Bearer dev:1" },
+      params: { id: "9" },
+      body: { tags: ["holographic", "finish:shimmer"] },
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 200);
+    assert.ok(
+      !clientCalls.some((c) => /SET finishes|finishes = ARRAY/.test(c.text)),
+      "no shade.finishes write expected"
+    );
+    // The user's own inventory tags are still saved.
+    const inv = clientCalls.find((c) => c.text.includes("INSERT INTO user_inventory_item"));
+    assert.ok(inv.params.some((p) => Array.isArray(p) && p.includes("holographic")));
+  });
+
+  it("replaces finishes on an existing shade when only finishes are updated", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async (text) => {
+      if (text.includes("FROM app_user")) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (text.includes("FROM finish_normalization")) {
+        return { rows: aliasRows() };
+      }
+      return { rows: [{ id: "9", brand: "OPI", name: "X", finish: "creme", finishes: ["creme", "shimmer"] }] };
+    };
+
+    const clientCalls = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          clientCalls.push({ text, params });
+          if (text.includes("INSERT INTO user_inventory_item")) return { rows: [{ inventoryItemId: "1" }] };
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["polishes-mutate"].handler;
+    const req = fakeRequest({
+      method: "PUT",
+      url: "http://localhost:7071/api/polishes/9",
+      headers: { authorization: "Bearer dev:1" },
+      params: { id: "9" },
+      body: { finishes: ["cream", "shimmer"] },
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 200);
+
+    const replace = clientCalls.find((c) => c.text.includes("SET finishes = $2::text[]"));
+    assert.ok(replace, "should replace shade.finishes");
+    assert.equal(replace.params[0], 9);
+    assert.deepEqual(replace.params[1], ["creme", "shimmer"]);
+  });
+
+  it("does not touch finishes when the update carries no finish data", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let aliasQueries = 0;
+    queryMock = async (text) => {
+      if (text.includes("FROM app_user")) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (text.includes("FROM finish_normalization")) {
+        aliasQueries++;
+        return { rows: aliasRows() };
+      }
+      return { rows: [{ id: "9", brand: "OPI", name: "X", finish: "creme", finishes: ["creme"] }] };
+    };
+
+    const clientCalls = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          clientCalls.push({ text, params });
+          if (text.includes("INSERT INTO user_inventory_item")) return { rows: [{ inventoryItemId: "1" }] };
+          return { rows: [] };
+        },
+      });
+
+    const handler = registeredRoutes["polishes-mutate"].handler;
+    const req = fakeRequest({
+      method: "PUT",
+      url: "http://localhost:7071/api/polishes/9",
+      headers: { authorization: "Bearer dev:1" },
+      params: { id: "9" },
+      body: { quantity: 3 },
+    });
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 200);
+    assert.equal(aliasQueries, 0);
+    assert.ok(!clientCalls.some((c) => c.text.includes("finishes")));
+  });
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 // functions/catalog — input validation, search results
 // ═══════════════════════════════════════════════════════════════════════════
@@ -976,11 +1576,34 @@ describe("functions/voice — route registration", () => {
 });
 
 describe("functions/voice — processVoiceInput validation", () => {
-  it("returns 400 for non-audio content type", async () => {
+  // voice-process requires auth; authenticate as dev user 1 for validation tests.
+  const authenticateAsDevUser = () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async () => ({
+      rows: [{ user_id: 1, external_id: "dev-user-1", email: null, role: "user" }],
+    });
+  };
+
+  it("returns 401 without an Authorization header", async () => {
+    authenticateAsDevUser();
     const handler = registeredRoutes["voice-process"].handler;
     const req = fakeRequest({
       method: "POST",
       url: "http://localhost:7071/api/voice",
+      contentType: "audio/wav",
+    });
+    req.arrayBuffer = async () => new ArrayBuffer(1024);
+    const res = await handler(req, fakeContext());
+    assert.equal(res.status, 401);
+  });
+
+  it("returns 400 for non-audio content type", async () => {
+    authenticateAsDevUser();
+    const handler = registeredRoutes["voice-process"].handler;
+    const req = fakeRequest({
+      method: "POST",
+      url: "http://localhost:7071/api/voice",
+      headers: { authorization: "Bearer dev:1" },
       contentType: "application/json",
     });
     const res = await handler(req, fakeContext());
@@ -989,10 +1612,12 @@ describe("functions/voice — processVoiceInput validation", () => {
   });
 
   it("returns 400 for empty audio body", async () => {
+    authenticateAsDevUser();
     const handler = registeredRoutes["voice-process"].handler;
     const req = fakeRequest({
       method: "POST",
       url: "http://localhost:7071/api/voice",
+      headers: { authorization: "Bearer dev:1" },
       contentType: "audio/wav",
     });
     req.arrayBuffer = async () => new ArrayBuffer(0);
@@ -1002,10 +1627,12 @@ describe("functions/voice — processVoiceInput validation", () => {
   });
 
   it("accepts multipart/form-data content type", async () => {
+    authenticateAsDevUser();
     const handler = registeredRoutes["voice-process"].handler;
     const req = fakeRequest({
       method: "POST",
       url: "http://localhost:7071/api/voice",
+      headers: { authorization: "Bearer dev:1" },
       contentType: "multipart/form-data; boundary=---",
     });
     req.arrayBuffer = async () => new ArrayBuffer(1024);
@@ -1014,10 +1641,12 @@ describe("functions/voice — processVoiceInput validation", () => {
   });
 
   it("returns stub response for valid audio", async () => {
+    authenticateAsDevUser();
     const handler = registeredRoutes["voice-process"].handler;
     const req = fakeRequest({
       method: "POST",
       url: "http://localhost:7071/api/voice",
+      headers: { authorization: "Bearer dev:1" },
       contentType: "audio/wav",
     });
     req.arrayBuffer = async () => new ArrayBuffer(1024);
@@ -1712,6 +2341,7 @@ describe("functions/capture — finalize/status/answer workflow", () => {
           if (text.includes("SET status = 'matched'")) {
             capturedMetadataPatch = params[4];
           }
+          if (text.includes("s.created_by_user_id")) return { rows: [{ "?column?": 1 }] }; // shade visible to caller
           if (text.includes("SELECT inventory_item_id AS id")) {
             return { rows: [] };
           }
@@ -1781,6 +2411,7 @@ describe("functions/capture — finalize/status/answer workflow", () => {
     transactionMock = async (cb) =>
       cb({
         query: async (text) => {
+          if (text.includes("s.created_by_user_id")) return { rows: [{ "?column?": 1 }] }; // shade visible to caller
           if (text.includes("SELECT inventory_item_id AS id")) {
             return { rows: [] };
           }
@@ -1918,6 +2549,7 @@ describe("functions/capture — finalize/status/answer workflow", () => {
     transactionMock = async (cb) =>
       cb({
         query: async (text) => {
+          if (text.includes("s.created_by_user_id")) return { rows: [{ "?column?": 1 }] }; // shade visible to caller
           if (text.includes("SELECT inventory_item_id AS id")) {
             return { rows: [] };
           }
@@ -1986,6 +2618,7 @@ describe("functions/capture — finalize/status/answer workflow", () => {
     transactionMock = async (cb) =>
       cb({
         query: async (text) => {
+          if (text.includes("s.created_by_user_id")) return { rows: [{ "?column?": 1 }] }; // shade visible to caller
           if (text.includes("SELECT inventory_item_id AS id")) {
             return { rows: [] };
           }
@@ -2372,6 +3005,8 @@ describe("functions/capture — answerCaptureQuestion re-resolve flow", () => {
       cb({
         query: async (text, params) => {
           if (text.includes("UPDATE capture_session")) captureSessionUpdateParams.push({ text, params });
+          // addToInventoryFromMatch: shade visible to the caller
+          if (text.includes("s.created_by_user_id")) return { rows: [{ "?column?": 1 }] };
           // addToInventoryFromMatch: check existing → no results
           if (text.includes("SELECT inventory_item_id")) return { rows: [] };
           // addToInventoryFromMatch: insert new item → return id

@@ -94,6 +94,7 @@ npm run dev:mobile       # → mobile via Expo
 | `npm run build:functions` | Build shared types + TypeScript compile for functions |
 | `npm run lint` | ESLint across all workspaces |
 | `npm run test` | Run workspace tests where present (includes Functions unit tests; builds shared + functions first) |
+| `npm run test:e2e --workspace=swatchwatch-functions` | E2E API + cross-user access-control tests against a running local Functions host (`AUTH_DEV_BYPASS=true`); skips when the host is unreachable |
 | `npm run typecheck` | `tsc --noEmit` across all workspaces |
 
 `dev`, `dev:web`, `dev:functions`, and `dev:shared` run a dependency preflight and print a clear
@@ -141,6 +142,7 @@ The web app is the most developed part of the project. Key pages:
 | `/polishes/new` | `apps/web/src/app/(app)/polishes/new/page.tsx` | Add polish form — color picker, star rating, voice input placeholder |
 | `/polishes/detail` | `apps/web/src/app/(app)/polishes/detail/page.tsx` | Polish detail shell (query-param based) |
 | `/polishes/gaps` | `apps/web/src/app/(app)/polishes/gaps/page.tsx` | Collection gap map — 8×5 hue/lightness heatmap with missing/thin coverage, next-buy suggestions, and deep-link handoff to color search |
+| `/polishes/match` | `apps/web/src/app/(app)/polishes/match/page.tsx` | Photo match — upload, drop, or snap a photo; extracts its dominant colors and ranks your owned polishes by OKLAB distance with confidence badges (image is never stored) |
 | `/polishes/search` | `apps/web/src/app/(app)/polishes/search/page.tsx` | Color wheel search — hover to preview, click to lock, similar/complementary modes |
 | `/rapid-add` | `apps/web/src/app/rapid-add/page.tsx` | Capture-driven rapid add flow |
 

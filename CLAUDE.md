@@ -14,6 +14,8 @@ infrastructure/    → Terraform (azurerm ~4.50) for all Azure resources
 
 **Data flow:** Clients → Azure Functions REST API (`/api/polishes`, `/api/auth/*`, `/api/voice`) → Azure Database for PostgreSQL Flexible Server (schema in `docs/schema.sql`). Voice input goes through Azure Speech Services → Azure OpenAI for parsing polish details from transcriptions. Full canonical schema uses `pg_trgm` for fuzzy shade matching and `pgvector` for swatch similarity/dupe search.
 
+**Finishes:** shades carry `shade.finishes text[]` (canonical, primary first) plus the legacy `shade.finish` (identity key, kept for backward compat). At runtime the admin-managed `finish_type` table is the source of truth for which finishes are valid, and `finish_normalization` holds the alias spellings; both are loaded together (one cached query) by `loadFinishCatalog()` in `packages/functions/src/lib/finishes.ts`, so a finish type created only in the admin UI is fully usable (parsing, validation, filtering, form options). `CANONICAL_FINISHES` in `packages/shared` holds the built-in seeded defaults, used for typing (`PolishFinish`) and as the fallback when the DB/reference API is unavailable; a test keeps it equal to the migration seeds. Request `tags` on polish create/update never modify catalog finishes (shades are shared); only ingestion connectors parse finishes from product tags.
+
 **Auth:** Azure AD B2C (provisioned outside Terraform via portal). Functions read `AZURE_AD_B2C_TENANT` and `AZURE_AD_B2C_CLIENT_ID` from environment. Token validation is JWT-based via the `/api/auth/validate` endpoint.
 
 ## Dev Commands
@@ -34,6 +36,8 @@ npm run lint             # ESLint across all workspaces
 npm run typecheck        # tsc --noEmit across all workspaces
 npm run migrate          # Run Postgres migrations (needs DATABASE_URL)
 npm run migrate:down     # Roll back last migration
+npm run test --workspace=swatchwatch-functions      # Functions unit tests (no DB; includes access-control isolation tests)
+npm run test:e2e --workspace=swatchwatch-functions  # E2E API + cross-user access-control tests against a running local host (skips if unreachable)
 ```
 
 **Important:** `dev`, `dev:web`, `dev:functions`, and `dev:shared` run a dependency preflight and
@@ -80,6 +84,7 @@ The web app uses Next.js route groups to separate public marketing pages from th
 | `/polishes/new` | `src/app/(app)/polishes/new/page.tsx` | Client component, form with color picker + star rating |
 | `/polishes/detail` | `src/app/(app)/polishes/detail/page.tsx` | Client component, detail shell driven by query params |
 | `/polishes/gaps` | `src/app/(app)/polishes/gaps/page.tsx` | Client component, collection gap heatmap (hue × lightness coverage + next-buy targets) |
+| `/polishes/match` | `src/app/(app)/polishes/match/page.tsx` | Client component, photo → owned-polish color matching (upload/drop/camera, extracted palette filter, confidence badges) via `POST /api/polishes/match-image` |
 | `/polishes/search` | `src/app/(app)/polishes/search/page.tsx` | Client component, canvas color wheel + OKLAB matching |
 | `/rapid-add` | `src/app/rapid-add/page.tsx` | Client component, capture-first rapid add workflow |
 
@@ -99,7 +104,8 @@ This project is in early development. The web UI is now fully API-driven. Backen
 - ✅ Unified admin console at `/admin` — Configuration (finish/harmony CRUD + finish-normalization aliases), Job Runs (reference-admin job history), Admin Jobs (ingestion pipeline)
 - ✅ Capture API — barcode/label/color frame submission with adaptive question flow (`capture.ts`)
 - ✅ Catalog search — `pg_trgm`-based fuzzy search across brand/shade names and aliases (`catalog.ts`)
-- ✅ Image proxy — private blob storage served through `/api/images/{id}` (`images.ts`)
+- ✅ Image proxy — private blob storage served through `/api/images/{id}` (`images.ts`); ids are HMAC-signed capabilities and reads are limited to the source-image container
+- ✅ Per-user access control (#47) — all user-data routes use `withAuth` with `user_id`-scoped SQL; admin/ops routes use `withAdmin`; capture frames can only reference the caller's own `image_asset` rows; user-created shades are `user_submitted` (private until an admin sets `active`), shared shades are fill-only for users, and email account-linking requires a verified email
 - ✅ Connector ingestion pipeline — async queue-backed jobs for OpenBeautyFacts, MakeupAPI, HoloTacoShopify, and generic Shopify sources
 - ✅ AI hex detection — Azure OpenAI vision-based `detected_hex` from product images, with `recalc-hex` admin endpoint
 - ✅ Reference data management — `finish_type`, `harmony_type`, `finish_normalization` tables with admin CRUD and public read endpoints
@@ -110,12 +116,16 @@ This project is in early development. The web UI is now fully API-driven. Backen
 **Canonical reference:** `packages/functions/local.settings.json.example` — this is the single source of truth for all settings. Copy it to `local.settings.json` (gitignored) and fill in the `<YOUR_*>` placeholders.
 
 Required:
-`AzureWebJobsStorage`, `FUNCTIONS_WORKER_RUNTIME`, `AZURE_STORAGE_CONNECTION`, `INGESTION_JOB_QUEUE_NAME`, `SOURCE_IMAGE_CONTAINER`, `BLOB_READ_SAS_TTL_SECONDS`, `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, `AZURE_OPENAI_DEPLOYMENT_HEX`, `AZURE_AD_B2C_TENANT`, `AZURE_AD_B2C_CLIENT_ID`, `REDIS_URL`, `REDIS_KEY`
+`AzureWebJobsStorage`, `FUNCTIONS_WORKER_RUNTIME`, `AZURE_STORAGE_CONNECTION`, `INGESTION_JOB_QUEUE_NAME`, `SOURCE_IMAGE_CONTAINER`, `BLOB_READ_SAS_TTL_SECONDS`, `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, `AZURE_OPENAI_DEPLOYMENT_HEX`, `AZURE_AD_B2C_TENANT`, `AZURE_AD_B2C_CLIENT_ID`, `REDIS_URL`, `REDIS_KEY`, `IMAGE_PROXY_SIGNING_KEY`
+
+- `IMAGE_PROXY_SIGNING_KEY` — secret (>= 32 chars) that HMAC-signs `/api/images/{id}` capability ids (`src/lib/image-proxy.ts`). Fails closed when unset (image URLs omitted, proxy refuses requests) unless dev bypass is active (`AUTH_DEV_BYPASS=true` and not hosted in Azure), which uses an ephemeral per-process dev key. Terraform generates it into Key Vault (`image-proxy-signing-key`).
 
 Optional / dev-only:
 - `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` — Azure AI Document Intelligence endpoint for server-side OCR (graceful degradation when missing)
 - `AZURE_DOCUMENT_INTELLIGENCE_KEY` — Azure AI Document Intelligence subscription key
-- `AUTH_DEV_BYPASS` — enables `Bearer dev:<userId>` tokens for local dev (keep `false` outside isolated dev)
+- `AUTH_DEV_BYPASS` — enables `Bearer dev:<userId>` tokens for local dev only. Fails closed when hosted in Azure (`WEBSITE_INSTANCE_ID` or a non-loopback `WEBSITE_HOSTNAME`, see `src/lib/runtime-env.ts`); the deploy workflow always sets it to `false`
+- `IMAGE_PROXY_ID_TTL_SECONDS` — minimum lifetime of newly minted signed image ids (default `259200` = 3 days, clamped 1h–30d; keep above the AI batch completion window)
+- `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL` — optional ISO-8601 cutoff for accepting legacy non-expiring v1 image ids during rollout (unset = rejected)
 - `AZURE_OPENAI_DEPLOYMENT_LABEL` — Azure OpenAI deployment name for label OCR structured extraction (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`)
 - `AZURE_OPENAI_DEPLOYMENT` — fallback deployment name when `AZURE_OPENAI_DEPLOYMENT_HEX` is unset
 - `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` — optional Azure OpenAI deployment name dedicated to batch hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`)
@@ -124,9 +134,11 @@ Optional / dev-only:
 - `AZURE_OPENAI_VISION_DETAIL` — image detail level for vision hex detection, sync and batch: `low` (default, flat ~85 tokens/image), `high`, or `auto`; raise if finish detection needs more resolution
 - `HEX_DETECTION_BATCH_ENABLED` — enables batch mode for Shopify vision hex detection and the `ingestion-ai-batch-poller` timer workflow
 - `HEX_DETECTION_BATCH_MIN_IMAGES` — minimum record count required before ingestion switches to batch mode (default: `5`)
+- `HEX_DETECTION_DELAY_MS` — pause between synchronous (non-batch) hex detection calls (default: `1000`, max `60000`; `0` disables); 429s are still retried with `Retry-After`
 - `INGESTION_AI_BATCH_POLL_SCHEDULE` — NCRONTAB schedule for the batch completion poller (default: `0 * * * * *`, every minute)
 - `INGESTION_AI_BATCH_MAX_POLL_JOBS` — maximum awaiting jobs processed per poller run (default: `10`)
 - `INGESTION_AI_IMAGE_PROXY_ORIGIN` — optional public origin used to build `/api/images/{id}` URLs for Azure OpenAI vision calls (defaults to `https://$WEBSITE_HOSTNAME`)
+- `INGESTION_WORKER_TIME_BUDGET_MS` — wall-clock budget per ingestion worker invocation (default: `240000`, clamped to `30000`–`270000`); when spent, the worker saves `metrics.checkpoint`, sets stage `continuation_queued`, and enqueues a continuation message so long jobs survive the Consumption plan timeout
 - `INGESTION_LOG_FLUSH_INTERVAL_MS` — interval for ingestion worker log/metrics flushes while jobs run (default: `10000`)
 - `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS` — per-request timeout for Shopify `products.json` downloads (default: `45000`)
 - `SHOPIFY_CONNECTOR_MAX_RETRIES` — retry count for transient Shopify request errors (default: `2`)

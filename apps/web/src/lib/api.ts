@@ -23,6 +23,8 @@ import type {
   PolishUpdateRequest,
   PolishListResponse,
   PolishFilters,
+  PolishImageMatchRequest,
+  PolishImageMatchResponse,
   CatalogSearchResponse,
   CatalogShadeDetail,
   PolishFinish,
@@ -85,6 +87,7 @@ export async function listPolishes(filters?: PolishFilters): Promise<PolishListR
   if (filters?.search) params.set("search", filters.search);
   if (filters?.brand) params.set("brand", filters.brand);
   if (filters?.finish) params.set("finish", filters.finish);
+  if (filters?.finishes?.length) params.set("finishes", filters.finishes.join(","));
   if (filters?.scope && filters.scope !== "all") params.set("scope", filters.scope);
   if (filters?.availability && filters.availability !== "all") {
     params.set("availability", filters.availability);
@@ -232,6 +235,25 @@ export async function recalcPolishHex(id: string | number): Promise<RecalcPolish
     headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
   });
   return handleResponse<RecalcPolishHexResponse>(response);
+}
+
+/**
+ * Match the caller's owned polishes against the dominant colors of a photo.
+ * `imageDataUrl` must be a base64 `data:image/...` URL; downscale it first
+ * (see `downscaleImageFile`) to keep the payload small. The server never
+ * stores the image.
+ */
+export async function matchPolishesToImage(
+  imageDataUrl: string,
+  options?: Omit<PolishImageMatchRequest, "image">
+): Promise<PolishImageMatchResponse> {
+  const body: PolishImageMatchRequest = { image: imageDataUrl, ...options };
+  const response = await fetch(`${API_BASE_URL}/polishes/match-image`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
+    body: JSON.stringify(body),
+  });
+  return handleResponse<PolishImageMatchResponse>(response);
 }
 
 export async function searchCatalog(q: string, limit?: number): Promise<CatalogSearchResponse> {

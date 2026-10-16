@@ -10,7 +10,6 @@ import { listAllPolishes, listPolishes, recalcPolishHex, updatePolish } from "@/
 import { undertone, type Undertone } from "@/lib/color-utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -33,7 +32,8 @@ import { Pagination } from "@/components/pagination";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
-import { FINISHES, finishBadgeClassName, finishLabel } from "@/lib/constants";
+import { buildFinishOptions, knownFinishNames } from "@/lib/finish-options";
+import { FinishBadges } from "@/components/finish-badges";
 import { buildSwatchThumbnailUrl } from "@/lib/image-url";
 import { runRecalcHexFlow } from "@/lib/recalc-hex-flow";
 import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
@@ -194,15 +194,8 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { finishTypes } = useReferenceData();
-  const finishOptions = useMemo(
-    () =>
-      (
-        finishTypes.length > 0
-          ? finishTypes.map((finish) => ({ value: finish.name, label: finish.displayName }))
-          : FINISHES.map((finish) => ({ value: finish, label: finishLabel(finish) }))
-      ).sort((a, b) => a.label.localeCompare(b.label)),
-    [finishTypes],
-  );
+  const finishOptions = useMemo(() => buildFinishOptions(finishTypes), [finishTypes]);
+  const knownFinishes = useMemo(() => knownFinishNames(finishTypes), [finishTypes]);
 
   // Filters
   const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
@@ -495,12 +488,12 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     await runRecalcHexFlow({
       polishId,
       recalc: recalcPolishHex,
-      knownFinishes: FINISHES as readonly string[],
+      knownFinishes,
       setPendingById: setRecalcPendingById,
       setPolishes,
       toast,
     });
-  }, []);
+  }, [knownFinishes]);
 
   if (loading) return <BrandSpinner label="Loading polishes…" />;
 
@@ -763,11 +756,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                       )}
                     </TableCell>
                     <TableCell>
-                      {polish.finish && (
-                        <Badge className={finishBadgeClassName(polish.finish)}>
-                          {finishLabel(polish.finish)}
-                        </Badge>
-                      )}
+                      <FinishBadges polish={polish} finishTypes={finishTypes} max={3} />
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {polish.collection ?? "\u2014"}
