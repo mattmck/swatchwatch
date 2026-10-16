@@ -37,6 +37,7 @@ export default function PolishCollectionGapsPage() {
   const [polishes, setPolishes] = useState<Polish[]>([]);
   const [loading, setLoading] = useState(true);
   const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedCellKey, setSelectedCellKey] = useState<string | null>(null);
 
@@ -56,6 +57,13 @@ export default function PolishCollectionGapsPage() {
         setPolishes(ownedRows);
         setLoading(false);
 
+        // An empty collection renders the "no collection yet" state, which never shows
+        // catalog suggestions, so skip the large catalog request entirely.
+        if (ownedRows.length === 0) {
+          setCatalogLoading(false);
+          return;
+        }
+
         // Phase 2: the shared catalog feeds "Available To Add" suggestions. It is much
         // larger, so it loads in the background after the map is already interactive.
         try {
@@ -65,7 +73,8 @@ export default function PolishCollectionGapsPage() {
           for (const owned of ownedRows) merged.set(owned.id, owned);
           setPolishes(Array.from(merged.values()));
         } catch {
-          // Suggestions are optional; the owned-only map stays usable.
+          // Suggestions are optional; the owned-only map stays usable, but say so.
+          if (!cancelled) setCatalogError(true);
         } finally {
           if (!cancelled) setCatalogLoading(false);
         }
@@ -353,7 +362,9 @@ export default function PolishCollectionGapsPage() {
                     emptyLabel={
                       catalogLoading
                         ? "Loading catalog suggestions…"
-                        : "No additional catalog shades currently in this cell."
+                        : catalogError
+                          ? "Catalog suggestions are unavailable right now."
+                          : "No additional catalog shades currently in this cell."
                     }
                   />
                 </div>
