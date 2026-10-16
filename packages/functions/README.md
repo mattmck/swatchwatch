@@ -222,7 +222,10 @@ it is intentionally not canonicalized so re-imports keep matching existing shade
 generic `*Shopify` sources; `MakeupAPI` materialization also merges finishes parsed from `tag_list`. Use `recentDays` to constrain to newer
 products by publish/create/update timestamps. It also uploads source product images to Azure Blob
 Storage (`image_asset` + `swatch`) and attempts Azure OpenAI-based representative `color_hex`
-detection from the product image.
+detection from the product image. Each shade gets one `swatch_type = 'source_product'` swatch for the
+primary image (repointed in place when the shop changes it) and one `source_gallery` swatch per
+additional image; re-imports only look at the `source_product` row, and a gallery swatch on the primary
+image (e.g. the shop promoted a gallery image) is removed so the old primary is re-linked as gallery.
 The generic Shopify connector only records a `vendor_hex` when a variant option or product title
 contains a literal `#RRGGBB` token (e.g. `#A1B2C3`); bare words made of hex letters such as
 "Facade" or "Decadence" are ignored. As of 2026-10-14 none of the supported Shopify storefronts
@@ -281,7 +284,7 @@ Holo Taco run options:
 - `detectHexOnSuspiciousOnly` (default `false`) only runs image AI when vendor hex is missing/suspicious.
 
 Reruns skip work that cannot change anything. Without `overwriteDetectedHex`, a record whose shade already has a
-`detected_hex` and already has a swatch on the same image (same checksum) skips AI detection, because the shade write
+`detected_hex` and whose `source_product` swatch is already on the same image (same checksum) skips AI detection, because the shade write
 would keep the existing hex anyway. These are counted in `hexDetectionSkippedUnchanged` (a subset of
 `hexDetectionSkipped`). Source images are still downloaded to compute the checksum, but the blob upload is skipped
 when the checksum-named blob already exists. Set `overwriteDetectedHex: true` to re-detect everything, for example after
@@ -353,6 +356,7 @@ npm run migrate:create -- my-migration-name   # Create a new migration file
 | `025_correct_shopify_source_notes.sql` | Corrects Shopify `data_source.metadata.notes` (no store publishes hex values) and disables Clionadh, Garden Path, Roylalee and Potion Polish, which the connector cannot read |
 | `20261016030127700_clear-fake-shopify-vendor-hex.sql` | Nulls `shade.vendor_hex` values the generic Shopify connector invented before PR #238: regex false positives (hex digits found in the shade name/color name/raw Shopify title or options but never as a literal `#RRGGBB` token, e.g. "Facade" → `#FACADE`) and the `#000000`/`#D3D3D3` placeholders. Only Shopify-sourced shades (inventory tagged `shopify` or swatch owned by a `*Shopify` data source); MakeupAPI-linked shades and `detected_hex`/`name_hex` are untouched. Old values go to `shade_vendor_hex_cleanup_backup`; down restores them where `vendor_hex` is still null, then drops the table |
 | `20261016030938732_move-ai-hex-out-of-shopify-vendor-hex.sql` | Moves AI-detected hex values out of `shade.vendor_hex` on Shopify-sourced shades. Before 011 the Holo Taco connector stored only the Azure OpenAI vision result in `color_hex`, which 011/012 relabeled as `vendor_hex`. A value moves when its hex digits appear nowhere in the shade name, color name or raw Shopify title/options (so the connector regex could not have produced it). It goes to `detected_hex` when that is empty; otherwise `vendor_hex` is only cleared. Same Shopify-sourced/MakeupAPI-exclusion rules as `20261016030127700_clear-fake-shopify-vendor-hex.sql`; `#000000`/`#D3D3D3` placeholders and user-created shades are skipped. Old values go to `shade_vendor_hex_to_detected_backup`; down resets `detected_hex` where it still holds the moved value, restores `vendor_hex` where it is still null, then drops the table |
+| `20261016033423000_cleanup-gallery-swatches-on-primary-image.sql` | Deletes `source_gallery` swatches that re-ingestion had repointed at the shade's primary image (duplicates of the `source_product` swatch) and collapses duplicate gallery swatches per shade + image. Idempotent; down is a no-op |
 
 node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_URL` is the preferred connection method; it also falls back to individual `PG*` env vars (`PGHOST`, `PGPORT`, etc.).
 

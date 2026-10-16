@@ -440,6 +440,7 @@ export async function findRecordsWithUnchangedDetectedHex(
            FROM swatch s
            JOIN image_asset ia ON ia.image_id = s.image_id_original
            WHERE s.shade_id = sh.shade_id
+             AND s.swatch_type = 'source_product'
              AND ia.owner_type = 'source'
              AND ia.owner_id = $1
              AND ia.checksum_sha256 = input.checksum_sha256
@@ -2065,6 +2066,7 @@ async function materializePreparedHoloTacoRecord(
          image_id_original AS "imageIdOriginal"
        FROM swatch
        WHERE shade_id = $1
+         AND swatch_type = 'source_product'
        ORDER BY swatch_id DESC
        LIMIT 1`,
       [shadeId]
@@ -2084,12 +2086,23 @@ async function materializePreparedHoloTacoRecord(
       await client.query(
         `UPDATE swatch
          SET image_id_original = $2
-         WHERE swatch_id = $1`,
+         WHERE swatch_id = $1
+           AND swatch_type = 'source_product'`,
         [existingSwatch.rows[0].swatchId, imageId]
       );
       delta.swatchesLinked += 1;
       console.log(`${sourceLogPrefix} Updated swatch successfully`);
     }
+
+    // A gallery swatch on the primary image duplicates the product swatch, e.g. after the
+    // shop promotes a gallery image to primary. The old primary is re-linked as gallery below.
+    await client.query(
+      `DELETE FROM swatch
+       WHERE shade_id = $1
+         AND image_id_original = $2
+         AND swatch_type = 'source_gallery'`,
+      [shadeId, imageId]
+    );
   }
 
   // Store additional images as image_assets (no swatch — for training data)
