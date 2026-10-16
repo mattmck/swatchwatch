@@ -24,6 +24,8 @@ let activeTransactions;
 let maxActiveTransactions;
 let committedShadeNames;
 let idSequence;
+let transactionCount;
+let failTransactionAt;
 
 const transactionClient = {
   async query(sql, params) {
@@ -48,6 +50,10 @@ mockDistModule("db.js", {
     return { rows: [] };
   },
   transaction: async (callback) => {
+    transactionCount += 1;
+    if (transactionCount === failTransactionAt) {
+      throw new Error("commit failed");
+    }
     activeTransactions += 1;
     maxActiveTransactions = Math.max(maxActiveTransactions, activeTransactions);
     try {
@@ -126,6 +132,8 @@ describe("materializeHoloTacoRecords hex detection", () => {
     maxActiveTransactions = 0;
     committedShadeNames = [];
     idSequence = 0;
+    transactionCount = 0;
+    failTransactionAt = null;
     detectCalls = [];
     inFlightDetections = 0;
     maxInFlightDetections = 0;
@@ -194,6 +202,21 @@ describe("materializeHoloTacoRecords hex detection", () => {
     assert.equal(detectCalls.length, 3);
     assert.equal(metrics.hexDetected, 3);
     assert.equal(metrics.hexDetectionSkippedUnchanged, 0);
+  });
+
+  it("stops queued detections when a record's DB commit fails", async () => {
+    process.env.HEX_DETECTION_CONCURRENCY = "1";
+    failTransactionAt = 1;
+
+    await assert.rejects(
+      materializeHoloTacoRecords(1, 7, records(6), { detectHexFromImage: true }),
+      /commit failed/
+    );
+    // Give any detections that escaped the queue time to run before counting.
+    await tick(200);
+
+    // Record 0's detection, plus at most record 1's, which starts as soon as 0 resolves.
+    assert.ok(detectCalls.length <= 2, `expected <= 2 detections, got ${detectCalls.length}`);
   });
 
   it("does not look anything up when hex detection is off", async () => {

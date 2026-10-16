@@ -865,13 +865,20 @@ async function prepareHoloTacoImageData(
   // DB writes stay sequential: materialization looks up then inserts brands and shades, so
   // two records for the same new brand or shade committed concurrently could duplicate it.
   // Each record commits as soon as its own detection resolves; later detections keep running.
-  for (let i = 0; i < uploadResults.length; i++) {
-    const { record } = uploadResults[i];
-    const preparedImage = await preparedTasks[i];
-    byExternalId.set(record.externalId, preparedImage);
-    if (onRecordPrepared) {
-      await onRecordPrepared(record, preparedImage);
+  try {
+    for (let i = 0; i < uploadResults.length; i++) {
+      const { record } = uploadResults[i];
+      const preparedImage = await preparedTasks[i];
+      byExternalId.set(record.externalId, preparedImage);
+      if (onRecordPrepared) {
+        await onRecordPrepared(record, preparedImage);
+      }
     }
+  } catch (error) {
+    // A failed commit fails the chunk, so drop detections that haven't started: they would
+    // be paid AI calls whose results are discarded. In-flight calls finish and are ignored.
+    detectionLimit.clearQueue();
+    throw error;
   }
 
   console.log(`${sourceLogPrefix} Image preparation complete:`, metrics);
