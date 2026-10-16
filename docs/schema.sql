@@ -596,6 +596,11 @@ CREATE INDEX idx_color_training_status ON color_training_sample(training_status)
 CREATE INDEX idx_color_training_source_type ON color_training_sample(source_type);
 CREATE INDEX idx_color_training_created ON color_training_sample(created_at DESC);
 
+-- Idempotent populate (eval harness): one sample per external product and source type.
+CREATE UNIQUE INDEX idx_color_training_external_product_source
+  ON color_training_sample(external_product_id, source_type)
+  WHERE external_product_id IS NOT NULL;
+
 -- Track which samples have been used for model training
 CREATE TABLE color_model_version (
   model_version_id BIGSERIAL PRIMARY KEY,
