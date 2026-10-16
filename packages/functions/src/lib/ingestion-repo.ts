@@ -3,6 +3,12 @@ import { ConnectorProductRecord } from "./connectors/types";
 import { SUPPORTED_SOURCES } from "./connectors/types";
 import { defaultShopifyBaseUrl } from "./connectors/shopify-generic";
 import { detectHexWithAzureOpenAI, type HexDetectionOptions } from "./ai-color-detection";
+import {
+  chooseUploadedImageForDetection,
+  parseProductImageCandidates,
+  type ProductImageCandidate,
+  type UploadedImageRef,
+} from "./image-selection";
 import { submitVisionHexBatch } from "./azure-openai-batch";
 import { uploadSourceImageToBlob, ensureContainer } from "./blob-storage";
 import { toImageProxyUrlFromOrigin } from "./image-proxy";
@@ -113,6 +119,8 @@ interface HoloTacoProductNormalized {
   finish: string | null;
   primaryImageUrl: string | null;
   imageUrls: string[];
+  /** `imageUrls` with Shopify alt text / position when the connector kept them (see image-selection.ts). */
+  images: ProductImageCandidate[];
   tags: string[];
   vendorHex: string | null;
   nameHex: string | null;
@@ -124,7 +132,7 @@ interface HoloTacoPreparedImage {
   checksumSha256: string | null;
   detectedHex: string | null;
   detectedFinishes: string[] | null;
-  additionalImages: Array<{ storageUrl: string; checksumSha256: string }>;
+  additionalImages: Array<{ storageUrl: string; checksumSha256: string; sourceUrl?: string }>;
 }
 
 interface HoloTacoImagePreparationMetrics {
@@ -223,6 +231,7 @@ function parseHoloTacoNormalized(
     finish: finishes[0] || null,
     primaryImageUrl: asString(normalized.primaryImageUrl),
     imageUrls: asStringArray(normalized.imageUrls),
+    images: parseProductImageCandidates(normalized.images, asStringArray(normalized.imageUrls)),
     tags: asStringArray(normalized.tags),
     vendorHex: asString(normalized.vendorHex),
     nameHex: asString(normalized.nameHex),
@@ -458,7 +467,7 @@ async function prepareHoloTacoImageData(
     holo: HoloTacoProductNormalized | null;
     storageUrl: string | null;
     checksumSha256: string | null;
-    additionalImages: Array<{ storageUrl: string; checksumSha256: string }>;
+    additionalImages: Array<{ storageUrl: string; checksumSha256: string; sourceUrl?: string }>;
     isCandidate: boolean;
   }
 
@@ -491,7 +500,7 @@ async function prepareHoloTacoImageData(
 
       let storageUrl: string | null = null;
       let checksumSha256: string | null = null;
-      const additionalImages: Array<{ storageUrl: string; checksumSha256: string }> = [];
+      const additionalImages: Array<{ storageUrl: string; checksumSha256: string; sourceUrl?: string }> = [];
 
       // Upload primary image (container already ensured)
       try {
@@ -522,6 +531,7 @@ async function prepareHoloTacoImageData(
           additionalImages.push({
             storageUrl: upload.storageUrl,
             checksumSha256: upload.checksumSha256,
+            sourceUrl: imgUrl,
           });
         } catch (err) {
           console.error(`${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId}:`, String(err));
@@ -567,10 +577,42 @@ async function prepareHoloTacoImageData(
     let detectedHex: string | null = null;
     let detectedFinishes: string[] | null = null;
 
-    // AI hex detection on primary image only
     const shouldRunAiDetection = detectHexFromImage &&
       holo && (!detectHexOnSuspiciousOnly || isSuspiciousHex(holo.vendorHex));
-    const imageForAi = resolveAiImageUrl(storageUrl);
+
+    // AI hex detection runs on the image most likely to show the polish on a
+    // nail (alt text ranking); the vendor's primary image stays the fallback
+    // and the blob upload set above is unchanged.
+    const uploadedRefs: UploadedImageRef[] = [];
+    if (holo?.primaryImageUrl && storageUrl) {
+      uploadedRefs.push({ sourceUrl: holo.primaryImageUrl, storageUrl });
+    }
+    for (const additional of additionalImages) {
+      if (additional.sourceUrl) {
+        uploadedRefs.push({ sourceUrl: additional.sourceUrl, storageUrl: additional.storageUrl });
+      }
+    }
+    const detectionImage = holo
+      ? chooseUploadedImageForDetection(holo.images, holo.primaryImageUrl, uploadedRefs)
+      : null;
+    const imageForAi = resolveAiImageUrl(detectionImage?.storageUrl ?? storageUrl);
+
+    if (shouldRunAiDetection && holo && detectionImage && imageForAi) {
+      const selectionMessage = `${sourceLogPrefix} ${record.externalId} [image-selection] ${detectionImage.reason}`;
+      const selectionData = {
+        externalId: record.externalId,
+        colorName: holo.name,
+        chosenImageUrl: detectionImage.sourceUrl,
+        primaryImageUrl: holo.primaryImageUrl,
+        selectionSource: detectionImage.selection.source,
+        confident: detectionImage.selection.confident,
+        uploadFallback: detectionImage.uploadFallback,
+        candidates: holo.images.length,
+        candidatesWithAlt: holo.images.filter((image) => Boolean(image.alt)).length,
+      };
+      console.log(selectionMessage, selectionData);
+      progressLogger?.info(selectionMessage, selectionData);
+    }
 
     if (shouldRunAiDetection && holo) {
       if (!imageForAi) {
