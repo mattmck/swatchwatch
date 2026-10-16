@@ -286,8 +286,11 @@ Holo Taco run options:
 Reruns skip work that cannot change anything. Without `overwriteDetectedHex`, a record whose shade already has a
 `detected_hex` and whose `source_product` swatch is already on the same image (same checksum) skips AI detection, because the shade write
 would keep the existing hex anyway. These are counted in `hexDetectionSkippedUnchanged` (a subset of
-`hexDetectionSkipped`). Source images are still downloaded to compute the checksum, but the blob upload is skipped
-when the checksum-named blob already exists. Set `overwriteDetectedHex: true` to re-detect everything, for example after
+`hexDetectionSkipped`). Every stored source image is also recorded in `source_image_url` under the connector URL it
+came from; on a rerun, an image whose URL is unchanged (Shopify CDN URLs carry a `?v=` version that changes when the
+image is replaced) reuses the stored blob and checksum without downloading it. These are counted in `imagesReused`,
+while `imageUploads` and `additionalImagesUploaded` count only images downloaded this run. New URLs are downloaded to
+compute the checksum, and the blob upload is skipped when the checksum-named blob already exists. Set `overwriteDetectedHex: true` to re-detect everything, for example after
 a prompt or model change.
 
 Example request:

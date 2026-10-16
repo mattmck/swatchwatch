@@ -119,19 +119,32 @@ interface HoloTacoProductNormalized {
   colorName: string | null;
 }
 
+/** A source image stored in blob storage, keyed by the connector URL it was downloaded from. */
+interface StoredSourceImage {
+  sourceUrl: string;
+  storageUrl: string;
+  checksumSha256: string;
+}
+
 interface HoloTacoPreparedImage {
   storageUrl: string | null;
   checksumSha256: string | null;
+  /** Connector URL of the primary image; recorded in source_image_url so reruns can skip it. */
+  sourceUrl: string | null;
   detectedHex: string | null;
   detectedFinishes: string[] | null;
-  additionalImages: Array<{ storageUrl: string; checksumSha256: string }>;
+  additionalImages: StoredSourceImage[];
 }
 
 interface HoloTacoImagePreparationMetrics {
   imageCandidates: number;
+  /** Primary images downloaded and uploaded this run (reused images are not counted). */
   imageUploads: number;
   imageUploadFailures: number;
+  /** Gallery images downloaded and uploaded this run (reused images are not counted). */
   additionalImagesUploaded: number;
+  /** Primary and gallery images whose source URL was already stored, so no download ran. */
+  imagesReused: number;
   hexDetected: number;
   hexDetectionFailures: number;
   hexDetectionSkipped: number;
@@ -466,6 +479,61 @@ export async function findRecordsWithUnchangedDetectedHex(
   }
 }
 
+/**
+ * Stored images for connector image URLs this data source has already ingested, keyed by URL.
+ * Shopify CDN URLs carry a `?v=` version that changes when the image is replaced, so an
+ * unchanged URL means an unchanged image and the download can be skipped. A lookup failure
+ * returns an empty map: reuse is an optimization and must never fail the job.
+ */
+export async function findStoredSourceImages(
+  dataSourceId: number,
+  sourceUrls: string[]
+): Promise<Map<string, StoredSourceImage>> {
+  const urls = Array.from(new Set(sourceUrls));
+  if (urls.length === 0) {
+    return new Map();
+  }
+
+  try {
+    const result = await query<StoredSourceImage>(
+      `SELECT
+         siu.source_url AS "sourceUrl",
+         ia.storage_url AS "storageUrl",
+         ia.checksum_sha256 AS "checksumSha256"
+       FROM source_image_url siu
+       JOIN image_asset ia ON ia.image_id = siu.image_id
+       WHERE siu.data_source_id = $1
+         AND siu.source_url = ANY($2::text[])
+         AND ia.checksum_sha256 IS NOT NULL`,
+      [dataSourceId, urls]
+    );
+    return new Map(result.rows.map((row) => [row.sourceUrl, row]));
+  } catch (error) {
+    console.warn(
+      `[ingestion-repo] Stored source image lookup failed; downloading every image: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+    return new Map();
+  }
+}
+
+async function recordSourceImageUrl(
+  client: PoolClient,
+  dataSourceId: number,
+  sourceUrl: string,
+  imageId: number
+): Promise<void> {
+  await client.query(
+    `INSERT INTO source_image_url (data_source_id, source_url, image_id)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (data_source_id, source_url)
+     DO UPDATE SET image_id = EXCLUDED.image_id, updated_at = now()
+     WHERE source_image_url.image_id IS DISTINCT FROM EXCLUDED.image_id`,
+    [dataSourceId, sourceUrl, imageId]
+  );
+}
+
 async function prepareHoloTacoImageData(
   records: ConnectorProductRecord[],
   dataSourceId: number,
@@ -500,6 +568,7 @@ async function prepareHoloTacoImageData(
     imageUploads: 0,
     imageUploadFailures: 0,
     additionalImagesUploaded: 0,
+    imagesReused: 0,
     hexDetected: 0,
     hexDetectionFailures: 0,
     hexDetectionSkipped: 0,
@@ -557,25 +626,80 @@ async function prepareHoloTacoImageData(
     holo: HoloTacoProductNormalized | null;
     storageUrl: string | null;
     checksumSha256: string | null;
-    additionalImages: Array<{ storageUrl: string; checksumSha256: string }>;
+    sourceUrl: string | null;
+    additionalImages: StoredSourceImage[];
     isCandidate: boolean;
+    primaryReused: boolean;
+    additionalUploaded: number;
+    imagesReused: number;
   }
 
   const limit = pLimit(4);
   const startTime = Date.now();
 
-  const uploadTasks = records.map((record) =>
+  const parsedRecords = records.map((record) => {
+    const normalized =
+      record.normalized && typeof record.normalized === "object"
+        ? (record.normalized as Record<string, unknown>)
+        : null;
+    return { record, holo: normalized ? parseHoloTacoNormalized(normalized) : null };
+  });
+
+  // Images whose connector URL was already ingested are reused instead of downloaded: the
+  // download (plus metadata strip and hashing) is what makes reruns slow, not the upload.
+  const storedImages = await findStoredSourceImages(
+    dataSourceId,
+    parsedRecords.flatMap(({ holo }) =>
+      holo?.name && isHttpUrl(holo.primaryImageUrl)
+        ? [holo.primaryImageUrl, ...holo.imageUrls.slice(1).filter(isHttpUrl)]
+        : []
+    )
+  );
+  if (storedImages.size > 0) {
+    progressLogger?.info(
+      `${sourceLogPrefix} Reusing ${storedImages.size} stored image(s) whose source URL is unchanged`
+    );
+  }
+
+  const storeSourceImage = async (
+    sourceImageUrl: string,
+    externalId: string
+  ): Promise<{ image: StoredSourceImage; reused: boolean }> => {
+    const stored = storedImages.get(sourceImageUrl);
+    if (stored) {
+      return { image: stored, reused: true };
+    }
+    const upload = await uploadSourceImageToBlob({
+      sourceImageUrl,
+      source: sourceName,
+      externalId,
+      skipContainerEnsure: true,
+    });
+    return {
+      image: { sourceUrl: sourceImageUrl, storageUrl: upload.storageUrl, checksumSha256: upload.checksumSha256 },
+      reused: false,
+    };
+  };
+
+  const uploadTasks = parsedRecords.map(({ record, holo }) =>
     limit(async (): Promise<ImageUploadResult> => {
-      const normalized =
-        record.normalized && typeof record.normalized === "object"
-          ? (record.normalized as Record<string, unknown>)
-          : null;
-      if (!normalized) {
+      const notCandidate: ImageUploadResult = {
+        record,
+        holo,
+        storageUrl: null,
+        checksumSha256: null,
+        sourceUrl: null,
+        additionalImages: [],
+        isCandidate: false,
+        primaryReused: false,
+        additionalUploaded: 0,
+        imagesReused: 0,
+      };
+      if (!holo) {
         console.log(`${sourceLogPrefix} Skipping record ${record.externalId}: no normalized data`);
-        return { record, holo: null, storageUrl: null, checksumSha256: null, additionalImages: [], isCandidate: false };
+        return notCandidate;
       }
 
-      const holo = parseHoloTacoNormalized(normalized);
       if (!holo.name || !isHttpUrl(holo.primaryImageUrl)) {
         if (holo.name) {
           console.log(`${sourceLogPrefix} Skipping record ${record.externalId}: invalid image URL`, {
@@ -583,26 +707,28 @@ async function prepareHoloTacoImageData(
             imageUrl: holo.primaryImageUrl,
           });
         }
-        return { record, holo, storageUrl: null, checksumSha256: null, additionalImages: [], isCandidate: false };
+        return notCandidate;
       }
 
       console.log(`${sourceLogPrefix} Image candidate: externalId=${record.externalId}, name=${holo.name}, imageUrl=${holo.primaryImageUrl}`);
 
       let storageUrl: string | null = null;
       let checksumSha256: string | null = null;
-      const additionalImages: Array<{ storageUrl: string; checksumSha256: string }> = [];
+      let primaryReused = false;
+      let additionalUploaded = 0;
+      let imagesReused = 0;
+      const additionalImages: StoredSourceImage[] = [];
 
       // Upload primary image (container already ensured)
       try {
-        const upload = await uploadSourceImageToBlob({
-          sourceImageUrl: holo.primaryImageUrl,
-          source: sourceName,
-          externalId: record.externalId,
-          skipContainerEnsure: true,
-        });
-        storageUrl = upload.storageUrl;
-        checksumSha256 = upload.checksumSha256;
-        console.log(`${sourceLogPrefix} Primary image uploaded for ${record.externalId}: checksum=${checksumSha256}`);
+        const { image, reused } = await storeSourceImage(holo.primaryImageUrl, record.externalId);
+        storageUrl = image.storageUrl;
+        checksumSha256 = image.checksumSha256;
+        primaryReused = reused;
+        if (reused) imagesReused += 1;
+        console.log(
+          `${sourceLogPrefix} Primary image ${reused ? "reused" : "uploaded"} for ${record.externalId}: checksum=${checksumSha256}`
+        );
       } catch (err) {
         console.error(`${sourceLogPrefix} Primary image upload failed for ${record.externalId}:`, String(err));
       }
@@ -612,22 +738,30 @@ async function prepareHoloTacoImageData(
         const imgUrl = holo.imageUrls[i];
         if (!isHttpUrl(imgUrl)) continue;
         try {
-          const upload = await uploadSourceImageToBlob({
-            sourceImageUrl: imgUrl,
-            source: sourceName,
-            externalId: `${record.externalId}-img${i}`,
-            skipContainerEnsure: true,
-          });
-          additionalImages.push({
-            storageUrl: upload.storageUrl,
-            checksumSha256: upload.checksumSha256,
-          });
+          const { image, reused } = await storeSourceImage(imgUrl, `${record.externalId}-img${i}`);
+          additionalImages.push(image);
+          if (reused) {
+            imagesReused += 1;
+          } else {
+            additionalUploaded += 1;
+          }
         } catch (err) {
           console.error(`${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId}:`, String(err));
         }
       }
 
-      return { record, holo, storageUrl, checksumSha256, additionalImages, isCandidate: true };
+      return {
+        record,
+        holo,
+        storageUrl,
+        checksumSha256,
+        sourceUrl: storageUrl ? holo.primaryImageUrl : null,
+        additionalImages,
+        isCandidate: true,
+        primaryReused,
+        additionalUploaded,
+        imagesReused,
+      };
     })
   );
 
@@ -670,12 +804,13 @@ async function prepareHoloTacoImageData(
 
   const prepareRecordImage = async (result: ImageUploadResult): Promise<HoloTacoPreparedImage> => {
     const { record, holo, additionalImages } = result;
-    const { storageUrl, checksumSha256 } = result;
+    const { storageUrl, checksumSha256, sourceUrl } = result;
 
     if (!result.isCandidate) {
       return {
         storageUrl: null,
         checksumSha256: null,
+        sourceUrl: null,
         detectedHex: null,
         detectedFinishes: null,
         additionalImages: [],
@@ -683,12 +818,13 @@ async function prepareHoloTacoImageData(
     }
 
     metrics.imageCandidates += 1;
-    if (storageUrl) {
-      metrics.imageUploads += 1;
-    } else {
+    if (!storageUrl) {
       metrics.imageUploadFailures += 1;
+    } else if (!result.primaryReused) {
+      metrics.imageUploads += 1;
     }
-    metrics.additionalImagesUploaded += additionalImages.length;
+    metrics.additionalImagesUploaded += result.additionalUploaded;
+    metrics.imagesReused += result.imagesReused;
 
     let detectedHex: string | null = null;
     let detectedFinishes: string[] | null = null;
@@ -835,6 +971,7 @@ async function prepareHoloTacoImageData(
     return {
       storageUrl,
       checksumSha256,
+      sourceUrl,
       detectedHex,
       detectedFinishes,
       additionalImages,
@@ -855,6 +992,7 @@ async function prepareHoloTacoImageData(
         return {
           storageUrl: result.storageUrl,
           checksumSha256: result.checksumSha256,
+          sourceUrl: result.sourceUrl,
           detectedHex: null,
           detectedFinishes: null,
           additionalImages: result.additionalImages,
@@ -2059,6 +2197,9 @@ async function materializePreparedHoloTacoRecord(
       imageId = insertedImage.rows[0].imageId;
       console.log(`${sourceLogPrefix} Inserted new image ${imageId}`);
     }
+    if (preparedImage.sourceUrl) {
+      await recordSourceImageUrl(client, dataSourceId, preparedImage.sourceUrl, imageId);
+    }
 
     const existingSwatch = await client.query<{ swatchId: number; imageIdOriginal: number }>(
       `SELECT
@@ -2135,6 +2276,7 @@ async function materializePreparedHoloTacoRecord(
         } else {
           galleryImageId = existingAdditional.rows[0].imageId;
         }
+        await recordSourceImageUrl(client, dataSourceId, addImg.sourceUrl, galleryImageId);
 
         const existingGallerySwatch = await client.query<{ swatchId: number }>(
           `SELECT swatch_id AS "swatchId"

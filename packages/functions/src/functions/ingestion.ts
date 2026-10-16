@@ -193,6 +193,7 @@ const ADDITIVE_METRIC_KEYS = new Set([
   "imageUploads",
   "imageUploadFailures",
   "additionalImagesUploaded",
+  "imagesReused",
   "swatchesLinked",
   "hexDetected",
   "hexDetectionFailures",
