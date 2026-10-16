@@ -5,14 +5,16 @@
  * - validateImageUpload() rejects disallowed MIME types, oversize, and empty payloads
  * - validateImageUpload() accepts and normalizes allowed types
  * - stripImageMetadata() removes EXIF metadata from real image bytes
+ * - uploadSourceImageToBlob() skips the PUT when the checksum-named blob already exists
  */
-const { describe, it } = require("node:test");
+const { describe, it, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 const sharp = require("sharp");
 
 const {
   validateImageUpload,
   stripImageMetadata,
+  uploadSourceImageToBlob,
   UPLOAD_LIMITS,
 } = require("../dist/lib/blob-storage");
 
@@ -71,5 +73,68 @@ describe("lib/blob-storage — stripImageMetadata", () => {
     const result = await stripImageMetadata(garbage);
     assert.ok(Buffer.isBuffer(result));
     assert.equal(result.toString(), "not-an-image");
+  });
+});
+
+describe("lib/blob-storage — uploadSourceImageToBlob", () => {
+  const originalFetch = global.fetch;
+  const originalConnection = process.env.AZURE_STORAGE_CONNECTION;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    if (originalConnection === undefined) {
+      delete process.env.AZURE_STORAGE_CONNECTION;
+    } else {
+      process.env.AZURE_STORAGE_CONNECTION = originalConnection;
+    }
+  });
+
+  async function runUpload(headStatus) {
+    process.env.AZURE_STORAGE_CONNECTION = `DefaultEndpointsProtocol=https;AccountName=testacct;AccountKey=${Buffer.from(
+      "test-key"
+    ).toString("base64")};EndpointSuffix=core.windows.net`;
+    const png = await sharp({
+      create: { width: 4, height: 4, channels: 3, background: { r: 1, g: 2, b: 3 } },
+    })
+      .png()
+      .toBuffer();
+
+    const methods = [];
+    global.fetch = async (url, init = {}) => {
+      const method = init.method || "GET";
+      methods.push(method);
+      if (String(url).startsWith("https://shop.example/")) {
+        return new Response(png, { status: 200, headers: { "content-type": "image/png" } });
+      }
+      if (method === "HEAD") {
+        return new Response(null, { status: headStatus });
+      }
+      return new Response(null, { status: 201 });
+    };
+
+    const result = await uploadSourceImageToBlob({
+      sourceImageUrl: "https://shop.example/p1.png",
+      source: "TestShopify",
+      externalId: "p1",
+      skipContainerEnsure: true,
+    });
+    return { result, methods };
+  }
+
+  it("skips the upload when the blob already exists", async () => {
+    const { result, methods } = await runUpload(200);
+    assert.deepEqual(methods, ["GET", "HEAD"]);
+    assert.match(result.storageUrl, /^https:\/\/testacct\.blob\.core\.windows\.net\/.+\/testshopify\/p1-[0-9a-f]{12}\.png$/);
+    assert.match(result.checksumSha256, /^[0-9a-f]{64}$/);
+  });
+
+  it("uploads when the blob is missing", async () => {
+    const { methods } = await runUpload(404);
+    assert.deepEqual(methods, ["GET", "HEAD", "PUT"]);
+  });
+
+  it("still uploads when the existence check fails", async () => {
+    const { methods } = await runUpload(500);
+    assert.deepEqual(methods, ["GET", "HEAD", "PUT"]);
   });
 });

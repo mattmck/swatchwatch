@@ -223,6 +223,10 @@ generic `*Shopify` sources; `MakeupAPI` materialization also merges finishes par
 products by publish/create/update timestamps. It also uploads source product images to Azure Blob
 Storage (`image_asset` + `swatch`) and attempts Azure OpenAI-based representative `color_hex`
 detection from the product image.
+The generic Shopify connector only records a `vendor_hex` when a variant option or product title
+contains a literal `#RRGGBB` token (e.g. `#A1B2C3`); bare words made of hex letters such as
+"Facade" or "Decadence" are ignored. As of 2026-10-14 none of the supported Shopify storefronts
+publish real hex values, so `detected_hex` from image AI is the only color source for those shades.
 When `HEX_DETECTION_BATCH_ENABLED=true`, Shopify image detection can switch to Azure OpenAI Batch API
 for larger runs (`HEX_DETECTION_BATCH_MIN_IMAGES` threshold). In that mode, the main worker submits
 the batch and leaves the job in `running` with pipeline stage `awaiting_ai`; a timer-triggered poller
@@ -275,6 +279,13 @@ Holo Taco run options:
 - `detectHexFromImage` (default `true`) toggles image-based AI hex detection.
 - `overwriteDetectedHex` (default `false`) refreshes existing `color_hex` values on reruns instead of only filling blanks.
 - `detectHexOnSuspiciousOnly` (default `false`) only runs image AI when vendor hex is missing/suspicious.
+
+Reruns skip work that cannot change anything. Without `overwriteDetectedHex`, a record whose shade already has a
+`detected_hex` and already has a swatch on the same image (same checksum) skips AI detection, because the shade write
+would keep the existing hex anyway. These are counted in `hexDetectionSkippedUnchanged` (a subset of
+`hexDetectionSkipped`). Source images are still downloaded to compute the checksum, but the blob upload is skipped
+when the checksum-named blob already exists. Set `overwriteDetectedHex: true` to re-detect everything, for example after
+a prompt or model change.
 
 Example request:
 ```json
@@ -339,6 +350,7 @@ npm run migrate:create -- my-migration-name   # Create a new migration file
 | `019_add_user_external_identities.sql` | Adds `user_external_identities` and backfills existing `app_user.external_id` values to support multi-provider identity linking |
 | `023_add_shade_finishes.sql` | Adds `shade.finishes text[] NOT NULL DEFAULT '{}'` + GIN index for multi-finish shades, backfills `ARRAY[canonical(finish)]` from the legacy column (canonical names + `finish_normalization` aliases), and seeds `flakie`/`flakies`/`toppers` aliases. Down drops the column/index and those alias rows |
 | `024_shade_user_submitted.sql` | Adds nullable `shade.created_by_user_id` (FK → `app_user`, `ON DELETE SET NULL`) + partial index; user-created shades use `status = 'user_submitted'` until an admin promotes them. Down drops the column/index |
+| `025_correct_shopify_source_notes.sql` | Corrects Shopify `data_source.metadata.notes` (no store publishes hex values) and disables Clionadh, Garden Path, Roylalee and Potion Polish, which the connector cannot read |
 | `20261016030127700_clear-fake-shopify-vendor-hex.sql` | Nulls `shade.vendor_hex` values the generic Shopify connector invented before PR #238: regex false positives (hex digits found in the shade name/color name/raw Shopify title or options but never as a literal `#RRGGBB` token, e.g. "Facade" → `#FACADE`) and the `#000000`/`#D3D3D3` placeholders. Only Shopify-sourced shades (inventory tagged `shopify` or swatch owned by a `*Shopify` data source); MakeupAPI-linked shades and `detected_hex`/`name_hex` are untouched. Old values go to `shade_vendor_hex_cleanup_backup`; down restores them where `vendor_hex` is still null, then drops the table |
 
 node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_URL` is the preferred connection method; it also falls back to individual `PG*` env vars (`PGHOST`, `PGPORT`, etc.).
@@ -406,7 +418,8 @@ Key variables:
 | `AZURE_OPENAI_VISION_DETAIL` | Optional image detail level for vision hex detection, sync and batch (`low` default — flat ~85 tokens/image; `high`/`auto` for more resolution). Unrecognized values fall back to `low`. |
 | `HEX_DETECTION_BATCH_ENABLED` | Feature flag to enable Azure OpenAI Batch API for Shopify image detection (default `false`). |
 | `HEX_DETECTION_BATCH_MIN_IMAGES` | Minimum record count before switching from synchronous detection to batch submission (default `5`). |
-| `HEX_DETECTION_DELAY_MS` | Pause between synchronous (non-batch) hex detection calls (default `1000`, max `60000`, `0` disables). The old fixed 6s pacing predates low-detail images; 429s are still retried with `Retry-After`. |
+| `HEX_DETECTION_DELAY_MS` | Pause after each synchronous (non-batch) hex detection call, per concurrency slot (default `1000`, max `60000`, `0` disables). The old fixed 6s pacing predates low-detail images; 429s are still retried with `Retry-After`. |
+| `HEX_DETECTION_CONCURRENCY` | Synchronous hex detection calls in flight at once (default `4`, max `32`). Records still commit to Postgres one at a time, in order. The deployment's tokens-per-minute quota is the real ceiling, so raise this together with `openai_deployment_capacity`. |
 | `INGESTION_AI_BATCH_POLL_SCHEDULE` | NCRONTAB schedule for the timer poller that checks batch completion (default `0 * * * * *`, every minute). |
 | `INGESTION_AI_BATCH_MAX_POLL_JOBS` | Max `awaiting_ai` ingestion jobs the poller processes per run (default `10`). |
 | `INGESTION_AI_IMAGE_PROXY_ORIGIN` | Optional public origin used when building AI image-proxy URLs (for example `https://<func-app>.azurewebsites.net`). Falls back to `https://$WEBSITE_HOSTNAME`. |
