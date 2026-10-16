@@ -180,8 +180,12 @@ async function fakeQuery(via, sql, params = []) {
     if (/ui\.inventory_item_id\s+IS\s+NOT\s+NULL/i.test(text) && /COALESCE\(ui\.quantity/i.test(text)) {
       shades = shades.filter((s) => state.inventory.has(`${userId}:${s.id}`));
     }
-    if (/COUNT\(\*\)/i.test(text)) return { rows: [{ total: String(shades.length) }], rowCount: 1 };
-    const rows = shades.map((s) => polishRow(s, userId));
+    if (/COUNT\(\*\)\s+AS\s+total\b/i.test(text)) return { rows: [{ total: String(shades.length) }], rowCount: 1 };
+    // The list query carries its total as a window column (COUNT(*) OVER() AS "totalCount").
+    const withTotal = /"totalCount"/.test(text);
+    const rows = shades.map((s) =>
+      withTotal ? { ...polishRow(s, userId), totalCount: String(shades.length) } : polishRow(s, userId)
+    );
     return { rows, rowCount: rows.length };
   }
 
@@ -414,11 +418,12 @@ describe("F2 — user-submitted shades are private until approved", () => {
     assert.ok(!listA.jsonBody.polishes.some((p) => p.name === "Fresh Shade"));
   });
 
-  it("list, count and detail queries carry the visibility predicate bound to the caller", async () => {
+  it("list and detail queries carry the visibility predicate bound to the caller", async () => {
     await getList(USER_B, "?search=x");
     await getDetail(USER_B, CATALOG_SHADE);
     const polishQueries = calls().filter((c) => /LEFT\s+JOIN\s+user_inventory_item/i.test(c.sql));
-    assert.ok(polishQueries.length >= 3, "expected list + count + detail queries");
+    assert.ok(polishQueries.length >= 2, "expected list + detail queries");
+    assert.ok(polishQueries.some((q) => /"totalCount"/.test(q.sql)), "list query should carry the window total");
     for (const q of polishQueries) {
       assert.match(
         q.sql,

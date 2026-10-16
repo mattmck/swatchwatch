@@ -1073,7 +1073,7 @@ describe("functions/polishes — multi-finish", () => {
       if (text.includes("FROM finish_normalization")) {
         return { rows: aliasRows() };
       }
-      if (text.includes("COUNT(*)")) {
+      if (text.includes("COUNT(*) AS total")) {
         return { rows: [{ total: "1" }] };
       }
       listCalls.push({ text, params });
@@ -1087,6 +1087,7 @@ describe("functions/polishes — multi-finish", () => {
             finish: "shimmer",
             finishes: ["shimmer", "holographic"],
             swatchImageUrl: null,
+            totalCount: "1",
           },
         ],
       };
@@ -1125,13 +1126,13 @@ describe("functions/polishes — multi-finish", () => {
       if (text.includes("FROM finish_normalization")) {
         return { rows: aliasRows({ withChrome: true }) };
       }
-      if (text.includes("COUNT(*)")) {
+      if (text.includes("COUNT(*) AS total")) {
         return { rows: [{ total: "1" }] };
       }
       listCalls.push({ text, params });
       return {
         rows: [
-          { id: "8", brand: "X", name: "Mirror Ball", color: "", finish: "chrome", finishes: ["chrome"], swatchImageUrl: null },
+          { id: "8", brand: "X", name: "Mirror Ball", color: "", finish: "chrome", finishes: ["chrome"], swatchImageUrl: null, totalCount: "1" },
         ],
       };
     };

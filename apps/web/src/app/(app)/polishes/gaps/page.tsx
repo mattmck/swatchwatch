@@ -36,6 +36,7 @@ import {
 export default function PolishCollectionGapsPage() {
   const [polishes, setPolishes] = useState<Polish[]>([]);
   const [loading, setLoading] = useState(true);
+  const [catalogLoading, setCatalogLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedCellKey, setSelectedCellKey] = useState<string | null>(null);
 
@@ -45,14 +46,35 @@ export default function PolishCollectionGapsPage() {
       try {
         setLoading(true);
         setError(null);
-        const rows = await listAllPolishes({ sortBy: "createdAt", sortOrder: "desc" });
-        if (!cancelled) setPolishes(rows);
+        // Phase 1: the heatmap only needs owned shades, which is a small fast query.
+        const ownedRows = await listAllPolishes({
+          availability: "owned",
+          sortBy: "createdAt",
+          sortOrder: "desc",
+        });
+        if (cancelled) return;
+        setPolishes(ownedRows);
+        setLoading(false);
+
+        // Phase 2: the shared catalog feeds "Available To Add" suggestions. It is much
+        // larger, so it loads in the background after the map is already interactive.
+        try {
+          const allRows = await listAllPolishes({ sortBy: "createdAt", sortOrder: "desc" });
+          if (cancelled) return;
+          const merged = new Map(allRows.map((polish) => [polish.id, polish]));
+          for (const owned of ownedRows) merged.set(owned.id, owned);
+          setPolishes(Array.from(merged.values()));
+        } catch {
+          // Suggestions are optional; the owned-only map stays usable.
+        } finally {
+          if (!cancelled) setCatalogLoading(false);
+        }
       } catch (err: unknown) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Failed to load collection");
+          setLoading(false);
+          setCatalogLoading(false);
         }
-      } finally {
-        if (!cancelled) setLoading(false);
       }
     }
     loadPolishes();
@@ -328,7 +350,11 @@ export default function PolishCollectionGapsPage() {
                   <CellMatchesList
                     title="Available To Add"
                     items={selectedCatalogMatches}
-                    emptyLabel="No additional catalog shades currently in this cell."
+                    emptyLabel={
+                      catalogLoading
+                        ? "Loading catalog suggestions…"
+                        : "No additional catalog shades currently in this cell."
+                    }
                   />
                 </div>
                 <Button asChild size="sm" variant="outline">
