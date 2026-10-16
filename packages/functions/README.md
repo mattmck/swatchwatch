@@ -231,14 +231,20 @@ contains a literal `#RRGGBB` token (e.g. `#A1B2C3`); bare words made of hex lett
 "Facade" or "Decadence" are ignored. As of 2026-10-14 none of the supported Shopify storefronts
 publish real hex values, so `detected_hex` from image AI is the only color source for those shades.
 When `HEX_DETECTION_BATCH_ENABLED=true`, Shopify image detection can switch to Azure OpenAI Batch API
-for larger runs (`HEX_DETECTION_BATCH_MIN_IMAGES` threshold). In that mode, the main worker submits
-the batch and leaves the job in `running` with pipeline stage `awaiting_ai`; a timer-triggered poller
-(`ingestion-ai-batch-poller`) later applies completed batch results. If the worker stored
-`metrics.resumeMessage` when pausing, the poller writes `metrics.checkpoint` from it, removes
-`resumeMessage`, sets pipeline stage `continuation_queued`, persists, and then re-enqueues the message so
-the worker continues with the next page; otherwise it marks the job `succeeded`. A failed batch, a
-malformed `resumeMessage`, or an enqueue failure marks the job `failed` (enqueue/resume problems use stage
-`continuation_enqueue`).
+for larger runs (`HEX_DETECTION_BATCH_MIN_IMAGES` threshold). Records are committed before their batch
+is submitted (the batch only fills in `detected_hex`), so the worker submits one batch per chunk, records
+it in `metrics.aiBatches`, and keeps ingesting while the batches run in parallel. Once every record is
+committed, the job stays `running` with pipeline stage `awaiting_ai`; a timer-triggered poller
+(`ingestion-ai-batch-poller`) polls each pending batch, applies each one as it completes (persisting
+after each), and marks the job `succeeded` when none are pending. A whole-store run therefore takes
+roughly one batch window instead of one window per chunk. If a job reaches
+`HEX_DETECTION_BATCH_MAX_IN_FLIGHT` pending batches with work remaining, the worker pauses early and
+stores `metrics.resumeMessage`; after applying the pending batches the poller writes `metrics.checkpoint`
+from it, removes `resumeMessage`, sets pipeline stage `continuation_queued`, persists, and then
+re-enqueues the message so the worker continues. A failed or expired batch, a malformed
+`resumeMessage`, or an enqueue failure marks the job `failed` (enqueue/resume problems use stage
+`continuation_enqueue`). Jobs paused by an older worker with a single `metrics.aiBatch` are still
+handled.
 If batch submission itself fails, the worker logs the reason and falls back to synchronous detection for
 that run (applying detections through the same shade write path the poller uses), recording the count in
 the `batchFallbacks` metric instead of failing the job.
@@ -426,6 +432,7 @@ Key variables:
 | `AZURE_OPENAI_VISION_DETAIL` | Optional image detail level for vision hex detection, sync and batch (`low` default — flat ~85 tokens/image; `high`/`auto` for more resolution). Unrecognized values fall back to `low`. |
 | `HEX_DETECTION_BATCH_ENABLED` | Feature flag to enable Azure OpenAI Batch API for Shopify image detection (default `false`). |
 | `HEX_DETECTION_BATCH_MIN_IMAGES` | Minimum record count before switching from synchronous detection to batch submission (default `5`). |
+| `HEX_DETECTION_BATCH_MAX_IN_FLIGHT` | Max hex batches one ingestion job keeps pending before the worker pauses for `awaiting_ai` (default `20`, clamped 1–100); bounds the job's share of the batch deployment's enqueued-token quota. |
 | `HEX_DETECTION_DELAY_MS` | Pause after each synchronous (non-batch) hex detection call, per concurrency slot (default `1000`, max `60000`, `0` disables). The old fixed 6s pacing predates low-detail images; 429s are still retried with `Retry-After`. |
 | `HEX_DETECTION_CONCURRENCY` | Synchronous hex detection calls in flight at once (default `4`, max `32`). Records still commit to Postgres one at a time, in order. The deployment's tokens-per-minute quota is the real ceiling, so raise this together with `openai_deployment_capacity`. |
 | `INGESTION_AI_BATCH_POLL_SCHEDULE` | NCRONTAB schedule for the timer poller that checks batch completion (default `0 * * * * *`, every minute). |

@@ -34,6 +34,9 @@ let calls = [];
 let dbJob = null;
 let awaitingJob = null;
 let batchStatus = null;
+// Per-batch statuses for jobs tracking several batches; falls back to batchStatus.
+let batchStatusById = {};
+let polledBatchIds = [];
 let applyResult = null;
 let onApply = () => {};
 let enqueueMock = async () => {};
@@ -80,7 +83,10 @@ registerMock("../lib/ingestion-repo", {
 });
 
 registerMock("../lib/azure-openai-batch", {
-  getVisionHexBatchStatus: async () => ({ ...batchStatus }),
+  getVisionHexBatchStatus: async (batchId) => {
+    polledBatchIds.push(batchId);
+    return { ...(batchStatusById[batchId] || batchStatus) };
+  },
   downloadBatchFileContent: async () => "{}\n{}\n",
   parseVisionHexBatchOutput: () => [{}, {}],
   parseVisionHexBatchDetections: async () => [
@@ -179,6 +185,8 @@ beforeEach(() => {
   applyResult = { processed: 2, applied: 1, skippedNoDetection: 1, noShadeMatch: 0 };
   onApply = () => {};
   enqueueMock = async () => {};
+  batchStatusById = {};
+  polledBatchIds = [];
 });
 
 describe("ingestion-ai-batch-poller completed batch", () => {
@@ -322,5 +330,161 @@ describe("ingestion-ai-batch-poller completed batch", () => {
       completionTokens: 30,
       totalTokens: 330,
     });
+  });
+});
+
+function makeMultiBatchMetrics(entries, { resumeMessage } = {}) {
+  return {
+    pipeline: { status: "running", stage: "awaiting_ai", updatedAt: "2026-10-14T00:00:00.000Z" },
+    aiBatch: { batchId: entries[entries.length - 1].batchId, status: "submitted" },
+    aiBatches: entries.map((entry) => ({ overwriteDetectedHex: false, requestCount: 2, ...entry })),
+    [realContinuation.CHECKPOINT_METRICS_KEY]: makeCheckpoint({ continuationCount: 3 }),
+    logs: [],
+    ...(resumeMessage ? { resumeMessage } : {}),
+  };
+}
+
+function completedStatus(id) {
+  return {
+    id,
+    status: "completed",
+    outputFileId: `file-out-${id}`,
+    errorFileId: null,
+    requestCounts: { total: 2, completed: 2, failed: 0 },
+  };
+}
+
+describe("ingestion-ai-batch-poller with several batches per job", () => {
+  it("applies completed batches and keeps waiting while others still run", async () => {
+    seedJob(
+      makeMultiBatchMetrics([
+        { batchId: "batch-1", status: "submitted" },
+        { batchId: "batch-2", status: "submitted" },
+      ])
+    );
+    batchStatusById = {
+      "batch-1": completedStatus("batch-1"),
+      "batch-2": { ...completedStatus("batch-2"), status: "in_progress", outputFileId: null },
+    };
+
+    await runPoller();
+
+    assert.deepEqual(polledBatchIds, ["batch-1", "batch-2"]);
+    assert.deepEqual(
+      calls.map((c) => c.type),
+      ["apply", "update", "update"]
+    );
+    assert.equal(dbJob.status, "running");
+    assert.equal(dbJob.metrics.pipeline.stage, "awaiting_ai");
+    assert.deepEqual(
+      dbJob.metrics.aiBatches.map((b) => [b.batchId, b.status]),
+      [
+        ["batch-1", "completed"],
+        ["batch-2", "in_progress"],
+      ]
+    );
+    assert.equal(dbJob.metrics.aiBatchesCompleted, 1);
+  });
+
+  it("does not re-poll applied batches and completes the job when the last one finishes", async () => {
+    seedJob(
+      makeMultiBatchMetrics([
+        { batchId: "batch-1", status: "completed" },
+        { batchId: "batch-2", status: "in_progress" },
+      ])
+    );
+    batchStatusById = { "batch-2": completedStatus("batch-2") };
+
+    await runPoller();
+
+    assert.deepEqual(polledBatchIds, ["batch-2"]);
+    // The last pending batch goes straight to the final write.
+    assert.deepEqual(
+      calls.map((c) => c.type),
+      ["apply", "succeeded"]
+    );
+    assert.equal(dbJob.status, "succeeded");
+    assert.equal(dbJob.metrics.pipeline.stage, "completed");
+    assert.ok(dbJob.metrics.aiBatches.every((b) => b.status === "completed"));
+  });
+
+  it("applies every batch that finished in the same poll", async () => {
+    seedJob(
+      makeMultiBatchMetrics([
+        { batchId: "batch-1", status: "submitted" },
+        { batchId: "batch-2", status: "submitted" },
+        { batchId: "batch-3", status: "submitted" },
+      ])
+    );
+    batchStatusById = {
+      "batch-1": completedStatus("batch-1"),
+      "batch-2": completedStatus("batch-2"),
+      "batch-3": completedStatus("batch-3"),
+    };
+
+    await runPoller();
+
+    assert.deepEqual(
+      calls.map((c) => c.type),
+      ["apply", "update", "apply", "update", "apply", "succeeded"]
+    );
+    const done = calls[calls.length - 1].metrics;
+    assert.equal(done.aiBatchesCompleted, 3);
+    assert.equal(done.aiBatchApplyTotals.applied, 3);
+  });
+
+  it("enqueues the stored resume message once all batches are applied", async () => {
+    const resumeMessage = makeResumeMessage();
+    seedJob(
+      makeMultiBatchMetrics(
+        [
+          { batchId: "batch-1", status: "submitted" },
+          { batchId: "batch-2", status: "submitted" },
+        ],
+        { resumeMessage }
+      )
+    );
+    batchStatusById = {
+      "batch-1": completedStatus("batch-1"),
+      "batch-2": completedStatus("batch-2"),
+    };
+
+    await runPoller();
+
+    assert.deepEqual(
+      calls.map((c) => c.type),
+      ["apply", "update", "apply", "update", "enqueue"]
+    );
+    assert.equal(dbJob.metrics.pipeline.stage, realContinuation.CONTINUATION_QUEUED_STAGE);
+    assert.deepEqual(calls[calls.length - 1].message, resumeMessage);
+  });
+
+  it("fails the job when a batch fails, after applying the ones that completed", async () => {
+    seedJob(
+      makeMultiBatchMetrics([
+        { batchId: "batch-1", status: "submitted" },
+        { batchId: "batch-2", status: "submitted" },
+      ])
+    );
+    batchStatusById = {
+      "batch-1": completedStatus("batch-1"),
+      "batch-2": { ...completedStatus("batch-2"), status: "expired", outputFileId: null },
+    };
+
+    await runPoller();
+
+    assert.deepEqual(
+      calls.map((c) => c.type),
+      ["apply", "update", "failed"]
+    );
+    assert.match(calls[2].error, /batch-2 ended with status expired/);
+    assert.equal(dbJob.metrics.failedStage, "awaiting_ai");
+    assert.deepEqual(
+      dbJob.metrics.aiBatches.map((b) => [b.batchId, b.status]),
+      [
+        ["batch-1", "completed"],
+        ["batch-2", "expired"],
+      ]
+    );
   });
 });
