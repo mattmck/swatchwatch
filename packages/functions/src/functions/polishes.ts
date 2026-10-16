@@ -178,7 +178,7 @@ const POLISH_SELECT = `
     FROM swatch sw
     JOIN image_asset ia ON ia.image_id = sw.image_id_original
     WHERE sw.shade_id = s.shade_id
-    ORDER BY sw.swatch_id DESC
+    ORDER BY COALESCE(sw.swatch_type = 'source_product', false) DESC, sw.swatch_id DESC
     LIMIT 1
   ) AS swatch_img ON true`;
 
@@ -479,7 +479,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
          FROM swatch sw
          JOIN image_asset ia ON ia.image_id = sw.image_id_original
          WHERE sw.shade_id = $1
-         ORDER BY sw.swatch_id DESC`,
+         ORDER BY COALESCE(sw.swatch_type = 'source_product', false) DESC, sw.swatch_id DESC`,
         [shadeId]
       );
 
@@ -971,7 +971,7 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
        LEFT JOIN swatch sw ON sw.shade_id = s.shade_id
        LEFT JOIN image_asset ia ON ia.image_id = sw.image_id_original
        WHERE s.shade_id = $1
-       ORDER BY sw.swatch_id DESC
+       ORDER BY COALESCE(sw.swatch_type = 'source_product', false) DESC, sw.swatch_id DESC
        LIMIT 1`,
       [shadeId]
     );
