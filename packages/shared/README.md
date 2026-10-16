@@ -16,7 +16,9 @@ The package is automatically linked via npm workspaces — no publishing require
 
 | Type | Description |
 |------|-------------|
-| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, legacy `finish`, multi-finish `finishes`, tags, timestamps, etc.) |
+| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, legacy `finish`, multi-finish `finishes`, tags, timestamps, etc.). Detected-hex provenance (migration 026): `detectedHexConfidence` (0–1), `detectedHexMethod` (`vision-direct`, `palette-pick`, `region-crop`, `ensemble`, `client-supplied`, …), `detectedHexModel` (deployment), `detectedHexPromptVersion`, `detectedHexAt`, and `hexAgreement` (OKLAB distance vendorHex ↔ detectedHex, null unless both exist) |
+| `resolveDisplayHex(polish)` | Display hex with the blind precedence vendor > detected > name (unchanged; used by the web app) |
+| `HexReviewItem` / `HexReviewResponse` / `HexReviewSort` | Admin hex-review queue payload (`GET /api/polishes-admin/hex-review`): hexes, provenance, agreement, display hex/source, `flagged`; sorted by `agreement` or `confidence` |
 | `PolishFinish` | Built-in finish name, derived as `(typeof CANONICAL_FINISHES)[number]` |
 | `FinishName` | `PolishFinish \| (string & {})` — any finish name on API-facing fields (`Polish.finishes`, request `finish`/`finishes`); admits runtime names from admin-managed `finish_type` rows while keeping autocomplete for built-ins |
 | `resolvePolishFinishes(polish)` | Finishes to display: `finishes` when non-empty, else `[finish]` (backward compatible) |
@@ -26,7 +28,7 @@ The package is automatically linked via npm workspaces — no publishing require
 | `PolishListResponse` | Paginated list: `{ polishes, total, page, pageSize }` |
 | `PolishFilters` | Query params: brand/finish/finishes/color/tags/search plus scope/availability/tone, sort, and pagination |
 | `Brand` | Canonical brand entity (`brand_id`, `name_canonical`) |
-| `Shade` | Canonical shade entity (`shade_id`, `brand_id`, `shade_name_canonical`, `finish`, `finishes`, `collection`, etc.) |
+| `Shade` | Canonical shade entity (`shade_id`, `brand_id`, `shade_name_canonical`, `finish`, `finishes`, `collection`, hex columns, `detected_hex_*` provenance, `hex_agreement`, etc.) |
 | `CatalogSearchResult` | Single search hit: shade with brand name, `finish`/`finishes`, and similarity score |
 | `CatalogSearchResponse` | Search response: `{ results, query, total }` |
 | `CatalogShadeDetail` | Full shade detail with brand info and aliases |
@@ -41,6 +43,16 @@ The package is automatically linked via npm workspaces — no publishing require
 | `isCanonicalFinish(value)` | Type guard for exact BUILT-IN names (unaware of finish types added at runtime) |
 
 **Multi-finish contract (#43):** `finishes` is the source of truth for display/filtering; `finish` is the legacy single value kept populated for older consumers (it is the shade's identity key in the DB). At runtime the admin-managed `finish_type` table decides *which* finishes are valid; `CANONICAL_FINISHES` is only the built-in seeded defaults (used for typing and as the fallback when the DB is unavailable) and is kept equal to the seeded `finish_type` rows by `packages/functions/tests/finishes.unit.test.cjs`. Alias spellings (`holo`, `cream`, `flakie`, …) are not listed here — they live in the DB-backed `finish_normalization` table (see `packages/functions/README.md`).
+
+### `color/` (OKLAB math, thresholds, hex reconciliation)
+
+| Export | Description |
+|--------|-------------|
+| `hexToOklab`, `rgbToOklab`, `oklabDistance`, `colorDistance` | OKLAB conversion and Euclidean distance (black↔white ≈ 1.0, ~0.02 ≈ one JND); shared by web and API |
+| `HIGH_CONFIDENCE_MAX_DISTANCE` (0.05), `MEDIUM_CONFIDENCE_MAX_DISTANCE` (0.10), `confidenceForDistance(d)` | Distance buckets used by photo matching and vendor↔detected reconciliation (`color/thresholds.ts`) |
+| `normalizeHexColor(value)` | Uppercase `#RRGGBB` or null |
+| `computeHexAgreement(vendorHex, detectedHex)` | OKLAB distance rounded to 4 decimals, null unless both hexes are valid; mirrors the Postgres `hex_oklab_distance()` behind `shade.hex_agreement` |
+| `resolveDisplayHexDetailed(polish, { vendorHexSuspicious?, disagreementThreshold? })` | Pure reconciliation → `{ hex, source, agreement, flagged, reason }`. Keeps vendor > detected > name by default; flags `disagreement` when vendor and detected differ by more than MEDIUM; when the caller marks the vendor hex suspicious, prefers detected (and flags `vendor-suspicious` if the vendor hex still had to be used). Uses a stored `hexAgreement` when present |
 
 ### `types/user.ts`
 

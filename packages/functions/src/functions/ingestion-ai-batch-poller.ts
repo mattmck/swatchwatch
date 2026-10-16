@@ -14,6 +14,7 @@ import {
   parseVisionHexBatchOutput,
 } from "../lib/azure-openai-batch";
 import { trackMetric } from "../lib/telemetry";
+import { provenanceFromDetection } from "../lib/hex-provenance";
 import {
   CHECKPOINT_METRICS_KEY,
   CONTINUATION_QUEUED_STAGE,
@@ -112,12 +113,18 @@ function readAiBatchFromMetrics(metrics: Record<string, unknown>): {
   batchId: string;
   overwriteDetectedHex: boolean;
   requestCount: number | null;
+  /** Deployment / prompt recorded at submission (older jobs may lack them). */
+  deployment: string | null;
+  promptVersion: string | null;
 } | null {
   const aiBatch = toRecord(metrics.aiBatch);
   const batchId = typeof aiBatch.batchId === "string" ? aiBatch.batchId.trim() : "";
   if (!batchId) {
     return null;
   }
+
+  const readString = (value: unknown): string | null =>
+    typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 
   return {
     batchId,
@@ -126,6 +133,8 @@ function readAiBatchFromMetrics(metrics: Record<string, unknown>): {
       typeof aiBatch.requestCount === "number" && Number.isFinite(aiBatch.requestCount)
         ? aiBatch.requestCount
         : null,
+    deployment: readString(aiBatch.deployment),
+    promptVersion: readString(aiBatch.promptVersion),
   };
 }
 
@@ -308,7 +317,10 @@ async function processAwaitingAiBatchJob(
 
     const outputJsonl = await downloadBatchFileContent(batchStatus.outputFileId);
     const outputRows = parseVisionHexBatchOutput(outputJsonl);
-    const parsedDetections = await parseVisionHexBatchDetections(outputRows);
+    const parsedDetections = await parseVisionHexBatchDetections(outputRows, {
+      deployment: aiBatchMetrics.deployment,
+      promptVersion: aiBatchMetrics.promptVersion,
+    });
     const tokenUsage = sumBatchTokenUsage(parsedDetections);
     const tokenMetricProperties = {
       source: job.source,
@@ -342,6 +354,7 @@ async function processAwaitingAiBatchJob(
         externalId: row.customId,
         detectedHex: row.detection?.hex || null,
         detectedFinishes: row.detection?.finishes || null,
+        provenance: row.detection ? provenanceFromDetection(row.detection) : null,
       })),
       aiBatchMetrics.overwriteDetectedHex
     );

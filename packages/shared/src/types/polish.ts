@@ -17,6 +17,21 @@ export interface Polish {
   detectedHex?: string;
   /** Hex inferred from the product color name via AI or builtin lookup */
   nameHex?: string;
+  /** Model self-reported confidence (0–1) for `detectedHex`; null/undefined when not recorded */
+  detectedHexConfidence?: number | null;
+  /** Detection strategy that produced `detectedHex` (`vision-direct`, `palette-pick`, `region-crop`, `ensemble`, `client-supplied`, …) */
+  detectedHexMethod?: string | null;
+  /** Azure OpenAI deployment name that produced `detectedHex` */
+  detectedHexModel?: string | null;
+  /** Prompt revision used for `detectedHex` (`PROMPT_VERSION` in the functions package) */
+  detectedHexPromptVersion?: string | null;
+  /** ISO-8601 time `detectedHex` was last written */
+  detectedHexAt?: string | null;
+  /**
+   * OKLAB distance between `vendorHex` and `detectedHex` (null unless both exist).
+   * Stored on the shade (`shade.hex_agreement`); > 0.10 (MEDIUM) counts as a disagreement.
+   */
+  hexAgreement?: number | null;
   /**
    * Legacy single finish (the shade's identity/primary finish). Kept populated for
    * backward compatibility; prefer `finishes` (or `resolvePolishFinishes`) for display.
@@ -39,7 +54,11 @@ export interface Polish {
   updatedAt: string;
 }
 
-/** Returns the best available hex for display: vendor > detected > name */
+/**
+ * Returns the best available hex for display: vendor > detected > name.
+ * See `resolveDisplayHexDetailed` (color/hex-reconciliation.ts) for the variant
+ * that reports the source, vendor↔detected agreement and review flags.
+ */
 export function resolveDisplayHex(
   polish: Pick<Polish, "vendorHex" | "detectedHex" | "nameHex">
 ): string | undefined {
@@ -107,6 +126,14 @@ export interface Shade {
   vendor_hex?: string;
   detected_hex?: string;
   name_hex?: string;
+  /** detected_hex provenance (migration 026) */
+  detected_hex_confidence?: number | null;
+  detected_hex_method?: string | null;
+  detected_hex_model?: string | null;
+  detected_hex_prompt_version?: string | null;
+  detected_hex_at?: string | null;
+  /** OKLAB distance vendor_hex ↔ detected_hex (generated column) */
+  hex_agreement?: number | null;
 }
 
 export interface PolishCreateRequest {
@@ -187,6 +214,43 @@ export interface CatalogSearchResponse {
   results: CatalogSearchResult[];
   query: string;
   total: number;
+}
+
+// Admin hex review (GET /api/polishes-admin/hex-review)
+
+/** Sort order for the admin hex-review queue. */
+export type HexReviewSort = "agreement" | "confidence";
+
+export interface HexReviewItem {
+  shadeId: string;
+  brand: string;
+  name: string;
+  status: string;
+  vendorHex: string | null;
+  detectedHex: string | null;
+  nameHex: string | null;
+  detectedHexConfidence: number | null;
+  detectedHexMethod: string | null;
+  detectedHexModel: string | null;
+  detectedHexPromptVersion: string | null;
+  detectedHexAt: string | null;
+  hexAgreement: number | null;
+  /** Hex the app would display today (vendor > detected > name). */
+  displayHex: string | null;
+  /** Column `displayHex` came from. */
+  displaySource: "vendor" | "detected" | "name" | "none";
+  /** True when vendor and detected hexes disagree by more than the MEDIUM threshold. */
+  flagged: boolean;
+}
+
+export interface HexReviewResponse {
+  items: HexReviewItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  sort: HexReviewSort;
+  /** OKLAB distance above which `flagged` is true (MEDIUM_CONFIDENCE_MAX_DISTANCE). */
+  disagreementThreshold: number;
 }
 
 export interface CatalogShadeDetail {

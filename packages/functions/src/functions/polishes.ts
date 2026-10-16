@@ -5,6 +5,11 @@ import {
   PolishUpdateRequest,
   PolishListResponse,
   PolishImageMatchResponse,
+  MEDIUM_CONFIDENCE_MAX_DISTANCE,
+  resolveDisplayHexDetailed,
+  type HexReviewItem,
+  type HexReviewResponse,
+  type HexReviewSort,
 } from "swatchwatch-shared";
 import { query, transaction } from "../lib/db";
 import { withAuth, withAdmin } from "../lib/auth";
@@ -12,6 +17,10 @@ import { withCors } from "../lib/http";
 import { internalServerError } from "../lib/errors";
 import { toImageProxyUrl } from "../lib/image-proxy";
 import { detectHexWithAzureOpenAI } from "../lib/ai-color-detection";
+import {
+  DETECTED_HEX_METHOD_CLIENT_SUPPLIED,
+  provenanceFromDetection,
+} from "../lib/hex-provenance";
 import { readBlobFromStorageUrl } from "../lib/blob-storage";
 import {
   cacheDelete,
@@ -154,6 +163,14 @@ const POLISH_SELECT = `
     s.vendor_hex                                 AS "vendorHex",
     s.detected_hex                               AS "detectedHex",
     s.name_hex                                   AS "nameHex",
+    -- detected_hex provenance (migration 026). NUMERIC columns are cast so node-postgres
+    -- returns numbers instead of strings.
+    s.detected_hex_confidence::float8            AS "detectedHexConfidence",
+    s.detected_hex_method                        AS "detectedHexMethod",
+    s.detected_hex_model                         AS "detectedHexModel",
+    s.detected_hex_prompt_version                AS "detectedHexPromptVersion",
+    s.detected_hex_at                            AS "detectedHexAt",
+    s.hex_agreement::float8                      AS "hexAgreement",
     -- Legacy single finish; falls back to the primary multi-finish value when unset.
     COALESCE(NULLIF(s.finish, ''), s.finishes[1], '') AS finish,
     COALESCE(s.finishes, ARRAY[]::text[])        AS finishes,
@@ -241,9 +258,20 @@ async function findOrCreateShade(
            vendor_hex   = COALESCE(vendor_hex, $3),
            detected_hex = COALESCE(detected_hex, $4),
            name_hex     = COALESCE(name_hex, $5),
+           -- A request that fills an empty detected_hex is recorded as client-supplied
+           -- (no confidence/model); hex_agreement is a generated column.
+           detected_hex_method = CASE WHEN detected_hex IS NULL AND $4 IS NOT NULL THEN $6 ELSE detected_hex_method END,
+           detected_hex_at     = CASE WHEN detected_hex IS NULL AND $4 IS NOT NULL THEN now() ELSE detected_hex_at END,
            updated_at   = now()
          WHERE shade_id = $1`,
-        [shadeId, colorData.colorName || null, colorData.vendorHex || null, colorData.detectedHex || null, colorData.nameHex || null]
+        [
+          shadeId,
+          colorData.colorName || null,
+          colorData.vendorHex || null,
+          colorData.detectedHex || null,
+          colorData.nameHex || null,
+          DETECTED_HEX_METHOD_CLIENT_SUPPLIED,
+        ]
       );
     }
     await applyShadeFinishUpdate(client, shadeId, finishUpdate, ownSubmitted);
@@ -253,8 +281,12 @@ async function findOrCreateShade(
   // Create a new shade owned by the caller. It stays private ('user_submitted') until an admin
   // promotes it to 'active'.
   const newShade = await client.query<{ shade_id: number }>(
-    `INSERT INTO shade (brand_id, shade_name_canonical, finish, collection, status, created_by_user_id, color_name, vendor_hex, detected_hex, name_hex, finishes)
-     VALUES ($1, $2, $3, $4, 'user_submitted', $5, $6, $7, $8, $9, $10::text[])
+    `INSERT INTO shade (brand_id, shade_name_canonical, finish, collection, status, created_by_user_id, color_name, vendor_hex, detected_hex, name_hex, finishes,
+                        detected_hex_method, detected_hex_at)
+     VALUES ($1, $2, $3, $4, 'user_submitted', $5, $6, $7, $8, $9, $10::text[],
+             -- A request-supplied detected hex is recorded as client-supplied (constant, not user input).
+             CASE WHEN $8::text IS NOT NULL THEN '${DETECTED_HEX_METHOD_CLIENT_SUPPLIED}' END,
+             CASE WHEN $8::text IS NOT NULL THEN now() END)
      RETURNING shade_id`,
     [
       brandId, shadeName, normalizeFinish(finish), collection || null, userId,
@@ -715,9 +747,18 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
              vendor_hex   = COALESCE(vendor_hex, $3),
              detected_hex = COALESCE(detected_hex, $4),
              name_hex     = COALESCE(name_hex, $5),
+             detected_hex_method = CASE WHEN detected_hex IS NULL AND $4 IS NOT NULL THEN $6 ELSE detected_hex_method END,
+             detected_hex_at     = CASE WHEN detected_hex IS NULL AND $4 IS NOT NULL THEN now() ELSE detected_hex_at END,
              updated_at   = now()
            WHERE shade_id = $1`,
-          [resolvedShadeId, body.color ?? null, body.vendorHex ?? null, body.detectedHex ?? null, body.nameHex ?? null]
+          [
+            resolvedShadeId,
+            body.color ?? null,
+            body.vendorHex ?? null,
+            body.detectedHex ?? null,
+            body.nameHex ?? null,
+            DETECTED_HEX_METHOD_CLIENT_SUPPLIED,
+          ]
         );
       }
 
@@ -837,9 +878,18 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
              vendor_hex   = COALESCE(vendor_hex, $3),
              detected_hex = COALESCE(detected_hex, $4),
              name_hex     = COALESCE(name_hex, $5),
+             detected_hex_method = CASE WHEN detected_hex IS NULL AND $4 IS NOT NULL THEN $6 ELSE detected_hex_method END,
+             detected_hex_at     = CASE WHEN detected_hex IS NULL AND $4 IS NOT NULL THEN now() ELSE detected_hex_at END,
              updated_at   = now()
            WHERE shade_id = $1`,
-          [targetShadeId, body.color ?? null, body.vendorHex ?? null, body.detectedHex ?? null, body.nameHex ?? null]
+          [
+            targetShadeId,
+            body.color ?? null,
+            body.vendorHex ?? null,
+            body.detectedHex ?? null,
+            body.nameHex ?? null,
+            DETECTED_HEX_METHOD_CLIENT_SUPPLIED,
+          ]
         );
       }
 
@@ -952,6 +1002,7 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
       shade_name_canonical: string;
       detected_hex: string | null;
       vendor_hex: string | null;
+      hex_agreement: number | null;
       storage_url: string | null;
       vendor_tags: string[] | null;
     }>(
@@ -959,6 +1010,7 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
               s.shade_name_canonical,
               s.detected_hex,
               s.vendor_hex,
+              s.hex_agreement::float8 AS hex_agreement,
               ia.storage_url,
               CASE
                 WHEN cardinality(s.finishes) > 0
@@ -1020,6 +1072,8 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
     }
 
     const previousHex = shade.detected_hex;
+    const previousAgreement = shade.hex_agreement;
+    const provenance = provenanceFromDetection(result);
     const finishCatalog = await loadFinishCatalog();
     const vendorFinishes =
       shade.vendor_tags
@@ -1038,20 +1092,40 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
           previousHex,
           detectedHex: null,
           confidence: result.confidence,
+          method: provenance.method,
+          model: provenance.model,
+          promptVersion: provenance.promptVersion,
           finishes: mergedFinishes.length ? mergedFinishes : null,
           tokenUsage,
         },
       };
     }
 
-    await query(
+    // Admin recalculation always overwrites, so provenance is rewritten unconditionally.
+    // hex_agreement (vendor_hex ↔ detected_hex) is a generated column; read it back below.
+    const updated = await query<{ hexAgreement: number | null }>(
       `UPDATE shade
          SET detected_hex = $2,
              detected_finishes = $3,
+             detected_hex_confidence = $4,
+             detected_hex_method = $5,
+             detected_hex_model = $6,
+             detected_hex_prompt_version = $7,
+             detected_hex_at = now(),
              updated_at = now()
-       WHERE shade_id = $1`,
-      [shadeId, result.hex, mergedFinishes.length ? mergedFinishes : null]
+       WHERE shade_id = $1
+       RETURNING hex_agreement::float8 AS "hexAgreement"`,
+      [
+        shadeId,
+        result.hex,
+        mergedFinishes.length ? mergedFinishes : null,
+        provenance.confidence,
+        provenance.method,
+        provenance.model,
+        provenance.promptVersion,
+      ]
     );
+    const hexAgreement = updated.rows[0]?.hexAgreement ?? null;
 
     await Promise.all([
       invalidateGlobalPolishCaches(),
@@ -1069,6 +1143,12 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
         previousHex,
         detectedHex: result.hex,
         confidence: result.confidence,
+        method: provenance.method,
+        model: provenance.model,
+        promptVersion: provenance.promptVersion,
+        vendorHex: shade.vendor_hex,
+        previousHexAgreement: previousAgreement,
+        hexAgreement,
         finishes: mergedFinishes.length ? mergedFinishes : null,
         tokenUsage,
       },
@@ -1167,6 +1247,118 @@ async function matchImage(
   }
 }
 
+/**
+ * ORDER BY clauses for the admin hex-review queue. `agreement` puts the largest
+ * vendor↔detected OKLAB distance first (shades without both hexes last); `confidence`
+ * puts the lowest detector confidence first (unrecorded confidence last).
+ */
+const HEX_REVIEW_ORDER: Record<HexReviewSort, string> = {
+  agreement: "s.hex_agreement DESC NULLS LAST, s.detected_hex_confidence ASC NULLS LAST, s.shade_id",
+  confidence: "s.detected_hex_confidence ASC NULLS LAST, s.hex_agreement DESC NULLS LAST, s.shade_id",
+};
+
+/**
+ * GET /api/polishes-admin/hex-review (admin-only)
+ *
+ * Lists shades that have a detected hex, ordered by worst vendor↔detected agreement
+ * (`sort=agreement`, default) or lowest detection confidence (`sort=confidence`), so
+ * weak detections can be reviewed and re-run with recalc-hex.
+ *
+ * Query: `sort`, `page` (default 1), `pageSize` (default 50, max 200),
+ * `flaggedOnly=true` (only agreement > MEDIUM), `method`, `promptVersion`, `brand`.
+ */
+async function getHexReview(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+  context.log("GET /api/polishes-admin/hex-review");
+  try {
+    const url = new URL(request.url);
+    const sortParam = url.searchParams.get("sort")?.trim().toLowerCase() || "agreement";
+    if (sortParam !== "agreement" && sortParam !== "confidence") {
+      return { status: 400, jsonBody: { error: "sort must be 'agreement' or 'confidence'" } };
+    }
+    const sort: HexReviewSort = sortParam;
+    const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10) || 1);
+    const pageSize = Math.min(200, Math.max(1, parseInt(url.searchParams.get("pageSize") || "50", 10) || 50));
+    const offset = (page - 1) * pageSize;
+
+    const conditions: string[] = ["s.detected_hex IS NOT NULL"];
+    const params: Array<string | number> = [];
+    const addParam = (value: string | number) => {
+      params.push(value);
+      return `$${params.length}`;
+    };
+
+    if (url.searchParams.get("flaggedOnly") === "true") {
+      conditions.push(`s.hex_agreement > ${addParam(MEDIUM_CONFIDENCE_MAX_DISTANCE)}`);
+    }
+    const method = url.searchParams.get("method")?.trim();
+    if (method) conditions.push(`s.detected_hex_method = ${addParam(method)}`);
+    const promptVersion = url.searchParams.get("promptVersion")?.trim();
+    if (promptVersion) conditions.push(`s.detected_hex_prompt_version = ${addParam(promptVersion)}`);
+    const brand = url.searchParams.get("brand")?.trim();
+    if (brand) conditions.push(`b.name_canonical ILIKE ${addParam(`%${brand}%`)}`);
+
+    const where = conditions.join(" AND ");
+
+    const countResult = await query<{ total: string }>(
+      `SELECT count(*)::text AS total
+       FROM shade s
+       JOIN brand b ON b.brand_id = s.brand_id
+       WHERE ${where}`,
+      params
+    );
+
+    const rowsResult = await query<Omit<HexReviewItem, "displayHex" | "displaySource" | "flagged">>(
+      `SELECT
+         s.shade_id::text                      AS "shadeId",
+         COALESCE(b.name_canonical, '')        AS brand,
+         COALESCE(s.shade_name_canonical, '')  AS name,
+         s.status,
+         s.vendor_hex                          AS "vendorHex",
+         s.detected_hex                        AS "detectedHex",
+         s.name_hex                            AS "nameHex",
+         s.detected_hex_confidence::float8     AS "detectedHexConfidence",
+         s.detected_hex_method                 AS "detectedHexMethod",
+         s.detected_hex_model                  AS "detectedHexModel",
+         s.detected_hex_prompt_version         AS "detectedHexPromptVersion",
+         s.detected_hex_at                     AS "detectedHexAt",
+         s.hex_agreement::float8               AS "hexAgreement"
+       FROM shade s
+       JOIN brand b ON b.brand_id = s.brand_id
+       WHERE ${where}
+       ORDER BY ${HEX_REVIEW_ORDER[sort]}
+       LIMIT ${addParam(pageSize)} OFFSET ${addParam(offset)}`,
+      params
+    );
+
+    const items: HexReviewItem[] = rowsResult.rows.map((row) => {
+      const resolution = resolveDisplayHexDetailed({
+        vendorHex: row.vendorHex ?? undefined,
+        detectedHex: row.detectedHex ?? undefined,
+        nameHex: row.nameHex ?? undefined,
+        hexAgreement: row.hexAgreement,
+      });
+      return {
+        ...row,
+        displayHex: resolution.hex ?? null,
+        displaySource: resolution.source,
+        flagged: resolution.flagged,
+      };
+    });
+
+    const body: HexReviewResponse = {
+      items,
+      total: parseInt(countResult.rows[0]?.total ?? "0", 10),
+      page,
+      pageSize,
+      sort,
+      disagreementThreshold: MEDIUM_CONFIDENCE_MAX_DISTANCE,
+    };
+    return { status: 200, jsonBody: body };
+  } catch (error: any) {
+    return internalServerError(context, error, "Failed to list hex review queue", "polishes.hex-review");
+  }
+}
+
 app.http("polishes-list", {
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
@@ -1203,6 +1395,13 @@ app.http("polishes-recalc-hex", {
   authLevel: "anonymous",
   route: "polishes/{id}/recalc-hex",
   handler: withCors(withAdmin(recalcHex)),
+});
+
+app.http("polishes-admin-hex-review", {
+  methods: ["GET", "OPTIONS"],
+  authLevel: "anonymous",
+  route: "polishes-admin/hex-review",
+  handler: withCors(withAdmin(async (request, context) => getHexReview(request, context))),
 });
 
 app.http("polishes-match-image", {
