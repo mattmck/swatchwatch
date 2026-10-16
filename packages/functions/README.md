@@ -222,7 +222,10 @@ it is intentionally not canonicalized so re-imports keep matching existing shade
 generic `*Shopify` sources; `MakeupAPI` materialization also merges finishes parsed from `tag_list`. Use `recentDays` to constrain to newer
 products by publish/create/update timestamps. It also uploads source product images to Azure Blob
 Storage (`image_asset` + `swatch`) and attempts Azure OpenAI-based representative `color_hex`
-detection from the product image.
+detection from the product image. Each shade gets one `swatch_type = 'source_product'` swatch for the
+primary image (repointed in place when the shop changes it) and one `source_gallery` swatch per
+additional image; re-imports only look at the `source_product` row, and a gallery swatch on the primary
+image (e.g. the shop promoted a gallery image) is removed so the old primary is re-linked as gallery.
 When `HEX_DETECTION_BATCH_ENABLED=true`, Shopify image detection can switch to Azure OpenAI Batch API
 for larger runs (`HEX_DETECTION_BATCH_MIN_IMAGES` threshold). In that mode, the main worker submits
 the batch and leaves the job in `running` with pipeline stage `awaiting_ai`; a timer-triggered poller
@@ -338,6 +341,7 @@ npm run migrate:create -- my-migration-name   # Create a new migration file
 | `018_add_finish_normalizations.sql` | Adds editable `finish_normalization` mappings (source alias → canonical finish name) for AI/vendor finish parsing |
 | `019_add_user_external_identities.sql` | Adds `user_external_identities` and backfills existing `app_user.external_id` values to support multi-provider identity linking |
 | `023_add_shade_finishes.sql` | Adds `shade.finishes text[] NOT NULL DEFAULT '{}'` + GIN index for multi-finish shades, backfills `ARRAY[canonical(finish)]` from the legacy column (canonical names + `finish_normalization` aliases), and seeds `flakie`/`flakies`/`toppers` aliases. Down drops the column/index and those alias rows |
+| `20261016024959000_cleanup-gallery-swatches-on-primary-image.sql` | Deletes `source_gallery` swatches that re-ingestion had repointed at the shade's primary image (duplicates of the `source_product` swatch) and collapses duplicate gallery swatches per shade + image. Idempotent; down is a no-op |
 
 node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_URL` is the preferred connection method; it also falls back to individual `PG*` env vars (`PGHOST`, `PGPORT`, etc.).
 
