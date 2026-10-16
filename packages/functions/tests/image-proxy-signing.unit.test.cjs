@@ -84,9 +84,13 @@ function toBase64Url(value) {
     .replace(/=+$/g, "");
 }
 
-function flipLastChar(value) {
-  const last = value[value.length - 1];
-  return value.slice(0, -1) + (last === "A" ? "B" : "A");
+// Flip the FIRST character: every bit of a leading base64url char maps to decoded
+// bytes. The last char of an unpadded base64url string can carry unused padding
+// bits, so flipping it (A<->B differ only in the lowest bit) sometimes decodes to
+// the same bytes and the "tampered" signature still verifies.
+function flipFirstChar(value) {
+  const first = value[0];
+  return (first === "A" ? "B" : "A") + value.slice(1);
 }
 
 function fakeRequest(id, url) {
@@ -169,7 +173,7 @@ describe("lib/image-proxy — signed ids", () => {
     process.env.IMAGE_PROXY_SIGNING_KEY = TEST_KEY;
     const [version, urlPart, exp, signature] = imageProxy.encodeImageProxyId(BLOB_URL).split(".");
     assert.throws(
-      () => imageProxy.decodeImageProxyId(`${version}.${urlPart}.${exp}.${flipLastChar(signature)}`),
+      () => imageProxy.decodeImageProxyId(`${version}.${urlPart}.${exp}.${flipFirstChar(signature)}`),
       imageProxy.ImageProxyTokenError
     );
     assert.throws(
