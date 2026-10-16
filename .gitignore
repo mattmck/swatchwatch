@@ -62,3 +62,9 @@ yarn-error.log*
 
 # Claude Code per-user settings (local permissions)
 .claude/settings.local.json
+
+# Hex-detection eval harness (packages/functions/eval/hex): run outputs + image cache
+packages/functions/eval/hex/results/
+packages/functions/eval/hex/.cache/
+# DB export (environment-specific); copy to a named fixture to check one in
+packages/functions/eval/hex/fixtures/color-training-sample.json
