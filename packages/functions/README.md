@@ -326,9 +326,53 @@ overriding variables already set), so the same Postgres / Azure OpenAI config th
 | `azure-current` | `detectHexWithAzureOpenAI` exactly as ingestion calls it: image + vendor context (shade name, description, tags, and the vendor hex only when the ground truth *is* a vendor option). | yes |
 | `azure-blind` | The same call with `vendorContext` removed — what the model gets from the image alone. | yes |
 | `pixel` | Top dominant color from `extractDominantColors` over the whole image. A deliberately naive baseline (product shots mostly return the background). | no |
+| `region-crop` | Two steps: the model only *localizes* (names the labeled grid cells filled with polish — painted nail/swatch first, else lacquer in the bottle; never cap, label, brush, skin, background — or, in `bbox` mode, returns one normalized box) plus the finishes it sees, and the pixels there are *measured* (`src/lib/region-color.ts`). See below. | yes |
 
 When Azure OpenAI is not configured (`AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_KEY` + `AZURE_OPENAI_DEPLOYMENT_HEX`/`AZURE_OPENAI_DEPLOYMENT`,
 or the APIM gateway equivalents), Azure strategies print `Skipping strategy …` and the run still exits 0.
+
+**`region-crop` in detail** (`src/eval/hex/strategies/region-crop.ts` + `src/lib/region-color.ts`). LLMs localize
+better than they read absolute color values, so the model is never asked for a hex. Step 1 calls
+`requestAzureOpenAiChatCompletion` in `src/lib/ai-color-detection.ts`. It has the same config, timeout, 429/5xx retry and
+content-filter safe retry as `detectHexWithAzureOpenAI`, but takes a custom JSON-mode prompt. Two localization modes
+(`HEX_EVAL_REGION_CROP_MODE`):
+
+- `cells` (default): a labeled N×N grid (`HEX_EVAL_REGION_CROP_CELLS`, default 6) is drawn on the copy sent to the model
+  (`drawLabeledGrid`). The model answers `{"cells":["C3",…],"region","finishes","confidence"}`, listing up to 8 cells filled
+  with polish. Each valid cell's central 60% is measured (`gridCellToBox`); labels outside the grid are dropped.
+- `bbox`: the model answers `{"x","y","w","h","region","finishes","confidence"}` in normalized 0..1 coordinates.
+  `HEX_EVAL_REGION_CROP_GRID=true` adds a 4×4 grid to the copy. `clampBox` rejects empty, non-finite and fully-outside
+  boxes; such cases get `hex: null` with `meta.reason = "invalid_box"`.
+
+Step 2, `measureRegionsColor(image, boxes, { darkerHalf })`, crops every box from the *original* image with sharp
+and pools the pixels. It converts them to OKLAB and drops the top 5% by lightness as specular highlights. It also
+drops very dark edge pixels (OKLAB L < 0.2), but only when they are at most a quarter of the crop, so a black polish
+keeps its pixels. The result is the per-channel OKLAB median. When the model reports a sparkle finish
+(glitter/holo/flake/shimmer), the median is taken over the darker half so particles do not lift the base color.
+`meta` records the mode, grid size, cells or box, pixel crops, region kind, raw and canonical finishes, pixel counts,
+`highlightCutoffL`, `darkFloorApplied`, `usedDarkerHalf`, the measured OKLAB and token usage.
+`HEX_EVAL_REGION_CROP_DETAIL=low|high|auto` overrides the vision detail for the locator call (default:
+`AZURE_OPENAI_VISION_DETAIL`, then `low`).
+
+Why cells is the default. These results are from `sample.json` (18 cases), gpt-4o-mini, 2026-10-16, median OKLAB distance:
+
+| variant | overall | Holo Taco (bottle shots) | Mooncat (painted hands) | ≤0.05 overall | prompt tokens/image |
+|---|---|---|---|---|---|
+| `azure-blind` (reference) | 0.077 | 0.059 | 0.086 | 28% | ~3.1k |
+| bbox, low | 0.215 | 0.203 | 0.231 | 17% | ~3.2k |
+| bbox + 4×4 grid, low | 0.201 | 0.186 | 0.233 | 17% | ~3.2k |
+| bbox, high | 0.207 | 0.176 | 0.237 | 6% | ~26k |
+| **cells 6×6, low (default)** | 0.157 | 0.080 | 0.230 | 22% | ~3.2k |
+| cells 6×6, high | 0.186 | 0.083 | 0.229 | 22% | ~26k |
+| cells 8×8, low | 0.192 | 0.125 | 0.206 | 22% | ~3.2k |
+| cells 8×8, high | 0.155 | **0.039** | 0.236 | 28% | ~26k |
+
+In bbox mode the model ignores the image and returns a generic centered box, usually `(0.2, 0.2, 0.6, 0.6)`. The grid
+overlay barely changes that, so drawing a grid only pays off when the model answers in cell names. Cell mode beats the
+blind prompt on bottle shots: 63% within 0.05 with 8×8 high detail, against 50% for the blind prompt. It still loses
+badly on painted-hand photos, where the model picks the middle columns of the fingers (knuckles and skin) instead of the
+nail beds. Region-crop is therefore not a drop-in replacement yet. It is a candidate for bottle shots, or for an
+ensemble with a skin- or variance-aware cell filter.
 
 **Scoring** (`src/eval/hex/scoring.ts`): each case's predicted hex is compared with its ground truth by
 OKLAB Euclidean distance (`hexToOklab` / `oklabDistance` from `swatchwatch-shared`, the same math as
