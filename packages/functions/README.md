@@ -314,7 +314,9 @@ order `vendorHex > detectedHex > nameHex`:
 **Brand-aware name hex.** The Shopify connector calls `detectHexFromColorName(colorName, { preferAi: true, context })`
 with `context = { brand (vendor), productLine (product_type), collection (first `collection:` tag), description
 (`body_html` stripped of tags via `stripHtmlToText`, 400 chars), tags, finishes }`. `buildColorNamePrompt` turns that
-into `Brand: X. Product line: … Collection: Y. Shade name: "Z". Finish: … Tags: … Description: …` and the system prompt
+into `<product-context>Brand: X. Product line: … Collection: Y. Shade name: "Z". Finish: … Tags: … Description: …</product-context>`
+(vendor text is escaped so it cannot close the block, and the system prompt marks the block as untrusted data whose
+instructions are ignored), and the system prompt
 tells the model to use its knowledge of that brand's actual shade when it has it (confidence ≥ 0.7) and to answer from
 the words with confidence ≤ 0.5 otherwise, so "Mooncat Wildberry" and a generic "wildberry" no longer get the same
 answer. Without a context the prompt is the original `Color name: "X"` question, and the response shape

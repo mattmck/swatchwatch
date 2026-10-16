@@ -261,6 +261,19 @@ describe("lib/suspicious-hex — web-palette heuristic", () => {
     assert.equal(classifySuspiciousHex("ff69b4", emptyContext(), { shadeName: "Night Sky" }).reason, "web-palette");
   });
 
+  it("matches color words on whole tokens only, not inside other words", () => {
+    const ctx = emptyContext();
+    // rose #FF007F, gold #FFD700, teal #008080, mint #98FF98, rust #B7410E
+    assert.equal(classifySuspiciousHex("#FF007F", ctx, { shadeName: "Primrose Path" }).reason, "web-palette");
+    assert.equal(classifySuspiciousHex("#FFD700", ctx, { shadeName: "Marigold Field" }).reason, "web-palette");
+    assert.equal(classifySuspiciousHex("#008080", ctx, { shadeName: "Steal The Show" }).reason, "web-palette");
+    assert.equal(classifySuspiciousHex("#98FF98", ctx, { shadeName: "Peppermint Patty" }).reason, "web-palette");
+    assert.equal(classifySuspiciousHex("#B7410E", ctx, { shadeName: "Pie Crust" }).reason, "web-palette");
+    // ...while the whole word still clears it.
+    assert.equal(classifySuspiciousHex("#FF007F", ctx, { shadeName: "Rose Petal" }).suspicious, false);
+    assert.equal(classifySuspiciousHex("#FFD700", ctx, { shadeName: "Gold Rush" }).suspicious, false);
+  });
+
   it("does not flag near-but-not-exact palette values", () => {
     assert.equal(classifySuspiciousHex("#FF68B4", emptyContext(), { shadeName: "Midnight Garden" }).suspicious, false);
   });

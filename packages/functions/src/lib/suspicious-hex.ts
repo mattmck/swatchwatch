@@ -310,19 +310,20 @@ const WEB_PALETTE_NAMES: ReadonlyMap<string, string[]> = (() => {
 })();
 
 /**
- * True when the shade name/tags mention the web color word(s) that map to this
- * hex — either the full phrase ("hot pink") or its base color word ("pink").
+ * True when the shade name/tags mention the web color word that maps to this
+ * hex: its base color word ("pink" for "hot pink") as a whole token. Every
+ * palette phrase ends in its base word, so this also covers the full phrase.
+ * Matching is on whole tokens only, so "Primrose" does not clear "rose",
+ * "Marigold" does not clear "gold" and "Steal" does not clear "teal".
  */
-function nameMatchesWebColor(hex: string, tokens: Set<string>, haystack: string): boolean {
+function nameMatchesWebColor(hex: string, tokens: Set<string>): boolean {
   const names = WEB_PALETTE_NAMES.get(hex);
   if (!names) return false;
-  for (const name of names) {
-    if (haystack.includes(name)) return true;
+  return names.some((name) => {
     const words = name.split(/\s+/);
     const base = words[words.length - 1];
-    if (base && tokens.has(base)) return true;
-  }
-  return false;
+    return Boolean(base) && tokens.has(base);
+  });
 }
 
 /**
@@ -359,7 +360,6 @@ export function classifySuspiciousHex(
   }
 
   const tokens = hintTokens(hints);
-  const haystack = [hints?.shadeName ?? "", ...(hints?.tags ?? [])].join(" ").toLowerCase();
 
   const chroma = hexChroma(normalized);
   if (chroma < context.thresholds.grayscaleMaxChroma && !hasAnyToken(tokens, GRAYSCALE_NAME_HINTS)) {
@@ -370,7 +370,7 @@ export function classifySuspiciousHex(
     };
   }
 
-  if (WEB_PALETTE_NAMES.has(normalized) && !nameMatchesWebColor(normalized, tokens, haystack)) {
+  if (WEB_PALETTE_NAMES.has(normalized) && !nameMatchesWebColor(normalized, tokens)) {
     const names = WEB_PALETTE_NAMES.get(normalized) ?? [];
     return {
       suspicious: true,
