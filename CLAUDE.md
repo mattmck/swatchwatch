@@ -111,7 +111,7 @@ This project is in early development. The web UI is now fully API-driven. Backen
 - ✅ Connector ingestion pipeline — async queue-backed jobs for OpenBeautyFacts, MakeupAPI, HoloTacoShopify, and generic Shopify sources
 - ✅ AI hex detection — Azure OpenAI vision-based `detected_hex` from product images, with `recalc-hex` admin endpoint
 - ✅ Reference data management — `finish_type`, `harmony_type`, `finish_normalization` tables with admin CRUD and public read endpoints
-- ✅ Hex-detection evaluation harness — `packages/functions/src/eval/hex/` scores detection strategies against ground-truth fixtures (OKLAB distance, HIGH/MEDIUM shares, per brand/finish); `color_training_sample` (migration 025) holds DB-sourced samples. See `packages/functions/README.md`
+- ✅ Hex-detection evaluation harness — `packages/functions/src/eval/hex/` scores detection strategies against ground-truth fixtures (OKLAB distance, HIGH/MEDIUM shares, per brand/finish); `color_training_sample` (migration `20261016040629000_add-color-training-sample.sql`) holds DB-sourced samples. See `packages/functions/README.md`
 - ✅ Feature-flagged Azure OpenAI batch pipeline for Shopify vision hex detection — submit → awaiting_ai → poll/apply completion flow with synchronous fallback for small runs
 
 ## Environment Variables (Functions)
