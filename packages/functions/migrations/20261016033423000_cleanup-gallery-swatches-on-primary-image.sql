@@ -1,6 +1,6 @@
 -- Up Migration
 
--- 20261016024959000_cleanup-gallery-swatches-on-primary-image.sql
+-- 20261016033423000_cleanup-gallery-swatches-on-primary-image.sql
 -- Shopify re-ingestion looked up a shade's product swatch without filtering on
 -- swatch_type, so it picked up the newest 'source_gallery' swatch, repointed it at the
 -- primary image, and then re-inserted that gallery swatch. Every re-run left one more
