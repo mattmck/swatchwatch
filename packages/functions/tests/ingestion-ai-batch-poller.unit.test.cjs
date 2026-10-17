@@ -85,7 +85,9 @@ registerMock("../lib/ingestion-repo", {
 registerMock("../lib/azure-openai-batch", {
   getVisionHexBatchStatus: async (batchId) => {
     polledBatchIds.push(batchId);
-    return { ...(batchStatusById[batchId] || batchStatus) };
+    const status = batchStatusById[batchId] || batchStatus;
+    if (status instanceof Error) throw status;
+    return { ...status };
   },
   downloadBatchFileContent: async () => "{}\n{}\n",
   parseVisionHexBatchOutput: () => [{}, {}],
@@ -457,6 +459,38 @@ describe("ingestion-ai-batch-poller with several batches per job", () => {
     );
     assert.equal(dbJob.metrics.pipeline.stage, realContinuation.CONTINUATION_QUEUED_STAGE);
     assert.deepEqual(calls[calls.length - 1].message, resumeMessage);
+  });
+
+  it("retries a batch whose status lookup errors instead of failing the job", async () => {
+    seedJob(
+      makeMultiBatchMetrics([
+        { batchId: "batch-1", status: "submitted" },
+        { batchId: "batch-2", status: "in_progress" },
+      ])
+    );
+    batchStatusById = {
+      "batch-1": completedStatus("batch-1"),
+      "batch-2": new Error("Azure OpenAI batch status request timed out"),
+    };
+
+    await runPoller();
+
+    assert.deepEqual(polledBatchIds, ["batch-1", "batch-2"]);
+    assert.deepEqual(
+      calls.map((c) => c.type),
+      ["apply", "update", "update"]
+    );
+    assert.equal(dbJob.status, "running");
+    assert.equal(dbJob.metrics.pipeline.stage, "awaiting_ai");
+    assert.deepEqual(
+      dbJob.metrics.aiBatches.map((b) => [b.batchId, b.status]),
+      [
+        ["batch-1", "completed"],
+        ["batch-2", "in_progress"],
+      ],
+      "the errored batch keeps its last known status for the next poll"
+    );
+    assert.ok(dbJob.metrics.logs.some((entry) => /status lookup failed/.test(entry.msg)));
   });
 
   it("fails the job when a batch fails, after applying the ones that completed", async () => {

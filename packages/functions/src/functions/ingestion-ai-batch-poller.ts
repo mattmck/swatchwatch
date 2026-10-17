@@ -419,7 +419,22 @@ async function processAwaitingAiBatchJob(
 
   for (const [position, index] of pendingIndexes.entries()) {
     const entry = entries[index];
-    const batchStatus = await getVisionHexBatchStatus(entry.batchId);
+    let batchStatus: BatchStatus;
+    try {
+      batchStatus = await getVisionHexBatchStatus(entry.batchId);
+    } catch (error) {
+      // A transient lookup error (timeout, 5xx) must not fail a long job and orphan its
+      // other batches: keep the entry as-is and retry it on the next poll.
+      const reason = error instanceof Error ? error.message : String(error);
+      stillRunning += 1;
+      metrics = appendJobLog(metrics, "warn", `Batch ${entry.batchId} status lookup failed; retrying next poll`, {
+        error: reason,
+      });
+      context.warn(
+        `[ingestion-ai-batch-poller] Job ${job.jobId} batch ${entry.batchId} status lookup failed: ${reason}`
+      );
+      continue;
+    }
     entries[index] = withBatchStatus(entry, batchStatus, polledAt);
     latestEntry = entries[index];
 
