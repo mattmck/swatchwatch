@@ -194,7 +194,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const [polishes, setPolishes] = useState<Polish[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const hasLoadedRef = useRef(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { finishTypes } = useReferenceData();
   const finishOptions = useMemo(() => buildFinishOptions(finishTypes), [finishTypes]);
@@ -341,7 +341,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
         }
       } finally {
         if (!cancelled) {
-          hasLoadedRef.current = true;
+          setHasLoaded(true);
           setLoading(false);
         }
       }
@@ -504,7 +504,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
 
   // Full-page spinner only before the first result: unmounting the page on every refetch
   // would drop the search input (and its focus) mid-typing.
-  if (loading && !hasLoadedRef.current) {
+  if (loading && !hasLoaded) {
     return <BrandSpinner label="Loading polishes…" />;
   }
 
