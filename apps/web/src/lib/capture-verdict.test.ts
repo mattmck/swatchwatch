@@ -30,9 +30,11 @@ function polish(overrides: Partial<Polish>): Polish {
 }
 
 const snapshot = buildOwnershipSnapshot([
-  polish({ id: "10", inventoryItemId: "100", quantity: 2, vendorHex: "#C1121F" }),
-  polish({ id: "11", inventoryItemId: "101", quantity: 0, name: "Wishlisted" }),
+  polish({ id: "10", inventoryItemId: "100", quantity: 2, status: "owned", vendorHex: "#C1121F" }),
+  polish({ id: "11", inventoryItemId: "101", quantity: 0, status: "wishlist", name: "Wishlisted" }),
   polish({ id: "12", name: "Catalog only" }),
+  polish({ id: "13", inventoryItemId: "103", quantity: 1, status: "destash", name: "Destashing" }),
+  polish({ id: "14", inventoryItemId: "104", quantity: 1, status: "wishlist", name: "Wishlist with a count" }),
 ]);
 
 function matched(metadata: Record<string, unknown>, entity?: Partial<CaptureOutcome>): CaptureOutcome {
@@ -40,7 +42,7 @@ function matched(metadata: Record<string, unknown>, entity?: Partial<CaptureOutc
 }
 
 describe("buildOwnershipSnapshot", () => {
-  it("keeps only owned rows (inventory item with quantity > 0)", () => {
+  it("keeps only owned rows (status 'owned' with quantity > 0)", () => {
     assert.deepEqual([...snapshot.keys()], ["100"]);
     assert.deepEqual(snapshot.get("100"), {
       inventoryItemId: "100",

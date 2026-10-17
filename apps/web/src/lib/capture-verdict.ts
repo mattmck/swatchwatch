@@ -17,6 +17,7 @@
  */
 import type { CaptureStatus, Polish } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
+import { isOwnedPolish } from "./inventory-status";
 
 export interface OwnedPolishEntry {
   inventoryItemId: string;
@@ -34,7 +35,8 @@ export type OwnershipSnapshot = ReadonlyMap<string, OwnedPolishEntry>;
 export function buildOwnershipSnapshot(polishes: readonly Polish[]): OwnershipSnapshot {
   const snapshot = new Map<string, OwnedPolishEntry>();
   for (const polish of polishes) {
-    if (!polish.inventoryItemId) continue;
+    // "Owned" is status === 'owned' (#261): a destash, wishlist or archived row is not.
+    if (!polish.inventoryItemId || !isOwnedPolish(polish)) continue;
     const quantity = typeof polish.quantity === "number" ? polish.quantity : 0;
     if (quantity <= 0) continue;
     snapshot.set(String(polish.inventoryItemId), {
