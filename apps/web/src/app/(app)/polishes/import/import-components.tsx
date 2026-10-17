@@ -2,15 +2,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  ARCHIVE_REASON_LABELS,
   POLISH_IMPORT_FIELDS,
   POLISH_IMPORT_FIELD_LABELS,
   POLISH_IMPORT_MAX_BYTES,
   POLISH_IMPORT_MAX_ROWS,
+  importRowNeedsStatus,
+  type ArchiveReason,
   type CatalogSearchResult,
   type PolishImportCandidate,
   type PolishImportColumnMapping,
   type PolishImportField,
   type PolishImportRow,
+  type PolishImportStatusChoice,
 } from "swatchwatch-shared";
 import { AlertTriangle, CheckCircle2, FileSpreadsheet, Search, Upload } from "lucide-react";
 import { searchCatalog } from "@/lib/api";
@@ -20,6 +24,8 @@ import {
   fieldForColumn,
   formatConfidence,
   parseDecisionValue,
+  parseStatusChoiceValue,
+  statusChoiceValue,
   type ImportColumn,
 } from "@/lib/polish-import";
 import { Badge } from "@/components/ui/badge";
@@ -111,7 +117,8 @@ export function CsvDropZone({ onFile, disabled = false }: { onFile: (file: File)
         }}
       />
       <p className="text-xs text-muted-foreground">
-        Columns we look for: brand, shade name, finish, quantity, price, currency, purchase date, status, tried, notes.{" "}
+        Columns we look for: brand, shade name, finish, quantity, price, currency, purchase date, status, tried, notes.
+        Rows without a status are added as owned; for quantity 0 you choose wishlist or archived.{" "}
         <a
           className="underline underline-offset-2"
           href={`data:text/csv;charset=utf-8,${encodeURIComponent(SAMPLE_CSV)}`}
@@ -245,12 +252,21 @@ const STATE_BADGE: Record<PolishImportRow["matchState"], string> = {
   invalid: "border border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950/60 dark:text-red-200",
 };
 
+/** "wishlist" / "archived (used up)" for a row's status choice. */
+function statusChoiceLabel(row: Pick<PolishImportRow, "statusChoice" | "archiveReason">): string {
+  if (row.statusChoice === "archived") {
+    return `archived (${ARCHIVE_REASON_LABELS[row.archiveReason ?? "used_up"].toLowerCase()})`;
+  }
+  return row.statusChoice ?? "";
+}
+
 function rowDetails(row: PolishImportRow): string {
   const v = row.values;
   const parts: string[] = [];
   if (v.finishes.length) parts.push(v.finishes.join(" / "));
   if (v.quantity !== undefined) parts.push(`qty ${v.quantity}`);
   if (v.status) parts.push(v.status);
+  if (importRowNeedsStatus(v) && row.statusChoice) parts.push(`→ ${statusChoiceLabel(row)}`);
   if (v.purchasePrice !== undefined) parts.push(`${v.purchasePrice}${v.purchaseCurrency ? ` ${v.purchaseCurrency}` : ""}`);
   if (v.purchaseDate) parts.push(v.purchaseDate);
   if (v.tried !== undefined) parts.push(v.tried ? `tried${v.triedOn ? ` ${v.triedOn}` : ""}` : "untried");
@@ -261,11 +277,13 @@ export function ReviewTable({
   rows,
   readOnly,
   onDecision,
+  onStatusChoice,
   onSearch,
 }: {
   rows: PolishImportRow[];
   readOnly: boolean;
   onDecision: (rowNumber: number, action: PolishImportRow["action"], shadeId?: string) => void;
+  onStatusChoice: (rowNumber: number, choice: PolishImportStatusChoice, reason?: ArchiveReason) => void;
   onSearch: (row: PolishImportRow) => void;
 }) {
   return (
@@ -332,6 +350,27 @@ export function ReviewTable({
                   <Badge className={cn("text-[10px]", STATE_BADGE[row.matchState])}>
                     {row.candidates[0] ? formatConfidence(row.confidence) : "no match"}
                   </Badge>
+                  {row.action !== "skip" && importRowNeedsStatus(row.values) && (
+                    <Select
+                      value={statusChoiceValue(row)}
+                      onValueChange={(value) => {
+                        const parsed = parseStatusChoiceValue(value);
+                        if (parsed) onStatusChoice(row.rowNumber, parsed.choice, parsed.reason);
+                      }}
+                    >
+                      <SelectTrigger
+                        className={cn("h-8 w-full max-w-[420px]", !row.statusChoice && "border-amber-400")}
+                        aria-label={`Status for row ${row.rowNumber} (quantity 0)`}
+                      >
+                        <SelectValue placeholder="Quantity 0: wishlist or archived?" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="wishlist">Wishlist — I want it</SelectItem>
+                        <SelectItem value="archived:used_up">Archived — used up</SelectItem>
+                        <SelectItem value="archived:decluttered">Archived — gave away</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
               )}
             </TableCell>

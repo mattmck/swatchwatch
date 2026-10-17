@@ -30,7 +30,14 @@ import { ColorDot } from "@/components/color-dot";
 import { QuantityControls } from "@/components/quantity-controls";
 import { LogManiButton } from "@/components/log-mani-button";
 import { WishlistShareCard } from "@/components/wishlist-share-card";
-import { isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
+import {
+  canRebuy,
+  isArchivingChange,
+  isOwnedPolish,
+  quantityChangeUpdate,
+  rebuyUpdate,
+} from "@/lib/inventory-status";
+import { showArchivedToast } from "@/components/archived-toast";
 import { Pagination } from "@/components/pagination";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
@@ -502,14 +509,20 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
         prev.map((p) => (p.id === polishId ? { ...p, ...change } : p))
       );
 
+      // The PUT response carries no buyUrl, so keep the one already on the row.
+      const applyUpdated = (updated: Polish) =>
+        setPolishes((prev) =>
+          prev.map((p) =>
+            p.id === updated.id ? { ...updated, buyUrl: updated.buyUrl ?? p.buyUrl } : p
+          )
+        );
+
       updatePolish(polishId, change)
         .then((updated) => {
-          // The PUT response carries no buyUrl, so keep the one already on the row.
-          setPolishes((prev) =>
-            prev.map((p) =>
-              p.id === updated.id ? { ...updated, buyUrl: updated.buyUrl ?? p.buyUrl } : p
-            )
-          );
+          applyUpdated(updated);
+          if (isArchivingChange(original, change)) {
+            showArchivedToast({ polish: updated, onUpdated: applyUpdated });
+          }
         })
         .catch(() => {
           setPolishes((prev) =>
@@ -519,6 +532,20 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     },
     [polishes]
   );
+
+  /** Rebuy: an archived polish goes to the wishlist on purpose (never automatically). */
+  const handleRebuy = useCallback((polish: Polish) => {
+    updatePolish(polish.id, rebuyUpdate())
+      .then((updated) => {
+        setPolishes((prev) =>
+          prev.map((p) => (p.id === updated.id ? { ...updated, buyUrl: updated.buyUrl ?? p.buyUrl } : p))
+        );
+        toast.success("Added to your wishlist", { description: `${polish.brand} ${polish.name}` });
+      })
+      .catch((err: unknown) => {
+        toast.error("Rebuy failed", { description: err instanceof Error ? err.message : undefined });
+      });
+  }, []);
 
   const handleRecalcHex = useCallback(async (polishId: string) => {
     await runRecalcHexFlow({
@@ -846,6 +873,18 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
                         {owned && <LogManiButton polish={polish} variant="icon" />}
+                        {canRebuy(polish) && (
+                          <Button
+                            type="button"
+                            size="xs"
+                            variant="ghost"
+                            onClick={() => handleRebuy(polish)}
+                            aria-label={`Rebuy ${polish.brand} ${polish.name}: add it to your wishlist`}
+                            title="Add to your wishlist"
+                          >
+                            Rebuy
+                          </Button>
+                        )}
                         <QuantityControls
                           owned={owned}
                           quantity={polish.quantity ?? 0}

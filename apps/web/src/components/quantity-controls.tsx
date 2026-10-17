@@ -1,6 +1,6 @@
 "use client";
 
-import { BsDashLg, BsPlusLg, BsTrash3Fill } from "react-icons/bs";
+import { BsArchiveFill, BsDashLg, BsPlusLg } from "react-icons/bs";
 import { Button } from "@/components/ui/button";
 
 interface QuantityControlsProps {
@@ -35,10 +35,11 @@ export function QuantityControls({
         variant="outline"
         size="icon-xs"
         onClick={onDecrement}
-        aria-label={quantity <= 1 ? "Remove from collection" : "Decrease quantity"}
+        aria-label={quantity <= 1 ? "Last bottle used up: archive" : "Decrease quantity"}
+        title={quantity <= 1 ? "Archive (used up)" : undefined}
       >
         {quantity <= 1 ? (
-          <BsTrash3Fill className="h-3 w-3" aria-hidden="true" />
+          <BsArchiveFill className="h-3 w-3" aria-hidden="true" />
         ) : (
           <BsDashLg className="h-3 w-3" aria-hidden="true" />
         )}

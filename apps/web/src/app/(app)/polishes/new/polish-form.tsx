@@ -8,7 +8,12 @@ import { resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
 import { buildFinishOptions } from "@/lib/finish-options";
 import { ToggleChip } from "@/components/toggle-chip";
 import { createPolish, getPolish, updatePolish } from "@/lib/api";
-import { POLISH_STATUS_LABELS, POLISH_STATUS_OPTIONS } from "@/lib/inventory-status";
+import {
+  POLISH_STATUS_LABELS,
+  POLISH_STATUS_OPTIONS,
+  formStatusForSave,
+  isArchivingChange,
+} from "@/lib/inventory-status";
 import { useReferenceData } from "@/hooks/use-reference-data";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -97,6 +102,10 @@ export default function PolishForm() {
   // Finishes already saved on the polish being edited. They stay visible/selectable even when
   // they are not (or no longer) in the reference finish list, so editing never silently drops them.
   const [savedFinishes, setSavedFinishes] = useState<string[]>([]);
+  // Edit mode: the stored status, so saving an owned polish with 0 bottles can offer the
+  // archive toast (reason / Undo) on the detail page.
+  const [savedStatus, setSavedStatus] = useState<PolishStatus | null>(null);
+  const minQuantity = isEditing ? 0 : 1;
   const { finishTypes } = useReferenceData();
   const finishOptions = useMemo(
     () => buildFinishOptions(finishTypes, savedFinishes),
@@ -133,6 +142,7 @@ export default function PolishForm() {
           .map((finish) => (finish === "cream" ? "creme" : finish))
           .filter(Boolean);
         setSavedFinishes(existingFinishes);
+        setSavedStatus(data.status ?? null);
         setOriginalShadeFinish({
           legacyFinish: data.finish ?? "",
           primary: existingFinishes[0],
@@ -177,6 +187,8 @@ export default function PolishForm() {
     setSubmitting(true);
     // Editing sends null for emptied fields so the API clears them; creating omits them.
     const emptyValue = isEditing ? null : undefined;
+    // An owned polish saved with 0 bottles is archived, like − on the last bottle (D5c).
+    const status = formStatusForSave(form.status, form.quantity);
     const payload: PolishCreateRequest = {
       brand: form.brand,
       name: form.name,
@@ -186,7 +198,7 @@ export default function PolishForm() {
       finishes: form.finishes,
       collection: form.collection || undefined,
       quantity: form.quantity,
-      status: form.status,
+      status,
       purchasePrice: parsedPrice === null ? emptyValue : Math.round(parsedPrice * 100) / 100,
       purchaseCurrency: currency || emptyValue,
       size: form.size || undefined,
@@ -199,8 +211,10 @@ export default function PolishForm() {
     try {
       if (isEditing && editId) {
         const updated = await updatePolish(editId, payload);
+        // `archived=1` makes the detail page show the archive toast (reason / Undo).
+        const archived = savedStatus && isArchivingChange({ status: savedStatus }, payload) ? "&archived=1" : "";
         router.push(
-          `/polishes/detail?id=${updated.id}&returnTo=${encodeURIComponent(listHref)}`
+          `/polishes/detail?id=${updated.id}&returnTo=${encodeURIComponent(listHref)}${archived}`
         );
       } else {
         const created = await createPolish(payload);
@@ -384,10 +398,19 @@ export default function PolishForm() {
                 <Input
                   id="quantity"
                   type="number"
-                  min={1}
+                  min={minQuantity}
                   value={form.quantity}
-                  onChange={(e) => update("quantity", parseInt(e.target.value, 10) || 1)}
+                  aria-describedby={isEditing && form.quantity === 0 ? "quantity-archive-hint" : undefined}
+                  onChange={(e) => {
+                    const parsed = parseInt(e.target.value, 10);
+                    update("quantity", Number.isNaN(parsed) ? minQuantity : Math.max(minQuantity, parsed));
+                  }}
                 />
+                {isEditing && form.quantity === 0 && form.status === "owned" && (
+                  <p id="quantity-archive-hint" className="text-xs text-muted-foreground">
+                    Saving with 0 bottles archives this polish.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <label htmlFor="size" className="text-sm font-medium">

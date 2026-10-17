@@ -46,6 +46,7 @@ Inventory status model (#261). Every `user_inventory_item` row has one status; "
 | `isPolishStatus(value)` | Exact (case-sensitive) type guard |
 | `isOwnedStatus(status)` | `status === "owned"` — the single definition of "in the collection" (filters, dashboard, gaps, photo matching) |
 | `isUntriedInventory({ status, triedAt })` | Owned and never tried; mirrors the SQL behind `Polish.isUntried` |
+| `ARCHIVE_REASONS` / `ArchiveReason` / `ARCHIVE_REASON_LABELS` / `isArchiveReason(value)` | Why a polish was archived (D5c): `used_up` ("Used up") or `decluttered` ("Gave away"); sent as `archiveReason` and stored as the `inventory_event.event_type` |
 
 ### `types/manicure.ts`
 
@@ -71,12 +72,13 @@ Mani log (#269): `/api/manicures` payloads. Logging, editing or deleting a manic
 |------|-------------|
 | `PolishImportCreateRequest` | `POST /api/polish-imports` body: `{ csv, fileName?, mapping?, headerRowIndex? }` |
 | `PolishImportSession` | Session: `id`, `fileName`, `status` (`review \| committed`), `delimiter`, `headers`, `headerRowIndex`, `mapping`, `rows`, `counts`, `createdAt`, `expiresAt`, `committedAt`, `result` |
-| `PolishImportRow` | One sheet row: `rowNumber` (1-based file line, the row key), `values`, `matchState`, `confidence`, `candidates`, `action`, `shadeId`, `warnings`, `errors`, and after commit `outcome` / `outcomeMessage` |
+| `PolishImportRow` | One sheet row: `rowNumber` (1-based file line, the row key), `values`, `matchState`, `confidence`, `candidates`, `action`, `shadeId`, `statusChoice` / `archiveReason` (quantity-0 rows, D5b), `warnings`, `errors`, and after commit `outcome` / `outcomeMessage` |
 | `PolishImportRowValues` | Parsed cells: `brand`, `name`, canonical `finishes`, optional `quantity`, `purchasePrice`, `purchaseCurrency`, `purchaseDate` (`YYYY-MM-DD`), `status`, `tried`, `triedOn`, `notes` |
 | `PolishImportCandidate` | Catalog candidate: `shadeId`, `brand`, `name`, `finishes`, display `hex`, `confidence` (0–1), `inCollection`, `userSubmitted`, `exactMatch` |
 | `PolishImportMatchState` | `matched \| ambiguous \| unmatched \| invalid` |
 | `PolishImportAction` | `match \| create \| skip \| pending` (pending rows are skipped on commit) |
-| `PolishImportDecision` / `PolishImportDecisionsRequest` | Review decisions `{ rowNumber, action, shadeId? }` for `PATCH /api/polish-imports/{id}` and commit |
+| `PolishImportDecision` / `PolishImportDecisionsRequest` | Review decisions `{ rowNumber, action?, shadeId?, statusChoice?, archiveReason? }` (at least one of `action` / `statusChoice`) for `PATCH /api/polish-imports/{id}` and commit |
+| `PolishImportStatusChoice` | `wishlist \| archived` — review choice for a quantity-0 row without a status cell (stored on the row as `statusChoice` + `archiveReason`); `importRowNeedsStatus(values)` (in `import/polish-import.ts`) tells which rows need one |
 | `PolishImportCommitResult` / `PolishImportCommitResponse` | `{ created, updated, skipped, failed, shadesCreated }`; response adds the session and `alreadyCommitted` |
 | `PolishImportCounts`, `PolishImportRowOutcome`, `PolishImportSessionStatus` | Supporting unions/counters |
 
