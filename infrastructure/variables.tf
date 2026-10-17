@@ -219,6 +219,12 @@ variable "auth_dev_bypass" {
   default     = false
 }
 
+variable "shareable_wishlist_enabled" {
+  description = "Enable opt-in public wishlist share links (SHAREABLE_WISHLIST_ENABLED, issue #268). Off by default."
+  type        = bool
+  default     = false
+}
+
 variable "ingestion_job_queue_name" {
   description = "Azure Storage Queue name for ingestion jobs"
   type        = string

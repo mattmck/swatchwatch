@@ -165,10 +165,15 @@ async function getOidcConfig(
   return oidcConfigPromise;
 }
 
-async function handleB2CToken(
-  token: string,
-  context: InvocationContext
-): Promise<AuthResult> {
+interface VerifiedB2CClaims {
+  externalId: string;
+  email?: string;
+  role: EntraRole;
+  emailVerified: boolean;
+}
+
+/** Verify a B2C/Entra JWT (signature, issuer, audience, expiry) and extract the identity claims. */
+async function verifyB2CToken(token: string, context: InvocationContext): Promise<VerifiedB2CClaims> {
   const tenant = process.env.AZURE_AD_B2C_TENANT;
   const clientId = process.env.AZURE_AD_B2C_CLIENT_ID;
 
@@ -197,8 +202,19 @@ async function handleB2CToken(
 
   const email = (payload.emails as string[] | undefined)?.[0]
     || (payload.email as string | undefined);
-  const role = resolveEntraRole(payload.roles);
-  const emailVerified = isEmailVerifiedClaim(payload);
+  return {
+    externalId,
+    email,
+    role: resolveEntraRole(payload.roles),
+    emailVerified: isEmailVerifiedClaim(payload),
+  };
+}
+
+async function handleB2CToken(
+  token: string,
+  context: InvocationContext
+): Promise<AuthResult> {
+  const { externalId, email, role, emailVerified } = await verifyB2CToken(token, context);
 
   context.log(`Auth B2C: oid=${externalId} role=${role}`);
 
@@ -206,6 +222,83 @@ async function handleB2CToken(
   trackEvent("auth.success", { mode: "jwt", role, userId: user.userId });
 
   return { userId: user.userId, externalId, email, role: user.role };
+}
+
+/**
+ * Resolve the caller's user id WITHOUT provisioning or updating anything: the token is verified
+ * exactly like `authenticateRequest`, but the user is only looked up (linked identity first, then
+ * the legacy `app_user.external_id`), never created, linked or touched. A token whose identity has
+ * no user yet is an `AuthError` (401).
+ *
+ * For hot read paths that only need "who is this" (the private image proxy, #270 follow-up from
+ * #283 review): `authenticateRequest` runs `getOrCreateUser`, a write transaction, on every call,
+ * so a page of N private photos would otherwise run N write transactions. Dev bypass is already
+ * a single read and is unchanged.
+ */
+export async function authenticateRequestReadOnly(
+  request: HttpRequest,
+  context: InvocationContext
+): Promise<Pick<AuthResult, "userId">> {
+  const authHeader = request.headers.get("authorization");
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    trackEvent("auth.failure", { reason: "missing_or_malformed_authorization_header" });
+    throw new AuthError("Missing or malformed Authorization header");
+  }
+
+  const token = authHeader.substring(7);
+  if (!token) {
+    trackEvent("auth.failure", { reason: "empty_token" });
+    throw new AuthError("Empty token");
+  }
+
+  if (isDevBypassEnabled()) {
+    const { userId } = await handleDevBypass(token, context);
+    return { userId };
+  }
+  reportDevBypassRefusedIfNeeded();
+
+  const { externalId } = await verifyB2CToken(token, context);
+  const userId = await findUserIdByExternalId(externalId);
+  if (userId === null) {
+    trackEvent("auth.failure", { reason: "user_not_provisioned", mode: "jwt_read_only" });
+    throw new AuthError("User not found");
+  }
+  return { userId };
+}
+
+/** Read-only counterpart of the lookups at the start of `getOrCreateUserWithLinkedIdentities`. */
+async function findUserIdByExternalId(externalId: string): Promise<number | null> {
+  const legacyLookup = () =>
+    query<{ userId: unknown }>(
+      `SELECT user_id AS "userId"
+       FROM app_user
+       WHERE external_id = $1
+       LIMIT 1`,
+      [externalId]
+    );
+
+  let result;
+  try {
+    result = await query<{ userId: unknown }>(
+      `SELECT COALESCE(
+         (SELECT u.user_id
+          FROM user_external_identities uei
+          INNER JOIN app_user u ON u.user_id = uei.user_id
+          WHERE uei.external_id = $1
+          LIMIT 1),
+         (SELECT user_id FROM app_user WHERE external_id = $1 LIMIT 1)
+       ) AS "userId"`,
+      [externalId]
+    );
+  } catch (error: any) {
+    // Same backward-compatible fallback as getOrCreateUser when the identities table is missing.
+    if (error?.code !== "42P01") throw error;
+    result = await legacyLookup();
+  }
+
+  const raw = result.rows[0]?.userId;
+  if (raw === null || raw === undefined) return null;
+  return toAuthUserId(raw);
 }
 
 function isTrueClaim(value: unknown): boolean {
