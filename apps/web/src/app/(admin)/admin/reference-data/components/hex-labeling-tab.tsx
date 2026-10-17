@@ -98,7 +98,12 @@ function formatDistance(a: string | null | undefined, b: string | null | undefin
 
 function isTextField(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
-  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+  if (target.isContentEditable || target.tagName === "TEXTAREA" || target.tagName === "SELECT") return true;
+  // Checkboxes, buttons and the like take no typing, so shortcuts stay active there.
+  if (target instanceof HTMLInputElement) {
+    return !["checkbox", "radio", "button", "submit", "reset", "range", "color"].includes(target.type);
+  }
+  return false;
 }
 
 // ── Swatch ──────────────────────────────────────────────────────────────────

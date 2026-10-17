@@ -5,7 +5,7 @@
  * exported by `npm run eval:hex:populate` as `manual` eval cases.
  *
  * Routes (admin-only): `GET /api/hex-labels-admin/queue`,
- * `POST /api/hex-labels-admin`, `DELETE /api/hex-labels-admin/{trainingSampleId}`.
+ * `POST /api/hex-labels-admin/labels`, `DELETE /api/hex-labels-admin/labels/{trainingSampleId}`.
  */
 
 /** How the labelled hex was picked. */
@@ -105,7 +105,7 @@ export interface HexLabelQueueResponse {
   disagreementThreshold: number;
 }
 
-/** Body of `POST /api/hex-labels-admin` (create or replace the shade's manual label). */
+/** Body of `POST /api/hex-labels-admin/labels` (create or replace the shade's manual label). */
 export interface HexLabelRequest {
   shadeId: string;
   /** `#RRGGBB`; required unless `unreliable`. */
