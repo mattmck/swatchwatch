@@ -387,8 +387,8 @@ image AI when a job runs with `detectHexOnSuspiciousOnly`:
   default 0.02) unless the shade name or tags contain a gray/silver/black/white/nude/chrome-type word, and **web-palette**
   hexes (an exact `COMMON_COLORS` value such as `#FF69B4` hot pink) when the shade name/tags do not carry that color word
   or its base word (`pink`). The verdict's `reason` (`missing`, `malformed`, `placeholder`, `template-default`,
-  `near-grayscale`, `web-palette`) and `detail` are written to the job log through the progress logger, and the batch
-  summary logs which template defaults were found.
+  `near-grayscale`, `web-palette`) and `detail` are logged per record to the console, the "Image upload started" job-log
+  line carries the run's template defaults, and a separate job-log line names them when `detectHexOnSuspiciousOnly` is on.
 
 Both the batch-candidate estimate (sync vs. batch mode) and the per-record decision use the same context, so a
 run's `estimatedBatchCandidates` reflects the contextual verdicts. Unit tests: `tests/suspicious-hex.unit.test.cjs`,
@@ -684,10 +684,34 @@ node-pg-migrate tracks applied migrations in a `pgmigrations` table and refuses 
 - AI hex detection diagnostics are logged under the `[ai-color-detection]` prefix, including retry attempts, delay timings, upstream status codes, and Azure request IDs (`x-request-id`/`apim-request-id`) for failed calls.
 - If Azure OpenAI returns `400 content_filter` for the primary vision prompt, the detector automatically retries once with a safer prompt. If still filtered, ingestion continues and leaves `detected_hex` empty for that record.
 - AI image detection uses URL payloads (image-proxy or source URL fallback). If no usable image URL is available for a record, detection is skipped and a warning is logged to the Admin Jobs stream.
-- On successful AI hex detection, ingestion logs a structured success entry with `brand`, `colorName`, and `hex` in job logs (Admin Jobs expandable log view).
+- On successful AI hex detection, ingestion logs a structured success entry with `brand`, `colorName`, and `hex` to the console (App Insights traces); the job log gets the per-chunk summary instead (see [Ingestion job logs](#ingestion-job-logs)).
 - Sync and batch hex detection logs now include Azure token usage when present, and those totals are persisted in ingestion job metrics for cost tracking.
 - When `APPLICATIONINSIGHTS_CONNECTION_STRING` is configured, token usage is also emitted as custom metrics: `hex_detection.sync.{prompt_tokens|completion_tokens|total_tokens}` and `hex_detection.batch.{rows_with_token_usage|prompt_tokens|completion_tokens|total_tokens}`.
-- For ingestion runs, those AI diagnostics are mirrored into the job `metrics.logs` stream shown on `/admin/jobs`; poller status events (`awaiting_ai` checks and apply results) are appended to that same stream.
+- For ingestion runs, AI **warnings and errors** are mirrored into the job `metrics.logs` stream shown on `/admin/jobs` (info-level diagnostics stay in the console/App Insights); poller events (batch status changes and apply results, prefixed `[poller]`) are appended to that same stream.
+
+## Ingestion job logs
+
+A job's log (`ingestion_job.metrics_json.logs`, shown under **Admin Jobs** in `/admin`) covers the **whole run**: every
+worker invocation (continuations restore the stored log before appending), the `awaiting_ai` pause, and every AI batch
+poller run. Two rules keep it readable and bounded:
+
+- **Milestones only** (`progressLogger` in `ingestion-repo.ts`): per chunk the job log gets the upsert, image upload
+  start/finish (uploaded/reused/failed, elapsed), hex detection + database writes start/finish (elapsed), the Azure
+  OpenAI batch submission (elapsed), and one summary line such as
+  `Records 11–20 of 250 on page 3: 10 shades (2 new), 8 hex detected, 0 upload failures, 41.0s`. Every per-record
+  **warning and error** (image upload failures, records without an image or shade name, AI detection failures and AI
+  client warnings) is logged too. Step-by-step per-record lines (image selection, token usage, detection success, shade /
+  inventory / swatch writes) are console-only, so they reach App Insights traces but not the job log. The poller logs a
+  pending batch only when its status changes, not on every one-minute poll.
+- **Bounded, never silently truncated** (`src/lib/job-log.ts`, used by `JobLogger` and the poller): the log holds at most
+  `INGESTION_JOB_LOG_MAX_ENTRIES` entries (default 500). It keeps the first 20% (the request, config and early
+  progress), then the newest lines, and a single marker entry between them (`omitted: { count, byLevel, firstTs,
+  lastTs }`, message `… N earlier log lines omitted … (including E errors and W warnings)`) that keeps counting as more
+  lines roll off. The Admin Jobs view renders the marker, shows `shown of total` lines, includes omitted warnings/errors
+  in its counts, and has **Warnings & errors** and **Expand log** toggles.
+
+`host.json` excludes `Trace` from App Insights adaptive sampling (with `Request` and `Exception`), so the console lines
+are all kept there; the daily cap (`appinsights_daily_cap_gb`) bounds the cost.
 
 
 ## Environment Variables
@@ -733,6 +757,7 @@ Key variables:
 | `INGESTION_AI_IMAGE_PROXY_ORIGIN` | Optional public origin used when building AI image-proxy URLs (for example `https://<func-app>.azurewebsites.net`). Falls back to `https://$WEBSITE_HOSTNAME`. |
 | `INGESTION_WORKER_TIME_BUDGET_MS` | Wall-clock budget per ingestion worker invocation before it checkpoints and enqueues a continuation message (default `240000`, clamped to `30000`–`270000` to stay under the Consumption plan timeout). |
 | `INGESTION_LOG_FLUSH_INTERVAL_MS` | Interval for ingestion worker metric/log flushes while a job runs (default `10000`). Increase to reduce write pressure on Postgres. |
+| `INGESTION_JOB_LOG_MAX_ENTRIES` | Entries kept in a job's `metrics_json.logs` for the whole run, shared by every worker invocation and the AI batch poller (default `500`, clamped `100`–`2000`). The first 20% of the run is kept, then the newest lines, with one marker entry counting the omitted lines by level. See [Ingestion job logs](#ingestion-job-logs). |
 | `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS` | Per-request timeout for Shopify `products.json` downloads (default `45000`). |
 | `SHOPIFY_CONNECTOR_MAX_RETRIES` | Retry count for transient Shopify request errors (default `2`, total attempts = retries + 1). |
 | `SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS` | Linear backoff base delay for Shopify retries (default `1000`). |

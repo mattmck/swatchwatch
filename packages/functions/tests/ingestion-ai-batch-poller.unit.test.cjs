@@ -678,3 +678,55 @@ describe("ingestion-ai-batch-poller detected-hex provenance", () => {
     assert.deepEqual(parseProvenanceArgs, [{ deployment: null, promptVersion: null }]);
   });
 });
+
+describe("ingestion-ai-batch-poller job log", () => {
+  const runningStatus = (id, status = "in_progress") => ({
+    ...completedStatus(id),
+    status,
+    outputFileId: null,
+  });
+  const pollerLines = () => dbJob.metrics.logs.filter((entry) => entry.msg.startsWith("[poller]"));
+
+  it("logs a running batch only when its status changes, not on every poll", async () => {
+    seedJob(makeMultiBatchMetrics([{ batchId: "batch-1", status: "submitted" }]));
+    batchStatusById = { "batch-1": runningStatus("batch-1") };
+
+    await runPoller();
+    await runPoller();
+    await runPoller();
+
+    const lines = pollerLines();
+    assert.equal(lines.length, 1, "three polls of an unchanged batch log one line");
+    assert.match(lines[0].msg, /Batch batch-1 is in_progress/);
+    assert.equal(lines[0].data.previousStatus, "submitted");
+
+    batchStatusById = { "batch-1": runningStatus("batch-1", "finalizing") };
+    await runPoller();
+    assert.equal(pollerLines().length, 2);
+    assert.match(pollerLines()[1].msg, /finalizing/);
+  });
+
+  it("keeps the start of the run when appending to a full job log", async () => {
+    const fullLog = Array.from({ length: 500 }, (_, index) => ({
+      ts: `2026-10-14T00:00:${String(index % 60).padStart(2, "0")}.000Z`,
+      level: index === 250 ? "error" : "info",
+      msg: `worker line ${index}`,
+    }));
+    seedJob({
+      ...makeMultiBatchMetrics([{ batchId: "batch-1", status: "submitted" }]),
+      logs: fullLog,
+    });
+    batchStatusById = { "batch-1": completedStatus("batch-1") };
+
+    await runPoller();
+
+    const logs = dbJob.metrics.logs;
+    assert.equal(logs.length, 500);
+    assert.equal(logs[0].msg, "worker line 0", "the first line of the run survives");
+    const markers = logs.filter((entry) => entry.omitted);
+    assert.equal(markers.length, 1);
+    assert.ok(markers[0].omitted.count >= 1);
+    assert.match(markers[0].msg, /earlier log line/);
+    assert.match(logs[logs.length - 1].msg, /^\[poller\]/, "the newest line is the poller's");
+  });
+});

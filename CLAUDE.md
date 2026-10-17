@@ -163,6 +163,7 @@ Optional / dev-only:
 - `INGESTION_AI_IMAGE_PROXY_ORIGIN` — optional public origin used to build `/api/images/{id}` URLs for Azure OpenAI vision calls (defaults to `https://$WEBSITE_HOSTNAME`)
 - `INGESTION_WORKER_TIME_BUDGET_MS` — wall-clock budget per ingestion worker invocation (default: `240000`, clamped to `30000`–`270000`); when spent, the worker saves `metrics.checkpoint`, sets stage `continuation_queued`, and enqueues a continuation message so long jobs survive the Consumption plan timeout
 - `INGESTION_LOG_FLUSH_INTERVAL_MS` — interval for ingestion worker log/metrics flushes while jobs run (default: `10000`)
+- `INGESTION_JOB_LOG_MAX_ENTRIES` — entries kept in a job's `metrics_json.logs` across all its invocations and poller runs (default: `500`, clamped 100–2000); the first 20% of the run is kept, then the newest lines, with one marker entry counting the omitted lines by level (`src/lib/job-log.ts`)
 - `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS` — per-request timeout for Shopify `products.json` downloads (default: `45000`)
 - `SHOPIFY_CONNECTOR_MAX_RETRIES` — retry count for transient Shopify request errors (default: `2`)
 - `SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS` — linear backoff base delay for Shopify retries in milliseconds (default: `1000`)
