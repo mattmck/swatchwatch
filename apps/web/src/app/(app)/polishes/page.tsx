@@ -28,6 +28,7 @@ import {
 import { ArrowDown, ArrowUp, ArrowUpDown, Loader2, Sparkles } from "lucide-react";
 import { ColorDot } from "@/components/color-dot";
 import { QuantityControls } from "@/components/quantity-controls";
+import { isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
 import { Pagination } from "@/components/pagination";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
@@ -424,7 +425,6 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     searchParamsString,
   ]);
 
-  const isOwned = (p: Polish) => (p.quantity ?? 0) > 0;
   const hasActiveFilters =
     search.trim().length > 0 ||
     scope !== "all" ||
@@ -474,12 +474,12 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       const original = polishes.find((p) => p.id === polishId);
       if (!original) return;
 
-      const newQty = Math.max(0, (original.quantity ?? 0) + delta);
+      const change = quantityChangeUpdate(original, delta);
       setPolishes((prev) =>
-        prev.map((p) => (p.id === polishId ? { ...p, quantity: newQty } : p))
+        prev.map((p) => (p.id === polishId ? { ...p, ...change } : p))
       );
 
-      updatePolish(polishId, { quantity: newQty })
+      updatePolish(polishId, change)
         .then((updated) => {
           // The PUT response carries no buyUrl, so keep the one already on the row.
           setPolishes((prev) =>
@@ -715,7 +715,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
               </TableRow>
             ) : (
               pageItems.map((polish) => {
-                const owned = isOwned(polish);
+                const owned = isOwnedPolish(polish);
                 const recalcPending = recalcPendingById[polish.id] === true;
                 return (
                   <TableRow
@@ -810,6 +810,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                     )}
                     <TableCell className="text-right">
                       <QuantityControls
+                        owned={owned}
                         quantity={polish.quantity ?? 0}
                         onIncrement={() => handleQuantityChange(polish.id, 1)}
                         onDecrement={() => handleQuantityChange(polish.id, -1)}

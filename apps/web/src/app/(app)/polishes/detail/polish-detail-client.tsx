@@ -9,6 +9,7 @@ import { resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
 import { getPolish, deletePolish, listPolishes } from "@/lib/api";
 import { colorDistance, hexToOklch, oklchToHex } from "@/lib/color-utils";
 import { resolveFinishLabel } from "@/lib/finish-options";
+import { POLISH_STATUS_LABELS, formatPurchasePrice } from "@/lib/inventory-status";
 import { useReferenceData } from "@/hooks/use-reference-data";
 import { FinishBadges } from "@/components/finish-badges";
 import { BuyFromBrandLink } from "@/components/buy-from-brand-link";
@@ -319,8 +320,21 @@ export default function PolishDetailClient({
               <p className="font-medium">{polish.size ?? "—"}</p>
             </div>
             <div>
+              <p className="text-muted-foreground">Status</p>
+              <p className="font-medium">
+                {polish.status ? POLISH_STATUS_LABELS[polish.status] : "Not in collection"}
+                {polish.isUntried ? " · Untried" : ""}
+              </p>
+            </div>
+            <div>
               <p className="text-muted-foreground">Quantity</p>
               <p className="font-medium">{polish.quantity ?? 1}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Purchase price</p>
+              <p className="font-medium">
+                {formatPurchasePrice(polish.purchasePrice, polish.purchaseCurrency) ?? "—"}
+              </p>
             </div>
             <div>
               <p className="text-muted-foreground">Rating</p>

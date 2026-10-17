@@ -1191,7 +1191,8 @@ describe("functions/polishes — matchImage", () => {
     assert.equal(res.status, 200);
     assert.equal(seen.length, 1);
     assert.deepEqual(seen[0].params, [1]);
-    assert.match(seen[0].sql, /COALESCE\(ui\.quantity, 0\) > 0/);
+    assert.match(seen[0].sql, /ui\.status = 'owned'/);
+    assert.doesNotMatch(seen[0].sql, /ui\.quantity, 0\) > 0/, "ownership must come from status, not quantity");
 
     const body = res.jsonBody;
     const hexes = body.extractedColors.map((c) => c.hex);

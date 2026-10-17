@@ -10,6 +10,7 @@ import { GiPerfumeBottle } from "react-icons/gi";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { listPolishes, updatePolish } from "@/lib/api";
 import { buildBrandOptions, matchesBrandFilter } from "@/lib/polish-filters";
+import { isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
 import {
   colorDistance,
   hexToHsl,
@@ -263,8 +264,6 @@ function ColorSearchPageContent() {
     };
   }, []);
 
-  const isOwned = (p: Polish) => (p.quantity ?? 0) > 0;
-
   // The color we're actively matching against (hover takes priority over click)
   const activeHex = previewHex ?? selectedHex;
   const isSimilarMode = !includeAllHarmonies && harmonyType === "similar";
@@ -283,11 +282,11 @@ function ColorSearchPageContent() {
 
   // Owned polishes with colors — used for snap dots
   const ownedColorPolishes = useMemo(
-    () => colorPolishes.filter(isOwned),
+    () => colorPolishes.filter(isOwnedPolish),
     [colorPolishes]
   );
   const unownedColorPolishes = useMemo(
-    () => colorPolishes.filter((p) => !isOwned(p)),
+    () => colorPolishes.filter((p) => !isOwnedPolish(p)),
     [colorPolishes]
   );
   const getAvailabilityForHex = useCallback(
@@ -327,7 +326,7 @@ function ColorSearchPageContent() {
     }
     if (availabilityFilter !== "all") {
       result = result.filter((p) =>
-        availabilityFilter === "owned" ? isOwned(p) : !isOwned(p)
+        availabilityFilter === "owned" ? isOwnedPolish(p) : p.status === "wishlist"
       );
     }
     return result;
@@ -644,12 +643,12 @@ function ColorSearchPageContent() {
       const original = allPolishes.find((p) => p.id === polishId);
       if (!original) return;
 
-      const newQty = Math.max(0, (original.quantity ?? 0) + delta);
+      const change = quantityChangeUpdate(original, delta);
       setAllPolishes((prev) =>
-        prev.map((p) => (p.id === polishId ? { ...p, quantity: newQty } : p))
+        prev.map((p) => (p.id === polishId ? { ...p, ...change } : p))
       );
 
-      updatePolish(polishId, { quantity: newQty })
+      updatePolish(polishId, change)
         .then((updated) => {
           setAllPolishes((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
         })

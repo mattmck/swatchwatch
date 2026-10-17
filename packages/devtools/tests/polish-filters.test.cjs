@@ -144,9 +144,9 @@ test("polish-filters: buildBrandOptions deduplicates case-insensitively and pres
 test("polish-filters: filterPolishesForList matches brand case-insensitively and trims whitespace", async () => {
   const { filterPolishesForList } = await importFilters();
   const polishes = [
-    createPolish({ id: "a", brand: "  ILNP  ", quantity: 1 }),
-    createPolish({ id: "b", brand: "ilnp", quantity: 0 }),
-    createPolish({ id: "c", brand: "Mooncat", quantity: 1 }),
+    createPolish({ id: "a", brand: "  ILNP  ", quantity: 1, status: "owned" }),
+    createPolish({ id: "b", brand: "ilnp", quantity: 0, status: "wishlist" }),
+    createPolish({ id: "c", brand: "Mooncat", quantity: 1, status: "owned" }),
   ];
 
   const filtered = filterPolishesForList({
@@ -172,18 +172,21 @@ test("polish-filters: filterPolishesForList composes brand + owned + tone filter
       id: "owned-warm",
       brand: "ILNP",
       quantity: 1,
+      status: "owned",
       vendorHex: "#FF0000",
     }),
     createPolish({
       id: "wishlist-cool",
       brand: "ilnp ",
       quantity: 0,
+      status: "wishlist",
       detectedHex: "#0000FF",
     }),
     createPolish({
       id: "vendor-priority",
       brand: "ILNP",
       quantity: 0,
+      status: "wishlist",
       vendorHex: "#FF0000",
       detectedHex: "#0000FF",
     }),
