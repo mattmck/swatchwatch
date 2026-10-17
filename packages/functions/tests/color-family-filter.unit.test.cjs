@@ -97,6 +97,8 @@ describe("GET /api/polishes?family=", () => {
     const calls = [];
     queryMock = async (text, params) => {
       if (text.includes("FROM app_user")) return { rows: [authUserRow] };
+      // The "Buy from brand" lookup (#267) runs after the page query; it is not part of the filter.
+      if (text.includes("shade_source_product")) return { rows: [] };
       calls.push({ text, params });
       if (text.includes("COUNT(*) AS total")) return { rows: [{ total: "7" }] };
       return { rows };
