@@ -12,15 +12,15 @@ The roadmap row was written on 16 Oct. Since then most of it moved:
 
 | Item | Roadmap says | Actual state | Remaining work |
 |---|---|---|---|
-| PR #256 on-nail image selection | merge | **merged into `dev`** 03:51 UTC (`28d1551`) | ship to `main` via release PR |
-| PR #258 migration rename | merge | **merged into `dev`** 03:47 UTC (`279f331`) | ship to `main`; prod migration path needs a watched deploy |
-| PR #237 CodeRabbit fixes | merge | **merged into `dev`** 03:46 UTC (`fb0f8ea`) | ship to `main` |
-| dev → main release | cut one | **PR #276 open** (`chore/merge-dev-into-main`, head `eff215a`, 34 commits, 89 files). CI green (Lint, Build, CodeQL). Two CodeRabbit threads fixed and resolved; CodeRabbit commit status still `pending` (re-review). Needs a **merge commit, not squash** | verify, merge, watch Deploy Prod, fast-forward `dev` |
-| #245 flaky tampered-signature test | fix + close | **already fixed** by PR #246 (merged to `dev` 16 Oct, body says `Closes #245`) and hardened again in #237. Issue is still **open** because #246 targeted `dev`, so GitHub never auto-closed it. `flipLastChar` no longer exists anywhere in `packages/functions/tests/` | verify on `main` after release, close with a comment |
-| #227 owner-scoped image ids | fix | **open, no code yet**. Only real build in the row | design is fixed below; 6 work packages |
-| PR #275 roadmap doc | — | open against `main`, `mergeable_state: clean`, docs-only | merge alongside the release |
+| PR #256 on-nail image selection | merge | **merged into `dev`** 03:51 UTC (`28d1551`); on `main` since #276 | none |
+| PR #258 migration rename | merge | **merged into `dev`** 03:47 UTC (`279f331`); on `main` since #276, prod migrate step ran clean | none |
+| PR #237 CodeRabbit fixes | merge | **merged into `dev`** 03:46 UTC (`fb0f8ea`); on `main` since #276 | none |
+| dev → main release | cut one | **shipped**: PR #276 merged to `main` as merge commit `6420309`; Deploy Prod green; `dev` fast-forwarded | none |
+| #245 flaky tampered-signature test | fix + close | **closed** (fixed by PR #246, hardened in #237, shipped to `main` in #276) | none |
+| #227 owner-scoped image ids | fix | **PR #283 open against `dev`** (C2–C7 done; security-review fixes in `04708db`; CI green) | C8: address review, squash-merge to `dev`, second dev → main release, close #227 |
+| PR #275 roadmap doc | — | **merged** | none |
 
-**Consequence:** this plan is ~15% release mechanics, ~5% hygiene, ~80% the #227 build.
+**Consequence:** this plan is ~15% release mechanics, ~5% hygiene, ~80% the #227 build. _Status 17 Oct: Tracks A and B are complete (A1–A3, B1); Track C is at C8._
 
 ### Facts that shape #227 (read these before touching code)
 
@@ -91,7 +91,7 @@ Rough sizing is agent-hours of focused work, not wall clock.
 
 ### Track A — Ship #256 / #258 / #237 to `main`
 
-#### A1 — Release go/no-go audit of PR #276 (read-only, ~1h)
+#### A1 — Release go/no-go audit of PR #276 (read-only, ~1h) — DONE 17 Oct
 
 **Goal:** a written go/no-go for merging `chore/merge-dev-into-main` with a merge commit.
 
@@ -105,7 +105,7 @@ Rough sizing is agent-hours of focused work, not wall clock.
 
 **Output:** checklist with pass/fail per line, and the exact rollback plan: `git revert -m 1 <merge sha>` on `main` redeploys the previous build; the migration is idempotent and has no data changes, so no DB rollback is needed.
 
-#### A2 — Merge the release and watch prod (~1h, mostly waiting)
+#### A2 — Merge the release and watch prod (~1h, mostly waiting) — DONE 17 Oct (#276 merged as `6420309`, Deploy Prod green, `dev` fast-forwarded, #275 merged)
 
 **Blocked on:** A1 "go", and the human's explicit go-ahead (another session already asked for it).
 
@@ -117,7 +117,7 @@ Rough sizing is agent-hours of focused work, not wall clock.
 
 **Output:** merge SHA, Deploy Prod run URL and conclusion, smoke results, `dev` == `main` confirmation.
 
-#### A3 — Post-release hygiene (~30 min)
+#### A3 — Post-release hygiene (~30 min) — DONE 17 Oct (#245 closed, roadmap row rewritten in #278, #227 status posted)
 
 **Blocked on:** A2 and B1.
 
@@ -128,7 +128,7 @@ Rough sizing is agent-hours of focused work, not wall clock.
 
 ### Track B — #245 confirmation
 
-#### B1 — Prove the flake is gone (read-only, ~30 min)
+#### B1 — Prove the flake is gone (read-only, ~30 min) — DONE 17 Oct
 
 Runs on Monday in parallel with A1.
 

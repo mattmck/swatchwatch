@@ -98,9 +98,10 @@ async function handleDevBypass(
   }
 
   const user = result.rows[0];
-  trackEvent("auth.success", { mode: "dev_bypass", role: user.role, userId: user.user_id });
+  const resolvedUserId = toAuthUserId(user.user_id);
+  trackEvent("auth.success", { mode: "dev_bypass", role: user.role, userId: resolvedUserId });
   return {
-    userId: user.user_id,
+    userId: resolvedUserId,
     externalId: user.external_id || `dev-user-${userId}`,
     email: user.email || undefined,
     role: user.role,
@@ -250,15 +251,32 @@ export async function getOrCreateUser(
   }
   const normalizedEmail = emailVerified ? claimedEmail : null;
 
-  try {
-    return await getOrCreateUserWithLinkedIdentities(externalId, normalizedEmail, role);
-  } catch (error: any) {
-    // Backward-compatible fallback when the new table has not been migrated yet.
-    if (error?.code === "42P01") {
-      return getOrCreateUserLegacy(externalId, normalizedEmail, role);
+  const user = await (async () => {
+    try {
+      return await getOrCreateUserWithLinkedIdentities(externalId, normalizedEmail, role);
+    } catch (error: any) {
+      // Backward-compatible fallback when the new table has not been migrated yet.
+      if (error?.code === "42P01") {
+        return getOrCreateUserLegacy(externalId, normalizedEmail, role);
+      }
+      throw error;
     }
-    throw error;
+  })();
+  return { ...user, userId: toAuthUserId(user.userId) };
+}
+
+/**
+ * `app_user.user_id` is BIGINT, which node-postgres returns as a string (no int8 type parser is
+ * registered). Coerce it at the auth boundary so `AuthResult.userId` really is a number: strict
+ * comparisons against it (e.g. image proxy owner checks) would otherwise never match.
+ */
+function toAuthUserId(raw: unknown): number {
+  const userId = typeof raw === "number" ? raw : typeof raw === "string" && /^\d+$/.test(raw) ? Number(raw) : NaN;
+  if (!Number.isSafeInteger(userId) || userId <= 0) {
+    trackEvent("auth.failure", { reason: "invalid_user_id" });
+    throw new AuthError("Resolved user id is not a positive integer");
   }
+  return userId;
 }
 
 function normalizeEmail(email?: string): string | null {

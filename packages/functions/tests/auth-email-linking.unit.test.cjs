@@ -185,4 +185,20 @@ describe("account linking by email", () => {
     const auth = await authenticate({ oid: "ext-legacy" });
     assert.equal(auth.userId, 7);
   });
+
+  it("coerces a BIGINT user_id returned as a string (node-postgres int8) to a number (#227)", async () => {
+    // pg returns int8 columns as strings; AuthResult.userId must still be a real number so
+    // strict comparisons (e.g. image proxy owner checks) work.
+    db.identities[0].user_id = "1";
+    const auth = await authenticate({ oid: "ext-original" });
+    assert.equal(auth.userId, 1);
+    assert.equal(typeof auth.userId, "number");
+  });
+
+  it("rejects a resolved user id that is not a positive integer", async () => {
+    db.identities[0].user_id = "1e3";
+    await assert.rejects(() => authenticate({ oid: "ext-original" }), (err) => err.name === "AuthError");
+    db.identities[0].user_id = 0;
+    await assert.rejects(() => authenticate({ oid: "ext-original" }), (err) => err.name === "AuthError");
+  });
 });

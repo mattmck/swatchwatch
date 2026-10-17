@@ -472,6 +472,7 @@ resource "azurerm_linux_function_app" "main" {
     AZURE_STORAGE_CONNECTION              = azurerm_storage_account.main.primary_connection_string
     INGESTION_JOB_QUEUE_NAME              = var.ingestion_job_queue_name
     CONNECTOR_RAW_CONTAINER               = azurerm_storage_container.connector_raw.name
+    USER_MEDIA_CONTAINER                  = azurerm_storage_container.nail_photos.name
     AZURE_SPEECH_KEY                      = "to-be-added"
     AZURE_SPEECH_REGION                   = azurerm_resource_group.main.location
     AZURE_OPENAI_ENDPOINT                 = local.openai_enabled ? local.openai_endpoint_value : ""
