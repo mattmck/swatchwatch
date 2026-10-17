@@ -142,8 +142,7 @@ async function getVisibleShade(
  * Shared SELECT fragment — returns global shade data plus the requesting user's inventory fields.
  * `$1` is always the requesting user id so list/detail queries can join consistently.
  */
-const POLISH_SELECT = `
-  SELECT
+const POLISH_COLUMNS = `
     s.shade_id::text                             AS id,
     s.shade_id::text                             AS "shadeId",
     ui.inventory_item_id::text                   AS "inventoryItemId",
@@ -167,7 +166,9 @@ const POLISH_SELECT = `
     ui.purchase_date                             AS "purchaseDate",
     ui.expiration_date                           AS "expirationDate",
     COALESCE(ui.created_at, s.created_at)        AS "createdAt",
-    COALESCE(ui.updated_at, s.updated_at)        AS "updatedAt"
+    COALESCE(ui.updated_at, s.updated_at)        AS "updatedAt"`;
+
+const POLISH_FROM = `
   FROM shade s
   JOIN brand b ON s.brand_id = b.brand_id
   LEFT JOIN user_inventory_item ui
@@ -181,6 +182,21 @@ const POLISH_SELECT = `
     ORDER BY COALESCE(sw.swatch_type = 'source_product', false) DESC, sw.swatch_id DESC
     LIMIT 1
   ) AS swatch_img ON true`;
+
+const POLISH_SELECT = `
+  SELECT
+${POLISH_COLUMNS}
+${POLISH_FROM}`;
+
+/**
+ * List variant of POLISH_SELECT: carries the filtered total as a window column so a page
+ * and its total come from one scan instead of a separate COUNT(*) query per page.
+ */
+const POLISH_LIST_SELECT = `
+  SELECT
+${POLISH_COLUMNS},
+    COUNT(*) OVER()                              AS "totalCount"
+${POLISH_FROM}`;
 
 /**
  * Find or create a brand + shade, returning the shade_id.
@@ -624,28 +640,39 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
     const sortColumn = SORT_COLUMNS[sortBy] || SORT_COLUMNS.createdAt;
     const whereClause = conditions.length > 0 ? conditions.join(" AND ") : "TRUE";
 
-    const result = await query<Polish>(
-      `${POLISH_SELECT}
+    const result = await query<Polish & { totalCount: string }>(
+      `${POLISH_LIST_SELECT}
        WHERE ${whereClause}
        ORDER BY ${sortColumn} ${sortOrder} NULLS LAST
        LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
       [...params, pageSize, offset]
     );
 
-    const countResult = await query(
-      `SELECT COUNT(*) AS total
-       FROM shade s
-       JOIN brand b ON s.brand_id = b.brand_id
-       LEFT JOIN user_inventory_item ui
-         ON ui.shade_id = s.shade_id
-        AND ui.user_id = $1
-       WHERE ${whereClause}`,
-      params
-    );
+    let total: number;
+    if (result.rows.length > 0) {
+      total = parseInt(result.rows[0].totalCount, 10);
+    } else if (offset === 0) {
+      total = 0;
+    } else {
+      // Page past the end: the window count is unavailable, fall back to an explicit count.
+      const countResult = await query(
+        `SELECT COUNT(*) AS total
+         FROM shade s
+         JOIN brand b ON s.brand_id = b.brand_id
+         LEFT JOIN user_inventory_item ui
+           ON ui.shade_id = s.shade_id
+          AND ui.user_id = $1
+         WHERE ${whereClause}`,
+        params
+      );
+      total = parseInt(countResult.rows[0].total, 10);
+    }
+
+    const polishes = result.rows.map(({ totalCount: _totalCount, ...polish }) => polish as Polish);
 
     const responseBody = {
-      polishes: mapReadableSwatchUrls(result.rows, request.url),
-      total: parseInt(countResult.rows[0].total, 10),
+      polishes: mapReadableSwatchUrls(polishes, request.url),
+      total,
       page,
       pageSize,
     } as PolishListResponse;

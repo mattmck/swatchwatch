@@ -13,7 +13,14 @@ const { formatReport, renderTable, writeReportJson } = require("../dist/eval/hex
 const { STRATEGIES, getStrategy, pixelStrategy, strategySkipReason, azureCurrentStrategy } = require("../dist/eval/hex/strategies");
 const { loadCaseImage } = require("../dist/eval/hex/images");
 const { parseArgs, runStrategy } = require("../dist/eval/hex/cli");
-const { selectTrainingCandidates, trainingSampleToEvalCase, parsePopulateArgs, finishesFromTags } = require("../dist/eval/hex/populate");
+const {
+  selectTrainingCandidates,
+  trainingSampleToEvalCase,
+  parsePopulateArgs,
+  finishesFromTags,
+  READ_CANDIDATES_SQL,
+  UPSERT_SAMPLE_SQL,
+} = require("../dist/eval/hex/populate");
 
 function evalCase(overrides = {}) {
   return {
@@ -211,7 +218,9 @@ describe("eval/hex report formatting", () => {
 
 describe("eval/hex strategies", () => {
   it("registers the three day-one strategies", () => {
+    // Day-one strategies come first; later strategies are appended (see strategies.ts), so only pin the prefix.
     assert.deepEqual(STRATEGIES.map((s) => s.name).slice(0, 3), ["azure-current", "azure-blind", "pixel"]);
+    assert.equal(new Set(STRATEGIES.map((s) => s.name)).size, STRATEGIES.length, "strategy names are unique");
     assert.equal(getStrategy("PIXEL"), pixelStrategy);
     assert.equal(getStrategy("nope"), null);
     assert.equal(getStrategy("azure-current").requiresAzureOpenAI, true);
@@ -310,6 +319,20 @@ describe("eval/hex cli", () => {
 });
 
 describe("eval/hex populate (pure parts)", () => {
+  it("only applies the Holo Taco brand fallback to HoloTacoShopify products", () => {
+    const sql = READ_CANDIDATES_SQL.replace(/\s+/g, " ");
+    assert.match(sql, /CASE WHEN ds\.name = 'HoloTacoShopify' THEN 'Holo Taco' END/);
+    assert.doesNotMatch(sql, /COALESCE\(NULLIF\(trim\(ep\.normalized_json ->> 'brand'\), ''\), 'Holo Taco'\)/);
+    // The source filter lives in the data_source join, which external_product joins through.
+    assert.match(sql, /JOIN data_source ds ON \(\$1::text\[\] IS NULL OR ds\.name = ANY\(\$1::text\[\]\)\) JOIN external_product ep ON ep\.data_source_id = ds\.data_source_id/);
+  });
+
+  it("never overwrites curated (non-pending) training samples on refresh", () => {
+    const sql = UPSERT_SAMPLE_SQL.replace(/\s+/g, " ");
+    assert.match(sql, /ON CONFLICT \(external_product_id, source_type\)/);
+    assert.match(sql, /updated_at = now\(\) WHERE color_training_sample\.training_status = 'pending'$/);
+  });
+
   const row = (overrides = {}) => ({
     externalProductId: 7,
     dataSourceId: 3,

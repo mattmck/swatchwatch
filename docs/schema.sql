@@ -322,6 +322,7 @@ CREATE TABLE proposal_patch (
 -- Search indexes
 CREATE INDEX idx_brand_alias_trgm ON brand_alias USING GIN (alias gin_trgm_ops);
 CREATE INDEX idx_shade_name_trgm ON shade USING GIN (shade_name_canonical gin_trgm_ops);
+CREATE INDEX idx_swatch_shade_latest ON swatch (shade_id, swatch_id DESC); -- primary-swatch LATERAL lookup in POLISH_SELECT
 CREATE INDEX idx_shade_alias_trgm ON shade_alias USING GIN (alias gin_trgm_ops);
 CREATE INDEX idx_swatch_embedding ON color_features USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 
