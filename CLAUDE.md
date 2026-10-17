@@ -49,6 +49,7 @@ npm run lint             # ESLint across all workspaces
 npm run typecheck        # tsc --noEmit across all workspaces
 npm run migrate          # Run Postgres migrations (needs DATABASE_URL)
 npm run migrate:down     # Roll back last migration
+npm run generate:pwa-icons  # Regenerate PWA/apple-touch PNG icons in apps/web/public from the brand SVG (sharp; commit the PNGs)
 npm run test --workspace=swatchwatch-functions      # Functions unit tests (no DB; includes access-control isolation tests)
 npm run test:e2e --workspace=swatchwatch-functions  # E2E API + cross-user access-control tests against a running local host (skips if unreachable)
 npm run eval:hex --workspace=swatchwatch-functions -- --strategy pixel            # Hex-detection ground-truth eval (strategies: azure-current, azure-blind, pixel, region-crop, palette-pick, image-select, image-select-ai, blind-snap, image-select-ai-snap, ensemble; `--list-strategies` for all; Azure ones skip without config; region-crop knobs: HEX_EVAL_REGION_CROP_MODE/CELLS/DETAIL)
