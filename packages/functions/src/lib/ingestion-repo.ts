@@ -1970,6 +1970,7 @@ export async function materializeMakeupApiRecords(
              AND lower(sh.shade_name_canonical) = lower($3)
              AND coalesce(sh.collection, '') = ''
              AND ui.quantity = 0
+             AND ui.status = 'wishlist'
              AND ui.notes LIKE 'Imported from MakeupAPI%'
              AND ui.tags @> ARRAY['makeupapi']::text[]`,
           [userId, brandId, makeup.name]
@@ -2059,8 +2060,8 @@ export async function materializeMakeupApiRecords(
         if (inventory.rows.length === 0) {
           await client.query(
             `INSERT INTO user_inventory_item
-               (user_id, shade_id, quantity, notes, tags)
-             VALUES ($1, $2, 0, $3, ARRAY['imported','makeupapi']::text[])`,
+               (user_id, shade_id, quantity, status, notes, tags)
+             VALUES ($1, $2, 0, 'wishlist', $3, ARRAY['imported','makeupapi']::text[])`,
             [userId, shadeId, importNote]
           );
           inventoryInserted += 1;
@@ -2326,8 +2327,8 @@ async function materializePreparedHoloTacoRecord(
     console.log(`${sourceLogPrefix} Inserting new inventory item for shade ${shadeId}`);
     await client.query(
       `INSERT INTO user_inventory_item
-         (user_id, shade_id, quantity, notes, tags)
-       VALUES ($1, $2, 0, $3, $4::text[])`,
+         (user_id, shade_id, quantity, status, notes, tags)
+       VALUES ($1, $2, 0, 'wishlist', $3, $4::text[])`,
       [userId, shadeId, importNote, sourceTags]
     );
     delta.inventoryInserted += 1;
