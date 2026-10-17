@@ -1,19 +1,23 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
-import { CatalogSearchResponse, CatalogShadeDetail } from "swatchwatch-shared";
+import { CatalogSearchResponse, CatalogShadeDetail, type ColorFamily } from "swatchwatch-shared";
 import { query } from "../lib/db";
 import { withCors } from "../lib/http";
 import { internalServerError } from "../lib/errors";
 import { cacheGetJson, cacheSetJson, hashCacheKey } from "../lib/cache";
 import { trackEvent } from "../lib/telemetry";
+import { loadBuyUrlsForShades } from "../lib/buy-link";
+import { parseColorFamilyFilter } from "../lib/color-family-filter";
 
 const CATALOG_SEARCH_CACHE_TTL_SECONDS = 120;
 const CATALOG_SHADE_CACHE_TTL_SECONDS = 300;
 
 /**
- * GET /api/catalog/search?q=<term>&limit=<n>
+ * GET /api/catalog/search?q=<term>&limit=<n>&family=<family[,family…]>
  *
  * Trigram search across brand names, shade names, and their aliases.
- * Uses pg_trgm similarity() for ranking. Returns top matches.
+ * Uses pg_trgm similarity() for ranking. Returns top matches. `family` (optional,
+ * comma-separated) restricts results to shades in any of those color families
+ * (`shade.color_family`, #103) before ranking and the limit are applied.
  */
 async function searchCatalog(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   context.log("GET /api/catalog/search");
@@ -26,8 +30,15 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
   }
 
   const limit = Math.min(50, Math.max(1, parseInt(url.searchParams.get("limit") || "20", 10)));
+  const familyFilter = parseColorFamilyFilter(url.searchParams);
+  if (!familyFilter.ok) {
+    return { status: 400, jsonBody: { error: familyFilter.error } };
+  }
+  const families = familyFilter.families;
   const normalizedQuery = q.toLowerCase();
-  const searchCacheKey = `catalog:search:h:${hashCacheKey(`${normalizedQuery}|${limit}`)}`;
+  // The family suffix is only added when filtering so existing cache keys are unchanged.
+  const familyCachePart = families.length > 0 ? `|family:${families.join(",")}` : "";
+  const searchCacheKey = `catalog:search:h:${hashCacheKey(`${normalizedQuery}|${limit}${familyCachePart}`)}`;
 
   try {
     const cachedSearch = await cacheGetJson<CatalogSearchResponse>(searchCacheKey);
@@ -51,6 +62,7 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
       finish: string | null;
       finishes: string[] | null;
       collection: string | null;
+      colorFamily: ColorFamily | null;
       similarity: number;
     }>(
       `SELECT DISTINCT ON (s.shade_id)
@@ -60,6 +72,7 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
          COALESCE(NULLIF(s.finish, ''), s.finishes[1]) AS finish,
          COALESCE(s.finishes, ARRAY[]::text[]) AS finishes,
          s.collection,
+         s.color_family                AS "colorFamily",
          GREATEST(
            similarity(s.shade_name_canonical, $1),
            similarity(b.name_canonical, $1),
@@ -69,6 +82,7 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
        FROM shade s
        JOIN brand b ON s.brand_id = b.brand_id
        WHERE s.status = 'active'
+         AND ($2::text[] IS NULL OR s.color_family = ANY($2::text[]))
          AND (
            s.shade_name_canonical % $1
            OR b.name_canonical % $1
@@ -76,13 +90,16 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
            OR EXISTS (SELECT 1 FROM brand_alias ba WHERE ba.brand_id = b.brand_id AND ba.alias % $1)
          )
        ORDER BY s.shade_id, similarity DESC`,
-      [q]
+      [q, families.length > 0 ? families : null]
     );
 
     // Re-sort by similarity descending and apply limit
     const sorted = result.rows
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, limit);
+
+    // "Buy from brand" links (#267) for the returned page only.
+    const buyUrls = await loadBuyUrlsForShades(sorted.map((r) => r.shadeId));
 
     const response: CatalogSearchResponse = {
       results: sorted.map((r) => ({
@@ -92,7 +109,9 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
         finish: r.finish || undefined,
         finishes: r.finishes ?? [],
         collection: r.collection || undefined,
+        colorFamily: r.colorFamily ?? null,
         similarity: Math.round(r.similarity * 1000) / 1000,
+        buyUrl: buyUrls.get(r.shadeId),
       })),
       query: q,
       total: sorted.length,
@@ -101,6 +120,7 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
       queryLength: q.length,
       resultCount: sorted.length,
       limit,
+      familyCount: families.length,
     });
 
     await cacheSetJson(searchCacheKey, response, CATALOG_SEARCH_CACHE_TTL_SECONDS);
@@ -176,6 +196,8 @@ async function getShade(request: HttpRequest, context: InvocationContext): Promi
       [shadeId]
     );
 
+    const buyUrls = await loadBuyUrlsForShades([shade.shadeId]);
+
     const response: CatalogShadeDetail = {
       shadeId: shade.shadeId,
       brand: shade.brand,
@@ -187,6 +209,7 @@ async function getShade(request: HttpRequest, context: InvocationContext): Promi
       releaseYear: shade.releaseYear || undefined,
       status: shade.status,
       aliases: aliasResult.rows.map((r) => r.alias),
+      buyUrl: buyUrls.get(shade.shadeId),
     };
 
     await cacheSetJson(shadeCacheKey, response, CATALOG_SHADE_CACHE_TTL_SECONDS);

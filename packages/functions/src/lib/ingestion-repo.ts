@@ -1,7 +1,7 @@
 import { query, transaction } from "./db";
 import { ConnectorProductRecord } from "./connectors/types";
 import { SUPPORTED_SOURCES } from "./connectors/types";
-import { defaultShopifyBaseUrl } from "./connectors/shopify-generic";
+import { defaultShopifyBaseUrl, isShopifySourceEnabledByDefault } from "./connectors/shopify-generic";
 import { detectHexWithAzureOpenAI, type HexDetectionOptions } from "./ai-color-detection";
 import {
   chooseUploadedImageForDetection,
@@ -33,6 +33,7 @@ import {
   type FinishCatalog,
 } from "./finishes";
 import { PoolClient } from "pg";
+import { recordShadeSourceProduct } from "./buy-link";
 
 export interface DataSourceRecord {
   dataSourceId: number;
@@ -1287,10 +1288,14 @@ async function createDataSourceIfMissing(name: string): Promise<DataSourceRecord
   }
 
   const baseUrl = defaultShopifyBaseUrl(name);
+  // Sources awaiting owner approval are provisioned disabled (hidden from the admin UI).
+  const enabled = isShopifySourceEnabledByDefault(name);
   const metadata = {
     priority: "medium",
     mvp: "yes",
-    notes: "Auto-provisioned Shopify source from supported connector list.",
+    notes: enabled
+      ? "Auto-provisioned Shopify source from supported connector list."
+      : "Auto-provisioned Shopify source, disabled pending owner approval.",
     autoProvisioned: true,
   };
 
@@ -1300,10 +1305,10 @@ async function createDataSourceIfMissing(name: string): Promise<DataSourceRecord
     baseUrl: string | null;
   }>(
     `INSERT INTO data_source (name, source_type, base_url, enabled, metadata)
-     VALUES ($1, 'api', $2, true, $3::jsonb)
+     VALUES ($1, 'api', $2, $3, $4::jsonb)
      ON CONFLICT (name) DO NOTHING
      RETURNING data_source_id AS "dataSourceId", name, base_url AS "baseUrl"`,
-    [name, baseUrl, JSON.stringify(metadata)]
+    [name, baseUrl, enabled, JSON.stringify(metadata)]
   );
 
   if (inserted.rows.length > 0) {
@@ -1892,7 +1897,9 @@ export async function listIngestionJobs(
 
 export async function materializeMakeupApiRecords(
   userId: number,
-  records: ConnectorProductRecord[]
+  records: ConnectorProductRecord[],
+  /** MakeupAPI data_source id; when set, each shade is linked to its product (buy links, #267). */
+  dataSourceId?: number
 ): Promise<MakeupApiMaterializationMetrics> {
   const finishCatalog = await loadFinishCatalog();
   return transaction(async (client) => {
@@ -1970,6 +1977,7 @@ export async function materializeMakeupApiRecords(
              AND lower(sh.shade_name_canonical) = lower($3)
              AND coalesce(sh.collection, '') = ''
              AND ui.quantity = 0
+             AND ui.status = 'wishlist'
              AND ui.notes LIKE 'Imported from MakeupAPI%'
              AND ui.tags @> ARRAY['makeupapi']::text[]`,
           [userId, brandId, makeup.name]
@@ -1982,7 +1990,8 @@ export async function materializeMakeupApiRecords(
              AND lower(sh.shade_name_canonical) = lower($2)
              AND coalesce(sh.collection, '') = ''
              AND NOT EXISTS (SELECT 1 FROM user_inventory_item ui WHERE ui.shade_id = sh.shade_id)
-             AND NOT EXISTS (SELECT 1 FROM sku s WHERE s.shade_id = sh.shade_id)`,
+             AND NOT EXISTS (SELECT 1 FROM sku s WHERE s.shade_id = sh.shade_id)
+             AND NOT EXISTS (SELECT 1 FROM manicure_polish mp WHERE mp.shade_id = sh.shade_id)`,
           [brandId, makeup.name]
         );
       }
@@ -2024,6 +2033,10 @@ export async function materializeMakeupApiRecords(
           shadesCreated += 1;
         }
 
+        if (dataSourceId !== undefined) {
+          await recordShadeSourceProduct(client, shadeId, dataSourceId, record.externalId);
+        }
+
         // Write color data to shade (product-level)
         const resolvedColorName = variant.name || makeup.name;
         const resolvedVendorHex = variant.hex;
@@ -2036,8 +2049,9 @@ export async function materializeMakeupApiRecords(
              color_name = COALESCE($2, color_name),
              vendor_hex = COALESCE($3, vendor_hex),
              finishes = COALESCE($4::text[], finishes),
-             -- Catalog data confirms a user-submitted shade: promote it to the shared catalog.
-             status = CASE WHEN status = 'user_submitted' THEN 'active' ELSE status END,
+             -- Catalog data confirms a user-submitted shade: promote it to the shared catalog
+             -- (never one an admin retired by merging it into another shade).
+             status = CASE WHEN status = 'user_submitted' AND merged_into_shade_id IS NULL THEN 'active' ELSE status END,
              updated_at = now()
            WHERE shade_id = $1`,
           [shadeId, resolvedColorName, resolvedVendorHex, mergedFinishes]
@@ -2059,8 +2073,8 @@ export async function materializeMakeupApiRecords(
         if (inventory.rows.length === 0) {
           await client.query(
             `INSERT INTO user_inventory_item
-               (user_id, shade_id, quantity, notes, tags)
-             VALUES ($1, $2, 0, $3, ARRAY['imported','makeupapi']::text[])`,
+               (user_id, shade_id, quantity, status, notes, tags)
+             VALUES ($1, $2, 0, 'wishlist', $3, ARRAY['imported','makeupapi']::text[])`,
             [userId, shadeId, importNote]
           );
           inventoryInserted += 1;
@@ -2206,6 +2220,9 @@ async function materializePreparedHoloTacoRecord(
     delta.shadesCreated += 1;
   }
 
+  // Remember which product this shade came from (drives the "Buy from brand" link, #267).
+  await recordShadeSourceProduct(client, shadeId, dataSourceId, record.externalId);
+
   const importNote = `Imported from ${sourceLogPrefix.replace(/[\[\]]/g, "")} external_id=${record.externalId}`;
   const vendorHex = holo.vendorHex;
   const detectedHex = preparedImage.detectedHex || null;
@@ -2295,7 +2312,7 @@ async function materializePreparedHoloTacoRecord(
            9
          )},
          -- Catalog data confirms a user-submitted shade: promote it to the shared catalog.
-         status = CASE WHEN status = 'user_submitted' THEN 'active' ELSE status END,
+         status = CASE WHEN status = 'user_submitted' AND merged_into_shade_id IS NULL THEN 'active' ELSE status END,
          updated_at = now()
      WHERE shade_id = $1`,
     [
@@ -2326,8 +2343,8 @@ async function materializePreparedHoloTacoRecord(
     console.log(`${sourceLogPrefix} Inserting new inventory item for shade ${shadeId}`);
     await client.query(
       `INSERT INTO user_inventory_item
-         (user_id, shade_id, quantity, notes, tags)
-       VALUES ($1, $2, 0, $3, $4::text[])`,
+         (user_id, shade_id, quantity, status, notes, tags)
+       VALUES ($1, $2, 0, 'wishlist', $3, $4::text[])`,
       [userId, shadeId, importNote, sourceTags]
     );
     delta.inventoryInserted += 1;

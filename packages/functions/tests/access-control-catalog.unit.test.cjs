@@ -31,6 +31,8 @@ const CATALOG_SHADE = 100; // active, finishes ['creme']
 const EMPTY_FINISH_SHADE = 101; // active, finishes []
 const A_PRIVATE_SHADE = 200; // user_submitted by A
 const B_PRIVATE_SHADE = 300; // user_submitted by B
+const A_MERGED_SHADE = 201; // user_submitted by A, retired by an admin merge into CATALOG_SHADE
+const B_REJECTED_SHADE = 301; // user_submitted by B, rejected by an admin (stays private)
 
 let sqlCalls = [];
 let state;
@@ -50,6 +52,12 @@ function resetState() {
         mk(EMPTY_FINISH_SHADE, 1, "Blank Blue", "creme", [], "active", null),
         { ...mk(A_PRIVATE_SHADE, 1, "A Secret", "creme", ["creme"], "user_submitted", USER_A), vendorHex: "#111111" },
         mk(B_PRIVATE_SHADE, 1, "B Secret", "creme", ["glitter"], "user_submitted", USER_B),
+        {
+          ...mk(A_MERGED_SHADE, 1, "Catalog Redd", "creme", ["creme"], "user_submitted", USER_A),
+          reviewStatus: "merged",
+          mergedInto: CATALOG_SHADE,
+        },
+        { ...mk(B_REJECTED_SHADE, 1, "B Rejected", "creme", ["creme"], "user_submitted", USER_B), reviewStatus: "rejected" },
       ].map((s) => [s.id, s])
     ),
     inventory: new Set(), // `${userId}:${shadeId}`
@@ -64,6 +72,15 @@ function visibleTo(shade, userId) {
     state.inventory.has(`${userId}:${shade.id}`)
   );
 }
+
+/**
+ * True when the SQL excludes shades retired by an admin merge (`merged_into_shade_id IS NULL`);
+ * the fake hides retired shades only then, so dropping the guard visibly leaks them.
+ */
+function hasMergedGuard(sql) {
+  return /merged_into_shade_id\s+IS\s+NULL/i.test(sql);
+}
+const isRetired = (shade) => shade.mergedInto != null;
 
 /**
  * True only if the SQL carries the real visibility predicate — `status <> 'user_submitted'` plus a
@@ -125,10 +142,16 @@ async function fakeQuery(via, sql, params = []) {
       (s) => s.brandId === brandId && s.name === name && (s.finish || "") === (finish || "")
     );
     if (hasVisibilityGuard(text, params, userId)) matches = matches.filter((s) => visibleTo(s, Number(userId)));
-    matches.sort((a, b) => Number(a.status === "user_submitted") - Number(b.status === "user_submitted") || a.id - b.id);
+    matches.sort(
+      (a, b) =>
+        Number(a.status === "user_submitted") - Number(b.status === "user_submitted") ||
+        Number(isRetired(a)) - Number(isRetired(b)) ||
+        a.id - b.id
+    );
     const rows = matches.slice(0, 1).map((s) => ({
       shade_id: s.id,
-      own_submitted: s.status === "user_submitted" && s.createdBy === Number(userId),
+      own_submitted: s.status === "user_submitted" && s.createdBy === Number(userId) && !isRetired(s),
+      merged_into_shade_id: s.mergedInto ?? null,
     }));
     return { rows, rowCount: rows.length };
   }
@@ -138,6 +161,7 @@ async function fakeQuery(via, sql, params = []) {
     const shade = state.shades.get(Number(params[0]));
     const userId = Number(params[1]);
     if (!shade || (hasVisibilityGuard(text, params, userId) && !visibleTo(shade, userId))) return { rows: [], rowCount: 0 };
+    if (hasMergedGuard(text) && isRetired(shade)) return { rows: [], rowCount: 0 };
     return {
       rows: [{
         ownSubmitted: shade.status === "user_submitted" && shade.createdBy === userId,
@@ -202,6 +226,7 @@ async function fakeQuery(via, sql, params = []) {
     const idParam = text.match(/\bs\.shade_id\s*=\s*\$(\d+)/i);
     if (idParam) shades = shades.filter((s) => s.id === Number(params[Number(idParam[1]) - 1]));
     if (hasVisibilityGuard(text, params, userId)) shades = shades.filter((s) => visibleTo(s, userId));
+    if (hasMergedGuard(text)) shades = shades.filter((s) => !isRetired(s));
     if (/ui\.inventory_item_id\s+IS\s+NOT\s+NULL/i.test(text) && /COALESCE\(ui\.quantity/i.test(text)) {
       shades = shades.filter((s) => state.inventory.has(`${userId}:${s.id}`));
     }
@@ -499,7 +524,10 @@ describe("F2 — user-submitted shades are private until approved", () => {
     assert.equal((await getDetail(USER_A, B_PRIVATE_SHADE)).status, 404);
     const list = await getList(USER_A);
     assert.ok(!list.jsonBody.polishes.some((p) => p.id === String(B_PRIVATE_SHADE)));
-    assert.equal(list.jsonBody.total, [...state.shades.values()].filter((s) => s.status !== "user_submitted" || s.createdBy === USER_A).length);
+    assert.equal(
+      list.jsonBody.total,
+      [...state.shades.values()].filter((s) => !isRetired(s) && (s.status !== "user_submitted" || s.createdBy === USER_A)).length
+    );
   });
 
   it("a user who holds a private shade in inventory can still see it", async () => {
@@ -595,5 +623,60 @@ describe("edits to the caller's own submitted shade", () => {
     assert.equal(shadeInserts().length, 0, "no new shade may be created");
     assert.equal(state.shades.size, before);
     assert.deepEqual(state.shades.get(A_PRIVATE_SHADE).finishes, ["glitter"]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Admin review queue (#45): reviewed submissions never leak to other users
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("admin review queue — rejected and merged submissions stay private", () => {
+  it("a rejected submission stays hidden from other users (list, detail, adopt by id)", async () => {
+    const list = await getList(USER_A);
+    assert.equal(list.status, 200);
+    assert.ok(!list.jsonBody.polishes.some((p) => p.id === String(B_REJECTED_SHADE)), "rejected shade leaked to another user's list");
+    assert.equal((await getDetail(USER_A, B_REJECTED_SHADE)).status, 404);
+    const adopt = await post(USER_A, { shadeId: String(B_REJECTED_SHADE) });
+    assert.equal(adopt.status, 404);
+    assert.ok(!state.inventory.has(`${USER_A}:${B_REJECTED_SHADE}`));
+  });
+
+  it("a rejected submission stays visible to its submitter", async () => {
+    assert.equal((await getDetail(USER_B, B_REJECTED_SHADE)).status, 200);
+    const list = await getList(USER_B);
+    assert.ok(list.jsonBody.polishes.some((p) => p.id === String(B_REJECTED_SHADE)));
+  });
+
+  it("brand+name matching another user's rejected submission does not link to it", async () => {
+    const res = await post(USER_A, { brand: "Acme", name: "B Rejected", finish: "creme" });
+    assert.equal(res.status, 201);
+    assert.notEqual(res.jsonBody.id, String(B_REJECTED_SHADE));
+    assert.ok(!state.inventory.has(`${USER_A}:${B_REJECTED_SHADE}`));
+  });
+
+  it("a shade retired by a merge is hidden even from its creator (list, detail, adopt by id)", async () => {
+    const list = await getList(USER_A);
+    assert.ok(!list.jsonBody.polishes.some((p) => p.id === String(A_MERGED_SHADE)), "retired shade still listed");
+    assert.equal((await getDetail(USER_A, A_MERGED_SHADE)).status, 404);
+    const adopt = await post(USER_A, { shadeId: String(A_MERGED_SHADE) });
+    assert.equal(adopt.status, 404);
+    for (const call of calls().filter((c) => /LEFT\s+JOIN\s+user_inventory_item/i.test(c.sql))) {
+      assert.match(call.sql, /merged_into_shade_id\s+IS\s+NULL/i, "polish queries must exclude retired shades");
+    }
+  });
+
+  it("the creator re-adding a merged submission by brand+name lands on the merge target", async () => {
+    const res = await post(USER_A, { brand: "Acme", name: "Catalog Redd", finish: "creme" });
+    assert.equal(res.status, 201);
+    assert.equal(shadeInserts().length, 0, "no new shade row is created");
+    assert.ok(state.inventory.has(`${USER_A}:${CATALOG_SHADE}`), "inventory row points at the merge target");
+    assert.ok(!state.inventory.has(`${USER_A}:${A_MERGED_SHADE}`));
+  });
+
+  it("another user's merged submission is never matched by brand+name", async () => {
+    const res = await post(USER_B, { brand: "Acme", name: "Catalog Redd", finish: "creme" });
+    assert.equal(res.status, 201);
+    assert.ok(!state.inventory.has(`${USER_B}:${A_MERGED_SHADE}`));
+    assert.ok(!state.inventory.has(`${USER_B}:${CATALOG_SHADE}`), "must not learn the private submission's merge target");
   });
 });

@@ -4,13 +4,15 @@ import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import type { Polish } from "swatchwatch-shared";
-import { resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
+import type { ManicureWearStat, Polish } from "swatchwatch-shared";
+import { isUntriedInventory, resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
 import { getPolish, deletePolish, listPolishes } from "@/lib/api";
 import { colorDistance, hexToOklch, oklchToHex } from "@/lib/color-utils";
 import { resolveFinishLabel } from "@/lib/finish-options";
+import { POLISH_STATUS_LABELS, formatPurchasePrice } from "@/lib/inventory-status";
 import { useReferenceData } from "@/hooks/use-reference-data";
 import { FinishBadges } from "@/components/finish-badges";
+import { BuyFromBrandLink } from "@/components/buy-from-brand-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -24,6 +26,9 @@ import {
 import { ColorDot } from "@/components/color-dot";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
+import { NailPhotoPanel } from "@/components/nail-photo-panel";
+import { LogManiButton } from "@/components/log-mani-button";
+import { canLogPolish, formatWornOn, toLocalIsoDate } from "@/lib/mani-log";
 import { toast } from "sonner";
 
 function resolveReturnTo(returnTo: string | null): string {
@@ -151,6 +156,17 @@ export default function PolishDetailClient({
     return Array.from(new Set(urls));
   }, [polish]);
 
+  /** Apply the wear stats a mani log / undo returned (the API recomputes them server-side). */
+  function applyWearStats(stats: ManicureWearStat[]) {
+    setPolish((current) => {
+      if (!current) return current;
+      const stat = stats.find((s) => s.shadeId === current.id);
+      if (!stat) return current;
+      const next = { ...current, wearCount: stat.wearCount, lastWornAt: stat.lastWornAt, triedAt: stat.triedAt };
+      return { ...next, isUntried: isUntriedInventory(next) };
+    });
+  }
+
   async function handleDelete() {
     if (!polish || !confirm("Delete this polish from your collection?")) return;
     try {
@@ -245,7 +261,14 @@ export default function PolishDetailClient({
               )}
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
+            <BuyFromBrandLink
+              url={polish.buyUrl}
+              brand={polish.brand}
+              name={polish.name}
+              variant="button"
+            />
+            <LogManiButton polish={polish} onWearStatsChange={applyWearStats} />
             <Button
               variant="outline"
               size="sm"
@@ -268,6 +291,17 @@ export default function PolishDetailClient({
           </div>
         </div>
       </div>
+
+      {polish.inventoryItemId && (
+        <NailPhotoPanel
+          key={polish.inventoryItemId}
+          inventoryItemId={polish.inventoryItemId}
+          polishLabel={`${polish.brand} ${polish.name}`}
+          vendorHex={polish.vendorHex}
+          detectedHex={polish.detectedHex}
+          nameHex={polish.nameHex}
+        />
+      )}
 
       <Card className="relative overflow-hidden">
         <span
@@ -312,8 +346,40 @@ export default function PolishDetailClient({
               <p className="font-medium">{polish.size ?? "—"}</p>
             </div>
             <div>
+              <p className="text-muted-foreground">Status</p>
+              <p className="font-medium">
+                {polish.status ? POLISH_STATUS_LABELS[polish.status] : "Not in collection"}
+                {polish.isUntried ? " · Untried" : ""}
+              </p>
+            </div>
+            {canLogPolish(polish) && (
+              <div>
+                <p className="text-muted-foreground">Worn</p>
+                <p className="font-medium">
+                  {polish.wearCount
+                    ? `${polish.wearCount}× · last ${formatWornOn(
+                        (polish.lastWornAt ?? "").slice(0, 10),
+                        toLocalIsoDate(new Date())
+                      )}`
+                    : "Not logged yet"}
+                </p>
+                <Link
+                  href={`/manis?log=${polish.id}`}
+                  className="text-xs text-primary hover:underline"
+                >
+                  Log a mani with this polish
+                </Link>
+              </div>
+            )}
+            <div>
               <p className="text-muted-foreground">Quantity</p>
               <p className="font-medium">{polish.quantity ?? 1}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Purchase price</p>
+              <p className="font-medium">
+                {formatPurchasePrice(polish.purchasePrice, polish.purchaseCurrency) ?? "—"}
+              </p>
             </div>
             <div>
               <p className="text-muted-foreground">Rating</p>

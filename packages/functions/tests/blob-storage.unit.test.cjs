@@ -277,3 +277,70 @@ describe("lib/blob-storage — userMediaContainer (#227)", () => {
     assert.equal(fetchCalls.length, 1);
   });
 });
+
+describe("lib/blob-storage — deleteBlobFromStorageUrl (#270)", () => {
+  const { deleteBlobFromStorageUrl } = require("../dist/lib/blob-storage");
+  const ENV_KEYS = ["AZURE_STORAGE_CONNECTION", "USER_MEDIA_CONTAINER", "SOURCE_IMAGE_CONTAINER"];
+  const ACCOUNT_KEY = Buffer.from("test-key").toString("base64");
+  const originalFetch = global.fetch;
+  let savedEnv = {};
+  let fetchCalls = [];
+  let nextStatus = 202;
+
+  beforeEach(() => {
+    savedEnv = {};
+    for (const key of ENV_KEYS) {
+      savedEnv[key] = process.env[key];
+      delete process.env[key];
+    }
+    process.env.AZURE_STORAGE_CONNECTION = `DefaultEndpointsProtocol=https;AccountName=testacct;AccountKey=${ACCOUNT_KEY};EndpointSuffix=core.windows.net`;
+    fetchCalls = [];
+    nextStatus = 202;
+    global.fetch = async (url, init = {}) => {
+      fetchCalls.push({ url: String(url), method: init.method || "GET", auth: init.headers?.Authorization });
+      return new Response(null, { status: nextStatus });
+    };
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    for (const key of ENV_KEYS) {
+      if (savedEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = savedEnv[key];
+    }
+  });
+
+  const PHOTO_URL = "https://testacct.blob.core.windows.net/nail-photos/1/7001/a.jpg";
+
+  it("sends a signed DELETE for a blob inside the allowed container", async () => {
+    assert.equal(await deleteBlobFromStorageUrl(PHOTO_URL, { allowedContainers: [userMediaContainer()] }), true);
+    assert.equal(fetchCalls.length, 1);
+    assert.equal(fetchCalls[0].method, "DELETE");
+    assert.equal(fetchCalls[0].url, PHOTO_URL);
+    assert.match(fetchCalls[0].auth, /^SharedKey testacct:/);
+  });
+
+  it("returns false for a blob that is already gone (404)", async () => {
+    nextStatus = 404;
+    assert.equal(await deleteBlobFromStorageUrl(PHOTO_URL, { allowedContainers: ["nail-photos"] }), false);
+  });
+
+  it("throws on other storage errors", async () => {
+    nextStatus = 500;
+    await assert.rejects(deleteBlobFromStorageUrl(PHOTO_URL, { allowedContainers: ["nail-photos"] }), /Blob delete failed/);
+  });
+
+  it("refuses catalog blobs, other accounts, query strings and container-level URLs before any request", async () => {
+    const scoped = { allowedContainers: ["nail-photos"] };
+    for (const url of [
+      "https://testacct.blob.core.windows.net/source-images/brand/a.png",
+      "https://otheracct.blob.core.windows.net/nail-photos/1/7001/a.jpg",
+      `${PHOTO_URL}?comp=metadata`,
+      "https://testacct.blob.core.windows.net/nail-photos",
+      "http://testacct.blob.core.windows.net/nail-photos/1/7001/a.jpg",
+    ]) {
+      await assert.rejects(deleteBlobFromStorageUrl(url, scoped), BlobAccessDeniedError, url);
+    }
+    assert.equal(fetchCalls.length, 0);
+  });
+});
