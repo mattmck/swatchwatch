@@ -244,6 +244,40 @@ function polishRow(shadeId, item) {
   };
 }
 
+/** A `COLLECTION_EXPORT_SQL` row for a fake inventory item. */
+function exportRow(item) {
+  const base = polishRow(item.shadeId, item);
+  return {
+    inventoryItemId: item.inventoryItemId,
+    shadeId: String(item.shadeId),
+    brand: base.brand,
+    name: base.name,
+    color: null,
+    legacyFinish: base.finish,
+    finishes: [base.finish],
+    collection: null,
+    quantity: item.quantity,
+    status: base.status,
+    isUntried: base.isUntried,
+    triedAt: base.triedAt,
+    lastWornAt: null,
+    wearCount: 0,
+    purchasePrice: base.purchasePrice,
+    purchaseCurrency: base.purchaseCurrency,
+    purchaseDate: null,
+    expirationDate: null,
+    size: null,
+    rating: item.rating ?? null,
+    notes: item.notes ?? null,
+    tags: item.tags ?? [],
+    vendorHex: null,
+    detectedHex: null,
+    nameHex: null,
+    createdAt: base.createdAt,
+    updatedAt: base.updatedAt,
+  };
+}
+
 /** Inventory items visible to a query scoped to `userId` (undefined = unscoped = everything). */
 function visibleInventory(userId, shadeId) {
   return [...state.inventory.values()].filter(
@@ -270,6 +304,22 @@ async function fakeQuery(via, sql, params = []) {
   }
 
   if (/user_inventory_item/i.test(text)) {
+    // Collection export (issue #264): keyset pages of the inventory rows the statement is
+    // scoped to. An unscoped statement (no user_id predicate) sees every user's rows, so a
+    // handler that dropped its predicate would leak them into the export.
+    if (kind === "SELECT" && /LEFT JOIN sku k/i.test(text)) {
+      const userId = boundUserId(text, params);
+      const [, statusFilter, , , afterId, limit] = params;
+      const rows = [...state.inventory.values()]
+        .filter((item) => userId === undefined || item.userId === userId)
+        .filter((item) => !statusFilter || statusFilter.includes(item.status ?? "owned"))
+        .sort((a, b) => Number(a.inventoryItemId) - Number(b.inventoryItemId))
+        .filter((item) => afterId === null || afterId === undefined || Number(item.inventoryItemId) > Number(afterId))
+        .slice(0, Number(limit) || undefined)
+        .map((item) => exportRow(item));
+      return { rows, rowCount: rows.length };
+    }
+
     if (kind === "INSERT") {
       const userId = Number(insertedValue(text, params, "user_id"));
       const shadeId = Number(insertedValue(text, params, "shade_id"));
@@ -921,6 +971,18 @@ const USER_SCOPED_REQUESTS = [
     url: "http://localhost:7071/api/polishes/dupes",
     body: { shadeIds: [OWNED_SHADE_ID] },
   },
+  {
+    route: "polishes-list",
+    method: "GET",
+    url: "http://localhost:7071/api/polishes/export?format=csv",
+    params: { id: "export" },
+  },
+  {
+    route: "polishes-list",
+    method: "GET",
+    url: "http://localhost:7071/api/polishes/export?format=json",
+    params: { id: "export" },
+  },
   { route: "capture-start", method: "POST", url: "http://localhost:7071/api/capture/start", body: {} },
   { route: "voice-process", method: "POST", url: "http://localhost:7071/api/voice", body: {} },
   {
@@ -1453,6 +1515,120 @@ describe("access control — polishes inventory is scoped to the caller", () => 
     assert.ok(res.status < 500);
     assertNoSharedShadeWrites();
   });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Collection export (issue #264)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("access control — collection export only contains the caller's rows", () => {
+  const ATTACKER_NOTES = "attacker-own-notes";
+
+  function addAttackerRow() {
+    state.inventory.set(`${ATTACKER}:${OWNED_SHADE_ID}`, {
+      inventoryItemId: "8001",
+      userId: ATTACKER,
+      shadeId: OWNED_SHADE_ID,
+      quantity: 1,
+      notes: ATTACKER_NOTES,
+      rating: null,
+      tags: [],
+      status: "owned",
+      triedAt: null,
+      purchasePrice: null,
+      purchaseCurrency: null,
+    });
+  }
+
+  function exportRequest(qs) {
+    return {
+      method: "GET",
+      url: `http://localhost:7071/api/polishes/export?${qs}`,
+      params: { id: "export" },
+    };
+  }
+
+  function bodyText(res) {
+    return typeof res.body === "string" ? res.body : JSON.stringify(res.jsonBody ?? null);
+  }
+
+  it("owner export (CSV) contains the owner's row, with download headers", async () => {
+    addAttackerRow();
+    const res = await invoke("polishes-list", { userId: OWNER, ...exportRequest("format=csv") });
+    assert.equal(res.status, 200);
+    const headers = new Headers(res.headers);
+    assert.equal(headers.get("Content-Type"), "text/csv; charset=utf-8");
+    assert.match(
+      headers.get("Content-Disposition"),
+      /^attachment; filename="swatchwatch-collection-\d{4}-\d{2}-\d{2}\.csv"$/
+    );
+    assert.equal(headers.get("Cache-Control"), "private, no-store");
+    const text = bodyText(res);
+    assert.ok(text.startsWith("\uFEFFBrand,Shade name,"), "CSV starts with BOM + header");
+    assert.ok(text.includes(OWNER_SECRET_NOTES));
+    assert.ok(text.includes("destash"));
+    assert.ok(!text.includes(ATTACKER_NOTES), "owner export must not contain another user's row");
+    assertScopedToCaller(OWNER);
+    assertNoMutations();
+  });
+
+  for (const format of ["csv", "json"]) {
+    it(`another user's ${format} export never includes the owner's rows`, async () => {
+      addAttackerRow();
+      const res = await invoke("polishes-list", {
+        userId: ATTACKER,
+        ...exportRequest(`format=${format}&userId=${OWNER}&user_id=${OWNER}`),
+      });
+      assert.equal(res.status, 200);
+      const text = bodyText(res);
+      assert.ok(text.includes(ATTACKER_NOTES), "caller's own row is exported (positive control)");
+      assert.ok(!text.includes(OWNER_SECRET_NOTES), `export leaked owner's notes: ${text}`);
+      assert.ok(!text.includes("owner-tag"), `export leaked owner's tags: ${text}`);
+      assert.ok(!text.includes("7001"), `export leaked owner's inventory id: ${text}`);
+      assert.ok(!text.includes(String(OWNER_PURCHASE_PRICE)), `export leaked owner's price: ${text}`);
+      assert.ok(!text.includes("CHF"), `export leaked owner's currency: ${text}`);
+      assertScopedToCaller(ATTACKER);
+      assertNoMutations();
+      for (const call of handlerCalls()) {
+        assert.ok(!call.params.some((p) => Number(p) === OWNER), `export params carried owner id: ${describeCall(call)}`);
+      }
+    });
+  }
+
+  it("a user with no inventory gets an empty export, not someone else's", async () => {
+    const res = await invoke("polishes-list", { userId: ATTACKER, ...exportRequest("format=json") });
+    assert.equal(res.status, 200);
+    const body = JSON.parse(bodyText(res));
+    assert.equal(body.version, 1);
+    assert.deepEqual(body.items, []);
+    assert.equal(body.itemCount, 0);
+    assertNoOwnerDataInBody(body);
+    assertScopedToCaller(ATTACKER);
+  });
+
+  it("JSON export applies the status filter", async () => {
+    const owned = await invoke("polishes-list", { userId: OWNER, ...exportRequest("format=json&status=owned") });
+    assert.equal(owned.status, 200);
+    assert.deepEqual(JSON.parse(bodyText(owned)).items, []);
+    const destash = await invoke("polishes-list", { userId: OWNER, ...exportRequest("format=json&status=destash") });
+    const body = JSON.parse(bodyText(destash));
+    assert.equal(body.items.length, 1);
+    assert.equal(body.items[0].inventoryItemId, "7001");
+    assert.deepEqual(body.statusFilter, ["destash"]);
+    assertScopedToCaller(OWNER);
+  });
+
+  for (const qs of ["format=xlsx", "status=bogus"]) {
+    it(`rejects ?${qs} with 400 before any inventory query`, async () => {
+      const res = await invoke("polishes-list", { userId: OWNER, ...exportRequest(qs) });
+      assert.equal(res.status, 400);
+      assert.equal(
+        handlerCalls().filter((c) => /user_inventory_item/i.test(c.sql)).length,
+        0,
+        "no inventory query for an invalid request"
+      );
+    });
+  }
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

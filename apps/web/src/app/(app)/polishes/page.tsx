@@ -32,6 +32,7 @@ import { WishlistShareCard } from "@/components/wishlist-share-card";
 import { CollectionQuickActions, type QuickActionSource } from "@/components/collection-quick-actions";
 import { StatusChip, UntriedBadge } from "@/components/status-chip";
 import { StatusFilter } from "@/components/status-filter";
+import { CollectionExportMenu } from "@/components/collection-export-menu";
 import { isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
 import {
   applyInventoryPatch,
@@ -548,6 +549,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <CollectionExportMenu />
           <Button asChild variant="outline">
             <Link href="/polishes/import">
               <Upload aria-hidden="true" />
