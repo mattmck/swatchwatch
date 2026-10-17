@@ -21,7 +21,7 @@ src/app/
 ├── (admin)/
 │   ├── error.tsx                 → Route-group error boundary (full-screen `RouteError`; the group has no layout)
 │   └── admin/
-│       ├── page.tsx              → /admin  Unified admin console (tabs: Configuration, Job Runs, Admin Jobs, User Management). Renders with RequireAuth + AppShell at the page level.
+│       ├── page.tsx              → /admin  Unified admin console (tabs: Configuration, Job Runs, Admin Jobs, User Management). Renders with RequireAuth + AppShell at the page level. The active tab lives in `?tab=` (deep-linkable; switching tabs updates it via `history.replaceState`); it is read with `useSearchParams()` inside a `<Suspense>` boundary so the static-export HTML never mismatches the client's first render.
 │       └── reference-data/
 │           ├── page.tsx          → /admin/reference-data  Legacy redirect → `/admin?tab=configuration`
 │           └── components/
@@ -177,6 +177,7 @@ This works for both `ciamlogin.com` (External ID) and `b2clogin.com` (legacy B2C
 | `utils.ts` | `cn()` — Tailwind class merging (shadcn standard) |
 | `constants.ts` | `FINISHES` (re-export of the shared built-in `CANONICAL_FINISHES` defaults), `finishLabel()`, `finishBadgeClassName()` — fallback finish taxonomy and branded badge styling when reference APIs are unavailable |
 | `finish-options.ts` | `buildFinishOptions(finishTypes, extraValues?)`, `knownFinishNames()`, `resolveFinishLabel()` — finish select/chip options and labels built from ALL reference `finish_type` rows (including admin-added, non-built-in types), falling back to `FINISHES` only when reference data is empty; `extraValues` keeps a polish's saved finishes selectable when they are missing from the list |
+| `admin-tabs.ts` | `ADMIN_TABS`, `AdminTab`, `getTabFromQuery()` (unknown/missing `?tab=` → `configuration`), `buildAdminTabSearch()` — `/admin` tab ↔ query-string mapping |
 | `color-harmonies.ts` | Harmony palette generation + `getHarmonyTypeOptions()` for API-backed harmony option mapping (with fallback constants) |
 | `color-utils.ts` | Hex↔HSL↔RGB↔OKLAB↔OKLCH conversions, `colorDistance()`, harmony helpers, undertone breakdown, and `analyzeCollectionGaps()`. The forward OKLAB math (`rgbToOklab`, `hexToOklab`, `oklabDistance`, `colorDistance`, `OKLab`) is re-exported from `swatchwatch-shared` so it matches the Functions API exactly |
 | `api.ts` | API client helpers (plus the exported `API_BASE_URL` and `getAuthHeaders()`) including polish CRUD, rapid-add capture calls, ingestion admin methods (`listIngestionJobs`, `runIngestionJob`, `getIngestionJob`), reference-data admin methods (`listAdminJobs`, finish/harmony CRUD, finish-normalization CRUD), user-management admin methods (`listAdminUsers`, `mergeAdminUsers`), public reference lookup methods (`listReferenceFinishTypes`, `listReferenceHarmonyTypes`), and `matchPolishesToImage()` for photo matching |
