@@ -8,6 +8,10 @@ on:
       - '**.md'
       - 'docs/**'
 
+# Jobs only check out and build; the GITHUB_TOKEN needs read access to contents.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true

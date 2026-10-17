@@ -5,6 +5,7 @@
  */
 import { POLISH_STATUSES, type PolishStatus } from "../types/inventory";
 import { POLISH_CSV_COLUMNS } from "../types/collection-export";
+import type { PolishImportRowValues } from "../types/polish-import";
 
 /** Sheet columns the importer understands, in display order. */
 export const POLISH_IMPORT_FIELDS = [
@@ -553,4 +554,13 @@ export function importMatchKey(value: string): string {
     .replace(/&/g, " and ")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+/**
+ * True when a row's status can't be inferred: quantity 0 and no status cell (decision D5b).
+ * Collector sheets use 0 both for "want it" and for "used it up", so the user picks wishlist
+ * or archived in review. A row with no quantity at all is a collection row (`owned`).
+ */
+export function importRowNeedsStatus(values: Pick<PolishImportRowValues, "quantity" | "status">): boolean {
+  return values.quantity === 0 && values.status === undefined;
 }

@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { AdminJobsContent } from "@/app/(app)/admin/jobs/page";
 import { UsersTab } from "@/app/(admin)/admin/reference-data/components/users-tab";
 import { ConfigTab } from "./reference-data/components/config-tab";
+import { HexLabelingTab } from "./reference-data/components/hex-labeling-tab";
 import { JobsTab } from "./reference-data/components/jobs-tab";
 import { ReviewQueueTab } from "./reference-data/components/review-queue-tab";
 
@@ -82,7 +83,7 @@ function AdminContent() {
         <CardHeader>
           <CardTitle>Admin Console</CardTitle>
           <CardDescription>
-            Configuration manages reference data, Job Runs lists recent reference-data jobs, Admin Jobs controls ingestion, User Management repairs duplicate identities, and Review Queue approves, merges, or rejects user-submitted shades.
+            Configuration manages reference data, Job Runs lists recent reference-data jobs, Admin Jobs controls ingestion, User Management repairs duplicate identities, Review Queue approves, merges, or rejects user-submitted shades, and Hex Labeling builds ground-truth colours for the hex-detection eval.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -156,6 +157,15 @@ function AdminTabs() {
         >
           Review Queue
         </TabsPrimitive.Trigger>
+        <TabsPrimitive.Trigger
+          value="hex-labeling"
+          className={cn(
+            "inline-flex items-center justify-center rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
+            "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+          )}
+        >
+          Hex Labeling
+        </TabsPrimitive.Trigger>
       </TabsPrimitive.List>
 
       <TabsPrimitive.Content value="configuration" className="outline-none">
@@ -176,6 +186,10 @@ function AdminTabs() {
 
       <TabsPrimitive.Content value="review-queue" className="outline-none">
         <ReviewQueueTab />
+      </TabsPrimitive.Content>
+
+      <TabsPrimitive.Content value="hex-labeling" className="outline-none">
+        <HexLabelingTab />
       </TabsPrimitive.Content>
     </TabsPrimitive.Root>
   );

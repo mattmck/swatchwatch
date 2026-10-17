@@ -35,6 +35,24 @@ The package is automatically linked via npm workspaces — no publishing require
 
 **Note:** All frontend pages now use the live API. The mock-data.ts file is no longer used.
 
+### `types/hex-label.ts`
+
+Admin Hex Labeling tool (admin console tab, routes `/api/hex-labels-admin/*`): hand-picked ground-truth hexes stored as `color_training_sample` rows with `source_type = 'manual'` (migration 20261017170047543_hex-ground-truth-labels) and exported by `npm run eval:hex:populate` as `manual` eval cases.
+
+| Type | Description |
+|------|-------------|
+| `HexLabelSampleMethod` | How the hex was picked: `canvas` (averaged canvas sample), `eyedropper` (native `EyeDropper` API), `manual` (typed) |
+| `HEX_LABEL_SAMPLE_SIZES` / `HexLabelSampleSize` | Averaging window sizes the canvas eyedropper offers: `1`, `3`, `5`, `9` px per side |
+| `HexLabelSamplePoint` | Where a canvas sample was taken: `x`/`y` normalized 0..1 to the natural image size, `size`, `imageWidth`, `imageHeight` |
+| `HexLabelImage` | A catalog product image of a shade: `imageId`, signed proxy `url`, `swatchType`, vendor `sourceUrl` (from `source_image_url`, null when unknown), `isPrimary` |
+| `HexLabel` | A saved manual label: `trainingSampleId`, `shadeId`, `hex` (null only when `unreliable`), `unreliable`, `imageId`, `note`, `method`, `samplePoint`, `labeledByUserId`, `labeledAt` |
+| `HexLabelQueueItem` | One queued shade: brand/name/finishes, `vendorHex`/`detectedHex`/`nameHex`, `hexAgreement`, detection confidence/method, `flagged` (agreement > MEDIUM), `images`, current `label` |
+| `HexLabelQueueFilters` | `GET /api/hex-labels-admin/queue` query: `brand`, `disagreeOnly`, `showLabeled`, `includeWithoutImages`, `cursor`, `pageSize` |
+| `HexLabelQueueResponse` | `{ items, nextCursor, total, labeled, pageSize, disagreementThreshold }` (`total`/`labeled` drive the progress bar) |
+| `HexLabelRequest` | `POST /api/hex-labels-admin/labels` body: `shadeId`, `hex` (`#RRGGBB`, required unless `unreliable`), `imageId`, `unreliable`, `note`, `method`, `samplePoint` |
+| `HexLabelSaveResponse` | `{ label, previous }`; `previous` is the label the save replaced (the client restores it to undo) |
+| `HexLabelDeleteResponse` | `{ deleted }` from `DELETE /api/hex-labels-admin/labels/{id}` |
+
 ### `types/inventory.ts`
 
 Inventory status model (#261). Every `user_inventory_item` row has one status; "untried" is **derived**, never stored.
@@ -46,6 +64,7 @@ Inventory status model (#261). Every `user_inventory_item` row has one status; "
 | `isPolishStatus(value)` | Exact (case-sensitive) type guard |
 | `isOwnedStatus(status)` | `status === "owned"` — the single definition of "in the collection" (filters, dashboard, gaps, photo matching) |
 | `isUntriedInventory({ status, triedAt })` | Owned and never tried; mirrors the SQL behind `Polish.isUntried` |
+| `ARCHIVE_REASONS` / `ArchiveReason` / `ARCHIVE_REASON_LABELS` / `isArchiveReason(value)` | Why a polish was archived (D5c): `used_up` ("Used up") or `decluttered` ("Gave away"); sent as `archiveReason` and stored as the `inventory_event.event_type` |
 
 ### `types/manicure.ts`
 
@@ -71,12 +90,13 @@ Mani log (#269): `/api/manicures` payloads. Logging, editing or deleting a manic
 |------|-------------|
 | `PolishImportCreateRequest` | `POST /api/polish-imports` body: `{ csv, fileName?, mapping?, headerRowIndex? }` |
 | `PolishImportSession` | Session: `id`, `fileName`, `status` (`review \| committed`), `delimiter`, `headers`, `headerRowIndex`, `mapping`, `rows`, `counts`, `createdAt`, `expiresAt`, `committedAt`, `result` |
-| `PolishImportRow` | One sheet row: `rowNumber` (1-based file line, the row key), `values`, `matchState`, `confidence`, `candidates`, `action`, `shadeId`, `warnings`, `errors`, and after commit `outcome` / `outcomeMessage` |
+| `PolishImportRow` | One sheet row: `rowNumber` (1-based file line, the row key), `values`, `matchState`, `confidence`, `candidates`, `action`, `shadeId`, `statusChoice` / `archiveReason` (quantity-0 rows, D5b), `warnings`, `errors`, and after commit `outcome` / `outcomeMessage` |
 | `PolishImportRowValues` | Parsed cells: `brand`, `name`, canonical `finishes`, optional `quantity`, `purchasePrice`, `purchaseCurrency`, `purchaseDate` (`YYYY-MM-DD`), `status`, `tried`, `triedOn`, `notes` |
 | `PolishImportCandidate` | Catalog candidate: `shadeId`, `brand`, `name`, `finishes`, display `hex`, `confidence` (0–1), `inCollection`, `userSubmitted`, `exactMatch` |
 | `PolishImportMatchState` | `matched \| ambiguous \| unmatched \| invalid` |
 | `PolishImportAction` | `match \| create \| skip \| pending` (pending rows are skipped on commit) |
-| `PolishImportDecision` / `PolishImportDecisionsRequest` | Review decisions `{ rowNumber, action, shadeId? }` for `PATCH /api/polish-imports/{id}` and commit |
+| `PolishImportDecision` / `PolishImportDecisionsRequest` | Review decisions `{ rowNumber, action?, shadeId?, statusChoice?, archiveReason? }` (at least one of `action` / `statusChoice`) for `PATCH /api/polish-imports/{id}` and commit |
+| `PolishImportStatusChoice` | `wishlist \| archived` — review choice for a quantity-0 row without a status cell (stored on the row as `statusChoice` + `archiveReason`); `importRowNeedsStatus(values)` (in `import/polish-import.ts`) tells which rows need one |
 | `PolishImportCommitResult` / `PolishImportCommitResponse` | `{ created, updated, skipped, failed, shadesCreated }`; response adds the session and `alreadyCommitted` |
 | `PolishImportCounts`, `PolishImportRowOutcome`, `PolishImportSessionStatus` | Supporting unions/counters |
 
@@ -108,6 +128,22 @@ Collection export (#264), `GET /api/polishes/export`.
 | `CollectionExportItem` | One exported inventory row: a `Polish` subset (`inventoryItemId`, `shadeId`, `brand`, `name`, `color`, `finishes`, `collection`, `quantity`, `status`, `isUntried`, `triedAt`, `lastWornAt`, `wearCount`, `purchasePrice`, `purchaseCurrency`, `purchaseDate`, `expirationDate`, `size`, `rating`, `notes`, `tags`, the three hexes, `createdAt`, `updatedAt`) plus `displayHex`; no image URLs |
 | `CollectionExport` | JSON envelope `{ version: 1, exportedAt, statusFilter, itemCount, items }` |
 | `collectionExportFilename(format, at?)` | `swatchwatch-collection-YYYY-MM-DD.<format>` (UTC date) |
+
+### `types/stats.ts`
+
+Collection stats (#271): the `GET /api/stats/collection` payload behind the dashboard panels. Money is never summed across currencies — every amount sits in a per-currency group (`currency: null` = price saved without one).
+
+| Export | Description |
+|--------|-------------|
+| `COLLECTION_STATS_TOP_BRANDS` (8), `COLLECTION_STATS_MONTHS` (12), `COLLECTION_STATS_MOST_WORN` (10), `COLLECTION_STATS_COST_PER_WEAR_LIST` (5) | List sizes used by the API |
+| `SPEND_STATUSES` | `["owned", "destash", "archived"]` — statuses whose purchase price counts as spend (a wishlist price is a target, not money spent) |
+| `CollectionStatsResponse` | `{ generatedAt, totals: { byStatus, total }, untried: { owned, untried, percent \| null }, wornVsWaiting: { worn, waiting }, spend, mostWorn, costPerWear: { currencies, pricedUnwornCount } }` |
+| `CollectionSpendStats` | `{ currencies: CurrencySpend[], months (YYYY-MM, oldest first), pricedCount, unpricedCount }` |
+| `CurrencySpend` | One currency: `currency`, all-time `total` / `itemCount`, `byBrand` (top N + one "Other"), `byMonth` (zero-filled) |
+| `SpendByBrandEntry` / `SpendByMonthEntry` | `{ brand, isOther, brandCount, total, itemCount }` / `{ month, total, itemCount, estimatedDateCount }` (`estimatedDateCount` = rows bucketed by `createdAt` because they have no purchase date) |
+| `CollectionStatsShade` | Shared entry fields: `inventoryItemId`, `shadeId` (null for a SKU-only row), `brand`, `name`, `vendorHex`, `detectedHex`, `nameHex` |
+| `MostWornEntry` | `CollectionStatsShade` + `status`, `wearCount`, `lastWornAt` |
+| `CostPerWearEntry` / `CostPerWearCurrency` | `CollectionStatsShade` + `price`, `wearCount`, `costPerWear` / `{ currency, wornCount, pricedUnwornCount, best, worst }` (`worst` never repeats a `best` item) |
 
 ### `constants/finishes.ts`
 

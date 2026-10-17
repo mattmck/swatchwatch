@@ -750,7 +750,7 @@ export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
  * not enable an existing row: set data_source.enabled = true for that.
  */
 export const SHOPIFY_SOURCES_PENDING_APPROVAL: ReadonlySet<string> = new Set([
-  "NightOwlLacquerShopify",
+  // NightOwlLacquerShopify approved 2026-10-17 (docs/decisions-2026-10.md D2).
   "PahlishShopify",
 ]);
 

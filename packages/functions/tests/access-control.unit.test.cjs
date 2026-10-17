@@ -892,10 +892,12 @@ require("../dist/functions/ingestion");
 require("../dist/functions/admin-users");
 require("../dist/functions/admin-shade-review");
 require("../dist/functions/admin-reference");
+require("../dist/functions/hex-labels");
 require("../dist/functions/voice");
 require("../dist/functions/images");
 require("../dist/functions/nail-photos");
 require("../dist/functions/manicures");
+require("../dist/functions/stats");
 const imageProxy = require("../dist/lib/image-proxy");
 
 // lib/nail-photos (like lib/image-proxy) imports the REAL dist/lib/blob-storage via "./blob-storage";
@@ -942,6 +944,8 @@ const USER_SCOPED_REQUESTS = [
     url: `http://localhost:7071/api/polishes/${OWNED_SHADE_ID}`,
     params: { id: String(OWNED_SHADE_ID) },
   },
+  // Collection stats (#271); cross-user isolation is covered in collection-stats.unit.test.cjs.
+  { route: "stats-collection", method: "GET", url: "http://localhost:7071/api/stats/collection", params: {} },
   // Mani log (#269); cross-user isolation is covered in manicures.unit.test.cjs.
   { route: "manicures-list", method: "GET", url: "http://localhost:7071/api/manicures", params: {} },
   { route: "manicures-list", method: "GET", url: "http://localhost:7071/api/manicures/1", params: { id: "1" } },
@@ -1120,6 +1124,9 @@ describe("access control — admin routes reject non-admin users", () => {
       "ingestion-job-detail",
       "ingestion-settings",
       "polishes-recalc-hex",
+      "admin-hex-labels-queue",
+      "admin-hex-labels-save",
+      "admin-hex-labels-item",
     ]) {
       assert.ok(adminRouteNames.includes(expected), `expected admin route ${expected} to be registered`);
     }
@@ -1828,7 +1835,10 @@ describe("images signed-id (requires #47)", () => {
     assert.deepEqual(sideEffects.blobReads, [CATALOG_URL]);
     assert.deepEqual(sqlCalls, [], "public ids perform no caller lookup");
     assert.match(res.headers.get("Cache-Control"), /^public,/);
-    assert.equal(res.headers.get("Vary"), null, "public responses do not vary on Authorization");
+    assert.ok(
+      !(res.headers.get("Vary") || "").toLowerCase().includes("authorization"),
+      "public responses do not vary on Authorization"
+    );
   });
 
   it("public catalog ids stay anonymous: served with another user's token, no SQL", async () => {

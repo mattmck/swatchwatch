@@ -9,9 +9,11 @@ import {
   POLISH_IMPORT_MAX_BYTES,
   POLISH_IMPORT_MAX_ROWS,
   detectPolishImportHeader,
+  importRowNeedsStatus,
   parseCsv,
   stripFormulaGuard,
   validateImportMapping,
+  type ArchiveReason,
   type CatalogSearchResult,
   type CsvDelimiter,
   type PolishImportAction,
@@ -21,6 +23,7 @@ import {
   type PolishImportField,
   type PolishImportMatchState,
   type PolishImportRow,
+  type PolishImportStatusChoice,
 } from "swatchwatch-shared";
 
 export const IMPORT_ACCEPT = ".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain";
@@ -221,6 +224,58 @@ export function pickSearchResult(
   });
 }
 
+// ── Quantity-0 rows without a status (D5b) ──────────────────────────────────
+
+/** Rows that will import and need a wishlist / archived choice (quantity 0, no status cell). */
+export function rowsNeedingStatus(rows: readonly PolishImportRow[]): PolishImportRow[] {
+  return rows.filter((row) => row.matchState !== "invalid" && row.action !== "skip" && importRowNeedsStatus(row.values));
+}
+
+/** Of `rowsNeedingStatus`, the ones still undecided (commit skips them). */
+export function undecidedStatusCount(rows: readonly PolishImportRow[]): number {
+  return rowsNeedingStatus(rows).filter((row) => !row.statusChoice).length;
+}
+
+/** Rows commit will write: a match/create decision and, when one is needed, a status choice. */
+export function importableCount(rows: readonly PolishImportRow[]): number {
+  return rows.filter(
+    (row) =>
+      (row.action === "match" || row.action === "create") &&
+      (!importRowNeedsStatus(row.values) || Boolean(row.statusChoice))
+  ).length;
+}
+
+/**
+ * Set the status choice on rows that need one: every such row (the bulk "Mark as wishlist" /
+ * "Mark as archived"), or only `rowNumber`. `archived` carries a reason (default `used_up`).
+ */
+export function setStatusChoice(
+  rows: readonly PolishImportRow[],
+  choice: PolishImportStatusChoice,
+  reason: ArchiveReason = "used_up",
+  rowNumber?: number
+): PolishImportRow[] {
+  return rows.map((row) => {
+    if (rowNumber !== undefined && row.rowNumber !== rowNumber) return row;
+    if (row.matchState === "invalid" || !importRowNeedsStatus(row.values)) return row;
+    return { ...row, statusChoice: choice, archiveReason: choice === "archived" ? reason : null };
+  });
+}
+
+/** Encode/decode a row's status choice as one Select value (`wishlist`, `archived:used_up`, …). */
+export function statusChoiceValue(row: Pick<PolishImportRow, "statusChoice" | "archiveReason">): string {
+  if (row.statusChoice === "archived") return `archived:${row.archiveReason ?? "used_up"}`;
+  return row.statusChoice ?? "";
+}
+
+export function parseStatusChoiceValue(value: string): { choice: PolishImportStatusChoice; reason?: ArchiveReason } | null {
+  if (value === "wishlist") return { choice: "wishlist" };
+  if (value === "archived:used_up" || value === "archived:decluttered") {
+    return { choice: "archived", reason: value.slice("archived:".length) as ArchiveReason };
+  }
+  return null;
+}
+
 /** Decisions that differ from what the server stored (sent with commit). */
 export function changedDecisions(
   original: readonly PolishImportRow[],
@@ -230,13 +285,20 @@ export function changedDecisions(
   const out: PolishImportDecision[] = [];
   for (const row of edited) {
     const prior = before.get(row.rowNumber);
-    if (!prior || row.action === "pending") continue;
-    if (prior.action === row.action && prior.shadeId === row.shadeId) continue;
-    out.push(
-      row.action === "match"
-        ? { rowNumber: row.rowNumber, action: "match", shadeId: row.shadeId ?? undefined }
-        : { rowNumber: row.rowNumber, action: row.action }
-    );
+    if (!prior) continue;
+    const decision: PolishImportDecision = { rowNumber: row.rowNumber };
+    if (row.action !== "pending" && (prior.action !== row.action || prior.shadeId !== row.shadeId)) {
+      decision.action = row.action;
+      if (row.action === "match") decision.shadeId = row.shadeId ?? undefined;
+    }
+    if (
+      row.statusChoice &&
+      (prior.statusChoice !== row.statusChoice || (prior.archiveReason ?? null) !== (row.archiveReason ?? null))
+    ) {
+      decision.statusChoice = row.statusChoice;
+      if (row.statusChoice === "archived" && row.archiveReason) decision.archiveReason = row.archiveReason;
+    }
+    if (decision.action || decision.statusChoice) out.push(decision);
   }
   return out;
 }

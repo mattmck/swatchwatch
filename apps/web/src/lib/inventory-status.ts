@@ -1,4 +1,4 @@
-import type { Polish, PolishStatus } from "swatchwatch-shared";
+import type { ArchiveReason, Polish, PolishStatus, PolishUpdateRequest } from "swatchwatch-shared";
 
 /** Display labels for inventory statuses (issue #261). */
 export const POLISH_STATUS_LABELS: Record<PolishStatus, string> = {
@@ -21,10 +21,9 @@ export function isOwnedPolish(polish: Pick<Polish, "status">): boolean {
  *
  * - Adding a polish that is not owned (catalog row, wishlist, destash, archived) makes it
  *   `owned` with at least one bottle.
- * - Decrementing an owned polish to zero bottles moves it to `archived` ("no longer owned:
- *   used up, given away, sold"). Running out of a bottle is not the same as wanting it, so it
- *   no longer lands on the wishlist (#262 revisits #261's decision 4); re-wishlisting is one
- *   ♡ tap away when you do want it again.
+ * - Decrementing an owned polish to zero bottles archives it (decision D5c): running out is
+ *   not wanting it again. The API records the reason (`used_up` unless the toast says
+ *   otherwise); moving to the wishlist is a deliberate Rebuy, never automatic.
  */
 export function quantityChangeUpdate(
   polish: Pick<Polish, "status" | "quantity">,
@@ -38,6 +37,42 @@ export function quantityChangeUpdate(
   }
   const quantity = Math.max(0, current + delta);
   return quantity > 0 ? { quantity, status: "owned" } : { quantity: 0, status: "archived" };
+}
+
+/** True when an update takes an owned polish to `archived` (show the archive toast). */
+export function isArchivingChange(
+  before: Pick<Polish, "status">,
+  after: Pick<PolishUpdateRequest, "status">
+): boolean {
+  return isOwnedPolish(before) && after.status === "archived";
+}
+
+/**
+ * Status the edit form saves: an owned polish saved with 0 bottles is archived (D5c), the same
+ * as the − button. Any other combination keeps the chosen status.
+ */
+export function formStatusForSave(status: PolishStatus, quantity: number): PolishStatus {
+  return status === "owned" && quantity <= 0 ? "archived" : status;
+}
+
+/** PUT body recording why an archived polish left the collection (the toast's reason buttons). */
+export function archiveReasonUpdate(reason: ArchiveReason): PolishUpdateRequest {
+  return { status: "archived", archiveReason: reason };
+}
+
+/** PUT body for the archive toast's Undo: back to owned with one bottle, reason removed. */
+export function undoArchiveUpdate(): PolishUpdateRequest {
+  return { status: "owned", quantity: 1, undoArchive: true };
+}
+
+/** True when the polish can be rebought (moved to the wishlist on purpose). */
+export function canRebuy(polish: Pick<Polish, "status">): boolean {
+  return polish.status === "archived";
+}
+
+/** PUT body for Rebuy on an archived polish: the only path from archived to the wishlist. */
+export function rebuyUpdate(): PolishUpdateRequest {
+  return { status: "wishlist" };
 }
 
 /** Format a purchase price for display, e.g. `$12.50` (null when no price is recorded). */

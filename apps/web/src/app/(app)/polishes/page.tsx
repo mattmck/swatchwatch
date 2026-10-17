@@ -33,7 +33,9 @@ import { CollectionQuickActions, type QuickActionSource } from "@/components/col
 import { StatusChip, UntriedBadge } from "@/components/status-chip";
 import { StatusFilter } from "@/components/status-filter";
 import { CollectionExportMenu } from "@/components/collection-export-menu";
-import { isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
+import { PickForMeButton } from "@/components/pick-for-me";
+import { isArchivingChange, isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
+import { showArchivedToast } from "@/components/archived-toast";
 import {
   applyInventoryPatch,
   applyOptimistic,
@@ -376,6 +378,11 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     }
   }, [page, totalPages]);
 
+  /** The archive toast's reason / Undo answers (D5c): replace the row, keeping its buyUrl. */
+  const applyArchiveToastUpdate = useCallback((updated: Polish) => {
+    setPolishes((prev) => prev.map((p) => (p.id === updated.id ? keepBuyUrl(updated, p) : p)));
+  }, []);
+
   // Optimistic inventory update (stepper, add guard). Rollback only touches the row if no newer
   // change replaced it (see lib/collection-actions.ts).
   const applyInventoryChange = useCallback(
@@ -390,13 +397,16 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
           if (change.status !== undefined && change.status !== original.status) {
             trackEvent("collection.status_changed", statusChangeEvent(original.status, change.status, "stepper"));
           }
+          if (isArchivingChange(original, change)) {
+            showArchivedToast({ polish: updated, onUpdated: applyArchiveToastUpdate });
+          }
         })
         .catch(() => {
           setPolishes((prev) => rollbackOptimistic(prev, polishId, optimistic, original));
           toast.error(`Couldn’t update ${original.brand} ${original.name}`);
         });
     },
-    []
+    [applyArchiveToastUpdate]
   );
 
   const handleQuantityChange = useCallback(
@@ -465,6 +475,10 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
               "collection.status_changed",
               statusChangeEvent(original.status, optimistic.status ?? null, source)
             );
+            // Archiving an owned polish from the menu records `used_up`; offer the reason / Undo.
+            if (action.kind === "set-status" && isArchivingChange(original, action)) {
+              showArchivedToast({ polish: updated, onUpdated: applyArchiveToastUpdate });
+            }
           }
         })
         .catch((err: unknown) => {
@@ -474,7 +488,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
         })
         .finally(settle);
     },
-    []
+    [applyArchiveToastUpdate]
   );
 
   const handleCollectionAction = useCallback(
@@ -548,7 +562,8 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
             {total} polishes &middot; {polishes.length} shown
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <PickForMeButton />
           <CollectionExportMenu />
           <Button asChild variant="outline">
             <Link href="/polishes/import">
