@@ -226,6 +226,8 @@ test("access control e2e: users cannot access or modify each other's data", asyn
       ["GET", `/polishes/${shadeId}`],
       ["PUT", `/polishes/${shadeId}`],
       ["DELETE", `/polishes/${shadeId}`],
+      ["GET", `/polishes/${shadeId}/dupes`],
+      ["POST", "/polishes/dupes"],
       ["POST", "/capture/start"],
     ]) {
       const res = await api(path, { method, body: method === "GET" || method === "DELETE" ? undefined : {} });
@@ -282,6 +284,22 @@ test("access control e2e: users cannot access or modify each other's data", asyn
       ownerCollection.body.polishes.some((p) => p.id === shadeId),
       "positive control: owner sees their polish in their collection"
     );
+  });
+
+  await t.test("attacker dupe lookups never return the owner's inventory (#265)", async () => {
+    const single = await api(`/polishes/${shadeId}/dupes?limit=20`, { headers: ATTACKER });
+    assert.ok([200, 404].includes(single.status), `attacker dupes → ${single.status}`);
+    assertNoOwnerData(single.body, "attacker dupes");
+    if (single.status === 200) {
+      assert.ok(!single.body.dupes.some((d) => d.shadeId === shadeId), "the target is never its own dupe");
+    }
+
+    const batch = await api("/polishes/dupes", { method: "POST", headers: ATTACKER, body: { shadeIds: [shadeId] } });
+    assert.equal(batch.status, 200, `attacker batch dupes → ${batch.status}`);
+    assertNoOwnerData(batch.body, "attacker batch dupes");
+    for (const hint of Object.values(batch.body.results)) {
+      assert.ok(!hint.best || hint.best.shadeId !== shadeId, "owner's shade is not the attacker's dupe");
+    }
   });
 
   await t.test("attacker search by the owner's private notes text does not match", async () => {

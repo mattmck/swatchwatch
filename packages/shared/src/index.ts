@@ -6,6 +6,7 @@ export * from "./types/voice";
 export * from "./types/capture";
 export * from "./types/palette";
 export * from "./types/color-match";
+export * from "./types/dupes";
 export * from "./types/ingestion";
 export {
   type FinishType,
@@ -27,3 +28,4 @@ export * from "./branding/swatchwatch-brand";
 export * from "./color/oklab";
 export * from "./color/thresholds";
 export * from "./color/hex-reconciliation";
+export * from "./color/dupes";
