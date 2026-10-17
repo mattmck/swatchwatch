@@ -15,6 +15,10 @@ describe("getTabFromQuery", () => {
     assert.equal(getTabFromQuery("nope"), "configuration");
     assert.equal(getTabFromQuery("USERS"), "configuration");
   });
+
+  it("recognizes the review queue tab", () => {
+    assert.equal(getTabFromQuery("review-queue"), "review-queue");
+  });
 });
 
 describe("buildAdminTabSearch", () => {

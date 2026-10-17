@@ -27,6 +27,20 @@ const crypto = require("node:crypto");
 const BASE = (process.env.E2E_API_BASE || "http://localhost:7071/api").replace(/\/+$/, "");
 const OWNER = { Authorization: `Bearer ${process.env.E2E_OWNER_TOKEN || "dev:1"}` };
 const ATTACKER = { Authorization: `Bearer ${process.env.E2E_ATTACKER_TOKEN || "dev:2"}` };
+
+/**
+ * Asserts that no absolute URL in `value` (serialized as JSON) points at Azure Blob Storage,
+ * comparing each parsed hostname exactly / by strict `.blob.core.windows.net` suffix rather
+ * than by substring (CodeQL js/incomplete-url-substring-sanitization).
+ */
+function assertNoBlobStorageUrls(value, message = "raw blob URL leaked") {
+  const serialized = JSON.stringify(value);
+  const hostnames = (serialized.match(/https?:\/\/[^\s"'<>\\]+/g) || []).map((u) => new URL(u).hostname);
+  assert.ok(hostnames.length > 0, `expected at least one URL in: ${serialized}`);
+  const blobHosts = hostnames.filter((h) => h === "blob.core.windows.net" || h.endsWith(".blob.core.windows.net"));
+  assert.deepEqual(blobHosts, [], `${message}: ${serialized}`);
+}
+
 /**
  * Owner's numeric app_user id — the value an attacker tries to spoof in bodies/query params.
  * Taken from E2E_OWNER_ID, else parsed from a `dev:<id>` token; null for other tokens (e.g. B2C
@@ -226,6 +240,8 @@ test("access control e2e: users cannot access or modify each other's data", asyn
       ["GET", `/polishes/${shadeId}`],
       ["PUT", `/polishes/${shadeId}`],
       ["DELETE", `/polishes/${shadeId}`],
+      ["GET", `/polishes/${shadeId}/dupes`],
+      ["POST", "/polishes/dupes"],
       ["POST", "/capture/start"],
     ]) {
       const res = await api(path, { method, body: method === "GET" || method === "DELETE" ? undefined : {} });
@@ -282,6 +298,22 @@ test("access control e2e: users cannot access or modify each other's data", asyn
       ownerCollection.body.polishes.some((p) => p.id === shadeId),
       "positive control: owner sees their polish in their collection"
     );
+  });
+
+  await t.test("attacker dupe lookups never return the owner's inventory (#265)", async () => {
+    const single = await api(`/polishes/${shadeId}/dupes?limit=20`, { headers: ATTACKER });
+    assert.ok([200, 404].includes(single.status), `attacker dupes → ${single.status}`);
+    assertNoOwnerData(single.body, "attacker dupes");
+    if (single.status === 200) {
+      assert.ok(!single.body.dupes.some((d) => d.shadeId === shadeId), "the target is never its own dupe");
+    }
+
+    const batch = await api("/polishes/dupes", { method: "POST", headers: ATTACKER, body: { shadeIds: [shadeId] } });
+    assert.equal(batch.status, 200, `attacker batch dupes → ${batch.status}`);
+    assertNoOwnerData(batch.body, "attacker batch dupes");
+    for (const hint of Object.values(batch.body.results)) {
+      assert.ok(!hint.best || hint.best.shadeId !== shadeId, "owner's shade is not the attacker's dupe");
+    }
   });
 
   await t.test("attacker search by the owner's private notes text does not match", async () => {
@@ -431,6 +463,11 @@ test("access control e2e: users cannot access or modify each other's data", asyn
       ["GET", "/users-admin"],
       ["GET", "/reference-admin/jobs"],
       ["POST", `/polishes/${shadeId}/recalc-hex`],
+      ["GET", "/shades-admin/review"],
+      ["GET", `/shades-admin/review/${shadeId}/candidates`],
+      ["POST", `/shades-admin/review/${shadeId}/approve`],
+      ["POST", `/shades-admin/review/${shadeId}/merge`],
+      ["POST", `/shades-admin/review/${shadeId}/reject`],
     ]) {
       const res = await api(path, { method, headers: OWNER, body: method === "POST" ? {} : undefined });
       assert.equal(res.status, 403, `${method} ${path} as regular user → ${res.status}`);
@@ -518,5 +555,49 @@ test("access control e2e: users cannot access or modify each other's data", asyn
     assert.equal(attacker.status, 403, `attacker → ${attacker.status}`);
     const anonymous = await api(path);
     assert.equal(anonymous.status, 401, `no token → ${anonymous.status}`);
+  });
+  await t.test("private nail photos are owner-only (#270)", async (st) => {
+    const { inventoryItemId } = await ownerView();
+    assert.ok(inventoryItemId, "owner has an inventory row");
+    const path = `/inventory/${inventoryItemId}/nail-photo`;
+    // A tiny JPEG with a GPS EXIF tag; the server must strip it.
+    const sharp = require("sharp");
+    const jpeg = await sharp({ create: { width: 16, height: 8, channels: 3, background: "#c81e5a" } })
+      .withExif({ IFD3: { GPSLatitudeRef: "N", GPSLatitude: "51/1 30/1 0/1" } })
+      .jpeg()
+      .toBuffer();
+    const body = { image: `data:image/jpeg;base64,${jpeg.toString("base64")}` };
+
+    for (const [method, reqBody] of [["GET"], ["PUT", body], ["DELETE"]]) {
+      const res = await api(path, { method, headers: ATTACKER, body: reqBody });
+      assert.equal(res.status, 404, `attacker ${method} ${path} → ${res.status}`);
+      const anonymous = await api(path, { method, body: reqBody });
+      assert.equal(anonymous.status, 401, `anonymous ${method} ${path} → ${anonymous.status}`);
+    }
+
+    const upload = await api(path, { method: "PUT", headers: OWNER, body, timeoutMs: 60000 });
+    if (upload.status === 503) {
+      st.diagnostic("Blob storage is not configured on the host; nail-photo upload cases skipped.");
+      return;
+    }
+    assert.ok([200, 201].includes(upload.status), `owner upload → ${upload.status} ${upload.text}`);
+    const imageUrl = upload.body.photo.imageUrl;
+    assert.match(imageUrl, /\/api\/images\/v3\./, "owner gets an owner-scoped v3 URL");
+    assertNoBlobStorageUrls(upload.body, "no raw blob URL in the response");
+
+    try {
+      const id = decodeURIComponent(new URL(imageUrl).pathname.split("/").pop());
+      const imagePath = `/images/${encodeURIComponent(id)}`;
+      const owner = await fetch(`${BASE}${imagePath}`, { headers: OWNER, signal: AbortSignal.timeout(30000) });
+      const bytes = Buffer.from(await owner.arrayBuffer());
+      assert.equal(owner.status, 200, `owner image → ${owner.status}`);
+      assert.equal((await sharp(bytes).metadata()).exif, undefined, "stored photo carries no EXIF");
+      assert.equal((await api(imagePath, { headers: ATTACKER })).status, 403, "attacker cannot read the photo");
+      assert.equal((await api(imagePath)).status, 401, "anonymous cannot read the photo");
+      assert.equal((await api(path, { headers: ATTACKER })).status, 404, "attacker still sees nothing");
+    } finally {
+      const removed = await api(path, { method: "DELETE", headers: OWNER });
+      assert.equal(removed.status, 204, `owner delete → ${removed.status}`);
+    }
   });
 });
