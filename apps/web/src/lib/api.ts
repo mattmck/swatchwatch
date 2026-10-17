@@ -18,6 +18,14 @@ import type {
   AdminUserListResponse,
   AdminUserMergeRequest,
   AdminUserMergeResponse,
+  ShadeReviewActionResponse,
+  ShadeReviewApproveRequest,
+  ShadeReviewCandidatesResponse,
+  ShadeReviewListResponse,
+  ShadeReviewMergeRequest,
+  ShadeReviewMergeResponse,
+  ShadeReviewQueueState,
+  ShadeReviewRejectRequest,
   Polish,
   PolishCreateRequest,
   PolishUpdateRequest,
@@ -26,6 +34,7 @@ import type {
   PolishImageMatchRequest,
   PolishImageMatchResponse,
   CatalogSearchResponse,
+  ColorFamily,
   CatalogShadeDetail,
   PolishFinish,
   FinishType,
@@ -50,6 +59,8 @@ import type {
   ManicureUpdateRequest,
 } from "swatchwatch-shared";
 
+import type { NailPhotoResponse } from "swatchwatch-shared";
+
 import { getAccessToken } from "./auth-token";
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:7071/api";
@@ -57,7 +68,7 @@ const MAX_CAPTURE_FRAME_BYTES = 5 * 1024 * 1024;
 const LIST_ALL_POLISHES_PAGE_SIZE = 250;
 const listPolishesInFlight = new Map<string, Promise<PolishListResponse>>();
 
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
     this.name = "ApiError";
@@ -117,6 +128,7 @@ export async function listPolishes(filters?: PolishFilters): Promise<PolishListR
   if (filters?.status?.length) params.set("status", filters.status.join(","));
   if (filters?.untried) params.set("untried", "true");
   if (filters?.tone) params.set("tone", filters.tone);
+  if (filters?.families?.length) params.set("family", filters.families.join(","));
   if (filters?.tags?.length) params.set("tags", filters.tags.join(","));
   if (filters?.sortBy) params.set("sortBy", filters.sortBy);
   if (filters?.sortOrder) params.set("sortOrder", filters.sortOrder);
@@ -330,9 +342,14 @@ export async function matchPolishesToImage(
   return handleResponse<PolishImageMatchResponse>(response);
 }
 
-export async function searchCatalog(q: string, limit?: number): Promise<CatalogSearchResponse> {
+export async function searchCatalog(
+  q: string,
+  limit?: number,
+  options?: { families?: ColorFamily[] }
+): Promise<CatalogSearchResponse> {
   const params = new URLSearchParams({ q });
   if (limit) params.set("limit", String(limit));
+  if (options?.families?.length) params.set("family", options.families.join(","));
 
   const response = await fetch(`${API_BASE_URL}/catalog/search?${params}`);
   return handleResponse<CatalogSearchResponse>(response);
@@ -769,4 +786,119 @@ export async function mergeAdminUsers(
     body: JSON.stringify(data),
   });
   return handleResponse<AdminUserMergeResponse>(response);
+}
+
+// ── Private nail photos (#270) ──────────────────────────────────────────────
+
+function nailPhotoUrl(inventoryItemId: string | number): string {
+  return `${API_BASE_URL}/inventory/${encodeURIComponent(String(inventoryItemId))}/nail-photo`;
+}
+
+/** The caller's private on-nail photo for one of their inventory items (`{ photo: null }` when none). */
+export async function getNailPhoto(inventoryItemId: string | number): Promise<NailPhotoResponse> {
+  const response = await fetch(nailPhotoUrl(inventoryItemId), {
+    headers: await getAuthHeaders(),
+    cache: "no-store",
+  });
+  return handleResponse<NailPhotoResponse>(response);
+}
+
+/**
+ * Upload or replace the nail photo. `image` is a base64 data URL (see `prepareNailPhotoUpload`);
+ * the server re-encodes it and strips all metadata (EXIF/GPS) before storing it privately.
+ */
+export async function uploadNailPhoto(
+  inventoryItemId: string | number,
+  image: string
+): Promise<NailPhotoResponse> {
+  const response = await fetch(nailPhotoUrl(inventoryItemId), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
+    body: JSON.stringify({ image }),
+  });
+  return handleResponse<NailPhotoResponse>(response);
+}
+
+/** Delete the nail photo (idempotent; 204). */
+export async function deleteNailPhoto(inventoryItemId: string | number): Promise<void> {
+  const response = await fetch(nailPhotoUrl(inventoryItemId), {
+    method: "DELETE",
+    headers: await getAuthHeaders(),
+  });
+  if (!response.ok) {
+    await handleResponse<unknown>(response);
+  }
+}
+
+/** List the admin review queue of `user_submitted` shades (`GET /api/shades-admin/review`). */
+export async function listShadeReviewQueue(params?: {
+  state?: ShadeReviewQueueState;
+  page?: number;
+  pageSize?: number;
+  q?: string;
+  candidates?: number;
+}): Promise<ShadeReviewListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.state) searchParams.set("state", params.state);
+  if (typeof params?.page === "number") searchParams.set("page", String(params.page));
+  if (typeof params?.pageSize === "number") searchParams.set("pageSize", String(params.pageSize));
+  if (params?.q?.trim()) searchParams.set("q", params.q.trim());
+  if (typeof params?.candidates === "number") searchParams.set("candidates", String(params.candidates));
+  const qs = searchParams.toString();
+  const response = await fetch(`${API_BASE_URL}/shades-admin/review${qs ? `?${qs}` : ""}`, {
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<ShadeReviewListResponse>(response);
+}
+
+/** Merge candidates for one submission, optionally searched by name (`GET .../{id}/candidates`). */
+export async function getShadeReviewCandidates(
+  shadeId: string | number,
+  params?: { q?: string; limit?: number }
+): Promise<ShadeReviewCandidatesResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.q?.trim()) searchParams.set("q", params.q.trim());
+  if (typeof params?.limit === "number") searchParams.set("limit", String(params.limit));
+  const qs = searchParams.toString();
+  const response = await fetch(
+    `${API_BASE_URL}/shades-admin/review/${encodeURIComponent(String(shadeId))}/candidates${qs ? `?${qs}` : ""}`,
+    { headers: await getAuthHeaders({ admin: true }) }
+  );
+  return handleResponse<ShadeReviewCandidatesResponse>(response);
+}
+
+async function postShadeReviewAction<T>(shadeId: string | number, action: string, body: unknown): Promise<T> {
+  const response = await fetch(
+    `${API_BASE_URL}/shades-admin/review/${encodeURIComponent(String(shadeId))}/${action}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+      body: JSON.stringify(body ?? {}),
+    }
+  );
+  return handleResponse<T>(response);
+}
+
+/** Approve a submission (optionally with edits): it becomes an `active` catalog shade. */
+export async function approveShadeReview(
+  shadeId: string | number,
+  data: ShadeReviewApproveRequest = {}
+): Promise<ShadeReviewActionResponse> {
+  return postShadeReviewAction<ShadeReviewActionResponse>(shadeId, "approve", data);
+}
+
+/** Merge a submission into an active shade, reassigning every inventory row. */
+export async function mergeShadeReview(
+  shadeId: string | number,
+  data: ShadeReviewMergeRequest
+): Promise<ShadeReviewMergeResponse> {
+  return postShadeReviewAction<ShadeReviewMergeResponse>(shadeId, "merge", data);
+}
+
+/** Reject a submission: it stays private to its submitter. */
+export async function rejectShadeReview(
+  shadeId: string | number,
+  data: ShadeReviewRejectRequest = {}
+): Promise<ShadeReviewActionResponse> {
+  return postShadeReviewAction<ShadeReviewActionResponse>(shadeId, "reject", data);
 }

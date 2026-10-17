@@ -2,12 +2,15 @@ export * from "./types/polish";
 export * from "./types/inventory";
 export * from "./types/manicure";
 export * from "./constants/finishes";
+export * from "./constants/outbound-links";
 export * from "./types/user";
 export * from "./types/voice";
 export * from "./types/capture";
 export * from "./types/palette";
 export * from "./types/color-match";
 export * from "./types/ingestion";
+export * from "./types/nail-photo";
+export * from "./types/shade-review";
 export {
   type FinishType,
   type FinishTypeCreateRequest,
@@ -28,3 +31,4 @@ export * from "./branding/swatchwatch-brand";
 export * from "./color/oklab";
 export * from "./color/thresholds";
 export * from "./color/hex-reconciliation";
+export * from "./color/color-family";

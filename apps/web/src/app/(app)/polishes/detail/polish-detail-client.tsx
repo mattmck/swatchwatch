@@ -12,6 +12,7 @@ import { resolveFinishLabel } from "@/lib/finish-options";
 import { POLISH_STATUS_LABELS, formatPurchasePrice } from "@/lib/inventory-status";
 import { useReferenceData } from "@/hooks/use-reference-data";
 import { FinishBadges } from "@/components/finish-badges";
+import { BuyFromBrandLink } from "@/components/buy-from-brand-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -25,6 +26,7 @@ import {
 import { ColorDot } from "@/components/color-dot";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
+import { NailPhotoPanel } from "@/components/nail-photo-panel";
 import { LogManiButton } from "@/components/log-mani-button";
 import { canLogPolish, formatWornOn, toLocalIsoDate } from "@/lib/mani-log";
 import { toast } from "sonner";
@@ -260,6 +262,12 @@ export default function PolishDetailClient({
             </div>
           </div>
           <div className="flex flex-wrap justify-end gap-2">
+            <BuyFromBrandLink
+              url={polish.buyUrl}
+              brand={polish.brand}
+              name={polish.name}
+              variant="button"
+            />
             <LogManiButton polish={polish} onWearStatsChange={applyWearStats} />
             <Button
               variant="outline"
@@ -283,6 +291,17 @@ export default function PolishDetailClient({
           </div>
         </div>
       </div>
+
+      {polish.inventoryItemId && (
+        <NailPhotoPanel
+          key={polish.inventoryItemId}
+          inventoryItemId={polish.inventoryItemId}
+          polishLabel={`${polish.brand} ${polish.name}`}
+          vendorHex={polish.vendorHex}
+          detectedHex={polish.detectedHex}
+          nameHex={polish.nameHex}
+        />
+      )}
 
       <Card className="relative overflow-hidden">
         <span

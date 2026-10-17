@@ -13,6 +13,10 @@
  *     is not scoped at all), so a handler that forgot its user_id predicate
  *     would visibly leak/mutate the owner's data and fail these tests.
  *
+ * Nail photos (#270): the owner's inventory item 7001 carries a private nail photo in the
+ * `nail-photos` container; another user must get 404 on every nail-photo route and must not be
+ * able to read the photo through the image proxy with their own token.
+ *
  * Users: OWNER = 1 (owns inventory + capture session), ATTACKER = 2,
  * ADMIN = 99. All tokens use AUTH_DEV_BYPASS (`Bearer dev:<id>`).
  */
@@ -51,8 +55,27 @@ const IMAGE_ASSETS = new Map([
   [OWNER_IMAGE_ID, { ownerId: OWNER }],
   [ATTACKER_IMAGE_ID, { ownerId: ATTACKER }],
 ]);
+/** Owner's inventory row (shade OWNED_SHADE_ID) and its private nail photo (#270). */
+const OWNER_INVENTORY_ITEM_ID = 7001;
+const OWNER_NAIL_PHOTO_IMAGE_ID = 6100;
+const OWNER_NAIL_PHOTO_URL = "https://swatchwatchacct.blob.core.windows.net/nail-photos/1/7001/owner-nail.jpg";
 /** Shades that exist in the shared catalog of the fake DB. */
 const KNOWN_SHADES = new Set([OWNED_SHADE_ID]);
+
+/**
+ * Asserts that no absolute URL anywhere in `value` (serialized as JSON) points at Azure
+ * Blob Storage. Each URL is parsed and its hostname compared exactly / by strict
+ * `.blob.core.windows.net` suffix, never by substring (CodeQL
+ * js/incomplete-url-substring-sanitization). Also requires at least one URL to be found,
+ * so the check cannot pass vacuously.
+ */
+function assertNoBlobStorageUrls(value, message = "raw blob URL leaked") {
+  const serialized = JSON.stringify(value);
+  const hostnames = (serialized.match(/https?:\/\/[^\s"'<>\\]+/g) || []).map((u) => new URL(u).hostname);
+  assert.ok(hostnames.length > 0, `expected at least one URL in: ${serialized}`);
+  const blobHosts = hostnames.filter((h) => h === "blob.core.windows.net" || h.endsWith(".blob.core.windows.net"));
+  assert.deepEqual(blobHosts, [], `${message}: ${serialized}`);
+}
 
 // ---------------------------------------------------------------------------
 // Fake DB
@@ -71,6 +94,23 @@ function resetState() {
   transactionCount = 0;
   state = {
     nextInventoryId: 9000,
+    nextNailImageId: 6200,
+    // inventoryItemId (number) -> photo row; image_asset rows for nail photos by image id.
+    nailPhotos: new Map([
+      [
+        OWNER_INVENTORY_ITEM_ID,
+        {
+          imageId: OWNER_NAIL_PHOTO_IMAGE_ID,
+          contentType: "image/jpeg",
+          width: 20,
+          height: 40,
+          sizeBytes: 1234,
+          createdAt: "2026-10-01T00:00:00.000Z",
+          updatedAt: "2026-10-01T00:00:00.000Z",
+        },
+      ],
+    ]),
+    nailAssets: new Map([[OWNER_NAIL_PHOTO_IMAGE_ID, { ownerId: OWNER, storageUrl: OWNER_NAIL_PHOTO_URL }]]),
     inventory: new Map([
       [
         `${OWNER}:${OWNED_SHADE_ID}`,
@@ -223,6 +263,12 @@ async function fakeQuery(via, sql, params = []) {
     return { rows: user ? [user] : [], rowCount: user ? 1 : 0 };
   }
 
+  // Nail photos (#270). Ownership is decided only by the `ui.user_id = $n` predicate, so a
+  // handler that forgot it would see (and could mutate) the owner's photo here.
+  if (/inventory_nail_photo/i.test(text) || (/image_asset/i.test(text) && (kind === "DELETE" || /copyright_status/i.test(text)))) {
+    return fakeNailPhotoQuery(text, params, kind);
+  }
+
   if (/user_inventory_item/i.test(text)) {
     if (kind === "INSERT") {
       const userId = Number(insertedValue(text, params, "user_id"));
@@ -326,6 +372,113 @@ async function fakeQuery(via, sql, params = []) {
   return { rows: [], rowCount: 0 };
 }
 
+/** Inventory items (all users) as an array. */
+function allInventoryItems() {
+  return [...state.inventory.values()];
+}
+
+function fakeNailPhotoQuery(text, params, kind) {
+  const userId = boundUserId(text, params);
+  const visible = (item) => userId === undefined || item.userId === userId;
+
+  // Item + photo lookup (GET/PUT/DELETE nail-photo), optionally FOR UPDATE.
+  if (kind === "SELECT" && /FROM\s+user_inventory_item\s+ui/i.test(text)) {
+    const itemId = Number(boundParam(text, params, /ui\.inventory_item_id\s*=\s*\$(\d+)/i));
+    const item = allInventoryItems().find((i) => Number(i.inventoryItemId) === itemId && visible(i));
+    if (!item) return { rows: [], rowCount: 0 };
+    const photo = state.nailPhotos.get(itemId);
+    const asset = photo ? state.nailAssets.get(photo.imageId) : undefined;
+    return {
+      rows: [
+        {
+          inventoryItemId: String(itemId),
+          shadeId: String(item.shadeId),
+          imageId: photo ? String(photo.imageId) : null,
+          storageUrl: asset ? asset.storageUrl : null,
+          contentType: photo ? photo.contentType : null,
+          width: photo ? photo.width : null,
+          height: photo ? photo.height : null,
+          sizeBytes: photo ? photo.sizeBytes : null,
+          createdAt: photo ? photo.createdAt : null,
+          updatedAt: photo ? photo.updatedAt : null,
+        },
+      ],
+      rowCount: 1,
+    };
+  }
+
+  // Photos for a shade (DELETE /polishes/{id} cleanup lookup).
+  if (kind === "SELECT" && /FROM\s+inventory_nail_photo\s+p/i.test(text)) {
+    const shadeId = Number(boundParam(text, params, /ui\.shade_id\s*=\s*\$(\d+)/i));
+    const rows = allInventoryItems()
+      .filter((i) => i.shadeId === shadeId && visible(i) && state.nailPhotos.has(Number(i.inventoryItemId)))
+      .map((i) => ({ imageId: String(state.nailPhotos.get(Number(i.inventoryItemId)).imageId) }));
+    return { rows, rowCount: rows.length };
+  }
+
+  // Cleanup delete for a shade: DELETE FROM image_asset ia USING inventory_nail_photo p, user_inventory_item ui ...
+  if (kind === "DELETE" && /DELETE\s+FROM\s+image_asset\s+ia\s+USING/i.test(text)) {
+    const shadeId = Number(boundParam(text, params, /ui\.shade_id\s*=\s*\$(\d+)/i));
+    const imageIds = new Set((boundParam(text, params, /ANY\(\$(\d+)/i) || []).map(Number));
+    const rows = [];
+    for (const item of allInventoryItems()) {
+      const itemId = Number(item.inventoryItemId);
+      const photo = state.nailPhotos.get(itemId);
+      if (!photo || item.shadeId !== shadeId || !visible(item) || !imageIds.has(photo.imageId)) continue;
+      const asset = state.nailAssets.get(photo.imageId);
+      state.nailPhotos.delete(itemId);
+      state.nailAssets.delete(photo.imageId);
+      rows.push({ storageUrl: asset ? asset.storageUrl : null });
+    }
+    return { rows, rowCount: rows.length };
+  }
+
+  if (kind === "INSERT" && /INSERT\s+INTO\s+image_asset/i.test(text)) {
+    const imageId = state.nextNailImageId++;
+    state.nailAssets.set(imageId, { ownerId: Number(params[0]), storageUrl: params[1] });
+    return { rows: [{ imageId: String(imageId) }], rowCount: 1 };
+  }
+
+  if (kind === "INSERT" && /INSERT\s+INTO\s+inventory_nail_photo/i.test(text)) {
+    const [itemId, imageId, contentType, width, height, sizeBytes] = params;
+    const existing = state.nailPhotos.get(Number(itemId));
+    const now = "2026-10-17T00:00:00.000Z";
+    state.nailPhotos.set(Number(itemId), {
+      imageId: Number(imageId),
+      contentType,
+      width,
+      height,
+      sizeBytes,
+      createdAt: existing ? existing.createdAt : now,
+      updatedAt: now,
+    });
+    return { rows: [{ createdAt: existing ? existing.createdAt : now, updatedAt: now }], rowCount: 1 };
+  }
+
+  if (kind === "DELETE" && /DELETE\s+FROM\s+inventory_nail_photo/i.test(text)) {
+    const itemId = Number(params[0]);
+    const photo = state.nailPhotos.get(itemId);
+    if (photo && photo.imageId === Number(params[1])) {
+      state.nailPhotos.delete(itemId);
+      return { rows: [], rowCount: 1 };
+    }
+    return { rows: [], rowCount: 0 };
+  }
+
+  if (kind === "DELETE" && /DELETE\s+FROM\s+image_asset/i.test(text)) {
+    const imageId = Number(params[0]);
+    const asset = state.nailAssets.get(imageId);
+    if (!asset) return { rows: [], rowCount: 0 };
+    state.nailAssets.delete(imageId);
+    for (const [itemId, photo] of state.nailPhotos) {
+      if (photo.imageId === imageId) state.nailPhotos.delete(itemId); // ON DELETE CASCADE
+    }
+    return { rows: [{ storageUrl: asset.storageUrl }], rowCount: 1 };
+  }
+
+  throw new Error(`fake DB: unhandled nail-photo statement: ${text}`);
+}
+
 // ---------------------------------------------------------------------------
 // Module-level mocking via require interception
 // ---------------------------------------------------------------------------
@@ -384,7 +537,16 @@ registerMock("../lib/db", dbMock);
 // External side effects — each records whether it was reached.
 let sideEffects;
 function resetSideEffects() {
-  sideEffects = { blobReads: [], ocrCalls: 0, labelParseCalls: 0, aiHexCalls: 0, stripCalls: 0 };
+  sideEffects = {
+    blobReads: [],
+    blobUploads: [],
+    blobDeletes: [],
+    ocrCalls: 0,
+    labelParseCalls: 0,
+    aiHexCalls: 0,
+    stripCalls: 0,
+    nailPhotoNormalizeCalls: 0,
+  };
 }
 resetSideEffects();
 
@@ -462,6 +624,47 @@ registerMock("../lib/blob-storage", {
     sideEffects.stripCalls += 1;
     return bytes;
   },
+  uploadBytesToBlob: async ({ containerName, blobName, contentType }) => {
+    const url = `https://swatchwatchacct.blob.core.windows.net/${containerName}/${blobName}`;
+    sideEffects.blobUploads.push({ url, containerName, contentType });
+    return url;
+  },
+  deleteBlobFromStorageUrl: async (storageUrl, options) => {
+    if (!options.allowedContainers.includes(mockBlobContainer(storageUrl))) {
+      throw new BlobAccessDeniedError(`container not deletable: ${mockBlobContainer(storageUrl)}`);
+    }
+    sideEffects.blobDeletes.push(storageUrl);
+    return true;
+  },
+});
+
+// Nail-photo decoding/re-encoding is covered with real sharp in nail-photo-image.unit.test.cjs;
+// here it only records whether a request got far enough to process image bytes.
+class NailPhotoInputError extends Error {
+  constructor(message, status = 400) {
+    super(message);
+    this.name = "NailPhotoInputError";
+    this.status = status;
+  }
+}
+registerMock("../lib/nail-photo-image", {
+  NailPhotoInputError,
+  parseNailPhotoDataUrl: (value) => {
+    if (typeof value !== "string" || !value.startsWith("data:image/")) {
+      throw new NailPhotoInputError("image must be a base64 data URL");
+    }
+    return { declaredType: "image/jpeg", bytes: Buffer.from(value.split(",")[1] || "", "base64") };
+  },
+  normalizeNailPhoto: async () => {
+    sideEffects.nailPhotoNormalizeCalls += 1;
+    return {
+      bytes: Buffer.from("clean-jpeg"),
+      contentType: "image/jpeg",
+      width: 30,
+      height: 60,
+      checksumSha256: "c".repeat(64),
+    };
+  },
 });
 
 // sharp is only used for on-the-fly image transforms; never reached without w/h/fm params.
@@ -473,6 +676,7 @@ for (const [id, exports] of Object.entries(mockModules)) {
   require.cache[id] = { id, filename: id, loaded: true, exports };
 }
 
+
 // ---------------------------------------------------------------------------
 // Fake HttpRequest / InvocationContext
 // ---------------------------------------------------------------------------
@@ -480,6 +684,10 @@ for (const [id, exports] of Object.entries(mockModules)) {
 function fakeRequest({ method = "GET", url = "http://localhost:7071/api/test", headers = {}, params = {}, body } = {}) {
   const headerMap = new Map();
   for (const [k, v] of Object.entries(headers)) headerMap.set(k.toLowerCase(), v);
+  // Like a real client: a JSON body comes with its Content-Length (nail-photo uploads require one).
+  if (body !== undefined && !headerMap.has("content-length")) {
+    headerMap.set("content-length", String(Buffer.byteLength(JSON.stringify(body))));
+  }
   return {
     method,
     url,
@@ -631,11 +839,17 @@ require("../dist/functions/polishes");
 require("../dist/functions/capture");
 require("../dist/functions/ingestion");
 require("../dist/functions/admin-users");
+require("../dist/functions/admin-shade-review");
 require("../dist/functions/admin-reference");
 require("../dist/functions/voice");
 require("../dist/functions/images");
+require("../dist/functions/nail-photos");
 require("../dist/functions/manicures");
 const imageProxy = require("../dist/lib/image-proxy");
+
+// lib/nail-photos (like lib/image-proxy) imports the REAL dist/lib/blob-storage via "./blob-storage";
+// point only its blob delete at the recording mock so cleanup is observable without network.
+require("../dist/lib/blob-storage").deleteBlobFromStorageUrl = mockModules["../lib/blob-storage"].deleteBlobFromStorageUrl;
 
 beforeEach(() => {
   resetState();
@@ -723,6 +937,25 @@ const USER_SCOPED_REQUESTS = [
     params: { captureId: OWNER_CAPTURE_UUID },
     body: { answer: "yes" },
   },
+  {
+    route: "inventory-nail-photo",
+    method: "GET",
+    url: `http://localhost:7071/api/inventory/${OWNER_INVENTORY_ITEM_ID}/nail-photo`,
+    params: { inventoryItemId: String(OWNER_INVENTORY_ITEM_ID) },
+  },
+  {
+    route: "inventory-nail-photo",
+    method: "PUT",
+    url: `http://localhost:7071/api/inventory/${OWNER_INVENTORY_ITEM_ID}/nail-photo`,
+    params: { inventoryItemId: String(OWNER_INVENTORY_ITEM_ID) },
+    body: { image: "data:image/jpeg;base64,YWJj" },
+  },
+  {
+    route: "inventory-nail-photo",
+    method: "DELETE",
+    url: `http://localhost:7071/api/inventory/${OWNER_INVENTORY_ITEM_ID}/nail-photo`,
+    params: { inventoryItemId: String(OWNER_INVENTORY_ITEM_ID) },
+  },
 ];
 
 function requestLabel(r) {
@@ -794,6 +1027,11 @@ describe("access control — admin routes reject non-admin users", () => {
     for (const expected of [
       "admin-users-list",
       "admin-users-merge",
+      "admin-shade-review-list",
+      "admin-shade-review-candidates",
+      "admin-shade-review-approve",
+      "admin-shade-review-merge",
+      "admin-shade-review-reject",
       "admin-finishes",
       "admin-jobs",
       "ingestion-jobs",
@@ -1602,5 +1840,195 @@ describe("images signed-id (requires #47)", () => {
       assert.deepEqual(sideEffects.blobReads, []);
       assertOnlyAuthLookup();
     });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Private nail photos (#270)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("access control — private nail photos are scoped to the inventory owner (#270)", () => {
+  const ENV_KEYS = ["SOURCE_IMAGE_CONTAINER", "USER_MEDIA_CONTAINER", "AZURE_STORAGE_CONNECTION"];
+  let savedEnv;
+  beforeEach(() => {
+    savedEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
+    process.env.SOURCE_IMAGE_CONTAINER = MOCK_CATALOG_CONTAINER;
+    process.env.USER_MEDIA_CONTAINER = MOCK_USER_MEDIA_CONTAINER;
+    process.env.AZURE_STORAGE_CONNECTION =
+      "DefaultEndpointsProtocol=https;AccountName=swatchwatchacct;AccountKey=dGVzdA==;EndpointSuffix=core.windows.net";
+  });
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      if (savedEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = savedEnv[key];
+    }
+  });
+
+  const ownerItemParams = { inventoryItemId: String(OWNER_INVENTORY_ITEM_ID) };
+  const ownerItemUrl = `http://localhost:7071/api/inventory/${OWNER_INVENTORY_ITEM_ID}/nail-photo`;
+  const UPLOAD = { image: "data:image/jpeg;base64,YWJj" };
+
+  function nailPhoto(method, userId, extra = {}) {
+    return invoke("inventory-nail-photo", { method, userId, url: ownerItemUrl, params: ownerItemParams, ...extra });
+  }
+
+  function assertOwnerPhotoUnchanged() {
+    const photo = state.nailPhotos.get(OWNER_INVENTORY_ITEM_ID);
+    assert.ok(photo, "owner's nail photo must still be linked");
+    assert.equal(photo.imageId, OWNER_NAIL_PHOTO_IMAGE_ID);
+    assert.deepEqual(state.nailAssets.get(OWNER_NAIL_PHOTO_IMAGE_ID), { ownerId: OWNER, storageUrl: OWNER_NAIL_PHOTO_URL });
+  }
+
+  function assertNoNailPhotoSideEffects() {
+    assert.equal(sideEffects.nailPhotoNormalizeCalls, 0, "attacker bytes must never be processed");
+    assert.deepEqual(sideEffects.blobUploads, [], "nothing may be uploaded");
+    assert.deepEqual(sideEffects.blobDeletes, [], "no blob may be deleted");
+  }
+
+  /** Every statement touching the inventory table binds the caller's user id. */
+  function assertItemLookupsScopedTo(callerId) {
+    const lookups = handlerCalls().filter((c) => /user_inventory_item/i.test(c.sql));
+    assert.ok(lookups.length > 0, "expected an inventory ownership lookup");
+    for (const call of lookups) {
+      const placeholders = userIdPlaceholders(call.sql);
+      assert.ok(placeholders.length > 0, `missing user_id predicate: ${describeCall(call)}`);
+      for (const n of placeholders) {
+        assert.equal(Number(call.params[n - 1]), callerId, `must bind the caller: ${describeCall(call)}`);
+      }
+    }
+  }
+
+  it("owner sanity check: GET returns the photo as an owner-scoped v3 proxy URL only", async () => {
+    const res = await nailPhoto("GET", OWNER);
+    assert.equal(res.status, 200);
+    const { photo } = res.jsonBody;
+    assert.equal(photo.inventoryItemId, String(OWNER_INVENTORY_ITEM_ID));
+    assert.match(photo.imageUrl, /^http:\/\/localhost:7071\/api\/images\/v3\./);
+    const serialized = JSON.stringify(res.jsonBody);
+    assertNoBlobStorageUrls(res.jsonBody);
+    assert.ok(!/\/api\/images\/v2\./.test(serialized), "no public v2 id may be returned");
+    assert.match(res.headers["Cache-Control"], /no-store/);
+    assertItemLookupsScopedTo(OWNER);
+    assertNoMutations();
+  });
+
+  it("GET of the owner's item by another user is 404 and reveals nothing", async () => {
+    const res = await nailPhoto("GET", ATTACKER);
+    assert.equal(res.status, 404);
+    const serialized = JSON.stringify(res.jsonBody);
+    assert.ok(!serialized.includes("images/v3"), `leaked an image id: ${serialized}`);
+    assert.ok(!serialized.includes("nail-photos"), `leaked a storage URL: ${serialized}`);
+    assertItemLookupsScopedTo(ATTACKER);
+    assertNoMutations();
+    assertNoNailPhotoSideEffects();
+  });
+
+  it("PUT on the owner's item by another user is 404 before the body is read or any image work", async () => {
+    const res = await nailPhoto("PUT", ATTACKER, { body: UPLOAD });
+    assert.equal(res.status, 404);
+    assertItemLookupsScopedTo(ATTACKER);
+    assertNoMutations();
+    assertNoNailPhotoSideEffects();
+    assertOwnerPhotoUnchanged();
+  });
+
+  it("PUT by another user who owns a different item still cannot target the owner's item id", async () => {
+    state.inventory.set(`${ATTACKER}:${OWNED_SHADE_ID}`, {
+      inventoryItemId: "8001",
+      userId: ATTACKER,
+      shadeId: OWNED_SHADE_ID,
+      quantity: 1,
+      notes: null,
+      rating: null,
+      tags: null,
+    });
+    const res = await nailPhoto("PUT", ATTACKER, { body: UPLOAD });
+    assert.equal(res.status, 404);
+    assertNoMutations();
+    assertNoNailPhotoSideEffects();
+    assertOwnerPhotoUnchanged();
+  });
+
+  it("DELETE of the owner's photo by another user is 404 and deletes nothing", async () => {
+    const res = await nailPhoto("DELETE", ATTACKER);
+    assert.equal(res.status, 404);
+    assertItemLookupsScopedTo(ATTACKER);
+    assertNoMutations();
+    assertNoNailPhotoSideEffects();
+    assertOwnerPhotoUnchanged();
+  });
+
+  it("an ADMIN gets no bypass: GET/PUT/DELETE on another user's item are 404", async () => {
+    for (const method of ["GET", "PUT", "DELETE"]) {
+      sqlCalls.length = 0;
+      const res = await nailPhoto(method, ADMIN, method === "PUT" ? { body: UPLOAD } : {});
+      assert.equal(res.status, 404, `${method} by admin`);
+      assertNoMutations();
+    }
+    assertNoNailPhotoSideEffects();
+    assertOwnerPhotoUnchanged();
+  });
+
+  it("the owner's photo URL cannot be read with another user's (or an admin's) bearer token", async () => {
+    const { photo } = (await nailPhoto("GET", OWNER)).jsonBody;
+    const id = decodeURIComponent(new URL(photo.imageUrl).pathname.split("/").pop());
+
+    const asOwner = await invoke("images", { method: "GET", userId: OWNER, url: photo.imageUrl, params: { id } });
+    assert.equal(asOwner.status, 200, "positive control: the owner can read it");
+    assert.deepEqual(sideEffects.blobReads, [OWNER_NAIL_PHOTO_URL]);
+
+    sideEffects.blobReads.length = 0;
+    for (const userId of [ATTACKER, ADMIN]) {
+      const res = await invoke("images", { method: "GET", userId, url: photo.imageUrl, params: { id } });
+      assert.equal(res.status, 403, `user ${userId} must be refused`);
+    }
+    const anonymous = await invoke("images", { method: "GET", url: photo.imageUrl, params: { id } });
+    assert.equal(anonymous.status, 401);
+    assert.deepEqual(sideEffects.blobReads, [], "no blob read for anyone but the owner");
+  });
+
+  it("owner PUT replaces the photo: new blob in nail-photos, image_asset owned by the caller, old blob deleted", async () => {
+    const res = await nailPhoto("PUT", OWNER, { body: UPLOAD });
+    assert.equal(res.status, 200);
+    assert.equal(sideEffects.nailPhotoNormalizeCalls, 1);
+    assert.equal(sideEffects.blobUploads.length, 1);
+    const upload = sideEffects.blobUploads[0];
+    assert.equal(upload.containerName, MOCK_USER_MEDIA_CONTAINER);
+    assert.match(upload.url, new RegExp(`/nail-photos/${OWNER}/${OWNER_INVENTORY_ITEM_ID}/[0-9a-f-]{36}\\.jpg$`));
+
+    const photo = state.nailPhotos.get(OWNER_INVENTORY_ITEM_ID);
+    assert.notEqual(photo.imageId, OWNER_NAIL_PHOTO_IMAGE_ID);
+    assert.deepEqual(state.nailAssets.get(photo.imageId), { ownerId: OWNER, storageUrl: upload.url });
+    assert.equal(state.nailAssets.has(OWNER_NAIL_PHOTO_IMAGE_ID), false, "old asset removed");
+    assert.deepEqual(sideEffects.blobDeletes, [OWNER_NAIL_PHOTO_URL], "old blob removed");
+
+    assert.match(res.jsonBody.photo.imageUrl, /\/api\/images\/v3\./);
+    assertNoBlobStorageUrls(res.jsonBody);
+    assertItemLookupsScopedTo(OWNER);
+  });
+
+  it("owner DELETE removes the link, the asset and the blob", async () => {
+    const res = await nailPhoto("DELETE", OWNER);
+    assert.equal(res.status, 204);
+    assert.equal(state.nailPhotos.has(OWNER_INVENTORY_ITEM_ID), false);
+    assert.equal(state.nailAssets.has(OWNER_NAIL_PHOTO_IMAGE_ID), false);
+    assert.deepEqual(sideEffects.blobDeletes, [OWNER_NAIL_PHOTO_URL]);
+    assertItemLookupsScopedTo(OWNER);
+  });
+
+  it("deleting the polish (inventory row) also deletes its nail photo, for the owner only", async () => {
+    const detailUrl = `http://localhost:7071/api/polishes/${OWNED_SHADE_ID}`;
+    const params = { id: String(OWNED_SHADE_ID) };
+
+    const denied = await invoke("polishes-mutate", { method: "DELETE", userId: ATTACKER, url: detailUrl, params });
+    assert.ok([403, 404].includes(denied.status));
+    assertOwnerPhotoUnchanged();
+    assert.deepEqual(sideEffects.blobDeletes, []);
+
+    const res = await invoke("polishes-mutate", { method: "DELETE", userId: OWNER, url: detailUrl, params });
+    assert.equal(res.status, 200);
+    assert.equal(state.nailPhotos.has(OWNER_INVENTORY_ITEM_ID), false);
+    assert.equal(state.nailAssets.has(OWNER_NAIL_PHOTO_IMAGE_ID), false);
+    assert.deepEqual(sideEffects.blobDeletes, [OWNER_NAIL_PHOTO_URL]);
   });
 });
