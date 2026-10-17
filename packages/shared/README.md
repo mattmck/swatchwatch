@@ -95,6 +95,22 @@ Mani log (#269): `/api/manicures` payloads. Logging, editing or deleting a manic
 | `parseImportQuantity`, `parseImportPrice`, `parseImportCurrency`, `parseImportDate` (+ `detectImportDateOrder`), `parseImportStatus`, `parseImportTried`, `splitImportFinishes`, `stripFormulaGuard`, `cleanImportText`, `importMatchKey` | Cell parsers (each returns `{ value?, error? }`) and normalization helpers |
 | `POLISH_IMPORT_MAX_BYTES` (1 MB), `POLISH_IMPORT_MAX_ROWS` (1000), `POLISH_IMPORT_MAX_COLUMNS` (100), `POLISH_IMPORT_MAX_NOTES_LENGTH`, `POLISH_IMPORT_MAX_NAME_LENGTH` | Limits enforced by the API and pre-checked by the web |
 
+### `types/collection-export.ts`
+
+Collection export (#264), `GET /api/polishes/export`.
+
+| Export | Description |
+|--------|-------------|
+| `POLISH_CSV_COLUMNS` | The CSV column contract shared with the CSV import (#263): `{ key, header, importField }[]` in file order. Round-trip columns first (`Brand`→`brand`, `Shade name`→`name`, `Finishes`→`finish`, `Quantity`→`quantity`, `Status`→`status`, `Date tried`→`tried`, `Purchase price`→`price`, `Currency`→`currency`, `Purchase date`→`purchaseDate`, `Notes`→`notes`; each header is one the importer recognizes as a strong synonym), then export-only extras with `importField: null` (`Display hex`, `Collection`, `Rating`, `Tags`, `Size`, `Expiration date`, `Last worn`, `Wear count`, `Shade ID`, `Item ID`, `Created at`, `Updated at`) |
+| `POLISH_CSV_HEADERS` | Header row (`POLISH_CSV_COLUMNS[].header`) |
+| `PolishCsvColumn` / `PolishCsvColumnKey` / `PolishCsvImportField` | Column shape, column keys, and the importer field names a column can feed |
+| `POLISH_CSV_LIST_SEPARATOR` | `", "` — joins `Finishes` and `Tags` cells |
+| `COLLECTION_EXPORT_VERSION` | `1` — JSON envelope version; bump when a field is removed or changes meaning |
+| `COLLECTION_EXPORT_FORMATS` / `CollectionExportFormat` / `isCollectionExportFormat()` | `"csv" \| "json"` |
+| `CollectionExportItem` | One exported inventory row: a `Polish` subset (`inventoryItemId`, `shadeId`, `brand`, `name`, `color`, `finishes`, `collection`, `quantity`, `status`, `isUntried`, `triedAt`, `lastWornAt`, `wearCount`, `purchasePrice`, `purchaseCurrency`, `purchaseDate`, `expirationDate`, `size`, `rating`, `notes`, `tags`, the three hexes, `createdAt`, `updatedAt`) plus `displayHex`; no image URLs |
+| `CollectionExport` | JSON envelope `{ version: 1, exportedAt, statusFilter, itemCount, items }` |
+| `collectionExportFilename(format, at?)` | `swatchwatch-collection-YYYY-MM-DD.<format>` (UTC date) |
+
 ### `constants/finishes.ts`
 
 | Export | Description |
