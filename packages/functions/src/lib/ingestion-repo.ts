@@ -363,6 +363,7 @@ function resolveAiImageUrl(storageUrl: string | null): string | null {
     }
 
     try {
+      // Only ever catalog (SOURCE_IMAGE_CONTAINER) URLs from uploadSourceImageToBlob reach here, so this always mints a public v2 id Azure OpenAI can fetch anonymously (#227).
       return toImageProxyUrlFromOrigin(INGESTION_AI_IMAGE_PROXY_ORIGIN, storageUrl);
     } catch (error) {
       console.warn(

@@ -15,13 +15,13 @@ import { query, transaction } from "../lib/db";
 import { withAuth, withAdmin } from "../lib/auth";
 import { withCors } from "../lib/http";
 import { internalServerError } from "../lib/errors";
-import { toImageProxyUrl } from "../lib/image-proxy";
+import { ImageProxyScopeError, toImageProxyUrl } from "../lib/image-proxy";
 import { detectHexWithAzureOpenAI } from "../lib/ai-color-detection";
 import {
   DETECTED_HEX_METHOD_CLIENT_SUPPLIED,
   provenanceFromDetection,
 } from "../lib/hex-provenance";
-import { readBlobFromStorageUrl } from "../lib/blob-storage";
+import { isCatalogStorageUrl, isUserMediaStorageUrl, readBlobFromStorageUrl } from "../lib/blob-storage";
 import {
   cacheDelete,
   cacheDeleteByPrefix,
@@ -499,11 +499,24 @@ function isStorageUrlProxied(url: string): boolean {
 }
 
 /**
- * Rewrite private blob URLs to signed `/api/images/{id}` capability URLs.
+ * Rewrite blob URLs to signed `/api/images/{id}` capability URLs.
+ *
+ * - Catalog blobs (`SOURCE_IMAGE_CONTAINER`) get public `v2` ids; `ownerUserId` is ignored.
+ * - A blob in the user-media container (`USER_MEDIA_CONTAINER`) gets an owner-scoped `v3` id only
+ *   when `ownerUserId` is given, i.e. when the caller has verified the image_asset row belongs to
+ *   the requesting user (#227). Without an owner it is omitted (null): that is the expected
+ *   outcome for another user's media, so it is not logged as an error.
+ * - Any other blob is omitted (null): the proxy would refuse to read it under either scope, so
+ *   minting an id would only produce a dead link.
+ *
  * Fails closed: if a URL cannot be signed (e.g. IMAGE_PROXY_SIGNING_KEY missing), the image is
  * omitted (null) rather than leaking the raw storage URL or failing the whole response.
  */
-function withReadableImageUrl(imageUrl: string, requestUrl: string): string | null {
+function withReadableImageUrl(
+  imageUrl: string,
+  requestUrl: string,
+  options: { ownerUserId?: number } = {}
+): string | null {
   const normalized = imageUrl.trim();
   if (!normalized) {
     return normalized;
@@ -512,8 +525,23 @@ function withReadableImageUrl(imageUrl: string, requestUrl: string): string | nu
     return normalized;
   }
   try {
-    return toImageProxyUrl(requestUrl, normalized);
+    if (
+      options.ownerUserId !== undefined &&
+      !isCatalogStorageUrl(normalized) &&
+      !isUserMediaStorageUrl(normalized)
+    ) {
+      return null;
+    }
+    return toImageProxyUrl(
+      requestUrl,
+      normalized,
+      options.ownerUserId !== undefined ? { ownerUserId: options.ownerUserId } : undefined
+    );
   } catch (error) {
+    if (error instanceof ImageProxyScopeError) {
+      // Non-catalog media the caller does not own: omit it silently.
+      return null;
+    }
     console.error(
       `[polishes] Omitting image: failed to build signed image proxy URL (${
         error instanceof Error ? error.message : String(error)
@@ -553,8 +581,12 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
         return { status: 404, jsonBody: { error: "Polish not found" } };
       }
 
-      const imagesResult = await query<{ storageUrl: string }>(
-        `SELECT ia.storage_url AS "storageUrl"
+      const imagesResult = await query<{
+        storageUrl: string;
+        ownerType: string | null;
+        ownerId: string | number | null;
+      }>(
+        `SELECT ia.storage_url AS "storageUrl", ia.owner_type AS "ownerType", ia.owner_id AS "ownerId"
          FROM swatch sw
          JOIN image_asset ia ON ia.image_id = sw.image_id_original
          WHERE sw.shade_id = $1
@@ -565,9 +597,14 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       const sourceImageUrls = Array.from(
         new Set(
           imagesResult.rows
-            .map((r) => r.storageUrl)
-            .filter((url): url is string => typeof url === "string" && url.trim().length > 0)
-            .map((url) => withReadableImageUrl(url, request.url))
+            .filter((r) => typeof r.storageUrl === "string" && r.storageUrl.trim().length > 0)
+            .map((r) =>
+              // Private media is minted owner-scoped only for image_asset rows the caller owns.
+              withReadableImageUrl(r.storageUrl, request.url, {
+                ownerUserId:
+                  r.ownerType === "user" && Number(r.ownerId) === Number(userId) ? Number(userId) : undefined,
+              })
+            )
             .filter((url): url is string => Boolean(url))
         )
       );

@@ -14,11 +14,15 @@
  * Override with env vars: E2E_API_BASE, E2E_OWNER_TOKEN, E2E_ATTACKER_TOKEN, and E2E_OWNER_ID
  * (the owner's numeric app_user id; required for the userId-spoofing cases when E2E_OWNER_TOKEN is
  * not a `dev:<id>` token — without it those cases are skipped rather than spoofing a guessed id).
+ * E2E_PRIVATE_IMAGE_URL: a server-minted owner-scoped (`v3`) /api/images/ URL for the owner's
+ * private media (#227); the owner-scoped image case is skipped when unset (the dev seed has no
+ * private media yet).
  *
  * Run: npm run test:e2e --workspace=swatchwatch-functions
  */
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 
 const BASE = (process.env.E2E_API_BASE || "http://localhost:7071/api").replace(/\/+$/, "");
 const OWNER = { Authorization: `Bearer ${process.env.E2E_OWNER_TOKEN || "dev:1"}` };
@@ -99,6 +103,20 @@ function assertImageIdRejected(res, label) {
 
 function b64url(input) {
   return Buffer.from(input).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+/**
+ * Owner-scoped `v3.<payload>.<exp>.<uid base36>.<MAC>` envelope with a random owner and a MAC from
+ * the attacker's own key (same message layout the server signs).
+ */
+function forgeV3Id(storageUrl, expBase36 = Math.floor(Date.now() / 1000 + 3600).toString(36)) {
+  const ownerUserId = crypto.randomInt(1, 1_000_000);
+  const expiresAt = Number.parseInt(expBase36, 36);
+  const mac = crypto
+    .createHmac("sha256", "attacker-key")
+    .update(`swatchwatch:image-proxy:v3:${expiresAt}:${ownerUserId}:${storageUrl}`)
+    .digest();
+  return `v3.${b64url(storageUrl)}.${expBase36}.${ownerUserId.toString(36)}.${b64url(mac)}`;
 }
 
 function fromB64url(input) {
@@ -427,10 +445,12 @@ test("access control e2e: users cannot access or modify each other's data", asyn
     }
 
     if (!imageUrl) {
-      // Still check that a hand-crafted id for a plausible blob URL is refused.
+      // Still check that hand-crafted ids for plausible blob URLs are refused.
       const forged = b64url("http://127.0.0.1:10000/devstoreaccount1/source-images/forged/acl.png");
       assertImageIdRejected(await api(`/images/${forged}`), "forged unsigned id");
-      st.diagnostic("No proxied image URLs in the dev data; only the forged-id check ran.");
+      const forgedV3 = forgeV3Id("http://127.0.0.1:10000/devstoreaccount1/nail-photos/forged/acl.png");
+      assertImageIdRejected(await api(`/images/${encodeURIComponent(forgedV3)}`), "forged v3 owner-scoped id");
+      st.diagnostic("No proxied image URLs in the dev data; only the forged-id checks ran.");
       return;
     }
 
@@ -454,9 +474,45 @@ test("access control e2e: users cannot access or modify each other's data", asyn
       "garbage signature": `${version}.${payload}.${exp}.${b64url("not-a-real-mac")}`,
       "flipped signature character": `${version}.${payload}.${exp}.${flipped}`,
       "valid signature transplanted onto another blob": `${version}.${b64url(otherBlob)}.${exp}.${signature}`,
+      // Owner-scoped envelope (#227) for the same blob, signed with the attacker's key. Rejected
+      // on the signature, before any auth lookup or blob read, with or without a token.
+      "forged v3 owner-scoped envelope": forgeV3Id(storageUrl, exp),
+      "forged v3 owner-scoped envelope for a private container":
+        forgeV3Id(storageUrl.replace(/\/source-images\//, "/nail-photos/"), exp),
     };
     for (const [label, id] of Object.entries(attempts)) {
       assertImageIdRejected(await api(`/images/${encodeURIComponent(id)}`), label);
     }
+    assertImageIdRejected(
+      await api(`/images/${encodeURIComponent(attempts["forged v3 owner-scoped envelope"])}`, { headers: ATTACKER }),
+      "forged v3 owner-scoped envelope with the attacker's token"
+    );
+  });
+
+  await t.test("owner-scoped (v3) image ids require the owner's token (#227)", async (st) => {
+    const privateImageUrl = process.env.E2E_PRIVATE_IMAGE_URL?.trim();
+    if (!privateImageUrl) {
+      st.diagnostic("E2E_PRIVATE_IMAGE_URL is not set (dev seed has no private media); owner-scoped image case skipped.");
+      st.skip("set E2E_PRIVATE_IMAGE_URL to a server-minted v3 /api/images/ URL owned by the E2E owner");
+      return;
+    }
+    const id = decodeURIComponent(new URL(privateImageUrl, `${BASE}/`).pathname.split("/").pop());
+    assert.match(id, /^v3\./, `E2E_PRIVATE_IMAGE_URL must carry a v3 id, got ${id}`);
+    const path = `/images/${encodeURIComponent(id)}`;
+
+    const owner = await fetch(`${BASE}${path}`, { headers: OWNER, signal: AbortSignal.timeout(30000) });
+    await owner.arrayBuffer();
+    assert.equal(owner.status, 200, `owner → ${owner.status}`);
+    assert.match(owner.headers.get("cache-control") || "", /^private,/);
+    assert.doesNotMatch(owner.headers.get("cache-control") || "", /public/);
+    assert.ok(
+      (owner.headers.get("vary") || "").toLowerCase().split(",").map((v) => v.trim()).includes("authorization"),
+      `Vary must include Authorization, got ${owner.headers.get("vary")}`
+    );
+
+    const attacker = await api(path, { headers: ATTACKER });
+    assert.equal(attacker.status, 403, `attacker → ${attacker.status}`);
+    const anonymous = await api(path);
+    assert.equal(anonymous.status, 401, `no token → ${anonymous.status}`);
   });
 });
