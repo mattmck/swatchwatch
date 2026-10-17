@@ -1079,11 +1079,13 @@ async function addToInventoryFromMatch(
   }
 
   // The entity id can come from the client (candidate_select), so refuse shades the caller
-  // cannot see: another user's private `user_submitted` shade must not be claimable by id.
+  // cannot see: another user's private `user_submitted` shade (or one retired by an admin merge)
+  // must not be claimable by id.
   const visible = await client.query(
     `SELECT 1
      FROM shade s
      WHERE s.shade_id = $2
+       AND s.merged_into_shade_id IS NULL
        AND (
          s.status <> 'user_submitted'
          OR s.created_by_user_id = $1

@@ -13,14 +13,21 @@ import { AdminJobsContent } from "@/app/(app)/admin/jobs/page";
 import { UsersTab } from "@/app/(admin)/admin/reference-data/components/users-tab";
 import { ConfigTab } from "./reference-data/components/config-tab";
 import { JobsTab } from "./reference-data/components/jobs-tab";
+import { ReviewQueueTab } from "./reference-data/components/review-queue-tab";
 
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
 const HAS_B2C_CONFIG = buildMsalConfig() !== null;
 
-type AdminTab = "configuration" | "job-runs" | "admin-jobs" | "users";
+type AdminTab = "configuration" | "job-runs" | "admin-jobs" | "users" | "review-queue";
 
 function getTabFromQuery(value: string | null): AdminTab {
-  if (value === "configuration" || value === "job-runs" || value === "admin-jobs" || value === "users") {
+  if (
+    value === "configuration" ||
+    value === "job-runs" ||
+    value === "admin-jobs" ||
+    value === "users" ||
+    value === "review-queue"
+  ) {
     return value;
   }
   return "configuration";
@@ -93,7 +100,7 @@ function AdminContent() {
         <CardHeader>
           <CardTitle>Admin Console</CardTitle>
           <CardDescription>
-            Configuration manages reference data, Job Runs lists recent reference-data jobs, Admin Jobs controls ingestion, and User Management repairs duplicate identities.
+            Configuration manages reference data, Job Runs lists recent reference-data jobs, Admin Jobs controls ingestion, User Management repairs duplicate identities, and Review Queue approves, merges, or rejects user-submitted shades.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -135,6 +142,15 @@ function AdminContent() {
               >
                 User Management
               </TabsPrimitive.Trigger>
+              <TabsPrimitive.Trigger
+                value="review-queue"
+                className={cn(
+                  "inline-flex items-center justify-center rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
+                  "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+                )}
+              >
+                Review Queue
+              </TabsPrimitive.Trigger>
             </TabsPrimitive.List>
 
             <TabsPrimitive.Content value="configuration" className="outline-none">
@@ -151,6 +167,10 @@ function AdminContent() {
 
             <TabsPrimitive.Content value="users" className="outline-none">
               <UsersTab />
+            </TabsPrimitive.Content>
+
+            <TabsPrimitive.Content value="review-queue" className="outline-none">
+              <ReviewQueueTab />
             </TabsPrimitive.Content>
           </TabsPrimitive.Root>
         </CardContent>

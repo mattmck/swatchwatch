@@ -427,6 +427,11 @@ test("access control e2e: users cannot access or modify each other's data", asyn
       ["GET", "/users-admin"],
       ["GET", "/reference-admin/jobs"],
       ["POST", `/polishes/${shadeId}/recalc-hex`],
+      ["GET", "/shades-admin/review"],
+      ["GET", `/shades-admin/review/${shadeId}/candidates`],
+      ["POST", `/shades-admin/review/${shadeId}/approve`],
+      ["POST", `/shades-admin/review/${shadeId}/merge`],
+      ["POST", `/shades-admin/review/${shadeId}/reject`],
     ]) {
       const res = await api(path, { method, headers: OWNER, body: method === "POST" ? {} : undefined });
       assert.equal(res.status, 403, `${method} ${path} as regular user → ${res.status}`);
