@@ -855,6 +855,139 @@ describe("functions/polishes — getPolishes", () => {
   });
 });
 
+describe("functions/polishes — primary swatch image selection", () => {
+  // Ingestion inserts gallery swatches after the product swatch, so "newest swatch" is a gallery
+  // image. Readers must rank the source_product swatch first and only then fall back to newest.
+  const PRIMARY_FIRST_ORDER =
+    /ORDER BY COALESCE\(sw\.swatch_type = 'source_product', false\) DESC, sw\.swatch_id DESC/;
+  const authUserRow = { user_id: 1, external_id: "ext-1", email: "admin@test", role: "admin" };
+
+  it("list thumbnail lateral join prefers the source_product swatch", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let listSql = null;
+    queryMock = async (sql) => {
+      if (sql.includes("FROM app_user")) return { rows: [authUserRow] };
+      if (sql.includes("swatch_img")) {
+        listSql = sql;
+        return { rows: [] };
+      }
+      return { rows: [{ total: "0" }] };
+    };
+
+    const handler = registeredRoutes["polishes-list"].handler;
+    const res = await handler(
+      fakeRequest({
+        url: "http://localhost:7071/api/polishes",
+        headers: { authorization: "Bearer dev:1" },
+        params: {},
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 200);
+    assert.ok(listSql, "list query should select the swatch thumbnail");
+    const lateral = listSql.slice(
+      listSql.indexOf("LEFT JOIN LATERAL"),
+      listSql.indexOf(") AS swatch_img")
+    );
+    assert.match(lateral, PRIMARY_FIRST_ORDER);
+  });
+
+  it("detail returns every source image with the product image first", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let imagesSql = null;
+    queryMock = async (sql) => {
+      if (sql.includes("FROM app_user")) return { rows: [authUserRow] };
+      if (sql.includes('AS "storageUrl"')) {
+        imagesSql = sql;
+        // Rows as Postgres returns them under the primary-first ordering.
+        return {
+          rows: [
+            { storageUrl: "https://example.com/product.png" },
+            { storageUrl: "https://example.com/gallery-2.png" },
+            { storageUrl: "https://example.com/gallery-1.png" },
+          ],
+        };
+      }
+      if (sql.includes("swatch_img")) {
+        return {
+          rows: [
+            {
+              id: "77",
+              brand: "OPI",
+              name: "Primary",
+              finish: "creme",
+              swatchImageUrl: "https://example.com/product.png",
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    };
+
+    const handler = registeredRoutes["polishes-list"].handler;
+    const res = await handler(
+      fakeRequest({
+        url: "http://localhost:7071/api/polishes/77",
+        headers: { authorization: "Bearer dev:1" },
+        params: { id: "77" },
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 200);
+    assert.ok(imagesSql, "detail should query the shade's swatch images");
+    assert.match(imagesSql, PRIMARY_FIRST_ORDER);
+    assert.doesNotMatch(imagesSql, /LIMIT/, "detail should return all images, not just the primary");
+    assert.deepEqual(res.jsonBody.sourceImageUrls, [
+      "https://example.com/product.png",
+      "https://example.com/gallery-2.png",
+      "https://example.com/gallery-1.png",
+    ]);
+    assert.equal(res.jsonBody.swatchImageUrl, "https://example.com/product.png");
+  });
+
+  it("recalc-hex shade lookup prefers the source_product swatch image", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let shadeSql = null;
+    queryMock = async (sql) => {
+      if (sql.includes("FROM app_user")) return { rows: [authUserRow] };
+      if (sql.includes("FROM shade s")) {
+        shadeSql = sql;
+        return {
+          rows: [
+            {
+              shade_id: 123,
+              shade_name_canonical: "Primary Shade",
+              detected_hex: null,
+              vendor_hex: null,
+              storage_url: "https://example.com/product.png",
+              vendor_tags: null,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    };
+
+    const handler = registeredRoutes["polishes-recalc-hex"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/polishes/123/recalc-hex",
+        headers: { authorization: "Bearer dev:1" },
+        params: { id: "123" },
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 200);
+    assert.ok(shadeSql, "recalc-hex should look up the shade and its swatch image");
+    assert.match(shadeSql, PRIMARY_FIRST_ORDER);
+    assert.match(shadeSql, /LIMIT 1/);
+  });
+});
+
 describe("functions/polishes — matchImage", () => {
   const sharp = require("sharp");
 

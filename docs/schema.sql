@@ -322,7 +322,7 @@ CREATE TABLE proposal_patch (
 -- Search indexes
 CREATE INDEX idx_brand_alias_trgm ON brand_alias USING GIN (alias gin_trgm_ops);
 CREATE INDEX idx_shade_name_trgm ON shade USING GIN (shade_name_canonical gin_trgm_ops);
-CREATE INDEX idx_swatch_shade_latest ON swatch (shade_id, swatch_id DESC); -- latest-swatch LATERAL lookup
+CREATE INDEX idx_swatch_shade_latest ON swatch (shade_id, swatch_id DESC); -- primary-swatch LATERAL lookup in POLISH_SELECT
 CREATE INDEX idx_shade_alias_trgm ON shade_alias USING GIN (alias gin_trgm_ops);
 CREATE INDEX idx_swatch_embedding ON color_features USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 
@@ -463,6 +463,18 @@ CREATE TABLE data_source (
   metadata JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Connector image URL each source image was downloaded from; ingestion reruns reuse the
+-- stored image when the URL is unchanged instead of downloading it again.
+CREATE TABLE source_image_url (
+  data_source_id BIGINT NOT NULL REFERENCES data_source(data_source_id) ON DELETE CASCADE,
+  source_url TEXT NOT NULL,
+  image_id BIGINT NOT NULL REFERENCES image_asset(image_id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (data_source_id, source_url)
+);
+CREATE INDEX idx_source_image_url_image ON source_image_url(image_id);
 
 -- Raw external product record keyed (primarily) by GTIN; may include ingredients/labels/etc.
 CREATE TABLE external_product (
