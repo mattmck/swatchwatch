@@ -515,4 +515,48 @@ test("access control e2e: users cannot access or modify each other's data", asyn
     const anonymous = await api(path);
     assert.equal(anonymous.status, 401, `no token → ${anonymous.status}`);
   });
+  await t.test("private nail photos are owner-only (#270)", async (st) => {
+    const { inventoryItemId } = await ownerView();
+    assert.ok(inventoryItemId, "owner has an inventory row");
+    const path = `/inventory/${inventoryItemId}/nail-photo`;
+    // A tiny JPEG with a GPS EXIF tag; the server must strip it.
+    const sharp = require("sharp");
+    const jpeg = await sharp({ create: { width: 16, height: 8, channels: 3, background: "#c81e5a" } })
+      .withExif({ IFD3: { GPSLatitudeRef: "N", GPSLatitude: "51/1 30/1 0/1" } })
+      .jpeg()
+      .toBuffer();
+    const body = { image: `data:image/jpeg;base64,${jpeg.toString("base64")}` };
+
+    for (const [method, reqBody] of [["GET"], ["PUT", body], ["DELETE"]]) {
+      const res = await api(path, { method, headers: ATTACKER, body: reqBody });
+      assert.equal(res.status, 404, `attacker ${method} ${path} → ${res.status}`);
+      const anonymous = await api(path, { method, body: reqBody });
+      assert.equal(anonymous.status, 401, `anonymous ${method} ${path} → ${anonymous.status}`);
+    }
+
+    const upload = await api(path, { method: "PUT", headers: OWNER, body, timeoutMs: 60000 });
+    if (upload.status === 503) {
+      st.diagnostic("Blob storage is not configured on the host; nail-photo upload cases skipped.");
+      return;
+    }
+    assert.ok([200, 201].includes(upload.status), `owner upload → ${upload.status} ${upload.text}`);
+    const imageUrl = upload.body.photo.imageUrl;
+    assert.match(imageUrl, /\/api\/images\/v3\./, "owner gets an owner-scoped v3 URL");
+    assert.ok(!upload.text.includes(".blob."), "no raw blob URL in the response");
+
+    try {
+      const id = decodeURIComponent(new URL(imageUrl).pathname.split("/").pop());
+      const imagePath = `/images/${encodeURIComponent(id)}`;
+      const owner = await fetch(`${BASE}${imagePath}`, { headers: OWNER, signal: AbortSignal.timeout(30000) });
+      const bytes = Buffer.from(await owner.arrayBuffer());
+      assert.equal(owner.status, 200, `owner image → ${owner.status}`);
+      assert.equal((await sharp(bytes).metadata()).exif, undefined, "stored photo carries no EXIF");
+      assert.equal((await api(imagePath, { headers: ATTACKER })).status, 403, "attacker cannot read the photo");
+      assert.equal((await api(imagePath)).status, 401, "anonymous cannot read the photo");
+      assert.equal((await api(path, { headers: ATTACKER })).status, 404, "attacker still sees nothing");
+    } finally {
+      const removed = await api(path, { method: "DELETE", headers: OWNER });
+      assert.equal(removed.status, 204, `owner delete → ${removed.status}`);
+    }
+  });
 });

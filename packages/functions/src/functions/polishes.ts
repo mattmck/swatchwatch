@@ -30,6 +30,7 @@ import {
   hashCacheKey,
 } from "../lib/cache";
 import { trackEvent, trackException } from "../lib/telemetry";
+import { deleteNailPhotoBlobs, detachNailPhotosForShade } from "../lib/nail-photos";
 import {
   extractImagePalette,
   MatchImageInputError,
@@ -1044,12 +1045,17 @@ async function deletePolish(request: HttpRequest, context: InvocationContext, us
       return { status: 400, jsonBody: { error: "Invalid polish id" } };
     }
 
+    // #270: the item's private nail photo (image_asset + blob) goes with it.
+    const nailPhotoBlobUrls = await detachNailPhotosForShade(userId, shadeId);
+
     const result = await query(
       `DELETE FROM user_inventory_item
        WHERE shade_id = $1 AND user_id = $2
        RETURNING inventory_item_id::text AS id`,
       [shadeId, userId]
     );
+
+    await deleteNailPhotoBlobs(nailPhotoBlobUrls, context);
 
     if (result.rows.length === 0) {
       return { status: 404, jsonBody: { error: "Polish not found for user" } };

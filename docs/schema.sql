@@ -341,6 +341,20 @@ CREATE TABLE inventory_event (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Private on-nail photo per inventory item (#270; migration 20261017062948506_inventory-nail-photo).
+-- Ownership is the inventory item's user_id. The image_asset (owner_type 'user') points at a
+-- metadata-stripped blob in USER_MEDIA_CONTAINER, served only through owner-scoped v3 ids (#227).
+CREATE TABLE inventory_nail_photo (
+  inventory_item_id BIGINT PRIMARY KEY REFERENCES user_inventory_item(inventory_item_id) ON DELETE CASCADE,
+  image_id BIGINT NOT NULL UNIQUE REFERENCES image_asset(image_id) ON DELETE CASCADE,
+  content_type TEXT NOT NULL,
+  width INT CHECK (width IS NULL OR width > 0),
+  height INT CHECK (height IS NULL OR height > 0),
+  size_bytes INT CHECK (size_bytes IS NULL OR size_bytes > 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Contributions (staging)
 CREATE TABLE user_submission (
   submission_id BIGSERIAL PRIMARY KEY,
