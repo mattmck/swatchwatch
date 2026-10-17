@@ -34,6 +34,64 @@ export interface FinishTypeUpdateRequest {
   sortOrder?: number;
 }
 
+/**
+ * 409 body of `DELETE /api/reference-admin/finishes/{id}` when the finish type is still in use.
+ * A finish type referenced by any shade (`shade.finishes` or the legacy `shade.finish`) or by a
+ * `finish_normalization` alias cannot be deleted.
+ */
+export interface FinishTypeInUseResponse {
+  /** Human-readable message (shown as-is in the admin console). */
+  error: string;
+  code: "FINISH_TYPE_IN_USE";
+  finishTypeId: number;
+  name: string;
+  /** Shades whose `finishes` array or legacy `finish` holds this finish. */
+  shadeCount: number;
+  /** `finish_normalization` alias rows that map to this finish. */
+  normalizationCount: number;
+}
+
+/**
+ * What a rename (`PUT /api/reference-admin/finishes/{id}` with a changed `name`) rewrote. The
+ * rename cascades in one transaction. The legacy `shade.finish` column is NOT rewritten: it is the
+ * shade's raw vendor identity/dedup key, so the old spelling is kept as an alias instead.
+ */
+export interface FinishTypeRenameSummary {
+  /** `finish_type.name` before the rename. */
+  previousName: string;
+  /**
+   * Shades rewritten: the old finish replaced in `finishes` / `detected_finishes` (order kept,
+   * duplicates dropped), or an empty `finishes` filled from a legacy `finish` equal to the old name.
+   */
+  shadeCount: number;
+  /** `finish_normalization` rows repointed from the old name to the new one. */
+  normalizationCount: number;
+  /** True when a `finish_normalization` alias (old name → new name) was added. */
+  aliasCreated: boolean;
+}
+
+/** 200 body of `PUT /api/reference-admin/finishes/{id}`; `rename` is set only when `name` changed. */
+export interface FinishTypeUpdateResponse extends FinishType {
+  rename?: FinishTypeRenameSummary;
+}
+
+/**
+ * 409 body of `PUT /api/reference-admin/finishes/{id}` when the new name already belongs to another
+ * finish type (compared case-insensitively, whitespace collapsed). Nothing is changed.
+ */
+export interface FinishTypeNameTakenResponse {
+  /** Human-readable message (shown as-is in the admin console). */
+  error: string;
+  code: "FINISH_TYPE_NAME_TAKEN";
+  finishTypeId: number;
+  /** Current name of the finish type being renamed. */
+  name: string;
+  requestedName: string;
+  /** The other finish type that already has this name, when known. */
+  conflictingFinishTypeId?: number;
+  conflictingName?: string;
+}
+
 export interface HarmonyTypeCreateRequest {
   name: string;
   displayName: string;
