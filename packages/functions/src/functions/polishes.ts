@@ -31,6 +31,8 @@ import {
   hashCacheKey,
 } from "../lib/cache";
 import { trackEvent, trackException } from "../lib/telemetry";
+import { invalidatePolishCachesForUser } from "../lib/polish-cache";
+import { recomputeWearStats } from "../lib/manicure";
 import {
   extractImagePalette,
   MatchImageInputError,
@@ -503,13 +505,6 @@ function buildPolishListCacheKey(
   return `polishes:list:u:${userId}:o:${originHash}:h:${hash}`;
 }
 
-async function invalidatePolishCachesForUser(userId: number, shadeIds: number[] = []): Promise<void> {
-  await Promise.all([
-    cacheDeleteByPrefix(`polishes:list:u:${userId}:`),
-    ...shadeIds.map((shadeId) => cacheDeleteByPrefix(`polishes:detail:u:${userId}:id:${shadeId}:`)),
-  ]);
-}
-
 async function invalidateGlobalPolishCaches(): Promise<void> {
   await Promise.all([
     cacheDeleteByPrefix("polishes:list:u:"),
@@ -968,6 +963,8 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       }
 
       await upsertInventoryItem(client, userId, resolvedShadeId, body, inventoryFields);
+      // A re-added polish picks its wear stats back up from the mani log (#269).
+      await recomputeWearStats(client, userId, [resolvedShadeId], { fillTriedAt: false });
 
       return { shadeId: resolvedShadeId };
     });
@@ -1082,6 +1079,8 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
       if (!inventoryItemId) {
         throw new Error("Inventory upsert failed");
       }
+      // wear_count / last_worn_at are derived from the mani log (#269); tried_at is left as sent.
+      await recomputeWearStats(client, userId, [targetShadeId], { fillTriedAt: false });
 
       return targetShadeId;
     });

@@ -634,6 +634,7 @@ require("../dist/functions/admin-users");
 require("../dist/functions/admin-reference");
 require("../dist/functions/voice");
 require("../dist/functions/images");
+require("../dist/functions/manicures");
 const imageProxy = require("../dist/lib/image-proxy");
 
 beforeEach(() => {
@@ -676,6 +677,23 @@ const USER_SCOPED_REQUESTS = [
     url: `http://localhost:7071/api/polishes/${OWNED_SHADE_ID}`,
     params: { id: String(OWNED_SHADE_ID) },
   },
+  // Mani log (#269); cross-user isolation is covered in manicures.unit.test.cjs.
+  { route: "manicures-list", method: "GET", url: "http://localhost:7071/api/manicures", params: {} },
+  { route: "manicures-list", method: "GET", url: "http://localhost:7071/api/manicures/1", params: { id: "1" } },
+  {
+    route: "manicures-create",
+    method: "POST",
+    url: "http://localhost:7071/api/manicures",
+    body: { polishes: [{ shadeId: OWNED_SHADE_ID }] },
+  },
+  {
+    route: "manicures-mutate",
+    method: "PATCH",
+    url: "http://localhost:7071/api/manicures/1",
+    params: { id: "1" },
+    body: { notes: "x" },
+  },
+  { route: "manicures-mutate", method: "DELETE", url: "http://localhost:7071/api/manicures/1", params: { id: "1" } },
   { route: "capture-start", method: "POST", url: "http://localhost:7071/api/capture/start", body: {} },
   { route: "voice-process", method: "POST", url: "http://localhost:7071/api/voice", body: {} },
   {

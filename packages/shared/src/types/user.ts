@@ -74,5 +74,7 @@ export interface AdminUserMergeResponse {
   mergedClickEventRows: number;
   message: string;
   mergedInventoryDuplicateRows?: number;
+  /** Mani-log manicures moved from the source account (issue #269). */
+  mergedManicureRows?: number;
   targetRole?: string;
 }

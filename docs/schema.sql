@@ -352,13 +352,52 @@ CREATE UNIQUE INDEX idx_user_inventory_unique_shade
 CREATE INDEX idx_user_inventory_status
   ON user_inventory_item(user_id, status);
 
+-- Mani log (migration 20261017063740704_manicure-log, issue #269). user_inventory_item
+-- wear_count / last_worn_at are derived from these rows by the API (recomputed for the affected
+-- shades on every create/edit/delete); tried_at is filled from the earliest wear when NULL.
+CREATE TABLE manicure (
+  manicure_id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES app_user(user_id) ON DELETE CASCADE,
+  worn_on DATE NOT NULL,           -- the user's local calendar date
+  notes TEXT
+    CONSTRAINT chk_manicure_notes_length CHECK (notes IS NULL OR char_length(notes) <= 2000),
+  photo_image_id BIGINT REFERENCES image_asset(image_id) ON DELETE SET NULL, -- owner_type 'user', owner_id = user_id (API-checked)
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_manicure_user_worn_on
+  ON manicure(user_id, worn_on DESC, manicure_id DESC);
+
+-- Keyed by shade_id: user_inventory_item is unique per (user_id, shade_id).
+CREATE TABLE manicure_polish (
+  manicure_polish_id BIGSERIAL PRIMARY KEY,
+  manicure_id BIGINT NOT NULL REFERENCES manicure(manicure_id) ON DELETE CASCADE,
+  shade_id BIGINT NOT NULL REFERENCES shade(shade_id) ON DELETE CASCADE,
+  role TEXT NOT NULL DEFAULT 'color'
+    CONSTRAINT chk_manicure_polish_role
+    CHECK (role IN ('base', 'color', 'accent', 'topper', 'other')),
+  position SMALLINT NOT NULL DEFAULT 0
+    CONSTRAINT chk_manicure_polish_position CHECK (position >= 0),
+  CONSTRAINT uq_manicure_polish_shade_role UNIQUE (manicure_id, shade_id, role)
+);
+
+CREATE INDEX idx_manicure_polish_shade
+  ON manicure_polish(shade_id, manicure_id);
+
 CREATE TABLE inventory_event (
   inventory_event_id BIGSERIAL PRIMARY KEY,
   inventory_item_id BIGINT NOT NULL REFERENCES user_inventory_item(inventory_item_id) ON DELETE CASCADE,
   event_type TEXT NOT NULL, -- added|updated|sold|decluttered|used|...
   event_payload JSONB,
+  -- Manicure behind a mani-log `used` event (migration 20261017063740704_manicure-log).
+  manicure_id BIGINT REFERENCES manicure(manicure_id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE INDEX idx_inventory_event_manicure
+  ON inventory_event(manicure_id)
+  WHERE manicure_id IS NOT NULL;
 
 -- Contributions (staging)
 CREATE TABLE user_submission (
