@@ -152,6 +152,20 @@ Admin review queue for `user_submitted` shades (`/api/shades-admin/review*`).
 | `ShadeReviewMergeRequest` / `ShadeReviewRejectRequest` | `{ targetShadeId, keepNameAsAlias?, note? }` / `{ note? }` |
 | `ShadeReviewActionResponse` / `ShadeReviewMergeResponse` | Action result (`status`, `reviewStatus`, `reviewedAt`, `reviewedByUserId`, `message`); merge adds `targetShadeId` and moved/combined inventory, alias, SKU and swatch counts |
 
+### `types/wishlist-share.ts`
+
+Shareable wishlist (#268), behind the server flag `SHAREABLE_WISHLIST_ENABLED` (off by default).
+
+| Type | Description |
+|------|-------------|
+| `WishlistShareStatus` | Owner view of their link (`GET/POST/DELETE /api/wishlist-share`, `POST /api/wishlist-share/rotate`): `enabled`, `token` (re-derived; null when none or no longer derivable), `path` (`/w/?token=…`), `displayName`, `wishlistCount` (items the public page shows), `hiddenCount` (own `user_submitted` shades kept private), `createdAt`, `rotatedAt` |
+| `WishlistShareEnableRequest` | `{ displayName?: string \| null }` — optional public name (≤ 60 chars, no email addresses) |
+| `PublicWishlistItem` | Public allowlist entry: `brand`, `name`, `finishes`, `hex` (display hex), `imageUrl` (public catalog image or null) |
+| `PublicWishlistResponse` | `GET /api/wishlist/{token}`: `{ displayName, items }` — no ids, email, notes, prices or quantities |
+| `wishlistSharePath(token)` | Web path of the public page, `/w/?token=<token>` (static export → query param) |
+| `WISHLIST_SHARE_FEATURE_DISABLED_CODE` | `"feature_disabled"` — `code` of the 404 every wishlist-share route returns while the flag is off |
+| `WISHLIST_SHARE_DISPLAY_NAME_MAX_LENGTH` | `60` |
+
 ### `types/voice.ts`
 
 | Type | Description |

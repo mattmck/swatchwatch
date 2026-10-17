@@ -19,3 +19,4 @@ export * from './functions/polishes';
 export * from './functions/polish-imports';
 export * from './functions/reference';
 export * from './functions/voice';
+export * from './functions/wishlist-share';

@@ -14,6 +14,7 @@ export * from "./types/color-match";
 export * from "./types/ingestion";
 export * from "./types/nail-photo";
 export * from "./types/shade-review";
+export * from "./types/wishlist-share";
 export {
   type FinishType,
   type FinishTypeCreateRequest,

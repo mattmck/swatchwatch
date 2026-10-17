@@ -565,6 +565,28 @@ CREATE TABLE manicure_polish (
 CREATE INDEX idx_manicure_polish_shade
   ON manicure_polish(shade_id, manicure_id);
 
+-- Shareable wishlist (migration 20261017064751368_wishlist-share, issue #268). One opt-in,
+-- revocable read-only link per user for their status = 'wishlist' items, behind the
+-- SHAREABLE_WISHLIST_ENABLED flag. The raw token is never stored: it is re-derived as
+-- base64url(HMAC-SHA256(server subkey, "<user_id>:<token_salt>")) and looked up by its SHA-256
+-- (token_hash). Rotation replaces salt + hash; revocation deletes the row.
+CREATE TABLE wishlist_share (
+  wishlist_share_id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES app_user(user_id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL,
+  token_salt TEXT NOT NULL,
+  display_name TEXT,               -- owner-chosen public name; never derived from the email
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  rotated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT uq_wishlist_share_user UNIQUE (user_id),
+  CONSTRAINT uq_wishlist_share_token_hash UNIQUE (token_hash),
+  CONSTRAINT chk_wishlist_share_token_hash CHECK (token_hash ~ '^[0-9a-f]{64}$'),
+  CONSTRAINT chk_wishlist_share_display_name CHECK (
+    display_name IS NULL OR char_length(display_name) BETWEEN 1 AND 60
+  )
+);
+
 CREATE TABLE inventory_event (
   inventory_event_id BIGSERIAL PRIMARY KEY,
   inventory_item_id BIGINT NOT NULL REFERENCES user_inventory_item(inventory_item_id) ON DELETE CASCADE,
