@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
-import type { FinishNormalization, FinishType, ReferenceHarmonyType } from "swatchwatch-shared";
+import type {
+  FinishNormalization,
+  FinishType,
+  FinishTypeUpdateResponse,
+  ReferenceHarmonyType,
+} from "swatchwatch-shared";
 import {
   createFinishNormalization,
   createFinishType,
@@ -86,8 +91,96 @@ interface ReferenceSectionProps<T extends ReferenceRecord> {
       description?: string;
       sortOrder?: number;
     }
-  ) => Promise<void>;
+  ) => Promise<string | void>;
   onDelete: (id: number) => Promise<void>;
+  /** Extra sentence for the delete confirmation (e.g. when deletes can be refused). */
+  deleteHint?: string;
+  /** Extra sentence for the edit dialog when updating an existing row (e.g. what a rename does). */
+  editHint?: string;
+}
+
+/**
+ * Run a reference-row delete for the confirmation dialog. On failure the server's message is
+ * kept for display (e.g. the 409 "still used by N shades" message for an in-use finish type)
+ * and the dialog stays open; on success `onSuccess` closes it.
+ */
+export async function runReferenceDelete(params: {
+  id: number;
+  singularLabel: string;
+  onDelete: (id: number) => Promise<void>;
+  setPending: (pending: boolean) => void;
+  setError: (message: string | null) => void;
+  onSuccess: () => void;
+}): Promise<void> {
+  const { id, singularLabel, onDelete, setPending, setError, onSuccess } = params;
+  try {
+    setPending(true);
+    setError(null);
+    await onDelete(id);
+    onSuccess();
+    setError(null);
+  } catch (deleteError: unknown) {
+    setError(deleteError instanceof Error && deleteError.message ? deleteError.message : `Failed to delete ${singularLabel}`);
+  } finally {
+    setPending(false);
+  }
+}
+
+/**
+ * Run a reference-row update for the edit dialog. `onUpdate` may resolve to a result notice
+ * (e.g. "Renamed …; 12 shades updated."): the dialog then stays open to show it. Without a notice
+ * `onClose` closes the dialog. On failure the server's message (e.g. the 409 "finish type …
+ * already exists") is kept for display and the dialog stays open.
+ */
+export async function runReferenceUpdate<P>(params: {
+  id: number;
+  payload: P;
+  singularLabel: string;
+  onUpdate: (id: number, payload: P) => Promise<string | void>;
+  setPending: (pending: boolean) => void;
+  setError: (message: string | null) => void;
+  setNotice: (message: string | null) => void;
+  onClose: () => void;
+}): Promise<void> {
+  const { id, payload, singularLabel, onUpdate, setPending, setError, setNotice, onClose } = params;
+  try {
+    setPending(true);
+    setError(null);
+    setNotice(null);
+    const notice = await onUpdate(id, payload);
+    if (notice) {
+      setNotice(notice);
+    } else {
+      onClose();
+    }
+  } catch (updateError: unknown) {
+    setError(updateError instanceof Error && updateError.message ? updateError.message : `Failed to save ${singularLabel}`);
+  } finally {
+    setPending(false);
+  }
+}
+
+function pluralize(count: number, singular: string): string {
+  return `${count} ${count === 1 ? singular : `${singular}s`}`;
+}
+
+/**
+ * Result line for a finish type update: `null` unless the name changed, otherwise e.g.
+ * `Renamed "chrome" to "mirror"; 12 shades updated, 1 finish normalization repointed. "chrome" is kept as an alias.`
+ */
+export function finishTypeRenameNotice(response: FinishTypeUpdateResponse): string | null {
+  const rename = response.rename;
+  if (!rename) return null;
+  const changes = [`${pluralize(rename.shadeCount, "shade")} updated`];
+  if (rename.normalizationCount > 0) {
+    changes.push(`${pluralize(rename.normalizationCount, "finish normalization")} repointed`);
+  }
+  let notice = `Renamed "${rename.previousName}" to "${response.name}"; ${changes.join(", ")}.`;
+  if (rename.aliasCreated) {
+    const oldSpelling = rename.previousName.trim().toLowerCase().replace(/\s+/g, " ");
+    notice += ` "${oldSpelling}" is kept as an alias.`;
+  }
+  return notice;
 }
 
 function toFormValues(record?: ReferenceRecord): ReferenceFormValues {
@@ -132,6 +225,8 @@ function ReferenceSection<T extends ReferenceRecord>({
   onCreate,
   onUpdate,
   onDelete,
+  deleteHint,
+  editHint,
 }: ReferenceSectionProps<T>) {
   const fieldId = useId();
   const [query, setQuery] = useState("");
@@ -141,6 +236,7 @@ function ReferenceSection<T extends ReferenceRecord>({
   const [editingRecord, setEditingRecord] = useState<T | null>(null);
   const [pending, setPending] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [formNotice, setFormNotice] = useState<string | null>(null);
 
   const [deleteTarget, setDeleteTarget] = useState<T | null>(null);
   const [deletePending, setDeletePending] = useState(false);
@@ -161,6 +257,7 @@ function ReferenceSection<T extends ReferenceRecord>({
     setEditingRecord(null);
     setFormValues(toFormValues());
     setFormError(null);
+    setFormNotice(null);
     setIsEditOpen(true);
   }
 
@@ -169,6 +266,7 @@ function ReferenceSection<T extends ReferenceRecord>({
     setEditingRecord(record);
     setFormValues(toFormValues(record));
     setFormError(null);
+    setFormNotice(null);
     setIsEditOpen(true);
   }
 
@@ -188,26 +286,39 @@ function ReferenceSection<T extends ReferenceRecord>({
       return;
     }
 
-    try {
-      setPending(true);
-      setFormError(null);
+    const payload = {
+      name,
+      displayName,
+      description: description || undefined,
+      sortOrder: parsedSortOrder,
+    };
 
-      const payload = {
-        name,
-        displayName,
-        description: description || undefined,
-        sortOrder: parsedSortOrder,
-      };
-
-      if (editMode === "create") {
-        await onCreate(payload);
-      } else if (editingRecord) {
-        await onUpdate(getId(editingRecord), payload);
-      }
-
+    function closeEditDialog() {
       setIsEditOpen(false);
       setEditingRecord(null);
       setFormValues(toFormValues());
+    }
+
+    if (editMode === "update") {
+      if (!editingRecord) return;
+      await runReferenceUpdate({
+        id: getId(editingRecord),
+        payload,
+        singularLabel,
+        onUpdate,
+        setPending,
+        setError: setFormError,
+        setNotice: setFormNotice,
+        onClose: closeEditDialog,
+      });
+      return;
+    }
+
+    try {
+      setPending(true);
+      setFormError(null);
+      await onCreate(payload);
+      closeEditDialog();
     } catch (submitError: unknown) {
       setFormError(submitError instanceof Error ? submitError.message : `Failed to save ${singularLabel}`);
     } finally {
@@ -218,21 +329,14 @@ function ReferenceSection<T extends ReferenceRecord>({
   async function handleDelete() {
     if (!deleteTarget) return;
 
-    try {
-      setDeletePending(true);
-      setDeleteError(null);
-      await onDelete(getId(deleteTarget));
-      setDeleteTarget(null);
-      setDeleteError(null);
-    } catch (submitError: unknown) {
-      setDeleteError(
-        submitError instanceof Error
-          ? submitError.message
-          : `Failed to delete ${singularLabel}`
-      );
-    } finally {
-      setDeletePending(false);
-    }
+    await runReferenceDelete({
+      id: getId(deleteTarget),
+      singularLabel,
+      onDelete,
+      setPending: setDeletePending,
+      setError: setDeleteError,
+      onSuccess: () => setDeleteTarget(null),
+    });
   }
 
   return (
@@ -323,6 +427,7 @@ function ReferenceSection<T extends ReferenceRecord>({
             </DialogTitle>
             <DialogDescription>
               Save changes to keep reference data in sync across admin and user workflows.
+              {editMode === "update" && editHint && <> {editHint}</>}
             </DialogDescription>
           </DialogHeader>
 
@@ -375,15 +480,26 @@ function ReferenceSection<T extends ReferenceRecord>({
               />
             </div>
             {formError && <p className="text-sm text-destructive">{formError}</p>}
+            {formNotice && (
+              <p role="status" className="text-sm text-muted-foreground">
+                {formNotice}
+              </p>
+            )}
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditOpen(false)} disabled={pending}>
-              Cancel
-            </Button>
-            <Button onClick={() => void handleSubmit()} disabled={pending}>
-              {pending ? "Saving…" : "Save"}
-            </Button>
+            {formNotice ? (
+              <Button onClick={() => setIsEditOpen(false)}>Done</Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => setIsEditOpen(false)} disabled={pending}>
+                  Cancel
+                </Button>
+                <Button onClick={() => void handleSubmit()} disabled={pending}>
+                  {pending ? "Saving…" : "Save"}
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -396,6 +512,7 @@ function ReferenceSection<T extends ReferenceRecord>({
               This action cannot be undone. Confirm deletion of
               {" "}
               <span className="font-semibold">{deleteTarget?.displayName}</span>.
+              {deleteHint && <> {deleteHint}</>}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -784,13 +901,20 @@ export function ConfigTab() {
           await loadFinishTypes();
         }}
         onUpdate={async (id, payload) => {
-          await updateFinishType(id, payload);
+          const updated = await updateFinishType(id, payload);
           await loadFinishTypes();
+          if (updated.rename) {
+            // A rename repoints finish normalizations and may add an alias for the old name.
+            await loadFinishNormalizations();
+          }
+          return finishTypeRenameNotice(updated) ?? undefined;
         }}
         onDelete={async (id) => {
           await deleteFinishType(id);
           await loadFinishTypes();
         }}
+        deleteHint="A finish type still used by shades or finish normalizations can't be deleted."
+        editHint="Renaming also renames it on every shade and finish normalization that uses it."
       />
 
       <ReferenceSection<ReferenceHarmonyType>
