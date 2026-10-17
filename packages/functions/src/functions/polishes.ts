@@ -64,14 +64,22 @@ function primaryFinishForRequest(
   return body.finish || finishUpdate?.values[0] || undefined;
 }
 
-/**
- * Apply a requested finish change to a shade.
+/*
+ * Catalog write rule for user requests (#224, decision 1b).
  *
- * Shades are shared catalog rows, so (mirroring the color rule) user input may only FILL an
- * EMPTY `shade.finishes`; it never replaces, removes or appends to a non-empty array.
- * The only exception is the caller's own `user_submitted` shade (`ownSubmitted`), which is
- * private to them until approved and can be edited freely. `shade.finish` (the legacy single
- * field and part of the dedup key) is never written here.
+ * Shades are shared catalog rows. A user's request writes finish and color fields to the
+ * catalog ONLY when the request creates the shade (`findOrCreateShade`'s INSERT branch). A
+ * request that adopts, matches or updates an existing shared shade never changes its
+ * `finishes`, `finish` or color columns, not even to fill an empty value: ingestion
+ * connectors and admins own catalog data. The one exception is the caller's own private
+ * `user_submitted` shade (`ownSubmitted`): it is still the caller's creation, invisible to
+ * other users until an admin promotes it, so its creator may keep correcting it.
+ */
+
+/**
+ * Apply a requested finish change to the caller's own `user_submitted` shade. A no-op for
+ * every other shade (catalog write rule above). `shade.finish` (the legacy single field and
+ * part of the dedup key) is never written here.
  */
 async function applyShadeFinishUpdate(
   client: PoolClient,
@@ -79,18 +87,7 @@ async function applyShadeFinishUpdate(
   finishUpdate: ShadeFinishUpdate | undefined,
   ownSubmitted: boolean
 ): Promise<void> {
-  if (!finishUpdate) return;
-
-  if (!ownSubmitted) {
-    if (finishUpdate.values.length === 0) return;
-    // Fill-only: the guard is part of the statement so a concurrent write cannot be clobbered.
-    await client.query(
-      `UPDATE shade SET finishes = $2::text[], updated_at = now()
-       WHERE shade_id = $1 AND cardinality(COALESCE(finishes, ARRAY[]::text[])) = 0`,
-      [shadeId, finishUpdate.values]
-    );
-    return;
-  }
+  if (!finishUpdate || !ownSubmitted) return;
 
   if (finishUpdate.mode === "replace") {
     await client.query(
@@ -151,40 +148,50 @@ async function getVisibleShade(
   return { ownSubmitted: Boolean(row.ownSubmitted), brand: row.brand ?? null, shadeName: row.shadeName ?? null };
 }
 
+interface ShadeColorData {
+  colorName?: string | null;
+  vendorHex?: string | null;
+  detectedHex?: string | null;
+  nameHex?: string | null;
+}
+
+function hasShadeColorData(colorData: ShadeColorData): boolean {
+  return Boolean(colorData.colorName || colorData.vendorHex || colorData.detectedHex || colorData.nameHex);
+}
+
 /**
- * Write color data to a shade. Shared catalog shades are fill-only: user input only fills NULL
- * columns and never overwrites values other users see. The caller's own private submission
- * takes explicit corrections ($6 = true lets provided values replace stored ones).
+ * Write color corrections to the caller's own `user_submitted` shade: provided values replace
+ * stored ones. A no-op for every other shade (catalog write rule above).
  */
 async function applyShadeColorUpdate(
   client: PoolClient,
   shadeId: number,
-  colorData: { colorName?: string | null; vendorHex?: string | null; detectedHex?: string | null; nameHex?: string | null },
+  colorData: ShadeColorData,
   ownSubmitted: boolean
 ): Promise<void> {
+  if (!ownSubmitted || !hasShadeColorData(colorData)) return;
   await client.query(
     `UPDATE shade SET
-       color_name   = CASE WHEN $6 THEN COALESCE($2, color_name)   ELSE COALESCE(color_name, $2)   END,
-       vendor_hex   = CASE WHEN $6 THEN COALESCE($3, vendor_hex)   ELSE COALESCE(vendor_hex, $3)   END,
-       detected_hex = CASE WHEN $6 THEN COALESCE($4, detected_hex) ELSE COALESCE(detected_hex, $4) END,
-       name_hex     = CASE WHEN $6 THEN COALESCE($5, name_hex)     ELSE COALESCE(name_hex, $5)     END,
-       -- When this request changes detected_hex (filling an empty value, or an owner
-       -- correction), record it as client-supplied and clear the AI provenance that no
-       -- longer describes it; hex_agreement is a generated column.
+       color_name   = COALESCE($2, color_name),
+       vendor_hex   = COALESCE($3, vendor_hex),
+       detected_hex = COALESCE($4, detected_hex),
+       name_hex     = COALESCE($5, name_hex),
+       -- When this request changes detected_hex, record it as client-supplied and clear the
+       -- AI provenance that no longer describes it; hex_agreement is a generated column.
        detected_hex_method = CASE
-         WHEN $4 IS NOT NULL AND (detected_hex IS NULL OR ($6 AND detected_hex IS DISTINCT FROM $4)) THEN $7
+         WHEN $4 IS NOT NULL AND detected_hex IS DISTINCT FROM $4 THEN $6
          ELSE detected_hex_method END,
        detected_hex_confidence = CASE
-         WHEN $4 IS NOT NULL AND (detected_hex IS NULL OR ($6 AND detected_hex IS DISTINCT FROM $4)) THEN NULL
+         WHEN $4 IS NOT NULL AND detected_hex IS DISTINCT FROM $4 THEN NULL
          ELSE detected_hex_confidence END,
        detected_hex_model = CASE
-         WHEN $4 IS NOT NULL AND (detected_hex IS NULL OR ($6 AND detected_hex IS DISTINCT FROM $4)) THEN NULL
+         WHEN $4 IS NOT NULL AND detected_hex IS DISTINCT FROM $4 THEN NULL
          ELSE detected_hex_model END,
        detected_hex_prompt_version = CASE
-         WHEN $4 IS NOT NULL AND (detected_hex IS NULL OR ($6 AND detected_hex IS DISTINCT FROM $4)) THEN NULL
+         WHEN $4 IS NOT NULL AND detected_hex IS DISTINCT FROM $4 THEN NULL
          ELSE detected_hex_prompt_version END,
        detected_hex_at = CASE
-         WHEN $4 IS NOT NULL AND (detected_hex IS NULL OR ($6 AND detected_hex IS DISTINCT FROM $4)) THEN now()
+         WHEN $4 IS NOT NULL AND detected_hex IS DISTINCT FROM $4 THEN now()
          ELSE detected_hex_at END,
        updated_at   = now()
      WHERE shade_id = $1`,
@@ -194,7 +201,6 @@ async function applyShadeColorUpdate(
       colorData.vendorHex || null,
       colorData.detectedHex || null,
       colorData.nameHex || null,
-      ownSubmitted,
       DETECTED_HEX_METHOD_CLIENT_SUPPLIED,
     ]
   );
@@ -271,6 +277,10 @@ ${POLISH_FROM}`;
 /**
  * Find or create a brand + shade, returning the shade_id.
  * Uses a transaction client so this can be part of a larger transaction.
+ *
+ * `colorData` and `finishUpdate` are written in full when a new shade is inserted. A matched
+ * existing shade is left untouched unless it is the caller's own `user_submitted` shade (see the
+ * catalog write rule above).
  */
 async function findOrCreateShade(
   client: PoolClient,
@@ -279,7 +289,7 @@ async function findOrCreateShade(
   shadeName: string,
   finish?: string,
   collection?: string,
-  colorData?: { colorName?: string; vendorHex?: string; detectedHex?: string; nameHex?: string },
+  colorData?: ShadeColorData,
   finishUpdate?: ShadeFinishUpdate
 ): Promise<number> {
   // Find or create brand
@@ -833,11 +843,9 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
         ));
 
       if (adoptingExistingShade) {
+        // Adopting never writes a shared catalog shade; only the caller's own submission
+        // takes corrections (same rule as PUT).
         await applyShadeFinishUpdate(client, resolvedShadeId, finishUpdate, adoptedShade!.ownSubmitted);
-      }
-
-      if (adoptingExistingShade && (body.color || body.vendorHex || body.detectedHex || body.nameHex)) {
-        // Same rule as PUT: owners may correct their own submission; shared shades are fill-only.
         await applyShadeColorUpdate(
           client,
           resolvedShadeId,
@@ -961,10 +969,9 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
           finishUpdate
         );
       } else {
+        // Editing the URL's shade in place: a shared catalog shade is never written; only the
+        // caller's own submission takes finish/color corrections.
         await applyShadeFinishUpdate(client, targetShadeId, finishUpdate, targetShade!.ownSubmitted);
-      }
-
-      if (!resolveByIdentity && (body.color || body.vendorHex || body.detectedHex || body.nameHex)) {
         await applyShadeColorUpdate(
           client,
           targetShadeId,

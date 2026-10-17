@@ -1605,7 +1605,7 @@ describe("functions/polishes — multi-finish", () => {
     assert.ok(inv.params.some((p) => Array.isArray(p) && p.includes("holographic")));
   });
 
-  it("replaces finishes on an existing shade when only finishes are updated", async () => {
+  it("replaces finishes on the caller's own submitted shade when only finishes are updated", async () => {
     process.env.AUTH_DEV_BYPASS = "true";
     queryMock = async (text) => {
       if (text.includes("FROM app_user")) {
@@ -1614,7 +1614,9 @@ describe("functions/polishes — multi-finish", () => {
       if (text.includes("FROM finish_normalization")) {
         return { rows: aliasRows() };
       }
-      return { rows: [{ id: "9", brand: "OPI", name: "X", finish: "creme", finishes: ["creme", "shimmer"] }] };
+      return {
+        rows: [{ id: "9", ownSubmitted: true, brand: "OPI", name: "X", finish: "creme", finishes: ["creme", "shimmer"] }],
+      };
     };
 
     const clientCalls = [];
@@ -1642,6 +1644,53 @@ describe("functions/polishes — multi-finish", () => {
     assert.ok(replace, "should replace shade.finishes");
     assert.equal(replace.params[0], 9);
     assert.deepEqual(replace.params[1], ["creme", "shimmer"]);
+  });
+
+  it("never writes finishes or colors on an existing shared shade (catalog write rule, #224)", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async (text) => {
+      if (text.includes("FROM app_user")) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (text.includes("FROM finish_normalization")) {
+        return { rows: aliasRows() };
+      }
+      // getVisibleShade on an active catalog shade: ownSubmitted false.
+      return { rows: [{ id: "9", ownSubmitted: false, brand: "OPI", name: "X", finish: "creme", finishes: [] }] };
+    };
+
+    const clientCalls = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          clientCalls.push({ text, params });
+          if (text.includes("INSERT INTO user_inventory_item")) return { rows: [{ inventoryItemId: "1" }] };
+          return { rows: [] };
+        },
+      });
+
+    for (const [route, method, extra] of [
+      ["polishes-mutate", "PUT", {}],
+      ["polishes-create", "POST", { shadeId: "9" }],
+    ]) {
+      const handler = registeredRoutes[route].handler;
+      const req = fakeRequest({
+        method,
+        url: method === "PUT" ? "http://localhost:7071/api/polishes/9" : "http://localhost:7071/api/polishes",
+        headers: { authorization: "Bearer dev:1" },
+        params: method === "PUT" ? { id: "9" } : {},
+        body: { ...extra, finishes: ["glitter"], vendorHex: "#000000", detectedHex: "#000000", color: "Black", quantity: 1 },
+      });
+      const res = await handler(req, fakeContext());
+      assert.ok(res.status < 300, `${method} failed: ${res.status}`);
+    }
+
+    assert.deepEqual(
+      clientCalls.filter((c) => /UPDATE\s+shade\b/i.test(c.text)).map((c) => c.text),
+      [],
+      "an existing shared shade must not be written"
+    );
+    assert.equal(clientCalls.filter((c) => c.text.includes("INSERT INTO user_inventory_item")).length, 2);
   });
 
   it("does not touch finishes when the update carries no finish data", async () => {
