@@ -769,7 +769,7 @@ describe("functions/images — owner-scoped v3 ids (#227)", () => {
     const cacheControl = res.headers.get("Cache-Control");
     assert.match(cacheControl, /^private, max-age=(\d+)$/);
     assert.ok(Number(cacheControl.match(/max-age=(\d+)/)[1]) <= 300);
-    assert.deepEqual(varyTokens(res), ["authorization"]);
+    assert.deepEqual(varyTokens(res), ["authorization", "origin"]);
   });
 
   it("keeps transforms working for private images", async () => {
@@ -786,7 +786,7 @@ describe("functions/images — owner-scoped v3 ids (#227)", () => {
     assert.equal(res.status, 200);
     assert.equal(res.headers.get("Content-Type"), "image/webp");
     assert.equal(res.headers.get("Cache-Control"), "private, max-age=300");
-    assert.deepEqual(varyTokens(res), ["authorization"]);
+    assert.deepEqual(varyTokens(res), ["authorization", "origin"]);
     assert.equal(calls.length, 1);
   });
 
@@ -865,7 +865,8 @@ describe("functions/images — owner-scoped v3 ids (#227)", () => {
     const res = await handler()(fakeRequest(imageProxy.encodeImageProxyId(BLOB_URL)), fakeContext());
     assert.equal(res.status, 200);
     assert.match(res.headers.get("Cache-Control"), /^public, /);
-    assert.deepEqual(varyTokens(res), []);
+    // Vary: Origin only (CORS caching, see the CORS suite below); never Authorization.
+    assert.deepEqual(varyTokens(res), ["origin"]);
     assert.deepEqual(dbCalls, []);
   });
 
@@ -985,6 +986,98 @@ describe("lib/image-proxy — hardening after review (#227)", () => {
       );
       assert.throws(() => imageProxy.encodeImageProxyId(BLOB_URL), imageProxy.ImageProxyConfigError, JSON.stringify(env));
       assert.throws(() => blobStorage.userMediaContainer(), imageProxy.ImageProxyConfigError);
+    }
+  });
+});
+
+// Canvas pixel reads (admin Hex Labeling eyedropper) load images with crossOrigin="anonymous", so
+// the proxy must answer GET with Access-Control-Allow-Origin for allowed web origins.
+describe("functions/images — CORS for canvas reads", () => {
+  beforeEach(() => {
+    process.env.AZURE_STORAGE_CONNECTION = STORAGE_CONNECTION;
+    process.env.IMAGE_PROXY_SIGNING_KEY = TEST_KEY;
+    process.env.AUTH_DEV_BYPASS = "true";
+  });
+
+  const handler = () => registeredRoutes.images.handler;
+  const varyTokens = (res) =>
+    (res.headers?.get?.("Vary") || "").split(",").map((v) => v.trim().toLowerCase()).filter(Boolean);
+
+  it("reflects an allowed web origin on a public v2 image GET", async () => {
+    mockBlobFetch();
+    const res = await handler()(
+      fakeRequest(imageProxy.encodeImageProxyId(BLOB_URL), undefined, { origin: "http://localhost:3000" }),
+      fakeContext()
+    );
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("Access-Control-Allow-Origin"), "http://localhost:3000");
+    assert.deepEqual(varyTokens(res), ["origin"]);
+    assert.match(res.headers.get("Cache-Control"), /^public, /);
+  });
+
+  it("reflects a wildcard-pattern origin (*.azurestaticapps.net) but not an unknown origin", async () => {
+    mockBlobFetch();
+    const id = imageProxy.encodeImageProxyId(BLOB_URL);
+    const swa = await handler()(fakeRequest(id, undefined, { origin: "https://foo-1.azurestaticapps.net" }), fakeContext());
+    assert.equal(swa.headers.get("Access-Control-Allow-Origin"), "https://foo-1.azurestaticapps.net");
+    const evil = await handler()(fakeRequest(id, undefined, { origin: "https://evil.example" }), fakeContext());
+    assert.equal(evil.status, 200);
+    assert.equal(evil.headers.get("Access-Control-Allow-Origin"), null);
+    assert.deepEqual(varyTokens(evil), ["origin"], "Vary: Origin even when the origin is refused");
+  });
+
+  it("sends Vary: Origin without an Origin header so a cached non-CORS response is never reused", async () => {
+    mockBlobFetch();
+    const res = await handler()(fakeRequest(imageProxy.encodeImageProxyId(BLOB_URL)), fakeContext());
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("Access-Control-Allow-Origin"), null);
+    assert.deepEqual(varyTokens(res), ["origin"]);
+  });
+
+  it("reflects an allowed origin (never *) for an owner-scoped v3 image", async () => {
+    mockBlobFetch();
+    const id = imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER });
+    const res = await handler()(
+      fakeRequest(id, undefined, { origin: "http://localhost:3000", authorization: `Bearer dev:${OWNER}` }),
+      fakeContext()
+    );
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("Access-Control-Allow-Origin"), "http://localhost:3000");
+    assert.deepEqual(varyTokens(res), ["authorization", "origin"]);
+  });
+
+  it("with CORS_ALLOWED_ORIGINS=*, public ids get * but owner-scoped v3 ids get no Access-Control-Allow-Origin", async () => {
+    const httpPath = require.resolve("../dist/lib/http");
+    const imagesPath = require.resolve("../dist/functions/images");
+    const originalRoute = registeredRoutes.images;
+    const savedOrigins = process.env.CORS_ALLOWED_ORIGINS;
+    process.env.CORS_ALLOWED_ORIGINS = "*";
+    delete require.cache[httpPath];
+    delete require.cache[imagesPath];
+    try {
+      require("../dist/functions/images");
+      const wildcardHandler = registeredRoutes.images.handler;
+      mockBlobFetch();
+      const publicRes = await wildcardHandler(
+        fakeRequest(imageProxy.encodeImageProxyId(BLOB_URL), undefined, { origin: "https://anywhere.example" }),
+        fakeContext()
+      );
+      assert.equal(publicRes.headers.get("Access-Control-Allow-Origin"), "*");
+
+      for (const headers of [{ authorization: `Bearer dev:${OWNER}` }, {}]) {
+        const id = imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER });
+        const res = await wildcardHandler(
+          fakeRequest(id, undefined, { origin: "https://anywhere.example", ...headers }),
+          fakeContext()
+        );
+        assert.equal(res.headers.get("Access-Control-Allow-Origin"), null, `status ${res.status}`);
+      }
+    } finally {
+      if (savedOrigins === undefined) delete process.env.CORS_ALLOWED_ORIGINS;
+      else process.env.CORS_ALLOWED_ORIGINS = savedOrigins;
+      delete require.cache[httpPath];
+      delete require.cache[imagesPath];
+      registeredRoutes.images = originalRoute;
     }
   });
 });
