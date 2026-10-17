@@ -7,24 +7,21 @@
 //    are new in the working tree stay editable.
 //  - local.settings.json and .env* files (secrets; .env.example is allowed).
 //
+// Scope: this only sees the file-edit tools. Writes made through Bash (sed -i,
+// redirects, etc.) do not trigger it, so it is a guard rail, not a hard boundary.
+//
 // Exit 2 = block the tool call and show stderr to Claude.
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import path from "node:path";
+import { readHookInput, resolveCheckout } from "./lib.mjs";
 
-let input;
-try {
-  input = JSON.parse(readFileSync(0, "utf8"));
-} catch {
-  process.exit(0); // never block on malformed hook input
-}
-
+const input = readHookInput();
 const filePath = input?.tool_input?.file_path;
 if (typeof filePath !== "string" || !filePath) process.exit(0);
 
-const projectDir = process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd();
-const abs = path.resolve(projectDir, filePath);
-const rel = path.relative(projectDir, abs).split(path.sep).join("/");
+// Resolve against the checkout that owns the file (the active worktree), not
+// CLAUDE_PROJECT_DIR, so the HEAD lookup below uses that checkout's history.
+const { root, rel, abs } = resolveCheckout(input, filePath);
 const base = path.basename(abs);
 
 function block(message) {
@@ -42,7 +39,7 @@ if (base === "local.settings.json" || (base.startsWith(".env") && base !== ".env
 if (/^packages\/functions\/migrations\/[^/]+\.sql$/.test(rel)) {
   let committed = false;
   try {
-    execFileSync("git", ["cat-file", "-e", `HEAD:${rel}`], { cwd: projectDir, stdio: "ignore" });
+    execFileSync("git", ["cat-file", "-e", `HEAD:${rel}`], { cwd: root, stdio: "ignore" });
     committed = true;
   } catch {
     committed = false; // new/uncommitted file (or no git): allow

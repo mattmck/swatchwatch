@@ -25,7 +25,7 @@ Arguments: `$ARGUMENTS` — HTTP method, route (e.g. `GET polishes/{id}/notes`),
   Always include `"OPTIONS"` in `methods` and wrap with `withCors`.
 - **Authorization is mandatory.** User-data routes use `withAuth`; admin/ops routes use `withAdmin`. Never `userId` from the request body/query.
 - **Every SQL statement touching user data filters on the authenticated `userId`** (`WHERE … AND user_id = $n`). Shared tables (shades) are fill-only for users. Use parameterized queries (`query()` / `transaction()` from `../lib/db`); never interpolate input.
-- Validate ids (`parseInt`, `> 0`) and return 400 for bad input, 404 for "not found *for this user*", and `internalServerError(context, error, "<message>", "<area>.<action>")` for unexpected failures.
+- Validate ids strictly and return 400 for bad input: require the whole string to be digits (`/^\d+$/.test(id)`), then `Number(id)` must pass `Number.isSafeInteger` and be `> 0`. `parseInt` alone is not enough — `parseInt("12abc")` is `12`. Return 404 for "not found *for this user*", and `internalServerError(context, error, "<message>", "<area>.<action>")` for unexpected failures.
 - Domain types live in `packages/shared/src/types/` and are re-exported from `packages/shared/src/index.ts`; do not redefine them locally.
 - Invalidate caches (`cacheDelete*`) when mutating cached data; emit `trackEvent` for notable events.
 
