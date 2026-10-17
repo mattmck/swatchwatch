@@ -786,7 +786,8 @@ export async function processIngestionJobQueueMessage(
         try {
           materializationMetrics = (await materializeMakeupApiRecords(
             payload.userId,
-            connectorResult.records
+            connectorResult.records,
+            source.dataSourceId
           )) as unknown as Record<string, unknown>;
 
           const materializeDuration = Date.now() - materializeStartTime;
