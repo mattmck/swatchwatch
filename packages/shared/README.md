@@ -135,6 +135,8 @@ The package is automatically linked via npm workspaces — no publishing require
 | `HarmonyType` | Reference harmony row contract (`harmonyTypeId`, `name`, `displayName`, `description`, `sortOrder`, audit fields) |
 | `FinishTypeCreateRequest` / `FinishTypeUpdateRequest` | Request payloads for admin finish create/update endpoints |
 | `FinishTypeInUseResponse` | `409` body of `DELETE /api/reference-admin/finishes/{id}` when the finish type is still in use (`error`, `code: "FINISH_TYPE_IN_USE"`, `finishTypeId`, `name`, `shadeCount`, `normalizationCount`) |
+| `FinishTypeUpdateResponse` / `FinishTypeRenameSummary` | `200` body of `PUT /api/reference-admin/finishes/{id}`: the `FinishType` plus `rename` (`previousName`, `shadeCount`, `normalizationCount`, `aliasCreated`) when `name` changed |
+| `FinishTypeNameTakenResponse` | `409` body of that `PUT` when another finish type already has the new name, compared case-insensitively (`error`, `code: "FINISH_TYPE_NAME_TAKEN"`, `finishTypeId`, `name`, `requestedName`, `conflictingFinishTypeId?`, `conflictingName?`) |
 | `HarmonyTypeCreateRequest` / `HarmonyTypeUpdateRequest` | Request payloads for admin harmony create/update endpoints |
 | `FinishNormalization` | Alias mapping row (`sourceValue` → `normalizedFinishName`) with audit fields |
 | `FinishNormalizationCreateRequest` / `FinishNormalizationUpdateRequest` | Request payloads for admin finish-normalization create/update endpoints |
