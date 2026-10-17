@@ -1171,6 +1171,8 @@ async function deletePolish(request: HttpRequest, context: InvocationContext, us
         [shadeId, userId]
       );
       const blobUrls = await detachNailPhotosForShade(client, userId, shadeId);
+      // inventory_event rows are detached (ON DELETE SET NULL), not deleted: wear history is kept
+      // by user + shade and re-attached if the polish is re-added (D8, #317).
       const result = await client.query<{ id: string }>(
         `DELETE FROM user_inventory_item
          WHERE shade_id = $1 AND user_id = $2

@@ -182,6 +182,15 @@ async function mergeUsers(
         [targetUserId, sourceUserId]
       );
 
+      // Wear history is keyed by user + shade (D8, #317), including events detached from a
+      // deleted inventory row: move the owner with the rest.
+      await client.query(
+        `UPDATE inventory_event
+         SET user_id = $1
+         WHERE user_id = $2`,
+        [targetUserId, sourceUserId]
+      );
+
       const movedIdentities = await client.query(
         `INSERT INTO user_external_identities (user_id, external_id, email, last_seen_at)
          SELECT $1, external_id, email, last_seen_at

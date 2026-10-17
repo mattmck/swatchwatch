@@ -505,8 +505,10 @@ describe("functions/admin-users — merge validation", () => {
       return { rows: [] };
     };
 
+    const txStatements = [];
     transactionMock = async (cb) => cb({
-      query: async (sql) => {
+      query: async (sql, params) => {
+        txStatements.push({ sql, params });
         if (sql.includes("FROM app_user") && sql.includes("WHERE user_id = ANY")) {
           return {
             rows: [
@@ -551,6 +553,10 @@ describe("functions/admin-users — merge validation", () => {
     assert.equal(res.jsonBody.mergedClickEventRows, 6);
     assert.equal(res.jsonBody.mergedInventoryDuplicateRows, 1);
     assert.equal(res.jsonBody.mergedManicureRows, 7, "mani log moves with the account (#269)");
+    // Wear history is keyed by user + shade (D8, #317): events move owner too, detached ones included.
+    const eventOwner = txStatements.find((s) => /UPDATE inventory_event\s+SET user_id = \$1\s+WHERE user_id = \$2/.test(s.sql));
+    assert.ok(eventOwner, "inventory_event.user_id must move with the account");
+    assert.deepEqual(eventOwner.params, [20, 10]);
     assert.match(res.jsonBody.message, /Merged user 10 into 20/i);
   });
 });

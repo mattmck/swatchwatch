@@ -587,9 +587,15 @@ CREATE TABLE wishlist_share (
   )
 );
 
+-- Keyed by (user_id, shade_id) like the mani log, so history survives deleting the polish from
+-- the collection (D8, #317; migration 20261017232537776_inventory-event-keep-wear-history):
+-- the delete only detaches events (inventory_item_id SET NULL), and the API re-attaches them
+-- when the user re-adds the shade.
 CREATE TABLE inventory_event (
   inventory_event_id BIGSERIAL PRIMARY KEY,
-  inventory_item_id BIGINT NOT NULL REFERENCES user_inventory_item(inventory_item_id) ON DELETE CASCADE,
+  inventory_item_id BIGINT REFERENCES user_inventory_item(inventory_item_id) ON DELETE SET NULL,
+  user_id BIGINT NOT NULL REFERENCES app_user(user_id) ON DELETE CASCADE,
+  shade_id BIGINT REFERENCES shade(shade_id) ON DELETE CASCADE,
   event_type TEXT NOT NULL, -- added|updated|sold|decluttered|used|...
   event_payload JSONB,
   -- Manicure behind a mani-log `used` event (migration 20261017063740704_manicure-log).
@@ -614,6 +620,13 @@ CREATE TABLE inventory_nail_photo (
 CREATE INDEX idx_inventory_event_manicure
   ON inventory_event(manicure_id)
   WHERE manicure_id IS NOT NULL;
+
+CREATE INDEX idx_inventory_event_item
+  ON inventory_event(inventory_item_id)
+  WHERE inventory_item_id IS NOT NULL;
+
+CREATE INDEX idx_inventory_event_user_shade
+  ON inventory_event(user_id, shade_id);
 
 -- Contributions (staging)
 CREATE TABLE user_submission (

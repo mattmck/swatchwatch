@@ -11,7 +11,9 @@
 const { describe, it, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 
+const { POLISH_STATUSES } = require("swatchwatch-shared");
 const {
+  INVENTORY_STATUS_MERGE_PRIORITY,
   ShadeReviewError,
   approveShade,
   buildInventoryCombineSql,
@@ -64,10 +66,14 @@ function resetState() {
       { id: 31, userId: 3, shadeId: TARGET, quantity: 2, notes: null, purchaseDate: null, createdAt: "2026-02-01", rating: 5, tags: [], status: "owned" },
     ],
     events: [
-      { id: 1, itemId: 21 },
-      { id: 2, itemId: 22 },
-      { id: 3, itemId: 11 },
+      { id: 1, itemId: 21, userId: 2, shadeId: SOURCE, manicureId: null },
+      { id: 2, itemId: 22, userId: 2, shadeId: TARGET, manicureId: null },
+      { id: 3, itemId: 11, userId: 1, shadeId: SOURCE, manicureId: null },
     ],
+    // Mani log (#269): id -> { userId, wornOn, polishes: [{ shadeId, role }] }. Empty by default.
+    manicures: new Map(),
+    // Derived wear stats written by recomputeWearStats, by inventory item id.
+    wear: new Map(),
     aliases: [
       { shadeId: SOURCE, alias: "BAR" },
       { shadeId: TARGET, alias: "bar" }, // same alias, different case → not duplicated
@@ -100,6 +106,8 @@ function combineColumn(sql, column, t, s) {
       if (!t || !t.trim()) return s;
       if (!s || !s.trim() || t.trim() === s.trim()) return t;
       return `${t}\n\n${s}`;
+    case "status":
+      return evalStatusCase(sql, t, s);
     case "tags":
       assert.ok(sql.includes('"tags" = CASE WHEN t."tags" IS NULL THEN s."tags"'), "array columns must be unioned");
       if (t == null) return s;
@@ -110,6 +118,36 @@ function combineColumn(sql, column, t, s) {
       return t ?? s;
     }
   }
+}
+
+/**
+ * Evaluate the generated `"status" = CASE WHEN '<x>' IN (t."status", s."status") THEN '<x>' …
+ * ELSE COALESCE(t."status", s."status") END` assignment for one pair, in the order the SQL lists
+ * its WHEN branches, so the tests check the SQL's precedence rather than restating it.
+ */
+function evalStatusCase(sql, t, s) {
+  const match = sql.match(/"status" = CASE ((?:WHEN '\w+' IN \(t\."status", s\."status"\) THEN '\w+' )+)ELSE COALESCE\(t\."status", s\."status"\) END/);
+  assert.ok(match, `status must be combined with a precedence CASE: ${sql}`);
+  for (const [, when, then] of match[1].matchAll(/WHEN '(\w+)' IN \(t\."status", s\."status"\) THEN '(\w+)'/g)) {
+    if (t === when || s === when) return then;
+  }
+  return t ?? s;
+}
+
+/** Mirrors recomputeWearStats: wear derived from the user's manicures that include the shade. */
+function recomputeWear(userId, shadeIds) {
+  const rows = [];
+  for (const item of state.inventory) {
+    if (item.userId !== userId || !shadeIds.includes(item.shadeId)) continue;
+    const dates = [...state.manicures.values()]
+      .filter((m) => m.userId === userId && m.polishes.some((p) => p.shadeId === item.shadeId))
+      .map((m) => m.wornOn)
+      .sort();
+    const stat = { wearCount: dates.length, lastWornOn: dates[dates.length - 1] ?? null };
+    state.wear.set(item.id, stat);
+    rows.push({ shadeId: String(item.shadeId), inventoryItemId: String(item.id), wearCount: stat.wearCount, lastWornAt: stat.lastWornOn, triedAt: null });
+  }
+  return rows;
 }
 
 async function fakeQuery(sql, params = []) {
@@ -169,8 +207,10 @@ async function fakeQuery(sql, params = []) {
     const shadeId = Number(params[1]);
     const before = state.inventory.length;
     state.inventory = state.inventory.filter((row) => !(ids.includes(row.id) && row.shadeId === shadeId));
-    // ON DELETE CASCADE: events still pointing at a deleted row disappear.
-    state.events = state.events.filter((event) => state.inventory.some((row) => row.id === event.itemId));
+    // ON DELETE SET NULL (D8, #317): events still pointing at a deleted row are detached.
+    for (const event of state.events) {
+      if (event.itemId !== null && !state.inventory.some((row) => row.id === event.itemId)) event.itemId = null;
+    }
     return { rows: [], rowCount: before - state.inventory.length };
   }
   if (/^UPDATE user_inventory_item\s+SET shade_id = \$2/i.test(text)) {
@@ -178,6 +218,57 @@ async function fakeQuery(sql, params = []) {
     const moved = state.inventory.filter((row) => row.shadeId === sourceId);
     for (const row of moved) row.shadeId = targetId;
     return rowsResult(moved.map((row) => ({ userId: String(row.userId) })));
+  }
+  if (/^DELETE FROM manicure_polish AS s\s+USING manicure_polish AS t/i.test(text)) {
+    const [sourceId, targetId] = params.map(Number);
+    let count = 0;
+    for (const m of state.manicures.values()) {
+      const before = m.polishes.length;
+      m.polishes = m.polishes.filter(
+        (p) => !(p.shadeId === sourceId && m.polishes.some((q) => q.shadeId === targetId && q.role === p.role))
+      );
+      count += before - m.polishes.length;
+    }
+    return { rows: [], rowCount: count };
+  }
+  if (/^UPDATE manicure_polish AS mp\s+SET shade_id = \$2/i.test(text)) {
+    const [sourceId, targetId] = params.map(Number);
+    const rows = [];
+    for (const m of state.manicures.values()) {
+      for (const p of m.polishes.filter((q) => q.shadeId === sourceId)) {
+        p.shadeId = targetId;
+        rows.push({ userId: String(m.userId) });
+      }
+    }
+    return rowsResult(rows);
+  }
+  if (/^DELETE FROM inventory_event AS s\s+USING inventory_event AS t/i.test(text)) {
+    const [sourceId, targetId] = params.map(Number);
+    const superseded = (e) =>
+      e.shadeId === sourceId && e.manicureId !== null &&
+      state.events.some((t) => t.shadeId === targetId && t.manicureId === e.manicureId && t.userId === e.userId);
+    const before = state.events.length;
+    state.events = state.events.filter((e) => !superseded(e));
+    return { rows: [], rowCount: before - state.events.length };
+  }
+  if (/^UPDATE inventory_event SET shade_id = \$2 WHERE shade_id = \$1$/i.test(text)) {
+    const [sourceId, targetId] = params.map(Number);
+    const moved = state.events.filter((e) => e.shadeId === sourceId);
+    for (const e of moved) e.shadeId = targetId;
+    return { rows: [], rowCount: moved.length };
+  }
+  if (/^UPDATE inventory_event ie\s+SET inventory_item_id = ui\.inventory_item_id/i.test(text)) {
+    // reattachInventoryEvents: the caller's detached events → their current row for the shade.
+    const [userId, shadeIds] = [Number(params[0]), params[1].map(Number)];
+    for (const e of state.events) {
+      if (e.userId !== userId || e.itemId !== null || !shadeIds.includes(e.shadeId)) continue;
+      const row = state.inventory.find((r) => r.userId === userId && r.shadeId === e.shadeId);
+      if (row) e.itemId = row.id;
+    }
+    return { rows: [], rowCount: 0 };
+  }
+  if (/^WITH target AS/i.test(text) && /UPDATE user_inventory_item ui\s+SET wear_count/i.test(text)) {
+    return rowsResult(recomputeWear(Number(params[0]), params[1].map(Number)));
   }
   if (/^INSERT INTO shade_alias/i.test(text) && /FROM shade_alias sa/i.test(text)) {
     const [sourceId, targetId] = params.map(Number);
@@ -255,16 +346,31 @@ describe("buildInventoryCombineSql", () => {
     assert.equal(inventoryCombineExpression({ name: "y", isArray: false, isGenerated: false, isIdentity: true }), null);
   });
 
-  it("carries unknown/new columns generically (e.g. #261's status): target wins, NULLs filled", () => {
+  it("carries unknown/new columns generically: target wins, NULLs filled", () => {
     const sql = buildInventoryCombineSql([
       ...INVENTORY_COLUMNS,
       { name: "acquired_from", isArray: false, isGenerated: false, isIdentity: false },
     ]);
-    assert.match(sql, /"status" = COALESCE\(t\."status", s\."status"\)/);
     assert.match(sql, /"acquired_from" = COALESCE\(t\."acquired_from", s\."acquired_from"\)/);
     assert.match(sql, /"updated_at" = now\(\)/);
     assert.doesNotMatch(sql, /"user_id" =|"shade_id" =|"inventory_item_id" =/);
     assert.match(sql, /WHERE s\.shade_id = \$1\s+AND t\.shade_id = \$2\s+AND t\.user_id = s\.user_id/);
+  });
+
+  it("combines status by precedence, highest first (D7, #316)", () => {
+    assert.equal(
+      inventoryCombineExpression({ name: "status", isArray: false, isGenerated: false, isIdentity: false }),
+      `CASE WHEN 'owned' IN (t."status", s."status") THEN 'owned' ` +
+        `WHEN 'destash' IN (t."status", s."status") THEN 'destash' ` +
+        `WHEN 'wishlist' IN (t."status", s."status") THEN 'wishlist' ` +
+        `WHEN 'archived' IN (t."status", s."status") THEN 'archived' ` +
+        `ELSE COALESCE(t."status", s."status") END`
+    );
+  });
+
+  it("ranks every inventory status exactly once", () => {
+    assert.deepEqual([...INVENTORY_STATUS_MERGE_PRIORITY], ["owned", "destash", "wishlist", "archived"]);
+    assert.deepEqual([...INVENTORY_STATUS_MERGE_PRIORITY].sort(), [...POLISH_STATUSES].sort());
   });
 
   it("quotes identifiers", () => {
@@ -289,7 +395,8 @@ describe("mergeShadeInto", () => {
     assert.equal(u1.length, 1);
     assert.deepEqual({ ...u1[0] }, { id: 11, userId: 1, shadeId: TARGET, quantity: 1, notes: "mine", purchaseDate: "2026-03-01", createdAt: "2026-03-01", rating: null, tags: ["red"], status: "owned" });
     // User 2: one row (unique user+shade), quantities summed, earliest date, notes concatenated,
-    // tags unioned, rating filled from the source, the target row's status kept.
+    // tags unioned, rating filled from the source, the higher status (source owned > target
+    // wishlist) kept (D7, #316).
     const u2 = state.inventory.filter((r) => r.userId === 2);
     assert.equal(u2.length, 1);
     assert.equal(u2[0].id, 22);
@@ -299,7 +406,7 @@ describe("mergeShadeInto", () => {
     assert.equal(u2[0].notes, "target note\n\nsource note");
     assert.deepEqual(u2[0].tags, ["b", "c", "a"]);
     assert.equal(u2[0].rating, 4);
-    assert.equal(u2[0].status, "wishlist");
+    assert.equal(u2[0].status, "owned");
     // User 3 untouched.
     assert.deepEqual(state.inventory.filter((r) => r.userId === 3).map((r) => [r.id, r.quantity]), [[31, 2]]);
     // History of the deleted duplicate moved to the surviving row (not cascaded away).
@@ -354,7 +461,7 @@ describe("mergeShadeInto", () => {
     const outcome = await mergeShadeInto(client, { sourceShadeId: SOURCE, targetShadeId: TARGET, adminUserId: ADMIN });
     assert.equal(outcome.combinedInventoryRows, 0);
     assert.equal(outcome.movedInventoryRows, 2);
-    assert.ok(!statements.some((s) => /^DELETE/i.test(s.sql) || /FROM pg_constraint/i.test(s.sql)));
+    assert.ok(!statements.some((s) => /^DELETE FROM user_inventory_item/i.test(s.sql) || /FROM pg_constraint/i.test(s.sql)));
   });
 
   const refusals = [
@@ -444,5 +551,79 @@ describe("approve / reject", () => {
     assert.doesNotMatch(reject.sql, /\bstatus\s*=\s*'(?!rejected)/, "reject must not change shade.status");
     assert.ok(!statements.some((s) => /^DELETE/i.test(s.sql)));
     assert.equal(state.inventory.filter((r) => r.shadeId === SOURCE).length, 2);
+  });
+});
+
+describe("mergeShadeInto: combined inventory status (D7, #316)", () => {
+  // Highest first: owned > destash > wishlist > archived.
+  const rank = { owned: 0, destash: 1, wishlist: 2, archived: 3 };
+  for (const targetStatus of POLISH_STATUSES) {
+    for (const sourceStatus of POLISH_STATUSES) {
+      const expected = rank[targetStatus] <= rank[sourceStatus] ? targetStatus : sourceStatus;
+      it(`target ${targetStatus} + source ${sourceStatus} → ${expected}`, async () => {
+        state.inventory.find((r) => r.id === 22).status = targetStatus;
+        state.inventory.find((r) => r.id === 21).status = sourceStatus;
+        await mergeShadeInto(client, { sourceShadeId: SOURCE, targetShadeId: TARGET, adminUserId: ADMIN });
+        const rows = state.inventory.filter((r) => r.userId === 2);
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0].status, expected);
+      });
+    }
+  }
+});
+
+describe("mergeShadeInto: mani log and wear history follow the shade (#269, D8 / #317)", () => {
+  beforeEach(() => {
+    // User 2 wore the submission alone, then with the target in the same role; user 4 deleted
+    // the submission from their collection (event detached) but holds the target.
+    state.inventory.push({ id: 41, userId: 4, shadeId: TARGET, quantity: 1, notes: null, purchaseDate: null, createdAt: "2026-01-01", rating: null, tags: [], status: "owned" });
+    state.manicures.set(1, { userId: 2, wornOn: "2026-09-01", polishes: [{ shadeId: SOURCE, role: "color" }] });
+    state.manicures.set(2, { userId: 2, wornOn: "2026-09-10", polishes: [{ shadeId: SOURCE, role: "color" }, { shadeId: TARGET, role: "color" }] });
+    state.manicures.set(3, { userId: 4, wornOn: "2026-08-01", polishes: [{ shadeId: SOURCE, role: "accent" }] });
+    state.events.push(
+      { id: 4, itemId: 21, userId: 2, shadeId: SOURCE, manicureId: 1 },
+      { id: 5, itemId: 21, userId: 2, shadeId: SOURCE, manicureId: 2 },
+      { id: 6, itemId: 22, userId: 2, shadeId: TARGET, manicureId: 2 },
+      { id: 7, itemId: null, userId: 4, shadeId: SOURCE, manicureId: 3 }
+    );
+  });
+
+  it("moves manicure polishes to the target without duplicating a shade + role", async () => {
+    await mergeShadeInto(client, { sourceShadeId: SOURCE, targetShadeId: TARGET, adminUserId: ADMIN });
+    assert.deepEqual(state.manicures.get(1).polishes, [{ shadeId: TARGET, role: "color" }]);
+    assert.deepEqual(state.manicures.get(2).polishes, [{ shadeId: TARGET, role: "color" }]);
+    assert.deepEqual(state.manicures.get(3).polishes, [{ shadeId: TARGET, role: "accent" }]);
+  });
+
+  it("moves events to the target, drops superseded ones and re-attaches detached ones", async () => {
+    await mergeShadeInto(client, { sourceShadeId: SOURCE, targetShadeId: TARGET, adminUserId: ADMIN });
+    assert.ok(!state.events.some((e) => e.shadeId === SOURCE), "no event keeps the retired shade");
+    const byId = new Map(state.events.map((e) => [e.id, e]));
+    assert.equal(byId.get(4).itemId, 22, "user 2's source-row event follows the combined row");
+    assert.equal(byId.has(5), false, "manicure 2 already had a target event");
+    assert.equal(byId.get(6).itemId, 22);
+    assert.equal(byId.get(7).itemId, 41, "user 4's detached event re-attaches to their target row");
+    assert.equal(byId.get(7).userId, 4);
+  });
+
+  it("recomputes wear stats for the target and reports every user whose stats changed", async () => {
+    const outcome = await mergeShadeInto(client, { sourceShadeId: SOURCE, targetShadeId: TARGET, adminUserId: ADMIN });
+    assert.deepEqual(state.wear.get(22), { wearCount: 2, lastWornOn: "2026-09-10" });
+    assert.deepEqual(state.wear.get(41), { wearCount: 1, lastWornOn: "2026-08-01" });
+    assert.deepEqual(outcome.affectedUserIds, [1, 2, 4]);
+    // Recomputation is per user and bound to that user.
+    const recomputes = statements.filter((s) => /^WITH target AS/i.test(s.sql));
+    assert.deepEqual(recomputes.map((s) => [Number(s.params[0]), s.params[1].map(Number)]), [[1, [TARGET]], [2, [TARGET]], [4, [TARGET]]]);
+  });
+
+  it("runs the mani-log moves after the inventory moves and before retiring the source", async () => {
+    await mergeShadeInto(client, { sourceShadeId: SOURCE, targetShadeId: TARGET, adminUserId: ADMIN });
+    const at = (re) => statements.findIndex((s) => re.test(s.sql));
+    const moveInventory = at(/^UPDATE user_inventory_item\s+SET shade_id/i);
+    const movePolishes = at(/^UPDATE manicure_polish AS mp/i);
+    const moveEvents = at(/^UPDATE inventory_event SET shade_id/i);
+    const recompute = at(/^WITH target AS/i);
+    const retire = at(/^UPDATE shade\s+SET review_status = 'merged'/i);
+    assert.ok(moveInventory < movePolishes && movePolishes < moveEvents && moveEvents < recompute && recompute < retire);
   });
 });

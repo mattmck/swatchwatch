@@ -157,6 +157,11 @@ function isMutation(sql) {
   return ["INSERT", "UPDATE", "DELETE"].includes(statementKind(sql));
 }
 
+/** A mutation whose target table is user_inventory_item (not one that only reads it in FROM). */
+function writesInventory(sql) {
+  return /^\s*(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+user_inventory_item\b/i.test(sql);
+}
+
 /** Placeholder numbers bound to a `user_id = $n` predicate (any alias). */
 function userIdPlaceholders(sql) {
   return [...String(sql).matchAll(/\buser_id\s*=\s*\$(\d+)/gi)].map((m) => Number(m[1]));
@@ -1230,7 +1235,7 @@ describe("access control — polishes inventory is scoped to the caller", () => 
     assertNoOwnerDataInBody(res.jsonBody);
 
     const inventoryWrites = handlerCalls().filter(
-      (c) => isMutation(c.sql) && /user_inventory_item/i.test(c.sql)
+      (c) => writesInventory(c.sql)
     );
     assert.ok(inventoryWrites.length > 0);
     for (const write of inventoryWrites) {
@@ -1248,10 +1253,16 @@ describe("access control — polishes inventory is scoped to the caller", () => 
     assert.ok(res.status < 500, `unexpected status ${res.status}: ${JSON.stringify(res.jsonBody)}`);
     assertScopedToCaller(ATTACKER);
     assertOwnerInventoryUnchanged();
+    // Re-adding re-attaches the caller's detached wear events (D8, #317) — never another user's.
+    const reattach = handlerCalls().filter((c) => /^UPDATE inventory_event ie\s+SET inventory_item_id/i.test(c.sql));
+    assert.equal(reattach.length, 1, "expected the wear-event re-attach on create");
+    assert.match(reattach[0].sql, /ie\.user_id = \$1/);
+    assert.match(reattach[0].sql, /ui\.user_id = \$1/);
+    assert.equal(Number(reattach[0].params[0]), ATTACKER);
   });
 
   function inventoryWriteCalls() {
-    return handlerCalls().filter((c) => isMutation(c.sql) && /user_inventory_item/i.test(c.sql));
+    return handlerCalls().filter((c) => writesInventory(c.sql));
   }
 
   function assertInventoryWritesBindOnlyCaller(callerId) {
