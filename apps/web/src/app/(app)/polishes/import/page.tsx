@@ -13,6 +13,7 @@ import type {
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { commitPolishImport, createPolishImport, getPolishImport } from "@/lib/api";
+import { trackImportCompleted } from "@/lib/metrics-events";
 import {
   IMPORT_TABS,
   IMPORT_TAB_LABELS,
@@ -180,6 +181,7 @@ function PolishImportWizard() {
     setError(null);
     try {
       const response = await commitPolishImport(session.id, changedDecisions(session.rows, rows));
+      trackImportCompleted(response);
       showSession(response.session);
       toast.success(
         `Imported ${response.result.created + response.result.updated} polishes (${response.result.created} new, ${response.result.updated} updated)`

@@ -169,6 +169,12 @@ Goal: more indie coverage, and the ops to absorb user-created data.
 | Catalog shades (active) | +10k via indie sources |
 | Detected-hex HIGH-confidence share | frozen at Week 0 baseline or better |
 
+How each number is read (decision D19, #323): the dupe-warning funnel from the browser events
+`dupe.warning_shown` / `dupe.warning_outcome`, the rest from the weekly query
+`docs/queries/m2-metrics.sql`. Definitions and the funnel KQL are in
+`docs/observability-plan.md` ("M2 success metrics"). The detected-hex share comes from the hex
+eval harness (`npm run eval:hex`).
+
 ## 5. Deferred, and why
 
 - **Native Expo app (#109)** — the biggest single item on the list and the blank

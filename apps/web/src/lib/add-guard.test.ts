@@ -369,20 +369,18 @@ describe("telemetry + updates", () => {
     assert.deepEqual(
       addGuardTelemetry({ surface: "polishes-list", intent: "own", guardKey: KEY, response: response([dupe()]) }),
       {
-        surface: "polishes-list",
+        page: "polishes-list",
         intent: "own",
         shade: "1",
         verdict: "dupe-owned",
-        dupeCount: 1,
         highCount: 1,
-        bestGrade: "high",
         bestFinishCompatibility: "same",
         bestDistance: 0.012,
       }
     );
     assert.deepEqual(
       addGuardTelemetry({ surface: "polish-form-create", intent: "wishlist", guardKey: newShadeGuardKey("a", "b") }),
-      { surface: "polish-form-create", intent: "wishlist", shade: "new" }
+      { page: "polish-form-create", intent: "wishlist", shade: "new" }
     );
   });
 

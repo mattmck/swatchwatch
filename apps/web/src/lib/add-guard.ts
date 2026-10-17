@@ -10,6 +10,7 @@ import {
   type PolishStatus,
 } from "swatchwatch-shared";
 import { dupeVerdict, type DupeVerdictKind } from "./dupes";
+import type { DupeWarningOutcome } from "./metrics-events";
 
 /**
  * Add guard (#266): before a shade is added to the collection or the wishlist, show the owned
@@ -29,7 +30,7 @@ export type AddGuardIntent = "own" | "wishlist";
 /** The user's answer in the dialog (telemetry value). */
 export type AddGuardChoice = "cancelled" | "wishlisted_instead" | "added_anyway";
 
-/** Where the guard ran (telemetry value). */
+/** Where the guard ran (telemetry `page` value; the funnel `surface` comes from the intent). */
 export type AddGuardSurface = "polishes-list" | "color-search" | "polish-form-create" | "polish-form-edit";
 
 /** Abandon the dupe check after this long and proceed with the add. */
@@ -41,12 +42,20 @@ export const ADD_GUARD_SESSION_KEY = "swatchwatch.add-guard.suppressed";
 /** Cap on remembered suppressions so the session entry cannot grow without bound. */
 export const ADD_GUARD_MAX_SUPPRESSED = 200;
 
-/** Telemetry event names (see `docs/roadmap-2026-10-to-12.md` §3: warnings shown → cancel / wishlist). */
+/**
+ * Guard-only telemetry. The dialog itself reports the M2 funnel events `dupe.warning_shown` /
+ * `dupe.warning_outcome` (`lib/metrics-events.ts`, roadmap §4).
+ */
 export const ADD_GUARD_EVENTS = {
-  shown: "add_guard.shown",
-  choice: "add_guard.choice",
   checkFailed: "add_guard.check_failed",
 } as const;
+
+/** Dialog choice → `dupe.warning_outcome` value. */
+export const ADD_GUARD_OUTCOMES: Record<AddGuardChoice, DupeWarningOutcome> = {
+  cancelled: "cancel",
+  wishlisted_instead: "wishlist_instead",
+  added_anyway: "add_anyway",
+};
 
 export type AddGuardSkipReason =
   /** The user already owns the shade: adding is a quantity increase, never a dupe. */
@@ -294,17 +303,16 @@ export function addGuardTelemetry(input: {
   response?: PolishDupesResponse | null;
 }): Record<string, string | number> {
   const props: Record<string, string | number> = {
-    surface: input.surface,
+    page: input.surface,
     intent: input.intent,
     shade: input.guardKey.startsWith("shade:") ? input.guardKey.slice("shade:".length) : "new",
   };
   if (input.response) {
     const verdict = dupeVerdict(input.response);
     props.verdict = verdict.kind;
-    props.dupeCount = input.response.dupeCount;
+    // `dupeCount` / `bestGrade` are set by the funnel event (`lib/metrics-events.ts`).
     props.highCount = input.response.highCount;
     if (verdict.best) {
-      props.bestGrade = verdict.best.grade;
       props.bestFinishCompatibility = verdict.best.finishCompatibility;
       props.bestDistance = verdict.best.distance;
     }

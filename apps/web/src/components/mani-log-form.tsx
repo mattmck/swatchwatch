@@ -18,6 +18,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ColorDot } from "@/components/color-dot";
 import { createManicure, updateManicure } from "@/lib/api";
+import { trackManiLogged } from "@/lib/metrics-events";
 import {
   MANICURE_ROLE_LABELS,
   MANICURE_ROLE_OPTIONS,
@@ -124,6 +125,7 @@ function ManiLogFormBody({
     try {
       const request = buildManicureRequest(values);
       const saved = manicure ? await updateManicure(manicure.id, request) : await createManicure(request);
+      if (!manicure) trackManiLogged({ polishCount: saved.polishes.length, via: "form" });
       toast.success(editing ? "Mani updated" : "Mani logged", {
         description: `${saved.polishes.length} polish${saved.polishes.length === 1 ? "" : "es"} · ${saved.wornOn}`,
       });
