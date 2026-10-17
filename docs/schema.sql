@@ -659,8 +659,8 @@ CREATE TABLE color_training_sample (
   -- Image data - can have multiple images per sample
   image_urls JSONB NOT NULL DEFAULT '[]',     -- array of {url, storage_path, is_primary}
   
-  -- Ground truth labels (from vendor data)
-  hex TEXT NOT NULL,                          -- ground truth hex from variant options
+  -- Ground truth labels (from vendor data, or hand-picked in the admin Hex Labeling tool)
+  hex TEXT,                                   -- ground truth hex; NULL only for rejected rows (CHECK below)
   color_name TEXT,                            -- original color name from vendor
   variant_option TEXT,                        -- which option contained the hex
   
@@ -674,9 +674,17 @@ CREATE TABLE color_training_sample (
   training_status TEXT NOT NULL DEFAULT 'pending',    -- pending|approved|rejected|used
   confidence NUMERIC(4,3),                    -- confidence in the hex accuracy
   notes TEXT,
-  
+
+  -- Admin Hex Labeling tool (migration 20261017170047543_hex-ground-truth-labels; source_type = 'manual')
+  shade_id BIGINT REFERENCES shade(shade_id) ON DELETE SET NULL,            -- labelled shade (one manual label per shade)
+  image_id BIGINT REFERENCES image_asset(image_id) ON DELETE SET NULL,      -- image the hex was sampled from
+  labeled_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL, -- admin who saved the label
+  label_meta JSONB,                           -- {"method": canvas|eyedropper|manual, "samplePoint": {x, y, size, imageWidth, imageHeight}}
+
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- A missing hex is only allowed when the admin flagged the images as unreliable (rejected)
+  CONSTRAINT color_training_sample_hex_required CHECK (hex IS NOT NULL OR training_status = 'rejected')
 );
 
 -- Indexes for training data queries
@@ -690,6 +698,11 @@ CREATE INDEX idx_color_training_created ON color_training_sample(created_at DESC
 CREATE UNIQUE INDEX idx_color_training_external_product_source
   ON color_training_sample(external_product_id, source_type)
   WHERE external_product_id IS NOT NULL;
+
+-- Admin Hex Labeling: one manual label per shade (upsert target of POST /api/hex-labels-admin/labels).
+CREATE UNIQUE INDEX idx_color_training_manual_shade
+  ON color_training_sample(shade_id)
+  WHERE source_type = 'manual' AND shade_id IS NOT NULL;
 
 -- Track which samples have been used for model training
 CREATE TABLE color_model_version (

@@ -12,6 +12,11 @@
  * migration 20261017033500000_add-color-training-sample.sql. Candidate shades are matched to their latest external_product
  * row (same brand + shade name) so the fixture can reference the vendor's
  * public product image rather than a private blob.
+ *
+ * The export also picks up hand-picked labels from the admin Hex Labeling tool
+ * (`source_type = 'manual'`, migration 20261017170047543_hex-ground-truth-labels):
+ *
+ *   npm run eval:hex:populate --workspace=swatchwatch-functions -- --export-only --source-type manual
  */
 import { promises as fs } from "fs";
 import path from "path";
@@ -150,6 +155,10 @@ export interface TrainingSampleExportRow {
   tags: unknown;
   finishes: unknown;
   bodyHtml: string | null;
+  /** Manual labels only: `color_training_sample.label_meta` ({method, samplePoint}). */
+  labelMeta?: unknown;
+  /** Manual labels only: the image_asset the hex was sampled from. */
+  imageId?: string | null;
 }
 
 const SOURCE_TYPE_TO_GROUND_TRUTH: Record<string, GroundTruthSource> = {
@@ -163,11 +172,35 @@ function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string" && v.trim() !== "") : [];
 }
 
+/**
+ * URL of the image the case is scored against. When an entry is marked primary it must carry a
+ * usable URL: a manual label sampled from an image without a known public URL (`url: null`) has
+ * no case, rather than silently scoring a different image against the hand-picked hex.
+ */
 function primaryImageUrl(imageUrls: unknown): string | null {
   if (!Array.isArray(imageUrls)) return null;
   const entries = imageUrls.filter((e): e is { url?: unknown; is_primary?: unknown } => !!e && typeof e === "object");
-  const primary = entries.find((e) => e.is_primary === true && typeof e.url === "string") ?? entries.find((e) => typeof e.url === "string");
-  return primary && typeof primary.url === "string" ? primary.url : null;
+  const marked = entries.find((e) => e.is_primary === true);
+  if (marked) return typeof marked.url === "string" && marked.url.trim() ? marked.url : null;
+  const first = entries.find((e) => typeof e.url === "string" && e.url.trim());
+  return first && typeof first.url === "string" ? first.url : null;
+}
+
+/** Human-readable provenance of a manual label for the fixture `notes`. */
+export function describeManualLabel(labelMeta: unknown, imageId: string | null | undefined): string | null {
+  if (!labelMeta || typeof labelMeta !== "object" || Array.isArray(labelMeta)) {
+    return imageId ? `manual label from image_asset ${imageId}` : null;
+  }
+  const meta = labelMeta as Record<string, unknown>;
+  const method = typeof meta.method === "string" ? meta.method : "manual";
+  const point = meta.samplePoint as Record<string, unknown> | null | undefined;
+  const parts = [`manual label (${method})`];
+  if (point && typeof point.x === "number" && typeof point.y === "number") {
+    const size = typeof point.size === "number" ? point.size : 1;
+    parts.push(`${size}x${size} px at (${point.x.toFixed(3)}, ${point.y.toFixed(3)})`);
+  }
+  if (imageId) parts.push(`of image_asset ${imageId}`);
+  return parts.join(" ");
 }
 
 /**
@@ -237,7 +270,13 @@ export function trainingSampleToEvalCase(row: TrainingSampleExportRow): EvalCase
     description: stripHtml(row.bodyHtml),
     tags,
     externalId: row.externalId,
-    notes: [row.notes, `training_status=${row.trainingStatus}`].filter(Boolean).join("; "),
+    notes: [
+      row.sourceType === "manual" ? describeManualLabel(row.labelMeta, row.imageId) : null,
+      row.notes,
+      `training_status=${row.trainingStatus}`,
+    ]
+      .filter(Boolean)
+      .join("; "),
   };
 }
 
@@ -245,6 +284,8 @@ export function trainingSampleToEvalCase(row: TrainingSampleExportRow): EvalCase
 
 export interface PopulateArgs {
   sources: string[] | null;
+  /** `color_training_sample.source_type` values to export (null = all). */
+  sourceTypes: string[] | null;
   limit: number;
   statuses: string[];
   out: string;
@@ -262,6 +303,8 @@ Options:
   --source <names>   Only these data_source names (comma-separated), e.g. HoloTacoShopify,MooncatShopify
   --limit <n>        Max candidate rows to read (default 500)
   --status <list>    training_status values to export (default pending,approved)
+  --source-type <list>  source_type values to export, e.g. manual (hand labels from the
+                     admin Hex Labeling tool) or vendor_option (default: all)
   --out <path>       Fixture path (default eval/hex/fixtures/color-training-sample.json)
   --export-only      Skip the DB write; just export existing samples
   --dry-run          Report what would be written; write nothing (DB or file)
@@ -271,6 +314,7 @@ Options:
 export function parsePopulateArgs(argv: string[]): PopulateArgs {
   const args: PopulateArgs = {
     sources: null,
+    sourceTypes: null,
     limit: 500,
     statuses: ["pending", "approved"],
     out: EVAL_PATHS.exportedFixture,
@@ -288,6 +332,10 @@ export function parsePopulateArgs(argv: string[]): PopulateArgs {
     switch (arg) {
       case "--source":
         args.sources = next(arg, i).split(",").map((s) => s.trim()).filter(Boolean);
+        i += 1;
+        break;
+      case "--source-type":
+        args.sourceTypes = next(arg, i).split(",").map((s) => s.trim()).filter(Boolean);
         i += 1;
         break;
       case "--limit": {
@@ -407,9 +455,12 @@ async function upsertSamples(samples: TrainingSampleInput[]): Promise<number> {
   return written;
 }
 
-async function readSamplesForExport(sources: string[] | null, statuses: string[]): Promise<TrainingSampleExportRow[]> {
-  const result = await query<TrainingSampleExportRow>(
-    `SELECT cts.training_sample_id AS "trainingSampleId",
+/**
+ * Samples to export. Manual labels (admin Hex Labeling tool) carry `shade_id` instead of an
+ * external product, so their finishes come from the shade. `$1` statuses, `$2` optional
+ * data-source names, `$3` optional source types.
+ */
+export const READ_SAMPLES_FOR_EXPORT_SQL = `SELECT cts.training_sample_id AS "trainingSampleId",
             cts.hex,
             cts.color_name AS "colorName",
             cts.brand_name AS "brandName",
@@ -422,16 +473,26 @@ async function readSamplesForExport(sources: string[] | null, statuses: string[]
             ds.name AS "sourceName",
             ep.external_id AS "externalId",
             ep.normalized_json -> 'tags' AS tags,
-            ep.normalized_json -> 'finishes' AS finishes,
-            ep.raw_json ->> 'body_html' AS "bodyHtml"
+            COALESCE(ep.normalized_json -> 'finishes', to_jsonb(s.finishes)) AS finishes,
+            ep.raw_json ->> 'body_html' AS "bodyHtml",
+            cts.label_meta AS "labelMeta",
+            cts.image_id::text AS "imageId"
      FROM color_training_sample cts
      LEFT JOIN data_source ds ON ds.data_source_id = cts.data_source_id
      LEFT JOIN external_product ep ON ep.external_product_id = cts.external_product_id
+     LEFT JOIN shade s ON s.shade_id = cts.shade_id
      WHERE cts.training_status = ANY($1::text[])
+       AND cts.hex IS NOT NULL
        AND ($2::text[] IS NULL OR ds.name = ANY($2::text[]))
-     ORDER BY cts.brand_name, cts.color_name, cts.training_sample_id`,
-    [statuses, sources]
-  );
+       AND ($3::text[] IS NULL OR cts.source_type = ANY($3::text[]))
+     ORDER BY cts.brand_name, cts.color_name, cts.training_sample_id`;
+
+async function readSamplesForExport(
+  sources: string[] | null,
+  statuses: string[],
+  sourceTypes: string[] | null
+): Promise<TrainingSampleExportRow[]> {
+  const result = await query<TrainingSampleExportRow>(READ_SAMPLES_FOR_EXPORT_SQL, [statuses, sources, sourceTypes]);
   return result.rows;
 }
 
@@ -476,14 +537,21 @@ export async function main(argv: string[]): Promise<number> {
       }
     }
 
-    const exportRows = await readSamplesForExport(args.sources, args.statuses);
+    const exportRows = await readSamplesForExport(args.sources, args.statuses, args.sourceTypes);
     const cases = exportRows.map(trainingSampleToEvalCase).filter((c): c is EvalCase => c !== null);
     const fixture: EvalFixture = {
       version: 1,
-      description: `Exported from color_training_sample (status ${args.statuses.join("/")}) on ${new Date().toISOString()}`,
+      description: `Exported from color_training_sample (status ${args.statuses.join("/")}${
+        args.sourceTypes ? `, source_type ${args.sourceTypes.join("/")}` : ""
+      }) on ${new Date().toISOString()}`,
       cases,
     };
-    console.log(`Export: ${exportRows.length} samples → ${cases.length} fixture cases`);
+    console.log(
+      `Export: ${exportRows.length} samples → ${cases.length} fixture cases` +
+        (exportRows.length > cases.length
+          ? ` (${exportRows.length - cases.length} skipped: no public image URL for the primary image, or no brand/shade name)`
+          : "")
+    );
     if (args.dryRun) {
       console.log(`  would write ${args.out}`);
     } else if (cases.length === 0) {

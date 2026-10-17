@@ -8,6 +8,7 @@ export * from './functions/admin-users';
 export * from './functions/admin-reference';
 export * from './functions/capture';
 export * from './functions/catalog';
+export * from './functions/hex-labels';
 export * from './functions/images';
 export * from './functions/ingestion-worker';
 export * from './functions/ingestion-ai-batch-poller';
