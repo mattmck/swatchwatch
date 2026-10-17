@@ -473,7 +473,8 @@ resource "azurerm_monitor_metric_alert" "api_5xx" {
 
 # Workspace-scoped so the query can use AppExceptions.ClientType: "Browser" rows
 # come from the web SDK, everything else (ClientType "PC") from the Functions worker.
-# Each result row is a client kind over its own threshold.
+# Each result row is a client kind over its own threshold. sum(ItemCount), not
+# count(): a sampled row (browser SDK sampling) stands for ItemCount exceptions.
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "exception_spike" {
   count                = local.alerts_enabled ? 1 : 0
   name                 = "${local.resource_prefix}-alert-exceptions-${local.unique_suffix}"
@@ -491,7 +492,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "exception_spike" {
       AppExceptions
       | where _ResourceId =~ "${lower(azurerm_application_insights.main.id)}"
       | extend ClientKind = iff(ClientType == "Browser", "Browser", "Server")
-      | summarize Exceptions = count() by ClientKind
+      | summarize Exceptions = sum(ItemCount) by ClientKind
       | where Exceptions > iff(ClientKind == "Browser", ${var.alert_browser_exception_threshold}, ${var.alert_server_exception_threshold})
     KQL
     time_aggregation_method = "Count"
