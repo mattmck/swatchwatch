@@ -79,12 +79,15 @@ export function isCatalogImageUrl(storageUrl: string): boolean {
   return container.length > 0 && defaultReadableContainers().includes(container);
 }
 
-const LIFETIME_DIRECTIVES = new Set(["max-age", "s-maxage", "stale-while-revalidate"]);
+const FRESHNESS_DIRECTIVES = new Set(["max-age", "s-maxage"]);
+// RFC 5861 stale windows: both let a cache keep serving after freshness ends.
+const STALE_DIRECTIVES = new Set(["stale-while-revalidate", "stale-if-error"]);
 
 /**
  * Keep a blob's own private/no-cache directive, but make sure its lifetimes cannot outlive the
- * signed id: max-age / s-maxage are capped at `remaining`, and stale-while-revalidate at whatever
- * is left after the longest freshness window (dropped when nothing is left). Directive arguments
+ * signed id: max-age / s-maxage are capped at `remaining`, and the stale windows
+ * (stale-while-revalidate, stale-if-error) at whatever is left after the longest freshness
+ * window (dropped when nothing is left). Directive arguments
  * may be quoted (RFC 9111), so the header is parsed rather than pattern-matched; a lifetime whose
  * argument is not a non-negative integer is treated as 0 (fail closed).
  */
@@ -105,18 +108,18 @@ function capPassthroughCacheControl(header: string, remaining: number): string {
 
   let freshFor = 0;
   for (const d of directives) {
-    if (d.key === "max-age" || d.key === "s-maxage") {
+    if (FRESHNESS_DIRECTIVES.has(d.key)) {
       freshFor = Math.max(freshFor, Math.min(seconds(d.rawValue), remaining));
     }
   }
 
   const out: string[] = [];
   for (const d of directives) {
-    if (!LIFETIME_DIRECTIVES.has(d.key)) {
+    if (STALE_DIRECTIVES.has(d.key)) {
+      const stale = Math.min(seconds(d.rawValue), remaining - freshFor);
+      if (stale > 0) out.push(`${d.name}=${stale}`);
+    } else if (!FRESHNESS_DIRECTIVES.has(d.key)) {
       out.push(d.rawValue === null ? d.name : `${d.name}=${d.rawValue}`);
-    } else if (d.key === "stale-while-revalidate") {
-      const swr = Math.min(seconds(d.rawValue), remaining - freshFor);
-      if (swr > 0) out.push(`${d.name}=${swr}`);
     } else {
       out.push(`${d.name}=${Math.min(seconds(d.rawValue), remaining)}`);
     }

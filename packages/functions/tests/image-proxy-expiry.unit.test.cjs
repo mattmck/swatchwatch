@@ -235,6 +235,15 @@ describe("images cache headers", () => {
       "private, max-age=60"
     );
     assert.equal(select({ blobCacheControl: "private, max-age=soon", expiresAt: nowS + 60 }), "private, max-age=0");
+    // stale-if-error is a stale window too: capped after freshness, dropped when none is left.
+    assert.equal(
+      select({ blobCacheControl: "private, max-age=600, stale-if-error=3600", expiresAt: nowS + 60 }),
+      "private, max-age=60"
+    );
+    assert.equal(
+      select({ blobCacheControl: "private, max-age=60, stale-if-error=3600", expiresAt: nowS + 600 }),
+      "private, max-age=60, stale-if-error=540"
+    );
     assert.equal(
       select({ blobCacheControl: "no-cache, max-age=120", expiresAt: nowS + 600 }),
       "no-cache, max-age=120"
