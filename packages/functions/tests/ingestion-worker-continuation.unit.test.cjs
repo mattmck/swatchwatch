@@ -387,6 +387,46 @@ describe("processIngestionJobQueueMessage — continuations", () => {
     assert.ok(job.metrics.logs.some((entry) => entry.msg === "first invocation log"));
   });
 
+  it("keeps the start of the run and counts omitted lines when a continuation's log is full", async () => {
+    pages[1] = { records: makeRecords(1, 34), metadata: {} };
+    const resumeAt = checkpoint({ recordOffset: 20, recordsProcessed: 20, continuationCount: 1 });
+    const earlierLogs = Array.from({ length: 500 }, (_, i) => ({
+      ts: new Date(Date.UTC(2026, 9, 14, 0, 0, i)).toISOString(),
+      level: i === 300 ? "warn" : "info",
+      msg: `invocation 1 line ${i}`,
+    }));
+    job = {
+      status: "running",
+      metrics: {
+        pipeline: { status: "running", stage: "continuation_queued" },
+        checkpoint: resumeAt,
+        logs: earlierLogs,
+      },
+    };
+    const chunkLabels = [];
+    materializeMock = async (records, options) => {
+      chunkLabels.push(options.chunkLabel);
+      return { processed: records.length, hexDetected: records.length };
+    };
+
+    await processIngestionJobQueueMessage(makePayload({ checkpoint: resumeAt }), context);
+
+    assert.equal(job.status, "succeeded");
+    const logs = job.metrics.logs;
+    assert.equal(logs.length, 500, "the stored log stays bounded");
+    assert.equal(logs[0].msg, "invocation 1 line 0", "the first invocation's start survives");
+    const markers = logs.filter((entry) => entry.omitted);
+    assert.equal(markers.length, 1);
+    const stored = logs.reduce((total, entry) => total + (entry.omitted ? entry.omitted.count : 1), 0);
+    assert.ok(stored > 500, "omitted lines are counted, not dropped silently");
+    assert.match(logs.at(-1).msg, /completed successfully/);
+    assert.deepEqual(chunkLabels, ["Records 21–30 of 34 on page 1", "Records 31–34 of 34 on page 1"]);
+    assert.ok(
+      logs.some((entry) => entry.msg === "Records 21–30 of 34 on page 1: upserted 10 external products"),
+      "each chunk's upsert is logged under its record range"
+    );
+  });
+
   it("preserves poller metrics on the running write that starts a continuation", async () => {
     pages[2] = { records: makeRecords(2, 3), metadata: { hasMore: false } };
     const resumeAt = checkpoint({ nextPage: 2, pagesCompleted: 1, recordsProcessed: 30, continuationCount: 1 });

@@ -9,7 +9,7 @@
 | Area | State |
 |---|---|
 | Terraform | ✅ `azurerm_log_analytics_workspace.main` (30-day retention) + workspace-based `azurerm_application_insights.main`; Function App wired via `site_config.application_insights_connection_string`; Azure OpenAI diagnostics → same workspace |
-| Functions host | ✅ Request telemetry from the Functions host; `host.json` `logging.logLevel` at Information, sampling on with Requests/Exceptions excluded |
+| Functions host | ✅ Request telemetry from the Functions host; `host.json` `logging.logLevel` at Information, sampling on with Requests/Exceptions/Traces excluded (traces since #226, so ingestion log lines are never sampled away) |
 | Functions worker | ✅ `src/lib/telemetry.ts` uses `applicationinsights@3` for `trackEvent`/`trackMetric`/`trackException`, used across auth, cache, capture, catalog, polishes, AI detection, and `internalServerError()` |
 | Worker correlation | ⚠️ Phase 1 binds worker telemetry to the host request context (distro `preInvocation` hook); post-deploy KQL validation still pending |
 | Worker init order | ✅ `src/index.ts` imports `./lib/telemetry` before the function modules, so the SDK starts before `pg` loads (previously `lib/auth` loaded `pg` first) |
@@ -23,7 +23,7 @@
 > **As built (differs from the original plan below):**
 > - **No new package.** `applicationinsights@3` runs on `@azure/monitor-opentelemetry`, whose trace handler already registers an Azure Functions `preInvocation` hook binding each invocation to the host's `traceparent` (`traces/azureFnHook.js`), and its `trackEvent`/`trackException` emit OTel log records against the active context. `@azure/functions-opentelemetry-instrumentation` was rejected: it also sets `WorkerOpenTelemetryEnabled`, which reroutes every `context.log` line through the worker, more change than correlation needs. The fix is init order only: `src/index.ts` imports `./lib/telemetry` first.
 > - **Exception auto-collection stays off.** The host already records failed invocations with their exception, and `internalServerError()` calls `trackException`, so enabling it would duplicate rows.
-> - **`host.json`:** the old `logLevel` block sat under `logging.applicationInsights`, which isn't where the v2 schema reads it, so the `"Trace"` levels were most likely ignored. It now lives at `logging.logLevel` (Information), with `excludedTypes: "Request;Exception"` for sampling.
+> - **`host.json`:** the old `logLevel` block sat under `logging.applicationInsights`, which isn't where the v2 schema reads it, so the `"Trace"` levels were most likely ignored. It now lives at `logging.logLevel` (Information), with `excludedTypes: "Request;Exception"` for sampling. (#226 later added `Trace`: adaptive sampling kept only a third to a half of the trace lines during busy ingestion runs, and the daily cap below bounds the cost.)
 > - **No `CORS_ALLOWED_HEADERS` app setting in Terraform.** The code default now includes the correlation headers, so a duplicate list in Terraform would only drift.
 > - Caps: `appinsights_daily_cap_gb` (null → 5 prod / 1 otherwise) on both App Insights and the workspace. `application_insights_key` removed; `application_insights_connection_string` output (sensitive) added.
 > - **Still to verify after deploy:** correlation KQL below, and that App Service **platform** CORS (`site_config.cors`) lets `traceparent` through on preflight.

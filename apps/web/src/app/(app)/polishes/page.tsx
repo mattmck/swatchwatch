@@ -25,12 +25,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ArrowDown, ArrowUp, ArrowUpDown, Loader2, Sparkles } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Loader2, Sparkles, Upload } from "lucide-react";
 import { ColorDot } from "@/components/color-dot";
+import { LogManiButton } from "@/components/log-mani-button";
+import { WishlistShareCard } from "@/components/wishlist-share-card";
 import { CollectionQuickActions, type QuickActionSource } from "@/components/collection-quick-actions";
 import { StatusChip, UntriedBadge } from "@/components/status-chip";
 import { StatusFilter } from "@/components/status-filter";
-import { quantityChangeUpdate } from "@/lib/inventory-status";
+import { isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
 import {
   applyInventoryPatch,
   applyOptimistic,
@@ -45,6 +47,7 @@ import {
   buildPolishesListQueryString,
   hasActiveFilters as listHasActiveFilters,
   parsePolishesListState,
+  statusPresetFor,
   toApiFilters,
   type PolishesListState,
   type SortDirection,
@@ -57,6 +60,9 @@ import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
 import { buildFinishOptions, knownFinishNames } from "@/lib/finish-options";
 import { FinishBadges } from "@/components/finish-badges";
+import { BuyFromBrandLink } from "@/components/buy-from-brand-link";
+import { ColorFamilyChips } from "@/components/color-family-chips";
+import { parseColorFamilyParam, serializeColorFamilies } from "@/lib/color-family-filter";
 import { buildSwatchThumbnailUrl } from "@/lib/image-url";
 import { runRecalcHexFlow } from "@/lib/recalc-hex-flow";
 import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
@@ -68,6 +74,13 @@ import { toast } from "sonner";
 const SEARCH_DEBOUNCE_MS = 350;
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
 const HAS_B2C_CONFIG = buildMsalConfig() !== null;
+
+/** The PUT response carries no `buyUrl` (#267), so keep the one already on the row. */
+function keepBuyUrl(updated: Polish, previous: Polish): Polish {
+  return updated.buyUrl === undefined && previous.buyUrl !== undefined
+    ? { ...updated, buyUrl: previous.buyUrl }
+    : updated;
+}
 
 export default function PolishesPage() {
   return (
@@ -144,6 +157,9 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const [untried, setUntried] = useState(initialState.untried);
   const [toneFilter, setToneFilter] = useState<Undertone | "all">(initialState.toneFilter);
   const [finishFilter, setFinishFilter] = useState<string>(initialState.finishFilter);
+  // Canonical comma-separated color families (`red,pink`, #103); "" = no family filter.
+  const [familyFilter, setFamilyFilter] = useState<string>(initialState.familyFilter);
+  const selectedFamilies = useMemo(() => parseColorFamilyParam(familyFilter), [familyFilter]);
   const [sortKey, setSortKey] = useState<SortKey>(initialState.sortKey);
   const [sortDirection, setSortDirection] = useState<SortDirection>(initialState.sortDirection);
   const statusesKey = statuses.join(",");
@@ -171,6 +187,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       untried !== next.untried ||
       toneFilter !== next.toneFilter ||
       finishFilter !== next.finishFilter ||
+      familyFilter !== next.familyFilter ||
       sortKey !== next.sortKey ||
       sortDirection !== next.sortDirection;
     const paginationChangedFromUrl = page !== next.page || pageSize !== next.pageSize;
@@ -190,6 +207,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     setUntried(next.untried);
     setToneFilter(next.toneFilter);
     setFinishFilter(next.finishFilter);
+    setFamilyFilter(next.familyFilter);
     setSortKey(next.sortKey);
     setSortDirection(next.sortDirection);
     setPage(next.page);
@@ -204,12 +222,13 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       untried,
       toneFilter,
       finishFilter,
+      familyFilter,
       sortKey,
       sortDirection,
       page: 1,
       pageSize: 0,
     }),
-    [debouncedSearch, statusesKey, untried, toneFilter, finishFilter, sortKey, sortDirection]
+    [debouncedSearch, statusesKey, untried, toneFilter, finishFilter, familyFilter, sortKey, sortDirection]
   );
 
   useEffect(() => {
@@ -290,7 +309,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       return;
     }
     setPage(1);
-  }, [debouncedSearch, statusesKey, untried, toneFilter, finishFilter, sortKey, sortDirection]);
+  }, [debouncedSearch, statusesKey, untried, toneFilter, finishFilter, familyFilter, sortKey, sortDirection]);
 
   const queryString = useMemo(
     () => buildPolishesListQueryString({ ...listState, page, pageSize }),
@@ -309,7 +328,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     });
   }, [pathname, queryString, router, searchParamsString]);
 
-  const hasActiveFilters = listHasActiveFilters({ search, statuses, untried, toneFilter, finishFilter });
+  const hasActiveFilters = listHasActiveFilters({ search, statuses, untried, toneFilter, finishFilter, familyFilter });
 
   const handleSort = useCallback((key: SortKey) => {
     if (sortKey === key) {
@@ -360,7 +379,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
 
       updatePolish(polishId, change)
         .then((updated) => {
-          setPolishes((prev) => commitOptimistic(prev, polishId, optimistic, updated));
+          setPolishes((prev) => commitOptimistic(prev, polishId, optimistic, keepBuyUrl(updated, original)));
           if (change.status !== original.status) {
             trackEvent("collection.status_changed", statusChangeEvent(original.status, change.status, "stepper"));
           }
@@ -399,7 +418,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
 
       send
         .then((updated) => {
-          setPolishes((prev) => commitOptimistic(prev, polishId, optimistic, updated));
+          setPolishes((prev) => commitOptimistic(prev, polishId, optimistic, keepBuyUrl(updated, original)));
           if (action.kind === "set-tried") {
             trackEvent("collection.tried_changed", { tried: action.date !== null, via: source });
           } else {
@@ -450,9 +469,17 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
             {total} polishes &middot; {polishes.length} shown
           </p>
         </div>
-        <Button asChild>
-          <Link href="/polishes/new">+ Add Polish</Link>
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="outline">
+            <Link href="/polishes/import">
+              <Upload aria-hidden="true" />
+              Import
+            </Link>
+          </Button>
+          <Button asChild>
+            <Link href="/polishes/new">+ Add Polish</Link>
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -511,12 +538,20 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
               setUntried(false);
               setToneFilter("all");
               setFinishFilter("all");
+              setFamilyFilter("");
             }}
           >
             Clear filters
           </Button>
         )}
       </div>
+
+      <ColorFamilyChips
+        value={selectedFamilies}
+        onChange={(next) => setFamilyFilter(serializeColorFamilies(next))}
+      />
+      {/* Opt-in public wishlist link (#268); hidden unless the server flag is on. */}
+      {statusPresetFor(statuses) === "wishlist" && <WishlistShareCard />}
 
       {/* Table */}
       <div
@@ -653,6 +688,12 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                       >
                         {polish.name}
                       </Link>
+                      <BuyFromBrandLink
+                        url={polish.buyUrl}
+                        brand={polish.brand}
+                        name={polish.name}
+                        className="mt-0.5 flex w-fit"
+                      />
                     </TableCell>
                     <TableCell>
                       <ColorDot
@@ -698,12 +739,15 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                       </TableCell>
                     )}
                     <TableCell className="text-right">
-                      <CollectionQuickActions
-                        polish={polish}
-                        pending={actionPendingById[polish.id] === true}
-                        onAction={(action, source) => handleCollectionAction(polish.id, action, source)}
-                        onQuantityChange={(delta) => handleQuantityChange(polish.id, delta)}
-                      />
+                      <div className="flex items-center justify-end gap-1">
+                        {isOwnedPolish(polish) && <LogManiButton polish={polish} variant="icon" />}
+                        <CollectionQuickActions
+                          polish={polish}
+                          pending={actionPendingById[polish.id] === true}
+                          onAction={(action, source) => handleCollectionAction(polish.id, action, source)}
+                          onQuantityChange={(delta) => handleQuantityChange(polish.id, delta)}
+                        />
+                      </div>
                     </TableCell>
                   </TableRow>
                 );

@@ -10,6 +10,7 @@ import {
   parseSamplingPercentage,
   redactImageProxyIds,
   redactImageUrlsInitializer,
+  redactWishlistTokens,
   setUser,
   trackEvent,
   trackException,
@@ -139,5 +140,40 @@ describe("image proxy id redaction", () => {
 
   it("tolerates items without baseData", () => {
     assert.equal(redactImageUrlsInitializer({ name: "x" }), true);
+  });
+});
+
+describe("wishlist share token redaction", () => {
+  const token = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE";
+
+  it("redacts the API path segment and the public page query parameter", () => {
+    assert.equal(
+      redactWishlistTokens(`https://api.example.com/api/wishlist/${token}`),
+      "https://api.example.com/api/wishlist/[redacted]",
+    );
+    assert.equal(
+      redactWishlistTokens(`https://app.example.com/w/?token=${token}&x=1`),
+      "https://app.example.com/w/?token=[redacted]&x=1",
+    );
+  });
+
+  it("redacts page views and dependencies through the initializer", () => {
+    const item: ITelemetryItem = {
+      name: "Microsoft.ApplicationInsights.PageView",
+      baseData: {
+        name: "Wishlist",
+        uri: `https://app.example.com/w/?token=${token}`,
+        refUri: `https://app.example.com/w/?token=${token}`,
+        properties: { target: `GET /api/wishlist/${token}` },
+      },
+      tags: { "ai.operation.name": `/w/?token=${token}` },
+    };
+    assert.equal(redactImageUrlsInitializer(item), true);
+    assert.ok(!JSON.stringify(item).includes(token));
+  });
+
+  it("leaves the owner share endpoint alone", () => {
+    const url = "https://api.example.com/api/wishlist-share/rotate";
+    assert.equal(redactWishlistTokens(url), url);
   });
 });

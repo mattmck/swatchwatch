@@ -58,7 +58,7 @@ describe("parsePolishesListState / buildPolishesListQueryString", () => {
   });
 
   it("round-trips every field", () => {
-    const query = "q=red&status=owned%2Cdestash&untried=1&tone=warm&finish=shimmer&sort=status&dir=desc&page=3&pageSize=25";
+    const query = "q=red&status=owned%2Cdestash&untried=1&tone=warm&finish=shimmer&family=red%2Cpink&sort=status&dir=desc&page=3&pageSize=25";
     const state = parsePolishesListState(qs(query));
     assert.deepEqual(state, {
       search: "red",
@@ -66,6 +66,7 @@ describe("parsePolishesListState / buildPolishesListQueryString", () => {
       untried: true,
       toneFilter: "warm",
       finishFilter: "shimmer",
+      familyFilter: "red,pink",
       sortKey: "status",
       sortDirection: "desc",
       page: 3,
@@ -164,6 +165,13 @@ describe("toApiFilters", () => {
     assert.equal(filters.untried, undefined);
     assert.equal(filters.search, undefined);
     assert.equal(filters.finish, undefined);
+    assert.equal("families" in filters, false);
+  });
+
+  it("sends the color family filter (#103) as families", () => {
+    const state = { ...DEFAULT_LIST_STATE, familyFilter: "pink,red" };
+    assert.deepEqual(toApiFilters(state).families, ["red", "pink"]);
+    assert.equal(hasActiveFilters(state), true);
   });
 });
 

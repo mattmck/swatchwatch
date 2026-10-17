@@ -1,5 +1,6 @@
 import type { PolishFilters, PolishStatus } from "swatchwatch-shared";
 import type { Undertone } from "@/lib/color-utils";
+import { parseColorFamilyParam } from "@/lib/color-family-filter";
 
 /**
  * URL state for the `/polishes` table (issue #262).
@@ -9,6 +10,7 @@ import type { Undertone } from "@/lib/color-utils";
  * (`all|collection`), `availability`/`avail` (`all|owned|wishlist`) and `all=0|1` params are
  * still read so old links and bookmarks keep working, but the page only ever writes `status`
  * and `untried`: `scope=collection` ≡ `status=owned`, `availability=wishlist` ≡ `status=wishlist`.
+ * The color family chips (#103) live in the same state as `family` (canonical comma list).
  */
 
 export const DEFAULT_PAGE_SIZE = 10;
@@ -35,6 +37,8 @@ export interface PolishesListState {
   untried: boolean;
   toneFilter: Undertone | "all";
   finishFilter: string;
+  /** Canonical comma-separated color families (`red,pink`, #103), or "" for no family filter. */
+  familyFilter: string;
   sortKey: SortKey;
   sortDirection: SortDirection;
   page: number;
@@ -47,6 +51,7 @@ export const DEFAULT_LIST_STATE: PolishesListState = {
   untried: false,
   toneFilter: "all",
   finishFilter: "all",
+  familyFilter: "",
   sortKey: "name",
   sortDirection: "asc",
   page: 1,
@@ -120,6 +125,7 @@ export function parsePolishesListState(params: ReadableParams): PolishesListStat
     untried: parseBooleanFlag(params.get("untried")) === true,
     toneFilter: parseToneFilter(params.get("tone")),
     finishFilter: !finish || finish === "all" ? "all" : finish,
+    familyFilter: parseColorFamilyParam(params.get("family")).join(","),
     sortKey: parseSortKey(params.get("sort")),
     sortDirection: params.get("dir") === "desc" ? "desc" : "asc",
     page: parsePositiveInt(params.get("page"), 1),
@@ -136,6 +142,8 @@ export function buildPolishesListQueryString(state: PolishesListState): string {
   if (state.untried) params.set("untried", "1");
   if (state.toneFilter !== "all") params.set("tone", state.toneFilter);
   if (state.finishFilter !== "all") params.set("finish", state.finishFilter);
+  const families = parseColorFamilyParam(state.familyFilter);
+  if (families.length > 0) params.set("family", families.join(","));
   if (state.sortKey !== "name") params.set("sort", state.sortKey);
   if (state.sortDirection !== "asc") params.set("dir", state.sortDirection);
   if (state.page !== 1) params.set("page", String(state.page));
@@ -151,6 +159,7 @@ export function sameFilters(a: PolishesListState, b: PolishesListState): boolean
     a.untried === b.untried &&
     a.toneFilter === b.toneFilter &&
     a.finishFilter === b.finishFilter &&
+    a.familyFilter === b.familyFilter &&
     a.sortKey === b.sortKey &&
     a.sortDirection === b.sortDirection
   );
@@ -194,13 +203,17 @@ export function toggleStatus(
 }
 
 /** True when any filter (not sort or paging) differs from the defaults. */
-export function hasActiveFilters(state: Pick<PolishesListState, "search" | "statuses" | "untried" | "toneFilter" | "finishFilter">): boolean {
+export function hasActiveFilters(
+  state: Pick<PolishesListState, "search" | "statuses" | "untried" | "toneFilter" | "finishFilter"> &
+    Partial<Pick<PolishesListState, "familyFilter">>
+): boolean {
   return (
     state.search.trim().length > 0 ||
     state.statuses.length > 0 ||
     state.untried ||
     state.toneFilter !== "all" ||
-    state.finishFilter !== "all"
+    state.finishFilter !== "all" ||
+    Boolean(state.familyFilter)
   );
 }
 
@@ -212,6 +225,7 @@ export function toApiFilters(
   state: PolishesListState
 ): Omit<PolishFilters, "page" | "pageSize" | "tone"> {
   const statuses = normalizeStatuses(state.statuses);
+  const families = parseColorFamilyParam(state.familyFilter);
   return {
     search: state.search.trim() || undefined,
     finish: state.finishFilter !== "all" ? (state.finishFilter as PolishFilters["finish"]) : undefined,
@@ -219,6 +233,7 @@ export function toApiFilters(
     untried: state.untried || undefined,
     sortBy: state.sortKey,
     sortOrder: state.sortDirection,
+    ...(families.length > 0 ? { families } : {}),
   };
 }
 
