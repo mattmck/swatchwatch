@@ -21,13 +21,14 @@ src/app/
 ├── (admin)/
 │   ├── error.tsx                 → Route-group error boundary (full-screen `RouteError`; the group has no layout)
 │   └── admin/
-│       ├── page.tsx              → /admin  Unified admin console (tabs: Configuration, Job Runs, Admin Jobs, User Management). Renders with RequireAuth + AppShell at the page level.
+│       ├── page.tsx              → /admin  Unified admin console (tabs: Configuration, Job Runs, Admin Jobs, User Management, Hex Labeling; deep link with `?tab=`). Renders with RequireAuth + AppShell at the page level.
 │       └── reference-data/
 │           ├── page.tsx          → /admin/reference-data  Legacy redirect → `/admin?tab=configuration`
 │           └── components/
 │               ├── jobs-tab.tsx  → Job Runs tab (list `/api/reference-admin/jobs`, status/error inspection, filtering)
 │               ├── config-tab.tsx → Configuration tab (finish/harmony CRUD + finish-normalization alias CRUD)
-│               └── users-tab.tsx → User Management tab (`/api/users-admin` list + `/api/users-admin/merge` repair flow)
+│               ├── users-tab.tsx → User Management tab (`/api/users-admin` list + `/api/users-admin/merge` repair flow)
+│               └── hex-labeling-tab.tsx → Hex Labeling tab (`?tab=hex-labeling`): ground-truth hex labeler for the hex-detection eval (see below)
 ├── (app)/
 │   ├── layout.tsx                → App layout (AppShell sidebar wrapper)
 │   ├── error.tsx                 → Route-group error boundary (renders `RouteError` inside the AppShell; retry = `reset()`)
@@ -171,6 +172,14 @@ This works for both `ciamlogin.com` (External ID) and `b2clogin.com` (legacy B2C
 - `useDevAuth()` — Dev bypass stub, safe to call anywhere. Returns stubbed auth state with admin role for local testing
 - `useUnconfiguredAuth()` — B2C-unconfigured stub, safe to call anywhere. Returns unauthenticated non-admin state
 
+## Admin Hex Labeling tab
+
+`/admin?tab=hex-labeling` (`reference-data/components/hex-labeling-tab.tsx`) builds ground-truth hexes for the hex-detection eval. It walks the admin queue from `GET /api/hex-labels-admin/queue` (unlabeled shades with images first, worst vendor↔detected agreement first; filters: brand, "Vendor ≠ detected" (`hex_agreement > 0.10`), "Show labeled", "Include no-image shades"; cursor-paginated, the next page is prefetched near the end) and shows, per shade, brand/name/finishes, the vendor/detected/name hexes as swatches with the OKLAB agreement, and every catalog product image (thumbnail strip, keys 1–9).
+
+- **Eyedropper:** the selected image is drawn into a `<canvas>` (loaded with `crossOrigin="anonymous"`; the image proxy returns `Access-Control-Allow-Origin` for allowed web origins). Hovering shows a 10× magnifier loupe with the sample window and a live "Under cursor" swatch; clicking or tapping (pointer events, `touch-action: none`) picks the averaged colour of a 1×1/3×3/5×5/9×9 window (default 5×5, `[`/`]` to change), ignoring fully transparent pixels. Chromium browsers also get a native `EyeDropper` button (E). If an image cannot be read (no CORS headers → tainted canvas) the tab still shows it and explains that only the native eyedropper or a typed hex will work.
+- **Save:** the picked hex can be adjusted in the hex input; optional "Images unreliable" flag and a note. Enter saves (`POST /api/hex-labels-admin/labels`, with the image id and normalized sample point) and advances; S skips, N/→ and P/← navigate, U (or Ctrl/⌘+Z) undoes the last save (deletes a new label or restores the one it replaced). A warning shows when the sampled image has no public vendor URL (such labels are not exported to the eval fixture). The progress bar shows labeled / total for the current filters.
+- Labels never change the shade's `vendor_hex` / `detected_hex`.
+
 ## Utilities (`src/lib/`)
 
 | File | Exports |
@@ -180,7 +189,8 @@ This works for both `ciamlogin.com` (External ID) and `b2clogin.com` (legacy B2C
 | `finish-options.ts` | `buildFinishOptions(finishTypes, extraValues?)`, `knownFinishNames()`, `resolveFinishLabel()` — finish select/chip options and labels built from ALL reference `finish_type` rows (including admin-added, non-built-in types), falling back to `FINISHES` only when reference data is empty; `extraValues` keeps a polish's saved finishes selectable when they are missing from the list |
 | `color-harmonies.ts` | Harmony palette generation + `getHarmonyTypeOptions()` for API-backed harmony option mapping (with fallback constants) |
 | `color-utils.ts` | Hex↔HSL↔RGB↔OKLAB↔OKLCH conversions, `colorDistance()`, harmony helpers, undertone breakdown, and `analyzeCollectionGaps()`. The forward OKLAB math (`rgbToOklab`, `hexToOklab`, `oklabDistance`, `colorDistance`, `OKLab`) is re-exported from `swatchwatch-shared` so it matches the Functions API exactly |
-| `api.ts` | API client helpers (plus the exported `API_BASE_URL` and `getAuthHeaders()`) including polish CRUD, rapid-add capture calls, ingestion admin methods (`listIngestionJobs`, `runIngestionJob`, `getIngestionJob`), reference-data admin methods (`listAdminJobs`, finish/harmony CRUD, finish-normalization CRUD), user-management admin methods (`listAdminUsers`, `mergeAdminUsers`), public reference lookup methods (`listReferenceFinishTypes`, `listReferenceHarmonyTypes`), and `matchPolishesToImage()` for photo matching |
+| `api.ts` | API client helpers (plus the exported `API_BASE_URL` and `getAuthHeaders()`) including polish CRUD, rapid-add capture calls, ingestion admin methods (`listIngestionJobs`, `runIngestionJob`, `getIngestionJob`), reference-data admin methods (`listAdminJobs`, finish/harmony CRUD, finish-normalization CRUD), user-management admin methods (`listAdminUsers`, `mergeAdminUsers`), hex-labeling admin methods (`getHexLabelQueue`, `saveHexLabel`, `deleteHexLabel`), public reference lookup methods (`listReferenceFinishTypes`, `listReferenceHarmonyTypes`), and `matchPolishesToImage()` for photo matching |
+| `hex-sampling.ts` | Pure helpers for the Hex Labeling tab: `averageRegion()` (average a `size`×`size` RGBA window → `#RRGGBB`, skipping fully transparent pixels, clamped at image edges), `clientToPixel()` (pointer → canvas pixel for a CSS-scaled canvas), `toSamplePoint()`, `normalizeHexInput()` (`#RRGGBB`/`RRGGBB`/`#RGB` → `#RRGGBB`), `readableTextColor()`, `hexLabelKeyAction()` (keyboard map), `stepSampleSize()`, `planUndo()` / `labelToRequest()` (delete a new label or restore the replaced one), `labelProgress()` |
 | `private-image.ts` | `isPrivateImageUrl(url, apiOrigin?)` (true when the path starts with `/api/images/v3.` and the URL is relative or on the origin of `api.ts`'s `API_BASE_URL`; the same path on any other host is treated as public, so the bearer token is never sent there), `usePrivateImage(url)` → `{ status: "idle" \| "loading" \| "ready" \| "denied" \| "error", objectUrl }` — fetches private ids with `getAuthHeaders()` (dev-bypass token included), returns an object URL that is revoked on unmount or url change, and ignores stale responses via `AbortController`. Non-private URLs return `idle` so callers render the plain URL. `loadPrivateImage()` / `classifyPrivateImageResponse()` are the framework-agnostic pieces the hook uses |
 | `image-downscale.ts` | `downscaleImageFile()` — browser canvas downscale (longest edge `MATCH_IMAGE_MAX_EDGE` = 640px, JPEG for photos / PNG when the source may have alpha) returning a data URL + dimensions; `computeScaledSize()` / `outputMimeTypeFor()` pure helpers |
 | `polish-filters.ts` | `buildBrandOptions()`, `filterPolishesForList()`, `matchesBrandFilter()` — shared catalog/search filter helpers with normalized brand matching. Ownership is `status === "owned"` and the `wishlist` availability filter is `status === "wishlist"` (catalog rows without inventory are neither) |
