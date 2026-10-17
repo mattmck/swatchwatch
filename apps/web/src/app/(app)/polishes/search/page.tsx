@@ -12,6 +12,7 @@ import { listPolishes, updatePolish } from "@/lib/api";
 import { buildBrandOptions, matchesBrandFilter } from "@/lib/polish-filters";
 import { isArchivingChange, isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
 import { showArchivedToast } from "@/components/archived-toast";
+import { applyInventoryPatch } from "@/lib/collection-actions";
 import {
   colorDistance,
   hexToHsl,
@@ -646,7 +647,7 @@ function ColorSearchPageContent() {
 
       const change = quantityChangeUpdate(original, delta);
       setAllPolishes((prev) =>
-        prev.map((p) => (p.id === polishId ? { ...p, ...change } : p))
+        prev.map((p) => (p.id === polishId ? applyInventoryPatch(p, change) : p))
       );
 
       const applyUpdated = (updated: Polish) =>

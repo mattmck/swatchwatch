@@ -396,13 +396,14 @@ const NON_POLISH_KEYWORDS = [
   "bond",
 ];
 
-const POLISH_SIGNAL_REGEX = /\b(?:nail\s*polish|polish|lacquer|varnish|enamel)\b/;
+const POLISH_SIGNAL_REGEX = /\b(?:nail\s*)?(?:polish(?:es)?|lacquers?|varnish(?:es)?|enamels?)\b/;
 const NON_POLISH_REGEX = new RegExp(`\\b(?:${NON_POLISH_KEYWORDS.join("|")})(?:s|es)?\\b`);
 
 /**
  * Classifies whether a Shopify product is a nail polish based on its
  * `product_type` and tags. Returns true only when at least one polish signal
- * (`nail polish`, `polish`, `lacquer`, `varnish`, `enamel`) is present AND no
+ * (`nail polish`, `polish`, `lacquer`, `varnish`, `enamel`, or their plurals
+ * such as `Nail Polishes`/`lacquers`) is present AND no
  * non-polish keyword (stamp, plate, brush, tool, file, buffer, lamp, decal,
  * sticker, kit, remover, wipe, cuticle, treatment, primer, dehydrator, bond)
  * appears.
@@ -410,7 +411,8 @@ const NON_POLISH_REGEX = new RegExp(`\\b(?:${NON_POLISH_KEYWORDS.join("|")})(?:s
  * Inputs are matched case-insensitively. Tag separators `_` and `-` are
  * normalized to spaces so `nail-polish`/`nail_polish` are recognized; the
  * polish-signal regex also matches the concatenated form `nailpolish` via
- * `\s*`. All matching uses word boundaries to avoid substring false positives
+ * `\s*`. Only plural forms are accepted as inflections (`polishes`, not
+ * `polished`). All matching uses word boundaries to avoid substring false positives
  * (e.g., `kit` won't match inside an unrelated word).
  */
 export function isNailPolish(productType: string | null, tags: string[]): boolean {
@@ -422,12 +424,29 @@ export function isNailPolish(productType: string | null, tags: string[]): boolea
   return POLISH_SIGNAL_REGEX.test(normalizedHaystack);
 }
 
-function isBundle(tags: string[]): boolean {
-  const normalized = tags.map((tag) => tag.toLowerCase());
-  return (
-    normalized.includes("bundle:product") ||
-    normalized.includes("product-bundle") ||
-    normalized.includes("bundle")
+/**
+ * Exact (normalized) tags that mark a Shopify product as a multi-shade set or
+ * bundle rather than a single shade. Matching is exact on the whole tag, so
+ * collection tags that merely name a set (e.g. Mooncat's per-shade
+ * `collection:lost-in-a-folktale-set`) do not mark the shade as a bundle.
+ */
+const BUNDLE_TAGS = new Set([
+  "bundle",
+  "bundle:product",
+  "product-bundle",
+  // Mooncat tags its boxed collection sets this way (no bundle:* tag on some).
+  "collection-set",
+  "gift-set",
+]);
+
+/**
+ * True when the product's tags mark it as a set/bundle. Tags are lowercased,
+ * trimmed, and `_`/whitespace runs are folded to `-`, so `Collection Set` and
+ * `collection_set` match `collection-set`.
+ */
+export function isBundle(tags: string[]): boolean {
+  return tags.some((tag) =>
+    BUNDLE_TAGS.has(tag.trim().toLowerCase().replace(/[\s_]+/g, "-"))
   );
 }
 
