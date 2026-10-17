@@ -14,7 +14,7 @@ import {
   loadCatalogWithCache,
   ProductConnector,
 } from "./types.js";
-import { detectHexFromColorName } from "./color-name-detection.js";
+import { detectHexFromColorName, stripHtmlToText } from "./color-name-detection.js";
 
 const REQUEST_TIMEOUT_MS = parseIntEnv(
   process.env.SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS,
@@ -804,7 +804,19 @@ async function toNormalizedRecord(
   // Always try color name detection for name_hex (independent of vendor hex)
   colorName = extractColorNameFromProduct(product);
   if (colorName) {
-    const aiResult = await detectHexFromColorName(colorName, { preferAi: true });
+    // Brand-aware lookup: "Mooncat Wildberry" is a specific product, not the
+    // generic word, so hand the model the vendor, collection, description and tags.
+    const aiResult = await detectHexFromColorName(colorName, {
+      preferAi: true,
+      context: {
+        brand: vendor,
+        productLine: productType,
+        collection: collections[0] ?? null,
+        description: stripHtmlToText(asNonEmptyString(product.body_html)),
+        tags,
+        finishes,
+      },
+    });
     if (aiResult.hex) {
       nameHex = aiResult.hex;
       if (!hexSource) {

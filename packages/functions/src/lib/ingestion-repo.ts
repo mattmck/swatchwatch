@@ -14,7 +14,11 @@ import { submitVisionHexBatch } from "./azure-openai-batch";
 import { uploadSourceImageToBlob, ensureContainer } from "./blob-storage";
 import { toImageProxyUrlFromOrigin } from "./image-proxy";
 import pLimit = require("p-limit");
-import { isSuspiciousHex } from "./suspicious-hex";
+import {
+  buildSuspiciousHexContext,
+  classifySuspiciousHex,
+  type SuspiciousHexContext,
+} from "./suspicious-hex";
 import {
   loadFinishCatalog,
   mergeFinishLists,
@@ -375,10 +379,28 @@ function mergeStringArrays(
   return merged.length ? merged : null;
 }
 
+/**
+ * Batch-level suspicious-hex context for one data source: counts repeated
+ * vendor hexes so store template defaults (the same hex on 40 shades) are
+ * caught alongside the static placeholder list.
+ */
+function buildVendorHexContext(records: ConnectorProductRecord[]): SuspiciousHexContext {
+  const vendorHexes: Array<string | null> = [];
+  for (const record of records) {
+    const normalized =
+      record.normalized && typeof record.normalized === "object"
+        ? (record.normalized as Record<string, unknown>)
+        : null;
+    vendorHexes.push(normalized ? asString(normalized.vendorHex) : null);
+  }
+  return buildSuspiciousHexContext(vendorHexes);
+}
+
 function estimateBatchCandidateCount(
   records: ConnectorProductRecord[],
   detectHexFromImage: boolean,
-  detectHexOnSuspiciousOnly: boolean
+  detectHexOnSuspiciousOnly: boolean,
+  suspiciousContext: SuspiciousHexContext
 ): number {
   if (!detectHexFromImage) {
     return 0;
@@ -400,7 +422,11 @@ function estimateBatchCandidateCount(
     }
 
     const shouldRunAiDetection =
-      !detectHexOnSuspiciousOnly || isSuspiciousHex(holo.vendorHex);
+      !detectHexOnSuspiciousOnly ||
+      classifySuspiciousHex(holo.vendorHex, suspiciousContext, {
+        shadeName: holo.name ?? holo.colorName,
+        tags: holo.tags,
+      }).suspicious;
     if (shouldRunAiDetection) {
       count += 1;
     }
@@ -559,10 +585,12 @@ async function prepareHoloTacoImageData(
   const detectHexFromImage = options?.detectHexFromImage !== false;
   const detectHexOnSuspiciousOnly = options?.detectHexOnSuspiciousOnly === true;
   const batchMinImages = Math.max(1, options?.batchMinImages ?? DEFAULT_HEX_BATCH_MIN_IMAGES);
+  const suspiciousContext = buildVendorHexContext(records);
   const estimatedBatchCandidates = estimateBatchCandidateCount(
     records,
     detectHexFromImage,
-    detectHexOnSuspiciousOnly
+    detectHexOnSuspiciousOnly,
+    suspiciousContext
   );
   const useBatchForHexDetection =
     options?.useBatchForHexDetection === true &&
@@ -602,7 +630,21 @@ async function prepareHoloTacoImageData(
     estimatedBatchCandidates,
     useBatchForHexDetection,
     batchMinImages,
+    vendorHexRecords: suspiciousContext.hexRecordCount,
+    vendorHexTemplateDefaults: Array.from(suspiciousContext.templateDefaults),
   });
+  if (detectHexOnSuspiciousOnly && suspiciousContext.templateDefaults.size > 0) {
+    const defaults = Array.from(suspiciousContext.templateDefaults)
+      .map((hex) => `${hex}×${suspiciousContext.counts.get(hex) ?? 0}`)
+      .join(", ");
+    const message = `${sourceLogPrefix} Vendor hex template defaults detected across ${suspiciousContext.hexRecordCount} records: ${defaults}; AI detection will run for those shades`;
+    console.log(message);
+    progressLogger?.info(message, {
+      vendorHexRecords: suspiciousContext.hexRecordCount,
+      templateDefaults: Array.from(suspiciousContext.templateDefaults),
+      thresholds: suspiciousContext.thresholds as unknown as Record<string, unknown>,
+    });
+  }
 
   // Ensure blob container exists once before parallel uploads
   const connectionString = process.env.AZURE_STORAGE_CONNECTION?.trim() || null;
@@ -792,7 +834,13 @@ async function prepareHoloTacoImageData(
             if (!result.isCandidate || !holo?.name || !checksumSha256) {
               return [];
             }
-            if (detectHexOnSuspiciousOnly && !isSuspiciousHex(holo.vendorHex)) {
+            if (
+              detectHexOnSuspiciousOnly &&
+              !classifySuspiciousHex(holo.vendorHex, suspiciousContext, {
+                shadeName: holo.name ?? holo.colorName,
+                tags: holo.tags,
+              }).suspicious
+            ) {
               return [];
             }
             return [
@@ -844,8 +892,14 @@ async function prepareHoloTacoImageData(
     let detectedHexProvenance: DetectedHexProvenance | null = null;
 
     // AI hex detection on primary image only
+    const vendorHexVerdict = holo
+      ? classifySuspiciousHex(holo.vendorHex, suspiciousContext, {
+          shadeName: holo.name ?? holo.colorName,
+          tags: holo.tags,
+        })
+      : null;
     const shouldRunAiDetection = detectHexFromImage &&
-      holo && (!detectHexOnSuspiciousOnly || isSuspiciousHex(holo.vendorHex));
+      holo && (!detectHexOnSuspiciousOnly || vendorHexVerdict!.suspicious);
     const imageForAi = resolveAiImageUrl(storageUrl);
 
     if (shouldRunAiDetection && holo && unchangedWithHex.has(record.externalId)) {
@@ -894,14 +948,25 @@ async function prepareHoloTacoImageData(
           externalId: record.externalId,
           colorName: holo.name,
           vendorHex: holo.vendorHex,
+          ...(detectHexOnSuspiciousOnly
+            ? { reason: vendorHexVerdict?.reason ?? null, detail: vendorHexVerdict?.detail ?? null }
+            : {}),
         });
       } else {
         if (holo.vendorHex) {
-          console.log(
-            detectHexOnSuspiciousOnly
-              ? `${sourceLogPrefix} Vendor hex (${holo.vendorHex}) is suspicious, running AI detection for ${record.externalId}`
-              : `${sourceLogPrefix} Vendor hex present (${holo.vendorHex}), running AI detection for ${record.externalId}`
-          );
+          const suspiciousMessage = detectHexOnSuspiciousOnly
+            ? `${sourceLogPrefix} Vendor hex (${holo.vendorHex}) is suspicious (${vendorHexVerdict?.reason}), running AI detection for ${record.externalId}`
+            : `${sourceLogPrefix} Vendor hex present (${holo.vendorHex}), running AI detection for ${record.externalId}`;
+          console.log(suspiciousMessage);
+          if (detectHexOnSuspiciousOnly) {
+            progressLogger?.info(suspiciousMessage, {
+              externalId: record.externalId,
+              colorName: holo.name,
+              vendorHex: holo.vendorHex,
+              reason: vendorHexVerdict?.reason ?? null,
+              detail: vendorHexVerdict?.detail ?? null,
+            });
+          }
         } else {
           console.log(`${sourceLogPrefix} No vendor hex for ${record.externalId}, running AI detection`);
         }
@@ -980,8 +1045,14 @@ async function prepareHoloTacoImageData(
       }
     } else {
       metrics.hexDetectionSkipped += 1;
-      if (holo && detectHexOnSuspiciousOnly && holo.vendorHex && !isSuspiciousHex(holo.vendorHex)) {
-        console.log(`${sourceLogPrefix} Skipping AI for ${record.externalId}: vendor hex ${holo.vendorHex} not suspicious`);
+      if (holo && detectHexOnSuspiciousOnly && holo.vendorHex && vendorHexVerdict && !vendorHexVerdict.suspicious) {
+        const trustedMessage = `${sourceLogPrefix} Skipping AI for ${record.externalId}: vendor hex ${holo.vendorHex} not suspicious`;
+        console.log(trustedMessage);
+        progressLogger?.info(trustedMessage, {
+          externalId: record.externalId,
+          colorName: holo.name,
+          vendorHex: holo.vendorHex,
+        });
       } else {
         console.log(`${sourceLogPrefix} Skipping AI detection for ${record.externalId} (detectHexFromImage=${detectHexFromImage})`);
       }

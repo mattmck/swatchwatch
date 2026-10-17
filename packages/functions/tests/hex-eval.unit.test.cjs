@@ -11,7 +11,7 @@ const { scoreCase, summarize, buildReport, percentile, median, primaryFinishOf }
 const { parseFixture, FixtureValidationError } = require("../dist/eval/hex/fixture");
 const { formatReport, renderTable, writeReportJson } = require("../dist/eval/hex/report");
 const { STRATEGIES, getStrategy, pixelStrategy, strategySkipReason, azureCurrentStrategy } = require("../dist/eval/hex/strategies");
-const { loadCaseImage } = require("../dist/eval/hex/images");
+const { loadCaseImage, cacheFileFor } = require("../dist/eval/hex/images");
 const { parseArgs, runStrategy } = require("../dist/eval/hex/cli");
 const {
   selectTrainingCandidates,
@@ -269,6 +269,31 @@ describe("eval/hex image loading", () => {
     assert.equal(calls, 1);
     assert.equal(first.contentType, "image/png");
     assert.equal(second.sourceUrl, c.imageUrl);
+  });
+
+  it("evicts an undecodable cache entry and refetches", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "hex-eval-corrupt-"));
+    const url = "https://example.com/corrupt.png";
+    await fs.writeFile(cacheFileFor(dir, url), Buffer.from("not an image"));
+    const png = await solidPng([0, 128, 255]);
+    let calls = 0;
+    const fetchImpl = async () => {
+      calls += 1;
+      return { ok: true, status: 200, arrayBuffer: async () => png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength) };
+    };
+    const image = await loadCaseImage(evalCase({ imageUrl: url }), { fixtureDir: dir, cacheDir: dir, fetchImpl });
+    assert.equal(calls, 1);
+    assert.equal(image.contentType, "image/png");
+    assert.deepEqual(await fs.readFile(cacheFileFor(dir, url)), png);
+  });
+
+  it("does not cache fetched bytes that cannot be decoded", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "hex-eval-nocache-"));
+    const url = "https://example.com/garbage.png";
+    const garbage = Buffer.from("<html>not an image</html>");
+    const fetchImpl = async () => ({ ok: true, status: 200, arrayBuffer: async () => garbage.buffer.slice(garbage.byteOffset, garbage.byteOffset + garbage.byteLength) });
+    await assert.rejects(loadCaseImage(evalCase({ imageUrl: url }), { fixtureDir: dir, cacheDir: dir, fetchImpl }));
+    await assert.rejects(fs.access(cacheFileFor(dir, url)));
   });
 
   it("surfaces HTTP errors", async () => {

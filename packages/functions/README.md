@@ -297,7 +297,8 @@ Ingestion metrics now include token totals for synchronous image detection (`hex
 Holo Taco run options:
 - `detectHexFromImage` (default `true`) toggles image-based AI hex detection.
 - `overwriteDetectedHex` (default `false`) refreshes existing `color_hex` values on reruns instead of only filling blanks.
-- `detectHexOnSuspiciousOnly` (default `false`) only runs image AI when vendor hex is missing/suspicious.
+- `detectHexOnSuspiciousOnly` (default `false`) only runs image AI when vendor hex is missing/suspicious (see
+  [Hex sources and suspicious vendor hexes](#hex-sources-and-suspicious-vendor-hexes)).
 
 Reruns skip work that cannot change anything. Without `overwriteDetectedHex`, a record whose shade already has a
 `detected_hex` and whose `source_product` swatch is already on the same image (same checksum) skips AI detection, because the shade write
@@ -326,6 +327,50 @@ Example request:
 
 Use `GET /api/ingestion/jobs` and `GET /api/ingestion/jobs/{id}` to inspect queued/running/completed status and metrics.
 If a queue message is malformed but includes a valid `jobId`, the worker marks that ingestion job as `failed` with validation details in `error` and `metrics.pipeline`.
+
+## Hex sources and suspicious vendor hexes
+
+Every ingested shade carries up to three independent hex sources, resolved for display in the
+order `vendorHex > detectedHex > nameHex`:
+
+| Source | Column | Produced by |
+|---|---|---|
+| Vendor hex | `vendor_hex` | `extractHexFromProduct` in `connectors/shopify-generic.ts` — a `#RRGGBB` regex over Shopify variant options/title, stored as-is even when it looks like a placeholder. |
+| Detected hex | `detected_hex` | Azure OpenAI vision over the primary product image (`ai-color-detection.ts`, sync or batch). |
+| Name hex | `name_hex` | `detectHexFromColorName` in `connectors/color-name-detection.ts` — Azure OpenAI (preferred) or the builtin `COMMON_COLORS` web palette. |
+
+**Brand-aware name hex.** The Shopify connector calls `detectHexFromColorName(colorName, { preferAi: true, context })`
+with `context` = { `brand` (vendor), `productLine` (`product_type`), `collection` (first `collection:` tag), `description`
+(`body_html` stripped of tags via `stripHtmlToText`, 400 chars), `tags`, `finishes` }. `buildColorNamePrompt` turns that
+into `<product-context>Brand: X. Product line: … Collection: Y. Shade name: "Z". Finish: … Tags: … Description: …</product-context>`
+(vendor text is escaped so it cannot close the block, and the system prompt marks the block as untrusted data whose
+instructions are ignored), and the system prompt
+tells the model to use its knowledge of that brand's actual shade when it has it (confidence ≥ 0.7) and to answer from
+the words with confidence ≤ 0.5 otherwise, so "Mooncat Wildberry" and a generic "wildberry" no longer get the same
+answer. Without a context the prompt is the original `Color name: "X"` question, and the response shape
+(`{ hex, confidence, provider }`) is unchanged. Nothing new is stored on the shade; the connector still records
+`hexSource` (`variant-option` / `ai-lookup` / `builtin-lookup`).
+
+**Suspicious vendor hexes.** `src/lib/suspicious-hex.ts` decides whether a vendor hex is trustworthy enough to skip
+image AI when a job runs with `detectHexOnSuspiciousOnly`:
+
+- `isSuspiciousHex(hex)` — the original context-free check: missing values plus a static set of pure
+  black/white/gray/primary placeholders. Still used by callers that look at one hex in isolation (eval populate).
+- `buildSuspiciousHexContext(vendorHexes)` — built once per data-source batch in `ingestion-repo.ts`
+  (`prepareHoloTacoImageData`); counts how often each vendor hex repeats and marks **template defaults**: a hex on
+  ≥ `SUSPICIOUS_HEX_REPEAT_MIN_RECORDS` records (default 3) **and** ≥ `SUSPICIOUS_HEX_REPEAT_MIN_SHARE` (default 10%)
+  of the records that have a vendor hex — the `#C8A2C8`-on-40-shades store theme default the static list never caught.
+- `classifySuspiciousHex(hex, context, { shadeName, tags })` / `isSuspiciousHexInContext(...)` — on top of the static
+  set and template defaults, flags **near-grayscale** hexes (OKLAB chroma < `SUSPICIOUS_HEX_GRAYSCALE_MAX_CHROMA`,
+  default 0.02) unless the shade name or tags contain a gray/silver/black/white/nude/chrome-type word, and **web-palette**
+  hexes (an exact `COMMON_COLORS` value such as `#FF69B4` hot pink) when the shade name/tags do not carry that color word
+  or its base word (`pink`). The verdict's `reason` (`missing`, `malformed`, `placeholder`, `template-default`,
+  `near-grayscale`, `web-palette`) and `detail` are written to the job log through the progress logger, and the batch
+  summary logs which template defaults were found.
+
+Both the batch-candidate estimate (sync vs. batch mode) and the per-record decision use the same context, so a
+run's `estimatedBatchCandidates` reflects the contextual verdicts. Unit tests: `tests/suspicious-hex.unit.test.cjs`,
+`tests/suspicious-hex-context.unit.test.cjs`, `tests/color-name-detection.unit.test.cjs`.
 
 ## Hex detection evaluation harness
 
@@ -603,6 +648,9 @@ Key variables:
 | `HEX_DETECTION_BATCH_MAX_IN_FLIGHT` | Max hex batches one ingestion job keeps pending before the worker pauses for `awaiting_ai` (default `20`, clamped 1–100); bounds the job's share of the batch deployment's enqueued-token quota. |
 | `HEX_DETECTION_DELAY_MS` | Pause after each synchronous (non-batch) hex detection call, per concurrency slot (default `1000`, max `60000`, `0` disables). The old fixed 6s pacing predates low-detail images; 429s are still retried with `Retry-After`. |
 | `HEX_DETECTION_CONCURRENCY` | Synchronous hex detection calls in flight at once (default `4`, max `32`). Records still commit to Postgres one at a time, in order. The deployment's tokens-per-minute quota is the real ceiling, so raise this together with `openai_deployment_capacity`. |
+| `SUSPICIOUS_HEX_REPEAT_MIN_RECORDS` | Batch-aware suspicious-hex check (`src/lib/suspicious-hex.ts`): a vendor hex shared by at least this many records of one data source is a store template default (default `3`). Used when `detectHexOnSuspiciousOnly` is on. |
+| `SUSPICIOUS_HEX_REPEAT_MIN_SHARE` | ...and shared by at least this fraction (0–1) of the records that carry a vendor hex (default `0.1`). Both repeat thresholds must be met. |
+| `SUSPICIOUS_HEX_GRAYSCALE_MAX_CHROMA` | OKLAB chroma below which a vendor hex is near-grayscale and flagged unless the shade name/tags say gray, silver, black, white, nude or chrome (default `0.02`). |
 | `INGESTION_AI_BATCH_POLL_SCHEDULE` | NCRONTAB schedule for the timer poller that checks batch completion (default `0 * * * * *`, every minute). |
 | `INGESTION_AI_BATCH_MAX_POLL_JOBS` | Max `awaiting_ai` ingestion jobs the poller processes per run (default `10`). |
 | `INGESTION_AI_IMAGE_PROXY_ORIGIN` | Optional public origin used when building AI image-proxy URLs (for example `https://<func-app>.azurewebsites.net`). Falls back to `https://$WEBSITE_HOSTNAME`. |

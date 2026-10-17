@@ -47,6 +47,11 @@ async function readCached(cacheDir: string | null | undefined, url: string): Pro
   }
 }
 
+async function evictCached(cacheDir: string | null | undefined, url: string): Promise<void> {
+  if (!cacheDir) return;
+  await fs.rm(cacheFileFor(cacheDir, url), { force: true });
+}
+
 async function writeCached(cacheDir: string | null | undefined, url: string, bytes: Buffer): Promise<void> {
   if (!cacheDir) return;
   await fs.mkdir(cacheDir, { recursive: true });
@@ -83,16 +88,28 @@ export async function loadCaseImage(evalCase: EvalCase, options: LoadCaseImageOp
     sourceUrl = evalCase.imageUrl;
     const cached = await readCached(options.cacheDir, sourceUrl);
     if (cached) {
-      bytes = cached;
-    } else {
-      bytes = await fetchBytes(sourceUrl, options.fetchImpl ?? fetch);
-      await writeCached(options.cacheDir, sourceUrl, bytes);
+      try {
+        const contentType = await detectContentType(cached);
+        return toCaseImage(cached, contentType, sourceUrl);
+      } catch {
+        // A truncated or corrupt cache entry would fail every run; drop it and refetch.
+        await evictCached(options.cacheDir, sourceUrl);
+      }
     }
+    bytes = await fetchBytes(sourceUrl, options.fetchImpl ?? fetch);
+    // Decode before caching so undecodable bytes are never written to the cache.
+    const contentType = await detectContentType(bytes);
+    await writeCached(options.cacheDir, sourceUrl, bytes);
+    return toCaseImage(bytes, contentType, sourceUrl);
   } else {
     throw new Error(`Case ${evalCase.id} has neither imageUrl nor imagePath`);
   }
 
   const contentType = await detectContentType(bytes);
+  return toCaseImage(bytes, contentType, sourceUrl);
+}
+
+function toCaseImage(bytes: Buffer, contentType: string, sourceUrl: string | null): CaseImage {
   return {
     bytes,
     contentType,
