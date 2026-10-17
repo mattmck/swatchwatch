@@ -185,9 +185,10 @@ export function parseHexDetectionTokenUsage(
   };
 }
 
-async function parseFinishes(
+/** Canonicalize a model-returned finishes array against the runtime finish catalog (null when empty/invalid). */
+export async function parseDetectedFinishes(
   value: unknown,
-  options?: HexDetectionOptions
+  options?: Pick<HexDetectionOptions, "onLog">
 ): Promise<string[] | null> {
   if (!Array.isArray(value)) return null;
   // Uses the runtime finish catalog so admin-added finish types are accepted too.
@@ -214,7 +215,7 @@ export async function parseHexDetectionContent(
     const parsed = JSON.parse(content) as Record<string, unknown>;
     const hex = normalizeHex(parsed.hex);
     const confidence = parseConfidence(parsed.confidence);
-    const finishes = await parseFinishes(parsed.finishes, options);
+    const finishes = await parseDetectedFinishes(parsed.finishes, options);
     const errorReason = typeof parsed.error === "string" ? parsed.error : null;
 
     if (errorReason) {
@@ -484,20 +485,53 @@ async function fetchWithRetry(
   throw lastError || new Error("Request failed after retries");
 }
 
+export type AzureOpenAIChatCompletionReason = "missing_config" | "content_filtered" | "empty_response";
+
+export interface AzureOpenAIChatCompletionRequest {
+  /**
+   * Builds the chat-completions request body. Called with `safePrompt = true`
+   * when the first attempt is rejected by the Azure content filter, so callers
+   * can supply a toned-down prompt for the retry; returning null for the safe
+   * prompt skips the retry (the result is then `reason: "content_filtered"`).
+   */
+  buildPayload: (safePrompt: boolean) => unknown;
+  /** Env keys consulted (in order) for the deployment name. */
+  deploymentEnvKeys?: string[];
+  /** Prefix for token-usage metrics (`<prefix>.prompt_tokens`, ...); omit to skip metrics. */
+  usageMetricPrefix?: string | null;
+  /** Label used in log lines instead of the (possibly huge) image payload. */
+  logLabel?: string;
+}
+
+export interface AzureOpenAIChatCompletionResponse {
+  provider: "azure-openai" | "none";
+  /** Assistant message content, or null (see `reason`). */
+  content: string | null;
+  usage: HexDetectionTokenUsage | null;
+  /** Azure OpenAI deployment that answered (null when the config is missing). */
+  deployment: string | null;
+  /** Set when `content` is null. */
+  reason?: AzureOpenAIChatCompletionReason;
+}
+
+const DEFAULT_DEPLOYMENT_ENV_KEYS = ["AZURE_OPENAI_DEPLOYMENT_HEX", "AZURE_OPENAI_DEPLOYMENT"];
+
 /**
- * Detect hex color from an image using Azure OpenAI vision.
- * @param imageUrlOrDataUri - Either a publicly-accessible URL or a base64 data URI (data:image/...;base64,...).
- *   Azure OpenAI fetches image URLs server-side, so the URL must be publicly reachable from Azure
- *   (for example, a proxied blob URL). Localhost or other private-network URLs will not work; for
- *   local development or private origins, prefer base64 data URIs. When available, public URLs are
- *   still preferred to avoid large base64 payloads.
+ * Lower-level Azure OpenAI chat-completions call shared by the hex detectors:
+ * config resolution (direct or APIM gateway), timeout + retry on 429/5xx,
+ * one content-filter retry with a safe prompt, token-usage metrics. Returns
+ * the raw assistant content so callers own their prompt and parsing.
+ *
+ * Throws on non-retryable HTTP errors and when retries are exhausted; returns
+ * `provider: "none"` when the config is missing and `content: null` with a
+ * `reason` when the content filter persisted or the response was empty.
  */
-export async function detectHexWithAzureOpenAI(
-  imageUrlOrDataUri: string,
-  options?: HexDetectionOptions
-): Promise<HexDetectionResult> {
+export async function requestAzureOpenAIChatCompletion(
+  request: AzureOpenAIChatCompletionRequest,
+  options?: Pick<HexDetectionOptions, "onLog">
+): Promise<AzureOpenAIChatCompletionResponse> {
   const resolved = resolveAzureOpenAiConfig({
-    deploymentEnvKeys: ["AZURE_OPENAI_DEPLOYMENT_HEX", "AZURE_OPENAI_DEPLOYMENT"],
+    deploymentEnvKeys: request.deploymentEnvKeys ?? DEFAULT_DEPLOYMENT_ENV_KEYS,
   });
   const {
     useGateway,
@@ -544,34 +578,37 @@ export async function detectHexWithAzureOpenAI(
         AZURE_OPENAI_DEPLOYMENT: process.env.AZURE_OPENAI_DEPLOYMENT ? "set" : "missing",
       },
     });
-    return { hex: null, confidence: null, finishes: null, usage: null, provider: "none" };
+    return { provider: "none", content: null, usage: null, deployment: null, reason: "missing_config" };
   }
 
-  const logLabel = imageUrlOrDataUri.startsWith("data:") ? "data:…(base64)" : imageUrlOrDataUri;
+  const logLabel = request.logLabel ?? "request";
   emitLog(options, "info", `[ai-color-detection] Config loaded, calling Azure OpenAI for ${logLabel}`);
 
   const requestUrl = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${OPENAI_API_VERSION}`;
-  const createRequestInit = (safePrompt: boolean): RequestInit => ({
+  const createRequestInit = (payload: unknown): RequestInit => ({
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...authHeaders,
     },
-    body: JSON.stringify(
-      buildHexDetectionRequestPayload(
-        imageUrlOrDataUri,
-        { vendorContext: options?.vendorContext },
-        safePrompt
-      )
-    ),
+    body: JSON.stringify(payload),
   });
 
-  let response = await fetchWithRetry(requestUrl, createRequestInit(false), options);
+  let response = await fetchWithRetry(requestUrl, createRequestInit(request.buildPayload(false)), options);
 
   if (!response.ok) {
     const details = await readErrorBodySnippet(response);
     const requestId = getResponseId(response);
     if (isContentFilterResponse(response.status, details)) {
+      const safePayload = request.buildPayload(true);
+      if (safePayload === null || safePayload === undefined) {
+        emitLog(options, "warn", `[ai-color-detection] Content filter hit for ${logLabel}, no safe retry (requestId=${requestId})`, {
+          status: response.status,
+          requestId,
+          body: details || undefined,
+        });
+        return { provider: "azure-openai", content: null, usage: null, deployment, reason: "content_filtered" };
+      }
       emitLog(
         options,
         "warn",
@@ -582,7 +619,7 @@ export async function detectHexWithAzureOpenAI(
           body: details || undefined,
         }
       );
-      response = await fetchWithRetry(requestUrl, createRequestInit(true), options);
+      response = await fetchWithRetry(requestUrl, createRequestInit(safePayload), options);
     } else {
       emitLog(
         options,
@@ -612,7 +649,7 @@ export async function detectHexWithAzureOpenAI(
           body: details || undefined,
         }
       );
-      return { hex: null, confidence: null, finishes: null, usage: null, provider: "azure-openai" };
+      return { provider: "azure-openai", content: null, usage: null, deployment, reason: "content_filtered" };
     }
 
     emitLog(
@@ -641,40 +678,76 @@ export async function detectHexWithAzureOpenAI(
   const usage = parseHexDetectionTokenUsage(body.usage);
   if (usage) {
     emitLog(options, "info", `[ai-color-detection] Azure OpenAI token usage`, usage as unknown as Record<string, unknown>);
-    const metricProperties = {
-      provider: "azure-openai",
-      deployment,
-    };
-    if (typeof usage.promptTokens === "number") {
-      trackMetric("hex_detection.sync.prompt_tokens", usage.promptTokens, metricProperties);
-    }
-    if (typeof usage.completionTokens === "number") {
-      trackMetric(
-        "hex_detection.sync.completion_tokens",
-        usage.completionTokens,
-        metricProperties
-      );
-    }
-    if (typeof usage.totalTokens === "number") {
-      trackMetric("hex_detection.sync.total_tokens", usage.totalTokens, metricProperties);
+    const metricPrefix = request.usageMetricPrefix;
+    if (metricPrefix) {
+      const metricProperties = {
+        provider: "azure-openai",
+        deployment,
+      };
+      if (typeof usage.promptTokens === "number") {
+        trackMetric(`${metricPrefix}.prompt_tokens`, usage.promptTokens, metricProperties);
+      }
+      if (typeof usage.completionTokens === "number") {
+        trackMetric(`${metricPrefix}.completion_tokens`, usage.completionTokens, metricProperties);
+      }
+      if (typeof usage.totalTokens === "number") {
+        trackMetric(`${metricPrefix}.total_tokens`, usage.totalTokens, metricProperties);
+      }
     }
   }
   const content = body.choices?.[0]?.message?.content;
   if (!content || typeof content !== "string") {
+    return { provider: "azure-openai", content: null, usage: usage || null, deployment, reason: "empty_response" };
+  }
+
+  return { provider: "azure-openai", content, usage: usage || null, deployment };
+}
+
+/**
+ * Detect hex color from an image using Azure OpenAI vision.
+ * @param imageUrlOrDataUri - Either a publicly-accessible URL or a base64 data URI (data:image/...;base64,...).
+ *   Azure OpenAI fetches image URLs server-side, so the URL must be publicly reachable from Azure
+ *   (for example, a proxied blob URL). Localhost or other private-network URLs will not work; for
+ *   local development or private origins, prefer base64 data URIs. When available, public URLs are
+ *   still preferred to avoid large base64 payloads.
+ */
+export async function detectHexWithAzureOpenAI(
+  imageUrlOrDataUri: string,
+  options?: HexDetectionOptions
+): Promise<HexDetectionResult> {
+  const logLabel = imageUrlOrDataUri.startsWith("data:") ? "data:…(base64)" : imageUrlOrDataUri;
+  const response = await requestAzureOpenAIChatCompletion(
+    {
+      buildPayload: (safePrompt) =>
+        buildHexDetectionRequestPayload(imageUrlOrDataUri, { vendorContext: options?.vendorContext }, safePrompt),
+      deploymentEnvKeys: DEFAULT_DEPLOYMENT_ENV_KEYS,
+      usageMetricPrefix: "hex_detection.sync",
+      logLabel,
+    },
+    options
+  );
+
+  if (response.provider === "none") {
+    return { hex: null, confidence: null, finishes: null, usage: null, provider: "none" };
+  }
+  if (response.reason === "content_filtered") {
+    return { hex: null, confidence: null, finishes: null, usage: null, provider: "azure-openai" };
+  }
+  if (response.content === null) {
     return {
       hex: null,
       confidence: null,
       finishes: null,
-      usage: usage || null,
+      usage: response.usage,
       provider: "azure-openai",
       method: HEX_DETECTION_METHOD_VISION_DIRECT,
-      model: deployment,
+      model: response.deployment,
       promptVersion: PROMPT_VERSION,
     };
   }
 
-  const parsed = await parseHexDetectionContent(content, logLabel, options, usage);
-  return { ...parsed, model: deployment };
+  const parsed = await parseHexDetectionContent(response.content, logLabel, options, response.usage);
+  return { ...parsed, model: response.deployment };
 }
 
 export interface AzureOpenAiChatCompletionOptions {
@@ -695,81 +768,35 @@ export interface AzureOpenAiChatCompletionResult {
 }
 
 /**
- * Lower-level Azure OpenAI chat-completion call with the same plumbing as
- * `detectHexWithAzureOpenAI` (config resolution, timeout, 429/5xx retry,
- * content-filter safe retry) but a caller-supplied payload. `buildPayload(false)`
- * is the normal request; `buildPayload(true)` is the safer rewording used when
- * the content filter rejects the first one (return null to skip that retry).
- * Returns `provider: "none"` when the config is missing. Used by the eval
- * harness strategies; the production hex prompt still goes through
+ * Positional-argument form of `requestAzureOpenAIChatCompletion` used by the
+ * region-crop eval strategy: the same config resolution, timeout, 429/5xx retry
+ * and content-filter safe retry (return null from `buildPayload(true)` to skip
+ * that retry). Returns `provider: "none"` when the config is missing and
+ * `contentFiltered: true` when the filter rejected the request. No usage
+ * metrics are emitted. The production hex prompt still goes through
  * `detectHexWithAzureOpenAI`.
  */
 export async function requestAzureOpenAiChatCompletion(
   buildPayload: (safePrompt: boolean) => HexDetectionRequestPayload | null,
   options?: AzureOpenAiChatCompletionOptions
 ): Promise<AzureOpenAiChatCompletionResult> {
-  const logOptions: HexDetectionOptions | undefined = options?.onLog ? { onLog: options.onLog } : undefined;
-  const label = options?.label ?? "request";
-  const resolved = resolveAzureOpenAiConfig({
-    deploymentEnvKeys: options?.deploymentEnvKeys ?? ["AZURE_OPENAI_DEPLOYMENT_HEX", "AZURE_OPENAI_DEPLOYMENT"],
-  });
-  if (!resolved.isValid || !resolved.endpoint || !resolved.deployment) {
-    emitLog(logOptions, "error", `[ai-color-detection] Missing Azure OpenAI config for ${label}`, {
-      hasEndpoint: !!resolved.endpoint,
-      hasAuthHeader: resolved.hasAuthHeader,
-      hasDeployment: !!resolved.deployment,
-      missingGatewayPrerequisites: resolved.missingGatewayPrerequisites,
-    });
-    return { provider: "none", content: null, usage: null, contentFiltered: false };
-  }
-
-  const requestUrl = `${resolved.endpoint}/openai/deployments/${resolved.deployment}/chat/completions?api-version=${OPENAI_API_VERSION}`;
-  const createRequestInit = (payload: HexDetectionRequestPayload): RequestInit => ({
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...resolved.headers },
-    body: JSON.stringify(payload),
-  });
-
   const firstPayload = buildPayload(false);
   if (!firstPayload) {
     throw new Error("buildPayload(false) must return a request payload");
   }
-  let response = await fetchWithRetry(requestUrl, createRequestInit(firstPayload), logOptions);
-
-  if (!response.ok) {
-    const details = await readErrorBodySnippet(response);
-    const requestId = getResponseId(response);
-    if (!isContentFilterResponse(response.status, details)) {
-      emitLog(logOptions, "error", `[ai-color-detection] Azure OpenAI non-OK response for ${label}: status=${response.status}, requestId=${requestId}, body=${details || "n/a"}`);
-      throw new Error(`Azure OpenAI ${label} failed: ${response.status} ${details}`);
-    }
-    const safePayload = buildPayload(true);
-    if (!safePayload) {
-      emitLog(logOptions, "warn", `[ai-color-detection] Content filter hit for ${label}, no safe retry (requestId=${requestId})`);
-      return { provider: "azure-openai", content: null, usage: null, contentFiltered: true };
-    }
-    emitLog(logOptions, "warn", `[ai-color-detection] Content filter hit for ${label}, retrying with safer prompt (requestId=${requestId})`);
-    response = await fetchWithRetry(requestUrl, createRequestInit(safePayload), logOptions);
-    if (!response.ok) {
-      const retryDetails = await readErrorBodySnippet(response);
-      if (isContentFilterResponse(response.status, retryDetails)) {
-        emitLog(logOptions, "warn", `[ai-color-detection] Content filter persisted after safe retry for ${label}`);
-        return { provider: "azure-openai", content: null, usage: null, contentFiltered: true };
-      }
-      throw new Error(`Azure OpenAI ${label} failed: ${response.status} ${retryDetails}`);
-    }
-  }
-
-  const body = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string | null } }>;
-    usage?: unknown;
-  };
-  const usage = parseHexDetectionTokenUsage(body.usage);
-  const content = body.choices?.[0]?.message?.content;
+  const response = await requestAzureOpenAIChatCompletion(
+    {
+      buildPayload: (safePrompt) => (safePrompt ? buildPayload(true) : firstPayload),
+      deploymentEnvKeys: options?.deploymentEnvKeys ?? DEFAULT_DEPLOYMENT_ENV_KEYS,
+      usageMetricPrefix: null,
+      logLabel: options?.label ?? "request",
+    },
+    options?.onLog ? { onLog: options.onLog } : undefined
+  );
   return {
-    provider: "azure-openai",
-    content: typeof content === "string" && content ? content : null,
-    usage,
-    contentFiltered: false,
+    provider: response.provider,
+    content: response.content,
+    usage: response.usage,
+    contentFiltered: response.reason === "content_filtered",
   };
 }
