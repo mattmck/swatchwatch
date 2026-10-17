@@ -19,12 +19,12 @@ spending.
 
 | Bucket | Issues | Call |
 |---|---|---|
-| Land now | PRs #256, #258, #237; #245 flaky test; #227 owner-scoped image ids (security) | Week 0 |
+| Land now | ✅ 17 Oct: #256, #258, #237 shipped to `main` in release #276 (Deploy Prod green, migration rename applied cleanly); #245 closed (fixed by #246, hardened in #237). Remaining: #227 owner-scoped image ids (security) | Week 0 |
 | Decide + do | #224 multi-finish follow-ups (3 decisions) | Week 0 |
 | Fold into this roadmap | #21 camera capture (web half), #103 color taxonomy, #104 LacquerTracker research (site is dead — closed; findings harvested into §2 and the color-family filter), #45 admin users (remaining bits), #226 ingestion logs | Sprints 1–4 |
 | Defer to 2027 | #109 Expo scaffold, #2 ESM migration, #117 Redis, #158/#228 APIM gateway, #102 (superseded by `finish_type` admin) | See §5 |
 
-Hygiene: `dev` is 28 commits ahead of `main`; the M0 and M1 milestones are stale
+Hygiene: `dev` and `main` are level since release #276 (17 Oct); the M0 and M1 milestones are stale
 (49 of 54 closed) and should be closed in favor of a new **M2 — Collector's companion**.
 
 ## 2. What nail polish nerds want (research)
@@ -70,7 +70,7 @@ Each sprint ships to `dev` continuously and promotes to `main` at sprint end.
 
 ### Week 0 — Stabilize and decide (20–24 Oct)
 
-- Merge #256, #258, #237; cut a `dev → main` release; close #245.
+- ✅ Merge #256, #258, #237; cut a `dev → main` release (#276, 17 Oct); close #245.
 - Fix #227: owner-scope and expire private-media image ids; flip the `known gap #227`
   assertions in `tests/access-control.unit.test.cjs`, update the matching note in
   `packages/functions/README.md`, and keep anonymous, cacheable access for public
