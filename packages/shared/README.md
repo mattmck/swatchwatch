@@ -102,6 +102,11 @@ Inventory status model (#261). Every `user_inventory_item` row has one status; "
 | `CaptureFinalizeResponse` | Finalize response with session status and optional question |
 | `CaptureStatusResponse` | Session status payload with confidence/accepted entity/question |
 | `CaptureAnswerRequest` / `CaptureAnswerResponse` | Answer question payloads for adaptive loop |
+| `CaptureOwnershipRelationship` | Caller's relationship to a matched shade: `owned \| wishlisted \| notOwned` |
+| `CaptureOwnership` | `{ relationship, quantity? }` (`quantity` = total owned, only when `owned`) |
+| `CaptureCheckOutcome` | Resolver outcome reported by check: `matched \| needs_question \| unmatched` |
+| `CaptureCheckCandidate` | Match/candidate with `entityType`, `entityId`, `shadeId`, `display`, `confidence`, `ownership` |
+| `CaptureCheckResponse` | `POST /api/capture/{captureId}/check` payload: outcome, confidence, `match?`, `candidates`, `questionKey?`, unchanged session `status` (read-only, never touches inventory) |
 
 ### `types/palette.ts`
 

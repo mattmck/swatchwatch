@@ -4,6 +4,8 @@ import { PoolClient } from "pg";
 import {
   CaptureAnswerRequest,
   CaptureAnswerResponse,
+  CaptureCheckCandidate,
+  CaptureCheckResponse,
   CaptureFinalizeResponse,
   CaptureFrameRequest,
   CaptureFrameResponse,
@@ -21,6 +23,7 @@ import { internalServerError } from "../lib/errors";
 import { trackEvent } from "../lib/telemetry";
 import { extractTextFromImage, OcrResult } from "../lib/ocr";
 import { parseLabelText, ParsedLabelFields } from "../lib/ocr-parser";
+import { loadInventoryOwnership } from "../lib/inventory-relationship";
 
 const GUIDANCE_CONFIG = {
   recommendedFrameTypes: ["barcode", "label", "color"],
@@ -78,6 +81,8 @@ type FrameExtractionSource = FrameExtraction["source"] | "none";
 interface CaptureMatchCandidate {
   entityType: "shade" | "sku";
   entityId: number;
+  /** Shade the entity resolves to (the shade itself, or a SKU's shade_id). */
+  shadeId: number | null;
   display: string;
   confidence: number;
 }
@@ -89,23 +94,27 @@ interface CaptureQuestionSpec {
   options?: string[];
 }
 
+// `candidates` is what the resolver considered, ranked; finalize ignores it, check reports it.
 type ResolverOutcome =
   | {
       status: "matched";
       confidence: number;
       entityType: "shade" | "sku";
       entityId: number;
+      candidates: CaptureMatchCandidate[];
       metadataPatch: Record<string, unknown>;
     }
   | {
       status: "needs_question";
       confidence: number;
       question: CaptureQuestionSpec;
+      candidates: CaptureMatchCandidate[];
       metadataPatch: Record<string, unknown>;
     }
   | {
       status: "unmatched";
       confidence: number;
+      candidates: CaptureMatchCandidate[];
       metadataPatch: Record<string, unknown>;
     };
 
@@ -788,6 +797,7 @@ async function resolveByBarcode(gtin: string): Promise<CaptureMatchCandidate | n
   return {
     entityType: "sku",
     entityId: parseInt(row.skuId, 10),
+    shadeId: row.shadeId ? parseInt(row.shadeId, 10) : null,
     display,
     confidence: 1,
   };
@@ -826,6 +836,7 @@ async function resolveShadeCandidates(evidence: CaptureEvidence): Promise<Captur
     return result.rows.map((row) => ({
       entityType: "shade",
       entityId: parseInt(row.shadeId, 10),
+      shadeId: parseInt(row.shadeId, 10),
       display: `${row.brand} — ${row.shadeName}`,
       confidence: Math.max(0, Math.min(1, row.score)),
     }));
@@ -861,6 +872,7 @@ async function resolveShadeCandidates(evidence: CaptureEvidence): Promise<Captur
   return result.rows.map((row) => ({
     entityType: "shade",
     entityId: parseInt(row.shadeId, 10),
+    shadeId: parseInt(row.shadeId, 10),
     display: `${row.brand} — ${row.shadeName}`,
     confidence: Math.max(0, Math.min(1, row.score)),
   }));
@@ -917,6 +929,7 @@ async function resolveCaptureSession(session: CaptureSessionRow): Promise<Resolv
       status: "needs_question",
       confidence: 0,
       question: buildNeedsFrameQuestion(),
+      candidates: [],
       metadataPatch: { resolver: { step: "awaiting_frames", audit: resolverAudit } },
     };
   }
@@ -929,6 +942,7 @@ async function resolveCaptureSession(session: CaptureSessionRow): Promise<Resolv
         confidence: barcodeMatch.confidence,
         entityType: barcodeMatch.entityType,
         entityId: barcodeMatch.entityId,
+        candidates: [barcodeMatch],
         metadataPatch: {
           resolver: {
             step: "matched_by_barcode",
@@ -950,6 +964,7 @@ async function resolveCaptureSession(session: CaptureSessionRow): Promise<Resolv
       confidence: topCandidate.confidence,
       entityType: topCandidate.entityType,
       entityId: topCandidate.entityId,
+      candidates: shadeCandidates,
         metadataPatch: {
           resolver: {
             step: "matched_by_shade_similarity",
@@ -966,6 +981,7 @@ async function resolveCaptureSession(session: CaptureSessionRow): Promise<Resolv
       status: "needs_question",
       confidence: topCandidate.confidence,
       question: buildCandidateQuestion(shadeCandidates),
+      candidates: shadeCandidates,
         metadataPatch: {
           resolver: {
             step: "needs_user_candidate_selection",
@@ -982,6 +998,7 @@ async function resolveCaptureSession(session: CaptureSessionRow): Promise<Resolv
       status: "needs_question",
       confidence: topCandidate?.confidence ?? 0,
       question: buildBrandShadeQuestion(),
+      candidates: shadeCandidates,
         metadataPatch: {
           resolver: {
             step: "needs_brand_and_shade",
@@ -996,6 +1013,7 @@ async function resolveCaptureSession(session: CaptureSessionRow): Promise<Resolv
   return {
     status: "unmatched",
     confidence: topCandidate?.confidence ?? 0,
+    candidates: shadeCandidates,
     metadataPatch: {
       resolver: {
         step: "unmatched_after_resolver",
@@ -1550,6 +1568,173 @@ async function finalizeCapture(
   }
 }
 
+/**
+ * Display data for a session's already-accepted entity (a finalized/answered match), so a
+ * check on a matched session reports what was accepted instead of re-running the resolver.
+ */
+async function describeCaptureEntity(
+  entityType: "shade" | "sku",
+  entityId: number
+): Promise<CaptureMatchCandidate> {
+  if (entityType === "sku") {
+    const result = await query<{
+      shadeId: string | null;
+      brand: string | null;
+      productName: string | null;
+      shadeName: string | null;
+    }>(
+      `SELECT
+         s.shade_id::text        AS "shadeId",
+         b.name_canonical        AS brand,
+         s.product_name          AS "productName",
+         sh.shade_name_canonical AS "shadeName"
+       FROM sku s
+       LEFT JOIN brand b ON s.brand_id = b.brand_id
+       LEFT JOIN shade sh ON s.shade_id = sh.shade_id
+       WHERE s.sku_id = $1`,
+      [entityId]
+    );
+    const row = result.rows[0];
+    return {
+      entityType,
+      entityId,
+      shadeId: row?.shadeId ? parseInt(row.shadeId, 10) : null,
+      display: [row?.brand, row?.productName || row?.shadeName || `SKU ${entityId}`]
+        .filter(Boolean)
+        .join(" — "),
+      confidence: 1,
+    };
+  }
+
+  const result = await query<{ brand: string | null; shadeName: string | null }>(
+    `SELECT
+       b.name_canonical       AS brand,
+       s.shade_name_canonical AS "shadeName"
+     FROM shade s
+     LEFT JOIN brand b ON s.brand_id = b.brand_id
+     WHERE s.shade_id = $1`,
+    [entityId]
+  );
+  const row = result.rows[0];
+  return {
+    entityType,
+    entityId,
+    shadeId: entityId,
+    display: [row?.brand, row?.shadeName || `Shade ${entityId}`].filter(Boolean).join(" — "),
+    confidence: 1,
+  };
+}
+
+function sameEntity(a: CaptureMatchCandidate, b: CaptureMatchCandidate): boolean {
+  return a.entityType === b.entityType && a.entityId === b.entityId;
+}
+
+/**
+ * POST /api/capture/{captureId}/check — "do I own this?" without buying it.
+ *
+ * Runs the same resolver as finalize, then reports the caller's relationship
+ * (owned/wishlisted/notOwned) to the match and to each candidate. Strictly read-only:
+ * only SELECTs, no transaction, and nothing is written to inventory, inventory_event,
+ * capture_session (status/metadata), capture_question or capture_answer. The session
+ * stays exactly as it was, so a later finalize still resolves and adds as before.
+ */
+async function checkCapture(
+  request: HttpRequest,
+  context: InvocationContext,
+  userId: number
+): Promise<HttpResponseInit> {
+  context.log("POST /api/capture/{captureId}/check");
+
+  const captureId = request.params.captureId;
+  if (!captureId) {
+    return { status: 400, jsonBody: { error: "Capture id is required" } };
+  }
+  if (!isValidUuid(captureId)) {
+    return { status: 400, jsonBody: { error: "Capture id must be a valid UUID" } };
+  }
+
+  try {
+    const session = await getCaptureSession(captureId, userId);
+    if (!session) {
+      return { status: 404, jsonBody: { error: "Capture session not found" } };
+    }
+    if (session.status === "cancelled") {
+      return { status: 409, jsonBody: { error: "Cannot check a cancelled session" } };
+    }
+
+    let outcome: CaptureCheckResponse["outcome"];
+    let confidence: number;
+    let match: CaptureMatchCandidate | null = null;
+    let candidates: CaptureMatchCandidate[];
+    let questionKey: string | undefined;
+
+    const acceptedEntityId = session.acceptedEntityId ? parseInt(session.acceptedEntityId, 10) : NaN;
+    if (session.status === "matched" && session.acceptedEntityType && Number.isInteger(acceptedEntityId)) {
+      // Already finalized/answered: report the accepted entity, don't second-guess it.
+      const accepted = await describeCaptureEntity(session.acceptedEntityType, acceptedEntityId);
+      match = { ...accepted, confidence: parseNumeric(session.topConfidence) ?? accepted.confidence };
+      outcome = "matched";
+      confidence = match.confidence;
+      candidates = [match];
+    } else {
+      const resolved = await resolveCaptureSession(session);
+      outcome = resolved.status;
+      confidence = resolved.confidence;
+      candidates = resolved.candidates;
+      if (resolved.status === "matched") {
+        const { entityType, entityId } = resolved;
+        const found = candidates.find((c) => c.entityType === entityType && c.entityId === entityId);
+        match = found ?? (await describeCaptureEntity(entityType, entityId));
+        if (!found) {
+          candidates = [match, ...candidates];
+        }
+      } else if (resolved.status === "needs_question") {
+        questionKey = resolved.question.key;
+      }
+    }
+
+    const ownerships = await loadInventoryOwnership(
+      userId,
+      candidates.map((c) => ({
+        shadeId: c.shadeId === null ? null : String(c.shadeId),
+        skuId: c.entityType === "sku" ? String(c.entityId) : null,
+      }))
+    );
+    const checkCandidates: CaptureCheckCandidate[] = candidates.map((c, i) => ({
+      entityType: c.entityType,
+      entityId: String(c.entityId),
+      shadeId: c.shadeId === null ? null : String(c.shadeId),
+      display: c.display,
+      confidence: c.confidence,
+      ownership: ownerships[i],
+    }));
+    const matched = match;
+    const matchIndex = matched ? candidates.findIndex((c) => sameEntity(c, matched)) : -1;
+
+    const response: CaptureCheckResponse = {
+      captureId: session.captureId,
+      status: session.status,
+      outcome,
+      confidence,
+      match: matchIndex >= 0 ? checkCandidates[matchIndex] : undefined,
+      candidates: checkCandidates,
+      questionKey,
+    };
+
+    trackEvent("capture.checked", {
+      captureId: session.captureId,
+      outcome,
+      confidence,
+      relationship: response.match?.ownership.relationship ?? "none",
+      candidateCount: checkCandidates.length,
+    });
+
+    return { status: 200, jsonBody: response };
+  } catch (error: any) {
+    return internalServerError(context, error, "Failed to check capture", "capture.check");
+  }
+}
+
 async function getCaptureStatus(
   request: HttpRequest,
   context: InvocationContext,
@@ -1849,6 +2034,15 @@ app.http("capture-finalize", {
   authLevel: "anonymous",
   route: "capture/{captureId}/finalize",
   handler: withCors(withAuth(finalizeCapture)),
+});
+
+// Check-only matching: a separate read-only route rather than a finalize flag, so the
+// mutating state machine in finalize stays untouched (see checkCapture).
+app.http("capture-check", {
+  methods: ["POST", "OPTIONS"],
+  authLevel: "anonymous",
+  route: "capture/{captureId}/check",
+  handler: withCors(withAuth(checkCapture)),
 });
 
 app.http("capture-status", {
