@@ -1001,6 +1001,13 @@ const USER_SCOPED_REQUESTS = [
     body: {},
   },
   {
+    route: "capture-check",
+    method: "POST",
+    url: `http://localhost:7071/api/capture/${OWNER_CAPTURE_UUID}/check`,
+    params: { captureId: OWNER_CAPTURE_UUID },
+    body: {},
+  },
+  {
     route: "capture-status",
     method: "GET",
     url: `http://localhost:7071/api/capture/${OWNER_CAPTURE_UUID}/status`,

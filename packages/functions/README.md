@@ -21,7 +21,7 @@ npm run test:e2e --workspace=swatchwatch-functions  # E2E tests against the runn
 - **Unit** (`npm run test`): `tests/*.unit.test.cjs`, no DB or host required; runs in CI.
   `tests/access-control.unit.test.cjs` covers cross-user isolation (issue #53): every inventory /
   capture-session query must be bound to the caller's `user_id`, cross-user GET/PUT/DELETE and
-  capture status/frame/finalize/answer must not read or mutate the owner's rows, user-scoped routes
+  capture status/frame/finalize/check/answer must not read or mutate the owner's rows, user-scoped routes
   return 401 without credentials, admin routes return 403 for regular users, `userId`/`user_id` in
   request bodies or query params is ignored in favor of the authenticated caller, and `/api/images/{id}`
   rejects unsigned/forged/tampered ids (the `images signed-id (requires #47)` block). Its nested
@@ -51,6 +51,10 @@ npm run test:e2e --workspace=swatchwatch-functions  # E2E tests against the runn
   rotate/revoke making old links 404, the public payload allowlist (no PII, no private fields, only
   `wishlist` items on catalog shades, public `v2` images only), the rate limiter (429 + `Retry-After`
   per IP and per token), and cross-user isolation of the owner routes.
+  `tests/capture-check.unit.test.cjs` covers `POST /api/capture/{captureId}/check`: owned /
+  wishlisted / notOwned relationships (shade and barcode→SKU matches, candidates), zero
+  `INSERT`/`UPDATE`/`DELETE` (none on `user_inventory_item` or `inventory_event`, no transaction),
+  404 for another user's session, and that finalize still adds/bumps inventory after a check.
 - **E2E** (`npm run test:e2e`): `tests/api.test.cjs` + `tests/access-control.e2e.test.cjs` against
   a live host at `http://localhost:7071/api` started with `AUTH_DEV_BYPASS=true` and migrated dev
   data (seed users `dev:1` and `dev:2`). The access-control suite has user 2 attempt to read/modify
@@ -104,6 +108,7 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `POST` | `/api/capture/start` | `startCapture` | `capture.ts` | ✅ Working |
 | `POST` | `/api/capture/{captureId}/frame` | `addCaptureFrame` | `capture.ts` | ✅ Working |
 | `POST` | `/api/capture/{captureId}/finalize` | `finalizeCapture` | `capture.ts` | ✅ Working |
+| `POST` | `/api/capture/{captureId}/check` | `checkCapture` | `capture.ts` | ✅ Working (read-only) |
 | `GET` | `/api/capture/{captureId}/status` | `getCaptureStatus` | `capture.ts` | ✅ Working |
 | `POST` | `/api/capture/{captureId}/answer` | `answerCaptureQuestion` | `capture.ts` | ✅ Working |
 | `GET` | `/api/ingestion/jobs` | `ingestionJobsHandler` | `ingestion.ts` | ✅ Working |
@@ -218,6 +223,8 @@ Error responses: unexpected `500`s return only a generic message and a correlati
 - `DELETE /api/hex-labels-admin/labels/{id}` deletes a manual label by `training_sample_id` (only `source_type = 'manual'` rows; 404 otherwise) — the undo for a brand-new label.
 
 Canvas sampling needs CORS: the browser loads images with `crossOrigin="anonymous"`, and `GET /api/images/{id}` (wrapped in `withCors`) reflects an allowed origin from `CORS_ALLOWED_ORIGINS` in `Access-Control-Allow-Origin`. Every image response also carries `Vary: Origin` (so a cached response fetched without CORS is never replayed to a CORS request), and owner-scoped `v3` responses never carry a wildcard `*` origin (dropped when `CORS_ALLOWED_ORIGINS` contains `*`). In Azure the Function App's platform CORS (Terraform `site_config.cors`, same origin list) answers instead, with the same effect for GETs.
+
+**Capture check-only mode (#21).** `POST /api/capture/{captureId}/check` (authenticated, no body) answers "do I own this?" for a capture session without changing anything. It runs the same resolver as finalize (barcode → SKU, then `pg_trgm` shade similarity; `matched` at ≥ 0.92, `needs_question` with candidates at ≥ 0.75) and returns `CaptureCheckResponse`: `{ captureId, status, outcome, confidence, match?, candidates[], questionKey? }`. `status` is the session's stored status, unchanged; `outcome` is what finalize would decide (`matched | needs_question | unmatched`); `questionKey` is the question finalize would open (not persisted). `match` and each candidate carry `{ entityType, entityId, shadeId, display, confidence, ownership }`, where `ownership` is `{ relationship: "owned", quantity }`, `{ relationship: "wishlisted" }` or `{ relationship: "notOwned" }` from the caller's own `user_inventory_item` rows (matched on the shade, or on the SKU for a barcode match). A session that is already `matched` (finalized or answered) reports its accepted entity instead of re-resolving; a `cancelled` session returns `409`; another user's session returns `404`. Check is strictly read-only: only `SELECT`s, no transaction, and no writes to `user_inventory_item`, `inventory_event`, `capture_session` (status or metadata), `capture_question` or `capture_answer`, so a later `POST …/finalize` still resolves and adds to inventory exactly as before. Ownership is classified in one place, `classifyInventoryOwnership` in `src/lib/inventory-relationship.ts`, from `user_inventory_item.status` (#291) and never from `quantity`: any `owned` row → `owned` (the owned rows' quantities summed), else any `wishlist` row → `wishlisted`, else (no row, or only `destash` / `archived` rows) → `notOwned` — the same rule as the polish list's `status` / `availability` filters.
 
 `POST /api/polishes/match-image` (authenticated) matches a photo against the **caller's owned polishes** (`status = 'owned'`). Body (`PolishImageMatchRequest`): `{ image: "data:image/<type>;base64,…", maxColors?: 1–10 (default 6), limit?: 1–50 (default 20) }` — the same base64 data-URL convention as capture frames and the same upload policy (5 MB decoded, JPEG/PNG/WebP/GIF/HEIC/HEIF MIME allowlist). Bodies larger than the base64-encoded 5 MB limit are rejected with 413; missing/invalid images, non-image MIME types, undecodable bytes, images over 40 MP, and out-of-range options return 400. The handler decodes the image in memory with `sharp`, extracts dominant colors (`lib/dominant-color.ts`), merges perceptually near-duplicate colors (OKLAB < 0.04) and drops colors under 1% of pixels, then scores each owned polish's display hex (`vendorHex > detectedHex > nameHex`) by its minimum OKLAB distance to any extracted color. Response (`PolishImageMatchResponse`): `{ extractedColors: [{ hex, fraction }], matches: [{ polish, matchedColor, distance, confidence }], candidateCount }`, sorted by ascending distance. `confidence` comes from `confidenceForDistance()` (`high` ≤ 0.05, `medium` ≤ 0.10, else `low`; tune via `HIGH_CONFIDENCE_MAX_DISTANCE` / `MEDIUM_CONFIDENCE_MAX_DISTANCE`, defined in swatchwatch-shared `color/thresholds.ts` and re-exported from `src/lib/color-match.ts`). **Privacy:** the image is never persisted — not to blob storage, the database, Redis, or logs — and responses are not cached.
 
