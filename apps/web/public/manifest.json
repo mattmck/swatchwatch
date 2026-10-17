@@ -12,5 +12,13 @@
       "type": "image/svg+xml",
       "sizes": "any"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "Rapid Add",
+      "short_name": "Scan",
+      "description": "Scan a polish to check your collection",
+      "url": "/rapid-add/"
+    }
   ]
 }

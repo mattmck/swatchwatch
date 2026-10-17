@@ -11,6 +11,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { getPolishDupes, listPolishes, updatePolish } from "@/lib/api";
 import { buildBrandOptions, matchesBrandFilter } from "@/lib/polish-filters";
 import { isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
+import { applyInventoryPatch } from "@/lib/collection-actions";
 import {
   colorDistance,
   hexToHsl,
@@ -654,7 +655,7 @@ function ColorSearchPageContent() {
     (original: Polish, change: Pick<PolishUpdateRequest, "quantity" | "status">) => {
       const polishId = original.id;
       setAllPolishes((prev) =>
-        prev.map((p) => (p.id === polishId ? { ...p, ...change } : p))
+        prev.map((p) => (p.id === polishId ? applyInventoryPatch(p, change) : p))
       );
 
       updatePolish(polishId, change)

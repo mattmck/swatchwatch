@@ -1,6 +1,6 @@
 "use client";
 
-import { BsDashLg, BsPlusLg, BsTrash3Fill } from "react-icons/bs";
+import { BsArchiveFill, BsDashLg, BsPlusLg } from "react-icons/bs";
 import { Button } from "@/components/ui/button";
 
 interface QuantityControlsProps {
@@ -10,6 +10,8 @@ interface QuantityControlsProps {
   onIncrement: () => void;
   onDecrement: () => void;
   onAdd: () => void;
+  /** Disables every button (e.g. while a status change for the row is in flight). */
+  disabled?: boolean;
   /** The add is waiting on the add-guard dupe check (#266): disable the button meanwhile. */
   addPending?: boolean;
 }
@@ -20,6 +22,7 @@ export function QuantityControls({
   onIncrement,
   onDecrement,
   onAdd,
+  disabled = false,
   addPending = false,
 }: QuantityControlsProps) {
   if (!owned) {
@@ -30,7 +33,7 @@ export function QuantityControls({
           size="xs"
           className="w-[88px]"
           onClick={onAdd}
-          disabled={addPending}
+          disabled={disabled || addPending}
           aria-busy={addPending || undefined}
         >
           {addPending ? "Checking…" : "Add"}
@@ -45,10 +48,12 @@ export function QuantityControls({
         variant="outline"
         size="icon-xs"
         onClick={onDecrement}
-        aria-label={quantity <= 1 ? "Remove from collection" : "Decrease quantity"}
+        disabled={disabled}
+        aria-label={quantity <= 1 ? "Remove last bottle (moves to Archived)" : "Decrease quantity"}
+        title={quantity <= 1 ? "Used up? Moves the polish to Archived" : undefined}
       >
         {quantity <= 1 ? (
-          <BsTrash3Fill className="h-3 w-3" aria-hidden="true" />
+          <BsArchiveFill className="h-3 w-3" aria-hidden="true" />
         ) : (
           <BsDashLg className="h-3 w-3" aria-hidden="true" />
         )}
@@ -64,6 +69,7 @@ export function QuantityControls({
         variant="outline"
         size="icon-xs"
         onClick={onIncrement}
+        disabled={disabled}
         aria-label="Increase quantity"
       >
         <BsPlusLg className="h-3 w-3" aria-hidden="true" />
