@@ -57,7 +57,7 @@ class ApiError extends Error {
   }
 }
 
-async function getAuthHeaders(options?: { admin?: boolean }): Promise<Record<string, string>> {
+export async function getAuthHeaders(options?: { admin?: boolean }): Promise<Record<string, string>> {
   if (process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true") {
     const devUserId = options?.admin
       ? process.env.NEXT_PUBLIC_AUTH_DEV_ADMIN_USER_ID || "2"
