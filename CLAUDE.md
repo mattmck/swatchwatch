@@ -92,7 +92,7 @@ The web app uses Next.js route groups to separate public marketing pages from th
 |-------|------|-------|
 | `/` | `src/app/(marketing)/page.tsx` | Landing page — hero, features, color showcase, CTA |
 | `/dashboard` | `src/app/(app)/dashboard/page.tsx` | Client component, stats + recent additions |
-| `/admin` | `src/app/(admin)/admin/page.tsx` | Unified admin console — tabs: Configuration, Job Runs, Admin Jobs, User Management, Review Queue (`?tab=review-queue`) |
+| `/admin` | `src/app/(admin)/admin/page.tsx` | Unified admin console — tabs: Configuration, Job Runs, Admin Jobs, User Management, Review Queue; active tab synced to `?tab=` (`?tab=review-queue`) |
 | `/admin/reference-data` | `src/app/(admin)/admin/reference-data/page.tsx` | Legacy redirect → `/admin?tab=configuration` |
 | `/admin/jobs` | `src/app/(app)/admin/jobs/page.tsx` | Legacy redirect → `/admin?tab=admin-jobs` |
 | `/polishes` | `src/app/(app)/polishes/page.tsx` | Client component, filterable/sortable table; status chips + untried badge, optimistic row quick actions (♡ wishlist, ✓ own, status/tried menu), `status=` / `untried=` URL filters, color family chips (`?family=`) |
