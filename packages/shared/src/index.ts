@@ -1,6 +1,7 @@
 export * from "./types/polish";
 export * from "./types/inventory";
 export * from "./types/manicure";
+export * from "./types/stats";
 export * from "./constants/finishes";
 export * from "./types/user";
 export * from "./types/voice";

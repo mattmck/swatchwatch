@@ -15,4 +15,5 @@ export * from './functions/ingestion';
 export * from './functions/manicures';
 export * from './functions/polishes';
 export * from './functions/reference';
+export * from './functions/stats';
 export * from './functions/voice';
