@@ -74,6 +74,10 @@ export interface Polish {
   notes?: string;
   swatchImageUrl?: string;
   sourceImageUrls?: string[];
+  /**
+   * Reserved; not populated by the polishes API. The private on-nail photo is served by
+   * `GET /api/inventory/{inventoryItemId}/nail-photo` (`NailPhotoResponse`, #270).
+   */
   nailImageUrl?: string;
   /**
    * "Buy from brand" link: the stored source product URL (absolute http/https, no

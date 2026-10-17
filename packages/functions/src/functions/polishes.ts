@@ -31,6 +31,7 @@ import {
   hashCacheKey,
 } from "../lib/cache";
 import { trackEvent, trackException } from "../lib/telemetry";
+import { deleteNailPhotoBlobs, detachNailPhotosForShade } from "../lib/nail-photos";
 import {
   extractImagePalette,
   MatchImageInputError,
@@ -1145,20 +1146,37 @@ async function deletePolish(request: HttpRequest, context: InvocationContext, us
       return { status: 400, jsonBody: { error: "Invalid polish id" } };
     }
 
-    const result = await query(
-      `DELETE FROM user_inventory_item
-       WHERE shade_id = $1 AND user_id = $2
-       RETURNING inventory_item_id::text AS id`,
-      [shadeId, userId]
-    );
+    // #270: the item and its private nail photo (image_asset rows) are deleted in one transaction;
+    // the photo blobs are deleted only after it commits, so a failure leaves both untouched.
+    const { deletedId, nailPhotoBlobUrls } = await transaction(async (client) => {
+      // Lock the caller's row first: a concurrent nail-photo PUT locks it too, so it cannot attach
+      // a new photo between the detach and the delete.
+      await client.query(
+        `SELECT inventory_item_id
+         FROM user_inventory_item
+         WHERE shade_id = $1 AND user_id = $2
+         FOR UPDATE`,
+        [shadeId, userId]
+      );
+      const blobUrls = await detachNailPhotosForShade(client, userId, shadeId);
+      const result = await client.query<{ id: string }>(
+        `DELETE FROM user_inventory_item
+         WHERE shade_id = $1 AND user_id = $2
+         RETURNING inventory_item_id::text AS id`,
+        [shadeId, userId]
+      );
+      return { deletedId: result.rows[0]?.id ?? null, nailPhotoBlobUrls: blobUrls };
+    });
 
-    if (result.rows.length === 0) {
+    await deleteNailPhotoBlobs(nailPhotoBlobUrls, context);
+
+    if (deletedId === null) {
       return { status: 404, jsonBody: { error: "Polish not found for user" } };
     }
 
     await invalidatePolishCachesForUser(userId, [shadeId]);
 
-    return { status: 200, jsonBody: { message: "Polish deleted successfully", id: result.rows[0].id } };
+    return { status: 200, jsonBody: { message: "Polish deleted successfully", id: deletedId } };
   } catch (error: any) {
     return internalServerError(context, error, "Failed to delete polish", "polishes.delete");
   }

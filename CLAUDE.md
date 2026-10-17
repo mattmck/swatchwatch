@@ -25,6 +25,7 @@ infrastructure/    → Terraform (azurerm ~4.50) for all Azure resources
 **Telemetry:** Functions and web both report to the same workspace-based Application Insights (see `docs/observability-plan.md`). The web SDK is lazy-loaded after hydration, sends W3C `traceparent` only to the API host, tags telemetry with the internal user id (never email), and redacts `/api/images/{id}` capability ids; route-group `error.tsx` files and `app/global-error.tsx` report render errors.
 
 **Buy from brand (#267):** polish list/detail and catalog search/shade responses carry an optional `buyUrl` — the brand product page from the connector-stored `external_product.normalized_json ->> 'productUrl'`, reached through `shade_source_product` (written by ingestion materialization; migration 20261017061344201_add-shade-source-product). `packages/functions/src/lib/buy-link.ts` validates (absolute http/https only, no credentials) and picks one product deterministically (enabled source, then latest `last_seen_at`, then latest `fetched_at`, then highest id). No affiliate parameters; `applyAffiliateParams()` is the one place to add them. The web renders it via `BuyFromBrandLink` with `rel="noopener noreferrer nofollow"`.
+**Private media:** user photos (today the per-item nail photo, #270) live in `USER_MEDIA_CONTAINER`, referenced by `image_asset` rows with `owner_type = 'user'`, and are only ever exposed as owner-scoped `v3` image proxy URLs that require the owner's bearer token (web: `PrivateImage`). Every upload is re-encoded server-side so no EXIF/GPS metadata is stored; never return raw blob URLs or public `v2` ids for user media.
 
 **Auth:** Azure AD B2C (provisioned outside Terraform via portal). Functions read `AZURE_AD_B2C_TENANT` and `AZURE_AD_B2C_CLIENT_ID` from environment. Token validation is JWT-based via the `/api/auth/validate` endpoint.
 
@@ -94,7 +95,7 @@ The web app uses Next.js route groups to separate public marketing pages from th
 | `/admin/jobs` | `src/app/(app)/admin/jobs/page.tsx` | Legacy redirect → `/admin?tab=admin-jobs` |
 | `/polishes` | `src/app/(app)/polishes/page.tsx` | Client component, filterable/sortable table (incl. color family chips, `?family=`) |
 | `/polishes/new` | `src/app/(app)/polishes/new/page.tsx` | Client component, form with color picker + star rating |
-| `/polishes/detail` | `src/app/(app)/polishes/detail/page.tsx` | Client component, detail shell driven by query params |
+| `/polishes/detail` | `src/app/(app)/polishes/detail/page.tsx` | Client component, detail shell driven by query params; owned polishes show the private nail photo (`NailPhotoPanel`) beside the vendor/AI swatches |
 | `/polishes/gaps` | `src/app/(app)/polishes/gaps/page.tsx` | Client component, collection gap heatmap (hue × lightness coverage + next-buy targets) |
 | `/polishes/match` | `src/app/(app)/polishes/match/page.tsx` | Client component, photo → owned-polish color matching (upload/drop/camera, extracted palette filter, confidence badges) via `POST /api/polishes/match-image` |
 | `/polishes/search` | `src/app/(app)/polishes/search/page.tsx` | Client component, canvas color wheel + OKLAB matching |
@@ -124,6 +125,7 @@ This project is in early development. The web UI is now fully API-driven. Backen
 - ✅ Reference data management — `finish_type`, `harmony_type`, `finish_normalization` tables with admin CRUD and public read endpoints
 - ✅ Color family filter (#103) — shared OKLCH classifier + generated `shade.color_family` column; `family` filter on the polishes list and catalog search; swatch chips on `/polishes`
 - ✅ Hex-detection evaluation harness — `packages/functions/src/eval/hex/` scores detection strategies against ground-truth fixtures (OKLAB distance, HIGH/MEDIUM shares, per brand/finish); `color_training_sample` (migration `20261017033500000_add-color-training-sample.sql`) holds DB-sourced samples. See `packages/functions/README.md`
+- ✅ Private nail photo per polish (#270) — `GET/PUT/DELETE /api/inventory/{inventoryItemId}/nail-photo` (`functions/nail-photos.ts`, owner-only, 404 for anyone else); uploads are decoded and re-encoded server-side with sharp (`lib/nail-photo-image.ts`: EXIF/GPS/XMP/ICC removed, orientation applied, ≤ 2048px JPEG, fail closed), stored in `USER_MEDIA_CONTAINER` via an `image_asset` row linked by `inventory_nail_photo` (migration `20261017062948506_inventory-nail-photo`), and returned only as owner-scoped `v3` image URLs. The image proxy resolves `v3` callers read-only (`authenticateRequestReadOnly`, no `getOrCreateUser` write per image). Web: `NailPhotoPanel` on the polish detail page
 - ✅ Feature-flagged Azure OpenAI batch pipeline for Shopify vision hex detection — per-chunk batches run in parallel while the worker keeps ingesting (`metrics.aiBatches`), then awaiting_ai → poll/apply each batch → complete, with synchronous fallback for small runs
 
 ## Environment Variables (Functions)

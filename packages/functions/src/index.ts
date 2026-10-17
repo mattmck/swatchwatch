@@ -12,6 +12,7 @@ export * from './functions/images';
 export * from './functions/ingestion-worker';
 export * from './functions/ingestion-ai-batch-poller';
 export * from './functions/ingestion';
+export * from './functions/nail-photos';
 export * from './functions/polishes';
 export * from './functions/reference';
 export * from './functions/voice';
