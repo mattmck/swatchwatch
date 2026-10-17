@@ -476,6 +476,7 @@ Example request:
 
 Use `GET /api/ingestion/jobs` and `GET /api/ingestion/jobs/{id}` to inspect queued/running/completed status and metrics.
 If a queue message is malformed but includes a valid `jobId`, the worker marks that ingestion job as `failed` with validation details in `error` and `metrics.pipeline`.
+Every path that marks a job `failed` goes through `markIngestionJobFailed()`, which also emits an `ingestion.job_failed` custom event (`jobId`, `error` truncated to 500 chars); the prod "ingestion job failed" alert (`infrastructure/main.tf`) fires on it.
 
 ## Hex sources and suspicious vendor hexes
 

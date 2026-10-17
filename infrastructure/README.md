@@ -81,6 +81,7 @@ Recommended auth config (propagated to Terraform `TF_VAR_*` inputs):
 - Secrets: `AZURE_AD_B2C_CLIENT_ID`
 - Variables: `AUTH_DEV_BYPASS`, `AZURE_AD_B2C_TENANT` (falls back to `NEXT_PUBLIC_B2C_TENANT` if unset)
 - Feature flags: `SHAREABLE_WISHLIST_ENABLED` (default `false`; exported as `TF_VAR_shareable_wishlist_enabled`)
+- Alerts (observability Phase 3, #281): `ALERT_EMAIL` (**secret** recommended so the address is masked in logs; a variable also works; exported as `TF_VAR_alert_email`, never committed to tfvars) and optional variable `ALERTS_ENABLED` (default `true` for `prod`, `false` otherwise; exported as `TF_VAR_alerts_enabled`)
 The workflow creates the state container automatically if it does not exist.
 The workflow reads the `pg-password` secret from Key Vault and exports it as `TF_VAR_pg_admin_password` for Terraform.
 In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves the OpenAI account name from `OPENAI_ACCOUNT_NAME`, Terraform output, or endpoint hostname and loads that account key into `TF_VAR_openai_api_key` before Terraform runs.
@@ -100,6 +101,13 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | Storage Container | `azurerm_storage_container.tfstate` | Terraform remote state container |
 | Log Analytics Workspace | `azurerm_log_analytics_workspace.main` | Centralized log storage/query backend (daily quota = `appinsights_daily_cap_gb`) |
 | Application Insights | `azurerm_application_insights.main` | Function telemetry, traces, requests, and exceptions (daily cap = `appinsights_daily_cap_gb`) |
+| Action Group *(alerts)* | `azurerm_monitor_action_group.main` | Emails `alert_email` for every alert below (`alerts_enabled`, prod only by default) |
+| API 5xx alert *(alerts)* | `azurerm_monitor_metric_alert.api_5xx` | App Insights `requests/failed` with result code `5xx` > `alert_api_5xx_threshold` in 5 min (sev 1) |
+| Exception spike alert *(alerts)* | `azurerm_monitor_scheduled_query_rules_alert_v2.exception_spike` | `AppExceptions` split by client kind over 15 min: server > `alert_server_exception_threshold`, browser > `alert_browser_exception_threshold` (sev 2) |
+| Ingestion failure alert *(alerts)* | `azurerm_monitor_scheduled_query_rules_alert_v2.ingestion_failed` | Any `ingestion.job_failed` custom event (emitted by `markIngestionJobFailed`) in 15 min (sev 2) |
+| Daily cap alert *(alerts)* | `azurerm_monitor_scheduled_query_rules_alert_v2.daily_cap` | `_LogOperation` reports `OverQuota`: the workspace daily cap stopped ingestion (sev 2) |
+| Availability tests *(alerts)* | `azurerm_application_insights_standard_web_test.availability["web"\|"api"]` | Standard tests every `availability_test_frequency_seconds` from `availability_test_locations`: web home page (custom domain) and `GET /api/reference/finishes`; expect 200 and an SSL cert valid for 7+ days. Billed per execution |
+| Availability alerts *(alerts)* | `azurerm_monitor_metric_alert.availability["web"\|"api"]` | Fires when 2+ test locations fail (sev 1) |
 | API Management *(optional)* | `azurerm_api_management.main` | Azure API Management Consumption gateway for Azure OpenAI traffic (`apim_enabled=true`) |
 | App Service Plan | `azurerm_service_plan.main` | Linux Consumption plan (Y1) |
 | Function App | `azurerm_linux_function_app.main` | Node 22 function host (Managed Identity enabled) |
@@ -167,7 +175,15 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | `hex_detection_batch_min_images` | `5` | Function App setting `HEX_DETECTION_BATCH_MIN_IMAGES` threshold before batch mode |
 | `ingestion_ai_batch_poll_schedule` | `0 */2 * * * *` | Function App setting `INGESTION_AI_BATCH_POLL_SCHEDULE` for timer polling |
 | `ingestion_ai_batch_max_poll_jobs` | `10` | Function App setting `INGESTION_AI_BATCH_MAX_POLL_JOBS` per poll run |
-| `appinsights_daily_cap_gb` | `null` (→ `5` prod, `1` otherwise) | Daily ingestion cap (GB) for Application Insights and the Log Analytics workspace; telemetry stops for the rest of the day once hit |
+| `appinsights_daily_cap_gb` | `null` (→ `appinsights_daily_cap_gb_defaults`) | Daily ingestion cap (GB) for Application Insights and the Log Analytics workspace; telemetry stops for the rest of the day once hit (the daily cap alert reports it) |
+| `appinsights_daily_cap_gb_defaults` | `{ dev = 0.5, prod = 2 }` | Per-environment default cap when `appinsights_daily_cap_gb` is null; unlisted environments use the `dev` entry (decision D15) |
+| `alerts_enabled` | `null` (→ `true` prod, `false` otherwise) | Create the action group, alert rules and availability tests (decision D16) |
+| `alert_email` | `""` | Address the action group emails. Comes from the `ALERT_EMAIL` GitHub secret/variable; do not commit it. Empty = alerts fire in the portal only (a `check` warns on plan) |
+| `alert_api_5xx_threshold` | `5` | 5xx responses (per result code) in 5 min before the API alert fires |
+| `alert_server_exception_threshold` | `10` | Functions exceptions in 15 min before the exception spike alert fires |
+| `alert_browser_exception_threshold` | `25` | Browser exceptions in 15 min before the exception spike alert fires |
+| `availability_test_frequency_seconds` | `300` | Availability test interval per location (`300`, `600` or `900`) |
+| `availability_test_locations` | East US, South Central US, West US | Availability test geo location ids (at least 2) |
 
 **Sensitive variables** are stored in environment-specific tfvars files (gitignored), for example:
 - `terraform.dev.tfvars`
