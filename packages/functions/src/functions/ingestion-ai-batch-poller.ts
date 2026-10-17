@@ -416,6 +416,9 @@ async function processAwaitingAiBatchJob(
   const polledAt = new Date().toISOString();
   let stillRunning = 0;
   let lastLogContext: Record<string, unknown> = {};
+  // The first batch that ended without completing. The job fails after the loop, so later
+  // batches that did complete are still applied: their records are already committed.
+  let terminalFailure: string | null = null;
 
   for (const [position, index] of pendingIndexes.entries()) {
     const entry = entries[index];
@@ -453,28 +456,12 @@ async function processAwaitingAiBatchJob(
 
     if (batchStatus.status !== "completed") {
       const failedMessage = `Azure OpenAI batch ${batchStatus.id} ended with status ${batchStatus.status}`;
-      const failedMetrics = withPipelineMetrics(
-        withEntries(
-          appendJobLog(metrics, "error", failedMessage, {
-            outputFileId: batchStatus.outputFileId,
-            errorFileId: batchStatus.errorFileId,
-          })
-        ),
-        "failed",
-        "awaiting_ai",
-        {
-          failedAt: polledAt,
-          failedStage: "awaiting_ai",
-        }
-      );
-      if (!(await shouldApplyJobUpdate(job.jobId, context, "failure"))) {
-        return;
-      }
-      await markIngestionJobFailed(job.jobId, failedMessage, failedMetrics);
-      context.error(
-        `[ingestion-ai-batch-poller] Job ${job.jobId} failed: ${failedMessage}`
-      );
-      return;
+      terminalFailure ??= failedMessage;
+      metrics = appendJobLog(metrics, "error", failedMessage, {
+        outputFileId: batchStatus.outputFileId,
+        errorFileId: batchStatus.errorFileId,
+      });
+      continue;
     }
 
     const applied = await applyCompletedBatch(job, entry, batchStatus, metrics);
@@ -496,6 +483,19 @@ async function processAwaitingAiBatchJob(
         withPipelineMetrics(withEntries(metrics), "running", "awaiting_ai")
       );
     }
+  }
+
+  if (terminalFailure) {
+    const failedMetrics = withPipelineMetrics(withEntries(metrics), "failed", "awaiting_ai", {
+      failedAt: polledAt,
+      failedStage: "awaiting_ai",
+    });
+    if (!(await shouldApplyJobUpdate(job.jobId, context, "failure"))) {
+      return;
+    }
+    await markIngestionJobFailed(job.jobId, terminalFailure, failedMetrics);
+    context.error(`[ingestion-ai-batch-poller] Job ${job.jobId} failed: ${terminalFailure}`);
+    return;
   }
 
   if (stillRunning > 0) {

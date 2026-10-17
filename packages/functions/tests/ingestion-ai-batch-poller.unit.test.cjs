@@ -493,6 +493,36 @@ describe("ingestion-ai-batch-poller with several batches per job", () => {
     assert.ok(dbJob.metrics.logs.some((entry) => /status lookup failed/.test(entry.msg)));
   });
 
+  it("still applies later completed batches when an earlier batch failed", async () => {
+    seedJob(
+      makeMultiBatchMetrics([
+        { batchId: "batch-1", status: "submitted" },
+        { batchId: "batch-2", status: "submitted" },
+      ])
+    );
+    batchStatusById = {
+      "batch-1": { ...completedStatus("batch-1"), status: "failed", outputFileId: null },
+      "batch-2": completedStatus("batch-2"),
+    };
+
+    await runPoller();
+
+    assert.deepEqual(polledBatchIds, ["batch-1", "batch-2"]);
+    assert.deepEqual(
+      calls.map((c) => c.type),
+      ["apply", "failed"]
+    );
+    assert.match(calls[1].error, /batch-1 ended with status failed/);
+    assert.equal(dbJob.metrics.aiBatchesCompleted, 1);
+    assert.deepEqual(
+      dbJob.metrics.aiBatches.map((b) => [b.batchId, b.status]),
+      [
+        ["batch-1", "failed"],
+        ["batch-2", "completed"],
+      ]
+    );
+  });
+
   it("fails the job when a batch fails, after applying the ones that completed", async () => {
     seedJob(
       makeMultiBatchMetrics([
