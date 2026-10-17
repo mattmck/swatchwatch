@@ -35,6 +35,24 @@ The package is automatically linked via npm workspaces — no publishing require
 
 **Note:** All frontend pages now use the live API. The mock-data.ts file is no longer used.
 
+### `types/hex-label.ts`
+
+Admin Hex Labeling tool (admin console tab, routes `/api/hex-labels-admin/*`): hand-picked ground-truth hexes stored as `color_training_sample` rows with `source_type = 'manual'` (migration 20261017170047543_hex-ground-truth-labels) and exported by `npm run eval:hex:populate` as `manual` eval cases.
+
+| Type | Description |
+|------|-------------|
+| `HexLabelSampleMethod` | How the hex was picked: `canvas` (averaged canvas sample), `eyedropper` (native `EyeDropper` API), `manual` (typed) |
+| `HEX_LABEL_SAMPLE_SIZES` / `HexLabelSampleSize` | Averaging window sizes the canvas eyedropper offers: `1`, `3`, `5`, `9` px per side |
+| `HexLabelSamplePoint` | Where a canvas sample was taken: `x`/`y` normalized 0..1 to the natural image size, `size`, `imageWidth`, `imageHeight` |
+| `HexLabelImage` | A catalog product image of a shade: `imageId`, signed proxy `url`, `swatchType`, vendor `sourceUrl` (from `source_image_url`, null when unknown), `isPrimary` |
+| `HexLabel` | A saved manual label: `trainingSampleId`, `shadeId`, `hex` (null only when `unreliable`), `unreliable`, `imageId`, `note`, `method`, `samplePoint`, `labeledByUserId`, `labeledAt` |
+| `HexLabelQueueItem` | One queued shade: brand/name/finishes, `vendorHex`/`detectedHex`/`nameHex`, `hexAgreement`, detection confidence/method, `flagged` (agreement > MEDIUM), `images`, current `label` |
+| `HexLabelQueueFilters` | `GET /api/hex-labels-admin/queue` query: `brand`, `disagreeOnly`, `showLabeled`, `includeWithoutImages`, `cursor`, `pageSize` |
+| `HexLabelQueueResponse` | `{ items, nextCursor, total, labeled, pageSize, disagreementThreshold }` (`total`/`labeled` drive the progress bar) |
+| `HexLabelRequest` | `POST /api/hex-labels-admin/labels` body: `shadeId`, `hex` (`#RRGGBB`, required unless `unreliable`), `imageId`, `unreliable`, `note`, `method`, `samplePoint` |
+| `HexLabelSaveResponse` | `{ label, previous }`; `previous` is the label the save replaced (the client restores it to undo) |
+| `HexLabelDeleteResponse` | `{ deleted }` from `DELETE /api/hex-labels-admin/labels/{id}` |
+
 ### `types/inventory.ts`
 
 Inventory status model (#261). Every `user_inventory_item` row has one status; "untried" is **derived**, never stored.
@@ -92,6 +110,38 @@ Mani log (#269): `/api/manicures` payloads. Logging, editing or deleting a manic
 | `matchImportHeader`, `mapImportHeaderRow`, `normalizeImportHeader`, `validateImportMapping` | Building blocks / mapping validation |
 | `parseImportQuantity`, `parseImportPrice`, `parseImportCurrency`, `parseImportDate` (+ `detectImportDateOrder`), `parseImportStatus`, `parseImportTried`, `splitImportFinishes`, `stripFormulaGuard`, `cleanImportText`, `importMatchKey` | Cell parsers (each returns `{ value?, error? }`) and normalization helpers |
 | `POLISH_IMPORT_MAX_BYTES` (1 MB), `POLISH_IMPORT_MAX_ROWS` (1000), `POLISH_IMPORT_MAX_COLUMNS` (100), `POLISH_IMPORT_MAX_NOTES_LENGTH`, `POLISH_IMPORT_MAX_NAME_LENGTH` | Limits enforced by the API and pre-checked by the web |
+
+### `types/collection-export.ts`
+
+Collection export (#264), `GET /api/polishes/export`.
+
+| Export | Description |
+|--------|-------------|
+| `POLISH_CSV_COLUMNS` | The CSV column contract shared with the CSV import (#263): `{ key, header, importField }[]` in file order. Round-trip columns first (`Brand`→`brand`, `Shade name`→`name`, `Finishes`→`finish`, `Quantity`→`quantity`, `Status`→`status`, `Date tried`→`tried`, `Purchase price`→`price`, `Currency`→`currency`, `Purchase date`→`purchaseDate`, `Notes`→`notes`; each header is one the importer recognizes as a strong synonym), then export-only extras with `importField: null` (`Display hex`, `Collection`, `Rating`, `Tags`, `Size`, `Expiration date`, `Last worn`, `Wear count`, `Shade ID`, `Item ID`, `Created at`, `Updated at`) |
+| `POLISH_CSV_HEADERS` | Header row (`POLISH_CSV_COLUMNS[].header`) |
+| `PolishCsvColumn` / `PolishCsvColumnKey` / `PolishCsvImportField` | Column shape, column keys, and the importer field names a column can feed |
+| `POLISH_CSV_LIST_SEPARATOR` | `", "` — joins `Finishes` and `Tags` cells |
+| `COLLECTION_EXPORT_VERSION` | `1` — JSON envelope version; bump when a field is removed or changes meaning |
+| `COLLECTION_EXPORT_FORMATS` / `CollectionExportFormat` / `isCollectionExportFormat()` | `"csv" \| "json"` |
+| `CollectionExportItem` | One exported inventory row: a `Polish` subset (`inventoryItemId`, `shadeId`, `brand`, `name`, `color`, `finishes`, `collection`, `quantity`, `status`, `isUntried`, `triedAt`, `lastWornAt`, `wearCount`, `purchasePrice`, `purchaseCurrency`, `purchaseDate`, `expirationDate`, `size`, `rating`, `notes`, `tags`, the three hexes, `createdAt`, `updatedAt`) plus `displayHex`; no image URLs |
+| `CollectionExport` | JSON envelope `{ version: 1, exportedAt, statusFilter, itemCount, items }` |
+| `collectionExportFilename(format, at?)` | `swatchwatch-collection-YYYY-MM-DD.<format>` (UTC date) |
+
+### `types/stats.ts`
+
+Collection stats (#271): the `GET /api/stats/collection` payload behind the dashboard panels. Money is never summed across currencies — every amount sits in a per-currency group (`currency: null` = price saved without one).
+
+| Export | Description |
+|--------|-------------|
+| `COLLECTION_STATS_TOP_BRANDS` (8), `COLLECTION_STATS_MONTHS` (12), `COLLECTION_STATS_MOST_WORN` (10), `COLLECTION_STATS_COST_PER_WEAR_LIST` (5) | List sizes used by the API |
+| `SPEND_STATUSES` | `["owned", "destash", "archived"]` — statuses whose purchase price counts as spend (a wishlist price is a target, not money spent) |
+| `CollectionStatsResponse` | `{ generatedAt, totals: { byStatus, total }, untried: { owned, untried, percent \| null }, wornVsWaiting: { worn, waiting }, spend, mostWorn, costPerWear: { currencies, pricedUnwornCount } }` |
+| `CollectionSpendStats` | `{ currencies: CurrencySpend[], months (YYYY-MM, oldest first), pricedCount, unpricedCount }` |
+| `CurrencySpend` | One currency: `currency`, all-time `total` / `itemCount`, `byBrand` (top N + one "Other"), `byMonth` (zero-filled) |
+| `SpendByBrandEntry` / `SpendByMonthEntry` | `{ brand, isOther, brandCount, total, itemCount }` / `{ month, total, itemCount, estimatedDateCount }` (`estimatedDateCount` = rows bucketed by `createdAt` because they have no purchase date) |
+| `CollectionStatsShade` | Shared entry fields: `inventoryItemId`, `shadeId` (null for a SKU-only row), `brand`, `name`, `vendorHex`, `detectedHex`, `nameHex` |
+| `MostWornEntry` | `CollectionStatsShade` + `status`, `wearCount`, `lastWornAt` |
+| `CostPerWearEntry` / `CostPerWearCurrency` | `CollectionStatsShade` + `price`, `wearCount`, `costPerWear` / `{ currency, wornCount, pricedUnwornCount, best, worst }` (`worst` never repeats a `best` item) |
 
 ### `constants/finishes.ts`
 
@@ -195,6 +245,11 @@ Shareable wishlist (#268), behind the server flag `SHAREABLE_WISHLIST_ENABLED` (
 | `CaptureFinalizeResponse` | Finalize response with session status and optional question |
 | `CaptureStatusResponse` | Session status payload with confidence/accepted entity/question |
 | `CaptureAnswerRequest` / `CaptureAnswerResponse` | Answer question payloads for adaptive loop |
+| `CaptureOwnershipRelationship` | Caller's relationship to a matched shade: `owned \| wishlisted \| notOwned` |
+| `CaptureOwnership` | `{ relationship, quantity? }` (`quantity` = total owned, only when `owned`) |
+| `CaptureCheckOutcome` | Resolver outcome reported by check: `matched \| needs_question \| unmatched` |
+| `CaptureCheckCandidate` | Match/candidate with `entityType`, `entityId`, `shadeId`, `display`, `confidence`, `ownership` |
+| `CaptureCheckResponse` | `POST /api/capture/{captureId}/check` payload: outcome, confidence, `match?`, `candidates`, `questionKey?`, unchanged session `status` (read-only, never touches inventory) |
 
 ### `types/palette.ts`
 

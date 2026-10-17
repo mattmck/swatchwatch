@@ -207,12 +207,30 @@ export function buildManicureRequest(values: ManiFormValues): ManicureCreateRequ
   };
 }
 
-/** One-tap "Log today's mani" body for a single polish. */
+/** An extra polish logged alongside the main one (e.g. a "Pick for me" pairing). */
+export interface QuickLogCompanion {
+  id: string;
+  role: ManicurePolishRole;
+}
+
+/**
+ * One-tap "Log today's mani" body for a polish, plus optional companions (pairings) in order.
+ * Duplicate `shadeId:role` pairs are dropped, and the list is capped at `MAX_MANICURE_POLISHES`.
+ */
 export function quickLogRequest(
   polish: Pick<Polish, "id" | "finish" | "finishes">,
-  todayIso: string
+  todayIso: string,
+  companions: readonly QuickLogCompanion[] = []
 ): ManicureCreateRequest {
-  return { wornOn: todayIso, polishes: [{ shadeId: polish.id, role: defaultRoleFor(polish) }] };
+  const seen = new Set<string>();
+  const polishes: ManicureCreateRequest["polishes"] = [];
+  for (const entry of [{ id: polish.id, role: defaultRoleFor(polish) }, ...companions]) {
+    const key = `${entry.id}:${entry.role}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    polishes.push({ shadeId: entry.id, role: entry.role });
+  }
+  return { wornOn: todayIso, polishes: polishes.slice(0, MAX_MANICURE_POLISHES) };
 }
 
 /** Polishes can be logged only when the caller has an inventory row for them. */

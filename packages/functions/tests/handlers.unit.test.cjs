@@ -2200,6 +2200,7 @@ describe("functions/capture — route registration", () => {
     assert.ok(registeredRoutes["capture-finalize"]);
     assert.ok(registeredRoutes["capture-status"]);
     assert.ok(registeredRoutes["capture-answer"]);
+    assert.ok(registeredRoutes["capture-check"]);
   });
 
   it("uses expected methods and route patterns", () => {
@@ -2213,6 +2214,8 @@ describe("functions/capture — route registration", () => {
     assert.equal(registeredRoutes["capture-status"].route, "capture/{captureId}/status");
     expectMethods("capture-answer", ["POST"]);
     assert.equal(registeredRoutes["capture-answer"].route, "capture/{captureId}/answer");
+    expectMethods("capture-check", ["POST"]);
+    assert.equal(registeredRoutes["capture-check"].route, "capture/{captureId}/check");
   });
 });
 

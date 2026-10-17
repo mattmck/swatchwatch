@@ -11,6 +11,7 @@ import {
   type HexReviewResponse,
   type HexReviewSort,
   type PolishStatus,
+  type CollectionExportFormat,
 } from "swatchwatch-shared";
 import { query, transaction } from "../lib/db";
 import { withAuth, withAdmin } from "../lib/auth";
@@ -32,7 +33,7 @@ import {
 } from "../lib/cache";
 import { trackEvent, trackException } from "../lib/telemetry";
 import { deleteNailPhotoBlobs, detachNailPhotosForShade } from "../lib/nail-photos";
-import { invalidatePolishCachesForUser } from "../lib/polish-cache";
+import { invalidateAllCollectionStats, invalidatePolishCachesForUser } from "../lib/polish-cache";
 import { recomputeWearStats } from "../lib/manicure";
 import {
   extractImagePalette,
@@ -59,6 +60,11 @@ import {
   providedInventoryFields,
   type InventoryFieldsUpdate,
 } from "../lib/inventory";
+import {
+  CollectionExportRequestError,
+  buildCollectionExport,
+  parseExportFormat,
+} from "../lib/collection-export";
 import { PoolClient } from "pg";
 
 const FINISH_NORMALIZATION_MAP: Record<string, string> = {
@@ -530,6 +536,7 @@ async function invalidateGlobalPolishCaches(): Promise<void> {
   await Promise.all([
     cacheDeleteByPrefix("polishes:list:u:"),
     cacheDeleteByPrefix("polishes:detail:u:"),
+    invalidateAllCollectionStats(),
   ]);
 }
 
@@ -653,10 +660,72 @@ function withReadableImageUrl(
   }
 }
 
+/**
+ * GET /api/polishes/export?format=csv|json[&status=owned,wishlist] — download the caller's
+ * collection (issue #264). Every inventory row of the caller (all statuses unless `status` is
+ * given); SQL is scoped by `ui.user_id = $1`. See lib/collection-export.ts.
+ */
+async function exportCollection(
+  request: HttpRequest,
+  context: InvocationContext,
+  userId: number
+): Promise<HttpResponseInit> {
+  context.log("GET /api/polishes/export");
+  const url = new URL(request.url);
+  let format: CollectionExportFormat;
+  let statusFilter: PolishStatus[];
+  try {
+    format = parseExportFormat(url.searchParams.get("format"));
+    statusFilter = parseStatusFilter(url.searchParams.get("status"));
+  } catch (error) {
+    if (error instanceof CollectionExportRequestError || error instanceof InventoryValidationError) {
+      return { status: 400, jsonBody: { error: error.message } };
+    }
+    throw error;
+  }
+
+  try {
+    const built = await buildCollectionExport({
+      queryFn: query,
+      userId,
+      format,
+      statusFilter,
+    });
+    trackEvent("polish.collection_export", {
+      format,
+      itemCount: built.itemCount,
+      statusFilter: statusFilter.join(","),
+    });
+    return {
+      status: 200,
+      headers: {
+        "Content-Type": built.contentType,
+        "Content-Disposition": `attachment; filename="${built.filename}"`,
+        // Private, per-user data: never stored by browsers or shared caches.
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+        // Lets the web app read the server's filename on a cross-origin fetch.
+        "Access-Control-Expose-Headers": "Content-Disposition",
+      },
+      body: built.body,
+    };
+  } catch (error: any) {
+    return internalServerError(context, error, "Failed to export collection", "polishes.export");
+  }
+}
+
 async function getPolishes(request: HttpRequest, context: InvocationContext, userId: number): Promise<HttpResponseInit> {
+  const id = request.params.id;
+
+  // `/api/polishes/export` shares the `polishes/{id?}` route template, so it is dispatched here
+  // rather than registered separately (a literal route next to `{id?}` relies on host route
+  // precedence; dispatching keeps it unambiguous).
+  if (id === "export") {
+    return exportCollection(request, context, userId);
+  }
+
   context.log("GET /api/polishes");
 
-  const id = request.params.id;
   const requestOrigin = getRequestOrigin(request.url);
 
   // Single polish by shade id
