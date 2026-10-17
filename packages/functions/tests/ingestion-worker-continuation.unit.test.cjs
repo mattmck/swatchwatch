@@ -204,6 +204,7 @@ beforeEach(() => {
   materializeMock = async (records) => ({ processed: records.length, hexDetected: records.length });
   delete process.env.INGESTION_WORKER_TIME_BUDGET_MS;
   delete process.env.HEX_DETECTION_BATCH_ENABLED;
+  delete process.env.HEX_DETECTION_BATCH_MAX_IN_FLIGHT;
 });
 
 afterEach(() => {
@@ -499,8 +500,117 @@ describe("processIngestionJobQueueMessage — continuations", () => {
     assert.ok(!events.slice(cancelIndex).some((e) => e.type === "metrics"), "no writes after cancel");
   });
 
+  it("keeps ingesting while AI batches run, then waits for all of them", async () => {
+    process.env.HEX_DETECTION_BATCH_ENABLED = "true";
+    pages[1] = { records: makeRecords(1, 100), metadata: {} };
+    pages[2] = { records: makeRecords(2, 20), metadata: {} };
+    let batchNumber = 0;
+    materializeMock = async (records) => ({
+      processed: records.length,
+      aiBatch: { batchId: `batch-${++batchNumber}`, status: "submitted", requestCount: records.length },
+    });
+
+    await processIngestionJobQueueMessage(
+      makePayload({ request: { exhaustive: true, pageSize: 100 } }),
+      context
+    );
+
+    // Every chunk is materialized in this invocation; no pause between batches.
+    assert.deepEqual(materializeCalls().map((ids) => ids.length), [50, 50, 20]);
+    assert.equal(enqueued().length, 0);
+    assert.equal(job.status, "running");
+    assert.equal(job.metrics.pipeline.stage, "awaiting_ai");
+    assert.equal(job.metrics.resumeMessage, undefined, "no work remains once batches finish");
+    assert.deepEqual(
+      job.metrics.aiBatches.map((b) => [b.batchId, b.status, b.requestCount]),
+      [
+        ["batch-1", "submitted", 50],
+        ["batch-2", "submitted", 50],
+        ["batch-3", "submitted", 20],
+      ]
+    );
+    assert.equal(job.metrics.recordsProcessed, 120);
+  });
+
+  it("completes normally when no chunk submitted a batch", async () => {
+    process.env.HEX_DETECTION_BATCH_ENABLED = "true";
+    pages[1] = { records: makeRecords(1, 60), metadata: {} };
+    materializeMock = async (records) => ({ processed: records.length, hexDetectionSkippedUnchanged: records.length });
+
+    await processIngestionJobQueueMessage(makePayload({ request: { pageSize: 100 } }), context);
+
+    assert.equal(job.status, "succeeded");
+    assert.equal(job.metrics.pipeline.stage, "completed");
+  });
+
+  it("pauses with a resume message once the in-flight batch cap is reached", async () => {
+    process.env.HEX_DETECTION_BATCH_ENABLED = "true";
+    process.env.HEX_DETECTION_BATCH_MAX_IN_FLIGHT = "2";
+    pages[1] = { records: makeRecords(1, 100), metadata: {} };
+    pages[2] = { records: makeRecords(2, 100), metadata: {} };
+    let batchNumber = 0;
+    materializeMock = async (records) => ({
+      processed: records.length,
+      aiBatch: { batchId: `batch-${++batchNumber}`, status: "submitted", requestCount: records.length },
+    });
+
+    await processIngestionJobQueueMessage(
+      makePayload({ request: { exhaustive: true, pageSize: 100 } }),
+      context
+    );
+
+    assert.deepEqual(materializeCalls().map((ids) => ids.length), [50, 50]);
+    assert.equal(job.metrics.pipeline.stage, "awaiting_ai");
+    assert.equal(job.metrics.aiBatches.length, 2);
+    const resumeMessage = readResumeMessageFromMetrics(job.metrics);
+    assert.ok(resumeMessage, "the poller needs a resume message to continue the job");
+    assert.equal(resumeMessage.checkpoint.nextPage, 2);
+    assert.equal(resumeMessage.checkpoint.recordOffset, 0);
+  });
+
+  it("counts only pending batches toward the cap on a continuation", async () => {
+    process.env.HEX_DETECTION_BATCH_ENABLED = "true";
+    process.env.HEX_DETECTION_BATCH_MAX_IN_FLIGHT = "2";
+    pages[2] = { records: makeRecords(2, 100), metadata: { hasMore: false } };
+    const cp = checkpoint({ nextPage: 2, pagesCompleted: 1, recordsProcessed: 100, continuationCount: 1 });
+    job = {
+      status: "running",
+      metrics: {
+        checkpoint: cp,
+        aiBatches: [
+          { batchId: "batch-1", status: "completed", overwriteDetectedHex: false },
+          { batchId: "batch-2", status: "completed", overwriteDetectedHex: false },
+        ],
+      },
+    };
+    let batchNumber = 2;
+    materializeMock = async (records) => ({
+      processed: records.length,
+      aiBatch: { batchId: `batch-${++batchNumber}`, status: "submitted", requestCount: records.length },
+    });
+
+    await processIngestionJobQueueMessage(
+      makePayload({ checkpoint: cp, request: { exhaustive: true, pageSize: 100 } }),
+      context
+    );
+
+    assert.deepEqual(materializeCalls().map((ids) => ids.length), [50, 50]);
+    assert.equal(job.metrics.pipeline.stage, "awaiting_ai");
+    assert.equal(job.metrics.resumeMessage, undefined);
+    assert.deepEqual(
+      job.metrics.aiBatches.map((b) => [b.batchId, b.status]),
+      [
+        ["batch-1", "completed"],
+        ["batch-2", "completed"],
+        ["batch-3", "submitted"],
+        ["batch-4", "submitted"],
+      ]
+    );
+  });
+
   it("stores a resumeMessage for the next page when pausing for an AI batch", async () => {
     process.env.HEX_DETECTION_BATCH_ENABLED = "true";
+    process.env.HEX_DETECTION_BATCH_MAX_IN_FLIGHT = "1";
     pages[1] = { records: makeRecords(1, 30), metadata: {} };
     materializeMock = async (records) => ({
       processed: records.length,

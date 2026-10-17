@@ -624,6 +624,21 @@ export async function uploadSourceImageToBlob(
   }
 
   const blobUrl = new URL(`${containerUrl.toString()}/${encodeBlobPath(blobName)}`);
+
+  // The blob name embeds the content checksum, so an existing blob already holds these bytes
+  // (re-ingesting an unchanged catalog). A failed check just falls through to the upload.
+  const alreadyStored = await blobExists(connectionString, containerName, blobName).catch(() => false);
+  if (alreadyStored) {
+    console.log(`[blob-storage] Blob already stored, skipping upload: ${blobName}`);
+    return {
+      storageUrl: blobUrl.toString(),
+      checksumSha256,
+      contentType,
+      sizeBytes: cleanBytes.length,
+      imageBase64DataUri,
+    };
+  }
+
   console.log(`[blob-storage] Uploading blob: ${blobName}`);
   const uploadResponse = await sendStorageRequest(
     config,
