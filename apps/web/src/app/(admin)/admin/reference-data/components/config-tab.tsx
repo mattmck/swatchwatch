@@ -88,6 +88,35 @@ interface ReferenceSectionProps<T extends ReferenceRecord> {
     }
   ) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
+  /** Extra sentence for the delete confirmation (e.g. when deletes can be refused). */
+  deleteHint?: string;
+}
+
+/**
+ * Run a reference-row delete for the confirmation dialog. On failure the server's message is
+ * kept for display (e.g. the 409 "still used by N shades" message for an in-use finish type)
+ * and the dialog stays open; on success `onSuccess` closes it.
+ */
+export async function runReferenceDelete(params: {
+  id: number;
+  singularLabel: string;
+  onDelete: (id: number) => Promise<void>;
+  setPending: (pending: boolean) => void;
+  setError: (message: string | null) => void;
+  onSuccess: () => void;
+}): Promise<void> {
+  const { id, singularLabel, onDelete, setPending, setError, onSuccess } = params;
+  try {
+    setPending(true);
+    setError(null);
+    await onDelete(id);
+    onSuccess();
+    setError(null);
+  } catch (deleteError: unknown) {
+    setError(deleteError instanceof Error && deleteError.message ? deleteError.message : `Failed to delete ${singularLabel}`);
+  } finally {
+    setPending(false);
+  }
 }
 
 function toFormValues(record?: ReferenceRecord): ReferenceFormValues {
@@ -132,6 +161,7 @@ function ReferenceSection<T extends ReferenceRecord>({
   onCreate,
   onUpdate,
   onDelete,
+  deleteHint,
 }: ReferenceSectionProps<T>) {
   const fieldId = useId();
   const [query, setQuery] = useState("");
@@ -218,21 +248,14 @@ function ReferenceSection<T extends ReferenceRecord>({
   async function handleDelete() {
     if (!deleteTarget) return;
 
-    try {
-      setDeletePending(true);
-      setDeleteError(null);
-      await onDelete(getId(deleteTarget));
-      setDeleteTarget(null);
-      setDeleteError(null);
-    } catch (submitError: unknown) {
-      setDeleteError(
-        submitError instanceof Error
-          ? submitError.message
-          : `Failed to delete ${singularLabel}`
-      );
-    } finally {
-      setDeletePending(false);
-    }
+    await runReferenceDelete({
+      id: getId(deleteTarget),
+      singularLabel,
+      onDelete,
+      setPending: setDeletePending,
+      setError: setDeleteError,
+      onSuccess: () => setDeleteTarget(null),
+    });
   }
 
   return (
@@ -396,6 +419,7 @@ function ReferenceSection<T extends ReferenceRecord>({
               This action cannot be undone. Confirm deletion of
               {" "}
               <span className="font-semibold">{deleteTarget?.displayName}</span>.
+              {deleteHint && <> {deleteHint}</>}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -791,6 +815,7 @@ export function ConfigTab() {
           await deleteFinishType(id);
           await loadFinishTypes();
         }}
+        deleteHint="A finish type still used by shades or finish normalizations can't be deleted."
       />
 
       <ReferenceSection<ReferenceHarmonyType>

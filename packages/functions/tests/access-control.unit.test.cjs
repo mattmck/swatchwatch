@@ -1377,63 +1377,37 @@ describe("access control — polishes inventory is scoped to the caller", () => 
     assertOwnerInventoryUnchanged();
   });
 
-  // Shades are a shared catalog: a regular user may backfill missing color data,
-  // but must never overwrite a value other users already see. Every shade write
-  // from a user route must therefore be fill-only: `col = COALESCE(col, $n)`.
-  const SHADE_COLOR_COLUMNS = ["color_name", "vendor_hex", "detected_hex", "name_hex"];
-
-  function assertShadeWritesAreFillOnly() {
+  // Shades are a shared catalog: a user request writes color/finish data only when it creates
+  // the shade (#224 decision 1b). Requests against an existing shared shade must not issue any
+  // UPDATE on it, not even a NULL backfill.
+  function assertNoSharedShadeWrites() {
     const shadeWrites = handlerCalls().filter((c) => /^\s*UPDATE\s+shade\b/i.test(c.sql));
-    assert.ok(shadeWrites.length > 0, "expected a shade backfill write (guards against a vacuous pass)");
-    for (const write of shadeWrites) {
-      for (const col of SHADE_COLOR_COLUMNS) {
-        if (!new RegExp(`\\b${col}\\s*=`, "i").test(write.sql)) continue;
-        // Owner corrections use `CASE WHEN $N THEN COALESCE($x, col) ELSE COALESCE(col, $x) END`;
-        // that is fill-only exactly when the $N guard is bound to false.
-        const guarded = write.sql.match(
-          new RegExp(
-            `\\b${col}\\s*=\\s*CASE\\s+WHEN\\s+\\$(\\d+)\\s+THEN\\s+COALESCE\\(\\s*\\$\\d+\\s*,\\s*${col}\\s*\\)\\s+ELSE\\s+COALESCE\\(\\s*${col}\\s*,\\s*\\$\\d+\\s*\\)\\s+END`,
-            "i"
-          )
-        );
-        if (guarded) {
-          assert.equal(
-            write.params[Number(guarded[1]) - 1],
-            false,
-            `non-admin shade write may only fill NULL ${col} (owner override must be off): ${describeCall(write)}`
-          );
-          continue;
-        }
-        assert.match(
-          write.sql,
-          new RegExp(`\\b${col}\\s*=\\s*COALESCE\\(\\s*${col}\\s*,\\s*\\$\\d+\\s*\\)`, "i"),
-          `non-admin shade write may only fill NULL ${col}: ${describeCall(write)}`
-        );
-      }
-    }
+    assert.deepEqual(shadeWrites.map(describeCall), [], "regular users must not write shared shade rows");
+    const inventoryWrites = handlerCalls().filter((c) => /INSERT\s+INTO\s+user_inventory_item/i.test(c.sql));
+    assert.ok(inventoryWrites.length > 0, "expected the caller's inventory write (guards against a vacuous pass)");
   }
 
-  it("PUT with color fields by a regular user only fills missing shared shade data", async () => {
+  it("PUT with color and finish fields by a regular user never writes the shared shade", async () => {
     const res = await invoke("polishes-mutate", {
       method: "PUT",
       userId: ATTACKER,
       url: detailUrl,
       params: { id: String(OWNED_SHADE_ID) },
-      body: { vendorHex: "#000000", detectedHex: "#000000", color: "Defaced" },
+      body: { vendorHex: "#000000", detectedHex: "#000000", color: "Defaced", finishes: ["glitter"] },
     });
     assert.ok(res.status < 500);
-    assertShadeWritesAreFillOnly();
+    assertNoSharedShadeWrites();
   });
 
-  it("POST adopting an existing shade with color fields only fills missing shared shade data", async () => {
+  it("POST adopting an existing shade with color and finish fields never writes the shared shade", async () => {
     const res = await invoke("polishes-create", {
       method: "POST",
       userId: ATTACKER,
       url: "http://localhost:7071/api/polishes",
-      body: { shadeId: String(OWNED_SHADE_ID), quantity: 1, vendorHex: "#000000", color: "Defaced" },
+      body: { shadeId: String(OWNED_SHADE_ID), quantity: 1, vendorHex: "#000000", color: "Defaced", finish: "glitter" },
     });
     assert.ok(res.status < 500);
-    assertShadeWritesAreFillOnly();
+    assertNoSharedShadeWrites();
   });
 });
 
