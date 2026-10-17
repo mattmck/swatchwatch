@@ -522,6 +522,7 @@ describe("functions/admin-users — merge validation", () => {
         if (sql.includes("UPDATE capture_session")) return { rows: [], rowCount: 4 };
         if (sql.includes("UPDATE capture_answer")) return { rows: [], rowCount: 5 };
         if (sql.includes("UPDATE click_event")) return { rows: [], rowCount: 6 };
+        if (sql.includes("UPDATE manicure")) return { rows: [], rowCount: 7 };
         if (sql.includes("INSERT INTO user_external_identities")) return { rows: [], rowCount: 2 };
         if (sql.includes("UPDATE app_user")) return { rows: [], rowCount: 1 };
         if (sql.includes("DELETE FROM app_user")) return { rows: [], rowCount: 1 };
@@ -549,6 +550,7 @@ describe("functions/admin-users — merge validation", () => {
     assert.equal(res.jsonBody.mergedCaptureAnswerRows, 5);
     assert.equal(res.jsonBody.mergedClickEventRows, 6);
     assert.equal(res.jsonBody.mergedInventoryDuplicateRows, 1);
+    assert.equal(res.jsonBody.mergedManicureRows, 7, "mani log moves with the account (#269)");
     assert.match(res.jsonBody.message, /Merged user 10 into 20/i);
   });
 });

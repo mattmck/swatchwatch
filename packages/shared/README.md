@@ -47,6 +47,24 @@ Inventory status model (#261). Every `user_inventory_item` row has one status; "
 | `isOwnedStatus(status)` | `status === "owned"` — the single definition of "in the collection" (filters, dashboard, gaps, photo matching) |
 | `isUntriedInventory({ status, triedAt })` | Owned and never tried; mirrors the SQL behind `Polish.isUntried` |
 
+### `types/manicure.ts`
+
+Mani log (#269): `/api/manicures` payloads. Logging, editing or deleting a manicure recomputes `wearCount` / `lastWornAt` (and fills an empty `triedAt`) on the caller's inventory rows for its polishes.
+
+| Export | Description |
+|--------|-------------|
+| `MANICURE_POLISH_ROLES` / `ManicurePolishRole` | `["base", "color", "accent", "topper", "other"]` — kept equal to the migration's CHECK constraint by `packages/functions/tests/manicures.unit.test.cjs` |
+| `isManicurePolishRole(value)` | Exact (case-sensitive) type guard |
+| `DEFAULT_MANICURE_POLISH_ROLE` | `color` — used when a request omits `role` |
+| `MAX_MANICURE_POLISHES` (20), `MAX_MANICURE_NOTES_LENGTH` (2000) | Request limits shared by the API and the web form |
+| `Manicure` | `{ id, wornOn (YYYY-MM-DD), notes, photoImageId, photoUrl (owner-scoped v3 or null), polishes, createdAt, updatedAt }` |
+| `ManicurePolish` | One polish in a manicure: `shadeId`, the caller's current `inventoryItemId` (null after removal), `role`, `position`, `brand`, `name`, `vendorHex` / `detectedHex` / `nameHex` |
+| `ManicurePolishInput` | Request polish reference: `shadeId` or `inventoryItemId` (caller's inventory only) + optional `role` |
+| `ManicureCreateRequest` / `ManicureUpdateRequest` | Create (`polishes` required, `wornOn` defaults to today UTC) / partial update (`polishes` replaces the list; `null` clears `notes` / `photoImageId`) |
+| `ManicureWearStat` | `{ shadeId, inventoryItemId, wearCount, lastWornAt, triedAt }` after a write |
+| `ManicureMutationResponse` / `ManicureDeleteResponse` | Create/update response (`Manicure` + `wearStats`) / delete response (`{ message, id, wearStats }`) |
+| `ManicureListResponse` / `ManicureFilters` | `{ manicures, total, page, pageSize }` / `from`, `to`, `shadeId`, `page`, `pageSize` (max 200) |
+
 ### `constants/finishes.ts`
 
 | Export | Description |
@@ -88,7 +106,7 @@ Inventory status model (#261). Every `user_inventory_item` row has one status; "
 | `AdminUserListItem` | Admin user-management table row (`userId`, role, linked identities, and activity counts) |
 | `AdminUserListResponse` | Admin user list payload wrapper (`users`, `total`) |
 | `AdminUserMergeRequest` | Admin payload for duplicate-account repair (`sourceUserId`, `targetUserId`) |
-| `AdminUserMergeResponse` | Admin merge result summary (moved row counts + merge status/message) |
+| `AdminUserMergeResponse` | Admin merge result summary (moved row counts incl. `mergedManicureRows` + merge status/message) |
 
 ### `types/shade-review.ts`
 

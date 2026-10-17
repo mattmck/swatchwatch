@@ -50,6 +50,13 @@ import type {
   HarmonyTypeUpdateRequest,
   HarmonyTypeListResponse,
   IngestionJob,
+  Manicure,
+  ManicureCreateRequest,
+  ManicureDeleteResponse,
+  ManicureFilters,
+  ManicureListResponse,
+  ManicureMutationResponse,
+  ManicureUpdateRequest,
 } from "swatchwatch-shared";
 
 import type { NailPhotoResponse } from "swatchwatch-shared";
@@ -234,6 +241,56 @@ export async function deletePolish(id: string | number): Promise<{ message: stri
     headers: await getAuthHeaders(),
   });
   return handleResponse<{ message: string; id: number }>(response);
+}
+
+/** List the caller's manicures (`GET /api/manicures`), newest first. */
+export async function listManicures(filters?: ManicureFilters): Promise<ManicureListResponse> {
+  const params = new URLSearchParams();
+  if (filters?.from) params.set("from", filters.from);
+  if (filters?.to) params.set("to", filters.to);
+  if (filters?.shadeId !== undefined) params.set("shadeId", String(filters.shadeId));
+  if (filters?.page) params.set("page", String(filters.page));
+  if (filters?.pageSize) params.set("pageSize", String(filters.pageSize));
+  const qs = params.toString();
+  const response = await fetch(`${API_BASE_URL}/manicures${qs ? `?${qs}` : ""}`, {
+    headers: await getAuthHeaders(),
+  });
+  return handleResponse<ManicureListResponse>(response);
+}
+
+export async function getManicure(id: string | number): Promise<Manicure> {
+  const response = await fetch(`${API_BASE_URL}/manicures/${id}`, { headers: await getAuthHeaders() });
+  return handleResponse<Manicure>(response);
+}
+
+/** Log a manicure; the response carries the recomputed wear stats of its polishes. */
+export async function createManicure(data: ManicureCreateRequest): Promise<ManicureMutationResponse> {
+  const response = await fetch(`${API_BASE_URL}/manicures`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<ManicureMutationResponse>(response);
+}
+
+export async function updateManicure(
+  id: string | number,
+  data: ManicureUpdateRequest
+): Promise<ManicureMutationResponse> {
+  const response = await fetch(`${API_BASE_URL}/manicures/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<ManicureMutationResponse>(response);
+}
+
+export async function deleteManicure(id: string | number): Promise<ManicureDeleteResponse> {
+  const response = await fetch(`${API_BASE_URL}/manicures/${id}`, {
+    method: "DELETE",
+    headers: await getAuthHeaders(),
+  });
+  return handleResponse<ManicureDeleteResponse>(response);
 }
 
 /**

@@ -1990,7 +1990,8 @@ export async function materializeMakeupApiRecords(
              AND lower(sh.shade_name_canonical) = lower($2)
              AND coalesce(sh.collection, '') = ''
              AND NOT EXISTS (SELECT 1 FROM user_inventory_item ui WHERE ui.shade_id = sh.shade_id)
-             AND NOT EXISTS (SELECT 1 FROM sku s WHERE s.shade_id = sh.shade_id)`,
+             AND NOT EXISTS (SELECT 1 FROM sku s WHERE s.shade_id = sh.shade_id)
+             AND NOT EXISTS (SELECT 1 FROM manicure_polish mp WHERE mp.shade_id = sh.shade_id)`,
           [brandId, makeup.name]
         );
       }

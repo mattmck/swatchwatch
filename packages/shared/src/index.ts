@@ -1,5 +1,6 @@
 export * from "./types/polish";
 export * from "./types/inventory";
+export * from "./types/manicure";
 export * from "./constants/finishes";
 export * from "./constants/outbound-links";
 export * from "./types/user";
