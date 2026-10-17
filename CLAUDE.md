@@ -88,7 +88,7 @@ The web app uses Next.js route groups to separate public marketing pages from th
 | `/admin` | `src/app/(admin)/admin/page.tsx` | Unified admin console — tabs: Configuration, Job Runs, Admin Jobs |
 | `/admin/reference-data` | `src/app/(admin)/admin/reference-data/page.tsx` | Legacy redirect → `/admin?tab=configuration` |
 | `/admin/jobs` | `src/app/(app)/admin/jobs/page.tsx` | Legacy redirect → `/admin?tab=admin-jobs` |
-| `/polishes` | `src/app/(app)/polishes/page.tsx` | Client component, filterable/sortable table |
+| `/polishes` | `src/app/(app)/polishes/page.tsx` | Client component, filterable/sortable table; header "Export" menu downloads the collection as CSV/JSON |
 | `/polishes/new` | `src/app/(app)/polishes/new/page.tsx` | Client component, form with color picker + star rating |
 | `/polishes/detail` | `src/app/(app)/polishes/detail/page.tsx` | Client component, detail shell driven by query params |
 | `/polishes/gaps` | `src/app/(app)/polishes/gaps/page.tsx` | Client component, collection gap heatmap (hue × lightness coverage + next-buy targets) |
@@ -119,6 +119,7 @@ This project is in early development. The web UI is now fully API-driven. Backen
 - ✅ Detected-hex provenance + reconciliation — confidence/method/deployment/prompt version/timestamp on every `detected_hex` write, generated `hex_agreement` (migration 20261017024958000_shade-detected-hex-provenance), `resolveDisplayHexDetailed`, admin review queue `GET /api/polishes-admin/hex-review`
 - ✅ Reference data management — `finish_type`, `harmony_type`, `finish_normalization` tables with admin CRUD and public read endpoints
 - ✅ Hex-detection evaluation harness — `packages/functions/src/eval/hex/` scores detection strategies against ground-truth fixtures (OKLAB distance, HIGH/MEDIUM shares, per brand/finish); `color_training_sample` (migration `20261017033500000_add-color-training-sample.sql`) holds DB-sourced samples. See `packages/functions/README.md`
+- ✅ Collection export (#264) — `GET /api/polishes/export?format=csv|json[&status=…]` (`withAuth`, `ui.user_id`-scoped keyset pages in `packages/functions/src/lib/collection-export.ts`): RFC 4180 CSV with UTF-8 BOM and a formula-injection guard (`src/lib/csv.ts`), or the versioned `CollectionExport` JSON envelope; `/polishes` "Export" menu downloads it with auth headers. The CSV columns are `POLISH_CSV_COLUMNS` in `packages/shared` (`types/collection-export.ts`), the contract the CSV import reuses so an export re-imports without remapping
 - ✅ Feature-flagged Azure OpenAI batch pipeline for Shopify vision hex detection — per-chunk batches run in parallel while the worker keeps ingesting (`metrics.aiBatches`), then awaiting_ai → poll/apply each batch → complete, with synchronous fallback for small runs
 
 ## Environment Variables (Functions)

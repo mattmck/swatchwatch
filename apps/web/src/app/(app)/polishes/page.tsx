@@ -28,6 +28,7 @@ import {
 import { ArrowDown, ArrowUp, ArrowUpDown, Loader2, Sparkles } from "lucide-react";
 import { ColorDot } from "@/components/color-dot";
 import { QuantityControls } from "@/components/quantity-controls";
+import { CollectionExportMenu } from "@/components/collection-export-menu";
 import { isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
 import { Pagination } from "@/components/pagination";
 import { BrandSpinner } from "@/components/brand-spinner";
@@ -522,9 +523,12 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
             {total} polishes &middot; {polishes.length} shown
           </p>
         </div>
-        <Button asChild>
-          <Link href="/polishes/new">+ Add Polish</Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <CollectionExportMenu />
+          <Button asChild>
+            <Link href="/polishes/new">+ Add Polish</Link>
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
