@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getAuthHeaders } from "./api";
+import { API_BASE_URL, getAuthHeaders } from "./api";
 
 /**
  * Owner-scoped private image ids minted by the Functions API (#227) look like
@@ -13,6 +13,23 @@ const PRIVATE_IMAGE_PATH_PREFIX = "/api/images/v3.";
 
 /** Base used only to parse relative URLs; never fetched. */
 const RELATIVE_URL_BASE = "http://relative.invalid";
+const RELATIVE_URL_ORIGIN = new URL(RELATIVE_URL_BASE).origin;
+
+/**
+ * Origin of the API base URL `api.ts` calls. The API mints image ids against
+ * the origin of the request it serves, so this is the only absolute origin a
+ * private id can legitimately carry. A relative base resolves against
+ * `window.location.origin`; without a window (SSR) it yields `null`, so only
+ * relative image URLs count as private there.
+ */
+export function defaultApiOrigin(): string | null {
+  const windowOrigin = typeof window !== "undefined" ? window.location.origin : undefined;
+  try {
+    return new URL(API_BASE_URL, windowOrigin).origin;
+  } catch {
+    return null;
+  }
+}
 
 export type PrivateImageStatus = "idle" | "loading" | "ready" | "denied" | "error";
 
@@ -28,10 +45,17 @@ const IDLE_STATE: PrivateImageState = { status: "idle", objectUrl: null };
 const LOADING_STATE: PrivateImageState = { status: "loading", objectUrl: null };
 
 /**
- * True when `url` (absolute or relative) points at an owner-scoped `v3` image
- * id. False for `v2` ids, other URLs, data/blob URLs and unparsable input.
+ * True when `url` points at an owner-scoped `v3` image id that is safe to
+ * fetch with the bearer token: the path starts with `/api/images/v3.` and the
+ * URL is either relative or on `apiOrigin` (default: the API base URL's
+ * origin). The same path on any other host is not private, so it renders as a
+ * plain `<img>` and no token is sent. False for `v2` ids, data/blob URLs and
+ * unparsable input.
  */
-export function isPrivateImageUrl(url: string): boolean {
+export function isPrivateImageUrl(
+  url: string,
+  apiOrigin: string | null = defaultApiOrigin()
+): boolean {
   if (typeof url !== "string" || url.length === 0) {
     return false;
   }
@@ -41,7 +65,13 @@ export function isPrivateImageUrl(url: string): boolean {
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       return false;
     }
-    return parsed.pathname.startsWith(PRIVATE_IMAGE_PATH_PREFIX);
+    if (!parsed.pathname.startsWith(PRIVATE_IMAGE_PATH_PREFIX)) {
+      return false;
+    }
+    if (parsed.origin === RELATIVE_URL_ORIGIN) {
+      return true;
+    }
+    return apiOrigin !== null && parsed.origin === apiOrigin;
   } catch {
     return false;
   }

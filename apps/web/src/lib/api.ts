@@ -45,7 +45,7 @@ import type {
 
 import { getAccessToken } from "./auth-token";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:7071/api";
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:7071/api";
 const MAX_CAPTURE_FRAME_BYTES = 5 * 1024 * 1024;
 const LIST_ALL_POLISHES_PAGE_SIZE = 250;
 const listPolishesInFlight = new Map<string, Promise<PolishListResponse>>();

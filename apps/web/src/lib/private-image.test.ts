@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   classifyPrivateImageResponse,
+  defaultApiOrigin,
   isPrivateImageUrl,
   loadPrivateImage,
   type PrivateImageLoaderDeps,
@@ -11,34 +12,59 @@ import {
 const V3_ID = "/api/images/v3.aHR0cHM6Ly9leGFtcGxl.mf0abc.1.c2ln";
 const V2_ID = "/api/images/v2.aHR0cHM6Ly9leGFtcGxl.mf0abc.c2ln";
 
+const API_ORIGIN = "https://api.swatchwatch.app";
+
 describe("isPrivateImageUrl", () => {
-  it("accepts relative and absolute v3 ids", () => {
-    assert.equal(isPrivateImageUrl(V3_ID), true);
-    assert.equal(isPrivateImageUrl(`https://api.swatchwatch.app${V3_ID}`), true);
-    assert.equal(isPrivateImageUrl(`http://localhost:7071${V3_ID}?w=96&h=96&fm=webp`), true);
+  it("accepts relative v3 paths", () => {
+    assert.equal(isPrivateImageUrl(V3_ID, API_ORIGIN), true);
+    assert.equal(isPrivateImageUrl(`${V3_ID}?w=96&h=96&fm=webp`, API_ORIGIN), true);
+    assert.equal(isPrivateImageUrl(V3_ID, null), true);
+  });
+
+  it("accepts absolute v3 ids on the API origin", () => {
+    assert.equal(isPrivateImageUrl(`${API_ORIGIN}${V3_ID}`, API_ORIGIN), true);
+    assert.equal(
+      isPrivateImageUrl(`http://localhost:7071${V3_ID}?w=96`, "http://localhost:7071"),
+      true
+    );
+  });
+
+  it("rejects v3 paths on any other origin so no token is sent there", () => {
+    assert.equal(isPrivateImageUrl(`https://evil.example.com${V3_ID}`, API_ORIGIN), false);
+    assert.equal(isPrivateImageUrl(`//evil.example.com${V3_ID}`, API_ORIGIN), false);
+    assert.equal(isPrivateImageUrl(`http://api.swatchwatch.app${V3_ID}`, API_ORIGIN), false);
+    assert.equal(isPrivateImageUrl(`https://api.swatchwatch.app:8443${V3_ID}`, API_ORIGIN), false);
+    assert.equal(isPrivateImageUrl(`${API_ORIGIN}${V3_ID}`, null), false);
+  });
+
+  it("defaults the API origin to the base URL api.ts calls", () => {
+    // No NEXT_PUBLIC_API_URL and no window in tests: api.ts falls back to localhost:7071.
+    assert.equal(defaultApiOrigin(), "http://localhost:7071");
+    assert.equal(isPrivateImageUrl(`http://localhost:7071${V3_ID}`), true);
+    assert.equal(isPrivateImageUrl(`https://evil.example.com${V3_ID}`), false);
   });
 
   it("rejects public v2 ids", () => {
-    assert.equal(isPrivateImageUrl(V2_ID), false);
-    assert.equal(isPrivateImageUrl(`https://api.swatchwatch.app${V2_ID}`), false);
+    assert.equal(isPrivateImageUrl(V2_ID, API_ORIGIN), false);
+    assert.equal(isPrivateImageUrl(`${API_ORIGIN}${V2_ID}`, API_ORIGIN), false);
   });
 
   it("rejects external, data and blob URLs", () => {
-    assert.equal(isPrivateImageUrl("https://cdn.example.com/nails/photo.jpg"), false);
-    assert.equal(isPrivateImageUrl("https://cdn.example.com/v3.photo.jpg"), false);
-    assert.equal(isPrivateImageUrl("data:image/png;base64,iVBORw0KGgo="), false);
-    assert.equal(isPrivateImageUrl(`blob:https://swatchwatch.app${V3_ID}`), false);
+    assert.equal(isPrivateImageUrl("https://cdn.example.com/nails/photo.jpg", API_ORIGIN), false);
+    assert.equal(isPrivateImageUrl(`${API_ORIGIN}/v3.photo.jpg`, API_ORIGIN), false);
+    assert.equal(isPrivateImageUrl("data:image/png;base64,iVBORw0KGgo=", API_ORIGIN), false);
+    assert.equal(isPrivateImageUrl(`blob:${API_ORIGIN}${V3_ID}`, API_ORIGIN), false);
   });
 
   it("rejects empty and unparsable input", () => {
-    assert.equal(isPrivateImageUrl(""), false);
-    assert.equal(isPrivateImageUrl("http://[::1"), false);
-    assert.equal(isPrivateImageUrl(undefined as unknown as string), false);
+    assert.equal(isPrivateImageUrl("", API_ORIGIN), false);
+    assert.equal(isPrivateImageUrl("http://[::1", API_ORIGIN), false);
+    assert.equal(isPrivateImageUrl(undefined as unknown as string, API_ORIGIN), false);
   });
 
   it("only matches the v3 prefix at the start of the path", () => {
-    assert.equal(isPrivateImageUrl("/proxy/api/images/v3.abc"), false);
-    assert.equal(isPrivateImageUrl("/api/images/v30abc"), false);
+    assert.equal(isPrivateImageUrl("/proxy/api/images/v3.abc", API_ORIGIN), false);
+    assert.equal(isPrivateImageUrl("/api/images/v30abc", API_ORIGIN), false);
   });
 });
 
