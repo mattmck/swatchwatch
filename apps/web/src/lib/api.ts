@@ -74,6 +74,7 @@ import type {
   WishlistShareEnableRequest,
   WishlistShareStatus,
   CollectionExportFormat,
+  CollectionStatsResponse,
 } from "swatchwatch-shared";
 import { WISHLIST_SHARE_FEATURE_DISABLED_CODE } from "swatchwatch-shared";
 
@@ -319,6 +320,12 @@ export async function deleteManicure(id: string | number): Promise<ManicureDelet
     headers: await getAuthHeaders(),
   });
   return handleResponse<ManicureDeleteResponse>(response);
+}
+
+/** The caller's dashboard aggregates (`GET /api/stats/collection`, cached server-side ≤60s). */
+export async function getCollectionStats(): Promise<CollectionStatsResponse> {
+  const response = await fetch(`${API_BASE_URL}/stats/collection`, { headers: await getAuthHeaders() });
+  return handleResponse<CollectionStatsResponse>(response);
 }
 
 /**
