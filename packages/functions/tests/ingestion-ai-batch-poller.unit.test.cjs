@@ -523,6 +523,26 @@ describe("ingestion-ai-batch-poller with several batches per job", () => {
     );
   });
 
+  it("fails the job for a failure persisted by an earlier poll", async () => {
+    seedJob(
+      makeMultiBatchMetrics([
+        { batchId: "batch-1", status: "failed" },
+        { batchId: "batch-2", status: "in_progress" },
+      ])
+    );
+    batchStatusById = { "batch-2": completedStatus("batch-2") };
+
+    await runPoller();
+
+    assert.deepEqual(polledBatchIds, ["batch-2"]);
+    assert.deepEqual(
+      calls.map((c) => c.type),
+      ["apply", "failed"]
+    );
+    assert.match(calls[1].error, /batch-1 ended with status failed/);
+    assert.equal(dbJob.status, "failed");
+  });
+
   it("fails the job when a batch fails, after applying the ones that completed", async () => {
     seedJob(
       makeMultiBatchMetrics([

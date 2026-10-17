@@ -485,6 +485,15 @@ async function processAwaitingAiBatchJob(
     }
   }
 
+  // A failure recorded by an earlier poll (a progress write, then a crash before the final
+  // write) is no longer pending, so it must be read back from the entries.
+  const persistedFailure = entries.find(
+    (entry) => !isAiBatchPending(entry) && entry.status !== "completed"
+  );
+  terminalFailure ??= persistedFailure
+    ? `Azure OpenAI batch ${persistedFailure.batchId} ended with status ${persistedFailure.status}`
+    : null;
+
   if (terminalFailure) {
     const failedMetrics = withPipelineMetrics(withEntries(metrics), "failed", "awaiting_ai", {
       failedAt: polledAt,
