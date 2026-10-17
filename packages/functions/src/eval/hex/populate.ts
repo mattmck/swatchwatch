@@ -262,9 +262,14 @@ export function parsePopulateArgs(argv: string[]): PopulateArgs {
   return args;
 }
 
-async function readCandidates(sources: string[] | null, limit: number): Promise<TrainingCandidateRow[]> {
-  const result = await query<TrainingCandidateRow>(
-    `SELECT DISTINCT ON (s.shade_id)
+/**
+ * Shades with a vendor hex, matched to their latest `external_product` (same brand + shade name).
+ * Products with no normalized brand only fall back to "Holo Taco" when they come from
+ * `HoloTacoShopify` (that connector omits the brand); from any other source they stay
+ * unmatched, so a brandless product can never borrow a Holo Taco shade's identity.
+ * `$1` is an optional source-name filter, `$2` the row limit.
+ */
+export const READ_CANDIDATES_SQL = `SELECT DISTINCT ON (s.shade_id)
        ep.external_product_id AS "externalProductId",
        ep.data_source_id AS "dataSourceId",
        ds.name AS "sourceName",
@@ -280,30 +285,30 @@ async function readCandidates(sources: string[] | null, limit: number): Promise<
        ep.raw_json ->> 'title' AS "productName"
      FROM shade s
      JOIN brand b ON b.brand_id = s.brand_id
+     JOIN data_source ds
+       ON ($1::text[] IS NULL OR ds.name = ANY($1::text[]))
      JOIN external_product ep
-       ON lower(NULLIF(trim(ep.normalized_json ->> 'name'), '')) = lower(s.shade_name_canonical)
-     JOIN data_source ds ON ds.data_source_id = ep.data_source_id
-     -- The 'Holo Taco' fallback mirrors ingestion for older HoloTacoShopify rows without a
-     -- brand. It applies to that source only, so a brandless MakeupAPI product never
-     -- matches a Holo Taco shade.
+       ON ep.data_source_id = ds.data_source_id
       AND lower(COALESCE(
             NULLIF(trim(ep.normalized_json ->> 'brand'), ''),
             CASE WHEN ds.name = 'HoloTacoShopify' THEN 'Holo Taco' END
           )) = lower(b.name_canonical)
+      AND lower(NULLIF(trim(ep.normalized_json ->> 'name'), '')) = lower(s.shade_name_canonical)
      WHERE s.vendor_hex IS NOT NULL
-       AND ($1::text[] IS NULL OR ds.name = ANY($1::text[]))
      ORDER BY s.shade_id, ep.fetched_at DESC
-     LIMIT $2`,
-    [sources, limit]
-  );
+     LIMIT $2`;
+
+async function readCandidates(sources: string[] | null, limit: number): Promise<TrainingCandidateRow[]> {
+  const result = await query<TrainingCandidateRow>(READ_CANDIDATES_SQL, [sources, limit]);
   return result.rows;
 }
 
-async function upsertSamples(samples: TrainingSampleInput[]): Promise<number> {
-  let written = 0;
-  for (const sample of samples) {
-    await query(
-      `INSERT INTO color_training_sample
+/**
+ * Insert one sample, or refresh an existing one for the same product + source type. Only rows
+ * still `pending` are refreshed: `approved`, `rejected` and `used` rows were curated by a person
+ * and are left untouched (the conflicting insert then affects 0 rows).
+ */
+export const UPSERT_SAMPLE_SQL = `INSERT INTO color_training_sample
          (data_source_id, external_product_id, image_urls, hex, color_name, brand_name,
           product_name, product_handle, source_type, notes)
        VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10)
@@ -317,21 +322,26 @@ async function upsertSamples(samples: TrainingSampleInput[]): Promise<number> {
          product_name = EXCLUDED.product_name,
          product_handle = EXCLUDED.product_handle,
          notes = EXCLUDED.notes,
-         updated_at = now()`,
-      [
-        sample.dataSourceId,
-        sample.externalProductId,
-        JSON.stringify(sample.imageUrls),
-        sample.hex,
-        sample.colorName,
-        sample.brandName,
-        sample.productName,
-        sample.productHandle,
-        sample.sourceType,
-        sample.notes,
-      ]
-    );
-    written += 1;
+         updated_at = now()
+       WHERE color_training_sample.training_status = 'pending'`;
+
+/** Returns the number of rows inserted or refreshed (curated rows that were skipped are not counted). */
+async function upsertSamples(samples: TrainingSampleInput[]): Promise<number> {
+  let written = 0;
+  for (const sample of samples) {
+    const result = await query(UPSERT_SAMPLE_SQL, [
+      sample.dataSourceId,
+      sample.externalProductId,
+      JSON.stringify(sample.imageUrls),
+      sample.hex,
+      sample.colorName,
+      sample.brandName,
+      sample.productName,
+      sample.productHandle,
+      sample.sourceType,
+      sample.notes,
+    ]);
+    written += result.rowCount ?? 0;
   }
   return written;
 }
@@ -401,7 +411,7 @@ export async function main(argv: string[]): Promise<number> {
         }
       } else {
         const written = await upsertSamples(selection.accepted);
-        console.log(`Upserted ${written} color_training_sample rows (source_type=vendor_option)`);
+        console.log(`Upserted ${written} color_training_sample rows (source_type=vendor_option; curated non-pending rows are never overwritten)`);
       }
     }
 

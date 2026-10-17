@@ -54,3 +54,46 @@ export function oklabDistance(a: OKLab, b: OKLab): number {
 export function colorDistance(hex1: string, hex2: string): number {
   return oklabDistance(hexToOklab(hex1), hexToOklab(hex2));
 }
+
+function delinearize(c: number): number {
+  return c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+}
+
+/**
+ * Convert OKLAB back to 0–255 sRGB. Out-of-gamut values are clipped per channel
+ * (the same behaviour as `oklabToRgb` in the web app's `color-utils.ts`).
+ */
+export function oklabToRgb({ L, a, b }: OKLab): { r: number; g: number; b: number } {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.291485548 * b;
+
+  const l = l_ * l_ * l_;
+  const m = m_ * m_ * m_;
+  const s = s_ * s_ * s_;
+
+  const r = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+  const g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+  const bl = -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s;
+
+  return {
+    r: Math.round(Math.max(0, Math.min(1, delinearize(r))) * 255),
+    g: Math.round(Math.max(0, Math.min(1, delinearize(g))) * 255),
+    b: Math.round(Math.max(0, Math.min(1, delinearize(bl))) * 255),
+  };
+}
+
+/** Convert 0–255 sRGB channels to an uppercase `#RRGGBB` string (channels are rounded and clamped). */
+export function rgbToHexString({ r, g, b }: { r: number; g: number; b: number }): string {
+  const toHex = (n: number) =>
+    Math.max(0, Math.min(255, Math.round(n)))
+      .toString(16)
+      .padStart(2, "0")
+      .toUpperCase();
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+/** Convert OKLAB to an uppercase `#RRGGBB` string (gamut-clipped). */
+export function oklabToHex(oklab: OKLab): string {
+  return rgbToHexString(oklabToRgb(oklab));
+}
