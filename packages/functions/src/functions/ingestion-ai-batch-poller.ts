@@ -5,7 +5,6 @@ import {
   listIngestionJobsAwaitingAiBatch,
   markIngestionJobFailed,
   markIngestionJobSucceeded,
-  updateIngestionJobMetrics,
   updateRunningIngestionJobMetrics,
 } from "../lib/ingestion-repo";
 import {
@@ -157,7 +156,7 @@ function isBatchStillRunning(status: string): boolean {
 async function shouldApplyJobUpdate(
   jobId: number,
   context: InvocationContext,
-  updateType: "success" | "failure" | "continuation" | "progress"
+  updateType: "success" | "failure" | "continuation"
 ): Promise<boolean> {
   const latest = await getIngestionJobById(jobId);
   if (!latest || latest.status !== "running") {
@@ -482,14 +481,18 @@ async function processAwaitingAiBatchJob(
 
     // Persist each applied batch unless the final write follows immediately, so a crash
     // mid-poll does not re-apply batches that already landed.
+    // Conditional on status = 'running' so a cancel that lands mid-apply is not overwritten.
     if (position < pendingIndexes.length - 1) {
-      if (!(await shouldApplyJobUpdate(job.jobId, context, "progress"))) {
-        return;
-      }
-      await updateIngestionJobMetrics(
+      const persisted = await updateRunningIngestionJobMetrics(
         job.jobId,
         withPipelineMetrics(withEntries(metrics), "running", "awaiting_ai")
       );
+      if (!persisted) {
+        context.log(
+          `[ingestion-ai-batch-poller] Skipping progress update for job ${job.jobId}: no longer running`
+        );
+        return;
+      }
     }
   }
 
@@ -516,7 +519,7 @@ async function processAwaitingAiBatchJob(
   }
 
   if (stillRunning > 0) {
-    await updateIngestionJobMetrics(
+    await updateRunningIngestionJobMetrics(
       job.jobId,
       withPipelineMetrics(withEntries(metrics), "running", "awaiting_ai")
     );

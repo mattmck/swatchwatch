@@ -527,6 +527,14 @@ describe("edits to the caller's own submitted shade", () => {
     assert.ok(colorWrite, "the color write must also set detected_hex_method");
     assert.match(colorWrite.sql, /detected_hex IS NULL OR \(\$6 AND detected_hex IS DISTINCT FROM \$4\)\) THEN \$7/);
     assert.equal(colorWrite.params[6], DETECTED_HEX_METHOD_CLIENT_SUPPLIED);
+    // The AI provenance of the replaced value no longer describes the new hex, so it is cleared.
+    for (const column of ["detected_hex_confidence", "detected_hex_model", "detected_hex_prompt_version"]) {
+      assert.match(
+        colorWrite.sql,
+        new RegExp(`${column} = CASE\\s+WHEN \\$4 IS NOT NULL AND \\(detected_hex IS NULL OR \\(\\$6 AND detected_hex IS DISTINCT FROM \\$4\\)\\) THEN NULL`),
+        `${column} must be cleared when a client-supplied detected_hex replaces the value`
+      );
+    }
 
     const shared = await put(USER_B, CATALOG_SHADE, { vendorHex: "#000000" });
     assert.ok(shared.status < 400, `shared-shade request must succeed, got ${shared.status}`);

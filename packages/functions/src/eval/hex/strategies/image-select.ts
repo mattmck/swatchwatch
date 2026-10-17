@@ -1,5 +1,8 @@
-import { detectHexWithAzureOpenAI, type HexDetectionOptions } from "../../../lib/ai-color-detection";
-import { resolveAzureOpenAiConfig } from "../../../lib/azure-openai-config";
+import {
+  detectHexWithAzureOpenAI,
+  requestAzureOpenAIChatCompletion,
+  type HexDetectionOptions,
+} from "../../../lib/ai-color-detection";
 import { rankImagesForColorDetection, type RankedImage } from "../../../lib/image-selection";
 import type { CaseImage, HexDetectionStrategy, StrategyInput, StrategyOutput } from "../types";
 
@@ -17,7 +20,6 @@ import type { CaseImage, HexDetectionStrategy, StrategyInput, StrategyOutput } f
  */
 
 const AZURE_DEPLOYMENT_ENV_KEYS = ["AZURE_OPENAI_DEPLOYMENT_HEX", "AZURE_OPENAI_DEPLOYMENT"];
-const OPENAI_API_VERSION = "2024-05-01-preview";
 /** Upper bound on images sent to the swatch-pick call (Shopify PDPs rarely exceed this). */
 const MAX_SWATCH_PICK_IMAGES = 8;
 
@@ -103,42 +105,45 @@ export function parseSwatchPickResponse(content: string, imageCount: number): { 
   return { index, confidence };
 }
 
-/** One low-detail vision call: which of these images shows the polish painted on nails? */
+const SWATCH_PICK_SYSTEM_PROMPT =
+  'You are shown numbered product photos of one nail polish. Pick the photo that best shows the polish painted on fingernails (a swatch or close-up of nails), not a bottle, box, brush or lifestyle shot. Reply with JSON only: {"index": <0-based photo number>, "confidence": 0..1}.';
+
+/**
+ * One low-detail vision call: which of these images shows the polish painted on nails?
+ * Goes through the shared chat-completions helper for its timeout, 429/5xx retry and
+ * content-filter handling; a filtered or empty answer is treated as "no pick".
+ */
 async function askModelForSwatchIndex(images: CaseImage[]): Promise<{ index: number | null; confidence: number | null; usage: unknown }> {
-  const config = resolveAzureOpenAiConfig({ deploymentEnvKeys: AZURE_DEPLOYMENT_ENV_KEYS });
-  if (!config.isValid || !config.endpoint || !config.deployment) {
+  const response = await requestAzureOpenAIChatCompletion(
+    {
+      // The prompt is already neutral, so there is no safer variant to retry with.
+      buildPayload: (safePrompt) =>
+        safePrompt
+          ? null
+          : {
+              temperature: 0,
+              max_tokens: 40,
+              response_format: { type: "json_object" },
+              messages: [
+                { role: "system", content: SWATCH_PICK_SYSTEM_PROMPT },
+                {
+                  role: "user",
+                  content: images.flatMap((image, i) => [
+                    { type: "text", text: `Photo ${i}:` },
+                    { type: "image_url", image_url: { url: image.dataUri, detail: "low" } },
+                  ]),
+                },
+              ],
+            },
+      deploymentEnvKeys: AZURE_DEPLOYMENT_ENV_KEYS,
+      logLabel: `swatch pick (${images.length} photos)`,
+    },
+    { onLog: quietLog }
+  );
+  if (response.provider === "none") {
     throw new Error("Azure OpenAI config missing");
   }
-  const url = `${config.endpoint}/openai/deployments/${config.deployment}/chat/completions?api-version=${OPENAI_API_VERSION}`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...config.headers },
-    body: JSON.stringify({
-      temperature: 0,
-      max_tokens: 40,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content:
-            'You are shown numbered product photos of one nail polish. Pick the photo that best shows the polish painted on fingernails (a swatch or close-up of nails), not a bottle, box, brush or lifestyle shot. Reply with JSON only: {"index": <0-based photo number>, "confidence": 0..1}.',
-        },
-        {
-          role: "user",
-          content: images.flatMap((image, i) => [
-            { type: "text", text: `Photo ${i}:` },
-            { type: "image_url", image_url: { url: image.dataUri, detail: "low" } },
-          ]),
-        },
-      ],
-    }),
-  });
-  if (!response.ok) {
-    throw new Error(`Azure OpenAI swatch pick failed: ${response.status} ${(await response.text()).slice(0, 200)}`);
-  }
-  const body = (await response.json()) as { choices?: Array<{ message?: { content?: string | null } }>; usage?: unknown };
-  const content = body.choices?.[0]?.message?.content ?? "";
-  return { ...parseSwatchPickResponse(content, images.length), usage: body.usage ?? null };
+  return { ...parseSwatchPickResponse(response.content ?? "", images.length), usage: response.usage };
 }
 
 export async function detectOn(image: CaseImage): Promise<Pick<StrategyOutput, "hex" | "confidence" | "finishes"> & { usage: unknown }> {

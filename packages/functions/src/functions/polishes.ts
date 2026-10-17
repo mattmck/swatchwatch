@@ -169,10 +169,20 @@ async function applyShadeColorUpdate(
        detected_hex = CASE WHEN $6 THEN COALESCE($4, detected_hex) ELSE COALESCE(detected_hex, $4) END,
        name_hex     = CASE WHEN $6 THEN COALESCE($5, name_hex)     ELSE COALESCE(name_hex, $5)     END,
        -- When this request changes detected_hex (filling an empty value, or an owner
-       -- correction), record it as client-supplied; hex_agreement is a generated column.
+       -- correction), record it as client-supplied and clear the AI provenance that no
+       -- longer describes it; hex_agreement is a generated column.
        detected_hex_method = CASE
          WHEN $4 IS NOT NULL AND (detected_hex IS NULL OR ($6 AND detected_hex IS DISTINCT FROM $4)) THEN $7
          ELSE detected_hex_method END,
+       detected_hex_confidence = CASE
+         WHEN $4 IS NOT NULL AND (detected_hex IS NULL OR ($6 AND detected_hex IS DISTINCT FROM $4)) THEN NULL
+         ELSE detected_hex_confidence END,
+       detected_hex_model = CASE
+         WHEN $4 IS NOT NULL AND (detected_hex IS NULL OR ($6 AND detected_hex IS DISTINCT FROM $4)) THEN NULL
+         ELSE detected_hex_model END,
+       detected_hex_prompt_version = CASE
+         WHEN $4 IS NOT NULL AND (detected_hex IS NULL OR ($6 AND detected_hex IS DISTINCT FROM $4)) THEN NULL
+         ELSE detected_hex_prompt_version END,
        detected_hex_at = CASE
          WHEN $4 IS NOT NULL AND (detected_hex IS NULL OR ($6 AND detected_hex IS DISTINCT FROM $4)) THEN now()
          ELSE detected_hex_at END,

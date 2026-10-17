@@ -42,6 +42,7 @@ let batchStatusById = {};
 let polledBatchIds = [];
 let applyResult = null;
 let onApply = () => {};
+let onPoll = () => {};
 let enqueueMock = async () => {};
 
 registerMock("@azure/functions", {
@@ -96,6 +97,7 @@ registerMock("../lib/ingestion-repo", {
 registerMock("../lib/azure-openai-batch", {
   getVisionHexBatchStatus: async (batchId) => {
     polledBatchIds.push(batchId);
+    onPoll(batchId);
     const status = batchStatusById[batchId] || batchStatus;
     if (status instanceof Error) throw status;
     return { ...status };
@@ -209,6 +211,7 @@ beforeEach(() => {
   };
   applyResult = { processed: 2, applied: 1, skippedNoDetection: 1, noShadeMatch: 0 };
   onApply = () => {};
+  onPoll = () => {};
   enqueueMock = async () => {};
   batchStatusById = {};
   polledBatchIds = [];
@@ -409,6 +412,54 @@ describe("ingestion-ai-batch-poller with several batches per job", () => {
       ]
     );
     assert.equal(dbJob.metrics.aiBatchesCompleted, 1);
+  });
+
+  it("does not write progress metrics when the job is cancelled while a batch is applied", async () => {
+    seedJob(
+      makeMultiBatchMetrics([
+        { batchId: "batch-1", status: "submitted" },
+        { batchId: "batch-2", status: "submitted" },
+      ])
+    );
+    const before = structuredClone(dbJob.metrics);
+    batchStatusById = {
+      "batch-1": completedStatus("batch-1"),
+      "batch-2": completedStatus("batch-2"),
+    };
+    onApply = () => {
+      dbJob.status = "cancelled";
+    };
+
+    await runPoller();
+
+    assert.deepEqual(
+      calls.map((c) => c.type),
+      ["apply"]
+    );
+    assert.equal(dbJob.status, "cancelled");
+    assert.deepEqual(dbJob.metrics, before);
+  });
+
+  it("does not write awaiting_ai metrics when the job is cancelled while batches are polled", async () => {
+    seedJob(
+      makeMultiBatchMetrics([
+        { batchId: "batch-1", status: "submitted" },
+        { batchId: "batch-2", status: "submitted" },
+      ])
+    );
+    const before = structuredClone(dbJob.metrics);
+    batchStatusById = {
+      "batch-1": { ...completedStatus("batch-1"), status: "in_progress", outputFileId: null },
+      "batch-2": { ...completedStatus("batch-2"), status: "in_progress", outputFileId: null },
+    };
+    onPoll = () => {
+      dbJob.status = "cancelled";
+    };
+
+    await runPoller();
+
+    assert.deepEqual(calls, []);
+    assert.deepEqual(dbJob.metrics, before);
   });
 
   it("does not re-poll applied batches and completes the job when the last one finishes", async () => {
