@@ -31,6 +31,9 @@ const realContinuation = require(path.resolve(__dirname, "../dist/lib/ingestion-
 
 // Ordered record of side-effecting calls so tests can assert persist-before-enqueue.
 let calls = [];
+// Arguments the poller passed to batch parsing / shade apply (provenance threading).
+let parseProvenanceArgs = [];
+let appliedDetections = [];
 let dbJob = null;
 let awaitingJob = null;
 let batchStatus = null;
@@ -83,6 +86,7 @@ registerMock("../lib/ingestion-repo", {
     dbJob.metrics = structuredClone(metrics);
   },
   applyAiBatchShadeDetections: async (dataSourceId, detections, overwrite) => {
+    appliedDetections.push(structuredClone(detections));
     calls.push({ type: "apply", dataSourceId, count: detections.length, overwrite });
     onApply();
     return { ...applyResult };
@@ -98,10 +102,19 @@ registerMock("../lib/azure-openai-batch", {
   },
   downloadBatchFileContent: async () => "{}\n{}\n",
   parseVisionHexBatchOutput: () => [{}, {}],
-  parseVisionHexBatchDetections: async () => [
+  parseVisionHexBatchDetections: async (_rows, provenance) => {
+    parseProvenanceArgs.push(provenance ?? null);
+    return [
     {
       customId: "ext-1",
-      detection: { hex: "#112233", finishes: ["creme"] },
+      detection: {
+        hex: "#112233",
+        finishes: ["creme"],
+        confidence: 0.8,
+        method: "vision-direct",
+        model: provenance?.deployment ?? null,
+        promptVersion: provenance?.promptVersion ?? null,
+      },
       usage: { promptTokens: 100, completionTokens: 10, totalTokens: 110 },
       error: null,
     },
@@ -111,7 +124,8 @@ registerMock("../lib/azure-openai-batch", {
       usage: { promptTokens: 50, completionTokens: 5, totalTokens: 55 },
       error: "parse failure",
     },
-  ],
+    ];
+  },
 });
 
 registerMock("../lib/ingestion-continuation", {
@@ -184,6 +198,8 @@ async function runPoller() {
 
 beforeEach(() => {
   calls = [];
+  parseProvenanceArgs = [];
+  appliedDetections = [];
   batchStatus = {
     id: "batch-1",
     status: "completed",
@@ -577,5 +593,37 @@ describe("ingestion-ai-batch-poller with several batches per job", () => {
         ["batch-2", "expired"],
       ]
     );
+  });
+});
+
+describe("ingestion-ai-batch-poller detected-hex provenance", () => {
+  it("passes each batch's submit-time deployment and prompt version through to the shade apply", async () => {
+    seedJob(
+      makeMultiBatchMetrics([
+        { batchId: "batch-1", status: "submitted", deployment: "hex-batch-deploy", promptVersion: "vision-direct/v-test" },
+      ])
+    );
+    batchStatusById = { "batch-1": completedStatus("batch-1") };
+
+    await runPoller();
+
+    assert.deepEqual(parseProvenanceArgs, [
+      { deployment: "hex-batch-deploy", promptVersion: "vision-direct/v-test" },
+    ]);
+    assert.equal(appliedDetections.length, 1);
+    const [withHex, withoutHex] = appliedDetections[0];
+    assert.deepEqual(withHex.provenance, {
+      confidence: 0.8,
+      method: "vision-direct",
+      model: "hex-batch-deploy",
+      promptVersion: "vision-direct/v-test",
+    });
+    assert.equal(withoutHex.provenance, null);
+  });
+
+  it("passes null provenance for legacy single-batch jobs that never recorded it", async () => {
+    seedJob(makeAwaitingMetrics());
+    await runPoller();
+    assert.deepEqual(parseProvenanceArgs, [{ deployment: null, promptVersion: null }]);
   });
 });

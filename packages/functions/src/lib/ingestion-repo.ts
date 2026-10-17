@@ -3,6 +3,13 @@ import { ConnectorProductRecord } from "./connectors/types";
 import { SUPPORTED_SOURCES } from "./connectors/types";
 import { defaultShopifyBaseUrl } from "./connectors/shopify-generic";
 import { detectHexWithAzureOpenAI, type HexDetectionOptions } from "./ai-color-detection";
+import {
+  detectedHexProvenanceSetSql,
+  provenanceFromDetection,
+  provenanceParams,
+  EMPTY_DETECTED_HEX_PROVENANCE,
+  type DetectedHexProvenance,
+} from "./hex-provenance";
 import { submitVisionHexBatch } from "./azure-openai-batch";
 import { uploadSourceImageToBlob, ensureContainer } from "./blob-storage";
 import { toImageProxyUrlFromOrigin } from "./image-proxy";
@@ -133,6 +140,8 @@ interface HoloTacoPreparedImage {
   sourceUrl: string | null;
   detectedHex: string | null;
   detectedFinishes: string[] | null;
+  /** Provenance for `detectedHex` (null when no detection ran). */
+  detectedHexProvenance: DetectedHexProvenance | null;
   additionalImages: StoredSourceImage[];
 }
 
@@ -164,6 +173,9 @@ export interface HoloTacoAiBatchDetails {
   submittedAt: string;
   status: "submitted";
   overwriteDetectedHex: boolean;
+  /** Deployment / prompt the batch was built with; the poller stamps applied results with these. */
+  deployment: string | null;
+  promptVersion: string | null;
 }
 
 interface HoloTacoImagePreparationResult {
@@ -813,6 +825,7 @@ async function prepareHoloTacoImageData(
         sourceUrl: null,
         detectedHex: null,
         detectedFinishes: null,
+        detectedHexProvenance: null,
         additionalImages: [],
       };
     }
@@ -828,6 +841,7 @@ async function prepareHoloTacoImageData(
 
     let detectedHex: string | null = null;
     let detectedFinishes: string[] | null = null;
+    let detectedHexProvenance: DetectedHexProvenance | null = null;
 
     // AI hex detection on primary image only
     const shouldRunAiDetection = detectHexFromImage &&
@@ -935,6 +949,7 @@ async function prepareHoloTacoImageData(
           if (detection.hex) {
             detectedHex = detection.hex;
             detectedFinishes = detection.finishes;
+            detectedHexProvenance = provenanceFromDetection(detection);
             metrics.hexDetected += 1;
             const successData = {
               externalId: record.externalId,
@@ -942,6 +957,10 @@ async function prepareHoloTacoImageData(
               colorName: holo.name,
               hex: detection.hex,
               finishes: detection.finishes,
+              confidence: detectedHexProvenance.confidence,
+              method: detectedHexProvenance.method,
+              model: detectedHexProvenance.model,
+              promptVersion: detectedHexProvenance.promptVersion,
             };
             const successMessage = `${sourceLogPrefix} ${record.externalId} [ai-color-detection] Success`;
             console.log(successMessage, successData);
@@ -974,6 +993,7 @@ async function prepareHoloTacoImageData(
       sourceUrl,
       detectedHex,
       detectedFinishes,
+      detectedHexProvenance,
       additionalImages,
     };
   };
@@ -995,6 +1015,7 @@ async function prepareHoloTacoImageData(
           sourceUrl: result.sourceUrl,
           detectedHex: null,
           detectedFinishes: null,
+          detectedHexProvenance: null,
           additionalImages: result.additionalImages,
         };
       })
@@ -1033,6 +1054,8 @@ async function prepareHoloTacoImageData(
         submittedAt: batchResult.submittedAt,
         status: "submitted",
         overwriteDetectedHex: options?.overwriteDetectedHex === true,
+        deployment: batchResult.deployment,
+        promptVersion: batchResult.promptVersion,
       };
       const submittedMessage = `${sourceLogPrefix} Submitted Azure OpenAI batch ${batchResult.batchId} with ${batchResult.requestCount} request(s)`;
       console.log(submittedMessage);
@@ -1078,6 +1101,7 @@ async function prepareHoloTacoImageData(
                   externalId: queued.customId,
                   detectedHex: detection.hex,
                   detectedFinishes: detection.finishes,
+                  provenance: provenanceFromDetection(detection),
                 });
               }
             } catch (detectionError) {
@@ -1568,6 +1592,8 @@ export interface AiBatchShadeDetectionInput {
   externalId: string;
   detectedHex: string | null;
   detectedFinishes: string[] | null;
+  /** Provenance written alongside `detectedHex` (confidence, method, model, prompt version). */
+  provenance?: DetectedHexProvenance | null;
 }
 
 export interface ApplyAiBatchShadeDetectionsMetrics {
@@ -1642,11 +1668,25 @@ export async function applyAiBatchShadeDetections(
                )
              )
            END,
+           -- Provenance follows detected_hex: written when overwriting or when it was empty.
+           -- hex_agreement is a generated column and refreshes itself.
+           ${detectedHexProvenanceSetSql(
+             "($5::boolean AND $3::text IS NOT NULL) OR (sh.detected_hex IS NULL AND $3::text IS NOT NULL)",
+             6,
+             "sh."
+           )},
            updated_at = now()
        FROM target
        WHERE sh.shade_id = target.shade_id
        RETURNING sh.shade_id AS "shadeId"`,
-      [dataSourceId, externalId, detectedHex, detectedFinishes, overwriteDetectedHex]
+      [
+        dataSourceId,
+        externalId,
+        detectedHex,
+        detectedFinishes,
+        overwriteDetectedHex,
+        ...provenanceParams(detection.provenance ?? EMPTY_DETECTED_HEX_PROVENANCE),
+      ]
     );
 
     if (result.rows.length > 0) {
@@ -2050,6 +2090,7 @@ async function materializePreparedHoloTacoRecord(
   const vendorHex = holo.vendorHex;
   const detectedHex = preparedImage.detectedHex || null;
   const detectedFinishes = preparedImage.detectedFinishes || null;
+  const detectedHexProvenance = preparedImage.detectedHexProvenance ?? EMPTY_DETECTED_HEX_PROVENANCE;
   const nameHex = holo.nameHex;
   const sourceTags = Array.from(
     new Set(
@@ -2060,7 +2101,7 @@ async function materializePreparedHoloTacoRecord(
   );
 
   console.log(
-    `${sourceLogPrefix} Shade color update: shadeId=${shadeId}, vendorHex=${vendorHex}, detectedHex=${detectedHex}, nameHex=${nameHex}`
+    `${sourceLogPrefix} Shade color update: shadeId=${shadeId}, vendorHex=${vendorHex}, detectedHex=${detectedHex}, nameHex=${nameHex}, confidence=${detectedHexProvenance.confidence}, method=${detectedHexProvenance.method}, model=${detectedHexProvenance.model}, promptVersion=${detectedHexProvenance.promptVersion}`
   );
 
   // Read current shade color data for overwrite comparison
@@ -2126,6 +2167,13 @@ async function materializePreparedHoloTacoRecord(
            ELSE COALESCE(name_hex, $7::text)
          END,
          finishes = $8::text[],
+         -- detected_hex provenance follows the same overwrite/COALESCE rule as detected_hex:
+         -- rewritten when overwriting, otherwise only filled when detected_hex was NULL.
+         -- hex_agreement (vendor_hex ↔ detected_hex OKLAB distance) is a generated column.
+         ${detectedHexProvenanceSetSql(
+           "($6::boolean AND $4::text IS NOT NULL) OR (detected_hex IS NULL AND $4::text IS NOT NULL)",
+           9
+         )},
          -- Catalog data confirms a user-submitted shade: promote it to the shared catalog.
          status = CASE WHEN status = 'user_submitted' THEN 'active' ELSE status END,
          updated_at = now()
@@ -2139,6 +2187,7 @@ async function materializePreparedHoloTacoRecord(
       overwriteDetectedHex,
       nameHex,
       mergedFinishes,
+      ...provenanceParams(detectedHexProvenance),
     ]
   );
 

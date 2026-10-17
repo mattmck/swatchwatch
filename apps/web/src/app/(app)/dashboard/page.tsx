@@ -44,7 +44,10 @@ export default function DashboardPage() {
       try {
         setLoading(true);
         setError(null);
+        // Owned rows only: the dashboard never needs the shared catalog, and the
+        // catalog is orders of magnitude larger than any user's collection.
         const response = await listAllPolishes({
+          availability: "owned",
           sortBy: "createdAt",
           sortOrder: "desc",
         });

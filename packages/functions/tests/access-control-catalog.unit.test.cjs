@@ -203,8 +203,12 @@ async function fakeQuery(via, sql, params = []) {
     if (/ui\.inventory_item_id\s+IS\s+NOT\s+NULL/i.test(text) && /COALESCE\(ui\.quantity/i.test(text)) {
       shades = shades.filter((s) => state.inventory.has(`${userId}:${s.id}`));
     }
-    if (/COUNT\(\*\)/i.test(text)) return { rows: [{ total: String(shades.length) }], rowCount: 1 };
-    const rows = shades.map((s) => polishRow(s, userId));
+    if (/COUNT\(\*\)\s+AS\s+total\b/i.test(text)) return { rows: [{ total: String(shades.length) }], rowCount: 1 };
+    // The list query carries its total as a window column (COUNT(*) OVER() AS "totalCount").
+    const withTotal = /"totalCount"/.test(text);
+    const rows = shades.map((s) =>
+      withTotal ? { ...polishRow(s, userId), totalCount: String(shades.length) } : polishRow(s, userId)
+    );
     return { rows, rowCount: rows.length };
   }
 
@@ -270,6 +274,7 @@ for (const [id, exports] of Object.entries(mockModules)) {
 }
 
 require("../dist/functions/polishes");
+const { DETECTED_HEX_METHOD_CLIENT_SUPPLIED } = require("../dist/lib/hex-provenance");
 require("../dist/functions/catalog");
 
 function fakeRequest({ method = "GET", url = "http://localhost:7071/api/test", headers = {}, params = {}, body } = {}) {
@@ -437,11 +442,12 @@ describe("F2 — user-submitted shades are private until approved", () => {
     assert.ok(!listA.jsonBody.polishes.some((p) => p.name === "Fresh Shade"));
   });
 
-  it("list, count and detail queries carry the visibility predicate bound to the caller", async () => {
+  it("list and detail queries carry the visibility predicate bound to the caller", async () => {
     await getList(USER_B, "?search=x");
     await getDetail(USER_B, CATALOG_SHADE);
     const polishQueries = calls().filter((c) => /LEFT\s+JOIN\s+user_inventory_item/i.test(c.sql));
-    assert.ok(polishQueries.length >= 3, "expected list + count + detail queries");
+    assert.ok(polishQueries.length >= 2, "expected list + detail queries");
+    assert.ok(polishQueries.some((q) => /"totalCount"/.test(q.sql)), "list query should carry the window total");
     for (const q of polishQueries) {
       assert.match(
         q.sql,
@@ -513,9 +519,14 @@ describe("edits to the caller's own submitted shade", () => {
   beforeEach(resetState);
 
   it("an owner's color correction replaces the stored value (shared shades stay fill-only)", async () => {
-    const own = await put(USER_A, A_PRIVATE_SHADE, { vendorHex: "#222222" });
+    const own = await put(USER_A, A_PRIVATE_SHADE, { vendorHex: "#222222", detectedHex: "#333333" });
     assert.ok(own.status < 400, `owner update failed: ${own.status}`);
     assert.equal(state.shades.get(A_PRIVATE_SHADE).vendorHex, "#222222");
+    // A client-provided detected_hex records its provenance (#255) whenever it changes the value.
+    const colorWrite = calls().find((c) => /^\s*UPDATE\s+shade\b/i.test(c.sql) && /\bdetected_hex_method\s*=/i.test(c.sql));
+    assert.ok(colorWrite, "the color write must also set detected_hex_method");
+    assert.match(colorWrite.sql, /detected_hex IS NULL OR \(\$6 AND detected_hex IS DISTINCT FROM \$4\)\) THEN \$7/);
+    assert.equal(colorWrite.params[6], DETECTED_HEX_METHOD_CLIENT_SUPPLIED);
 
     const shared = await put(USER_B, CATALOG_SHADE, { vendorHex: "#000000" });
     assert.ok(shared.status < 400, `shared-shade request must succeed, got ${shared.status}`);
