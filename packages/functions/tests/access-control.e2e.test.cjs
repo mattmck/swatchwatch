@@ -243,6 +243,8 @@ test("access control e2e: users cannot access or modify each other's data", asyn
       ["GET", `/polishes/${shadeId}/dupes`],
       ["POST", "/polishes/dupes"],
       ["POST", "/capture/start"],
+      ["GET", "/polishes/export?format=csv"],
+      ["GET", "/polishes/export?format=json"],
     ]) {
       const res = await api(path, { method, body: method === "GET" || method === "DELETE" ? undefined : {} });
       assert.equal(res.status, 401, `${method} ${path} without auth → ${res.status}`);
@@ -313,6 +315,22 @@ test("access control e2e: users cannot access or modify each other's data", asyn
     assertNoOwnerData(batch.body, "attacker batch dupes");
     for (const hint of Object.values(batch.body.results)) {
       assert.ok(!hint.best || hint.best.shadeId !== shadeId, "owner's shade is not the attacker's dupe");
+    }
+  });
+
+  // ── Collection export (#264) ───────────────────────────────────────────
+  await t.test("owner export contains the owner's row; attacker export never does", async () => {
+    const ownerCsv = await api("/polishes/export?format=csv", { headers: OWNER });
+    assert.equal(ownerCsv.status, 200, `owner CSV export → ${ownerCsv.status}`);
+    assert.ok(ownerCsv.text.includes(SHADE_NAME), "owner CSV export includes the owner's polish");
+    assert.ok(ownerCsv.text.includes(OWNER_NOTES), "owner CSV export includes the owner's notes");
+
+    for (const format of ["csv", "json"]) {
+      const res = await api(`/polishes/export?format=${format}`, { headers: ATTACKER });
+      assert.equal(res.status, 200, `attacker ${format} export → ${res.status}`);
+      assert.ok(!res.text.includes(OWNER_NOTES), `attacker ${format} export leaked the owner's notes`);
+      assert.ok(!res.text.includes(OWNER_TAG), `attacker ${format} export leaked the owner's tag`);
+      assert.ok(!res.text.includes(SHADE_NAME), `attacker ${format} export includes the owner's row`);
     }
   });
 

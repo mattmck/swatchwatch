@@ -4,9 +4,9 @@ import { Suspense, useState, useEffect, useMemo, useCallback, useRef } from "rea
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import type { Polish, PolishStatus } from "swatchwatch-shared";
+import type { Polish, PolishStatus, PolishUpdateRequest } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
-import { deletePolish, listAllPolishes, listPolishes, recalcPolishHex, updatePolish } from "@/lib/api";
+import { deletePolish, getPolishDupes, listAllPolishes, listPolishes, recalcPolishHex, updatePolish } from "@/lib/api";
 import { undertone, type Undertone } from "@/lib/color-utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,7 @@ import { WishlistShareCard } from "@/components/wishlist-share-card";
 import { CollectionQuickActions, type QuickActionSource } from "@/components/collection-quick-actions";
 import { StatusChip, UntriedBadge } from "@/components/status-chip";
 import { StatusFilter } from "@/components/status-filter";
+import { CollectionExportMenu } from "@/components/collection-export-menu";
 import { isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
 import {
   applyInventoryPatch,
@@ -56,6 +57,9 @@ import {
 import { trackEvent } from "@/lib/telemetry";
 import { DUPE_GRADE_META, dupeHintLabel, dupeHintTitle, dupeHref } from "@/lib/dupes";
 import { useDupeHints } from "@/hooks/use-dupe-hints";
+import { useAddGuard } from "@/hooks/use-add-guard";
+import { AddGuardDialog } from "@/components/add-guard-dialog";
+import { shadeGuardKey, wishlistInsteadUpdate, type AddGuardIntent } from "@/lib/add-guard";
 import { Pagination } from "@/components/pagination";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
@@ -358,6 +362,8 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const pageItems = polishes;
   // Dupe hints (#265) for catalog and wishlist rows: one batch request per page, not per row.
   const dupeHints = useDupeHints(pageItems);
+  // Add guard (#266): adding a not-owned shade shows its owned near-dupes first.
+  const { guardAdd, active: activeGuard, choose: chooseGuard, isChecking: isGuardChecking } = useAddGuard();
   const columnCount = 9 + (isAdmin ? 1 : 0);
 
   useEffect(() => {
@@ -370,21 +376,18 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     }
   }, [page, totalPages]);
 
-  // Optimistic quantity update (stepper). Rollback only touches the row if no newer change
-  // replaced it (see lib/collection-actions.ts).
-  const handleQuantityChange = useCallback(
-    (polishId: string, delta: number) => {
-      const original = polishes.find((p) => p.id === polishId);
-      if (!original) return;
-
-      const change = quantityChangeUpdate(original, delta);
+  // Optimistic inventory update (stepper, add guard). Rollback only touches the row if no newer
+  // change replaced it (see lib/collection-actions.ts).
+  const applyInventoryChange = useCallback(
+    (original: Polish, change: Pick<PolishUpdateRequest, "quantity" | "status">) => {
+      const polishId = original.id;
       const optimistic = applyInventoryPatch(original, change);
       setPolishes((prev) => applyOptimistic(prev, polishId, optimistic));
 
       updatePolish(polishId, change)
         .then((updated) => {
           setPolishes((prev) => commitOptimistic(prev, polishId, optimistic, keepBuyUrl(updated, original)));
-          if (change.status !== original.status) {
+          if (change.status !== undefined && change.status !== original.status) {
             trackEvent("collection.status_changed", statusChangeEvent(original.status, change.status, "stepper"));
           }
         })
@@ -393,14 +396,46 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
           toast.error(`Couldn’t update ${original.brand} ${original.name}`);
         });
     },
-    [polishes]
+    []
+  );
+
+  const handleQuantityChange = useCallback(
+    (polishId: string, delta: number) => {
+      const original = polishes.find((p) => p.id === polishId);
+      if (!original) return;
+
+      if (delta > 0 && !isOwnedPolish(original)) {
+        void guardAdd({
+          guardKey: shadeGuardKey(original.id),
+          shadeLabel: `${original.brand} ${original.name}`,
+          status: original.status,
+          intent: "own",
+          surface: "polishes-list",
+          hint: dupeHints[original.id],
+          loadDupes: () => getPolishDupes(original.id),
+          proceed: (intent) => {
+            if (intent === "wishlist") {
+              applyInventoryChange(original, wishlistInsteadUpdate());
+              toast.success("Added to wishlist", {
+                description: `${original.brand} ${original.name} is on your wishlist.`,
+              });
+              return;
+            }
+            applyInventoryChange(original, quantityChangeUpdate(original, delta));
+          },
+        });
+        return;
+      }
+
+      applyInventoryChange(original, quantityChangeUpdate(original, delta));
+    },
+    [polishes, dupeHints, guardAdd, applyInventoryChange]
   );
 
   // Optimistic status / tried-date quick actions with rollback on error.
-  const handleCollectionAction = useCallback(
-    (polishId: string, action: CollectionAction, source: QuickActionSource) => {
-      const original = polishes.find((p) => p.id === polishId);
-      if (!original || actionPendingById[polishId]) return;
+  const runCollectionAction = useCallback(
+    (original: Polish, action: CollectionAction, source: QuickActionSource) => {
+      const polishId = original.id;
       const request = collectionActionRequest(original, action);
       if (!request) return;
 
@@ -439,7 +474,47 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
         })
         .finally(settle);
     },
-    [actionPendingById, polishes]
+    []
+  );
+
+  const handleCollectionAction = useCallback(
+    (polishId: string, action: CollectionAction, source: QuickActionSource) => {
+      const original = polishes.find((p) => p.id === polishId);
+      if (!original || actionPendingById[polishId]) return;
+
+      // Add guard (#266): "✓ Own" / "♡ wishlist" on a shade the caller does not own yet shows its
+      // owned near-dupes first, like the stepper's Add.
+      const intent: AddGuardIntent | null =
+        action.kind === "set-status" && !isOwnedPolish(original) && action.status !== original.status
+          ? action.status === "owned"
+            ? "own"
+            : action.status === "wishlist"
+              ? "wishlist"
+              : null
+          : null;
+      if (!intent) {
+        runCollectionAction(original, action, source);
+        return;
+      }
+
+      void guardAdd({
+        guardKey: shadeGuardKey(original.id),
+        shadeLabel: `${original.brand} ${original.name}`,
+        status: original.status,
+        intent,
+        surface: "polishes-list",
+        hint: dupeHints[original.id],
+        loadDupes: () => getPolishDupes(original.id),
+        proceed: (finalIntent) => {
+          runCollectionAction(
+            original,
+            finalIntent === "wishlist" ? { kind: "set-status", status: "wishlist" } : action,
+            source
+          );
+        },
+      });
+    },
+    [actionPendingById, polishes, dupeHints, guardAdd, runCollectionAction]
   );
 
   const handleRecalcHex = useCallback(async (polishId: string) => {
@@ -474,6 +549,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <CollectionExportMenu />
           <Button asChild variant="outline">
             <Link href="/polishes/import">
               <Upload aria-hidden="true" />
@@ -761,7 +837,9 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                         {owned && <LogManiButton polish={polish} variant="icon" />}
                         <CollectionQuickActions
                           polish={polish}
-                          pending={actionPendingById[polish.id] === true}
+                          pending={
+                            actionPendingById[polish.id] === true || isGuardChecking(shadeGuardKey(polish.id))
+                          }
                           onAction={(action, source) => handleCollectionAction(polish.id, action, source)}
                           onQuantityChange={(delta) => handleQuantityChange(polish.id, delta)}
                         />
@@ -774,6 +852,8 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
           </TableBody>
         </Table>
       </div>
+
+      <AddGuardDialog guard={activeGuard} onChoice={chooseGuard} returnTo={returnToHref} />
 
       {/* Pagination */}
       <Pagination

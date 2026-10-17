@@ -12,6 +12,8 @@ interface QuantityControlsProps {
   onAdd: () => void;
   /** Disables every button (e.g. while a status change for the row is in flight). */
   disabled?: boolean;
+  /** The add is waiting on the add-guard dupe check (#266): disable the button meanwhile. */
+  addPending?: boolean;
 }
 
 export function QuantityControls({
@@ -21,12 +23,20 @@ export function QuantityControls({
   onDecrement,
   onAdd,
   disabled = false,
+  addPending = false,
 }: QuantityControlsProps) {
   if (!owned) {
     return (
       <div className="w-[88px] flex justify-end">
-        <Button variant="outline" size="xs" className="w-[88px]" onClick={onAdd} disabled={disabled}>
-          Add
+        <Button
+          variant="outline"
+          size="xs"
+          className="w-[88px]"
+          onClick={onAdd}
+          disabled={disabled || addPending}
+          aria-busy={addPending || undefined}
+        >
+          {addPending ? "Checking…" : "Add"}
         </Button>
       </div>
     );
