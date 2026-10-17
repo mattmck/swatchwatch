@@ -493,6 +493,64 @@ describe("palette-pick — detectHexByPalettePick", () => {
   });
 });
 
+// ── Shared request helper: region-crop's positional wrapper ─────────────────
+
+describe("ai-color-detection — requestAzureOpenAiChatCompletion wrapper", () => {
+  const { requestAzureOpenAiChatCompletion } = require("../dist/lib/ai-color-detection");
+  const KEYS = ["AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_KEY", "AZURE_OPENAI_DEPLOYMENT_HEX", "AZURE_OPENAI_USE_GATEWAY"];
+  const saved = {};
+  let savedFetch;
+  beforeEach(() => {
+    for (const key of KEYS) saved[key] = process.env[key];
+    delete process.env.AZURE_OPENAI_USE_GATEWAY;
+    process.env.AZURE_OPENAI_ENDPOINT = "https://unit.openai.azure.com";
+    process.env.AZURE_OPENAI_KEY = "k";
+    process.env.AZURE_OPENAI_DEPLOYMENT_HEX = "d";
+    savedFetch = global.fetch;
+  });
+  afterEach(() => {
+    for (const key of KEYS) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+    global.fetch = savedFetch;
+  });
+
+  const filtered = () =>
+    new Response(JSON.stringify({ error: { code: "content_filter" } }), { status: 400 });
+  const payload = (tag) => ({ temperature: 0, max_tokens: 1, response_format: { type: "json_object" }, messages: [{ role: "system", content: tag }] });
+
+  it("skips the retry and reports contentFiltered when there is no safe payload", async () => {
+    const bodies = [];
+    global.fetch = async (url, init) => (bodies.push(JSON.parse(init.body)), filtered());
+    const result = await requestAzureOpenAiChatCompletion((safe) => (safe ? null : payload("normal")), quiet);
+    assert.equal(bodies.length, 1);
+    assert.deepEqual(result, { provider: "azure-openai", content: null, usage: null, contentFiltered: true });
+  });
+
+  it("retries once with the safe payload and returns its content", async () => {
+    const bodies = [];
+    global.fetch = async (url, init) => {
+      bodies.push(JSON.parse(init.body));
+      return bodies.length === 1
+        ? filtered()
+        : new Response(JSON.stringify({ choices: [{ message: { content: "{}" } }], usage: { total_tokens: 3 } }), { status: 200 });
+    };
+    const result = await requestAzureOpenAiChatCompletion((safe) => payload(safe ? "safe" : "normal"), quiet);
+    assert.deepEqual(bodies.map((b) => b.messages[0].content), ["normal", "safe"]);
+    assert.equal(result.content, "{}");
+    assert.equal(result.contentFiltered, false);
+    assert.deepEqual(result.usage, { promptTokens: null, completionTokens: null, totalTokens: 3 });
+  });
+
+  it("returns provider none without config and throws when the first payload is missing", async () => {
+    delete process.env.AZURE_OPENAI_ENDPOINT;
+    const none = await requestAzureOpenAiChatCompletion(() => payload("x"), quiet);
+    assert.equal(none.provider, "none");
+    await assert.rejects(requestAzureOpenAiChatCompletion(() => null, quiet), /must return a request payload/);
+  });
+});
+
 // ── Eval strategy wiring ─────────────────────────────────────────────────────
 
 describe("eval/hex palette-pick strategy", () => {

@@ -103,7 +103,7 @@ Background triggers:
 
 All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpRequest, context: InvocationContext)`.
 
-`GET /api/polishes` returns a paginated canonical shade catalog joined with the requesting user's inventory rows. `inventoryItemId` and user-facing fields are undefined when the user has not added that shade yet, but catalog metadata (brand, finish, color hexes, swatch) is still returned so the UI can show "not owned" entries. `swatchImageUrl` is the shade's primary image: its `source_product` swatch when one exists, otherwise its newest swatch. Supported query params include `search`, `brand`, `finish`, `scope` (`all|collection`), `availability` (`all|owned|wishlist`), `tags`, `sortBy` (`status|brand|name|finish|collection|createdAt|rating`), `sortOrder`, `page`, and `pageSize`. `GET /api/polishes/{id}` looks up a shade by `shade_id` and includes `sourceImageUrls` (all source images associated with that shade's swatches, primary `source_product` image first, then newest first) for the detail page.
+`GET /api/polishes` returns a paginated canonical shade catalog joined with the requesting user's inventory rows. `inventoryItemId` and user-facing fields are undefined when the user has not added that shade yet, but catalog metadata (brand, finish, color hexes, swatch) is still returned so the UI can show "not owned" entries. `swatchImageUrl` is the shade's primary image: its `source_product` swatch when one exists, otherwise its newest swatch. Supported query params include `search`, `brand`, `finish`, `scope` (`all|collection`), `availability` (`all|owned|wishlist`), `tags`, `sortBy` (`status|brand|name|finish|collection|createdAt|rating`), `sortOrder`, `page`, and `pageSize`. `GET /api/polishes/{id}` looks up a shade by `shade_id` and includes `sourceImageUrls` (all source images associated with that shade's swatches, primary `source_product` image first, then newest first) for the detail page. The list's `total` comes from a `COUNT(*) OVER()` window column on the page query itself (one scan per page, no separate count query); a page past the end falls back to an explicit count. The swatch LATERAL lookup in `POLISH_SELECT` is served by `idx_swatch_shade_latest` (migration `20261016040000000_add-swatch-shade-index`).
 **Multi-finish contract (#43):** polish list/detail responses include `finishes: string[]` (all canonical finishes for the shade, primary first) alongside the legacy `finish` string. `finish` stays populated for older consumers: it is the shade's stored `finish` column (its identity/dedup key) and falls back to `finishes[0]` when that column is empty. Filters: `finish=<value>` matches shades that have the finish anywhere in `finishes` *or* as the legacy `finish`; `finishes=a,b` matches shades with ANY of the listed finishes; both accept aliases (`holo`, `cream`, …). `sortBy=finish` sorts by the primary finish. `POST /api/polishes` and `PUT /api/polishes/{id}` accept `finishes` (explicit list → replaces the shade's finishes; `[]` clears) in addition to `finish` (legacy → merged). Request `tags` are the caller's personal inventory tags and are **not** used to change finishes: shades are shared catalog rows, so only an explicit `finishes`/`finish` can modify `shade.finishes` (a tags-only request leaves them untouched; only ingestion connectors parse finishes from product tags). Unknown values are ignored; a value is accepted when it is (or aliases to) a `finish_type` row, including types added through the admin UI. When only `finishes` is sent, the legacy `finish`/identity key defaults to `finishes[0]`.
 When `REDIS_URL` + `REDIS_KEY` are configured, list/detail reads are served through a Redis read-through cache (short TTL), and create/update/delete/recalc writes invalidate related user and catalog cache keys.
 For private blob storage, the API rewrites blob URLs to `/api/images/{id}` so image bytes are served through Functions (no public container access or client-side SAS required).
@@ -349,10 +349,54 @@ overriding variables already set), so the same Postgres / Azure OpenAI config th
 | `azure-current` | `detectHexWithAzureOpenAI` exactly as ingestion calls it: image + vendor context (shade name, description, tags, and the vendor hex only when the ground truth *is* a vendor option). | yes |
 | `azure-blind` | The same call with `vendorContext` removed — what the model gets from the image alone. | yes |
 | `pixel` | Top dominant color from `extractDominantColors` over the whole image. A deliberately naive baseline (product shots mostly return the background). | no |
+| `region-crop` | Two steps: the model only *localizes* (names the labeled grid cells filled with polish — painted nail/swatch first, else lacquer in the bottle; never cap, label, brush, skin, background — or, in `bbox` mode, returns one normalized box) plus the finishes it sees, and the pixels there are *measured* (`src/lib/region-color.ts`). See below. | yes |
 | `palette-pick` | Pixels measure, the model chooses: 8–12 perceptually distinct candidate colors are extracted from the image, drawn as labeled chips (A, B, C, …) beside the photo in one composite, and the model is asked which chip is the base lacquer. The answer is the chosen chip's *measured* hex, so the model can never answer in CSS named colors. | yes |
 
 When Azure OpenAI is not configured (`AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_KEY` + `AZURE_OPENAI_DEPLOYMENT_HEX`/`AZURE_OPENAI_DEPLOYMENT`,
 or the APIM gateway equivalents), Azure strategies print `Skipping strategy …` and the run still exits 0.
+
+**`region-crop` in detail** (`src/eval/hex/strategies/region-crop.ts` + `src/lib/region-color.ts`). LLMs localize
+better than they read absolute color values, so the model is never asked for a hex. Step 1 calls
+`requestAzureOpenAiChatCompletion` in `src/lib/ai-color-detection.ts`. It has the same config, timeout, 429/5xx retry and
+safer-prompt retry after a content-filter rejection as `detectHexWithAzureOpenAI`, but takes a custom JSON-mode prompt. Two localization modes
+(`HEX_EVAL_REGION_CROP_MODE`):
+
+- `cells` (default): a labeled N×N grid (`HEX_EVAL_REGION_CROP_CELLS`, default 6) is drawn on the copy sent to the model
+  (`drawLabeledGrid`). The model answers `{"cells":["C3",…],"region","finishes","confidence"}`, listing up to 8 cells filled
+  with polish. Each valid cell's central 60% is measured (`gridCellToBox`); labels outside the grid are dropped.
+- `bbox`: the model answers `{"x","y","w","h","region","finishes","confidence"}` in normalized 0..1 coordinates.
+  `HEX_EVAL_REGION_CROP_GRID=true` adds a 4×4 grid to the copy. `clampBox` rejects empty, non-finite and fully-outside
+  boxes; such cases get `hex: null` with `meta.reason = "invalid_box"`.
+
+Step 2, `measureRegionsColor(image, boxes, { darkerHalf })`, crops every box from the *original* image with sharp
+and pools the pixels. It converts them to OKLAB and drops the top 5% by lightness as specular highlights. It also
+drops very dark edge pixels (OKLAB L < 0.2), but only when they are at most a quarter of the crop, so a black polish
+keeps its pixels. The result is the per-channel OKLAB median. When the model reports a sparkle finish
+(glitter/holo/flake/shimmer), the median is taken over the darker half so particles do not lift the base color.
+`meta` records the mode, grid size, cells or box, pixel crops, region kind, raw and canonical finishes, pixel counts,
+`highlightCutoffL`, `darkFloorApplied`, `usedDarkerHalf`, the measured OKLAB and token usage.
+`HEX_EVAL_REGION_CROP_DETAIL=low|high|auto` overrides the vision detail for the locator call (default:
+`AZURE_OPENAI_VISION_DETAIL`, then `low`).
+
+Why cells is the default. These results are from `sample.json` (18 cases), gpt-4o-mini, 2026-10-16, median OKLAB distance:
+
+| variant | overall | Holo Taco (bottle shots) | Mooncat (painted hands) | ≤0.05 overall | prompt tokens/image |
+|---|---|---|---|---|---|
+| `azure-blind` (reference) | 0.077 | 0.059 | 0.086 | 28% | ~3.1k |
+| bbox, low | 0.215 | 0.203 | 0.231 | 17% | ~3.2k |
+| bbox + 4×4 grid, low | 0.201 | 0.186 | 0.233 | 17% | ~3.2k |
+| bbox, high | 0.207 | 0.176 | 0.237 | 6% | ~26k |
+| **cells 6×6, low (default)** | 0.157 | 0.080 | 0.230 | 22% | ~3.2k |
+| cells 6×6, high | 0.186 | 0.083 | 0.229 | 22% | ~26k |
+| cells 8×8, low | 0.192 | 0.125 | 0.206 | 22% | ~3.2k |
+| cells 8×8, high | 0.155 | **0.039** | 0.236 | 28% | ~26k |
+
+In bbox mode the model ignores the image and returns a generic centered box, usually `(0.2, 0.2, 0.6, 0.6)`. The grid
+overlay barely changes that, so drawing a grid only pays off when the model answers in cell names. Cell mode beats the
+blind prompt on bottle shots: 63% within 0.05 with 8×8 high detail, against 50% for the blind prompt. It still loses
+badly on painted-hand photos, where the model picks the middle columns of the fingers (knuckles and skin) instead of the
+nail beds. Region-crop is therefore not a drop-in replacement yet. It is a candidate for bottle shots, or for an
+ensemble with a skin- or variance-aware cell filter.
 
 **Palette pick** (`src/lib/palette-pick-detection.ts`, strategy file `src/eval/hex/strategies/palette-pick.ts`)
 is a reusable library piece, not just an eval strategy, so ingestion can adopt it later; today nothing in the
@@ -424,9 +468,9 @@ which). It is a curated sample for exercising the runner, not vendor-published h
 
 **Populating from ingested data** (`src/eval/hex/populate.ts`, migration `20261016040629000_add-color-training-sample.sql`): reads shades whose
 `vendor_hex` is set and not a known placeholder (`src/lib/suspicious-hex.ts`), matches each to its
-latest `external_product` row (same brand + shade name) for the public product image, upserts one
+latest `external_product` row (same brand + shade name; a product with no brand only falls back to Holo Taco when it comes from `HoloTacoShopify`) for the public product image, upserts one
 `color_training_sample` row per external product (`source_type = 'vendor_option'`,
-`training_status = 'pending'`; re-runs refresh instead of duplicating), and exports rows with status
+`training_status = 'pending'`; re-runs refresh `pending` rows instead of duplicating, and never touch rows already curated to `approved`/`rejected`/`used`), and exports rows with status
 `pending`/`approved` to `eval/hex/fixtures/color-training-sample.json` (gitignored — copy it to a named
 fixture to check one in). Curate by setting `training_status` to `approved`/`rejected`, then export
 again with `--export-only --status approved`. Options: `--source <names>`, `--limit <n>`,
@@ -479,6 +523,7 @@ npm run migrate:create -- my-migration-name   # Create a new migration file
 | `019_add_user_external_identities.sql` | Adds `user_external_identities` and backfills existing `app_user.external_id` values to support multi-provider identity linking |
 | `023_add_shade_finishes.sql` | Adds `shade.finishes text[] NOT NULL DEFAULT '{}'` + GIN index for multi-finish shades, backfills `ARRAY[canonical(finish)]` from the legacy column (canonical names + `finish_normalization` aliases), and seeds `flakie`/`flakies`/`toppers` aliases. Down drops the column/index and those alias rows |
 | `024_shade_user_submitted.sql` | Adds nullable `shade.created_by_user_id` (FK → `app_user`, `ON DELETE SET NULL`) + partial index; user-created shades use `status = 'user_submitted'` until an admin promotes them. Down drops the column/index |
+| `025_add_color_training_sample.sql` | Creates `color_training_sample` (ground-truth hex samples from `docs/schema.sql`) plus a partial unique index on `(external_product_id, source_type)` so the eval harness populate script is idempotent |
 | `025_correct_shopify_source_notes.sql` | Corrects Shopify `data_source.metadata.notes` (no store publishes hex values) and disables Clionadh, Garden Path, Roylalee and Potion Polish, which the connector cannot read |
 | `20261016030127700_clear-fake-shopify-vendor-hex.sql` | Nulls `shade.vendor_hex` values the generic Shopify connector invented before PR #238: regex false positives (hex digits found in the shade name/color name/raw Shopify title or options but never as a literal `#RRGGBB` token, e.g. "Facade" → `#FACADE`) and the `#000000`/`#D3D3D3` placeholders. Only Shopify-sourced shades (inventory tagged `shopify` or swatch owned by a `*Shopify` data source); MakeupAPI-linked shades and `detected_hex`/`name_hex` are untouched. Old values go to `shade_vendor_hex_cleanup_backup`; down restores them where `vendor_hex` is still null, then drops the table |
 | `20261016030938732_move-ai-hex-out-of-shopify-vendor-hex.sql` | Moves AI-detected hex values out of `shade.vendor_hex` on Shopify-sourced shades. Before 011 the Holo Taco connector stored only the Azure OpenAI vision result in `color_hex`, which 011/012 relabeled as `vendor_hex`. A value moves when its hex digits appear nowhere in the shade name, color name or raw Shopify title/options (so the connector regex could not have produced it). It goes to `detected_hex` when that is empty; otherwise `vendor_hex` is only cleared. Same Shopify-sourced/MakeupAPI-exclusion rules as `20261016030127700_clear-fake-shopify-vendor-hex.sql`; `#000000`/`#D3D3D3` placeholders and user-created shades are skipped. Old values go to `shade_vendor_hex_to_detected_backup`; down resets `detected_hex` where it still holds the moved value, restores `vendor_hex` where it is still null, then drops the table |
