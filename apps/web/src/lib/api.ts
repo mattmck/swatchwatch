@@ -107,6 +107,8 @@ export async function listPolishes(filters?: PolishFilters): Promise<PolishListR
   if (filters?.availability && filters.availability !== "all") {
     params.set("availability", filters.availability);
   }
+  if (filters?.status?.length) params.set("status", filters.status.join(","));
+  if (filters?.untried) params.set("untried", "true");
   if (filters?.tone) params.set("tone", filters.tone);
   if (filters?.tags?.length) params.set("tags", filters.tags.join(","));
   if (filters?.sortBy) params.set("sortBy", filters.sortBy);

@@ -41,6 +41,9 @@ const OWNED_SHADE_ID = 500;
 const OWNER_CAPTURE_UUID = "11111111-1111-4111-8111-111111111111";
 const OWNER_CAPTURE_SESSION_ID = 4242;
 const OWNER_SECRET_NOTES = "owner-private-notes";
+/** Distinctive inventory-status values (issue #261) so a leak is detectable in any response. */
+const OWNER_PURCHASE_PRICE = 42.42;
+const OWNER_TRIED_AT = "2026-02-03T04:05:06.000Z";
 /** User-uploaded image assets: image_id -> owner. */
 const OWNER_IMAGE_ID = 777;
 const ATTACKER_IMAGE_ID = 888;
@@ -79,6 +82,10 @@ function resetState() {
           notes: OWNER_SECRET_NOTES,
           rating: 5,
           tags: ["owner-tag"],
+          status: "destash",
+          triedAt: OWNER_TRIED_AT,
+          purchasePrice: OWNER_PURCHASE_PRICE,
+          purchaseCurrency: "CHF",
         },
       ],
     ]),
@@ -178,6 +185,13 @@ function polishRow(shadeId, item) {
     finish: "creme",
     collection: "",
     quantity: item ? item.quantity : null,
+    status: item ? item.status ?? "owned" : null,
+    isUntried: item ? (item.status ?? "owned") === "owned" && !item.triedAt : false,
+    triedAt: item ? item.triedAt ?? null : null,
+    lastWornAt: null,
+    wearCount: item ? 0 : null,
+    purchasePrice: item ? item.purchasePrice ?? null : null,
+    purchaseCurrency: item ? item.purchaseCurrency ?? null : null,
     size: null,
     rating: item ? item.rating : null,
     notes: item ? item.notes : null,
@@ -223,13 +237,25 @@ async function fakeQuery(via, sql, params = []) {
         notes: null,
         rating: null,
         tags: null,
+        status: null,
+        triedAt: null,
+        purchasePrice: null,
+        purchaseCurrency: null,
       };
       const quantity = insertedValue(text, params, "quantity");
       const notes = insertedValue(text, params, "notes");
       const rating = insertedValue(text, params, "rating");
+      const status = insertedValue(text, params, "status");
+      const triedAt = insertedValue(text, params, "tried_at");
+      const purchasePrice = insertedValue(text, params, "purchase_price");
+      const purchaseCurrency = insertedValue(text, params, "purchase_currency");
       if (quantity !== undefined && quantity !== null) item.quantity = quantity;
       if (notes !== undefined && notes !== null) item.notes = notes;
       if (rating !== undefined && rating !== null) item.rating = rating;
+      if (status !== undefined && status !== null) item.status = status;
+      if (triedAt !== undefined && triedAt !== null) item.triedAt = triedAt;
+      if (purchasePrice !== undefined && purchasePrice !== null) item.purchasePrice = purchasePrice;
+      if (purchaseCurrency !== undefined && purchaseCurrency !== null) item.purchaseCurrency = purchaseCurrency;
       state.inventory.set(key, item);
       return { rows: [{ inventoryItemId: item.inventoryItemId }], rowCount: 1 };
     }
@@ -575,6 +601,10 @@ function assertOwnerInventoryUnchanged() {
   assert.equal(item.notes, OWNER_SECRET_NOTES);
   assert.equal(item.rating, 5);
   assert.equal(item.inventoryItemId, "7001");
+  assert.equal(item.status, "destash");
+  assert.equal(item.triedAt, OWNER_TRIED_AT);
+  assert.equal(item.purchasePrice, OWNER_PURCHASE_PRICE);
+  assert.equal(item.purchaseCurrency, "CHF");
 }
 
 function assertOwnerSessionUnchanged() {
@@ -588,6 +618,9 @@ function assertNoOwnerDataInBody(body) {
   assert.ok(!serialized.includes(OWNER_SECRET_NOTES), `response leaked owner's notes: ${serialized}`);
   assert.ok(!serialized.includes("owner-tag"), `response leaked owner's tags: ${serialized}`);
   assert.ok(!serialized.includes('"7001"'), `response leaked owner's inventoryItemId: ${serialized}`);
+  assert.ok(!serialized.includes(String(OWNER_PURCHASE_PRICE)), `response leaked owner's purchasePrice: ${serialized}`);
+  assert.ok(!serialized.includes(OWNER_TRIED_AT), `response leaked owner's triedAt: ${serialized}`);
+  assert.ok(!serialized.includes('"destash"'), `response leaked owner's status: ${serialized}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -985,6 +1018,107 @@ describe("access control — polishes inventory is scoped to the caller", () => 
     }
     assertScopedToCaller(ATTACKER);
     assertNoMutations();
+  });
+
+  // Inventory status model (issue #261): the new fields are part of the private overlay.
+  it("owner sees their own status / triedAt / purchase fields", async () => {
+    const res = await invoke("polishes-list", {
+      method: "GET",
+      userId: OWNER,
+      url: detailUrl,
+      params: { id: String(OWNED_SHADE_ID) },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.status, "destash");
+    assert.equal(res.jsonBody.purchasePrice, OWNER_PURCHASE_PRICE);
+    assert.equal(res.jsonBody.triedAt, OWNER_TRIED_AT);
+    assertScopedToCaller(OWNER);
+  });
+
+  it("GET detail by another user carries no status / purchase / tried fields", async () => {
+    const res = await invoke("polishes-list", {
+      method: "GET",
+      userId: ATTACKER,
+      url: detailUrl,
+      params: { id: String(OWNED_SHADE_ID) },
+    });
+    assert.equal(res.status, 200);
+    assertNoOwnerDataInBody(res.jsonBody);
+    assert.equal(res.jsonBody.status, null);
+    assert.equal(res.jsonBody.purchasePrice, null);
+    assert.equal(res.jsonBody.triedAt, null);
+    assert.equal(res.jsonBody.isUntried, false);
+    assertScopedToCaller(ATTACKER);
+    assertNoMutations();
+  });
+
+  for (const qs of ["status=destash", "status=owned,destash,wishlist,archived", "untried=true", "status=destash&untried=true"]) {
+    it(`GET list ?${qs} by another user is scoped to the caller and leaks no owner fields`, async () => {
+      const res = await invoke("polishes-list", {
+        method: "GET",
+        userId: ATTACKER,
+        url: `http://localhost:7071/api/polishes?${qs}&userId=${OWNER}`,
+        params: {},
+      });
+      assert.equal(res.status, 200);
+      assertNoOwnerDataInBody(res.jsonBody);
+      for (const polish of res.jsonBody.polishes) {
+        assert.ok(polish.inventoryItemId == null, "attacker must not see the owner's inventory rows");
+      }
+      assertScopedToCaller(ATTACKER);
+      assertNoMutations();
+    });
+  }
+
+  it("PUT with status / triedAt / purchase fields by another user only writes the caller's row", async () => {
+    const res = await invoke("polishes-mutate", {
+      method: "PUT",
+      userId: ATTACKER,
+      url: detailUrl,
+      params: { id: String(OWNED_SHADE_ID) },
+      body: {
+        status: "archived",
+        triedAt: null,
+        purchasePrice: 0,
+        purchaseCurrency: "usd",
+        userId: OWNER,
+        user_id: OWNER,
+      },
+    });
+    assert.equal(res.status, 200, `unexpected status ${res.status}: ${JSON.stringify(res.jsonBody)}`);
+    assertInventoryWritesBindOnlyCaller(ATTACKER);
+    assertScopedToCaller(ATTACKER);
+    assertOwnerInventoryUnchanged();
+    assertNoOwnerDataInBody(res.jsonBody);
+    const attackerRow = state.inventory.get(`${ATTACKER}:${OWNED_SHADE_ID}`);
+    assert.equal(attackerRow.status, "archived");
+    assert.equal(attackerRow.purchaseCurrency, "USD");
+  });
+
+  it("POST create with status=wishlist binds the new row to the caller", async () => {
+    const res = await invoke("polishes-create", {
+      method: "POST",
+      userId: ATTACKER,
+      url: "http://localhost:7071/api/polishes",
+      body: { shadeId: String(OWNED_SHADE_ID), status: "wishlist", purchasePrice: 7.25, user_id: OWNER },
+    });
+    assert.equal(res.status, 201, `unexpected status ${res.status}: ${JSON.stringify(res.jsonBody)}`);
+    assertInventoryWritesBindOnlyCaller(ATTACKER);
+    assertOwnerInventoryUnchanged();
+    assert.equal(state.inventory.get(`${ATTACKER}:${OWNED_SHADE_ID}`).status, "wishlist");
+  });
+
+  it("invalid status input is rejected before any inventory write", async () => {
+    const res = await invoke("polishes-mutate", {
+      method: "PUT",
+      userId: ATTACKER,
+      url: detailUrl,
+      params: { id: String(OWNED_SHADE_ID) },
+      body: { status: "owned' OR user_id = 1 --" },
+    });
+    assert.equal(res.status, 400);
+    assertNoMutations();
+    assertOwnerInventoryUnchanged();
   });
 
   // Shades are a shared catalog: a regular user may backfill missing color data,
