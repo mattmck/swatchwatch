@@ -7,6 +7,7 @@ const {
   getVisionHexBatchStatus,
   submitVisionHexBatch,
 } = require("../dist/lib/azure-openai-batch");
+const { PROMPT_VERSION } = require("../dist/lib/ai-color-detection");
 
 // Builds a single successful Azure OpenAI batch output line (chat-completions shape).
 function successLine(customId, content, usage) {
@@ -214,6 +215,9 @@ describe("lib/azure-openai-batch — submitVisionHexBatch JSONL generation", () 
     );
     assert.equal(createBody.input_file_id, "file-123");
     assert.equal(createBody.endpoint, "/chat/completions");
+    // Provenance captured at submission so the poller can stamp applied detections.
+    assert.equal(result.deployment, "gpt4o-deploy");
+    assert.equal(result.promptVersion, PROMPT_VERSION);
 
     const lines = uploadedJsonl.split("\n").filter((line) => line.trim().length > 0);
     assert.equal(lines.length, 2);

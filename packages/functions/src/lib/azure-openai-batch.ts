@@ -1,7 +1,9 @@
 import {
   buildHexDetectionRequestPayload,
+  HEX_DETECTION_METHOD_VISION_DIRECT,
   parseHexDetectionContent,
   parseHexDetectionTokenUsage,
+  PROMPT_VERSION,
   type HexDetectionResult,
   type HexDetectionOptions,
   type HexDetectionTokenUsage,
@@ -23,6 +25,20 @@ export interface SubmittedVisionHexBatch {
   inputFileId: string;
   requestCount: number;
   submittedAt: string;
+  /** Deployment the batch was submitted to (recorded as `detected_hex_model` when results apply). */
+  deployment: string;
+  /** `PROMPT_VERSION` the requests were built with. */
+  promptVersion: string;
+}
+
+/**
+ * Provenance captured at submission time and stored in the job's `aiBatch`
+ * metrics, so the poller stamps results with the deployment/prompt that actually
+ * produced them even if the environment changes before the batch completes.
+ */
+export interface VisionHexBatchProvenance {
+  deployment: string | null;
+  promptVersion: string | null;
 }
 
 export interface VisionHexBatchStatus {
@@ -42,6 +58,15 @@ export interface VisionHexBatchOutputRow {
   customId: string;
   content: string | null;
   statusCode: number | null;
+  error: string | null;
+  usage: HexDetectionTokenUsage | null;
+  /** `response.body.model` from the batch output line (model id, not the deployment name). */
+  model: string | null;
+}
+
+export interface VisionHexBatchDetection {
+  customId: string;
+  detection: HexDetectionResult | null;
   error: string | null;
   usage: HexDetectionTokenUsage | null;
 }
@@ -240,6 +265,8 @@ export async function submitVisionHexBatch(
     inputFileId,
     requestCount: requests.length,
     submittedAt: new Date().toISOString(),
+    deployment: cfg.deployment,
+    promptVersion: PROMPT_VERSION,
   };
 }
 
@@ -402,43 +429,54 @@ export function parseVisionHexBatchOutput(
           )
         : null;
 
+    const responseModel =
+      responseBody && typeof responseBody === "object"
+        ? (responseBody as Record<string, unknown>).model
+        : null;
+
     rows.push({
       customId,
       statusCode,
       content: parseOutputBodyContent(responseBody),
       error: parseErrorMessage(error) || parseErrorMessage(responseBody),
       usage: responseUsage,
+      model:
+        typeof responseModel === "string" && responseModel.trim().length > 0
+          ? responseModel.trim()
+          : null,
     });
   }
 
   return rows;
 }
 
+/**
+ * Parse batch output rows into detections. Each detection carries provenance:
+ * `method` is always `vision-direct`, `model` is the submitting deployment when
+ * known (falling back to the model id Azure echoed in the output row), and
+ * `promptVersion` is the one recorded at submission (falling back to the current
+ * `PROMPT_VERSION`).
+ */
 export async function parseVisionHexBatchDetections(
-  rows: VisionHexBatchOutputRow[]
-): Promise<
-  Array<{
-    customId: string;
-    detection: HexDetectionResult | null;
-    error: string | null;
-    usage: HexDetectionTokenUsage | null;
-  }>
-> {
-  const detections: Array<{
-    customId: string;
-    detection: HexDetectionResult | null;
-    error: string | null;
-    usage: HexDetectionTokenUsage | null;
-  }> = [];
+  rows: VisionHexBatchOutputRow[],
+  provenance?: Partial<VisionHexBatchProvenance> | null
+): Promise<VisionHexBatchDetection[]> {
+  const detections: VisionHexBatchDetection[] = [];
 
   for (const row of rows) {
     if (row.content) {
-      const detection = await parseHexDetectionContent(
+      const parsed = await parseHexDetectionContent(
         row.content,
         `batch:${row.customId}`,
         undefined,
         row.usage
       );
+      const detection: HexDetectionResult = {
+        ...parsed,
+        method: HEX_DETECTION_METHOD_VISION_DIRECT,
+        model: provenance?.deployment?.trim() || row.model || null,
+        promptVersion: provenance?.promptVersion?.trim() || PROMPT_VERSION,
+      };
       detections.push({
         customId: row.customId,
         detection,

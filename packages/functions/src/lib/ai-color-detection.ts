@@ -9,12 +9,42 @@ const BASE_DELAY_MS = 2000;
 const RATE_LIMIT_DELAY_MS = 10000;
 const MAX_ERROR_BODY_LOG_CHARS = 400;
 
+/**
+ * Revision of the vision prompt in `buildHexDetectionRequestPayload`. Bump it
+ * whenever the system/user prompt text, temperature, or response contract
+ * changes so detections made with different prompts can be told apart
+ * (`shade.detected_hex_prompt_version`).
+ */
+export const PROMPT_VERSION = "vision-direct/2026-10-v1";
+
+/** Detection strategy identifier stored in `shade.detected_hex_method`. */
+export const HEX_DETECTION_METHOD_VISION_DIRECT = "vision-direct";
+
+/**
+ * Detection strategies. `vision-direct` is the single-call Azure OpenAI vision
+ * prompt; the others are reserved for the strategies under evaluation in
+ * `src/eval/hex/` (palette pick, region crop, ensemble).
+ */
+export type HexDetectionMethod =
+  | "vision-direct"
+  | "palette-pick"
+  | "region-crop"
+  | "ensemble"
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+  | (string & {});
+
 export interface HexDetectionResult {
   hex: string | null;
   confidence: number | null;
   finishes: string[] | null;
   usage?: HexDetectionTokenUsage | null;
   provider: "azure-openai" | "none";
+  /** Strategy that produced `hex` (`vision-direct` for this module). */
+  method?: HexDetectionMethod | null;
+  /** Azure OpenAI deployment name that answered (stored as `shade.detected_hex_model`). */
+  model?: string | null;
+  /** `PROMPT_VERSION` the request was built with. */
+  promptVersion?: string | null;
 }
 
 export interface HexDetectionTokenUsage {
@@ -193,7 +223,15 @@ export async function parseHexDetectionContent(
     }
 
     if (hex) {
-      return { hex, confidence, finishes, usage: usage || null, provider: "azure-openai" };
+      return {
+        hex,
+        confidence,
+        finishes,
+        usage: usage || null,
+        provider: "azure-openai",
+        method: HEX_DETECTION_METHOD_VISION_DIRECT,
+        promptVersion: PROMPT_VERSION,
+      };
     }
 
     emitLog(options, "warn", `[ai-color-detection] No valid hex in response for ${imageUrl}: ${content}`);
@@ -216,6 +254,8 @@ export async function parseHexDetectionContent(
     finishes: null,
     usage: usage || null,
     provider: "azure-openai",
+    method: HEX_DETECTION_METHOD_VISION_DIRECT,
+    promptVersion: PROMPT_VERSION,
   };
 }
 
@@ -468,6 +508,8 @@ export interface AzureOpenAIChatCompletionResponse {
   /** Assistant message content, or null (see `reason`). */
   content: string | null;
   usage: HexDetectionTokenUsage | null;
+  /** Azure OpenAI deployment that answered (null when the config is missing). */
+  deployment: string | null;
   /** Set when `content` is null. */
   reason?: AzureOpenAIChatCompletionReason;
 }
@@ -536,7 +578,7 @@ export async function requestAzureOpenAIChatCompletion(
         AZURE_OPENAI_DEPLOYMENT: process.env.AZURE_OPENAI_DEPLOYMENT ? "set" : "missing",
       },
     });
-    return { provider: "none", content: null, usage: null, reason: "missing_config" };
+    return { provider: "none", content: null, usage: null, deployment: null, reason: "missing_config" };
   }
 
   const logLabel = request.logLabel ?? "request";
@@ -565,7 +607,7 @@ export async function requestAzureOpenAIChatCompletion(
           requestId,
           body: details || undefined,
         });
-        return { provider: "azure-openai", content: null, usage: null, reason: "content_filtered" };
+        return { provider: "azure-openai", content: null, usage: null, deployment, reason: "content_filtered" };
       }
       emitLog(
         options,
@@ -607,7 +649,7 @@ export async function requestAzureOpenAIChatCompletion(
           body: details || undefined,
         }
       );
-      return { provider: "azure-openai", content: null, usage: null, reason: "content_filtered" };
+      return { provider: "azure-openai", content: null, usage: null, deployment, reason: "content_filtered" };
     }
 
     emitLog(
@@ -655,10 +697,10 @@ export async function requestAzureOpenAIChatCompletion(
   }
   const content = body.choices?.[0]?.message?.content;
   if (!content || typeof content !== "string") {
-    return { provider: "azure-openai", content: null, usage: usage || null, reason: "empty_response" };
+    return { provider: "azure-openai", content: null, usage: usage || null, deployment, reason: "empty_response" };
   }
 
-  return { provider: "azure-openai", content, usage: usage || null };
+  return { provider: "azure-openai", content, usage: usage || null, deployment };
 }
 
 /**
@@ -688,11 +730,24 @@ export async function detectHexWithAzureOpenAI(
   if (response.provider === "none") {
     return { hex: null, confidence: null, finishes: null, usage: null, provider: "none" };
   }
+  if (response.reason === "content_filtered") {
+    return { hex: null, confidence: null, finishes: null, usage: null, provider: "azure-openai" };
+  }
   if (response.content === null) {
-    return { hex: null, confidence: null, finishes: null, usage: response.usage, provider: "azure-openai" };
+    return {
+      hex: null,
+      confidence: null,
+      finishes: null,
+      usage: response.usage,
+      provider: "azure-openai",
+      method: HEX_DETECTION_METHOD_VISION_DIRECT,
+      model: response.deployment,
+      promptVersion: PROMPT_VERSION,
+    };
   }
 
-  return parseHexDetectionContent(response.content, logLabel, options, response.usage);
+  const parsed = await parseHexDetectionContent(response.content, logLabel, options, response.usage);
+  return { ...parsed, model: response.deployment };
 }
 
 export interface AzureOpenAiChatCompletionOptions {

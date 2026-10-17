@@ -543,6 +543,22 @@ describe("ai-color-detection — requestAzureOpenAiChatCompletion wrapper", () =
     assert.deepEqual(result.usage, { promptTokens: null, completionTokens: null, totalTokens: 3 });
   });
 
+  it("detectHexWithAzureOpenAI still stamps method, model and prompt version through the shared helper", async () => {
+    const { detectHexWithAzureOpenAI, PROMPT_VERSION } = require("../dist/lib/ai-color-detection");
+    const reply = (content) => async () => new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 });
+    global.fetch = reply('{"hex":"#112233","confidence":0.9}');
+    const ok = await detectHexWithAzureOpenAI("https://img.example/a.jpg", quiet);
+    assert.equal(ok.hex, "#112233");
+    assert.equal(ok.method, "vision-direct");
+    assert.equal(ok.model, "d");
+    assert.equal(ok.promptVersion, PROMPT_VERSION);
+    global.fetch = reply("");
+    const empty = await detectHexWithAzureOpenAI("https://img.example/a.jpg", quiet);
+    assert.equal(empty.hex, null);
+    assert.equal(empty.model, "d");
+    assert.equal(empty.method, "vision-direct");
+  });
+
   it("returns provider none without config and throws when the first payload is missing", async () => {
     delete process.env.AZURE_OPENAI_ENDPOINT;
     const none = await requestAzureOpenAiChatCompletion(() => payload("x"), quiet);
