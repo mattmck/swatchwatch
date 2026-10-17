@@ -33,6 +33,7 @@ import { CollectionQuickActions, type QuickActionSource } from "@/components/col
 import { StatusChip, UntriedBadge } from "@/components/status-chip";
 import { StatusFilter } from "@/components/status-filter";
 import { CollectionExportMenu } from "@/components/collection-export-menu";
+import { PickForMeButton } from "@/components/pick-for-me";
 import { isArchivingChange, isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
 import { showArchivedToast } from "@/components/archived-toast";
 import {
@@ -561,7 +562,8 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
             {total} polishes &middot; {polishes.length} shown
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <PickForMeButton />
           <CollectionExportMenu />
           <Button asChild variant="outline">
             <Link href="/polishes/import">
