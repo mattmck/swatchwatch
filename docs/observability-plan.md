@@ -112,6 +112,50 @@ All in Terraform, gated by `var.alerts_enabled` (default `true` prod, `false` de
 
 Dashboards: start with the built-in **Failures**, **Performance**, **Application Map**, and **Users/Sessions** blades. Add a Workbook only if we find ourselves rerunning the same KQL.
 
+## M2 success metrics (D19, #323)
+
+Roadmap §4 (`docs/roadmap-2026-10-to-12.md`) metrics are measured two ways (decision D19): the dupe-warning funnel with browser custom events, because it only exists in the browser, and everything else with a weekly read-only Postgres query, because it is already in the DB.
+
+**Browser events** (`apps/web/src/lib/metrics-events.ts`, through `trackEvent`, so they are off without a connection string). They carry counts and enum values only; the user is the internal id from `setUser`.
+
+| Event | When | Properties |
+|---|---|---|
+| `dupe.warning_shown` | the add guard dialog opens with owned near-dupes | `surface` (`add_form` = adding to the collection, `wishlist` = adding to the wishlist, `rapid_add` = Rapid Add verdict card), `dupeCount`, `bestGrade` (`HIGH` / `MEDIUM`); add-guard extras: `page` (`polishes-list` / `color-search` / `polish-form-create` / `polish-form-edit`), `intent`, `shade` (catalog id or `new`), `verdict`, `highCount`, `bestFinishCompatibility`, `bestDistance` |
+| `dupe.warning_outcome` | the user answers the dialog | the same, plus `outcome` = `cancel` / `wishlist_instead` / `add_anyway`, `via` (`button` / `dismiss` / `dupe_link`), `suppressed` |
+| `mani.logged` | a new mani is saved (not edits) | `polishCount`, `via` (`quick` = one-tap button, `form`) |
+| `import.completed` | a CSV import commits (a retried commit of the same session is not counted again) | `rowsCommitted` (= `created` + `updated`), `created`, `updated`, `skipped`, `failed`, `shadesCreated` |
+
+These replace the add guard's earlier `add_guard.shown` / `add_guard.choice` events; `add_guard.check_failed` stays. Rapid Add has no near-dupe verdict yet (the #265 extension point in `lib/capture-verdict.ts`), so `surface = rapid_add` is reserved: the verdict card should call `trackDupeWarningShown` / `trackDupeWarningOutcome` when it gains one.
+
+Dupe funnel (target: > 20% of warnings end in `cancel` or `wishlist_instead`). `itemCount` keeps the numbers right under sampling. A warning closed by leaving the page has no outcome, so `answered` can be lower than `shown`.
+
+```kusto
+customEvents
+| where timestamp > ago(7d)
+| where name in ("dupe.warning_shown", "dupe.warning_outcome")
+| extend surface = tostring(customDimensions.surface), outcome = tostring(customDimensions.outcome)
+| summarize
+    shown = sumif(itemCount, name == "dupe.warning_shown"),
+    answered = sumif(itemCount, name == "dupe.warning_outcome"),
+    avoided = sumif(itemCount, name == "dupe.warning_outcome" and outcome in ("cancel", "wishlist_instead")),
+    add_anyway = sumif(itemCount, name == "dupe.warning_outcome" and outcome == "add_anyway")
+    by surface
+| extend avoided_pct = round(100.0 * avoided / shown, 1)
+```
+
+Use `bin(timestamp, 1d)` in the `by` clause for a daily trend, or `tostring(customDimensions.bestGrade)` to split HIGH from MEDIUM warnings.
+
+**Weekly query:** `docs/queries/m2-metrics.sql` (`psql "$DATABASE_URL" -f docs/queries/m2-metrics.sql`) returns one row for the 7 days ending now (edit `params` to re-run an earlier week). An **active user** is anyone with a write in the window: an inventory row created or updated, a mani logged, or an import committed.
+
+| Column(s) | Meaning | Target |
+|---|---|---|
+| `status_adoption_share` (`status_adopters` / `active_users`) | share of active users with at least one inventory row whose status isn't the default `owned`, or that is marked tried (untried is derived from `tried_at`). `avg_` / `median_non_default_share` show how much of each collection that covers | > 60% |
+| `manis_per_active_user` (`manis_logged` / `active_users`) | manis created in the window (by `created_at`, whatever their `worn_on`) per active user; `users_logging_manis` counts the users behind them | ≥ 1 |
+| `median_minutes_to_20`, `median_minutes_to_20_via_import` | for users who signed up in the last 28 days (`cohort_signups`), the time from `app_user.created_at` to their 20th non-wishlist inventory row (rows, not bottles); `cohort_reached_20` users got there. "Via import" = a committed CSV import by then | < 5 min (import path) |
+| `active_shades`, `active_shades_added` | catalog shades with `status = 'active'` that aren't merged, and how many were created this week | +10k by 19 Dec |
+
+`mani.logged` and `import.completed` in App Insights are a cross-check for the DB numbers (and show the one-tap vs. form split, which the DB doesn't record).
+
 ## Docs to update (per CLAUDE.md)
 
 - `CLAUDE.md` env vars: `NEXT_PUBLIC_APPLICATIONINSIGHTS_CONNECTION_STRING`, `NEXT_PUBLIC_APPINSIGHTS_SAMPLING`, `CORS_ALLOWED_HEADERS` (and the Architecture Overview line on telemetry).

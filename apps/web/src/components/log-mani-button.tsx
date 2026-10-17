@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { createManicure, deleteManicure } from "@/lib/api";
 import { canLogPolish, quickLogRequest, toLocalIsoDate, type QuickLogCompanion } from "@/lib/mani-log";
+import { trackManiLogged } from "@/lib/metrics-events";
 
 interface LogManiButtonProps {
   polish: Pick<Polish, "id" | "brand" | "name" | "status" | "finish" | "finishes">;
@@ -42,6 +43,7 @@ export function LogManiButton({
     setPending(true);
     try {
       const logged = await createManicure(quickLogRequest(polish, toLocalIsoDate(new Date()), companions));
+      trackManiLogged({ polishCount: logged.polishes.length, via: "quick" });
       onWearStatsChange?.(logged.wearStats);
       onLogged?.(logged.id);
       const stat = logged.wearStats.find((s) => s.shadeId === polish.id);

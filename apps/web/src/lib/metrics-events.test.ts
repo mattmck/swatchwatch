@@ -1,0 +1,171 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import type { PolishDupe, PolishDupesResponse, PolishImportCommitResult } from "swatchwatch-shared";
+import {
+  METRIC_EVENTS,
+  bestDupeGrade,
+  dupeSurfaceForIntent,
+  dupeWarningOutcomeEvent,
+  dupeWarningShownEvent,
+  importCompletedEvent,
+  maniLoggedEvent,
+  trackDupeWarningOutcome,
+  trackDupeWarningShown,
+  trackImportCompleted,
+  trackManiLogged,
+  type MetricProperties,
+} from "./metrics-events";
+
+function dupe(grade: PolishDupe["grade"]): PolishDupe {
+  return {
+    shadeId: "7",
+    brand: "Holo Taco",
+    name: "Red Velvet",
+    finishes: ["creme"],
+    displayHex: "#B0303A",
+    displayHexSource: "vendor",
+    distance: 0.012,
+    colorGrade: grade,
+    grade,
+    finishCompatibility: "same",
+  };
+}
+
+function response(dupes: PolishDupe[]): Pick<PolishDupesResponse, "dupes" | "dupeCount"> {
+  return { dupes, dupeCount: dupes.length };
+}
+
+const IMPORT_RESULT: PolishImportCommitResult = {
+  created: 12,
+  updated: 3,
+  skipped: 4,
+  failed: 1,
+  shadesCreated: 2,
+};
+
+function recorder() {
+  const calls: Array<{ name: string; properties: MetricProperties }> = [];
+  return { calls, track: (name: string, properties: MetricProperties) => calls.push({ name, properties }) };
+}
+
+describe("metrics events: no-op path", () => {
+  it("never throws when telemetry is off (no connection string in tests)", () => {
+    assert.doesNotThrow(() => {
+      trackDupeWarningShown({ surface: "add_form", response: response([dupe("high")]) });
+      trackDupeWarningOutcome({ surface: "wishlist", response: response([]), outcome: "cancel" });
+      trackManiLogged({ polishCount: 2, via: "form" });
+      trackImportCompleted({ result: IMPORT_RESULT, alreadyCommitted: false });
+    });
+  });
+});
+
+describe("metrics events: dupe warning funnel", () => {
+  it("maps the add-guard intent to the funnel surface", () => {
+    assert.equal(dupeSurfaceForIntent("own"), "add_form");
+    assert.equal(dupeSurfaceForIntent("wishlist"), "wishlist");
+  });
+
+  it("reports the best grade in upper case, or none", () => {
+    assert.equal(bestDupeGrade(response([dupe("high"), dupe("medium")])), "HIGH");
+    assert.equal(bestDupeGrade(response([dupe("medium")])), "MEDIUM");
+    assert.equal(bestDupeGrade(response([])), null);
+    assert.equal(bestDupeGrade(null), null);
+  });
+
+  it("dupe.warning_shown carries surface, dupe count and best grade", () => {
+    assert.deepEqual(dupeWarningShownEvent({ surface: "rapid_add", response: response([dupe("medium")]) }), {
+      name: "dupe.warning_shown",
+      properties: { surface: "rapid_add", dupeCount: 1, bestGrade: "MEDIUM" },
+    });
+  });
+
+  it("keeps details but never lets them override the funnel keys", () => {
+    const event = dupeWarningShownEvent({
+      surface: "add_form",
+      response: { dupes: [dupe("high")], dupeCount: 5 },
+      details: { page: "polishes-list", shade: "42", surface: "bogus", dupeCount: 99, bestGrade: "high" },
+    });
+    assert.deepEqual(event.properties, {
+      page: "polishes-list",
+      shade: "42",
+      surface: "add_form",
+      dupeCount: 5,
+      bestGrade: "HIGH",
+    });
+  });
+
+  it("drops a stale bestGrade detail when there is no best dupe", () => {
+    const event = dupeWarningShownEvent({
+      surface: "wishlist",
+      response: response([]),
+      details: { bestGrade: "high" },
+    });
+    assert.deepEqual(event.properties, { surface: "wishlist", dupeCount: 0 });
+  });
+
+  it("dupe.warning_outcome adds the outcome to the same properties", () => {
+    for (const outcome of ["cancel", "wishlist_instead", "add_anyway"] as const) {
+      assert.deepEqual(
+        dupeWarningOutcomeEvent({ surface: "wishlist", response: response([dupe("high")]), outcome }),
+        {
+          name: "dupe.warning_outcome",
+          properties: { surface: "wishlist", dupeCount: 1, bestGrade: "HIGH", outcome },
+        }
+      );
+    }
+  });
+
+  it("track helpers send the built event to the tracker", () => {
+    const { calls, track } = recorder();
+    trackDupeWarningShown({ surface: "add_form", response: response([dupe("high")]) }, track);
+    trackDupeWarningOutcome({ surface: "add_form", response: response([dupe("high")]), outcome: "add_anyway" }, track);
+    assert.deepEqual(
+      calls.map((call) => call.name),
+      [METRIC_EVENTS.dupeWarningShown, METRIC_EVENTS.dupeWarningOutcome]
+    );
+    assert.equal(calls[1].properties.outcome, "add_anyway");
+  });
+});
+
+describe("metrics events: mani and import", () => {
+  it("mani.logged is counts only", () => {
+    assert.deepEqual(maniLoggedEvent({ polishCount: 3, via: "quick" }), {
+      name: "mani.logged",
+      properties: { polishCount: 3, via: "quick" },
+    });
+  });
+
+  it("import.completed reports committed, created, updated, skipped, failed and new shades", () => {
+    assert.deepEqual(importCompletedEvent(IMPORT_RESULT), {
+      name: "import.completed",
+      properties: { rowsCommitted: 15, created: 12, updated: 3, skipped: 4, failed: 1, shadesCreated: 2 },
+    });
+  });
+
+  it("import.completed skips an already-committed session", () => {
+    const { calls, track } = recorder();
+    trackImportCompleted({ result: IMPORT_RESULT, alreadyCommitted: true }, track);
+    assert.equal(calls.length, 0);
+    trackImportCompleted({ result: IMPORT_RESULT, alreadyCommitted: false }, track);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].name, "import.completed");
+  });
+
+  it("sends only numbers, booleans and enum strings", () => {
+    const events = [
+      dupeWarningShownEvent({ surface: "add_form", response: response([dupe("high")]) }),
+      dupeWarningOutcomeEvent({ surface: "add_form", response: response([dupe("high")]), outcome: "cancel" }),
+      maniLoggedEvent({ polishCount: 1, via: "form" }),
+      importCompletedEvent(IMPORT_RESULT),
+    ];
+    const allowedStrings = new Set([
+      "add_form", "wishlist", "rapid_add", "HIGH", "MEDIUM",
+      "cancel", "wishlist_instead", "add_anyway", "quick", "form",
+    ]);
+    for (const event of events) {
+      for (const value of Object.values(event.properties)) {
+        if (typeof value === "string") assert.ok(allowedStrings.has(value), `${event.name}: ${value}`);
+      }
+    }
+  });
+});
