@@ -449,6 +449,17 @@ describe("functions/polishes — create/update inventory fields", () => {
     assert.equal(param(upsertCall(tx), 15), "wishlist");
   });
 
+  it("PUT and POST re-derive wear stats from the mani log (#269) without touching tried_at", async () => {
+    for (const run of [() => put({ quantity: 1 }), () => post({ shadeId: "9", status: "owned" })]) {
+      const { res, tx } = await run();
+      assert.ok([200, 201].includes(res.status));
+      const upsertIndex = tx.findIndex((c) => /INSERT INTO user_inventory_item/.test(c.text));
+      const recompute = tx.findIndex((c) => /UPDATE user_inventory_item ui\s+SET wear_count/.test(c.text));
+      assert.ok(recompute > upsertIndex, "wear stats are recomputed after the upsert, in the same transaction");
+      assert.deepEqual(tx[recompute].params, [1, [9], false], "caller's row only, tried_at left as sent");
+    }
+  });
+
   it("POST status=owned without quantity inserts one bottle", async () => {
     const { res, tx } = await post({ shadeId: "9", status: "owned" });
     assert.equal(res.status, 201);

@@ -75,6 +75,9 @@ export async function decodeImage(file: File): Promise<CanvasImageSource & { wid
  * `maxEdge` on its longest side, and return it as a base64 data URL along
  * with its scaled dimensions.
  *
+ * `outputMimeType` defaults to `outputMimeTypeFor(file.type)`; pass
+ * `"image/jpeg"` to always re-encode as JPEG (e.g. nail photos).
+ *
  * Throws a user-presentable Error when the browser cannot decode the file
  * (e.g. HEIC outside Safari).
  */
@@ -82,6 +85,7 @@ export async function downscaleImageFile(
   file: File,
   maxEdge: number = MATCH_IMAGE_MAX_EDGE,
   jpegQuality = 0.85,
+  outputMimeType: "image/png" | "image/jpeg" = outputMimeTypeFor(file.type),
 ): Promise<DownscaledImage> {
   if (!file.type.startsWith("image/")) {
     throw new Error("Please choose an image file.");
@@ -106,7 +110,7 @@ export async function downscaleImageFile(
     throw new Error("Couldn't process that image in this browser.");
   }
 
-  const mimeType = outputMimeTypeFor(file.type);
+  const mimeType = outputMimeType;
   if (mimeType === "image/jpeg") {
     // JPEG has no alpha; paint white so transparent regions don't turn black.
     ctx.fillStyle = "#FFFFFF";
