@@ -263,10 +263,11 @@ This works for both `ciamlogin.com` (External ID) and `b2clogin.com` (legacy B2C
 | Asset | Location | Notes |
 |-------|----------|-------|
 | Favicon (SVG) | `public/brand/swatchwatch-monogram.svg` | Referenced via metadata `icons` config |
-| Apple Touch Icon | `public/apple-touch-icon.png` | 180x180 PNG from app icon SVG |
+| Apple Touch Icon | `public/apple-touch-icon.png` | 180x180 opaque PNG (iOS applies its own mask) generated from the app icon glyph |
+| PWA icons | `public/icon-192.png`, `public/icon-512.png`, `public/icon-maskable-512.png` | PNG icons the manifest references (`purpose: any` 192/512, `maskable` 512 with the glyph inside the safe zone); Chromium needs raster icons of these sizes before it fires `beforeinstallprompt`. Regenerate with `npm run generate:pwa-icons` (`scripts/generate-pwa-icons.mjs`, uses `sharp` already installed for `packages/functions`) after changing `public/brand/swatchwatch-app-icon.svg`, and commit the PNGs |
 | OG Image | `public/og-image.png` | 1200x630 branded social preview |
 | OG Variants | `src/app/(app)/dashboard/opengraph-image.tsx`, `src/app/(app)/polishes/opengraph-image.tsx` | Route-specific social previews for dashboard and collection |
-| Manifest | `public/manifest.json` | PWA manifest with brand colors and a "Rapid Add" app shortcut; `<InstallPrompt />` offers installing it on mobile web |
+| Manifest | `public/manifest.json` | PWA manifest with brand colors, PNG + maskable + SVG icons and a "Rapid Add" app shortcut; `<InstallPrompt />` offers installing it on mobile web |
 | Brand SVGs | `public/brand/` | Monogram, wordmark, lockup, swatch, brush, app icon, sprite sheet |
 
 ## Environment Variables
