@@ -21,6 +21,7 @@ import { ColorDot } from "@/components/color-dot";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
+import { PickForMeCard } from "@/components/pick-for-me";
 import type { LucideIcon } from "lucide-react";
 import { Building2, Droplets, FlaskConical, Heart, Sparkles, Star } from "lucide-react";
 
@@ -251,6 +252,8 @@ export default function DashboardPage() {
           );
         })}
       </div>
+
+      <PickForMeCard polishes={polishes} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Recent additions */}
