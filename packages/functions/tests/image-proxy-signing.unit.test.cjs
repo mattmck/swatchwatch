@@ -6,11 +6,14 @@
  *   ids, wrong-key ids, and missing/short key behavior (fail closed vs. dev-only fallback).
  * - lib/blob-storage readBlobFromStorageUrl: only plain blob reads in allowlisted containers
  *   of the configured account are allowed.
+ * - lib/image-proxy v3 (#227): owner-scoped ids for non-catalog URLs, scope errors at mint time,
+ *   and rejection of every tampered/transplanted/non-canonical v3 envelope.
  * - functions/images: forged/unsigned ids → 403, valid signed ids → 200, missing key → 500.
  */
 const { describe, it, beforeEach, afterEach, after } = require("node:test");
 const assert = require("node:assert/strict");
 const Module = require("node:module");
+const { createHmac } = require("node:crypto");
 
 // ---------------------------------------------------------------------------
 // Mock @azure/functions so functions/images registers its route with us
@@ -67,12 +70,18 @@ const OTHER_KEY = "another-image-proxy-signing-key-fedcba9876543210";
 const ACCOUNT_KEY = Buffer.from("not-a-real-account-key").toString("base64");
 const STORAGE_CONNECTION = `DefaultEndpointsProtocol=https;AccountName=swatchtest;AccountKey=${ACCOUNT_KEY};EndpointSuffix=core.windows.net`;
 const BLOB_URL = "https://swatchtest.blob.core.windows.net/source-images/holotaco/abc-123.png";
+const PRIVATE_URL = "https://swatchtest.blob.core.windows.net/nail-photos/user-7/photo.png";
+const OTHER_PRIVATE_URL = "https://swatchtest.blob.core.windows.net/nail-photos/user-8/photo.png";
+const OWNER = 7;
+const OTHER_USER = 8;
 
 const ENV_KEYS = [
   "IMAGE_PROXY_SIGNING_KEY",
+  "IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS",
   "AUTH_DEV_BYPASS",
   "AZURE_STORAGE_CONNECTION",
   "SOURCE_IMAGE_CONTAINER",
+  "USER_MEDIA_CONTAINER",
 ];
 let savedEnv = {};
 
@@ -93,6 +102,31 @@ function tamperSignature(encoded, byteIndex = 0) {
   const bytes = Buffer.from(encoded, "base64url");
   bytes[byteIndex] ^= 0x01;
   return bytes.toString("base64url");
+}
+
+function hmacBase64Url(key, message) {
+  return createHmac("sha256", key).update(message, "utf8").digest("base64url");
+}
+
+/** Hand-built v2 id signed with `key` (bypasses the mint-time catalog check). */
+function signV2Id(url, key, expiresAt = Math.floor(Date.now() / 1000) + 3600) {
+  const sig = hmacBase64Url(key, `swatchwatch:image-proxy:v2:${expiresAt}:${url}`);
+  return `v2.${toBase64Url(url)}.${expiresAt.toString(36)}.${sig}`;
+}
+
+/**
+ * Hand-built v3 id. The HMAC covers `owner` (decimal); `ownerToken` / `expToken` override what is
+ * written into the id so non-canonical spellings of a validly signed value can be tested.
+ */
+function signV3Id(url, key, { owner, expiresAt, ownerToken, expToken }) {
+  const sig = hmacBase64Url(key, `swatchwatch:image-proxy:v3:${expiresAt}:${owner}:${url}`);
+  return [
+    "v3",
+    toBase64Url(url),
+    expToken ?? expiresAt.toString(36),
+    ownerToken ?? owner.toString(36),
+    sig,
+  ].join(".");
 }
 
 function fakeRequest(id, url) {
@@ -234,6 +268,245 @@ describe("lib/image-proxy — signed ids", () => {
   it("refuses to sign non-http(s) URLs", () => {
     process.env.IMAGE_PROXY_SIGNING_KEY = TEST_KEY;
     assert.throws(() => imageProxy.encodeImageProxyId("file:///etc/passwd"));
+  });
+});
+
+describe("lib/image-proxy — owner-scoped v3 ids (#227)", () => {
+  const V3_PATTERN = /^v3\.[A-Za-z0-9_-]+\.[0-9a-z]+\.[0-9a-z]+\.[A-Za-z0-9_-]+$/;
+
+  beforeEach(() => {
+    process.env.IMAGE_PROXY_SIGNING_KEY = TEST_KEY;
+  });
+
+  function assertRejected(id, label) {
+    assert.throws(() => imageProxy.decodeImageProxyIdWithExpiry(id), imageProxy.ImageProxyTokenError, label);
+    assert.throws(() => imageProxy.decodeImageProxyId(id), imageProxy.ImageProxyTokenError, label);
+  }
+
+  it("mints a v3 id for a non-catalog URL with an owner and round-trips it", () => {
+    const nowMs = Date.now();
+    const id = imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER, nowMs });
+    assert.match(id, V3_PATTERN);
+    assert.equal(id.split(".")[3], OWNER.toString(36));
+    const decoded = imageProxy.decodeImageProxyIdWithExpiry(id, nowMs);
+    assert.equal(decoded.url, PRIVATE_URL);
+    assert.equal(decoded.scope, "private");
+    assert.equal(decoded.ownerUserId, OWNER);
+    const remaining = decoded.expiresAt - Math.floor(nowMs / 1000);
+    assert.ok(remaining >= 3600 && remaining <= 3600 + 900, `remaining ${remaining}`);
+    assert.equal(imageProxy.decodeImageProxyId(id, nowMs), PRIVATE_URL);
+  });
+
+  it("encodes large owner ids in canonical lowercase base36", () => {
+    const owner = Number.MAX_SAFE_INTEGER;
+    const id = imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: owner });
+    assert.match(id, V3_PATTERN);
+    assert.equal(id.split(".")[3], owner.toString(36));
+    assert.equal(imageProxy.decodeImageProxyIdWithExpiry(id).ownerUserId, owner);
+  });
+
+  it("keeps minting public v2 ids for catalog URLs even when an owner is given", () => {
+    for (const id of [
+      imageProxy.encodeImageProxyId(BLOB_URL, { ownerUserId: OWNER }),
+      imageProxy.encodeImageProxyId(BLOB_URL),
+    ]) {
+      assert.match(id, /^v2\.[A-Za-z0-9_-]+\.[0-9a-z]+\.[A-Za-z0-9_-]+$/);
+      const decoded = imageProxy.decodeImageProxyIdWithExpiry(id);
+      assert.equal(decoded.url, BLOB_URL);
+      assert.equal(decoded.scope, "public");
+      assert.equal(decoded.ownerUserId, undefined);
+      assert.ok(!Object.hasOwn(decoded, "ownerUserId"));
+    }
+    assert.equal(
+      imageProxy.encodeImageProxyId(BLOB_URL, { ownerUserId: OWNER }),
+      imageProxy.encodeImageProxyId(BLOB_URL)
+    );
+  });
+
+  it("accepts nowMs either as a number or in the options object", () => {
+    const nowMs = Date.UTC(2026, 3, 1, 9, 7);
+    assert.equal(imageProxy.encodeImageProxyId(BLOB_URL, nowMs), imageProxy.encodeImageProxyId(BLOB_URL, { nowMs }));
+  });
+
+  it("throws ImageProxyScopeError for a non-catalog URL without a valid owner (fail closed)", () => {
+    const bad = [undefined, 0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, "7", null];
+    assert.throws(() => imageProxy.encodeImageProxyId(PRIVATE_URL), imageProxy.ImageProxyScopeError);
+    assert.throws(() => imageProxy.encodeImageProxyId(PRIVATE_URL, Date.now()), imageProxy.ImageProxyScopeError);
+    for (const ownerUserId of bad) {
+      assert.throws(
+        () => imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId }),
+        (error) => error instanceof imageProxy.ImageProxyScopeError && error.name === "ImageProxyScopeError",
+        String(ownerUserId)
+      );
+    }
+    // Any non-catalog container counts as private, not just USER_MEDIA_CONTAINER.
+    assert.throws(
+      () => imageProxy.encodeImageProxyId("https://swatchtest.blob.core.windows.net/connector-raw/run-1.json.gz"),
+      imageProxy.ImageProxyScopeError
+    );
+    assert.ok(new imageProxy.ImageProxyScopeError() instanceof Error);
+  });
+
+  it("passes mint options through toImageProxyUrl and toImageProxyUrlFromOrigin", () => {
+    const prefix = "https://api.example.com/api/images/";
+    const viaRequest = imageProxy.toImageProxyUrl("https://api.example.com/api/polishes/1", PRIVATE_URL, {
+      ownerUserId: OWNER,
+    });
+    const viaOrigin = imageProxy.toImageProxyUrlFromOrigin("https://api.example.com", PRIVATE_URL, {
+      ownerUserId: OWNER,
+    });
+    for (const url of [viaRequest, viaOrigin]) {
+      assert.ok(url.startsWith(prefix), url);
+      const decoded = imageProxy.decodeImageProxyIdWithExpiry(url.slice(prefix.length));
+      assert.equal(decoded.scope, "private");
+      assert.equal(decoded.ownerUserId, OWNER);
+      assert.equal(decoded.url, PRIVATE_URL);
+    }
+    assert.throws(
+      () => imageProxy.toImageProxyUrl("https://api.example.com/api/polishes/1", PRIVATE_URL),
+      imageProxy.ImageProxyScopeError
+    );
+    assert.throws(
+      () => imageProxy.toImageProxyUrlFromOrigin("https://api.example.com", PRIVATE_URL),
+      imageProxy.ImageProxyScopeError
+    );
+  });
+
+  it("accepts a hand-built v3 id signed with the real key (control for the forgeries below)", () => {
+    const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+    const decoded = imageProxy.decodeImageProxyIdWithExpiry(
+      signV3Id(PRIVATE_URL, TEST_KEY, { owner: OWNER, expiresAt })
+    );
+    assert.deepEqual(decoded, { url: PRIVATE_URL, expiresAt, scope: "private", ownerUserId: OWNER });
+  });
+
+  it("rejects a v3 id whose owner was swapped for another user", () => {
+    const [v, u, exp, , sig] = imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER }).split(".");
+    for (const owner of [OTHER_USER, 1, OWNER + 36, 123456789]) {
+      assertRejected(`${v}.${u}.${exp}.${owner.toString(36)}.${sig}`, `owner ${owner}`);
+    }
+  });
+
+  it("rejects non-canonical or out-of-range owner encodings even when the HMAC matches", () => {
+    const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+    const cases = [
+      ["leading zero", OWNER, `0${OWNER.toString(36)}`],
+      ["double leading zero", OWNER, `00${OWNER.toString(36)}`],
+      ["uppercase", 10, "A"],
+      ["zero", 0, "0"],
+      ["empty", OWNER, ""],
+      ["sign", OWNER, `+${OWNER}`],
+      ["beyond MAX_SAFE_INTEGER", Number.parseInt("zzzzzzzzzzzz", 36), "zzzzzzzzzzzz"],
+      ["too long", OWNER, `${"0".repeat(12)}${OWNER}`],
+    ];
+    for (const [label, owner, ownerToken] of cases) {
+      assertRejected(signV3Id(PRIVATE_URL, TEST_KEY, { owner, expiresAt, ownerToken }), label);
+    }
+  });
+
+  it("rejects a non-canonical expiry encoding even when the HMAC matches", () => {
+    const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+    assertRejected(
+      signV3Id(PRIVATE_URL, TEST_KEY, { owner: OWNER, expiresAt, expToken: `0${expiresAt.toString(36)}` }),
+      "leading zero exp"
+    );
+  });
+
+  it("rejects an extended expiry", () => {
+    const [v, u, exp, owner, sig] = imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER }).split(".");
+    for (const delta of [1, 3600, 365 * 86400]) {
+      const extended = (Number.parseInt(exp, 36) + delta).toString(36);
+      assertRejected(`${v}.${u}.${extended}.${owner}.${sig}`, `+${delta}s`);
+    }
+    assertRejected(`${v}.${u}.zzzzzzzzzzzzz.${owner}.${sig}`, "overlong exp");
+  });
+
+  it("rejects a v3 id whose URL payload was swapped", () => {
+    const [v, , exp, owner, sig] = imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER }).split(".");
+    for (const url of [OTHER_PRIVATE_URL, BLOB_URL, `${PRIVATE_URL}?x=1`]) {
+      assertRejected(`${v}.${toBase64Url(url)}.${exp}.${owner}.${sig}`, url);
+    }
+  });
+
+  it("rejects v3 ids signed with a different key", () => {
+    process.env.IMAGE_PROXY_SIGNING_KEY = OTHER_KEY;
+    const id = imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER });
+    process.env.IMAGE_PROXY_SIGNING_KEY = TEST_KEY;
+    assertRejected(id, "minted with OTHER_KEY");
+    const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+    assertRejected(signV3Id(PRIVATE_URL, "attacker-key", { owner: OWNER, expiresAt }), "attacker key");
+  });
+
+  it("rejects truncated, garbage, tampered and non-canonical v3 signatures", () => {
+    const [v, u, exp, owner, sig] = imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER }).split(".");
+    const envelope = (signature) => `${v}.${u}.${exp}.${owner}.${signature}`;
+
+    // Non-canonical spelling: the last of 43 chars carries 2 unused bits, so flipping its lowest
+    // bit decodes to the very same MAC bytes. It must still be refused.
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const nonCanonical = sig.slice(0, -1) + alphabet[alphabet.indexOf(sig.at(-1)) ^ 1];
+    assert.ok(Buffer.from(nonCanonical, "base64url").equals(Buffer.from(sig, "base64url")));
+    assert.notEqual(nonCanonical, sig);
+
+    const bad = {
+      empty: "",
+      truncated: sig.slice(0, 10),
+      "one char short": sig.slice(0, -1),
+      "one char long": `${sig}A`,
+      garbage: toBase64Url("not-a-real-mac"),
+      "invalid chars": `${sig.slice(0, -2)}+/`,
+      "padded": `${sig}=`,
+      "non-canonical": nonCanonical,
+      "byte 0 tampered": tamperSignature(sig, 0),
+      "byte 15 tampered": tamperSignature(sig, 15),
+      "byte 31 tampered": tamperSignature(sig, 31),
+    };
+    for (const [label, signature] of Object.entries(bad)) {
+      assertRejected(envelope(signature), label);
+    }
+    assert.equal(imageProxy.decodeImageProxyId(envelope(sig)), PRIVATE_URL);
+  });
+
+  it("parses v3 only with exactly five parts and v2 only with exactly four", () => {
+    const [v, u, exp, owner, sig] = imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER }).split(".");
+    const [, cu, cexp, csig] = imageProxy.encodeImageProxyId(BLOB_URL).split(".");
+    assertRejected(`${v}.${u}.${exp}.${sig}`, "v3 with 4 parts");
+    assertRejected(`${v}.${u}.${exp}.${owner}.${sig}.x`, "v3 with 6 parts");
+    assertRejected(`${v}.${u}.${exp}.${owner}`, "v3 without signature");
+    assertRejected(`v2.${cu}.${cexp}.${owner}.${csig}`, "v2 with 5 parts");
+    assertRejected(`V3.${u}.${exp}.${owner}.${sig}`, "uppercase version prefix");
+    assertRejected(`v4.${u}.${exp}.${owner}.${sig}`, "unknown version prefix");
+  });
+
+  it("rejects signatures transplanted between v2 and v3 envelopes", () => {
+    const [, u, exp, owner, v3sig] = imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER }).split(".");
+    const [, cu, cexp, v2sig] = imageProxy.encodeImageProxyId(BLOB_URL).split(".");
+    // v3 signature on a v2 envelope (would make a private blob public if accepted).
+    assertRejected(`v2.${u}.${exp}.${v3sig}`, "v3 sig on v2 envelope");
+    // v2 signature on a v3 envelope, for the catalog URL and for the private URL.
+    assertRejected(`v3.${cu}.${cexp}.${owner}.${v2sig}`, "v2 sig on v3 envelope (catalog URL)");
+    assertRejected(`v3.${u}.${exp}.${owner}.${v2sig}`, "v2 sig on v3 envelope (private URL)");
+    // A v2 MAC computed with the real key over the private URL is still not a v3 MAC.
+    const expiresAt = Number.parseInt(exp, 36);
+    const v2MacOverPrivate = hmacBase64Url(TEST_KEY, `swatchwatch:image-proxy:v2:${expiresAt}:${PRIVATE_URL}`);
+    assertRejected(`v3.${u}.${exp}.${owner}.${v2MacOverPrivate}`, "real-key v2 MAC on v3 envelope");
+  });
+
+  it("rejects a tampered v3 signature regardless of which day the id was minted", () => {
+    // Same sweep as the #245 regression test for v2, over 400 consecutive days.
+    const start = Date.UTC(2026, 0, 1, 12);
+    for (let day = 0; day < 400; day += 1) {
+      const nowMs = start + day * 24 * 60 * 60 * 1000;
+      const [v, u, exp, owner, sig] = imageProxy
+        .encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER, nowMs })
+        .split(".");
+      assert.equal(imageProxy.decodeImageProxyId(`${v}.${u}.${exp}.${owner}.${sig}`, nowMs), PRIVATE_URL);
+      assert.throws(
+        () => imageProxy.decodeImageProxyId(`${v}.${u}.${exp}.${owner}.${tamperSignature(sig, 31)}`, nowMs),
+        imageProxy.ImageProxyTokenError,
+        new Date(nowMs).toISOString()
+      );
+    }
   });
 });
 
@@ -399,12 +672,32 @@ describe("functions/images — signed id enforcement", () => {
   it("returns 403 for a signed id that points outside the readable container", async () => {
     process.env.IMAGE_PROXY_SIGNING_KEY = TEST_KEY;
     const calls = mockBlobFetch();
-    const id = imageProxy.encodeImageProxyId(
-      "https://swatchtest.blob.core.windows.net/connector-raw/run-1.json.gz"
-    );
+    // encodeImageProxyId refuses to mint a public id for a non-catalog URL (#227), so build the
+    // v2 id by hand with the real key: the read allowlist must still refuse it.
+    const id = signV2Id("https://swatchtest.blob.core.windows.net/connector-raw/run-1.json.gz", TEST_KEY);
     const res = await handler()(fakeRequest(id), fakeContext());
     assert.equal(res.status, 403);
     assert.deepEqual(res.jsonBody, { error: "Forbidden" });
+    assert.equal(calls.length, 0);
+  });
+
+  it("returns 403 for forged v3 ids without touching storage", async () => {
+    process.env.IMAGE_PROXY_SIGNING_KEY = TEST_KEY;
+    const calls = mockBlobFetch();
+    const [v, u, exp, owner, sig] = imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER }).split(".");
+    const forgeries = [
+      `${v}.${u}.${exp}.${OTHER_USER.toString(36)}.${sig}`,
+      `${v}.${u}.${exp}.0${owner}.${sig}`,
+      `${v}.${toBase64Url(BLOB_URL)}.${exp}.${owner}.${sig}`,
+      `v2.${u}.${exp}.${sig}`,
+      `${v}.${u}.${exp}.${owner}.${tamperSignature(sig, 31)}`,
+      signV3Id(BLOB_URL, OTHER_KEY, { owner: OWNER, expiresAt: Number.parseInt(exp, 36) }),
+    ];
+    for (const id of forgeries) {
+      const res = await handler()(fakeRequest(id), fakeContext());
+      assert.equal(res.status, 403, id);
+      assert.deepEqual(res.jsonBody, { error: "Forbidden" });
+    }
     assert.equal(calls.length, 0);
   });
 

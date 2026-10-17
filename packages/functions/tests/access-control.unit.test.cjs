@@ -392,6 +392,18 @@ registerMock("../lib/blob-storage", {
   BlobReadError,
   BlobAccessDeniedError,
   defaultReadableContainers: () => ["source-images"],
+  // Same logic as lib/blob-storage, against the mocked catalog container above.
+  isCatalogStorageUrl: (storageUrl) => {
+    let parsed;
+    try {
+      parsed = new URL(storageUrl);
+    } catch {
+      return false;
+    }
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    const virtualHost = /^[^.]+\.blob\./i.test(parsed.hostname);
+    return (segments[virtualHost ? 0 : 1] ?? "").toLowerCase() === "source-images";
+  },
   readBlobFromStorageUrl: async (storageUrl) => {
     sideEffects.blobReads.push(storageUrl);
     return {
@@ -1145,6 +1157,19 @@ describe("images signed-id (requires #47)", () => {
   // depend on the exact HMAC construction.
   const PRIVATE_URL = "https://swatchwatchacct.blob.core.windows.net/user-uploads/user-1/private-photo.png";
   const OTHER_URL = "https://swatchwatchacct.blob.core.windows.net/user-uploads/user-2/other-photo.png";
+
+  // lib/image-proxy (not mocked) now refuses to mint a public v2 id for a non-catalog URL without
+  // an owner (#227). Until route enforcement for owner-scoped v3 ids lands, treat `user-uploads`
+  // as the catalog container at mint time so these cases keep exercising the v2 signature checks.
+  let savedSourceImageContainer;
+  beforeEach(() => {
+    savedSourceImageContainer = process.env.SOURCE_IMAGE_CONTAINER;
+    process.env.SOURCE_IMAGE_CONTAINER = "user-uploads";
+  });
+  afterEach(() => {
+    if (savedSourceImageContainer === undefined) delete process.env.SOURCE_IMAGE_CONTAINER;
+    else process.env.SOURCE_IMAGE_CONTAINER = savedSourceImageContainer;
+  });
 
   function b64url(input) {
     return Buffer.from(input).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");

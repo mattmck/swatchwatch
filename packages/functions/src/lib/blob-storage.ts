@@ -470,6 +470,26 @@ export function defaultReadableContainers(): string[] {
 }
 
 /**
+ * True when the blob lives in the shared catalog/source-image container (public product imagery,
+ * see `defaultReadableContainers()`). Anything else (e.g. user-uploaded media) must never be
+ * stored by shared caches, and is only proxied through owner-scoped `v3` image ids (#227).
+ * Handles virtual-host style (`<account>.blob.core.windows.net/<container>/...`) and path-style
+ * (Azurite: `host/<account>/<container>/...`) endpoints. Unparseable URLs are not catalog URLs.
+ */
+export function isCatalogStorageUrl(storageUrl: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(storageUrl);
+  } catch {
+    return false;
+  }
+  const segments = parsed.pathname.split("/").filter(Boolean);
+  const virtualHost = /^[^.]+\.blob\./i.test(parsed.hostname);
+  const container = (segments[virtualHost ? 0 : 1] ?? "").toLowerCase();
+  return container.length > 0 && defaultReadableContainers().includes(container);
+}
+
+/**
  * Container for private user media (e.g. nail photos, #270), from `USER_MEDIA_CONTAINER`
  * (default `nail-photos`). Blobs here are never readable through public `v2` proxy ids; they are
  * served only through owner-scoped `v3` proxy ids (#227).

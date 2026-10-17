@@ -1,4 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { isCatalogStorageUrl } from "./blob-storage";
 import { isDevBypassEnabled } from "./runtime-env";
 import { trackEvent } from "./telemetry";
 
@@ -25,6 +26,27 @@ import { trackEvent } from "./telemetry";
  * time is in [ttl, ttl + bucket]. The default must comfortably exceed the Azure OpenAI batch
  * completion window (up to 24h), because ingestion hands these URLs to the vision batch pipeline.
  *
+ * Owner-scoped v3 ids (#227) are minted for every URL outside the catalog container
+ * (`SOURCE_IMAGE_CONTAINER`, see `isCatalogStorageUrl`), i.e. private user media:
+ *
+ *   id = "v3." + base64url(storageUrl) + "." + base36(exp) + "." + base36(ownerUserId) + "." + base64url(sig)
+ *   sig = HMAC-SHA256(IMAGE_PROXY_SIGNING_KEY,
+ *                     "swatchwatch:image-proxy:v3:" + exp + ":" + ownerUserId + ":" + storageUrl)
+ *
+ * `exp` and `ownerUserId` are decimal inside the HMAC message and canonical lowercase base36 in
+ * the id; both are covered by the signature, so neither the expiry nor the owner can be changed
+ * without the key. `IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS` (default 1h, clamped to 5m..24h) is the
+ * minimum remaining lifetime, bucketed with the same formula as v2 but `bucket = min(ttl, 15 min)`,
+ * so ids are stable for up to 15 minutes and live for [ttl, ttl + bucket] after minting.
+ * A v3 id alone is not a capability: the `/api/images/{id}` route must also authenticate the
+ * request's bearer token and serve the blob only when its user id equals `ownerUserId`.
+ *
+ * Container scope: v2 ids (`scope: "public"`) may read only the catalog container
+ * (`SOURCE_IMAGE_CONTAINER`); v3 ids (`scope: "private"`) may read only `USER_MEDIA_CONTAINER`
+ * (default `nail-photos`). The route enforces this per scope, so a validly signed id never crosses
+ * containers. Minting fails closed: a non-catalog URL without a positive integer owner throws
+ * `ImageProxyScopeError` instead of producing a public id.
+ *
  * Legacy v1 ids (`base64url(url).base64url(sig)`, no expiry) are never minted any more. They are
  * accepted only while `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL` (ISO-8601) is set and in the future, so
  * previously issued URLs can drain; each accepted legacy id emits `image_proxy.legacy_id_accepted`.
@@ -46,6 +68,12 @@ const DEFAULT_ID_TTL_SECONDS = 3 * 24 * 60 * 60;
 const MIN_ID_TTL_SECONDS = 60 * 60;
 const MAX_ID_TTL_SECONDS = 30 * 24 * 60 * 60;
 const MAX_BUCKET_SECONDS = 24 * 60 * 60;
+const PRIVATE_SIGNATURE_CONTEXT = "swatchwatch:image-proxy:v3:";
+const PRIVATE_ID_VERSION_PREFIX = "v3";
+const DEFAULT_PRIVATE_ID_TTL_SECONDS = 60 * 60;
+const MIN_PRIVATE_ID_TTL_SECONDS = 5 * 60;
+const MAX_PRIVATE_ID_TTL_SECONDS = 24 * 60 * 60;
+const MAX_PRIVATE_BUCKET_SECONDS = 15 * 60;
 /** Tolerated clock difference between the minting and verifying instance. */
 const CLOCK_SKEW_SECONDS = 60;
 const BASE36_PATTERN = /^[0-9a-z]{1,12}$/;
@@ -58,6 +86,17 @@ export class ImageProxyTokenError extends Error {
   constructor(message = "Invalid image proxy token") {
     super(message);
     this.name = "ImageProxyTokenError";
+  }
+}
+
+/**
+ * A non-catalog (private) storage URL was minted without a valid owner. Thrown at mint time only;
+ * callers should omit the image rather than expose it through a public id.
+ */
+export class ImageProxyScopeError extends Error {
+  constructor(message = "Private image URLs require an owner user id") {
+    super(message);
+    this.name = "ImageProxyScopeError";
   }
 }
 
@@ -129,20 +168,55 @@ function sign(sourceImageUrl: string, expiresAt: number, key: Buffer): Buffer {
     .digest();
 }
 
-/** TTL guaranteed to remain on a freshly minted id, from `IMAGE_PROXY_ID_TTL_SECONDS`. */
-function getIdTtlSeconds(): number {
-  const raw = process.env.IMAGE_PROXY_ID_TTL_SECONDS?.trim();
+function signPrivate(
+  sourceImageUrl: string,
+  expiresAt: number,
+  ownerUserId: number,
+  key: Buffer
+): Buffer {
+  return createHmac("sha256", key)
+    .update(`${PRIVATE_SIGNATURE_CONTEXT}${expiresAt}:${ownerUserId}:${sourceImageUrl}`, "utf8")
+    .digest();
+}
+
+function readTtlSeconds(envName: string, fallback: number, min: number, max: number): number {
+  const raw = process.env[envName]?.trim();
   const parsed = raw ? Number.parseInt(raw, 10) : NaN;
-  const ttl = Number.isFinite(parsed) ? parsed : DEFAULT_ID_TTL_SECONDS;
-  return Math.min(MAX_ID_TTL_SECONDS, Math.max(MIN_ID_TTL_SECONDS, ttl));
+  const ttl = Number.isFinite(parsed) ? parsed : fallback;
+  return Math.min(max, Math.max(min, ttl));
 }
 
 /** Bucketed expiry (unix seconds); remaining lifetime at `nowMs` is within [ttl, ttl + bucket]. */
-function computeExpiry(nowMs: number): number {
-  const ttl = getIdTtlSeconds();
-  const bucket = Math.min(ttl, MAX_BUCKET_SECONDS);
+function bucketedExpiry(nowMs: number, ttl: number, maxBucket: number): number {
+  const bucket = Math.min(ttl, maxBucket);
   const nowSeconds = Math.floor(nowMs / 1000);
   return (Math.floor(nowSeconds / bucket) + 1) * bucket + ttl;
+}
+
+/** Expiry for public v2 ids, from `IMAGE_PROXY_ID_TTL_SECONDS` (bucket <= 1 day). */
+function computeExpiry(nowMs: number): number {
+  const ttl = readTtlSeconds(
+    "IMAGE_PROXY_ID_TTL_SECONDS",
+    DEFAULT_ID_TTL_SECONDS,
+    MIN_ID_TTL_SECONDS,
+    MAX_ID_TTL_SECONDS
+  );
+  return bucketedExpiry(nowMs, ttl, MAX_BUCKET_SECONDS);
+}
+
+/** Expiry for owner-scoped v3 ids, from `IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS` (bucket <= 15 min). */
+function computePrivateExpiry(nowMs: number): number {
+  const ttl = readTtlSeconds(
+    "IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS",
+    DEFAULT_PRIVATE_ID_TTL_SECONDS,
+    MIN_PRIVATE_ID_TTL_SECONDS,
+    MAX_PRIVATE_ID_TTL_SECONDS
+  );
+  return bucketedExpiry(nowMs, ttl, MAX_PRIVATE_BUCKET_SECONDS);
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
 function normalizeHttpUrl(value: string): string {
@@ -153,31 +227,85 @@ function normalizeHttpUrl(value: string): string {
   return parsed.toString();
 }
 
-export function encodeImageProxyId(sourceImageUrl: string, nowMs: number = Date.now()): string {
+export interface ImageProxyMintOptions {
+  /**
+   * Owner (`app_user.user_id`) of a private, non-catalog image. Required to mint such a URL (as an
+   * owner-scoped v3 id); ignored for catalog URLs, which always mint public v2 ids.
+   */
+  ownerUserId?: number;
+  /** Clock override (epoch milliseconds) for tests. Defaults to `Date.now()`. */
+  nowMs?: number;
+}
+
+/**
+ * Mint a signed proxy id for a storage URL.
+ *
+ * - Catalog URL (`isCatalogStorageUrl`) → public v2 id; `ownerUserId` is ignored.
+ * - Any other URL with a positive safe-integer `ownerUserId` → owner-scoped v3 id.
+ * - Any other URL without one → `ImageProxyScopeError` (fail closed).
+ *
+ * A bare number as the second argument is accepted as `nowMs` (backwards compatible).
+ *
+ * @throws ImageProxyScopeError for a non-catalog URL without a valid owner.
+ * @throws ImageProxyConfigError when no signing key is available.
+ */
+export function encodeImageProxyId(
+  sourceImageUrl: string,
+  options?: ImageProxyMintOptions | number
+): string {
+  const { ownerUserId, nowMs = Date.now() }: ImageProxyMintOptions =
+    typeof options === "number" ? { nowMs: options } : options ?? {};
   const normalized = normalizeHttpUrl(sourceImageUrl);
+
+  if (isCatalogStorageUrl(normalized)) {
+    const key = getSigningKey();
+    const expiresAt = computeExpiry(nowMs);
+    return [
+      ID_VERSION_PREFIX,
+      toBase64Url(normalized),
+      expiresAt.toString(36),
+      toBase64Url(sign(normalized, expiresAt, key)),
+    ].join(".");
+  }
+
+  if (!isPositiveSafeInteger(ownerUserId)) {
+    throw new ImageProxyScopeError();
+  }
   const key = getSigningKey();
-  const expiresAt = computeExpiry(nowMs);
+  const expiresAt = computePrivateExpiry(nowMs);
   return [
-    ID_VERSION_PREFIX,
+    PRIVATE_ID_VERSION_PREFIX,
     toBase64Url(normalized),
     expiresAt.toString(36),
-    toBase64Url(sign(normalized, expiresAt, key)),
+    ownerUserId.toString(36),
+    toBase64Url(signPrivate(normalized, expiresAt, ownerUserId, key)),
   ].join(".");
 }
 
-export function toImageProxyUrlFromOrigin(origin: string, sourceImageUrl: string): string {
+export function toImageProxyUrlFromOrigin(
+  origin: string,
+  sourceImageUrl: string,
+  options?: ImageProxyMintOptions
+): string {
   const parsedOrigin = new URL(origin);
   if (!["http:", "https:"].includes(parsedOrigin.protocol)) {
     throw new Error("Invalid image proxy origin protocol");
   }
   const normalizedOrigin = `${parsedOrigin.protocol}//${parsedOrigin.host}`;
-  return `${normalizedOrigin}${IMAGE_PROXY_ROUTE_PREFIX}${encodeImageProxyId(sourceImageUrl)}`;
+  return `${normalizedOrigin}${IMAGE_PROXY_ROUTE_PREFIX}${encodeImageProxyId(sourceImageUrl, options)}`;
 }
 
-export function toImageProxyUrl(requestUrl: string, sourceImageUrl: string): string {
+export function toImageProxyUrl(
+  requestUrl: string,
+  sourceImageUrl: string,
+  options?: ImageProxyMintOptions
+): string {
   const origin = new URL(requestUrl).origin;
-  return toImageProxyUrlFromOrigin(origin, sourceImageUrl);
+  return toImageProxyUrlFromOrigin(origin, sourceImageUrl, options);
 }
+
+/** `public`: v1/v2 catalog ids (anonymous). `private`: v3 owner-scoped ids (bearer must match). */
+export type ImageProxyScope = "public" | "private";
 
 export interface DecodedImageProxyId {
   /** Storage URL the id grants access to. */
@@ -187,6 +315,10 @@ export interface DecodedImageProxyId {
    * legacy grace window (so callers can cap cache lifetimes on it).
    */
   expiresAt: number;
+  /** `private` only for v3 ids; the route must then require a bearer token for `ownerUserId`. */
+  scope: ImageProxyScope;
+  /** The signed owner's user id; present exactly when `scope === "private"`. */
+  ownerUserId?: number;
 }
 
 function parseLegacyAcceptUntilSeconds(): number | null {
@@ -219,7 +351,22 @@ function readUrl(encoded: string): string {
   return fromBase64Url(encoded).toString("utf8");
 }
 
-function finishDecode(decodedUrl: string, expiresAt: number): DecodedImageProxyId {
+/**
+ * Parse a canonical lowercase base36 positive integer (no leading zeros, safe-integer range).
+ * Several spellings would otherwise parse to the same number and verify against one signature.
+ */
+function readBase36Integer(encoded: string): number {
+  if (!BASE36_PATTERN.test(encoded)) {
+    throw new ImageProxyTokenError();
+  }
+  const value = Number.parseInt(encoded, 36);
+  if (!isPositiveSafeInteger(value) || value.toString(36) !== encoded) {
+    throw new ImageProxyTokenError();
+  }
+  return value;
+}
+
+function finishDecode(decodedUrl: string, expiresAt: number): { url: string; expiresAt: number } {
   try {
     return { url: normalizeHttpUrl(decodedUrl), expiresAt };
   } catch {
@@ -228,7 +375,9 @@ function finishDecode(decodedUrl: string, expiresAt: number): DecodedImageProxyI
 }
 
 /**
- * Verify a signed proxy id and return the storage URL it grants access to plus its expiry.
+ * Verify a signed proxy id and return the storage URL it grants access to, its expiry, and its
+ * scope. For `scope: "private"` (v3) ids the caller MUST also check that the authenticated user
+ * is `ownerUserId` before serving anything; this function only proves the server minted the id.
  *
  * @throws ImageProxyTokenError when the id is malformed, forged, expired, or a legacy v1 id
  *   outside the `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL` grace window.
@@ -259,7 +408,25 @@ export function decodeImageProxyIdWithExpiry(
     if (nowSeconds > expiresAt + CLOCK_SKEW_SECONDS) {
       throw new ImageProxyTokenError("Image proxy token expired");
     }
-    return finishDecode(decodedUrl, expiresAt);
+    return { ...finishDecode(decodedUrl, expiresAt), scope: "public" };
+  }
+
+  if (parts.length === 5 && parts[0] === PRIVATE_ID_VERSION_PREFIX) {
+    const [, encodedUrl, encodedExpiry, encodedOwner, encodedSignature] = parts;
+    // Syntax only (canonical base36, positive safe integers); nothing is trusted until the
+    // signature over expiry, owner and URL verifies below.
+    const expiresAt = readBase36Integer(encodedExpiry);
+    const ownerUserId = readBase36Integer(encodedOwner);
+    const providedSignature = readSignature(encodedSignature);
+    const decodedUrl = readUrl(encodedUrl);
+
+    if (!timingSafeEqual(providedSignature, signPrivate(decodedUrl, expiresAt, ownerUserId, key))) {
+      throw new ImageProxyTokenError();
+    }
+    if (nowSeconds > expiresAt + CLOCK_SKEW_SECONDS) {
+      throw new ImageProxyTokenError("Image proxy token expired");
+    }
+    return { ...finishDecode(decodedUrl, expiresAt), scope: "private", ownerUserId };
   }
 
   if (parts.length === 2) {
@@ -275,7 +442,7 @@ export function decodeImageProxyIdWithExpiry(
       throw new ImageProxyTokenError("Legacy image proxy token no longer accepted");
     }
     trackEvent("image_proxy.legacy_id_accepted");
-    return finishDecode(decodedUrl, acceptUntil);
+    return { ...finishDecode(decodedUrl, acceptUntil), scope: "public" };
   }
 
   throw new ImageProxyTokenError();

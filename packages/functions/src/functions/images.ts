@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import {
   BlobAccessDeniedError,
   BlobReadError,
-  defaultReadableContainers,
+  isCatalogStorageUrl,
   readBlobFromStorageUrl,
 } from "../lib/blob-storage";
 import {
@@ -60,24 +60,9 @@ const DEFAULT_MAX_AGE_SECONDS = 3600;
 const TRANSFORM_MAX_AGE_SECONDS = 86400;
 const TRANSFORM_STALE_WHILE_REVALIDATE_SECONDS = 604800;
 
-/**
- * True when the blob lives in the shared catalog/source-image container (public product imagery).
- * Anything else (e.g. user-uploaded media) must never be stored by shared caches.
- * Handles virtual-host style (`<account>.blob.core.windows.net/<container>/...`) and path-style
- * (Azurite: `host/<account>/<container>/...`) endpoints.
- */
-export function isCatalogImageUrl(storageUrl: string): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(storageUrl);
-  } catch {
-    return false;
-  }
-  const segments = parsed.pathname.split("/").filter(Boolean);
-  const virtualHost = /^[^.]+\.blob\./i.test(parsed.hostname);
-  const container = (segments[virtualHost ? 0 : 1] ?? "").toLowerCase();
-  return container.length > 0 && defaultReadableContainers().includes(container);
-}
+// Re-exported under its historical name for existing callers/tests; the helper lives in
+// lib/blob-storage so lib/image-proxy can use it without a circular import.
+export { isCatalogStorageUrl as isCatalogImageUrl };
 
 const FRESHNESS_DIRECTIVES = new Set(["max-age", "s-maxage"]);
 // RFC 5861 stale windows: both let a cache keep serving after freshness ends.
@@ -257,7 +242,7 @@ app.http("images", {
       }
 
       const cacheControl = selectImageCacheControl({
-        catalog: isCatalogImageUrl(storageUrl),
+        catalog: isCatalogStorageUrl(storageUrl),
         transformed,
         blobCacheControl: blob.cacheControl,
         expiresAt,
