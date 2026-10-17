@@ -1,7 +1,7 @@
 import type { HexDetectionResult } from "./ai-color-detection";
 
 /**
- * Provenance recorded next to `shade.detected_hex` (migration 026): how sure the
+ * Provenance recorded next to `shade.detected_hex` (migration 20261017024958000_shade-detected-hex-provenance): how sure the
  * detector was, which strategy / deployment / prompt produced the value, and when.
  *
  * `shade.hex_agreement` (OKLAB distance vendor_hex ↔ detected_hex) is NOT written

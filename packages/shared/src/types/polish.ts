@@ -126,7 +126,7 @@ export interface Shade {
   vendor_hex?: string;
   detected_hex?: string;
   name_hex?: string;
-  /** detected_hex provenance (migration 026) */
+  /** detected_hex provenance (migration 20261017024958000_shade-detected-hex-provenance) */
   detected_hex_confidence?: number | null;
   detected_hex_method?: string | null;
   detected_hex_model?: string | null;

@@ -25,7 +25,7 @@ export function normalizeHexColor(value: string | null | undefined): string | nu
  * OKLAB distance between a vendor hex and a detected hex, rounded to 4 decimals
  * (the precision of `shade.hex_agreement NUMERIC(6,4)`). Null unless both are
  * valid 6-digit hex colors. Mirrors the Postgres `hex_oklab_distance()` function
- * that keeps `shade.hex_agreement` current (migration 026).
+ * that keeps `shade.hex_agreement` current (migration 20261017024958000_shade-detected-hex-provenance).
  */
 export function computeHexAgreement(
   vendorHex: string | null | undefined,

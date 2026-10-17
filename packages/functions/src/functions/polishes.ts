@@ -163,7 +163,7 @@ const POLISH_SELECT = `
     s.vendor_hex                                 AS "vendorHex",
     s.detected_hex                               AS "detectedHex",
     s.name_hex                                   AS "nameHex",
-    -- detected_hex provenance (migration 026). NUMERIC columns are cast so node-postgres
+    -- detected_hex provenance (migration 20261017024958000_shade-detected-hex-provenance). NUMERIC columns are cast so node-postgres
     -- returns numbers instead of strings.
     s.detected_hex_confidence::float8            AS "detectedHexConfidence",
     s.detected_hex_method                        AS "detectedHexMethod",
@@ -195,7 +195,7 @@ const POLISH_SELECT = `
     FROM swatch sw
     JOIN image_asset ia ON ia.image_id = sw.image_id_original
     WHERE sw.shade_id = s.shade_id
-    ORDER BY sw.swatch_id DESC
+    ORDER BY COALESCE(sw.swatch_type = 'source_product', false) DESC, sw.swatch_id DESC
     LIMIT 1
   ) AS swatch_img ON true`;
 
@@ -511,7 +511,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
          FROM swatch sw
          JOIN image_asset ia ON ia.image_id = sw.image_id_original
          WHERE sw.shade_id = $1
-         ORDER BY sw.swatch_id DESC`,
+         ORDER BY COALESCE(sw.swatch_type = 'source_product', false) DESC, sw.swatch_id DESC`,
         [shadeId]
       );
 
@@ -1023,7 +1023,7 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
        LEFT JOIN swatch sw ON sw.shade_id = s.shade_id
        LEFT JOIN image_asset ia ON ia.image_id = sw.image_id_original
        WHERE s.shade_id = $1
-       ORDER BY sw.swatch_id DESC
+       ORDER BY COALESCE(sw.swatch_type = 'source_product', false) DESC, sw.swatch_id DESC
        LIMIT 1`,
       [shadeId]
     );

@@ -6,7 +6,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS vector;
 
--- ── Color helpers (migration 026) ───────────────────────────────────────────
+-- ── Color helpers (migration 20261017024958000_shade-detected-hex-provenance) ───────────────────────────────────────────
 -- OKLAB math mirroring packages/shared/src/color/oklab.ts so shade.hex_agreement
 -- (a generated column) agrees with colorDistance() in the web app and API.
 
@@ -107,7 +107,7 @@ CREATE TABLE shade (
   vendor_hex TEXT,                               -- hex published by the vendor (e.g. Shopify variant option)
   detected_hex TEXT,                             -- hex detected from the product image (AI vision)
   name_hex TEXT,                                 -- hex inferred from the color name
-  -- detected_hex provenance (migration 026): who/what produced detected_hex and how sure it was
+  -- detected_hex provenance (migration 20261017024958000_shade-detected-hex-provenance): who/what produced detected_hex and how sure it was
   detected_hex_confidence NUMERIC(4,3) CHECK (detected_hex_confidence IS NULL OR (detected_hex_confidence >= 0 AND detected_hex_confidence <= 1)),
   detected_hex_method TEXT,                      -- 'vision-direct' | 'palette-pick' | 'region-crop' | 'ensemble' | 'client-supplied' | …
   detected_hex_model TEXT,                       -- Azure OpenAI deployment name
@@ -520,6 +520,18 @@ CREATE TABLE data_source (
   metadata JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Connector image URL each source image was downloaded from; ingestion reruns reuse the
+-- stored image when the URL is unchanged instead of downloading it again.
+CREATE TABLE source_image_url (
+  data_source_id BIGINT NOT NULL REFERENCES data_source(data_source_id) ON DELETE CASCADE,
+  source_url TEXT NOT NULL,
+  image_id BIGINT NOT NULL REFERENCES image_asset(image_id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (data_source_id, source_url)
+);
+CREATE INDEX idx_source_image_url_image ON source_image_url(image_id);
 
 -- Raw external product record keyed (primarily) by GTIN; may include ingredients/labels/etc.
 CREATE TABLE external_product (

@@ -65,8 +65,8 @@ describe("computeHexAgreement", () => {
     assert.equal(computeHexAgreement("#D3D3D3", "#A52A2A"), Math.round(raw * 10000) / 10000);
   });
 
-  it("matches the Postgres hex_oklab_distance() values measured for migration 026", () => {
-    // Values returned by `SELECT hex_oklab_distance(a, b)` on Postgres 17 after migration 026.
+  it("matches the Postgres hex_oklab_distance() values measured for migration 20261017024958000_shade-detected-hex-provenance", () => {
+    // Values returned by `SELECT hex_oklab_distance(a, b)` on Postgres 17 after migration 20261017024958000_shade-detected-hex-provenance.
     assert.equal(computeHexAgreement("#000000", "#FFFFFF"), 1.0);
     assert.equal(computeHexAgreement("#FF0000", "#FE0000"), 0.002);
     assert.equal(computeHexAgreement("#D3D3D3", "#A52A2A"), 0.4179);

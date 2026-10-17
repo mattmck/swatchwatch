@@ -1,6 +1,6 @@
 -- Up Migration
 
--- 026_shade_detected_hex_provenance.sql
+-- 20261017024958000_shade-detected-hex-provenance.sql
 -- Record where every shade.detected_hex came from and how well it agrees
 -- with the vendor hex.
 --
