@@ -191,6 +191,28 @@ export function mergeFinishLists(
 }
 
 // ---------------------------------------------------------------------------
+// AI prompt finish list
+// ---------------------------------------------------------------------------
+
+/** Catch-all finish that is never offered to a model as an answer. */
+const PROMPT_EXCLUDED_FINISHES: ReadonlySet<string> = new Set(["other"]);
+
+/**
+ * The finish names AI prompts (vision hex/finish detection, label OCR) offer the model, from
+ * the runtime catalog so admin-added finish types (e.g. `chrome`) can be returned. Built-in
+ * finishes come first in their seeded order, then admin-added names alphabetically, so the
+ * list (and the prompt text) only changes when an admin edits `finish_type`, keeping the
+ * prompt prefix cacheable. The `other` catch-all is left out. Defaults to the built-ins.
+ */
+export function finishNamesForPrompt(catalog: FinishCatalog = DEFAULT_FINISH_CATALOG): string[] {
+  const builtIns = CANONICAL_FINISHES.filter((name) => catalog.validNames.has(name));
+  const builtInSet = new Set<string>(CANONICAL_FINISHES);
+  const added = [...catalog.validNames].filter((name) => !builtInSet.has(name)).sort();
+  const names = [...builtIns, ...added].filter((name) => !PROMPT_EXCLUDED_FINISHES.has(name));
+  return names.length ? names : CANONICAL_FINISHES.filter((name) => !PROMPT_EXCLUDED_FINISHES.has(name));
+}
+
+// ---------------------------------------------------------------------------
 // API request helpers (polish create/update)
 // ---------------------------------------------------------------------------
 

@@ -6,6 +6,7 @@ import {
   type FinishNormalizationUpdateRequest,
   type FinishType,
   type FinishTypeCreateRequest,
+  type FinishTypeInUseResponse,
   type FinishTypeListResponse,
   type FinishTypeUpdateRequest,
   type HarmonyTypeCreateRequest,
@@ -431,6 +432,33 @@ async function updateFinish(
   }
 }
 
+function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : pluralForm}`;
+}
+
+/** Message shown in the admin console when a finish type cannot be deleted because it is in use. */
+export function finishTypeInUseMessage(displayName: string, shadeCount: number, normalizationCount: number): string {
+  const uses: string[] = [];
+  if (shadeCount > 0) uses.push(plural(shadeCount, "shade"));
+  if (normalizationCount > 0) uses.push(plural(normalizationCount, "finish normalization"));
+  const steps: string[] = [];
+  if (shadeCount > 0) steps.push(`remove it from ${shadeCount === 1 ? "that shade" : "those shades"}`);
+  if (normalizationCount > 0) steps.push("delete or repoint its normalizations");
+  const fix = steps.join(" and ");
+  return `Cannot delete finish "${displayName}": it is still used by ${uses.join(" and ")}. ` +
+    `${fix.charAt(0).toUpperCase()}${fix.slice(1)} first.`;
+}
+
+/**
+ * DELETE a finish type, unless it is still in use (#224, decision 2a).
+ *
+ * A finish type referenced by any shade (`shade.finishes` array or legacy `shade.finish`,
+ * compared case-insensitively) or by a `finish_normalization` alias is NOT deleted: the
+ * handler answers 409 with the usage counts (`FinishTypeInUseResponse`). Usage check and
+ * delete run in one statement so the counts and the decision come from the same snapshot.
+ * Caches (including the in-process finish catalog) are only invalidated when a row is
+ * actually deleted.
+ */
 async function deleteFinish(
   request: HttpRequest,
   context: InvocationContext
@@ -443,10 +471,46 @@ async function deleteFinish(
   }
 
   try {
-    const result = await query<{ finishTypeId: number }>(
-      `DELETE FROM finish_type
-       WHERE finish_type_id = $1
-       RETURNING finish_type_id AS "finishTypeId"`,
+    const result = await query<{
+      finishTypeId: number;
+      name: string;
+      displayName: string | null;
+      shadeCount: number;
+      normalizationCount: number;
+      deleted: boolean;
+    }>(
+      `WITH target AS (
+         SELECT finish_type_id, name, display_name, lower(btrim(name)) AS finish_key
+         FROM finish_type
+         WHERE finish_type_id = $1
+       ),
+       usage AS (
+         SELECT
+           (SELECT count(*)
+              FROM shade s
+             WHERE s.finishes @> ARRAY[t.finish_key]::text[]
+                OR lower(btrim(s.finish)) = t.finish_key)::int AS shade_count,
+           (SELECT count(*)
+              FROM finish_normalization fn
+             WHERE fn.normalized_finish_name = t.name)::int AS normalization_count
+         FROM target t
+       ),
+       deleted AS (
+         DELETE FROM finish_type ft
+         USING usage u
+         WHERE ft.finish_type_id = $1
+           AND u.shade_count = 0
+           AND u.normalization_count = 0
+         RETURNING ft.finish_type_id
+       )
+       SELECT t.finish_type_id AS "finishTypeId",
+              t.name,
+              t.display_name AS "displayName",
+              u.shade_count AS "shadeCount",
+              u.normalization_count AS "normalizationCount",
+              EXISTS (SELECT 1 FROM deleted) AS deleted
+       FROM target t
+       CROSS JOIN usage u`,
       [id]
     );
 
@@ -454,11 +518,30 @@ async function deleteFinish(
       return { status: 404, jsonBody: { error: "Finish not found" } };
     }
 
+    const row = result.rows[0];
+    if (!row.deleted) {
+      const shadeCount = Number(row.shadeCount) || 0;
+      const normalizationCount = Number(row.normalizationCount) || 0;
+      const body: FinishTypeInUseResponse = {
+        error: finishTypeInUseMessage(row.displayName || row.name, shadeCount, normalizationCount),
+        code: "FINISH_TYPE_IN_USE",
+        finishTypeId: id,
+        name: row.name,
+        shadeCount,
+        normalizationCount,
+      };
+      return { status: 409, jsonBody: body };
+    }
+
     await invalidateReferenceCaches();
 
     return { status: 200, jsonBody: { message: "Finish deleted successfully", finishTypeId: id } };
   } catch (error) {
     context.error("Error deleting finish:", error);
+    // A finish_normalization row created concurrently still holds the FK (ON DELETE RESTRICT).
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "23503") {
+      return { status: 409, jsonBody: { error: "Finish is still referenced by a finish normalization" } };
+    }
     return { status: 500, jsonBody: { error: "Failed to delete finish" } };
   }
 }

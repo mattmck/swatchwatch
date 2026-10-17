@@ -50,8 +50,13 @@ const MAX_CAPTURE_FRAME_BYTES = 5 * 1024 * 1024;
 const LIST_ALL_POLISHES_PAGE_SIZE = 250;
 const listPolishesInFlight = new Map<string, Promise<PolishListResponse>>();
 
-class ApiError extends Error {
-  constructor(public status: number, message: string) {
+export class ApiError extends Error {
+  /**
+   * @param status HTTP status code.
+   * @param message Server-provided `error`/`message` text (shown to users as-is).
+   * @param body Parsed JSON error body, when the server sent one (e.g. `FinishTypeInUseResponse`).
+   */
+  constructor(public status: number, message: string, public body?: unknown) {
     super(message);
     this.name = "ApiError";
   }
@@ -76,7 +81,7 @@ export async function getAuthHeaders(options?: { admin?: boolean }): Promise<Rec
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: "Unknown error" }));
-    throw new ApiError(response.status, error.error || error.message || "Request failed");
+    throw new ApiError(response.status, error.error || error.message || "Request failed", error);
   }
   return response.json();
 }
@@ -580,7 +585,11 @@ export async function updateFinishType(
   return handleResponse<FinishType>(response);
 }
 
-/** Delete a finish reference row via `DELETE /api/reference-admin/finishes/{id}` (admin auth required). */
+/**
+ * Delete a finish reference row via `DELETE /api/reference-admin/finishes/{id}` (admin auth required).
+ * A finish type still used by shades or finish normalizations is refused with 409: the thrown
+ * `ApiError` carries the server's message (with the usage counts) and the `FinishTypeInUseResponse` body.
+ */
 export async function deleteFinishType(
   finishTypeId: number
 ): Promise<{ success?: boolean; message?: string }> {

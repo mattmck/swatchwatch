@@ -11,6 +11,7 @@ export {
   type FinishType,
   type FinishTypeCreateRequest,
   type FinishTypeUpdateRequest,
+  type FinishTypeInUseResponse,
   type FinishTypeListResponse,
   type HarmonyType as ReferenceHarmonyType,
   type HarmonyTypeCreateRequest,

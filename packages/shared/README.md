@@ -146,6 +146,7 @@ Inventory status model (#261). Every `user_inventory_item` row has one status; "
 | `FinishType` | Reference finish row contract (`finishTypeId`, `name`, `displayName`, `description`, `sortOrder`, audit fields) |
 | `HarmonyType` | Reference harmony row contract (`harmonyTypeId`, `name`, `displayName`, `description`, `sortOrder`, audit fields) |
 | `FinishTypeCreateRequest` / `FinishTypeUpdateRequest` | Request payloads for admin finish create/update endpoints |
+| `FinishTypeInUseResponse` | `409` body of `DELETE /api/reference-admin/finishes/{id}` when the finish type is still in use (`error`, `code: "FINISH_TYPE_IN_USE"`, `finishTypeId`, `name`, `shadeCount`, `normalizationCount`) |
 | `HarmonyTypeCreateRequest` / `HarmonyTypeUpdateRequest` | Request payloads for admin harmony create/update endpoints |
 | `FinishNormalization` | Alias mapping row (`sourceValue` → `normalizedFinishName`) with audit fields |
 | `FinishNormalizationCreateRequest` / `FinishNormalizationUpdateRequest` | Request payloads for admin finish-normalization create/update endpoints |

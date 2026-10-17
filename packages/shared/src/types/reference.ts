@@ -34,6 +34,23 @@ export interface FinishTypeUpdateRequest {
   sortOrder?: number;
 }
 
+/**
+ * 409 body of `DELETE /api/reference-admin/finishes/{id}` when the finish type is still in use.
+ * A finish type referenced by any shade (`shade.finishes` or the legacy `shade.finish`) or by a
+ * `finish_normalization` alias cannot be deleted.
+ */
+export interface FinishTypeInUseResponse {
+  /** Human-readable message (shown as-is in the admin console). */
+  error: string;
+  code: "FINISH_TYPE_IN_USE";
+  finishTypeId: number;
+  name: string;
+  /** Shades whose `finishes` array or legacy `finish` holds this finish. */
+  shadeCount: number;
+  /** `finish_normalization` alias rows that map to this finish. */
+  normalizationCount: number;
+}
+
 export interface HarmonyTypeCreateRequest {
   name: string;
   displayName: string;
