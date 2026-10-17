@@ -2,6 +2,7 @@ import { createHash, createHmac } from "node:crypto";
 
 const AZURE_STORAGE_API_VERSION = "2023-11-03";
 const DEFAULT_SOURCE_IMAGE_CONTAINER = "source-images";
+const DEFAULT_USER_MEDIA_CONTAINER = "nail-photos";
 const REQUEST_TIMEOUT_MS = 20000;
 
 export const UPLOAD_LIMITS = {
@@ -262,8 +263,10 @@ async function sendStorageRequest(
   return response;
 }
 
-function normalizeContainerName(value: string | undefined): string {
-  const fallback = DEFAULT_SOURCE_IMAGE_CONTAINER;
+function normalizeContainerName(
+  value: string | undefined,
+  fallback: string = DEFAULT_SOURCE_IMAGE_CONTAINER
+): string {
   const normalized = (value || fallback).trim().toLowerCase();
   return normalized.length > 0 ? normalized : fallback;
 }
@@ -464,6 +467,15 @@ export interface ReadBlobOptions {
 
 export function defaultReadableContainers(): string[] {
   return [normalizeContainerName(process.env.SOURCE_IMAGE_CONTAINER)];
+}
+
+/**
+ * Container for private user media (e.g. nail photos, #270), from `USER_MEDIA_CONTAINER`
+ * (default `nail-photos`). Blobs here are never readable through public `v2` proxy ids; they are
+ * served only through owner-scoped `v3` proxy ids (#227).
+ */
+export function userMediaContainer(): string {
+  return normalizeContainerName(process.env.USER_MEDIA_CONTAINER, DEFAULT_USER_MEDIA_CONTAINER);
 }
 
 /**

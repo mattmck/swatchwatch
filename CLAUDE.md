@@ -132,6 +132,8 @@ Optional / dev-only:
 - `AUTH_DEV_BYPASS` — enables `Bearer dev:<userId>` tokens for local dev only. Fails closed when hosted in Azure (`WEBSITE_INSTANCE_ID` or a non-loopback `WEBSITE_HOSTNAME`, see `src/lib/runtime-env.ts`); the deploy workflow always sets it to `false`
 - `IMAGE_PROXY_ID_TTL_SECONDS` — minimum lifetime of newly minted signed image ids (default `259200` = 3 days, clamped 1h–30d; keep above the AI batch completion window)
 - `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL` — optional ISO-8601 cutoff for accepting legacy non-expiring v1 image ids during rollout (unset = rejected)
+- `USER_MEDIA_CONTAINER` — blob container for private user media such as nail photos (default `nail-photos`, Terraform-provisioned); readable only through owner-scoped `v3` image ids (#227)
+- `IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS` — lifetime of owner-scoped `v3` private-media image ids (default `3600`, clamped 300–86400; #227)
 - `AZURE_OPENAI_DEPLOYMENT_LABEL` — Azure OpenAI deployment name for label OCR structured extraction (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`)
 - `AZURE_OPENAI_DEPLOYMENT` — fallback deployment name when `AZURE_OPENAI_DEPLOYMENT_HEX` is unset
 - `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` — optional Azure OpenAI deployment name dedicated to batch hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`)

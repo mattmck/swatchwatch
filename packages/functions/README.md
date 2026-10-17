@@ -697,6 +697,8 @@ Key variables:
 | `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL` | Optional ISO-8601 timestamp until which legacy non-expiring (v1) image ids are still accepted. Unset or in the past means they are rejected (`403`). |
 | `INGESTION_JOB_QUEUE_NAME` | Optional queue name for async ingestion jobs. Defaults to `ingestion-jobs`. |
 | `SOURCE_IMAGE_CONTAINER` | Optional blob container override for source-ingested images. Defaults to `source-images`. |
+| `USER_MEDIA_CONTAINER` | Optional blob container override for private user media (e.g. nail photos). Defaults to `nail-photos`; Terraform sets it from `azurerm_storage_container.nail_photos`. Only readable through owner-scoped `v3` image ids, see #227. |
+| `IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS` | Private-media id lifetime (default `3600`, clamped 300–86400); used by owner-scoped `v3` ids, see #227. |
 | `AZURE_STORAGE_CONNECTION` | Connection string for uploading source images to Azure Blob Storage. When unset (for local dev or bring-up), ingestion falls back to storing the original source image URLs so swatch images still appear. |
 | `AZURE_OPENAI_GATEWAY_ENDPOINT` | Optional APIM gateway base URL used when `AZURE_OPENAI_USE_GATEWAY=true`. |
 | `AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY` | Optional APIM subscription key header value (`Ocp-Apim-Subscription-Key`) used in gateway mode. |
