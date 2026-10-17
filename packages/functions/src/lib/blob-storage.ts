@@ -224,7 +224,7 @@ async function runWithTimeout<T>(promise: Promise<T>, timeoutMs: number, label: 
 
 async function sendStorageRequest(
   config: StorageAccountConfig,
-  method: "PUT" | "GET" | "HEAD",
+  method: "PUT" | "GET" | "HEAD" | "DELETE",
   url: URL,
   headers: Record<string, string>,
   body?: Buffer
@@ -571,6 +571,39 @@ export async function readBlobFromStorageUrl(
     etag: response.headers.get("etag"),
     lastModified: response.headers.get("last-modified"),
   };
+}
+
+/**
+ * Delete a blob by its storage URL. Same guard as `readBlobFromStorageUrl`: only plain blob URLs on
+ * the configured account inside one of `allowedContainers` (required, so a caller can never
+ * default to deleting catalog imagery) are accepted; anything else throws `BlobAccessDeniedError`
+ * before any request is made.
+ *
+ * @returns true when the blob was deleted, false when it did not exist (404).
+ * @throws on any other storage error.
+ */
+export async function deleteBlobFromStorageUrl(
+  storageUrl: string,
+  options: { allowedContainers: readonly string[] }
+): Promise<boolean> {
+  const connectionString = asNonEmpty(process.env.AZURE_STORAGE_CONNECTION);
+  if (!connectionString) {
+    throw new Error("AZURE_STORAGE_CONNECTION is required for blob deletes");
+  }
+
+  const config = parseStorageConnectionString(connectionString);
+  const parsedStorageUrl = parseStorageUrl(storageUrl);
+  assertStorageReadAllowed(config, parsedStorageUrl, options.allowedContainers);
+
+  const response = await sendStorageRequest(config, "DELETE", parsedStorageUrl, {});
+  if (response.status === 202 || response.status === 200) {
+    return true;
+  }
+  if (response.status === 404) {
+    return false;
+  }
+  const details = await response.text().catch(() => "");
+  throw new Error(`Blob delete failed: ${response.status} ${response.statusText} ${details}`.trim());
 }
 
 export async function blobExists(

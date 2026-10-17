@@ -52,9 +52,10 @@ import {
 import {
   findOrCreateShade,
   invalidateCatalogCaches,
-  invalidatePolishCachesForUser,
   upsertInventoryItem,
 } from "./polishes";
+import { invalidatePolishCachesForUser } from "../lib/polish-cache";
+import { recomputeWearStats } from "../lib/manicure";
 
 /** JSON escaping can roughly double the CSV size; leave headroom for the other fields. */
 const MAX_REQUEST_BYTES = POLISH_IMPORT_MAX_BYTES * 2 + 64 * 1024;
@@ -663,6 +664,8 @@ async function commitRows(
       const { body, fields } = buildUpsertRequest(row.values, existing, now);
       const inventoryItemId = await upsertInventoryItem(client, userId, Number(shadeId), body, fields);
       if (!inventoryItemId) throw new Error("Inventory upsert returned no row");
+      // Same as POST/PUT /api/polishes: a re-added polish picks its wear stats back up from the mani log (#269).
+      await recomputeWearStats(client, userId, [Number(shadeId)], { fillTriedAt: false });
       await client.query("RELEASE SAVEPOINT polish_import_row");
 
       if (shadeCreated) result.shadesCreated += 1;

@@ -5,6 +5,7 @@ import './lib/telemetry';
 
 export * from './functions/auth';
 export * from './functions/admin-users';
+export * from './functions/admin-shade-review';
 export * from './functions/admin-reference';
 export * from './functions/capture';
 export * from './functions/catalog';
@@ -12,6 +13,8 @@ export * from './functions/images';
 export * from './functions/ingestion-worker';
 export * from './functions/ingestion-ai-batch-poller';
 export * from './functions/ingestion';
+export * from './functions/nail-photos';
+export * from './functions/manicures';
 export * from './functions/polishes';
 export * from './functions/polish-imports';
 export * from './functions/reference';
