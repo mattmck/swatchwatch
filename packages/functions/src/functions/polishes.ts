@@ -46,6 +46,7 @@ import {
   type ShadeFinishUpdate,
 } from "../lib/finishes";
 import { withBuyUrls } from "../lib/buy-link";
+import { parseColorFamilyFilter } from "../lib/color-family-filter";
 import {
   InventoryValidationError,
   defaultStatusForNewItem,
@@ -234,6 +235,7 @@ const POLISH_COLUMNS = `
     s.detected_hex_prompt_version                AS "detectedHexPromptVersion",
     s.detected_hex_at                            AS "detectedHexAt",
     s.hex_agreement::float8                      AS "hexAgreement",
+    s.color_family                               AS "colorFamily",
     -- Legacy single finish; falls back to the primary multi-finish value when unset.
     COALESCE(NULLIF(s.finish, ''), s.finishes[1], '') AS finish,
     COALESCE(s.finishes, ARRAY[]::text[])        AS finishes,
@@ -493,6 +495,7 @@ function buildPolishListCacheKey(
     status: string;
     untried: boolean;
     tags: string;
+    family?: string;
     sortBy: string;
     sortOrder: "ASC" | "DESC";
     page: number;
@@ -751,6 +754,10 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
     const normalizedScope = normalizeFilterValue(scope);
     const normalizedAvailability = normalizeFilterValue(availability);
     const parsedTags = parseTagsFilter(tagsParam);
+    const familyFilter = parseColorFamilyFilter(url.searchParams);
+    if (!familyFilter.ok) {
+      return { status: 400, jsonBody: { error: familyFilter.error } };
+    }
     const listCacheKey = buildPolishListCacheKey(userId, requestOrigin, {
       search: normalizedSearch,
       brand: normalizedBrandFilter,
@@ -761,6 +768,8 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       status: statusFilter.join(","),
       untried: untriedOnly,
       tags: canonicalizeTagsForCache(parsedTags),
+      // Only present when filtering so existing cache keys are unchanged.
+      ...(familyFilter.families.length > 0 ? { family: familyFilter.families.join(",") } : {}),
       sortBy,
       sortOrder,
       page,
@@ -850,6 +859,14 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
     if (parsedTags.length > 0) {
       conditions.push(`ui.tags @> $${paramIndex}`);
       params.push(parsedTags);
+      paramIndex++;
+    }
+
+    // Color family (#103): shade.color_family is a generated column, so this is a plain indexed
+    // WHERE clause and COUNT(*) OVER() / the fallback count stay correct.
+    if (familyFilter.families.length > 0) {
+      conditions.push(`s.color_family = ANY($${paramIndex}::text[])`);
+      params.push(familyFilter.families);
       paramIndex++;
     }
 
