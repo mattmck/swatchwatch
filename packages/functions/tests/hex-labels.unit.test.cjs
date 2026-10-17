@@ -407,7 +407,13 @@ describe("hex-labels — GET queue", () => {
     assert.equal(first.images[0].isPrimary, true);
     assert.equal(first.images[0].sourceUrl, "https://cdn.shopify.com/hero.png");
     assert.equal(first.images[1].isPrimary, false);
-    assert.ok(!JSON.stringify(body).includes("blob.core.windows.net"), "raw storage URLs never leak");
+    const responseHosts = (JSON.stringify(body).match(/https?:\/\/[^"\s\\]+/g) ?? []).map((u) => new URL(u).hostname);
+    assert.ok(responseHosts.length > 0);
+    assert.deepEqual(
+      responseHosts.filter((host) => host === "blob.core.windows.net" || host.endsWith(".blob.core.windows.net")),
+      [],
+      "raw storage URLs never leak"
+    );
 
     assert.deepEqual(second.finishes, ["holo"], "falls back to the legacy single finish");
     assert.equal(second.flagged, false);
