@@ -18,6 +18,14 @@ import type {
   AdminUserListResponse,
   AdminUserMergeRequest,
   AdminUserMergeResponse,
+  ShadeReviewActionResponse,
+  ShadeReviewApproveRequest,
+  ShadeReviewCandidatesResponse,
+  ShadeReviewListResponse,
+  ShadeReviewMergeRequest,
+  ShadeReviewMergeResponse,
+  ShadeReviewQueueState,
+  ShadeReviewRejectRequest,
   Polish,
   PolishCreateRequest,
   PolishUpdateRequest,
@@ -25,7 +33,15 @@ import type {
   PolishFilters,
   PolishImageMatchRequest,
   PolishImageMatchResponse,
+  PolishImportCreateRequest,
+  PolishImportDecision,
+  PolishImportSession,
+  PolishImportCommitResponse,
+  PolishDupesBatchRequest,
+  PolishDupesBatchResponse,
+  PolishDupesResponse,
   CatalogSearchResponse,
+  ColorFamily,
   CatalogShadeDetail,
   PolishFinish,
   FinishType,
@@ -35,6 +51,7 @@ import type {
   FinishNormalizationUpdateRequest,
   FinishTypeCreateRequest,
   FinishTypeUpdateRequest,
+  FinishTypeUpdateResponse,
   FinishTypeListResponse,
   ReferenceHarmonyType,
   HarmonyTypeCreateRequest,
@@ -48,17 +65,34 @@ import type {
   ManicureListResponse,
   ManicureMutationResponse,
   ManicureUpdateRequest,
+  PublicWishlistResponse,
+  WishlistShareEnableRequest,
+  WishlistShareStatus,
+  CollectionExportFormat,
 } from "swatchwatch-shared";
+import { WISHLIST_SHARE_FEATURE_DISABLED_CODE } from "swatchwatch-shared";
+
+import type { NailPhotoResponse } from "swatchwatch-shared";
 
 import { getAccessToken } from "./auth-token";
+import {
+  fetchCollectionExport,
+  type CollectionExportOptions,
+  type DownloadedCollectionExport,
+} from "./collection-export";
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:7071/api";
 const MAX_CAPTURE_FRAME_BYTES = 5 * 1024 * 1024;
 const LIST_ALL_POLISHES_PAGE_SIZE = 250;
 const listPolishesInFlight = new Map<string, Promise<PolishListResponse>>();
 
-class ApiError extends Error {
-  constructor(public status: number, message: string) {
+export class ApiError extends Error {
+  /**
+   * @param status HTTP status code.
+   * @param message Server-provided `error`/`message` text (shown to users as-is).
+   * @param body Parsed JSON error body, when the server sent one (e.g. `FinishTypeInUseResponse`).
+   */
+  constructor(public status: number, message: string, public body?: unknown) {
     super(message);
     this.name = "ApiError";
   }
@@ -83,7 +117,7 @@ export async function getAuthHeaders(options?: { admin?: boolean }): Promise<Rec
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: "Unknown error" }));
-    throw new ApiError(response.status, error.error || error.message || "Request failed");
+    throw new ApiError(response.status, error.error || error.message || "Request failed", error);
   }
   return response.json();
 }
@@ -117,6 +151,7 @@ export async function listPolishes(filters?: PolishFilters): Promise<PolishListR
   if (filters?.status?.length) params.set("status", filters.status.join(","));
   if (filters?.untried) params.set("untried", "true");
   if (filters?.tone) params.set("tone", filters.tone);
+  if (filters?.families?.length) params.set("family", filters.families.join(","));
   if (filters?.tags?.length) params.set("tags", filters.tags.join(","));
   if (filters?.sortBy) params.set("sortBy", filters.sortBy);
   if (filters?.sortOrder) params.set("sortOrder", filters.sortOrder);
@@ -282,6 +317,21 @@ export async function deleteManicure(id: string | number): Promise<ManicureDelet
 }
 
 /**
+ * Download the caller's collection (`GET /api/polishes/export`) as CSV or JSON through the
+ * authenticated API. Save the result with `saveBlobAsFile` from `@/lib/collection-export`.
+ */
+export async function exportCollection(
+  format: CollectionExportFormat,
+  options?: CollectionExportOptions
+): Promise<DownloadedCollectionExport> {
+  return fetchCollectionExport(
+    format,
+    { fetch: (input, init) => fetch(input, init), apiBaseUrl: API_BASE_URL, getAuthHeaders: () => getAuthHeaders() },
+    options
+  );
+}
+
+/**
  * Response payload for `POST /api/polishes/{id}/recalc-hex`.
  * All fields are optional because error/edge-case responses can omit values.
  * Consumers should handle both `undefined` (field absent) and `null` (explicitly unknown/not detected).
@@ -330,9 +380,100 @@ export async function matchPolishesToImage(
   return handleResponse<PolishImageMatchResponse>(response);
 }
 
-export async function searchCatalog(q: string, limit?: number): Promise<CatalogSearchResponse> {
+/**
+ * Dupe finder (#265): the caller's owned shades that are likely dupes of shade `id`, graded
+ * HIGH/MEDIUM with the match-image thresholds and the finish rule (see `color/dupes.ts` in
+ * swatchwatch-shared). `limit` caps `dupes` (1–20, default 5); `dupeCount` is never capped.
+ */
+export async function getPolishDupes(
+  id: string | number,
+  options?: { limit?: number }
+): Promise<PolishDupesResponse> {
+  const params = new URLSearchParams();
+  if (options?.limit) params.set("limit", String(options.limit));
+  const qs = params.toString();
+  const response = await fetch(`${API_BASE_URL}/polishes/${id}/dupes${qs ? `?${qs}` : ""}`, {
+    headers: await getAuthHeaders(),
+  });
+  return handleResponse<PolishDupesResponse>(response);
+}
+
+/**
+ * Best owned dupe per shade for list hints, one request for up to
+ * `DUPE_LIMITS.batchMaxShadeIds` ids. Prefer `fetchDupeHints` (lib/dupes.ts), which chunks
+ * longer lists.
+ */
+export async function getPolishDupeHints(
+  shadeIds: PolishDupesBatchRequest["shadeIds"]
+): Promise<PolishDupesBatchResponse> {
+  const body: PolishDupesBatchRequest = { shadeIds };
+  const response = await fetch(`${API_BASE_URL}/polishes/dupes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
+    body: JSON.stringify(body),
+  });
+  return handleResponse<PolishDupesBatchResponse>(response);
+}
+
+/** Upload a CSV for import (`POST /api/polish-imports`): parses, fuzzy-matches, and opens a review session. */
+export async function createPolishImport(data: PolishImportCreateRequest): Promise<PolishImportSession> {
+  const response = await fetch(`${API_BASE_URL}/polish-imports`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<PolishImportSession>(response);
+}
+
+export async function getPolishImport(id: string): Promise<PolishImportSession> {
+  const response = await fetch(`${API_BASE_URL}/polish-imports/${encodeURIComponent(id)}`, {
+    headers: await getAuthHeaders(),
+  });
+  return handleResponse<PolishImportSession>(response);
+}
+
+/** Save review decisions without committing (`PATCH /api/polish-imports/{id}`). */
+export async function savePolishImportDecisions(
+  id: string,
+  decisions: PolishImportDecision[]
+): Promise<PolishImportSession> {
+  const response = await fetch(`${API_BASE_URL}/polish-imports/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
+    body: JSON.stringify({ decisions }),
+  });
+  return handleResponse<PolishImportSession>(response);
+}
+
+/** Apply decisions and upsert the inventory rows (`POST /api/polish-imports/{id}/commit`). */
+export async function commitPolishImport(
+  id: string,
+  decisions: PolishImportDecision[]
+): Promise<PolishImportCommitResponse> {
+  const response = await fetch(`${API_BASE_URL}/polish-imports/${encodeURIComponent(id)}/commit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
+    body: JSON.stringify({ decisions }),
+  });
+  return handleResponse<PolishImportCommitResponse>(response);
+}
+
+export async function deletePolishImport(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/polish-imports/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: await getAuthHeaders(),
+  });
+  await handleResponse<unknown>(response);
+}
+
+export async function searchCatalog(
+  q: string,
+  limit?: number,
+  options?: { families?: ColorFamily[] }
+): Promise<CatalogSearchResponse> {
   const params = new URLSearchParams({ q });
   if (limit) params.set("limit", String(limit));
+  if (options?.families?.length) params.set("family", options.families.join(","));
 
   const response = await fetch(`${API_BASE_URL}/catalog/search?${params}`);
   return handleResponse<CatalogSearchResponse>(response);
@@ -624,20 +765,29 @@ export async function createFinishType(data: FinishTypeCreateRequest): Promise<F
   return handleResponse<FinishType>(response);
 }
 
-/** Update a finish reference row via `PUT /api/reference-admin/finishes/{id}` (admin auth required). */
+/**
+ * Update a finish reference row via `PUT /api/reference-admin/finishes/{id}` (admin auth required).
+ * A `name` change renames the finish everywhere (shades, finish normalizations) and the response's
+ * `rename` holds the counts. A name another finish type already has is refused with 409: the thrown
+ * `ApiError` carries the server's message and the `FinishTypeNameTakenResponse` body.
+ */
 export async function updateFinishType(
   finishTypeId: number,
   data: FinishTypeUpdateRequest
-): Promise<FinishType> {
+): Promise<FinishTypeUpdateResponse> {
   const response = await fetch(`${API_BASE_URL}/reference-admin/finishes/${finishTypeId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
     body: JSON.stringify(data),
   });
-  return handleResponse<FinishType>(response);
+  return handleResponse<FinishTypeUpdateResponse>(response);
 }
 
-/** Delete a finish reference row via `DELETE /api/reference-admin/finishes/{id}` (admin auth required). */
+/**
+ * Delete a finish reference row via `DELETE /api/reference-admin/finishes/{id}` (admin auth required).
+ * A finish type still used by shades or finish normalizations is refused with 409: the thrown
+ * `ApiError` carries the server's message (with the usage counts) and the `FinishTypeInUseResponse` body.
+ */
 export async function deleteFinishType(
   finishTypeId: number
 ): Promise<{ success?: boolean; message?: string }> {
@@ -769,4 +919,179 @@ export async function mergeAdminUsers(
     body: JSON.stringify(data),
   });
   return handleResponse<AdminUserMergeResponse>(response);
+}
+
+// ── Private nail photos (#270) ──────────────────────────────────────────────
+
+function nailPhotoUrl(inventoryItemId: string | number): string {
+  return `${API_BASE_URL}/inventory/${encodeURIComponent(String(inventoryItemId))}/nail-photo`;
+}
+
+/** The caller's private on-nail photo for one of their inventory items (`{ photo: null }` when none). */
+export async function getNailPhoto(inventoryItemId: string | number): Promise<NailPhotoResponse> {
+  const response = await fetch(nailPhotoUrl(inventoryItemId), {
+    headers: await getAuthHeaders(),
+    cache: "no-store",
+  });
+  return handleResponse<NailPhotoResponse>(response);
+}
+
+/**
+ * Upload or replace the nail photo. `image` is a base64 data URL (see `prepareNailPhotoUpload`);
+ * the server re-encodes it and strips all metadata (EXIF/GPS) before storing it privately.
+ */
+export async function uploadNailPhoto(
+  inventoryItemId: string | number,
+  image: string
+): Promise<NailPhotoResponse> {
+  const response = await fetch(nailPhotoUrl(inventoryItemId), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
+    body: JSON.stringify({ image }),
+  });
+  return handleResponse<NailPhotoResponse>(response);
+}
+
+/** Delete the nail photo (idempotent; 204). */
+export async function deleteNailPhoto(inventoryItemId: string | number): Promise<void> {
+  const response = await fetch(nailPhotoUrl(inventoryItemId), {
+    method: "DELETE",
+    headers: await getAuthHeaders(),
+  });
+  if (!response.ok) {
+    await handleResponse<unknown>(response);
+  }
+}
+
+/** List the admin review queue of `user_submitted` shades (`GET /api/shades-admin/review`). */
+export async function listShadeReviewQueue(params?: {
+  state?: ShadeReviewQueueState;
+  page?: number;
+  pageSize?: number;
+  q?: string;
+  candidates?: number;
+}): Promise<ShadeReviewListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.state) searchParams.set("state", params.state);
+  if (typeof params?.page === "number") searchParams.set("page", String(params.page));
+  if (typeof params?.pageSize === "number") searchParams.set("pageSize", String(params.pageSize));
+  if (params?.q?.trim()) searchParams.set("q", params.q.trim());
+  if (typeof params?.candidates === "number") searchParams.set("candidates", String(params.candidates));
+  const qs = searchParams.toString();
+  const response = await fetch(`${API_BASE_URL}/shades-admin/review${qs ? `?${qs}` : ""}`, {
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<ShadeReviewListResponse>(response);
+}
+
+/** Merge candidates for one submission, optionally searched by name (`GET .../{id}/candidates`). */
+export async function getShadeReviewCandidates(
+  shadeId: string | number,
+  params?: { q?: string; limit?: number }
+): Promise<ShadeReviewCandidatesResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.q?.trim()) searchParams.set("q", params.q.trim());
+  if (typeof params?.limit === "number") searchParams.set("limit", String(params.limit));
+  const qs = searchParams.toString();
+  const response = await fetch(
+    `${API_BASE_URL}/shades-admin/review/${encodeURIComponent(String(shadeId))}/candidates${qs ? `?${qs}` : ""}`,
+    { headers: await getAuthHeaders({ admin: true }) }
+  );
+  return handleResponse<ShadeReviewCandidatesResponse>(response);
+}
+
+async function postShadeReviewAction<T>(shadeId: string | number, action: string, body: unknown): Promise<T> {
+  const response = await fetch(
+    `${API_BASE_URL}/shades-admin/review/${encodeURIComponent(String(shadeId))}/${action}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+      body: JSON.stringify(body ?? {}),
+    }
+  );
+  return handleResponse<T>(response);
+}
+
+/** Approve a submission (optionally with edits): it becomes an `active` catalog shade. */
+export async function approveShadeReview(
+  shadeId: string | number,
+  data: ShadeReviewApproveRequest = {}
+): Promise<ShadeReviewActionResponse> {
+  return postShadeReviewAction<ShadeReviewActionResponse>(shadeId, "approve", data);
+}
+
+/** Merge a submission into an active shade, reassigning every inventory row. */
+export async function mergeShadeReview(
+  shadeId: string | number,
+  data: ShadeReviewMergeRequest
+): Promise<ShadeReviewMergeResponse> {
+  return postShadeReviewAction<ShadeReviewMergeResponse>(shadeId, "merge", data);
+}
+
+/** Reject a submission: it stays private to its submitter. */
+export async function rejectShadeReview(
+  shadeId: string | number,
+  data: ShadeReviewRejectRequest = {}
+): Promise<ShadeReviewActionResponse> {
+  return postShadeReviewAction<ShadeReviewActionResponse>(shadeId, "reject", data);
+}
+
+// ── Shareable wishlist (#268) ───────────────────────────────────────────────
+// Behind the server-side SHAREABLE_WISHLIST_ENABLED flag: while it is off every route answers
+// 404 `{ code: "feature_disabled" }`, which the client treats as "feature unavailable".
+
+async function isFeatureDisabled(response: Response): Promise<boolean> {
+  if (response.status !== 404) return false;
+  const body = (await response.clone().json().catch(() => null)) as { code?: unknown } | null;
+  return body?.code === WISHLIST_SHARE_FEATURE_DISABLED_CODE;
+}
+
+/** The caller's share-link status, or null when the feature is disabled on the server. */
+export async function getWishlistShare(): Promise<WishlistShareStatus | null> {
+  const response = await fetch(`${API_BASE_URL}/wishlist-share`, {
+    headers: await getAuthHeaders(),
+    cache: "no-store",
+  });
+  if (await isFeatureDisabled(response)) return null;
+  return handleResponse<WishlistShareStatus>(response);
+}
+
+/** Enable the share link (idempotent) and/or set its public display name. */
+export async function enableWishlistShare(data: WishlistShareEnableRequest = {}): Promise<WishlistShareStatus> {
+  const response = await fetch(`${API_BASE_URL}/wishlist-share`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<WishlistShareStatus>(response);
+}
+
+/** Replace the share token; the previous link stops working immediately. */
+export async function rotateWishlistShare(): Promise<WishlistShareStatus> {
+  const response = await fetch(`${API_BASE_URL}/wishlist-share/rotate`, {
+    method: "POST",
+    headers: await getAuthHeaders(),
+  });
+  return handleResponse<WishlistShareStatus>(response);
+}
+
+/** Revoke the share link; it 404s immediately. */
+export async function revokeWishlistShare(): Promise<WishlistShareStatus> {
+  const response = await fetch(`${API_BASE_URL}/wishlist-share`, {
+    method: "DELETE",
+    headers: await getAuthHeaders(),
+  });
+  return handleResponse<WishlistShareStatus>(response);
+}
+
+/**
+ * Anonymous read of a shared wishlist. Never sends auth headers. Throws `ApiError` (404 for an
+ * unknown, rotated or revoked token or a disabled feature; 429 when rate-limited).
+ */
+export async function getPublicWishlist(token: string): Promise<PublicWishlistResponse> {
+  const response = await fetch(`${API_BASE_URL}/wishlist/${encodeURIComponent(token)}`, {
+    credentials: "omit",
+    referrerPolicy: "no-referrer",
+  });
+  return handleResponse<PublicWishlistResponse>(response);
 }

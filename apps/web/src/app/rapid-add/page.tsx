@@ -1,27 +1,52 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import type { CaptureQuestion, CaptureStatus, FinishName } from "swatchwatch-shared";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import type { CaptureFrameType, FinishName } from "swatchwatch-shared";
+import { AlertCircle, Loader2, Search } from "lucide-react";
 import {
-  addCaptureFrameFromFile,
+  addCaptureFrame,
   answerCaptureQuestion,
   finalizeCapture,
   getCaptureStatus,
+  listAllPolishes,
   startCapture,
+  updatePolish,
 } from "@/lib/api";
 import { buildFinishOptions } from "@/lib/finish-options";
 import { useReferenceData } from "@/hooks/use-reference-data";
+import { trackEvent } from "@/lib/telemetry";
+import {
+  buildOwnershipSnapshot,
+  ownedEntryAfterVerdict,
+  resolveCaptureVerdict,
+  withOwnedEntry,
+  type OwnershipSnapshot,
+} from "@/lib/capture-verdict";
+import {
+  buildFrameQuality,
+  buildStartMetadata,
+  canAddFrame,
+  canFinalize,
+  framesReducer,
+  INITIAL_SESSION_STATE,
+  MAX_CAPTURE_FRAMES,
+  rapidAddPhase,
+  sessionReducer,
+  summarizeFrames,
+  type CaptureFrameEntry,
+  type QuestionAction,
+} from "@/lib/rapid-add-flow";
+import { assessFrameQuality, FRAME_QUALITY_WARNING_COPY } from "@/lib/camera";
+import type { ScannedBarcode } from "@/lib/barcode-scan";
+import { CameraCapture, type CameraCaptureEvent } from "@/components/rapid-add/camera-capture";
+import { FrameStrip } from "@/components/rapid-add/frame-strip";
+import { CaptureQuestionPanel } from "@/components/rapid-add/capture-question-panel";
+import { VerdictCard } from "@/components/rapid-add/verdict-card";
+import { InstallPrompt } from "@/components/install-prompt";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -30,10 +55,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-type FrameType = "barcode" | "label" | "color" | "other";
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function newLocalId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 export default function RapidAddPage() {
-  const router = useRouter();
   const { finishTypes } = useReferenceData();
   const finishOptions = useMemo(() => buildFinishOptions(finishTypes), [finishTypes]);
 
@@ -41,176 +73,257 @@ export default function RapidAddPage() {
   const [shadeHint, setShadeHint] = useState("");
   const [finishHint, setFinishHint] = useState<FinishName | "">("");
   const [collectionHint, setCollectionHint] = useState("");
+  const [frameType, setFrameType] = useState<CaptureFrameType>("label");
+  const [qualityHint, setQualityHint] = useState<string | null>(null);
 
-  const [captureId, setCaptureId] = useState<string | null>(null);
-  const [captureStatus, setCaptureStatus] = useState<CaptureStatus | null>(null);
-  const [captureQuestion, setCaptureQuestion] = useState<CaptureQuestion | null>(null);
-  const [captureMetadata, setCaptureMetadata] = useState<Record<string, unknown> | null>(null);
-  const [captureFrameType, setCaptureFrameType] = useState<FrameType>("label");
-  const [captureFrameFile, setCaptureFrameFile] = useState<File | null>(null);
-  const [captureBusy, setCaptureBusy] = useState(false);
-  const [captureError, setCaptureError] = useState<string | null>(null);
-  const [captureAnswerInput, setCaptureAnswerInput] = useState("");
+  const [session, dispatch] = useReducer(sessionReducer, INITIAL_SESSION_STATE);
+  const [frames, dispatchFrames] = useReducer(framesReducer, []);
+  const phase = rapidAddPhase(session);
+  const frameSummary = summarizeFrames(frames);
+  const hasHints = Boolean(brandHint.trim() || shadeHint.trim());
 
-  const matchedInventoryId = captureMetadata?.inventoryItemId;
-
-  async function runCaptureAction(action: () => Promise<void>) {
-    setCaptureBusy(true);
-    setCaptureError(null);
-    try {
-      await action();
-    } catch (err: unknown) {
-      setCaptureError(err instanceof Error ? err.message : "Capture request failed");
-    } finally {
-      setCaptureBusy(false);
-    }
-  }
-
-  function buildCaptureMetadata(source: string): Record<string, unknown> {
-    return {
-      source,
-      brand: brandHint || undefined,
-      shadeName: shadeHint || undefined,
-      finish: finishHint || undefined,
-      collection: collectionHint || undefined,
-    };
-  }
-
-  async function refreshCaptureStatus(sessionId: string) {
-    const status = await getCaptureStatus(sessionId);
-    setCaptureStatus(status.status);
-    setCaptureQuestion(status.question || null);
-    setCaptureMetadata(status.metadata || null);
-  }
-
-  async function handleStartCapture() {
-    await runCaptureAction(async () => {
-      const started = await startCapture({ metadata: buildCaptureMetadata("web-rapid-add") });
-      setCaptureId(started.captureId);
-      setCaptureStatus(started.status);
-      setCaptureQuestion(null);
-      setCaptureMetadata(null);
-    });
-  }
-
-  async function handleTextOnlyMatch() {
-    await runCaptureAction(async () => {
-      const started = await startCapture({ metadata: buildCaptureMetadata("web-rapid-add-text-only") });
-      setCaptureId(started.captureId);
-      setCaptureMetadata(null);
-
-      const finalized = await finalizeCapture(started.captureId);
-      setCaptureStatus(finalized.status);
-      setCaptureQuestion(finalized.question || null);
-      await refreshCaptureStatus(started.captureId);
-    });
-  }
-
-  async function handleAddCaptureFrame() {
-    if (!captureId) return;
-    if (!captureFrameFile) {
-      setCaptureError("Choose an image file before adding a frame.");
-      return;
-    }
-
-    await runCaptureAction(async () => {
-      const res = await addCaptureFrameFromFile(captureId, {
-        frameType: captureFrameType,
-        file: captureFrameFile,
-        quality: {
-          source: "web-file-input",
-          fileName: captureFrameFile.name,
-          mimeType: captureFrameFile.type,
-          fileSize: captureFrameFile.size,
-          lastModified: captureFrameFile.lastModified,
-        },
-      });
-      setCaptureStatus(res.status);
-    });
-  }
-
-  async function handleFinalizeCapture() {
-    if (!captureId) return;
-    await runCaptureAction(async () => {
-      const finalized = await finalizeCapture(captureId);
-      setCaptureStatus(finalized.status);
-      setCaptureQuestion(finalized.question || null);
-      if (finalized.status === "matched" || finalized.status === "unmatched") {
-        await refreshCaptureStatus(captureId);
-      }
-    });
-  }
-
-  async function handleRefreshCaptureStatus() {
-    if (!captureId) return;
-    await runCaptureAction(async () => {
-      await refreshCaptureStatus(captureId);
-    });
-  }
-
-  async function handleAnswerSkip() {
-    if (!captureId || !captureQuestion) return;
-    await runCaptureAction(async () => {
-      const res = await answerCaptureQuestion(captureId, {
-        questionId: captureQuestion.id,
-        answer: "skip",
-      });
-      setCaptureStatus(res.status);
-      setCaptureQuestion(res.question || null);
-      if (res.status === "matched" || res.status === "unmatched") {
-        await refreshCaptureStatus(captureId);
-      }
-    });
-  }
-
-  async function handleAnswerSubmit() {
-    if (!captureId || !captureQuestion || !captureAnswerInput.trim()) return;
-    await runCaptureAction(async () => {
-      const res = await answerCaptureQuestion(captureId, {
-        questionId: captureQuestion.id,
-        answer: captureAnswerInput.trim(),
-      });
-      setCaptureStatus(res.status);
-      setCaptureQuestion(res.question || null);
-      setCaptureAnswerInput("");
-      if (res.status === "matched" || res.status === "unmatched") {
-        await refreshCaptureStatus(captureId);
-      }
-    });
-  }
-
+  // Latest values for async callbacks that outlive a render.
+  const sessionRef = useRef(session);
+  const framesRef = useRef(frames);
+  const hintsRef = useRef({ brand: brandHint, shadeName: shadeHint, finish: finishHint, collection: collectionHint });
   useEffect(() => {
-    if (!captureId || captureStatus !== "processing") {
+    sessionRef.current = session;
+    framesRef.current = frames;
+    hintsRef.current = { brand: brandHint, shadeName: shadeHint, finish: finishHint, collection: collectionHint };
+  });
+
+  // One capture session per scanned item; concurrent frames share the same start request.
+  const sessionPromiseRef = useRef<Promise<string> | null>(null);
+  const cameraSectionRef = useRef<HTMLDivElement | null>(null);
+
+  // Ownership snapshot of the collection, taken before finalize adds the match to it.
+  const snapshotRef = useRef<Promise<OwnershipSnapshot | null> | null>(null);
+  const loadSnapshot = useCallback(() => {
+    snapshotRef.current = listAllPolishes({ scope: "collection" })
+      .then((polishes) => buildOwnershipSnapshot(polishes))
+      .catch(() => null);
+    return snapshotRef.current;
+  }, []);
+  useEffect(() => {
+    void loadSnapshot();
+  }, [loadSnapshot]);
+
+  const ensureSession = useCallback(async (barcode: ScannedBarcode | null): Promise<string> => {
+    if (sessionRef.current.captureId) return sessionRef.current.captureId;
+    if (!sessionPromiseRef.current) {
+      dispatch({ type: "busy", busy: "starting" });
+      sessionPromiseRef.current = startCapture({
+        metadata: buildStartMetadata({ barcode: barcode ?? sessionRef.current.barcode, hints: hintsRef.current }),
+      }).then(
+        (started) => {
+          dispatch({ type: "session_started", captureId: started.captureId, status: started.status });
+          sessionRef.current = { ...sessionRef.current, captureId: started.captureId, status: started.status };
+          return started.captureId;
+        },
+        (error: unknown) => {
+          sessionPromiseRef.current = null;
+          throw error;
+        },
+      );
+    }
+    return sessionPromiseRef.current;
+  }, []);
+
+  const uploadFrame = useCallback(
+    async (frame: Pick<CaptureFrameEntry, "localId" | "frameType" | "dataUrl" | "quality">, barcode: ScannedBarcode | null) => {
+      try {
+        const captureId = await ensureSession(barcode);
+        const res = await addCaptureFrame(captureId, {
+          frameType: frame.frameType,
+          imageBlobUrl: frame.dataUrl,
+          quality: frame.quality,
+        });
+        dispatchFrames({ type: "upload_succeeded", localId: frame.localId, frameId: res.frameId });
+      } catch (error) {
+        dispatchFrames({
+          type: "upload_failed",
+          localId: frame.localId,
+          error: errorMessage(error, "Upload failed"),
+        });
+        dispatch({ type: "failed", error: `Couldn't upload a frame: ${errorMessage(error, "network error")}. Tap Retry on it.` });
+      }
+    },
+    [ensureSession],
+  );
+
+  const handleCapture = useCallback(
+    (event: CameraCaptureEvent) => {
+      const current = sessionRef.current;
+      if (rapidAddPhase(current) === "verdict" || rapidAddPhase(current) === "resolving") return;
+      if (event.barcode) {
+        dispatch({ type: "barcode_detected", barcode: event.barcode });
+        sessionRef.current = { ...sessionRef.current, barcode: event.barcode };
+      }
+      if (!event.frame) return;
+      if (!canAddFrame(framesRef.current)) {
+        dispatch({ type: "failed", error: `That's the most frames for one scan (${MAX_CAPTURE_FRAMES}). Tap Find match.` });
+        return;
+      }
+      const warnings = assessFrameQuality(event.frame.metrics);
+      setQualityHint(warnings.length ? FRAME_QUALITY_WARNING_COPY[warnings[0]] : null);
+
+      const frame = {
+        localId: newLocalId(),
+        frameType: event.frameType,
+        dataUrl: event.frame.dataUrl,
+        quality: buildFrameQuality({
+          source: event.source,
+          width: event.frame.width,
+          height: event.frame.height,
+          sourceWidth: event.frame.sourceWidth,
+          sourceHeight: event.frame.sourceHeight,
+          metrics: event.frame.metrics,
+          barcode: event.barcode,
+          fileName: event.file?.name,
+          mimeType: event.file?.type,
+          fileSize: event.file?.size,
+        }),
+      };
+      framesRef.current = [...framesRef.current, { ...frame, status: "uploading", attempts: 1 }];
+      dispatchFrames({ type: "added", frame });
+      void uploadFrame(frame, event.barcode ?? sessionRef.current.barcode);
+    },
+    [uploadFrame],
+  );
+
+  function handleRetryFrame(localId: string) {
+    const frame = frames.find((f) => f.localId === localId);
+    if (!frame) return;
+    dispatchFrames({ type: "upload_started", localId });
+    dispatch({ type: "error_dismissed" });
+    void uploadFrame(frame, session.barcode);
+  }
+
+  async function resolveVerdict(captureId: string, displayHint?: string) {
+    const status = await getCaptureStatus(captureId);
+    dispatch({
+      type: "outcome_received",
+      outcome: {
+        status: status.status,
+        acceptedEntityType: status.acceptedEntityType,
+        acceptedEntityId: status.acceptedEntityId,
+        metadata: status.metadata,
+      },
+    });
+    if (status.status === "needs_question") {
+      dispatch({ type: "status_received", status: status.status, question: status.question });
       return;
     }
-
-    let cancelled = false;
-    const intervalId = window.setInterval(async () => {
-      try {
-        const status = await getCaptureStatus(captureId);
-        if (cancelled) return;
-        setCaptureStatus(status.status);
-        setCaptureQuestion(status.question || null);
-        setCaptureMetadata(status.metadata || null);
-      } catch (err: unknown) {
-        if (cancelled) return;
-        setCaptureError(err instanceof Error ? err.message : "Failed to refresh capture status");
+    const snapshot = await (snapshotRef.current ?? loadSnapshot());
+    const verdict = await resolveCaptureVerdict(status, snapshot, { displayHint });
+    dispatch({ type: "verdict_resolved", verdict });
+    if (verdict) {
+      trackEvent("rapid_add.verdict", {
+        kind: verdict.kind,
+        barcodeEngine: sessionRef.current.barcode?.engine ?? null,
+        frames: framesRef.current.length,
+      });
+      const entry = ownedEntryAfterVerdict(verdict);
+      if (entry && snapshot) {
+        snapshotRef.current = Promise.resolve(withOwnedEntry(snapshot, entry));
       }
-    }, 3000);
+    }
+  }
 
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, [captureId, captureStatus]);
+  /** The match is saved but loading its verdict failed: fetch the result again. */
+  async function handleRetryResolve() {
+    const captureId = session.captureId;
+    if (!captureId) return;
+    dispatch({ type: "busy", busy: "resolving" });
+    try {
+      await resolveVerdict(captureId);
+    } catch (error) {
+      dispatch({ type: "failed", error: errorMessage(error, "Couldn't load the result. Try again.") });
+    }
+  }
+
+  async function handleFinalize() {
+    dispatch({ type: "busy", busy: "finalizing" });
+    try {
+      const captureId = await ensureSession(session.barcode);
+      dispatch({ type: "busy", busy: "finalizing" });
+      const res = await finalizeCapture(captureId);
+      dispatch({ type: "status_received", status: res.status, question: res.question });
+      if (res.status === "matched" || res.status === "unmatched") {
+        await resolveVerdict(captureId);
+      }
+    } catch (error) {
+      dispatch({ type: "failed", error: errorMessage(error, "Matching failed. Try again.") });
+    }
+  }
+
+  async function handleAnswer(answer: string, displayHint?: string) {
+    const captureId = session.captureId;
+    if (!captureId || !session.question) return;
+    dispatch({ type: "busy", busy: "answering" });
+    try {
+      const res = await answerCaptureQuestion(captureId, { questionId: session.question.id, answer });
+      dispatch({ type: "status_received", status: res.status, question: res.question });
+      if (res.status === "matched" || res.status === "unmatched") {
+        await resolveVerdict(captureId, displayHint);
+      }
+    } catch (error) {
+      dispatch({ type: "failed", error: errorMessage(error, "Couldn't send that answer. Try again.") });
+    }
+  }
+
+  function handleQuestionAction(action: QuestionAction) {
+    setFrameType(action === "scan_barcode" ? "barcode" : "label");
+    cameraSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  async function handleUndoQuantity() {
+    const verdict = session.verdict;
+    if (verdict?.kind !== "owned" || !verdict.shadeId) return;
+    dispatch({ type: "busy", busy: "undoing" });
+    try {
+      await updatePolish(verdict.shadeId, { quantity: verdict.previousQuantity });
+      dispatch({ type: "quantity_restored" });
+      const snapshot = await snapshotRef.current;
+      if (snapshot) {
+        snapshotRef.current = Promise.resolve(
+          withOwnedEntry(snapshot, {
+            inventoryItemId: verdict.inventoryItemId,
+            shadeId: verdict.shadeId,
+            brand: "",
+            name: verdict.display,
+            quantity: verdict.previousQuantity,
+            hex: verdict.hex,
+          }),
+        );
+      }
+    } catch (error) {
+      dispatch({ type: "failed", error: errorMessage(error, "Couldn't update the quantity.") });
+    }
+  }
+
+  function handleScanNext() {
+    sessionPromiseRef.current = null;
+    dispatch({ type: "reset" });
+    dispatchFrames({ type: "reset" });
+    sessionRef.current = INITIAL_SESSION_STATE;
+    framesRef.current = [];
+    setQualityHint(null);
+    setFrameType("label");
+  }
+
+  const finalizeEnabled = canFinalize({ frames, session, hasHints });
+  const scanning = phase !== "verdict" && phase !== "resolving" && !session.barcode;
+  const busy = session.busy !== null;
+  const hintsLocked = session.captureId !== null;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="mx-auto max-w-3xl space-y-5 pb-16">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="heading-page">Rapid Add</h1>
           <p className="text-muted-foreground">
-            Capture-driven flow for fast matching and inventory updates.
+            Scan a bottle to see if you already own it — or add it in one tap.
           </p>
         </div>
         <Button asChild variant="outline">
@@ -218,190 +331,141 @@ export default function RapidAddPage() {
         </Button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Match Hints</CardTitle>
-          <CardDescription>
-            Optional brand/shade hints improve text-only matching before OCR pipeline lands.
-          </CardDescription>
-        </CardHeader>
+      <InstallPrompt />
+
+      {session.verdict && (
+        <VerdictCard
+          verdict={session.verdict}
+          quantityRestored={session.quantityRestored}
+          undoing={session.busy === "undoing"}
+          onUndoQuantity={() => void handleUndoQuantity()}
+          onScanNext={handleScanNext}
+        />
+      )}
+
+      <Card ref={cameraSectionRef} className="scroll-mt-4">
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <Input
-              aria-label="Brand hint"
-              value={brandHint}
-              onChange={(e) => setBrandHint(e.target.value)}
-              placeholder="Brand (e.g. OPI)"
-            />
-            <Input
-              aria-label="Shade hint"
-              value={shadeHint}
-              onChange={(e) => setShadeHint(e.target.value)}
-              placeholder="Shade (e.g. Big Apple Red)"
-            />
-          </div>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <Select
-              value={finishHint}
-              onValueChange={(value) => setFinishHint(value)}
-            >
-              <SelectTrigger aria-label="Finish hint">
-                <SelectValue placeholder="Optional finish hint" />
-              </SelectTrigger>
-              <SelectContent>
-                {finishOptions.map((finish) => (
-                  <SelectItem key={finish.value} value={finish.value}>
-                    {finish.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Input
-              aria-label="Collection hint"
-              value={collectionHint}
-              onChange={(e) => setCollectionHint(e.target.value)}
-              placeholder="Collection (optional)"
-            />
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" onClick={handleStartCapture} disabled={captureBusy}>
-              Start Session
-            </Button>
-            <Button type="button" variant="outline" onClick={handleTextOnlyMatch} disabled={captureBusy}>
-              Match From Form Fields
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleRefreshCaptureStatus}
-              disabled={captureBusy || !captureId}
-            >
-              Refresh Status
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleFinalizeCapture}
-              disabled={captureBusy || !captureId}
-            >
-              Finalize
-            </Button>
-          </div>
+          <CameraCapture
+            scanBarcodes={scanning}
+            captureDisabled={phase === "verdict" || phase === "resolving" || !canAddFrame(frames)}
+            frameType={frameType}
+            onFrameTypeChange={setFrameType}
+            onCapture={handleCapture}
+            onCameraError={(kind) => trackEvent("rapid_add.camera_error", { kind })}
+          />
+
+          {session.barcode && (
+            <p className="rounded-lg bg-muted/50 px-3 py-2 text-sm">
+              Barcode <span className="font-mono font-semibold">{session.barcode.gtin}</span> scanned.
+            </p>
+          )}
+          {qualityHint && phase === "collecting" && (
+            <p className="text-xs text-amber-700 dark:text-amber-400">{qualityHint}</p>
+          )}
+
+          <FrameStrip
+            frames={frames}
+            onRetry={handleRetryFrame}
+            onRemove={(localId) => dispatchFrames({ type: "removed", localId })}
+          />
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Add Frame</CardTitle>
-          <CardDescription>
-            Select an image from camera/gallery and submit it as a capture frame.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-[140px_1fr_auto]">
-            <Select
-              value={captureFrameType}
-              onValueChange={(value) => setCaptureFrameType(value as FrameType)}
-            >
-              <SelectTrigger aria-label="Capture frame type">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="barcode">barcode</SelectItem>
-                <SelectItem value="label">label</SelectItem>
-                <SelectItem value="color">color</SelectItem>
-                <SelectItem value="other">other</SelectItem>
-              </SelectContent>
-            </Select>
-            <label htmlFor="capture-frame-file" className="sr-only">
-              Choose image file for capture frame
-            </label>
-            <input
-              id="capture-frame-file"
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={(e) => setCaptureFrameFile(e.target.files?.[0] || null)}
-              className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
-            />
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleAddCaptureFrame}
-              disabled={captureBusy || !captureId}
-            >
-              Add Frame
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Selected file: {captureFrameFile ? captureFrameFile.name : "none"} (image files only, max 5MB)
-          </p>
-        </CardContent>
-      </Card>
+      {phase === "question" && session.question && (
+        <CaptureQuestionPanel
+          key={session.question.id}
+          question={session.question}
+          busy={busy}
+          onAnswer={(answer, displayHint) => void handleAnswer(answer, displayHint)}
+          onSkip={() => void handleAnswer("skip")}
+          onAction={handleQuestionAction}
+        />
+      )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Session State</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="text-xs text-muted-foreground">
-            <p>Capture ID: {captureId || "not started"}</p>
-            <p>Status: {captureStatus || "n/a"}</p>
-            {captureStatus === "processing" && <p>Polling status every 3s…</p>}
-            {captureQuestion && <p>Open question: {captureQuestion.prompt}</p>}
-            {captureStatus === "matched" && typeof matchedInventoryId !== "undefined" && (
-              <p>Inventory item created: {String(matchedInventoryId)}</p>
+      {phase !== "verdict" && (
+        <div className="space-y-2">
+          <Button
+            type="button"
+            variant="brand"
+            size="lg"
+            className="w-full"
+            onClick={() => void handleFinalize()}
+            disabled={!finalizeEnabled}
+          >
+            {session.busy === "finalizing" || session.busy === "resolving" ? (
+              <Loader2 className="animate-spin" aria-hidden />
+            ) : (
+              <Search aria-hidden />
             )}
-          </div>
+            {session.busy === "finalizing" || session.busy === "resolving" ? "Matching…" : "Find match"}
+          </Button>
+          <p className="text-center text-xs text-muted-foreground">
+            {frameSummary.uploading > 0
+              ? "Uploading frames…"
+              : "A match is added to your collection; if you already own it you can undo the extra bottle."}
+          </p>
+        </div>
+      )}
 
-          {captureQuestion && (
-            <div className="space-y-2 rounded-md border border-border/50 p-3">
-              <p className="text-xs font-medium text-foreground">Question Answer</p>
-              {captureQuestion.options?.length ? (
-                <p className="text-xs text-muted-foreground">
-                  Options: {captureQuestion.options.join(" | ")}
-                </p>
-              ) : null}
-              <div className="flex gap-2">
-                <Input
-                  value={captureAnswerInput}
-                  onChange={(e) => setCaptureAnswerInput(e.target.value)}
-                  placeholder="Enter answer (e.g. 21 or brand + shade)"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleAnswerSubmit}
-                  disabled={captureBusy || !captureAnswerInput.trim()}
-                >
-                  Submit
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleAnswerSkip}
-                  disabled={captureBusy}
-                >
-                  Skip
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {captureError && (
-            <p className="text-xs text-destructive">{captureError}</p>
-          )}
-
-          {captureStatus === "matched" && typeof matchedInventoryId !== "undefined" && (
-            <Button
-              type="button"
-              onClick={() => router.push(`/polishes/detail?id=${String(matchedInventoryId)}`)}
-            >
-              View Added Polish
+      {session.error && (
+        <div role="alert" className="flex flex-wrap items-start gap-2 text-sm text-destructive">
+          <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <span className="min-w-0 flex-1">{session.error}</span>
+          {phase === "resolving" && !busy && session.captureId && (
+            <Button type="button" variant="outline" size="sm" onClick={() => void handleRetryResolve()}>
+              Try again
             </Button>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      )}
+
+      {phase !== "verdict" && (
+        <details className="group rounded-xl border border-border/60 p-4">
+          <summary className="cursor-pointer text-sm font-medium">Know the name? Add hints</summary>
+          <div className="mt-3 space-y-3">
+            <p className="text-xs text-muted-foreground">
+              {hintsLocked
+                ? "Hints are sent when a scan starts; they'll apply to your next scan."
+                : "Brand and shade help when there's no barcode. With hints alone, Find match works without a photo."}
+            </p>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <Input
+                aria-label="Brand hint"
+                value={brandHint}
+                disabled={hintsLocked}
+                onChange={(e) => setBrandHint(e.target.value)}
+                placeholder="Brand (e.g. OPI)"
+              />
+              <Input
+                aria-label="Shade hint"
+                value={shadeHint}
+                disabled={hintsLocked}
+                onChange={(e) => setShadeHint(e.target.value)}
+                placeholder="Shade (e.g. Big Apple Red)"
+              />
+              <Select value={finishHint} onValueChange={(value) => setFinishHint(value)} disabled={hintsLocked}>
+                <SelectTrigger aria-label="Finish hint">
+                  <SelectValue placeholder="Optional finish hint" />
+                </SelectTrigger>
+                <SelectContent>
+                  {finishOptions.map((finish) => (
+                    <SelectItem key={finish.value} value={finish.value}>
+                      {finish.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                aria-label="Collection hint"
+                value={collectionHint}
+                disabled={hintsLocked}
+                onChange={(e) => setCollectionHint(e.target.value)}
+                placeholder="Collection (optional)"
+              />
+            </div>
+          </div>
+        </details>
+      )}
     </div>
   );
 }

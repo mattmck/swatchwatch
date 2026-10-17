@@ -1,4 +1,5 @@
 import type { CANONICAL_FINISHES } from "../constants/finishes";
+import type { ColorFamily } from "../color/color-family";
 import type { PolishStatus } from "./inventory";
 
 export interface Polish {
@@ -34,6 +35,13 @@ export interface Polish {
    */
   hexAgreement?: number | null;
   /**
+   * Color family derived from the display hex (vendor > detected > name), or
+   * `multichrome` for color-shifting finishes. Stored on the shade as the generated
+   * `shade.color_family` column; null when the shade has no usable hex.
+   * See `classifyColorFamily`.
+   */
+  colorFamily?: ColorFamily | null;
+  /**
    * Legacy single finish (the shade's identity/primary finish). Kept populated for
    * backward compatibility; prefer `finishes` (or `resolvePolishFinishes`) for display.
    */
@@ -66,7 +74,18 @@ export interface Polish {
   notes?: string;
   swatchImageUrl?: string;
   sourceImageUrls?: string[];
+  /**
+   * Reserved; not populated by the polishes API. The private on-nail photo is served by
+   * `GET /api/inventory/{inventoryItemId}/nail-photo` (`NailPhotoResponse`, #270).
+   */
   nailImageUrl?: string;
+  /**
+   * "Buy from brand" link: the stored source product URL (absolute http/https, no
+   * credentials; validated server-side). Absent when the shade has no stored product URL.
+   * When a shade has several source products the API picks one deterministically
+   * (enabled source first, then most recently seen). No affiliate parameters.
+   */
+  buyUrl?: string;
   tags?: string[];
   createdAt: string;
   updatedAt: string;
@@ -162,6 +181,12 @@ export interface PolishCreateRequest {
   shadeId?: string;
   brand: string;
   name: string;
+  /**
+   * Catalog fields: `color`, `vendorHex`, `detectedHex`, `nameHex`, `finish` and `finishes`
+   * are written to the shared shade ONLY when this request creates it. Adopting, matching or
+   * updating an existing shared shade never changes them (the caller's own private
+   * `user_submitted` shade is the exception: its creator may correct them).
+   */
   color: string;
   vendorHex?: string;
   detectedHex?: string;
@@ -170,7 +195,8 @@ export interface PolishCreateRequest {
   finish?: FinishName;
   /**
    * Multi-finish list. The first entry is the primary finish (used for the legacy
-   * `finish` column). Unknown values are ignored; aliases are normalized.
+   * `finish` column). Unknown values are ignored; aliases are normalized. Never derived
+   * from `tags`.
    */
   finishes?: FinishName[];
   collection?: string;
@@ -222,6 +248,8 @@ export interface PolishFilters {
   /** Only owned rows that were never tried (`untried=true`). */
   untried?: boolean;
   tone?: "warm" | "cool" | "neutral";
+  /** Matches shades in ANY of these color families (`?family=red,pink`). */
+  families?: ColorFamily[];
   sortBy?:
     | "name"
     | "brand"
@@ -243,7 +271,11 @@ export interface CatalogSearchResult {
   finish?: string;
   finishes?: string[];
   collection?: string;
+  /** Color family of the shade (see `Polish.colorFamily`). */
+  colorFamily?: ColorFamily | null;
   similarity: number;
+  /** "Buy from brand" link (see `Polish.buyUrl`); absent when none is stored. */
+  buyUrl?: string;
 }
 
 export interface CatalogSearchResponse {
@@ -300,4 +332,6 @@ export interface CatalogShadeDetail {
   releaseYear?: number;
   status: string;
   aliases: string[];
+  /** "Buy from brand" link (see `Polish.buyUrl`); absent when none is stored. */
+  buyUrl?: string;
 }

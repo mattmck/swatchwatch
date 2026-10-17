@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { resolveAzureOpenAiConfig } from "./azure-openai-config";
+import { finishNamesForPrompt, loadFinishCatalog, type FinishCatalog } from "./finishes";
 
 const OPENAI_API_VERSION = "2024-06-01";
 const REQUEST_TIMEOUT_MS = 15000;
@@ -30,8 +31,14 @@ export interface ParsedLabelFields {
 // Prompts
 // ---------------------------------------------------------------------------
 
-const SYSTEM_PROMPT =
-  "You are a nail polish label reader. Given OCR text from a nail polish bottle label, extract the following fields as JSON: brand, shadeName, finish (one of: creme, shimmer, glitter, metallic, matte, jelly, holographic, holo, duochrome, multichrome, flake, topper, sheer), collection, gtin (if a barcode number is visible), sizeMl. Return ONLY valid JSON. If a field cannot be determined, set it to null.";
+/**
+ * System prompt for label parsing. The `finish` choices come from the runtime finish catalog
+ * (`finishNamesForPrompt`: built-ins in seeded order, then admin-added types), so the text only
+ * changes when an admin edits `finish_type`. Defaults to the built-in finishes.
+ */
+export function buildLabelSystemPrompt(catalog?: FinishCatalog): string {
+  return `You are a nail polish label reader. Given OCR text from a nail polish bottle label, extract the following fields as JSON: brand, shadeName, finish (one of: ${finishNamesForPrompt(catalog).join(", ")}), collection, gtin (if a barcode number is visible), sizeMl. Return ONLY valid JSON. If a field cannot be determined, set it to null.`;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -168,6 +175,10 @@ export async function parseLabelText(
   // -----------------------------------------------------------------------
   // Build request
   // -----------------------------------------------------------------------
+  const finishCatalog = await loadFinishCatalog({
+    onFallback: (message, code) =>
+      console.warn(`${LOG_PREFIX} Falling back to built-in finish catalog for the prompt`, { message, code }),
+  });
   const requestUrl = `${resolved.endpoint}/openai/deployments/${resolved.deployment}/chat/completions?api-version=${OPENAI_API_VERSION}`;
 
   const requestBody = JSON.stringify({
@@ -175,7 +186,7 @@ export async function parseLabelText(
     max_tokens: 500,
     response_format: { type: "json_object" },
     messages: [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: buildLabelSystemPrompt(finishCatalog) },
       { role: "user", content: buildUserMessage(rawText, hints) },
     ],
   });

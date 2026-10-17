@@ -396,13 +396,14 @@ const NON_POLISH_KEYWORDS = [
   "bond",
 ];
 
-const POLISH_SIGNAL_REGEX = /\b(?:nail\s*polish|polish|lacquer|varnish|enamel)\b/;
+const POLISH_SIGNAL_REGEX = /\b(?:nail\s*)?(?:polish(?:es)?|lacquers?|varnish(?:es)?|enamels?)\b/;
 const NON_POLISH_REGEX = new RegExp(`\\b(?:${NON_POLISH_KEYWORDS.join("|")})(?:s|es)?\\b`);
 
 /**
  * Classifies whether a Shopify product is a nail polish based on its
  * `product_type` and tags. Returns true only when at least one polish signal
- * (`nail polish`, `polish`, `lacquer`, `varnish`, `enamel`) is present AND no
+ * (`nail polish`, `polish`, `lacquer`, `varnish`, `enamel`, or their plurals
+ * such as `Nail Polishes`/`lacquers`) is present AND no
  * non-polish keyword (stamp, plate, brush, tool, file, buffer, lamp, decal,
  * sticker, kit, remover, wipe, cuticle, treatment, primer, dehydrator, bond)
  * appears.
@@ -410,7 +411,8 @@ const NON_POLISH_REGEX = new RegExp(`\\b(?:${NON_POLISH_KEYWORDS.join("|")})(?:s
  * Inputs are matched case-insensitively. Tag separators `_` and `-` are
  * normalized to spaces so `nail-polish`/`nail_polish` are recognized; the
  * polish-signal regex also matches the concatenated form `nailpolish` via
- * `\s*`. All matching uses word boundaries to avoid substring false positives
+ * `\s*`. Only plural forms are accepted as inflections (`polishes`, not
+ * `polished`). All matching uses word boundaries to avoid substring false positives
  * (e.g., `kit` won't match inside an unrelated word).
  */
 export function isNailPolish(productType: string | null, tags: string[]): boolean {
@@ -422,12 +424,29 @@ export function isNailPolish(productType: string | null, tags: string[]): boolea
   return POLISH_SIGNAL_REGEX.test(normalizedHaystack);
 }
 
-function isBundle(tags: string[]): boolean {
-  const normalized = tags.map((tag) => tag.toLowerCase());
-  return (
-    normalized.includes("bundle:product") ||
-    normalized.includes("product-bundle") ||
-    normalized.includes("bundle")
+/**
+ * Exact (normalized) tags that mark a Shopify product as a multi-shade set or
+ * bundle rather than a single shade. Matching is exact on the whole tag, so
+ * collection tags that merely name a set (e.g. Mooncat's per-shade
+ * `collection:lost-in-a-folktale-set`) do not mark the shade as a bundle.
+ */
+const BUNDLE_TAGS = new Set([
+  "bundle",
+  "bundle:product",
+  "product-bundle",
+  // Mooncat tags its boxed collection sets this way (no bundle:* tag on some).
+  "collection-set",
+  "gift-set",
+]);
+
+/**
+ * True when the product's tags mark it as a set/bundle. Tags are lowercased,
+ * trimmed, and `_`/whitespace runs are folded to `-`, so `Collection Set` and
+ * `collection_set` match `collection-set`.
+ */
+export function isBundle(tags: string[]): boolean {
+  return tags.some((tag) =>
+    BUNDLE_TAGS.has(tag.trim().toLowerCase().replace(/[\s_]+/g, "-"))
   );
 }
 
@@ -717,8 +736,46 @@ export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
   StarrilyShopify: "https://www.starrily.com",
   TylerStrinketsShopify: "https://tylerstrinkets.com",
   DrunkFairyPolishShopify: "https://drunkfairypolish.com",
+  NightOwlLacquerShopify: "https://nightowllacquer.com",
+  PahlishShopify: "https://pahlish.com",
   HoloTacoShopify: "https://www.holotaco.com",
 };
+
+/**
+ * Shopify sources registered disabled until the owner approves them (roadmap
+ * 2026-10-to-12 §6 decision 4). Migration 20261017062550000_add-indie-shopify-sources
+ * seeds their data_source rows with enabled=false; this set makes auto-provisioning
+ * (ensureSupportedShopifyDataSources) create them disabled too, in case the code
+ * reaches an environment before that migration has run. Removing a name here does
+ * not enable an existing row: set data_source.enabled = true for that.
+ */
+export const SHOPIFY_SOURCES_PENDING_APPROVAL: ReadonlySet<string> = new Set([
+  "NightOwlLacquerShopify",
+  "PahlishShopify",
+]);
+
+/** Whether a newly auto-provisioned data_source row for `source` starts enabled. */
+export function isShopifySourceEnabledByDefault(source: string): boolean {
+  return !SHOPIFY_SOURCES_PENDING_APPROVAL.has(source);
+}
+
+// Shopify stores that never set a vendor publish a placeholder (Night Owl Lacquer
+// lists most of its catalog as "vendor-unknown"); a placeholder must not become a brand.
+const PLACEHOLDER_VENDORS: ReadonlySet<string> = new Set([
+  "vendor-unknown",
+  "vendor unknown",
+  "unknown vendor",
+  "default vendor",
+]);
+
+/** The product's vendor, or the source's brand when the vendor is missing or a placeholder. */
+export function resolveShopifyVendor(vendor: unknown, brandName: string): string {
+  const normalized = asNonEmptyString(vendor);
+  if (!normalized || PLACEHOLDER_VENDORS.has(normalized.toLowerCase())) {
+    return brandName;
+  }
+  return normalized;
+}
 
 export function defaultShopifyBaseUrl(source: string): string {
   return (
@@ -751,7 +808,7 @@ async function toNormalizedRecord(
   }
 
   const handle = asNonEmptyString(product.handle);
-  const vendor = asNonEmptyString(product.vendor) || brandName;
+  const vendor = resolveShopifyVendor(product.vendor, brandName);
   const collections = extractTaggedValues(tags, "collection:");
   const finishes = extractFinishFromTags(tags);
   const tagColors = extractColorFromTags(tags);

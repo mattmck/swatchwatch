@@ -68,6 +68,7 @@ for (const [id, exports] of Object.entries(mockModules)) {
 
 const inventory = require("../dist/lib/inventory");
 require("../dist/functions/polishes");
+require("../dist/functions/admin-users");
 
 afterEach(() => {
   queryMock = async () => ({ rows: [] });
@@ -465,6 +466,80 @@ describe("functions/polishes — create/update inventory fields", () => {
     const call = upsertCall(tx);
     assert.equal(param(call, 15), "owned");
     assert.match(call.text, /COALESCE\(\$3::int, CASE WHEN \$15::text IN \('owned', 'destash'\) THEN 1 ELSE 0 END\)/);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Admin account merge — duplicate inventory rows keep the strongest status
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("functions/admin-users — merge inventory status", () => {
+  /** Runs the merge handler and returns the SQL of the duplicate-inventory UPDATE. */
+  async function mergeDuplicateInventorySql() {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async () => ({ rows: [{ ...USER_ROW, user_id: 2, role: "admin" }] });
+    let mergeSql = null;
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text) => {
+          const sql = String(text);
+          if (/FROM app_user/.test(sql) && /WHERE user_id = ANY/.test(sql)) {
+            return {
+              rows: [
+                { userId: 10, role: "user", email: null, externalId: "oid-source" },
+                { userId: 20, role: "user", email: null, externalId: "oid-target" },
+              ],
+            };
+          }
+          if (/UPDATE user_inventory_item target/.test(sql)) mergeSql = sql;
+          return { rows: [], rowCount: 0 };
+        },
+      });
+    const res = await registeredRoutes["admin-users-merge"].handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/users-admin/merge",
+        body: { sourceUserId: 10, targetUserId: 20 },
+      }),
+      fakeContext()
+    );
+    assert.equal(res.status, 200);
+    assert.ok(mergeSql, "expected the duplicate-inventory merge UPDATE");
+    return mergeSql;
+  }
+
+  /** Evaluates the merge's `status = CASE ... END` for a (source, target) status pair. */
+  function statusEvaluator(sql) {
+    const caseExpr = sql.match(/status = CASE([\s\S]*?)\bEND\b/);
+    assert.ok(caseExpr, "status CASE expression");
+    const whens = [...caseExpr[1].matchAll(/WHEN '(\w+)' IN \(source\.status, target\.status\) THEN '(\w+)'/g)];
+    assert.ok(whens.length > 0, "precedence WHEN branches");
+    assert.match(caseExpr[1], /ELSE target\.status\s*$/);
+    return (source, target) => {
+      for (const [, needle, result] of whens) {
+        if (source === needle || target === needle) return result;
+      }
+      return target;
+    };
+  }
+
+  it("keeps the strongest status: owned > destash > wishlist > archived", async () => {
+    const { POLISH_STATUSES } = require("swatchwatch-shared");
+    const merged = statusEvaluator(await mergeDuplicateInventorySql());
+    const rank = ["owned", "destash", "wishlist", "archived"];
+    assert.deepEqual([...rank].sort(), [...POLISH_STATUSES].sort(), "rank covers every status");
+    for (const source of rank) {
+      for (const target of rank) {
+        const expected = rank[Math.min(rank.indexOf(source), rank.indexOf(target))];
+        assert.equal(merged(source, target), expected, `source=${source} target=${target}`);
+      }
+    }
+  });
+
+  it("a destash bottle merged with a wishlist row stays destash, in either direction", async () => {
+    const merged = statusEvaluator(await mergeDuplicateInventorySql());
+    assert.equal(merged("destash", "wishlist"), "destash");
+    assert.equal(merged("wishlist", "destash"), "destash");
   });
 });
 

@@ -903,7 +903,7 @@ describe("functions/images — owner-scoped v3 ids (#227)", () => {
     assert.equal(res.status, 401);
     assert.deepEqual(res.jsonBody, { error: "Unauthorized" });
     assert.equal(res.headers.get("Cache-Control"), "no-store");
-    assert.ok(calls.some((c) => c.url.includes("ciamlogin.com")), "JWT validation was reached");
+    assert.ok(calls.some((c) => new URL(c.url).hostname === "swatchtest.ciamlogin.com"), "JWT validation was reached");
     assert.deepEqual(logged, [], "a bad JWT is not an unexpected auth error");
     assert.ok(!calls.some((c) => c.url === PRIVATE_URL), "no blob read");
   });
