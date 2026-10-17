@@ -157,6 +157,10 @@ describe("color family — typical polish colors", () => {
   it("accepts lowercase and #-less hexes; invalid hexes have no family", () => {
     assert.equal(family("ff0000"), "red");
     assert.equal(family("  #ff0000 "), "red");
+    // trim() strips all ECMAScript whitespace (tabs, newlines, NBSP, BOM, ...), not just spaces.
+    assert.equal(family("\t#FF0000\n"), "red");
+    assert.equal(family(" ﻿#FF0000　\r\n"), "red");
+    assert.equal(family("​#FF0000"), null); // zero-width space is not whitespace
     assert.equal(family("#F00"), null);
     assert.equal(family("not-a-hex"), null);
     assert.equal(family(""), null);
@@ -329,6 +333,7 @@ describe("color family — shades (display hex + finishes)", () => {
     assert.equal(classifyColorFamily({ finish: "multichrome", finishes: [] }), "multichrome");
     assert.equal(classifyColorFamily({ finish: " Chameleon " }), "multichrome");
     assert.equal(classifyColorFamily({ finishes: ["Color Shift"] }), "multichrome");
+    assert.equal(classifyColorFamily({ finishes: ["\tMultichrome "] }), "multichrome");
     assert.equal(classifyColorFamily({ vendorHex: "#800080", finishes: ["duochrome"] }), "purple");
     assert.equal(classifyColorFamily({ vendorHex: "#800080", finish: "holographic", finishes: ["holographic"] }), "purple");
     assert.equal(hasMultichromeFinish({ finishes: null, finish: null }), false);
