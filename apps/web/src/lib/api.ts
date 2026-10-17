@@ -45,7 +45,7 @@ import type {
 
 import { getAccessToken } from "./auth-token";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:7071/api";
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:7071/api";
 const MAX_CAPTURE_FRAME_BYTES = 5 * 1024 * 1024;
 const LIST_ALL_POLISHES_PAGE_SIZE = 250;
 const listPolishesInFlight = new Map<string, Promise<PolishListResponse>>();
@@ -57,7 +57,7 @@ class ApiError extends Error {
   }
 }
 
-async function getAuthHeaders(options?: { admin?: boolean }): Promise<Record<string, string>> {
+export async function getAuthHeaders(options?: { admin?: boolean }): Promise<Record<string, string>> {
   if (process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true") {
     const devUserId = options?.admin
       ? process.env.NEXT_PUBLIC_AUTH_DEV_ADMIN_USER_ID || "2"
