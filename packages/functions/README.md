@@ -310,6 +310,7 @@ the shade write path.
 # From repo root
 npm run eval:hex --workspace=swatchwatch-functions -- --strategy pixel            # offline pixel baseline
 npm run eval:hex --workspace=swatchwatch-functions -- --strategy azure-current,azure-blind --verbose
+npm run eval:hex --workspace=swatchwatch-functions -- --strategy ensemble --limit 5      # N samples/case, see below
 npm run eval:hex --workspace=swatchwatch-functions -- --strategy all --fixture eval/hex/fixtures/color-training-sample.json
 npm run eval:hex --workspace=swatchwatch-functions -- --list-strategies
 npm run eval:hex:populate --workspace=swatchwatch-functions -- --dry-run         # DB → color_training_sample → fixture
@@ -326,9 +327,32 @@ overriding variables already set), so the same Postgres / Azure OpenAI config th
 | `azure-current` | `detectHexWithAzureOpenAI` exactly as ingestion calls it: image + vendor context (shade name, description, tags, and the vendor hex only when the ground truth *is* a vendor option). | yes |
 | `azure-blind` | The same call with `vendorContext` removed — what the model gets from the image alone. | yes |
 | `pixel` | Top dominant color from `extractDominantColors` over the whole image. A deliberately naive baseline (product shots mostly return the background). | no |
+| `ensemble` | `azure-current` sampled several times at a small temperature, optionally across more than one deployment, reduced to one answer by `src/lib/hex-ensemble.ts` (see below). | yes |
 
 When Azure OpenAI is not configured (`AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_KEY` + `AZURE_OPENAI_DEPLOYMENT_HEX`/`AZURE_OPENAI_DEPLOYMENT`,
 or the APIM gateway equivalents), Azure strategies print `Skipping strategy …` and the run still exits 0.
+
+**Ensemble strategy** (`src/eval/hex/strategies/ensemble.ts` + pure math in `src/lib/hex-ensemble.ts`):
+one detection at temperature 0 gives one opinion and no idea how stable it is. The ensemble makes the
+same production call (image + vendor context) `HEX_DETECTION_ENSEMBLE_SAMPLES` times per deployment
+(default 3) at `HEX_DETECTION_ENSEMBLE_TEMPERATURE` (default 0.3), against every deployment in
+`AZURE_OPENAI_DEPLOYMENT_HEX_ENSEMBLE` (comma-separated; unset → the sync deployment
+`AZURE_OPENAI_DEPLOYMENT_HEX` → `AZURE_OPENAI_DEPLOYMENT`), with at most three calls in flight per
+case and the library's usual 429/5xx retries. `aggregateHexSamples` then:
+
+- picks the **medoid** in OKLAB (the sample with the smallest summed distance to the others), so the
+  answer is always one of the model's own outputs;
+- reports the **spread** (mean OKLAB distance of the other samples to the medoid; 0 = unanimous);
+- derives **confidence** as agreement (1 at spread 0, 0 at spread ≥ the MEDIUM threshold `0.10`)
+  blended 50/50 with the samples' mean reported confidence;
+- **votes on finishes**, keeping those reported by at least half the valid samples.
+
+A single valid sample is returned as-is (no spread, its own confidence); samples that error are kept
+in the output with their message, and the case only errors when every sample fails. The results JSON
+`meta` holds every sample (deployment, temperature, hex, confidence, finishes, usage, distance to the
+medoid), `medoidIndex`, `spread`, `agreement`, `votes`, `config` and per-deployment token usage. The
+ensemble costs samples × deployments calls per case, so run it on small fixtures or with `--limit`.
+The production ingestion path still makes one temperature-0 call; this is eval-only.
 
 **Scoring** (`src/eval/hex/scoring.ts`): each case's predicted hex is compared with its ground truth by
 OKLAB Euclidean distance (`hexToOklab` / `oklabDistance` from `swatchwatch-shared`, the same math as
@@ -493,6 +517,9 @@ Key variables:
 | `AZURE_OPENAI_DEPLOYMENT_LABEL` | Optional Azure OpenAI deployment name for label OCR structured extraction (`src/lib/ocr-parser.ts`). Falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`. |
 | `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name for synchronous image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT` when unset). |
 | `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` | Optional Azure OpenAI deployment name for batch image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`). |
+| `AZURE_OPENAI_DEPLOYMENT_HEX_ENSEMBLE` | Optional comma-separated Azure OpenAI deployment names the eval `ensemble` strategy samples from (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`). Eval-only. |
+| `HEX_DETECTION_ENSEMBLE_SAMPLES` | Samples per deployment for the eval `ensemble` strategy (default `3`, clamped 1–10). Eval-only. |
+| `HEX_DETECTION_ENSEMBLE_TEMPERATURE` | Sampling temperature for the eval `ensemble` strategy (default `0.3`, clamped 0–2). Eval-only; production detection stays at 0. |
 | `AZURE_OPENAI_BATCH_API_VERSION` | Optional API version used for Azure OpenAI Files/Batch endpoints (default `2025-03-01-preview`). |
 | `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` | Optional completion window sent during batch creation (default `24h`). |
 | `AZURE_OPENAI_VISION_DETAIL` | Optional image detail level for vision hex detection, sync and batch (`low` default — flat ~85 tokens/image; `high`/`auto` for more resolution). Unrecognized values fall back to `low`. |

@@ -174,6 +174,7 @@ Functions require secrets defined in `packages/functions/local.settings.json`:
 | `AZURE_OPENAI_USE_GATEWAY` | Feature flag (`true`/`false`) to route OpenAI calls through APIM |
 | `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name for image-based hex detection |
 | `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` | Optional Azure OpenAI deployment name for batch image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`) |
+| `AZURE_OPENAI_DEPLOYMENT_HEX_ENSEMBLE` | Optional comma-separated deployment names for the hex-eval `ensemble` strategy (eval-only; falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`) |
 | `AZURE_OPENAI_BATCH_API_VERSION` | Optional API version used for Azure OpenAI Files/Batch endpoints (default `2025-03-01-preview`) |
 | `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` | Optional completion window sent during batch creation (default `24h`) |
 | `AZURE_OPENAI_VISION_DETAIL` | Optional image detail level for vision hex detection: `low` (default), `high`, or `auto` |
