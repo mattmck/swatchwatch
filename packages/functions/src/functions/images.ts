@@ -1,7 +1,7 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { createHash } from "node:crypto";
 import { errors as joseErrors } from "jose";
-import { AuthError, authenticateRequest } from "../lib/auth";
+import { AuthError, authenticateRequestReadOnly } from "../lib/auth";
 import {
   BlobAccessDeniedError,
   BlobReadError,
@@ -221,6 +221,8 @@ async function transformImage(
  * response, or null when the caller is the owner. Never throws: any auth failure is a 401 (as in
  * `withAuth`), never a 500. Admins get no bypass. Expired/invalid JWTs surface as jose errors and
  * are ordinary auth failures; only genuinely unexpected errors are logged as exceptions.
+ * The caller is resolved read-only (`authenticateRequestReadOnly`): serving an image never
+ * provisions or updates a user, so a gallery of N photos costs N reads, not N write transactions.
  */
 async function authorizePrivateImageRead(
   request: HttpRequest,
@@ -229,7 +231,7 @@ async function authorizePrivateImageRead(
 ): Promise<HttpResponseInit | null> {
   let callerUserId: number;
   try {
-    callerUserId = (await authenticateRequest(request, context)).userId;
+    callerUserId = (await authenticateRequestReadOnly(request, context)).userId;
   } catch (error) {
     if (error instanceof AuthError || error instanceof joseErrors.JOSEError) {
       trackEvent("auth.failure", {

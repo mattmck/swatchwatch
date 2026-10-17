@@ -4,6 +4,8 @@ import { BsDashLg, BsPlusLg, BsTrash3Fill } from "react-icons/bs";
 import { Button } from "@/components/ui/button";
 
 interface QuantityControlsProps {
+  /** Whether the polish is in the collection (`status === "owned"`); otherwise an Add button shows. */
+  owned: boolean;
   quantity: number;
   onIncrement: () => void;
   onDecrement: () => void;
@@ -11,12 +13,13 @@ interface QuantityControlsProps {
 }
 
 export function QuantityControls({
+  owned,
   quantity,
   onIncrement,
   onDecrement,
   onAdd,
 }: QuantityControlsProps) {
-  if (quantity <= 0) {
+  if (!owned) {
     return (
       <div className="w-[88px] flex justify-end">
         <Button variant="outline" size="xs" className="w-[88px]" onClick={onAdd}>
@@ -32,9 +35,9 @@ export function QuantityControls({
         variant="outline"
         size="icon-xs"
         onClick={onDecrement}
-        aria-label={quantity === 1 ? "Remove from collection" : "Decrease quantity"}
+        aria-label={quantity <= 1 ? "Remove from collection" : "Decrease quantity"}
       >
-        {quantity === 1 ? (
+        {quantity <= 1 ? (
           <BsTrash3Fill className="h-3 w-3" aria-hidden="true" />
         ) : (
           <BsDashLg className="h-3 w-3" aria-hidden="true" />

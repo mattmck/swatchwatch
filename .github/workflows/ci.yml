@@ -12,8 +12,8 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Lint and Build run in parallel; each restores the same cached node_modules
-# (see .github/actions/setup-deps), so neither waits on the other.
+# Lint, Build and Test run in parallel; each restores the same cached
+# node_modules (see .github/actions/setup-deps), so none waits on the others.
 jobs:
   lint-and-typecheck:
     name: Lint & Typecheck
@@ -52,3 +52,20 @@ jobs:
 
       - name: Build functions
         run: npm run build --workspace=packages/functions
+
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-deps
+
+      # The functions pretest builds shared and compiles functions before
+      # running the node:test suites (no database needed).
+      - name: Functions unit tests
+        run: npm run test --workspace=swatchwatch-functions
+
+      - name: Web unit tests
+        run: npm run test --workspace=swatchwatch-web

@@ -15,7 +15,7 @@ This document describes the UI/UX strategy for the "All Polishes" (Collection) p
 
 ### 2. Inventory Controls Per Row
 - **Status Icon:**
-  - ✔️ (checkmark) if the user owns the polish (quantity > 0)
+  - ✔️ (checkmark) if the user owns the polish (`status = 'owned'`)
   - ➕ (plus) if not owned
 - **Quantity Controls:**
   - If owned: [ - ] [quantity] [ + ] buttons to adjust quantity

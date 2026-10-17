@@ -34,6 +34,7 @@ import type {
   PolishImageMatchRequest,
   PolishImageMatchResponse,
   CatalogSearchResponse,
+  ColorFamily,
   CatalogShadeDetail,
   PolishFinish,
   FinishType,
@@ -51,6 +52,8 @@ import type {
   IngestionJob,
 } from "swatchwatch-shared";
 
+import type { NailPhotoResponse } from "swatchwatch-shared";
+
 import { getAccessToken } from "./auth-token";
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:7071/api";
@@ -58,7 +61,7 @@ const MAX_CAPTURE_FRAME_BYTES = 5 * 1024 * 1024;
 const LIST_ALL_POLISHES_PAGE_SIZE = 250;
 const listPolishesInFlight = new Map<string, Promise<PolishListResponse>>();
 
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
     this.name = "ApiError";
@@ -115,7 +118,10 @@ export async function listPolishes(filters?: PolishFilters): Promise<PolishListR
   if (filters?.availability && filters.availability !== "all") {
     params.set("availability", filters.availability);
   }
+  if (filters?.status?.length) params.set("status", filters.status.join(","));
+  if (filters?.untried) params.set("untried", "true");
   if (filters?.tone) params.set("tone", filters.tone);
+  if (filters?.families?.length) params.set("family", filters.families.join(","));
   if (filters?.tags?.length) params.set("tags", filters.tags.join(","));
   if (filters?.sortBy) params.set("sortBy", filters.sortBy);
   if (filters?.sortOrder) params.set("sortOrder", filters.sortOrder);
@@ -279,9 +285,14 @@ export async function matchPolishesToImage(
   return handleResponse<PolishImageMatchResponse>(response);
 }
 
-export async function searchCatalog(q: string, limit?: number): Promise<CatalogSearchResponse> {
+export async function searchCatalog(
+  q: string,
+  limit?: number,
+  options?: { families?: ColorFamily[] }
+): Promise<CatalogSearchResponse> {
   const params = new URLSearchParams({ q });
   if (limit) params.set("limit", String(limit));
+  if (options?.families?.length) params.set("family", options.families.join(","));
 
   const response = await fetch(`${API_BASE_URL}/catalog/search?${params}`);
   return handleResponse<CatalogSearchResponse>(response);
@@ -718,6 +729,48 @@ export async function mergeAdminUsers(
     body: JSON.stringify(data),
   });
   return handleResponse<AdminUserMergeResponse>(response);
+}
+
+// ── Private nail photos (#270) ──────────────────────────────────────────────
+
+function nailPhotoUrl(inventoryItemId: string | number): string {
+  return `${API_BASE_URL}/inventory/${encodeURIComponent(String(inventoryItemId))}/nail-photo`;
+}
+
+/** The caller's private on-nail photo for one of their inventory items (`{ photo: null }` when none). */
+export async function getNailPhoto(inventoryItemId: string | number): Promise<NailPhotoResponse> {
+  const response = await fetch(nailPhotoUrl(inventoryItemId), {
+    headers: await getAuthHeaders(),
+    cache: "no-store",
+  });
+  return handleResponse<NailPhotoResponse>(response);
+}
+
+/**
+ * Upload or replace the nail photo. `image` is a base64 data URL (see `prepareNailPhotoUpload`);
+ * the server re-encodes it and strips all metadata (EXIF/GPS) before storing it privately.
+ */
+export async function uploadNailPhoto(
+  inventoryItemId: string | number,
+  image: string
+): Promise<NailPhotoResponse> {
+  const response = await fetch(nailPhotoUrl(inventoryItemId), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
+    body: JSON.stringify({ image }),
+  });
+  return handleResponse<NailPhotoResponse>(response);
+}
+
+/** Delete the nail photo (idempotent; 204). */
+export async function deleteNailPhoto(inventoryItemId: string | number): Promise<void> {
+  const response = await fetch(nailPhotoUrl(inventoryItemId), {
+    method: "DELETE",
+    headers: await getAuthHeaders(),
+  });
+  if (!response.ok) {
+    await handleResponse<unknown>(response);
+  }
 }
 
 /** List the admin review queue of `user_submitted` shades (`GET /api/shades-admin/review`). */
