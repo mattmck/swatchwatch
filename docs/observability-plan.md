@@ -110,12 +110,11 @@ Dashboards: start with the built-in **Failures**, **Performance**, **Application
 - `infrastructure/README.md`: new variables, outputs, alert resources.
 - `packages/functions/local.settings.json.example`: confirm `APPLICATIONINSIGHTS_CONNECTION_STRING` is present.
 
-## Open decisions
+## Decisions (resolved 2026-10-17)
 
-> **Decided 2026-10-17.** See [decisions-2026-10.md](decisions-2026-10.md) D14–D17: keep the cookies with no banner,
-> 0.5 GB/day dev and 2 GB/day prod caps, prod-only alerts to `var.alert_email`, and Phase 3 tracked under #281.
+All four are decided. Full context is in [decisions-2026-10.md](decisions-2026-10.md), D14–D17.
 
-1. **Cookies / consent:** the browser SDK sets `ai_user` / `ai_session` cookies. Either keep them (needed for Users/Sessions analytics) or set `disableCookiesUsage: true` (errors + traces still work, user counts get fuzzy). Is a consent banner planned?
-2. **Daily caps:** 1 GB/day dev, 5 GB/day prod. OK?
-3. **Alert email:** which address, and prod only or dev too?
-4. **Issue numbers:** branches should follow `feat/<issue#>-…`, so open one tracking issue or one per phase?
+1. **Cookies / consent** (D14): ✅ Keep the `ai_user` / `ai_session` cookies, with no consent banner. Known risk: EU ePrivacy rules generally expect consent for analytics cookies; revisit if EU traffic grows.
+2. **Daily caps** (D15): ✅ 0.5 GB/day dev, 2 GB/day prod, with an alert when a cap is hit. This lowers the Phase 1 defaults of `appinsights_daily_cap_gb` (currently 5 prod / 1 otherwise); make the change in Phase 3.
+3. **Alert email** (D16): ✅ Prod only (`alerts_enabled=false` in dev), sent to `var.alert_email`, which is not committed in tfvars.
+4. **Issue numbers** (D17): ✅ One tracking issue, #281. Branch `feat/281-observability-alerts`.

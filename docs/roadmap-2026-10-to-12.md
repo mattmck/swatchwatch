@@ -185,17 +185,16 @@ Goal: more indie coverage, and the ops to absorb user-created data.
 - **ESM migration (#2)** — pure debt; pair it with the Expo work when the toolchain
   gets touched anyway.
 
-## 6. Decisions needed
+## 6. Decisions (resolved 2026-10-17)
 
-> **Decided 2026-10-17.** See [decisions-2026-10.md](decisions-2026-10.md): D3 PWA-first, D1 opt-in wishlist, D4 hex gate
-> after hand-labeling with the color sip tool, D2 Night Owl first.
+All four are decided. Full context is in [decisions-2026-10.md](decisions-2026-10.md).
 
-1. **Mobile:** PWA-first through December (recommended) vs. start the Expo scaffold
-   now at the cost of roughly Sprint 4.
-2. **Sharing:** opt-in public wishlist pages — yes/no. Everything else stays
-   private-by-default.
-3. **Hex detection freeze:** agree to the two-day gate in Week 0.
-4. **Indie source list:** which stores first — you know the community better.
+1. **Mobile** (D3): ✅ PWA-first through December. The Expo scaffold (#109) starts in January.
+2. **Sharing** (D1): ✅ Opt-in public wishlist pages (#305), switched on after the inventory status rules (#314)
+   land. Everything else stays private by default.
+3. **Hex detection freeze** (D4): ✅ Tuning is frozen now. The gate runs after the color sip tool (#311) has been
+   used to hand-label ground truth (#322).
+4. **Indie source list** (D2): ✅ Night Owl Lacquer first. Pahlish waits for a store-specific filter (#328).
 
 ## 7. Sources
 
