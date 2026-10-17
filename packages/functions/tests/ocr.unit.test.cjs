@@ -8,11 +8,30 @@
  * - Successful result parsing (text, lines, barcodes)
  * - Failed / timed-out analysis handling
  * - Missing credentials → graceful null
+ *
+ * setTimeout and Date are mocked so the 1s poll interval and 2s 429 back-off run on a fake clock:
+ * the suite takes milliseconds instead of ~10s, and the polling deadline can't be blown by wall-clock
+ * stalls (e.g. a loaded machine or the host sleeping mid-run).
  */
-const { describe, it, beforeEach, afterEach } = require("node:test");
+const { describe, it, beforeEach, afterEach, mock } = require("node:test");
 const assert = require("node:assert/strict");
 
 const { extractTextFromImage } = require("../dist/lib/ocr");
+
+// Drives the fake clock until `promise` settles: drain pending I/O and microtasks (setImmediate is
+// not mocked), then advance one poll interval so the next sleep() resolves.
+async function runOnFakeClock(promise) {
+  let settled = false;
+  promise.then(
+    () => (settled = true),
+    () => (settled = true)
+  );
+  while (!settled) {
+    await new Promise((resolve) => setImmediate(resolve));
+    if (!settled) mock.timers.tick(1000);
+  }
+  return promise;
+}
 
 const DI_ENV_VARS = [
   "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT",
@@ -30,6 +49,7 @@ describe("lib/ocr — extractTextFromImage", () => {
       savedEnv[key] = process.env[key];
       delete process.env[key];
     }
+    mock.timers.enable({ apis: ["setTimeout", "Date"] });
   });
 
   afterEach(() => {
@@ -41,6 +61,7 @@ describe("lib/ocr — extractTextFromImage", () => {
       }
     }
     global.fetch = savedFetch;
+    mock.timers.reset();
   });
 
   function makeResponse(status, body, headers = {}) {
@@ -80,7 +101,7 @@ describe("lib/ocr — extractTextFromImage", () => {
   // ---------------------------------------------------------------------------
 
   it("returns null when credentials are not configured", async () => {
-    const result = await extractTextFromImage("https://example.com/img.png");
+    const result = await runOnFakeClock(extractTextFromImage("https://example.com/img.png"));
     assert.equal(result, null);
   });
 
@@ -106,7 +127,7 @@ describe("lib/ocr — extractTextFromImage", () => {
       return makeResponse(200, pollSuccessBody());
     };
 
-    const result = await extractTextFromImage("https://blob.example/frame.png");
+    const result = await runOnFakeClock(extractTextFromImage("https://blob.example/frame.png"));
 
     assert.ok(result);
     const submitCall = fetchCalls[0];
@@ -134,7 +155,7 @@ describe("lib/ocr — extractTextFromImage", () => {
       return makeResponse(200, pollSuccessBody());
     };
 
-    const result = await extractTextFromImage("data:image/png;base64,YWJjZGVm");
+    const result = await runOnFakeClock(extractTextFromImage("data:image/png;base64,YWJjZGVm"));
 
     assert.ok(result);
     const submitBody = fetchCalls[0].body;
@@ -161,7 +182,7 @@ describe("lib/ocr — extractTextFromImage", () => {
       return makeResponse(200, pollSuccessBody("OPI\nBig Apple Red"));
     };
 
-    const result = await extractTextFromImage("https://example.com/img.png");
+    const result = await runOnFakeClock(extractTextFromImage("https://example.com/img.png"));
 
     assert.ok(result);
     assert.equal(result.rawText, "OPI\nBig Apple Red");
@@ -198,7 +219,7 @@ describe("lib/ocr — extractTextFromImage", () => {
       return makeResponse(200, pollSuccessBody());
     };
 
-    const result = await extractTextFromImage("https://example.com/img.png");
+    const result = await runOnFakeClock(extractTextFromImage("https://example.com/img.png"));
 
     assert.ok(result);
     // first call = 429, second call = 202 (retry), third+ = poll
@@ -215,7 +236,7 @@ describe("lib/ocr — extractTextFromImage", () => {
 
     global.fetch = async () => makeResponse(400, "bad request");
 
-    const result = await extractTextFromImage("https://example.com/img.png");
+    const result = await runOnFakeClock(extractTextFromImage("https://example.com/img.png"));
     assert.equal(result, null);
   });
 
@@ -229,7 +250,7 @@ describe("lib/ocr — extractTextFromImage", () => {
 
     global.fetch = async () => makeResponse(202, "");
 
-    const result = await extractTextFromImage("https://example.com/img.png");
+    const result = await runOnFakeClock(extractTextFromImage("https://example.com/img.png"));
     assert.equal(result, null);
   });
 
@@ -261,7 +282,7 @@ describe("lib/ocr — extractTextFromImage", () => {
     const origError = console.error;
     console.error = (...args) => errorLogs.push(args.join(" "));
     try {
-      const result = await extractTextFromImage("https://example.com/img.png");
+      const result = await runOnFakeClock(extractTextFromImage("https://example.com/img.png"));
       assert.equal(result, null);
     } finally {
       console.error = origError;
@@ -298,7 +319,7 @@ describe("lib/ocr — extractTextFromImage", () => {
       return makeResponse(200, pollSuccessBody("OPI"));
     };
 
-    const result = await extractTextFromImage("https://example.com/img.png");
+    const result = await runOnFakeClock(extractTextFromImage("https://example.com/img.png"));
 
     assert.ok(result, "should eventually succeed");
     assert.equal(result.rawText, "OPI");

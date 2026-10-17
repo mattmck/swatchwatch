@@ -463,6 +463,18 @@ CREATE TABLE data_source (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Connector image URL each source image was downloaded from; ingestion reruns reuse the
+-- stored image when the URL is unchanged instead of downloading it again.
+CREATE TABLE source_image_url (
+  data_source_id BIGINT NOT NULL REFERENCES data_source(data_source_id) ON DELETE CASCADE,
+  source_url TEXT NOT NULL,
+  image_id BIGINT NOT NULL REFERENCES image_asset(image_id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (data_source_id, source_url)
+);
+CREATE INDEX idx_source_image_url_image ON source_image_url(image_id);
+
 -- Raw external product record keyed (primarily) by GTIN; may include ingredients/labels/etc.
 CREATE TABLE external_product (
   external_product_id BIGSERIAL PRIMARY KEY,
