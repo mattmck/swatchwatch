@@ -100,7 +100,11 @@ export const FINISH_TAG_PREFIX = "finish:";
 
 const FINISH_TAG_PATTERN = /^finish\s*:\s*(.*)$/i;
 
-function normalizeFinishKey(value: string): string {
+/**
+ * Lookup key for a finish string: trimmed, lowercased, whitespace runs collapsed. Finish values
+ * stored in `shade.finishes` are always keys of this form. The admin rename SQL mirrors it.
+ */
+export function normalizeFinishKey(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 

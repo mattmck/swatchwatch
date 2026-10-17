@@ -35,6 +35,7 @@ import type {
   FinishNormalizationUpdateRequest,
   FinishTypeCreateRequest,
   FinishTypeUpdateRequest,
+  FinishTypeUpdateResponse,
   FinishTypeListResponse,
   ReferenceHarmonyType,
   HarmonyTypeCreateRequest,
@@ -570,17 +571,22 @@ export async function createFinishType(data: FinishTypeCreateRequest): Promise<F
   return handleResponse<FinishType>(response);
 }
 
-/** Update a finish reference row via `PUT /api/reference-admin/finishes/{id}` (admin auth required). */
+/**
+ * Update a finish reference row via `PUT /api/reference-admin/finishes/{id}` (admin auth required).
+ * A `name` change renames the finish everywhere (shades, finish normalizations) and the response's
+ * `rename` holds the counts. A name another finish type already has is refused with 409: the thrown
+ * `ApiError` carries the server's message and the `FinishTypeNameTakenResponse` body.
+ */
 export async function updateFinishType(
   finishTypeId: number,
   data: FinishTypeUpdateRequest
-): Promise<FinishType> {
+): Promise<FinishTypeUpdateResponse> {
   const response = await fetch(`${API_BASE_URL}/reference-admin/finishes/${finishTypeId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
     body: JSON.stringify(data),
   });
-  return handleResponse<FinishType>(response);
+  return handleResponse<FinishTypeUpdateResponse>(response);
 }
 
 /**
