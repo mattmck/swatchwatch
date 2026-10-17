@@ -16,6 +16,7 @@
     "@zxing/library": "0.23.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "heic-to": "1.5.2",
     "lucide-react": "^0.563.0",
     "next": "16.3.8",
     "radix-ui": "^1.4.3",

@@ -64,6 +64,7 @@ import type {
   ManicureFilters,
   ManicureListResponse,
   ManicureMutationResponse,
+  ManicurePhotoResponse,
   ManicureUpdateRequest,
   PublicWishlistResponse,
   WishlistShareEnableRequest,
@@ -314,6 +315,34 @@ export async function deleteManicure(id: string | number): Promise<ManicureDelet
     headers: await getAuthHeaders(),
   });
   return handleResponse<ManicureDeleteResponse>(response);
+}
+
+function manicurePhotoUrl(manicureId: string | number): string {
+  return `${API_BASE_URL}/manicures/${encodeURIComponent(String(manicureId))}/photo`;
+}
+
+/**
+ * Upload or replace a manicure's photo (#327). `image` is a base64 data URL (see
+ * `prepareNailPhotoUpload`); the server re-encodes it and strips all metadata before storing it.
+ */
+export async function uploadManicurePhoto(manicureId: string | number, image: string): Promise<ManicurePhotoResponse> {
+  const response = await fetch(manicurePhotoUrl(manicureId), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
+    body: JSON.stringify({ image }),
+  });
+  return handleResponse<ManicurePhotoResponse>(response);
+}
+
+/** Remove a manicure's photo (idempotent; 204). A photo uploaded for this mani is deleted. */
+export async function deleteManicurePhoto(manicureId: string | number): Promise<void> {
+  const response = await fetch(manicurePhotoUrl(manicureId), {
+    method: "DELETE",
+    headers: await getAuthHeaders(),
+  });
+  if (!response.ok) {
+    await handleResponse<unknown>(response);
+  }
 }
 
 /**

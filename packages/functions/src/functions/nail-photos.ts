@@ -1,11 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { randomUUID } from "node:crypto";
-import {
-  NAIL_PHOTO_MAX_UPLOAD_BYTES,
-  type NailPhoto,
-  type NailPhotoResponse,
-  type NailPhotoUploadRequest,
-} from "swatchwatch-shared";
+import type { NailPhoto, NailPhotoResponse } from "swatchwatch-shared";
 import { query, transaction } from "../lib/db";
 import { withAuth } from "../lib/auth";
 import { withCors } from "../lib/http";
@@ -13,6 +8,7 @@ import { internalServerError } from "../lib/errors";
 import { isUserMediaStorageUrl, uploadBytesToBlob, userMediaContainer } from "../lib/blob-storage";
 import { toImageProxyUrl } from "../lib/image-proxy";
 import { NailPhotoInputError, normalizeNailPhoto, parseNailPhotoDataUrl } from "../lib/nail-photo-image";
+import { readPhotoUploadBody } from "../lib/nail-photo-upload";
 import { deleteNailPhotoBlobs } from "../lib/nail-photos";
 import { trackEvent } from "../lib/telemetry";
 
@@ -61,9 +57,6 @@ const SELECT_ITEM_WITH_PHOTO = `
   LEFT JOIN image_asset ia ON ia.image_id = p.image_id AND ia.owner_type = 'user'
   WHERE ui.inventory_item_id = $1
     AND ui.user_id = $2`;
-
-/** Generous allowance for JSON framing around the base64 payload. */
-const MAX_REQUEST_BODY_BYTES = Math.ceil(NAIL_PHOTO_MAX_UPLOAD_BYTES / 3) * 4 + 64 * 1024;
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" };
 
@@ -174,73 +167,6 @@ async function getNailPhoto(
   }
 }
 
-function tooLarge(): NailPhotoInputError {
-  return new NailPhotoInputError(
-    `Image too large: the limit is ${(NAIL_PHOTO_MAX_UPLOAD_BYTES / (1024 * 1024)).toFixed(0)} MB`,
-    413
-  );
-}
-
-/**
- * Read the request body, never buffering more than `maxBytes`. Streams `request.body` and stops
- * (413) as soon as the limit is passed, so a body that is larger than its Content-Length claims
- * still cannot exhaust memory.
- */
-export async function readBodyCapped(request: HttpRequest, maxBytes: number): Promise<Buffer> {
-  const stream = request.body;
-  if (stream && typeof stream.getReader === "function") {
-    const reader = stream.getReader();
-    const chunks: Buffer[] = [];
-    let total = 0;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > maxBytes) {
-        await reader.cancel().catch(() => {});
-        throw tooLarge();
-      }
-      chunks.push(Buffer.from(value));
-    }
-    return Buffer.concat(chunks, total);
-  }
-  const bytes = Buffer.from(await request.arrayBuffer());
-  if (bytes.length > maxBytes) throw tooLarge();
-  return bytes;
-}
-
-/**
- * Parse the upload body. A Content-Length is required (411 without one, e.g. chunked uploads) and
- * must be within `MAX_REQUEST_BODY_BYTES` (413), so oversize bodies are refused before reading;
- * the read itself is capped at the same limit.
- */
-async function readUploadBody(request: HttpRequest): Promise<NailPhotoUploadRequest> {
-  const rawLength = request.headers.get("content-length")?.trim();
-  if (!rawLength) {
-    throw new NailPhotoInputError("A Content-Length header is required for photo uploads", 411);
-  }
-  if (!/^\d+$/.test(rawLength)) {
-    throw new NailPhotoInputError("Invalid Content-Length header");
-  }
-  if (Number(rawLength) > MAX_REQUEST_BODY_BYTES) {
-    throw tooLarge();
-  }
-
-  const invalidBody = () =>
-    new NailPhotoInputError("Request body must be JSON: { \"image\": \"data:image/jpeg;base64,...\" }");
-  const raw = await readBodyCapped(request, MAX_REQUEST_BODY_BYTES);
-  let body: unknown;
-  try {
-    body = JSON.parse(raw.toString("utf8"));
-  } catch {
-    throw invalidBody();
-  }
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    throw invalidBody();
-  }
-  return body as NailPhotoUploadRequest;
-}
-
 async function putNailPhoto(
   request: HttpRequest,
   context: InvocationContext,
@@ -257,7 +183,7 @@ async function putNailPhoto(
     const owned = await findOwnedItem(inventoryItemId, userId);
     if (!owned) return notFound();
 
-    const body = await readUploadBody(request);
+    const body = await readPhotoUploadBody(request);
     const { bytes } = parseNailPhotoDataUrl(body.image);
     const photo = await normalizeNailPhoto(bytes);
 

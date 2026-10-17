@@ -10,6 +10,8 @@ import {
   defaultRoleFor,
   filterPickable,
   formatWornOn,
+  initialManiPhotoDraft,
+  maniPhotoSaveAction,
   manicureHexes,
   pickablePolishes,
   quickLogRequest,
@@ -197,5 +199,29 @@ describe("form helpers", () => {
     assert.equal(canLogPolish({ status: "archived" }), true);
     assert.equal(canLogPolish({ status: null }), false);
     assert.equal(canLogPolish({}), false);
+  });
+});
+
+describe("mani form photo", () => {
+  it("starts from the manicure's saved photo, or none", () => {
+    assert.deepEqual(initialManiPhotoDraft({ photoImageId: "9", photoUrl: "http://x/api/images/v3.a" }), {
+      kind: "saved",
+      imageId: "9",
+      url: "http://x/api/images/v3.a",
+    });
+    assert.deepEqual(initialManiPhotoDraft({ photoImageId: null, photoUrl: null }), { kind: "none" });
+    assert.deepEqual(initialManiPhotoDraft(null), { kind: "none" });
+  });
+
+  it("uploads a pending photo, deletes a removed one and otherwise leaves it alone", () => {
+    const pending = { kind: "pending", dataUrl: "data:image/jpeg;base64,AA" } as const;
+    assert.deepEqual(maniPhotoSaveAction(pending, null), { kind: "upload", dataUrl: pending.dataUrl });
+    assert.deepEqual(maniPhotoSaveAction(pending, { photoImageId: "9" }), { kind: "upload", dataUrl: pending.dataUrl });
+    assert.deepEqual(maniPhotoSaveAction({ kind: "none" }, { photoImageId: "9" }), { kind: "delete" });
+    assert.deepEqual(maniPhotoSaveAction({ kind: "none" }, { photoImageId: null }), { kind: "keep" });
+    assert.deepEqual(maniPhotoSaveAction({ kind: "none" }, null), { kind: "keep" });
+    assert.deepEqual(maniPhotoSaveAction({ kind: "saved", imageId: "9", url: null }, { photoImageId: "9" }), {
+      kind: "keep",
+    });
   });
 });

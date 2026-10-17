@@ -495,16 +495,35 @@ export function isUserMediaStorageUrl(storageUrl: string): boolean {
 }
 
 /** Lowercased container segment of a blob URL, or "" when there is none / the URL is invalid. */
-function storageUrlContainer(storageUrl: string): string {
+/** Container and blob-name segments of a storage URL (path-style Azurite URLs carry the account first). */
+function storageUrlSegments(storageUrl: string): { container: string; blobSegments: string[] } {
   let parsed: URL;
   try {
     parsed = new URL(storageUrl);
   } catch {
-    return "";
+    return { container: "", blobSegments: [] };
   }
   const segments = parsed.pathname.split("/").filter(Boolean);
-  const virtualHost = /^[^.]+\.blob\./i.test(parsed.hostname);
-  return (segments[virtualHost ? 0 : 1] ?? "").toLowerCase();
+  const containerIndex = /^[^.]+\.blob\./i.test(parsed.hostname) ? 0 : 1;
+  return {
+    container: (segments[containerIndex] ?? "").toLowerCase(),
+    blobSegments: segments.slice(containerIndex + 1).map((segment) => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    }),
+  };
+}
+
+function storageUrlContainer(storageUrl: string): string {
+  return storageUrlSegments(storageUrl).container;
+}
+
+/** Blob name (path inside its container) of a storage URL, or "" when it cannot be parsed. */
+export function storageUrlBlobName(storageUrl: string): string {
+  return storageUrlSegments(storageUrl).blobSegments.join("/");
 }
 
 /**

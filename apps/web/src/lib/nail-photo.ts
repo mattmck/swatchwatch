@@ -3,17 +3,22 @@ import {
   NAIL_PHOTO_MAX_EDGE,
   NAIL_PHOTO_MAX_UPLOAD_BYTES,
 } from "swatchwatch-shared";
-import { downscaleImageFile, MAX_SOURCE_IMAGE_BYTES } from "./image-downscale";
+import { downscaleImageFile, encodeScaledImage, MAX_SOURCE_IMAGE_BYTES } from "./image-downscale";
+import { decodeHeic, HEIC_EXTENSIONS, isHeicFile, looksLikeHeic } from "./heic-convert";
 
 /**
  * Client helpers for the private on-nail photo (#270). The server is the privacy
  * boundary (it re-encodes every upload and strips EXIF/GPS), but re-encoding in
  * the browser first means location metadata never even leaves the device when
- * the browser can decode the file, and keeps uploads small.
+ * the browser can decode the file, and keeps uploads small. HEIC/HEIF (the iPhone default) is
+ * converted to JPEG in the browser too (#318), so it never depends on the server's HEIC support.
  */
 
-/** `accept` attribute for the nail-photo file inputs. */
-export const NAIL_PHOTO_INPUT_ACCEPT = NAIL_PHOTO_ACCEPTED_TYPES.join(",");
+/**
+ * `accept` attribute for the nail-photo file inputs: the API's types plus the HEIC extensions, so
+ * pickers that don't map `.heic` to a MIME type (e.g. on Windows) still offer iPhone photos.
+ */
+export const NAIL_PHOTO_INPUT_ACCEPT = [...NAIL_PHOTO_ACCEPTED_TYPES, ...HEIC_EXTENSIONS].join(",");
 
 /** JPEG quality used when re-encoding in the browser. */
 const CLIENT_JPEG_QUALITY = 0.9;
@@ -23,8 +28,11 @@ const CLIENT_JPEG_QUALITY = 0.9;
  * uploaded. Checks only what is known before decoding: it must be an image and
  * not absurdly large to decode in the browser.
  */
-export function validateNailPhotoFile(file: { type: string; size: number }): string | null {
-  if (!file.type || !file.type.toLowerCase().startsWith("image/")) {
+export function validateNailPhotoFile(
+  file: { type: string; size: number; name?: string },
+  isHeic: boolean = looksLikeHeic(file)
+): string | null {
+  if (!isHeic && !file.type.toLowerCase().startsWith("image/")) {
     return "Please choose a photo (JPEG, PNG, WebP or HEIC).";
   }
   if (file.size <= 0) {
@@ -39,7 +47,7 @@ export function validateNailPhotoFile(file: { type: string; size: number }): str
 /**
  * True when the original file may be sent as-is (the server will still strip its
  * metadata): an accepted type within the server's upload limit. Used only when
- * the browser cannot decode the file itself (e.g. HEIC outside Safari).
+ * the browser cannot decode a non-HEIC file itself.
  */
 export function canUploadOriginal(file: { type: string; size: number }): boolean {
   const type = file.type.toLowerCase();
@@ -79,24 +87,59 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
+/** Browser steps of `prepareNailPhotoUpload`, injectable for tests. */
+export interface NailPhotoPrepareDeps {
+  isHeicFile: (file: File) => Promise<boolean>;
+  downscaleToJpeg: (file: File) => Promise<string>;
+  heicToJpeg: (file: File) => Promise<string>;
+  readOriginal: (file: File) => Promise<string>;
+}
+
+const browserDeps: NailPhotoPrepareDeps = {
+  isHeicFile,
+  downscaleToJpeg: async (file) =>
+    (await downscaleImageFile(file, NAIL_PHOTO_MAX_EDGE, CLIENT_JPEG_QUALITY, "image/jpeg")).dataUrl,
+  heicToJpeg: async (file) =>
+    encodeScaledImage(await decodeHeic(file), NAIL_PHOTO_MAX_EDGE, CLIENT_JPEG_QUALITY, "image/jpeg").dataUrl,
+  readOriginal: readFileAsDataUrl,
+};
+
 /**
  * Turn a picked/captured file into the `image` data URL for the upload API.
  * Re-encodes to a JPEG of at most `NAIL_PHOTO_MAX_EDGE` px in the browser
- * (dropping all metadata and applying the camera orientation); if the browser
- * cannot decode the file, falls back to the original bytes when the server
- * accepts them. Throws a user-presentable Error otherwise.
+ * (dropping all metadata and applying the camera orientation):
+ *
+ * 1. with the browser's own decoder (any format it knows; Safari decodes HEIC itself);
+ * 2. for HEIC/HEIF it can't decode (detected by MIME type, extension or file signature), with the
+ *    lazily loaded `heic-to` decoder (#318), so no HEIC ever reaches the server;
+ * 3. otherwise, the original bytes when the server accepts their type (it re-encodes them).
+ *
+ * Throws a user-presentable Error when none of these works.
  */
-export async function prepareNailPhotoUpload(file: File): Promise<string> {
-  const problem = validateNailPhotoFile(file);
+export async function prepareNailPhotoUpload(
+  file: File,
+  deps: NailPhotoPrepareDeps = browserDeps
+): Promise<string> {
+  const heic = await deps.isHeicFile(file);
+  const problem = validateNailPhotoFile(file, heic);
   if (problem) throw new Error(problem);
 
-  try {
-    const { dataUrl } = await downscaleImageFile(file, NAIL_PHOTO_MAX_EDGE, CLIENT_JPEG_QUALITY, "image/jpeg");
-    return dataUrl;
-  } catch (error) {
-    if (canUploadOriginal(file)) {
-      return readFileAsDataUrl(file);
+  let nativeError: unknown;
+  if (file.type.toLowerCase().startsWith("image/")) {
+    try {
+      return await deps.downscaleToJpeg(file);
+    } catch (error) {
+      nativeError = error;
     }
-    throw error instanceof Error ? error : new Error("Couldn't read that photo.");
   }
+
+  if (heic) {
+    // Throws a HeicConversionError with its own message; HEIC is never sent as-is.
+    return deps.heicToJpeg(file);
+  }
+
+  if (canUploadOriginal(file)) {
+    return deps.readOriginal(file);
+  }
+  throw nativeError instanceof Error ? nativeError : new Error("Couldn't read that photo.");
 }

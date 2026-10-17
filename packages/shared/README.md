@@ -62,6 +62,7 @@ Mani log (#269): `/api/manicures` payloads. Logging, editing or deleting a manic
 | `ManicurePolishInput` | Request polish reference: `shadeId` or `inventoryItemId` (caller's inventory only) + optional `role` |
 | `ManicureCreateRequest` / `ManicureUpdateRequest` | Create (`polishes` required, `wornOn` defaults to today UTC) / partial update (`polishes` replaces the list; `null` clears `notes` / `photoImageId`) |
 | `ManicureWearStat` | `{ shadeId, inventoryItemId, wearCount, lastWornAt, triedAt }` after a write |
+| `ManicurePhotoResponse` | `PUT /api/manicures/{id}/photo` response (#327): `{ manicureId, photoImageId (the new image_asset id), photoUrl (owner-scoped v3 or null) }`; the request body is a `NailPhotoUploadRequest` |
 | `ManicureMutationResponse` / `ManicureDeleteResponse` | Create/update response (`Manicure` + `wearStats`) / delete response (`{ message, id, wearStats }`) |
 | `ManicureListResponse` / `ManicureFilters` | `{ manicures, total, page, pageSize }` / `from`, `to`, `shadeId`, `page`, `pageSize` (max 200) |
 

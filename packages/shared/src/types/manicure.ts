@@ -93,6 +93,18 @@ export interface ManicureMutationResponse extends Manicure {
   wearStats: ManicureWearStat[];
 }
 
+/**
+ * `PUT /api/manicures/{id}/photo` response (#327). The body is a `NailPhotoUploadRequest`
+ * (`{ image: dataUrl }`); the photo is re-encoded and stripped of metadata like a nail photo.
+ */
+export interface ManicurePhotoResponse {
+  manicureId: string;
+  /** New `image_asset` id, now the manicure's `photoImageId`. */
+  photoImageId: string;
+  /** Owner-scoped `/api/images/v3.*` URL (render with the web `PrivateImage`); null if it cannot be signed. */
+  photoUrl: string | null;
+}
+
 export interface ManicureDeleteResponse {
   message: string;
   id: string;
