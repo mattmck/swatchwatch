@@ -5,6 +5,7 @@ import { withCors } from "../lib/http";
 import { internalServerError } from "../lib/errors";
 import { cacheGetJson, cacheSetJson, hashCacheKey } from "../lib/cache";
 import { trackEvent } from "../lib/telemetry";
+import { loadBuyUrlsForShades } from "../lib/buy-link";
 import { parseColorFamilyFilter } from "../lib/color-family-filter";
 
 const CATALOG_SEARCH_CACHE_TTL_SECONDS = 120;
@@ -97,6 +98,9 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, limit);
 
+    // "Buy from brand" links (#267) for the returned page only.
+    const buyUrls = await loadBuyUrlsForShades(sorted.map((r) => r.shadeId));
+
     const response: CatalogSearchResponse = {
       results: sorted.map((r) => ({
         shadeId: r.shadeId,
@@ -107,6 +111,7 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
         collection: r.collection || undefined,
         colorFamily: r.colorFamily ?? null,
         similarity: Math.round(r.similarity * 1000) / 1000,
+        buyUrl: buyUrls.get(r.shadeId),
       })),
       query: q,
       total: sorted.length,
@@ -191,6 +196,8 @@ async function getShade(request: HttpRequest, context: InvocationContext): Promi
       [shadeId]
     );
 
+    const buyUrls = await loadBuyUrlsForShades([shade.shadeId]);
+
     const response: CatalogShadeDetail = {
       shadeId: shade.shadeId,
       brand: shade.brand,
@@ -202,6 +209,7 @@ async function getShade(request: HttpRequest, context: InvocationContext): Promi
       releaseYear: shade.releaseYear || undefined,
       status: shade.status,
       aliases: aliasResult.rows.map((r) => r.alias),
+      buyUrl: buyUrls.get(shade.shadeId),
     };
 
     await cacheSetJson(shadeCacheKey, response, CATALOG_SHADE_CACHE_TTL_SECONDS);

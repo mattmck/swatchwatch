@@ -75,6 +75,13 @@ export interface Polish {
   swatchImageUrl?: string;
   sourceImageUrls?: string[];
   nailImageUrl?: string;
+  /**
+   * "Buy from brand" link: the stored source product URL (absolute http/https, no
+   * credentials; validated server-side). Absent when the shade has no stored product URL.
+   * When a shade has several source products the API picks one deterministically
+   * (enabled source first, then most recently seen). No affiliate parameters.
+   */
+  buyUrl?: string;
   tags?: string[];
   createdAt: string;
   updatedAt: string;
@@ -256,6 +263,8 @@ export interface CatalogSearchResult {
   /** Color family of the shade (see `Polish.colorFamily`). */
   colorFamily?: ColorFamily | null;
   similarity: number;
+  /** "Buy from brand" link (see `Polish.buyUrl`); absent when none is stored. */
+  buyUrl?: string;
 }
 
 export interface CatalogSearchResponse {
@@ -312,4 +321,6 @@ export interface CatalogShadeDetail {
   releaseYear?: number;
   status: string;
   aliases: string[];
+  /** "Buy from brand" link (see `Polish.buyUrl`); absent when none is stored. */
+  buyUrl?: string;
 }
