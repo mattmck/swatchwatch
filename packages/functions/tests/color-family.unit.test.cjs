@@ -1,7 +1,8 @@
 /**
  * Color family classifier (#103): `classifyColorFamily` & co. in packages/shared, and the
  * Postgres mirror `shade_color_family()` in migration 20261017061637910_add-shade-color-family
- * that keeps the generated `shade.color_family` column (what ?family= filters on) current.
+ * (redefined by 20261017061700000_shade-color-family-trim to trim like JS trim()) that keeps
+ * the generated `shade.color_family` column (what ?family= filters on) current.
  *
  * Runs without a database. The TS ↔ SQL sync is checked structurally (every threshold
  * CONSTANT and the multichrome finish list are parsed out of the migration and compared to
@@ -30,6 +31,12 @@ const MIGRATION_PATH = path.resolve(
   __dirname,
   "../migrations/20261017061637910_add-shade-color-family.sql"
 );
+// Follow-up that redefines both functions with a JS-trim()-equivalent helper (current definitions).
+const TRIM_MIGRATION_PATH = path.resolve(
+  __dirname,
+  "../migrations/20261017061700000_shade-color-family-trim.sql"
+);
+const SCHEMA_PATH = path.resolve(__dirname, "../../../docs/schema.sql");
 
 function family(hex) {
   return classifyHexColorFamily(hex);
@@ -343,6 +350,24 @@ describe("color family — shades (display hex + finishes)", () => {
 describe("color family — TS ↔ Postgres sync", () => {
   const sql = fs.readFileSync(MIGRATION_PATH, "utf8");
   const up = sql.slice(0, sql.indexOf("-- Down Migration"));
+  const trimSql = fs.readFileSync(TRIM_MIGRATION_PATH, "utf8");
+  const trimUp = trimSql.slice(0, trimSql.indexOf("-- Down Migration"));
+  const trimDown = trimSql.slice(trimSql.indexOf("-- Down Migration"));
+  const stripComments = (text) => text.replace(/--.*$/gm, "");
+
+  // From shade_color_family_from_hex() through the end of shade_color_family().
+  const familyFunctions = (text) => {
+    const start = text.indexOf("-- OKLCH bins for one hex");
+    const end = text.indexOf("$$;", text.indexOf("FUNCTION shade_color_family(")) + "$$;".length;
+    assert.ok(start >= 0 && end > start, "color family functions not found");
+    return text.slice(start, end);
+  };
+
+  const trimFunction = (text) => {
+    const match = text.match(/CREATE OR REPLACE FUNCTION shade_color_family_trim\(value text\)[\s\S]*?\n\$\$;/);
+    assert.ok(match, "shade_color_family_trim() not found");
+    return match[0];
+  };
 
   const toSnake = (key) => key.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 
@@ -374,6 +399,74 @@ describe("color family — TS ↔ Postgres sync", () => {
     assert.deepEqual([...returned].sort(), [...COLOR_FAMILIES].sort());
   });
 
+  it("the trim follow-up keeps the original bodies and only swaps the two trim call sites", () => {
+    // So every threshold / finish-list / family check above also holds for the current definitions.
+    const current = familyFunctions(trimUp);
+    assert.match(current, /lab := hex_to_oklab\(shade_color_family_trim\(hex\)\);/);
+    assert.match(current, /WHERE lower\(shade_color_family_trim\(f\.value\)\) = ANY/);
+    assert.doesNotMatch(stripComments(trimUp), /\bbtrim\(/, "btrim() strips only spaces; use shade_color_family_trim()");
+    assert.equal(
+      current
+        .replace("hex_to_oklab(shade_color_family_trim(hex))", "hex_to_oklab(hex)")
+        .replace("lower(shade_color_family_trim(f.value))", "lower(btrim(f.value))"),
+      familyFunctions(up)
+    );
+    // Down restores the original bodies verbatim, then drops the helper.
+    assert.equal(familyFunctions(trimDown), familyFunctions(up));
+    assert.match(trimDown, /DROP FUNCTION IF EXISTS shade_color_family_trim\(text\);/);
+  });
+
+  it("the trim follow-up recomputes the stored column in Up and Down", () => {
+    // CREATE OR REPLACE does not touch stored generated values, and Postgres only recomputes a
+    // stored generated column when a column it references is assigned (SET color_family = DEFAULT
+    // keeps the old value), hence SET finish = finish on the rows whose family changes.
+    const recompute =
+      /UPDATE shade\nSET finish = finish\nWHERE color_family IS DISTINCT FROM shade_color_family\(vendor_hex, detected_hex, name_hex, finishes, finish\);/;
+    for (const [name, section] of [["Up", trimUp], ["Down", trimDown]]) {
+      assert.match(section, recompute, `${name} recomputes shade.color_family`);
+      assert.ok(
+        section.search(recompute) > section.lastIndexOf("FUNCTION shade_color_family("),
+        `${name} recomputes after redefining the functions`
+      );
+    }
+    assert.ok(
+      trimDown.search(recompute) < trimDown.indexOf("DROP FUNCTION IF EXISTS shade_color_family_trim"),
+      "Down recomputes before dropping the helper"
+    );
+  });
+
+  it("hexes and finishes are trimmed like JS trim() (all whitespace, not just spaces)", () => {
+    // The regex class in shade_color_family_trim() covers exactly the chars String.prototype.trim() strips.
+    const fn = trimFunction(trimUp).match(/'\^\[([^\]]+)\]\+\|\[([^\]]+)\]\+\$'/);
+    assert.ok(fn, "shade_color_family_trim() should strip '^[class]+|[class]+$'");
+    assert.equal(fn[1], fn[2], "leading and trailing classes match");
+    const escapes = { t: 0x09, n: 0x0a, v: 0x0b, f: 0x0c, r: 0x0d };
+    const tokens = [...fn[1].matchAll(/\\u([0-9a-f]{4})|\\([tnvfr])|(-)|([^\\])/g)].map((m) =>
+      m[1] ? parseInt(m[1], 16) : m[2] ? escapes[m[2]] : m[3] ? "-" : m[4].codePointAt(0)
+    );
+    const sqlSet = new Set();
+    for (let i = 0; i < tokens.length; i++) {
+      if (tokens[i + 1] === "-") {
+        for (let cp = tokens[i]; cp <= tokens[i + 2]; cp++) sqlSet.add(cp);
+        i += 2;
+      } else {
+        sqlSet.add(tokens[i]);
+      }
+    }
+    const jsSet = [];
+    for (let cp = 1; cp <= 0xffff; cp++) {
+      if (cp >= 0xd800 && cp <= 0xdfff) continue;
+      if ((String.fromCharCode(cp) + "x").trim() === "x") jsSet.push(cp);
+    }
+    assert.deepEqual([...sqlSet].sort((a, b) => a - b), jsSet);
+  });
+
+  it("docs/schema.sql has the current definitions (trim helper + both functions)", () => {
+    const schema = fs.readFileSync(SCHEMA_PATH, "utf8");
+    assert.equal(trimFunction(schema), trimFunction(trimUp));
+    assert.equal(familyFunctions(schema), familyFunctions(trimUp));
+  });
+
   it("the generated column uses vendor > detected > name and both finish columns", () => {
     assert.match(
       up,
@@ -396,12 +489,31 @@ describe("color family — TS ↔ Postgres sync", () => {
             for (let b = 0; b < 256; b += 15)
               hexes.push(`#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("").toUpperCase()}`);
         hexes.push(...Object.values(COLOR_FAMILY_SWATCH_HEX));
+        // Padded hexes: SQL must trim like JS trim() (zero-width space and NEL are not whitespace).
+        hexes.push(
+          "\t#FF0000\n",
+          "\u00a0#0000ff\ufeff",
+          " 00FF00\u3000",
+          "\v\f\u1680#FFFF00\u200a\u2028\r",
+          "\u200b#FF0000",
+          "\u0085#FF0000"
+        );
         const { rows } = await client.query(
           "SELECT h, shade_color_family_from_hex(h) AS f FROM unnest($1::text[]) AS h",
           [hexes]
         );
         const mismatches = rows.filter((row) => classifyHexColorFamily(row.h) !== row.f);
         assert.deepEqual(mismatches.slice(0, 10), []);
+
+        const finishes = ["\tMultichrome\u00a0", "\u2003Chameleon\n", " color shift ", "\u200bmultichrome", "holo"];
+        const { rows: finishRows } = await client.query(
+          "SELECT f, shade_color_family('#0000FF', NULL, NULL, ARRAY[f], NULL) AS family FROM unnest($1::text[]) AS f",
+          [finishes]
+        );
+        const finishMismatches = finishRows.filter(
+          (row) => classifyColorFamily({ vendorHex: "#0000FF", finishes: [row.f] }) !== row.family
+        );
+        assert.deepEqual(finishMismatches, []);
       } finally {
         await client.end();
       }

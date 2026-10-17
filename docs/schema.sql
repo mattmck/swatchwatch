@@ -53,10 +53,31 @@ BEGIN
 END;
 $$;
 
--- ── Color family (migration 20261017061637910_add-shade-color-family, #103) ──────────────
+-- ── Color family (migrations 20261017061637910_add-shade-color-family and
+--    20261017061700000_shade-color-family-trim, #103) ──────────────────────────────────
 -- Mirrors classifyColorFamily() in packages/shared/src/color/color-family.ts (thresholds are
 -- COLOR_FAMILY_THRESHOLDS in snake_case; packages/functions/tests/color-family.unit.test.cjs
 -- keeps them in sync). Feeds the generated shade.color_family column.
+
+-- JavaScript String.prototype.trim(): strips the ECMAScript whitespace and line terminators
+-- (TAB, LF, VT, FF, CR, the Zs space separators, U+2028/U+2029 and the BOM U+FEFF) from both
+-- ends, so the bins see the same string as classifyHexColorFamily() / hasMultichromeFinish()
+-- in TS. btrim() strips only spaces, and [[:space:]] is locale-dependent (under C.UTF-8 it
+-- misses U+00A0, U+2007, U+202F and U+FEFF); color-family.unit.test.cjs checks this class
+-- against JS trim() on every BMP code point.
+CREATE OR REPLACE FUNCTION shade_color_family_trim(value text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+AS $$
+  SELECT regexp_replace(
+    value,
+    '^[\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+|[\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+$',
+    '',
+    'g'
+  )
+$$;
 
 -- OKLCH bins for one hex. NULL when the hex is not a valid #RRGGBB.
 CREATE OR REPLACE FUNCTION shade_color_family_from_hex(hex text)
@@ -105,7 +126,7 @@ DECLARE
   c double precision;
   h double precision;
 BEGIN
-  lab := hex_to_oklab(hex);
+  lab := hex_to_oklab(shade_color_family_trim(hex));
   IF lab IS NULL THEN
     RETURN NULL;
   END IF;
@@ -183,7 +204,7 @@ BEGIN
   IF EXISTS (
     SELECT 1
     FROM unnest(array_append(COALESCE(p_finishes, ARRAY[]::text[]), p_finish)) AS f(value)
-    WHERE lower(btrim(f.value)) = ANY (ARRAY['multichrome', 'chameleon', 'colorshift', 'color shift', 'color-shift'])
+    WHERE lower(shade_color_family_trim(f.value)) = ANY (ARRAY['multichrome', 'chameleon', 'colorshift', 'color shift', 'color-shift'])
   ) THEN
     RETURN 'multichrome';
   END IF;
