@@ -20,6 +20,7 @@ import { ColorDot } from "@/components/color-dot";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
+import { CollectionStatsSection } from "@/components/stats/collection-stats-section";
 import type { LucideIcon } from "lucide-react";
 import { Building2, Droplets, Sparkles, Star } from "lucide-react";
 
@@ -266,6 +267,9 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Spend, wear and cost-per-wear panels (#271); loads its own data. */}
+      <CollectionStatsSection />
     </div>
   );
 }

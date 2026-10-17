@@ -24,6 +24,8 @@ infrastructure/    → Terraform (azurerm ~4.50) for all Azure resources
 
 **Wear stats:** `user_inventory_item.wear_count` and `last_worn_at` are derived from the mani log (`manicure` / `manicure_polish`, keyed by `shade_id`): `packages/functions/src/lib/manicure.ts` `recomputeWearStats()` rewrites them for the affected shades after every manicure create/edit/delete (and after polish create/update), never by incrementing or decrementing. `tried_at` is only filled from the earliest wear when NULL, never cleared by the log.
 
+**Collection stats:** `GET /api/stats/collection` (`packages/functions/src/lib/collection-stats.ts`) aggregates the caller's inventory in five `user_id`-scoped SQL queries. Money is grouped by `purchase_currency` and never summed across currencies (`null` currency is its own group); spend counts `owned`/`destash`/`archived` rows with a price, and the month bucket falls back from `purchase_date` to the UTC `created_at` date. Cached per user for 60s in Redis; `invalidatePolishCachesForUser()` (`lib/polish-cache.ts`) drops the entry, so any new inventory or mani-log write path must call it.
+
 **Auth:** Azure AD B2C (provisioned outside Terraform via portal). Functions read `AZURE_AD_B2C_TENANT` and `AZURE_AD_B2C_CLIENT_ID` from environment. Token validation is JWT-based via the `/api/auth/validate` endpoint.
 
 ## Dev Commands
@@ -86,7 +88,7 @@ The web app uses Next.js route groups to separate public marketing pages from th
 | Route | File | Notes |
 |-------|------|-------|
 | `/` | `src/app/(marketing)/page.tsx` | Landing page — hero, features, color showcase, CTA |
-| `/dashboard` | `src/app/(app)/dashboard/page.tsx` | Client component, stats + recent additions |
+| `/dashboard` | `src/app/(app)/dashboard/page.tsx` | Client component, stats + recent additions + collection stats panels (spend by brand/month per currency, worn vs waiting + untried %, most-worn, cost per wear) via `GET /api/stats/collection` |
 | `/admin` | `src/app/(admin)/admin/page.tsx` | Unified admin console — tabs: Configuration, Job Runs, Admin Jobs |
 | `/admin/reference-data` | `src/app/(admin)/admin/reference-data/page.tsx` | Legacy redirect → `/admin?tab=configuration` |
 | `/admin/jobs` | `src/app/(app)/admin/jobs/page.tsx` | Legacy redirect → `/admin?tab=admin-jobs` |
@@ -123,6 +125,7 @@ This project is in early development. The web UI is now fully API-driven. Backen
 - ✅ Reference data management — `finish_type`, `harmony_type`, `finish_normalization` tables with admin CRUD and public read endpoints
 - ✅ Hex-detection evaluation harness — `packages/functions/src/eval/hex/` scores detection strategies against ground-truth fixtures (OKLAB distance, HIGH/MEDIUM shares, per brand/finish); `color_training_sample` (migration `20261017033500000_add-color-training-sample.sql`) holds DB-sourced samples. See `packages/functions/README.md`
 - ✅ Mani log (#269) — `manicure` / `manicure_polish` (migration `20261017063740704_manicure-log`), `/api/manicures` CRUD (`withAuth`, caller's own inventory items and photos only), wear stats (`wear_count`, `last_worn_at`, fill-if-null `tried_at`) recomputed from the log in the same transaction on every create/edit/delete plus `inventory_event(used)` sync; `/manis` page and one-tap "Log today's mani" on the polish detail page and owned table rows
+- ✅ Collection stats (#271) — `GET /api/stats/collection` (`withAuth`, five `user_id`-scoped aggregate queries, per-currency money, 60s per-user Redis cache invalidated with the polish caches) and dashboard panels: spend by brand / by month, worn vs waiting ring + untried %, most-worn top 10, cost per wear (best / worst), each with a skeleton, empty state and table view
 - ✅ Feature-flagged Azure OpenAI batch pipeline for Shopify vision hex detection — per-chunk batches run in parallel while the worker keeps ingesting (`metrics.aiBatches`), then awaiting_ai → poll/apply each batch → complete, with synchronous fallback for small runs
 
 ## Environment Variables (Functions)
