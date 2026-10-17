@@ -1,20 +1,23 @@
 import { InvocationContext } from "@azure/functions";
+import type { IngestionLogEntry, IngestionLogLevel } from "swatchwatch-shared";
 import { updateIngestionJobMetrics } from "./ingestion-repo";
+import {
+  compactJobLog,
+  createJobLogEntry,
+  JobLogLimits,
+  resolveJobLogLimits,
+  sanitizeJobLog,
+} from "./job-log";
 
-export type LogLevel = "debug" | "info" | "warn" | "error";
-
-export interface LogEntry {
-  ts: string;
-  level: LogLevel;
-  msg: string;
-  data?: Record<string, unknown>;
-}
+export type LogLevel = IngestionLogLevel;
+export type LogEntry = IngestionLogEntry;
 
 export interface JobLoggerOptions {
   jobId: number;
   context: InvocationContext;
   baseMetrics?: Record<string, unknown>;
   flushIntervalMs?: number;
+  /** Entries kept in `metrics.logs`; defaults to `INGESTION_JOB_LOG_MAX_ENTRIES` (see job-log.ts). */
   maxEntries?: number;
 }
 
@@ -35,22 +38,28 @@ function parseIntEnv(
  * JobLogger accumulates structured log entries during job execution
  * and periodically flushes them to the job's metrics_json field.
  *
+ * The stored log is bounded (see job-log.ts): it keeps the start of the run, the most recent
+ * lines and one marker counting the lines omitted in between, so a long run never silently
+ * loses its beginning.
+ *
  * Also forwards all logs to the Azure Functions context logger.
  */
 export class JobLogger {
   private readonly jobId: number;
   private readonly context: InvocationContext;
-  private readonly entries: LogEntry[] = [];
-  private readonly maxEntries: number;
+  private entries: LogEntry[] = [];
+  private readonly limits: JobLogLimits;
   private baseMetrics: Record<string, unknown>;
   private flushTimer: ReturnType<typeof setInterval> | null = null;
-  private lastFlushIndex = 0;
+  /** Bumped on every change to `entries`; compared with the version last flushed. */
+  private version = 0;
+  private flushedVersion = 0;
 
   constructor(options: JobLoggerOptions) {
     this.jobId = options.jobId;
     this.context = options.context;
     this.baseMetrics = options.baseMetrics || {};
-    this.maxEntries = options.maxEntries || 500;
+    this.limits = resolveJobLogLimits(options.maxEntries);
 
     const flushInterval =
       options.flushIntervalMs ??
@@ -63,24 +72,11 @@ export class JobLogger {
   }
 
   private addEntry(level: LogLevel, msg: string, data?: Record<string, unknown>): void {
-    const entry: LogEntry = {
-      ts: new Date().toISOString(),
-      level,
-      msg,
-    };
-
-    if (data && Object.keys(data).length > 0) {
-      entry.data = data;
+    this.entries.push(createJobLogEntry(level, msg, data));
+    if (this.entries.length > this.limits.maxEntries) {
+      this.entries = compactJobLog(this.entries, this.limits);
     }
-
-    // Trim old entries if we hit max
-    if (this.entries.length >= this.maxEntries) {
-      const removeCount = Math.floor(this.maxEntries * 0.2);
-      this.entries.splice(0, removeCount);
-      this.lastFlushIndex = Math.max(0, this.lastFlushIndex - removeCount);
-    }
-
-    this.entries.push(entry);
+    this.version += 1;
   }
 
   debug(msg: string, data?: Record<string, unknown>): void {
@@ -120,30 +116,18 @@ export class JobLogger {
   }
 
   /**
-   * Restore log entries persisted by an earlier invocation of the same job (ingestion
-   * continuations), so the job's log history spans every invocation. Malformed entries are
-   * dropped and the oldest entries are trimmed to stay within `maxEntries`.
+   * Restore log entries persisted by earlier invocations of the same job (ingestion
+   * continuations, the AI batch poller), so the job's log spans the whole run. Malformed
+   * entries are dropped; the merged log is bounded like any other (head + marker + tail).
    */
   restoreEntries(entries: unknown): void {
-    if (!Array.isArray(entries)) {
+    const restored = sanitizeJobLog(entries);
+    if (restored.length === 0) {
       return;
     }
-
-    const restored = entries.filter(
-      (entry): entry is LogEntry =>
-        !!entry &&
-        typeof entry === "object" &&
-        typeof (entry as LogEntry).ts === "string" &&
-        typeof (entry as LogEntry).level === "string" &&
-        typeof (entry as LogEntry).msg === "string"
-    );
-    const combined = [...restored, ...this.entries];
-    if (combined.length > this.maxEntries) {
-      combined.splice(0, combined.length - this.maxEntries);
-    }
-    this.entries.splice(0, this.entries.length, ...combined);
+    this.entries = compactJobLog([...restored, ...this.entries], this.limits);
     // Force the next flush to write the merged history.
-    this.lastFlushIndex = 0;
+    this.version += 1;
   }
 
   /**
@@ -174,13 +158,14 @@ export class JobLogger {
    * Flush logs to the database if there are new entries.
    */
   async flush(): Promise<void> {
-    if (this.entries.length === this.lastFlushIndex) {
+    if (this.version === this.flushedVersion) {
       return;
     }
 
+    const flushingVersion = this.version;
     try {
       await updateIngestionJobMetrics(this.jobId, this.getMetricsWithLogs());
-      this.lastFlushIndex = this.entries.length;
+      this.flushedVersion = flushingVersion;
     } catch (err) {
       // Don't let flush errors break the job - just log to context
       this.context.warn("Failed to flush job logs:", err);

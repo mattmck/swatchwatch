@@ -1,5 +1,6 @@
 import {
   buildHexDetectionRequestPayload,
+  loadDetectionFinishCatalog,
   HEX_DETECTION_METHOD_VISION_DIRECT,
   parseHexDetectionContent,
   parseHexDetectionTokenUsage,
@@ -9,6 +10,7 @@ import {
   type HexDetectionTokenUsage,
 } from "./ai-color-detection";
 import { resolveAzureOpenAiConfig } from "./azure-openai-config";
+import type { FinishCatalog } from "./finishes";
 
 const DEFAULT_BATCH_API_VERSION = "2025-03-01-preview";
 const DEFAULT_BATCH_COMPLETION_WINDOW = "24h";
@@ -179,12 +181,12 @@ async function parseBatchApiResponse<T>(response: Response, action: string): Pro
   }
 }
 
-function toJsonlLine(request: VisionHexBatchRequest, deployment: string): string {
+function toJsonlLine(request: VisionHexBatchRequest, deployment: string, finishCatalog: FinishCatalog): string {
   const body = {
     model: deployment,
     ...buildHexDetectionRequestPayload(
       request.imageUrlOrDataUri,
-      { vendorContext: request.vendorContext },
+      { vendorContext: request.vendorContext, finishCatalog },
       false
     ),
   };
@@ -205,7 +207,13 @@ export async function submitVisionHexBatch(
   }
 
   const cfg = getBatchConfig();
-  const jsonl = `${requests.map((request) => toJsonlLine(request, cfg.deployment)).join("\n")}\n`;
+  // Loaded once per batch: every request in the batch offers the same runtime finish list.
+  const finishCatalog = await loadDetectionFinishCatalog({
+    onLog: (level, message, data) => {
+      if (level !== "info") console.warn(message, data ?? "");
+    },
+  });
+  const jsonl = `${requests.map((request) => toJsonlLine(request, cfg.deployment, finishCatalog)).join("\n")}\n`;
 
   const uploadUrl = `${cfg.endpoint}/openai/files?api-version=${cfg.apiVersion}`;
   const form = new FormData();

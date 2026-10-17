@@ -23,6 +23,8 @@ interface ColorSearchResultsProps {
   finishTypes?: readonly FinishTypeLike[] | null;
   focusedTargetHex?: string | null;
   onQuantityChange?: (polishId: string, delta: number) => void;
+  /** True while an Add for this polish waits on the add-guard dupe check (#266). */
+  isAddPending?: (polishId: string) => boolean;
   onAddFocus?: (hex: string) => void;
   /** Header dot hover — affects wheel marker + table filter */
   onSwatchHover?: (hex: string) => void;
@@ -61,6 +63,7 @@ export function ColorSearchResults({
   finishTypes,
   focusedTargetHex,
   onQuantityChange,
+  isAddPending,
   onAddFocus,
   onSwatchHover,
   onSwatchLeave,
@@ -200,6 +203,7 @@ export function ColorSearchResults({
                   onIncrement={() => onQuantityChange(polish.id, 1)}
                   onDecrement={() => onQuantityChange(polish.id, -1)}
                   onAdd={() => onQuantityChange(polish.id, 1)}
+                  addPending={isAddPending?.(polish.id) ?? false}
                 />
               </div>
             )}

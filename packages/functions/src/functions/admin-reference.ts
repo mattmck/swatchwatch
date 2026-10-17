@@ -6,8 +6,12 @@ import {
   type FinishNormalizationUpdateRequest,
   type FinishType,
   type FinishTypeCreateRequest,
+  type FinishTypeInUseResponse,
   type FinishTypeListResponse,
+  type FinishTypeNameTakenResponse,
+  type FinishTypeRenameSummary,
   type FinishTypeUpdateRequest,
+  type FinishTypeUpdateResponse,
   type HarmonyTypeCreateRequest,
   type HarmonyTypeListResponse,
   type HarmonyTypeUpdateRequest,
@@ -16,10 +20,10 @@ import {
   type ReferenceHarmonyType,
 } from "swatchwatch-shared";
 import { withAdmin } from "../lib/auth";
-import { query } from "../lib/db";
+import { query, transaction } from "../lib/db";
 import { withCors } from "../lib/http";
 import { cacheDelete, cacheDeleteByPrefix } from "../lib/cache";
-import { resetFinishAliasCache } from "../lib/finishes";
+import { normalizeFinishKey, resetFinishAliasCache } from "../lib/finishes";
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
@@ -320,6 +324,119 @@ async function createFinish(
   }
 }
 
+interface FinishTypeRow {
+  finishTypeId: number;
+  name: string;
+  displayName: string;
+  description: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  updatedByUserId: number | null;
+}
+
+const FINISH_TYPE_RETURNING_SQL = `finish_type_id AS "finishTypeId",
+         name,
+         display_name AS "displayName",
+         description,
+         sort_order AS "sortOrder",
+         created_at::text AS "createdAt",
+         updated_at::text AS "updatedAt",
+         updated_by_user_id AS "updatedByUserId"`;
+
+/** SQL twin of `normalizeFinishKey` (lib/finishes.ts): lowercase, collapse whitespace, trim. */
+function finishKeySql(expression: string): string {
+  return `btrim(regexp_replace(lower(${expression}), '\\s+', ' ', 'g'))`;
+}
+
+/** $1 = finish_type_id being renamed, $2 = normalized new name. */
+export const FINISH_NAME_CONFLICT_SQL = `SELECT finish_type_id AS "finishTypeId", name
+   FROM finish_type
+   WHERE finish_type_id <> $1
+     AND ${finishKeySql("name")} = $2::text
+   ORDER BY finish_type_id
+   LIMIT 1`;
+
+/**
+ * `column` with every entry whose key equals $1 replaced by $2, in the original order, keeping
+ * only the first occurrence of each value (so `{mirror,chrome}` renamed chrome → mirror is `{mirror}`).
+ */
+function renameFinishArraySql(column: string): string {
+  return `ARRAY(
+             SELECT d.value
+             FROM (
+               SELECT CASE WHEN ${finishKeySql("u.value")} = $1::text THEN $2::text ELSE u.value END AS value,
+                      min(u.ord) AS first_ord
+               FROM unnest(${column}) WITH ORDINALITY AS u(value, ord)
+               GROUP BY 1
+             ) d
+             ORDER BY d.first_ord
+           )`;
+}
+
+/**
+ * Rewrite one finish on every shade: $1 = old finish key, $2 = new finish key.
+ *
+ * - `finishes` / `detected_finishes`: matching entries (case-insensitive) become the new key.
+ * - A shade with an empty `finishes` whose legacy `finish` is the old finish gets
+ *   `finishes = {new}` (the 023 backfill rule), so it keeps the finish under its new name.
+ * - The legacy `finish` column itself is never written: it is the shade's raw vendor value and
+ *   part of the identity/dedup key (`idx_shade_unique`, ingestion shade matching).
+ *
+ * Shade has no triggers; stored generated columns (e.g. `hex_agreement`) recompute on update.
+ * Matching is case-insensitive, so it cannot use `idx_shade_finishes` and scans `shade` once.
+ */
+export const RENAME_SHADE_FINISHES_SQL = `WITH rewritten AS (
+   UPDATE shade s
+   SET finishes = CASE
+         WHEN cardinality(s.finishes) = 0 AND ${finishKeySql("s.finish")} = $1::text THEN ARRAY[$2::text]
+         ELSE ${renameFinishArraySql("s.finishes")}
+       END,
+       detected_finishes = CASE
+         WHEN s.detected_finishes IS NULL THEN NULL
+         ELSE ${renameFinishArraySql("s.detected_finishes")}
+       END,
+       updated_at = now()
+   WHERE EXISTS (SELECT 1 FROM unnest(s.finishes) AS f(value) WHERE ${finishKeySql("f.value")} = $1::text)
+      OR (cardinality(s.finishes) = 0 AND ${finishKeySql("s.finish")} = $1::text)
+      OR EXISTS (SELECT 1 FROM unnest(s.detected_finishes) AS f(value) WHERE ${finishKeySql("f.value")} = $1::text)
+   RETURNING s.shade_id
+ )
+ SELECT count(*)::int AS "shadeCount" FROM rewritten`;
+
+/**
+ * Add alias old key → new finish name ($1 = old key, $2 = new `finish_type.name`, $3 = admin
+ * user id) unless an alias for that spelling already exists (an alias that pointed at the old
+ * name was already repointed by the rename).
+ */
+export const FINISH_RENAME_ALIAS_SQL = `INSERT INTO finish_normalization (source_value, normalized_finish_name, updated_at, updated_by_user_id)
+   SELECT $1::text, $2::text, now(), $3
+   WHERE NOT EXISTS (
+     SELECT 1 FROM finish_normalization fn WHERE ${finishKeySql("fn.source_value")} = $1::text
+   )
+   ON CONFLICT (source_value) DO NOTHING
+   RETURNING finish_normalization_id`;
+
+/** Message shown in the admin console when a rename target name is already taken. */
+export function finishTypeNameTakenMessage(displayName: string, requestedName: string, conflictingName: string): string {
+  return `Cannot rename finish "${displayName}" to "${requestedName}": finish type "${conflictingName}" already exists.`;
+}
+
+/**
+ * PUT a finish type. A `name` change is a RENAME that cascades atomically (one transaction):
+ *
+ * 1. Lock the row; 409 `FINISH_TYPE_NAME_TAKEN` when another finish type already has the new
+ *    name (case-insensitive, whitespace collapsed). A case-only rename of the same row is allowed.
+ * 2. Update `finish_type` and repoint `finish_normalization` rows that target the old name in
+ *    ONE statement (the FK is not deferrable and has no ON UPDATE CASCADE).
+ * 3. When the finish key changes: rewrite `shade.finishes` / `shade.detected_finishes`
+ *    (`RENAME_SHADE_FINISHES_SQL`) and add an alias old name → new name
+ *    (`FINISH_RENAME_ALIAS_SQL`). The legacy `shade.finish` is left alone because it is the raw
+ *    vendor identity/dedup key; rewriting it would make the next ingestion run miss the shade
+ *    and insert a duplicate. The alias keeps the old spelling resolving instead.
+ *
+ * The response carries `rename` counts. Caches are cleared only after a successful commit.
+ */
 async function updateFinish(
   request: HttpRequest,
   context: InvocationContext,
@@ -385,52 +502,188 @@ async function updateFinish(
   }
 
   params.push(userId);
-  setClauses.push(`updated_by_user_id = $${params.length}`);
+  const userParam = params.length;
+  setClauses.push(`updated_by_user_id = $${userParam}`);
   setClauses.push("updated_at = now()");
   params.push(id);
+  const idParam = params.length;
+
+  type UpdateOutcome =
+    | { kind: "not_found" }
+    | { kind: "name_taken"; body: FinishTypeNameTakenResponse }
+    | { kind: "updated"; row: FinishTypeRow; rename?: FinishTypeRenameSummary };
 
   try {
-    const result = await query<{
-      finishTypeId: number;
-      name: string;
-      displayName: string;
-      description: string | null;
-      sortOrder: number;
-      createdAt: string;
-      updatedAt: string;
-      updatedByUserId: number | null;
-    }>(
-      `UPDATE finish_type
-       SET ${setClauses.join(", ")}
-       WHERE finish_type_id = $${params.length}
-       RETURNING
-         finish_type_id AS "finishTypeId",
-         name,
-         display_name AS "displayName",
-         description,
-         sort_order AS "sortOrder",
-         created_at::text AS "createdAt",
-         updated_at::text AS "updatedAt",
-         updated_by_user_id AS "updatedByUserId"`,
-      params
-    );
+    const outcome = await transaction<UpdateOutcome>(async (client) => {
+      // Lock the row: a concurrent finish_normalization insert pointing at the old name
+      // (FOR KEY SHARE) waits for this transaction and then fails its FK check cleanly.
+      const current = await client.query<{ finishTypeId: number; name: string; displayName: string | null }>(
+        `SELECT finish_type_id AS "finishTypeId", name, display_name AS "displayName"
+         FROM finish_type
+         WHERE finish_type_id = $1
+         FOR UPDATE`,
+        [id]
+      );
+      if (current.rows.length === 0) {
+        return { kind: "not_found" };
+      }
 
-    if (result.rows.length === 0) {
+      const previousName = current.rows[0].name;
+      const newName = nameField.provided ? nameField.value : null;
+
+      if (newName === null || newName === previousName) {
+        const result = await client.query<FinishTypeRow>(
+          `UPDATE finish_type
+           SET ${setClauses.join(", ")}
+           WHERE finish_type_id = $${idParam}
+           RETURNING ${FINISH_TYPE_RETURNING_SQL}`,
+          params
+        );
+        return { kind: "updated", row: result.rows[0] };
+      }
+
+      const oldKey = normalizeFinishKey(previousName);
+      const newKey = normalizeFinishKey(newName);
+
+      // Another finish type with the same key (any case/spacing) would make two types resolve to
+      // one finish. A case-only rename of this same row is fine (it is excluded).
+      const conflict = await client.query<{ finishTypeId: number; name: string }>(FINISH_NAME_CONFLICT_SQL, [id, newKey]);
+      if (conflict.rows.length > 0) {
+        const other = conflict.rows[0];
+        return {
+          kind: "name_taken",
+          body: {
+            error: finishTypeNameTakenMessage(current.rows[0].displayName || previousName, newName, other.name),
+            code: "FINISH_TYPE_NAME_TAKEN",
+            finishTypeId: id,
+            name: previousName,
+            requestedName: newName,
+            conflictingFinishTypeId: other.finishTypeId,
+            conflictingName: other.name,
+          },
+        };
+      }
+
+      // finish_normalization.normalized_finish_name references finish_type(name) without
+      // ON UPDATE CASCADE and the FK is not deferrable, so the name change and the repoint must
+      // happen in ONE statement: the FK check runs at the end of that statement.
+      params.push(previousName);
+      const oldNameParam = params.length;
+      const renamed = await client.query<FinishTypeRow & { normalizationCount: number }>(
+        `WITH updated AS (
+           UPDATE finish_type
+           SET ${setClauses.join(", ")}
+           WHERE finish_type_id = $${idParam}
+           RETURNING ${FINISH_TYPE_RETURNING_SQL}
+         ),
+         repointed AS (
+           UPDATE finish_normalization fn
+           SET normalized_finish_name = updated.name,
+               updated_at = now(),
+               updated_by_user_id = $${userParam}
+           FROM updated
+           WHERE fn.normalized_finish_name = $${oldNameParam}
+           RETURNING fn.finish_normalization_id
+         )
+         SELECT updated.*, (SELECT count(*) FROM repointed)::int AS "normalizationCount"
+         FROM updated`,
+        params
+      );
+      const { normalizationCount, ...row } = renamed.rows[0];
+
+      let shadeCount = 0;
+      let aliasCreated = false;
+      if (oldKey !== newKey) {
+        // Shades store finish keys, so a case-only rename leaves them as they are.
+        const shades = await client.query<{ shadeCount: number }>(RENAME_SHADE_FINISHES_SQL, [oldKey, newKey]);
+        shadeCount = Number(shades.rows[0]?.shadeCount) || 0;
+        // Keep the old spelling resolving (vendor tags, legacy shade.finish values, other
+        // instances' stale caches) unless some alias already claims it.
+        const alias = await client.query(FINISH_RENAME_ALIAS_SQL, [oldKey, row.name, userId]);
+        aliasCreated = (alias.rowCount ?? alias.rows.length) > 0;
+      }
+
+      return {
+        kind: "updated",
+        row,
+        rename: {
+          previousName,
+          shadeCount,
+          normalizationCount: Number(normalizationCount) || 0,
+          aliasCreated,
+        },
+      };
+    });
+
+    if (outcome.kind === "not_found") {
       return { status: 404, jsonBody: { error: "Finish not found" } };
     }
+    if (outcome.kind === "name_taken") {
+      return { status: 409, jsonBody: outcome.body };
+    }
 
+    // Only after a successful commit: a refused or failed rename changed nothing.
     await invalidateReferenceCaches();
+    if (outcome.rename && outcome.rename.shadeCount > 0) {
+      await Promise.all([
+        cacheDeleteByPrefix("polishes:list:u:"),
+        cacheDeleteByPrefix("polishes:detail:u:"),
+        cacheDeleteByPrefix("catalog:shade:id:"),
+      ]);
+    }
 
-    return { status: 200, jsonBody: mapFinishTypeRow(result.rows[0]) };
+    const responseBody: FinishTypeUpdateResponse = mapFinishTypeRow(outcome.row);
+    if (outcome.rename) {
+      responseBody.rename = outcome.rename;
+    }
+    return { status: 200, jsonBody: responseBody };
   } catch (error: unknown) {
     context.error("Error updating finish:", error);
-    if (typeof error === "object" && error !== null && "code" in error && error.code === "23505") {
-      return { status: 409, jsonBody: { error: "Finish with that name already exists" } };
+    const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+    if (code === "23505") {
+      return {
+        status: 409,
+        jsonBody: { error: "Finish with that name already exists", code: "FINISH_TYPE_NAME_TAKEN" },
+      };
+    }
+    if (code === "23503") {
+      // A finish normalization pointing at the old name appeared mid-rename; nothing was changed.
+      return {
+        status: 409,
+        jsonBody: { error: "A finish normalization for this finish changed during the rename. Try again." },
+      };
     }
     return { status: 500, jsonBody: { error: "Failed to update finish" } };
   }
 }
 
+function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : pluralForm}`;
+}
+
+/** Message shown in the admin console when a finish type cannot be deleted because it is in use. */
+export function finishTypeInUseMessage(displayName: string, shadeCount: number, normalizationCount: number): string {
+  const uses: string[] = [];
+  if (shadeCount > 0) uses.push(plural(shadeCount, "shade"));
+  if (normalizationCount > 0) uses.push(plural(normalizationCount, "finish normalization"));
+  const steps: string[] = [];
+  if (shadeCount > 0) steps.push(`remove it from ${shadeCount === 1 ? "that shade" : "those shades"}`);
+  if (normalizationCount > 0) steps.push("delete or repoint its normalizations");
+  const fix = steps.join(" and ");
+  return `Cannot delete finish "${displayName}": it is still used by ${uses.join(" and ")}. ` +
+    `${fix.charAt(0).toUpperCase()}${fix.slice(1)} first.`;
+}
+
+/**
+ * DELETE a finish type, unless it is still in use (#224, decision 2a).
+ *
+ * A finish type referenced by any shade (`shade.finishes` array or legacy `shade.finish`,
+ * compared case-insensitively) or by a `finish_normalization` alias is NOT deleted: the
+ * handler answers 409 with the usage counts (`FinishTypeInUseResponse`). Usage check and
+ * delete run in one statement so the counts and the decision come from the same snapshot.
+ * Caches (including the in-process finish catalog) are only invalidated when a row is
+ * actually deleted.
+ */
 async function deleteFinish(
   request: HttpRequest,
   context: InvocationContext
@@ -443,10 +696,46 @@ async function deleteFinish(
   }
 
   try {
-    const result = await query<{ finishTypeId: number }>(
-      `DELETE FROM finish_type
-       WHERE finish_type_id = $1
-       RETURNING finish_type_id AS "finishTypeId"`,
+    const result = await query<{
+      finishTypeId: number;
+      name: string;
+      displayName: string | null;
+      shadeCount: number;
+      normalizationCount: number;
+      deleted: boolean;
+    }>(
+      `WITH target AS (
+         SELECT finish_type_id, name, display_name, lower(btrim(name)) AS finish_key
+         FROM finish_type
+         WHERE finish_type_id = $1
+       ),
+       usage AS (
+         SELECT
+           (SELECT count(*)
+              FROM shade s
+             WHERE s.finishes @> ARRAY[t.finish_key]::text[]
+                OR lower(btrim(s.finish)) = t.finish_key)::int AS shade_count,
+           (SELECT count(*)
+              FROM finish_normalization fn
+             WHERE fn.normalized_finish_name = t.name)::int AS normalization_count
+         FROM target t
+       ),
+       deleted AS (
+         DELETE FROM finish_type ft
+         USING usage u
+         WHERE ft.finish_type_id = $1
+           AND u.shade_count = 0
+           AND u.normalization_count = 0
+         RETURNING ft.finish_type_id
+       )
+       SELECT t.finish_type_id AS "finishTypeId",
+              t.name,
+              t.display_name AS "displayName",
+              u.shade_count AS "shadeCount",
+              u.normalization_count AS "normalizationCount",
+              EXISTS (SELECT 1 FROM deleted) AS deleted
+       FROM target t
+       CROSS JOIN usage u`,
       [id]
     );
 
@@ -454,11 +743,30 @@ async function deleteFinish(
       return { status: 404, jsonBody: { error: "Finish not found" } };
     }
 
+    const row = result.rows[0];
+    if (!row.deleted) {
+      const shadeCount = Number(row.shadeCount) || 0;
+      const normalizationCount = Number(row.normalizationCount) || 0;
+      const body: FinishTypeInUseResponse = {
+        error: finishTypeInUseMessage(row.displayName || row.name, shadeCount, normalizationCount),
+        code: "FINISH_TYPE_IN_USE",
+        finishTypeId: id,
+        name: row.name,
+        shadeCount,
+        normalizationCount,
+      };
+      return { status: 409, jsonBody: body };
+    }
+
     await invalidateReferenceCaches();
 
     return { status: 200, jsonBody: { message: "Finish deleted successfully", finishTypeId: id } };
   } catch (error) {
     context.error("Error deleting finish:", error);
+    // A finish_normalization row created concurrently still holds the FK (ON DELETE RESTRICT).
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "23503") {
+      return { status: 409, jsonBody: { error: "Finish is still referenced by a finish normalization" } };
+    }
     return { status: 500, jsonBody: { error: "Failed to delete finish" } };
   }
 }

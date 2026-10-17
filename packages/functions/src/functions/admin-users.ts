@@ -91,8 +91,14 @@ async function mergeUsers(
       const mergeDuplicateInventory = await client.query(
         `UPDATE user_inventory_item target
          SET quantity = target.quantity + source.quantity,
-             -- Owned on either account wins; otherwise the target keeps its status.
-             status = CASE WHEN source.status = 'owned' THEN 'owned' ELSE target.status END,
+             -- Strongest status on either account wins: owned > destash (still has the
+             -- bottle) > wishlist > archived.
+             status = CASE
+               WHEN 'owned' IN (source.status, target.status) THEN 'owned'
+               WHEN 'destash' IN (source.status, target.status) THEN 'destash'
+               WHEN 'wishlist' IN (source.status, target.status) THEN 'wishlist'
+               ELSE target.status
+             END,
              tried_at = LEAST(target.tried_at, source.tried_at),
              last_worn_at = GREATEST(target.last_worn_at, source.last_worn_at),
              wear_count = target.wear_count + source.wear_count
