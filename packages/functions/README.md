@@ -370,6 +370,7 @@ overriding variables already set), so the same Postgres / Azure OpenAI config th
 | `azure-blind` | The same call with `vendorContext` removed — what the model gets from the image alone. | yes |
 | `pixel` | Top dominant color from `extractDominantColors` over the whole image. A deliberately naive baseline (product shots mostly return the background). | no |
 | `region-crop` | Two steps: the model only *localizes* (names the labeled grid cells filled with polish — painted nail/swatch first, else lacquer in the bottle; never cap, label, brush, skin, background — or, in `bbox` mode, returns one normalized box) plus the finishes it sees, and the pixels there are *measured* (`src/lib/region-color.ts`). See below. | yes |
+| `palette-pick` | Pixels measure, the model chooses: 8–12 perceptually distinct candidate colors are extracted from the image, drawn as labeled chips (A, B, C, …) beside the photo in one composite, and the model is asked which chip is the base lacquer. The answer is the chosen chip's *measured* hex, so the model can never answer in CSS named colors. | yes |
 | `image-select` | Ranks the case's `images` with the production `rankImagesForColorDetection`, then runs `azure-blind` detection on the top image (any positive score, so filename hints count; `meta.chosenImage.confident` says whether alt text backed it). Cases without `images`, or with no positive signal, use the case image. `meta` records the chosen image, the reason and the full ranking. (`src/eval/hex/strategies/image-select.ts`) | yes |
 | `image-select-ai` | `image-select`, plus one low-detail vision call that asks which photo (up to 8) shows painted nails when no image has alt text; `meta.swatchPick` records the answer. Compare with `image-select` to price the extra call. | yes |
 
@@ -418,6 +419,29 @@ blind prompt on bottle shots: 63% within 0.05 with 8×8 high detail, against 50%
 badly on painted-hand photos, where the model picks the middle columns of the fingers (knuckles and skin) instead of the
 nail beds. Region-crop is therefore not a drop-in replacement yet. It is a candidate for bottle shots, or for an
 ensemble with a skin- or variance-aware cell filter.
+
+**Palette pick** (`src/lib/palette-pick-detection.ts`, strategy file `src/eval/hex/strategies/palette-pick.ts`)
+is a reusable library piece, not just an eval strategy, so ingestion can adopt it later; today nothing in the
+production write path calls it. `detectHexByPalettePick(imageBytes, options)` runs the whole pipeline:
+
+1. `extractPaletteCandidates` — `extractDominantColors` (96 px sample, 4-bit quantization, 48 raw buckets)
+   merged with `mergeSimilarColors` in OKLAB. The merge distance is loosened→tightened (`0.04`, `0.025`,
+   `0.015`) until at least 8 candidates survive, capped at 12; each gets a letter label in prominence order.
+2. `renderPaletteComposite` — sharp draws the photo (longest edge ≤ 512 px) at the left and a strip of solid
+   chips at the right (one column up to 6 chips, two columns row-major above that; chips sized to fit the photo
+   height, 56–128 px, with a big contrasting letter). `computeCompositeLayout` is the pure geometry.
+3. `requestAzureOpenAIChatCompletion` (the lower-level helper in `ai-color-detection.ts` that the production
+   detector also uses: config resolution, timeout/retry on 429/5xx, one content-filter retry with a safe
+   prompt) sends the composite with a prompt that asks for `{"choice":"B","confidence":0..1,"finishes":[...]}`
+   — ignore cap, brush, packaging, background, glitter; pick the underlying base for effect finishes. The chip
+   hexes are *not* in the prompt.
+4. `parsePaletteChoice` maps the letter back to its chip (tolerating `"b"`, `"chip B"`, `2`); an unknown or
+   missing letter yields `hex: null` with a `reason` rather than a guessed color.
+
+The eval strategy records `candidates`, `choice`, `composite` (width/height/chip size/grid) and token `usage`
+in each case's `meta`, plus `rawContent` when no hex was produced. Vision detail follows
+`AZURE_OPENAI_VISION_DETAIL` (default `low`, i.e. a single 512 px view — the chips are sized to stay legible
+at that scale). Token-usage metrics are emitted under `hex_detection.palette_pick.*`.
 
 **Scoring** (`src/eval/hex/scoring.ts`): each case's predicted hex is compared with its ground truth by
 OKLAB Euclidean distance (`hexToOklab` / `oklabDistance` from `swatchwatch-shared`, the same math as
@@ -473,7 +497,7 @@ list (captured 2026-10-16; no alt text on either store). Note that each case's g
 those images, so an image-selection strategy that finds it is partly being graded on its own input.
 
 
-**Populating from ingested data** (`src/eval/hex/populate.ts`, migration `025`): reads shades whose
+**Populating from ingested data** (`src/eval/hex/populate.ts`, migration `20261016040629000_add-color-training-sample.sql`): reads shades whose
 `vendor_hex` is set and not a known placeholder (`src/lib/suspicious-hex.ts`), matches each to its
 latest `external_product` row (same brand + shade name; a product with no brand only falls back to Holo Taco when it comes from `HoloTacoShopify`) for the public product image, upserts one
 `color_training_sample` row per external product (`source_type = 'vendor_option'`,
@@ -532,11 +556,11 @@ npm run migrate:create -- my-migration-name   # Create a new migration file
 | `019_add_user_external_identities.sql` | Adds `user_external_identities` and backfills existing `app_user.external_id` values to support multi-provider identity linking |
 | `023_add_shade_finishes.sql` | Adds `shade.finishes text[] NOT NULL DEFAULT '{}'` + GIN index for multi-finish shades, backfills `ARRAY[canonical(finish)]` from the legacy column (canonical names + `finish_normalization` aliases), and seeds `flakie`/`flakies`/`toppers` aliases. Down drops the column/index and those alias rows |
 | `024_shade_user_submitted.sql` | Adds nullable `shade.created_by_user_id` (FK → `app_user`, `ON DELETE SET NULL`) + partial index; user-created shades use `status = 'user_submitted'` until an admin promotes them. Down drops the column/index |
-| `025_add_color_training_sample.sql` | Creates `color_training_sample` (ground-truth hex samples from `docs/schema.sql`) plus a partial unique index on `(external_product_id, source_type)` so the eval harness populate script is idempotent |
 | `025_correct_shopify_source_notes.sql` | Corrects Shopify `data_source.metadata.notes` (no store publishes hex values) and disables Clionadh, Garden Path, Roylalee and Potion Polish, which the connector cannot read |
 | `20261016030127700_clear-fake-shopify-vendor-hex.sql` | Nulls `shade.vendor_hex` values the generic Shopify connector invented before PR #238: regex false positives (hex digits found in the shade name/color name/raw Shopify title or options but never as a literal `#RRGGBB` token, e.g. "Facade" → `#FACADE`) and the `#000000`/`#D3D3D3` placeholders. Only Shopify-sourced shades (inventory tagged `shopify` or swatch owned by a `*Shopify` data source); MakeupAPI-linked shades and `detected_hex`/`name_hex` are untouched. Old values go to `shade_vendor_hex_cleanup_backup`; down restores them where `vendor_hex` is still null, then drops the table |
 | `20261016030938732_move-ai-hex-out-of-shopify-vendor-hex.sql` | Moves AI-detected hex values out of `shade.vendor_hex` on Shopify-sourced shades. Before 011 the Holo Taco connector stored only the Azure OpenAI vision result in `color_hex`, which 011/012 relabeled as `vendor_hex`. A value moves when its hex digits appear nowhere in the shade name, color name or raw Shopify title/options (so the connector regex could not have produced it). It goes to `detected_hex` when that is empty; otherwise `vendor_hex` is only cleared. Same Shopify-sourced/MakeupAPI-exclusion rules as `20261016030127700_clear-fake-shopify-vendor-hex.sql`; `#000000`/`#D3D3D3` placeholders and user-created shades are skipped. Old values go to `shade_vendor_hex_to_detected_backup`; down resets `detected_hex` where it still holds the moved value, restores `vendor_hex` where it is still null, then drops the table |
 | `20261016033423000_cleanup-gallery-swatches-on-primary-image.sql` | Deletes `source_gallery` swatches that re-ingestion had repointed at the shade's primary image (duplicates of the `source_product` swatch) and collapses duplicate gallery swatches per shade + image. Idempotent; down is a no-op |
+| `20261016040629000_add-color-training-sample.sql` | Creates `color_training_sample` (ground-truth hex samples from `docs/schema.sql`) plus a partial unique index on `(external_product_id, source_type)` so the eval harness populate script is idempotent |
 | `20261017024958000_shade-detected-hex-provenance.sql` | Adds `detected_hex` provenance to `shade` (`detected_hex_confidence NUMERIC(4,3)` with a 0–1 check, `detected_hex_method`, `detected_hex_model`, `detected_hex_prompt_version`, `detected_hex_at`) and `hex_agreement NUMERIC(6,4)`, a STORED GENERATED column = `hex_oklab_distance(vendor_hex, detected_hex)`. Creates the IMMUTABLE SQL functions `hex_to_oklab`/`hex_oklab_distance` (mirror `colorDistance` in swatchwatch-shared) and partial indexes for the hex-review queue. Existing rows get `hex_agreement` computed on migrate. Down drops the columns, indexes, constraint and functions |
 
 node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_URL` is the preferred connection method; it also falls back to individual `PG*` env vars (`PGHOST`, `PGPORT`, etc.).
