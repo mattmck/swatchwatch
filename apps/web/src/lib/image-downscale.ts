@@ -49,7 +49,7 @@ export function outputMimeTypeFor(sourceType: string): "image/png" | "image/jpeg
     : "image/jpeg";
 }
 
-async function decodeImage(file: File): Promise<CanvasImageSource & { width: number; height: number }> {
+export async function decodeImage(file: File): Promise<CanvasImageSource & { width: number; height: number }> {
   if (typeof createImageBitmap === "function") {
     try {
       return await createImageBitmap(file, { imageOrientation: "from-image" });
