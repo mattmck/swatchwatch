@@ -1053,6 +1053,8 @@ async function addToInventoryFromMatch(
       await client.query(
         `UPDATE user_inventory_item
          SET quantity = quantity + 1,
+             -- Capturing a bottle means the caller has it: a wishlist/archived row becomes owned.
+             status = CASE WHEN status IN ('wishlist', 'archived') THEN 'owned' ELSE status END,
              updated_at = now()
          WHERE inventory_item_id = $1`,
         [existing.rows[0].id]
@@ -1069,8 +1071,8 @@ async function addToInventoryFromMatch(
     const shadeId = skuResult.rows[0]?.shadeId ?? null;
 
     const inserted = await client.query<{ id: number }>(
-      `INSERT INTO user_inventory_item (user_id, sku_id, shade_id, quantity, notes)
-       VALUES ($1, $2, $3, 1, $4)
+      `INSERT INTO user_inventory_item (user_id, sku_id, shade_id, quantity, status, notes)
+       VALUES ($1, $2, $3, 1, 'owned', $4)
        RETURNING inventory_item_id AS id`,
       [userId, entityId, shadeId, "Added via Rapid Add capture"]
     );
@@ -1109,6 +1111,7 @@ async function addToInventoryFromMatch(
     await client.query(
       `UPDATE user_inventory_item
        SET quantity = quantity + 1,
+           status = CASE WHEN status IN ('wishlist', 'archived') THEN 'owned' ELSE status END,
            updated_at = now()
        WHERE inventory_item_id = $1`,
       [existing.rows[0].id]
@@ -1117,8 +1120,8 @@ async function addToInventoryFromMatch(
   }
 
   const inserted = await client.query<{ id: number }>(
-    `INSERT INTO user_inventory_item (user_id, shade_id, quantity, notes)
-     VALUES ($1, $2, 1, $3)
+    `INSERT INTO user_inventory_item (user_id, shade_id, quantity, status, notes)
+     VALUES ($1, $2, 1, 'owned', $3)
      RETURNING inventory_item_id AS id`,
     [userId, entityId, "Added via Rapid Add capture"]
   );
