@@ -40,8 +40,10 @@ const SHOPIFY_PAGE_LIMIT = 250;
 const MAX_SHOPIFY_PAGES = 30;
 const DEFAULT_RECENT_DAYS = 120;
 
-// Regex to extract hex color from option values like "#FF6B6B" or "FF6B6B"
-const HEX_COLOR_REGEX = /#?([0-9A-Fa-f]{6})/;
+// Regex to extract hex color from option values like "#FF6B6B". The literal "#"
+// and trailing word boundary are required so shade names made of hex letters
+// ("Facade", "Decadence", "Chewiebacca") are not mistaken for colors.
+const HEX_COLOR_REGEX = /#([0-9A-Fa-f]{6})\b/;
 
 // Shopify product interface (generic)
 interface ShopifyVariant {
@@ -245,9 +247,9 @@ function normalizeVariants(value: unknown): Array<Record<string, unknown>> {
 
 /**
  * Extract hex color from a Shopify variant option value
- * Looks for patterns like "#FF6B6B" or "FF6B6B"
+ * Looks for patterns like "#FF6B6B"; bare six-letter words are ignored.
  */
-function extractHexFromOption(optionValue: string | null): string | null {
+export function extractHexFromOption(optionValue: string | null): string | null {
   if (!optionValue) {
     return null;
   }
@@ -265,7 +267,7 @@ function extractHexFromOption(optionValue: string | null): string | null {
  * Extract color hex from variant options (option1, option2, option3)
  * and also from the product title
  */
-function extractHexFromProduct(product: ShopifyProduct): string | null {
+export function extractHexFromProduct(product: ShopifyProduct): string | null {
   // Check variant options first
   if (product.variants && Array.isArray(product.variants)) {
     for (const variant of product.variants) {

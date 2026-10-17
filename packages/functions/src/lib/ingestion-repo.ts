@@ -127,22 +127,37 @@ interface HoloTacoProductNormalized {
   colorName: string | null;
 }
 
+/** A source image stored in blob storage, keyed by the connector URL it was downloaded from. */
+interface StoredSourceImage {
+  sourceUrl: string;
+  storageUrl: string;
+  checksumSha256: string;
+}
+
 interface HoloTacoPreparedImage {
   storageUrl: string | null;
   checksumSha256: string | null;
+  /** Connector URL of the primary image; recorded in source_image_url so reruns can skip it. */
+  sourceUrl: string | null;
   detectedHex: string | null;
   detectedFinishes: string[] | null;
-  additionalImages: Array<{ storageUrl: string; checksumSha256: string; sourceUrl?: string }>;
+  additionalImages: StoredSourceImage[];
 }
 
 interface HoloTacoImagePreparationMetrics {
   imageCandidates: number;
+  /** Primary images downloaded and uploaded this run (reused images are not counted). */
   imageUploads: number;
   imageUploadFailures: number;
+  /** Gallery images downloaded and uploaded this run (reused images are not counted). */
   additionalImagesUploaded: number;
+  /** Primary and gallery images whose source URL was already stored, so no download ran. */
+  imagesReused: number;
   hexDetected: number;
   hexDetectionFailures: number;
   hexDetectionSkipped: number;
+  /** Subset of hexDetectionSkipped: same image as last run and the shade already has a hex. */
+  hexDetectionSkippedUnchanged: number;
   batchRequestsQueued: number;
   batchFallbacks: number;
   hexDetectionPromptTokens: number;
@@ -276,6 +291,20 @@ function getHexDetectionDelayMs(): number {
   }
   return Math.min(MAX_HEX_DETECTION_DELAY_MS, Math.max(0, parsed));
 }
+
+// Synchronous hex detection calls in flight at once; each slot still pauses
+// HEX_DETECTION_DELAY_MS after its call. The deployment's tokens-per-minute quota is the
+// real ceiling, so raise this together with deployment capacity.
+const DEFAULT_HEX_DETECTION_CONCURRENCY = 4;
+const MAX_HEX_DETECTION_CONCURRENCY = 32;
+
+function getHexDetectionConcurrency(): number {
+  const parsed = Number.parseInt(process.env.HEX_DETECTION_CONCURRENCY || "", 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return DEFAULT_HEX_DETECTION_CONCURRENCY;
+  }
+  return Math.min(MAX_HEX_DETECTION_CONCURRENCY, parsed);
+}
 const DEFAULT_HEX_BATCH_MIN_IMAGES = 5;
 const INGESTION_AI_IMAGE_PROXY_ORIGIN = resolveIngestionAiImageProxyOrigin();
 const HAS_STORAGE_CONNECTION = Boolean(process.env.AZURE_STORAGE_CONNECTION?.trim());
@@ -377,6 +406,143 @@ function estimateBatchCandidateCount(
   return count;
 }
 
+/** Brand a Shopify record materializes under; shared with the unchanged-image lookup. */
+function resolveHoloTacoBrandName(holo: HoloTacoProductNormalized): string {
+  return canonicalizeBrandName(holo.brand || "Holo Taco");
+}
+
+export interface UnchangedImageCandidate {
+  externalId: string;
+  brandName: string;
+  shadeName: string;
+  finish: string | null;
+  collection: string | null;
+  checksumSha256: string;
+}
+
+/**
+ * External IDs whose shade already has a detected hex and already has a swatch on the exact
+ * image just downloaded (same checksum). Shades are matched the same way
+ * materializePreparedHoloTacoRecord resolves them. A lookup failure returns an empty set:
+ * skipping detection is an optimization and must never fail the job.
+ */
+export async function findRecordsWithUnchangedDetectedHex(
+  dataSourceId: number,
+  candidates: UnchangedImageCandidate[]
+): Promise<Set<string>> {
+  if (candidates.length === 0) {
+    return new Set();
+  }
+
+  try {
+    const result = await query<{ externalId: string }>(
+      `WITH input AS (
+         SELECT *
+         FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[])
+           AS t(external_id, brand_name, shade_name, finish, collection, checksum_sha256)
+       )
+       SELECT DISTINCT input.external_id AS "externalId"
+       FROM input
+       JOIN LATERAL (
+         SELECT brand_id
+         FROM brand
+         WHERE lower(name_canonical) = lower(input.brand_name)
+         ORDER BY brand_id
+         LIMIT 1
+       ) b ON true
+       JOIN shade sh
+         ON sh.brand_id = b.brand_id
+        AND sh.product_line_id IS NULL
+        AND lower(sh.shade_name_canonical) = lower(input.shade_name)
+        AND coalesce(sh.finish, '') = coalesce(input.finish, '')
+        AND coalesce(sh.collection, '') = coalesce(input.collection, '')
+       WHERE sh.detected_hex IS NOT NULL
+         AND EXISTS (
+           SELECT 1
+           FROM swatch s
+           JOIN image_asset ia ON ia.image_id = s.image_id_original
+           WHERE s.shade_id = sh.shade_id
+             AND s.swatch_type = 'source_product'
+             AND ia.owner_type = 'source'
+             AND ia.owner_id = $1
+             AND ia.checksum_sha256 = input.checksum_sha256
+         )`,
+      [
+        dataSourceId,
+        candidates.map((c) => c.externalId),
+        candidates.map((c) => c.brandName),
+        candidates.map((c) => c.shadeName),
+        candidates.map((c) => c.finish),
+        candidates.map((c) => c.collection),
+        candidates.map((c) => c.checksumSha256),
+      ]
+    );
+    return new Set(result.rows.map((row) => row.externalId));
+  } catch (error) {
+    console.warn(
+      `[ingestion-repo] Unchanged-image lookup failed; running hex detection for all candidates: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+    return new Set();
+  }
+}
+
+/**
+ * Stored images for connector image URLs this data source has already ingested, keyed by URL.
+ * Shopify CDN URLs carry a `?v=` version that changes when the image is replaced, so an
+ * unchanged URL means an unchanged image and the download can be skipped. A lookup failure
+ * returns an empty map: reuse is an optimization and must never fail the job.
+ */
+export async function findStoredSourceImages(
+  dataSourceId: number,
+  sourceUrls: string[]
+): Promise<Map<string, StoredSourceImage>> {
+  const urls = Array.from(new Set(sourceUrls));
+  if (urls.length === 0) {
+    return new Map();
+  }
+
+  try {
+    const result = await query<StoredSourceImage>(
+      `SELECT
+         siu.source_url AS "sourceUrl",
+         ia.storage_url AS "storageUrl",
+         ia.checksum_sha256 AS "checksumSha256"
+       FROM source_image_url siu
+       JOIN image_asset ia ON ia.image_id = siu.image_id
+       WHERE siu.data_source_id = $1
+         AND siu.source_url = ANY($2::text[])
+         AND ia.checksum_sha256 IS NOT NULL`,
+      [dataSourceId, urls]
+    );
+    return new Map(result.rows.map((row) => [row.sourceUrl, row]));
+  } catch (error) {
+    console.warn(
+      `[ingestion-repo] Stored source image lookup failed; downloading every image: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+    return new Map();
+  }
+}
+
+async function recordSourceImageUrl(
+  client: PoolClient,
+  dataSourceId: number,
+  sourceUrl: string,
+  imageId: number
+): Promise<void> {
+  await client.query(
+    `INSERT INTO source_image_url (data_source_id, source_url, image_id)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (data_source_id, source_url)
+     DO UPDATE SET image_id = EXCLUDED.image_id, updated_at = now()
+     WHERE source_image_url.image_id IS DISTINCT FROM EXCLUDED.image_id`,
+    [dataSourceId, sourceUrl, imageId]
+  );
+}
+
 async function prepareHoloTacoImageData(
   records: ConnectorProductRecord[],
   dataSourceId: number,
@@ -411,9 +577,11 @@ async function prepareHoloTacoImageData(
     imageUploads: 0,
     imageUploadFailures: 0,
     additionalImagesUploaded: 0,
+    imagesReused: 0,
     hexDetected: 0,
     hexDetectionFailures: 0,
     hexDetectionSkipped: 0,
+    hexDetectionSkippedUnchanged: 0,
     batchRequestsQueued: 0,
     batchFallbacks: 0,
     hexDetectionPromptTokens: 0,
@@ -467,25 +635,80 @@ async function prepareHoloTacoImageData(
     holo: HoloTacoProductNormalized | null;
     storageUrl: string | null;
     checksumSha256: string | null;
-    additionalImages: Array<{ storageUrl: string; checksumSha256: string; sourceUrl?: string }>;
+    sourceUrl: string | null;
+    additionalImages: StoredSourceImage[];
     isCandidate: boolean;
+    primaryReused: boolean;
+    additionalUploaded: number;
+    imagesReused: number;
   }
 
   const limit = pLimit(4);
   const startTime = Date.now();
 
-  const uploadTasks = records.map((record) =>
+  const parsedRecords = records.map((record) => {
+    const normalized =
+      record.normalized && typeof record.normalized === "object"
+        ? (record.normalized as Record<string, unknown>)
+        : null;
+    return { record, holo: normalized ? parseHoloTacoNormalized(normalized) : null };
+  });
+
+  // Images whose connector URL was already ingested are reused instead of downloaded: the
+  // download (plus metadata strip and hashing) is what makes reruns slow, not the upload.
+  const storedImages = await findStoredSourceImages(
+    dataSourceId,
+    parsedRecords.flatMap(({ holo }) =>
+      holo?.name && isHttpUrl(holo.primaryImageUrl)
+        ? [holo.primaryImageUrl, ...holo.imageUrls.slice(1).filter(isHttpUrl)]
+        : []
+    )
+  );
+  if (storedImages.size > 0) {
+    progressLogger?.info(
+      `${sourceLogPrefix} Reusing ${storedImages.size} stored image(s) whose source URL is unchanged`
+    );
+  }
+
+  const storeSourceImage = async (
+    sourceImageUrl: string,
+    externalId: string
+  ): Promise<{ image: StoredSourceImage; reused: boolean }> => {
+    const stored = storedImages.get(sourceImageUrl);
+    if (stored) {
+      return { image: stored, reused: true };
+    }
+    const upload = await uploadSourceImageToBlob({
+      sourceImageUrl,
+      source: sourceName,
+      externalId,
+      skipContainerEnsure: true,
+    });
+    return {
+      image: { sourceUrl: sourceImageUrl, storageUrl: upload.storageUrl, checksumSha256: upload.checksumSha256 },
+      reused: false,
+    };
+  };
+
+  const uploadTasks = parsedRecords.map(({ record, holo }) =>
     limit(async (): Promise<ImageUploadResult> => {
-      const normalized =
-        record.normalized && typeof record.normalized === "object"
-          ? (record.normalized as Record<string, unknown>)
-          : null;
-      if (!normalized) {
+      const notCandidate: ImageUploadResult = {
+        record,
+        holo,
+        storageUrl: null,
+        checksumSha256: null,
+        sourceUrl: null,
+        additionalImages: [],
+        isCandidate: false,
+        primaryReused: false,
+        additionalUploaded: 0,
+        imagesReused: 0,
+      };
+      if (!holo) {
         console.log(`${sourceLogPrefix} Skipping record ${record.externalId}: no normalized data`);
-        return { record, holo: null, storageUrl: null, checksumSha256: null, additionalImages: [], isCandidate: false };
+        return notCandidate;
       }
 
-      const holo = parseHoloTacoNormalized(normalized);
       if (!holo.name || !isHttpUrl(holo.primaryImageUrl)) {
         if (holo.name) {
           console.log(`${sourceLogPrefix} Skipping record ${record.externalId}: invalid image URL`, {
@@ -493,26 +716,28 @@ async function prepareHoloTacoImageData(
             imageUrl: holo.primaryImageUrl,
           });
         }
-        return { record, holo, storageUrl: null, checksumSha256: null, additionalImages: [], isCandidate: false };
+        return notCandidate;
       }
 
       console.log(`${sourceLogPrefix} Image candidate: externalId=${record.externalId}, name=${holo.name}, imageUrl=${holo.primaryImageUrl}`);
 
       let storageUrl: string | null = null;
       let checksumSha256: string | null = null;
-      const additionalImages: Array<{ storageUrl: string; checksumSha256: string; sourceUrl?: string }> = [];
+      let primaryReused = false;
+      let additionalUploaded = 0;
+      let imagesReused = 0;
+      const additionalImages: StoredSourceImage[] = [];
 
       // Upload primary image (container already ensured)
       try {
-        const upload = await uploadSourceImageToBlob({
-          sourceImageUrl: holo.primaryImageUrl,
-          source: sourceName,
-          externalId: record.externalId,
-          skipContainerEnsure: true,
-        });
-        storageUrl = upload.storageUrl;
-        checksumSha256 = upload.checksumSha256;
-        console.log(`${sourceLogPrefix} Primary image uploaded for ${record.externalId}: checksum=${checksumSha256}`);
+        const { image, reused } = await storeSourceImage(holo.primaryImageUrl, record.externalId);
+        storageUrl = image.storageUrl;
+        checksumSha256 = image.checksumSha256;
+        primaryReused = reused;
+        if (reused) imagesReused += 1;
+        console.log(
+          `${sourceLogPrefix} Primary image ${reused ? "reused" : "uploaded"} for ${record.externalId}: checksum=${checksumSha256}`
+        );
       } catch (err) {
         console.error(`${sourceLogPrefix} Primary image upload failed for ${record.externalId}:`, String(err));
       }
@@ -522,23 +747,30 @@ async function prepareHoloTacoImageData(
         const imgUrl = holo.imageUrls[i];
         if (!isHttpUrl(imgUrl)) continue;
         try {
-          const upload = await uploadSourceImageToBlob({
-            sourceImageUrl: imgUrl,
-            source: sourceName,
-            externalId: `${record.externalId}-img${i}`,
-            skipContainerEnsure: true,
-          });
-          additionalImages.push({
-            storageUrl: upload.storageUrl,
-            checksumSha256: upload.checksumSha256,
-            sourceUrl: imgUrl,
-          });
+          const { image, reused } = await storeSourceImage(imgUrl, `${record.externalId}-img${i}`);
+          additionalImages.push(image);
+          if (reused) {
+            imagesReused += 1;
+          } else {
+            additionalUploaded += 1;
+          }
         } catch (err) {
           console.error(`${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId}:`, String(err));
         }
       }
 
-      return { record, holo, storageUrl, checksumSha256, additionalImages, isCandidate: true };
+      return {
+        record,
+        holo,
+        storageUrl,
+        checksumSha256,
+        sourceUrl: storageUrl ? holo.primaryImageUrl : null,
+        additionalImages,
+        isCandidate: true,
+        primaryReused,
+        additionalUploaded,
+        imagesReused,
+      };
     })
   );
 
@@ -546,33 +778,62 @@ async function prepareHoloTacoImageData(
   const uploadElapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`${sourceLogPrefix} Phase 1 (parallel image upload) completed in ${uploadElapsed}s for ${records.length} records`);
 
-  // --- Phase 2: Sequential AI detection + callbacks ---
-  for (const result of uploadResults) {
+  // --- Phase 2: concurrent AI detection, sequential DB callbacks in record order ---
+  const overwriteDetectedHex = options?.overwriteDetectedHex === true;
+  const unchangedWithHex =
+    detectHexFromImage && !overwriteDetectedHex
+      ? await findRecordsWithUnchangedDetectedHex(
+          dataSourceId,
+          uploadResults.flatMap((result): UnchangedImageCandidate[] => {
+            const { holo, checksumSha256 } = result;
+            if (!result.isCandidate || !holo?.name || !checksumSha256) {
+              return [];
+            }
+            if (detectHexOnSuspiciousOnly && !isSuspiciousHex(holo.vendorHex)) {
+              return [];
+            }
+            return [
+              {
+                externalId: result.record.externalId,
+                brandName: resolveHoloTacoBrandName(holo),
+                shadeName: holo.name,
+                finish: holo.finish,
+                collection: holo.collection,
+                checksumSha256,
+              },
+            ];
+          })
+        )
+      : new Set<string>();
+  if (unchangedWithHex.size > 0) {
+    progressLogger?.info(
+      `${sourceLogPrefix} Skipping AI for ${unchangedWithHex.size} record(s) with an unchanged image and an existing detected hex`
+    );
+  }
+
+  const prepareRecordImage = async (result: ImageUploadResult): Promise<HoloTacoPreparedImage> => {
     const { record, holo, additionalImages } = result;
-    const { storageUrl, checksumSha256 } = result;
+    const { storageUrl, checksumSha256, sourceUrl } = result;
 
     if (!result.isCandidate) {
-      const emptyPrepared: HoloTacoPreparedImage = {
+      return {
         storageUrl: null,
         checksumSha256: null,
+        sourceUrl: null,
         detectedHex: null,
         detectedFinishes: null,
         additionalImages: [],
       };
-      byExternalId.set(record.externalId, emptyPrepared);
-      if (onRecordPrepared) {
-        await onRecordPrepared(record, emptyPrepared);
-      }
-      continue;
     }
 
     metrics.imageCandidates += 1;
-    if (storageUrl) {
-      metrics.imageUploads += 1;
-    } else {
+    if (!storageUrl) {
       metrics.imageUploadFailures += 1;
+    } else if (!result.primaryReused) {
+      metrics.imageUploads += 1;
     }
-    metrics.additionalImagesUploaded += additionalImages.length;
+    metrics.additionalImagesUploaded += result.additionalUploaded;
+    metrics.imagesReused += result.imagesReused;
 
     let detectedHex: string | null = null;
     let detectedFinishes: string[] | null = null;
@@ -588,9 +849,7 @@ async function prepareHoloTacoImageData(
       uploadedRefs.push({ sourceUrl: holo.primaryImageUrl, storageUrl });
     }
     for (const additional of additionalImages) {
-      if (additional.sourceUrl) {
-        uploadedRefs.push({ sourceUrl: additional.sourceUrl, storageUrl: additional.storageUrl });
-      }
+      uploadedRefs.push({ sourceUrl: additional.sourceUrl, storageUrl: additional.storageUrl });
     }
     const detectionImage = holo
       ? chooseUploadedImageForDetection(holo.images, holo.primaryImageUrl, uploadedRefs)
@@ -614,7 +873,15 @@ async function prepareHoloTacoImageData(
       progressLogger?.info(selectionMessage, selectionData);
     }
 
-    if (shouldRunAiDetection && holo) {
+    if (shouldRunAiDetection && holo && unchangedWithHex.has(record.externalId)) {
+      // Without overwriteDetectedHex the shade write keeps the existing detected_hex, so a
+      // fresh detection on the same image would be paid for and then discarded.
+      metrics.hexDetectionSkipped += 1;
+      metrics.hexDetectionSkippedUnchanged += 1;
+      console.log(
+        `${sourceLogPrefix} Skipping AI for ${record.externalId}: image unchanged and shade already has a detected hex`
+      );
+    } else if (shouldRunAiDetection && holo) {
       if (!imageForAi) {
         metrics.hexDetectionSkipped += 1;
         const skipMessage = `${sourceLogPrefix} ${record.externalId} [ai-color-detection] Skipping AI: missing image URL payload`;
@@ -721,9 +988,9 @@ async function prepareHoloTacoImageData(
           } else {
             console.log(`${sourceLogPrefix} No hex returned from AI for ${record.externalId}`);
           }
+          // Pacing is per concurrency slot: this slot waits before taking the next record.
           const delayMs = getHexDetectionDelayMs();
           if (delayMs > 0) {
-            console.log(`${sourceLogPrefix} Sleeping ${delayMs}ms before next detection`);
             await sleep(delayMs);
           }
         } catch (err) {
@@ -740,17 +1007,56 @@ async function prepareHoloTacoImageData(
       }
     }
 
-    const preparedImage: HoloTacoPreparedImage = {
+    return {
       storageUrl,
       checksumSha256,
+      sourceUrl,
       detectedHex,
       detectedFinishes,
       additionalImages,
     };
-    byExternalId.set(record.externalId, preparedImage);
-    if (onRecordPrepared) {
-      await onRecordPrepared(record, preparedImage);
+  };
+
+  const detectionLimit = pLimit(getHexDetectionConcurrency());
+  // Tasks never reject (an unexpected error just drops that record's detection), so a DB
+  // callback throwing below cannot leave a rejected promise unobserved.
+  const preparedTasks = uploadResults.map((result) =>
+    detectionLimit(() =>
+      prepareRecordImage(result).catch((err): HoloTacoPreparedImage => {
+        metrics.hexDetectionFailures += 1;
+        console.error(
+          `${sourceLogPrefix} Image preparation failed for ${result.record.externalId}:`,
+          String(err)
+        );
+        return {
+          storageUrl: result.storageUrl,
+          checksumSha256: result.checksumSha256,
+          sourceUrl: result.sourceUrl,
+          detectedHex: null,
+          detectedFinishes: null,
+          additionalImages: result.additionalImages,
+        };
+      })
+    )
+  );
+
+  // DB writes stay sequential: materialization looks up then inserts brands and shades, so
+  // two records for the same new brand or shade committed concurrently could duplicate it.
+  // Each record commits as soon as its own detection resolves; later detections keep running.
+  try {
+    for (let i = 0; i < uploadResults.length; i++) {
+      const { record } = uploadResults[i];
+      const preparedImage = await preparedTasks[i];
+      byExternalId.set(record.externalId, preparedImage);
+      if (onRecordPrepared) {
+        await onRecordPrepared(record, preparedImage);
+      }
     }
+  } catch (error) {
+    // A failed commit fails the chunk, so drop detections that haven't started: they would
+    // be paid AI calls whose results are discarded. In-flight calls finish and are ignored.
+    detectionLimit.clearQueue();
+    throw error;
   }
 
   console.log(`${sourceLogPrefix} Image preparation complete:`, metrics);
@@ -784,43 +1090,48 @@ async function prepareHoloTacoImageData(
       });
 
       const fallbackDetections: AiBatchShadeDetectionInput[] = [];
-      for (const queued of queuedBatchRequests) {
-        try {
-          const detection = await detectHexWithAzureOpenAI(queued.imageUrlOrDataUri, {
-            vendorContext: queued.vendorContext,
-            onLog: (level, message, data) => {
-              const withRecord = `${sourceLogPrefix} ${queued.customId} ${message}`;
-              if (level === "error") {
-                progressLogger?.error(withRecord, data);
-              } else if (level === "warn") {
-                progressLogger?.warn(withRecord, data);
-              } else {
-                progressLogger?.info(withRecord, data);
+      const fallbackLimit = pLimit(getHexDetectionConcurrency());
+      await Promise.all(
+        queuedBatchRequests.map((queued) =>
+          fallbackLimit(async () => {
+            try {
+              const detection = await detectHexWithAzureOpenAI(queued.imageUrlOrDataUri, {
+                vendorContext: queued.vendorContext,
+                onLog: (level, message, data) => {
+                  const withRecord = `${sourceLogPrefix} ${queued.customId} ${message}`;
+                  if (level === "error") {
+                    progressLogger?.error(withRecord, data);
+                  } else if (level === "warn") {
+                    progressLogger?.warn(withRecord, data);
+                  } else {
+                    progressLogger?.info(withRecord, data);
+                  }
+                },
+              });
+              metrics.hexDetectionPromptTokens += detection.usage?.promptTokens ?? 0;
+              metrics.hexDetectionCompletionTokens += detection.usage?.completionTokens ?? 0;
+              metrics.hexDetectionTotalTokens += detection.usage?.totalTokens ?? 0;
+              if (detection.hex) {
+                metrics.hexDetected += 1;
+                fallbackDetections.push({
+                  externalId: queued.customId,
+                  detectedHex: detection.hex,
+                  detectedFinishes: detection.finishes,
+                });
               }
-            },
-          });
-          metrics.hexDetectionPromptTokens += detection.usage?.promptTokens ?? 0;
-          metrics.hexDetectionCompletionTokens += detection.usage?.completionTokens ?? 0;
-          metrics.hexDetectionTotalTokens += detection.usage?.totalTokens ?? 0;
-          if (detection.hex) {
-            metrics.hexDetected += 1;
-            fallbackDetections.push({
-              externalId: queued.customId,
-              detectedHex: detection.hex,
-              detectedFinishes: detection.finishes,
-            });
-          }
-        } catch (detectionError) {
-          metrics.hexDetectionFailures += 1;
-          console.error(
-            `${sourceLogPrefix} Fallback AI hex detection failed for ${queued.customId}:`,
-            String(detectionError)
-          );
-        }
+            } catch (detectionError) {
+              metrics.hexDetectionFailures += 1;
+              console.error(
+                `${sourceLogPrefix} Fallback AI hex detection failed for ${queued.customId}:`,
+                String(detectionError)
+              );
+            }
 
-        // Match the non-batch pacing to reduce rate-limit failures.
-        await sleep(getHexDetectionDelayMs());
-      }
+            // Same per-slot pacing as the non-batch path to reduce rate-limit failures.
+            await sleep(getHexDetectionDelayMs());
+          })
+        )
+      );
 
       if (fallbackDetections.length > 0) {
         const applyMetrics = await applyAiBatchShadeDetections(
@@ -1699,7 +2010,7 @@ async function materializePreparedHoloTacoRecord(
 
   console.log(`${sourceLogPrefix} Processing record: externalId=${record.externalId}, name=${holo.name}`);
 
-  const brandName = canonicalizeBrandName(holo.brand || "Holo Taco");
+  const brandName = resolveHoloTacoBrandName(holo);
   const brandKey = brandName.toLowerCase();
   let brandId = brandCache.get(brandKey);
 
@@ -1925,6 +2236,9 @@ async function materializePreparedHoloTacoRecord(
       imageId = insertedImage.rows[0].imageId;
       console.log(`${sourceLogPrefix} Inserted new image ${imageId}`);
     }
+    if (preparedImage.sourceUrl) {
+      await recordSourceImageUrl(client, dataSourceId, preparedImage.sourceUrl, imageId);
+    }
 
     const existingSwatch = await client.query<{ swatchId: number; imageIdOriginal: number }>(
       `SELECT
@@ -1932,6 +2246,7 @@ async function materializePreparedHoloTacoRecord(
          image_id_original AS "imageIdOriginal"
        FROM swatch
        WHERE shade_id = $1
+         AND swatch_type = 'source_product'
        ORDER BY swatch_id DESC
        LIMIT 1`,
       [shadeId]
@@ -1951,12 +2266,23 @@ async function materializePreparedHoloTacoRecord(
       await client.query(
         `UPDATE swatch
          SET image_id_original = $2
-         WHERE swatch_id = $1`,
+         WHERE swatch_id = $1
+           AND swatch_type = 'source_product'`,
         [existingSwatch.rows[0].swatchId, imageId]
       );
       delta.swatchesLinked += 1;
       console.log(`${sourceLogPrefix} Updated swatch successfully`);
     }
+
+    // A gallery swatch on the primary image duplicates the product swatch, e.g. after the
+    // shop promotes a gallery image to primary. The old primary is re-linked as gallery below.
+    await client.query(
+      `DELETE FROM swatch
+       WHERE shade_id = $1
+         AND image_id_original = $2
+         AND swatch_type = 'source_gallery'`,
+      [shadeId, imageId]
+    );
   }
 
   // Store additional images as image_assets (no swatch — for training data)
@@ -1989,6 +2315,7 @@ async function materializePreparedHoloTacoRecord(
         } else {
           galleryImageId = existingAdditional.rows[0].imageId;
         }
+        await recordSourceImageUrl(client, dataSourceId, addImg.sourceUrl, galleryImageId);
 
         const existingGallerySwatch = await client.query<{ swatchId: number }>(
           `SELECT swatch_id AS "swatchId"
