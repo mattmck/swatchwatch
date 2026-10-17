@@ -83,7 +83,7 @@ The web app uses Next.js route groups to separate public marketing pages from th
 |-------|------|-------|
 | `/` | `src/app/(marketing)/page.tsx` | Landing page — hero, features, color showcase, CTA |
 | `/dashboard` | `src/app/(app)/dashboard/page.tsx` | Client component, stats + recent additions |
-| `/admin` | `src/app/(admin)/admin/page.tsx` | Unified admin console — tabs: Configuration, Job Runs, Admin Jobs |
+| `/admin` | `src/app/(admin)/admin/page.tsx` | Unified admin console — tabs: Configuration, Job Runs, Admin Jobs, User Management, Review Queue (`?tab=review-queue`) |
 | `/admin/reference-data` | `src/app/(admin)/admin/reference-data/page.tsx` | Legacy redirect → `/admin?tab=configuration` |
 | `/admin/jobs` | `src/app/(app)/admin/jobs/page.tsx` | Legacy redirect → `/admin?tab=admin-jobs` |
 | `/polishes` | `src/app/(app)/polishes/page.tsx` | Client component, filterable/sortable table |
@@ -107,11 +107,12 @@ This project is in early development. The web UI is now fully API-driven. Backen
 **Completed (M0):**
 - ✅ JWT validation in `packages/functions/src/lib/auth.ts` — Full JWKS-based validation with dev bypass mode, user auto-creation on first login
 - ✅ Web app B2C auth wiring — MSAL integration with graceful dev bypass fallback, auth guards on `(app)` routes, real user display in sidebar
-- ✅ Unified admin console at `/admin` — Configuration (finish/harmony CRUD + finish-normalization aliases), Job Runs (reference-admin job history), Admin Jobs (ingestion pipeline)
+- ✅ Unified admin console at `/admin` — Configuration (finish/harmony CRUD + finish-normalization aliases), Job Runs (reference-admin job history), Admin Jobs (ingestion pipeline), User Management (duplicate-account merge), Review Queue (user-submitted shades)
+- ✅ Admin shade review queue (#45) — `/api/shades-admin/review*` (`admin-shade-review.ts`, `src/lib/shade-review.ts`; migration `20261017063252270_shade-review-queue`): lists `user_submitted` shades with submitter counts and `pg_trgm` merge candidates; approve (→ `active`, optional edits), merge into an active shade (one transaction; inventory re-pointed, a user's duplicate rows combined generically from `pg_attribute` so new inventory columns are carried; source retired in place with `review_status = 'merged'` + `merged_into_shade_id`, still private and hidden from user polish queries), or reject (stays private). Who/when/what is recorded on the shade (`reviewed_by_user_id`, `reviewed_at`, `review_status`, `review_note`)
 - ✅ Capture API — barcode/label/color frame submission with adaptive question flow (`capture.ts`)
 - ✅ Catalog search — `pg_trgm`-based fuzzy search across brand/shade names and aliases (`catalog.ts`)
 - ✅ Image proxy — private blob storage served through `/api/images/{id}` (`images.ts`); ids are HMAC-signed, expiring capabilities. Public `v2` ids (anonymous, `Cache-Control: public`) read only the source-image container; owner-scoped `v3` ids for private media (#227) read only `USER_MEDIA_CONTAINER` and are served only to the owner's bearer token (401/403 otherwise, `Cache-Control: private` + `Vary: Authorization`)
-- ✅ Per-user access control (#47) — all user-data routes use `withAuth` with `user_id`-scoped SQL; admin/ops routes use `withAdmin`; capture frames can only reference the caller's own `image_asset` rows; user-created shades are `user_submitted` (private until an admin sets `active`), shared shades are fill-only for users, and email account-linking requires a verified email
+- ✅ Per-user access control (#47) — all user-data routes use `withAuth` with `user_id`-scoped SQL; admin/ops routes use `withAdmin`; capture frames can only reference the caller's own `image_asset` rows; user-created shades are `user_submitted` (private until an admin approves them in the review queue; rejected and merged submissions stay private, merged ones are hidden even from their creator), shared shades are fill-only for users, and email account-linking requires a verified email
 - ✅ Connector ingestion pipeline — async queue-backed jobs for OpenBeautyFacts, MakeupAPI, HoloTacoShopify, and generic Shopify sources
 - ✅ AI hex detection — Azure OpenAI vision-based `detected_hex` from product images, with `recalc-hex` admin endpoint
 - ✅ Detected-hex provenance + reconciliation — confidence/method/deployment/prompt version/timestamp on every `detected_hex` write, generated `hex_agreement` (migration 20261017024958000_shade-detected-hex-provenance), `resolveDisplayHexDetailed`, admin review queue `GET /api/polishes-admin/hex-review`

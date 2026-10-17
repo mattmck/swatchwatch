@@ -21,13 +21,14 @@ src/app/
 ├── (admin)/
 │   ├── error.tsx                 → Route-group error boundary (full-screen `RouteError`; the group has no layout)
 │   └── admin/
-│       ├── page.tsx              → /admin  Unified admin console (tabs: Configuration, Job Runs, Admin Jobs, User Management). Renders with RequireAuth + AppShell at the page level.
+│       ├── page.tsx              → /admin  Unified admin console (tabs: Configuration, Job Runs, Admin Jobs, User Management, Review Queue). Renders with RequireAuth + AppShell at the page level.
 │       └── reference-data/
 │           ├── page.tsx          → /admin/reference-data  Legacy redirect → `/admin?tab=configuration`
 │           └── components/
 │               ├── jobs-tab.tsx  → Job Runs tab (list `/api/reference-admin/jobs`, status/error inspection, filtering)
 │               ├── config-tab.tsx → Configuration tab (finish/harmony CRUD + finish-normalization alias CRUD)
-│               └── users-tab.tsx → User Management tab (`/api/users-admin` list + `/api/users-admin/merge` repair flow)
+│               ├── users-tab.tsx → User Management tab (`/api/users-admin` list + `/api/users-admin/merge` repair flow)
+│               └── review-queue-tab.tsx → Review Queue tab (`?tab=review-queue`): pending/rejected `user_submitted` shades from `/api/shades-admin/review`, side-by-side comparison (swatch chips, catalog swatch image, field diff, ΔE) against fuzzy merge candidates with a catalog name search, and approve / edit & approve / merge (confirmed) / reject actions
 ├── (app)/
 │   ├── layout.tsx                → App layout (AppShell sidebar wrapper)
 │   ├── error.tsx                 → Route-group error boundary (renders `RouteError` inside the AppShell; retry = `reset()`)
@@ -179,7 +180,7 @@ This works for both `ciamlogin.com` (External ID) and `b2clogin.com` (legacy B2C
 | `finish-options.ts` | `buildFinishOptions(finishTypes, extraValues?)`, `knownFinishNames()`, `resolveFinishLabel()` — finish select/chip options and labels built from ALL reference `finish_type` rows (including admin-added, non-built-in types), falling back to `FINISHES` only when reference data is empty; `extraValues` keeps a polish's saved finishes selectable when they are missing from the list |
 | `color-harmonies.ts` | Harmony palette generation + `getHarmonyTypeOptions()` for API-backed harmony option mapping (with fallback constants) |
 | `color-utils.ts` | Hex↔HSL↔RGB↔OKLAB↔OKLCH conversions, `colorDistance()`, harmony helpers, undertone breakdown, and `analyzeCollectionGaps()`. The forward OKLAB math (`rgbToOklab`, `hexToOklab`, `oklabDistance`, `colorDistance`, `OKLab`) is re-exported from `swatchwatch-shared` so it matches the Functions API exactly |
-| `api.ts` | API client helpers (plus the exported `API_BASE_URL` and `getAuthHeaders()`) including polish CRUD, rapid-add capture calls, ingestion admin methods (`listIngestionJobs`, `runIngestionJob`, `getIngestionJob`), reference-data admin methods (`listAdminJobs`, finish/harmony CRUD, finish-normalization CRUD), user-management admin methods (`listAdminUsers`, `mergeAdminUsers`), public reference lookup methods (`listReferenceFinishTypes`, `listReferenceHarmonyTypes`), and `matchPolishesToImage()` for photo matching |
+| `api.ts` | API client helpers (plus the exported `API_BASE_URL` and `getAuthHeaders()`) including polish CRUD, rapid-add capture calls, ingestion admin methods (`listIngestionJobs`, `runIngestionJob`, `getIngestionJob`), reference-data admin methods (`listAdminJobs`, finish/harmony CRUD, finish-normalization CRUD), user-management admin methods (`listAdminUsers`, `mergeAdminUsers`), shade review-queue admin methods (`listShadeReviewQueue`, `getShadeReviewCandidates`, `approveShadeReview`, `mergeShadeReview`, `rejectShadeReview`), public reference lookup methods (`listReferenceFinishTypes`, `listReferenceHarmonyTypes`), and `matchPolishesToImage()` for photo matching |
 | `private-image.ts` | `isPrivateImageUrl(url, apiOrigin?)` (true when the path starts with `/api/images/v3.` and the URL is relative or on the origin of `api.ts`'s `API_BASE_URL`; the same path on any other host is treated as public, so the bearer token is never sent there), `usePrivateImage(url)` → `{ status: "idle" \| "loading" \| "ready" \| "denied" \| "error", objectUrl }` — fetches private ids with `getAuthHeaders()` (dev-bypass token included), returns an object URL that is revoked on unmount or url change, and ignores stale responses via `AbortController`. Non-private URLs return `idle` so callers render the plain URL. `loadPrivateImage()` / `classifyPrivateImageResponse()` are the framework-agnostic pieces the hook uses |
 | `image-downscale.ts` | `downscaleImageFile()` — browser canvas downscale (longest edge `MATCH_IMAGE_MAX_EDGE` = 640px, JPEG for photos / PNG when the source may have alpha) returning a data URL + dimensions; `computeScaledSize()` / `outputMimeTypeFor()` pure helpers |
 | `polish-filters.ts` | `buildBrandOptions()`, `filterPolishesForList()`, `matchesBrandFilter()` — shared catalog/search filter helpers with normalized brand matching |
