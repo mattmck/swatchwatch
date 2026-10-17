@@ -29,6 +29,8 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Loader2, Sparkles } from "lucide-react
 import { ColorDot } from "@/components/color-dot";
 import { QuantityControls } from "@/components/quantity-controls";
 import { isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
+import { DUPE_GRADE_META, dupeHintLabel, dupeHintTitle, dupeHref } from "@/lib/dupes";
+import { useDupeHints } from "@/hooks/use-dupe-hints";
 import { Pagination } from "@/components/pagination";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
@@ -455,6 +457,8 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
 
   const totalPages = Math.ceil(total / pageSize);
   const pageItems = polishes;
+  // Dupe hints (#265) for catalog and wishlist rows: one batch request per page, not per row.
+  const dupeHints = useDupeHints(pageItems);
   const columnCount = 9 + (isAdmin ? 1 : 0);
 
   useEffect(() => {
@@ -711,6 +715,8 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
               pageItems.map((polish) => {
                 const owned = isOwnedPolish(polish);
                 const recalcPending = recalcPendingById[polish.id] === true;
+                const dupeHint = owned ? undefined : dupeHints[polish.id];
+                const dupeLabel = dupeHintLabel(dupeHint);
                 return (
                   <TableRow
                     key={polish.id}
@@ -752,6 +758,17 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                       >
                         {polish.name}
                       </Link>
+                      {dupeLabel && dupeHint?.best && (
+                        <Link
+                          href={dupeHref(dupeHint.best, returnToHref)}
+                          title={dupeHintTitle(dupeHint) ?? undefined}
+                          aria-label={dupeHintTitle(dupeHint) ?? dupeLabel}
+                          className={`ml-2 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 align-middle text-[10px] font-medium leading-none ${DUPE_GRADE_META[dupeHint.best.grade].badgeClassName}`}
+                        >
+                          <ColorDot hex={dupeHint.best.displayHex} size="sm" className="h-2.5 w-2.5" />
+                          {dupeLabel}
+                        </Link>
+                      )}
                     </TableCell>
                     <TableCell>
                       <ColorDot

@@ -65,6 +65,11 @@ Inventory status model (#261). Every `user_inventory_item` row has one status; "
 | `normalizeHexColor(value)` | Uppercase `#RRGGBB` or null |
 | `computeHexAgreement(vendorHex, detectedHex)` | OKLAB distance rounded to 4 decimals, null unless both hexes are valid; mirrors the Postgres `hex_oklab_distance()` behind `shade.hex_agreement` |
 | `resolveDisplayHexDetailed(polish, { vendorHexSuspicious?, disagreementThreshold? })` | Pure reconciliation → `{ hex, source, agreement, flagged, reason }`. Keeps vendor > detected > name by default; flags `disagreement` when vendor and detected differ by more than MEDIUM; when the caller marks the vendor hex suspicious, prefers detected (and flags `vendor-suspicious` if the vendor hex still had to be used). Uses a stored `hexAgreement` when present |
+| `DUPE_LIMITS` | `{ defaultLimit: 5, maxLimit: 20, batchMaxShadeIds: 100 }` for the dupe endpoints (`color/dupes.ts`) |
+| `DUPE_FINISH_FAMILIES`, `finishFamily(finish)` | Finish families for dupe compatibility: solid (creme/crelly/jelly/sheer), shimmer (shimmer/metallic/magnetic/duochrome/multichrome), holo, glitter (glitter/flake/topper), matte, thermal, glow; `other` and admin-defined finishes have no family |
+| `finishCompatibility(targetFinishes, candidateFinishes)` | `same` (same primary), `compatible` (same family or any shared finish), `different` (known, different families), `unknown` (missing/`other`/unfamilied) |
+| `gradeDupe(distance, compatibility)` | `{ colorGrade, grade }`: `confidenceForDistance` (the match-image thresholds), dropped one step for `different` finishes; `grade` null when LOW |
+| `prepareDupeShade(shade)`, `prepareDupeCandidates(shades)`, `findDupes(target, candidates)`, `summarizeDupes(id, dupes)`, `compareDupes` | Pure dupe finder: resolve each display hex (`resolveDisplayHexDetailed`) and OKLAB once, then O(N) per target; excludes the target's own id; ordered by grade, finish compatibility, distance, brand/name |
 
 ### `types/user.ts`
 
@@ -124,6 +129,19 @@ Inventory status model (#261). Every `user_inventory_item` row has one status; "
 | `PolishImageMatchRequest` | Body for `POST /api/polishes/match-image`: `image` (base64 data URL), optional `maxColors` (1–10), `limit` (1–50) |
 | `PolishMatch` | `{ polish, matchedColor, distance, confidence }` — one owned polish matched to its closest extracted color |
 | `PolishImageMatchResponse` | `{ extractedColors, matches, candidateCount }` |
+
+### `types/dupes.ts` (dupe finder, #265)
+
+| Type | Description |
+|------|-------------|
+| `FinishCompatibility` | `"same" \| "compatible" \| "different" \| "unknown"` — how two shades' finishes relate (rule in `color/dupes.ts`) |
+| `DupeGrade` | `"high" \| "medium"` — grades that count as a dupe (`low` is never returned) |
+| `PolishDupe` | One owned dupe: `shadeId`, `brand`, `name`, `finishes`, `displayHex` + `displayHexSource`, OKLAB `distance`, `colorGrade` (distance only), final `grade`, `finishCompatibility` |
+| `PolishDupesTarget` | The shade the dupes were computed for: `shadeId`, `displayHex` (null = no usable hex), `displayHexSource`, `finishes` |
+| `PolishDupesResponse` | `GET /api/polishes/{id}/dupes`: `{ target, dupes, dupeCount, highCount, candidateCount }` (`dupes` capped by `limit`, counts are not) |
+| `PolishDupesBatchRequest` | `POST /api/polishes/dupes` body: `{ shadeIds }` (≤ `DUPE_LIMITS.batchMaxShadeIds`) |
+| `PolishDupeHint` | Compact list-row hint: `{ shadeId, best, dupeCount, highCount }` |
+| `PolishDupesBatchResponse` | `{ results: Record<shadeId, PolishDupeHint>, candidateCount }`; missing/invisible ids are omitted |
 
 ### `types/ingestion.ts`
 

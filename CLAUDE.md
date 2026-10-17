@@ -120,6 +120,7 @@ This project is in early development. The web UI is now fully API-driven. Backen
 - ✅ Reference data management — `finish_type`, `harmony_type`, `finish_normalization` tables with admin CRUD and public read endpoints
 - ✅ Hex-detection evaluation harness — `packages/functions/src/eval/hex/` scores detection strategies against ground-truth fixtures (OKLAB distance, HIGH/MEDIUM shares, per brand/finish); `color_training_sample` (migration `20261017033500000_add-color-training-sample.sql`) holds DB-sourced samples. See `packages/functions/README.md`
 - ✅ Feature-flagged Azure OpenAI batch pipeline for Shopify vision hex detection — per-chunk batches run in parallel while the worker keeps ingesting (`metrics.aiBatches`), then awaiting_ai → poll/apply each batch → complete, with synchronous fallback for small runs
+- ✅ Dupe finder (#265) — `GET /api/polishes/{id}/dupes` + batch `POST /api/polishes/dupes` (≤ 100 ids): the caller's owned shades by OKLAB distance between display hexes, graded with the match-image HIGH/MEDIUM thresholds and finish-aware (a different finish family drops one grade); pure rule in `packages/shared/src/color/dupes.ts`, web helpers in `apps/web/src/lib/dupes.ts`; surfaced as the detail-page "You own N close dupes" callout and a "Dupe owned" hint on catalog/wishlist rows
 
 ## Environment Variables (Functions)
 
