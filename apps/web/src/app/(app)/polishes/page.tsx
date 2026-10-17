@@ -25,7 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ArrowDown, ArrowUp, ArrowUpDown, Loader2, Sparkles } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Loader2, Sparkles, Upload } from "lucide-react";
 import { ColorDot } from "@/components/color-dot";
 import { QuantityControls } from "@/components/quantity-controls";
 import { isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
@@ -522,9 +522,17 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
             {total} polishes &middot; {polishes.length} shown
           </p>
         </div>
-        <Button asChild>
-          <Link href="/polishes/new">+ Add Polish</Link>
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="outline">
+            <Link href="/polishes/import">
+              <Upload aria-hidden="true" />
+              Import
+            </Link>
+          </Button>
+          <Button asChild>
+            <Link href="/polishes/new">+ Add Polish</Link>
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
