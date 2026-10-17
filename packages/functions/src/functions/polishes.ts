@@ -31,6 +31,9 @@ import {
   hashCacheKey,
 } from "../lib/cache";
 import { trackEvent, trackException } from "../lib/telemetry";
+import { deleteNailPhotoBlobs, detachNailPhotosForShade } from "../lib/nail-photos";
+import { invalidatePolishCachesForUser } from "../lib/polish-cache";
+import { recomputeWearStats } from "../lib/manicure";
 import {
   extractImagePalette,
   MatchImageInputError,
@@ -45,6 +48,8 @@ import {
   resolveRequestedFinishes,
   type ShadeFinishUpdate,
 } from "../lib/finishes";
+import { withBuyUrls } from "../lib/buy-link";
+import { parseColorFamilyFilter } from "../lib/color-family-filter";
 import {
   InventoryValidationError,
   defaultStatusForNewItem,
@@ -129,13 +134,15 @@ async function applyShadeFinishUpdate(
  * Visibility of a shade to a user (alias `s` = shade, `ui` = the caller's inventory join,
  * `$1` = caller id as in POLISH_SELECT). Shades created through the user API start as
  * `user_submitted` and stay private to their creator (and anyone holding them in inventory)
- * until an admin promotes them to `active`.
+ * until an admin promotes them to `active`. A submission an admin merged into another shade
+ * (`merged_into_shade_id`, admin review queue) is retired and visible to nobody.
  */
-const POLISH_VISIBLE_SQL = `(s.status <> 'user_submitted' OR s.created_by_user_id = $1 OR ui.inventory_item_id IS NOT NULL)`;
+const POLISH_VISIBLE_SQL = `(s.merged_into_shade_id IS NULL AND (s.status <> 'user_submitted' OR s.created_by_user_id = $1 OR ui.inventory_item_id IS NOT NULL))`;
 
 /**
- * Look up a shade by id if the caller may see it. Returns null when it is missing or another
- * user's private `user_submitted` shade (callers answer 404 for both, so existence never leaks).
+ * Look up a shade by id if the caller may see it. Returns null when it is missing, another
+ * user's private `user_submitted` shade, or retired by an admin merge (callers answer 404 for
+ * all of them, so existence never leaks).
  */
 async function getVisibleShade(
   shadeId: number,
@@ -148,6 +155,7 @@ async function getVisibleShade(
      FROM shade s
      LEFT JOIN brand b ON b.brand_id = s.brand_id
      WHERE s.shade_id = $1
+       AND s.merged_into_shade_id IS NULL
        AND (
          s.status <> 'user_submitted'
          OR s.created_by_user_id = $2
@@ -233,6 +241,7 @@ const POLISH_COLUMNS = `
     s.detected_hex_prompt_version                AS "detectedHexPromptVersion",
     s.detected_hex_at                            AS "detectedHexAt",
     s.hex_agreement::float8                      AS "hexAgreement",
+    s.color_family                               AS "colorFamily",
     -- Legacy single finish; falls back to the primary multi-finish value when unset.
     COALESCE(NULLIF(s.finish, ''), s.finishes[1], '') AS finish,
     COALESCE(s.finishes, ARRAY[]::text[])        AS finishes,
@@ -291,7 +300,7 @@ ${POLISH_FROM}`;
  * Find or create a brand + shade, returning the shade_id.
  * Uses a transaction client so this can be part of a larger transaction.
  */
-async function findOrCreateShade(
+export async function findOrCreateShade(
   client: PoolClient,
   userId: number,
   brandName: string,
@@ -317,8 +326,11 @@ async function findOrCreateShade(
   // caller must not be linked to (or learn about) it. idx_shade_unique includes product_line_id
   // (NULL here, and NULLs are distinct in a unique index), so the caller can still get their own
   // row with the same brand + name + finish. Catalog rows are preferred over private ones.
-  const existingShade = await client.query<{ shade_id: number; own_submitted: boolean }>(
-    `SELECT s.shade_id, (s.status = 'user_submitted' AND s.created_by_user_id = $4) AS own_submitted
+  // A submission an admin merged into a catalog shade (review queue) resolves to its merge target.
+  const existingShade = await client.query<{ shade_id: number; own_submitted: boolean; merged_into_shade_id: number | null }>(
+    `SELECT s.shade_id,
+            (s.status = 'user_submitted' AND s.created_by_user_id = $4 AND s.merged_into_shade_id IS NULL) AS own_submitted,
+            s.merged_into_shade_id
      FROM shade s
      WHERE s.brand_id = $1
        AND s.shade_name_canonical = $2
@@ -329,13 +341,13 @@ async function findOrCreateShade(
          OR s.created_by_user_id = $4
          OR EXISTS (SELECT 1 FROM user_inventory_item ui WHERE ui.shade_id = s.shade_id AND ui.user_id = $4)
        )
-     ORDER BY (s.status = 'user_submitted') ASC, s.shade_id ASC
+     ORDER BY (s.status = 'user_submitted') ASC, (s.merged_into_shade_id IS NOT NULL) ASC, s.shade_id ASC
      LIMIT 1`,
     [brandId, shadeName, normalizeFinish(finish), userId]
   );
 
   if (existingShade.rows.length > 0) {
-    const shadeId = existingShade.rows[0].shade_id;
+    const shadeId = existingShade.rows[0].merged_into_shade_id ?? existingShade.rows[0].shade_id;
     const ownSubmitted = Boolean(existingShade.rows[0].own_submitted);
     if (colorData) {
       await applyShadeColorUpdate(client, shadeId, colorData, ownSubmitted);
@@ -376,7 +388,7 @@ async function findOrCreateShade(
  * `$14` lists which ones were sent. `$15` is the status a new row gets. Returns the
  * inventory item id.
  */
-async function upsertInventoryItem(
+export async function upsertInventoryItem(
   client: PoolClient,
   userId: number,
   shadeId: number,
@@ -492,6 +504,7 @@ function buildPolishListCacheKey(
     status: string;
     untried: boolean;
     tags: string;
+    family?: string;
     sortBy: string;
     sortOrder: "ASC" | "DESC";
     page: number;
@@ -503,13 +516,6 @@ function buildPolishListCacheKey(
   return `polishes:list:u:${userId}:o:${originHash}:h:${hash}`;
 }
 
-async function invalidatePolishCachesForUser(userId: number, shadeIds: number[] = []): Promise<void> {
-  await Promise.all([
-    cacheDeleteByPrefix(`polishes:list:u:${userId}:`),
-    ...shadeIds.map((shadeId) => cacheDeleteByPrefix(`polishes:detail:u:${userId}:id:${shadeId}:`)),
-  ]);
-}
-
 async function invalidateGlobalPolishCaches(): Promise<void> {
   await Promise.all([
     cacheDeleteByPrefix("polishes:list:u:"),
@@ -517,7 +523,7 @@ async function invalidateGlobalPolishCaches(): Promise<void> {
   ]);
 }
 
-async function invalidateCatalogCaches(shadeIds: number[] = []): Promise<void> {
+export async function invalidateCatalogCaches(shadeIds: number[] = []): Promise<void> {
   await Promise.all([
     cacheDeleteByPrefix("catalog:search:"),
     ...shadeIds.map((shadeId) => cacheDelete(`catalog:shade:id:${shadeId}`)),
@@ -695,9 +701,11 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
         )
       );
 
+      // "Buy from brand" link (#267): validated stored product URL, absent when none.
+      const [polishWithBuyUrl] = await withBuyUrls([result.rows[0]], (row) => row.id);
       const responseBody = withReadableSwatchUrl(
         {
-          ...result.rows[0],
+          ...polishWithBuyUrl,
           sourceImageUrls: sourceImageUrls.length > 0 ? sourceImageUrls : undefined,
         },
         request.url
@@ -748,6 +756,10 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
     const normalizedScope = normalizeFilterValue(scope);
     const normalizedAvailability = normalizeFilterValue(availability);
     const parsedTags = parseTagsFilter(tagsParam);
+    const familyFilter = parseColorFamilyFilter(url.searchParams);
+    if (!familyFilter.ok) {
+      return { status: 400, jsonBody: { error: familyFilter.error } };
+    }
     const listCacheKey = buildPolishListCacheKey(userId, requestOrigin, {
       search: normalizedSearch,
       brand: normalizedBrandFilter,
@@ -758,6 +770,8 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       status: statusFilter.join(","),
       untried: untriedOnly,
       tags: canonicalizeTagsForCache(parsedTags),
+      // Only present when filtering so existing cache keys are unchanged.
+      ...(familyFilter.families.length > 0 ? { family: familyFilter.families.join(",") } : {}),
       sortBy,
       sortOrder,
       page,
@@ -850,6 +864,14 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       paramIndex++;
     }
 
+    // Color family (#103): shade.color_family is a generated column, so this is a plain indexed
+    // WHERE clause and COUNT(*) OVER() / the fallback count stay correct.
+    if (familyFilter.families.length > 0) {
+      conditions.push(`s.color_family = ANY($${paramIndex}::text[])`);
+      params.push(familyFilter.families);
+      paramIndex++;
+    }
+
     const sortColumn = SORT_COLUMNS[sortBy] || SORT_COLUMNS.createdAt;
     const whereClause = conditions.length > 0 ? conditions.join(" AND ") : "TRUE";
 
@@ -881,7 +903,10 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       total = parseInt(countResult.rows[0].total, 10);
     }
 
-    const polishes = result.rows.map(({ totalCount: _totalCount, ...polish }) => polish as Polish);
+    const polishes = await withBuyUrls(
+      result.rows.map(({ totalCount: _totalCount, ...polish }) => polish as Polish),
+      (polish) => polish.id
+    );
 
     const responseBody = {
       polishes: mapReadableSwatchUrls(polishes, request.url),
@@ -968,6 +993,8 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       }
 
       await upsertInventoryItem(client, userId, resolvedShadeId, body, inventoryFields);
+      // A re-added polish picks its wear stats back up from the mani log (#269).
+      await recomputeWearStats(client, userId, [resolvedShadeId], { fillTriedAt: false });
 
       return { shadeId: resolvedShadeId };
     });
@@ -1082,6 +1109,8 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
       if (!inventoryItemId) {
         throw new Error("Inventory upsert failed");
       }
+      // wear_count / last_worn_at are derived from the mani log (#269); tried_at is left as sent.
+      await recomputeWearStats(client, userId, [targetShadeId], { fillTriedAt: false });
 
       return targetShadeId;
     });
@@ -1122,20 +1151,37 @@ async function deletePolish(request: HttpRequest, context: InvocationContext, us
       return { status: 400, jsonBody: { error: "Invalid polish id" } };
     }
 
-    const result = await query(
-      `DELETE FROM user_inventory_item
-       WHERE shade_id = $1 AND user_id = $2
-       RETURNING inventory_item_id::text AS id`,
-      [shadeId, userId]
-    );
+    // #270: the item and its private nail photo (image_asset rows) are deleted in one transaction;
+    // the photo blobs are deleted only after it commits, so a failure leaves both untouched.
+    const { deletedId, nailPhotoBlobUrls } = await transaction(async (client) => {
+      // Lock the caller's row first: a concurrent nail-photo PUT locks it too, so it cannot attach
+      // a new photo between the detach and the delete.
+      await client.query(
+        `SELECT inventory_item_id
+         FROM user_inventory_item
+         WHERE shade_id = $1 AND user_id = $2
+         FOR UPDATE`,
+        [shadeId, userId]
+      );
+      const blobUrls = await detachNailPhotosForShade(client, userId, shadeId);
+      const result = await client.query<{ id: string }>(
+        `DELETE FROM user_inventory_item
+         WHERE shade_id = $1 AND user_id = $2
+         RETURNING inventory_item_id::text AS id`,
+        [shadeId, userId]
+      );
+      return { deletedId: result.rows[0]?.id ?? null, nailPhotoBlobUrls: blobUrls };
+    });
 
-    if (result.rows.length === 0) {
+    await deleteNailPhotoBlobs(nailPhotoBlobUrls, context);
+
+    if (deletedId === null) {
       return { status: 404, jsonBody: { error: "Polish not found for user" } };
     }
 
     await invalidatePolishCachesForUser(userId, [shadeId]);
 
-    return { status: 200, jsonBody: { message: "Polish deleted successfully", id: result.rows[0].id } };
+    return { status: 200, jsonBody: { message: "Polish deleted successfully", id: deletedId } };
   } catch (error: any) {
     return internalServerError(context, error, "Failed to delete polish", "polishes.delete");
   }
