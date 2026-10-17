@@ -223,6 +223,14 @@ Current source support:
 - `HoloTacoShopify` (current Shopify storefront pull, bundle-filtered)
 - Additional `*Shopify` sources from the generated connector list are auto-provisioned into `data_source` when missing, so they appear in `/api/ingestion/sources` and can be queued without manual SQL seeding.
 
+Generic `*Shopify` product filter (`isNailPolish` / `isBundle` in `src/lib/connectors/shopify-generic.ts`):
+a product is kept only when its `product_type` + tags contain a polish signal (`polish`, `lacquer`,
+`varnish`, `enamel`, optionally prefixed by `nail`, singular or plural, e.g. `Nail Polishes`) and no
+non-polish keyword (stamp, plate, brush, tool, file, buffer, lamp, decal, sticker, kit, remover, wipe,
+cuticle, treatment, primer, dehydrator, bond). Products with an exact `bundle`, `bundle:product`,
+`product-bundle`, `collection-set` or `gift-set` tag (case-insensitive, `_`/spaces read as `-`) are
+skipped as sets; per-shade collection tags such as `collection:<name>-set` are not.
+
 Auth requirement:
 - Ingestion endpoints are admin-only (`withAdmin`).
 - In production auth mode, admin is determined from the Entra access-token `roles` claim (`admin`).
