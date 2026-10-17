@@ -419,9 +419,19 @@ overriding variables already set), so the same Postgres / Azure OpenAI config th
 | `palette-pick` | Pixels measure, the model chooses: 8–12 perceptually distinct candidate colors are extracted from the image, drawn as labeled chips (A, B, C, …) beside the photo in one composite, and the model is asked which chip is the base lacquer. The answer is the chosen chip's *measured* hex, so the model can never answer in CSS named colors. | yes |
 | `image-select` | Ranks the case's `images` with the production `rankImagesForColorDetection`, then runs `azure-blind` detection on the top image (any positive score, so filename hints count; `meta.chosenImage.confident` says whether alt text backed it). Cases without `images`, or with no positive signal, use the case image. `meta` records the chosen image, the reason and the full ranking. (`src/eval/hex/strategies/image-select.ts`) | yes |
 | `image-select-ai` | `image-select`, plus one low-detail vision call that asks which photo (up to 8) shows painted nails when no image has alt text; `meta.swatchPick` records the answer. Compare with `image-select` to price the extra call. | yes |
+| `blind-snap` | `azure-blind` on the case image, then the model's hex is replaced by the nearest color measured from the same photo (palette-pick's candidate chips) unless no chip is within `HEX_SNAP_MAX_DISTANCE`. The model points, the pixels measure. | yes |
+| `image-select-ai-snap` | `image-select-ai`'s photo choice (alt-text ranking, or one vision call picking the on-nail photo), then `blind-snap` on that photo. | yes |
 
 When Azure OpenAI is not configured (`AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_KEY` + `AZURE_OPENAI_DEPLOYMENT_HEX`/`AZURE_OPENAI_DEPLOYMENT`,
 or the APIM gateway equivalents), Azure strategies print `Skipping strategy …` and the run still exits 0.
+
+**Snap strategies** (`src/eval/hex/strategies/snap.ts` + pure `snapHexToPalette` in `src/lib/hex-snap.ts`). On
+`sample.json` the measured palette already holds a chip within 0.05 of the ground truth for 78% of cases, but
+palette-pick's chip *choice* fails on painted-hand photos (it picks skin or the cap). Snapping uses the blind prompt's
+hex only as a pointer into that palette: the nearest chip in OKLAB wins when it is within `HEX_SNAP_MAX_DISTANCE`
+(default `0.10`, the MEDIUM threshold), otherwise the model hex is kept because the palette probably missed the polish.
+A cap sweep on saved results kept the blind prompt's p90 at caps ≤ 0.10 and widened it above. `meta` records
+`modelHex`, `snapped`, `nearestChip`, `snapDistance`, `maxSnapDistance` and the candidates.
 
 **`region-crop` in detail** (`src/eval/hex/strategies/region-crop.ts` + `src/lib/region-color.ts`). LLMs localize
 better than they read absolute color values, so the model is never asked for a hex. Step 1 calls
@@ -541,6 +551,7 @@ which). It is a curated sample for exercising the runner, not vendor-published h
 `eval/hex/fixtures/sample-with-images.json` is the same 18 cases plus each product's full Shopify image
 list (captured 2026-10-16; no alt text on either store). Note that each case's ground-truth photo is one of
 those images, so an image-selection strategy that finds it is partly being graded on its own input.
+
 
 
 **Populating from ingested data** (`src/eval/hex/populate.ts`, migration `20261017033500000_add-color-training-sample.sql`): reads shades whose
@@ -669,6 +680,7 @@ Key variables:
 | `AZURE_OPENAI_DEPLOYMENT_LABEL` | Optional Azure OpenAI deployment name for label OCR structured extraction (`src/lib/ocr-parser.ts`). Falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`. |
 | `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name for synchronous image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT` when unset). |
 | `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` | Optional Azure OpenAI deployment name for batch image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`). |
+| `HEX_SNAP_MAX_DISTANCE` | Eval-only: largest OKLAB distance at which the `blind-snap` / `image-select-ai-snap` strategies replace the model's hex with the nearest measured palette chip (default `0.10`, the MEDIUM threshold). |
 | `AZURE_OPENAI_BATCH_API_VERSION` | Optional API version used for Azure OpenAI Files/Batch endpoints (default `2025-03-01-preview`). |
 | `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` | Optional completion window sent during batch creation (default `24h`). |
 | `AZURE_OPENAI_VISION_DETAIL` | Optional image detail level for vision hex detection, sync and batch (`low` default — flat ~85 tokens/image; `high`/`auto` for more resolution). Unrecognized values fall back to `low`. |
