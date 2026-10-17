@@ -26,10 +26,10 @@ import {
   readResumeMessageFromMetrics,
   RESUME_MESSAGE_METRICS_KEY,
 } from "../lib/ingestion-continuation";
+import { appendJobLogEntries, createJobLogEntry } from "../lib/job-log";
 
 const DEFAULT_BATCH_POLL_SCHEDULE = "0 * * * * *";
 const DEFAULT_MAX_JOBS_PER_POLL = 10;
-const MAX_JOB_LOG_ENTRIES = 500;
 
 interface BatchPollerRuntimeConfig {
   enabled: boolean;
@@ -86,30 +86,19 @@ function toRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
 
+/**
+ * Append a line to the job's log (the same `metrics.logs` the worker writes), bounded the
+ * same way: the start of the run is kept and omitted lines are counted, never dropped silently.
+ */
 function appendJobLog(
   metrics: Record<string, unknown>,
   level: "debug" | "info" | "warn" | "error",
   msg: string,
   data?: Record<string, unknown>
 ): Record<string, unknown> {
-  const existingLogs = Array.isArray(metrics.logs) ? metrics.logs : [];
-  const trimmedLogs =
-    existingLogs.length >= MAX_JOB_LOG_ENTRIES
-      ? existingLogs.slice(existingLogs.length - (MAX_JOB_LOG_ENTRIES - 1))
-      : existingLogs;
-
-  const entry: Record<string, unknown> = {
-    ts: new Date().toISOString(),
-    level,
-    msg,
-  };
-  if (data && Object.keys(data).length > 0) {
-    entry.data = data;
-  }
-
   return {
     ...metrics,
-    logs: [...trimmedLogs, entry],
+    logs: appendJobLogEntries(metrics.logs, [createJobLogEntry(level, `[poller] ${msg}`, data)]),
   };
 }
 
@@ -445,16 +434,20 @@ async function processAwaitingAiBatchJob(
       );
       continue;
     }
+    const previousStatus = entry.status;
     entries[index] = withBatchStatus(entry, batchStatus, polledAt);
     latestEntry = entries[index];
 
     if (isBatchStillRunning(batchStatus.status)) {
       stillRunning += 1;
-      metrics = appendJobLog(metrics, "info", `Batch ${batchStatus.id} polled: ${batchStatus.status}`, {
-        outputFileId: batchStatus.outputFileId,
-        errorFileId: batchStatus.errorFileId,
-        requestCounts: batchStatus.requestCounts || undefined,
-      });
+      // The poller runs every minute for every pending batch; logging each poll would push
+      // the rest of the run out of the bounded job log, so only status changes are logged.
+      if (batchStatus.status !== previousStatus) {
+        metrics = appendJobLog(metrics, "info", `Batch ${batchStatus.id} is ${batchStatus.status}`, {
+          previousStatus,
+          requestCounts: batchStatus.requestCounts || undefined,
+        });
+      }
       context.log(
         `[ingestion-ai-batch-poller] Job ${job.jobId} batch ${batchStatus.id} still ${batchStatus.status}`
       );
@@ -682,7 +675,7 @@ async function ingestionAiBatchPoller(
       await markIngestionJobFailed(
         job.jobId,
         message,
-        appendJobLog(failedMetrics, "error", `[poller] ${message}`)
+        appendJobLog(failedMetrics, "error", message)
       );
     }
   }

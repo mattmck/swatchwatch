@@ -220,6 +220,9 @@ Shareable wishlist (#268), behind the server flag `SHAREABLE_WISHLIST_ENABLED` (
 | `IngestionSourceName` | Allowed generated source names for connector ingestion jobs (OpenBeautyFacts, MakeupAPI, HoloTacoShopify, Shopify sources, CosIng, etc.) |
 | `ConnectorProtocol` | Connector protocol group: `"HoloTaco" \| "Shopify" \| "OpenBeautyFacts" \| "MakeupAPI" \| "GS1" \| "Custom"` |
 | `IngestionJobStatus` | Job lifecycle status: `queued \| running \| succeeded \| failed \| cancelled` |
+| `IngestionLogLevel` | Job log level: `debug \| info \| warn \| error` |
+| `IngestionLogEntry` | One job log line in `metrics.logs`: `{ ts, level, msg, data? }`; the single omission marker also carries `omitted` |
+| `IngestionLogOmission` | Roll-up on the marker entry of a bounded job log: `{ count, byLevel, firstTs?, lastTs? }` for the lines dropped between the start of the run and the newest lines |
 | `IngestionJobRunRequest` | Request payload for `POST /api/ingestion/jobs` (includes optional `recentDays`, `materializeToInventory`, `detectHexFromImage`, `overwriteDetectedHex`, and `exhaustive` for full-catalog pulls) |
 | `BulkIngestionRequest` | Request payload for `POST /api/ingestion/bulk` (`sources: IngestionSourceName[]`, optional `options` for `materializeToInventory`, `detectHexFromImage`, and `overwriteDetectedHex`) |
 | `BulkIngestionResponse` | Bulk run response: `{ enqueued: number, jobs: IngestionJobRecord[] }` |
