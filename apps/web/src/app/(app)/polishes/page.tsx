@@ -28,6 +28,7 @@ import {
 import { ArrowDown, ArrowUp, ArrowUpDown, Loader2, Sparkles } from "lucide-react";
 import { ColorDot } from "@/components/color-dot";
 import { QuantityControls } from "@/components/quantity-controls";
+import { WishlistShareCard } from "@/components/wishlist-share-card";
 import { isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
 import { Pagination } from "@/components/pagination";
 import { BrandSpinner } from "@/components/brand-spinner";
@@ -616,6 +617,9 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
           </Button>
         )}
       </div>
+
+      {/* Opt-in public wishlist link (#268); hidden unless the server flag is on. */}
+      {availabilityFilter === "wishlist" && <WishlistShareCard />}
 
       {/* Table */}
       <div

@@ -22,6 +22,8 @@ infrastructure/    → Terraform (azurerm ~4.50) for all Azure resources
 
 **Telemetry:** Functions and web both report to the same workspace-based Application Insights (see `docs/observability-plan.md`). The web SDK is lazy-loaded after hydration, sends W3C `traceparent` only to the API host, tags telemetry with the internal user id (never email), and redacts `/api/images/{id}` capability ids; route-group `error.tsx` files and `app/global-error.tsx` report render errors.
 
+**Shareable wishlist (#268):** an opt-in, revocable public read-only page for a user's `status = 'wishlist'` items, entirely behind the server flag `SHAREABLE_WISHLIST_ENABLED` (default off, pending roadmap §6 decision 2; all `/api/wishlist-share*` and `/api/wishlist/{token}` routes 404 with `code: "feature_disabled"` while off, and the web card hides itself on that response). One `wishlist_share` row per user (migration 20261017064751368_wishlist-share) stores only a salt and `SHA-256(token)`; the token is `HMAC(subkey of IMAGE_PROXY_SIGNING_KEY, user_id:salt)`, re-derivable by the owner but not from a DB leak. The public payload is an explicit allowlist (owner-chosen display name; brand, shade, finishes, display hex, public `v2` catalog image) — never ids, email, notes, prices, quantities, private `v3` media, or the owner's private `user_submitted` shades. Anonymous reads are rate-limited per IP and per token with in-memory token buckets (`src/lib/rate-limit.ts`, best effort per instance).
+
 **Auth:** Azure AD B2C (provisioned outside Terraform via portal). Functions read `AZURE_AD_B2C_TENANT` and `AZURE_AD_B2C_CLIENT_ID` from environment. Token validation is JWT-based via the `/api/auth/validate` endpoint.
 
 ## Dev Commands
@@ -95,6 +97,7 @@ The web app uses Next.js route groups to separate public marketing pages from th
 | `/polishes/match` | `src/app/(app)/polishes/match/page.tsx` | Client component, photo → owned-polish color matching (upload/drop/camera, extracted palette filter, confidence badges) via `POST /api/polishes/match-image` |
 | `/polishes/search` | `src/app/(app)/polishes/search/page.tsx` | Client component, canvas color wheel + OKLAB matching |
 | `/rapid-add` | `src/app/rapid-add/page.tsx` | Client component, capture-first rapid add workflow |
+| `/w/?token=…` | `src/app/w/page.tsx` | Public shared wishlist (#268): no auth/AppShell, `noindex` + `no-referrer` metadata. Static export → token is a query param, not `/w/{token}`. Feature behind `SHAREABLE_WISHLIST_ENABLED` (off by default) |
 
 **Route groups:**
 - `(marketing)` — Public pages with glass header + footer (no sidebar)
@@ -136,6 +139,7 @@ Optional / dev-only:
 - `AUTH_DEV_BYPASS` — enables `Bearer dev:<userId>` tokens for local dev only. Fails closed when hosted in Azure (`WEBSITE_INSTANCE_ID` or a non-loopback `WEBSITE_HOSTNAME`, see `src/lib/runtime-env.ts`); the deploy workflow always sets it to `false`
 - `IMAGE_PROXY_ID_TTL_SECONDS` — minimum lifetime of newly minted signed image ids (default `259200` = 3 days, clamped 1h–30d; keep above the AI batch completion window)
 - `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL` — optional ISO-8601 cutoff for accepting legacy non-expiring v1 image ids during rollout (unset = rejected)
+- `SHAREABLE_WISHLIST_ENABLED` — feature flag for opt-in public wishlist links (#268); default `false` (only `true` enables). Off → every wishlist-share route returns 404 `feature_disabled` and the web share card is hidden. Terraform-managed in Azure (`shareable_wishlist_enabled`, default `false`, fed by the `SHAREABLE_WISHLIST_ENABLED` GitHub variable in Deploy Infra); needs `IMAGE_PROXY_SIGNING_KEY`
 - `USER_MEDIA_CONTAINER` — blob container for private user media such as nail photos (default `nail-photos`, Terraform-provisioned); readable only through owner-scoped `v3` image ids (#227)
 - `IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS` — minimum lifetime of owner-scoped `v3` private-media image ids (default `3600`, clamped 300–86400, bucketed to 15 minutes; #227)
 - `AZURE_OPENAI_DEPLOYMENT_LABEL` — Azure OpenAI deployment name for label OCR structured extraction (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`)

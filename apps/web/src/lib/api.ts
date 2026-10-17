@@ -41,7 +41,11 @@ import type {
   HarmonyTypeUpdateRequest,
   HarmonyTypeListResponse,
   IngestionJob,
+  PublicWishlistResponse,
+  WishlistShareEnableRequest,
+  WishlistShareStatus,
 } from "swatchwatch-shared";
+import { WISHLIST_SHARE_FEATURE_DISABLED_CODE } from "swatchwatch-shared";
 
 import { getAccessToken } from "./auth-token";
 
@@ -50,7 +54,7 @@ const MAX_CAPTURE_FRAME_BYTES = 5 * 1024 * 1024;
 const LIST_ALL_POLISHES_PAGE_SIZE = 250;
 const listPolishesInFlight = new Map<string, Promise<PolishListResponse>>();
 
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
     this.name = "ApiError";
@@ -712,4 +716,64 @@ export async function mergeAdminUsers(
     body: JSON.stringify(data),
   });
   return handleResponse<AdminUserMergeResponse>(response);
+}
+
+// ── Shareable wishlist (#268) ───────────────────────────────────────────────
+// Behind the server-side SHAREABLE_WISHLIST_ENABLED flag: while it is off every route answers
+// 404 `{ code: "feature_disabled" }`, which the client treats as "feature unavailable".
+
+async function isFeatureDisabled(response: Response): Promise<boolean> {
+  if (response.status !== 404) return false;
+  const body = (await response.clone().json().catch(() => null)) as { code?: unknown } | null;
+  return body?.code === WISHLIST_SHARE_FEATURE_DISABLED_CODE;
+}
+
+/** The caller's share-link status, or null when the feature is disabled on the server. */
+export async function getWishlistShare(): Promise<WishlistShareStatus | null> {
+  const response = await fetch(`${API_BASE_URL}/wishlist-share`, {
+    headers: await getAuthHeaders(),
+    cache: "no-store",
+  });
+  if (await isFeatureDisabled(response)) return null;
+  return handleResponse<WishlistShareStatus>(response);
+}
+
+/** Enable the share link (idempotent) and/or set its public display name. */
+export async function enableWishlistShare(data: WishlistShareEnableRequest = {}): Promise<WishlistShareStatus> {
+  const response = await fetch(`${API_BASE_URL}/wishlist-share`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<WishlistShareStatus>(response);
+}
+
+/** Replace the share token; the previous link stops working immediately. */
+export async function rotateWishlistShare(): Promise<WishlistShareStatus> {
+  const response = await fetch(`${API_BASE_URL}/wishlist-share/rotate`, {
+    method: "POST",
+    headers: await getAuthHeaders(),
+  });
+  return handleResponse<WishlistShareStatus>(response);
+}
+
+/** Revoke the share link; it 404s immediately. */
+export async function revokeWishlistShare(): Promise<WishlistShareStatus> {
+  const response = await fetch(`${API_BASE_URL}/wishlist-share`, {
+    method: "DELETE",
+    headers: await getAuthHeaders(),
+  });
+  return handleResponse<WishlistShareStatus>(response);
+}
+
+/**
+ * Anonymous read of a shared wishlist. Never sends auth headers. Throws `ApiError` (404 for an
+ * unknown, rotated or revoked token or a disabled feature; 429 when rate-limited).
+ */
+export async function getPublicWishlist(token: string): Promise<PublicWishlistResponse> {
+  const response = await fetch(`${API_BASE_URL}/wishlist/${encodeURIComponent(token)}`, {
+    credentials: "omit",
+    referrerPolicy: "no-referrer",
+  });
+  return handleResponse<PublicWishlistResponse>(response);
 }
