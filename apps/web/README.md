@@ -26,7 +26,7 @@ src/app/
 │           ├── page.tsx          → /admin/reference-data  Legacy redirect → `/admin?tab=configuration`
 │           └── components/
 │               ├── jobs-tab.tsx  → Job Runs tab (list `/api/reference-admin/jobs`, status/error inspection, filtering)
-│               ├── config-tab.tsx → Configuration tab (finish/harmony CRUD + finish-normalization alias CRUD). Deleting an in-use finish type shows the API's 409 message (usage counts) in the delete dialog (`runReferenceDelete`)
+│               ├── config-tab.tsx → Configuration tab (finish/harmony CRUD + finish-normalization alias CRUD). Deleting an in-use finish type shows the API's 409 message (usage counts) in the delete dialog (`runReferenceDelete`). Renaming a finish type keeps the edit dialog open with the result ("Renamed "chrome" to "mirror"; 12 shades updated, …", `finishTypeRenameNotice`) or the 409 "already exists" message (`runReferenceUpdate`)
 │               ├── users-tab.tsx → User Management tab (`/api/users-admin` list + `/api/users-admin/merge` repair flow)
 │               └── review-queue-tab.tsx → Review Queue tab (`?tab=review-queue`): pending/rejected `user_submitted` shades from `/api/shades-admin/review`, side-by-side comparison (swatch chips, catalog swatch image, field diff, ΔE) against fuzzy merge candidates with a catalog name search, and approve / edit & approve / merge (confirmed) / reject actions
 ├── (app)/
