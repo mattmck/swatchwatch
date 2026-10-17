@@ -4,9 +4,9 @@ import { Suspense, useState, useEffect, useMemo, useCallback, useRef } from "rea
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import type { Polish, PolishFilters } from "swatchwatch-shared";
+import type { Polish, PolishFilters, PolishUpdateRequest } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
-import { listAllPolishes, listPolishes, recalcPolishHex, updatePolish } from "@/lib/api";
+import { getPolishDupes, listAllPolishes, listPolishes, recalcPolishHex, updatePolish } from "@/lib/api";
 import { undertone, type Undertone } from "@/lib/color-utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,9 @@ import { QuantityControls } from "@/components/quantity-controls";
 import { isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
 import { DUPE_GRADE_META, dupeHintLabel, dupeHintTitle, dupeHref } from "@/lib/dupes";
 import { useDupeHints } from "@/hooks/use-dupe-hints";
+import { useAddGuard } from "@/hooks/use-add-guard";
+import { AddGuardDialog } from "@/components/add-guard-dialog";
+import { shadeGuardKey, wishlistInsteadUpdate } from "@/lib/add-guard";
 import { Pagination } from "@/components/pagination";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
@@ -459,6 +462,8 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const pageItems = polishes;
   // Dupe hints (#265) for catalog and wishlist rows: one batch request per page, not per row.
   const dupeHints = useDupeHints(pageItems);
+  // Add guard (#266): adding a not-owned shade shows its owned near-dupes first.
+  const { guardAdd, active: activeGuard, choose: chooseGuard, isChecking: isGuardChecking } = useAddGuard();
   const columnCount = 9 + (isAdmin ? 1 : 0);
 
   useEffect(() => {
@@ -471,13 +476,10 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     }
   }, [page, totalPages]);
 
-  // Optimistic quantity update
-  const handleQuantityChange = useCallback(
-    (polishId: string, delta: number) => {
-      const original = polishes.find((p) => p.id === polishId);
-      if (!original) return;
-
-      const change = quantityChangeUpdate(original, delta);
+  // Optimistic inventory update (rolled back on failure)
+  const applyInventoryChange = useCallback(
+    (original: Polish, change: Pick<PolishUpdateRequest, "quantity" | "status">) => {
+      const polishId = original.id;
       setPolishes((prev) =>
         prev.map((p) => (p.id === polishId ? { ...p, ...change } : p))
       );
@@ -492,7 +494,40 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
           );
         });
     },
-    [polishes]
+    []
+  );
+
+  const handleQuantityChange = useCallback(
+    (polishId: string, delta: number) => {
+      const original = polishes.find((p) => p.id === polishId);
+      if (!original) return;
+
+      if (delta > 0 && !isOwnedPolish(original)) {
+        void guardAdd({
+          guardKey: shadeGuardKey(original.id),
+          shadeLabel: `${original.brand} ${original.name}`,
+          status: original.status,
+          intent: "own",
+          surface: "polishes-list",
+          hint: dupeHints[original.id],
+          loadDupes: () => getPolishDupes(original.id),
+          proceed: (intent) => {
+            if (intent === "wishlist") {
+              applyInventoryChange(original, wishlistInsteadUpdate());
+              toast.success("Added to wishlist", {
+                description: `${original.brand} ${original.name} is on your wishlist.`,
+              });
+              return;
+            }
+            applyInventoryChange(original, quantityChangeUpdate(original, delta));
+          },
+        });
+        return;
+      }
+
+      applyInventoryChange(original, quantityChangeUpdate(original, delta));
+    },
+    [polishes, dupeHints, guardAdd, applyInventoryChange]
   );
 
   const handleRecalcHex = useCallback(async (polishId: string) => {
@@ -820,6 +855,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                         onIncrement={() => handleQuantityChange(polish.id, 1)}
                         onDecrement={() => handleQuantityChange(polish.id, -1)}
                         onAdd={() => handleQuantityChange(polish.id, 1)}
+                        addPending={isGuardChecking(shadeGuardKey(polish.id))}
                       />
                     </TableCell>
                   </TableRow>
@@ -829,6 +865,8 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
           </TableBody>
         </Table>
       </div>
+
+      <AddGuardDialog guard={activeGuard} onChoice={chooseGuard} returnTo={returnToHref} />
 
       {/* Pagination */}
       <Pagination
