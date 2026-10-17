@@ -44,6 +44,7 @@ import {
   resolveRequestedFinishes,
   type ShadeFinishUpdate,
 } from "../lib/finishes";
+import { withBuyUrls } from "../lib/buy-link";
 import { PoolClient } from "pg";
 
 const FINISH_NORMALIZATION_MAP: Record<string, string> = {
@@ -609,9 +610,11 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
         )
       );
 
+      // "Buy from brand" link (#267): validated stored product URL, absent when none.
+      const [polishWithBuyUrl] = await withBuyUrls([result.rows[0]], (row) => row.id);
       const responseBody = withReadableSwatchUrl(
         {
-          ...result.rows[0],
+          ...polishWithBuyUrl,
           sourceImageUrls: sourceImageUrls.length > 0 ? sourceImageUrls : undefined,
         },
         request.url
@@ -769,7 +772,10 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       total = parseInt(countResult.rows[0].total, 10);
     }
 
-    const polishes = result.rows.map(({ totalCount: _totalCount, ...polish }) => polish as Polish);
+    const polishes = await withBuyUrls(
+      result.rows.map(({ totalCount: _totalCount, ...polish }) => polish as Polish),
+      (polish) => polish.id
+    );
 
     const responseBody = {
       polishes: mapReadableSwatchUrls(polishes, request.url),

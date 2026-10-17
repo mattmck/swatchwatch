@@ -20,6 +20,8 @@ infrastructure/    → Terraform (azurerm ~4.50) for all Azure resources
 
 **Telemetry:** Functions and web both report to the same workspace-based Application Insights (see `docs/observability-plan.md`). The web SDK is lazy-loaded after hydration, sends W3C `traceparent` only to the API host, tags telemetry with the internal user id (never email), and redacts `/api/images/{id}` capability ids; route-group `error.tsx` files and `app/global-error.tsx` report render errors.
 
+**Buy from brand (#267):** polish list/detail and catalog search/shade responses carry an optional `buyUrl` — the brand product page from the connector-stored `external_product.normalized_json ->> 'productUrl'`, reached through `shade_source_product` (written by ingestion materialization; migration 20261017061344201_add-shade-source-product). `packages/functions/src/lib/buy-link.ts` validates (absolute http/https only, no credentials) and picks one product deterministically (enabled source, then latest `last_seen_at`, then latest `fetched_at`, then highest id). No affiliate parameters; `applyAffiliateParams()` is the one place to add them. The web renders it via `BuyFromBrandLink` with `rel="noopener noreferrer nofollow"`.
+
 **Auth:** Azure AD B2C (provisioned outside Terraform via portal). Functions read `AZURE_AD_B2C_TENANT` and `AZURE_AD_B2C_CLIENT_ID` from environment. Token validation is JWT-based via the `/api/auth/validate` endpoint.
 
 ## Dev Commands

@@ -33,6 +33,7 @@ import {
   type FinishCatalog,
 } from "./finishes";
 import { PoolClient } from "pg";
+import { recordShadeSourceProduct } from "./buy-link";
 
 export interface DataSourceRecord {
   dataSourceId: number;
@@ -1892,7 +1893,9 @@ export async function listIngestionJobs(
 
 export async function materializeMakeupApiRecords(
   userId: number,
-  records: ConnectorProductRecord[]
+  records: ConnectorProductRecord[],
+  /** MakeupAPI data_source id; when set, each shade is linked to its product (buy links, #267). */
+  dataSourceId?: number
 ): Promise<MakeupApiMaterializationMetrics> {
   const finishCatalog = await loadFinishCatalog();
   return transaction(async (client) => {
@@ -2022,6 +2025,10 @@ export async function materializeMakeupApiRecords(
           );
           shadeId = insertedShade.rows[0].shadeId;
           shadesCreated += 1;
+        }
+
+        if (dataSourceId !== undefined) {
+          await recordShadeSourceProduct(client, shadeId, dataSourceId, record.externalId);
         }
 
         // Write color data to shade (product-level)
@@ -2205,6 +2212,9 @@ async function materializePreparedHoloTacoRecord(
     shadeId = insertedShade.rows[0].shadeId;
     delta.shadesCreated += 1;
   }
+
+  // Remember which product this shade came from (drives the "Buy from brand" link, #267).
+  await recordShadeSourceProduct(client, shadeId, dataSourceId, record.externalId);
 
   const importNote = `Imported from ${sourceLogPrefix.replace(/[\[\]]/g, "")} external_id=${record.externalId}`;
   const vendorHex = holo.vendorHex;
