@@ -31,7 +31,7 @@ recommendation in place for the record.
 | D15 | App Insights daily caps | Decided | Observability Phase 3 |
 | D16 | Alert email and scope | Decided | Observability Phase 3 |
 | D17 | Observability issue numbering | Decided | Phase 3 branch name |
-| D18 | How to release this batch | Decided | Promoting `dev` to `main` |
+| D18 | How to release this batch | Decided (revised: one release) | Promoting `dev` to `main` |
 | D19 | Tracking the success metrics | Decided | Roadmap §4 metrics |
 | D20 | Milestones | Decided | Housekeeping |
 | D21 | Owners for follow-ups | Decided | Follow-up work |
@@ -253,6 +253,10 @@ recommendation in place for the record.
   keeps one bad migration from blocking everything.
 - **Decision:** Release by sprint. Sprint 1+2 (collection, import/export, color family, dupes, add guard, Rapid Add, buy link, wishlist) before Black Friday (27 Nov); Sprint 3+4 after.
 - **Date:** 2026-10-17
+- **Revised 2026-10-17:** one release (option (a)). By the time the batch was ready, Sprint 3 and 4 work (#308, #309, #311,
+  #338, #339) had already merged into `dev`, so releasing by sprint would have meant cherry-picking. The release carries
+  12 new migrations (11 on `dev` plus #338's), so the option (a) safeguards apply: migrate up and down on a fresh database
+  before prod, then smoke-test dev. The pre-release checklist is on #274.
 
 ### D19 — Tracking the success metrics
 - **Context:** roadmap §4 said to set up tracking in Sprint 1. No PR does it.
@@ -302,7 +306,7 @@ Open follow-ups taken from the PR descriptions. Give each one an owner and a tic
 - **D2:** after #292 merges, enable `NightOwlLacquerShopify` and remove it from `SHOPIFY_SOURCES_PENDING_APPROVAL` (tracked under #273).
 - **D11:** close #224 once #288 and #306 merge.
 - **D14–D16:** implement in Phase 3 under #281: keep the cookies; 0.5 GB/2 GB caps; prod-only alerts to `var.alert_email`.
-- **D18:** cut the Sprint 1+2 release before 27 Nov.
+- **D18:** cut one `dev → main` release before 27 Nov, following the pre-release checklist on #274.
 
 ### D22 — How feature flags work
 - **Status:** Deferred, see [#313](https://github.com/mattmck/swatchwatch/issues/313). Env vars for now; revisit
