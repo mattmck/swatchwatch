@@ -438,9 +438,9 @@ which). It is a curated sample for exercising the runner, not vendor-published h
 
 **Populating from ingested data** (`src/eval/hex/populate.ts`, migration `025`): reads shades whose
 `vendor_hex` is set and not a known placeholder (`src/lib/suspicious-hex.ts`), matches each to its
-latest `external_product` row (same brand + shade name) for the public product image, upserts one
+latest `external_product` row (same brand + shade name; a product with no brand only falls back to Holo Taco when it comes from `HoloTacoShopify`) for the public product image, upserts one
 `color_training_sample` row per external product (`source_type = 'vendor_option'`,
-`training_status = 'pending'`; re-runs refresh instead of duplicating), and exports rows with status
+`training_status = 'pending'`; re-runs refresh `pending` rows instead of duplicating, and never touch rows already curated to `approved`/`rejected`/`used`), and exports rows with status
 `pending`/`approved` to `eval/hex/fixtures/color-training-sample.json` (gitignored — copy it to a named
 fixture to check one in). Curate by setting `training_status` to `approved`/`rejected`, then export
 again with `--export-only --status approved`. Options: `--source <names>`, `--limit <n>`,
