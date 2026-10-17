@@ -290,6 +290,30 @@ export function parseImportQuantity(value: string): { value?: number; error?: st
   return { value: Number(match[1]) };
 }
 
+const LETTER_CODE = /^[A-Za-z]{3}$/;
+const WHITESPACE = /\s/;
+
+/**
+ * A leading (`USD 9.99`) or trailing (`9.99 usd`) 3-letter currency code plus the whitespace
+ * between it and the amount. Index loops instead of a `\s*`-wrapped regex keep it linear on
+ * user-supplied cells (CodeQL js/polynomial-redos).
+ */
+function findCurrencyCode(text: string): { code: string; match: string } | undefined {
+  const head = text.slice(0, 3);
+  if (LETTER_CODE.test(head)) {
+    let end = 3;
+    while (end < text.length && WHITESPACE.test(text.charAt(end))) end++;
+    return { code: head, match: text.slice(0, end) };
+  }
+  const tail = text.slice(-3);
+  if (text.length >= 3 && LETTER_CODE.test(tail)) {
+    let start = text.length - 3;
+    while (start > 0 && WHITESPACE.test(text.charAt(start - 1))) start--;
+    return { code: tail, match: text.slice(start) };
+  }
+  return undefined;
+}
+
 const CURRENCY_SYMBOLS: Readonly<Record<string, string>> = { "€": "EUR", "£": "GBP", "¥": "JPY", "₩": "KRW", "₹": "INR" };
 
 /**
@@ -300,10 +324,10 @@ export function parseImportPrice(value: string): { value?: number; currency?: st
   let text = cleanImportText(value);
   if (!text) return {};
   let currency: string | undefined;
-  const code = /(?:^([A-Za-z]{3})\s*|\s*([A-Za-z]{3})$)/.exec(text);
+  const code = findCurrencyCode(text);
   if (code) {
-    currency = (code[1] ?? code[2]).toUpperCase();
-    text = text.replace(code[0], "").trim();
+    currency = code.code.toUpperCase();
+    text = text.replace(code.match, "").trim();
   }
   for (const [symbol, iso] of Object.entries(CURRENCY_SYMBOLS)) {
     if (text.includes(symbol)) {
@@ -494,7 +518,8 @@ export function parseImportTried(
  */
 export function splitImportFinishes(value: string): string[] {
   return cleanImportText(value)
-    .split(/\s*(?:[/,;|+&]|\band\b|\bw\/|\bwith\b)\s*/i)
+    // No `\s*` around the delimiter (polynomial backtracking on space runs); parts are trimmed.
+    .split(/[/,;|+&]|\band\b|\bw\/|\bwith\b/i)
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
 }

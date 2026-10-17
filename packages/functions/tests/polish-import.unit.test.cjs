@@ -341,6 +341,33 @@ describe("import cell parsing", () => {
     assert.deepEqual(shared.splitImportFinishes("jelly, glitter + flakies"), ["jelly", "glitter", "flakies"]);
     assert.deepEqual(shared.splitImportFinishes(""), []);
   });
+
+  it("parses prices and finishes in linear time on long whitespace runs (CodeQL polynomial ReDoS)", () => {
+    const spaces = " ".repeat(50000);
+    const mixed = " \t".repeat(25000);
+    const timed = (fn) => {
+      const start = process.hrtime.bigint();
+      const result = fn();
+      const ms = Number(process.hrtime.bigint() - start) / 1e6;
+      assert.ok(ms < 200, `took ${ms.toFixed(1)} ms`);
+      return result;
+    };
+
+    assert.deepEqual(
+      timed(() => shared.parseImportPrice(`a${spaces}!`)),
+      { error: 'price "a !" is not a number' },
+    );
+    assert.deepEqual(timed(() => shared.parseImportPrice(`USD${spaces}9.99`)), { value: 9.99, currency: "USD" });
+    assert.deepEqual(timed(() => shared.parseImportPrice(`9.99${mixed}eur`)), { value: 9.99, currency: "EUR" });
+    assert.ok(timed(() => shared.parseImportPrice(`1 ${"a ".repeat(25000)}!`)).error);
+
+    assert.deepEqual(timed(() => shared.splitImportFinishes(`a${spaces}!`)), ["a !"]);
+    assert.deepEqual(
+      timed(() => shared.splitImportFinishes(`holo${spaces}/${mixed}shimmer${spaces}and${spaces}flakies`)),
+      ["holo", "shimmer", "flakies"],
+    );
+    assert.equal(timed(() => shared.splitImportFinishes("jelly ".repeat(20000))).length, 1);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
