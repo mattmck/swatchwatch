@@ -26,6 +26,7 @@ import type {
   PolishImageMatchRequest,
   PolishImageMatchResponse,
   CatalogSearchResponse,
+  ColorFamily,
   CatalogShadeDetail,
   PolishFinish,
   FinishType,
@@ -108,6 +109,7 @@ export async function listPolishes(filters?: PolishFilters): Promise<PolishListR
     params.set("availability", filters.availability);
   }
   if (filters?.tone) params.set("tone", filters.tone);
+  if (filters?.families?.length) params.set("family", filters.families.join(","));
   if (filters?.tags?.length) params.set("tags", filters.tags.join(","));
   if (filters?.sortBy) params.set("sortBy", filters.sortBy);
   if (filters?.sortOrder) params.set("sortOrder", filters.sortOrder);
@@ -271,9 +273,14 @@ export async function matchPolishesToImage(
   return handleResponse<PolishImageMatchResponse>(response);
 }
 
-export async function searchCatalog(q: string, limit?: number): Promise<CatalogSearchResponse> {
+export async function searchCatalog(
+  q: string,
+  limit?: number,
+  options?: { families?: ColorFamily[] }
+): Promise<CatalogSearchResponse> {
   const params = new URLSearchParams({ q });
   if (limit) params.set("limit", String(limit));
+  if (options?.families?.length) params.set("family", options.families.join(","));
 
   const response = await fetch(`${API_BASE_URL}/catalog/search?${params}`);
   return handleResponse<CatalogSearchResponse>(response);
