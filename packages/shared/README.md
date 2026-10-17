@@ -16,17 +16,17 @@ The package is automatically linked via npm workspaces — no publishing require
 
 | Type | Description |
 |------|-------------|
-| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, legacy `finish`, multi-finish `finishes`, tags, timestamps, etc.). Detected-hex provenance (migration 20261017024958000_shade-detected-hex-provenance): `detectedHexConfidence` (0–1), `detectedHexMethod` (`vision-direct`, `palette-pick`, `region-crop`, `ensemble`, `client-supplied`, …), `detectedHexModel` (deployment), `detectedHexPromptVersion`, `detectedHexAt`, and `hexAgreement` (OKLAB distance vendorHex ↔ detectedHex, null unless both exist) |
+| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, legacy `finish`, multi-finish `finishes`, tags, timestamps, etc.). Detected-hex provenance (migration 20261017024958000_shade-detected-hex-provenance): `detectedHexConfidence` (0–1), `detectedHexMethod` (`vision-direct`, `palette-pick`, `region-crop`, `ensemble`, `client-supplied`, …), `detectedHexModel` (deployment), `detectedHexPromptVersion`, `detectedHexAt`, and `hexAgreement` (OKLAB distance vendorHex ↔ detectedHex, null unless both exist). Inventory status (#261, migration 20261017061336791_inventory-status): `status` (`PolishStatus`, null for catalog-only rows), derived `isUntried` (owned and `triedAt` null), `triedAt`, `lastWornAt`, `wearCount`, `purchasePrice`, `purchaseCurrency` |
 | `resolveDisplayHex(polish)` | Display hex with the blind precedence vendor > detected > name (unchanged; used by the web app) |
 | `HexReviewItem` / `HexReviewResponse` / `HexReviewSort` | Admin hex-review queue payload (`GET /api/polishes-admin/hex-review`): hexes, provenance, agreement, display hex/source, `flagged`; sorted by `agreement` or `confidence` |
 | `PolishFinish` | Built-in finish name, derived as `(typeof CANONICAL_FINISHES)[number]` |
 | `FinishName` | `PolishFinish \| (string & {})` — any finish name on API-facing fields (`Polish.finishes`, request `finish`/`finishes`); admits runtime names from admin-managed `finish_type` rows while keeping autocomplete for built-ins |
 | `resolvePolishFinishes(polish)` | Finishes to display: `finishes` when non-empty, else `[finish]` (backward compatible) |
 | `polishHasFinish(polish, finish)` | Case-insensitive membership check over `resolvePolishFinishes` |
-| `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps); accepts `finishes` (replace) and legacy `finish` |
+| `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps); accepts `finishes` (replace) and legacy `finish`, plus inventory `status`, `triedAt`, `purchasePrice`, `purchaseCurrency` (`null` clears the last three) |
 | `PolishUpdateRequest` | Partial create fields + required `id` |
 | `PolishListResponse` | Paginated list: `{ polishes, total, page, pageSize }` |
-| `PolishFilters` | Query params: brand/finish/finishes/color/tags/search plus scope/availability/tone, sort, and pagination |
+| `PolishFilters` | Query params: brand/finish/finishes/color/tags/search plus scope/availability/tone, `status` (`PolishStatus[]`), `untried`, sort, and pagination |
 | `Brand` | Canonical brand entity (`brand_id`, `name_canonical`) |
 | `Shade` | Canonical shade entity (`shade_id`, `brand_id`, `shade_name_canonical`, `finish`, `finishes`, `collection`, hex columns, `detected_hex_*` provenance, `hex_agreement`, etc.) |
 | `CatalogSearchResult` | Single search hit: shade with brand name, `finish`/`finishes`, and similarity score |
@@ -34,6 +34,18 @@ The package is automatically linked via npm workspaces — no publishing require
 | `CatalogShadeDetail` | Full shade detail with brand info and aliases |
 
 **Note:** All frontend pages now use the live API. The mock-data.ts file is no longer used.
+
+### `types/inventory.ts`
+
+Inventory status model (#261). Every `user_inventory_item` row has one status; "untried" is **derived**, never stored.
+
+| Export | Description |
+|--------|-------------|
+| `POLISH_STATUSES` | `["owned", "wishlist", "destash", "archived"]` — kept equal to the migration's CHECK constraint by `packages/functions/tests/inventory-status.unit.test.cjs` |
+| `PolishStatus` | `(typeof POLISH_STATUSES)[number]` |
+| `isPolishStatus(value)` | Exact (case-sensitive) type guard |
+| `isOwnedStatus(status)` | `status === "owned"` — the single definition of "in the collection" (filters, dashboard, gaps, photo matching) |
+| `isUntriedInventory({ status, triedAt })` | Owned and never tried; mirrors the SQL behind `Polish.isUntried` |
 
 ### `constants/finishes.ts`
 

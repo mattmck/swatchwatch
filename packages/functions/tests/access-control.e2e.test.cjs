@@ -246,6 +246,9 @@ test("access control e2e: users cannot access or modify each other's data", asyn
       assert.ok(res.body.quantity == null, "attacker sees no quantity");
       assert.ok(res.body.notes == null, "attacker sees no notes");
       assert.ok(res.body.rating == null, "attacker sees no rating");
+      assert.ok(res.body.status == null, "attacker sees no inventory status");
+      assert.ok(res.body.purchasePrice == null && res.body.triedAt == null, "attacker sees no purchase/tried data");
+      assert.equal(res.body.isUntried, false, "catalog-only row is never untried");
     }
   });
 
@@ -268,6 +271,7 @@ test("access control e2e: users cannot access or modify each other's data", asyn
     assertNoOwnerData(all.body, "attacker catalog list");
     for (const p of all.body.polishes.filter((x) => x.id === shadeId)) {
       assert.ok(p.inventoryItemId == null && p.quantity == null, "catalog row carries no owner inventory");
+      assert.ok(p.status == null && p.purchasePrice == null, "catalog row carries no owner status/price");
     }
 
     const ownerCollection = await api(
