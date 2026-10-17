@@ -300,7 +300,7 @@ ${POLISH_FROM}`;
  * Find or create a brand + shade, returning the shade_id.
  * Uses a transaction client so this can be part of a larger transaction.
  */
-async function findOrCreateShade(
+export async function findOrCreateShade(
   client: PoolClient,
   userId: number,
   brandName: string,
@@ -388,7 +388,7 @@ async function findOrCreateShade(
  * `$14` lists which ones were sent. `$15` is the status a new row gets. Returns the
  * inventory item id.
  */
-async function upsertInventoryItem(
+export async function upsertInventoryItem(
   client: PoolClient,
   userId: number,
   shadeId: number,
@@ -523,7 +523,7 @@ async function invalidateGlobalPolishCaches(): Promise<void> {
   ]);
 }
 
-async function invalidateCatalogCaches(shadeIds: number[] = []): Promise<void> {
+export async function invalidateCatalogCaches(shadeIds: number[] = []): Promise<void> {
   await Promise.all([
     cacheDeleteByPrefix("catalog:search:"),
     ...shadeIds.map((shadeId) => cacheDelete(`catalog:shade:id:${shadeId}`)),

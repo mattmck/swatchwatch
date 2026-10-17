@@ -16,5 +16,6 @@ export * from './functions/ingestion';
 export * from './functions/nail-photos';
 export * from './functions/manicures';
 export * from './functions/polishes';
+export * from './functions/polish-imports';
 export * from './functions/reference';
 export * from './functions/voice';

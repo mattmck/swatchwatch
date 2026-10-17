@@ -65,6 +65,34 @@ Mani log (#269): `/api/manicures` payloads. Logging, editing or deleting a manic
 | `ManicureMutationResponse` / `ManicureDeleteResponse` | Create/update response (`Manicure` + `wearStats`) / delete response (`{ message, id, wearStats }`) |
 | `ManicureListResponse` / `ManicureFilters` | `{ manicures, total, page, pageSize }` / `from`, `to`, `shadeId`, `page`, `pageSize` (max 200) |
 
+### `types/polish-import.ts` (CSV import API, #263)
+
+| Type | Description |
+|------|-------------|
+| `PolishImportCreateRequest` | `POST /api/polish-imports` body: `{ csv, fileName?, mapping?, headerRowIndex? }` |
+| `PolishImportSession` | Session: `id`, `fileName`, `status` (`review \| committed`), `delimiter`, `headers`, `headerRowIndex`, `mapping`, `rows`, `counts`, `createdAt`, `expiresAt`, `committedAt`, `result` |
+| `PolishImportRow` | One sheet row: `rowNumber` (1-based file line, the row key), `values`, `matchState`, `confidence`, `candidates`, `action`, `shadeId`, `warnings`, `errors`, and after commit `outcome` / `outcomeMessage` |
+| `PolishImportRowValues` | Parsed cells: `brand`, `name`, canonical `finishes`, optional `quantity`, `purchasePrice`, `purchaseCurrency`, `purchaseDate` (`YYYY-MM-DD`), `status`, `tried`, `triedOn`, `notes` |
+| `PolishImportCandidate` | Catalog candidate: `shadeId`, `brand`, `name`, `finishes`, display `hex`, `confidence` (0–1), `inCollection`, `userSubmitted`, `exactMatch` |
+| `PolishImportMatchState` | `matched \| ambiguous \| unmatched \| invalid` |
+| `PolishImportAction` | `match \| create \| skip \| pending` (pending rows are skipped on commit) |
+| `PolishImportDecision` / `PolishImportDecisionsRequest` | Review decisions `{ rowNumber, action, shadeId? }` for `PATCH /api/polish-imports/{id}` and commit |
+| `PolishImportCommitResult` / `PolishImportCommitResponse` | `{ created, updated, skipped, failed, shadesCreated }`; response adds the session and `alreadyCommitted` |
+| `PolishImportCounts`, `PolishImportRowOutcome`, `PolishImportSessionStatus` | Supporting unions/counters |
+
+### `import/` (CSV parsing + header detection, shared by web and API)
+
+| Export | Description |
+|--------|-------------|
+| `parseCsv(text, { delimiter?, maxRecords? })` | RFC 4180-style parser: BOM, quoted fields with `""`, embedded delimiters/newlines, CRLF/LF/CR, Excel `sep=` line, blank records dropped; returns `records`, per-record `lineNumbers`, `delimiter`, `unterminatedQuote`, `truncated` |
+| `detectCsvDelimiter(text)` | Picks `,` `;` tab or `\|` by per-line consistency outside quotes |
+| `POLISH_IMPORT_FIELDS` / `PolishImportField` / `POLISH_IMPORT_FIELD_LABELS` | `brand, name, finish, quantity, price, currency, purchaseDate, status, tried, notes` |
+| `PolishImportColumnMapping` | Field → 0-based column index |
+| `detectPolishImportHeader(records)` | Finds the header row in the first 10 records and maps it (case/space/punctuation-insensitive synonyms, camelCase, the collection export's headers; `id`/`hex`/`family` columns ignored); `confident` when brand + name are strong matches |
+| `matchImportHeader`, `mapImportHeaderRow`, `normalizeImportHeader`, `validateImportMapping` | Building blocks / mapping validation |
+| `parseImportQuantity`, `parseImportPrice`, `parseImportCurrency`, `parseImportDate` (+ `detectImportDateOrder`), `parseImportStatus`, `parseImportTried`, `splitImportFinishes`, `stripFormulaGuard`, `cleanImportText`, `importMatchKey` | Cell parsers (each returns `{ value?, error? }`) and normalization helpers |
+| `POLISH_IMPORT_MAX_BYTES` (1 MB), `POLISH_IMPORT_MAX_ROWS` (1000), `POLISH_IMPORT_MAX_COLUMNS` (100), `POLISH_IMPORT_MAX_NOTES_LENGTH`, `POLISH_IMPORT_MAX_NAME_LENGTH` | Limits enforced by the API and pre-checked by the web |
+
 ### `constants/finishes.ts`
 
 | Export | Description |

@@ -33,6 +33,10 @@ import type {
   PolishFilters,
   PolishImageMatchRequest,
   PolishImageMatchResponse,
+  PolishImportCreateRequest,
+  PolishImportDecision,
+  PolishImportSession,
+  PolishImportCommitResponse,
   CatalogSearchResponse,
   ColorFamily,
   CatalogShadeDetail,
@@ -340,6 +344,57 @@ export async function matchPolishesToImage(
     body: JSON.stringify(body),
   });
   return handleResponse<PolishImageMatchResponse>(response);
+}
+
+/** Upload a CSV for import (`POST /api/polish-imports`): parses, fuzzy-matches, and opens a review session. */
+export async function createPolishImport(data: PolishImportCreateRequest): Promise<PolishImportSession> {
+  const response = await fetch(`${API_BASE_URL}/polish-imports`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<PolishImportSession>(response);
+}
+
+export async function getPolishImport(id: string): Promise<PolishImportSession> {
+  const response = await fetch(`${API_BASE_URL}/polish-imports/${encodeURIComponent(id)}`, {
+    headers: await getAuthHeaders(),
+  });
+  return handleResponse<PolishImportSession>(response);
+}
+
+/** Save review decisions without committing (`PATCH /api/polish-imports/{id}`). */
+export async function savePolishImportDecisions(
+  id: string,
+  decisions: PolishImportDecision[]
+): Promise<PolishImportSession> {
+  const response = await fetch(`${API_BASE_URL}/polish-imports/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
+    body: JSON.stringify({ decisions }),
+  });
+  return handleResponse<PolishImportSession>(response);
+}
+
+/** Apply decisions and upsert the inventory rows (`POST /api/polish-imports/{id}/commit`). */
+export async function commitPolishImport(
+  id: string,
+  decisions: PolishImportDecision[]
+): Promise<PolishImportCommitResponse> {
+  const response = await fetch(`${API_BASE_URL}/polish-imports/${encodeURIComponent(id)}/commit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
+    body: JSON.stringify({ decisions }),
+  });
+  return handleResponse<PolishImportCommitResponse>(response);
+}
+
+export async function deletePolishImport(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/polish-imports/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: await getAuthHeaders(),
+  });
+  await handleResponse<unknown>(response);
 }
 
 export async function searchCatalog(
