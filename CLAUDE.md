@@ -169,7 +169,8 @@ Optional / dev-only:
 - `PG_CONNECTION_TIMEOUT_MS` — Postgres connection acquisition timeout in milliseconds (default: `15000`)
 - `PG_QUERY_MAX_RETRIES` — retries for retry-safe DB queries (`SELECT` and `UPDATE ingestion_job`) when connection timeouts occur (default: `2`)
 - `PG_QUERY_RETRY_BASE_MS` — linear backoff base delay for retry-safe DB query retries in milliseconds (default: `250`)
-- `APPLICATIONINSIGHTS_CONNECTION_STRING` — custom telemetry sink for `trackEvent`/`trackMetric`/`trackException`
+- `APPLICATIONINSIGHTS_CONNECTION_STRING` — custom telemetry sink for `trackEvent`/`trackMetric`/`trackException`; `src/index.ts` imports `lib/telemetry` first so dependencies are auto-instrumented and correlated with the host request (keep it first)
+- `CORS_ALLOWED_HEADERS` — overrides the Functions CORS wrapper's allowed headers (default `Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context`, so browser telemetry can correlate with API requests)
 - `CORS_ALLOWED_ORIGINS` — comma-separated origins allowed by the Functions CORS wrapper (`src/lib/http.ts`; default `http://localhost:3000,https://*.azurestaticapps.net`); Terraform sets it to the web app origins
 - `CONNECTOR_RAW_CONTAINER` — blob container for raw connector snapshots and the ingestion catalog cache (Terraform-provisioned; the legacy name `RAW_SNAPSHOT_CONTAINER` is still read but deprecated)
 - `NEXT_PUBLIC_*` — web client vars included in example for convenience; not used by the Functions host itself

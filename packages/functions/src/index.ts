@@ -1,3 +1,8 @@
+// Must stay first: the Application Insights SDK has to start before `pg`, `http`,
+// etc. are loaded so their dependency calls are auto-instrumented and correlated
+// with the host's request (operation_Id).
+import './lib/telemetry';
+
 export * from './functions/auth';
 export * from './functions/admin-users';
 export * from './functions/admin-reference';

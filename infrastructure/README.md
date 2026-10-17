@@ -97,8 +97,8 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | Storage Container | `azurerm_storage_container.swatches` | Swatch photos |
 | Storage Container | `azurerm_storage_container.nail_photos` | Nail photos (private user media). Name exposed to Functions as `USER_MEDIA_CONTAINER`; readable only through owner-scoped `v3` image ids (#227). |
 | Storage Container | `azurerm_storage_container.tfstate` | Terraform remote state container |
-| Log Analytics Workspace | `azurerm_log_analytics_workspace.main` | Centralized log storage/query backend |
-| Application Insights | `azurerm_application_insights.main` | Function telemetry, traces, requests, and exceptions |
+| Log Analytics Workspace | `azurerm_log_analytics_workspace.main` | Centralized log storage/query backend (daily quota = `appinsights_daily_cap_gb`) |
+| Application Insights | `azurerm_application_insights.main` | Function telemetry, traces, requests, and exceptions (daily cap = `appinsights_daily_cap_gb`) |
 | API Management *(optional)* | `azurerm_api_management.main` | Azure API Management Consumption gateway for Azure OpenAI traffic (`apim_enabled=true`) |
 | App Service Plan | `azurerm_service_plan.main` | Linux Consumption plan (Y1) |
 | Function App | `azurerm_linux_function_app.main` | Node 22 function host (Managed Identity enabled) |
@@ -165,6 +165,7 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | `hex_detection_batch_min_images` | `5` | Function App setting `HEX_DETECTION_BATCH_MIN_IMAGES` threshold before batch mode |
 | `ingestion_ai_batch_poll_schedule` | `0 */2 * * * *` | Function App setting `INGESTION_AI_BATCH_POLL_SCHEDULE` for timer polling |
 | `ingestion_ai_batch_max_poll_jobs` | `10` | Function App setting `INGESTION_AI_BATCH_MAX_POLL_JOBS` per poll run |
+| `appinsights_daily_cap_gb` | `null` (→ `5` prod, `1` otherwise) | Daily ingestion cap (GB) for Application Insights and the Log Analytics workspace; telemetry stops for the rest of the day once hit |
 
 **Sensitive variables** are stored in environment-specific tfvars files (gitignored), for example:
 - `terraform.dev.tfvars`
@@ -218,6 +219,7 @@ Key outputs after `terraform apply`:
 | `apim_gateway_url` | APIM gateway URL (empty when `apim_enabled=false`) |
 | `openai_gateway_endpoint` | APIM OpenAI gateway base URL exposed to Functions via `AZURE_OPENAI_GATEWAY_ENDPOINT` |
 | `application_insights_name` | Application Insights resource name |
+| `application_insights_connection_string` | *(sensitive)* App Insights connection string, for the web build's `NEXT_PUBLIC_APPLICATIONINSIGHTS_CONNECTION_STRING` |
 | `log_analytics_workspace_name` | Log Analytics workspace name |
 | `key_vault_name` | Key Vault name |
 | `github_client_id` | Azure AD app ID for GitHub Actions *(add to GitHub Secrets as `AZURE_CLIENT_ID`)* |

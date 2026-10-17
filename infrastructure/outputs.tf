@@ -116,6 +116,12 @@ output "application_insights_name" {
   value = azurerm_application_insights.main.name
 }
 
+output "application_insights_connection_string" {
+  description = "App Insights connection string; the web build embeds it as NEXT_PUBLIC_APPLICATIONINSIGHTS_CONNECTION_STRING"
+  value       = azurerm_application_insights.main.connection_string
+  sensitive   = true
+}
+
 output "log_analytics_workspace_name" {
   value = azurerm_log_analytics_workspace.main.name
 }

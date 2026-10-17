@@ -284,6 +284,12 @@ variable "ingestion_ai_batch_max_poll_jobs" {
   default     = 10
 }
 
+variable "appinsights_daily_cap_gb" {
+  description = "Daily ingestion cap (GB) for Application Insights and its Log Analytics workspace. null = 5 for prod, 1 otherwise. Telemetry stops for the rest of the day once hit."
+  type        = number
+  default     = null
+}
+
 variable "create_redis" {
   description = "Provision Azure Managed Redis and wire REDIS_URL/REDIS_KEY into the Function App. Disabled by default; the API caching layer (lib/cache.ts) degrades gracefully when these settings are empty. Set to true to enable read-through caching."
   type        = bool

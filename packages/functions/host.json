@@ -3,13 +3,15 @@
   "logging": {
     "applicationInsights": {
       "samplingSettings": {
-        "isEnabled": true
-      },
-	"logLevel": {
-      "default": "Trace",
-      "Function": "Trace",
-      "Host.Aggregator": "Trace"
-    	}
+        "isEnabled": true,
+        "excludedTypes": "Request;Exception"
+      }
+    },
+    "logLevel": {
+      "default": "Information",
+      "Function": "Information",
+      "Host.Aggregator": "Information",
+      "Host.Results": "Information"
     }
   },
   "extensionBundle": {
