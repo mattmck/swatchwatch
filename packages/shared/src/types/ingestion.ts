@@ -49,11 +49,27 @@ export type IngestionJobStatus = "queued" | "running" | "succeeded" | "failed" |
 
 export type IngestionLogLevel = "debug" | "info" | "warn" | "error";
 
+/**
+ * Roll-up of job log lines dropped to keep `metrics.logs` bounded. A job log keeps the
+ * first lines of the run and the most recent ones; everything in between is counted here.
+ */
+export interface IngestionLogOmission {
+  /** Number of log lines omitted. */
+  count: number;
+  /** Omitted lines per level, so dropped warnings/errors are never silent. */
+  byLevel: Partial<Record<IngestionLogLevel, number>>;
+  /** Timestamps of the first and last omitted line. */
+  firstTs?: string;
+  lastTs?: string;
+}
+
 export interface IngestionLogEntry {
   ts: string;
   level: IngestionLogLevel;
   msg: string;
   data?: Record<string, unknown>;
+  /** Present only on the single marker entry that stands in for omitted lines. */
+  omitted?: IngestionLogOmission;
 }
 
 export interface IngestionJobRunRequest {

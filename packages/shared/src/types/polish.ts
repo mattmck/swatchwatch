@@ -74,6 +74,10 @@ export interface Polish {
   notes?: string;
   swatchImageUrl?: string;
   sourceImageUrls?: string[];
+  /**
+   * Reserved; not populated by the polishes API. The private on-nail photo is served by
+   * `GET /api/inventory/{inventoryItemId}/nail-photo` (`NailPhotoResponse`, #270).
+   */
   nailImageUrl?: string;
   /**
    * "Buy from brand" link: the stored source product URL (absolute http/https, no
@@ -177,6 +181,12 @@ export interface PolishCreateRequest {
   shadeId?: string;
   brand: string;
   name: string;
+  /**
+   * Catalog fields: `color`, `vendorHex`, `detectedHex`, `nameHex`, `finish` and `finishes`
+   * are written to the shared shade ONLY when this request creates it. Adopting, matching or
+   * updating an existing shared shade never changes them (the caller's own private
+   * `user_submitted` shade is the exception: its creator may correct them).
+   */
   color: string;
   vendorHex?: string;
   detectedHex?: string;
@@ -185,7 +195,8 @@ export interface PolishCreateRequest {
   finish?: FinishName;
   /**
    * Multi-finish list. The first entry is the primary finish (used for the legacy
-   * `finish` column). Unknown values are ignored; aliases are normalized.
+   * `finish` column). Unknown values are ignored; aliases are normalized. Never derived
+   * from `tags`.
    */
   finishes?: FinishName[];
   collection?: string;

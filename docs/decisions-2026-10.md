@@ -226,7 +226,7 @@ recommendation in place for the record.
 ### D15 — App Insights daily caps
 - **Options:** (a) 1 GB/day dev, 5 GB/day prod · (b) other
 - **Recommendation:** (a), with the D16 alert firing when a cap is hit.
-- **Decision:** Lower caps: 0.5 GB/day dev, 2 GB/day prod (the figures offered with the option; adjust if needed), with a cap-hit alert (D16). Phase 3 changes the existing `appinsights_daily_cap_gb` defaults (currently 5 prod / 1 otherwise, from #282).
+- **Decision:** Lower caps: 0.5 GB/day dev, 2 GB/day prod (the figures offered with the option; adjust if needed), with a cap-hit alert (D16). Phase 3 (#332) lowered the `appinsights_daily_cap_gb` defaults from #282's 5 prod / 1 otherwise.
 - **Date:** 2026-10-17
 
 ### D16 — Alert email and scope

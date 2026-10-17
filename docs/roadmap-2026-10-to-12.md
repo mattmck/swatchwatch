@@ -125,6 +125,8 @@ Goal: the in-aisle answer.
   URL. Free now; the hook for affiliate later.
 - **Shareable wishlist** (opt-in) — signed, revocable public read-only page at
   `/w/{token}`; no auth, no PII beyond display name. Rate-limit by token.
+  Built in #268 behind `SHAREABLE_WISHLIST_ENABLED` (off), pending decision 2 in §6; the static
+  export serves it at `/w/?token=…`.
 
 ### Sprint 3 — "Wear it" (24 Nov – 5 Dec, short week)
 
