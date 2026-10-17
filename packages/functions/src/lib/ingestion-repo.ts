@@ -1,7 +1,7 @@
 import { query, transaction } from "./db";
 import { ConnectorProductRecord } from "./connectors/types";
 import { SUPPORTED_SOURCES } from "./connectors/types";
-import { defaultShopifyBaseUrl } from "./connectors/shopify-generic";
+import { defaultShopifyBaseUrl, isShopifySourceEnabledByDefault } from "./connectors/shopify-generic";
 import { detectHexWithAzureOpenAI, type HexDetectionOptions } from "./ai-color-detection";
 import {
   chooseUploadedImageForDetection,
@@ -1288,10 +1288,14 @@ async function createDataSourceIfMissing(name: string): Promise<DataSourceRecord
   }
 
   const baseUrl = defaultShopifyBaseUrl(name);
+  // Sources awaiting owner approval are provisioned disabled (hidden from the admin UI).
+  const enabled = isShopifySourceEnabledByDefault(name);
   const metadata = {
     priority: "medium",
     mvp: "yes",
-    notes: "Auto-provisioned Shopify source from supported connector list.",
+    notes: enabled
+      ? "Auto-provisioned Shopify source from supported connector list."
+      : "Auto-provisioned Shopify source, disabled pending owner approval.",
     autoProvisioned: true,
   };
 
@@ -1301,10 +1305,10 @@ async function createDataSourceIfMissing(name: string): Promise<DataSourceRecord
     baseUrl: string | null;
   }>(
     `INSERT INTO data_source (name, source_type, base_url, enabled, metadata)
-     VALUES ($1, 'api', $2, true, $3::jsonb)
+     VALUES ($1, 'api', $2, $3, $4::jsonb)
      ON CONFLICT (name) DO NOTHING
      RETURNING data_source_id AS "dataSourceId", name, base_url AS "baseUrl"`,
-    [name, baseUrl, JSON.stringify(metadata)]
+    [name, baseUrl, enabled, JSON.stringify(metadata)]
   );
 
   if (inserted.rows.length > 0) {
