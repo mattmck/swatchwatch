@@ -37,6 +37,9 @@ import type {
   PolishImportDecision,
   PolishImportSession,
   PolishImportCommitResponse,
+  PolishDupesBatchRequest,
+  PolishDupesBatchResponse,
+  PolishDupesResponse,
   CatalogSearchResponse,
   ColorFamily,
   CatalogShadeDetail,
@@ -354,6 +357,41 @@ export async function matchPolishesToImage(
     body: JSON.stringify(body),
   });
   return handleResponse<PolishImageMatchResponse>(response);
+}
+
+/**
+ * Dupe finder (#265): the caller's owned shades that are likely dupes of shade `id`, graded
+ * HIGH/MEDIUM with the match-image thresholds and the finish rule (see `color/dupes.ts` in
+ * swatchwatch-shared). `limit` caps `dupes` (1–20, default 5); `dupeCount` is never capped.
+ */
+export async function getPolishDupes(
+  id: string | number,
+  options?: { limit?: number }
+): Promise<PolishDupesResponse> {
+  const params = new URLSearchParams();
+  if (options?.limit) params.set("limit", String(options.limit));
+  const qs = params.toString();
+  const response = await fetch(`${API_BASE_URL}/polishes/${id}/dupes${qs ? `?${qs}` : ""}`, {
+    headers: await getAuthHeaders(),
+  });
+  return handleResponse<PolishDupesResponse>(response);
+}
+
+/**
+ * Best owned dupe per shade for list hints, one request for up to
+ * `DUPE_LIMITS.batchMaxShadeIds` ids. Prefer `fetchDupeHints` (lib/dupes.ts), which chunks
+ * longer lists.
+ */
+export async function getPolishDupeHints(
+  shadeIds: PolishDupesBatchRequest["shadeIds"]
+): Promise<PolishDupesBatchResponse> {
+  const body: PolishDupesBatchRequest = { shadeIds };
+  const response = await fetch(`${API_BASE_URL}/polishes/dupes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
+    body: JSON.stringify(body),
+  });
+  return handleResponse<PolishDupesBatchResponse>(response);
 }
 
 /** Upload a CSV for import (`POST /api/polish-imports`): parses, fuzzy-matches, and opens a review session. */

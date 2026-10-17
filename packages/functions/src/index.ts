@@ -9,6 +9,7 @@ export * from './functions/admin-shade-review';
 export * from './functions/admin-reference';
 export * from './functions/capture';
 export * from './functions/catalog';
+export * from './functions/dupes';
 export * from './functions/images';
 export * from './functions/ingestion-worker';
 export * from './functions/ingestion-ai-batch-poller';
