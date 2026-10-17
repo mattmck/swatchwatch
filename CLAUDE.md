@@ -12,7 +12,7 @@ packages/shared    → Shared TypeScript types (polish, user, voice)
 infrastructure/    → Terraform (azurerm ~4.50) for all Azure resources
 ```
 
-**Data flow:** Clients → Azure Functions REST API (`/api/polishes`, `/api/auth/*`, `/api/voice`) → Azure Database for PostgreSQL Flexible Server (schema in `docs/schema.sql`). Voice input goes through Azure Speech Services → Azure OpenAI for parsing polish details from transcriptions. Full canonical schema uses `pg_trgm` for fuzzy shade matching and `pgvector` for swatch similarity/dupe search.
+**Data flow:** Clients → Azure Functions REST API (`/api/polishes`, `/api/polish-imports`, `/api/auth/*`, `/api/voice`) → Azure Database for PostgreSQL Flexible Server (schema in `docs/schema.sql`). Voice input goes through Azure Speech Services → Azure OpenAI for parsing polish details from transcriptions. Full canonical schema uses `pg_trgm` for fuzzy shade matching and `pgvector` for swatch similarity/dupe search.
 
 **Finishes:** shades carry `shade.finishes text[]` (canonical, primary first) plus the legacy `shade.finish` (identity key, kept for backward compat). At runtime the admin-managed `finish_type` table is the source of truth for which finishes are valid, and `finish_normalization` holds the alias spellings; both are loaded together (one cached query) by `loadFinishCatalog()` in `packages/functions/src/lib/finishes.ts`, so a finish type created only in the admin UI is fully usable (parsing, validation, filtering, form options). `CANONICAL_FINISHES` in `packages/shared` holds the built-in seeded defaults, used for typing (`PolishFinish`) and as the fallback when the DB/reference API is unavailable; a test keeps it equal to the migration seeds. Request `tags` on polish create/update never modify catalog finishes (shades are shared); only ingestion connectors parse finishes from product tags.
 
@@ -93,6 +93,7 @@ The web app uses Next.js route groups to separate public marketing pages from th
 | `/polishes/detail` | `src/app/(app)/polishes/detail/page.tsx` | Client component, detail shell driven by query params |
 | `/polishes/gaps` | `src/app/(app)/polishes/gaps/page.tsx` | Client component, collection gap heatmap (hue × lightness coverage + next-buy targets) |
 | `/polishes/match` | `src/app/(app)/polishes/match/page.tsx` | Client component, photo → owned-polish color matching (upload/drop/camera, extracted palette filter, confidence badges) via `POST /api/polishes/match-image` |
+| `/polishes/import` | `src/app/(app)/polishes/import/page.tsx` | Client component, CSV import wizard (upload → column mapping → review matched/ambiguous/unmatched with candidate picker → commit → summary) via `/api/polish-imports` |
 | `/polishes/search` | `src/app/(app)/polishes/search/page.tsx` | Client component, canvas color wheel + OKLAB matching |
 | `/rapid-add` | `src/app/rapid-add/page.tsx` | Client component, capture-first rapid add workflow |
 
@@ -119,6 +120,7 @@ This project is in early development. The web UI is now fully API-driven. Backen
 - ✅ Detected-hex provenance + reconciliation — confidence/method/deployment/prompt version/timestamp on every `detected_hex` write, generated `hex_agreement` (migration 20261017024958000_shade-detected-hex-provenance), `resolveDisplayHexDetailed`, admin review queue `GET /api/polishes-admin/hex-review`
 - ✅ Reference data management — `finish_type`, `harmony_type`, `finish_normalization` tables with admin CRUD and public read endpoints
 - ✅ Hex-detection evaluation harness — `packages/functions/src/eval/hex/` scores detection strategies against ground-truth fixtures (OKLAB distance, HIGH/MEDIUM shares, per brand/finish); `color_training_sample` (migration `20261017033500000_add-color-training-sample.sql`) holds DB-sourced samples. See `packages/functions/README.md`
+- ✅ CSV / spreadsheet import (#263) — `/api/polish-imports` (upload → batched `pg_trgm` matching against brand/shade names + aliases with finish normalization → review decisions → commit through the #261 inventory upsert, idempotent on `(user_id, shade_id)`); sessions in `polish_import_session` (migration `20261017064132576_polish-import-session`, 24 h TTL, hourly cleanup timer), every query `user_id`-scoped; unmatched rows become private `user_submitted` shades only on request. Parser + header detection are shared (`packages/shared/src/import/`)
 - ✅ Feature-flagged Azure OpenAI batch pipeline for Shopify vision hex detection — per-chunk batches run in parallel while the worker keeps ingesting (`metrics.aiBatches`), then awaiting_ai → poll/apply each batch → complete, with synchronous fallback for small runs
 
 ## Environment Variables (Functions)
