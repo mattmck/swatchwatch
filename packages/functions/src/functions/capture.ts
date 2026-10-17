@@ -1064,6 +1064,8 @@ async function addToInventoryFromMatch(
         `UPDATE user_inventory_item
          SET quantity = quantity + 1,
              sku_id = COALESCE(sku_id, $3),
+             -- Capturing a bottle means the caller has it: a wishlist/archived row becomes owned.
+             status = CASE WHEN status IN ('wishlist', 'archived') THEN 'owned' ELSE status END,
              updated_at = now()
          WHERE inventory_item_id = $1 AND user_id = $2`,
         [existing.rows[0].id, userId, entityId]
@@ -1075,11 +1077,13 @@ async function addToInventoryFromMatch(
     // makes the partial idx_user_inventory_unique_shade an arbiter too; without it the race
     // fails on that index instead of bumping.
     const inserted = await client.query<{ id: number }>(
-      `INSERT INTO user_inventory_item (user_id, sku_id, shade_id, quantity, notes)
-       VALUES ($1, $2, $3, 1, $4)
+      `INSERT INTO user_inventory_item (user_id, sku_id, shade_id, quantity, status, notes)
+       VALUES ($1, $2, $3, 1, 'owned', $4)
        ON CONFLICT (user_id, shade_id) WHERE shade_id IS NOT NULL DO UPDATE
          SET quantity = user_inventory_item.quantity + 1,
              sku_id = COALESCE(user_inventory_item.sku_id, EXCLUDED.sku_id),
+             status = CASE WHEN user_inventory_item.status IN ('wishlist', 'archived') THEN 'owned'
+                           ELSE user_inventory_item.status END,
              updated_at = now()
        RETURNING inventory_item_id AS id`,
       [userId, entityId, shadeId, "Added via Rapid Add capture"]
@@ -1119,6 +1123,7 @@ async function addToInventoryFromMatch(
     await client.query(
       `UPDATE user_inventory_item
        SET quantity = quantity + 1,
+           status = CASE WHEN status IN ('wishlist', 'archived') THEN 'owned' ELSE status END,
            updated_at = now()
        WHERE inventory_item_id = $1 AND user_id = $2`,
       [existing.rows[0].id, userId]
@@ -1127,10 +1132,12 @@ async function addToInventoryFromMatch(
   }
 
   const inserted = await client.query<{ id: number }>(
-    `INSERT INTO user_inventory_item (user_id, shade_id, quantity, notes)
-     VALUES ($1, $2, 1, $3)
+    `INSERT INTO user_inventory_item (user_id, shade_id, quantity, status, notes)
+     VALUES ($1, $2, 1, 'owned', $3)
      ON CONFLICT (user_id, shade_id) WHERE shade_id IS NOT NULL DO UPDATE
        SET quantity = user_inventory_item.quantity + 1,
+           status = CASE WHEN user_inventory_item.status IN ('wishlist', 'archived') THEN 'owned'
+                         ELSE user_inventory_item.status END,
            updated_at = now()
      RETURNING inventory_item_id AS id`,
     [userId, entityId, "Added via Rapid Add capture"]

@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
 import { listAllPolishes } from "@/lib/api";
+import { isOwnedPolish } from "@/lib/inventory-status";
 import {
   Card,
   CardContent,
@@ -51,7 +52,7 @@ export default function DashboardPage() {
           sortBy: "createdAt",
           sortOrder: "desc",
         });
-        setPolishes(response.filter((polish) => (polish.quantity ?? 0) > 0));
+        setPolishes(response.filter(isOwnedPolish));
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Failed to load dashboard data");
       } finally {
