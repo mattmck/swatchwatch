@@ -28,6 +28,7 @@ import {
 import { ArrowDown, ArrowUp, ArrowUpDown, Loader2, Sparkles } from "lucide-react";
 import { ColorDot } from "@/components/color-dot";
 import { QuantityControls } from "@/components/quantity-controls";
+import { LogManiButton } from "@/components/log-mani-button";
 import { isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
 import { Pagination } from "@/components/pagination";
 import { BrandSpinner } from "@/components/brand-spinner";
@@ -692,7 +693,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
               {isAdmin && (
                 <TableHead className="w-28 text-right">Recalc Hex</TableHead>
               )}
-              <TableHead className="w-28 text-right">Action</TableHead>
+              <TableHead className="w-36 text-right">Action</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -797,13 +798,16 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                       </TableCell>
                     )}
                     <TableCell className="text-right">
-                      <QuantityControls
-                        owned={owned}
-                        quantity={polish.quantity ?? 0}
-                        onIncrement={() => handleQuantityChange(polish.id, 1)}
-                        onDecrement={() => handleQuantityChange(polish.id, -1)}
-                        onAdd={() => handleQuantityChange(polish.id, 1)}
-                      />
+                      <div className="flex items-center justify-end gap-1">
+                        {owned && <LogManiButton polish={polish} variant="icon" />}
+                        <QuantityControls
+                          owned={owned}
+                          quantity={polish.quantity ?? 0}
+                          onIncrement={() => handleQuantityChange(polish.id, 1)}
+                          onDecrement={() => handleQuantityChange(polish.id, -1)}
+                          onAdd={() => handleQuantityChange(polish.id, 1)}
+                        />
+                      </div>
                     </TableCell>
                   </TableRow>
                 );
