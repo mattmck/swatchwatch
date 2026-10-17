@@ -5,6 +5,7 @@ import './lib/telemetry';
 
 export * from './functions/auth';
 export * from './functions/admin-users';
+export * from './functions/admin-shade-review';
 export * from './functions/admin-reference';
 export * from './functions/capture';
 export * from './functions/catalog';

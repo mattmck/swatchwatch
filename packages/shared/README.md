@@ -90,6 +90,22 @@ Inventory status model (#261). Every `user_inventory_item` row has one status; "
 | `AdminUserMergeRequest` | Admin payload for duplicate-account repair (`sourceUserId`, `targetUserId`) |
 | `AdminUserMergeResponse` | Admin merge result summary (moved row counts + merge status/message) |
 
+### `types/shade-review.ts`
+
+Admin review queue for `user_submitted` shades (`/api/shades-admin/review*`).
+
+| Type | Description |
+|------|-------------|
+| `ShadeReviewStatus` | Last admin decision on a shade: `"approved" \| "rejected" \| "merged"` (null = not reviewed) |
+| `ShadeReviewQueueState` | Queue slice to list: `"pending" \| "rejected"` |
+| `ShadeReviewHexes` | Vendor/detected/name hexes plus `displayHex`/`displaySource` |
+| `ShadeReviewItem` | One submission: brand, name, finishes, hexes, `createdAt`, `createdByUserId`, `submitterCount`, last review decision, and `candidates` |
+| `ShadeReviewMergeCandidate` | An active shade it could merge into: `similarity` (0.7 × name/alias + 0.3 × brand trigram), `nameSimilarity`, `sameBrand`, OKLAB `colorDistance`, `inventoryCount`, `swatchImageUrl` |
+| `ShadeReviewListResponse` / `ShadeReviewCandidatesResponse` | Queue page (`items`, `total`, `page`, `pageSize`, `state`) / candidate search result (`shadeId`, `query`, `candidates`) |
+| `ShadeReviewApproveRequest` | Optional approve edits (`brand`, `name`, `finishes`, `collection`, `colorName`, `vendorHex`, `nameHex`, `note`) |
+| `ShadeReviewMergeRequest` / `ShadeReviewRejectRequest` | `{ targetShadeId, keepNameAsAlias?, note? }` / `{ note? }` |
+| `ShadeReviewActionResponse` / `ShadeReviewMergeResponse` | Action result (`status`, `reviewStatus`, `reviewedAt`, `reviewedByUserId`, `message`); merge adds `targetShadeId` and moved/combined inventory, alias, SKU and swatch counts |
+
 ### `types/voice.ts`
 
 | Type | Description |

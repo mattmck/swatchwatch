@@ -18,6 +18,14 @@ import type {
   AdminUserListResponse,
   AdminUserMergeRequest,
   AdminUserMergeResponse,
+  ShadeReviewActionResponse,
+  ShadeReviewApproveRequest,
+  ShadeReviewCandidatesResponse,
+  ShadeReviewListResponse,
+  ShadeReviewMergeRequest,
+  ShadeReviewMergeResponse,
+  ShadeReviewQueueState,
+  ShadeReviewRejectRequest,
   Polish,
   PolishCreateRequest,
   PolishUpdateRequest,
@@ -763,4 +771,77 @@ export async function deleteNailPhoto(inventoryItemId: string | number): Promise
   if (!response.ok) {
     await handleResponse<unknown>(response);
   }
+}
+
+/** List the admin review queue of `user_submitted` shades (`GET /api/shades-admin/review`). */
+export async function listShadeReviewQueue(params?: {
+  state?: ShadeReviewQueueState;
+  page?: number;
+  pageSize?: number;
+  q?: string;
+  candidates?: number;
+}): Promise<ShadeReviewListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.state) searchParams.set("state", params.state);
+  if (typeof params?.page === "number") searchParams.set("page", String(params.page));
+  if (typeof params?.pageSize === "number") searchParams.set("pageSize", String(params.pageSize));
+  if (params?.q?.trim()) searchParams.set("q", params.q.trim());
+  if (typeof params?.candidates === "number") searchParams.set("candidates", String(params.candidates));
+  const qs = searchParams.toString();
+  const response = await fetch(`${API_BASE_URL}/shades-admin/review${qs ? `?${qs}` : ""}`, {
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<ShadeReviewListResponse>(response);
+}
+
+/** Merge candidates for one submission, optionally searched by name (`GET .../{id}/candidates`). */
+export async function getShadeReviewCandidates(
+  shadeId: string | number,
+  params?: { q?: string; limit?: number }
+): Promise<ShadeReviewCandidatesResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.q?.trim()) searchParams.set("q", params.q.trim());
+  if (typeof params?.limit === "number") searchParams.set("limit", String(params.limit));
+  const qs = searchParams.toString();
+  const response = await fetch(
+    `${API_BASE_URL}/shades-admin/review/${encodeURIComponent(String(shadeId))}/candidates${qs ? `?${qs}` : ""}`,
+    { headers: await getAuthHeaders({ admin: true }) }
+  );
+  return handleResponse<ShadeReviewCandidatesResponse>(response);
+}
+
+async function postShadeReviewAction<T>(shadeId: string | number, action: string, body: unknown): Promise<T> {
+  const response = await fetch(
+    `${API_BASE_URL}/shades-admin/review/${encodeURIComponent(String(shadeId))}/${action}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+      body: JSON.stringify(body ?? {}),
+    }
+  );
+  return handleResponse<T>(response);
+}
+
+/** Approve a submission (optionally with edits): it becomes an `active` catalog shade. */
+export async function approveShadeReview(
+  shadeId: string | number,
+  data: ShadeReviewApproveRequest = {}
+): Promise<ShadeReviewActionResponse> {
+  return postShadeReviewAction<ShadeReviewActionResponse>(shadeId, "approve", data);
+}
+
+/** Merge a submission into an active shade, reassigning every inventory row. */
+export async function mergeShadeReview(
+  shadeId: string | number,
+  data: ShadeReviewMergeRequest
+): Promise<ShadeReviewMergeResponse> {
+  return postShadeReviewAction<ShadeReviewMergeResponse>(shadeId, "merge", data);
+}
+
+/** Reject a submission: it stays private to its submitter. */
+export async function rejectShadeReview(
+  shadeId: string | number,
+  data: ShadeReviewRejectRequest = {}
+): Promise<ShadeReviewActionResponse> {
+  return postShadeReviewAction<ShadeReviewActionResponse>(shadeId, "reject", data);
 }

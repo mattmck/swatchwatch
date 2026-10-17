@@ -2048,8 +2048,9 @@ export async function materializeMakeupApiRecords(
              color_name = COALESCE($2, color_name),
              vendor_hex = COALESCE($3, vendor_hex),
              finishes = COALESCE($4::text[], finishes),
-             -- Catalog data confirms a user-submitted shade: promote it to the shared catalog.
-             status = CASE WHEN status = 'user_submitted' THEN 'active' ELSE status END,
+             -- Catalog data confirms a user-submitted shade: promote it to the shared catalog
+             -- (never one an admin retired by merging it into another shade).
+             status = CASE WHEN status = 'user_submitted' AND merged_into_shade_id IS NULL THEN 'active' ELSE status END,
              updated_at = now()
            WHERE shade_id = $1`,
           [shadeId, resolvedColorName, resolvedVendorHex, mergedFinishes]
@@ -2310,7 +2311,7 @@ async function materializePreparedHoloTacoRecord(
            9
          )},
          -- Catalog data confirms a user-submitted shade: promote it to the shared catalog.
-         status = CASE WHEN status = 'user_submitted' THEN 'active' ELSE status END,
+         status = CASE WHEN status = 'user_submitted' AND merged_into_shade_id IS NULL THEN 'active' ELSE status END,
          updated_at = now()
      WHERE shade_id = $1`,
     [

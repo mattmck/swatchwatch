@@ -839,6 +839,7 @@ require("../dist/functions/polishes");
 require("../dist/functions/capture");
 require("../dist/functions/ingestion");
 require("../dist/functions/admin-users");
+require("../dist/functions/admin-shade-review");
 require("../dist/functions/admin-reference");
 require("../dist/functions/voice");
 require("../dist/functions/images");
@@ -1008,6 +1009,11 @@ describe("access control — admin routes reject non-admin users", () => {
     for (const expected of [
       "admin-users-list",
       "admin-users-merge",
+      "admin-shade-review-list",
+      "admin-shade-review-candidates",
+      "admin-shade-review-approve",
+      "admin-shade-review-merge",
+      "admin-shade-review-reject",
       "admin-finishes",
       "admin-jobs",
       "ingestion-jobs",

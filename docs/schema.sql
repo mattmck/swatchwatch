@@ -279,9 +279,20 @@ CREATE TABLE shade (
   -- Color family of the display hex (vendor > detected > name), or 'multichrome' for color-shifting
   -- finishes; NULL without a usable hex. Filtered by ?family= (migration 20261017061637910_add-shade-color-family)
   color_family TEXT GENERATED ALWAYS AS (shade_color_family(vendor_hex, detected_hex, name_hex, finishes, finish)) STORED,
+  -- Admin review of user_submitted shades (migration 20261017063252270_shade-review-queue): last decision + who/when.
+  -- approve → status 'active'; reject → stays 'user_submitted' (private); merge → inventory moved to
+  -- merged_into_shade_id and the row is retired (stays 'user_submitted', hidden from user polish queries).
+  review_status TEXT CHECK (review_status IS NULL OR review_status IN ('approved', 'rejected', 'merged')), -- NULL = not reviewed
+  reviewed_at TIMESTAMPTZ,
+  reviewed_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL,
+  review_note TEXT,
+  merged_into_shade_id BIGINT REFERENCES shade(shade_id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (brand_id, product_line_id, shade_name_canonical, COALESCE(finish,''))
+  UNIQUE (brand_id, product_line_id, shade_name_canonical, COALESCE(finish,'')),
+  CONSTRAINT shade_merged_into_check CHECK (
+    merged_into_shade_id IS NULL OR (review_status = 'merged' AND merged_into_shade_id <> shade_id)
+  )
 );
 
 CREATE INDEX idx_shade_finishes ON shade USING GIN (finishes);
@@ -291,6 +302,9 @@ CREATE INDEX idx_shade_hex_agreement ON shade (hex_agreement DESC NULLS LAST) WH
 CREATE INDEX idx_shade_detected_hex_confidence ON shade (detected_hex_confidence ASC NULLS LAST) WHERE detected_hex IS NOT NULL;
 -- Color family filter (GET /api/polishes?family=, GET /api/catalog/search?family=)
 CREATE INDEX idx_shade_color_family ON shade (color_family);
+-- Shade review queue (admin GET /api/shades-admin/review): unreviewed submissions, oldest first
+CREATE INDEX idx_shade_review_pending ON shade (created_at, shade_id) WHERE status = 'user_submitted' AND review_status IS NULL;
+CREATE INDEX idx_shade_merged_into ON shade (merged_into_shade_id) WHERE merged_into_shade_id IS NOT NULL;
 
 CREATE TABLE shade_alias (
   shade_alias_id BIGSERIAL PRIMARY KEY,
