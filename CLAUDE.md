@@ -109,7 +109,7 @@ This project is in early development. The web UI is now fully API-driven. Backen
 - ✅ Connector ingestion pipeline — async queue-backed jobs for OpenBeautyFacts, MakeupAPI, HoloTacoShopify, and generic Shopify sources
 - ✅ AI hex detection — Azure OpenAI vision-based `detected_hex` from product images, with `recalc-hex` admin endpoint
 - ✅ Reference data management — `finish_type`, `harmony_type`, `finish_normalization` tables with admin CRUD and public read endpoints
-- ✅ Feature-flagged Azure OpenAI batch pipeline for Shopify vision hex detection — submit → awaiting_ai → poll/apply completion flow with synchronous fallback for small runs
+- ✅ Feature-flagged Azure OpenAI batch pipeline for Shopify vision hex detection — per-chunk batches run in parallel while the worker keeps ingesting (`metrics.aiBatches`), then awaiting_ai → poll/apply each batch → complete, with synchronous fallback for small runs
 
 ## Environment Variables (Functions)
 
@@ -134,6 +134,7 @@ Optional / dev-only:
 - `AZURE_OPENAI_VISION_DETAIL` — image detail level for vision hex detection, sync and batch: `low` (default, flat ~85 tokens/image), `high`, or `auto`; raise if finish detection needs more resolution
 - `HEX_DETECTION_BATCH_ENABLED` — enables batch mode for Shopify vision hex detection and the `ingestion-ai-batch-poller` timer workflow
 - `HEX_DETECTION_BATCH_MIN_IMAGES` — minimum record count required before ingestion switches to batch mode (default: `5`)
+- `HEX_DETECTION_BATCH_MAX_IN_FLIGHT` — max hex batches one ingestion job keeps pending (default: `20`, clamped 1–100); the worker submits a batch per chunk and keeps ingesting, pausing for `awaiting_ai` only at this cap
 - `HEX_DETECTION_DELAY_MS` — pause after each synchronous (non-batch) hex detection call, per concurrency slot (default: `1000`, max `60000`; `0` disables); 429s are still retried with `Retry-After`
 - `HEX_DETECTION_CONCURRENCY` — synchronous hex detection calls in flight at once (default: `4`, max `32`); DB writes stay sequential. Throughput is capped by the Azure OpenAI deployment's tokens-per-minute quota, so raise this together with deployment capacity
 - `INGESTION_AI_BATCH_POLL_SCHEDULE` — NCRONTAB schedule for the batch completion poller (default: `0 * * * * *`, every minute)
