@@ -20,6 +20,8 @@ infrastructure/    → Terraform (azurerm ~4.50) for all Azure resources
 
 **Shade hexes:** each shade has `vendor_hex` (vendor product data), `detected_hex` (AI vision on the product image) and `name_hex` (from the color name). Every `detected_hex` write also records provenance (`detected_hex_confidence`, `detected_hex_method`, `detected_hex_model`, `detected_hex_prompt_version`, `detected_hex_at`; migration 20261017024958000_shade-detected-hex-provenance) via `packages/functions/src/lib/hex-provenance.ts`, and `shade.hex_agreement` is a generated column holding the OKLAB distance vendor ↔ detected. Bump `PROMPT_VERSION` in `ai-color-detection.ts` whenever the vision prompt changes. Display uses `resolveDisplayHex` (vendor > detected > name); `resolveDisplayHexDetailed` in `packages/shared` adds the source, agreement and a review flag (disagreement > 0.10 MEDIUM, or a caller-marked suspicious vendor hex). Admins review weak detections with `GET /api/polishes-admin/hex-review`.
 
+**Color families (#103):** `classifyColorFamily` in `packages/shared/src/color/color-family.ts` bins a shade's display hex by OKLCH lightness/chroma/hue into red, pink, coral, orange, yellow, green, teal, blue, purple, nude, brown, grey, black or white; `multichrome` comes from finishes (`multichrome`/chameleon/color-shift; duochrome is binned by hex). Postgres mirrors it in `shade_color_family()` and stores it as the generated column `shade.color_family` (migration 20261017061637910_add-shade-color-family), which `?family=` filters on in `GET /api/polishes` and `GET /api/catalog/search`. `tests/color-family.unit.test.cjs` keeps the SQL threshold constants equal to `COLOR_FAMILY_THRESHOLDS`; changing a bin needs a new migration that redefines the function and rewrites the rows.
+
 **Telemetry:** Functions and web both report to the same workspace-based Application Insights (see `docs/observability-plan.md`). The web SDK is lazy-loaded after hydration, sends W3C `traceparent` only to the API host, tags telemetry with the internal user id (never email), and redacts `/api/images/{id}` capability ids; route-group `error.tsx` files and `app/global-error.tsx` report render errors.
 
 **Auth:** Azure AD B2C (provisioned outside Terraform via portal). Functions read `AZURE_AD_B2C_TENANT` and `AZURE_AD_B2C_CLIENT_ID` from environment. Token validation is JWT-based via the `/api/auth/validate` endpoint.
@@ -88,7 +90,7 @@ The web app uses Next.js route groups to separate public marketing pages from th
 | `/admin` | `src/app/(admin)/admin/page.tsx` | Unified admin console — tabs: Configuration, Job Runs, Admin Jobs |
 | `/admin/reference-data` | `src/app/(admin)/admin/reference-data/page.tsx` | Legacy redirect → `/admin?tab=configuration` |
 | `/admin/jobs` | `src/app/(app)/admin/jobs/page.tsx` | Legacy redirect → `/admin?tab=admin-jobs` |
-| `/polishes` | `src/app/(app)/polishes/page.tsx` | Client component, filterable/sortable table |
+| `/polishes` | `src/app/(app)/polishes/page.tsx` | Client component, filterable/sortable table (incl. color family chips, `?family=`) |
 | `/polishes/new` | `src/app/(app)/polishes/new/page.tsx` | Client component, form with color picker + star rating |
 | `/polishes/detail` | `src/app/(app)/polishes/detail/page.tsx` | Client component, detail shell driven by query params |
 | `/polishes/gaps` | `src/app/(app)/polishes/gaps/page.tsx` | Client component, collection gap heatmap (hue × lightness coverage + next-buy targets) |
@@ -118,6 +120,7 @@ This project is in early development. The web UI is now fully API-driven. Backen
 - ✅ AI hex detection — Azure OpenAI vision-based `detected_hex` from product images, with `recalc-hex` admin endpoint
 - ✅ Detected-hex provenance + reconciliation — confidence/method/deployment/prompt version/timestamp on every `detected_hex` write, generated `hex_agreement` (migration 20261017024958000_shade-detected-hex-provenance), `resolveDisplayHexDetailed`, admin review queue `GET /api/polishes-admin/hex-review`
 - ✅ Reference data management — `finish_type`, `harmony_type`, `finish_normalization` tables with admin CRUD and public read endpoints
+- ✅ Color family filter (#103) — shared OKLCH classifier + generated `shade.color_family` column; `family` filter on the polishes list and catalog search; swatch chips on `/polishes`
 - ✅ Hex-detection evaluation harness — `packages/functions/src/eval/hex/` scores detection strategies against ground-truth fixtures (OKLAB distance, HIGH/MEDIUM shares, per brand/finish); `color_training_sample` (migration `20261017033500000_add-color-training-sample.sql`) holds DB-sourced samples. See `packages/functions/README.md`
 - ✅ Feature-flagged Azure OpenAI batch pipeline for Shopify vision hex detection — per-chunk batches run in parallel while the worker keeps ingesting (`metrics.aiBatches`), then awaiting_ai → poll/apply each batch → complete, with synchronous fallback for small runs
 

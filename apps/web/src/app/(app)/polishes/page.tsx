@@ -35,6 +35,8 @@ import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
 import { buildFinishOptions, knownFinishNames } from "@/lib/finish-options";
 import { FinishBadges } from "@/components/finish-badges";
+import { ColorFamilyChips } from "@/components/color-family-chips";
+import { parseColorFamilyParam, serializeColorFamilies } from "@/lib/color-family-filter";
 import { buildSwatchThumbnailUrl } from "@/lib/image-url";
 import { runRecalcHexFlow } from "@/lib/recalc-hex-flow";
 import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
@@ -84,6 +86,11 @@ function parseFinishFilter(value: string | null): string {
   return value;
 }
 
+/** Canonical comma-separated family list (`red,pink`) or "" for no family filter. */
+function parseFamilyFilter(value: string | null): string {
+  return serializeColorFamilies(parseColorFamilyParam(value));
+}
+
 function parseAvailabilityFilter(value: string | null): AvailabilityFilter {
   return value === "owned" || value === "wishlist" ? value : "all";
 }
@@ -113,6 +120,7 @@ type PolishesListQueryState = {
   scope: ResultsScope;
   toneFilter: Undertone | "all";
   finishFilter: string;
+  familyFilter: string;
   availabilityFilter: AvailabilityFilter;
   sortKey: SortKey;
   sortDirection: SortDirection;
@@ -126,6 +134,7 @@ function buildPolishesListQueryString(state: PolishesListQueryState): string {
   if (state.scope !== "all") params.set("scope", state.scope);
   if (state.toneFilter !== "all") params.set("tone", state.toneFilter);
   if (state.finishFilter !== "all") params.set("finish", state.finishFilter);
+  if (state.familyFilter) params.set("family", state.familyFilter);
   if (state.availabilityFilter !== "all") params.set("availability", state.availabilityFilter);
   if (state.sortKey !== "name") params.set("sort", state.sortKey);
   if (state.sortDirection !== "asc") params.set("dir", state.sortDirection);
@@ -212,6 +221,10 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const [finishFilter, setFinishFilter] = useState<string>(() =>
     parseFinishFilter(searchParams.get("finish"))
   );
+  const [familyFilter, setFamilyFilter] = useState<string>(() =>
+    parseFamilyFilter(searchParams.get("family"))
+  );
+  const selectedFamilies = useMemo(() => parseColorFamilyParam(familyFilter), [familyFilter]);
   const [availabilityFilter, setAvailabilityFilter] = useState<AvailabilityFilter>(() =>
     parseAvailabilityFilter(searchParams.get("availability") ?? searchParams.get("avail"))
   );
@@ -239,6 +252,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     const nextScope = parseResultsScope(urlParams.get("scope"), urlParams.get("all"));
     const nextToneFilter = parseToneFilter(urlParams.get("tone"));
     const nextFinishFilter = parseFinishFilter(urlParams.get("finish"));
+    const nextFamilyFilter = parseFamilyFilter(urlParams.get("family"));
     const nextAvailabilityFilter = parseAvailabilityFilter(
       urlParams.get("availability") ?? urlParams.get("avail")
     );
@@ -254,6 +268,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       scope !== nextScope ||
       toneFilter !== nextToneFilter ||
       finishFilter !== nextFinishFilter ||
+      familyFilter !== nextFamilyFilter ||
       availabilityFilter !== nextAvailabilityFilter ||
       sortKey !== nextSortKey ||
       sortDirection !== nextSortDirection;
@@ -273,6 +288,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     setScope(nextScope);
     setToneFilter(nextToneFilter);
     setFinishFilter(nextFinishFilter);
+    setFamilyFilter(nextFamilyFilter);
     setAvailabilityFilter(nextAvailabilityFilter);
     setSortKey(nextSortKey);
     setSortDirection(nextSortDirection);
@@ -298,6 +314,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
         const baseFilters: Omit<PolishFilters, "page" | "pageSize" | "tone"> = {
           search: debouncedSearch.trim() || undefined,
           finish: finishFilter !== "all" ? (finishFilter as PolishFilters["finish"]) : undefined,
+          families: familyFilter ? parseColorFamilyParam(familyFilter) : undefined,
           scope,
           availability: availabilityFilter,
           sortBy: toApiSortBy(sortKey),
@@ -355,6 +372,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   }, [
     availabilityFilter,
     debouncedSearch,
+    familyFilter,
     finishFilter,
     page,
     pageSize,
@@ -375,7 +393,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       return;
     }
     setPage(1);
-  }, [debouncedSearch, scope, toneFilter, finishFilter, availabilityFilter, sortKey, sortDirection]);
+  }, [debouncedSearch, scope, toneFilter, finishFilter, familyFilter, availabilityFilter, sortKey, sortDirection]);
 
   const queryString = useMemo(
     () =>
@@ -384,6 +402,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
         scope,
         toneFilter,
         finishFilter,
+        familyFilter,
         availabilityFilter,
         sortKey,
         sortDirection,
@@ -395,6 +414,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       scope,
       toneFilter,
       finishFilter,
+      familyFilter,
       availabilityFilter,
       sortKey,
       sortDirection,
@@ -429,6 +449,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     scope !== "all" ||
     toneFilter !== "all" ||
     finishFilter !== "all" ||
+    familyFilter !== "" ||
     availabilityFilter !== "all";
 
   const handleSort = useCallback((key: SortKey) => {
@@ -595,11 +616,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
           </Select>
         </div>
 
-        {(search ||
-          scope !== "all" ||
-          toneFilter !== "all" ||
-          finishFilter !== "all" ||
-          availabilityFilter !== "all") && (
+        {hasActiveFilters && (
           <Button
             variant="ghost"
             size="sm"
@@ -609,6 +626,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
               setScope("all");
               setToneFilter("all");
               setFinishFilter("all");
+              setFamilyFilter("");
               setAvailabilityFilter("all");
             }}
           >
@@ -616,6 +634,11 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
           </Button>
         )}
       </div>
+
+      <ColorFamilyChips
+        value={selectedFamilies}
+        onChange={(next) => setFamilyFilter(serializeColorFamilies(next))}
+      />
 
       {/* Table */}
       <div

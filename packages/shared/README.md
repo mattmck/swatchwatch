@@ -16,7 +16,7 @@ The package is automatically linked via npm workspaces — no publishing require
 
 | Type | Description |
 |------|-------------|
-| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, legacy `finish`, multi-finish `finishes`, tags, timestamps, etc.). Detected-hex provenance (migration 20261017024958000_shade-detected-hex-provenance): `detectedHexConfidence` (0–1), `detectedHexMethod` (`vision-direct`, `palette-pick`, `region-crop`, `ensemble`, `client-supplied`, …), `detectedHexModel` (deployment), `detectedHexPromptVersion`, `detectedHexAt`, and `hexAgreement` (OKLAB distance vendorHex ↔ detectedHex, null unless both exist). Inventory status (#261, migration 20261017061336791_inventory-status): `status` (`PolishStatus`, null for catalog-only rows), derived `isUntried` (owned and `triedAt` null), `triedAt`, `lastWornAt`, `wearCount`, `purchasePrice`, `purchaseCurrency` |
+| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, legacy `finish`, multi-finish `finishes`, tags, timestamps, etc.). Detected-hex provenance (migration 20261017024958000_shade-detected-hex-provenance): `detectedHexConfidence` (0–1), `detectedHexMethod` (`vision-direct`, `palette-pick`, `region-crop`, `ensemble`, `client-supplied`, …), `detectedHexModel` (deployment), `detectedHexPromptVersion`, `detectedHexAt`, and `hexAgreement` (OKLAB distance vendorHex ↔ detectedHex, null unless both exist). Inventory status (#261, migration 20261017061336791_inventory-status): `status` (`PolishStatus`, null for catalog-only rows), derived `isUntried` (owned and `triedAt` null), `triedAt`, `lastWornAt`, `wearCount`, `purchasePrice`, `purchaseCurrency`. `colorFamily` (`ColorFamily \| null`, the generated `shade.color_family`; see `color/color-family.ts`) |
 | `resolveDisplayHex(polish)` | Display hex with the blind precedence vendor > detected > name (unchanged; used by the web app) |
 | `HexReviewItem` / `HexReviewResponse` / `HexReviewSort` | Admin hex-review queue payload (`GET /api/polishes-admin/hex-review`): hexes, provenance, agreement, display hex/source, `flagged`; sorted by `agreement` or `confidence` |
 | `PolishFinish` | Built-in finish name, derived as `(typeof CANONICAL_FINISHES)[number]` |
@@ -26,10 +26,10 @@ The package is automatically linked via npm workspaces — no publishing require
 | `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps); accepts `finishes` (replace) and legacy `finish`, plus inventory `status`, `triedAt`, `purchasePrice`, `purchaseCurrency` (`null` clears the last three) |
 | `PolishUpdateRequest` | Partial create fields + required `id` |
 | `PolishListResponse` | Paginated list: `{ polishes, total, page, pageSize }` |
-| `PolishFilters` | Query params: brand/finish/finishes/color/tags/search plus scope/availability/tone, `status` (`PolishStatus[]`), `untried`, sort, and pagination |
+| `PolishFilters` | Query params: brand/finish/finishes/color/tags/search plus scope/availability/tone, `status` (`PolishStatus[]`), `untried`, `families` (`?family=`, any-of color families), sort, and pagination |
 | `Brand` | Canonical brand entity (`brand_id`, `name_canonical`) |
 | `Shade` | Canonical shade entity (`shade_id`, `brand_id`, `shade_name_canonical`, `finish`, `finishes`, `collection`, hex columns, `detected_hex_*` provenance, `hex_agreement`, etc.) |
-| `CatalogSearchResult` | Single search hit: shade with brand name, `finish`/`finishes`, and similarity score |
+| `CatalogSearchResult` | Single search hit: shade with brand name, `finish`/`finishes`, `colorFamily`, and similarity score |
 | `CatalogSearchResponse` | Search response: `{ results, query, total }` |
 | `CatalogShadeDetail` | Full shade detail with brand info and aliases |
 
@@ -56,7 +56,7 @@ Inventory status model (#261). Every `user_inventory_item` row has one status; "
 
 **Multi-finish contract (#43):** `finishes` is the source of truth for display/filtering; `finish` is the legacy single value kept populated for older consumers (it is the shade's identity key in the DB). At runtime the admin-managed `finish_type` table decides *which* finishes are valid; `CANONICAL_FINISHES` is only the built-in seeded defaults (used for typing and as the fallback when the DB is unavailable) and is kept equal to the seeded `finish_type` rows by `packages/functions/tests/finishes.unit.test.cjs`. Alias spellings (`holo`, `cream`, `flakie`, …) are not listed here — they live in the DB-backed `finish_normalization` table (see `packages/functions/README.md`).
 
-### `color/` (OKLAB math, thresholds, hex reconciliation)
+### `color/` (OKLAB math, thresholds, hex reconciliation, color families)
 
 | Export | Description |
 |--------|-------------|
@@ -65,6 +65,11 @@ Inventory status model (#261). Every `user_inventory_item` row has one status; "
 | `normalizeHexColor(value)` | Uppercase `#RRGGBB` or null |
 | `computeHexAgreement(vendorHex, detectedHex)` | OKLAB distance rounded to 4 decimals, null unless both hexes are valid; mirrors the Postgres `hex_oklab_distance()` behind `shade.hex_agreement` |
 | `resolveDisplayHexDetailed(polish, { vendorHexSuspicious?, disagreementThreshold? })` | Pure reconciliation → `{ hex, source, agreement, flagged, reason }`. Keeps vendor > detected > name by default; flags `disagreement` when vendor and detected differ by more than MEDIUM; when the caller marks the vendor hex suspicious, prefers detected (and flags `vendor-suspicious` if the vendor hex still had to be used). Uses a stored `hexAgreement` when present |
+| `COLOR_FAMILIES`, `ColorFamily`, `HexColorFamily`, `isColorFamily(value)` | The 15 color families (#103): `red`, `pink`, `coral`, `orange`, `yellow`, `green`, `teal`, `blue`, `purple`, `nude`, `brown`, `grey`, `black`, `white`, `multichrome` (`color/color-family.ts`) |
+| `COLOR_FAMILY_LABELS`, `COLOR_FAMILY_SWATCH_HEX` | Display label and representative chip swatch per family (each swatch classifies into its own family; render `multichrome` as a gradient) |
+| `classifyColorFamily(polish)` | Family of a shade: `multichrome` when any of `finishes`/`finish` is a color-shifting finish (`MULTICHROME_FAMILY_FINISHES`: `multichrome`, `chameleon`, `colorshift`/`color shift`/`color-shift`; `duochrome` is binned by hex), otherwise the family of `resolveDisplayHex` (vendor > detected > name); null when that hex is missing/invalid. Mirrors the Postgres `shade_color_family()` behind the generated `shade.color_family` column |
+| `classifyHexColorFamily(hex)`, `classifyOklchColorFamily({ L, C, h })`, `hexToOklch(hex)`, `hasMultichromeFinish(polish)` | Building blocks: bin one hex / OKLCH triple (never `multichrome`), OKLCH conversion, finish check |
+| `COLOR_FAMILY_THRESHOLDS` | The OKLCH bins. Order: chroma < 0.03 → black (L < 0.30) / white (L ≥ 0.92) / grey; very dark (L < 0.20, C < 0.06) → black; pale tints (L ≥ 0.96, C < 0.06) → white; warm hue 20–100 with L ≥ 0.70 and C ≤ 0.10 → nude; warm hue 30–100 below L 0.70 with C ≤ 0.13 (or very dark from hue 36) → brown; then hue bands: pink 340–20 (dark → red, or purple for 340–350), 20–45 coral when L ≥ 0.68 else red/orange (split at 36), orange 45–80, yellow 80–115 (dark → brown/olive green), green 115–170, teal 170–205, blue 205–290, purple 290–320, 320–340 pink when light and saturated else purple. Changing a value needs a migration that redefines `shade_color_family_from_hex()`; `packages/functions/tests/color-family.unit.test.cjs` checks the SQL constants match |
 
 ### `types/user.ts`
 
