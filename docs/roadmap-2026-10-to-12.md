@@ -192,8 +192,8 @@ Goal: more indie coverage, and the ops to absorb user-created data.
 All four are decided. Full context is in [decisions-2026-10.md](decisions-2026-10.md).
 
 1. **Mobile** (D3): ✅ PWA-first through December. The Expo scaffold (#109) starts in January.
-2. **Sharing** (D1): ✅ Opt-in public wishlist pages (#305), switched on after the inventory status rules (#314)
-   land. Everything else stays private by default.
+2. **Sharing** (D1): ✅ Opt-in public wishlist pages (#305), switched on once #305 and the inventory status rules
+   (#314) are in prod. Everything else stays private by default.
 3. **Hex detection freeze** (D4): ✅ Tuning is frozen now. The gate runs after the color sip tool (#311) has been
    used to hand-label ground truth (#322).
 4. **Indie source list** (D2): ✅ Night Owl Lacquer first. Pahlish waits for a store-specific filter (#328).

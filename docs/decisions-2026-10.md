@@ -48,7 +48,8 @@ recommendation in place for the record.
 - **Options:** (a) yes, opt-in per user · (b) yes, but after Black Friday · (c) no
 - **Recommendation:** (a). Gift season is the reason to build this. Note in `packages/functions/README.md`
   that the token is logged.
-- **Decision:** Yes, opt-in per user. Switch on `SHAREABLE_WISHLIST_ENABLED` after #305 merges.
+- **Decision:** Yes, opt-in per user. Switch on `SHAREABLE_WISHLIST_ENABLED` once #305 and the inventory status rules (#314, PR #334) are in prod, so running out no longer moves a polish onto a wishlist that may be public.
+- **Accepted risk:** the share token is part of the request path (`/api/wishlist/{token}`), so it appears in the Functions host's own request telemetry, the same way image proxy ids do today. Only operators can see it, and the token can be revoked. Host-side redaction isn't built.
 - **Date:** 2026-10-17
 
 ### D2 — Which indie stores to enable first
@@ -226,7 +227,7 @@ recommendation in place for the record.
 ### D15 — App Insights daily caps
 - **Options:** (a) 1 GB/day dev, 5 GB/day prod · (b) other
 - **Recommendation:** (a), with the D16 alert firing when a cap is hit.
-- **Decision:** Lower caps: 0.5 GB/day dev, 2 GB/day prod (the figures offered with the option; adjust if needed), with a cap-hit alert (D16). Phase 3 (#332) lowered the `appinsights_daily_cap_gb` defaults from #282's 5 prod / 1 otherwise.
+- **Decision:** Lower caps: 0.5 GB/day dev, 2 GB/day prod, instead of option (a)'s 1 GB/day dev and 5 GB/day prod, with a cap-hit alert (D16). Phase 3 (#332) lowered the `appinsights_daily_cap_gb` defaults from #282's 5 prod / 1 otherwise.
 - **Date:** 2026-10-17
 
 ### D16 — Alert email and scope
@@ -297,7 +298,7 @@ Open follow-ups taken from the PR descriptions. Give each one an owner and a tic
 | Feature-flag mechanism | D22 | owner | [#313](https://github.com/mattmck/swatchwatch/issues/313) |
 
 ### Actions after merge (no ticket needed)
-- **D1:** after #305 merges, set the `SHAREABLE_WISHLIST_ENABLED` GitHub variable to `true` and run Deploy Infra.
+- **D1:** once #305 and #314 (PR #334) are released to prod, set the `SHAREABLE_WISHLIST_ENABLED` GitHub variable to `true` and run Deploy Infra.
 - **D2:** after #292 merges, enable `NightOwlLacquerShopify` and remove it from `SHOPIFY_SOURCES_PENDING_APPROVAL` (tracked under #273).
 - **D11:** close #224 once #288 and #306 merge.
 - **D14–D16:** implement in Phase 3 under #281: keep the cookies; 0.5 GB/2 GB caps; prod-only alerts to `var.alert_email`.
