@@ -188,6 +188,15 @@ Web (build-time `NEXT_PUBLIC_*`, inlined into the static export; set in `.github
 3. Register with `app.http("descriptive-name", { methods, route, handler })` at module scope
 4. Use types from `swatchwatch-shared` — do not redefine domain types locally
 
+## Claude Code Tooling
+
+Project-level Claude Code config lives in `.claude/` and `.mcp.json` (checked in):
+
+- **MCP servers** (`.mcp.json`, approve on first use): `context7` (live docs for Next 16, Tailwind v4, Expo, Azure Functions) and `postgres-dev` (read-only SQL against the `npm run dev:infra` Postgres on port 55432).
+- **Skills** (`.claude/skills/`, user-invoked): `/create-migration <description>` (timestamped migration + Down section + `docs/schema.sql`) and `/add-endpoint <METHOD> <route> [admin]` (handler scaffold with `withAuth`/`withAdmin`, `user_id`-scoped SQL, tests, README row).
+- **Subagents** (`.claude/agents/`): `access-control-reviewer` (per-user isolation review of a diff) and `docs-sync-checker` (diff vs. the Documentation Maintenance table).
+- **Hook scripts** (`.claude/hooks/`): `guard-protected-files.mjs` (PreToolUse: blocks edits to committed migrations, `local.settings.json`, and `.env*` files other than `.env.example`) and `rebuild-shared.mjs` (PostToolUse: rebuilds `packages/shared` after edits). Both resolve the checkout from the edited file, so they work inside worktrees. They only see the Edit/Write/MultiEdit tools: changes made via Bash (`sed -i`, redirects) bypass them, so they are guard rails, not a hard boundary. They take effect once registered under `hooks` in `.claude/settings.json` (`PreToolUse`/`PostToolUse`, matcher `Edit|Write|MultiEdit`, command `node "$CLAUDE_PROJECT_DIR/.claude/hooks/<script>"`).
+
 ## Documentation Maintenance
 
 **Always update documentation when making changes.** This is not optional.
