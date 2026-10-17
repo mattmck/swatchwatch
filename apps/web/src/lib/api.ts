@@ -81,6 +81,21 @@ async function handleResponse<T>(response: Response): Promise<T> {
   return response.json();
 }
 
+/**
+ * Resolve the caller's internal user id via `POST /api/auth/validate`.
+ * Returns null when there is no token or it doesn't validate. Used to tag
+ * browser telemetry (never the email).
+ */
+export async function getCurrentUserId(): Promise<number | null> {
+  const headers = await getAuthHeaders();
+  if (!headers.Authorization) return null;
+
+  const response = await fetch(`${API_BASE_URL}/auth/validate`, { method: "POST", headers });
+  if (!response.ok) return null;
+  const body = (await response.json().catch(() => null)) as { valid?: boolean; userId?: unknown } | null;
+  return body?.valid && typeof body.userId === "number" ? body.userId : null;
+}
+
 export async function listPolishes(filters?: PolishFilters): Promise<PolishListResponse> {
   const params = new URLSearchParams();
 
