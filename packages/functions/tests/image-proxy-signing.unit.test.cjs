@@ -84,10 +84,15 @@ function toBase64Url(value) {
     .replace(/=+$/g, "");
 }
 
-// Flip the FIRST character: all 6 bits of a base64url string's first char are significant, whereas the
-// last char can carry only padding bits, so changing it may decode to the same signature bytes.
-function flipFirstChar(value) {
-  return (value[0] === "A" ? "B" : "A") + value.slice(1);
+/**
+ * Flip one bit of the decoded signature bytes and re-encode. Editing the trailing base64url char
+ * is not enough: a 32-byte HMAC is 43 chars, so the last char carries 2 padding bits and some
+ * edits decode to the same bytes.
+ */
+function tamperSignature(encoded, byteIndex = 0) {
+  const bytes = Buffer.from(encoded, "base64url");
+  bytes[byteIndex] ^= 0x01;
+  return bytes.toString("base64url");
 }
 
 function fakeRequest(id, url) {
@@ -169,14 +174,38 @@ describe("lib/image-proxy — signed ids", () => {
   it("rejects an id with a tampered signature", () => {
     process.env.IMAGE_PROXY_SIGNING_KEY = TEST_KEY;
     const [version, urlPart, exp, signature] = imageProxy.encodeImageProxyId(BLOB_URL).split(".");
-    assert.throws(
-      () => imageProxy.decodeImageProxyId(`${version}.${urlPart}.${exp}.${flipFirstChar(signature)}`),
-      imageProxy.ImageProxyTokenError
-    );
+    for (const byteIndex of [0, 15, 31]) {
+      const tampered = tamperSignature(signature, byteIndex);
+      assert.notEqual(tampered, signature);
+      assert.throws(
+        () => imageProxy.decodeImageProxyId(`${version}.${urlPart}.${exp}.${tampered}`),
+        imageProxy.ImageProxyTokenError,
+        `byte ${byteIndex}`
+      );
+    }
     assert.throws(
       () => imageProxy.decodeImageProxyId(`${version}.${urlPart}.${exp}.${signature.slice(0, 10)}`),
       imageProxy.ImageProxyTokenError
     );
+  });
+
+  it("rejects a tampered signature regardless of which day the id was minted", () => {
+    // Ids are bucketed by UTC day, so the signature changes daily. Sweep a range of days that
+    // includes 2026-10-16, whose signature ends in "A" and broke the old last-char tamper helper.
+    process.env.IMAGE_PROXY_SIGNING_KEY = TEST_KEY;
+    const start = Date.UTC(2026, 0, 1, 12);
+    for (let day = 0; day < 400; day += 1) {
+      const nowMs = start + day * 24 * 60 * 60 * 1000;
+      const [version, urlPart, exp, signature] = imageProxy
+        .encodeImageProxyId(BLOB_URL, nowMs)
+        .split(".");
+      assert.equal(imageProxy.decodeImageProxyId(`${version}.${urlPart}.${exp}.${signature}`, nowMs), BLOB_URL);
+      assert.throws(
+        () => imageProxy.decodeImageProxyId(`${version}.${urlPart}.${exp}.${tamperSignature(signature, 31)}`, nowMs),
+        imageProxy.ImageProxyTokenError,
+        new Date(nowMs).toISOString()
+      );
+    }
   });
 
   it("rejects legacy unsigned ids (bare base64url of the URL)", () => {
