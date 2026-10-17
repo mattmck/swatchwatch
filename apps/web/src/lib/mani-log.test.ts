@@ -160,6 +160,25 @@ describe("form helpers", () => {
     });
   });
 
+  it("quickLogRequest adds companions in order, dropping duplicate shade/role pairs", () => {
+    assert.deepEqual(
+      quickLogRequest({ id: "1", finish: "creme" }, "2026-10-17", [
+        { id: "2", role: "accent" },
+        { id: "3", role: "topper" },
+        { id: "2", role: "accent" },
+        { id: "1", role: "color" },
+      ]),
+      {
+        wornOn: "2026-10-17",
+        polishes: [
+          { shadeId: "1", role: "color" },
+          { shadeId: "2", role: "accent" },
+          { shadeId: "3", role: "topper" },
+        ],
+      }
+    );
+  });
+
   it("the picker offers owned and destash polishes, filtered on brand + name terms", () => {
     const polishes = [
       polish("1", { status: "owned", brand: "Holo Taco", name: "Rainbow Bridge" }),
