@@ -1,4 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
+import { ImageProxyConfigError } from "./image-proxy-errors";
 
 const AZURE_STORAGE_API_VERSION = "2023-11-03";
 const DEFAULT_SOURCE_IMAGE_CONTAINER = "source-images";
@@ -477,25 +478,52 @@ export function defaultReadableContainers(): string[] {
  * (Azurite: `host/<account>/<container>/...`) endpoints. Unparseable URLs are not catalog URLs.
  */
 export function isCatalogStorageUrl(storageUrl: string): boolean {
+  const container = storageUrlContainer(storageUrl);
+  return container.length > 0 && defaultReadableContainers().includes(container);
+}
+
+/**
+ * True when the blob lives in the private user-media container (`userMediaContainer()`), using the
+ * same virtual-host / path-style parsing as `isCatalogStorageUrl`. Unparseable URLs are not.
+ *
+ * @throws ImageProxyConfigError when USER_MEDIA_CONTAINER equals SOURCE_IMAGE_CONTAINER.
+ */
+export function isUserMediaStorageUrl(storageUrl: string): boolean {
+  const mediaContainer = userMediaContainer();
+  const container = storageUrlContainer(storageUrl);
+  return container.length > 0 && container === mediaContainer;
+}
+
+/** Lowercased container segment of a blob URL, or "" when there is none / the URL is invalid. */
+function storageUrlContainer(storageUrl: string): string {
   let parsed: URL;
   try {
     parsed = new URL(storageUrl);
   } catch {
-    return false;
+    return "";
   }
   const segments = parsed.pathname.split("/").filter(Boolean);
   const virtualHost = /^[^.]+\.blob\./i.test(parsed.hostname);
-  const container = (segments[virtualHost ? 0 : 1] ?? "").toLowerCase();
-  return container.length > 0 && defaultReadableContainers().includes(container);
+  return (segments[virtualHost ? 0 : 1] ?? "").toLowerCase();
 }
 
 /**
  * Container for private user media (e.g. nail photos, #270), from `USER_MEDIA_CONTAINER`
  * (default `nail-photos`). Blobs here are never readable through public `v2` proxy ids; they are
  * served only through owner-scoped `v3` proxy ids (#227).
+ *
+ * @throws ImageProxyConfigError when it equals the catalog container (`SOURCE_IMAGE_CONTAINER`):
+ *   proxy scope is decided by "is it the catalog container", so a shared container would make
+ *   every user photo public. Minting and the private read path both fail closed on it.
  */
 export function userMediaContainer(): string {
-  return normalizeContainerName(process.env.USER_MEDIA_CONTAINER, DEFAULT_USER_MEDIA_CONTAINER);
+  const container = normalizeContainerName(process.env.USER_MEDIA_CONTAINER, DEFAULT_USER_MEDIA_CONTAINER);
+  if (defaultReadableContainers().includes(container)) {
+    throw new ImageProxyConfigError(
+      `USER_MEDIA_CONTAINER must differ from SOURCE_IMAGE_CONTAINER (both are '${container}')`
+    );
+  }
+  return container;
 }
 
 /**

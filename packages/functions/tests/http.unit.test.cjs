@@ -208,6 +208,24 @@ describe("lib/http — withCors", () => {
       assert.equal(res.headers.get("Vary"), "Authorization, Origin");
     });
 
+    it("does not touch Vary: * and does not duplicate an existing origin entry", async () => {
+      const modulePath = path.resolve(__dirname, "../dist/lib/http.js");
+      httpModule = require(modulePath);
+      const req = () => fakeRequest({ method: "GET", headers: { origin: "http://localhost:3000" } });
+
+      const star = await httpModule.withCors(async () => ({
+        status: 200,
+        headers: new Headers({ Vary: "*" }),
+      }))(req(), fakeContext());
+      assert.equal(star.headers.get("Vary"), "*");
+
+      const lower = await httpModule.withCors(async () => ({
+        status: 200,
+        headers: new Headers({ Vary: "Authorization, origin" }),
+      }))(req(), fakeContext());
+      assert.equal(lower.headers.get("Vary"), "Authorization, origin");
+    });
+
     it("adds CORS headers for Azure Static Web Apps wildcard pattern", async () => {
       const modulePath = path.resolve(__dirname, "../dist/lib/http.js");
       httpModule = require(modulePath);

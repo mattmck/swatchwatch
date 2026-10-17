@@ -204,6 +204,33 @@ describe("lib/blob-storage — userMediaContainer (#227)", () => {
     assert.equal(userMediaContainer(), "nail-photos");
   });
 
+  it("throws ImageProxyConfigError when it equals SOURCE_IMAGE_CONTAINER (fail closed)", () => {
+    const { ImageProxyConfigError } = require("../dist/lib/image-proxy");
+    process.env.USER_MEDIA_CONTAINER = "source-images";
+    assert.throws(() => userMediaContainer(), ImageProxyConfigError);
+    process.env.USER_MEDIA_CONTAINER = " Catalog ";
+    process.env.SOURCE_IMAGE_CONTAINER = "catalog";
+    assert.throws(() => userMediaContainer(), ImageProxyConfigError);
+    delete process.env.USER_MEDIA_CONTAINER;
+    process.env.SOURCE_IMAGE_CONTAINER = "nail-photos";
+    assert.throws(() => userMediaContainer(), ImageProxyConfigError);
+  });
+
+  it("isUserMediaStorageUrl matches only the user-media container (virtual-host and path-style)", () => {
+    const { isUserMediaStorageUrl } = require("../dist/lib/blob-storage");
+    assert.equal(isUserMediaStorageUrl("https://testacct.blob.core.windows.net/nail-photos/users/42/a.jpg"), true);
+    assert.equal(isUserMediaStorageUrl("https://testacct.blob.core.windows.net/NAIL-PHOTOS/users/42/a.jpg"), true);
+    assert.equal(isUserMediaStorageUrl("http://127.0.0.1:10000/devstoreaccount1/nail-photos/users/42/a.jpg"), true);
+    assert.equal(isUserMediaStorageUrl("http://127.0.0.1:10000/nail-photos/a.jpg"), false);
+    assert.equal(isUserMediaStorageUrl("https://testacct.blob.core.windows.net/source-images/a.jpg"), false);
+    assert.equal(isUserMediaStorageUrl("https://testacct.blob.core.windows.net/nail%2Dphotos/a.jpg"), false);
+    assert.equal(isUserMediaStorageUrl("https://testacct.blob.core.windows.net/"), false);
+    assert.equal(isUserMediaStorageUrl("not a url"), false);
+    process.env.USER_MEDIA_CONTAINER = "custom-media";
+    assert.equal(isUserMediaStorageUrl("https://testacct.blob.core.windows.net/custom-media/a.jpg"), true);
+    assert.equal(isUserMediaStorageUrl("https://testacct.blob.core.windows.net/nail-photos/a.jpg"), false);
+  });
+
   it("is independent of SOURCE_IMAGE_CONTAINER", () => {
     process.env.SOURCE_IMAGE_CONTAINER = "catalog";
     assert.equal(userMediaContainer(), "nail-photos");

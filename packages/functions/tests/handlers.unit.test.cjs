@@ -116,7 +116,20 @@ registerMock("../lib/ocr-parser", {
 });
 
 // Stub blob storage reader to avoid network
+/** Container segment of a blob URL (virtual-host or path-style), same parsing as lib/blob-storage. */
+function mockBlobContainer(storageUrl) {
+  try {
+    const parsed = new URL(storageUrl);
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    return (segments[/^[^.]+\.blob\./i.test(parsed.hostname) ? 0 : 1] ?? "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
 registerMock("../lib/blob-storage", {
+  isCatalogStorageUrl: (url) => mockBlobContainer(url) === "source-images",
+  isUserMediaStorageUrl: (url) => mockBlobContainer(url) === "nail-photos",
   // Remote capture image URLs are allowlisted by the real validator (see capture-image-url tests);
   // here only the fixture host is "on the configured storage account".
   checkStorageImageUrl: (url) => (String(url).startsWith("https://blob.example/") ? null : "not allowed"),
@@ -312,6 +325,17 @@ describe("lib/auth — authenticateRequest", () => {
     assert.equal(result.externalId, "ext-1");
     assert.equal(result.email, "test@example.com");
     assert.equal(result.role, "admin");
+  });
+
+  it("dev bypass: coerces a BIGINT user_id returned as a string to a number (#227)", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async () => ({
+      rows: [{ user_id: "1", external_id: "ext-1", email: null, role: "user" }],
+    });
+    const req = fakeRequest({ headers: { authorization: "Bearer dev:1" } });
+    const result = await authLib.authenticateRequest(req, fakeContext());
+    assert.equal(result.userId, 1);
+    assert.equal(typeof result.userId, "number");
   });
 
   it("production: throws when B2C not configured", async () => {
@@ -947,16 +971,23 @@ describe("functions/polishes — primary swatch image selection", () => {
     assert.equal(res.jsonBody.swatchImageUrl, "https://example.com/product.png");
   });
 
-  it("detail mints owner-scoped ids only for private image_asset rows the caller owns (#227)", async () => {
+  for (const [label, authRow] of [
+    ["numeric user_id", authUserRow],
+    // node-postgres returns BIGINT (int8) columns as strings; ownership must still match.
+    ["BIGINT user_id returned as a string", { ...authUserRow, user_id: "1" }],
+  ]) {
+  it(`detail mints owner-scoped ids only for private image_asset rows the caller owns (#227, ${label})`, async () => {
     process.env.AUTH_DEV_BYPASS = "true";
     const imageProxy = require("../dist/lib/image-proxy");
     const CATALOG = "https://swatchacct.blob.core.windows.net/source-images/opi/product.png";
     const MINE = "https://swatchacct.blob.core.windows.net/nail-photos/user-1/mine.png";
     const THEIRS = "https://swatchacct.blob.core.windows.net/nail-photos/user-2/theirs.png";
     const SYSTEM = "https://swatchacct.blob.core.windows.net/nail-photos/system/unowned.png";
+    // Owned by the caller but outside USER_MEDIA_CONTAINER: the proxy could never serve it.
+    const MINE_ELSEWHERE = "https://swatchacct.blob.core.windows.net/connector-raw/user-1/mine.png";
     let imagesSql = null;
     queryMock = async (sql) => {
-      if (sql.includes("FROM app_user")) return { rows: [authUserRow] };
+      if (sql.includes("FROM app_user")) return { rows: [authRow] };
       if (sql.includes('AS "storageUrl"')) {
         imagesSql = sql;
         return {
@@ -965,6 +996,7 @@ describe("functions/polishes — primary swatch image selection", () => {
             { storageUrl: MINE, ownerType: "user", ownerId: "1" },
             { storageUrl: THEIRS, ownerType: "user", ownerId: "2" },
             { storageUrl: SYSTEM, ownerType: "system", ownerId: "1" },
+            { storageUrl: MINE_ELSEWHERE, ownerType: "user", ownerId: "1" },
           ],
         };
       }
@@ -1002,10 +1034,11 @@ describe("functions/polishes — primary swatch image selection", () => {
         { url: CATALOG, scope: "public", ownerUserId: undefined },
         { url: MINE, scope: "private", ownerUserId: 1 },
       ],
-      "other users' and unowned private media must be omitted"
+      "other users', unowned, and unservable private media must be omitted"
     );
     assert.deepEqual(errors, [], "omitting another user's media is expected, not an error");
   });
+  }
 
   it("recalc-hex shade lookup prefers the source_product swatch image", async () => {
     process.env.AUTH_DEV_BYPASS = "true";

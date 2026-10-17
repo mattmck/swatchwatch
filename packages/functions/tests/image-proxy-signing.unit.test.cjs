@@ -111,6 +111,8 @@ const ENV_KEYS = [
   "AZURE_STORAGE_CONNECTION",
   "SOURCE_IMAGE_CONTAINER",
   "USER_MEDIA_CONTAINER",
+  "AZURE_AD_B2C_TENANT",
+  "AZURE_AD_B2C_CLIENT_ID",
 ];
 let savedEnv = {};
 
@@ -865,5 +867,124 @@ describe("functions/images — owner-scoped v3 ids (#227)", () => {
     assert.match(res.headers.get("Cache-Control"), /^public, /);
     assert.deepEqual(varyTokens(res), []);
     assert.deepEqual(dbCalls, []);
+  });
+
+  it("adds Cache-Control: no-store to every private-id error response, and only to those", async () => {
+    const id = imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER });
+    mockBlobFetch();
+    for (const [headers, status] of [[{}, 401], [asUser(OTHER_USER), 403]]) {
+      const res = await handler()(fakeRequest(id, undefined, headers), fakeContext());
+      assert.equal(res.status, status);
+      assert.equal(res.headers.get("Cache-Control"), "no-store");
+    }
+
+    // 404 is heuristically cacheable; a private miss must not be.
+    globalThis.fetch = async () => new Response("missing", { status: 404 });
+    const missing = await handler()(fakeRequest(id, undefined, asUser(OWNER)), fakeContext());
+    assert.equal(missing.status, 404);
+    assert.equal(missing.headers.get("Cache-Control"), "no-store");
+
+    // Public responses are unchanged: a public 404 gets no added header.
+    const publicMissing = await handler()(fakeRequest(imageProxy.encodeImageProxyId(BLOB_URL)), fakeContext());
+    assert.equal(publicMissing.status, 404);
+    assert.equal(publicMissing.headers?.get?.("Cache-Control") ?? null, null);
+  });
+
+  it("treats jose JWT errors as ordinary 401s, not unexpected exceptions", async () => {
+    process.env.AUTH_DEV_BYPASS = "false";
+    process.env.AZURE_AD_B2C_TENANT = "swatchtest";
+    process.env.AZURE_AD_B2C_CLIENT_ID = "client-id";
+    const calls = mockBlobFetch(); // OIDC metadata lookup gets a non-JSON body and falls back
+    const logged = [];
+    const context = { log: () => {}, warn: () => {}, error: (...args) => logged.push(args) };
+    const id = imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER });
+    // A malformed compact JWS makes the real jose throw JWSInvalid (a JOSEError subclass).
+    const res = await handler()(fakeRequest(id, undefined, { authorization: "Bearer not-a-jwt" }), context);
+    assert.equal(res.status, 401);
+    assert.deepEqual(res.jsonBody, { error: "Unauthorized" });
+    assert.equal(res.headers.get("Cache-Control"), "no-store");
+    assert.ok(calls.some((c) => c.url.includes("ciamlogin.com")), "JWT validation was reached");
+    assert.deepEqual(logged, [], "a bad JWT is not an unexpected auth error");
+    assert.ok(!calls.some((c) => c.url === PRIVATE_URL), "no blob read");
+  });
+
+  it("logs a genuinely unexpected auth failure (contrast with jose errors)", async () => {
+    mockBlobFetch();
+    dbFailure = new Error("connection refused");
+    const logged = [];
+    const context = { log: () => {}, warn: () => {}, error: (...args) => logged.push(args) };
+    const id = imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER });
+    const res = await handler()(fakeRequest(id, undefined, asUser(OWNER)), context);
+    assert.equal(res.status, 401);
+    assert.equal(logged.length, 1);
+  });
+
+  it("refuses hand-signed v3 ids that disguise the container (percent-encoding, dot segments)", async () => {
+    const calls = mockBlobFetch();
+    const expiresAt = Math.floor(Date.now() / 1000) + 600;
+    const disguised = [
+      // Azure would decode this to nail-photos, but the allowlist compares the literal segment.
+      "https://swatchtest.blob.core.windows.net/nail%2Dphotos/user-7/photo.png",
+      // Dot segments are resolved when the URL is parsed; they cannot escape the private container.
+      "https://swatchtest.blob.core.windows.net/nail-photos/../source-images/holotaco/abc-123.png",
+      "https://swatchtest.blob.core.windows.net/nail-photos/%2e%2e/connector-raw/run-1.json.gz",
+    ];
+    for (const url of disguised) {
+      const id = signV3Id(url, TEST_KEY, { owner: OWNER, expiresAt });
+      const res = await handler()(fakeRequest(id, undefined, asUser(OWNER)), fakeContext());
+      assert.equal(res.status, 403, url);
+      assert.equal(res.headers.get("Cache-Control"), "no-store");
+    }
+    assert.equal(calls.length, 0);
+  });
+
+  it("fails closed (500, no fetch) when USER_MEDIA_CONTAINER equals SOURCE_IMAGE_CONTAINER", async () => {
+    const calls = mockBlobFetch();
+    const id = imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER });
+    process.env.USER_MEDIA_CONTAINER = "source-images";
+    const res = await handler()(fakeRequest(id, undefined, asUser(OWNER)), fakeContext());
+    assert.equal(res.status, 500);
+    assert.deepEqual(res.jsonBody, { error: "Failed to serve image" });
+    assert.equal(res.headers.get("Cache-Control"), "no-store");
+    assert.equal(calls.length, 0);
+  });
+});
+
+describe("lib/image-proxy — hardening after review (#227)", () => {
+  beforeEach(() => {
+    process.env.IMAGE_PROXY_SIGNING_KEY = TEST_KEY;
+  });
+
+  it("rejects a v2 id whose expiry has a leading zero (non-canonical base36)", () => {
+    const id = imageProxy.encodeImageProxyId(BLOB_URL);
+    const [v, u, exp, sig] = id.split(".");
+    assert.equal(imageProxy.decodeImageProxyIdWithExpiry(id).url, BLOB_URL, "control");
+    assert.throws(
+      () => imageProxy.decodeImageProxyIdWithExpiry(`${v}.${u}.0${exp}.${sig}`),
+      imageProxy.ImageProxyTokenError
+    );
+    assert.throws(
+      () => imageProxy.decodeImageProxyIdWithExpiry(`${v}.${u}.${exp.toUpperCase()}.${sig}`),
+      imageProxy.ImageProxyTokenError
+    );
+  });
+
+  it("refuses to mint anything (never a public v2 id) when the two containers coincide", () => {
+    for (const env of [
+      { USER_MEDIA_CONTAINER: "source-images" },
+      { SOURCE_IMAGE_CONTAINER: "nail-photos" },
+      { SOURCE_IMAGE_CONTAINER: "Shared", USER_MEDIA_CONTAINER: " shared " },
+    ]) {
+      delete process.env.SOURCE_IMAGE_CONTAINER;
+      delete process.env.USER_MEDIA_CONTAINER;
+      Object.assign(process.env, env);
+      assert.throws(
+        () => imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER }),
+        imageProxy.ImageProxyConfigError,
+        JSON.stringify(env)
+      );
+      assert.throws(() => imageProxy.encodeImageProxyId(BLOB_URL), imageProxy.ImageProxyConfigError, JSON.stringify(env));
+      assert.throws(() => blobStorage.userMediaContainer(), imageProxy.ImageProxyConfigError);
+    }
   });
 });

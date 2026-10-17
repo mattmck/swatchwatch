@@ -59,8 +59,11 @@ const KNOWN_SHADES = new Set([OWNED_SHADE_ID]);
 let sqlCalls = [];
 let transactionCount = 0;
 let state;
+/** When true, app_user.user_id comes back as a string, as node-postgres returns BIGINT (int8). */
+let stringUserIds = false;
 
 function resetState() {
+  stringUserIds = false;
   sqlCalls = [];
   transactionCount = 0;
   state = {
@@ -201,7 +204,8 @@ async function fakeQuery(via, sql, params = []) {
 
   // Auth: dev-bypass user lookup.
   if (/FROM\s+app_user/i.test(text) && /WHERE\s+user_id\s*=\s*\$1/i.test(text)) {
-    const user = USERS[Number(params[0])];
+    const found = USERS[Number(params[0])];
+    const user = found && stringUserIds ? { ...found, user_id: String(found.user_id) } : found;
     return { rows: user ? [user] : [], rowCount: user ? 1 : 0 };
   }
 
@@ -331,6 +335,8 @@ registerMock("@azure/functions", {
 });
 
 registerMock("jose", {
+  // functions/images treats jose errors as ordinary auth failures (instanceof check).
+  errors: { JOSEError: class JOSEError extends Error {} },
   createRemoteJWKSet: () => {},
   jwtVerify: async () => {
     throw new Error("JWT validation is not exercised in access-control tests");
@@ -409,6 +415,7 @@ registerMock("../lib/blob-storage", {
   userMediaContainer: () => MOCK_USER_MEDIA_CONTAINER,
   // Same logic as lib/blob-storage, against the mocked catalog container above.
   isCatalogStorageUrl: (storageUrl) => mockBlobContainer(storageUrl) === MOCK_CATALOG_CONTAINER,
+  isUserMediaStorageUrl: (storageUrl) => mockBlobContainer(storageUrl) === MOCK_USER_MEDIA_CONTAINER,
   readBlobFromStorageUrl: async (storageUrl, options = {}) => {
     // Honour the per-scope container allowlist like the real reader: deny before any read.
     const allowed = options.allowedContainers ?? [MOCK_CATALOG_CONTAINER];
@@ -1334,10 +1341,37 @@ describe("images signed-id (requires #47)", () => {
       assertOnlyAuthLookup();
     });
 
+    it("serves the owner when app_user.user_id comes back as a string (BIGINT via node-postgres)", async () => {
+      stringUserIds = true;
+      const res = await getImage(mintId(PRIVATE_URL, { ownerUserId: OWNER }), { userId: OWNER });
+      assert.equal(res.status, 200);
+      assert.deepEqual(sideEffects.blobReads, [PRIVATE_URL]);
+      // ...and a string id still never matches another owner.
+      sideEffects.blobReads.length = 0;
+      const denied = await getImage(mintId(PRIVATE_URL, { ownerUserId: OWNER }), { userId: ATTACKER });
+      assert.equal(denied.status, 403);
+      assert.deepEqual(sideEffects.blobReads, []);
+    });
+
+    it("rejects an ADMIN token for another user's private id (no admin bypass, 403)", async () => {
+      const res = await getImage(mintId(PRIVATE_URL, { ownerUserId: OWNER }), { userId: ADMIN });
+      assert.equal(res.status, 403);
+      assert.equal(res.headers.get("Cache-Control"), "no-store");
+      assert.deepEqual(sideEffects.blobReads, []);
+    });
+
+    it("rejects a token for a user that no longer exists (401)", async () => {
+      const res = await getImage(mintId(PRIVATE_URL, { ownerUserId: OWNER }), { userId: 424242 });
+      assert.equal(res.status, 401);
+      assert.equal(res.headers.get("Cache-Control"), "no-store");
+      assert.deepEqual(sideEffects.blobReads, []);
+    });
+
     it("rejects the owner's private id presented with the ATTACKER's token (403)", async () => {
       const res = await getImage(mintId(PRIVATE_URL, { ownerUserId: OWNER }), { userId: ATTACKER });
       assert.equal(res.status, 403);
       assert.deepEqual(res.jsonBody, { error: "Forbidden" });
+      assert.equal(res.headers.get("Cache-Control"), "no-store");
       assert.deepEqual(sideEffects.blobReads, []);
       assertOnlyAuthLookup();
     });
@@ -1346,6 +1380,7 @@ describe("images signed-id (requires #47)", () => {
       const res = await getImage(mintId(PRIVATE_URL, { ownerUserId: OWNER }));
       assert.equal(res.status, 401);
       assert.deepEqual(res.jsonBody, { error: "Unauthorized" });
+      assert.equal(res.headers.get("Cache-Control"), "no-store");
       assert.deepEqual(sideEffects.blobReads, []);
       assert.deepEqual(sqlCalls, []);
     });

@@ -1,5 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { createHash } from "node:crypto";
+import { errors as joseErrors } from "jose";
 import { AuthError, authenticateRequest } from "../lib/auth";
 import {
   BlobAccessDeniedError,
@@ -218,7 +219,8 @@ async function transformImage(
 /**
  * Owner-scoped (v3) ids additionally require the bound owner's bearer token. Returns the denial
  * response, or null when the caller is the owner. Never throws: any auth failure is a 401 (as in
- * `withAuth`), never a 500. Admins get no bypass.
+ * `withAuth`), never a 500. Admins get no bypass. Expired/invalid JWTs surface as jose errors and
+ * are ordinary auth failures; only genuinely unexpected errors are logged as exceptions.
  */
 async function authorizePrivateImageRead(
   request: HttpRequest,
@@ -229,7 +231,12 @@ async function authorizePrivateImageRead(
   try {
     callerUserId = (await authenticateRequest(request, context)).userId;
   } catch (error) {
-    if (!(error instanceof AuthError)) {
+    if (error instanceof AuthError || error instanceof joseErrors.JOSEError) {
+      trackEvent("auth.failure", {
+        wrapper: "images",
+        reason: error instanceof AuthError ? error.message : `jose:${error.code}`,
+      });
+    } else {
       context.error("[images] Unexpected auth error:", error);
       trackException(error, { route: "images", reason: "unexpected_auth_error" });
     }
@@ -237,7 +244,8 @@ async function authorizePrivateImageRead(
     return { status: 401, jsonBody: { error: "Unauthorized" } };
   }
 
-  if (ownerUserId === undefined || callerUserId !== ownerUserId) {
+  // Number(): defensive against a BIGINT id surfacing as a string (lib/auth already coerces).
+  if (ownerUserId === undefined || Number(callerUserId) !== ownerUserId) {
     trackEvent("image_proxy.private_denied", { reason: "wrong_user" });
     return { status: 403, jsonBody: { error: "Forbidden" } };
   }
@@ -259,7 +267,8 @@ async function authorizePrivateImageRead(
  * - **Private** (v3, owner-scoped user media, #227): requires a bearer token whose user id equals
  *   the owner bound into the id: 401 without a valid token, 403 for any other user (admins
  *   included). May only read `USER_MEDIA_CONTAINER`. Served `Cache-Control: private,
- *   max-age<=300` with `Vary: Authorization`.
+ *   max-age<=300` with `Vary: Authorization`; every non-200 response for a private id (401, 403,
+ *   404, 5xx) carries `Cache-Control: no-store`.
  *
  * In both cases the decoded URL must point at the configured storage account, inside the scope's
  * allowlisted container; a validly signed id outside it is a 403 without any fetch. Optional
@@ -272,97 +281,114 @@ app.http("images", {
   route: "images/{id}",
   handler: withCors(
     async (request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> => {
-    try {
-      const id = request.params.id;
-
-      if (!id) {
-        return {
-          status: 400,
-          jsonBody: { error: "Missing image ID" },
-        };
+      const outcome: { scope?: ImageProxyScope } = {};
+      const response = await serveImage(request, context, outcome);
+      // Error responses for private ids must not be cached anywhere (404 is heuristically cacheable).
+      if (outcome.scope === "private" && response.status !== 200) {
+        const headers = new Headers(response.headers ?? {});
+        headers.set("Cache-Control", "no-store");
+        return { ...response, headers };
       }
+      return response;
+    }
+  ),
+});
 
-      const { url: storageUrl, expiresAt, scope, ownerUserId } = decodeImageProxyIdWithExpiry(id);
+async function serveImage(
+  request: HttpRequest,
+  context: InvocationContext,
+  outcome: { scope?: ImageProxyScope }
+): Promise<HttpResponseInit> {
+  try {
+    const id = request.params.id;
 
-      if (scope === "private") {
-        const denial = await authorizePrivateImageRead(request, context, ownerUserId);
-        if (denial) return denial;
-      }
-
-      const blob = await readBlobFromStorageUrl(storageUrl, {
-        allowedContainers: scope === "private" ? [userMediaContainer()] : defaultReadableContainers(),
-      });
-      const transform = parseTransformOptions(request.url);
-
-      let bodyBytes = blob.bytes;
-      let contentType = blob.contentType;
-      let transformed = false;
-      let etag = blob.etag;
-
-      if (hasTransformRequest(transform) && isTransformableContentType(blob.contentType)) {
-        const result = await transformImage(blob.bytes, transform);
-        bodyBytes = result.bytes;
-        contentType = result.contentType;
-        transformed = true;
-        etag = `"${createHash("sha1").update(bodyBytes).digest("hex")}"`;
-      }
-
-      const cacheControl = selectImageCacheControl({
-        catalog: isCatalogStorageUrl(storageUrl),
-        transformed,
-        blobCacheControl: blob.cacheControl,
-        expiresAt,
-        scope,
-      });
-
-      const headers = new Headers({
-        "Content-Type": contentType,
-        "Cache-Control": cacheControl,
-      });
-      // The response depends on the caller's token; no cache may reuse it across Authorization values.
-      if (scope === "private") headers.set("Vary", "Authorization");
-      if (etag) headers.set("ETag", etag);
-      if (blob.lastModified) headers.set("Last-Modified", blob.lastModified);
-
+    if (!id) {
       return {
-        status: 200,
-        headers,
-        body: bodyBytes,
+        status: 400,
+        jsonBody: { error: "Missing image ID" },
       };
-    } catch (error) {
-      if (error instanceof ImageProxyTokenError || error instanceof BlobAccessDeniedError) {
-        if (error instanceof BlobAccessDeniedError) {
-          // A validly signed id that points outside the readable containers indicates a
-          // server-side bug or key compromise; log it, but never echo details to the caller.
-          context.warn(`[images] Refused signed image read: ${error.message}`);
-        }
-        return {
-          status: 403,
-          jsonBody: { error: "Forbidden" },
-        };
-      }
+    }
 
-      if (error instanceof ImageProxyConfigError) {
-        context.error(`[images] Image proxy signing is not configured: ${error.message}`);
-        return {
-          status: 500,
-          jsonBody: { error: "Failed to serve image" },
-        };
-      }
+    const { url: storageUrl, expiresAt, scope, ownerUserId } = decodeImageProxyIdWithExpiry(id);
+    outcome.scope = scope;
 
-      if (error instanceof BlobReadError && error.status === 404) {
-        return {
-          status: 404,
-          jsonBody: { error: "Image not found" },
-        };
-      }
+    if (scope === "private") {
+      const denial = await authorizePrivateImageRead(request, context, ownerUserId);
+      if (denial) return denial;
+    }
 
-      context.error(`[images] Error serving image:`, error);
+    const blob = await readBlobFromStorageUrl(storageUrl, {
+      allowedContainers: scope === "private" ? [userMediaContainer()] : defaultReadableContainers(),
+    });
+    const transform = parseTransformOptions(request.url);
+
+    let bodyBytes = blob.bytes;
+    let contentType = blob.contentType;
+    let transformed = false;
+    let etag = blob.etag;
+
+    if (hasTransformRequest(transform) && isTransformableContentType(blob.contentType)) {
+      const result = await transformImage(blob.bytes, transform);
+      bodyBytes = result.bytes;
+      contentType = result.contentType;
+      transformed = true;
+      etag = `"${createHash("sha1").update(bodyBytes).digest("hex")}"`;
+    }
+
+    const cacheControl = selectImageCacheControl({
+      catalog: isCatalogStorageUrl(storageUrl),
+      transformed,
+      blobCacheControl: blob.cacheControl,
+      expiresAt,
+      scope,
+    });
+
+    const headers = new Headers({
+      "Content-Type": contentType,
+      "Cache-Control": cacheControl,
+    });
+    // The response depends on the caller's token; no cache may reuse it across Authorization values.
+    if (scope === "private") headers.set("Vary", "Authorization");
+    if (etag) headers.set("ETag", etag);
+    if (blob.lastModified) headers.set("Last-Modified", blob.lastModified);
+
+    return {
+      status: 200,
+      headers,
+      body: bodyBytes,
+    };
+  } catch (error) {
+    if (error instanceof ImageProxyTokenError || error instanceof BlobAccessDeniedError) {
+      if (error instanceof BlobAccessDeniedError) {
+        // A validly signed id that points outside the readable containers indicates a
+        // server-side bug or key compromise; log it, but never echo details to the caller.
+        context.warn(`[images] Refused signed image read: ${error.message}`);
+      }
+      return {
+        status: 403,
+        jsonBody: { error: "Forbidden" },
+      };
+    }
+
+    if (error instanceof ImageProxyConfigError) {
+      context.error(`[images] Image proxy is misconfigured: ${error.message}`);
       return {
         status: 500,
         jsonBody: { error: "Failed to serve image" },
       };
     }
+
+    if (error instanceof BlobReadError && error.status === 404) {
+      return {
+        status: 404,
+        jsonBody: { error: "Image not found" },
+      };
     }
-  ),
-});
+
+    context.error(`[images] Error serving image:`, error);
+    return {
+      status: 500,
+      jsonBody: { error: "Failed to serve image" },
+    };
+  }
+}

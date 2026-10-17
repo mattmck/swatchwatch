@@ -1,13 +1,16 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { isCatalogStorageUrl } from "./blob-storage";
+import { isCatalogStorageUrl, userMediaContainer } from "./blob-storage";
+import { ImageProxyConfigError } from "./image-proxy-errors";
 import { isDevBypassEnabled } from "./runtime-env";
 import { trackEvent } from "./telemetry";
 
 /**
  * Signed, expiring capability URLs for the `/api/images/{id}` proxy.
  *
- * Proxied images are rendered directly in `<img src>` tags, so the browser cannot attach an
- * Authorization header. Instead, the server hands out ids it has signed:
+ * Public catalog images are rendered directly in `<img src>` tags (and fetched by Azure OpenAI
+ * vision), so the browser cannot attach an Authorization header; for those, the signed id itself
+ * is the capability. (Private v3 ids, below, additionally require the owner's bearer token.)
+ * The server hands out ids it has signed:
  *
  *   id = "v2." + base64url(storageUrl) + "." + base36(expiresAtUnixSeconds) + "." + base64url(sig)
  *   sig = HMAC-SHA256(IMAGE_PROXY_SIGNING_KEY, "swatchwatch:image-proxy:v2:" + exp + ":" + storageUrl)
@@ -45,7 +48,9 @@ import { trackEvent } from "./telemetry";
  * (`SOURCE_IMAGE_CONTAINER`); v3 ids (`scope: "private"`) may read only `USER_MEDIA_CONTAINER`
  * (default `nail-photos`). The route enforces this per scope, so a validly signed id never crosses
  * containers. Minting fails closed: a non-catalog URL without a positive integer owner throws
- * `ImageProxyScopeError` instead of producing a public id.
+ * `ImageProxyScopeError` instead of producing a public id, and nothing is minted at all while
+ * `USER_MEDIA_CONTAINER` equals `SOURCE_IMAGE_CONTAINER` (`ImageProxyConfigError`), since scope is
+ * decided by "is it the catalog container" and user media would otherwise mint public ids.
  *
  * Legacy v1 ids (`base64url(url).base64url(sig)`, no expiry) are never minted any more. They are
  * accepted only while `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL` (ISO-8601) is set and in the future, so
@@ -100,13 +105,7 @@ export class ImageProxyScopeError extends Error {
   }
 }
 
-/** The signing key is missing or unusable. Map to a generic 5xx; never serve unsigned. */
-export class ImageProxyConfigError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ImageProxyConfigError";
-  }
-}
+export { ImageProxyConfigError };
 
 let devFallbackKey: Buffer | null = null;
 
@@ -247,7 +246,8 @@ export interface ImageProxyMintOptions {
  * A bare number as the second argument is accepted as `nowMs` (backwards compatible).
  *
  * @throws ImageProxyScopeError for a non-catalog URL without a valid owner.
- * @throws ImageProxyConfigError when no signing key is available.
+ * @throws ImageProxyConfigError when no signing key is available, or when USER_MEDIA_CONTAINER
+ *   equals SOURCE_IMAGE_CONTAINER (user media would be indistinguishable from the catalog).
  */
 export function encodeImageProxyId(
   sourceImageUrl: string,
@@ -255,6 +255,9 @@ export function encodeImageProxyId(
 ): string {
   const { ownerUserId, nowMs = Date.now() }: ImageProxyMintOptions =
     typeof options === "number" ? { nowMs: options } : options ?? {};
+  // Throws ImageProxyConfigError when the user-media and catalog containers coincide: never fall
+  // back to a public v2 id for what may be private media.
+  userMediaContainer();
   const normalized = normalizeHttpUrl(sourceImageUrl);
 
   if (isCatalogStorageUrl(normalized)) {
@@ -394,12 +397,10 @@ export function decodeImageProxyIdWithExpiry(
 
   if (parts.length === 4 && parts[0] === ID_VERSION_PREFIX) {
     const [, encodedUrl, encodedExpiry, encodedSignature] = parts;
-    if (!BASE36_PATTERN.test(encodedExpiry)) {
-      throw new ImageProxyTokenError();
-    }
+    // Canonical base36 only (no leading zeros), so one signed expiry has exactly one spelling.
+    const expiresAt = readBase36Integer(encodedExpiry);
     const providedSignature = readSignature(encodedSignature);
     const decodedUrl = readUrl(encodedUrl);
-    const expiresAt = Number.parseInt(encodedExpiry, 36);
 
     // Verify the signature (which covers the expiry) before trusting the expiry value.
     if (!timingSafeEqual(providedSignature, sign(decodedUrl, expiresAt, key))) {

@@ -21,7 +21,7 @@ import {
   DETECTED_HEX_METHOD_CLIENT_SUPPLIED,
   provenanceFromDetection,
 } from "../lib/hex-provenance";
-import { readBlobFromStorageUrl } from "../lib/blob-storage";
+import { isCatalogStorageUrl, isUserMediaStorageUrl, readBlobFromStorageUrl } from "../lib/blob-storage";
 import {
   cacheDelete,
   cacheDeleteByPrefix,
@@ -502,10 +502,12 @@ function isStorageUrlProxied(url: string): boolean {
  * Rewrite blob URLs to signed `/api/images/{id}` capability URLs.
  *
  * - Catalog blobs (`SOURCE_IMAGE_CONTAINER`) get public `v2` ids; `ownerUserId` is ignored.
- * - Any other blob gets an owner-scoped `v3` id only when `ownerUserId` is given, i.e. when the
- *   caller has verified the image_asset row belongs to the requesting user (#227). Without an
- *   owner it is omitted (null): that is the expected outcome for another user's media, so it is
- *   not logged as an error.
+ * - A blob in the user-media container (`USER_MEDIA_CONTAINER`) gets an owner-scoped `v3` id only
+ *   when `ownerUserId` is given, i.e. when the caller has verified the image_asset row belongs to
+ *   the requesting user (#227). Without an owner it is omitted (null): that is the expected
+ *   outcome for another user's media, so it is not logged as an error.
+ * - Any other blob is omitted (null): the proxy would refuse to read it under either scope, so
+ *   minting an id would only produce a dead link.
  *
  * Fails closed: if a URL cannot be signed (e.g. IMAGE_PROXY_SIGNING_KEY missing), the image is
  * omitted (null) rather than leaking the raw storage URL or failing the whole response.
@@ -523,6 +525,13 @@ function withReadableImageUrl(
     return normalized;
   }
   try {
+    if (
+      options.ownerUserId !== undefined &&
+      !isCatalogStorageUrl(normalized) &&
+      !isUserMediaStorageUrl(normalized)
+    ) {
+      return null;
+    }
     return toImageProxyUrl(
       requestUrl,
       normalized,
@@ -593,7 +602,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
               // Private media is minted owner-scoped only for image_asset rows the caller owns.
               withReadableImageUrl(r.storageUrl, request.url, {
                 ownerUserId:
-                  r.ownerType === "user" && Number(r.ownerId) === userId ? userId : undefined,
+                  r.ownerType === "user" && Number(r.ownerId) === Number(userId) ? Number(userId) : undefined,
               })
             )
             .filter((url): url is string => Boolean(url))
