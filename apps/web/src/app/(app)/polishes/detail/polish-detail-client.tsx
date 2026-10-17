@@ -24,6 +24,7 @@ import {
 import { ColorDot } from "@/components/color-dot";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
+import { NailPhotoPanel } from "@/components/nail-photo-panel";
 import { toast } from "sonner";
 
 function resolveReturnTo(returnTo: string | null): string {
@@ -268,6 +269,17 @@ export default function PolishDetailClient({
           </div>
         </div>
       </div>
+
+      {polish.inventoryItemId && (
+        <NailPhotoPanel
+          key={polish.inventoryItemId}
+          inventoryItemId={polish.inventoryItemId}
+          polishLabel={`${polish.brand} ${polish.name}`}
+          vendorHex={polish.vendorHex}
+          detectedHex={polish.detectedHex}
+          nameHex={polish.nameHex}
+        />
+      )}
 
       <Card className="relative overflow-hidden">
         <span

@@ -43,6 +43,8 @@ import type {
   IngestionJob,
 } from "swatchwatch-shared";
 
+import type { NailPhotoResponse } from "swatchwatch-shared";
+
 import { getAccessToken } from "./auth-token";
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:7071/api";
@@ -50,7 +52,7 @@ const MAX_CAPTURE_FRAME_BYTES = 5 * 1024 * 1024;
 const LIST_ALL_POLISHES_PAGE_SIZE = 250;
 const listPolishesInFlight = new Map<string, Promise<PolishListResponse>>();
 
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
     this.name = "ApiError";
@@ -710,4 +712,46 @@ export async function mergeAdminUsers(
     body: JSON.stringify(data),
   });
   return handleResponse<AdminUserMergeResponse>(response);
+}
+
+// ── Private nail photos (#270) ──────────────────────────────────────────────
+
+function nailPhotoUrl(inventoryItemId: string | number): string {
+  return `${API_BASE_URL}/inventory/${encodeURIComponent(String(inventoryItemId))}/nail-photo`;
+}
+
+/** The caller's private on-nail photo for one of their inventory items (`{ photo: null }` when none). */
+export async function getNailPhoto(inventoryItemId: string | number): Promise<NailPhotoResponse> {
+  const response = await fetch(nailPhotoUrl(inventoryItemId), {
+    headers: await getAuthHeaders(),
+    cache: "no-store",
+  });
+  return handleResponse<NailPhotoResponse>(response);
+}
+
+/**
+ * Upload or replace the nail photo. `image` is a base64 data URL (see `prepareNailPhotoUpload`);
+ * the server re-encodes it and strips all metadata (EXIF/GPS) before storing it privately.
+ */
+export async function uploadNailPhoto(
+  inventoryItemId: string | number,
+  image: string
+): Promise<NailPhotoResponse> {
+  const response = await fetch(nailPhotoUrl(inventoryItemId), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
+    body: JSON.stringify({ image }),
+  });
+  return handleResponse<NailPhotoResponse>(response);
+}
+
+/** Delete the nail photo (idempotent; 204). */
+export async function deleteNailPhoto(inventoryItemId: string | number): Promise<void> {
+  const response = await fetch(nailPhotoUrl(inventoryItemId), {
+    method: "DELETE",
+    headers: await getAuthHeaders(),
+  });
+  if (!response.ok) {
+    await handleResponse<unknown>(response);
+  }
 }
