@@ -7,6 +7,7 @@ import {
   chooseUploadedImageForDetection,
   parseProductImageCandidates,
   type ProductImageCandidate,
+  type UploadedImageChoice,
   type UploadedImageRef,
 } from "./image-selection";
 import { submitVisionHexBatch } from "./azure-openai-batch";
@@ -421,8 +422,8 @@ export interface UnchangedImageCandidate {
 }
 
 /**
- * External IDs whose shade already has a detected hex and already has a swatch on the exact
- * image just downloaded (same checksum). Shades are matched the same way
+ * External IDs whose shade already has a detected hex and already has a swatch (product or gallery) on the exact
+ * image chosen for detection (same checksum). Shades are matched the same way
  * materializePreparedHoloTacoRecord resolves them. A lookup failure returns an empty set:
  * skipping detection is an optimization and must never fail the job.
  */
@@ -462,7 +463,8 @@ export async function findRecordsWithUnchangedDetectedHex(
            FROM swatch s
            JOIN image_asset ia ON ia.image_id = s.image_id_original
            WHERE s.shade_id = sh.shade_id
-             AND s.swatch_type = 'source_product'
+             -- The detection image may be a gallery image (image-selection.ts).
+             AND s.swatch_type IN ('source_product', 'source_gallery')
              AND ia.owner_type = 'source'
              AND ia.owner_id = $1
              AND ia.checksum_sha256 = input.checksum_sha256
@@ -778,6 +780,23 @@ async function prepareHoloTacoImageData(
   const uploadElapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`${sourceLogPrefix} Phase 1 (parallel image upload) completed in ${uploadElapsed}s for ${records.length} records`);
 
+  // AI hex detection runs on the image most likely to show the polish on a nail
+  // (alt-text ranking, see image-selection.ts); the vendor's primary image stays
+  // the fallback and the blob upload set above is unchanged.
+  const chooseDetectionImage = (result: ImageUploadResult): UploadedImageChoice | null => {
+    const { holo, storageUrl, checksumSha256, additionalImages } = result;
+    if (!holo) return null;
+    const uploadedRefs: UploadedImageRef[] = [];
+    if (holo.primaryImageUrl && storageUrl) {
+      uploadedRefs.push({ sourceUrl: holo.primaryImageUrl, storageUrl, checksumSha256 });
+    }
+    for (const additional of additionalImages) {
+      uploadedRefs.push(additional);
+    }
+    return chooseUploadedImageForDetection(holo.images, holo.primaryImageUrl, uploadedRefs);
+  };
+  const detectionImages = new Map(uploadResults.map((result) => [result, chooseDetectionImage(result)] as const));
+
   // --- Phase 2: concurrent AI detection, sequential DB callbacks in record order ---
   const overwriteDetectedHex = options?.overwriteDetectedHex === true;
   const unchangedWithHex =
@@ -785,7 +804,9 @@ async function prepareHoloTacoImageData(
       ? await findRecordsWithUnchangedDetectedHex(
           dataSourceId,
           uploadResults.flatMap((result): UnchangedImageCandidate[] => {
-            const { holo, checksumSha256 } = result;
+            const { holo } = result;
+            // Compare against the image detection would run on, not always the primary.
+            const checksumSha256 = detectionImages.get(result)?.checksumSha256 ?? result.checksumSha256;
             if (!result.isCandidate || !holo?.name || !checksumSha256) {
               return [];
             }
@@ -841,19 +862,7 @@ async function prepareHoloTacoImageData(
     const shouldRunAiDetection = detectHexFromImage &&
       holo && (!detectHexOnSuspiciousOnly || isSuspiciousHex(holo.vendorHex));
 
-    // AI hex detection runs on the image most likely to show the polish on a
-    // nail (alt text ranking); the vendor's primary image stays the fallback
-    // and the blob upload set above is unchanged.
-    const uploadedRefs: UploadedImageRef[] = [];
-    if (holo?.primaryImageUrl && storageUrl) {
-      uploadedRefs.push({ sourceUrl: holo.primaryImageUrl, storageUrl });
-    }
-    for (const additional of additionalImages) {
-      uploadedRefs.push({ sourceUrl: additional.sourceUrl, storageUrl: additional.storageUrl });
-    }
-    const detectionImage = holo
-      ? chooseUploadedImageForDetection(holo.images, holo.primaryImageUrl, uploadedRefs)
-      : null;
+    const detectionImage = detectionImages.get(result) ?? null;
     const imageForAi = resolveAiImageUrl(detectionImage?.storageUrl ?? storageUrl);
 
     if (shouldRunAiDetection && holo && detectionImage && imageForAi) {

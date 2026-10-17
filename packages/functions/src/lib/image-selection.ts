@@ -328,6 +328,8 @@ export interface UploadedImageRef {
   sourceUrl: string;
   /** Blob storage URL (what AI detection is given, via the image proxy). */
   storageUrl: string;
+  /** SHA-256 of the stored bytes, when known (used to skip re-detecting unchanged images). */
+  checksumSha256?: string | null;
 }
 
 export interface UploadedImageChoice {
@@ -335,6 +337,8 @@ export interface UploadedImageChoice {
   storageUrl: string | null;
   /** Vendor URL of the blob actually used. */
   sourceUrl: string | null;
+  /** Checksum of the blob actually used, or null when unknown. */
+  checksumSha256: string | null;
   /** The ranking decision, before upload availability was considered. */
   selection: ImageSelection;
   /** True when the ranked choice had no uploaded blob and the primary was used instead. */
@@ -353,24 +357,39 @@ export function chooseUploadedImageForDetection(
   uploaded: ReadonlyArray<UploadedImageRef>
 ): UploadedImageChoice {
   const selection = selectImageForColorDetection(images, primaryUrl);
-  const byUrl = new Map(uploaded.map((ref) => [ref.sourceUrl, ref.storageUrl] as const));
+  const byUrl = new Map(uploaded.map((ref) => [ref.sourceUrl, ref] as const));
 
-  const chosenBlob = selection.url ? byUrl.get(selection.url) ?? null : null;
-  if (chosenBlob) {
-    return { storageUrl: chosenBlob, sourceUrl: selection.url, selection, uploadFallback: false, reason: selection.reason };
+  const chosen = selection.url ? byUrl.get(selection.url) ?? null : null;
+  if (chosen) {
+    return {
+      storageUrl: chosen.storageUrl,
+      sourceUrl: selection.url,
+      checksumSha256: chosen.checksumSha256 ?? null,
+      selection,
+      uploadFallback: false,
+      reason: selection.reason,
+    };
   }
 
   const primary = typeof primaryUrl === "string" && primaryUrl.trim() ? primaryUrl.trim() : null;
-  const primaryBlob = primary ? byUrl.get(primary) ?? null : null;
-  if (primaryBlob && selection.url && selection.url !== primary) {
+  const primaryRef = primary ? byUrl.get(primary) ?? null : null;
+  if (primaryRef && selection.url && selection.url !== primary) {
     return {
-      storageUrl: primaryBlob,
+      storageUrl: primaryRef.storageUrl,
       sourceUrl: primary,
+      checksumSha256: primaryRef.checksumSha256 ?? null,
       selection,
       uploadFallback: true,
       reason: `${selection.reason}; chosen image was not uploaded, using primary image blob instead`,
     };
   }
 
-  return { storageUrl: primaryBlob, sourceUrl: selection.url ?? primary, selection, uploadFallback: false, reason: selection.reason };
+  return {
+    storageUrl: primaryRef?.storageUrl ?? null,
+    sourceUrl: selection.url ?? primary,
+    checksumSha256: primaryRef?.checksumSha256 ?? null,
+    selection,
+    uploadFallback: false,
+    reason: selection.reason,
+  };
 }

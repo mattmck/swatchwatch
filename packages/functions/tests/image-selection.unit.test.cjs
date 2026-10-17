@@ -274,3 +274,30 @@ describe("lib/image-selection — real vendor filenames (no alt text)", () => {
     assert.match(selection.reason, /hand/);
   });
 });
+
+describe("lib/image-selection — chooseUploadedImageForDetection checksums", () => {
+  const primary = "https://cdn.example.com/bottle.jpg";
+  const hand = "https://cdn.example.com/hand.jpg";
+  const uploaded = [
+    { sourceUrl: primary, storageUrl: "https://blob/primary", checksumSha256: "aaa" },
+    { sourceUrl: hand, storageUrl: "https://blob/hand", checksumSha256: "bbb" },
+  ];
+
+  it("returns the checksum of the image chosen for detection", () => {
+    const choice = chooseUploadedImageForDetection([img(primary, "Bottle", 1), img(hand, "Swatch on nails", 2)], primary, uploaded);
+    assert.equal(choice.checksumSha256, "bbb");
+  });
+
+  it("returns the primary checksum on the primary fallback and the upload fallback", () => {
+    assert.equal(chooseUploadedImageForDetection([img(primary), img(hand)], primary, uploaded).checksumSha256, "aaa");
+    assert.equal(
+      chooseUploadedImageForDetection([img(primary, "Bottle", 1), img(hand, "Swatch on nails", 2)], primary, [uploaded[0]]).checksumSha256,
+      "aaa"
+    );
+  });
+
+  it("returns null when the chosen upload has no checksum or nothing was uploaded", () => {
+    assert.equal(chooseUploadedImageForDetection([img(primary)], primary, [{ sourceUrl: primary, storageUrl: "x" }]).checksumSha256, null);
+    assert.equal(chooseUploadedImageForDetection([img(primary)], primary, []).checksumSha256, null);
+  });
+});
