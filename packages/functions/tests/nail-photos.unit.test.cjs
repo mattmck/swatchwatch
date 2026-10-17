@@ -27,9 +27,11 @@ const OTHER_ITEM_ID = 8001; // belongs to user 2
 // ---------------------------------------------------------------------------
 let db;
 let failNextLinkInsert = false;
+let failNextItemDelete = false;
 
 function resetDb() {
   failNextLinkInsert = false;
+  failNextItemDelete = false;
   db = {
     statements: [],
     transactions: 0,
@@ -83,6 +85,46 @@ async function fakeQuery(sql, params = []) {
     };
   }
 
+  // DELETE /api/polishes/{id}: row lock, nail-photo detach, item delete.
+  if (/^\s*SELECT\s+inventory_item_id\s+FROM\s+user_inventory_item/i.test(text)) {
+    const [shadeId, userId] = params.map(Number);
+    const rows = [...db.items].filter(([, i]) => i.shadeId === shadeId && i.userId === userId);
+    return { rows: rows.map(([id]) => ({ inventory_item_id: String(id) })) };
+  }
+  if (/FROM\s+inventory_nail_photo\s+p\s+JOIN/i.test(text)) {
+    const [shadeId, userId] = params.map(Number);
+    const rows = [...db.items]
+      .filter(([id, i]) => i.shadeId === shadeId && i.userId === userId && db.photos.has(id))
+      .map(([id]) => ({ imageId: String(db.photos.get(id).imageId) }));
+    return { rows };
+  }
+  if (/DELETE\s+FROM\s+image_asset\s+ia\s+USING/i.test(text)) {
+    const ids = new Set(params[0].map(Number));
+    const [shadeId, userId] = [Number(params[1]), Number(params[2])];
+    const rows = [];
+    for (const [itemId, photo] of [...db.photos]) {
+      const item = db.items.get(itemId);
+      if (!item || item.shadeId !== shadeId || item.userId !== userId || !ids.has(photo.imageId)) continue;
+      rows.push({ storageUrl: db.assets.get(photo.imageId).storageUrl });
+      db.assets.delete(photo.imageId);
+      db.photos.delete(itemId);
+    }
+    return { rows };
+  }
+  if (/DELETE\s+FROM\s+user_inventory_item/i.test(text)) {
+    if (failNextItemDelete) {
+      failNextItemDelete = false;
+      throw new Error("simulated item delete failure");
+    }
+    const [shadeId, userId] = params.map(Number);
+    const victims = [...db.items].filter(([, i]) => i.shadeId === shadeId && i.userId === userId);
+    for (const [id] of victims) {
+      db.items.delete(id);
+      db.photos.delete(id);
+    }
+    return { rows: victims.map(([id]) => ({ id: String(id) })) };
+  }
+
   if (/INSERT\s+INTO\s+image_asset/i.test(text)) {
     const imageId = db.nextImageId++;
     db.assets.set(imageId, { ownerId: Number(params[0]), storageUrl: params[1], checksum: params[2] });
@@ -123,12 +165,14 @@ async function fakeQuery(sql, params = []) {
 async function fakeTransaction(callback) {
   db.transactions += 1;
   const snapshot = {
+    items: new Map([...db.items].map(([k, v]) => [k, { ...v }])),
     photos: new Map([...db.photos].map(([k, v]) => [k, { ...v }])),
     assets: new Map([...db.assets].map(([k, v]) => [k, { ...v }])),
   };
   try {
     return await callback({ query: fakeQuery });
   } catch (error) {
+    db.items = snapshot.items;
     db.photos = snapshot.photos;
     db.assets = snapshot.assets;
     throw error;
@@ -202,23 +246,55 @@ for (const [id, exports] of Object.entries(mockModules)) {
 }
 
 require("../dist/functions/nail-photos");
+require("../dist/functions/polishes");
 const { NAIL_PHOTO_MAX_UPLOAD_BYTES } = require("swatchwatch-shared");
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-function fakeRequest({ method, itemId = ITEM_ID, userId = OWNER, body, headers = {} }) {
+/**
+ * `body` is JSON-encoded (or sent verbatim when `rawBody` is given) as a ReadableStream, with a
+ * matching Content-Length unless `chunked` is set or `headers` overrides it. `streamChunks` lets a
+ * test stream more bytes than the Content-Length claims.
+ */
+function fakeRequest({
+  method,
+  itemId = ITEM_ID,
+  userId = OWNER,
+  body,
+  rawBody,
+  chunked = false,
+  streamChunks,
+  headers = {},
+  url,
+  params,
+}) {
   const headerMap = new Map(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
   if (userId !== null) headerMap.set("authorization", `Bearer dev:${userId}`);
+  const text = rawBody !== undefined ? rawBody : body !== undefined ? JSON.stringify(body) : undefined;
+  const bytes = text !== undefined ? Buffer.from(text) : null;
+  if (bytes && !chunked && !headerMap.has("content-length")) headerMap.set("content-length", String(bytes.length));
+  const chunks = streamChunks || (bytes ? [bytes] : []);
+  let streamed = 0;
+  const stream = new ReadableStream({
+    pull(controller) {
+      if (streamed < chunks.length) controller.enqueue(new Uint8Array(chunks[streamed++]));
+      else controller.close();
+    },
+  });
   return {
     method,
-    url: `http://localhost:7071/api/inventory/${itemId}/nail-photo`,
+    url: url || `http://localhost:7071/api/inventory/${itemId}/nail-photo`,
     headers: { get: (name) => headerMap.get(name.toLowerCase()) ?? null },
-    params: { inventoryItemId: String(itemId) },
-    json: async () => {
-      if (body === "__invalid_json__") throw new SyntaxError("Unexpected token");
-      return body;
+    params: params || { inventoryItemId: String(itemId) },
+    query: new URLSearchParams(),
+    get body() {
+      return bytes || streamChunks ? stream : null;
     },
+    get streamedChunks() {
+      return streamed;
+    },
+    arrayBuffer: async () => (bytes ? bytes : Buffer.alloc(0)),
   };
 }
 
@@ -373,7 +449,7 @@ describe("functions/nail-photos — PUT", () => {
   });
 
   it("rejects bad bodies: invalid JSON / missing image (400), unsupported type (415), non-image bytes (415)", async () => {
-    assert.equal((await call("PUT", { body: "__invalid_json__" })).status, 400);
+    assert.equal((await call("PUT", { rawBody: "{not json" })).status, 400);
     assert.equal((await call("PUT", { body: [] })).status, 400);
     assert.equal((await call("PUT", { body: {} })).status, 400);
     assert.equal((await call("PUT", { body: { image: "https://example.com/a.jpg" } })).status, 400);
@@ -395,6 +471,25 @@ describe("functions/nail-photos — PUT", () => {
     const huge = "A".repeat(Math.ceil(NAIL_PHOTO_MAX_UPLOAD_BYTES / 3) * 4 + 4);
     const byPayload = await call("PUT", { body: { image: `data:image/jpeg;base64,${huge}` } });
     assert.equal(byPayload.status, 413);
+    assert.deepEqual(storage.uploads, []);
+  });
+
+  it("requires a Content-Length (411 for chunked uploads) and rejects a malformed one (400)", async () => {
+    const image = await taggedJpegDataUrl();
+    const chunked = await call("PUT", { body: { image }, chunked: true });
+    assert.equal(chunked.status, 411);
+    const malformed = await call("PUT", { body: { image }, headers: { "content-length": "12abc" } });
+    assert.equal(malformed.status, 400);
+    assert.deepEqual(storage.uploads, []);
+  });
+
+  it("stops reading at the size cap even when the body is larger than its Content-Length (413)", async () => {
+    const chunk = Buffer.alloc(1024 * 1024, 0x41);
+    const chunks = Array.from({ length: 64 }, () => chunk); // 64 MB on the wire
+    const req = fakeRequest({ method: "PUT", streamChunks: chunks, headers: { "content-length": "100" } });
+    const res = await registeredRoutes["inventory-nail-photo"].handler(req, fakeContext());
+    assert.equal(res.status, 413);
+    assert.ok(req.streamedChunks < 20, `read ${req.streamedChunks} MB before stopping`);
     assert.deepEqual(storage.uploads, []);
   });
 
@@ -444,6 +539,66 @@ describe("functions/nail-photos — DELETE", () => {
 
   it("404s for someone else's item", async () => {
     assert.equal((await call("DELETE", { itemId: OTHER_ITEM_ID })).status, 404);
+    assert.deepEqual(storage.deletes, []);
+  });
+});
+
+describe("functions/polishes — DELETE removes the nail photo atomically (#270)", () => {
+  function deletePolish() {
+    const req = fakeRequest({
+      method: "DELETE",
+      url: `http://localhost:7071/api/polishes/${SHADE_ID}`,
+      params: { id: String(SHADE_ID) },
+    });
+    return registeredRoutes["polishes-mutate"].handler(req, fakeContext());
+  }
+
+  it("locks the item, detaches the photo and deletes the item in one transaction, then the blob", async () => {
+    await call("PUT", { body: { image: await taggedJpegDataUrl() } });
+    const url = storage.uploads[0].url;
+    db.statements.length = 0;
+    const transactionsBefore = db.transactions;
+
+    const res = await deletePolish();
+    assert.equal(res.status, 200);
+    assert.equal(db.transactions, transactionsBefore + 1);
+    const sql = db.statements.map((s) => s.sql).filter((t) => !/FROM\s+app_user/i.test(t));
+    assert.match(sql[0], /FOR UPDATE/, "the inventory row is locked first");
+    assert.ok(sql.some((t) => /DELETE\s+FROM\s+image_asset\s+ia\s+USING/i.test(t)));
+    assert.match(sql[sql.length - 1], /DELETE\s+FROM\s+user_inventory_item/i);
+    assert.equal(db.items.has(ITEM_ID), false);
+    assert.equal(db.photos.size, 0);
+    assert.equal(db.assets.size, 0);
+    assert.deepEqual(storage.deletes, [url], "blob deleted after commit");
+  });
+
+  it("leaves the photo row, asset and blob untouched when the item delete fails", async () => {
+    await call("PUT", { body: { image: await taggedJpegDataUrl() } });
+    const photoBefore = { ...db.photos.get(ITEM_ID) };
+    const assetsBefore = db.assets.size;
+
+    failNextItemDelete = true;
+    const res = await deletePolish();
+    assert.equal(res.status, 500);
+    assert.ok(db.items.has(ITEM_ID), "item still there");
+    assert.deepEqual(db.photos.get(ITEM_ID), photoBefore, "photo link rolled back");
+    assert.equal(db.assets.size, assetsBefore, "image_asset rolled back");
+    assert.deepEqual(storage.deletes, [], "no blob deleted when the transaction fails");
+    assert.equal((await call("GET")).jsonBody.photo.width, photoBefore.width, "photo still served");
+  });
+
+  it("deletes nothing for another user's polish (404) and keeps the owner's photo", async () => {
+    await call("PUT", { body: { image: await taggedJpegDataUrl() } });
+    db.items.delete(OTHER_ITEM_ID);
+    const req = fakeRequest({
+      method: "DELETE",
+      userId: 2,
+      url: `http://localhost:7071/api/polishes/${SHADE_ID}`,
+      params: { id: String(SHADE_ID) },
+    });
+    const res = await registeredRoutes["polishes-mutate"].handler(req, fakeContext());
+    assert.equal(res.status, 404);
+    assert.equal(db.photos.size, 1);
     assert.deepEqual(storage.deletes, []);
   });
 });

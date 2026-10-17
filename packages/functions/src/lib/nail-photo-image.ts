@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import sharp, { type OutputInfo, type SharpOptions } from "sharp";
+import pLimit = require("p-limit");
 import {
   NAIL_PHOTO_ACCEPTED_TYPES,
   NAIL_PHOTO_MAX_EDGE,
@@ -18,8 +19,19 @@ import {
  * rejected rather than stored as-is.
  */
 
-/** Decoded-pixel cap (decompression-bomb guard); a 48 MP phone photo fits. */
-export const NAIL_PHOTO_MAX_INPUT_PIXELS = 50_000_000;
+/**
+ * Decoded-pixel cap (decompression-bomb and memory guard). 36 MP is ~108 MB as decoded RGB
+ * (~144 MB RGBA) per in-flight upload, and covers 12–24 MP phone photos and 36 MP cameras.
+ * 48 MP+ originals are refused (413); the web client downscales to 2048 px before uploading,
+ * so only originals it cannot decode itself (e.g. HEIC outside Safari) can hit this.
+ */
+export const NAIL_PHOTO_MAX_INPUT_PIXELS = 36_000_000;
+/**
+ * Nail-photo decodes running at once per Functions instance; more wait their turn. Bounds peak
+ * memory to roughly this many full-size decodes (plus sharp's own libvips thread pool).
+ */
+export const NAIL_PHOTO_MAX_CONCURRENT_DECODES = 2;
+const decodeLimit = pLimit(NAIL_PHOTO_MAX_CONCURRENT_DECODES);
 export const NAIL_PHOTO_OUTPUT_CONTENT_TYPE = "image/jpeg";
 const OUTPUT_JPEG_QUALITY = 85;
 /** Formats (as reported by the decoder, not the client) we accept. AVIF/HEIC both report `heif`. */
@@ -28,7 +40,7 @@ const BASE64_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/;
 
 /** A client-side problem with the upload. `status` is the HTTP status to answer with. */
 export class NailPhotoInputError extends Error {
-  constructor(message: string, public readonly status: 400 | 413 | 415 = 400) {
+  constructor(message: string, public readonly status: 400 | 411 | 413 | 415 = 400) {
     super(message);
     this.name = "NailPhotoInputError";
   }
@@ -123,10 +135,18 @@ export interface NormalizeNailPhotoOptions {
  *   (including HEIC variants this build of libvips cannot decode), (413) when the decoded image
  *   exceeds `maxInputPixels`.
  * @throws Error when the re-encoded output still carries metadata (never stored; fail closed).
+ * At most `NAIL_PHOTO_MAX_CONCURRENT_DECODES` calls decode at once; the rest queue.
  */
-export async function normalizeNailPhoto(
+export function normalizeNailPhoto(
   bytes: Buffer,
   options: NormalizeNailPhotoOptions = {}
+): Promise<NormalizedNailPhoto> {
+  return decodeLimit(() => normalizeNailPhotoNow(bytes, options));
+}
+
+async function normalizeNailPhotoNow(
+  bytes: Buffer,
+  options: NormalizeNailPhotoOptions
 ): Promise<NormalizedNailPhoto> {
   const maxInputPixels = options.maxInputPixels ?? NAIL_PHOTO_MAX_INPUT_PIXELS;
   const maxEdge = options.maxEdge ?? NAIL_PHOTO_MAX_EDGE;

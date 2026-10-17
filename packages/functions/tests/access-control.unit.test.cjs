@@ -643,6 +643,10 @@ for (const [id, exports] of Object.entries(mockModules)) {
 function fakeRequest({ method = "GET", url = "http://localhost:7071/api/test", headers = {}, params = {}, body } = {}) {
   const headerMap = new Map();
   for (const [k, v] of Object.entries(headers)) headerMap.set(k.toLowerCase(), v);
+  // Like a real client: a JSON body comes with its Content-Length (nail-photo uploads require one).
+  if (body !== undefined && !headerMap.has("content-length")) {
+    headerMap.set("content-length", String(Buffer.byteLength(JSON.stringify(body))));
+  }
   return {
     method,
     url,

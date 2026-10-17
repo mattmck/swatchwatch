@@ -14,7 +14,33 @@ const {
   parseNailPhotoDataUrl,
   normalizeNailPhoto,
   NAIL_PHOTO_OUTPUT_CONTENT_TYPE,
+  NAIL_PHOTO_MAX_INPUT_PIXELS,
+  NAIL_PHOTO_MAX_CONCURRENT_DECODES,
 } = require("../dist/lib/nail-photo-image");
+const zlib = require("node:zlib");
+
+/** A PNG whose header claims width×height but carries almost no pixel data (decode-bomb shape). */
+function pngHeaderClaiming(width, height) {
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const typed = Buffer.concat([Buffer.from(type), data]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(zlib.crc32(typed) >>> 0);
+    return Buffer.concat([len, typed, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // RGB
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", zlib.deflateSync(Buffer.alloc(16))),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
 const { NAIL_PHOTO_MAX_UPLOAD_BYTES, NAIL_PHOTO_MAX_EDGE } = require("swatchwatch-shared");
 
 function dataUrl(type, bytes) {
@@ -150,6 +176,21 @@ describe("lib/nail-photo-image — normalizeNailPhoto", () => {
   it("refuses a truncated JPEG instead of storing it (fail closed, 415)", async () => {
     const jpeg = await makeTaggedJpeg();
     await assert.rejects(normalizeNailPhoto(jpeg.subarray(0, Math.floor(jpeg.length / 2))), (e) => assertInputError(e, 415));
+  });
+
+  it("caps decoded pixels at 36 MP by default: a 48 MP header is refused before any decode (413)", async () => {
+    assert.equal(NAIL_PHOTO_MAX_INPUT_PIXELS, 36_000_000);
+    const started = Date.now();
+    await assert.rejects(normalizeNailPhoto(pngHeaderClaiming(8000, 6000)), (e) => assertInputError(e, 413));
+    assert.ok(Date.now() - started < 2000, "refused from the header, without decoding 48 MP");
+  });
+
+  it("limits concurrent decodes and still completes every queued upload", async () => {
+    assert.equal(NAIL_PHOTO_MAX_CONCURRENT_DECODES, 2);
+    const jpeg = await sharp({ create: { width: 64, height: 32, channels: 3, background: "#123456" } }).jpeg().toBuffer();
+    const results = await Promise.all(Array.from({ length: 6 }, () => normalizeNailPhoto(jpeg)));
+    assert.equal(results.length, 6);
+    for (const result of results) assert.equal(result.width, 64);
   });
 
   it("refuses images over the decoded-pixel cap (413)", async () => {

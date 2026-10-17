@@ -1,11 +1,11 @@
 import type { InvocationContext } from "@azure/functions";
-import { query } from "./db";
+import type { PoolClient } from "pg";
 import { deleteBlobFromStorageUrl, userMediaContainer } from "./blob-storage";
 import { trackEvent, trackException } from "./telemetry";
 
 /**
  * Storage helpers for private on-nail photos (#270) that other handlers need too
- * (`DELETE /api/polishes/{id}` removes the item's photo before the item itself).
+ * (`DELETE /api/polishes/{id}` removes the item's photo in the same transaction as the item).
  */
 
 /**
@@ -35,11 +35,16 @@ export async function deleteNailPhotoBlobs(
 /**
  * Remove the caller's nail photo(s) for their inventory row of `shadeId`: deletes the image_asset
  * rows (the `inventory_nail_photo` link cascades) and returns their storage URLs so the caller can
- * delete the blobs once its own work succeeded. Scoped to `user_id = userId`; a no-op (one SELECT,
+ * delete the blobs once its transaction has committed. Runs on the caller's transaction `client`
+ * (lock the inventory row `FOR UPDATE` first). Scoped to `user_id = userId`; a no-op (one SELECT,
  * no DELETE) when there is no photo.
  */
-export async function detachNailPhotosForShade(userId: number, shadeId: number): Promise<string[]> {
-  const existing = await query<{ imageId: string }>(
+export async function detachNailPhotosForShade(
+  client: Pick<PoolClient, "query">,
+  userId: number,
+  shadeId: number
+): Promise<string[]> {
+  const existing = await client.query<{ imageId: string }>(
     `SELECT p.image_id::text AS "imageId"
      FROM inventory_nail_photo p
      JOIN user_inventory_item ui ON ui.inventory_item_id = p.inventory_item_id
@@ -52,7 +57,7 @@ export async function detachNailPhotosForShade(userId: number, shadeId: number):
     .filter((id) => Number.isSafeInteger(id) && id > 0);
   if (imageIds.length === 0) return [];
 
-  const removed = await query<{ storageUrl: string }>(
+  const removed = await client.query<{ storageUrl: string }>(
     `DELETE FROM image_asset ia
      USING inventory_nail_photo p, user_inventory_item ui
      WHERE ia.image_id = p.image_id
