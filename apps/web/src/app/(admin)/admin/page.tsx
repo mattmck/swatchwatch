@@ -1,12 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { Tabs as TabsPrimitive } from "radix-ui";
 import { AppShell } from "@/components/app-shell";
+import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { RequireAuth } from "@/components/require-auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
+import { type AdminTab, buildAdminTabSearch, getTabFromQuery } from "@/lib/admin-tabs";
 import { buildMsalConfig } from "@/lib/msal-config";
 import { cn } from "@/lib/utils";
 import { AdminJobsContent } from "@/app/(app)/admin/jobs/page";
@@ -17,21 +20,6 @@ import { JobsTab } from "./reference-data/components/jobs-tab";
 
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
 const HAS_B2C_CONFIG = buildMsalConfig() !== null;
-
-type AdminTab = "configuration" | "job-runs" | "admin-jobs" | "users" | "hex-labeling";
-
-function getTabFromQuery(value: string | null): AdminTab {
-  if (
-    value === "configuration" ||
-    value === "job-runs" ||
-    value === "admin-jobs" ||
-    value === "users" ||
-    value === "hex-labeling"
-  ) {
-    return value;
-  }
-  return "configuration";
-}
 
 export default function AdminPage() {
   if (IS_DEV_BYPASS) {
@@ -81,12 +69,6 @@ function AdminAccessRequired() {
 }
 
 function AdminContent() {
-  const [activeTab, setActiveTab] = useState<AdminTab>(() => {
-    if (typeof window === "undefined") return "configuration";
-    const params = new URLSearchParams(window.location.search);
-    return getTabFromQuery(params.get("tab"));
-  });
-
   return (
     <div className="space-y-6">
       <div>
@@ -104,77 +86,97 @@ function AdminContent() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <TabsPrimitive.Root value={activeTab} onValueChange={(value) => setActiveTab(value as AdminTab)} className="space-y-4">
-            <TabsPrimitive.List className="inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground">
-              <TabsPrimitive.Trigger
-                value="configuration"
-                className={cn(
-                  "inline-flex items-center justify-center rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
-                  "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
-                )}
-              >
-                Configuration
-              </TabsPrimitive.Trigger>
-              <TabsPrimitive.Trigger
-                value="job-runs"
-                className={cn(
-                  "inline-flex items-center justify-center rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
-                  "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
-                )}
-              >
-                Job Runs
-              </TabsPrimitive.Trigger>
-              <TabsPrimitive.Trigger
-                value="admin-jobs"
-                className={cn(
-                  "inline-flex items-center justify-center rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
-                  "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
-                )}
-              >
-                Admin Jobs
-              </TabsPrimitive.Trigger>
-              <TabsPrimitive.Trigger
-                value="users"
-                className={cn(
-                  "inline-flex items-center justify-center rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
-                  "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
-                )}
-              >
-                User Management
-              </TabsPrimitive.Trigger>
-              <TabsPrimitive.Trigger
-                value="hex-labeling"
-                className={cn(
-                  "inline-flex items-center justify-center rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
-                  "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
-                )}
-              >
-                Hex Labeling
-              </TabsPrimitive.Trigger>
-            </TabsPrimitive.List>
-
-            <TabsPrimitive.Content value="configuration" className="outline-none">
-              <ConfigTab />
-            </TabsPrimitive.Content>
-
-            <TabsPrimitive.Content value="job-runs" className="outline-none">
-              <JobsTab />
-            </TabsPrimitive.Content>
-
-            <TabsPrimitive.Content value="admin-jobs" className="outline-none">
-              <AdminJobsContent />
-            </TabsPrimitive.Content>
-
-            <TabsPrimitive.Content value="users" className="outline-none">
-              <UsersTab />
-            </TabsPrimitive.Content>
-
-            <TabsPrimitive.Content value="hex-labeling" className="outline-none">
-              <HexLabelingTab />
-            </TabsPrimitive.Content>
-          </TabsPrimitive.Root>
+          {/* useSearchParams() needs a Suspense boundary under `output: "export"`: the prerendered
+              HTML holds the fallback and the tabs render on the client, so the active tab never
+              mismatches during hydration. */}
+          <Suspense fallback={<BrandSpinner label="Loading admin console…" />}>
+            <AdminTabs />
+          </Suspense>
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function AdminTabs() {
+  const searchParams = useSearchParams();
+  const activeTab = getTabFromQuery(searchParams.get("tab"));
+
+  // Next.js syncs history.replaceState into useSearchParams(), so the URL is the tab state
+  // (deep links and reloads reopen the same tab) without a router navigation.
+  const selectTab = (tab: AdminTab) => {
+    window.history.replaceState(null, "", buildAdminTabSearch(window.location.search, tab));
+  };
+
+  return (
+    <TabsPrimitive.Root value={activeTab} onValueChange={(value) => selectTab(value as AdminTab)} className="space-y-4">
+      <TabsPrimitive.List className="inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground">
+        <TabsPrimitive.Trigger
+          value="configuration"
+          className={cn(
+            "inline-flex items-center justify-center rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
+            "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+          )}
+        >
+          Configuration
+        </TabsPrimitive.Trigger>
+        <TabsPrimitive.Trigger
+          value="job-runs"
+          className={cn(
+            "inline-flex items-center justify-center rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
+            "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+          )}
+        >
+          Job Runs
+        </TabsPrimitive.Trigger>
+        <TabsPrimitive.Trigger
+          value="admin-jobs"
+          className={cn(
+            "inline-flex items-center justify-center rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
+            "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+          )}
+        >
+          Admin Jobs
+        </TabsPrimitive.Trigger>
+        <TabsPrimitive.Trigger
+          value="users"
+          className={cn(
+            "inline-flex items-center justify-center rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
+            "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+          )}
+        >
+          User Management
+        </TabsPrimitive.Trigger>
+        <TabsPrimitive.Trigger
+          value="hex-labeling"
+          className={cn(
+            "inline-flex items-center justify-center rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
+            "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+          )}
+        >
+          Hex Labeling
+        </TabsPrimitive.Trigger>
+      </TabsPrimitive.List>
+
+      <TabsPrimitive.Content value="configuration" className="outline-none">
+        <ConfigTab />
+      </TabsPrimitive.Content>
+
+      <TabsPrimitive.Content value="job-runs" className="outline-none">
+        <JobsTab />
+      </TabsPrimitive.Content>
+
+      <TabsPrimitive.Content value="admin-jobs" className="outline-none">
+        <AdminJobsContent />
+      </TabsPrimitive.Content>
+
+      <TabsPrimitive.Content value="users" className="outline-none">
+        <UsersTab />
+      </TabsPrimitive.Content>
+
+      <TabsPrimitive.Content value="hex-labeling" className="outline-none">
+        <HexLabelingTab />
+      </TabsPrimitive.Content>
+    </TabsPrimitive.Root>
   );
 }
