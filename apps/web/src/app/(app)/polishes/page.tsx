@@ -34,6 +34,7 @@ import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
 import { buildFinishOptions, knownFinishNames } from "@/lib/finish-options";
 import { FinishBadges } from "@/components/finish-badges";
+import { BuyFromBrandLink } from "@/components/buy-from-brand-link";
 import { buildSwatchThumbnailUrl } from "@/lib/image-url";
 import { runRecalcHexFlow } from "@/lib/recalc-hex-flow";
 import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
@@ -752,6 +753,12 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                       >
                         {polish.name}
                       </Link>
+                      <BuyFromBrandLink
+                        url={polish.buyUrl}
+                        brand={polish.brand}
+                        name={polish.name}
+                        className="mt-0.5 flex w-fit"
+                      />
                     </TableCell>
                     <TableCell>
                       <ColorDot

@@ -11,6 +11,7 @@ import { colorDistance, hexToOklch, oklchToHex } from "@/lib/color-utils";
 import { resolveFinishLabel } from "@/lib/finish-options";
 import { useReferenceData } from "@/hooks/use-reference-data";
 import { FinishBadges } from "@/components/finish-badges";
+import { BuyFromBrandLink } from "@/components/buy-from-brand-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -245,7 +246,13 @@ export default function PolishDetailClient({
               )}
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
+            <BuyFromBrandLink
+              url={polish.buyUrl}
+              brand={polish.brand}
+              name={polish.name}
+              variant="button"
+            />
             <Button
               variant="outline"
               size="sm"
