@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Sparkles, Search, PlusCircle, ShieldCheck, Grid2x2, ImageUp } from "lucide-react";
+import { LayoutDashboard, Sparkles, Search, PlusCircle, ShieldCheck, Grid2x2, ImageUp, ScanBarcode } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { SwatchWatchWordmark } from "@/components/brand/swatchwatch-brand";
@@ -25,6 +25,7 @@ const baseNavItems: NavItem[] = [
   { href: "/polishes/match", label: "Photo Match", icon: ImageUp },
   { href: "/polishes/gaps", label: "Gap Map", icon: Grid2x2 },
   { href: "/polishes/new", label: "Add Polish", icon: PlusCircle },
+  { href: "/rapid-add", label: "Rapid Add", icon: ScanBarcode },
 ];
 const adminNavItems: NavItem[] = [
   { href: "/admin", label: "Admin", icon: ShieldCheck },
