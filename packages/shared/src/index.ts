@@ -6,6 +6,7 @@ export * from "./types/capture";
 export * from "./types/palette";
 export * from "./types/color-match";
 export * from "./types/ingestion";
+export * from "./types/shade-review";
 export {
   type FinishType,
   type FinishTypeCreateRequest,

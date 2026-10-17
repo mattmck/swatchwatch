@@ -115,9 +115,20 @@ CREATE TABLE shade (
   detected_hex_at TIMESTAMPTZ,                   -- when detected_hex was last written
   -- OKLAB distance vendor_hex ↔ detected_hex (NULL unless both are valid); kept current by Postgres on every write
   hex_agreement NUMERIC(6,4) GENERATED ALWAYS AS (hex_oklab_distance(vendor_hex, detected_hex)) STORED,
+  -- Admin review of user_submitted shades (migration 20261017063252270_shade-review-queue): last decision + who/when.
+  -- approve → status 'active'; reject → stays 'user_submitted' (private); merge → inventory moved to
+  -- merged_into_shade_id and the row is retired (stays 'user_submitted', hidden from user polish queries).
+  review_status TEXT CHECK (review_status IS NULL OR review_status IN ('approved', 'rejected', 'merged')), -- NULL = not reviewed
+  reviewed_at TIMESTAMPTZ,
+  reviewed_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL,
+  review_note TEXT,
+  merged_into_shade_id BIGINT REFERENCES shade(shade_id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (brand_id, product_line_id, shade_name_canonical, COALESCE(finish,''))
+  UNIQUE (brand_id, product_line_id, shade_name_canonical, COALESCE(finish,'')),
+  CONSTRAINT shade_merged_into_check CHECK (
+    merged_into_shade_id IS NULL OR (review_status = 'merged' AND merged_into_shade_id <> shade_id)
+  )
 );
 
 CREATE INDEX idx_shade_finishes ON shade USING GIN (finishes);
@@ -125,6 +136,9 @@ CREATE INDEX idx_shade_created_by_user ON shade (created_by_user_id) WHERE creat
 -- Hex review queue (admin GET /api/polishes-admin/hex-review): worst agreement / lowest confidence first
 CREATE INDEX idx_shade_hex_agreement ON shade (hex_agreement DESC NULLS LAST) WHERE detected_hex IS NOT NULL;
 CREATE INDEX idx_shade_detected_hex_confidence ON shade (detected_hex_confidence ASC NULLS LAST) WHERE detected_hex IS NOT NULL;
+-- Shade review queue (admin GET /api/shades-admin/review): unreviewed submissions, oldest first
+CREATE INDEX idx_shade_review_pending ON shade (created_at, shade_id) WHERE status = 'user_submitted' AND review_status IS NULL;
+CREATE INDEX idx_shade_merged_into ON shade (merged_into_shade_id) WHERE merged_into_shade_id IS NOT NULL;
 
 CREATE TABLE shade_alias (
   shade_alias_id BIGSERIAL PRIMARY KEY,

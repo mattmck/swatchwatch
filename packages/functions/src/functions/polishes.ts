@@ -119,13 +119,15 @@ async function applyShadeFinishUpdate(
  * Visibility of a shade to a user (alias `s` = shade, `ui` = the caller's inventory join,
  * `$1` = caller id as in POLISH_SELECT). Shades created through the user API start as
  * `user_submitted` and stay private to their creator (and anyone holding them in inventory)
- * until an admin promotes them to `active`.
+ * until an admin promotes them to `active`. A submission an admin merged into another shade
+ * (`merged_into_shade_id`, admin review queue) is retired and visible to nobody.
  */
-const POLISH_VISIBLE_SQL = `(s.status <> 'user_submitted' OR s.created_by_user_id = $1 OR ui.inventory_item_id IS NOT NULL)`;
+const POLISH_VISIBLE_SQL = `(s.merged_into_shade_id IS NULL AND (s.status <> 'user_submitted' OR s.created_by_user_id = $1 OR ui.inventory_item_id IS NOT NULL))`;
 
 /**
- * Look up a shade by id if the caller may see it. Returns null when it is missing or another
- * user's private `user_submitted` shade (callers answer 404 for both, so existence never leaks).
+ * Look up a shade by id if the caller may see it. Returns null when it is missing, another
+ * user's private `user_submitted` shade, or retired by an admin merge (callers answer 404 for
+ * all of them, so existence never leaks).
  */
 async function getVisibleShade(
   shadeId: number,
@@ -138,6 +140,7 @@ async function getVisibleShade(
      FROM shade s
      LEFT JOIN brand b ON b.brand_id = s.brand_id
      WHERE s.shade_id = $1
+       AND s.merged_into_shade_id IS NULL
        AND (
          s.status <> 'user_submitted'
          OR s.created_by_user_id = $2
@@ -298,8 +301,11 @@ async function findOrCreateShade(
   // caller must not be linked to (or learn about) it. idx_shade_unique includes product_line_id
   // (NULL here, and NULLs are distinct in a unique index), so the caller can still get their own
   // row with the same brand + name + finish. Catalog rows are preferred over private ones.
-  const existingShade = await client.query<{ shade_id: number; own_submitted: boolean }>(
-    `SELECT s.shade_id, (s.status = 'user_submitted' AND s.created_by_user_id = $4) AS own_submitted
+  // A submission an admin merged into a catalog shade (review queue) resolves to its merge target.
+  const existingShade = await client.query<{ shade_id: number; own_submitted: boolean; merged_into_shade_id: number | null }>(
+    `SELECT s.shade_id,
+            (s.status = 'user_submitted' AND s.created_by_user_id = $4 AND s.merged_into_shade_id IS NULL) AS own_submitted,
+            s.merged_into_shade_id
      FROM shade s
      WHERE s.brand_id = $1
        AND s.shade_name_canonical = $2
@@ -310,13 +316,13 @@ async function findOrCreateShade(
          OR s.created_by_user_id = $4
          OR EXISTS (SELECT 1 FROM user_inventory_item ui WHERE ui.shade_id = s.shade_id AND ui.user_id = $4)
        )
-     ORDER BY (s.status = 'user_submitted') ASC, s.shade_id ASC
+     ORDER BY (s.status = 'user_submitted') ASC, (s.merged_into_shade_id IS NOT NULL) ASC, s.shade_id ASC
      LIMIT 1`,
     [brandId, shadeName, normalizeFinish(finish), userId]
   );
 
   if (existingShade.rows.length > 0) {
-    const shadeId = existingShade.rows[0].shade_id;
+    const shadeId = existingShade.rows[0].merged_into_shade_id ?? existingShade.rows[0].shade_id;
     const ownSubmitted = Boolean(existingShade.rows[0].own_submitted);
     if (colorData) {
       await applyShadeColorUpdate(client, shadeId, colorData, ownSubmitted);
