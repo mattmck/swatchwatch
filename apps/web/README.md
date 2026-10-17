@@ -186,6 +186,7 @@ This works for both `ciamlogin.com` (External ID) and `b2clogin.com` (legacy B2C
 | `hooks/use-reference-data.ts` | API-backed reference data hook with in-memory + localStorage caching, resilient fallback data, and lookup helpers (`getFinishDisplayName`, `getHarmonyDisplayName`) |
 | `msal-config.ts` | `buildMsalConfig()` builder, `LOGIN_SCOPES` constant. Returns `null` if auth env is not configured |
 | `auth-token.ts` | Module-level token store: `setAccessToken()`, `getAccessToken()` |
+| `job-logs.ts` | Ingestion job log helpers for Admin Jobs: `getJobLogs(job)`, `summarizeJobLog()` (shown/total/omitted lines and run-wide error/warning counts, including lines rolled up in the omission marker), `formatJobLogCount()`, `filterJobLog(entries, "all" \| "problems")`, `isOmissionMarker()` |
 | `telemetry.ts` | Browser Application Insights wrapper mirroring the Functions API: `trackEvent()`, `trackException()`, `setUser(userId)`, `clearUser()`, `initTelemetry()`. Lazy `import()`s `@microsoft/applicationinsights-web` (own chunk, out of the critical bundle) and queues calls until it loads; no-op on the server and without a connection string. Config: auto route tracking, W3C correlation limited to the `NEXT_PUBLIC_API_URL` host, unhandled-rejection tracking, sampling. A telemetry initializer (`redactImageUrlsInitializer`) replaces `/api/images/{id}` ids with `[redacted]` |
 
 ## Metadata & Assets

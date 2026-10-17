@@ -5,9 +5,16 @@ import type {
   BulkIngestionRequest,
   IngestionJobRecord,
   IngestionJobRunRequest,
-  IngestionLogEntry,
   IngestionLogLevel,
 } from "swatchwatch-shared";
+import {
+  filterJobLog,
+  formatJobLogCount,
+  getJobLogs,
+  isOmissionMarker,
+  summarizeJobLog,
+  type JobLogFilter,
+} from "@/lib/job-logs";
 import {
   cancelIngestionJob,
   getIngestionJob,
@@ -194,20 +201,6 @@ function getPipelineUpdatedAt(job: IngestionJobRecord): number {
   return Number.isNaN(value) ? 0 : value;
 }
 
-function getJobLogs(job: IngestionJobRecord): IngestionLogEntry[] {
-  if (!job.metrics || typeof job.metrics !== "object") return [];
-  const logs = job.metrics.logs;
-  if (!Array.isArray(logs)) return [];
-  return logs.filter(
-    (entry): entry is IngestionLogEntry =>
-      entry &&
-      typeof entry === "object" &&
-      typeof entry.ts === "string" &&
-      typeof entry.level === "string" &&
-      typeof entry.msg === "string"
-  );
-}
-
 function changeSummary(job: IngestionJobRecord): string {
   const stage = getPipelineStage(job);
   const processed = parseMetricNumber(job.metrics, "processed");
@@ -227,22 +220,35 @@ function changeSummary(job: IngestionJobRecord): string {
   return `${stage ? `${stage} • ` : ""}processed ${p} • +${i} / ~${u} / -${s}`;
 }
 
-function JobLogPanel({ job, autoScroll }: { job: IngestionJobRecord; autoScroll?: boolean }) {
-  const logs = getJobLogs(job);
+function JobLogPanel({
+  job,
+  autoScroll,
+  filter = "all",
+  expanded = false,
+}: {
+  job: IngestionJobRecord;
+  autoScroll?: boolean;
+  filter?: JobLogFilter;
+  expanded?: boolean;
+}) {
+  const allLogs = getJobLogs(job);
+  const logs = filterJobLog(allLogs, filter);
+  // The stored log is bounded, so its length stops growing; track the run's line count.
+  const totalLines = summarizeJobLog(allLogs).total;
   const scrollRef = useRef<HTMLDivElement>(null);
-  const prevLogCount = useRef(logs.length);
+  const prevTotalLines = useRef(totalLines);
 
   useEffect(() => {
-    if (autoScroll && scrollRef.current && logs.length > prevLogCount.current) {
+    if (autoScroll && scrollRef.current && totalLines > prevTotalLines.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-    prevLogCount.current = logs.length;
-  }, [logs.length, autoScroll]);
+    prevTotalLines.current = totalLines;
+  }, [totalLines, autoScroll]);
 
   if (logs.length === 0) {
     return (
       <p className="py-2 text-xs text-muted-foreground italic">
-        No logs recorded yet.
+        {allLogs.length === 0 ? "No logs recorded yet." : "No warnings or errors logged."}
       </p>
     );
   }
@@ -250,10 +256,23 @@ function JobLogPanel({ job, autoScroll }: { job: IngestionJobRecord; autoScroll?
   return (
     <div
       ref={scrollRef}
-      className="max-h-64 w-full min-w-0 max-w-full overflow-x-auto overflow-y-auto rounded border bg-gray-950 p-2 font-mono text-xs"
+      className={`${expanded ? "max-h-[70vh]" : "max-h-64"} w-full min-w-0 max-w-full overflow-x-auto overflow-y-auto rounded border bg-gray-950 p-2 font-mono text-xs`}
     >
       <div className="min-w-max">
-        {logs.map((entry, idx) => (
+        {logs.map((entry, idx) =>
+          isOmissionMarker(entry) ? (
+            <div
+              key={idx}
+              className="my-1 border-y border-dashed border-gray-700 py-1 text-center italic text-gray-400"
+              title={
+                entry.omitted?.firstTs && entry.omitted?.lastTs
+                  ? `${formatLogTime(entry.omitted.firstTs)} – ${formatLogTime(entry.omitted.lastTs)}`
+                  : undefined
+              }
+            >
+              {entry.msg}
+            </div>
+          ) : (
           <div key={idx} className="flex min-w-max gap-2 whitespace-nowrap py-0.5 leading-relaxed">
             <span className="flex-shrink-0 text-gray-500">
               {formatLogTime(entry.ts)}
@@ -266,7 +285,8 @@ function JobLogPanel({ job, autoScroll }: { job: IngestionJobRecord; autoScroll?
               </span>
             )}
           </div>
-        ))}
+          )
+        )}
       </div>
     </div>
   );
@@ -281,6 +301,8 @@ export function AdminJobsContent() {
 
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const [expandedJobIds, setExpandedJobIds] = useState<Set<string>>(new Set());
+  const [problemsOnlyLogJobIds, setProblemsOnlyLogJobIds] = useState<Set<string>>(new Set());
+  const [tallLogJobIds, setTallLogJobIds] = useState<Set<string>>(new Set());
   const [jobDetails, setJobDetails] = useState<Map<string, IngestionJobRecord>>(new Map());
 
   const [runSource, setRunSource] = useState<string>("HoloTacoShopify");
@@ -356,6 +378,21 @@ export function AdminJobsContent() {
       return next;
     });
   }, [refreshJobDetail]);
+
+  const toggleJobIdIn = useCallback(
+    (setter: (update: (prev: Set<string>) => Set<string>) => void, jobId: string) => {
+      setter((prev) => {
+        const next = new Set(prev);
+        if (next.has(jobId)) {
+          next.delete(jobId);
+        } else {
+          next.add(jobId);
+        }
+        return next;
+      });
+    },
+    []
+  );
 
   // Auto-expand running/queued jobs
   useEffect(() => {
@@ -538,8 +575,9 @@ export function AdminJobsContent() {
       const detail = jobDetails.get(job.jobId);
       if (!detail) return job;
 
-      const listLogsCount = getJobLogs(job).length;
-      const detailLogsCount = getJobLogs(detail).length;
+      // Compare lines logged (stored + omitted): the stored log is bounded, so its length stalls.
+      const listLogsCount = summarizeJobLog(getJobLogs(job)).total;
+      const detailLogsCount = summarizeJobLog(getJobLogs(detail)).total;
       if (listLogsCount !== detailLogsCount) {
         return listLogsCount > detailLogsCount ? job : detail;
       }
@@ -863,7 +901,9 @@ export function AdminJobsContent() {
               {jobs.map((job) => {
                 const isExpanded = expandedJobIds.has(job.jobId);
                 const jobData = getJobData(job);
-                const logs = getJobLogs(jobData);
+                const logSummary = summarizeJobLog(getJobLogs(jobData));
+                const logFilter: JobLogFilter = problemsOnlyLogJobIds.has(job.jobId) ? "problems" : "all";
+                const logTall = tallLogJobIds.has(job.jobId);
                 const isActive = job.status === "running" || job.status === "queued";
 
                 return (
@@ -899,8 +939,16 @@ export function AdminJobsContent() {
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
                                 <span className="text-sm font-medium">Job Logs</span>
-                                <Badge variant="outline" className="text-xs">
-                                  {logs.length} entries
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs"
+                                  title={
+                                    logSummary.omitted > 0
+                                      ? "Long runs keep the first and most recent log lines; the middle is counted, not stored."
+                                      : undefined
+                                  }
+                                >
+                                  {formatJobLogCount(logSummary)}
                                 </Badge>
                                 {isActive && (
                                   <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">
@@ -909,6 +957,26 @@ export function AdminJobsContent() {
                                 )}
                               </div>
                               <div className="flex items-center gap-2">
+                                {logSummary.shown > 0 && (
+                                  <>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      aria-pressed={logFilter === "problems"}
+                                      onClick={() => toggleJobIdIn(setProblemsOnlyLogJobIds, job.jobId)}
+                                    >
+                                      {logFilter === "problems" ? "Show all lines" : "Warnings & errors"}
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      aria-pressed={logTall}
+                                      onClick={() => toggleJobIdIn(setTallLogJobIds, job.jobId)}
+                                    >
+                                      {logTall ? "Collapse log" : "Expand log"}
+                                    </Button>
+                                  </>
+                                )}
                                 {isActive && (
                                   <Button
                                     variant="destructive"
@@ -927,15 +995,16 @@ export function AdminJobsContent() {
                                 )}
                               </div>
                             </div>
-                            <JobLogPanel job={jobData} autoScroll={isActive} />
-                            {logs.length > 0 && (
+                            <JobLogPanel
+                              job={jobData}
+                              autoScroll={isActive}
+                              filter={logFilter}
+                              expanded={logTall}
+                            />
+                            {logSummary.total > 0 && (
                               <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-                                <span>
-                                  Errors: {logs.filter((l) => l.level === "error").length}
-                                </span>
-                                <span>
-                                  Warnings: {logs.filter((l) => l.level === "warn").length}
-                                </span>
+                                <span>Errors: {logSummary.errors}</span>
+                                <span>Warnings: {logSummary.warnings}</span>
                                 <span>Stage: {getPipelineStage(jobData) || "—"}</span>
                               </div>
                             )}
