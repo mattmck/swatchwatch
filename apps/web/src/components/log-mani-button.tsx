@@ -6,7 +6,7 @@ import type { ManicureWearStat, Polish } from "swatchwatch-shared";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { createManicure, deleteManicure } from "@/lib/api";
-import { canLogPolish, quickLogRequest, toLocalIsoDate } from "@/lib/mani-log";
+import { canLogPolish, quickLogRequest, toLocalIsoDate, type QuickLogCompanion } from "@/lib/mani-log";
 import { trackManiLogged } from "@/lib/metrics-events";
 
 interface LogManiButtonProps {
@@ -16,6 +16,10 @@ interface LogManiButtonProps {
   className?: string;
   /** Called with the recomputed wear stats after a log or an undo. */
   onWearStatsChange?: (stats: ManicureWearStat[]) => void;
+  /** Extra polishes logged in the same mani (e.g. "Pick for me" pairings), with their roles. */
+  companions?: readonly QuickLogCompanion[];
+  /** Called after a successful log (before any undo). */
+  onLogged?: (manicureId: string) => void;
 }
 
 /**
@@ -23,7 +27,14 @@ interface LogManiButtonProps {
  * (the user's local date) with this polish, then offers Undo in the toast. Renders nothing for
  * polishes the user has no inventory row for, since the API only accepts the caller's own.
  */
-export function LogManiButton({ polish, variant = "default", className, onWearStatsChange }: LogManiButtonProps) {
+export function LogManiButton({
+  polish,
+  variant = "default",
+  className,
+  onWearStatsChange,
+  companions = [],
+  onLogged,
+}: LogManiButtonProps) {
   const [pending, setPending] = useState(false);
 
   if (!canLogPolish(polish)) return null;
@@ -31,12 +42,15 @@ export function LogManiButton({ polish, variant = "default", className, onWearSt
   async function handleClick() {
     setPending(true);
     try {
-      const logged = await createManicure(quickLogRequest(polish, toLocalIsoDate(new Date())));
+      const logged = await createManicure(quickLogRequest(polish, toLocalIsoDate(new Date()), companions));
       trackManiLogged({ polishCount: logged.polishes.length, via: "quick" });
       onWearStatsChange?.(logged.wearStats);
+      onLogged?.(logged.id);
       const stat = logged.wearStats.find((s) => s.shadeId === polish.id);
       toast.success("Logged today's mani", {
-        description: `${polish.brand} ${polish.name}${stat ? ` · worn ${stat.wearCount}×` : ""}`,
+        description: `${polish.brand} ${polish.name}${stat ? ` · worn ${stat.wearCount}×` : ""}${
+          companions.length > 0 ? ` + ${companions.length} more` : ""
+        }`,
         action: {
           label: "Undo",
           onClick: () => {
@@ -62,7 +76,9 @@ export function LogManiButton({ polish, variant = "default", className, onWearSt
     }
   }
 
-  const label = `Log today's mani with ${polish.brand} ${polish.name}`;
+  const label = `Log today's mani with ${polish.brand} ${polish.name}${
+    companions.length > 0 ? ` and ${companions.length} paired ${companions.length === 1 ? "polish" : "polishes"}` : ""
+  }`;
 
   if (variant === "icon") {
     return (
