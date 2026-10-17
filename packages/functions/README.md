@@ -334,7 +334,7 @@ or the APIM gateway equivalents), Azure strategies print `Skipping strategy …`
 **`region-crop` in detail** (`src/eval/hex/strategies/region-crop.ts` + `src/lib/region-color.ts`). LLMs localize
 better than they read absolute color values, so the model is never asked for a hex. Step 1 calls
 `requestAzureOpenAiChatCompletion` in `src/lib/ai-color-detection.ts`. It has the same config, timeout, 429/5xx retry and
-content-filter safe retry as `detectHexWithAzureOpenAI`, but takes a custom JSON-mode prompt. Two localization modes
+safer-prompt retry after a content-filter rejection as `detectHexWithAzureOpenAI`, but takes a custom JSON-mode prompt. Two localization modes
 (`HEX_EVAL_REGION_CROP_MODE`):
 
 - `cells` (default): a labeled N×N grid (`HEX_EVAL_REGION_CROP_CELLS`, default 6) is drawn on the copy sent to the model
