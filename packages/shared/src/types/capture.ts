@@ -77,3 +77,51 @@ export interface CaptureAnswerResponse {
   status: CaptureStatus;
   question?: CaptureQuestion;
 }
+
+/**
+ * How the caller relates to a matched shade, from their own inventory.
+ * - `owned`: at least one inventory row counts as owned (`quantity` is the total owned)
+ * - `wishlisted`: inventory rows exist but none count as owned
+ * - `notOwned`: no inventory row for the shade
+ */
+export type CaptureOwnershipRelationship = "owned" | "wishlisted" | "notOwned";
+
+export interface CaptureOwnership {
+  relationship: CaptureOwnershipRelationship;
+  /** Total owned quantity; present only when `relationship === "owned"`. */
+  quantity?: number;
+}
+
+/** Resolver outcome as finalize would compute it (check never persists it). */
+export type CaptureCheckOutcome = "matched" | "needs_question" | "unmatched";
+
+export interface CaptureCheckCandidate {
+  entityType: "shade" | "sku";
+  entityId: string;
+  /** Shade the entity resolves to (a SKU's shade_id); null for a SKU without a shade. */
+  shadeId: string | null;
+  display: string;
+  /** 0–1 resolver confidence. */
+  confidence: number;
+  ownership: CaptureOwnership;
+}
+
+/**
+ * Response of `POST /api/capture/{captureId}/check`: the resolver's answer plus the
+ * caller's relationship to each match, computed read-only. The session status is
+ * returned unchanged; nothing about inventory or the session is written.
+ */
+export interface CaptureCheckResponse {
+  captureId: string;
+  /** The session's stored status, unchanged by the check. */
+  status: CaptureStatus;
+  outcome: CaptureCheckOutcome;
+  /** Confidence of the top result (0 when nothing matched). */
+  confidence: number;
+  /** The matched entity when `outcome === "matched"`. */
+  match?: CaptureCheckCandidate;
+  /** Ranked candidates the resolver considered (includes the match when there is one). */
+  candidates: CaptureCheckCandidate[];
+  /** Question key finalize would open for `needs_question` (not persisted by check). */
+  questionKey?: string;
+}
