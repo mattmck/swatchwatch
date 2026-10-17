@@ -41,6 +41,8 @@ import { useReferenceData } from "@/hooks/use-reference-data";
 import { buildMsalConfig } from "@/lib/msal-config";
 import { toast } from "sonner";
 
+/** Idle time after the last keystroke before the search box triggers a fetch. */
+const SEARCH_DEBOUNCE_MS = 350;
 const DEFAULT_PAGE_SIZE = 10;
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
 type SortKey = "status" | "brand" | "name" | "finish" | "collection";
@@ -192,6 +194,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const [polishes, setPolishes] = useState<Polish[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { finishTypes } = useReferenceData();
   const finishOptions = useMemo(() => buildFinishOptions(finishTypes), [finishTypes]);
@@ -243,8 +246,10 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     const nextPage = parsePositiveInt(urlParams.get("page"), 1);
     const nextPageSize = parsePageSize(urlParams.get("pageSize"));
 
+    // The URL only ever carries the debounced search, so compare against that: comparing the
+    // live input would revert characters typed between the debounce firing and the URL echo.
+    const searchChangedFromUrl = debouncedSearch !== nextSearch;
     const filtersChangedFromUrl =
-      search !== nextSearch ||
       scope !== nextScope ||
       toneFilter !== nextToneFilter ||
       finishFilter !== nextFinishFilter ||
@@ -252,17 +257,18 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       sortKey !== nextSortKey ||
       sortDirection !== nextSortDirection;
     const paginationChangedFromUrl = page !== nextPage || pageSize !== nextPageSize;
-    const debouncedChangedFromUrl = debouncedSearch !== nextSearch;
 
-    if (!filtersChangedFromUrl && !paginationChangedFromUrl && !debouncedChangedFromUrl) {
+    if (!filtersChangedFromUrl && !paginationChangedFromUrl && !searchChangedFromUrl) {
       return;
     }
 
     // Avoid resetting page to 1 when state updates are driven by URL navigation.
     skipNextPageResetRef.current = true;
 
-    setSearch(nextSearch);
-    setDebouncedSearch(nextSearch);
+    if (searchChangedFromUrl) {
+      setSearch(nextSearch);
+      setDebouncedSearch(nextSearch);
+    }
     setScope(nextScope);
     setToneFilter(nextToneFilter);
     setFinishFilter(nextFinishFilter);
@@ -276,7 +282,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       setDebouncedSearch(search);
-    }, 200);
+    }, SEARCH_DEBOUNCE_MS);
     return () => window.clearTimeout(timeoutId);
   }, [search]);
 
@@ -335,6 +341,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
         }
       } finally {
         if (!cancelled) {
+          setHasLoaded(true);
           setLoading(false);
         }
       }
@@ -367,7 +374,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       return;
     }
     setPage(1);
-  }, [search, scope, toneFilter, finishFilter, availabilityFilter, sortKey, sortDirection]);
+  }, [debouncedSearch, scope, toneFilter, finishFilter, availabilityFilter, sortKey, sortDirection]);
 
   const queryString = useMemo(
     () =>
@@ -495,7 +502,11 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     });
   }, [knownFinishes]);
 
-  if (loading) return <BrandSpinner label="Loading polishes…" />;
+  // Full-page spinner only before the first result: unmounting the page on every refetch
+  // would drop the search input (and its focus) mid-typing.
+  if (loading && !hasLoaded) {
+    return <BrandSpinner label="Loading polishes…" />;
+  }
 
   if (error) {
     return <ErrorState message={error} onRetry={() => window.location.reload()} />;
@@ -607,7 +618,12 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       </div>
 
       {/* Table */}
-      <div className="relative overflow-hidden rounded-lg border">
+      <div
+        className={`relative overflow-hidden rounded-lg border transition-opacity ${
+          loading ? "opacity-60" : ""
+        }`}
+        aria-busy={loading}
+      >
         <span
           aria-hidden
           className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-pink-soft via-brand-lilac to-brand-purple"
