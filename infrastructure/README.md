@@ -80,6 +80,7 @@ Required GitHub Actions configuration (per GitHub environment):
 Recommended auth config (propagated to Terraform `TF_VAR_*` inputs):
 - Secrets: `AZURE_AD_B2C_CLIENT_ID`
 - Variables: `AUTH_DEV_BYPASS`, `AZURE_AD_B2C_TENANT` (falls back to `NEXT_PUBLIC_B2C_TENANT` if unset)
+- Feature flags: `SHAREABLE_WISHLIST_ENABLED` (default `false`; exported as `TF_VAR_shareable_wishlist_enabled`)
 The workflow creates the state container automatically if it does not exist.
 The workflow reads the `pg-password` secret from Key Vault and exports it as `TF_VAR_pg_admin_password` for Terraform.
 In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves the OpenAI account name from `OPENAI_ACCOUNT_NAME`, Terraform output, or endpoint hostname and loads that account key into `TF_VAR_openai_api_key` before Terraform runs.
@@ -157,6 +158,7 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | `azure_ad_b2c_tenant` | `to-be-added` | Azure AD B2C/Entra External ID tenant name applied to Function App setting `AZURE_AD_B2C_TENANT` |
 | `azure_ad_b2c_client_id` | `to-be-added` | Azure AD B2C/Entra External ID app client ID applied to Function App setting `AZURE_AD_B2C_CLIENT_ID` |
 | `auth_dev_bypass` | `false` | Controls Function App setting `AUTH_DEV_BYPASS`; keep `false` to require JWT validation |
+| `shareable_wishlist_enabled` | `false` | Controls Function App setting `SHAREABLE_WISHLIST_ENABLED` (opt-in public wishlist links, #268). Set the `SHAREABLE_WISHLIST_ENABLED` repository/environment variable to `true` and run Deploy Infra to ship it; app settings are Terraform-managed, so a portal-only change is reverted by the next infra apply |
 | `ingestion_job_queue_name` | `ingestion-jobs` | Function App queue name for ingestion worker (`INGESTION_JOB_QUEUE_NAME`) |
 | `azure_openai_batch_api_version` | `2025-03-01-preview` | Function App setting `AZURE_OPENAI_BATCH_API_VERSION` for Files/Batch endpoints |
 | `azure_openai_batch_completion_window` | `24h` | Function App setting `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` sent during batch creation |

@@ -15,3 +15,4 @@ export * from './functions/ingestion';
 export * from './functions/polishes';
 export * from './functions/reference';
 export * from './functions/voice';
+export * from './functions/wishlist-share';

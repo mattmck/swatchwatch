@@ -135,6 +135,21 @@ function getSigningKey(): Buffer {
   throw new ImageProxyConfigError("IMAGE_PROXY_SIGNING_KEY is not configured");
 }
 
+/**
+ * A purpose-bound subkey of the image proxy signing key:
+ * `HMAC-SHA256(IMAGE_PROXY_SIGNING_KEY, "swatchwatch:subkey:" + purpose)`.
+ *
+ * Lets another feature (e.g. shareable wishlist tokens) sign with the server secret without a
+ * second secret to provision, while keeping its signatures disjoint from image proxy ids.
+ * Same key resolution as image ids (fails closed; ephemeral per-process key in dev bypass).
+ *
+ * @throws ImageProxyConfigError when no signing key is available.
+ */
+export function deriveSigningSubkey(purpose: string): Buffer {
+  if (!purpose) throw new Error("deriveSigningSubkey needs a purpose");
+  return createHmac("sha256", getSigningKey()).update(`swatchwatch:subkey:${purpose}`, "utf8").digest();
+}
+
 /** Test hook: forget the ephemeral dev key so the next call regenerates it. */
 export function resetImageProxySigningStateForTests(): void {
   devFallbackKey = null;
