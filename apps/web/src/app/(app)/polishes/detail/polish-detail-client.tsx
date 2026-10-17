@@ -1,15 +1,16 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import type { ManicureWearStat, Polish, PolishDupesResponse } from "swatchwatch-shared";
 import { isUntriedInventory, resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
-import { getPolish, getPolishDupes, deletePolish, listPolishes } from "@/lib/api";
+import { getPolish, getPolishDupes, deletePolish, listPolishes, updatePolish } from "@/lib/api";
 import { colorDistance, hexToOklch, oklchToHex } from "@/lib/color-utils";
 import { resolveFinishLabel } from "@/lib/finish-options";
-import { POLISH_STATUS_LABELS, formatPurchasePrice } from "@/lib/inventory-status";
+import { POLISH_STATUS_LABELS, canRebuy, formatPurchasePrice, rebuyUpdate } from "@/lib/inventory-status";
+import { showArchivedToast } from "@/components/archived-toast";
 import {
   DUPE_GRADE_META,
   FINISH_COMPATIBILITY_LABELS,
@@ -60,9 +61,12 @@ function resolveReturnTo(returnTo: string | null): string {
 export default function PolishDetailClient({
   id,
   returnTo,
+  justArchived = false,
 }: {
   id: string;
   returnTo?: string | null;
+  /** The edit form just archived this polish (saved with 0 bottles): offer reason / Undo. */
+  justArchived?: boolean;
 }) {
   const router = useRouter();
   const { finishTypes } = useReferenceData();
@@ -72,6 +76,8 @@ export default function PolishDetailClient({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [rebuying, setRebuying] = useState(false);
+  const archivedToastShown = useRef(false);
   // Keyed by id so a stale response never shows on another polish's page.
   const [dupesState, setDupesState] = useState<{ id: string; response: PolishDupesResponse } | null>(null);
   const dupes = dupesState?.id === id ? dupesState.response : null;
@@ -118,6 +124,19 @@ export default function PolishDetailClient({
       cancelled = true;
     };
   }, [id]);
+
+  // Once per visit: the archive toast for a polish the edit form just archived. The query flag
+  // is dropped so a reload doesn't offer it again.
+  useEffect(() => {
+    if (!justArchived || !polish || archivedToastShown.current) return;
+    archivedToastShown.current = true;
+    if (polish.status === "archived") {
+      showArchivedToast({ polish, onUpdated: (updated) => setPolish((current) => ({ ...current, ...updated })) });
+    }
+    const params = new URLSearchParams(window.location.search);
+    params.delete("archived");
+    router.replace(`${window.location.pathname}?${params.toString()}`);
+  }, [justArchived, polish, router]);
 
   const displayHex = polish ? resolveDisplayHex(polish) : undefined;
   const dupeCallout = dupeCalloutText(dupes);
@@ -183,6 +202,23 @@ export default function PolishDetailClient({
       const next = { ...current, wearCount: stat.wearCount, lastWornAt: stat.lastWornAt, triedAt: stat.triedAt };
       return { ...next, isUntried: isUntriedInventory(next) };
     });
+  }
+
+  /** Rebuy: move an archived polish to the wishlist on purpose (never automatic). */
+  async function handleRebuy() {
+    if (!polish) return;
+    try {
+      setRebuying(true);
+      const updated = await updatePolish(polish.id, rebuyUpdate());
+      setPolish((current) => ({ ...current, ...updated }));
+      toast.success("Added to your wishlist", { description: `${polish.brand} ${polish.name}` });
+    } catch (err: unknown) {
+      toast.error("Rebuy failed", {
+        description: err instanceof Error ? err.message : "Please try again.",
+      });
+    } finally {
+      setRebuying(false);
+    }
   }
 
   async function handleDelete() {
@@ -287,6 +323,11 @@ export default function PolishDetailClient({
               variant="button"
             />
             <LogManiButton polish={polish} onWearStatsChange={applyWearStats} />
+            {canRebuy(polish) && (
+              <Button variant="outline" size="sm" onClick={handleRebuy} disabled={rebuying}>
+                {rebuying ? "Adding…" : "Rebuy"}
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"

@@ -15,5 +15,5 @@ export default function DetailShell({ fallback }: { fallback?: ReactNode }) {
     return fallback ?? <ErrorState message="Missing polish id." onRetry={() => router.push("/polishes")} />;
   }
 
-  return <PolishDetailClient id={id} returnTo={returnTo} />;
+  return <PolishDetailClient id={id} returnTo={returnTo} justArchived={searchParams.get("archived") === "1"} />;
 }

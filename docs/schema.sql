@@ -596,7 +596,9 @@ CREATE TABLE inventory_event (
   inventory_item_id BIGINT REFERENCES user_inventory_item(inventory_item_id) ON DELETE SET NULL,
   user_id BIGINT NOT NULL REFERENCES app_user(user_id) ON DELETE CASCADE,
   shade_id BIGINT REFERENCES shade(shade_id) ON DELETE CASCADE,
-  event_type TEXT NOT NULL, -- added|updated|sold|decluttered|used|...
+  -- added|updated|sold|decluttered|used|used_up|... `used` = mani log; `used_up` / `decluttered` =
+  -- why an owned polish was archived (decision D5c, written by upsertInventoryItem).
+  event_type TEXT NOT NULL,
   event_payload JSONB,
   -- Manicure behind a mani-log `used` event (migration 20261017063740704_manicure-log).
   manicure_id BIGINT REFERENCES manicure(manicure_id) ON DELETE CASCADE,

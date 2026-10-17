@@ -16,7 +16,12 @@ import {
 } from "@/lib/add-guard";
 import { useAddGuard } from "@/hooks/use-add-guard";
 import { AddGuardDialog } from "@/components/add-guard-dialog";
-import { POLISH_STATUS_LABELS, POLISH_STATUS_OPTIONS } from "@/lib/inventory-status";
+import {
+  POLISH_STATUS_LABELS,
+  POLISH_STATUS_OPTIONS,
+  formStatusForSave,
+  isArchivingChange,
+} from "@/lib/inventory-status";
 import { useReferenceData } from "@/hooks/use-reference-data";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -109,6 +114,7 @@ export default function PolishForm() {
   // Finishes already saved on the polish being edited. They stay visible/selectable even when
   // they are not (or no longer) in the reference finish list, so editing never silently drops them.
   const [savedFinishes, setSavedFinishes] = useState<string[]>([]);
+  const minQuantity = isEditing ? 0 : 1;
   const { finishTypes } = useReferenceData();
   const finishOptions = useMemo(
     () => buildFinishOptions(finishTypes, savedFinishes),
@@ -190,6 +196,8 @@ export default function PolishForm() {
     setSubmitting(true);
     // Editing sends null for emptied fields so the API clears them; creating omits them.
     const emptyValue = isEditing ? null : undefined;
+    // An owned polish saved with 0 bottles is archived, like − on the last bottle (D5c).
+    const status = formStatusForSave(form.status, form.quantity);
     const payload: PolishCreateRequest = {
       brand: form.brand,
       name: form.name,
@@ -199,7 +207,7 @@ export default function PolishForm() {
       finishes: form.finishes,
       collection: form.collection || undefined,
       quantity: form.quantity,
-      status: form.status,
+      status,
       purchasePrice: parsedPrice === null ? emptyValue : Math.round(parsedPrice * 100) / 100,
       purchaseCurrency: currency || emptyValue,
       size: form.size || undefined,
@@ -209,10 +217,11 @@ export default function PolishForm() {
         ? form.tags.split(",").map((t) => t.trim()).filter(Boolean)
         : undefined,
     };
+    // `status`, not `form.status`: an owned polish saved with 0 bottles is archived, not an add.
     const intent: AddGuardIntent | null =
-      form.status === "owned" ? "own" : form.status === "wishlist" ? "wishlist" : null;
+      status === "owned" ? "own" : status === "wishlist" ? "wishlist" : null;
     // Only guard a transition *into* owned/wishlist; re-saving an owned polish is not an add.
-    if (intent && (!isEditing || originalStatus !== form.status)) {
+    if (intent && (!isEditing || originalStatus !== status)) {
       const finishes = [...form.finishes];
       await guardAdd({
         guardKey: editId ? shadeGuardKey(editId) : newShadeGuardKey(form.brand, form.name),
@@ -243,8 +252,10 @@ export default function PolishForm() {
     try {
       if (isEditing && editId) {
         const updated = await updatePolish(editId, payload);
+        // `archived=1` makes the detail page show the archive toast (reason / Undo).
+        const archived = originalStatus && isArchivingChange({ status: originalStatus }, payload) ? "&archived=1" : "";
         router.push(
-          `/polishes/detail?id=${updated.id}&returnTo=${encodeURIComponent(listHref)}`
+          `/polishes/detail?id=${updated.id}&returnTo=${encodeURIComponent(listHref)}${archived}`
         );
       } else {
         const created = await createPolish(payload);
@@ -428,10 +439,19 @@ export default function PolishForm() {
                 <Input
                   id="quantity"
                   type="number"
-                  min={1}
+                  min={minQuantity}
                   value={form.quantity}
-                  onChange={(e) => update("quantity", parseInt(e.target.value, 10) || 1)}
+                  aria-describedby={isEditing && form.quantity === 0 ? "quantity-archive-hint" : undefined}
+                  onChange={(e) => {
+                    const parsed = parseInt(e.target.value, 10);
+                    update("quantity", Number.isNaN(parsed) ? minQuantity : Math.max(minQuantity, parsed));
+                  }}
                 />
+                {isEditing && form.quantity === 0 && form.status === "owned" && (
+                  <p id="quantity-archive-hint" className="text-xs text-muted-foreground">
+                    Saving with 0 bottles archives this polish.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <label htmlFor="size" className="text-sm font-medium">

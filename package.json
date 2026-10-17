@@ -25,6 +25,7 @@
     "migrate": "npm run migrate --workspace=packages/functions",
     "migrate:down": "npm run migrate:down --workspace=packages/functions",
     "generate:types": "node scripts/generate-connector-types.mjs",
+    "generate:pwa-icons": "node scripts/generate-pwa-icons.mjs",
     "prepare": "husky"
   },
   "engines": {

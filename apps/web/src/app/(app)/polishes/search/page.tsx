@@ -10,7 +10,8 @@ import { GiPerfumeBottle } from "react-icons/gi";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { getPolishDupes, listPolishes, updatePolish } from "@/lib/api";
 import { buildBrandOptions, matchesBrandFilter } from "@/lib/polish-filters";
-import { isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
+import { isArchivingChange, isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
+import { showArchivedToast } from "@/components/archived-toast";
 import { applyInventoryPatch } from "@/lib/collection-actions";
 import {
   colorDistance,
@@ -658,9 +659,15 @@ function ColorSearchPageContent() {
         prev.map((p) => (p.id === polishId ? applyInventoryPatch(p, change) : p))
       );
 
+      const applyUpdated = (updated: Polish) =>
+        setAllPolishes((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+
       updatePolish(polishId, change)
         .then((updated) => {
-          setAllPolishes((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+          applyUpdated(updated);
+          if (isArchivingChange(original, change)) {
+            showArchivedToast({ polish: updated, onUpdated: applyUpdated });
+          }
         })
         .catch(() => {
           setAllPolishes((prev) =>
