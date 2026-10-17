@@ -133,6 +133,70 @@ describe("lib/http — withCors", () => {
       assert.ok(res.headers.get("Access-Control-Allow-Methods"));
     });
 
+    it("allows W3C and Application Insights correlation headers by default", async () => {
+      const modulePath = path.resolve(__dirname, "../dist/lib/http.js");
+      httpModule = require(modulePath);
+
+      const handler = httpModule.withCors(async () => ({ status: 200 }));
+      const req = fakeRequest({
+        method: "OPTIONS",
+        headers: { origin: "http://localhost:3000" },
+      });
+
+      const res = await handler(req, fakeContext());
+      const allowed = res.headers
+        .get("Access-Control-Allow-Headers")
+        .split(",")
+        .map((h) => h.trim().toLowerCase());
+      for (const header of ["content-type", "authorization", "traceparent", "tracestate", "request-id", "request-context"]) {
+        assert.ok(allowed.includes(header), `expected ${header} in Access-Control-Allow-Headers`);
+      }
+    });
+
+    it("exposes Request-Context so the browser SDK can correlate app ids", async () => {
+      const modulePath = path.resolve(__dirname, "../dist/lib/http.js");
+      httpModule = require(modulePath);
+
+      const handler = httpModule.withCors(async () => ({ status: 200 }));
+      const req = fakeRequest({
+        method: "GET",
+        headers: { origin: "http://localhost:3000" },
+      });
+
+      const res = await handler(req, fakeContext());
+      assert.equal(res.headers.get("Access-Control-Expose-Headers"), "Request-Context");
+    });
+
+    it("keeps headers the handler already exposes when adding Request-Context", async () => {
+      const modulePath = path.resolve(__dirname, "../dist/lib/http.js");
+      httpModule = require(modulePath);
+
+      const handler = httpModule.withCors(async () => ({
+        status: 200,
+        headers: { "Access-Control-Expose-Headers": "Content-Disposition, request-context" },
+      }));
+      const req = fakeRequest({
+        method: "GET",
+        headers: { origin: "http://localhost:3000" },
+      });
+
+      const res = await handler(req, fakeContext());
+      assert.equal(
+        res.headers.get("Access-Control-Expose-Headers"),
+        "Content-Disposition, request-context"
+      );
+
+      const handlerWithoutContext = httpModule.withCors(async () => ({
+        status: 200,
+        headers: { "Access-Control-Expose-Headers": "Content-Disposition" },
+      }));
+      const res2 = await handlerWithoutContext(req, fakeContext());
+      assert.equal(
+        res2.headers.get("Access-Control-Expose-Headers"),
+        "Content-Disposition, Request-Context"
+      );
+    });
+
     it("returns 204 without CORS headers for disallowed origin", async () => {
       const modulePath = path.resolve(__dirname, "../dist/lib/http.js");
       httpModule = require(modulePath);
@@ -187,6 +251,43 @@ describe("lib/http — withCors", () => {
       assert.equal(res.status, 200);
       assert.equal(res.headers.get("Access-Control-Allow-Origin"), "http://localhost:3000");
       assert.equal(res.headers.get("Vary"), "Origin");
+    });
+
+    it("keeps a Vary header set by the handler and appends Origin", async () => {
+      const modulePath = path.resolve(__dirname, "../dist/lib/http.js");
+      httpModule = require(modulePath);
+
+      const handler = httpModule.withCors(async () => ({
+        status: 200,
+        headers: new Headers({ Vary: "Authorization" }),
+        body: "private",
+      }));
+
+      const req = fakeRequest({
+        method: "GET",
+        headers: { origin: "http://localhost:3000" },
+      });
+
+      const res = await handler(req, fakeContext());
+      assert.equal(res.headers.get("Vary"), "Authorization, Origin");
+    });
+
+    it("does not touch Vary: * and does not duplicate an existing origin entry", async () => {
+      const modulePath = path.resolve(__dirname, "../dist/lib/http.js");
+      httpModule = require(modulePath);
+      const req = () => fakeRequest({ method: "GET", headers: { origin: "http://localhost:3000" } });
+
+      const star = await httpModule.withCors(async () => ({
+        status: 200,
+        headers: new Headers({ Vary: "*" }),
+      }))(req(), fakeContext());
+      assert.equal(star.headers.get("Vary"), "*");
+
+      const lower = await httpModule.withCors(async () => ({
+        status: 200,
+        headers: new Headers({ Vary: "Authorization, origin" }),
+      }))(req(), fakeContext());
+      assert.equal(lower.headers.get("Vary"), "Authorization, origin");
     });
 
     it("adds CORS headers for Azure Static Web Apps wildcard pattern", async () => {

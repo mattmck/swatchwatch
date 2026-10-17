@@ -50,6 +50,7 @@ locals {
     var.environment == "prod" ? [] : ["http://localhost:3000"],
     ["https://*.azurestaticapps.net"]
   )
+  appinsights_daily_cap_gb             = coalesce(var.appinsights_daily_cap_gb, var.environment == "prod" ? 5 : 1)
   static_web_app_custom_domain_name    = var.environment == "prod" ? var.domain_name : "dev.${var.domain_name}"
   static_web_app_validation_method     = var.environment == "prod" ? "dns-txt-token" : "cname-delegation"
   key_vault_name_prefix                = lower(replace("${var.base_name}${var.environment}", "/[^0-9a-z]/", ""))
@@ -382,14 +383,17 @@ resource "azurerm_log_analytics_workspace" "main" {
   location            = azurerm_resource_group.main.location
   sku                 = "PerGB2018"
   retention_in_days   = 30
+  # Cost guard: also covers Azure OpenAI diagnostics sent to this workspace.
+  daily_quota_gb = local.appinsights_daily_cap_gb
 }
 
 resource "azurerm_application_insights" "main" {
-  name                = "${local.resource_prefix}-appi-${local.unique_suffix}"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  application_type    = "web"
-  workspace_id        = azurerm_log_analytics_workspace.main.id
+  name                 = "${local.resource_prefix}-appi-${local.unique_suffix}"
+  resource_group_name  = azurerm_resource_group.main.name
+  location             = azurerm_resource_group.main.location
+  application_type     = "web"
+  workspace_id         = azurerm_log_analytics_workspace.main.id
+  daily_data_cap_in_gb = local.appinsights_daily_cap_gb
 }
 
 # ── Azure API Management (OpenAI Gateway) ──────────────────────
@@ -444,7 +448,6 @@ resource "azurerm_linux_function_app" "main" {
 
   site_config {
     application_insights_connection_string = azurerm_application_insights.main.connection_string
-    application_insights_key               = azurerm_application_insights.main.instrumentation_key
 
     application_stack {
       node_version = "22"
@@ -469,6 +472,7 @@ resource "azurerm_linux_function_app" "main" {
     AZURE_STORAGE_CONNECTION              = azurerm_storage_account.main.primary_connection_string
     INGESTION_JOB_QUEUE_NAME              = var.ingestion_job_queue_name
     CONNECTOR_RAW_CONTAINER               = azurerm_storage_container.connector_raw.name
+    USER_MEDIA_CONTAINER                  = azurerm_storage_container.nail_photos.name
     AZURE_SPEECH_KEY                      = "to-be-added"
     AZURE_SPEECH_REGION                   = azurerm_resource_group.main.location
     AZURE_OPENAI_ENDPOINT                 = local.openai_enabled ? local.openai_endpoint_value : ""

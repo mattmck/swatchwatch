@@ -8,7 +8,12 @@ const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? DEFAULT_ALLOWED_ORIG
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-const ALLOW_HEADERS = process.env.CORS_ALLOWED_HEADERS ?? "Content-Type, Authorization";
+// traceparent/tracestate (W3C) and Request-Id/Request-Context (Application Insights)
+// let the browser SDK correlate fetch calls with the Functions request telemetry.
+const ALLOW_HEADERS =
+  process.env.CORS_ALLOWED_HEADERS ??
+  "Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context";
+const EXPOSE_HEADERS = "Request-Context";
 const ALLOW_METHODS = process.env.CORS_ALLOWED_METHODS ?? "GET,POST,PUT,DELETE,OPTIONS";
 const SUPPORT_CREDENTIALS = process.env.CORS_SUPPORT_CREDENTIALS === "true";
 
@@ -32,11 +37,31 @@ function resolveAllowedOrigin(origin: string | null): string | null {
   return allowedOrigins.includes("*") ? "*" : null;
 }
 
+/** Adds EXPOSE_HEADERS to any list the handler already set, without duplicates. */
+function mergeExposeHeaders(existing: string | null): string {
+  if (!existing?.trim()) return EXPOSE_HEADERS;
+  const present = new Set(existing.split(",").map((h) => h.trim().toLowerCase()));
+  return present.has(EXPOSE_HEADERS.toLowerCase()) ? existing : `${existing}, ${EXPOSE_HEADERS}`;
+}
+
+/** Add `value` to the Vary header, keeping whatever the handler already set (e.g. Authorization). */
+function appendVary(headers: Headers, value: string) {
+  const existing = headers.get("Vary");
+  if (!existing) {
+    headers.set("Vary", value);
+    return;
+  }
+  const tokens = existing.split(",").map((token) => token.trim().toLowerCase());
+  if (tokens.includes("*") || tokens.includes(value.toLowerCase())) return;
+  headers.set("Vary", `${existing}, ${value}`);
+}
+
 function applyCorsHeaders(headers: Headers, allowedOrigin: string) {
   headers.set("Access-Control-Allow-Origin", allowedOrigin);
   headers.set("Access-Control-Allow-Headers", ALLOW_HEADERS);
   headers.set("Access-Control-Allow-Methods", ALLOW_METHODS);
-  headers.set("Vary", "Origin");
+  headers.set("Access-Control-Expose-Headers", mergeExposeHeaders(headers.get("Access-Control-Expose-Headers")));
+  appendVary(headers, "Origin");
   if (SUPPORT_CREDENTIALS && allowedOrigin !== "*") {
     headers.set("Access-Control-Allow-Credentials", "true");
   }

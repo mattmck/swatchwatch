@@ -41,6 +41,7 @@ jobs:
       function_app_name: ${{ steps.tf_outputs.outputs.function_app_name }}
       function_app_hostname: ${{ steps.tf_outputs.outputs.function_app_hostname }}
       resource_group_name: ${{ steps.tf_outputs.outputs.resource_group_name }}
+      application_insights_connection_string: ${{ steps.tf_outputs.outputs.application_insights_connection_string }}
     env:
       TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
       TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
@@ -112,6 +113,17 @@ jobs:
           echo "function_app_name=$FUNCTION_APP_NAME" >> "$GITHUB_OUTPUT"
           echo "function_app_hostname=$FUNCTION_APP_HOSTNAME" >> "$GITHUB_OUTPUT"
           echo "resource_group_name=$RESOURCE_GROUP_NAME" >> "$GITHUB_OUTPUT"
+
+          # Optional: browser telemetry stays off when the output is missing
+          # (infra not yet applied with it). Not masked on purpose: the runner
+          # drops job outputs that contain a masked value ("Skip output ...
+          # since it may contain secret"), and the string ships in the public
+          # web bundle anyway, so masking would only break the hand-off.
+          APPINSIGHTS_CONNECTION_STRING="$(terraform -chdir=infrastructure output -raw application_insights_connection_string 2>/dev/null || true)"
+          if [ -z "$APPINSIGHTS_CONNECTION_STRING" ]; then
+            echo "::warning::Terraform output application_insights_connection_string is missing; web telemetry will be disabled."
+          fi
+          echo "application_insights_connection_string=$APPINSIGHTS_CONNECTION_STRING" >> "$GITHUB_OUTPUT"
 
   deploy-web:
     name: Deploy Static Web App
@@ -187,6 +199,8 @@ jobs:
           NEXT_PUBLIC_B2C_CLIENT_ID: ${{ secrets.NEXT_PUBLIC_B2C_CLIENT_ID }}
           NEXT_PUBLIC_B2C_API_SCOPE: ${{ vars.NEXT_PUBLIC_B2C_API_SCOPE }}
           NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY: ${{ vars.NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY }}
+          NEXT_PUBLIC_APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ needs.resolve-infra-outputs.outputs.application_insights_connection_string }}
+          NEXT_PUBLIC_APPINSIGHTS_SAMPLING: ${{ vars.NEXT_PUBLIC_APPINSIGHTS_SAMPLING }}
 
       - name: Azure login (OIDC)
         uses: azure/login@v3

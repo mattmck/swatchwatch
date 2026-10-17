@@ -7,6 +7,7 @@
     "AZURE_STORAGE_CONNECTION": "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;QueueEndpoint=http://127.0.0.1:10001/devstoreaccount1;TableEndpoint=http://127.0.0.1:10002/devstoreaccount1;",
     "INGESTION_JOB_QUEUE_NAME": "ingestion-jobs",
     "SOURCE_IMAGE_CONTAINER": "source-images",
+    "USER_MEDIA_CONTAINER": "nail-photos",
     "CONNECTOR_RAW_CONTAINER": "connector-raw",
     "BLOB_READ_SAS_TTL_SECONDS": "3600",
 
@@ -58,6 +59,7 @@
     "SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS": "45000",
     "SHOPIFY_CONNECTOR_MAX_RETRIES": "2",
     "SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS": "1000",
+    "APPLICATIONINSIGHTS_CONNECTION_STRING": "",
     "PG_POOL_MAX": "10",
     "PG_IDLE_TIMEOUT_MS": "30000",
     "PG_CONNECTION_TIMEOUT_MS": "15000",
@@ -73,6 +75,7 @@
     "AUTH_DEV_BYPASS": "true",
     "IMAGE_PROXY_SIGNING_KEY": "",
     "IMAGE_PROXY_ID_TTL_SECONDS": "259200",
+    "IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS": "3600",
     "IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL": "",
     "NEXT_PUBLIC_AUTH_DEV_BYPASS": "true",
     "NEXT_PUBLIC_B2C_TENANT": "<YOUR_B2C_TENANT>",

@@ -19,6 +19,7 @@ src/app/
 │   ├── layout.tsx                → Marketing layout (branded sticky header, responsive mobile menu, footer)
 │   └── page.tsx                  → /           Landing page (hero, features, interactive showcase, testimonials, CTA)
 ├── (admin)/
+│   ├── error.tsx                 → Route-group error boundary (full-screen `RouteError`; the group has no layout)
 │   └── admin/
 │       ├── page.tsx              → /admin  Unified admin console (tabs: Configuration, Job Runs, Admin Jobs, User Management). Renders with RequireAuth + AppShell at the page level.
 │       └── reference-data/
@@ -29,12 +30,13 @@ src/app/
 │               └── users-tab.tsx → User Management tab (`/api/users-admin` list + `/api/users-admin/merge` repair flow)
 ├── (app)/
 │   ├── layout.tsx                → App layout (AppShell sidebar wrapper)
+│   ├── error.tsx                 → Route-group error boundary (renders `RouteError` inside the AppShell; retry = `reset()`)
 │   ├── admin/jobs/page.tsx       → /admin/jobs      Legacy route redirect to `/admin?tab=admin-jobs`
 │   ├── dashboard/
 │   │   ├── page.tsx              → /dashboard       Stats, recent additions (computed from full paginated inventory; "By Finish" counts a multi-finish polish once per finish)
 │   │   └── opengraph-image.tsx   → /dashboard OG image route
 │   └── polishes/
-│       ├── page.tsx              → /polishes         Global polish catalog + personal inventory overlay (server-side paging/filter/sort with URL-synced state; tone filter uses a fallback full-fetch path; single All/My Collection scope toggle; detail/edit flows carry `returnTo` context; swatch thumbnails open full image; admins see per-row "Recalc Hex" action)
+│       ├── page.tsx              → /polishes         Global polish catalog + personal inventory overlay (server-side paging/filter/sort with URL-synced state; search is debounced 350ms and refetches keep the page mounted, dimming the table instead of swapping in a spinner; tone filter uses a fallback full-fetch path; single All/My Collection scope toggle; detail/edit flows carry `returnTo` context; swatch thumbnails open full image; admins see per-row "Recalc Hex" action)
 │       ├── opengraph-image.tsx   → /polishes OG image route
 │       ├── new/page.tsx          → /polishes/new     Add polish form (multi-select finish chips built from all reference finish types, so admin-added finishes are selectable; a polish's saved finishes missing from the list stay visible and selected on edit; first selected = primary finish, sent as `finishes` + legacy `finish`)
 │       ├── detail/page.tsx       → /polishes/detail  Polish detail view + image preview + OKLCH profile + related shades
@@ -44,7 +46,8 @@ src/app/
 │       │   ├── match-components.tsx → `ImageDropZone` (drag-and-drop + file picker + `capture` camera input), `ImagePreview`, `ExtractedPalette`, `ConfidenceBadge`, `MatchResultsList`
 │       │   └── match-utils.ts    → Confidence badge metadata, match % (same 0.5 normalization as search), per-color filtering/counting
 │       └── search/page.tsx       → /polishes/search  Color wheel search (two-column layout, collapsible wheel/harmonies, single full-width harmony-only selector with All mode, one-click swatch focus, focus workflow, standardized Brand/Tone/Finish/Availability dropdown filters)
-├── layout.tsx                    → Root layout (fonts, metadata — no AppShell)
+├── global-error.tsx              → Last-resort error boundary for the root layout (own <html>/<body>, inline styles; reports via `trackException`)
+├── layout.tsx                    → Root layout (fonts, metadata, AuthProvider → TelemetryProvider — no AppShell)
 └── globals.css                   → Tailwind v4 + brand theme tokens + utility classes
 ```
 
@@ -115,6 +118,8 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 | `marketing-auth-button.tsx` | Header auth button: "Open App" when authenticated, "Sign In" when unauthenticated (B2C), always "Open App" in dev bypass |
 | `brand-spinner.tsx` | Branded loading state with animated monogram spinner used across app route fallbacks |
 | `error-state.tsx` | Reusable error card with destructive accent styling and optional retry action |
+| `route-error.tsx` | `<RouteError error reset boundary />` — shared body of the route-group `error.tsx` boundaries: reports the error with `trackException` (`boundary`, `digest` properties) and renders `ErrorState` with `reset()` as the retry |
+| `telemetry-provider.tsx` | Mounted in the root layout inside `AuthProvider`. Starts browser telemetry after hydration and tags it with the internal user id (resolved once per signed-in account via `POST /api/auth/validate`; never the email), clearing it on sign-out. Renders nothing extra when telemetry is off |
 | `empty-state.tsx` | Reusable empty-state card with brand icon treatment and optional CTA |
 | `marketing-color-showcase.tsx` | Interactive landing-page color harmony demo with mini wheel, connected swatch nodes, and animated suggested set tiles |
 | `marketing-theme-toggle.tsx` | Reusable system/light/dark theme selector used in marketing and authenticated app shells |
@@ -122,6 +127,7 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 | `color-wheel.tsx` | Canvas HSL color wheel with hover preview, click selection, owned-shade snap mode, and glow-forward selected marker |
 | `finish-badges.tsx` | `<FinishBadges polish finishTypes? max? empty? />` — one branded badge per finish (multi-finish shades show several, overflow collapses into `+N`), falling back to the legacy single `finish`. Pass `finishTypes` (from `useReferenceData()`) to label badges with the reference `displayName`. Used by the polish table, detail page, dashboard recent additions, and color search results |
 | `color-search-results.tsx` | Polish list sorted by OKLAB color distance, with branded finish badges, high-contrast focus-state swatch highlights, and harmony interactions (palette selection affects table targeting without mutating focused colors) |
+| `private-image.tsx` | `<PrivateImage src alt className? fallback? />` — renders owner-scoped private image ids (a `/api/images/v3.` path that is relative or on the API base URL's origin) by fetching them with the user's bearer token and showing an object URL, since `<img>` cannot send `Authorization`. Public URLs (including catalog `v2.` ids) render as a plain `<img>`; while loading it shows a neutral `aria-busy` placeholder, and on 401/403/error it shows `fallback` or an empty `role="img"` placeholder. Not wired into any page yet: switch image consumers to it when the API starts emitting `v3` ids for user media (#270) |
 
 ### shadcn/ui (`src/components/ui/`)
 
@@ -173,12 +179,14 @@ This works for both `ciamlogin.com` (External ID) and `b2clogin.com` (legacy B2C
 | `finish-options.ts` | `buildFinishOptions(finishTypes, extraValues?)`, `knownFinishNames()`, `resolveFinishLabel()` — finish select/chip options and labels built from ALL reference `finish_type` rows (including admin-added, non-built-in types), falling back to `FINISHES` only when reference data is empty; `extraValues` keeps a polish's saved finishes selectable when they are missing from the list |
 | `color-harmonies.ts` | Harmony palette generation + `getHarmonyTypeOptions()` for API-backed harmony option mapping (with fallback constants) |
 | `color-utils.ts` | Hex↔HSL↔RGB↔OKLAB↔OKLCH conversions, `colorDistance()`, harmony helpers, undertone breakdown, and `analyzeCollectionGaps()`. The forward OKLAB math (`rgbToOklab`, `hexToOklab`, `oklabDistance`, `colorDistance`, `OKLab`) is re-exported from `swatchwatch-shared` so it matches the Functions API exactly |
-| `api.ts` | API client helpers including polish CRUD, rapid-add capture calls, ingestion admin methods (`listIngestionJobs`, `runIngestionJob`, `getIngestionJob`), reference-data admin methods (`listAdminJobs`, finish/harmony CRUD, finish-normalization CRUD), user-management admin methods (`listAdminUsers`, `mergeAdminUsers`), public reference lookup methods (`listReferenceFinishTypes`, `listReferenceHarmonyTypes`), and `matchPolishesToImage()` for photo matching |
+| `api.ts` | API client helpers (plus the exported `API_BASE_URL` and `getAuthHeaders()`) including polish CRUD, rapid-add capture calls, ingestion admin methods (`listIngestionJobs`, `runIngestionJob`, `getIngestionJob`), reference-data admin methods (`listAdminJobs`, finish/harmony CRUD, finish-normalization CRUD), user-management admin methods (`listAdminUsers`, `mergeAdminUsers`), public reference lookup methods (`listReferenceFinishTypes`, `listReferenceHarmonyTypes`), and `matchPolishesToImage()` for photo matching |
+| `private-image.ts` | `isPrivateImageUrl(url, apiOrigin?)` (true when the path starts with `/api/images/v3.` and the URL is relative or on the origin of `api.ts`'s `API_BASE_URL`; the same path on any other host is treated as public, so the bearer token is never sent there), `usePrivateImage(url)` → `{ status: "idle" \| "loading" \| "ready" \| "denied" \| "error", objectUrl }` — fetches private ids with `getAuthHeaders()` (dev-bypass token included), returns an object URL that is revoked on unmount or url change, and ignores stale responses via `AbortController`. Non-private URLs return `idle` so callers render the plain URL. `loadPrivateImage()` / `classifyPrivateImageResponse()` are the framework-agnostic pieces the hook uses |
 | `image-downscale.ts` | `downscaleImageFile()` — browser canvas downscale (longest edge `MATCH_IMAGE_MAX_EDGE` = 640px, JPEG for photos / PNG when the source may have alpha) returning a data URL + dimensions; `computeScaledSize()` / `outputMimeTypeFor()` pure helpers |
 | `polish-filters.ts` | `buildBrandOptions()`, `filterPolishesForList()`, `matchesBrandFilter()` — shared catalog/search filter helpers with normalized brand matching |
 | `hooks/use-reference-data.ts` | API-backed reference data hook with in-memory + localStorage caching, resilient fallback data, and lookup helpers (`getFinishDisplayName`, `getHarmonyDisplayName`) |
 | `msal-config.ts` | `buildMsalConfig()` builder, `LOGIN_SCOPES` constant. Returns `null` if auth env is not configured |
 | `auth-token.ts` | Module-level token store: `setAccessToken()`, `getAccessToken()` |
+| `telemetry.ts` | Browser Application Insights wrapper mirroring the Functions API: `trackEvent()`, `trackException()`, `setUser(userId)`, `clearUser()`, `initTelemetry()`. Lazy `import()`s `@microsoft/applicationinsights-web` (own chunk, out of the critical bundle) and queues calls until it loads; no-op on the server and without a connection string. Config: auto route tracking, W3C correlation limited to the `NEXT_PUBLIC_API_URL` host, unhandled-rejection tracking, sampling. A telemetry initializer (`redactImageUrlsInitializer`) replaces `/api/images/{id}` ids with `[redacted]` |
 
 ## Metadata & Assets
 
@@ -196,6 +204,8 @@ This works for both `ciamlogin.com` (External ID) and `b2clogin.com` (legacy B2C
 | Variable | Purpose |
 |----------|---------|
 | `NEXT_PUBLIC_API_URL` | API base URL used by `src/lib/api.ts` |
+| `NEXT_PUBLIC_APPLICATIONINSIGHTS_CONNECTION_STRING` | Enables browser telemetry (`src/lib/telemetry.ts`). Unset = no-op (local dev default). Set at build time by `deploy.yml` from the Terraform output `application_insights_connection_string` |
+| `NEXT_PUBLIC_APPINSIGHTS_SAMPLING` | Browser telemetry sampling percentage, `(0, 100]`; default `100` |
 | `NEXT_PUBLIC_AUTH_DEV_BYPASS` | Dev-only bypass toggle. When `true`, the UI sends `Authorization: Bearer dev:1` on authenticated API calls. Set to `false` for production or to test B2C auth locally |
 | `NEXT_PUBLIC_AUTH_DEV_ADMIN_USER_ID` | Optional admin dev bypass user id for admin-only API calls (`/admin/reference-data` and `/admin/jobs` flows; defaults to `2`). Ignored when `NEXT_PUBLIC_AUTH_DEV_BYPASS=false` |
 | `NEXT_PUBLIC_B2C_TENANT` | Entra tenant short name (e.g., `myorgdev`). Empty or missing → auth skipped, unconfigured fallback mode. When set with `NEXT_PUBLIC_B2C_CLIENT_ID` → MSAL initialized |
@@ -205,6 +215,15 @@ This works for both `ciamlogin.com` (External ID) and `b2clogin.com` (legacy B2C
 | `NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY` | Policy/user-flow selector. If it starts with `B2C_1`, the app uses legacy `b2clogin.com` policy authority. Otherwise it uses `ciamlogin.com` authority and sends `p=<value>` query parameter on auth/token requests (for External ID tenants). |
 
 **Note:** When both `NEXT_PUBLIC_B2C_TENANT` and `NEXT_PUBLIC_B2C_CLIENT_ID` are empty, the app runs in **unconfigured mode**: marketing pages work, but `(app)` routes show a "Sign in" prompt that warns the user B2C is not configured.
+
+## Telemetry & Error Boundaries
+
+Browser telemetry goes to the same Application Insights resource as the Functions API (plan: `docs/observability-plan.md`).
+
+- **Off by default.** `src/lib/telemetry.ts` does nothing unless `NEXT_PUBLIC_APPLICATIONINSIGHTS_CONNECTION_STRING` is set at build time. To try it locally, put the dev connection string in `apps/web/.env.local` and restart `next dev`.
+- **What's collected:** page views (initial + App Router `pushState` navigations), unhandled errors and promise rejections, `fetch` dependencies, and anything sent through `trackEvent` / `trackException`. Requests to the `NEXT_PUBLIC_API_URL` host carry a W3C `traceparent`, so a browser fetch and the Functions request it hits share one `operation_Id` in **Transaction search**. No other origin gets correlation headers (B2C and blob storage would reject them on preflight).
+- **Privacy:** telemetry carries the internal user id only (never the email), and `/api/images/{id}` capability ids are redacted. The SDK sets its default `ai_user` / `ai_session` cookies; whether to keep them (or set `disableCookiesUsage: true` in `buildTelemetryConfig`) is an open decision.
+- **Error boundaries:** `(app)/error.tsx` and `(admin)/error.tsx` report via `trackException` and show `ErrorState` with a retry (`reset()` re-renders the segment; the pages fetch client-side, so that refetches too). `app/global-error.tsx` catches root-layout failures. They're all client components, so they work with `output: "export"`.
 
 ## Conventions
 

@@ -45,7 +45,7 @@ import type {
 
 import { getAccessToken } from "./auth-token";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:7071/api";
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:7071/api";
 const MAX_CAPTURE_FRAME_BYTES = 5 * 1024 * 1024;
 const LIST_ALL_POLISHES_PAGE_SIZE = 250;
 const listPolishesInFlight = new Map<string, Promise<PolishListResponse>>();
@@ -57,7 +57,7 @@ class ApiError extends Error {
   }
 }
 
-async function getAuthHeaders(options?: { admin?: boolean }): Promise<Record<string, string>> {
+export async function getAuthHeaders(options?: { admin?: boolean }): Promise<Record<string, string>> {
   if (process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true") {
     const devUserId = options?.admin
       ? process.env.NEXT_PUBLIC_AUTH_DEV_ADMIN_USER_ID || "2"
@@ -79,6 +79,21 @@ async function handleResponse<T>(response: Response): Promise<T> {
     throw new ApiError(response.status, error.error || error.message || "Request failed");
   }
   return response.json();
+}
+
+/**
+ * Resolve the caller's internal user id via `POST /api/auth/validate`.
+ * Returns null when there is no token or it doesn't validate. Used to tag
+ * browser telemetry (never the email).
+ */
+export async function getCurrentUserId(): Promise<number | null> {
+  const headers = await getAuthHeaders();
+  if (!headers.Authorization) return null;
+
+  const response = await fetch(`${API_BASE_URL}/auth/validate`, { method: "POST", headers });
+  if (!response.ok) return null;
+  const body = (await response.json().catch(() => null)) as { valid?: boolean; userId?: unknown } | null;
+  return body?.valid && typeof body.userId === "number" ? body.userId : null;
 }
 
 export async function listPolishes(filters?: PolishFilters): Promise<PolishListResponse> {

@@ -1,7 +1,9 @@
 import { createHash, createHmac } from "node:crypto";
+import { ImageProxyConfigError } from "./image-proxy-errors";
 
 const AZURE_STORAGE_API_VERSION = "2023-11-03";
 const DEFAULT_SOURCE_IMAGE_CONTAINER = "source-images";
+const DEFAULT_USER_MEDIA_CONTAINER = "nail-photos";
 const REQUEST_TIMEOUT_MS = 20000;
 
 export const UPLOAD_LIMITS = {
@@ -262,8 +264,10 @@ async function sendStorageRequest(
   return response;
 }
 
-function normalizeContainerName(value: string | undefined): string {
-  const fallback = DEFAULT_SOURCE_IMAGE_CONTAINER;
+function normalizeContainerName(
+  value: string | undefined,
+  fallback: string = DEFAULT_SOURCE_IMAGE_CONTAINER
+): string {
   const normalized = (value || fallback).trim().toLowerCase();
   return normalized.length > 0 ? normalized : fallback;
 }
@@ -464,6 +468,62 @@ export interface ReadBlobOptions {
 
 export function defaultReadableContainers(): string[] {
   return [normalizeContainerName(process.env.SOURCE_IMAGE_CONTAINER)];
+}
+
+/**
+ * True when the blob lives in the shared catalog/source-image container (public product imagery,
+ * see `defaultReadableContainers()`). Anything else (e.g. user-uploaded media) must never be
+ * stored by shared caches, and is only proxied through owner-scoped `v3` image ids (#227).
+ * Handles virtual-host style (`<account>.blob.core.windows.net/<container>/...`) and path-style
+ * (Azurite: `host/<account>/<container>/...`) endpoints. Unparseable URLs are not catalog URLs.
+ */
+export function isCatalogStorageUrl(storageUrl: string): boolean {
+  const container = storageUrlContainer(storageUrl);
+  return container.length > 0 && defaultReadableContainers().includes(container);
+}
+
+/**
+ * True when the blob lives in the private user-media container (`userMediaContainer()`), using the
+ * same virtual-host / path-style parsing as `isCatalogStorageUrl`. Unparseable URLs are not.
+ *
+ * @throws ImageProxyConfigError when USER_MEDIA_CONTAINER equals SOURCE_IMAGE_CONTAINER.
+ */
+export function isUserMediaStorageUrl(storageUrl: string): boolean {
+  const mediaContainer = userMediaContainer();
+  const container = storageUrlContainer(storageUrl);
+  return container.length > 0 && container === mediaContainer;
+}
+
+/** Lowercased container segment of a blob URL, or "" when there is none / the URL is invalid. */
+function storageUrlContainer(storageUrl: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(storageUrl);
+  } catch {
+    return "";
+  }
+  const segments = parsed.pathname.split("/").filter(Boolean);
+  const virtualHost = /^[^.]+\.blob\./i.test(parsed.hostname);
+  return (segments[virtualHost ? 0 : 1] ?? "").toLowerCase();
+}
+
+/**
+ * Container for private user media (e.g. nail photos, #270), from `USER_MEDIA_CONTAINER`
+ * (default `nail-photos`). Blobs here are never readable through public `v2` proxy ids; they are
+ * served only through owner-scoped `v3` proxy ids (#227).
+ *
+ * @throws ImageProxyConfigError when it equals the catalog container (`SOURCE_IMAGE_CONTAINER`):
+ *   proxy scope is decided by "is it the catalog container", so a shared container would make
+ *   every user photo public. Minting and the private read path both fail closed on it.
+ */
+export function userMediaContainer(): string {
+  const container = normalizeContainerName(process.env.USER_MEDIA_CONTAINER, DEFAULT_USER_MEDIA_CONTAINER);
+  if (defaultReadableContainers().includes(container)) {
+    throw new ImageProxyConfigError(
+      `USER_MEDIA_CONTAINER must differ from SOURCE_IMAGE_CONTAINER (both are '${container}')`
+    );
+  }
+  return container;
 }
 
 /**
