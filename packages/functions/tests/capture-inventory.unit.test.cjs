@@ -50,6 +50,7 @@ function resetState({ inventory = [], metadata = { gtin: GTIN } } = {}) {
       skuId: null,
       shadeId: null,
       quantity: 1,
+      status: "owned",
       // Rows written by a concurrent, not-yet-committed transaction: invisible to SELECTs,
       // but an INSERT still conflicts with them (it waits for the commit, then conflicts).
       uncommitted: false,
@@ -125,7 +126,7 @@ function whereClause(text) {
   return match ? match[1] : "";
 }
 
-/** For `INSERT INTO t (cols) VALUES (...)`, a map of column -> bound value (literals as numbers). */
+/** For `INSERT INTO t (cols) VALUES (...)`, a map of column -> bound value (literals as numbers or strings). */
 function insertedRow(text, params) {
   const match = text.match(/INSERT\s+INTO\s+\w+\s*\(([^)]*)\)\s*VALUES\s*\(([^)]*)\)/i);
   assert.ok(match, `unparsable INSERT: ${text}`);
@@ -134,7 +135,8 @@ function insertedRow(text, params) {
   const row = {};
   cols.forEach((col, i) => {
     const placeholder = values[i].match(/^\$(\d+)$/);
-    row[col] = placeholder ? params[Number(placeholder[1]) - 1] : Number(values[i]);
+    const quoted = values[i].match(/^'(.*)'$/);
+    row[col] = placeholder ? params[Number(placeholder[1]) - 1] : quoted ? quoted[1] : Number(values[i]);
   });
   return row;
 }
@@ -142,6 +144,9 @@ function insertedRow(text, params) {
 function bumpRow(row, text) {
   assert.match(text, /quantity\s*=\s*(user_inventory_item\.)?quantity\s*\+\s*1/i);
   row.quantity += 1;
+  // Inventory status (#291): capturing a bottle turns a wishlist/archived row into owned.
+  const statusFlip = /status\s*=\s*CASE\s+WHEN\s+(?:user_inventory_item\.)?status\s+IN\s*\(\s*'wishlist'\s*,\s*'archived'\s*\)\s+THEN\s+'owned'\s+ELSE\s+(?:user_inventory_item\.)?status\s+END/i;
+  if (statusFlip.test(text) && ["wishlist", "archived"].includes(row.status)) row.status = "owned";
   const skuFill = text.match(/sku_id\s*=\s*COALESCE\(\s*(?:user_inventory_item\.)?sku_id\s*,\s*(\$\d+|EXCLUDED\.sku_id)\s*\)/i);
   return skuFill;
 }
@@ -179,6 +184,8 @@ function inventoryQuery(text, params) {
       skuId: values.sku_id ?? null,
       shadeId: values.shade_id ?? null,
       quantity: values.quantity,
+      // Column default 'owned' when the INSERT omits status.
+      status: values.status ?? "owned",
       uncommitted: false,
       createdAt: state.clock++,
     };
@@ -339,6 +346,10 @@ function rowsOf(userId) {
     }));
 }
 
+function statusesOf(userId) {
+  return state.inventory.filter((row) => row.userId === userId).map((row) => row.status);
+}
+
 /** Every statement touching user_inventory_item binds only the caller's user id. */
 function assertInventoryScopedToCaller() {
   const statements = sqlCalls.filter(
@@ -473,6 +484,72 @@ describe("capture finalize — shade match inventory write", () => {
     assertMatched(await finalize());
     assert.deepEqual(rowsOf(OTHER_USER), [{ userId: OTHER_USER, skuId: null, shadeId: SHADE_ID, quantity: 5 }]);
     assert.deepEqual(rowsOf(CALLER), [{ userId: CALLER, skuId: null, shadeId: SHADE_ID, quantity: 1 }]);
+    assertInventoryScopedToCaller();
+  });
+});
+
+describe("capture finalize — inventory status (#291)", () => {
+  beforeEach(() => {
+    process.env.AUTH_DEV_BYPASS = "true";
+  });
+  afterEach(() => {
+    delete process.env.AUTH_DEV_BYPASS;
+  });
+
+  const SHADE_EVIDENCE = { brand: "Brand", shadeName: "Shade" };
+
+  for (const [label, metadata] of [
+    ["barcode (SKU) match", undefined],
+    ["shade match", SHADE_EVIDENCE],
+  ]) {
+    it(`${label}: inserts the new row as owned`, async () => {
+      resetState(metadata ? { metadata } : {});
+      assertMatched(await finalize());
+      assert.deepEqual(statusesOf(CALLER), ["owned"]);
+      const insert = sqlCalls.find((c) => /^\s*INSERT\s+INTO\s+user_inventory_item/i.test(c.sql));
+      assert.equal(insertedRow(insert.sql, insert.params).status, "owned");
+    });
+
+    for (const from of ["wishlist", "archived"]) {
+      it(`${label}: bumping a ${from} row for the shade makes it owned`, async () => {
+        resetState({
+          ...(metadata ? { metadata } : {}),
+          inventory: [{ id: 7001, userId: CALLER, shadeId: SHADE_ID, skuId: null, quantity: 0, status: from }],
+        });
+        assertMatched(await finalize());
+        assert.deepEqual(statusesOf(CALLER), ["owned"]);
+        assert.equal(rowsOf(CALLER)[0].quantity, 1);
+      });
+
+      it(`${label}: a concurrent finalize's ${from} row is made owned through ON CONFLICT`, async () => {
+        resetState({
+          ...(metadata ? { metadata } : {}),
+          inventory: [{ id: 7001, userId: CALLER, shadeId: SHADE_ID, skuId: null, quantity: 0, status: from, uncommitted: true }],
+        });
+        assertMatched(await finalize());
+        assert.deepEqual(statusesOf(CALLER), ["owned"]);
+        assert.equal(rowsOf(CALLER)[0].quantity, 1);
+      });
+    }
+
+    it(`${label}: a destash row keeps its status when bumped`, async () => {
+      resetState({
+        ...(metadata ? { metadata } : {}),
+        inventory: [{ id: 7001, userId: CALLER, shadeId: SHADE_ID, skuId: SKU_ID, quantity: 1, status: "destash" }],
+      });
+      assertMatched(await finalize());
+      assert.deepEqual(statusesOf(CALLER), ["destash"]);
+      assert.equal(rowsOf(CALLER)[0].quantity, 2);
+    });
+  }
+
+  it("barcode match: another user's wishlist row is left alone", async () => {
+    resetState({
+      inventory: [{ id: 8001, userId: OTHER_USER, shadeId: SHADE_ID, skuId: SKU_ID, quantity: 0, status: "wishlist" }],
+    });
+    assertMatched(await finalize());
+    assert.deepEqual(statusesOf(OTHER_USER), ["wishlist"]);
+    assert.deepEqual(statusesOf(CALLER), ["owned"]);
     assertInventoryScopedToCaller();
   });
 });
