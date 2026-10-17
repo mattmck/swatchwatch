@@ -86,7 +86,7 @@ The web app uses Next.js route groups to separate public marketing pages from th
 | Route | File | Notes |
 |-------|------|-------|
 | `/` | `src/app/(marketing)/page.tsx` | Landing page — hero, features, color showcase, CTA |
-| `/dashboard` | `src/app/(app)/dashboard/page.tsx` | Client component, stats + recent additions |
+| `/dashboard` | `src/app/(app)/dashboard/page.tsx` | Client component, stats + "Pick for me" card + recent additions |
 | `/admin` | `src/app/(admin)/admin/page.tsx` | Unified admin console — tabs: Configuration, Job Runs, Admin Jobs |
 | `/admin/reference-data` | `src/app/(admin)/admin/reference-data/page.tsx` | Legacy redirect → `/admin?tab=configuration` |
 | `/admin/jobs` | `src/app/(app)/admin/jobs/page.tsx` | Legacy redirect → `/admin?tab=admin-jobs` |
@@ -123,6 +123,7 @@ This project is in early development. The web UI is now fully API-driven. Backen
 - ✅ Reference data management — `finish_type`, `harmony_type`, `finish_normalization` tables with admin CRUD and public read endpoints
 - ✅ Hex-detection evaluation harness — `packages/functions/src/eval/hex/` scores detection strategies against ground-truth fixtures (OKLAB distance, HIGH/MEDIUM shares, per brand/finish); `color_training_sample` (migration `20261017033500000_add-color-training-sample.sql`) holds DB-sourced samples. See `packages/functions/README.md`
 - ✅ Mani log (#269) — `manicure` / `manicure_polish` (migration `20261017063740704_manicure-log`), `/api/manicures` CRUD (`withAuth`, caller's own inventory items and photos only), wear stats (`wear_count`, `last_worn_at`, fill-if-null `tried_at`) recomputed from the log in the same transaction on every create/edit/delete plus `inventory_event(used)` sync; `/manis` page and one-tap "Log today's mani" on the polish detail page and owned table rows
+- ✅ "Pick for me" (#272) — dashboard card + `/polishes` button pick a random owned polish weighted toward untried, not-recently-worn and thin gap-heatmap cells (pure, seedable `apps/web/src/lib/pick-for-me.ts`, weights in `PICK_WEIGHTS`; client-side, no endpoint), never repeating the last 3 picks; "Pair it" suggests up to 2 owned complementary/analogous/topper polishes, and the pick (with pairings) logs straight to the mani log
 - ✅ Feature-flagged Azure OpenAI batch pipeline for Shopify vision hex detection — per-chunk batches run in parallel while the worker keeps ingesting (`metrics.aiBatches`), then awaiting_ai → poll/apply each batch → complete, with synchronous fallback for small runs
 
 ## Environment Variables (Functions)
