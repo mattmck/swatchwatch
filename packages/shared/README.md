@@ -161,6 +161,9 @@ Pure, dependency-free OKLAB color math shared by the web app (`apps/web/src/lib/
 | `hexToOklab(hex)` | `#RRGGBB` / `RRGGBB` → OKLAB |
 | `oklabDistance(a, b)` | Euclidean distance between two OKLAB colors |
 | `colorDistance(hex1, hex2)` | OKLAB distance between two hex colors |
+| `oklabToRgb(oklab)` | OKLAB → 0–255 sRGB `{ r, g, b }` (gamut-clipped per channel) |
+| `rgbToHexString(rgb)` | 0–255 sRGB `{ r, g, b }` → uppercase `#RRGGBB` |
+| `oklabToHex(oklab)` | OKLAB → uppercase `#RRGGBB` (gamut-clipped) |
 
 Pinned-distance tests in `packages/functions/tests/color-match.unit.test.cjs` and `apps/web/src/lib/color-utils.test.ts` guard against numeric drift.
 

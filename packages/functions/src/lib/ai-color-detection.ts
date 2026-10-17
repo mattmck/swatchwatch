@@ -74,7 +74,7 @@ export type VisionImageDetail = "low" | "high" | "auto";
 
 const VISION_IMAGE_DETAILS: readonly VisionImageDetail[] = ["low", "high", "auto"];
 
-interface HexDetectionRequestPayload {
+export interface HexDetectionRequestPayload {
   temperature: number;
   max_tokens: number;
   response_format: { type: "json_object" };
@@ -96,7 +96,7 @@ interface HexDetectionRequestPayload {
  * survives downsampling. Override via AZURE_OPENAI_VISION_DETAIL if finish
  * detection (glitter/flake/holo) needs more resolution.
  */
-function resolveVisionImageDetail(): VisionImageDetail {
+export function resolveVisionImageDetail(): VisionImageDetail {
   const raw = process.env.AZURE_OPENAI_VISION_DETAIL?.trim().toLowerCase();
   return VISION_IMAGE_DETAILS.find((detail) => detail === raw) ?? "low";
 }
@@ -132,7 +132,7 @@ function normalizeHex(value: unknown): string | null {
   return `#${match[1].toUpperCase()}`;
 }
 
-function parseConfidence(value: unknown): number | null {
+export function parseConfidence(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return Math.max(0, Math.min(1, value));
   }
@@ -675,4 +675,101 @@ export async function detectHexWithAzureOpenAI(
 
   const parsed = await parseHexDetectionContent(content, logLabel, options, usage);
   return { ...parsed, model: deployment };
+}
+
+export interface AzureOpenAiChatCompletionOptions {
+  onLog?: HexDetectionOptions["onLog"];
+  /** Env keys consulted (in order) for the deployment name. Defaults to the hex-detection keys. */
+  deploymentEnvKeys?: string[];
+  /** Short label for log lines (never log data URIs). Default `"request"`. */
+  label?: string;
+}
+
+export interface AzureOpenAiChatCompletionResult {
+  provider: "azure-openai" | "none";
+  /** `choices[0].message.content`, or null when the response had none or was content-filtered. */
+  content: string | null;
+  usage: HexDetectionTokenUsage | null;
+  /** True when the content filter rejected the request and the safe retry (or there was none). */
+  contentFiltered: boolean;
+}
+
+/**
+ * Lower-level Azure OpenAI chat-completion call with the same plumbing as
+ * `detectHexWithAzureOpenAI` (config resolution, timeout, 429/5xx retry,
+ * content-filter safe retry) but a caller-supplied payload. `buildPayload(false)`
+ * is the normal request; `buildPayload(true)` is the safer rewording used when
+ * the content filter rejects the first one (return null to skip that retry).
+ * Returns `provider: "none"` when the config is missing. Used by the eval
+ * harness strategies; the production hex prompt still goes through
+ * `detectHexWithAzureOpenAI`.
+ */
+export async function requestAzureOpenAiChatCompletion(
+  buildPayload: (safePrompt: boolean) => HexDetectionRequestPayload | null,
+  options?: AzureOpenAiChatCompletionOptions
+): Promise<AzureOpenAiChatCompletionResult> {
+  const logOptions: HexDetectionOptions | undefined = options?.onLog ? { onLog: options.onLog } : undefined;
+  const label = options?.label ?? "request";
+  const resolved = resolveAzureOpenAiConfig({
+    deploymentEnvKeys: options?.deploymentEnvKeys ?? ["AZURE_OPENAI_DEPLOYMENT_HEX", "AZURE_OPENAI_DEPLOYMENT"],
+  });
+  if (!resolved.isValid || !resolved.endpoint || !resolved.deployment) {
+    emitLog(logOptions, "error", `[ai-color-detection] Missing Azure OpenAI config for ${label}`, {
+      hasEndpoint: !!resolved.endpoint,
+      hasAuthHeader: resolved.hasAuthHeader,
+      hasDeployment: !!resolved.deployment,
+      missingGatewayPrerequisites: resolved.missingGatewayPrerequisites,
+    });
+    return { provider: "none", content: null, usage: null, contentFiltered: false };
+  }
+
+  const requestUrl = `${resolved.endpoint}/openai/deployments/${resolved.deployment}/chat/completions?api-version=${OPENAI_API_VERSION}`;
+  const createRequestInit = (payload: HexDetectionRequestPayload): RequestInit => ({
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...resolved.headers },
+    body: JSON.stringify(payload),
+  });
+
+  const firstPayload = buildPayload(false);
+  if (!firstPayload) {
+    throw new Error("buildPayload(false) must return a request payload");
+  }
+  let response = await fetchWithRetry(requestUrl, createRequestInit(firstPayload), logOptions);
+
+  if (!response.ok) {
+    const details = await readErrorBodySnippet(response);
+    const requestId = getResponseId(response);
+    if (!isContentFilterResponse(response.status, details)) {
+      emitLog(logOptions, "error", `[ai-color-detection] Azure OpenAI non-OK response for ${label}: status=${response.status}, requestId=${requestId}, body=${details || "n/a"}`);
+      throw new Error(`Azure OpenAI ${label} failed: ${response.status} ${details}`);
+    }
+    const safePayload = buildPayload(true);
+    if (!safePayload) {
+      emitLog(logOptions, "warn", `[ai-color-detection] Content filter hit for ${label}, no safe retry (requestId=${requestId})`);
+      return { provider: "azure-openai", content: null, usage: null, contentFiltered: true };
+    }
+    emitLog(logOptions, "warn", `[ai-color-detection] Content filter hit for ${label}, retrying with safer prompt (requestId=${requestId})`);
+    response = await fetchWithRetry(requestUrl, createRequestInit(safePayload), logOptions);
+    if (!response.ok) {
+      const retryDetails = await readErrorBodySnippet(response);
+      if (isContentFilterResponse(response.status, retryDetails)) {
+        emitLog(logOptions, "warn", `[ai-color-detection] Content filter persisted after safe retry for ${label}`);
+        return { provider: "azure-openai", content: null, usage: null, contentFiltered: true };
+      }
+      throw new Error(`Azure OpenAI ${label} failed: ${response.status} ${retryDetails}`);
+    }
+  }
+
+  const body = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string | null } }>;
+    usage?: unknown;
+  };
+  const usage = parseHexDetectionTokenUsage(body.usage);
+  const content = body.choices?.[0]?.message?.content;
+  return {
+    provider: "azure-openai",
+    content: typeof content === "string" && content ? content : null,
+    usage,
+    contentFiltered: false,
+  };
 }

@@ -830,11 +830,12 @@ describe("functions/polishes — getPolishes", () => {
               color: "Red",
               finish: "cream",
               swatchImageUrl: null,
+              totalCount: "1",
             },
           ],
         };
       }
-      // count query
+      // Fallback count query (only runs for a page past the end).
       return { rows: [{ total: "1" }] };
     };
     const handler = registeredRoutes["polishes-list"].handler;
@@ -846,7 +847,8 @@ describe("functions/polishes — getPolishes", () => {
     const res = await handler(req, fakeContext());
     assert.equal(res.status, 200);
     assert.ok(Array.isArray(res.jsonBody.polishes));
-    assert.equal(typeof res.jsonBody.total, "number");
+    assert.equal(res.jsonBody.total, 1);
+    assert.ok(!("totalCount" in res.jsonBody.polishes[0]), "window column must not leak into rows");
     assert.equal(typeof res.jsonBody.page, "number");
     assert.equal(typeof res.jsonBody.pageSize, "number");
     assert.equal(res.jsonBody.polishes[0].finish, "creme");
@@ -1206,7 +1208,7 @@ describe("functions/polishes — multi-finish", () => {
       if (text.includes("FROM finish_normalization")) {
         return { rows: aliasRows() };
       }
-      if (text.includes("COUNT(*)")) {
+      if (text.includes("COUNT(*) AS total")) {
         return { rows: [{ total: "1" }] };
       }
       listCalls.push({ text, params });
@@ -1220,6 +1222,7 @@ describe("functions/polishes — multi-finish", () => {
             finish: "shimmer",
             finishes: ["shimmer", "holographic"],
             swatchImageUrl: null,
+            totalCount: "1",
           },
         ],
       };
@@ -1258,13 +1261,13 @@ describe("functions/polishes — multi-finish", () => {
       if (text.includes("FROM finish_normalization")) {
         return { rows: aliasRows({ withChrome: true }) };
       }
-      if (text.includes("COUNT(*)")) {
+      if (text.includes("COUNT(*) AS total")) {
         return { rows: [{ total: "1" }] };
       }
       listCalls.push({ text, params });
       return {
         rows: [
-          { id: "8", brand: "X", name: "Mirror Ball", color: "", finish: "chrome", finishes: ["chrome"], swatchImageUrl: null },
+          { id: "8", brand: "X", name: "Mirror Ball", color: "", finish: "chrome", finishes: ["chrome"], swatchImageUrl: null, totalCount: "1" },
         ],
       };
     };

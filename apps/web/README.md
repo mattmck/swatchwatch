@@ -38,7 +38,7 @@ src/app/
 │       ├── opengraph-image.tsx   → /polishes OG image route
 │       ├── new/page.tsx          → /polishes/new     Add polish form (multi-select finish chips built from all reference finish types, so admin-added finishes are selectable; a polish's saved finishes missing from the list stay visible and selected on edit; first selected = primary finish, sent as `finishes` + legacy `finish`)
 │       ├── detail/page.tsx       → /polishes/detail  Polish detail view + image preview + OKLCH profile + related shades
-│       ├── gaps/page.tsx         → /polishes/gaps    Collection gap map heatmap (8 hue families × 5 lightness bands, missing/thin coverage, next-buy suggestions, deep-link into color search)
+│       ├── gaps/page.tsx         → /polishes/gaps    Collection gap map heatmap (8 hue families × 5 lightness bands, missing/thin coverage, next-buy suggestions, deep-link into color search); loads owned rows first, then the shared catalog in the background for "Available To Add"
 │       ├── match/
 │       │   ├── page.tsx          → /polishes/match   Photo match: choose/drop/take a photo → client-side downscale (`lib/image-downscale.ts`) → `POST /api/polishes/match-image`; shows preview, extracted palette (click a swatch to filter matches to that color), and owned polishes ranked by OKLAB distance with confidence badges
 │       │   ├── match-components.tsx → `ImageDropZone` (drag-and-drop + file picker + `capture` camera input), `ImagePreview`, `ExtractedPalette`, `ConfidenceBadge`, `MatchResultsList`
