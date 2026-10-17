@@ -41,9 +41,15 @@ import type {
   HarmonyTypeUpdateRequest,
   HarmonyTypeListResponse,
   IngestionJob,
+  CollectionExportFormat,
 } from "swatchwatch-shared";
 
 import { getAccessToken } from "./auth-token";
+import {
+  fetchCollectionExport,
+  type CollectionExportOptions,
+  type DownloadedCollectionExport,
+} from "./collection-export";
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:7071/api";
 const MAX_CAPTURE_FRAME_BYTES = 5 * 1024 * 1024;
@@ -222,6 +228,21 @@ export async function deletePolish(id: string | number): Promise<{ message: stri
     headers: await getAuthHeaders(),
   });
   return handleResponse<{ message: string; id: number }>(response);
+}
+
+/**
+ * Download the caller's collection (`GET /api/polishes/export`) as CSV or JSON through the
+ * authenticated API. Save the result with `saveBlobAsFile` from `@/lib/collection-export`.
+ */
+export async function exportCollection(
+  format: CollectionExportFormat,
+  options?: CollectionExportOptions
+): Promise<DownloadedCollectionExport> {
+  return fetchCollectionExport(
+    format,
+    { fetch: (input, init) => fetch(input, init), apiBaseUrl: API_BASE_URL, getAuthHeaders: () => getAuthHeaders() },
+    options
+  );
 }
 
 /**
