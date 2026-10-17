@@ -1,4 +1,5 @@
 import type { CANONICAL_FINISHES } from "../constants/finishes";
+import type { PolishStatus } from "./inventory";
 
 export interface Polish {
   /** Canonical shade identifier (global across all users) */
@@ -41,6 +42,23 @@ export interface Polish {
   finishes?: FinishName[];
   collection?: string;
   quantity?: number;
+  /**
+   * Inventory status (`owned | wishlist | destash | archived`). Null/undefined when the caller
+   * has no inventory row for this shade (a plain catalog entry).
+   */
+  status?: PolishStatus | null;
+  /** Derived: `status === "owned"` and `triedAt` is null. False for catalog-only rows. */
+  isUntried?: boolean;
+  /** ISO-8601 time the user first tried the polish; null = never tried. */
+  triedAt?: string | null;
+  /** ISO-8601 time of the last logged wear (read-only for now; written by the mani log). */
+  lastWornAt?: string | null;
+  /** Number of logged wears (read-only for now). 0 for owned rows that were never worn. */
+  wearCount?: number | null;
+  /** Price paid per bottle (`user_inventory_item.purchase_price`, 2 decimals). */
+  purchasePrice?: number | null;
+  /** ISO 4217 currency code for `purchasePrice` (e.g. `USD`). */
+  purchaseCurrency?: string | null;
   size?: string;
   purchaseDate?: string;
   expirationDate?: string;
@@ -157,6 +175,18 @@ export interface PolishCreateRequest {
   finishes?: FinishName[];
   collection?: string;
   quantity?: number;
+  /**
+   * Inventory status. On create, when omitted, a new inventory row defaults to `owned` when
+   * `quantity > 0` and `wishlist` otherwise (the same rule the migration backfill used);
+   * on update, omitting it keeps the stored status.
+   */
+  status?: PolishStatus;
+  /** ISO-8601 date or date-time the polish was first tried; `null` clears it (back to untried). */
+  triedAt?: string | null;
+  /** Price paid, >= 0 with at most 2 decimals (max 99,999,999.99); `null` clears it. */
+  purchasePrice?: number | null;
+  /** ISO 4217 three-letter currency code (normalized to upper case); `null` clears it. */
+  purchaseCurrency?: string | null;
   size?: string;
   purchaseDate?: string;
   expirationDate?: string;
@@ -183,8 +213,14 @@ export interface PolishFilters {
   color?: string;
   tags?: string[];
   search?: string;
+  /** `collection` = only rows with `status === "owned"`. */
   scope?: "all" | "collection";
+  /** Legacy alias: `owned` ≡ `status=owned`, `wishlist` ≡ `status=wishlist`. Prefer `status`. */
   availability?: "all" | "owned" | "wishlist";
+  /** Only inventory rows with one of these statuses (sent as `status=owned,destash`). */
+  status?: PolishStatus[];
+  /** Only owned rows that were never tried (`untried=true`). */
+  untried?: boolean;
   tone?: "warm" | "cool" | "neutral";
   sortBy?:
     | "name"
