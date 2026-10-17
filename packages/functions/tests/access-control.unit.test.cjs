@@ -59,8 +59,11 @@ const KNOWN_SHADES = new Set([OWNED_SHADE_ID]);
 let sqlCalls = [];
 let transactionCount = 0;
 let state;
+/** When true, app_user.user_id comes back as a string, as node-postgres returns BIGINT (int8). */
+let stringUserIds = false;
 
 function resetState() {
+  stringUserIds = false;
   sqlCalls = [];
   transactionCount = 0;
   state = {
@@ -201,7 +204,8 @@ async function fakeQuery(via, sql, params = []) {
 
   // Auth: dev-bypass user lookup.
   if (/FROM\s+app_user/i.test(text) && /WHERE\s+user_id\s*=\s*\$1/i.test(text)) {
-    const user = USERS[Number(params[0])];
+    const found = USERS[Number(params[0])];
+    const user = found && stringUserIds ? { ...found, user_id: String(found.user_id) } : found;
     return { rows: user ? [user] : [], rowCount: user ? 1 : 0 };
   }
 
@@ -331,6 +335,8 @@ registerMock("@azure/functions", {
 });
 
 registerMock("jose", {
+  // functions/images treats jose errors as ordinary auth failures (instanceof check).
+  errors: { JOSEError: class JOSEError extends Error {} },
   createRemoteJWKSet: () => {},
   jwtVerify: async () => {
     throw new Error("JWT validation is not exercised in access-control tests");
@@ -388,11 +394,34 @@ class BlobAccessDeniedError extends Error {
     this.name = "BlobAccessDeniedError";
   }
 }
+/** Container segment of a blob URL (virtual-host or path-style), same parsing as lib/blob-storage. */
+function mockBlobContainer(storageUrl) {
+  let parsed;
+  try {
+    parsed = new URL(storageUrl);
+  } catch {
+    return "";
+  }
+  const segments = parsed.pathname.split("/").filter(Boolean);
+  const virtualHost = /^[^.]+\.blob\./i.test(parsed.hostname);
+  return (segments[virtualHost ? 0 : 1] ?? "").toLowerCase();
+}
+const MOCK_CATALOG_CONTAINER = "source-images";
+const MOCK_USER_MEDIA_CONTAINER = "nail-photos";
 registerMock("../lib/blob-storage", {
   BlobReadError,
   BlobAccessDeniedError,
-  defaultReadableContainers: () => ["source-images"],
-  readBlobFromStorageUrl: async (storageUrl) => {
+  defaultReadableContainers: () => [MOCK_CATALOG_CONTAINER],
+  userMediaContainer: () => MOCK_USER_MEDIA_CONTAINER,
+  // Same logic as lib/blob-storage, against the mocked catalog container above.
+  isCatalogStorageUrl: (storageUrl) => mockBlobContainer(storageUrl) === MOCK_CATALOG_CONTAINER,
+  isUserMediaStorageUrl: (storageUrl) => mockBlobContainer(storageUrl) === MOCK_USER_MEDIA_CONTAINER,
+  readBlobFromStorageUrl: async (storageUrl, options = {}) => {
+    // Honour the per-scope container allowlist like the real reader: deny before any read.
+    const allowed = options.allowedContainers ?? [MOCK_CATALOG_CONTAINER];
+    if (!allowed.includes(mockBlobContainer(storageUrl))) {
+      throw new BlobAccessDeniedError(`container not readable: ${mockBlobContainer(storageUrl)}`);
+    }
     sideEffects.blobReads.push(storageUrl);
     return {
       bytes: Buffer.from("private-image-bytes"),
@@ -1140,18 +1169,40 @@ describe("access control — capture sessions are scoped to the owner", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("images signed-id (requires #47)", () => {
-  // Expected id format after #47: `<base64url(storageUrl)>.<base64url(hmac)>`, keyed by
-  // IMAGE_PROXY_SIGNING_KEY. Valid ids are minted via the library so these tests do not
-  // depend on the exact HMAC construction.
-  const PRIVATE_URL = "https://swatchwatchacct.blob.core.windows.net/user-uploads/user-1/private-photo.png";
-  const OTHER_URL = "https://swatchwatchacct.blob.core.windows.net/user-uploads/user-2/other-photo.png";
+  // Server-minted ids are HMAC-signed and expiring (keyed by IMAGE_PROXY_SIGNING_KEY):
+  //   - public catalog ids:   `v2.<b64url(storageUrl)>.<exp base36>.<b64url(hmac)>`
+  //   - private owner-scoped: `v3.<b64url(storageUrl)>.<exp base36>.<owner base36>.<b64url(hmac)>` (#227)
+  // Valid ids are minted via the library so these tests do not depend on the exact HMAC
+  // construction, except where a test deliberately hand-signs one with the real key.
+  const CATALOG_URL = "https://swatchwatchacct.blob.core.windows.net/source-images/holotaco/a.png";
+  const PRIVATE_URL = "https://swatchwatchacct.blob.core.windows.net/nail-photos/user-1/private-photo.png";
+  const OTHER_URL = "https://swatchwatchacct.blob.core.windows.net/nail-photos/user-2/other-photo.png";
+
+  // lib/image-proxy (not mocked) decides catalog vs. private from SOURCE_IMAGE_CONTAINER at mint
+  // time; the mocked blob-storage reader uses the same two containers for its allowlists.
+  const ENV_KEYS = ["SOURCE_IMAGE_CONTAINER", "USER_MEDIA_CONTAINER"];
+  let savedEnv;
+  beforeEach(() => {
+    savedEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
+    process.env.SOURCE_IMAGE_CONTAINER = MOCK_CATALOG_CONTAINER;
+    process.env.USER_MEDIA_CONTAINER = MOCK_USER_MEDIA_CONTAINER;
+  });
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      if (savedEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = savedEnv[key];
+    }
+  });
 
   function b64url(input) {
     return Buffer.from(input).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
   }
 
-  function mintId(sourceUrl) {
-    const proxyUrl = imageProxy.toImageProxyUrl("http://localhost:7071/api/polishes", sourceUrl);
+  function mintId(sourceUrl, { ownerUserId, nowMs } = {}) {
+    const options = {};
+    if (ownerUserId !== undefined) options.ownerUserId = ownerUserId;
+    if (nowMs !== undefined) options.nowMs = nowMs;
+    const proxyUrl = imageProxy.toImageProxyUrl("http://localhost:7071/api/polishes", sourceUrl, options);
     const id = new URL(proxyUrl).pathname.split("/").pop();
     return decodeURIComponent(id);
   }
@@ -1171,19 +1222,33 @@ describe("images signed-id (requires #47)", () => {
     assert.deepEqual(sideEffects.blobReads, [], "blob storage must not be read for an unverified id");
   }
 
-  it("server-minted ids use the signed, expiring `v2.<payload>.<exp>.<signature>` format", () => {
-    const id = mintId(PRIVATE_URL);
+  it("server-minted catalog ids use the signed, expiring `v2.<payload>.<exp>.<signature>` format", () => {
+    const id = mintId(CATALOG_URL);
     assert.match(id, /^v2\.[A-Za-z0-9_-]+\.[0-9a-z]+\.[A-Za-z0-9_-]+$/);
   });
 
+  it("refuses to mint an id for private media without an owner (fail closed, #227)", () => {
+    assert.throws(() => mintId(PRIVATE_URL), imageProxy.ImageProxyScopeError);
+  });
+
   it("serves an image for a server-minted signed id (positive control)", async () => {
-    const res = await getImage(mintId(PRIVATE_URL));
+    const res = await getImage(mintId(CATALOG_URL));
     assert.equal(res.status, 200);
-    assert.deepEqual(sideEffects.blobReads, [PRIVATE_URL]);
+    assert.deepEqual(sideEffects.blobReads, [CATALOG_URL]);
+    assert.deepEqual(sqlCalls, [], "public ids perform no caller lookup");
+    assert.match(res.headers.get("Cache-Control"), /^public,/);
+    assert.equal(res.headers.get("Vary"), null, "public responses do not vary on Authorization");
+  });
+
+  it("public catalog ids stay anonymous: served with another user's token, no SQL", async () => {
+    const res = await getImage(mintId(CATALOG_URL), { userId: ATTACKER });
+    assert.equal(res.status, 200);
+    assert.deepEqual(sideEffects.blobReads, [CATALOG_URL]);
+    assert.deepEqual(sqlCalls, [], "public ids perform no caller lookup");
   });
 
   it("rejects a forged unsigned id (plain base64url of a storage URL)", async () => {
-    assertRejected(await getImage(b64url(PRIVATE_URL)));
+    assertRejected(await getImage(b64url(CATALOG_URL)));
   });
 
   // Forgeries below keep the full minted `v2.<payload>.<exp>.<signature>` envelope and change only
@@ -1194,30 +1259,30 @@ describe("images signed-id (requires #47)", () => {
   }
 
   it("rejects an id with an empty signature", async () => {
-    const { version, payload, exp } = envelope(mintId(PRIVATE_URL));
+    const { version, payload, exp } = envelope(mintId(CATALOG_URL));
     assertRejected(await getImage(`${version}.${payload}.${exp}.`));
   });
 
   it("rejects an id with a garbage signature", async () => {
-    const { version, payload, exp } = envelope(mintId(PRIVATE_URL));
+    const { version, payload, exp } = envelope(mintId(CATALOG_URL));
     assertRejected(await getImage(`${version}.${payload}.${exp}.${b64url("not-a-real-mac")}`));
   });
 
   it("rejects an id signed with the wrong key", async () => {
-    const { version, payload, exp } = envelope(mintId(PRIVATE_URL));
+    const { version, payload, exp } = envelope(mintId(CATALOG_URL));
     // Same message layout the server signs (expiry as decimal seconds; the id carries base36),
     // but the attacker's key.
     const expiresAt = Number.parseInt(exp, 36);
     const forgedMac = crypto
       .createHmac("sha256", "attacker-key")
-      .update(`swatchwatch:image-proxy:v2:${expiresAt}:${PRIVATE_URL}`)
+      .update(`swatchwatch:image-proxy:v2:${expiresAt}:${CATALOG_URL}`)
       .digest();
     const forgedMacOverPayload = crypto.createHmac("sha256", "attacker-key").update(payload).digest();
     // Control: the identical construction with the real key is accepted, so the rejections
     // below are caused by the key alone, not by a malformed id.
     const realMac = crypto
       .createHmac("sha256", process.env.IMAGE_PROXY_SIGNING_KEY)
-      .update(`swatchwatch:image-proxy:v2:${expiresAt}:${PRIVATE_URL}`)
+      .update(`swatchwatch:image-proxy:v2:${expiresAt}:${CATALOG_URL}`)
       .digest();
     assert.equal((await getImage(`${version}.${payload}.${exp}.${b64url(realMac)}`)).status, 200);
     sideEffects.blobReads.length = 0;
@@ -1226,39 +1291,164 @@ describe("images signed-id (requires #47)", () => {
   });
 
   it("rejects a valid signature transplanted onto a different URL", async () => {
-    // Keep OTHER_URL's version, expiry and signature; swap in PRIVATE_URL's payload only.
-    const { version, exp, signature } = envelope(mintId(OTHER_URL));
-    assertRejected(await getImage(`${version}.${b64url(PRIVATE_URL)}.${exp}.${signature}`));
+    // Keep a catalog id's version, expiry and signature; swap in another catalog URL's payload only.
+    const { version, exp, signature } = envelope(mintId(CATALOG_URL));
+    const otherCatalogUrl = CATALOG_URL.replace("/a.png", "/b.png");
+    assertRejected(await getImage(`${version}.${b64url(otherCatalogUrl)}.${exp}.${signature}`));
   });
 
   it("rejects a tampered signature (single character flipped)", async () => {
     // Flip the signature's FIRST character: its last base64url char carries unused bits, so a
     // change there can decode to the same MAC and make this test pass or fail by chance.
-    const { version, payload, exp, signature } = envelope(mintId(PRIVATE_URL));
+    const { version, payload, exp, signature } = envelope(mintId(CATALOG_URL));
     const tampered = `${version}.${payload}.${exp}.${(signature[0] === "A" ? "B" : "A") + signature.slice(1)}`;
     assertRejected(await getImage(tampered));
   });
 
-  // KNOWN GAP (#227): signed ids are bearer capabilities. They are not scoped to an owner and do
-  // not expire, and the route is anonymous, so anyone holding a server-minted id can fetch the
-  // blob with another user's token or with no Authorization header at all.
-  // These assertions PIN TODAY'S BEHAVIOR. When owner-scoped, expiring image URLs land (#227),
-  // flip them to expect a 401/403 (and `blobReads` to stay empty).
-  describe("known gap #227 — signed ids are not owner-scoped or expiring", () => {
-    it("serves the owner's private URL to a request carrying the ATTACKER's token", async () => {
-      const id = mintId(PRIVATE_URL); // minted for the owner's private blob
-      const res = await getImage(id, { userId: ATTACKER });
+  // Owner-scoped private ids (#227): a v3 id binds the owner's user id and a short expiry into
+  // the HMAC. Serving one requires the owner's bearer token (401 without a valid token, 403 for
+  // anyone else, admins included) and may only read USER_MEDIA_CONTAINER.
+  describe("owner-scoped private ids (#227)", () => {
+    function v3Envelope(id) {
+      const [version, payload, exp, owner, signature] = id.split(".");
+      assert.equal(version, "v3", `expected a v3 id, got ${id}`);
+      return { version, payload, exp, owner, signature };
+    }
+
+    /** Hand-sign an id with the REAL key, bypassing the mint-time catalog/owner checks. */
+    function realKeyMac(message) {
+      return b64url(crypto.createHmac("sha256", process.env.IMAGE_PROXY_SIGNING_KEY).update(message).digest());
+    }
+
+    /** Only the dev-bypass user lookup from authenticateRequest may hit the DB. */
+    function assertOnlyAuthLookup() {
+      assert.deepEqual(handlerCalls().map(describeCall), [], "private ids perform no DB work beyond auth");
+    }
+
+    it("serves the owner's private image to the owner, uncacheable by shared caches", async () => {
+      const id = mintId(PRIVATE_URL, { ownerUserId: OWNER });
+      assert.match(id, /^v3\.[A-Za-z0-9_-]+\.[0-9a-z]+\.[0-9a-z]+\.[A-Za-z0-9_-]+$/);
+      const res = await getImage(id, { userId: OWNER });
       assert.equal(res.status, 200);
       assert.deepEqual(sideEffects.blobReads, [PRIVATE_URL]);
-      assert.deepEqual(sqlCalls, [], "images handler performs no caller lookup");
+      const cacheControl = res.headers.get("Cache-Control");
+      assert.match(cacheControl, /^private,/);
+      assert.doesNotMatch(cacheControl, /public/);
+      assert.ok(
+        (res.headers.get("Vary") || "").split(",").map((v) => v.trim().toLowerCase()).includes("authorization"),
+        `Vary must include Authorization, got ${res.headers.get("Vary")}`
+      );
+      assertOnlyAuthLookup();
     });
 
-    it("serves the owner's private URL to a request with no Authorization header at all", async () => {
-      const id = mintId(PRIVATE_URL);
-      const res = await getImage(id);
+    it("serves the owner when app_user.user_id comes back as a string (BIGINT via node-postgres)", async () => {
+      stringUserIds = true;
+      const res = await getImage(mintId(PRIVATE_URL, { ownerUserId: OWNER }), { userId: OWNER });
       assert.equal(res.status, 200);
       assert.deepEqual(sideEffects.blobReads, [PRIVATE_URL]);
-      assert.deepEqual(sqlCalls, [], "images handler performs no caller lookup");
+      // ...and a string id still never matches another owner.
+      sideEffects.blobReads.length = 0;
+      const denied = await getImage(mintId(PRIVATE_URL, { ownerUserId: OWNER }), { userId: ATTACKER });
+      assert.equal(denied.status, 403);
+      assert.deepEqual(sideEffects.blobReads, []);
+    });
+
+    it("rejects an ADMIN token for another user's private id (no admin bypass, 403)", async () => {
+      const res = await getImage(mintId(PRIVATE_URL, { ownerUserId: OWNER }), { userId: ADMIN });
+      assert.equal(res.status, 403);
+      assert.equal(res.headers.get("Cache-Control"), "no-store");
+      assert.deepEqual(sideEffects.blobReads, []);
+    });
+
+    it("rejects a token for a user that no longer exists (401)", async () => {
+      const res = await getImage(mintId(PRIVATE_URL, { ownerUserId: OWNER }), { userId: 424242 });
+      assert.equal(res.status, 401);
+      assert.equal(res.headers.get("Cache-Control"), "no-store");
+      assert.deepEqual(sideEffects.blobReads, []);
+    });
+
+    it("rejects the owner's private id presented with the ATTACKER's token (403)", async () => {
+      const res = await getImage(mintId(PRIVATE_URL, { ownerUserId: OWNER }), { userId: ATTACKER });
+      assert.equal(res.status, 403);
+      assert.deepEqual(res.jsonBody, { error: "Forbidden" });
+      assert.equal(res.headers.get("Cache-Control"), "no-store");
+      assert.deepEqual(sideEffects.blobReads, []);
+      assertOnlyAuthLookup();
+    });
+
+    it("rejects the owner's private id with no Authorization header (401)", async () => {
+      const res = await getImage(mintId(PRIVATE_URL, { ownerUserId: OWNER }));
+      assert.equal(res.status, 401);
+      assert.deepEqual(res.jsonBody, { error: "Unauthorized" });
+      assert.equal(res.headers.get("Cache-Control"), "no-store");
+      assert.deepEqual(sideEffects.blobReads, []);
+      assert.deepEqual(sqlCalls, []);
+    });
+
+    it("rejects the owner's private id with a malformed Authorization header (401)", async () => {
+      const res = await getImage(mintId(PRIVATE_URL, { ownerUserId: OWNER }), {
+        headers: { authorization: "Bearer dev:1 OR 1=1" },
+      });
+      assert.equal(res.status, 401);
+      assert.deepEqual(sideEffects.blobReads, []);
+      assert.deepEqual(sqlCalls, []);
+    });
+
+    it("rejects an expired private id even with the owner's token (403)", async () => {
+      const id = mintId(PRIVATE_URL, { ownerUserId: OWNER, nowMs: Date.now() - 2 * 60 * 60 * 1000 });
+      const res = await getImage(id, { userId: OWNER });
+      assert.equal(res.status, 403);
+      assert.deepEqual(sideEffects.blobReads, []);
+      assert.deepEqual(sqlCalls, [], "expiry is checked before any auth lookup");
+    });
+
+    it("rejects a private id's signature transplanted onto another URL (403)", async () => {
+      // The attacker's own valid id for their own photo...
+      const attackerId = mintId(OTHER_URL, { ownerUserId: ATTACKER });
+      assert.equal((await getImage(attackerId, { userId: ATTACKER })).status, 200, "control");
+      sideEffects.blobReads.length = 0;
+      sqlCalls.length = 0;
+      // ...with only the payload swapped to the owner's photo.
+      const { version, exp, owner, signature } = v3Envelope(attackerId);
+      const forged = `${version}.${b64url(PRIVATE_URL)}.${exp}.${owner}.${signature}`;
+      const res = await getImage(forged, { userId: ATTACKER });
+      assert.equal(res.status, 403);
+      assert.deepEqual(sideEffects.blobReads, []);
+      assert.deepEqual(sqlCalls, [], "signature is checked before any auth lookup");
+    });
+
+    it("rejects a private id whose owner was swapped to the ATTACKER, even with the attacker's token (403)", async () => {
+      const { version, payload, exp, signature } = v3Envelope(mintId(PRIVATE_URL, { ownerUserId: OWNER }));
+      const forged = `${version}.${payload}.${exp}.${ATTACKER.toString(36)}.${signature}`;
+      const res = await getImage(forged, { userId: ATTACKER });
+      assert.equal(res.status, 403);
+      assert.deepEqual(sideEffects.blobReads, []);
+      assert.deepEqual(sqlCalls, []);
+    });
+
+    it("refuses a hand-signed public v2 id for a private URL: not in the v2 container allowlist (403)", async () => {
+      // A v2 id cannot be minted for a nail-photos URL; one built with the real key decodes
+      // (valid signature) but the public scope may only read the catalog container.
+      const { exp } = envelope(mintId(CATALOG_URL));
+      const expiresAt = Number.parseInt(exp, 36);
+      const forged = `v2.${b64url(PRIVATE_URL)}.${exp}.${realKeyMac(`swatchwatch:image-proxy:v2:${expiresAt}:${PRIVATE_URL}`)}`;
+      const res = await getImage(forged, { userId: OWNER });
+      assert.equal(res.status, 403);
+      assert.deepEqual(sideEffects.blobReads, []);
+      assert.deepEqual(sqlCalls, [], "public ids perform no caller lookup");
+    });
+
+    it("refuses a hand-signed private v3 id for a catalog URL: not in the v3 container allowlist (403)", async () => {
+      // Catalog URLs always mint v2; a v3 id for one, built with the real key and bound to the
+      // OWNER, authenticates but the private scope may only read USER_MEDIA_CONTAINER.
+      const { exp } = v3Envelope(mintId(PRIVATE_URL, { ownerUserId: OWNER }));
+      const expiresAt = Number.parseInt(exp, 36);
+      const mac = realKeyMac(`swatchwatch:image-proxy:v3:${expiresAt}:${OWNER}:${CATALOG_URL}`);
+      const forged = `v3.${b64url(CATALOG_URL)}.${exp}.${OWNER.toString(36)}.${mac}`;
+      const res = await getImage(forged, { userId: OWNER });
+      assert.equal(res.status, 403);
+      assert.deepEqual(sideEffects.blobReads, []);
+      assertOnlyAuthLookup();
     });
   });
 });

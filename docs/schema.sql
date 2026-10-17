@@ -196,8 +196,8 @@ CREATE TABLE label_claim (
 -- Media + swatches
 CREATE TABLE image_asset (
   image_id BIGSERIAL PRIMARY KEY,
-  owner_type TEXT NOT NULL, -- 'user'|'source'
-  owner_id BIGINT NOT NULL,
+  owner_type TEXT NOT NULL, -- 'user'|'source'; owner decides image-proxy scope: 'user' rows are served only through owner-scoped v3 ids (#227)
+  owner_id BIGINT NOT NULL, -- app_user.user_id when owner_type = 'user' (the v3 id's bound owner)
   storage_url TEXT NOT NULL,
   thumb_url TEXT,
   copyright_status TEXT NOT NULL DEFAULT 'user_uploaded',

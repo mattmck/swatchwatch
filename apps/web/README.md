@@ -36,7 +36,7 @@ src/app/
 │   │   ├── page.tsx              → /dashboard       Stats, recent additions (computed from full paginated inventory; "By Finish" counts a multi-finish polish once per finish)
 │   │   └── opengraph-image.tsx   → /dashboard OG image route
 │   └── polishes/
-│       ├── page.tsx              → /polishes         Global polish catalog + personal inventory overlay (server-side paging/filter/sort with URL-synced state; tone filter uses a fallback full-fetch path; single All/My Collection scope toggle; detail/edit flows carry `returnTo` context; swatch thumbnails open full image; admins see per-row "Recalc Hex" action)
+│       ├── page.tsx              → /polishes         Global polish catalog + personal inventory overlay (server-side paging/filter/sort with URL-synced state; search is debounced 350ms and refetches keep the page mounted, dimming the table instead of swapping in a spinner; tone filter uses a fallback full-fetch path; single All/My Collection scope toggle; detail/edit flows carry `returnTo` context; swatch thumbnails open full image; admins see per-row "Recalc Hex" action)
 │       ├── opengraph-image.tsx   → /polishes OG image route
 │       ├── new/page.tsx          → /polishes/new     Add polish form (multi-select finish chips built from all reference finish types, so admin-added finishes are selectable; a polish's saved finishes missing from the list stay visible and selected on edit; first selected = primary finish, sent as `finishes` + legacy `finish`)
 │       ├── detail/page.tsx       → /polishes/detail  Polish detail view + image preview + OKLCH profile + related shades

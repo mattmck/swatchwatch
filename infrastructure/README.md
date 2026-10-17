@@ -95,7 +95,7 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | PostgreSQL Database | `azurerm_postgresql_flexible_server_database.main` | `swatchwatch` database |
 | Storage Account | `azurerm_storage_account.main` | Blob storage for images |
 | Storage Container | `azurerm_storage_container.swatches` | Swatch photos |
-| Storage Container | `azurerm_storage_container.nail_photos` | Nail photos |
+| Storage Container | `azurerm_storage_container.nail_photos` | Nail photos (private user media). Name exposed to Functions as `USER_MEDIA_CONTAINER`; readable only through owner-scoped `v3` image ids (#227). |
 | Storage Container | `azurerm_storage_container.tfstate` | Terraform remote state container |
 | Log Analytics Workspace | `azurerm_log_analytics_workspace.main` | Centralized log storage/query backend (daily quota = `appinsights_daily_cap_gb`) |
 | Application Insights | `azurerm_application_insights.main` | Function telemetry, traces, requests, and exceptions (daily cap = `appinsights_daily_cap_gb`) |
