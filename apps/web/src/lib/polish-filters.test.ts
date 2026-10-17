@@ -58,6 +58,7 @@ describe("filterPolishesForList", () => {
       notes: "rainbow sparkle",
       finish: "holographic",
       quantity: 2,
+      status: "owned",
       vendorHex: "#8B1E7A",
     }),
     polish({
@@ -67,6 +68,7 @@ describe("filterPolishesForList", () => {
       color: "Pale Pink",
       finish: "creme",
       quantity: 0,
+      status: "wishlist",
       detectedHex: "#F8D5E1",
     }),
     polish({
@@ -78,6 +80,7 @@ describe("filterPolishesForList", () => {
       notes: "dramatic shift",
       finish: "multichrome",
       quantity: 1,
+      status: "owned",
       nameHex: "#2D1016",
     }),
   ];
@@ -220,6 +223,35 @@ describe("filterPolishesForList", () => {
     assert.deepEqual(wishlistTakesPrecedence.map((p) => p.id), ["brand"]);
   });
 
+  it("derives ownership and wishlist from status, not quantity (issue #261)", () => {
+    const rows = [
+      polish({ id: "owned", status: "owned", quantity: 0 }),
+      polish({ id: "wishlist", status: "wishlist", quantity: 2 }),
+      polish({ id: "destash", status: "destash", quantity: 1 }),
+      polish({ id: "catalog" }),
+    ];
+    const base = {
+      polishes: rows,
+      search: "",
+      toneFilter: "all" as const,
+      brandFilter: "all",
+      finishFilter: "all",
+    };
+    assert.deepEqual(
+      filterPolishesForList({ ...base, includeAll: false, availabilityFilter: "all" }).map((p) => p.id),
+      ["owned"]
+    );
+    assert.deepEqual(
+      filterPolishesForList({ ...base, includeAll: true, availabilityFilter: "owned" }).map((p) => p.id),
+      ["owned"]
+    );
+    assert.deepEqual(
+      filterPolishesForList({ ...base, includeAll: true, availabilityFilter: "wishlist" }).map((p) => p.id),
+      ["wishlist"],
+      "catalog rows and other statuses are not on the wishlist"
+    );
+  });
+
   it("intersects multiple filters", () => {
     const result = filterPolishesForList({
       polishes,
@@ -251,9 +283,9 @@ describe("matchesFinishFilter (multi-finish)", () => {
 
   it("filterPolishesForList keeps multi-finish shades for any of their finishes", () => {
     const rows = [
-      polish({ id: "a", quantity: 1, finish: "shimmer", finishes: ["shimmer", "holographic"] }),
-      polish({ id: "b", quantity: 1, finish: "holographic" }),
-      polish({ id: "c", quantity: 1, finish: "creme", finishes: ["creme"] }),
+      polish({ id: "a", quantity: 1, status: "owned", finish: "shimmer", finishes: ["shimmer", "holographic"] }),
+      polish({ id: "b", quantity: 1, status: "owned", finish: "holographic" }),
+      polish({ id: "c", quantity: 1, status: "owned", finish: "creme", finishes: ["creme"] }),
     ];
     const result = filterPolishesForList({
       polishes: rows,

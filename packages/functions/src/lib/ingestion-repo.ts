@@ -1,7 +1,7 @@
 import { query, transaction } from "./db";
 import { ConnectorProductRecord } from "./connectors/types";
 import { SUPPORTED_SOURCES } from "./connectors/types";
-import { defaultShopifyBaseUrl } from "./connectors/shopify-generic";
+import { defaultShopifyBaseUrl, isShopifySourceEnabledByDefault } from "./connectors/shopify-generic";
 import { detectHexWithAzureOpenAI, type HexDetectionOptions } from "./ai-color-detection";
 import {
   chooseUploadedImageForDetection,
@@ -33,6 +33,7 @@ import {
   type FinishCatalog,
 } from "./finishes";
 import { PoolClient } from "pg";
+import { recordShadeSourceProduct } from "./buy-link";
 
 export interface DataSourceRecord {
   dataSourceId: number;
@@ -101,11 +102,18 @@ export interface HoloTacoMaterializationOptions {
   detectHexOnSuspiciousOnly?: boolean;
   useBatchForHexDetection?: boolean;
   batchMinImages?: number;
+  /**
+   * Job log sink (the worker's JobLogger). It receives milestones only: phase start/finish
+   * with elapsed time, one summary per call, and every per-record warning/error. Step-by-step
+   * per-record lines stay console-only so a whole-store run fits the bounded job log.
+   */
   progressLogger?: {
     info: (message: string, data?: Record<string, unknown>) => void;
     warn: (message: string, data?: Record<string, unknown>) => void;
     error: (message: string, data?: Record<string, unknown>) => void;
   };
+  /** Names the records in the summary line, e.g. "Records 11–20 of 250 on page 3". */
+  chunkLabel?: string;
 }
 
 interface MakeupColorVariant {
@@ -635,16 +643,6 @@ async function prepareHoloTacoImageData(
   console.log(
     `${sourceLogPrefix} Image preparation: processing ${records.length} records, detectHexFromImage=${detectHexFromImage}, detectHexOnSuspiciousOnly=${detectHexOnSuspiciousOnly}, estimatedBatchCandidates=${estimatedBatchCandidates}, useBatchForHexDetection=${useBatchForHexDetection}, batchMinImages=${batchMinImages}`
   );
-  progressLogger?.info(`${sourceLogPrefix} Image preparation config`, {
-    records: records.length,
-    detectHexFromImage,
-    detectHexOnSuspiciousOnly,
-    estimatedBatchCandidates,
-    useBatchForHexDetection,
-    batchMinImages,
-    vendorHexRecords: suspiciousContext.hexRecordCount,
-    vendorHexTemplateDefaults: Array.from(suspiciousContext.templateDefaults),
-  });
   if (detectHexOnSuspiciousOnly && suspiciousContext.templateDefaults.size > 0) {
     const defaults = Array.from(suspiciousContext.templateDefaults)
       .map((hex) => `${hex}×${suspiciousContext.counts.get(hex) ?? 0}`)
@@ -721,11 +719,17 @@ async function prepareHoloTacoImageData(
         : []
     )
   );
-  if (storedImages.size > 0) {
-    progressLogger?.info(
-      `${sourceLogPrefix} Reusing ${storedImages.size} stored image(s) whose source URL is unchanged`
-    );
-  }
+  progressLogger?.info(`${sourceLogPrefix} Image upload started for ${records.length} record(s)`, {
+    records: records.length,
+    storedImagesReusable: storedImages.size,
+    detectHexFromImage,
+    detectHexOnSuspiciousOnly,
+    estimatedBatchCandidates,
+    useBatchForHexDetection,
+    batchMinImages,
+    vendorHexRecords: suspiciousContext.hexRecordCount,
+    vendorHexTemplateDefaults: Array.from(suspiciousContext.templateDefaults),
+  });
 
   const storeSourceImage = async (
     sourceImageUrl: string,
@@ -768,10 +772,10 @@ async function prepareHoloTacoImageData(
 
       if (!holo.name || !isHttpUrl(holo.primaryImageUrl)) {
         if (holo.name) {
-          console.log(`${sourceLogPrefix} Skipping record ${record.externalId}: invalid image URL`, {
-            name: holo.name,
-            imageUrl: holo.primaryImageUrl,
-          });
+          const noImageMessage = `${sourceLogPrefix} ${record.externalId} has no valid image URL; materializing without an image`;
+          const noImageData = { externalId: record.externalId, name: holo.name, imageUrl: holo.primaryImageUrl };
+          console.log(noImageMessage, noImageData);
+          progressLogger?.warn(noImageMessage, noImageData);
         }
         return notCandidate;
       }
@@ -797,6 +801,11 @@ async function prepareHoloTacoImageData(
         );
       } catch (err) {
         console.error(`${sourceLogPrefix} Primary image upload failed for ${record.externalId}:`, String(err));
+        progressLogger?.warn(`${sourceLogPrefix} Primary image upload failed for ${record.externalId}`, {
+          externalId: record.externalId,
+          imageUrl: holo.primaryImageUrl,
+          error: String(err),
+        });
       }
 
       // Upload additional images
@@ -813,6 +822,11 @@ async function prepareHoloTacoImageData(
           }
         } catch (err) {
           console.error(`${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId}:`, String(err));
+          progressLogger?.warn(`${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId}`, {
+            externalId: record.externalId,
+            imageUrl: imgUrl,
+            error: String(err),
+          });
         }
       }
 
@@ -834,6 +848,19 @@ async function prepareHoloTacoImageData(
   const uploadResults = await Promise.all(uploadTasks);
   const uploadElapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`${sourceLogPrefix} Phase 1 (parallel image upload) completed in ${uploadElapsed}s for ${records.length} records`);
+  const uploadCandidates = uploadResults.filter((result) => result.isCandidate);
+  const uploadSummary = {
+    durationMs: Date.now() - startTime,
+    candidates: uploadCandidates.length,
+    primaryUploaded: uploadCandidates.filter((result) => result.storageUrl && !result.primaryReused).length,
+    primaryFailed: uploadCandidates.filter((result) => !result.storageUrl).length,
+    additionalUploaded: uploadResults.reduce((sum, result) => sum + result.additionalUploaded, 0),
+    imagesReused: uploadResults.reduce((sum, result) => sum + result.imagesReused, 0),
+  };
+  progressLogger?.info(
+    `${sourceLogPrefix} Image upload finished in ${uploadElapsed}s: ${uploadSummary.primaryUploaded} uploaded, ${uploadSummary.imagesReused} reused, ${uploadSummary.primaryFailed} failed`,
+    uploadSummary
+  );
 
   // AI hex detection runs on the image most likely to show the polish on a nail
   // (alt-text ranking, see image-selection.ts); the vendor's primary image stays
@@ -888,10 +915,20 @@ async function prepareHoloTacoImageData(
         )
       : new Set<string>();
   if (unchangedWithHex.size > 0) {
-    progressLogger?.info(
+    console.log(
       `${sourceLogPrefix} Skipping AI for ${unchangedWithHex.size} record(s) with an unchanged image and an existing detected hex`
     );
   }
+  const detectionStartedAt = Date.now();
+  const detectionConcurrency = getHexDetectionConcurrency();
+  progressLogger?.info(
+    `${sourceLogPrefix} Hex detection and database writes started for ${uploadResults.length} record(s)`,
+    {
+      mode: !detectHexFromImage ? "off" : useBatchForHexDetection ? "batch" : "sync",
+      concurrency: detectionConcurrency,
+      skippedUnchanged: unchangedWithHex.size,
+    }
+  );
 
   const prepareRecordImage = async (result: ImageUploadResult): Promise<HoloTacoPreparedImage> => {
     const { record, holo, additionalImages } = result;
@@ -948,7 +985,6 @@ async function prepareHoloTacoImageData(
         candidatesWithAlt: holo.images.filter((image) => Boolean(image.alt)).length,
       };
       console.log(selectionMessage, selectionData);
-      progressLogger?.info(selectionMessage, selectionData);
     }
 
     if (shouldRunAiDetection && holo && unchangedWithHex.has(record.externalId)) {
@@ -992,9 +1028,7 @@ async function prepareHoloTacoImageData(
         });
         metrics.batchRequestsQueued += 1;
         const queuedMessage = `${sourceLogPrefix} ${record.externalId} [ai-color-detection] Queued for batch submission`;
-        console.log(queuedMessage);
-        progressLogger?.info(queuedMessage, {
-          externalId: record.externalId,
+        console.log(queuedMessage, {
           colorName: holo.name,
           vendorHex: holo.vendorHex,
           ...(detectHexOnSuspiciousOnly
@@ -1006,29 +1040,24 @@ async function prepareHoloTacoImageData(
           const suspiciousMessage = detectHexOnSuspiciousOnly
             ? `${sourceLogPrefix} Vendor hex (${holo.vendorHex}) is suspicious (${vendorHexVerdict?.reason}), running AI detection for ${record.externalId}`
             : `${sourceLogPrefix} Vendor hex present (${holo.vendorHex}), running AI detection for ${record.externalId}`;
-          console.log(suspiciousMessage);
-          if (detectHexOnSuspiciousOnly) {
-            progressLogger?.info(suspiciousMessage, {
-              externalId: record.externalId,
-              colorName: holo.name,
-              vendorHex: holo.vendorHex,
-              reason: vendorHexVerdict?.reason ?? null,
-              detail: vendorHexVerdict?.detail ?? null,
-            });
-          }
+          console.log(
+            suspiciousMessage,
+            detectHexOnSuspiciousOnly
+              ? { reason: vendorHexVerdict?.reason ?? null, detail: vendorHexVerdict?.detail ?? null }
+              : ""
+          );
         } else {
           console.log(`${sourceLogPrefix} No vendor hex for ${record.externalId}, running AI detection`);
         }
         try {
           const detection = await detectHexWithAzureOpenAI(imageForAi, {
             onLog: (level, message, data) => {
+              // Info lines are already on the console (emitLog); only problems reach the job log.
               const withRecord = `${sourceLogPrefix} ${record.externalId} ${message}`;
               if (level === "error") {
                 progressLogger?.error(withRecord, data);
               } else if (level === "warn") {
                 progressLogger?.warn(withRecord, data);
-              } else {
-                progressLogger?.info(withRecord, data);
               }
             },
             vendorContext: {
@@ -1057,7 +1086,6 @@ async function prepareHoloTacoImageData(
             };
             const tokenUsageMessage = `${sourceLogPrefix} ${record.externalId} [ai-color-detection] Token usage`;
             console.log(tokenUsageMessage, tokenUsageData);
-            progressLogger?.info(tokenUsageMessage, tokenUsageData);
           }
           console.log(`${sourceLogPrefix} AI detection result for ${record.externalId}:`, { detectedHex: detection.hex, vendorHex: holo.vendorHex });
           if (detection.hex) {
@@ -1078,7 +1106,6 @@ async function prepareHoloTacoImageData(
             };
             const successMessage = `${sourceLogPrefix} ${record.externalId} [ai-color-detection] Success`;
             console.log(successMessage, successData);
-            progressLogger?.info(successMessage, successData);
           } else {
             console.log(`${sourceLogPrefix} No hex returned from AI for ${record.externalId}`);
           }
@@ -1090,6 +1117,11 @@ async function prepareHoloTacoImageData(
         } catch (err) {
           metrics.hexDetectionFailures += 1;
           console.error(`${sourceLogPrefix} AI hex detection failed for ${record.externalId}:`, String(err));
+          progressLogger?.warn(`${sourceLogPrefix} AI hex detection failed for ${record.externalId}`, {
+            externalId: record.externalId,
+            colorName: holo.name,
+            error: String(err),
+          });
         }
       }
     } else {
@@ -1097,11 +1129,6 @@ async function prepareHoloTacoImageData(
       if (holo && detectHexOnSuspiciousOnly && holo.vendorHex && vendorHexVerdict && !vendorHexVerdict.suspicious) {
         const trustedMessage = `${sourceLogPrefix} Skipping AI for ${record.externalId}: vendor hex ${holo.vendorHex} not suspicious`;
         console.log(trustedMessage);
-        progressLogger?.info(trustedMessage, {
-          externalId: record.externalId,
-          colorName: holo.name,
-          vendorHex: holo.vendorHex,
-        });
       } else {
         console.log(`${sourceLogPrefix} Skipping AI detection for ${record.externalId} (detectHexFromImage=${detectHexFromImage})`);
       }
@@ -1118,7 +1145,7 @@ async function prepareHoloTacoImageData(
     };
   };
 
-  const detectionLimit = pLimit(getHexDetectionConcurrency());
+  const detectionLimit = pLimit(detectionConcurrency);
   // Tasks never reject (an unexpected error just drops that record's detection), so a DB
   // callback throwing below cannot leave a rejected promise unobserved.
   const preparedTasks = uploadResults.map((result) =>
@@ -1129,6 +1156,10 @@ async function prepareHoloTacoImageData(
           `${sourceLogPrefix} Image preparation failed for ${result.record.externalId}:`,
           String(err)
         );
+        progressLogger?.error(`${sourceLogPrefix} Image preparation failed for ${result.record.externalId}`, {
+          externalId: result.record.externalId,
+          error: String(err),
+        });
         return {
           storageUrl: result.storageUrl,
           checksumSha256: result.checksumSha256,
@@ -1162,9 +1193,23 @@ async function prepareHoloTacoImageData(
   }
 
   console.log(`${sourceLogPrefix} Image preparation complete:`, metrics);
+  const detectionElapsed = ((Date.now() - detectionStartedAt) / 1000).toFixed(1);
+  progressLogger?.info(
+    `${sourceLogPrefix} Hex detection and database writes finished in ${detectionElapsed}s`,
+    {
+      durationMs: Date.now() - detectionStartedAt,
+      hexDetected: metrics.hexDetected,
+      hexDetectionFailures: metrics.hexDetectionFailures,
+      hexDetectionSkipped: metrics.hexDetectionSkipped,
+      hexDetectionSkippedUnchanged: metrics.hexDetectionSkippedUnchanged,
+      batchRequestsQueued: metrics.batchRequestsQueued,
+      hexDetectionTotalTokens: metrics.hexDetectionTotalTokens,
+    }
+  );
 
   let aiBatch: HoloTacoAiBatchDetails | null = null;
   if (useBatchForHexDetection && queuedBatchRequests.length > 0) {
+    const batchStartedAt = Date.now();
     try {
       const batchResult = await submitVisionHexBatch(queuedBatchRequests);
       aiBatch = {
@@ -1177,9 +1222,13 @@ async function prepareHoloTacoImageData(
         deployment: batchResult.deployment,
         promptVersion: batchResult.promptVersion,
       };
-      const submittedMessage = `${sourceLogPrefix} Submitted Azure OpenAI batch ${batchResult.batchId} with ${batchResult.requestCount} request(s)`;
+      const batchElapsed = ((Date.now() - batchStartedAt) / 1000).toFixed(1);
+      const submittedMessage = `${sourceLogPrefix} Submitted Azure OpenAI batch ${batchResult.batchId} with ${batchResult.requestCount} request(s) in ${batchElapsed}s`;
       console.log(submittedMessage);
-      progressLogger?.info(submittedMessage, aiBatch as unknown as Record<string, unknown>);
+      progressLogger?.info(submittedMessage, {
+        ...(aiBatch as unknown as Record<string, unknown>),
+        durationMs: Date.now() - batchStartedAt,
+      });
     } catch (error) {
       // Batch submission failed: degrade to synchronous detection for this run so the
       // job still materializes detected hex instead of failing outright. Detections are
@@ -1207,8 +1256,6 @@ async function prepareHoloTacoImageData(
                     progressLogger?.error(withRecord, data);
                   } else if (level === "warn") {
                     progressLogger?.warn(withRecord, data);
-                  } else {
-                    progressLogger?.info(withRecord, data);
                   }
                 },
               });
@@ -1230,6 +1277,10 @@ async function prepareHoloTacoImageData(
                 `${sourceLogPrefix} Fallback AI hex detection failed for ${queued.customId}:`,
                 String(detectionError)
               );
+              progressLogger?.warn(
+                `${sourceLogPrefix} Fallback AI hex detection failed for ${queued.customId}`,
+                { externalId: queued.customId, error: String(detectionError) }
+              );
             }
 
             // Same per-slot pacing as the non-batch path to reduce rate-limit failures.
@@ -1244,9 +1295,13 @@ async function prepareHoloTacoImageData(
           fallbackDetections,
           options?.overwriteDetectedHex === true
         );
-        const appliedMessage = `${sourceLogPrefix} Applied ${applyMetrics.applied} synchronous fallback detection(s)`;
+        const fallbackElapsed = ((Date.now() - batchStartedAt) / 1000).toFixed(1);
+        const appliedMessage = `${sourceLogPrefix} Applied ${applyMetrics.applied} synchronous fallback detection(s) in ${fallbackElapsed}s`;
         console.log(appliedMessage, applyMetrics);
-        progressLogger?.info(appliedMessage, applyMetrics as unknown as Record<string, unknown>);
+        progressLogger?.info(appliedMessage, {
+          ...(applyMetrics as unknown as Record<string, unknown>),
+          durationMs: Date.now() - batchStartedAt,
+        });
       }
     }
   }
@@ -1287,10 +1342,14 @@ async function createDataSourceIfMissing(name: string): Promise<DataSourceRecord
   }
 
   const baseUrl = defaultShopifyBaseUrl(name);
+  // Sources awaiting owner approval are provisioned disabled (hidden from the admin UI).
+  const enabled = isShopifySourceEnabledByDefault(name);
   const metadata = {
     priority: "medium",
     mvp: "yes",
-    notes: "Auto-provisioned Shopify source from supported connector list.",
+    notes: enabled
+      ? "Auto-provisioned Shopify source from supported connector list."
+      : "Auto-provisioned Shopify source, disabled pending owner approval.",
     autoProvisioned: true,
   };
 
@@ -1300,10 +1359,10 @@ async function createDataSourceIfMissing(name: string): Promise<DataSourceRecord
     baseUrl: string | null;
   }>(
     `INSERT INTO data_source (name, source_type, base_url, enabled, metadata)
-     VALUES ($1, 'api', $2, true, $3::jsonb)
+     VALUES ($1, 'api', $2, $3, $4::jsonb)
      ON CONFLICT (name) DO NOTHING
      RETURNING data_source_id AS "dataSourceId", name, base_url AS "baseUrl"`,
-    [name, baseUrl, JSON.stringify(metadata)]
+    [name, baseUrl, enabled, JSON.stringify(metadata)]
   );
 
   if (inserted.rows.length > 0) {
@@ -1892,7 +1951,9 @@ export async function listIngestionJobs(
 
 export async function materializeMakeupApiRecords(
   userId: number,
-  records: ConnectorProductRecord[]
+  records: ConnectorProductRecord[],
+  /** MakeupAPI data_source id; when set, each shade is linked to its product (buy links, #267). */
+  dataSourceId?: number
 ): Promise<MakeupApiMaterializationMetrics> {
   const finishCatalog = await loadFinishCatalog();
   return transaction(async (client) => {
@@ -1970,6 +2031,7 @@ export async function materializeMakeupApiRecords(
              AND lower(sh.shade_name_canonical) = lower($3)
              AND coalesce(sh.collection, '') = ''
              AND ui.quantity = 0
+             AND ui.status = 'wishlist'
              AND ui.notes LIKE 'Imported from MakeupAPI%'
              AND ui.tags @> ARRAY['makeupapi']::text[]`,
           [userId, brandId, makeup.name]
@@ -1982,7 +2044,8 @@ export async function materializeMakeupApiRecords(
              AND lower(sh.shade_name_canonical) = lower($2)
              AND coalesce(sh.collection, '') = ''
              AND NOT EXISTS (SELECT 1 FROM user_inventory_item ui WHERE ui.shade_id = sh.shade_id)
-             AND NOT EXISTS (SELECT 1 FROM sku s WHERE s.shade_id = sh.shade_id)`,
+             AND NOT EXISTS (SELECT 1 FROM sku s WHERE s.shade_id = sh.shade_id)
+             AND NOT EXISTS (SELECT 1 FROM manicure_polish mp WHERE mp.shade_id = sh.shade_id)`,
           [brandId, makeup.name]
         );
       }
@@ -2024,6 +2087,10 @@ export async function materializeMakeupApiRecords(
           shadesCreated += 1;
         }
 
+        if (dataSourceId !== undefined) {
+          await recordShadeSourceProduct(client, shadeId, dataSourceId, record.externalId);
+        }
+
         // Write color data to shade (product-level)
         const resolvedColorName = variant.name || makeup.name;
         const resolvedVendorHex = variant.hex;
@@ -2036,8 +2103,9 @@ export async function materializeMakeupApiRecords(
              color_name = COALESCE($2, color_name),
              vendor_hex = COALESCE($3, vendor_hex),
              finishes = COALESCE($4::text[], finishes),
-             -- Catalog data confirms a user-submitted shade: promote it to the shared catalog.
-             status = CASE WHEN status = 'user_submitted' THEN 'active' ELSE status END,
+             -- Catalog data confirms a user-submitted shade: promote it to the shared catalog
+             -- (never one an admin retired by merging it into another shade).
+             status = CASE WHEN status = 'user_submitted' AND merged_into_shade_id IS NULL THEN 'active' ELSE status END,
              updated_at = now()
            WHERE shade_id = $1`,
           [shadeId, resolvedColorName, resolvedVendorHex, mergedFinishes]
@@ -2059,8 +2127,8 @@ export async function materializeMakeupApiRecords(
         if (inventory.rows.length === 0) {
           await client.query(
             `INSERT INTO user_inventory_item
-               (user_id, shade_id, quantity, notes, tags)
-             VALUES ($1, $2, 0, $3, ARRAY['imported','makeupapi']::text[])`,
+               (user_id, shade_id, quantity, status, notes, tags)
+             VALUES ($1, $2, 0, 'wishlist', $3, ARRAY['imported','makeupapi']::text[])`,
             [userId, shadeId, importNote]
           );
           inventoryInserted += 1;
@@ -2206,6 +2274,9 @@ async function materializePreparedHoloTacoRecord(
     delta.shadesCreated += 1;
   }
 
+  // Remember which product this shade came from (drives the "Buy from brand" link, #267).
+  await recordShadeSourceProduct(client, shadeId, dataSourceId, record.externalId);
+
   const importNote = `Imported from ${sourceLogPrefix.replace(/[\[\]]/g, "")} external_id=${record.externalId}`;
   const vendorHex = holo.vendorHex;
   const detectedHex = preparedImage.detectedHex || null;
@@ -2295,7 +2366,7 @@ async function materializePreparedHoloTacoRecord(
            9
          )},
          -- Catalog data confirms a user-submitted shade: promote it to the shared catalog.
-         status = CASE WHEN status = 'user_submitted' THEN 'active' ELSE status END,
+         status = CASE WHEN status = 'user_submitted' AND merged_into_shade_id IS NULL THEN 'active' ELSE status END,
          updated_at = now()
      WHERE shade_id = $1`,
     [
@@ -2326,8 +2397,8 @@ async function materializePreparedHoloTacoRecord(
     console.log(`${sourceLogPrefix} Inserting new inventory item for shade ${shadeId}`);
     await client.query(
       `INSERT INTO user_inventory_item
-         (user_id, shade_id, quantity, notes, tags)
-       VALUES ($1, $2, 0, $3, $4::text[])`,
+         (user_id, shade_id, quantity, status, notes, tags)
+       VALUES ($1, $2, 0, 'wishlist', $3, $4::text[])`,
       [userId, shadeId, importNote, sourceTags]
     );
     delta.inventoryInserted += 1;
@@ -2494,6 +2565,35 @@ async function materializePreparedHoloTacoRecord(
   return delta;
 }
 
+/**
+ * One job-log line per materialized chunk, e.g.
+ * `Records 11–20 of 250 on page 3: 10 shades (2 new), 8 hex detected, 0 upload failures, 41.0s`.
+ */
+export function formatMaterializationSummary(
+  label: string,
+  metrics: Pick<
+    HoloTacoMaterializationMetrics,
+    "processed" | "shadesCreated" | "hexDetected" | "imageUploadFailures" | "skipped"
+  > & { hexDetectionFailures?: number; batchRequestsQueued?: number },
+  durationMs: number
+): string {
+  const parts = [
+    `${metrics.processed} shade${metrics.processed === 1 ? "" : "s"} (${metrics.shadesCreated} new)`,
+    `${metrics.hexDetected} hex detected`,
+  ];
+  if (metrics.batchRequestsQueued) {
+    parts.push(`${metrics.batchRequestsQueued} queued for batch detection`);
+  }
+  if (metrics.hexDetectionFailures) {
+    parts.push(`${metrics.hexDetectionFailures} hex detection failures`);
+  }
+  parts.push(`${metrics.imageUploadFailures} upload failures`);
+  if (metrics.skipped) {
+    parts.push(`${metrics.skipped} skipped`);
+  }
+  return `${label}: ${parts.join(", ")}, ${(durationMs / 1000).toFixed(1)}s`;
+}
+
 export async function materializeHoloTacoRecords(
   userId: number,
   dataSourceId: number,
@@ -2502,6 +2602,7 @@ export async function materializeHoloTacoRecords(
   sourceLogPrefix: string = "[HoloTaco]"
 ): Promise<HoloTacoMaterializationMetrics> {
   const overwriteDetectedHex = options?.overwriteDetectedHex === true;
+  const startedAt = Date.now();
   let processed = 0;
   let brandsCreated = 0;
   let shadesCreated = 0;
@@ -2549,6 +2650,12 @@ export async function materializeHoloTacoRecords(
       hexOverwritten += delta.hexOverwritten;
       swatchesLinked += delta.swatchesLinked;
       skipped += delta.skipped;
+      if (delta.skipped > 0) {
+        options?.progressLogger?.warn(
+          `${sourceLogPrefix} Skipped record ${record.externalId}: no normalized data or shade name`,
+          { externalId: record.externalId }
+        );
+      }
     }
   );
 
@@ -2566,5 +2673,14 @@ export async function materializeHoloTacoRecords(
   };
 
   console.log(`${sourceLogPrefix} Materialization complete:`, result);
+  const durationMs = Date.now() - startedAt;
+  options?.progressLogger?.info(
+    `${sourceLogPrefix} ${formatMaterializationSummary(
+      options?.chunkLabel ?? `${records.length} record(s)`,
+      result,
+      durationMs
+    )}`,
+    { ...result, durationMs }
+  );
   return result;
 }

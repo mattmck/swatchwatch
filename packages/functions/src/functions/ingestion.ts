@@ -625,7 +625,7 @@ export async function processIngestionJobQueueMessage(
     logger.updateBaseMetrics(withPipelineMetrics(requestedMetrics, "running", stage, {
       queuedAt: payload.queuedAt,
     }));
-    logger.info(`Looking up data source: ${payload.request.source}`);
+    context.log(`Job ${payload.jobId} looking up data source: ${payload.request.source}`);
 
     const source = await getDataSourceByName(payload.request.source);
     if (!source) {
@@ -748,12 +748,12 @@ export async function processIngestionJobQueueMessage(
         checkpointAfter: IngestionCheckpoint;
         /** Continuation for the poller to enqueue after the batch; null if no work remains. */
         resumeMessage: IngestionJobQueueMessage | null;
+        /** Names these records in the job log, e.g. "Records 11–20 of 250 on page 3". */
+        chunkLabel: string;
       }
     ): Promise<boolean> => {
       connectorMetadata = { ...connectorMetadata, ...connectorResult.metadata };
       totalRecordsProcessed += connectorResult.records.length;
-
-      logger.info(`Connector returned ${connectorResult.records.length} records`, connectorResult.metadata);
 
       // Upsert external products
       stage = "upsert_external_products";
@@ -761,11 +761,15 @@ export async function processIngestionJobQueueMessage(
         queuedAt: payload.queuedAt,
         ...connectorMetadata,
       }));
-      logger.info(`Upserting ${connectorResult.records.length} external products`);
+      context.log(`Job ${payload.jobId} upserting ${connectorResult.records.length} external products`);
 
+      const upsertStartedAt = Date.now();
       const persistenceMetrics = await upsertExternalProducts(source.dataSourceId, connectorResult.records);
       mergeMetrics(persistenceMetricsAggregate, persistenceMetrics as unknown as Record<string, unknown>);
-      logger.info(`Upsert complete`, persistenceMetrics as unknown as Record<string, unknown>);
+      logger.info(`${unit.chunkLabel}: upserted ${connectorResult.records.length} external products`, {
+        ...(persistenceMetrics as unknown as Record<string, unknown>),
+        durationMs: Date.now() - upsertStartedAt,
+      });
 
       let materializationMetrics: Record<string, unknown> | null = null;
 
@@ -786,7 +790,8 @@ export async function processIngestionJobQueueMessage(
         try {
           materializationMetrics = (await materializeMakeupApiRecords(
             payload.userId,
-            connectorResult.records
+            connectorResult.records,
+            source.dataSourceId
           )) as unknown as Record<string, unknown>;
 
           const materializeDuration = Date.now() - materializeStartTime;
@@ -815,7 +820,9 @@ export async function processIngestionJobQueueMessage(
         }));
 
         const materializeStartTime = Date.now();
-        logger.info(`Materializing ${payload.request.source} records to inventory`, {
+        // The materializer logs the phases (image upload, hex detection + writes, batch
+        // submission) and one summary line for the chunk to the job log.
+        context.log(`Job ${payload.jobId} materializing ${payload.request.source} records to inventory`, {
           recordCount: connectorResult.records.length,
           userId: payload.userId,
           dataSourceId: source.dataSourceId,
@@ -841,14 +848,13 @@ export async function processIngestionJobQueueMessage(
                 warn: (message, data) => logger.warn(message, data),
                 error: (message, data) => logger.error(message, data),
               },
+              chunkLabel: unit.chunkLabel,
             },
             `[${payload.request.source}]`
           )) as unknown as Record<string, unknown>;
 
-          const materializeDuration = Date.now() - materializeStartTime;
-          logger.info(`${payload.request.source} materialization complete`, {
-            ...materializationMetrics,
-            durationMs: materializeDuration,
+          context.log(`Job ${payload.jobId} ${payload.request.source} materialization complete`, {
+            durationMs: Date.now() - materializeStartTime,
             recordsProcessed: connectorResult.records.length,
           });
 
@@ -896,7 +902,8 @@ export async function processIngestionJobQueueMessage(
           overwriteDetectedHex: aiBatch.overwriteDetectedHex === true,
         });
         logger.updateBaseMetrics({ [AI_BATCHES_METRICS_KEY]: aiBatches });
-        logger.info(`Job ${payload.jobId} submitted Azure OpenAI batch; continuing ingestion`, {
+        // The materializer already logged the submission to the job log.
+        context.log(`Job ${payload.jobId} submitted Azure OpenAI batch; continuing ingestion`, {
           batchId: aiBatch.batchId,
           requestCount: aiBatch.requestCount,
           pendingBatches: aiBatches.filter(isAiBatchPending).length,
@@ -1103,6 +1110,10 @@ export async function processIngestionJobQueueMessage(
         };
       } else {
         connectorMetadata = { ...connectorMetadata, ...pageResult.metadata };
+        logger.info(`Pulled page ${pageNumber}: ${records.length} records`, {
+          page: pageNumber,
+          ...pageResult.metadata,
+        });
       }
 
       const hasNextPage = exhaustive && !stopReason && pagesFetched < EXHAUSTIVE_PAGE_LIMIT;
@@ -1143,14 +1154,13 @@ export async function processIngestionJobQueueMessage(
             }
           : null;
 
-        if (chunk.length < records.length) {
-          logger.info(`Processing records ${offset + 1}-${chunkEnd} of ${records.length} on page ${pageNumber}`);
-        }
+        const chunkLabel = `Records ${offset + 1}–${chunkEnd} of ${records.length} on page ${pageNumber}`;
+        context.log(`Job ${payload.jobId} processing ${chunkLabel}`);
 
         const chunkStartedAt = Date.now();
         const shouldPauseForAiBatch = await persistPageRecords(
           { ...pageResult, records: chunk },
-          { checkpointAfter, resumeMessage }
+          { checkpointAfter, resumeMessage, chunkLabel }
         );
         if (shouldPauseForAiBatch) {
           return;
