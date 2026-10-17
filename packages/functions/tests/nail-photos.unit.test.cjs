@@ -22,6 +22,21 @@ const ITEM_ID = 7001;
 const SHADE_ID = 500;
 const OTHER_ITEM_ID = 8001; // belongs to user 2
 
+/**
+ * Asserts that no absolute URL anywhere in `value` (serialized as JSON) points at Azure
+ * Blob Storage. Each URL is parsed and its hostname compared exactly / by strict
+ * `.blob.core.windows.net` suffix, never by substring (CodeQL
+ * js/incomplete-url-substring-sanitization). Also requires at least one URL to be found,
+ * so the check cannot pass vacuously.
+ */
+function assertNoBlobStorageUrls(value, message = "raw blob URL leaked") {
+  const serialized = JSON.stringify(value);
+  const hostnames = (serialized.match(/https?:\/\/[^\s"'<>\\]+/g) || []).map((u) => new URL(u).hostname);
+  assert.ok(hostnames.length > 0, `expected at least one URL in: ${serialized}`);
+  const blobHosts = hostnames.filter((h) => h === "blob.core.windows.net" || h.endsWith(".blob.core.windows.net"));
+  assert.deepEqual(blobHosts, [], `${message}: ${serialized}`);
+}
+
 // ---------------------------------------------------------------------------
 // Fake DB
 // ---------------------------------------------------------------------------
@@ -407,7 +422,7 @@ describe("functions/nail-photos — PUT", () => {
     assert.equal(photo.height, 60);
     assert.equal(photo.sizeBytes, upload.bytes.length);
     assert.match(photo.imageUrl, /^http:\/\/localhost:7071\/api\/images\/v3\.[^/]+$/);
-    assert.ok(!JSON.stringify(res.jsonBody).includes("blob.core.windows.net"), "no raw blob URL");
+    assertNoBlobStorageUrls(res.jsonBody, "no raw blob URL");
     assert.equal(photo.createdAt, "2026-10-17T01:00:00.000Z");
     assert.equal(res.headers["Cache-Control"], "private, no-store");
 

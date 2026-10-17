@@ -27,6 +27,20 @@ const crypto = require("node:crypto");
 const BASE = (process.env.E2E_API_BASE || "http://localhost:7071/api").replace(/\/+$/, "");
 const OWNER = { Authorization: `Bearer ${process.env.E2E_OWNER_TOKEN || "dev:1"}` };
 const ATTACKER = { Authorization: `Bearer ${process.env.E2E_ATTACKER_TOKEN || "dev:2"}` };
+
+/**
+ * Asserts that no absolute URL in `value` (serialized as JSON) points at Azure Blob Storage,
+ * comparing each parsed hostname exactly / by strict `.blob.core.windows.net` suffix rather
+ * than by substring (CodeQL js/incomplete-url-substring-sanitization).
+ */
+function assertNoBlobStorageUrls(value, message = "raw blob URL leaked") {
+  const serialized = JSON.stringify(value);
+  const hostnames = (serialized.match(/https?:\/\/[^\s"'<>\\]+/g) || []).map((u) => new URL(u).hostname);
+  assert.ok(hostnames.length > 0, `expected at least one URL in: ${serialized}`);
+  const blobHosts = hostnames.filter((h) => h === "blob.core.windows.net" || h.endsWith(".blob.core.windows.net"));
+  assert.deepEqual(blobHosts, [], `${message}: ${serialized}`);
+}
+
 /**
  * Owner's numeric app_user id — the value an attacker tries to spoof in bodies/query params.
  * Taken from E2E_OWNER_ID, else parsed from a `dev:<id>` token; null for other tokens (e.g. B2C
@@ -546,7 +560,7 @@ test("access control e2e: users cannot access or modify each other's data", asyn
     assert.ok([200, 201].includes(upload.status), `owner upload → ${upload.status} ${upload.text}`);
     const imageUrl = upload.body.photo.imageUrl;
     assert.match(imageUrl, /\/api\/images\/v3\./, "owner gets an owner-scoped v3 URL");
-    assert.ok(!upload.text.includes(".blob."), "no raw blob URL in the response");
+    assertNoBlobStorageUrls(upload.body, "no raw blob URL in the response");
 
     try {
       const id = decodeURIComponent(new URL(imageUrl).pathname.split("/").pop());

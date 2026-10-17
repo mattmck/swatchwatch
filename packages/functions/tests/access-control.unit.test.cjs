@@ -62,6 +62,21 @@ const OWNER_NAIL_PHOTO_URL = "https://swatchwatchacct.blob.core.windows.net/nail
 /** Shades that exist in the shared catalog of the fake DB. */
 const KNOWN_SHADES = new Set([OWNED_SHADE_ID]);
 
+/**
+ * Asserts that no absolute URL anywhere in `value` (serialized as JSON) points at Azure
+ * Blob Storage. Each URL is parsed and its hostname compared exactly / by strict
+ * `.blob.core.windows.net` suffix, never by substring (CodeQL
+ * js/incomplete-url-substring-sanitization). Also requires at least one URL to be found,
+ * so the check cannot pass vacuously.
+ */
+function assertNoBlobStorageUrls(value, message = "raw blob URL leaked") {
+  const serialized = JSON.stringify(value);
+  const hostnames = (serialized.match(/https?:\/\/[^\s"'<>\\]+/g) || []).map((u) => new URL(u).hostname);
+  assert.ok(hostnames.length > 0, `expected at least one URL in: ${serialized}`);
+  const blobHosts = hostnames.filter((h) => h === "blob.core.windows.net" || h.endsWith(".blob.core.windows.net"));
+  assert.deepEqual(blobHosts, [], `${message}: ${serialized}`);
+}
+
 // ---------------------------------------------------------------------------
 // Fake DB
 // ---------------------------------------------------------------------------
@@ -1866,7 +1881,7 @@ describe("access control — private nail photos are scoped to the inventory own
     assert.equal(photo.inventoryItemId, String(OWNER_INVENTORY_ITEM_ID));
     assert.match(photo.imageUrl, /^http:\/\/localhost:7071\/api\/images\/v3\./);
     const serialized = JSON.stringify(res.jsonBody);
-    assert.ok(!serialized.includes("blob.core.windows.net"), `raw blob URL leaked: ${serialized}`);
+    assertNoBlobStorageUrls(res.jsonBody);
     assert.ok(!/\/api\/images\/v2\./.test(serialized), "no public v2 id may be returned");
     assert.match(res.headers["Cache-Control"], /no-store/);
     assertItemLookupsScopedTo(OWNER);
@@ -1964,7 +1979,7 @@ describe("access control — private nail photos are scoped to the inventory own
     assert.deepEqual(sideEffects.blobDeletes, [OWNER_NAIL_PHOTO_URL], "old blob removed");
 
     assert.match(res.jsonBody.photo.imageUrl, /\/api\/images\/v3\./);
-    assert.ok(!JSON.stringify(res.jsonBody).includes("blob.core.windows.net"));
+    assertNoBlobStorageUrls(res.jsonBody);
     assertItemLookupsScopedTo(OWNER);
   });
 
