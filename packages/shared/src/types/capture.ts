@@ -79,16 +79,16 @@ export interface CaptureAnswerResponse {
 }
 
 /**
- * How the caller relates to a matched shade, from their own inventory.
- * - `owned`: at least one inventory row counts as owned (`quantity` is the total owned)
- * - `wishlisted`: inventory rows exist but none count as owned
- * - `notOwned`: no inventory row for the shade
+ * How the caller relates to a matched shade, from their own inventory rows' `status`.
+ * - `owned`: at least one row has `status = 'owned'` (`quantity` is those rows' total)
+ * - `wishlisted`: no owned row, but at least one `status = 'wishlist'` row
+ * - `notOwned`: no row for the shade, or only `destash` / `archived` rows
  */
 export type CaptureOwnershipRelationship = "owned" | "wishlisted" | "notOwned";
 
 export interface CaptureOwnership {
   relationship: CaptureOwnershipRelationship;
-  /** Total owned quantity; present only when `relationship === "owned"`. */
+  /** Total quantity of the `owned` rows; present only when `relationship === "owned"`. */
   quantity?: number;
 }
 

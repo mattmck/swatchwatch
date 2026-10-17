@@ -3,45 +3,49 @@ import { query } from "./db";
 
 /**
  * One `user_inventory_item` row as far as ownership is concerned.
- *
- * TODO(#291): add `status` ("owned" | "wishlist" | "destash" | "archived") to this row and to
- * the SELECT in `loadInventoryOwnership` once the inventory status column lands.
  */
 export interface InventoryOwnershipRow {
   shadeId: string | null;
   skuId: string | null;
   quantity: number | string | null;
+  /** `user_inventory_item.status`: owned | wishlist | destash | archived (#291). */
+  status: string | null;
 }
 
 /**
  * THE single place that decides whether inventory rows mean "owned", "wishlisted" or
  * "not owned". Everything that reports ownership for capture check goes through here.
  *
- * Current definition (no status column on `dev` yet), matching the polish list's
- * `availability` filter: a row with `quantity > 0` is owned, a row with `quantity <= 0` is
- * a wishlist entry, no row means not owned.
- *
- * TODO(#291): when `user_inventory_item.status` lands, switch to it here:
- * `status = 'owned'` → owned (sum its quantity), `status = 'wishlist'` → wishlisted, and
- * decide whether `destash` / `archived` read as owned or notOwned for the in-aisle answer.
+ * Uses the inventory status model (#291), where ownership is only `status = 'owned'` and
+ * `quantity` never decides ownership (the same rule as the polish list's `status` /
+ * `availability` filters):
+ * - any `status = 'owned'` row → owned, `quantity` = the owned rows' quantities summed
+ * - otherwise any `status = 'wishlist'` row → wishlisted
+ * - otherwise (no row, or only `destash` / `archived` rows) → not owned
  */
 export function classifyInventoryOwnership(rows: readonly InventoryOwnershipRow[]): CaptureOwnership {
-  if (rows.length === 0) {
-    return { relationship: "notOwned" };
-  }
-
+  let hasOwned = false;
+  let hasWishlist = false;
   let ownedQuantity = 0;
   for (const row of rows) {
-    const quantity = Number(row.quantity ?? 0);
-    if (Number.isFinite(quantity) && quantity > 0) {
-      ownedQuantity += quantity;
+    if (row.status === "owned") {
+      hasOwned = true;
+      const quantity = Number(row.quantity ?? 0);
+      if (Number.isFinite(quantity) && quantity > 0) {
+        ownedQuantity += quantity;
+      }
+    } else if (row.status === "wishlist") {
+      hasWishlist = true;
     }
   }
 
-  if (ownedQuantity > 0) {
+  if (hasOwned) {
     return { relationship: "owned", quantity: ownedQuantity };
   }
-  return { relationship: "wishlisted" };
+  if (hasWishlist) {
+    return { relationship: "wishlisted" };
+  }
+  return { relationship: "notOwned" };
 }
 
 /** A matched catalog entity to look up: its shade and, for a SKU match, the SKU. */
@@ -68,7 +72,8 @@ export async function loadInventoryOwnership(
       `SELECT
          shade_id::text AS "shadeId",
          sku_id::text   AS "skuId",
-         quantity
+         quantity,
+         status
        FROM user_inventory_item
        WHERE user_id = $1
          AND (shade_id = ANY($2::bigint[]) OR sku_id = ANY($3::bigint[]))`,

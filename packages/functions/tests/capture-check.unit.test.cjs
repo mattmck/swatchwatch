@@ -79,13 +79,15 @@ function isMutation(sql) {
   return ["INSERT", "UPDATE", "DELETE"].includes(statementKind(sql));
 }
 
-function addInventory(userId, { shadeId = null, skuId = null, quantity }) {
+// `status` defaults to the #291 backfill rule (quantity > 0 → owned, else wishlist).
+function addInventory(userId, { shadeId = null, skuId = null, quantity, status }) {
   const row = {
     inventoryItemId: state.nextInventoryId++,
     userId,
     shadeId,
     skuId,
     quantity,
+    status: status ?? (quantity > 0 ? "owned" : "wishlist"),
   };
   state.inventory.push(row);
   return row;
@@ -165,6 +167,7 @@ async function fakeQuery(via, sql, params = []) {
           shadeId: r.shadeId === null ? null : String(r.shadeId),
           skuId: r.skuId === null ? null : String(r.skuId),
           quantity: r.quantity,
+          status: r.status,
         }));
       return { rows, rowCount: rows.length };
     }
@@ -180,14 +183,21 @@ async function fakeQuery(via, sql, params = []) {
     }
     if (kind === "UPDATE") {
       const row = state.inventory.find((r) => r.inventoryItemId === Number(params[0]));
-      if (row) row.quantity += 1;
+      if (row) {
+        row.quantity += 1;
+        if (/status = CASE WHEN status IN \('wishlist', 'archived'\) THEN 'owned'/i.test(norm)
+          && ["wishlist", "archived"].includes(row.status)) {
+          row.status = "owned";
+        }
+      }
       return { rows: [], rowCount: row ? 1 : 0 };
     }
     if (kind === "INSERT") {
-      const withSku = /\(user_id, sku_id, shade_id, quantity, notes\)/i.test(norm);
+      const withSku = /\(user_id, sku_id, shade_id, quantity, (status, )?notes\)/i.test(norm);
+      const status = /'owned'/.test(norm) ? "owned" : undefined;
       const row = withSku
-        ? addInventory(Number(params[0]), { skuId: Number(params[1]), shadeId: params[2], quantity: 1 })
-        : addInventory(Number(params[0]), { shadeId: Number(params[1]), quantity: 1 });
+        ? addInventory(Number(params[0]), { skuId: Number(params[1]), shadeId: params[2], quantity: 1, status })
+        : addInventory(Number(params[0]), { shadeId: Number(params[1]), quantity: 1, status });
       return { rows: [{ id: row.inventoryItemId }], rowCount: 1 };
     }
   }
@@ -354,30 +364,48 @@ describe("lib/inventory-relationship — classifyInventoryOwnership", () => {
     assert.deepEqual(classifyInventoryOwnership([]), { relationship: "notOwned" });
   });
 
-  it("quantity > 0 → owned with the summed quantity", () => {
+  it("status owned → owned with the owned rows' summed quantity", () => {
     assert.deepEqual(
       classifyInventoryOwnership([
-        { shadeId: "21", skuId: null, quantity: 2 },
-        { shadeId: "21", skuId: "501", quantity: "1" },
+        { shadeId: "21", skuId: null, quantity: 2, status: "owned" },
+        { shadeId: "21", skuId: "501", quantity: "1", status: "owned" },
       ]),
       { relationship: "owned", quantity: 3 }
     );
   });
 
-  it("only quantity <= 0 rows → wishlisted", () => {
-    assert.deepEqual(classifyInventoryOwnership([{ shadeId: "21", skuId: null, quantity: 0 }]), {
+  it("status wishlist → wishlisted, whatever the quantity", () => {
+    assert.deepEqual(classifyInventoryOwnership([{ shadeId: "21", skuId: null, quantity: 0, status: "wishlist" }]), {
       relationship: "wishlisted",
     });
-    assert.deepEqual(classifyInventoryOwnership([{ shadeId: "21", skuId: null, quantity: -1 }]), {
+    assert.deepEqual(classifyInventoryOwnership([{ shadeId: "21", skuId: null, quantity: 3, status: "wishlist" }]), {
       relationship: "wishlisted",
     });
   });
 
-  it("an owned row wins over a wishlist row", () => {
+  it("quantity never decides ownership: an owned row with quantity 0 is still owned", () => {
+    assert.deepEqual(classifyInventoryOwnership([{ shadeId: "21", skuId: null, quantity: 0, status: "owned" }]), {
+      relationship: "owned",
+      quantity: 0,
+    });
+  });
+
+  it("only destash / archived rows → notOwned", () => {
     assert.deepEqual(
       classifyInventoryOwnership([
-        { shadeId: "21", skuId: null, quantity: 0 },
-        { shadeId: "21", skuId: "501", quantity: 2 },
+        { shadeId: "21", skuId: null, quantity: 1, status: "destash" },
+        { shadeId: "21", skuId: "501", quantity: 2, status: "archived" },
+      ]),
+      { relationship: "notOwned" }
+    );
+  });
+
+  it("an owned row wins over wishlist / destash / archived rows (only owned quantities count)", () => {
+    assert.deepEqual(
+      classifyInventoryOwnership([
+        { shadeId: "21", skuId: null, quantity: 4, status: "wishlist" },
+        { shadeId: "21", skuId: "501", quantity: 2, status: "owned" },
+        { shadeId: "21", skuId: "502", quantity: 1, status: "destash" },
       ]),
       { relationship: "owned", quantity: 2 }
     );
@@ -406,7 +434,7 @@ describe("functions/capture — check route", () => {
 });
 
 describe("functions/capture — check reports the caller's relationship to the match", () => {
-  it("owned: quantity > 0 → owned with quantity", async () => {
+  it("owned: status owned → owned with quantity", async () => {
     addInventory(OWNER, { shadeId: SHADE_ID, quantity: 2 });
     const res = await check();
     assert.equal(res.status, 200, JSON.stringify(res.jsonBody));
@@ -425,11 +453,27 @@ describe("functions/capture — check reports the caller's relationship to the m
     assertNoWrites();
   });
 
-  it("wishlisted: quantity <= 0 row → wishlisted", async () => {
+  it("wishlisted: status wishlist row → wishlisted", async () => {
     addInventory(OWNER, { shadeId: SHADE_ID, quantity: 0 });
     const res = await check();
     assert.equal(res.status, 200);
     assert.deepEqual(res.jsonBody.match.ownership, { relationship: "wishlisted" });
+    assertNoWrites();
+  });
+
+  it("status, not quantity, decides: a wishlist row with bottles is wishlisted", async () => {
+    addInventory(OWNER, { shadeId: SHADE_ID, quantity: 2, status: "wishlist" });
+    const res = await check();
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.jsonBody.match.ownership, { relationship: "wishlisted" });
+    assertNoWrites();
+  });
+
+  it("notOwned: an archived row does not count as owned", async () => {
+    addInventory(OWNER, { shadeId: SHADE_ID, quantity: 1, status: "archived" });
+    const res = await check();
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.jsonBody.match.ownership, { relationship: "notOwned" });
     assertNoWrites();
   });
 
@@ -590,5 +634,19 @@ describe("functions/capture — finalize is unchanged by check", () => {
       1
     );
     assert.equal(state.inventory[0].quantity, 3);
+  });
+
+  it("check reports wishlisted; finalize then makes the row owned and check reports owned", async () => {
+    addInventory(OWNER, { shadeId: SHADE_ID, quantity: 0 });
+    const before = await check();
+    assert.deepEqual(before.jsonBody.match.ownership, { relationship: "wishlisted" });
+    assertNoWrites();
+
+    const res = await finalize();
+    assert.equal(res.status, 200);
+    assert.equal(state.inventory[0].status, "owned");
+
+    const after = await check();
+    assert.deepEqual(after.jsonBody.match.ownership, { relationship: "owned", quantity: 1 });
   });
 });
