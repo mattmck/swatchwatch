@@ -40,6 +40,7 @@ import {
   applyDecisions,
   buildImportRows,
   buildUpsertRequest,
+  rowStatusUndecided,
   countRows,
   createKey,
   isExactHit,
@@ -594,6 +595,10 @@ async function commitRows(
       out.push(finish(row, "skipped", "Skipped"));
       continue;
     }
+    if (rowStatusUndecided(row)) {
+      out.push(finish(row, "skipped", "Quantity 0: choose wishlist or archived"));
+      continue;
+    }
 
     let shadeId: string | null = null;
     let existing: ExistingInventory = { inCollection: false, triedAt: null };
@@ -661,7 +666,7 @@ async function commitRows(
         existing = { inCollection: Boolean(info?.inCollection), triedAt: iso(info?.triedAt ?? null) };
       }
 
-      const { body, fields } = buildUpsertRequest(row.values, existing, now);
+      const { body, fields } = buildUpsertRequest(row.values, existing, now, row);
       const inventoryItemId = await upsertInventoryItem(client, userId, Number(shadeId), body, fields);
       if (!inventoryItemId) throw new Error("Inventory upsert returned no row");
       // Same as POST/PUT /api/polishes: a re-added polish picks its wear stats back up from the mani log (#269).

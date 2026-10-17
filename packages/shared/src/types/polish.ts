@@ -1,6 +1,6 @@
 import type { CANONICAL_FINISHES } from "../constants/finishes";
 import type { ColorFamily } from "../color/color-family";
-import type { PolishStatus } from "./inventory";
+import type { ArchiveReason, PolishStatus } from "./inventory";
 
 export interface Polish {
   /** Canonical shade identifier (global across all users) */
@@ -202,11 +202,25 @@ export interface PolishCreateRequest {
   collection?: string;
   quantity?: number;
   /**
-   * Inventory status. On create, when omitted, a new inventory row defaults to `owned` when
-   * `quantity > 0` and `wishlist` otherwise (the same rule the migration backfill used);
-   * on update, omitting it keeps the stored status.
+   * Inventory status. When omitted, a NEW inventory row is `owned` unless `quantity` is
+   * exactly 0 (then `wishlist`, so clients that predate the status model keep working); an
+   * existing row keeps its stored status. Nothing moves to the wishlist automatically:
+   * running out sends `archived` (decision D5).
    */
   status?: PolishStatus;
+  /**
+   * Why the polish is archived; only allowed with `status: "archived"`. Recorded as an
+   * `inventory_event` when the request archives the row (default `used_up` from owned,
+   * `decluttered` from destash); sent again while already archived, it corrects the reason of
+   * the current archive.
+   */
+  archiveReason?: ArchiveReason;
+  /**
+   * Undo of an archive (the toast's Undo): with a non-archived `status`, removes the reason
+   * event recorded for the current archive. Not allowed with `status: "archived"` or
+   * `archiveReason`.
+   */
+  undoArchive?: boolean;
   /** ISO-8601 date or date-time the polish was first tried; `null` clears it (back to untried). */
   triedAt?: string | null;
   /** Price paid, >= 0 with at most 2 decimals (max 99,999,999.99); `null` clears it. */

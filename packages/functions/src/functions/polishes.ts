@@ -52,12 +52,16 @@ import {
 import { withBuyUrls } from "../lib/buy-link";
 import { parseColorFamilyFilter } from "../lib/color-family-filter";
 import {
+  ARCHIVE_EVENT_EDIT_WINDOW_HOURS,
+  ARCHIVE_EVENT_TYPES,
   InventoryValidationError,
   defaultStatusForNewItem,
   parseBooleanFlag,
   parseInventoryFields,
   parseStatusFilter,
+  planArchiveEvent,
   providedInventoryFields,
+  type ArchiveEventPlan,
   type InventoryFieldsUpdate,
 } from "../lib/inventory";
 import {
@@ -393,16 +397,62 @@ export async function findOrCreateShade(
 }
 
 /**
+ * Write the archive-reason `inventory_event` for an upsert (decision D5c). `inventoryItemId`
+ * comes from the caller's own `(user_id, shade_id)` row, so events stay user-scoped. Only the
+ * newest reason event inside `ARCHIVE_EVENT_EDIT_WINDOW_HOURS` is corrected or retracted.
+ */
+async function applyArchiveEventPlan(
+  client: PoolClient,
+  inventoryItemId: string,
+  previousStatus: PolishStatus | null,
+  plan: ArchiveEventPlan
+): Promise<void> {
+  if (plan.kind === "none") return;
+  const latestReasonEvent = `
+    SELECT inventory_event_id FROM inventory_event
+    WHERE inventory_item_id = $1::bigint
+      AND event_type = ANY($2::text[])
+      AND created_at > now() - make_interval(hours => $3::int)
+    ORDER BY created_at DESC, inventory_event_id DESC
+    LIMIT 1`;
+  const scope = [inventoryItemId, ARCHIVE_EVENT_TYPES, ARCHIVE_EVENT_EDIT_WINDOW_HOURS];
+  if (plan.kind === "retract") {
+    await client.query(`DELETE FROM inventory_event WHERE inventory_event_id IN (${latestReasonEvent})`, scope);
+    return;
+  }
+  if (plan.kind === "update") {
+    const updated = await client.query(
+      `UPDATE inventory_event
+       SET event_type = $4::text, event_payload = COALESCE(event_payload, '{}'::jsonb) || jsonb_build_object('reason', $4::text)
+       WHERE inventory_event_id IN (${latestReasonEvent})`,
+      [...scope, plan.eventType]
+    );
+    if (updated.rowCount) return;
+  }
+  await client.query(
+    `INSERT INTO inventory_event (inventory_item_id, event_type, event_payload)
+     VALUES ($1::bigint, $2::text, jsonb_build_object('reason', $2::text, 'previousStatus', $3::text))`,
+    [inventoryItemId, plan.eventType, previousStatus]
+  );
+}
+
+/**
  * Insert or update the caller's inventory row for a shade (keyed on `(user_id, shade_id)`, so
  * it can only ever touch the caller's own row).
  *
- * Omitted fields keep their stored value. On a NEW row an omitted `status` defaults from the
- * quantity (`defaultStatusForNewItem`) and an omitted `quantity` from the status (one bottle
- * when owned/destash, else none), so clients that predate the status model behave as before.
+ * Omitted fields keep their stored value. On a NEW row an omitted `status` defaults to
+ * `owned` (only an explicit `quantity: 0` gives `wishlist`; `defaultStatusForNewItem`,
+ * decision D5a) and an omitted `quantity` from the status (one bottle when owned/destash,
+ * else none), so clients that predate the status model behave as before. Nothing moves to the
+ * wishlist automatically: an update without `status` keeps the stored status, and running
+ * out is an explicit `status: "archived"`.
  * The clearable fields (`triedAt`, `purchasePrice`, `purchaseCurrency`) are written whenever
  * they are present in the request, including `null`;
- * `$14` lists which ones were sent. `$15` is the status a new row gets. Returns the
- * inventory item id.
+ * `$14` lists which ones were sent. `$15` is the status a new row gets.
+ *
+ * Archiving (or undoing an archive) also records the reason as an `inventory_event`
+ * (`used_up` / `decluttered`, see `planArchiveEvent`); the previous status is read under a
+ * row lock only for those requests. Returns the inventory item id.
  */
 export async function upsertInventoryItem(
   client: PoolClient,
@@ -413,7 +463,16 @@ export async function upsertInventoryItem(
 ): Promise<string | undefined> {
   const quantity = body.quantity ?? null;
   const insertStatus = fields.status ?? defaultStatusForNewItem(quantity === null ? null : Number(quantity));
-  const result = await client.query<{ inventoryItemId: string }>(
+  const touchesArchive = fields.status === "archived" || fields.undoArchive;
+  let previousStatus: PolishStatus | null = null;
+  if (touchesArchive) {
+    const previous = await client.query<{ status: PolishStatus }>(
+      `SELECT status FROM user_inventory_item WHERE user_id = $1 AND shade_id = $2 FOR UPDATE`,
+      [userId, shadeId]
+    );
+    previousStatus = previous.rows[0]?.status ?? null;
+  }
+  const result = await client.query<{ inventoryItemId: string; status: PolishStatus }>(
     `INSERT INTO user_inventory_item
        (user_id, shade_id, quantity, notes, purchase_date, expiration_date,
         rating, tags, size_display, status, tried_at, purchase_price, purchase_currency)
@@ -433,7 +492,7 @@ export async function upsertInventoryItem(
        purchase_price    = CASE WHEN 'purchasePrice' = ANY($14::text[]) THEN EXCLUDED.purchase_price ELSE user_inventory_item.purchase_price END,
        purchase_currency = CASE WHEN 'purchaseCurrency' = ANY($14::text[]) THEN EXCLUDED.purchase_currency ELSE user_inventory_item.purchase_currency END,
        updated_at        = now()
-     RETURNING inventory_item_id::text AS "inventoryItemId"`,
+     RETURNING inventory_item_id::text AS "inventoryItemId", status`,
     [
       userId,
       shadeId,
@@ -452,7 +511,12 @@ export async function upsertInventoryItem(
       insertStatus,
     ]
   );
-  return result.rows[0]?.inventoryItemId;
+  const row = result.rows[0];
+  if (row && touchesArchive) {
+    const newStatus = row.status ?? fields.status ?? previousStatus ?? insertStatus;
+    await applyArchiveEventPlan(client, row.inventoryItemId, previousStatus, planArchiveEvent(previousStatus, newStatus, fields));
+  }
+  return row?.inventoryItemId;
 }
 
 /** Whitelist of allowed sort columns to prevent SQL injection */
