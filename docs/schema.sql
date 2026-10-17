@@ -517,8 +517,8 @@ CREATE TABLE data_source (
   base_url TEXT,
   license TEXT,                               -- license identifier/name (if applicable)
   terms_url TEXT,
-  enabled BOOLEAN NOT NULL DEFAULT true,
-  metadata JSONB,
+  enabled BOOLEAN NOT NULL DEFAULT true,       -- false: hidden from /api/ingestion/sources (admin pickers)
+  metadata JSONB,                              -- priority, mvp, notes (incl. per-source access verification), ingestion settings
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

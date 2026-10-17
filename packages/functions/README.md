@@ -222,6 +222,9 @@ Current source support:
 - `MakeupAPI` (nail-polish catalog pull)
 - `HoloTacoShopify` (current Shopify storefront pull, bundle-filtered)
 - Additional `*Shopify` sources from the generated connector list are auto-provisioned into `data_source` when missing, so they appear in `/api/ingestion/sources` and can be queued without manual SQL seeding.
+- Sources are registered in `docs/seed_data_sources.sql` (which `npm run generate:types` turns into `src/lib/connectors/generated-types.ts`) plus a migration for the `data_source` row. Per-source verification (products.json exposed, robots.txt, terms of service, date checked) lives in `data_source.metadata.notes`.
+- `data_source.enabled = false` keeps a source out of `/api/ingestion/sources`, which feeds the admin single-job and bulk-run pickers; nothing schedules ingestion on a timer. Sources listed in `SHOPIFY_SOURCES_PENDING_APPROVAL` (`connectors/shopify-generic.ts`) are auto-provisioned disabled as well. Currently pending owner approval (#273, roadmap 2026-10-to-12 decision 4): `NightOwlLacquerShopify`, `PahlishShopify` (migration `20261017062550000_add-indie-shopify-sources`). To activate one: `UPDATE data_source SET enabled = true WHERE name = '<Source>';` (and drop it from `SHOPIFY_SOURCES_PENDING_APPROVAL`).
+- The generic Shopify connector replaces Shopify's placeholder vendor (`vendor-unknown`, `Default Vendor`) with the brand derived from the source name (`NightOwlLacquerShopify` → "Night Owl Lacquer").
 
 Auth requirement:
 - Ingestion endpoints are admin-only (`withAdmin`).
