@@ -18,6 +18,8 @@ infrastructure/    → Terraform (azurerm ~4.50) for all Azure resources
 
 **Shade hexes:** each shade has `vendor_hex` (vendor product data), `detected_hex` (AI vision on the product image) and `name_hex` (from the color name). Every `detected_hex` write also records provenance (`detected_hex_confidence`, `detected_hex_method`, `detected_hex_model`, `detected_hex_prompt_version`, `detected_hex_at`; migration 20261017024958000_shade-detected-hex-provenance) via `packages/functions/src/lib/hex-provenance.ts`, and `shade.hex_agreement` is a generated column holding the OKLAB distance vendor ↔ detected. Bump `PROMPT_VERSION` in `ai-color-detection.ts` whenever the vision prompt changes. Display uses `resolveDisplayHex` (vendor > detected > name); `resolveDisplayHexDetailed` in `packages/shared` adds the source, agreement and a review flag (disagreement > 0.10 MEDIUM, or a caller-marked suspicious vendor hex). Admins review weak detections with `GET /api/polishes-admin/hex-review`.
 
+**Telemetry:** Functions and web both report to the same workspace-based Application Insights (see `docs/observability-plan.md`). The web SDK is lazy-loaded after hydration, sends W3C `traceparent` only to the API host, tags telemetry with the internal user id (never email), and redacts `/api/images/{id}` capability ids; route-group `error.tsx` files and `app/global-error.tsx` report render errors.
+
 **Auth:** Azure AD B2C (provisioned outside Terraform via portal). Functions read `AZURE_AD_B2C_TENANT` and `AZURE_AD_B2C_CLIENT_ID` from environment. Token validation is JWT-based via the `/api/auth/validate` endpoint.
 
 ## Dev Commands
@@ -172,6 +174,10 @@ Optional / dev-only:
 - `CORS_ALLOWED_ORIGINS` — comma-separated origins allowed by the Functions CORS wrapper (`src/lib/http.ts`; default `http://localhost:3000,https://*.azurestaticapps.net`); Terraform sets it to the web app origins
 - `CONNECTOR_RAW_CONTAINER` — blob container for raw connector snapshots and the ingestion catalog cache (Terraform-provisioned; the legacy name `RAW_SNAPSHOT_CONTAINER` is still read but deprecated)
 - `NEXT_PUBLIC_*` — web client vars included in example for convenience; not used by the Functions host itself
+
+Web (build-time `NEXT_PUBLIC_*`, inlined into the static export; set in `.github/workflows/deploy.yml`, not SWA app settings):
+- `NEXT_PUBLIC_APPLICATIONINSIGHTS_CONNECTION_STRING` — enables browser telemetry (`apps/web/src/lib/telemetry.ts`: page views, exceptions, fetch dependencies correlated with Functions requests via W3C `traceparent`). Unset = telemetry off (local dev default). The deploy workflow reads it from the Terraform output `application_insights_connection_string`; a missing output leaves telemetry off without failing the deploy
+- `NEXT_PUBLIC_APPINSIGHTS_SAMPLING` — browser telemetry sampling percentage, `(0, 100]` (default `100`); deploy reads the `NEXT_PUBLIC_APPINSIGHTS_SAMPLING` GitHub environment variable
 
 ## Adding a New Azure Function
 
