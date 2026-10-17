@@ -45,9 +45,9 @@ function resetState() {
     nextBrandId: 10,
     shades: new Map(
       [
-        mk(CATALOG_SHADE, 1, "Catalog Red", "creme", ["creme"], "active", null),
+        { ...mk(CATALOG_SHADE, 1, "Catalog Red", "creme", ["creme"], "active", null), vendorHex: "#aa0000" },
         mk(EMPTY_FINISH_SHADE, 1, "Blank Blue", "creme", [], "active", null),
-        mk(A_PRIVATE_SHADE, 1, "A Secret", "creme", ["creme"], "user_submitted", USER_A),
+        { ...mk(A_PRIVATE_SHADE, 1, "A Secret", "creme", ["creme"], "user_submitted", USER_A), vendorHex: "#111111" },
         mk(B_PRIVATE_SHADE, 1, "B Secret", "creme", ["glitter"], "user_submitted", USER_B),
       ].map((s) => [s.id, s])
     ),
@@ -64,9 +64,20 @@ function visibleTo(shade, userId) {
   );
 }
 
-/** True if the SQL carries the visibility predicate (so the fake enforces it only then). */
-function hasVisibilityGuard(sql) {
-  return /user_submitted/.test(sql);
+/**
+ * True only if the SQL carries the real visibility predicate — `status <> 'user_submitted'` plus a
+ * `created_by_user_id = $N` bound to the caller — so the fake enforces visibility only then. A
+ * query that keeps the literal but drops (or mis-binds) the ownership check is treated as unguarded.
+ */
+function hasVisibilityGuard(sql, params, userId) {
+  if (!/status\s*<>\s*'user_submitted'/i.test(sql)) return false;
+  const owner = sql.match(/created_by_user_id\s*=\s*\$(\d+)/i);
+  return Boolean(owner) && Number(params[Number(owner[1]) - 1]) === Number(userId);
+}
+
+function brandName(brandId) {
+  for (const [name, id] of state.brands) if (id === brandId) return name;
+  return null;
 }
 
 function polishRow(shade, userId) {
@@ -112,7 +123,7 @@ async function fakeQuery(via, sql, params = []) {
     let matches = [...state.shades.values()].filter(
       (s) => s.brandId === brandId && s.name === name && (s.finish || "") === (finish || "")
     );
-    if (hasVisibilityGuard(text)) matches = matches.filter((s) => visibleTo(s, Number(userId)));
+    if (hasVisibilityGuard(text, params, userId)) matches = matches.filter((s) => visibleTo(s, Number(userId)));
     matches.sort((a, b) => Number(a.status === "user_submitted") - Number(b.status === "user_submitted") || a.id - b.id);
     const rows = matches.slice(0, 1).map((s) => ({
       shade_id: s.id,
@@ -125,9 +136,13 @@ async function fakeQuery(via, sql, params = []) {
   if (/AS\s+"ownSubmitted"/i.test(text)) {
     const shade = state.shades.get(Number(params[0]));
     const userId = Number(params[1]);
-    if (!shade || (hasVisibilityGuard(text) && !visibleTo(shade, userId))) return { rows: [], rowCount: 0 };
+    if (!shade || (hasVisibilityGuard(text, params, userId) && !visibleTo(shade, userId))) return { rows: [], rowCount: 0 };
     return {
-      rows: [{ ownSubmitted: shade.status === "user_submitted" && shade.createdBy === userId }],
+      rows: [{
+        ownSubmitted: shade.status === "user_submitted" && shade.createdBy === userId,
+        brand: brandName(shade.brandId),
+        shadeName: shade.name,
+      }],
       rowCount: 1,
     };
   }
@@ -163,6 +178,14 @@ async function fakeQuery(via, sql, params = []) {
     shade.finishes = isAppend ? [...new Set([...shade.finishes, ...params[1]])] : [...params[1]];
     return { rows: [], rowCount: 1 };
   }
+  // Color write: fill-only, unless the owner-override guard ($6) is bound to true.
+  if (/^\s*UPDATE\s+shade\b/i.test(text) && /\bvendor_hex\s*=/i.test(text)) {
+    const shade = state.shades.get(Number(params[0]));
+    if (!shade) return { rows: [], rowCount: 0 };
+    const override = /CASE\s+WHEN\s+\$6/i.test(text) && params[5] === true;
+    if (params[2] != null && (override || shade.vendorHex == null)) shade.vendorHex = params[2];
+    return { rows: [], rowCount: 1 };
+  }
   if (/^\s*UPDATE\s+shade\b/i.test(text)) return { rows: [], rowCount: 1 };
 
   if (/INSERT\s+INTO\s+user_inventory_item/i.test(text)) {
@@ -176,7 +199,7 @@ async function fakeQuery(via, sql, params = []) {
     let shades = [...state.shades.values()];
     const idParam = text.match(/\bs\.shade_id\s*=\s*\$(\d+)/i);
     if (idParam) shades = shades.filter((s) => s.id === Number(params[Number(idParam[1]) - 1]));
-    if (hasVisibilityGuard(text)) shades = shades.filter((s) => visibleTo(s, userId));
+    if (hasVisibilityGuard(text, params, userId)) shades = shades.filter((s) => visibleTo(s, userId));
     if (/ui\.inventory_item_id\s+IS\s+NOT\s+NULL/i.test(text) && /COALESCE\(ui\.quantity/i.test(text)) {
       shades = shades.filter((s) => state.inventory.has(`${userId}:${s.id}`));
     }
@@ -251,6 +274,7 @@ for (const [id, exports] of Object.entries(mockModules)) {
 }
 
 require("../dist/functions/polishes");
+const { DETECTED_HEX_METHOD_CLIENT_SUPPLIED } = require("../dist/lib/hex-provenance");
 require("../dist/functions/catalog");
 
 function fakeRequest({ method = "GET", url = "http://localhost:7071/api/test", headers = {}, params = {}, body } = {}) {
@@ -488,5 +512,43 @@ describe("F2 — user-submitted shades are private until approved", () => {
       method: "GET", url: `http://localhost:7071/api/catalog/shade/${CATALOG_SHADE}`, params: { id: String(CATALOG_SHADE) },
     });
     assert.equal(shown.status, 200);
+  });
+});
+
+describe("edits to the caller's own submitted shade", () => {
+  beforeEach(resetState);
+
+  it("an owner's color correction replaces the stored value (shared shades stay fill-only)", async () => {
+    const own = await put(USER_A, A_PRIVATE_SHADE, { vendorHex: "#222222", detectedHex: "#333333" });
+    assert.ok(own.status < 400, `owner update failed: ${own.status}`);
+    assert.equal(state.shades.get(A_PRIVATE_SHADE).vendorHex, "#222222");
+    // A client-provided detected_hex records its provenance (#255) whenever it changes the value.
+    const colorWrite = calls().find((c) => /^\s*UPDATE\s+shade\b/i.test(c.sql) && /\bdetected_hex_method\s*=/i.test(c.sql));
+    assert.ok(colorWrite, "the color write must also set detected_hex_method");
+    assert.match(colorWrite.sql, /detected_hex IS NULL OR \(\$6 AND detected_hex IS DISTINCT FROM \$4\)\) THEN \$7/);
+    assert.equal(colorWrite.params[6], DETECTED_HEX_METHOD_CLIENT_SUPPLIED);
+
+    const shared = await put(USER_B, CATALOG_SHADE, { vendorHex: "#000000" });
+    assert.ok(shared.status < 400, `shared-shade request must succeed, got ${shared.status}`);
+    assert.equal(state.shades.get(CATALOG_SHADE).vendorHex, "#aa0000", "shared catalog value must not be overwritten");
+  });
+
+  it("POST adopting your own submitted shade by id applies the same owner color rule as PUT", async () => {
+    const own = await post(USER_A, { shadeId: String(A_PRIVATE_SHADE), quantity: 1, vendorHex: "#333333" });
+    assert.ok(own.status < 400, `owner adopt failed: ${own.status}`);
+    assert.equal(state.shades.get(A_PRIVATE_SHADE).vendorHex, "#333333");
+
+    const shared = await post(USER_B, { shadeId: String(CATALOG_SHADE), quantity: 1, vendorHex: "#000000" });
+    assert.ok(shared.status < 400, `shared-shade request must succeed, got ${shared.status}`);
+    assert.equal(state.shades.get(CATALOG_SHADE).vendorHex, "#aa0000", "shared catalog value must not be overwritten");
+  });
+
+  it("a finish-only edit with unchanged brand + name updates the same shade instead of creating one", async () => {
+    const before = state.shades.size;
+    const res = await put(USER_A, A_PRIVATE_SHADE, { brand: "Acme", name: "A Secret", finishes: ["glitter"] });
+    assert.ok(res.status < 400, `update failed: ${res.status}`);
+    assert.equal(shadeInserts().length, 0, "no new shade may be created");
+    assert.equal(state.shades.size, before);
+    assert.deepEqual(state.shades.get(A_PRIVATE_SHADE).finishes, ["glitter"]);
   });
 });

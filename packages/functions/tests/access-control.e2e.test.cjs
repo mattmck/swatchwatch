@@ -438,17 +438,22 @@ test("access control e2e: users cannot access or modify each other's data", asyn
     const legit = await api(`/images/${encodeURIComponent(legitId)}`, { timeoutMs: 30000 });
     assert.ok(legit.status === 200 || legit.status === 404, `server-minted id → ${legit.status}`);
 
-    const [payload, signature] = legitId.split(".");
+    // Minted ids are `v2.<payload>.<exp>.<signature>`. Each forgery keeps that envelope and changes
+    // only the part under test, so it exercises signature / URL binding, not format parsing.
+    const [version, payload, exp, signature] = legitId.split(".");
+    assert.equal(version, "v2", `unexpected image id format: ${legitId}`);
     const storageUrl = fromB64url(payload);
-    const flipped = signature ? signature.slice(0, -1) + (signature.endsWith("A") ? "B" : "A") : "A";
+    // Flip the FIRST character: the last base64url char of a 32-byte MAC carries unused bits,
+    // so changing it can decode to the same signature.
+    const flipped = (signature[0] === "A" ? "B" : "A") + signature.slice(1);
     const otherBlob = storageUrl.replace(/[^/]+$/, `forged-${RUN_ID}.png`);
 
     const attempts = {
       "unsigned id (plain base64url of the real storage URL)": b64url(storageUrl),
-      "empty signature": `${payload}.`,
-      "garbage signature": `${payload}.${b64url("not-a-real-mac")}`,
-      "flipped signature character": `${payload}.${flipped}`,
-      "valid signature transplanted onto another blob": `${b64url(otherBlob)}.${signature || ""}`,
+      "empty signature": `${version}.${payload}.${exp}.`,
+      "garbage signature": `${version}.${payload}.${exp}.${b64url("not-a-real-mac")}`,
+      "flipped signature character": `${version}.${payload}.${exp}.${flipped}`,
+      "valid signature transplanted onto another blob": `${version}.${b64url(otherBlob)}.${exp}.${signature}`,
     };
     for (const [label, id] of Object.entries(attempts)) {
       assertImageIdRejected(await api(`/images/${encodeURIComponent(id)}`), label);
