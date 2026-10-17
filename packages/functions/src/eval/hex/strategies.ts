@@ -1,6 +1,10 @@
 import { detectHexWithAzureOpenAI, type HexDetectionOptions } from "../../lib/ai-color-detection";
 import { resolveAzureOpenAiConfig } from "../../lib/azure-openai-config";
 import { extractDominantColors } from "../../lib/dominant-color";
+import { regionCropStrategy } from "./strategies/region-crop";
+import { palettePickStrategy } from "./strategies/palette-pick";
+import { IMAGE_SELECT_STRATEGIES } from "./strategies/image-select";
+import { SNAP_STRATEGIES } from "./strategies/snap";
 import type { HexDetectionStrategy, StrategyInput, StrategyOutput } from "./types";
 import { ensembleStrategy } from "./strategies/ensemble";
 
@@ -81,6 +85,10 @@ export const STRATEGIES: readonly HexDetectionStrategy[] = [
   azureCurrentStrategy,
   azureBlindStrategy,
   pixelStrategy,
+  regionCropStrategy,
+  palettePickStrategy,
+  ...IMAGE_SELECT_STRATEGIES,
+  ...SNAP_STRATEGIES,
   ensembleStrategy,
 ];
 

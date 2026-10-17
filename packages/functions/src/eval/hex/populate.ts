@@ -9,7 +9,7 @@
  *   npm run eval:hex:populate --workspace=swatchwatch-functions -- --export-only --status approved
  *
  * Needs Postgres (PG* vars, loaded from local.settings.json when present) and
- * migration 025. Candidate shades are matched to their latest external_product
+ * migration 20261017033500000_add-color-training-sample.sql. Candidate shades are matched to their latest external_product
  * row (same brand + shade name) so the fixture can reference the vendor's
  * public product image rather than a private blob.
  */
@@ -20,7 +20,7 @@ import { normalizeHex } from "../../lib/color-match";
 import { closePool, query } from "../../lib/db";
 import { isSuspiciousHex } from "../../lib/suspicious-hex";
 import { EVAL_PATHS, loadLocalSettings } from "./env";
-import type { EvalCase, EvalFixture, GroundTruthSource } from "./types";
+import type { EvalCase, EvalCaseImageRef, EvalFixture, GroundTruthSource } from "./types";
 
 // ── Pure candidate selection ────────────────────────────────────────────────
 
@@ -35,8 +35,18 @@ export interface TrainingCandidateRow {
   vendorHex: string | null;
   primaryImageUrl: string | null;
   imageUrls: string[] | null;
+  /** `normalized_json.images` (`{url, alt, position}`) when the connector stored it. */
+  images?: unknown;
   productHandle: string | null;
   productName: string | null;
+}
+
+/** One `color_training_sample.image_urls` entry; alt/position only when known. */
+export interface TrainingSampleImage {
+  url: string;
+  is_primary: boolean;
+  alt?: string;
+  position?: number;
 }
 
 /** Row written to `color_training_sample`. */
@@ -48,7 +58,7 @@ export interface TrainingSampleInput {
   brandName: string;
   productName: string | null;
   productHandle: string | null;
-  imageUrls: Array<{ url: string; is_primary: boolean }>;
+  imageUrls: TrainingSampleImage[];
   sourceType: "vendor_option";
   notes: string;
 }
@@ -58,6 +68,23 @@ export type CandidateRejection = "invalid_hex" | "suspicious_hex" | "no_image";
 export interface CandidateSelection {
   accepted: TrainingSampleInput[];
   rejected: Array<{ row: TrainingCandidateRow; reason: CandidateRejection }>;
+}
+
+/** `{url → {alt, position}}` from a connector's `normalized.images`. */
+function imageMetadataByUrl(images: unknown): Map<string, { alt?: string; position?: number }> {
+  const byUrl = new Map<string, { alt?: string; position?: number }>();
+  if (!Array.isArray(images)) return byUrl;
+  for (const entry of images) {
+    if (!entry || typeof entry !== "object") continue;
+    const row = entry as Record<string, unknown>;
+    const url = typeof row.url === "string" ? row.url.trim() : "";
+    if (!url || byUrl.has(url)) continue;
+    const alt = typeof row.alt === "string" && row.alt.trim() ? row.alt.trim() : undefined;
+    const position =
+      typeof row.position === "number" && Number.isInteger(row.position) && row.position > 0 ? row.position : undefined;
+    byUrl.set(url, { ...(alt ? { alt } : {}), ...(position ? { position } : {}) });
+  }
+  return byUrl;
 }
 
 /** Keep candidates with a real-looking vendor hex and a public product image. Pure. */
@@ -81,6 +108,12 @@ export function selectTrainingCandidates(rows: TrainingCandidateRow[]): Candidat
       continue;
     }
     const extras = (row.imageUrls ?? []).map((url) => url.trim()).filter((url) => url && url !== primary);
+    const metadata = imageMetadataByUrl(row.images);
+    const withMetadata = (url: string, isPrimary: boolean): TrainingSampleImage => ({
+      url,
+      is_primary: isPrimary,
+      ...(metadata.get(url) ?? {}),
+    });
     accepted.push({
       dataSourceId: row.dataSourceId,
       externalProductId: row.externalProductId,
@@ -89,7 +122,7 @@ export function selectTrainingCandidates(rows: TrainingCandidateRow[]): Candidat
       brandName: row.brand,
       productName: row.productName,
       productHandle: row.productHandle,
-      imageUrls: [{ url: primary, is_primary: true }, ...extras.map((url) => ({ url, is_primary: false }))],
+      imageUrls: [withMetadata(primary, true), ...extras.map((url) => withMetadata(url, false))],
       sourceType: "vendor_option",
       notes: `shade.vendor_hex via ${row.sourceName} external_id=${row.externalId ?? "?"}`,
     });
@@ -137,6 +170,31 @@ function primaryImageUrl(imageUrls: unknown): string | null {
   return primary && typeof primary.url === "string" ? primary.url : null;
 }
 
+/**
+ * Every image on a training sample as fixture `images` (primary first), or []
+ * when there is only the primary and nothing else worth choosing between.
+ */
+export function caseImagesFromTrainingSample(imageUrls: unknown): EvalCaseImageRef[] {
+  if (!Array.isArray(imageUrls)) return [];
+  const entries = imageUrls.filter(
+    (e): e is Record<string, unknown> => !!e && typeof e === "object" && typeof (e as Record<string, unknown>).url === "string"
+  );
+  const ordered = [...entries.filter((e) => e.is_primary === true), ...entries.filter((e) => e.is_primary !== true)];
+  const seen = new Set<string>();
+  const refs: EvalCaseImageRef[] = [];
+  for (const entry of ordered) {
+    const url = String(entry.url).trim();
+    if (!/^https?:\/\//i.test(url) || seen.has(url)) continue;
+    seen.add(url);
+    const alt = typeof entry.alt === "string" && entry.alt.trim() ? entry.alt.trim() : undefined;
+    const position =
+      typeof entry.position === "number" && Number.isInteger(entry.position) && entry.position > 0 ? entry.position : undefined;
+    refs.push({ url, ...(alt ? { alt } : {}), ...(position ? { position } : {}) });
+  }
+  const hasMetadata = refs.some((ref) => ref.alt !== undefined || ref.position !== undefined);
+  return refs.length > 1 || hasMetadata ? refs : [];
+}
+
 function stripHtml(html: string | null, maxLength = 220): string | null {
   if (!html) return null;
   const text = html.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
@@ -163,6 +221,7 @@ export function trainingSampleToEvalCase(row: TrainingSampleExportRow): EvalCase
   if (!hex || !imageUrl || !brand || !shadeName) return null;
 
   const tags = asStringArray(row.tags);
+  const images = caseImagesFromTrainingSample(row.imageUrls);
   const finishes = asStringArray(row.finishes).length ? asStringArray(row.finishes) : finishesFromTags(tags);
 
   return {
@@ -174,6 +233,7 @@ export function trainingSampleToEvalCase(row: TrainingSampleExportRow): EvalCase
     groundTruthSource: SOURCE_TYPE_TO_GROUND_TRUTH[row.sourceType] ?? "manual",
     source: row.sourceName ?? "unknown",
     imageUrl,
+    ...(images.length ? { images } : {}),
     description: stripHtml(row.bodyHtml),
     tags,
     externalId: row.externalId,
@@ -262,9 +322,14 @@ export function parsePopulateArgs(argv: string[]): PopulateArgs {
   return args;
 }
 
-async function readCandidates(sources: string[] | null, limit: number): Promise<TrainingCandidateRow[]> {
-  const result = await query<TrainingCandidateRow>(
-    `SELECT DISTINCT ON (s.shade_id)
+/**
+ * Shades with a vendor hex, matched to their latest `external_product` (same brand + shade name).
+ * Products with no normalized brand only fall back to "Holo Taco" when they come from
+ * `HoloTacoShopify` (that connector omits the brand); from any other source they stay
+ * unmatched, so a brandless product can never borrow a Holo Taco shade's identity.
+ * `$1` is an optional source-name filter, `$2` the row limit.
+ */
+export const READ_CANDIDATES_SQL = `SELECT DISTINCT ON (s.shade_id)
        ep.external_product_id AS "externalProductId",
        ep.data_source_id AS "dataSourceId",
        ds.name AS "sourceName",
@@ -276,28 +341,35 @@ async function readCandidates(sources: string[] | null, limit: number): Promise<
        CASE WHEN jsonb_typeof(ep.normalized_json -> 'imageUrls') = 'array'
             THEN ARRAY(SELECT jsonb_array_elements_text(ep.normalized_json -> 'imageUrls'))
             ELSE NULL END AS "imageUrls",
+       ep.normalized_json -> 'images' AS images,
        ep.raw_json ->> 'handle' AS "productHandle",
        ep.raw_json ->> 'title' AS "productName"
      FROM shade s
      JOIN brand b ON b.brand_id = s.brand_id
+     JOIN data_source ds
+       ON ($1::text[] IS NULL OR ds.name = ANY($1::text[]))
      JOIN external_product ep
-       ON lower(COALESCE(NULLIF(trim(ep.normalized_json ->> 'brand'), ''), 'Holo Taco')) = lower(b.name_canonical)
+       ON ep.data_source_id = ds.data_source_id
+      AND lower(COALESCE(
+            NULLIF(trim(ep.normalized_json ->> 'brand'), ''),
+            CASE WHEN ds.name = 'HoloTacoShopify' THEN 'Holo Taco' END
+          )) = lower(b.name_canonical)
       AND lower(NULLIF(trim(ep.normalized_json ->> 'name'), '')) = lower(s.shade_name_canonical)
-     JOIN data_source ds ON ds.data_source_id = ep.data_source_id
      WHERE s.vendor_hex IS NOT NULL
-       AND ($1::text[] IS NULL OR ds.name = ANY($1::text[]))
      ORDER BY s.shade_id, ep.fetched_at DESC
-     LIMIT $2`,
-    [sources, limit]
-  );
+     LIMIT $2`;
+
+async function readCandidates(sources: string[] | null, limit: number): Promise<TrainingCandidateRow[]> {
+  const result = await query<TrainingCandidateRow>(READ_CANDIDATES_SQL, [sources, limit]);
   return result.rows;
 }
 
-async function upsertSamples(samples: TrainingSampleInput[]): Promise<number> {
-  let written = 0;
-  for (const sample of samples) {
-    await query(
-      `INSERT INTO color_training_sample
+/**
+ * Insert one sample, or refresh an existing one for the same product + source type. Only rows
+ * still `pending` are refreshed: `approved`, `rejected` and `used` rows were curated by a person
+ * and are left untouched (the conflicting insert then affects 0 rows).
+ */
+export const UPSERT_SAMPLE_SQL = `INSERT INTO color_training_sample
          (data_source_id, external_product_id, image_urls, hex, color_name, brand_name,
           product_name, product_handle, source_type, notes)
        VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10)
@@ -311,21 +383,26 @@ async function upsertSamples(samples: TrainingSampleInput[]): Promise<number> {
          product_name = EXCLUDED.product_name,
          product_handle = EXCLUDED.product_handle,
          notes = EXCLUDED.notes,
-         updated_at = now()`,
-      [
-        sample.dataSourceId,
-        sample.externalProductId,
-        JSON.stringify(sample.imageUrls),
-        sample.hex,
-        sample.colorName,
-        sample.brandName,
-        sample.productName,
-        sample.productHandle,
-        sample.sourceType,
-        sample.notes,
-      ]
-    );
-    written += 1;
+         updated_at = now()
+       WHERE color_training_sample.training_status = 'pending'`;
+
+/** Returns the number of rows inserted or refreshed (curated rows that were skipped are not counted). */
+async function upsertSamples(samples: TrainingSampleInput[]): Promise<number> {
+  let written = 0;
+  for (const sample of samples) {
+    const result = await query(UPSERT_SAMPLE_SQL, [
+      sample.dataSourceId,
+      sample.externalProductId,
+      JSON.stringify(sample.imageUrls),
+      sample.hex,
+      sample.colorName,
+      sample.brandName,
+      sample.productName,
+      sample.productHandle,
+      sample.sourceType,
+      sample.notes,
+    ]);
+    written += result.rowCount ?? 0;
   }
   return written;
 }
@@ -395,7 +472,7 @@ export async function main(argv: string[]): Promise<number> {
         }
       } else {
         const written = await upsertSamples(selection.accepted);
-        console.log(`Upserted ${written} color_training_sample rows (source_type=vendor_option)`);
+        console.log(`Upserted ${written} color_training_sample rows (source_type=vendor_option; curated non-pending rows are never overwritten)`);
       }
     }
 

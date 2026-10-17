@@ -131,6 +131,11 @@ describe("readCheckpointFromMetrics", () => {
 });
 
 describe("readResumeMessageFromMetrics", () => {
+  it("rejects non-positive jobId or userId, matching the worker's payload validation", () => {
+    assert.equal(readResumeMessageFromMetrics({ resumeMessage: { ...validMessage(), jobId: 0 } }), null);
+    assert.equal(readResumeMessageFromMetrics({ resumeMessage: { ...validMessage(), userId: 0 } }), null);
+  });
+
   it("returns the stored message with a parsed checkpoint", () => {
     assert.deepEqual(readResumeMessageFromMetrics({ resumeMessage: validMessage() }), validMessage());
   });

@@ -11,9 +11,16 @@ const { scoreCase, summarize, buildReport, percentile, median, primaryFinishOf }
 const { parseFixture, FixtureValidationError } = require("../dist/eval/hex/fixture");
 const { formatReport, renderTable, writeReportJson } = require("../dist/eval/hex/report");
 const { STRATEGIES, getStrategy, pixelStrategy, strategySkipReason, azureCurrentStrategy } = require("../dist/eval/hex/strategies");
-const { loadCaseImage } = require("../dist/eval/hex/images");
+const { loadCaseImage, cacheFileFor } = require("../dist/eval/hex/images");
 const { parseArgs, runStrategy } = require("../dist/eval/hex/cli");
-const { selectTrainingCandidates, trainingSampleToEvalCase, parsePopulateArgs, finishesFromTags } = require("../dist/eval/hex/populate");
+const {
+  selectTrainingCandidates,
+  trainingSampleToEvalCase,
+  parsePopulateArgs,
+  finishesFromTags,
+  READ_CANDIDATES_SQL,
+  UPSERT_SAMPLE_SQL,
+} = require("../dist/eval/hex/populate");
 
 function evalCase(overrides = {}) {
   return {
@@ -211,9 +218,9 @@ describe("eval/hex report formatting", () => {
 
 describe("eval/hex strategies", () => {
   it("registers the three day-one strategies", () => {
-    const names = STRATEGIES.map((s) => s.name);
-    assert.deepEqual(names.slice(0, 3), ["azure-current", "azure-blind", "pixel"]);
-    assert.equal(new Set(names).size, names.length, "strategy names must be unique");
+    // Day-one strategies come first; later strategies are appended (see strategies.ts), so only pin the prefix.
+    assert.deepEqual(STRATEGIES.map((s) => s.name).slice(0, 3), ["azure-current", "azure-blind", "pixel"]);
+    assert.equal(new Set(STRATEGIES.map((s) => s.name)).size, STRATEGIES.length, "strategy names are unique");
     assert.equal(getStrategy("PIXEL"), pixelStrategy);
     assert.equal(getStrategy("nope"), null);
     assert.equal(getStrategy("azure-current").requiresAzureOpenAI, true);
@@ -264,6 +271,31 @@ describe("eval/hex image loading", () => {
     assert.equal(second.sourceUrl, c.imageUrl);
   });
 
+  it("evicts an undecodable cache entry and refetches", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "hex-eval-corrupt-"));
+    const url = "https://example.com/corrupt.png";
+    await fs.writeFile(cacheFileFor(dir, url), Buffer.from("not an image"));
+    const png = await solidPng([0, 128, 255]);
+    let calls = 0;
+    const fetchImpl = async () => {
+      calls += 1;
+      return { ok: true, status: 200, arrayBuffer: async () => png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength) };
+    };
+    const image = await loadCaseImage(evalCase({ imageUrl: url }), { fixtureDir: dir, cacheDir: dir, fetchImpl });
+    assert.equal(calls, 1);
+    assert.equal(image.contentType, "image/png");
+    assert.deepEqual(await fs.readFile(cacheFileFor(dir, url)), png);
+  });
+
+  it("does not cache fetched bytes that cannot be decoded", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "hex-eval-nocache-"));
+    const url = "https://example.com/garbage.png";
+    const garbage = Buffer.from("<html>not an image</html>");
+    const fetchImpl = async () => ({ ok: true, status: 200, arrayBuffer: async () => garbage.buffer.slice(garbage.byteOffset, garbage.byteOffset + garbage.byteLength) });
+    await assert.rejects(loadCaseImage(evalCase({ imageUrl: url }), { fixtureDir: dir, cacheDir: dir, fetchImpl }));
+    await assert.rejects(fs.access(cacheFileFor(dir, url)));
+  });
+
   it("surfaces HTTP errors", async () => {
     const fetchImpl = async () => ({ ok: false, status: 404, arrayBuffer: async () => new ArrayBuffer(0) });
     await assert.rejects(
@@ -312,6 +344,20 @@ describe("eval/hex cli", () => {
 });
 
 describe("eval/hex populate (pure parts)", () => {
+  it("only applies the Holo Taco brand fallback to HoloTacoShopify products", () => {
+    const sql = READ_CANDIDATES_SQL.replace(/\s+/g, " ");
+    assert.match(sql, /CASE WHEN ds\.name = 'HoloTacoShopify' THEN 'Holo Taco' END/);
+    assert.doesNotMatch(sql, /COALESCE\(NULLIF\(trim\(ep\.normalized_json ->> 'brand'\), ''\), 'Holo Taco'\)/);
+    // The source filter lives in the data_source join, which external_product joins through.
+    assert.match(sql, /JOIN data_source ds ON \(\$1::text\[\] IS NULL OR ds\.name = ANY\(\$1::text\[\]\)\) JOIN external_product ep ON ep\.data_source_id = ds\.data_source_id/);
+  });
+
+  it("never overwrites curated (non-pending) training samples on refresh", () => {
+    const sql = UPSERT_SAMPLE_SQL.replace(/\s+/g, " ");
+    assert.match(sql, /ON CONFLICT \(external_product_id, source_type\)/);
+    assert.match(sql, /updated_at = now\(\) WHERE color_training_sample\.training_status = 'pending'$/);
+  });
+
   const row = (overrides = {}) => ({
     externalProductId: 7,
     dataSourceId: 3,

@@ -16,6 +16,8 @@ infrastructure/    → Terraform (azurerm ~4.50) for all Azure resources
 
 **Finishes:** shades carry `shade.finishes text[]` (canonical, primary first) plus the legacy `shade.finish` (identity key, kept for backward compat). At runtime the admin-managed `finish_type` table is the source of truth for which finishes are valid, and `finish_normalization` holds the alias spellings; both are loaded together (one cached query) by `loadFinishCatalog()` in `packages/functions/src/lib/finishes.ts`, so a finish type created only in the admin UI is fully usable (parsing, validation, filtering, form options). `CANONICAL_FINISHES` in `packages/shared` holds the built-in seeded defaults, used for typing (`PolishFinish`) and as the fallback when the DB/reference API is unavailable; a test keeps it equal to the migration seeds. Request `tags` on polish create/update never modify catalog finishes (shades are shared); only ingestion connectors parse finishes from product tags.
 
+**Shade hexes:** each shade has `vendor_hex` (vendor product data), `detected_hex` (AI vision on the product image) and `name_hex` (from the color name). Every `detected_hex` write also records provenance (`detected_hex_confidence`, `detected_hex_method`, `detected_hex_model`, `detected_hex_prompt_version`, `detected_hex_at`; migration 20261017024958000_shade-detected-hex-provenance) via `packages/functions/src/lib/hex-provenance.ts`, and `shade.hex_agreement` is a generated column holding the OKLAB distance vendor ↔ detected. Bump `PROMPT_VERSION` in `ai-color-detection.ts` whenever the vision prompt changes. Display uses `resolveDisplayHex` (vendor > detected > name); `resolveDisplayHexDetailed` in `packages/shared` adds the source, agreement and a review flag (disagreement > 0.10 MEDIUM, or a caller-marked suspicious vendor hex). Admins review weak detections with `GET /api/polishes-admin/hex-review`.
+
 **Auth:** Azure AD B2C (provisioned outside Terraform via portal). Functions read `AZURE_AD_B2C_TENANT` and `AZURE_AD_B2C_CLIENT_ID` from environment. Token validation is JWT-based via the `/api/auth/validate` endpoint.
 
 ## Dev Commands
@@ -38,7 +40,7 @@ npm run migrate          # Run Postgres migrations (needs DATABASE_URL)
 npm run migrate:down     # Roll back last migration
 npm run test --workspace=swatchwatch-functions      # Functions unit tests (no DB; includes access-control isolation tests)
 npm run test:e2e --workspace=swatchwatch-functions  # E2E API + cross-user access-control tests against a running local host (skips if unreachable)
-npm run eval:hex --workspace=swatchwatch-functions -- --strategy pixel            # Hex-detection ground-truth eval (strategies: azure-current, azure-blind, pixel, ensemble; Azure ones skip without config)
+npm run eval:hex --workspace=swatchwatch-functions -- --strategy pixel            # Hex-detection ground-truth eval (strategies: azure-current, azure-blind, pixel, region-crop, palette-pick, image-select, image-select-ai, blind-snap, image-select-ai-snap, ensemble; `--list-strategies` for all; Azure ones skip without config; region-crop knobs: HEX_EVAL_REGION_CROP_MODE/CELLS/DETAIL)
 npm run eval:hex:populate --workspace=swatchwatch-functions -- --dry-run         # Fill color_training_sample from shades with real vendor hexes and export a fixture (needs Postgres)
 ```
 
@@ -110,9 +112,10 @@ This project is in early development. The web UI is now fully API-driven. Backen
 - ✅ Per-user access control (#47) — all user-data routes use `withAuth` with `user_id`-scoped SQL; admin/ops routes use `withAdmin`; capture frames can only reference the caller's own `image_asset` rows; user-created shades are `user_submitted` (private until an admin sets `active`), shared shades are fill-only for users, and email account-linking requires a verified email
 - ✅ Connector ingestion pipeline — async queue-backed jobs for OpenBeautyFacts, MakeupAPI, HoloTacoShopify, and generic Shopify sources
 - ✅ AI hex detection — Azure OpenAI vision-based `detected_hex` from product images, with `recalc-hex` admin endpoint
+- ✅ Detected-hex provenance + reconciliation — confidence/method/deployment/prompt version/timestamp on every `detected_hex` write, generated `hex_agreement` (migration 20261017024958000_shade-detected-hex-provenance), `resolveDisplayHexDetailed`, admin review queue `GET /api/polishes-admin/hex-review`
 - ✅ Reference data management — `finish_type`, `harmony_type`, `finish_normalization` tables with admin CRUD and public read endpoints
-- ✅ Hex-detection evaluation harness — `packages/functions/src/eval/hex/` scores detection strategies against ground-truth fixtures (OKLAB distance, HIGH/MEDIUM shares, per brand/finish); `color_training_sample` (migration 025) holds DB-sourced samples. See `packages/functions/README.md`
-- ✅ Feature-flagged Azure OpenAI batch pipeline for Shopify vision hex detection — submit → awaiting_ai → poll/apply completion flow with synchronous fallback for small runs
+- ✅ Hex-detection evaluation harness — `packages/functions/src/eval/hex/` scores detection strategies against ground-truth fixtures (OKLAB distance, HIGH/MEDIUM shares, per brand/finish); `color_training_sample` (migration `20261017033500000_add-color-training-sample.sql`) holds DB-sourced samples. See `packages/functions/README.md`
+- ✅ Feature-flagged Azure OpenAI batch pipeline for Shopify vision hex detection — per-chunk batches run in parallel while the worker keeps ingesting (`metrics.aiBatches`), then awaiting_ai → poll/apply each batch → complete, with synchronous fallback for small runs
 
 ## Environment Variables (Functions)
 
@@ -132,15 +135,25 @@ Optional / dev-only:
 - `AZURE_OPENAI_DEPLOYMENT_LABEL` — Azure OpenAI deployment name for label OCR structured extraction (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`)
 - `AZURE_OPENAI_DEPLOYMENT` — fallback deployment name when `AZURE_OPENAI_DEPLOYMENT_HEX` is unset
 - `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` — optional Azure OpenAI deployment name dedicated to batch hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`)
+- `HEX_SNAP_MAX_DISTANCE` — eval-only: largest OKLAB distance at which the hex-eval `blind-snap` / `image-select-ai-snap` strategies snap the model's hex to the nearest measured palette chip (default `0.10`, the MEDIUM threshold)
 - `AZURE_OPENAI_DEPLOYMENT_HEX_ENSEMBLE` — optional comma-separated deployment names the hex-eval `ensemble` strategy samples from (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`); eval-only, not used by ingestion
 - `HEX_DETECTION_ENSEMBLE_SAMPLES` — samples per deployment for the hex-eval `ensemble` strategy (default `3`, clamped 1–10); eval-only
 - `HEX_DETECTION_ENSEMBLE_TEMPERATURE` — sampling temperature for the hex-eval `ensemble` strategy (default `0.3`, clamped 0–2); eval-only, production detection stays at temperature 0
+- `HEX_EVAL_REGION_CROP_MODE` — eval-only: localization mode for the hex-eval `region-crop` strategy, `cells` (default, labeled grid) or `bbox` (normalized box)
+- `HEX_EVAL_REGION_CROP_CELLS` — eval-only: grid size per axis for `region-crop` `cells` mode (default `6`, clamped 2–10)
+- `HEX_EVAL_REGION_CROP_GRID` — eval-only: `true` draws a 4×4 grid on the image in `region-crop` `bbox` mode (default `false`)
+- `HEX_EVAL_REGION_CROP_DETAIL` — eval-only: `low`/`high`/`auto` vision detail for the `region-crop` locator call (default: `AZURE_OPENAI_VISION_DETAIL`, then `low`)
 - `AZURE_OPENAI_BATCH_API_VERSION` — Azure OpenAI API version used for files/batches operations (default: `2025-03-01-preview`)
 - `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` — Batch completion window passed to Azure OpenAI (default: `24h`)
 - `AZURE_OPENAI_VISION_DETAIL` — image detail level for vision hex detection, sync and batch: `low` (default, flat ~85 tokens/image), `high`, or `auto`; raise if finish detection needs more resolution
 - `HEX_DETECTION_BATCH_ENABLED` — enables batch mode for Shopify vision hex detection and the `ingestion-ai-batch-poller` timer workflow
 - `HEX_DETECTION_BATCH_MIN_IMAGES` — minimum record count required before ingestion switches to batch mode (default: `5`)
-- `HEX_DETECTION_DELAY_MS` — pause between synchronous (non-batch) hex detection calls (default: `1000`, max `60000`; `0` disables); 429s are still retried with `Retry-After`
+- `HEX_DETECTION_BATCH_MAX_IN_FLIGHT` — max hex batches one ingestion job keeps pending (default: `20`, clamped 1–100); the worker submits a batch per chunk and keeps ingesting, pausing for `awaiting_ai` only at this cap
+- `HEX_DETECTION_DELAY_MS` — pause after each synchronous (non-batch) hex detection call, per concurrency slot (default: `1000`, max `60000`; `0` disables); 429s are still retried with `Retry-After`
+- `HEX_DETECTION_CONCURRENCY` — synchronous hex detection calls in flight at once (default: `4`, max `32`); DB writes stay sequential. Throughput is capped by the Azure OpenAI deployment's tokens-per-minute quota, so raise this together with deployment capacity
+- `SUSPICIOUS_HEX_REPEAT_MIN_RECORDS` — a vendor hex shared by at least this many records in one data source's batch is treated as a store template default and sent to AI detection when `detectHexOnSuspiciousOnly` is on (default: `3`; see `src/lib/suspicious-hex.ts`)
+- `SUSPICIOUS_HEX_REPEAT_MIN_SHARE` — ...and by at least this share (0–1) of the records that carry a vendor hex (default: `0.1`); both repeat thresholds must be met
+- `SUSPICIOUS_HEX_GRAYSCALE_MAX_CHROMA` — OKLAB chroma below which a vendor hex counts as near-grayscale and is flagged unless the shade name or tags suggest a gray/silver/black/white/nude/chrome polish (default: `0.02`; pure grays are `0`, a nude ≈ `0.08`)
 - `INGESTION_AI_BATCH_POLL_SCHEDULE` — NCRONTAB schedule for the batch completion poller (default: `0 * * * * *`, every minute)
 - `INGESTION_AI_BATCH_MAX_POLL_JOBS` — maximum awaiting jobs processed per poller run (default: `10`)
 - `INGESTION_AI_IMAGE_PROXY_ORIGIN` — optional public origin used to build `/api/images/{id}` URLs for Azure OpenAI vision calls (defaults to `https://$WEBSITE_HOSTNAME`)
@@ -155,6 +168,8 @@ Optional / dev-only:
 - `PG_QUERY_MAX_RETRIES` — retries for retry-safe DB queries (`SELECT` and `UPDATE ingestion_job`) when connection timeouts occur (default: `2`)
 - `PG_QUERY_RETRY_BASE_MS` — linear backoff base delay for retry-safe DB query retries in milliseconds (default: `250`)
 - `APPLICATIONINSIGHTS_CONNECTION_STRING` — custom telemetry sink for `trackEvent`/`trackMetric`/`trackException`
+- `CORS_ALLOWED_ORIGINS` — comma-separated origins allowed by the Functions CORS wrapper (`src/lib/http.ts`; default `http://localhost:3000,https://*.azurestaticapps.net`); Terraform sets it to the web app origins
+- `CONNECTOR_RAW_CONTAINER` — blob container for raw connector snapshots and the ingestion catalog cache (Terraform-provisioned; the legacy name `RAW_SNAPSHOT_CONTAINER` is still read but deprecated)
 - `NEXT_PUBLIC_*` — web client vars included in example for convenience; not used by the Functions host itself
 
 ## Adding a New Azure Function

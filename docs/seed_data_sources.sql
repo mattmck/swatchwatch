@@ -49,7 +49,7 @@ VALUES
     'Storefront terms apply (verify metadata/image usage obligations)',
     'https://www.holotaco.com/pages/terms-of-service',
     true,
-    '{"priority":"high","mvp":"yes","notes":"Current Holo Taco Shopify storefront pull for recent searchable shades, variant SKU/barcode, and images."}'::jsonb
+    '{"priority":"high","mvp":"yes","notes":"Current Holo Taco Shopify storefront pull for recent searchable shades, variant SKU/barcode, and images. Color-family tags (color:blue); no hex values."}'::jsonb
   ),
   (
     'MooncatShopify',
@@ -58,7 +58,7 @@ VALUES
     'Storefront terms apply (verify metadata/image usage obligations)',
     NULL,
     true,
-    '{"priority":"high","mvp":"yes","notes":"Mooncat Shopify store. Rich tags with color/finish metadata. Hex extraction from option values."}'::jsonb
+    '{"priority":"high","mvp":"yes","notes":"Mooncat Shopify store. Rich tags with color-family (color:purple) and finish metadata; no hex values in options, titles or tags."}'::jsonb
   ),
   (
     'DamNailPolishShopify',
@@ -75,8 +75,8 @@ VALUES
     'https://clionadhcosmetics.com',
     'Storefront terms apply (verify metadata/image usage obligations)',
     NULL,
-    true,
-    '{"priority":"high","mvp":"yes","notes":"Clionadh Cosmetics Shopify store. Rich tags (Jelly, Scattered Holo, Thermal, color:periwinkle)."}'::jsonb
+    false,
+    '{"priority":"high","mvp":"yes","notes":"Clionadh Cosmetics Shopify store. Storefront is password-locked (/products.json returns 401 as of 2026-10-14); disabled."}'::jsonb
   ),
   (
     'OrlyShopify',
@@ -85,7 +85,7 @@ VALUES
     'Storefront terms apply (verify metadata/image usage obligations)',
     NULL,
     true,
-    '{"priority":"medium","mvp":"yes","notes":"Orly Beauty Shopify store. Hex colors in variant option values."}'::jsonb
+    '{"priority":"medium","mvp":"yes","notes":"Orly Beauty Shopify store. Color names only; no hex values in options, titles or tags."}'::jsonb
   ),
   (
     'BeesKneesLacquerShopify',
@@ -94,7 +94,7 @@ VALUES
     'Storefront terms apply (verify metadata/image usage obligations)',
     NULL,
     true,
-    '{"priority":"medium","mvp":"yes","notes":"Bees Knees Lacquer Shopify store. Hex colors in variant option values."}'::jsonb
+    '{"priority":"medium","mvp":"yes","notes":"Bees Knees Lacquer Shopify store. Color names only; no hex values in options, titles or tags."}'::jsonb
   ),
   (
     'GreatLakesLacquerShopify',
@@ -103,7 +103,7 @@ VALUES
     'Storefront terms apply (verify metadata/image usage obligations)',
     NULL,
     true,
-    '{"priority":"medium","mvp":"yes","notes":"Great Lakes Lacquer Shopify store. Hex colors in variant option values."}'::jsonb
+    '{"priority":"medium","mvp":"yes","notes":"Great Lakes Lacquer Shopify store. Color names only; no hex values in options, titles or tags."}'::jsonb
   ),
   (
     'RoylaleeShopify',
@@ -111,8 +111,8 @@ VALUES
     'https://roylalee.com',
     'Storefront terms apply (verify metadata/image usage obligations)',
     NULL,
-    true,
-    '{"priority":"medium","mvp":"yes","notes":"Roylalee Shopify store. Hex colors in variant option values."}'::jsonb
+    false,
+    '{"priority":"medium","mvp":"yes","notes":"Roylalee Shopify store. Lists only a gift card as of 2026-10-14; disabled."}'::jsonb
   ),
   (
     'GardenPathLacquersShopify',
@@ -120,8 +120,8 @@ VALUES
     'https://gardenpathlacquers.com',
     'Storefront terms apply (verify metadata/image usage obligations)',
     NULL,
-    true,
-    '{"priority":"medium","mvp":"yes","notes":"Garden Path Lacquers Shopify store. Hex colors in variant option values."}'::jsonb
+    false,
+    '{"priority":"medium","mvp":"yes","notes":"Garden Path Lacquers Shopify store. Storefront is password-locked (/products.json returns 401 as of 2026-10-14); disabled."}'::jsonb
   ),
   (
     'KathleenAndCoShopify',
@@ -130,7 +130,7 @@ VALUES
     'Storefront terms apply (verify metadata/image usage obligations)',
     NULL,
     true,
-    '{"priority":"medium","mvp":"yes","notes":"Kathleen & Co Shopify store. Hex colors in variant option values."}'::jsonb
+    '{"priority":"medium","mvp":"yes","notes":"Kathleen & Co Shopify store. Color names only; no hex values in options, titles or tags."}'::jsonb
   ),
   (
     'PrismParadeShopify',
@@ -139,7 +139,7 @@ VALUES
     'Storefront terms apply (verify metadata/image usage obligations)',
     NULL,
     true,
-    '{"priority":"medium","mvp":"yes","notes":"Prism Parade Shopify store. Hex colors in variant option values."}'::jsonb
+    '{"priority":"medium","mvp":"yes","notes":"Prism Parade Shopify store. Color names only; no hex values in options, titles or tags."}'::jsonb
   ),
   (
     'SassysaucePolishShopify',
@@ -148,7 +148,7 @@ VALUES
     'Storefront terms apply (verify metadata/image usage obligations)',
     NULL,
     true,
-    '{"priority":"medium","mvp":"yes","notes":"Sassysauce Polish Shopify store. Some hex in option values."}'::jsonb
+    '{"priority":"medium","mvp":"yes","notes":"Sassysauce Polish Shopify store. Color names only; no hex values in options, titles or tags."}'::jsonb
   ),
   (
     'ColorClubShopify',
@@ -220,7 +220,7 @@ VALUES
     'Storefront terms apply (verify metadata/image usage obligations)',
     NULL,
     true,
-    '{"priority":"medium","mvp":"no","notes":"Le Mini Macaron Europe Shopify store. Some color tags (Color_LS_*)."}'::jsonb
+    '{"priority":"medium","mvp":"no","notes":"Le Mini Macaron Europe Shopify store. Color-family tags (Color_Pink, Color_LS_Blue); no hex values."}'::jsonb
   ),
   (
     'CrackedPolishShopify',
@@ -264,8 +264,8 @@ VALUES
     'https://www.potionpolish.com',
     'Storefront terms apply (verify metadata/image usage obligations)',
     NULL,
-    true,
-    '{"priority":"medium","mvp":"no","notes":"Potion Polish Shopify store."}'::jsonb
+    false,
+    '{"priority":"medium","mvp":"no","notes":"Potion Polish store. Moved to Big Cartel (/products.json returns a bare array with name/permalink as of 2026-10-14), which the Shopify connector cannot read; disabled."}'::jsonb
   ),
   (
     'StarrilyShopify',

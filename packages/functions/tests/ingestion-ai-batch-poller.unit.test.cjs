@@ -31,11 +31,18 @@ const realContinuation = require(path.resolve(__dirname, "../dist/lib/ingestion-
 
 // Ordered record of side-effecting calls so tests can assert persist-before-enqueue.
 let calls = [];
+// Arguments the poller passed to batch parsing / shade apply (provenance threading).
+let parseProvenanceArgs = [];
+let appliedDetections = [];
 let dbJob = null;
 let awaitingJob = null;
 let batchStatus = null;
+// Per-batch statuses for jobs tracking several batches; falls back to batchStatus.
+let batchStatusById = {};
+let polledBatchIds = [];
 let applyResult = null;
 let onApply = () => {};
+let onPoll = () => {};
 let enqueueMock = async () => {};
 
 registerMock("@azure/functions", {
@@ -62,6 +69,13 @@ registerMock("../lib/ingestion-repo", {
     calls.push({ type: "update", jobId, metrics: structuredClone(metrics) });
     dbJob.metrics = structuredClone(metrics);
   },
+  // Mirrors the real conditional UPDATE ... AND status = 'running'.
+  updateRunningIngestionJobMetrics: async (jobId, metrics) => {
+    if (!dbJob || dbJob.status !== "running") return false;
+    calls.push({ type: "update", jobId, metrics: structuredClone(metrics) });
+    dbJob.metrics = structuredClone(metrics);
+    return true;
+  },
   markIngestionJobSucceeded: async (jobId, metrics) => {
     calls.push({ type: "succeeded", jobId, metrics: structuredClone(metrics) });
     dbJob.status = "succeeded";
@@ -73,6 +87,7 @@ registerMock("../lib/ingestion-repo", {
     dbJob.metrics = structuredClone(metrics);
   },
   applyAiBatchShadeDetections: async (dataSourceId, detections, overwrite) => {
+    appliedDetections.push(structuredClone(detections));
     calls.push({ type: "apply", dataSourceId, count: detections.length, overwrite });
     onApply();
     return { ...applyResult };
@@ -80,13 +95,28 @@ registerMock("../lib/ingestion-repo", {
 });
 
 registerMock("../lib/azure-openai-batch", {
-  getVisionHexBatchStatus: async () => ({ ...batchStatus }),
+  getVisionHexBatchStatus: async (batchId) => {
+    polledBatchIds.push(batchId);
+    onPoll(batchId);
+    const status = batchStatusById[batchId] || batchStatus;
+    if (status instanceof Error) throw status;
+    return { ...status };
+  },
   downloadBatchFileContent: async () => "{}\n{}\n",
   parseVisionHexBatchOutput: () => [{}, {}],
-  parseVisionHexBatchDetections: async () => [
+  parseVisionHexBatchDetections: async (_rows, provenance) => {
+    parseProvenanceArgs.push(provenance ?? null);
+    return [
     {
       customId: "ext-1",
-      detection: { hex: "#112233", finishes: ["creme"] },
+      detection: {
+        hex: "#112233",
+        finishes: ["creme"],
+        confidence: 0.8,
+        method: "vision-direct",
+        model: provenance?.deployment ?? null,
+        promptVersion: provenance?.promptVersion ?? null,
+      },
       usage: { promptTokens: 100, completionTokens: 10, totalTokens: 110 },
       error: null,
     },
@@ -96,7 +126,8 @@ registerMock("../lib/azure-openai-batch", {
       usage: { promptTokens: 50, completionTokens: 5, totalTokens: 55 },
       error: "parse failure",
     },
-  ],
+    ];
+  },
 });
 
 registerMock("../lib/ingestion-continuation", {
@@ -169,6 +200,8 @@ async function runPoller() {
 
 beforeEach(() => {
   calls = [];
+  parseProvenanceArgs = [];
+  appliedDetections = [];
   batchStatus = {
     id: "batch-1",
     status: "completed",
@@ -178,7 +211,10 @@ beforeEach(() => {
   };
   applyResult = { processed: 2, applied: 1, skippedNoDetection: 1, noShadeMatch: 0 };
   onApply = () => {};
+  onPoll = () => {};
   enqueueMock = async () => {};
+  batchStatusById = {};
+  polledBatchIds = [];
 });
 
 describe("ingestion-ai-batch-poller completed batch", () => {
@@ -322,5 +358,323 @@ describe("ingestion-ai-batch-poller completed batch", () => {
       completionTokens: 30,
       totalTokens: 330,
     });
+  });
+});
+
+function makeMultiBatchMetrics(entries, { resumeMessage } = {}) {
+  return {
+    pipeline: { status: "running", stage: "awaiting_ai", updatedAt: "2026-10-14T00:00:00.000Z" },
+    aiBatch: { batchId: entries[entries.length - 1].batchId, status: "submitted" },
+    aiBatches: entries.map((entry) => ({ overwriteDetectedHex: false, requestCount: 2, ...entry })),
+    [realContinuation.CHECKPOINT_METRICS_KEY]: makeCheckpoint({ continuationCount: 3 }),
+    logs: [],
+    ...(resumeMessage ? { resumeMessage } : {}),
+  };
+}
+
+function completedStatus(id) {
+  return {
+    id,
+    status: "completed",
+    outputFileId: `file-out-${id}`,
+    errorFileId: null,
+    requestCounts: { total: 2, completed: 2, failed: 0 },
+  };
+}
+
+describe("ingestion-ai-batch-poller with several batches per job", () => {
+  it("applies completed batches and keeps waiting while others still run", async () => {
+    seedJob(
+      makeMultiBatchMetrics([
+        { batchId: "batch-1", status: "submitted" },
+        { batchId: "batch-2", status: "submitted" },
+      ])
+    );
+    batchStatusById = {
+      "batch-1": completedStatus("batch-1"),
+      "batch-2": { ...completedStatus("batch-2"), status: "in_progress", outputFileId: null },
+    };
+
+    await runPoller();
+
+    assert.deepEqual(polledBatchIds, ["batch-1", "batch-2"]);
+    assert.deepEqual(
+      calls.map((c) => c.type),
+      ["apply", "update", "update"]
+    );
+    assert.equal(dbJob.status, "running");
+    assert.equal(dbJob.metrics.pipeline.stage, "awaiting_ai");
+    assert.deepEqual(
+      dbJob.metrics.aiBatches.map((b) => [b.batchId, b.status]),
+      [
+        ["batch-1", "completed"],
+        ["batch-2", "in_progress"],
+      ]
+    );
+    assert.equal(dbJob.metrics.aiBatchesCompleted, 1);
+  });
+
+  it("does not write progress metrics when the job is cancelled while a batch is applied", async () => {
+    seedJob(
+      makeMultiBatchMetrics([
+        { batchId: "batch-1", status: "submitted" },
+        { batchId: "batch-2", status: "submitted" },
+      ])
+    );
+    const before = structuredClone(dbJob.metrics);
+    batchStatusById = {
+      "batch-1": completedStatus("batch-1"),
+      "batch-2": completedStatus("batch-2"),
+    };
+    onApply = () => {
+      dbJob.status = "cancelled";
+    };
+
+    await runPoller();
+
+    assert.deepEqual(
+      calls.map((c) => c.type),
+      ["apply"]
+    );
+    assert.equal(dbJob.status, "cancelled");
+    assert.deepEqual(dbJob.metrics, before);
+  });
+
+  it("does not write awaiting_ai metrics when the job is cancelled while batches are polled", async () => {
+    seedJob(
+      makeMultiBatchMetrics([
+        { batchId: "batch-1", status: "submitted" },
+        { batchId: "batch-2", status: "submitted" },
+      ])
+    );
+    const before = structuredClone(dbJob.metrics);
+    batchStatusById = {
+      "batch-1": { ...completedStatus("batch-1"), status: "in_progress", outputFileId: null },
+      "batch-2": { ...completedStatus("batch-2"), status: "in_progress", outputFileId: null },
+    };
+    onPoll = () => {
+      dbJob.status = "cancelled";
+    };
+
+    await runPoller();
+
+    assert.deepEqual(calls, []);
+    assert.deepEqual(dbJob.metrics, before);
+  });
+
+  it("does not re-poll applied batches and completes the job when the last one finishes", async () => {
+    seedJob(
+      makeMultiBatchMetrics([
+        { batchId: "batch-1", status: "completed" },
+        { batchId: "batch-2", status: "in_progress" },
+      ])
+    );
+    batchStatusById = { "batch-2": completedStatus("batch-2") };
+
+    await runPoller();
+
+    assert.deepEqual(polledBatchIds, ["batch-2"]);
+    // The last pending batch goes straight to the final write.
+    assert.deepEqual(
+      calls.map((c) => c.type),
+      ["apply", "succeeded"]
+    );
+    assert.equal(dbJob.status, "succeeded");
+    assert.equal(dbJob.metrics.pipeline.stage, "completed");
+    assert.ok(dbJob.metrics.aiBatches.every((b) => b.status === "completed"));
+  });
+
+  it("applies every batch that finished in the same poll", async () => {
+    seedJob(
+      makeMultiBatchMetrics([
+        { batchId: "batch-1", status: "submitted" },
+        { batchId: "batch-2", status: "submitted" },
+        { batchId: "batch-3", status: "submitted" },
+      ])
+    );
+    batchStatusById = {
+      "batch-1": completedStatus("batch-1"),
+      "batch-2": completedStatus("batch-2"),
+      "batch-3": completedStatus("batch-3"),
+    };
+
+    await runPoller();
+
+    assert.deepEqual(
+      calls.map((c) => c.type),
+      ["apply", "update", "apply", "update", "apply", "succeeded"]
+    );
+    const done = calls[calls.length - 1].metrics;
+    assert.equal(done.aiBatchesCompleted, 3);
+    assert.equal(done.aiBatchApplyTotals.applied, 3);
+  });
+
+  it("enqueues the stored resume message once all batches are applied", async () => {
+    const resumeMessage = makeResumeMessage();
+    seedJob(
+      makeMultiBatchMetrics(
+        [
+          { batchId: "batch-1", status: "submitted" },
+          { batchId: "batch-2", status: "submitted" },
+        ],
+        { resumeMessage }
+      )
+    );
+    batchStatusById = {
+      "batch-1": completedStatus("batch-1"),
+      "batch-2": completedStatus("batch-2"),
+    };
+
+    await runPoller();
+
+    assert.deepEqual(
+      calls.map((c) => c.type),
+      ["apply", "update", "apply", "update", "enqueue"]
+    );
+    assert.equal(dbJob.metrics.pipeline.stage, realContinuation.CONTINUATION_QUEUED_STAGE);
+    assert.deepEqual(calls[calls.length - 1].message, resumeMessage);
+  });
+
+  it("retries a batch whose status lookup errors instead of failing the job", async () => {
+    seedJob(
+      makeMultiBatchMetrics([
+        { batchId: "batch-1", status: "submitted" },
+        { batchId: "batch-2", status: "in_progress" },
+      ])
+    );
+    batchStatusById = {
+      "batch-1": completedStatus("batch-1"),
+      "batch-2": new Error("Azure OpenAI batch status request timed out"),
+    };
+
+    await runPoller();
+
+    assert.deepEqual(polledBatchIds, ["batch-1", "batch-2"]);
+    assert.deepEqual(
+      calls.map((c) => c.type),
+      ["apply", "update", "update"]
+    );
+    assert.equal(dbJob.status, "running");
+    assert.equal(dbJob.metrics.pipeline.stage, "awaiting_ai");
+    assert.deepEqual(
+      dbJob.metrics.aiBatches.map((b) => [b.batchId, b.status]),
+      [
+        ["batch-1", "completed"],
+        ["batch-2", "in_progress"],
+      ],
+      "the errored batch keeps its last known status for the next poll"
+    );
+    assert.ok(dbJob.metrics.logs.some((entry) => /status lookup failed/.test(entry.msg)));
+  });
+
+  it("still applies later completed batches when an earlier batch failed", async () => {
+    seedJob(
+      makeMultiBatchMetrics([
+        { batchId: "batch-1", status: "submitted" },
+        { batchId: "batch-2", status: "submitted" },
+      ])
+    );
+    batchStatusById = {
+      "batch-1": { ...completedStatus("batch-1"), status: "failed", outputFileId: null },
+      "batch-2": completedStatus("batch-2"),
+    };
+
+    await runPoller();
+
+    assert.deepEqual(polledBatchIds, ["batch-1", "batch-2"]);
+    assert.deepEqual(
+      calls.map((c) => c.type),
+      ["apply", "failed"]
+    );
+    assert.match(calls[1].error, /batch-1 ended with status failed/);
+    assert.equal(dbJob.metrics.aiBatchesCompleted, 1);
+    assert.deepEqual(
+      dbJob.metrics.aiBatches.map((b) => [b.batchId, b.status]),
+      [
+        ["batch-1", "failed"],
+        ["batch-2", "completed"],
+      ]
+    );
+  });
+
+  it("fails the job for a failure persisted by an earlier poll", async () => {
+    seedJob(
+      makeMultiBatchMetrics([
+        { batchId: "batch-1", status: "failed" },
+        { batchId: "batch-2", status: "in_progress" },
+      ])
+    );
+    batchStatusById = { "batch-2": completedStatus("batch-2") };
+
+    await runPoller();
+
+    assert.deepEqual(polledBatchIds, ["batch-2"]);
+    assert.deepEqual(
+      calls.map((c) => c.type),
+      ["apply", "failed"]
+    );
+    assert.match(calls[1].error, /batch-1 ended with status failed/);
+    assert.equal(dbJob.status, "failed");
+  });
+
+  it("fails the job when a batch fails, after applying the ones that completed", async () => {
+    seedJob(
+      makeMultiBatchMetrics([
+        { batchId: "batch-1", status: "submitted" },
+        { batchId: "batch-2", status: "submitted" },
+      ])
+    );
+    batchStatusById = {
+      "batch-1": completedStatus("batch-1"),
+      "batch-2": { ...completedStatus("batch-2"), status: "expired", outputFileId: null },
+    };
+
+    await runPoller();
+
+    assert.deepEqual(
+      calls.map((c) => c.type),
+      ["apply", "update", "failed"]
+    );
+    assert.match(calls[2].error, /batch-2 ended with status expired/);
+    assert.equal(dbJob.metrics.failedStage, "awaiting_ai");
+    assert.deepEqual(
+      dbJob.metrics.aiBatches.map((b) => [b.batchId, b.status]),
+      [
+        ["batch-1", "completed"],
+        ["batch-2", "expired"],
+      ]
+    );
+  });
+});
+
+describe("ingestion-ai-batch-poller detected-hex provenance", () => {
+  it("passes each batch's submit-time deployment and prompt version through to the shade apply", async () => {
+    seedJob(
+      makeMultiBatchMetrics([
+        { batchId: "batch-1", status: "submitted", deployment: "hex-batch-deploy", promptVersion: "vision-direct/v-test" },
+      ])
+    );
+    batchStatusById = { "batch-1": completedStatus("batch-1") };
+
+    await runPoller();
+
+    assert.deepEqual(parseProvenanceArgs, [
+      { deployment: "hex-batch-deploy", promptVersion: "vision-direct/v-test" },
+    ]);
+    assert.equal(appliedDetections.length, 1);
+    const [withHex, withoutHex] = appliedDetections[0];
+    assert.deepEqual(withHex.provenance, {
+      confidence: 0.8,
+      method: "vision-direct",
+      model: "hex-batch-deploy",
+      promptVersion: "vision-direct/v-test",
+    });
+    assert.equal(withoutHex.provenance, null);
+  });
+
+  it("passes null provenance for legacy single-batch jobs that never recorded it", async () => {
+    seedJob(makeAwaitingMetrics());
+    await runPoller();
+    assert.deepEqual(parseProvenanceArgs, [{ deployment: null, promptVersion: null }]);
   });
 });

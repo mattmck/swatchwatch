@@ -6,6 +6,53 @@
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS vector;
 
+-- ── Color helpers (migration 20261017024958000_shade-detected-hex-provenance) ───────────────────────────────────────────
+-- OKLAB math mirroring packages/shared/src/color/oklab.ts so shade.hex_agreement
+-- (a generated column) agrees with colorDistance() in the web app and API.
+
+-- sRGB #RRGGBB → OKLAB {L, a, b}. NULL for anything that is not a 6-digit hex.
+CREATE OR REPLACE FUNCTION hex_to_oklab(hex text)
+RETURNS double precision[]
+LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $$
+DECLARE
+  clean text;
+  r double precision; g double precision; b double precision;
+  l_ double precision; m_ double precision; s_ double precision;
+BEGIN
+  IF hex IS NULL THEN RETURN NULL; END IF;
+  clean := upper(regexp_replace(btrim(hex), '^#', ''));
+  IF clean !~ '^[0-9A-F]{6}$' THEN RETURN NULL; END IF;
+  r := ('x' || substr(clean, 1, 2))::bit(8)::int / 255.0;
+  g := ('x' || substr(clean, 3, 2))::bit(8)::int / 255.0;
+  b := ('x' || substr(clean, 5, 2))::bit(8)::int / 255.0;
+  r := CASE WHEN r <= 0.04045 THEN r / 12.92 ELSE power((r + 0.055) / 1.055, 2.4) END;
+  g := CASE WHEN g <= 0.04045 THEN g / 12.92 ELSE power((g + 0.055) / 1.055, 2.4) END;
+  b := CASE WHEN b <= 0.04045 THEN b / 12.92 ELSE power((b + 0.055) / 1.055, 2.4) END;
+  l_ := cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  m_ := cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  s_ := cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  RETURN ARRAY[
+    0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_,
+    1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_,
+    0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_
+  ];
+END;
+$$;
+
+-- Euclidean OKLAB distance between two hex colors, rounded to 4 decimals (NULL if either is invalid).
+CREATE OR REPLACE FUNCTION hex_oklab_distance(hex_a text, hex_b text)
+RETURNS numeric
+LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $$
+DECLARE
+  a double precision[]; b double precision[];
+BEGIN
+  a := hex_to_oklab(hex_a);
+  b := hex_to_oklab(hex_b);
+  IF a IS NULL OR b IS NULL THEN RETURN NULL; END IF;
+  RETURN round(sqrt(power(a[1] - b[1], 2) + power(a[2] - b[2], 2) + power(a[3] - b[3], 2))::numeric, 4);
+END;
+$$;
+
 -- Provenance
 CREATE TABLE source (
   source_id BIGSERIAL PRIMARY KEY,
@@ -57,9 +104,17 @@ CREATE TABLE shade (
   status TEXT NOT NULL DEFAULT 'unknown',       -- active|user_submitted|...; user_submitted = private to creator/inventory holders until an admin sets 'active' (migration 024)
   created_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL, -- creator of a user-API shade; NULL for catalog/ingestion rows (migration 024)
   color_name TEXT,
-  vendor_hex TEXT,
-  detected_hex TEXT,
-  name_hex TEXT,
+  vendor_hex TEXT,                               -- hex published by the vendor (e.g. Shopify variant option)
+  detected_hex TEXT,                             -- hex detected from the product image (AI vision)
+  name_hex TEXT,                                 -- hex inferred from the color name
+  -- detected_hex provenance (migration 20261017024958000_shade-detected-hex-provenance): who/what produced detected_hex and how sure it was
+  detected_hex_confidence NUMERIC(4,3) CHECK (detected_hex_confidence IS NULL OR (detected_hex_confidence >= 0 AND detected_hex_confidence <= 1)),
+  detected_hex_method TEXT,                      -- 'vision-direct' | 'palette-pick' | 'region-crop' | 'ensemble' | 'client-supplied' | …
+  detected_hex_model TEXT,                       -- Azure OpenAI deployment name
+  detected_hex_prompt_version TEXT,              -- PROMPT_VERSION in packages/functions/src/lib/ai-color-detection.ts
+  detected_hex_at TIMESTAMPTZ,                   -- when detected_hex was last written
+  -- OKLAB distance vendor_hex ↔ detected_hex (NULL unless both are valid); kept current by Postgres on every write
+  hex_agreement NUMERIC(6,4) GENERATED ALWAYS AS (hex_oklab_distance(vendor_hex, detected_hex)) STORED,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (brand_id, product_line_id, shade_name_canonical, COALESCE(finish,''))
@@ -67,6 +122,9 @@ CREATE TABLE shade (
 
 CREATE INDEX idx_shade_finishes ON shade USING GIN (finishes);
 CREATE INDEX idx_shade_created_by_user ON shade (created_by_user_id) WHERE created_by_user_id IS NOT NULL;
+-- Hex review queue (admin GET /api/polishes-admin/hex-review): worst agreement / lowest confidence first
+CREATE INDEX idx_shade_hex_agreement ON shade (hex_agreement DESC NULLS LAST) WHERE detected_hex IS NOT NULL;
+CREATE INDEX idx_shade_detected_hex_confidence ON shade (detected_hex_confidence ASC NULLS LAST) WHERE detected_hex IS NOT NULL;
 
 CREATE TABLE shade_alias (
   shade_alias_id BIGSERIAL PRIMARY KEY,
@@ -322,6 +380,7 @@ CREATE TABLE proposal_patch (
 -- Search indexes
 CREATE INDEX idx_brand_alias_trgm ON brand_alias USING GIN (alias gin_trgm_ops);
 CREATE INDEX idx_shade_name_trgm ON shade USING GIN (shade_name_canonical gin_trgm_ops);
+CREATE INDEX idx_swatch_shade_latest ON swatch (shade_id, swatch_id DESC); -- primary-swatch LATERAL lookup in POLISH_SELECT
 CREATE INDEX idx_shade_alias_trgm ON shade_alias USING GIN (alias gin_trgm_ops);
 CREATE INDEX idx_swatch_embedding ON color_features USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 
@@ -462,6 +521,18 @@ CREATE TABLE data_source (
   metadata JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Connector image URL each source image was downloaded from; ingestion reruns reuse the
+-- stored image when the URL is unchanged instead of downloading it again.
+CREATE TABLE source_image_url (
+  data_source_id BIGINT NOT NULL REFERENCES data_source(data_source_id) ON DELETE CASCADE,
+  source_url TEXT NOT NULL,
+  image_id BIGINT NOT NULL REFERENCES image_asset(image_id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (data_source_id, source_url)
+);
+CREATE INDEX idx_source_image_url_image ON source_image_url(image_id);
 
 -- Raw external product record keyed (primarily) by GTIN; may include ingredients/labels/etc.
 CREATE TABLE external_product (

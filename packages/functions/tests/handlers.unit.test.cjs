@@ -830,11 +830,12 @@ describe("functions/polishes — getPolishes", () => {
               color: "Red",
               finish: "cream",
               swatchImageUrl: null,
+              totalCount: "1",
             },
           ],
         };
       }
-      // count query
+      // Fallback count query (only runs for a page past the end).
       return { rows: [{ total: "1" }] };
     };
     const handler = registeredRoutes["polishes-list"].handler;
@@ -846,10 +847,144 @@ describe("functions/polishes — getPolishes", () => {
     const res = await handler(req, fakeContext());
     assert.equal(res.status, 200);
     assert.ok(Array.isArray(res.jsonBody.polishes));
-    assert.equal(typeof res.jsonBody.total, "number");
+    assert.equal(res.jsonBody.total, 1);
+    assert.ok(!("totalCount" in res.jsonBody.polishes[0]), "window column must not leak into rows");
     assert.equal(typeof res.jsonBody.page, "number");
     assert.equal(typeof res.jsonBody.pageSize, "number");
     assert.equal(res.jsonBody.polishes[0].finish, "creme");
+  });
+});
+
+describe("functions/polishes — primary swatch image selection", () => {
+  // Ingestion inserts gallery swatches after the product swatch, so "newest swatch" is a gallery
+  // image. Readers must rank the source_product swatch first and only then fall back to newest.
+  const PRIMARY_FIRST_ORDER =
+    /ORDER BY COALESCE\(sw\.swatch_type = 'source_product', false\) DESC, sw\.swatch_id DESC/;
+  const authUserRow = { user_id: 1, external_id: "ext-1", email: "admin@test", role: "admin" };
+
+  it("list thumbnail lateral join prefers the source_product swatch", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let listSql = null;
+    queryMock = async (sql) => {
+      if (sql.includes("FROM app_user")) return { rows: [authUserRow] };
+      if (sql.includes("swatch_img")) {
+        listSql = sql;
+        return { rows: [] };
+      }
+      return { rows: [{ total: "0" }] };
+    };
+
+    const handler = registeredRoutes["polishes-list"].handler;
+    const res = await handler(
+      fakeRequest({
+        url: "http://localhost:7071/api/polishes",
+        headers: { authorization: "Bearer dev:1" },
+        params: {},
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 200);
+    assert.ok(listSql, "list query should select the swatch thumbnail");
+    const lateral = listSql.slice(
+      listSql.indexOf("LEFT JOIN LATERAL"),
+      listSql.indexOf(") AS swatch_img")
+    );
+    assert.match(lateral, PRIMARY_FIRST_ORDER);
+  });
+
+  it("detail returns every source image with the product image first", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let imagesSql = null;
+    queryMock = async (sql) => {
+      if (sql.includes("FROM app_user")) return { rows: [authUserRow] };
+      if (sql.includes('AS "storageUrl"')) {
+        imagesSql = sql;
+        // Rows as Postgres returns them under the primary-first ordering.
+        return {
+          rows: [
+            { storageUrl: "https://example.com/product.png" },
+            { storageUrl: "https://example.com/gallery-2.png" },
+            { storageUrl: "https://example.com/gallery-1.png" },
+          ],
+        };
+      }
+      if (sql.includes("swatch_img")) {
+        return {
+          rows: [
+            {
+              id: "77",
+              brand: "OPI",
+              name: "Primary",
+              finish: "creme",
+              swatchImageUrl: "https://example.com/product.png",
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    };
+
+    const handler = registeredRoutes["polishes-list"].handler;
+    const res = await handler(
+      fakeRequest({
+        url: "http://localhost:7071/api/polishes/77",
+        headers: { authorization: "Bearer dev:1" },
+        params: { id: "77" },
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 200);
+    assert.ok(imagesSql, "detail should query the shade's swatch images");
+    assert.match(imagesSql, PRIMARY_FIRST_ORDER);
+    assert.doesNotMatch(imagesSql, /LIMIT/, "detail should return all images, not just the primary");
+    assert.deepEqual(res.jsonBody.sourceImageUrls, [
+      "https://example.com/product.png",
+      "https://example.com/gallery-2.png",
+      "https://example.com/gallery-1.png",
+    ]);
+    assert.equal(res.jsonBody.swatchImageUrl, "https://example.com/product.png");
+  });
+
+  it("recalc-hex shade lookup prefers the source_product swatch image", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let shadeSql = null;
+    queryMock = async (sql) => {
+      if (sql.includes("FROM app_user")) return { rows: [authUserRow] };
+      if (sql.includes("FROM shade s")) {
+        shadeSql = sql;
+        return {
+          rows: [
+            {
+              shade_id: 123,
+              shade_name_canonical: "Primary Shade",
+              detected_hex: null,
+              vendor_hex: null,
+              storage_url: "https://example.com/product.png",
+              vendor_tags: null,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    };
+
+    const handler = registeredRoutes["polishes-recalc-hex"].handler;
+    const res = await handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://localhost:7071/api/polishes/123/recalc-hex",
+        headers: { authorization: "Bearer dev:1" },
+        params: { id: "123" },
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 200);
+    assert.ok(shadeSql, "recalc-hex should look up the shade and its swatch image");
+    assert.match(shadeSql, PRIMARY_FIRST_ORDER);
+    assert.match(shadeSql, /LIMIT 1/);
   });
 });
 
@@ -1073,7 +1208,7 @@ describe("functions/polishes — multi-finish", () => {
       if (text.includes("FROM finish_normalization")) {
         return { rows: aliasRows() };
       }
-      if (text.includes("COUNT(*)")) {
+      if (text.includes("COUNT(*) AS total")) {
         return { rows: [{ total: "1" }] };
       }
       listCalls.push({ text, params });
@@ -1087,6 +1222,7 @@ describe("functions/polishes — multi-finish", () => {
             finish: "shimmer",
             finishes: ["shimmer", "holographic"],
             swatchImageUrl: null,
+            totalCount: "1",
           },
         ],
       };
@@ -1125,13 +1261,13 @@ describe("functions/polishes — multi-finish", () => {
       if (text.includes("FROM finish_normalization")) {
         return { rows: aliasRows({ withChrome: true }) };
       }
-      if (text.includes("COUNT(*)")) {
+      if (text.includes("COUNT(*) AS total")) {
         return { rows: [{ total: "1" }] };
       }
       listCalls.push({ text, params });
       return {
         rows: [
-          { id: "8", brand: "X", name: "Mirror Ball", color: "", finish: "chrome", finishes: ["chrome"], swatchImageUrl: null },
+          { id: "8", brand: "X", name: "Mirror Ball", color: "", finish: "chrome", finishes: ["chrome"], swatchImageUrl: null, totalCount: "1" },
         ],
       };
     };
@@ -1148,6 +1284,10 @@ describe("functions/polishes — multi-finish", () => {
 
     const { text, params } = listCalls[0];
     assert.ok(text.includes("s.finishes, ARRAY[]::text[]) &&"));
+    // The legacy single-finish column only matches shades with no finishes array: once a creator
+    // replaces ["creme"] with ["glitter"], ?finishes=creme must stop returning that shade.
+    assert.match(text, /cardinality\(COALESCE\(s\.finishes, ARRAY\[\]::text\[\]\)\) = 0 AND LOWER\(s\.finish\)/);
+    assert.ok(!/OR LOWER\(s\.finish\) = ANY/.test(text), "legacy finish must not match unconditionally");
     // Both filter groups resolve to the runtime finish and are matched against the finishes array.
     // finish=Mirror (alias) → canonical chrome (+ raw legacy value); finishes=chrome → chrome.
     assert.ok(params.some((p) => Array.isArray(p) && p.length === 1 && p[0] === "chrome"));

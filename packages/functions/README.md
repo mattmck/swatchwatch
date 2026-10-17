@@ -9,8 +9,8 @@ Azure Functions v4 HTTP API (Node 22, TypeScript).
 npm run setup            # Install workspace dependencies first
 npm run dev:infra        # Start local Postgres + Azurite
 npm run dev:functions    # TypeScript watch + func host on http://localhost:7071
-npm run test --workspace=packages/functions  # Run Functions unit tests
-npm run test:e2e --workspace=packages/functions  # E2E tests against the running local host
+npm run test --workspace=swatchwatch-functions  # Run Functions unit tests
+npm run test:e2e --workspace=swatchwatch-functions  # E2E tests against the running local host
 
 # Or for debugging (VS Code):
 # Press F5 → "Attach to Node Functions" (builds, watches, starts with --inspect on port 9229)
@@ -26,7 +26,7 @@ npm run test:e2e --workspace=packages/functions  # E2E tests against the running
   request bodies or query params is ignored in favor of the authenticated caller, and `/api/images/{id}`
   rejects unsigned/forged/tampered ids (the `images signed-id (requires #47)` block). A nested
   `known gap #227` block pins that a valid signed image id is currently served to any caller (ids are
-  not owner-scoped or expiring) — flip it when #227 lands.
+  not owner-scoped, though they do expire) — flip it when #227 lands.
 - **E2E** (`npm run test:e2e`): `tests/api.test.cjs` + `tests/access-control.e2e.test.cjs` against
   a live host at `http://localhost:7071/api` started with `AUTH_DEV_BYPASS=true` and migrated dev
   data (seed users `dev:1` and `dev:2`). The access-control suite has user 2 attempt to read/modify
@@ -54,6 +54,7 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `PUT` | `/api/polishes/{id}` | `updatePolish` | `polishes.ts` | ✅ Live |
 | `DELETE` | `/api/polishes/{id}` | `deletePolish` | `polishes.ts` | ✅ Live |
 | `POST` | `/api/polishes/{id}/recalc-hex` | `recalcHex` | `polishes.ts` | ✅ Live (admin-only) |
+| `GET` | `/api/polishes-admin/hex-review` | `getHexReview` | `polishes.ts` | ✅ Live (admin-only) |
 | `POST` | `/api/polishes/match-image` | `matchImage` | `polishes.ts` | ✅ Live |
 | `GET` | `/api/catalog/search` | `searchCatalog` | `catalog.ts` | ✅ Working |
 | `GET` | `/api/catalog/shade/{id}` | `getShade` | `catalog.ts` | ✅ Working |
@@ -103,7 +104,7 @@ Background triggers:
 
 All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpRequest, context: InvocationContext)`.
 
-`GET /api/polishes` returns a paginated canonical shade catalog joined with the requesting user's inventory rows. `inventoryItemId` and user-facing fields are undefined when the user has not added that shade yet, but catalog metadata (brand, finish, color hexes, swatch) is still returned so the UI can show "not owned" entries. Supported query params include `search`, `brand`, `finish`, `scope` (`all|collection`), `availability` (`all|owned|wishlist`), `tags`, `sortBy` (`status|brand|name|finish|collection|createdAt|rating`), `sortOrder`, `page`, and `pageSize`. `GET /api/polishes/{id}` looks up a shade by `shade_id` and includes `sourceImageUrls` (all source images associated with that shade's swatches) for the detail page.
+`GET /api/polishes` returns a paginated canonical shade catalog joined with the requesting user's inventory rows. `inventoryItemId` and user-facing fields are undefined when the user has not added that shade yet, but catalog metadata (brand, finish, color hexes, swatch) is still returned so the UI can show "not owned" entries. `swatchImageUrl` is the shade's primary image: its `source_product` swatch when one exists, otherwise its newest swatch. Supported query params include `search`, `brand`, `finish`, `scope` (`all|collection`), `availability` (`all|owned|wishlist`), `tags`, `sortBy` (`status|brand|name|finish|collection|createdAt|rating`), `sortOrder`, `page`, and `pageSize`. `GET /api/polishes/{id}` looks up a shade by `shade_id` and includes `sourceImageUrls` (all source images associated with that shade's swatches, primary `source_product` image first, then newest first) for the detail page. The list's `total` comes from a `COUNT(*) OVER()` window column on the page query itself (one scan per page, no separate count query); a page past the end falls back to an explicit count. The swatch LATERAL lookup in `POLISH_SELECT` is served by `idx_swatch_shade_latest` (migration `20261016040000000_add-swatch-shade-index`).
 **Multi-finish contract (#43):** polish list/detail responses include `finishes: string[]` (all canonical finishes for the shade, primary first) alongside the legacy `finish` string. `finish` stays populated for older consumers: it is the shade's stored `finish` column (its identity/dedup key) and falls back to `finishes[0]` when that column is empty. Filters: `finish=<value>` matches shades that have the finish anywhere in `finishes` *or* as the legacy `finish`; `finishes=a,b` matches shades with ANY of the listed finishes; both accept aliases (`holo`, `cream`, …). `sortBy=finish` sorts by the primary finish. `POST /api/polishes` and `PUT /api/polishes/{id}` accept `finishes` (explicit list → replaces the shade's finishes; `[]` clears) in addition to `finish` (legacy → merged). Request `tags` are the caller's personal inventory tags and are **not** used to change finishes: shades are shared catalog rows, so only an explicit `finishes`/`finish` can modify `shade.finishes` (a tags-only request leaves them untouched; only ingestion connectors parse finishes from product tags). Unknown values are ignored; a value is accepted when it is (or aliases to) a `finish_type` row, including types added through the admin UI. When only `finishes` is sent, the legacy `finish`/identity key defaults to `finishes[0]`.
 When `REDIS_URL` + `REDIS_KEY` are configured, list/detail reads are served through a Redis read-through cache (short TTL), and create/update/delete/recalc writes invalidate related user and catalog cache keys.
 For private blob storage, the API rewrites blob URLs to `/api/images/{id}` so image bytes are served through Functions (no public container access or client-side SAS required).
@@ -113,7 +114,8 @@ Access control (issue #47):
 - Shared catalog shades are never rewritten by regular users: color fields and `finishes` are **fill-only** (a user request may only fill NULL colors / an empty `shade.finishes`, never replace, clear or append to existing values), and `shade.finish` (the dedup key) is never changed. The one exception is a user's own `user_submitted` shade, whose finishes they may edit freely.
 - Shades created through `POST/PUT /api/polishes` start as `status = 'user_submitted'` with `created_by_user_id` (migration 024) and are private until an admin promotes them (sets `status = 'active'`; no approval endpoint yet). A `user_submitted` shade is visible only to its creator and to users holding it in their inventory: it is excluded from other users' polish list/count/detail (`GET /api/polishes*`), `polishes/match-image`, `GET /api/catalog/shade/{id}` (404) and catalog search/capture matching (`status = 'active'` only). Adopting such a shade by id (`POST shadeId`, `PUT /polishes/{id}`, capture `candidate_select`) returns 404. A brand + name that only matches another user's private shade creates the caller's own row (idx_shade_unique includes the NULL `product_line_id`, so it does not block this). Ingestion promotes a matching `user_submitted` shade to `active`. New brand rows are still created immediately.
 - Account linking: a new external identity links to an existing `app_user` by email only when the token proves the email is verified (`email_verified` true or Entra `xms_edov` true). Otherwise a separate user is created with no stored email and `auth.email_link_skipped` is tracked. Identities already linked (by `external_id`) are unaffected.
-- Shades are a shared catalog. Color fields (`color`, `vendorHex`, `detectedHex`, `nameHex`) sent to `POST`/`PUT /api/polishes` only **backfill NULL** shade columns (`COALESCE(column, $new)`); a regular user can never overwrite catalog color data other users see. Corrections to existing values go through admin tooling (e.g. `recalc-hex`).
+- Shades are a shared catalog. Color fields (`color`, `vendorHex`, `detectedHex`, `nameHex`) sent to `POST`/`PUT /api/polishes` only **backfill NULL** shade columns (`COALESCE(column, $new)`); a regular user can never overwrite catalog color data other users see. The exception is the caller's own `user_submitted` shade, where provided values replace stored ones. Corrections to shared values go through admin tooling (e.g. `recalc-hex`).
+- `PUT /api/polishes/{id}` with an unchanged `brand` + `name` edits that shade in place (including a finish-only change); a different brand or name resolves to (or creates) the matching shade instead.
 - `POST /api/capture/{captureId}/frame` with an `imageId` only accepts image assets owned by the caller (`image_asset.owner_type='user' AND owner_id=<caller>`); anything else returns `404`.
 - `GET /api/images/{id}` is anonymous because ids are embedded in `<img src>` (no `Authorization` header). The id is therefore an expiring signed capability: `v2.<base64url(storageUrl)>.<exp base36>.<base64url(HMAC-SHA256(IMAGE_PROXY_SIGNING_KEY, "swatchwatch:image-proxy:v2:" + exp + ":" + storageUrl))>`, minted only by the API (`src/lib/image-proxy.ts`). The expiry is covered by the HMAC; ids stay valid for at least `IMAGE_PROXY_ID_TTL_SECONDS` (default 3 days, well past the 24h Azure OpenAI batch window) and are bucketed to day boundaries so the same image keeps a stable, cacheable URL. Unsigned, forged, tampered, or expired ids return `403 {"error":"Forbidden"}` without touching storage. Legacy non-expiring v1 ids are never minted and are rejected unless `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL` is set to a future timestamp (rollout grace window; each acceptance emits `image_proxy.legacy_id_accepted`). The decoded URL must also be a plain blob URL (no query string/credentials) on the configured storage account inside the source-image container (`SOURCE_IMAGE_CONTAINER`), otherwise `403`. Ids are deterministic per URL+key+expiry bucket, so rotating `IMAGE_PROXY_SIGNING_KEY` invalidates previously issued image URLs (clients pick up new ones on the next API read; Redis-cached polish responses expire within ~90s).
 - If `IMAGE_PROXY_SIGNING_KEY` is missing, signing fails closed: polish responses omit proxied image URLs (`swatchImageUrl: null`) and `/api/images/{id}` returns `500` — unless dev bypass is active (`AUTH_DEV_BYPASS=true` and not hosted in Azure), in which case an ephemeral per-process key is generated (with a warning) for local development.
@@ -122,9 +124,13 @@ Access control (issue #47):
 - `POST /api/capture/{captureId}/frame` `imageBlobUrl` accepts only a base64 `data:image/*` URL or a plain `https://` blob URL on the configured storage account (`AZURE_STORAGE_CONNECTION`) inside `SOURCE_IMAGE_CONTAINER`, with no credentials, port, query string or fragment. `http:`, other hosts and SAS URLs are rejected with `400`, as are all remote URLs when no storage account is configured. The URL is validated even when `imageId` is also sent, so only validated input reaches Document Intelligence / Azure OpenAI.
 
 Error responses: unexpected `500`s return only a generic message and a correlation id, `{ "error": "Failed to …", "requestId": "<invocationId>" }`. The full error (including Postgres messages) is logged server-side via `context.error` and `trackException` (`src/lib/errors.ts` → `internalServerError()`), never sent to the client.
-`POST /api/polishes/{id}/recalc-hex` is admin-only, fetches the latest swatch image for the shade, runs Azure OpenAI hex detection, updates `detected_hex`, and returns a 200 with the detected hex and confidence (or a 422 if no image is available for detection). Responses now also include `tokenUsage` (`promptTokens`, `completionTokens`, `totalTokens`) when Azure returns usage metadata. Vendor context is derived from shade metadata (for example `finish`) so the endpoint does not depend on source-specific external IDs.
+`POST /api/polishes/{id}/recalc-hex` is admin-only, fetches the shade's primary swatch image (the `source_product` swatch, falling back to the newest swatch), runs Azure OpenAI hex detection, updates `detected_hex` plus its provenance columns (always overwriting), and returns a 200 with the detected hex and confidence (or a 422 if no image is available for detection). The response also carries `method`, `model` (deployment), `promptVersion`, `vendorHex`, `previousHexAgreement` and `hexAgreement`. Responses now also include `tokenUsage` (`promptTokens`, `completionTokens`, `totalTokens`) when Azure returns usage metadata. Vendor context is derived from shade metadata (for example `finish`) so the endpoint does not depend on source-specific external IDs.
 
-`POST /api/polishes/match-image` (authenticated) matches a photo against the **caller's owned polishes** (`quantity > 0`). Body (`PolishImageMatchRequest`): `{ image: "data:image/<type>;base64,…", maxColors?: 1–10 (default 6), limit?: 1–50 (default 20) }` — the same base64 data-URL convention as capture frames and the same upload policy (5 MB decoded, JPEG/PNG/WebP/GIF/HEIC/HEIF MIME allowlist). Bodies larger than the base64-encoded 5 MB limit are rejected with 413; missing/invalid images, non-image MIME types, undecodable bytes, images over 40 MP, and out-of-range options return 400. The handler decodes the image in memory with `sharp`, extracts dominant colors (`lib/dominant-color.ts`), merges perceptually near-duplicate colors (OKLAB < 0.04) and drops colors under 1% of pixels, then scores each owned polish's display hex (`vendorHex > detectedHex > nameHex`) by its minimum OKLAB distance to any extracted color. Response (`PolishImageMatchResponse`): `{ extractedColors: [{ hex, fraction }], matches: [{ polish, matchedColor, distance, confidence }], candidateCount }`, sorted by ascending distance. `confidence` comes from `confidenceForDistance()` in `src/lib/color-match.ts` (`high` ≤ 0.05, `medium` ≤ 0.10, else `low`; tune via `HIGH_CONFIDENCE_MAX_DISTANCE` / `MEDIUM_CONFIDENCE_MAX_DISTANCE`). **Privacy:** the image is never persisted — not to blob storage, the database, Redis, or logs — and responses are not cached.
+**Detected-hex provenance (migration 20261017024958000_shade-detected-hex-provenance).** Every write of `shade.detected_hex` also records `detected_hex_confidence` (model-reported 0–1, `NUMERIC(4,3)`), `detected_hex_method` (`vision-direct` today; `palette-pick`/`region-crop`/`ensemble` reserved for the strategies in `src/eval/hex/`; `client-supplied` when a user `POST`/`PUT /api/polishes` request backfills an empty `detected_hex`), `detected_hex_model` (Azure OpenAI deployment name), `detected_hex_prompt_version` (`PROMPT_VERSION` in `src/lib/ai-color-detection.ts`; bump it when the prompt changes) and `detected_hex_at`. Write paths: the ingestion sync shade update and `applyAiBatchShadeDetections` (batch poller and batch-submit fallback) in `src/lib/ingestion-repo.ts`, `recalc-hex`, and the user backfills in `polishes.ts`; all SQL goes through `src/lib/hex-provenance.ts`. `overwriteDetectedHex` semantics are preserved: when not overwriting, provenance is only filled if `detected_hex` was NULL before. For batch jobs the deployment and prompt version are captured at submit time (`deployment` / `promptVersion` on each `metrics.aiBatches` entry) so results are stamped with what actually produced them; older jobs fall back to the model id echoed in the batch output and the current `PROMPT_VERSION`. `shade.hex_agreement` is a STORED GENERATED column, `hex_oklab_distance(vendor_hex, detected_hex)` (Postgres functions `hex_to_oklab`/`hex_oklab_distance`, mirroring `colorDistance` in swatchwatch-shared, rounded to 4 decimals), so it is current after any write and NULL unless both hexes are valid. Polish list/detail responses expose `detectedHexConfidence`, `detectedHexMethod`, `detectedHexModel`, `detectedHexPromptVersion`, `detectedHexAt` and `hexAgreement`.
+
+`GET /api/polishes-admin/hex-review` (admin-only) is the review queue for weak detections: shades with a `detected_hex`, ordered by `sort=agreement` (default; largest vendor↔detected OKLAB distance first, shades without a vendor hex last) or `sort=confidence` (lowest confidence first, unrecorded last). Query: `page` (default 1), `pageSize` (default 50, max 200), `flaggedOnly=true` (only `hex_agreement > 0.10`, the MEDIUM threshold), `method`, `promptVersion`, `brand` (substring). Response (`HexReviewResponse`): `{ items, total, page, pageSize, sort, disagreementThreshold }`; each item has the three hexes, the provenance fields, `hexAgreement`, and `displayHex`/`displaySource`/`flagged` from `resolveDisplayHexDetailed()`. Re-run a bad row with `recalc-hex`. Not cached.
+
+`POST /api/polishes/match-image` (authenticated) matches a photo against the **caller's owned polishes** (`quantity > 0`). Body (`PolishImageMatchRequest`): `{ image: "data:image/<type>;base64,…", maxColors?: 1–10 (default 6), limit?: 1–50 (default 20) }` — the same base64 data-URL convention as capture frames and the same upload policy (5 MB decoded, JPEG/PNG/WebP/GIF/HEIC/HEIF MIME allowlist). Bodies larger than the base64-encoded 5 MB limit are rejected with 413; missing/invalid images, non-image MIME types, undecodable bytes, images over 40 MP, and out-of-range options return 400. The handler decodes the image in memory with `sharp`, extracts dominant colors (`lib/dominant-color.ts`), merges perceptually near-duplicate colors (OKLAB < 0.04) and drops colors under 1% of pixels, then scores each owned polish's display hex (`vendorHex > detectedHex > nameHex`) by its minimum OKLAB distance to any extracted color. Response (`PolishImageMatchResponse`): `{ extractedColors: [{ hex, fraction }], matches: [{ polish, matchedColor, distance, confidence }], candidateCount }`, sorted by ascending distance. `confidence` comes from `confidenceForDistance()` (`high` ≤ 0.05, `medium` ≤ 0.10, else `low`; tune via `HIGH_CONFIDENCE_MAX_DISTANCE` / `MEDIUM_CONFIDENCE_MAX_DISTANCE`, defined in swatchwatch-shared `color/thresholds.ts` and re-exported from `src/lib/color-match.ts`). **Privacy:** the image is never persisted — not to blob storage, the database, Redis, or logs — and responses are not cached.
 Image uploads now enforce a shared validation policy (`maxSizeBytes=5MB`; allowed mime types: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif`, `image/gif`) used by capture-frame data URLs and source-image ingestion; uploads outside these limits are rejected with a 400. All uploaded image bytes are auto-oriented and metadata-stripped with `sharp` (removing EXIF/GPS and other embedded metadata) before any checksum generation, persistence, or forwarding to AI/OCR services. This applies to both source-image ingestion (before blob upload) and capture-frame data URLs (`quality_json.ingestion.exifStripped` records whether stripping ran). `sharp` failures degrade gracefully to the original bytes.
 
 Reference endpoints:
@@ -227,16 +233,29 @@ it is intentionally not canonicalized so re-imports keep matching existing shade
 generic `*Shopify` sources; `MakeupAPI` materialization also merges finishes parsed from `tag_list`. Use `recentDays` to constrain to newer
 products by publish/create/update timestamps. It also uploads source product images to Azure Blob
 Storage (`image_asset` + `swatch`) and attempts Azure OpenAI-based representative `color_hex`
-detection from the product image.
+detection from the product image. Each shade gets one `swatch_type = 'source_product'` swatch for the
+primary image (repointed in place when the shop changes it) and one `source_gallery` swatch per
+additional image; re-imports only look at the `source_product` row, and a gallery swatch on the primary
+image (e.g. the shop promoted a gallery image) is removed so the old primary is re-linked as gallery.
+The generic Shopify connector only records a `vendor_hex` when a variant option or product title
+contains a literal `#RRGGBB` token (e.g. `#A1B2C3`); bare words made of hex letters such as
+"Facade" or "Decadence" are ignored. As of 2026-10-14 none of the supported Shopify storefronts
+publish real hex values, so `detected_hex` from image AI is the only color source for those shades.
 When `HEX_DETECTION_BATCH_ENABLED=true`, Shopify image detection can switch to Azure OpenAI Batch API
-for larger runs (`HEX_DETECTION_BATCH_MIN_IMAGES` threshold). In that mode, the main worker submits
-the batch and leaves the job in `running` with pipeline stage `awaiting_ai`; a timer-triggered poller
-(`ingestion-ai-batch-poller`) later applies completed batch results. If the worker stored
-`metrics.resumeMessage` when pausing, the poller writes `metrics.checkpoint` from it, removes
-`resumeMessage`, sets pipeline stage `continuation_queued`, persists, and then re-enqueues the message so
-the worker continues with the next page; otherwise it marks the job `succeeded`. A failed batch, a
-malformed `resumeMessage`, or an enqueue failure marks the job `failed` (enqueue/resume problems use stage
-`continuation_enqueue`).
+for larger runs (`HEX_DETECTION_BATCH_MIN_IMAGES` threshold). Records are committed before their batch
+is submitted (the batch only fills in `detected_hex`), so the worker submits one batch per chunk, records
+it in `metrics.aiBatches`, and keeps ingesting while the batches run in parallel. Once every record is
+committed, the job stays `running` with pipeline stage `awaiting_ai`; a timer-triggered poller
+(`ingestion-ai-batch-poller`) polls each pending batch, applies each one as it completes (persisting
+after each), and marks the job `succeeded` when none are pending. A whole-store run therefore takes
+roughly one batch window instead of one window per chunk. If a job reaches
+`HEX_DETECTION_BATCH_MAX_IN_FLIGHT` pending batches with work remaining, the worker pauses early and
+stores `metrics.resumeMessage`; after applying the pending batches the poller writes `metrics.checkpoint`
+from it, removes `resumeMessage`, sets pipeline stage `continuation_queued`, persists, and then
+re-enqueues the message so the worker continues. A failed or expired batch, a malformed
+`resumeMessage`, or an enqueue failure marks the job `failed` (enqueue/resume problems use stage
+`continuation_enqueue`). Jobs paused by an older worker with a single `metrics.aiBatch` are still
+handled.
 If batch submission itself fails, the worker logs the reason and falls back to synchronous detection for
 that run (applying detections through the same shade write path the poller uses), recording the count in
 the `batchFallbacks` metric instead of failing the job.
@@ -245,6 +264,20 @@ the Functions image proxy route (`/api/images/{id}`) when storage is configured.
 The proxy origin is resolved from `INGESTION_AI_IMAGE_PROXY_ORIGIN` or falls back to
 `https://$WEBSITE_HOSTNAME` in Azure.
 Batch deployment resolution order is `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` → `AZURE_OPENAI_DEPLOYMENT_HEX` → `AZURE_OPENAI_DEPLOYMENT`.
+**Which image AI detection sees.** Both Shopify connectors (`shopify-generic.ts`, `holo-taco-shopify.ts`)
+store `normalized.images` — `{ url, alt, position }` per Shopify image (via `connectors/shopify-images.ts`)
+— next to the unchanged `imageUrls` / `primaryImageUrl`. Before AI detection, `prepareHoloTacoImageData`
+ranks the images with `rankImagesForColorDetection` (`src/lib/image-selection.ts`): alt-text keywords score
+high (`swatch`, `nail(s)`, `hand`, `macro`, `close-up`, `finger`) or low (`bottle`, `cap`, `box`,
+`packaging`, `collection`, `set`, `lifestyle`); URL/filename words are a weak signal (`hand2`, `macro2`,
+`BottleHeroes`, camelCase split). Detection uses the top-ranked image only when its **alt text** is a
+confident on-nail signal and that image was uploaded; otherwise it uses the primary image as before.
+Each decision is logged to the job's progress log as `[image-selection] …` with the chosen URL, the
+primary URL and the reason. Blob uploads are unchanged (primary + additional images). Records ingested
+before `images` existed fall back to `imageUrls` with no alt text. As of 2026-10-16 neither Holo Taco nor
+Mooncat sets image alt text, so production still uses the primary image for them; filename hints are
+measured by the `image-select` eval strategy before production trusts them.
+
 When `AZURE_STORAGE_CONNECTION` isn't configured (for example in a fresh local checkout), the connector
 falls back to storing the original Shopify `image.src` URL so images still appear in the app while
 you bring storage online.
@@ -279,7 +312,18 @@ Ingestion metrics now include token totals for synchronous image detection (`hex
 Holo Taco run options:
 - `detectHexFromImage` (default `true`) toggles image-based AI hex detection.
 - `overwriteDetectedHex` (default `false`) refreshes existing `color_hex` values on reruns instead of only filling blanks.
-- `detectHexOnSuspiciousOnly` (default `false`) only runs image AI when vendor hex is missing/suspicious.
+- `detectHexOnSuspiciousOnly` (default `false`) only runs image AI when vendor hex is missing/suspicious (see
+  [Hex sources and suspicious vendor hexes](#hex-sources-and-suspicious-vendor-hexes)).
+
+Reruns skip work that cannot change anything. Without `overwriteDetectedHex`, a record whose shade already has a
+`detected_hex` and whose `source_product` swatch is already on the same image (same checksum) skips AI detection, because the shade write
+would keep the existing hex anyway. These are counted in `hexDetectionSkippedUnchanged` (a subset of
+`hexDetectionSkipped`). Every stored source image is also recorded in `source_image_url` under the connector URL it
+came from; on a rerun, an image whose URL is unchanged (Shopify CDN URLs carry a `?v=` version that changes when the
+image is replaced) reuses the stored blob and checksum without downloading it. These are counted in `imagesReused`,
+while `imageUploads` and `additionalImagesUploaded` count only images downloaded this run. New URLs are downloaded to
+compute the checksum, and the blob upload is skipped when the checksum-named blob already exists. Set `overwriteDetectedHex: true` to re-detect everything, for example after
+a prompt or model change.
 
 Example request:
 ```json
@@ -299,6 +343,50 @@ Example request:
 Use `GET /api/ingestion/jobs` and `GET /api/ingestion/jobs/{id}` to inspect queued/running/completed status and metrics.
 If a queue message is malformed but includes a valid `jobId`, the worker marks that ingestion job as `failed` with validation details in `error` and `metrics.pipeline`.
 
+## Hex sources and suspicious vendor hexes
+
+Every ingested shade carries up to three independent hex sources, resolved for display in the
+order `vendorHex > detectedHex > nameHex`:
+
+| Source | Column | Produced by |
+|---|---|---|
+| Vendor hex | `vendor_hex` | `extractHexFromProduct` in `connectors/shopify-generic.ts` — a `#RRGGBB` regex over Shopify variant options/title, stored as-is even when it looks like a placeholder. |
+| Detected hex | `detected_hex` | Azure OpenAI vision over the primary product image (`ai-color-detection.ts`, sync or batch). |
+| Name hex | `name_hex` | `detectHexFromColorName` in `connectors/color-name-detection.ts` — Azure OpenAI (preferred) or the builtin `COMMON_COLORS` web palette. |
+
+**Brand-aware name hex.** The Shopify connector calls `detectHexFromColorName(colorName, { preferAi: true, context })`
+with `context` = { `brand` (vendor), `productLine` (`product_type`), `collection` (first `collection:` tag), `description`
+(`body_html` stripped of tags via `stripHtmlToText`, 400 chars), `tags`, `finishes` }. `buildColorNamePrompt` turns that
+into `<product-context>Brand: X. Product line: … Collection: Y. Shade name: "Z". Finish: … Tags: … Description: …</product-context>`
+(vendor text is escaped so it cannot close the block, and the system prompt marks the block as untrusted data whose
+instructions are ignored), and the system prompt
+tells the model to use its knowledge of that brand's actual shade when it has it (confidence ≥ 0.7) and to answer from
+the words with confidence ≤ 0.5 otherwise, so "Mooncat Wildberry" and a generic "wildberry" no longer get the same
+answer. Without a context the prompt is the original `Color name: "X"` question, and the response shape
+(`{ hex, confidence, provider }`) is unchanged. Nothing new is stored on the shade; the connector still records
+`hexSource` (`variant-option` / `ai-lookup` / `builtin-lookup`).
+
+**Suspicious vendor hexes.** `src/lib/suspicious-hex.ts` decides whether a vendor hex is trustworthy enough to skip
+image AI when a job runs with `detectHexOnSuspiciousOnly`:
+
+- `isSuspiciousHex(hex)` — the original context-free check: missing values plus a static set of pure
+  black/white/gray/primary placeholders. Still used by callers that look at one hex in isolation (eval populate).
+- `buildSuspiciousHexContext(vendorHexes)` — built once per data-source batch in `ingestion-repo.ts`
+  (`prepareHoloTacoImageData`); counts how often each vendor hex repeats and marks **template defaults**: a hex on
+  ≥ `SUSPICIOUS_HEX_REPEAT_MIN_RECORDS` records (default 3) **and** ≥ `SUSPICIOUS_HEX_REPEAT_MIN_SHARE` (default 10%)
+  of the records that have a vendor hex — the `#C8A2C8`-on-40-shades store theme default the static list never caught.
+- `classifySuspiciousHex(hex, context, { shadeName, tags })` / `isSuspiciousHexInContext(...)` — on top of the static
+  set and template defaults, flags **near-grayscale** hexes (OKLAB chroma < `SUSPICIOUS_HEX_GRAYSCALE_MAX_CHROMA`,
+  default 0.02) unless the shade name or tags contain a gray/silver/black/white/nude/chrome-type word, and **web-palette**
+  hexes (an exact `COMMON_COLORS` value such as `#FF69B4` hot pink) when the shade name/tags do not carry that color word
+  or its base word (`pink`). The verdict's `reason` (`missing`, `malformed`, `placeholder`, `template-default`,
+  `near-grayscale`, `web-palette`) and `detail` are written to the job log through the progress logger, and the batch
+  summary logs which template defaults were found.
+
+Both the batch-candidate estimate (sync vs. batch mode) and the per-record decision use the same context, so a
+run's `estimatedBatchCandidates` reflects the contextual verdicts. Unit tests: `tests/suspicious-hex.unit.test.cjs`,
+`tests/suspicious-hex-context.unit.test.cjs`, `tests/color-name-detection.unit.test.cjs`.
+
 ## Hex detection evaluation harness
 
 `src/eval/hex/` measures how well vendor-image hex detection recovers a shade's true color, so
@@ -312,6 +400,7 @@ npm run eval:hex --workspace=swatchwatch-functions -- --strategy pixel          
 npm run eval:hex --workspace=swatchwatch-functions -- --strategy azure-current,azure-blind --verbose
 npm run eval:hex --workspace=swatchwatch-functions -- --strategy ensemble --limit 5      # N samples/case, see below
 npm run eval:hex --workspace=swatchwatch-functions -- --strategy all --fixture eval/hex/fixtures/color-training-sample.json
+npm run eval:hex --workspace=swatchwatch-functions -- --strategy image-select,azure-blind --fixture eval/hex/fixtures/sample-with-images.json
 npm run eval:hex --workspace=swatchwatch-functions -- --list-strategies
 npm run eval:hex:populate --workspace=swatchwatch-functions -- --dry-run         # DB → color_training_sample → fixture
 ```
@@ -327,10 +416,90 @@ overriding variables already set), so the same Postgres / Azure OpenAI config th
 | `azure-current` | `detectHexWithAzureOpenAI` exactly as ingestion calls it: image + vendor context (shade name, description, tags, and the vendor hex only when the ground truth *is* a vendor option). | yes |
 | `azure-blind` | The same call with `vendorContext` removed — what the model gets from the image alone. | yes |
 | `pixel` | Top dominant color from `extractDominantColors` over the whole image. A deliberately naive baseline (product shots mostly return the background). | no |
+| `region-crop` | Two steps: the model only *localizes* (names the labeled grid cells filled with polish — painted nail/swatch first, else lacquer in the bottle; never cap, label, brush, skin, background — or, in `bbox` mode, returns one normalized box) plus the finishes it sees, and the pixels there are *measured* (`src/lib/region-color.ts`). See below. | yes |
+| `palette-pick` | Pixels measure, the model chooses: 8–12 perceptually distinct candidate colors are extracted from the image, drawn as labeled chips (A, B, C, …) beside the photo in one composite, and the model is asked which chip is the base lacquer. The answer is the chosen chip's *measured* hex, so the model can never answer in CSS named colors. | yes |
+| `image-select` | Ranks the case's `images` with the production `rankImagesForColorDetection`, then runs `azure-blind` detection on the top image (any positive score, so filename hints count; `meta.chosenImage.confident` says whether alt text backed it). Cases without `images`, or with no positive signal, use the case image. `meta` records the chosen image, the reason and the full ranking. (`src/eval/hex/strategies/image-select.ts`) | yes |
+| `image-select-ai` | `image-select`, plus one low-detail vision call that asks which photo (up to 8) shows painted nails when no image has alt text; `meta.swatchPick` records the answer. Compare with `image-select` to price the extra call. | yes |
+| `blind-snap` | `azure-blind` on the case image, then the model's hex is replaced by the nearest color measured from the same photo (palette-pick's candidate chips) unless no chip is within `HEX_SNAP_MAX_DISTANCE`. The model points, the pixels measure. | yes |
+| `image-select-ai-snap` | `image-select-ai`'s photo choice (alt-text ranking, or one vision call picking the on-nail photo), then `blind-snap` on that photo. | yes |
 | `ensemble` | `azure-current` sampled several times at a small temperature, optionally across more than one deployment, reduced to one answer by `src/lib/hex-ensemble.ts` (see below). | yes |
 
 When Azure OpenAI is not configured (`AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_KEY` + `AZURE_OPENAI_DEPLOYMENT_HEX`/`AZURE_OPENAI_DEPLOYMENT`,
 or the APIM gateway equivalents), Azure strategies print `Skipping strategy …` and the run still exits 0.
+
+**Snap strategies** (`src/eval/hex/strategies/snap.ts` + pure `snapHexToPalette` in `src/lib/hex-snap.ts`). On
+`sample.json` the measured palette already holds a chip within 0.05 of the ground truth for 78% of cases, but
+palette-pick's chip *choice* fails on painted-hand photos (it picks skin or the cap). Snapping uses the blind prompt's
+hex only as a pointer into that palette: the nearest chip in OKLAB wins when it is within `HEX_SNAP_MAX_DISTANCE`
+(default `0.10`, the MEDIUM threshold), otherwise the model hex is kept because the palette probably missed the polish.
+A cap sweep on saved results kept the blind prompt's p90 at caps ≤ 0.10 and widened it above. `meta` records
+`modelHex`, `snapped`, `nearestChip`, `snapDistance`, `maxSnapDistance` and the candidates.
+
+**`region-crop` in detail** (`src/eval/hex/strategies/region-crop.ts` + `src/lib/region-color.ts`). LLMs localize
+better than they read absolute color values, so the model is never asked for a hex. Step 1 calls
+`requestAzureOpenAiChatCompletion` in `src/lib/ai-color-detection.ts`. It has the same config, timeout, 429/5xx retry and
+safer-prompt retry after a content-filter rejection as `detectHexWithAzureOpenAI`, but takes a custom JSON-mode prompt. Two localization modes
+(`HEX_EVAL_REGION_CROP_MODE`):
+
+- `cells` (default): a labeled N×N grid (`HEX_EVAL_REGION_CROP_CELLS`, default 6) is drawn on the copy sent to the model
+  (`drawLabeledGrid`). The model answers `{"cells":["C3",…],"region","finishes","confidence"}`, listing up to 8 cells filled
+  with polish. Each valid cell's central 60% is measured (`gridCellToBox`); labels outside the grid are dropped.
+- `bbox`: the model answers `{"x","y","w","h","region","finishes","confidence"}` in normalized 0..1 coordinates.
+  `HEX_EVAL_REGION_CROP_GRID=true` adds a 4×4 grid to the copy. `clampBox` rejects empty, non-finite and fully-outside
+  boxes; such cases get `hex: null` with `meta.reason = "invalid_box"`.
+
+Step 2, `measureRegionsColor(image, boxes, { darkerHalf })`, crops every box from the *original* image with sharp
+and pools the pixels. It converts them to OKLAB and drops the top 5% by lightness as specular highlights. It also
+drops very dark edge pixels (OKLAB L < 0.2), but only when they are at most a quarter of the crop, so a black polish
+keeps its pixels. The result is the per-channel OKLAB median. When the model reports a sparkle finish
+(glitter/holo/flake/shimmer), the median is taken over the darker half so particles do not lift the base color.
+`meta` records the mode, grid size, cells or box, pixel crops, region kind, raw and canonical finishes, pixel counts,
+`highlightCutoffL`, `darkFloorApplied`, `usedDarkerHalf`, the measured OKLAB and token usage.
+`HEX_EVAL_REGION_CROP_DETAIL=low|high|auto` overrides the vision detail for the locator call (default:
+`AZURE_OPENAI_VISION_DETAIL`, then `low`).
+
+Why cells is the default. These results are from `sample.json` (18 cases), gpt-4o-mini, 2026-10-16, median OKLAB distance:
+
+| variant | overall | Holo Taco (bottle shots) | Mooncat (painted hands) | ≤0.05 overall | prompt tokens/image |
+|---|---|---|---|---|---|
+| `azure-blind` (reference) | 0.077 | 0.059 | 0.086 | 28% | ~3.1k |
+| bbox, low | 0.215 | 0.203 | 0.231 | 17% | ~3.2k |
+| bbox + 4×4 grid, low | 0.201 | 0.186 | 0.233 | 17% | ~3.2k |
+| bbox, high | 0.207 | 0.176 | 0.237 | 6% | ~26k |
+| **cells 6×6, low (default)** | 0.157 | 0.080 | 0.230 | 22% | ~3.2k |
+| cells 6×6, high | 0.186 | 0.083 | 0.229 | 22% | ~26k |
+| cells 8×8, low | 0.192 | 0.125 | 0.206 | 22% | ~3.2k |
+| cells 8×8, high | 0.155 | **0.039** | 0.236 | 28% | ~26k |
+
+In bbox mode the model ignores the image and returns a generic centered box, usually `(0.2, 0.2, 0.6, 0.6)`. The grid
+overlay barely changes that, so drawing a grid only pays off when the model answers in cell names. Cell mode beats the
+blind prompt on bottle shots: 63% within 0.05 with 8×8 high detail, against 50% for the blind prompt. It still loses
+badly on painted-hand photos, where the model picks the middle columns of the fingers (knuckles and skin) instead of the
+nail beds. Region-crop is therefore not a drop-in replacement yet. It is a candidate for bottle shots, or for an
+ensemble with a skin- or variance-aware cell filter.
+
+**Palette pick** (`src/lib/palette-pick-detection.ts`, strategy file `src/eval/hex/strategies/palette-pick.ts`)
+is a reusable library piece, not just an eval strategy, so ingestion can adopt it later; today nothing in the
+production write path calls it. `detectHexByPalettePick(imageBytes, options)` runs the whole pipeline:
+
+1. `extractPaletteCandidates` — `extractDominantColors` (96 px sample, 4-bit quantization, 48 raw buckets)
+   merged with `mergeSimilarColors` in OKLAB. The merge distance is loosened→tightened (`0.04`, `0.025`,
+   `0.015`) until at least 8 candidates survive, capped at 12; each gets a letter label in prominence order.
+2. `renderPaletteComposite` — sharp draws the photo (longest edge ≤ 512 px) at the left and a strip of solid
+   chips at the right (one column up to 6 chips, two columns row-major above that; chips sized to fit the photo
+   height, 56–128 px, with a big contrasting letter). `computeCompositeLayout` is the pure geometry.
+3. `requestAzureOpenAIChatCompletion` (the lower-level helper in `ai-color-detection.ts` that the production
+   detector also uses: config resolution, timeout/retry on 429/5xx, one content-filter retry with a safe
+   prompt) sends the composite with a prompt that asks for `{"choice":"B","confidence":0..1,"finishes":[...]}`
+   — ignore cap, brush, packaging, background, glitter; pick the underlying base for effect finishes. The chip
+   hexes are *not* in the prompt.
+4. `parsePaletteChoice` maps the letter back to its chip (tolerating `"b"`, `"chip B"`, `2`); an unknown or
+   missing letter yields `hex: null` with a `reason` rather than a guessed color.
+
+The eval strategy records `candidates`, `choice`, `composite` (width/height/chip size/grid) and token `usage`
+in each case's `meta`, plus `rawContent` when no hex was produced. Vision detail follows
+`AZURE_OPENAI_VISION_DETAIL` (default `low`, i.e. a single 512 px view — the chips are sized to stay legible
+at that scale). Token-usage metrics are emitted under `hex_detection.palette_pick.*`.
 
 **Ensemble strategy** (`src/eval/hex/strategies/ensemble.ts` + pure math in `src/lib/hex-ensemble.ts`):
 one detection at temperature 0 gives one opinion and no idea how stable it is. The ensemble makes the
@@ -390,6 +559,11 @@ table) and written as JSON to `eval/hex/results/<strategy>-<timestamp>.json` plu
 ```
 
 - `imageUrl` (http/https) **or** `imagePath` (relative to the fixture file, no `..`) — exactly one.
+  This is the primary image every single-image strategy sees (`input.image`).
+- `images` (optional): `[{ "url": "https://…", "alt": "optional", "position": 1 }]`, every product image.
+  Strategies receive it as `input.images`, lazy loaders (`{ index, url, alt, position, load() }`) that
+  download through the same cache only when called; it is absent when the case has no `images`, so
+  existing strategies and fixtures are unaffected.
 - `groundTruthSource` is one of `vendor_option` (hex published by the vendor), `swatch_measured`
   (measured from the vendor's own painted-nail photo), `manual`, `ai_detected` (approved AI output).
 - `finishes[0]` is the "primary finish" used for the per-finish breakdown (`unknown` when empty).
@@ -398,13 +572,20 @@ table) and written as JSON to `eval/hex/results/<strategy>-<timestamp>.json` plu
 metallics). Its image is the first Shopify product image (what ingestion sends to the model) and its
 ground truth was measured from a *different* vendor photo of painted nails (each case's `notes` says
 which). It is a curated sample for exercising the runner, not vendor-published hex data.
+`eval/hex/fixtures/sample-with-images.json` is the same 18 cases plus each product's full Shopify image
+list (captured 2026-10-16; no alt text on either store). Note that each case's ground-truth photo is one of
+those images, so an image-selection strategy that finds it is partly being graded on its own input.
 
-**Populating from ingested data** (`src/eval/hex/populate.ts`, migration `025`): reads shades whose
+
+
+**Populating from ingested data** (`src/eval/hex/populate.ts`, migration `20261017033500000_add-color-training-sample.sql`): reads shades whose
 `vendor_hex` is set and not a known placeholder (`src/lib/suspicious-hex.ts`), matches each to its
-latest `external_product` row (same brand + shade name) for the public product image, upserts one
+latest `external_product` row (same brand + shade name; a product with no brand only falls back to Holo Taco when it comes from `HoloTacoShopify`) for the public product image, upserts one
 `color_training_sample` row per external product (`source_type = 'vendor_option'`,
-`training_status = 'pending'`; re-runs refresh instead of duplicating), and exports rows with status
-`pending`/`approved` to `eval/hex/fixtures/color-training-sample.json` (gitignored — copy it to a named
+`training_status = 'pending'`; re-runs refresh `pending` rows instead of duplicating, and never touch rows already curated to `approved`/`rejected`/`used`), and exports rows with status
+`pending`/`approved` to `eval/hex/fixtures/color-training-sample.json`
+(image rows keep `alt`/`position` from `normalized_json.images` when the connector stored them, and
+multi-image samples export an `images` list) (gitignored — copy it to a named
 fixture to check one in). Curate by setting `training_status` to `approved`/`rejected`, then export
 again with `--export-only --status approved`. Options: `--source <names>`, `--limit <n>`,
 `--status <list>`, `--out <path>`, `--export-only`, `--dry-run`. Note that in the current dev data most
@@ -455,9 +636,15 @@ npm run migrate:create -- my-migration-name   # Create a new migration file
 | `018_add_finish_normalizations.sql` | Adds editable `finish_normalization` mappings (source alias → canonical finish name) for AI/vendor finish parsing |
 | `019_add_user_external_identities.sql` | Adds `user_external_identities` and backfills existing `app_user.external_id` values to support multi-provider identity linking |
 | `023_add_shade_finishes.sql` | Adds `shade.finishes text[] NOT NULL DEFAULT '{}'` + GIN index for multi-finish shades, backfills `ARRAY[canonical(finish)]` from the legacy column (canonical names + `finish_normalization` aliases), and seeds `flakie`/`flakies`/`toppers` aliases. Down drops the column/index and those alias rows |
-| `025_add_color_training_sample.sql` | Creates `color_training_sample` (ground-truth hex samples from `docs/schema.sql`) plus a partial unique index on `(external_product_id, source_type)` so the eval harness populate script is idempotent |
+| `024_shade_user_submitted.sql` | Adds nullable `shade.created_by_user_id` (FK → `app_user`, `ON DELETE SET NULL`) + partial index; user-created shades use `status = 'user_submitted'` until an admin promotes them. Down drops the column/index |
+| `025_correct_shopify_source_notes.sql` | Corrects Shopify `data_source.metadata.notes` (no store publishes hex values) and disables Clionadh, Garden Path, Roylalee and Potion Polish, which the connector cannot read |
+| `20261016030127700_clear-fake-shopify-vendor-hex.sql` | Nulls `shade.vendor_hex` values the generic Shopify connector invented before PR #238: regex false positives (hex digits found in the shade name/color name/raw Shopify title or options but never as a literal `#RRGGBB` token, e.g. "Facade" → `#FACADE`) and the `#000000`/`#D3D3D3` placeholders. Only Shopify-sourced shades (inventory tagged `shopify` or swatch owned by a `*Shopify` data source); MakeupAPI-linked shades and `detected_hex`/`name_hex` are untouched. Old values go to `shade_vendor_hex_cleanup_backup`; down restores them where `vendor_hex` is still null, then drops the table |
+| `20261016030938732_move-ai-hex-out-of-shopify-vendor-hex.sql` | Moves AI-detected hex values out of `shade.vendor_hex` on Shopify-sourced shades. Before 011 the Holo Taco connector stored only the Azure OpenAI vision result in `color_hex`, which 011/012 relabeled as `vendor_hex`. A value moves when its hex digits appear nowhere in the shade name, color name or raw Shopify title/options (so the connector regex could not have produced it). It goes to `detected_hex` when that is empty; otherwise `vendor_hex` is only cleared. Same Shopify-sourced/MakeupAPI-exclusion rules as `20261016030127700_clear-fake-shopify-vendor-hex.sql`; `#000000`/`#D3D3D3` placeholders and user-created shades are skipped. Old values go to `shade_vendor_hex_to_detected_backup`; down resets `detected_hex` where it still holds the moved value, restores `vendor_hex` where it is still null, then drops the table |
+| `20261016033423000_cleanup-gallery-swatches-on-primary-image.sql` | Deletes `source_gallery` swatches that re-ingestion had repointed at the shade's primary image (duplicates of the `source_product` swatch) and collapses duplicate gallery swatches per shade + image. Idempotent; down is a no-op |
+| `20261017024958000_shade-detected-hex-provenance.sql` | Adds `detected_hex` provenance to `shade` (`detected_hex_confidence NUMERIC(4,3)` with a 0–1 check, `detected_hex_method`, `detected_hex_model`, `detected_hex_prompt_version`, `detected_hex_at`) and `hex_agreement NUMERIC(6,4)`, a STORED GENERATED column = `hex_oklab_distance(vendor_hex, detected_hex)`. Creates the IMMUTABLE SQL functions `hex_to_oklab`/`hex_oklab_distance` (mirror `colorDistance` in swatchwatch-shared) and partial indexes for the hex-review queue. Existing rows get `hex_agreement` computed on migrate. Down drops the columns, indexes, constraint and functions |
+| `20261017033500000_add-color-training-sample.sql` | Creates `color_training_sample` (ground-truth hex samples from `docs/schema.sql`) plus a partial unique index on `(external_product_id, source_type)` so the eval harness populate script is idempotent. Originally `025_add_color_training_sample.sql`; renamed so it sorts after every dated migration (including the interim name `20261016040629000_add-color-training-sample`) |
 
-node-pg-migrate tracks applied migrations in a `pgmigrations` table. `DATABASE_URL` is the preferred connection method; it also falls back to individual `PG*` env vars (`PGHOST`, `PGPORT`, etc.).
+node-pg-migrate tracks applied migrations in a `pgmigrations` table and refuses to run an unapplied file that sorts before an applied one, so new migrations must sort after every existing file (use `npm run migrate:create`, which writes UTC-dated names). `npm run migrate` first runs `scripts/forget-renamed-migrations.cjs`, which deletes the `pgmigrations` row of any migration renamed to a later name (listed in that script, currently `025_add_color_training_sample` and the interim `20261016040629000_add-color-training-sample` → `20261017033500000_add-color-training-sample`) so it re-runs under the new name; only idempotent migrations may be listed there. `DATABASE_URL` is the preferred connection method; it also falls back to individual `PG*` env vars (`PGHOST`, `PGPORT`, etc.).
 
 ## Adding a New Function
 
@@ -517,6 +704,7 @@ Key variables:
 | `AZURE_OPENAI_DEPLOYMENT_LABEL` | Optional Azure OpenAI deployment name for label OCR structured extraction (`src/lib/ocr-parser.ts`). Falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`. |
 | `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name for synchronous image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT` when unset). |
 | `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` | Optional Azure OpenAI deployment name for batch image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`). |
+| `HEX_SNAP_MAX_DISTANCE` | Eval-only: largest OKLAB distance at which the `blind-snap` / `image-select-ai-snap` strategies replace the model's hex with the nearest measured palette chip (default `0.10`, the MEDIUM threshold). |
 | `AZURE_OPENAI_DEPLOYMENT_HEX_ENSEMBLE` | Optional comma-separated Azure OpenAI deployment names the eval `ensemble` strategy samples from (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`). Eval-only. |
 | `HEX_DETECTION_ENSEMBLE_SAMPLES` | Samples per deployment for the eval `ensemble` strategy (default `3`, clamped 1–10). Eval-only. |
 | `HEX_DETECTION_ENSEMBLE_TEMPERATURE` | Sampling temperature for the eval `ensemble` strategy (default `0.3`, clamped 0–2). Eval-only; production detection stays at 0. |
@@ -525,7 +713,12 @@ Key variables:
 | `AZURE_OPENAI_VISION_DETAIL` | Optional image detail level for vision hex detection, sync and batch (`low` default — flat ~85 tokens/image; `high`/`auto` for more resolution). Unrecognized values fall back to `low`. |
 | `HEX_DETECTION_BATCH_ENABLED` | Feature flag to enable Azure OpenAI Batch API for Shopify image detection (default `false`). |
 | `HEX_DETECTION_BATCH_MIN_IMAGES` | Minimum record count before switching from synchronous detection to batch submission (default `5`). |
-| `HEX_DETECTION_DELAY_MS` | Pause between synchronous (non-batch) hex detection calls (default `1000`, max `60000`, `0` disables). The old fixed 6s pacing predates low-detail images; 429s are still retried with `Retry-After`. |
+| `HEX_DETECTION_BATCH_MAX_IN_FLIGHT` | Max hex batches one ingestion job keeps pending before the worker pauses for `awaiting_ai` (default `20`, clamped 1–100); bounds the job's share of the batch deployment's enqueued-token quota. |
+| `HEX_DETECTION_DELAY_MS` | Pause after each synchronous (non-batch) hex detection call, per concurrency slot (default `1000`, max `60000`, `0` disables). The old fixed 6s pacing predates low-detail images; 429s are still retried with `Retry-After`. |
+| `HEX_DETECTION_CONCURRENCY` | Synchronous hex detection calls in flight at once (default `4`, max `32`). Records still commit to Postgres one at a time, in order. The deployment's tokens-per-minute quota is the real ceiling, so raise this together with `openai_deployment_capacity`. |
+| `SUSPICIOUS_HEX_REPEAT_MIN_RECORDS` | Batch-aware suspicious-hex check (`src/lib/suspicious-hex.ts`): a vendor hex shared by at least this many records of one data source is a store template default (default `3`). Used when `detectHexOnSuspiciousOnly` is on. |
+| `SUSPICIOUS_HEX_REPEAT_MIN_SHARE` | ...and shared by at least this fraction (0–1) of the records that carry a vendor hex (default `0.1`). Both repeat thresholds must be met. |
+| `SUSPICIOUS_HEX_GRAYSCALE_MAX_CHROMA` | OKLAB chroma below which a vendor hex is near-grayscale and flagged unless the shade name/tags say gray, silver, black, white, nude or chrome (default `0.02`). |
 | `INGESTION_AI_BATCH_POLL_SCHEDULE` | NCRONTAB schedule for the timer poller that checks batch completion (default `0 * * * * *`, every minute). |
 | `INGESTION_AI_BATCH_MAX_POLL_JOBS` | Max `awaiting_ai` ingestion jobs the poller processes per run (default `10`). |
 | `INGESTION_AI_IMAGE_PROXY_ORIGIN` | Optional public origin used when building AI image-proxy URLs (for example `https://<func-app>.azurewebsites.net`). Falls back to `https://$WEBSITE_HOSTNAME`. |

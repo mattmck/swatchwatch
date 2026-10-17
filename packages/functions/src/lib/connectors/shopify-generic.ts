@@ -7,6 +7,7 @@
  */
 
 import type { SupportedConnectorSource } from "./types.js";
+import { normalizeShopifyImages, type ShopifyProductImage } from "./shopify-images.js";
 import {
   ConnectorPullOptions,
   ConnectorPullResult,
@@ -14,7 +15,7 @@ import {
   loadCatalogWithCache,
   ProductConnector,
 } from "./types.js";
-import { detectHexFromColorName } from "./color-name-detection.js";
+import { detectHexFromColorName, stripHtmlToText } from "./color-name-detection.js";
 
 const REQUEST_TIMEOUT_MS = parseIntEnv(
   process.env.SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS,
@@ -39,8 +40,10 @@ const SHOPIFY_PAGE_LIMIT = 250;
 const MAX_SHOPIFY_PAGES = 30;
 const DEFAULT_RECENT_DAYS = 120;
 
-// Regex to extract hex color from option values like "#FF6B6B" or "FF6B6B"
-const HEX_COLOR_REGEX = /#?([0-9A-Fa-f]{6})/;
+// Regex to extract hex color from option values like "#FF6B6B". The literal "#"
+// and trailing word boundary are required so shade names made of hex letters
+// ("Facade", "Decadence", "Chewiebacca") are not mistaken for colors.
+const HEX_COLOR_REGEX = /#([0-9A-Fa-f]{6})\b/;
 
 // Shopify product interface (generic)
 interface ShopifyVariant {
@@ -54,10 +57,6 @@ interface ShopifyVariant {
   option1?: string | null;
   option2?: string | null;
   option3?: string | null;
-}
-
-interface ShopifyProductImage {
-  src?: string | null;
 }
 
 interface ShopifyProduct {
@@ -218,36 +217,6 @@ function normalizeTags(tags: unknown): string[] {
   return asStringArray(tags);
 }
 
-function normalizeImageUrls(images: unknown): string[] {
-  if (!Array.isArray(images)) {
-    return [];
-  }
-
-  const urls = images
-    .map((image) => {
-      if (typeof image === "string") {
-        return asNonEmptyString(image);
-      }
-      if (!image || typeof image !== "object") {
-        return null;
-      }
-      const row = image as ShopifyProductImage;
-      return asNonEmptyString(row.src);
-    })
-    .filter((url): url is string => Boolean(url));
-
-  return Array.from(
-    new Set(
-      urls.map((url) => {
-        if (url.startsWith("//")) {
-          return `https:${url}`;
-        }
-        return url;
-      })
-    )
-  );
-}
-
 function normalizeVariants(value: unknown): Array<Record<string, unknown>> {
   if (!Array.isArray(value)) {
     return [];
@@ -278,9 +247,9 @@ function normalizeVariants(value: unknown): Array<Record<string, unknown>> {
 
 /**
  * Extract hex color from a Shopify variant option value
- * Looks for patterns like "#FF6B6B" or "FF6B6B"
+ * Looks for patterns like "#FF6B6B"; bare six-letter words are ignored.
  */
-function extractHexFromOption(optionValue: string | null): string | null {
+export function extractHexFromOption(optionValue: string | null): string | null {
   if (!optionValue) {
     return null;
   }
@@ -298,7 +267,7 @@ function extractHexFromOption(optionValue: string | null): string | null {
  * Extract color hex from variant options (option1, option2, option3)
  * and also from the product title
  */
-function extractHexFromProduct(product: ShopifyProduct): string | null {
+export function extractHexFromProduct(product: ShopifyProduct): string | null {
   // Check variant options first
   if (product.variants && Array.isArray(product.variants)) {
     for (const variant of product.variants) {
@@ -786,7 +755,8 @@ async function toNormalizedRecord(
   const collections = extractTaggedValues(tags, "collection:");
   const finishes = extractFinishFromTags(tags);
   const tagColors = extractColorFromTags(tags);
-  const imageUrls = normalizeImageUrls(product.images);
+  const images = normalizeShopifyImages(product.images);
+  const imageUrls = images.map((image) => image.url);
   const variants = normalizeVariants(product.variants);
 
   // Extract vendor hex from variant options (stored as-is, even if suspicious)
@@ -802,7 +772,19 @@ async function toNormalizedRecord(
   // Always try color name detection for name_hex (independent of vendor hex)
   colorName = extractColorNameFromProduct(product);
   if (colorName) {
-    const aiResult = await detectHexFromColorName(colorName, { preferAi: true });
+    // Brand-aware lookup: "Mooncat Wildberry" is a specific product, not the
+    // generic word, so hand the model the vendor, collection, description and tags.
+    const aiResult = await detectHexFromColorName(colorName, {
+      preferAi: true,
+      context: {
+        brand: vendor,
+        productLine: productType,
+        collection: collections[0] ?? null,
+        description: stripHtmlToText(asNonEmptyString(product.body_html)),
+        tags,
+        finishes,
+      },
+    });
     if (aiResult.hex) {
       nameHex = aiResult.hex;
       if (!hexSource) {
@@ -831,6 +813,9 @@ async function toNormalizedRecord(
       tags,
       tagColors,
       imageUrls,
+      // Same images as imageUrls with the Shopify alt text / position kept, so
+      // ingestion can pick the on-nail swatch for AI hex detection (lib/image-selection.ts).
+      images,
       primaryImageUrl: imageUrls[0] || null,
       productUrl: handle ? `${baseUrl}/products/${handle}` : null,
       variants,
