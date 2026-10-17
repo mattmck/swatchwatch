@@ -14,6 +14,7 @@ import {
   parseVisionHexBatchOutput,
 } from "../lib/azure-openai-batch";
 import { trackMetric } from "../lib/telemetry";
+import { provenanceFromDetection } from "../lib/hex-provenance";
 import {
   AI_BATCHES_METRICS_KEY,
   CHECKPOINT_METRICS_KEY,
@@ -284,7 +285,12 @@ async function applyCompletedBatch(
 
   const outputJsonl = await downloadBatchFileContent(batchStatus.outputFileId);
   const outputRows = parseVisionHexBatchOutput(outputJsonl);
-  const parsedDetections = await parseVisionHexBatchDetections(outputRows);
+  // Stamp detections with the deployment / prompt recorded when this batch was submitted.
+  // Older entries lack them; parsing then falls back to the echoed model id and PROMPT_VERSION.
+  const parsedDetections = await parseVisionHexBatchDetections(outputRows, {
+    deployment: typeof entry.deployment === "string" ? entry.deployment : null,
+    promptVersion: typeof entry.promptVersion === "string" ? entry.promptVersion : null,
+  });
   const tokenUsage = sumBatchTokenUsage(parsedDetections);
   const tokenMetricProperties = {
     source: job.source,
@@ -318,6 +324,7 @@ async function applyCompletedBatch(
       externalId: row.customId,
       detectedHex: row.detection?.hex || null,
       detectedFinishes: row.detection?.finishes || null,
+      provenance: row.detection ? provenanceFromDetection(row.detection) : null,
     })),
     entry.overwriteDetectedHex
   );
