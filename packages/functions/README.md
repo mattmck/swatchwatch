@@ -734,7 +734,8 @@ Key variables:
 | `PG_QUERY_RETRY_BASE_MS` | Linear backoff base delay in ms for retry-safe DB query retries (default `250`). |
 | `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` | Azure AI Document Intelligence endpoint for server-side OCR (`src/lib/ocr.ts`). Graceful degradation when missing. |
 | `AZURE_DOCUMENT_INTELLIGENCE_KEY` | Azure AI Document Intelligence subscription key for OCR. |
-| `APPLICATIONINSIGHTS_CONNECTION_STRING` | Optional custom telemetry sink for `trackEvent` / `trackMetric` / `trackException` in `src/lib/telemetry.ts`. When unset, telemetry calls are no-ops. |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | Optional custom telemetry sink for `trackEvent` / `trackMetric` / `trackException` in `src/lib/telemetry.ts`. When unset, telemetry calls are no-ops. `src/index.ts` imports `lib/telemetry` first so `pg`/`http` dependencies are auto-instrumented; the SDK's Functions `preInvocation` hook puts dependencies, custom events and exceptions under the host request's `operation_Id`. |
+| `CORS_ALLOWED_HEADERS` | Overrides `Access-Control-Allow-Headers` in `src/lib/http.ts` (default `Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context`; the last four let browser telemetry correlate with Functions requests). `Request-Context` is always exposed. |
 | `REDIS_URL` | Redis endpoint URL for API read-through caching (for example `rediss://<host>:10000`). |
 | `REDIS_KEY` | Redis access key paired with `REDIS_URL`. When either Redis var is missing, cache helpers become no-ops and requests fall back to Postgres. |
 

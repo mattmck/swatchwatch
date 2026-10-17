@@ -133,6 +133,40 @@ describe("lib/http — withCors", () => {
       assert.ok(res.headers.get("Access-Control-Allow-Methods"));
     });
 
+    it("allows W3C and Application Insights correlation headers by default", async () => {
+      const modulePath = path.resolve(__dirname, "../dist/lib/http.js");
+      httpModule = require(modulePath);
+
+      const handler = httpModule.withCors(async () => ({ status: 200 }));
+      const req = fakeRequest({
+        method: "OPTIONS",
+        headers: { origin: "http://localhost:3000" },
+      });
+
+      const res = await handler(req, fakeContext());
+      const allowed = res.headers
+        .get("Access-Control-Allow-Headers")
+        .split(",")
+        .map((h) => h.trim().toLowerCase());
+      for (const header of ["content-type", "authorization", "traceparent", "tracestate", "request-id", "request-context"]) {
+        assert.ok(allowed.includes(header), `expected ${header} in Access-Control-Allow-Headers`);
+      }
+    });
+
+    it("exposes Request-Context so the browser SDK can correlate app ids", async () => {
+      const modulePath = path.resolve(__dirname, "../dist/lib/http.js");
+      httpModule = require(modulePath);
+
+      const handler = httpModule.withCors(async () => ({ status: 200 }));
+      const req = fakeRequest({
+        method: "GET",
+        headers: { origin: "http://localhost:3000" },
+      });
+
+      const res = await handler(req, fakeContext());
+      assert.equal(res.headers.get("Access-Control-Expose-Headers"), "Request-Context");
+    });
+
     it("returns 204 without CORS headers for disallowed origin", async () => {
       const modulePath = path.resolve(__dirname, "../dist/lib/http.js");
       httpModule = require(modulePath);

@@ -8,7 +8,12 @@ const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? DEFAULT_ALLOWED_ORIG
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-const ALLOW_HEADERS = process.env.CORS_ALLOWED_HEADERS ?? "Content-Type, Authorization";
+// traceparent/tracestate (W3C) and Request-Id/Request-Context (Application Insights)
+// let the browser SDK correlate fetch calls with the Functions request telemetry.
+const ALLOW_HEADERS =
+  process.env.CORS_ALLOWED_HEADERS ??
+  "Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context";
+const EXPOSE_HEADERS = "Request-Context";
 const ALLOW_METHODS = process.env.CORS_ALLOWED_METHODS ?? "GET,POST,PUT,DELETE,OPTIONS";
 const SUPPORT_CREDENTIALS = process.env.CORS_SUPPORT_CREDENTIALS === "true";
 
@@ -36,6 +41,7 @@ function applyCorsHeaders(headers: Headers, allowedOrigin: string) {
   headers.set("Access-Control-Allow-Origin", allowedOrigin);
   headers.set("Access-Control-Allow-Headers", ALLOW_HEADERS);
   headers.set("Access-Control-Allow-Methods", ALLOW_METHODS);
+  headers.set("Access-Control-Expose-Headers", EXPOSE_HEADERS);
   headers.set("Vary", "Origin");
   if (SUPPORT_CREDENTIALS && allowedOrigin !== "*") {
     headers.set("Access-Control-Allow-Credentials", "true");

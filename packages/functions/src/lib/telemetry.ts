@@ -4,6 +4,9 @@ const connectionString = process.env.APPLICATIONINSIGHTS_CONNECTION_STRING?.trim
 
 let client: appInsights.TelemetryClient | null = null;
 
+// Loaded first by src/index.ts. The SDK's Azure Monitor distro registers a
+// Functions preInvocation hook that binds each invocation to the host's trace
+// context, so dependencies and trackEvent/trackException share its operation_Id.
 if (connectionString) {
   try {
     appInsights
