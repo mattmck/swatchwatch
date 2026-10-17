@@ -68,6 +68,17 @@ export interface HexDetectionOptions {
     tags?: string[] | null;
     vendorJson?: Record<string, unknown> | null;
   };
+  /**
+   * Sampling temperature. Defaults to 0 (deterministic), which is what
+   * ingestion uses; the eval ensemble strategy raises it slightly to get
+   * independent samples.
+   */
+  temperature?: number;
+  /**
+   * Azure OpenAI deployment name to call instead of the one resolved from
+   * AZURE_OPENAI_DEPLOYMENT_HEX / AZURE_OPENAI_DEPLOYMENT.
+   */
+  deployment?: string;
 }
 
 export type VisionImageDetail = "low" | "high" | "auto";
@@ -261,7 +272,7 @@ export async function parseHexDetectionContent(
 
 export function buildHexDetectionRequestPayload(
   imageUrlOrDataUri: string,
-  options?: Pick<HexDetectionOptions, "vendorContext">,
+  options?: Pick<HexDetectionOptions, "vendorContext" | "temperature">,
   safePrompt = false
 ): HexDetectionRequestPayload {
   const vendorContext = buildVendorContext({
@@ -270,7 +281,7 @@ export function buildHexDetectionRequestPayload(
   const imageUrl = { url: imageUrlOrDataUri, detail: resolveVisionImageDetail() };
 
   return {
-    temperature: 0,
+    temperature: normalizeTemperature(options?.temperature),
     max_tokens: 120,
     response_format: { type: "json_object" },
     messages: safePrompt
@@ -319,6 +330,14 @@ export function buildHexDetectionRequestPayload(
           },
         ],
   };
+}
+
+/** Clamp an optional temperature override to the API's 0–2 range; undefined/invalid → 0 (the historical default). */
+function normalizeTemperature(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(2, value));
 }
 
 function sleep(ms: number): Promise<void> {
@@ -528,7 +547,7 @@ const DEFAULT_DEPLOYMENT_ENV_KEYS = ["AZURE_OPENAI_DEPLOYMENT_HEX", "AZURE_OPENA
  */
 export async function requestAzureOpenAIChatCompletion(
   request: AzureOpenAIChatCompletionRequest,
-  options?: Pick<HexDetectionOptions, "onLog">
+  options?: Pick<HexDetectionOptions, "onLog" | "deployment">
 ): Promise<AzureOpenAIChatCompletionResponse> {
   const resolved = resolveAzureOpenAiConfig({
     deploymentEnvKeys: request.deploymentEnvKeys ?? DEFAULT_DEPLOYMENT_ENV_KEYS,
@@ -539,10 +558,15 @@ export async function requestAzureOpenAIChatCompletion(
     endpoint,
     apiKey,
     gatewaySubscriptionKey,
-    deployment,
     missingGatewayPrerequisites,
     headers: authHeaders,
   } = resolved;
+  const deploymentOverride = options?.deployment?.trim() || null;
+  const deployment = deploymentOverride ?? resolved.deployment;
+  // An explicit deployment override only needs endpoint + credentials from the environment.
+  const isValid = deploymentOverride
+    ? !!endpoint && resolved.hasAuthHeader
+    : resolved.isValid;
 
   if (useGateway && !effectiveUseGateway) {
     emitLog(
@@ -557,7 +581,7 @@ export async function requestAzureOpenAIChatCompletion(
     );
   }
 
-  if (!resolved.isValid || !endpoint || !deployment) {
+  if (!isValid || !endpoint || !deployment) {
     emitLog(options, "error", `[ai-color-detection] Missing Azure OpenAI config`, {
       hasEndpoint: !!endpoint,
       hasDirectEndpoint: !!resolved.directEndpoint,
@@ -565,6 +589,7 @@ export async function requestAzureOpenAIChatCompletion(
       hasApiKey: !!apiKey,
       hasGatewaySubscriptionKey: !!gatewaySubscriptionKey,
       hasDeployment: !!deployment,
+      deploymentOverride,
       useGateway,
       effectiveUseGateway,
       missingGatewayPrerequisites,
@@ -719,7 +744,11 @@ export async function detectHexWithAzureOpenAI(
   const response = await requestAzureOpenAIChatCompletion(
     {
       buildPayload: (safePrompt) =>
-        buildHexDetectionRequestPayload(imageUrlOrDataUri, { vendorContext: options?.vendorContext }, safePrompt),
+        buildHexDetectionRequestPayload(
+          imageUrlOrDataUri,
+          { vendorContext: options?.vendorContext, temperature: options?.temperature },
+          safePrompt
+        ),
       deploymentEnvKeys: DEFAULT_DEPLOYMENT_ENV_KEYS,
       usageMetricPrefix: "hex_detection.sync",
       logLabel,

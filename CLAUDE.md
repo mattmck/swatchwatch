@@ -40,7 +40,7 @@ npm run migrate          # Run Postgres migrations (needs DATABASE_URL)
 npm run migrate:down     # Roll back last migration
 npm run test --workspace=swatchwatch-functions      # Functions unit tests (no DB; includes access-control isolation tests)
 npm run test:e2e --workspace=swatchwatch-functions  # E2E API + cross-user access-control tests against a running local host (skips if unreachable)
-npm run eval:hex --workspace=swatchwatch-functions -- --strategy pixel            # Hex-detection ground-truth eval (strategies: azure-current, azure-blind, pixel, region-crop, palette-pick, image-select, image-select-ai, blind-snap, image-select-ai-snap; `--list-strategies` for all; Azure ones skip without config; region-crop knobs: HEX_EVAL_REGION_CROP_MODE/CELLS/DETAIL)
+npm run eval:hex --workspace=swatchwatch-functions -- --strategy pixel            # Hex-detection ground-truth eval (strategies: azure-current, azure-blind, pixel, region-crop, palette-pick, image-select, image-select-ai, blind-snap, image-select-ai-snap, ensemble; `--list-strategies` for all; Azure ones skip without config; region-crop knobs: HEX_EVAL_REGION_CROP_MODE/CELLS/DETAIL)
 npm run eval:hex:populate --workspace=swatchwatch-functions -- --dry-run         # Fill color_training_sample from shades with real vendor hexes and export a fixture (needs Postgres)
 ```
 
@@ -136,6 +136,13 @@ Optional / dev-only:
 - `AZURE_OPENAI_DEPLOYMENT` — fallback deployment name when `AZURE_OPENAI_DEPLOYMENT_HEX` is unset
 - `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` — optional Azure OpenAI deployment name dedicated to batch hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`)
 - `HEX_SNAP_MAX_DISTANCE` — eval-only: largest OKLAB distance at which the hex-eval `blind-snap` / `image-select-ai-snap` strategies snap the model's hex to the nearest measured palette chip (default `0.10`, the MEDIUM threshold)
+- `AZURE_OPENAI_DEPLOYMENT_HEX_ENSEMBLE` — optional comma-separated deployment names the hex-eval `ensemble` strategy samples from (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`); eval-only, not used by ingestion
+- `HEX_DETECTION_ENSEMBLE_SAMPLES` — samples per deployment for the hex-eval `ensemble` strategy (default `3`, clamped 1–10); eval-only
+- `HEX_DETECTION_ENSEMBLE_TEMPERATURE` — sampling temperature for the hex-eval `ensemble` strategy (default `0.3`, clamped 0–2); eval-only, production detection stays at temperature 0
+- `HEX_EVAL_REGION_CROP_MODE` — eval-only: localization mode for the hex-eval `region-crop` strategy, `cells` (default, labeled grid) or `bbox` (normalized box)
+- `HEX_EVAL_REGION_CROP_CELLS` — eval-only: grid size per axis for `region-crop` `cells` mode (default `6`, clamped 2–10)
+- `HEX_EVAL_REGION_CROP_GRID` — eval-only: `true` draws a 4×4 grid on the image in `region-crop` `bbox` mode (default `false`)
+- `HEX_EVAL_REGION_CROP_DETAIL` — eval-only: `low`/`high`/`auto` vision detail for the `region-crop` locator call (default: `AZURE_OPENAI_VISION_DETAIL`, then `low`)
 - `AZURE_OPENAI_BATCH_API_VERSION` — Azure OpenAI API version used for files/batches operations (default: `2025-03-01-preview`)
 - `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` — Batch completion window passed to Azure OpenAI (default: `24h`)
 - `AZURE_OPENAI_VISION_DETAIL` — image detail level for vision hex detection, sync and batch: `low` (default, flat ~85 tokens/image), `high`, or `auto`; raise if finish detection needs more resolution
@@ -161,6 +168,8 @@ Optional / dev-only:
 - `PG_QUERY_MAX_RETRIES` — retries for retry-safe DB queries (`SELECT` and `UPDATE ingestion_job`) when connection timeouts occur (default: `2`)
 - `PG_QUERY_RETRY_BASE_MS` — linear backoff base delay for retry-safe DB query retries in milliseconds (default: `250`)
 - `APPLICATIONINSIGHTS_CONNECTION_STRING` — custom telemetry sink for `trackEvent`/`trackMetric`/`trackException`
+- `CORS_ALLOWED_ORIGINS` — comma-separated origins allowed by the Functions CORS wrapper (`src/lib/http.ts`; default `http://localhost:3000,https://*.azurestaticapps.net`); Terraform sets it to the web app origins
+- `CONNECTOR_RAW_CONTAINER` — blob container for raw connector snapshots and the ingestion catalog cache (Terraform-provisioned; the legacy name `RAW_SNAPSHOT_CONTAINER` is still read but deprecated)
 - `NEXT_PUBLIC_*` — web client vars included in example for convenience; not used by the Functions host itself
 
 ## Adding a New Azure Function

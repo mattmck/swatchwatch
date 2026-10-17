@@ -6,6 +6,7 @@ import { palettePickStrategy } from "./strategies/palette-pick";
 import { IMAGE_SELECT_STRATEGIES } from "./strategies/image-select";
 import { SNAP_STRATEGIES } from "./strategies/snap";
 import type { HexDetectionStrategy, StrategyInput, StrategyOutput } from "./types";
+import { ensembleStrategy } from "./strategies/ensemble";
 
 /**
  * Detection strategies under evaluation. Adding one is a single entry here: a
@@ -88,6 +89,7 @@ export const STRATEGIES: readonly HexDetectionStrategy[] = [
   palettePickStrategy,
   ...IMAGE_SELECT_STRATEGIES,
   ...SNAP_STRATEGIES,
+  ensembleStrategy,
 ];
 
 export function getStrategy(name: string): HexDetectionStrategy | null {
