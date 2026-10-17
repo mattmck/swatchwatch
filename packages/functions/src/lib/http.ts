@@ -45,7 +45,7 @@ function mergeExposeHeaders(existing: string | null): string {
 }
 
 /** Add `value` to the Vary header, keeping whatever the handler already set (e.g. Authorization). */
-function appendVary(headers: Headers, value: string) {
+export function appendVary(headers: Headers, value: string) {
   const existing = headers.get("Vary");
   if (!existing) {
     headers.set("Vary", value);

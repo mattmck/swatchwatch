@@ -58,6 +58,11 @@ import type {
   HarmonyTypeUpdateRequest,
   HarmonyTypeListResponse,
   IngestionJob,
+  HexLabelDeleteResponse,
+  HexLabelQueueFilters,
+  HexLabelQueueResponse,
+  HexLabelRequest,
+  HexLabelSaveResponse,
   Manicure,
   ManicureCreateRequest,
   ManicureDeleteResponse,
@@ -70,6 +75,7 @@ import type {
   WishlistShareEnableRequest,
   WishlistShareStatus,
   CollectionExportFormat,
+  CollectionStatsResponse,
 } from "swatchwatch-shared";
 import { WISHLIST_SHARE_FEATURE_DISABLED_CODE } from "swatchwatch-shared";
 
@@ -343,6 +349,12 @@ export async function deleteManicurePhoto(manicureId: string | number): Promise<
   if (!response.ok) {
     await handleResponse<unknown>(response);
   }
+}
+
+/** The caller's dashboard aggregates (`GET /api/stats/collection`, cached server-side ≤60s). */
+export async function getCollectionStats(): Promise<CollectionStatsResponse> {
+  const response = await fetch(`${API_BASE_URL}/stats/collection`, { headers: await getAuthHeaders() });
+  return handleResponse<CollectionStatsResponse>(response);
 }
 
 /**
@@ -948,6 +960,44 @@ export async function mergeAdminUsers(
     body: JSON.stringify(data),
   });
   return handleResponse<AdminUserMergeResponse>(response);
+}
+
+/** Admin Hex Labeling queue (`GET /api/hex-labels-admin/queue`). */
+export async function getHexLabelQueue(filters?: HexLabelQueueFilters): Promise<HexLabelQueueResponse> {
+  const params = new URLSearchParams();
+  if (filters?.brand?.trim()) params.set("brand", filters.brand.trim());
+  if (filters?.disagreeOnly) params.set("disagreeOnly", "true");
+  if (filters?.showLabeled) params.set("showLabeled", "true");
+  if (filters?.includeWithoutImages) params.set("includeWithoutImages", "true");
+  if (filters?.cursor) params.set("cursor", filters.cursor);
+  if (typeof filters?.pageSize === "number") params.set("pageSize", String(filters.pageSize));
+  const qs = params.toString();
+  const response = await fetch(`${API_BASE_URL}/hex-labels-admin/queue${qs ? `?${qs}` : ""}`, {
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<HexLabelQueueResponse>(response);
+}
+
+/** Save (create or replace) a shade's ground-truth hex label (`POST /api/hex-labels-admin/labels`). */
+export async function saveHexLabel(data: HexLabelRequest): Promise<HexLabelSaveResponse> {
+  const response = await fetch(`${API_BASE_URL}/hex-labels-admin/labels`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<HexLabelSaveResponse>(response);
+}
+
+/** Delete a manual hex label, e.g. to undo a save (`DELETE /api/hex-labels-admin/labels/{id}`). */
+export async function deleteHexLabel(trainingSampleId: string): Promise<HexLabelDeleteResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/hex-labels-admin/labels/${encodeURIComponent(trainingSampleId)}`,
+    {
+      method: "DELETE",
+      headers: await getAuthHeaders({ admin: true }),
+    }
+  );
+  return handleResponse<HexLabelDeleteResponse>(response);
 }
 
 // ── Private nail photos (#270) ──────────────────────────────────────────────
