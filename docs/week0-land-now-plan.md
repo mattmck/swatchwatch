@@ -15,10 +15,10 @@ The roadmap row was written on 16 Oct. Since then most of it moved:
 | PR #256 on-nail image selection | merge | **merged into `dev`** 03:51 UTC (`28d1551`) | ship to `main` via release PR |
 | PR #258 migration rename | merge | **merged into `dev`** 03:47 UTC (`279f331`) | ship to `main`; prod migration path needs a watched deploy |
 | PR #237 CodeRabbit fixes | merge | **merged into `dev`** 03:46 UTC (`fb0f8ea`) | ship to `main` |
-| dev → main release | cut one | **PR #276 open** (`chore/merge-dev-into-main`, head `eff215a`, 34 commits, 89 files). CI green (Lint, Build, CodeQL). Two CodeRabbit threads fixed and resolved; CodeRabbit commit status still `pending` (re-review). Needs a **merge commit, not squash** | verify, merge, watch Deploy Prod, fast-forward `dev` |
-| #245 flaky tampered-signature test | fix + close | **already fixed** by PR #246 (merged to `dev` 16 Oct, body says `Closes #245`) and hardened again in #237. Issue is still **open** because #246 targeted `dev`, so GitHub never auto-closed it. `flipLastChar` no longer exists anywhere in `packages/functions/tests/` | verify on `main` after release, close with a comment |
-| #227 owner-scoped image ids | fix | **open, no code yet**. Only real build in the row | design is fixed below; 6 work packages |
-| PR #275 roadmap doc | — | open against `main`, `mergeable_state: clean`, docs-only | merge alongside the release |
+| dev → main release | cut one | **shipped**: PR #276 merged to `main` as merge commit `6420309`; Deploy Prod green | verify, merge, watch Deploy Prod, fast-forward `dev` |
+| #245 flaky tampered-signature test | fix + close | **closed** (fixed by PR #246, hardened in #237, shipped to `main` in #276) | verify on `main` after release, close with a comment |
+| #227 owner-scoped image ids | fix | in progress on `fix/227-owner-scoped-image-ids` (C4, C2 landed; C3/C6/C7 in flight) | design is fixed below; 6 work packages |
+| PR #275 roadmap doc | — | **merged** | merge alongside the release |
 
 **Consequence:** this plan is ~15% release mechanics, ~5% hygiene, ~80% the #227 build.
 
