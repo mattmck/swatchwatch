@@ -103,7 +103,7 @@ The web app uses Next.js route groups to separate public marketing pages from th
 | `/polishes/import` | `src/app/(app)/polishes/import/page.tsx` | Client component, CSV import wizard (upload → column mapping → review matched/ambiguous/unmatched with candidate picker → commit → summary) via `/api/polish-imports` |
 | `/polishes/search` | `src/app/(app)/polishes/search/page.tsx` | Client component, canvas color wheel + OKLAB matching |
 | `/manis` | `src/app/(app)/manis/page.tsx` | Client component, mani log: recent-weeks calendar strip + history list, "Log a mani" dialog (polishes with roles, date, notes); `?log=<shadeId>` preselects a polish |
-| `/rapid-add` | `src/app/rapid-add/page.tsx` | Client component, capture-first rapid add workflow |
+| `/rapid-add` | `src/app/rapid-add/page.tsx` | Client component, camera-first Rapid Add: live `getUserMedia` rear camera, on-device barcode (`BarcodeDetector`, lazy `@zxing/library` fallback), frames → capture API, verdict card (own it / added / add), mobile-web install prompt; `layout.tsx` adds `RequireAuth` + `AppShell` |
 | `/w/?token=…` | `src/app/w/page.tsx` | Public shared wishlist (#268): no auth/AppShell, `noindex` + `no-referrer` metadata. Static export → token is a query param, not `/w/{token}`. Feature behind `SHAREABLE_WISHLIST_ENABLED` (off by default) |
 
 **Route groups:**
