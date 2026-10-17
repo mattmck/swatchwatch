@@ -92,7 +92,7 @@ The web app uses Next.js route groups to separate public marketing pages from th
 | `/polishes/gaps` | `src/app/(app)/polishes/gaps/page.tsx` | Client component, collection gap heatmap (hue × lightness coverage + next-buy targets) |
 | `/polishes/match` | `src/app/(app)/polishes/match/page.tsx` | Client component, photo → owned-polish color matching (upload/drop/camera, extracted palette filter, confidence badges) via `POST /api/polishes/match-image` |
 | `/polishes/search` | `src/app/(app)/polishes/search/page.tsx` | Client component, canvas color wheel + OKLAB matching |
-| `/rapid-add` | `src/app/rapid-add/page.tsx` | Client component, capture-first rapid add workflow |
+| `/rapid-add` | `src/app/rapid-add/page.tsx` | Client component, camera-first Rapid Add: live `getUserMedia` rear camera, on-device barcode (`BarcodeDetector`, lazy `@zxing/library` fallback), frames → capture API, verdict card (own it / added / add), mobile-web install prompt; `layout.tsx` adds `RequireAuth` + `AppShell` |
 
 **Route groups:**
 - `(marketing)` — Public pages with glass header + footer (no sidebar)
