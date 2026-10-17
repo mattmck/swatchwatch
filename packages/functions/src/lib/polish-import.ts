@@ -22,6 +22,8 @@ import {
   detectImportDateOrder,
   detectPolishImportHeader,
   importMatchKey,
+  importRowNeedsStatus,
+  isArchiveReason,
   parseCsv,
   parseImportCurrency,
   parseImportDate,
@@ -41,6 +43,7 @@ import {
   type PolishImportMatchState,
   type PolishImportRow,
   type PolishImportRowValues,
+  type PolishImportStatusChoice,
   type PolishStatus,
   type PolishUpdateRequest,
 } from "swatchwatch-shared";
@@ -411,6 +414,7 @@ export function countRows(rows: readonly PolishImportRow[]): PolishImportCounts 
 // ---------------------------------------------------------------------------
 
 const DECISION_ACTIONS: ReadonlySet<string> = new Set(["match", "create", "skip"]);
+const STATUS_CHOICES: ReadonlySet<string> = new Set<PolishImportStatusChoice>(["wishlist", "archived"]);
 export const MAX_DECISIONS = 5000;
 
 /** Strict positive-integer id (as in the add-endpoint conventions). */
@@ -438,16 +442,34 @@ export function parseDecisions(body: unknown): PolishImportDecision[] {
     if (typeof rowNumber !== "number" || !Number.isSafeInteger(rowNumber) || rowNumber < 1) {
       throw new ImportRequestError(`decisions[${index}].rowNumber must be a positive integer`);
     }
+    const out: PolishImportDecision = { rowNumber };
+    if (decision.statusChoice !== undefined) {
+      if (typeof decision.statusChoice !== "string" || !STATUS_CHOICES.has(decision.statusChoice)) {
+        throw new ImportRequestError(`decisions[${index}].statusChoice must be wishlist or archived`);
+      }
+      out.statusChoice = decision.statusChoice as PolishImportStatusChoice;
+      if (decision.archiveReason !== undefined) {
+        if (out.statusChoice !== "archived" || !isArchiveReason(decision.archiveReason)) {
+          throw new ImportRequestError(
+            `decisions[${index}].archiveReason must be used_up or decluttered, with statusChoice archived`
+          );
+        }
+        out.archiveReason = decision.archiveReason;
+      }
+    } else if (decision.archiveReason !== undefined) {
+      throw new ImportRequestError(`decisions[${index}].archiveReason requires statusChoice archived`);
+    }
+    if (decision.action === undefined && out.statusChoice !== undefined) return out;
     if (typeof decision.action !== "string" || !DECISION_ACTIONS.has(decision.action)) {
       throw new ImportRequestError(`decisions[${index}].action must be match, create or skip`);
     }
-    const action = decision.action as PolishImportDecision["action"];
-    if (action === "match") {
+    out.action = decision.action as NonNullable<PolishImportDecision["action"]>;
+    if (out.action === "match") {
       const shadeId = parseShadeIdParam(decision.shadeId);
       if (!shadeId) throw new ImportRequestError(`decisions[${index}].shadeId is required for match`);
-      return { rowNumber, action, shadeId };
+      out.shadeId = shadeId;
     }
-    return { rowNumber, action };
+    return out;
   });
 }
 
@@ -466,16 +488,29 @@ export function applyDecisions(
   for (const decision of decisions) {
     const index = byNumber.get(decision.rowNumber);
     if (index === undefined) throw new ImportRequestError(`Row ${decision.rowNumber} is not in this import`);
-    const row = next[index];
-    if (row.matchState === "invalid" && decision.action !== "skip") {
+    let row = next[index];
+    if (row.matchState === "invalid" && (decision.action !== "skip" || decision.statusChoice)) {
       throw new ImportRequestError(`Row ${decision.rowNumber} is invalid and can only be skipped`);
     }
-    const action: PolishImportAction = decision.action;
-    const shadeId = decision.action === "match" ? decision.shadeId ?? null : null;
-    if (shadeId && !row.candidates.some((candidate) => candidate.shadeId === shadeId)) {
-      toVerify.add(shadeId);
+    if (decision.statusChoice) {
+      if (!importRowNeedsStatus(row.values)) {
+        throw new ImportRequestError(`Row ${decision.rowNumber} already has a status`);
+      }
+      row = {
+        ...row,
+        statusChoice: decision.statusChoice,
+        archiveReason: decision.statusChoice === "archived" ? decision.archiveReason ?? "used_up" : null,
+      };
     }
-    next[index] = { ...row, action, shadeId };
+    if (decision.action) {
+      const action: PolishImportAction = decision.action;
+      const shadeId = decision.action === "match" ? decision.shadeId ?? null : null;
+      if (shadeId && !row.candidates.some((candidate) => candidate.shadeId === shadeId)) {
+        toVerify.add(shadeId);
+      }
+      row = { ...row, action, shadeId };
+    }
+    next[index] = row;
   }
   return { rows: next, shadeIdsToVerify: [...toVerify] };
 }
@@ -490,19 +525,28 @@ export interface ExistingInventory {
   triedAt: string | null;
 }
 
+/** True when commit must skip the row because its status is still undecided (D5b). */
+export function rowStatusUndecided(row: Pick<PolishImportRow, "values" | "statusChoice">): boolean {
+  return importRowNeedsStatus(row.values) && !row.statusChoice;
+}
+
 /**
  * Build the #261 upsert body + validated fields for a row.
  *
  * - Blank cells are omitted, so a re-import never clears a value the sheet does not carry.
- * - A NEW inventory row without a status column defaults to `owned` (an imported sheet is a
- *   collection), or `wishlist` when the sheet says quantity 0. Existing rows keep their status.
+ * - A NEW inventory row without a status cell defaults to `owned` (an imported sheet is a
+ *   collection; decision D5a), also when the quantity is blank. Existing rows keep their status.
+ * - Quantity 0 without a status cell is ambiguous (D5b): the review's `statusChoice` decides
+ *   (`wishlist`, or `archived` with its `archiveReason`, default `used_up`), for new and
+ *   existing rows alike. Commit skips such rows while undecided (`rowStatusUndecided`).
  * - tried = yes keeps an existing `tried_at`; otherwise it stores the tried date from the
  *   sheet, else the purchase date, else today. tried = no clears it.
  */
 export function buildUpsertRequest(
   values: PolishImportRowValues,
   existing: ExistingInventory,
-  now: Date = new Date()
+  now: Date = new Date(),
+  review: Pick<PolishImportRow, "statusChoice" | "archiveReason"> = {}
 ): { body: PolishUpdateRequest; fields: InventoryFieldsUpdate } {
   const body: PolishUpdateRequest = {};
   if (values.quantity !== undefined) body.quantity = values.quantity;
@@ -512,8 +556,11 @@ export function buildUpsertRequest(
   if (values.purchaseCurrency) body.purchaseCurrency = values.purchaseCurrency;
 
   let status: PolishStatus | undefined = values.status;
-  if (!status && !existing.inCollection) {
-    status = values.quantity === 0 ? "wishlist" : "owned";
+  if (!status && importRowNeedsStatus(values) && review.statusChoice) {
+    status = review.statusChoice;
+    if (status === "archived") body.archiveReason = review.archiveReason ?? "used_up";
+  } else if (!status && !existing.inCollection && !importRowNeedsStatus(values)) {
+    status = "owned";
   }
   if (status) body.status = status;
 
