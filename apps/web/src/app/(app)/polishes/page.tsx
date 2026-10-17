@@ -481,7 +481,12 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
 
       updatePolish(polishId, { quantity: newQty })
         .then((updated) => {
-          setPolishes((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+          // The PUT response carries no buyUrl, so keep the one already on the row.
+          setPolishes((prev) =>
+            prev.map((p) =>
+              p.id === updated.id ? { ...updated, buyUrl: updated.buyUrl ?? p.buyUrl } : p
+            )
+          );
         })
         .catch(() => {
           setPolishes((prev) =>
