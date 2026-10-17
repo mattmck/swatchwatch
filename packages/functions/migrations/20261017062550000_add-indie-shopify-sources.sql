@@ -46,6 +46,11 @@ SET
 
 
 -- Down Migration
+-- Disable both rows, then remove the ones nothing has run against yet. ingestion_job and
+-- external_product cascade on delete, so a row with history is left in place (disabled by
+-- the UPDATE) rather than deleting that history.
+UPDATE data_source SET enabled = false WHERE name IN ('NightOwlLacquerShopify', 'PahlishShopify');
+
 
 -- Remove the rows unless something already ran against them (ingestion_job and
 -- external_product cascade on delete, so a row with history is left in place, disabled).
