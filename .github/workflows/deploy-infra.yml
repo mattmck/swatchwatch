@@ -86,6 +86,11 @@ jobs:
       # secrets first (recommended for prod), then vars fallback, else empty string
       # (Terraform will validate when gateway is enabled)
       TF_VAR_apim_openai_subscription_key_uri: ${{ secrets.APIM_OPENAI_SUBSCRIPTION_KEY_URI || vars.APIM_OPENAI_SUBSCRIPTION_KEY_URI || '' }}
+      # Observability Phase 3 (#281): alerts are prod-only by default (D16);
+      # ALERTS_ENABLED overrides. The address is never committed: set ALERT_EMAIL
+      # as an environment secret (masked in logs) or variable.
+      TF_VAR_alerts_enabled: ${{ vars.ALERTS_ENABLED || (inputs.environment == 'prod' && 'true' || 'false') }}
+      TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL || vars.ALERT_EMAIL || '' }}
 
     steps:
       - uses: actions/checkout@v6

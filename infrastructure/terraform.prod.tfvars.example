@@ -18,3 +18,10 @@ openai_batch_deployment_name = "hex-detector-batch"
 # hex_detection_batch_min_images   = 5
 # ingestion_ai_batch_poll_schedule = "0 */2 * * * *"
 # ingestion_ai_batch_max_poll_jobs = 10
+
+# Alerts (observability Phase 3, #281) are on by default in prod (alerts_enabled).
+# Do NOT put alert_email here: CI passes it from the ALERT_EMAIL GitHub secret.
+# For a local apply, export TF_VAR_alert_email instead.
+# alert_api_5xx_threshold           = 5
+# alert_server_exception_threshold  = 10
+# alert_browser_exception_threshold = 25
