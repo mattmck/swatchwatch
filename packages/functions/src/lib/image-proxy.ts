@@ -204,6 +204,11 @@ function readSignature(encoded: string): Buffer {
   if (signature.length !== SIGNATURE_BYTES) {
     throw new ImageProxyTokenError();
   }
+  // Base64 decoding ignores the trailing padding bits, so several strings decode to the same
+  // bytes. Accept only the canonical encoding so a signature has exactly one valid spelling.
+  if (toBase64Url(signature) !== encoded) {
+    throw new ImageProxyTokenError();
+  }
   return signature;
 }
 
