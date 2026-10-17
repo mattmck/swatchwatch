@@ -4,6 +4,7 @@ import { extractDominantColors } from "../../lib/dominant-color";
 import { regionCropStrategy } from "./strategies/region-crop";
 import { palettePickStrategy } from "./strategies/palette-pick";
 import { IMAGE_SELECT_STRATEGIES } from "./strategies/image-select";
+import { SNAP_STRATEGIES } from "./strategies/snap";
 import type { HexDetectionStrategy, StrategyInput, StrategyOutput } from "./types";
 
 /**
@@ -86,6 +87,7 @@ export const STRATEGIES: readonly HexDetectionStrategy[] = [
   regionCropStrategy,
   palettePickStrategy,
   ...IMAGE_SELECT_STRATEGIES,
+  ...SNAP_STRATEGIES,
 ];
 
 export function getStrategy(name: string): HexDetectionStrategy | null {

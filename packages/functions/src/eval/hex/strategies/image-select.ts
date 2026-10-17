@@ -141,7 +141,7 @@ async function askModelForSwatchIndex(images: CaseImage[]): Promise<{ index: num
   return { ...parseSwatchPickResponse(content, images.length), usage: body.usage ?? null };
 }
 
-async function detectOn(image: CaseImage): Promise<Pick<StrategyOutput, "hex" | "confidence" | "finishes"> & { usage: unknown }> {
+export async function detectOn(image: CaseImage): Promise<Pick<StrategyOutput, "hex" | "confidence" | "finishes"> & { usage: unknown }> {
   const result = await detectHexWithAzureOpenAI(image.dataUri, { onLog: quietLog });
   if (result.provider === "none") {
     throw new Error("Azure OpenAI config missing");
@@ -149,7 +149,7 @@ async function detectOn(image: CaseImage): Promise<Pick<StrategyOutput, "hex" | 
   return { hex: result.hex, confidence: result.confidence, finishes: result.finishes, usage: result.usage ?? null };
 }
 
-function choiceMeta(choice: CaseImageChoice): Record<string, unknown> {
+export function choiceMeta(choice: CaseImageChoice): Record<string, unknown> {
   return {
     chosenImage: { source: choice.source, index: choice.index, url: choice.url, confident: choice.confident },
     reason: choice.reason,
@@ -173,40 +173,51 @@ export const imageSelectStrategy: HexDetectionStrategy = {
   },
 };
 
+/**
+ * `image-select-ai`'s photo choice: the ranking, overridden by one low-detail
+ * vision call (which photo shows painted nails?) when no image has alt text.
+ * Exported so other strategies can analyze the same photo.
+ */
+export async function chooseCaseImageWithAi(
+  input: StrategyInput
+): Promise<{ choice: CaseImageChoice; swatchPick: Record<string, unknown> | null }> {
+  let choice = chooseCaseImage(input);
+  const candidates = input.images ?? [];
+  let swatchPick: Record<string, unknown> | null = null;
+
+  if (candidates.length > 1 && candidates.every((c) => !c.alt)) {
+    const pool = candidates.slice(0, MAX_SWATCH_PICK_IMAGES);
+    const loaded = await Promise.all(pool.map((c) => c.load()));
+    const pick = await askModelForSwatchIndex(loaded);
+    swatchPick = { index: pick.index, confidence: pick.confidence, usage: pick.usage, imagesShown: pool.length };
+    if (pick.index !== null) {
+      const picked = pool[pick.index];
+      choice = {
+        ...choice,
+        source: "ai-pick",
+        index: picked.index,
+        url: picked.url,
+        confident: false,
+        reason: `vision model picked image #${picked.position ?? picked.index + 1} as the on-nail photo (confidence ${pick.confidence ?? "?"}); ranking said: ${choice.reason}`,
+        load: async () => loaded[pick.index as number],
+      };
+    }
+  }
+  return { choice, swatchPick };
+}
+
 export const imageSelectAiStrategy: HexDetectionStrategy = {
   name: "image-select-ai",
   description: "image-select, plus one vision call to pick the on-nail photo when no image has alt text",
   requiresAzureOpenAI: true,
   run: async (input) => {
-    let choice = chooseCaseImage(input);
-    const candidates = input.images ?? [];
-    let pickMeta: Record<string, unknown> | null = null;
-
-    if (candidates.length > 1 && candidates.every((c) => !c.alt)) {
-      const pool = candidates.slice(0, MAX_SWATCH_PICK_IMAGES);
-      const loaded = await Promise.all(pool.map((c) => c.load()));
-      const pick = await askModelForSwatchIndex(loaded);
-      pickMeta = { index: pick.index, confidence: pick.confidence, usage: pick.usage, imagesShown: pool.length };
-      if (pick.index !== null) {
-        const picked = pool[pick.index];
-        choice = {
-          ...choice,
-          source: "ai-pick",
-          index: picked.index,
-          url: picked.url,
-          confident: false,
-          reason: `vision model picked image #${picked.position ?? picked.index + 1} as the on-nail photo (confidence ${pick.confidence ?? "?"}); ranking said: ${choice.reason}`,
-          load: async () => loaded[pick.index as number],
-        };
-      }
-    }
-
+    const { choice, swatchPick } = await chooseCaseImageWithAi(input);
     const detection = await detectOn(await choice.load());
     return {
       hex: detection.hex,
       confidence: detection.confidence,
       finishes: detection.finishes,
-      meta: { ...choiceMeta(choice), swatchPick: pickMeta, usage: detection.usage },
+      meta: { ...choiceMeta(choice), swatchPick, usage: detection.usage },
     };
   },
 };
