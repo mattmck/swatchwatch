@@ -10,6 +10,7 @@ import {
   type HexReviewItem,
   type HexReviewResponse,
   type HexReviewSort,
+  type PolishStatus,
 } from "swatchwatch-shared";
 import { query, transaction } from "../lib/db";
 import { withAuth, withAdmin } from "../lib/auth";
@@ -45,6 +46,15 @@ import {
   type ShadeFinishUpdate,
 } from "../lib/finishes";
 import { parseColorFamilyFilter } from "../lib/color-family-filter";
+import {
+  InventoryValidationError,
+  defaultStatusForNewItem,
+  parseBooleanFlag,
+  parseInventoryFields,
+  parseStatusFilter,
+  providedInventoryFields,
+  type InventoryFieldsUpdate,
+} from "../lib/inventory";
 import { PoolClient } from "pg";
 
 const FINISH_NORMALIZATION_MAP: Record<string, string> = {
@@ -230,6 +240,15 @@ const POLISH_COLUMNS = `
     COALESCE(s.finishes, ARRAY[]::text[])        AS finishes,
     COALESCE(s.collection, '')                   AS collection,
     ui.quantity,
+    -- Inventory status model (migration 20261017061336791_inventory-status). NULL status means
+    -- the caller has no inventory row (plain catalog entry); "untried" is derived, not stored.
+    ui.status,
+    COALESCE(ui.status = 'owned' AND ui.tried_at IS NULL, false) AS "isUntried",
+    ui.tried_at                                  AS "triedAt",
+    ui.last_worn_at                              AS "lastWornAt",
+    ui.wear_count                                AS "wearCount",
+    ui.purchase_price::float8                    AS "purchasePrice",
+    ui.purchase_currency                         AS "purchaseCurrency",
     ui.size_display                              AS size,
     ui.rating,
     ui.notes,
@@ -347,9 +366,74 @@ async function findOrCreateShade(
   return newShade.rows[0].shade_id;
 }
 
+/**
+ * Insert or update the caller's inventory row for a shade (keyed on `(user_id, shade_id)`, so
+ * it can only ever touch the caller's own row).
+ *
+ * Omitted fields keep their stored value. On a NEW row an omitted `status` defaults from the
+ * quantity (`defaultStatusForNewItem`) and an omitted `quantity` from the status (one bottle
+ * when owned/destash, else none), so clients that predate the status model behave as before.
+ * The clearable fields (`triedAt`, `purchasePrice`, `purchaseCurrency`) are written whenever
+ * they are present in the request, including `null`;
+ * `$14` lists which ones were sent. `$15` is the status a new row gets. Returns the
+ * inventory item id.
+ */
+async function upsertInventoryItem(
+  client: PoolClient,
+  userId: number,
+  shadeId: number,
+  body: PolishUpdateRequest,
+  fields: InventoryFieldsUpdate
+): Promise<string | undefined> {
+  const quantity = body.quantity ?? null;
+  const insertStatus = fields.status ?? defaultStatusForNewItem(quantity === null ? null : Number(quantity));
+  const result = await client.query<{ inventoryItemId: string }>(
+    `INSERT INTO user_inventory_item
+       (user_id, shade_id, quantity, notes, purchase_date, expiration_date,
+        rating, tags, size_display, status, tried_at, purchase_price, purchase_currency)
+     VALUES ($1, $2, COALESCE($3::int, CASE WHEN $15::text IN ('owned', 'destash') THEN 1 ELSE 0 END),
+             $4, $5, $6, $7, $8, $9,
+             $15::text, $11::timestamptz, $12::numeric, $13::text)
+     ON CONFLICT (user_id, shade_id) DO UPDATE SET
+       quantity          = CASE WHEN $3::int IS NULL THEN user_inventory_item.quantity ELSE EXCLUDED.quantity END,
+       notes             = CASE WHEN $4 IS NULL THEN user_inventory_item.notes ELSE EXCLUDED.notes END,
+       purchase_date     = CASE WHEN $5 IS NULL THEN user_inventory_item.purchase_date ELSE EXCLUDED.purchase_date END,
+       expiration_date   = CASE WHEN $6 IS NULL THEN user_inventory_item.expiration_date ELSE EXCLUDED.expiration_date END,
+       rating            = CASE WHEN $7 IS NULL THEN user_inventory_item.rating ELSE EXCLUDED.rating END,
+       tags              = CASE WHEN $8 IS NULL THEN user_inventory_item.tags ELSE EXCLUDED.tags END,
+       size_display      = CASE WHEN $9 IS NULL THEN user_inventory_item.size_display ELSE EXCLUDED.size_display END,
+       status            = CASE WHEN $10::text IS NULL THEN user_inventory_item.status ELSE EXCLUDED.status END,
+       tried_at          = CASE WHEN 'triedAt' = ANY($14::text[]) THEN EXCLUDED.tried_at ELSE user_inventory_item.tried_at END,
+       purchase_price    = CASE WHEN 'purchasePrice' = ANY($14::text[]) THEN EXCLUDED.purchase_price ELSE user_inventory_item.purchase_price END,
+       purchase_currency = CASE WHEN 'purchaseCurrency' = ANY($14::text[]) THEN EXCLUDED.purchase_currency ELSE user_inventory_item.purchase_currency END,
+       updated_at        = now()
+     RETURNING inventory_item_id::text AS "inventoryItemId"`,
+    [
+      userId,
+      shadeId,
+      quantity,
+      body.notes ?? null,
+      body.purchaseDate ?? null,
+      body.expirationDate ?? null,
+      body.rating ?? null,
+      body.tags && body.tags.length ? body.tags : null,
+      body.size ?? null,
+      fields.status ?? null,
+      fields.triedAt ?? null,
+      fields.purchasePrice ?? null,
+      fields.purchaseCurrency ?? null,
+      providedInventoryFields(fields),
+      insertStatus,
+    ]
+  );
+  return result.rows[0]?.inventoryItemId;
+}
+
 /** Whitelist of allowed sort columns to prevent SQL injection */
 const SORT_COLUMNS: Record<string, string> = {
-  status: "CASE WHEN COALESCE(ui.quantity, 0) > 0 THEN 0 ELSE 1 END",
+  // Owned first, then wishlist, destash, archived; catalog rows without inventory last.
+  status:
+    "CASE ui.status WHEN 'owned' THEN 0 WHEN 'wishlist' THEN 1 WHEN 'destash' THEN 2 WHEN 'archived' THEN 3 ELSE 4 END",
   name: "s.shade_name_canonical",
   brand: "b.name_canonical",
   finish: "COALESCE(s.finishes[1], NULLIF(s.finish, ''), '')",
@@ -407,6 +491,8 @@ function buildPolishListCacheKey(
     finishes: string;
     scope: string;
     availability: string;
+    status: string;
+    untried: boolean;
     tags: string;
     family?: string;
     sortBy: string;
@@ -641,6 +727,17 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
     const finishesParam = url.searchParams.get("finishes");
     const scope = url.searchParams.get("scope");
     const availability = url.searchParams.get("availability") || url.searchParams.get("avail");
+    let statusFilter: PolishStatus[];
+    let untriedOnly: boolean;
+    try {
+      statusFilter = parseStatusFilter(url.searchParams.get("status"));
+      untriedOnly = parseBooleanFlag("untried", url.searchParams.get("untried"));
+    } catch (error) {
+      if (error instanceof InventoryValidationError) {
+        return { status: 400, jsonBody: { error: error.message } };
+      }
+      throw error;
+    }
     const tagsParam = url.searchParams.get("tags");
     const sortBy = url.searchParams.get("sortBy")?.trim() || "createdAt";
     const sortOrder = url.searchParams.get("sortOrder")?.toUpperCase() === "ASC" ? "ASC" : "DESC";
@@ -665,6 +762,8 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       finishes: canonicalizeTagsForCache(parsedFinishesFilter),
       scope: normalizedScope,
       availability: normalizedAvailability,
+      status: statusFilter.join(","),
+      untried: untriedOnly,
       tags: canonicalizeTagsForCache(parsedTags),
       // Only present when filtering so existing cache keys are unchanged.
       ...(familyFilter.families.length > 0 ? { family: familyFilter.families.join(",") } : {}),
@@ -731,14 +830,27 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       }
     }
 
+    // Ownership comes from the inventory status (never from quantity). A NULL ui.status (no
+    // inventory row) never matches a status condition.
     if (normalizedScope === "collection") {
-      conditions.push(`COALESCE(ui.quantity, 0) > 0`);
+      conditions.push(`ui.status = 'owned'`);
     }
 
+    // Legacy `availability` alias for the status filter.
     if (normalizedAvailability === "owned") {
-      conditions.push(`COALESCE(ui.quantity, 0) > 0`);
+      conditions.push(`ui.status = 'owned'`);
     } else if (normalizedAvailability === "wishlist") {
-      conditions.push(`COALESCE(ui.quantity, 0) <= 0`);
+      conditions.push(`ui.status = 'wishlist'`);
+    }
+
+    if (statusFilter.length > 0) {
+      conditions.push(`ui.status = ANY($${paramIndex}::text[])`);
+      params.push(statusFilter);
+      paramIndex++;
+    }
+
+    if (untriedOnly) {
+      conditions.push(`(ui.status = 'owned' AND ui.tried_at IS NULL)`);
     }
 
     if (parsedTags.length > 0) {
@@ -811,6 +923,15 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
 
   try {
     const body = (await request.json()) as PolishCreateRequest;
+    let inventoryFields: InventoryFieldsUpdate;
+    try {
+      inventoryFields = parseInventoryFields(body);
+    } catch (error) {
+      if (error instanceof InventoryValidationError) {
+        return { status: 400, jsonBody: { error: error.message } };
+      }
+      throw error;
+    }
     const adoptingExistingShade = typeof body.shadeId === "string" && body.shadeId.trim().length > 0;
 
     if (!adoptingExistingShade && (!body.brand || !body.name)) {
@@ -863,32 +984,7 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
         );
       }
 
-      await client.query(
-        `INSERT INTO user_inventory_item
-           (user_id, shade_id, quantity, notes, purchase_date, expiration_date,
-            rating, tags, size_display)
-         VALUES ($1, $2, COALESCE($3, 0), $4, $5, $6, $7, $8, $9)
-         ON CONFLICT (user_id, shade_id) DO UPDATE SET
-           quantity        = CASE WHEN $3 IS NULL THEN user_inventory_item.quantity ELSE EXCLUDED.quantity END,
-           notes           = CASE WHEN $4 IS NULL THEN user_inventory_item.notes ELSE EXCLUDED.notes END,
-           purchase_date   = CASE WHEN $5 IS NULL THEN user_inventory_item.purchase_date ELSE EXCLUDED.purchase_date END,
-           expiration_date = CASE WHEN $6 IS NULL THEN user_inventory_item.expiration_date ELSE EXCLUDED.expiration_date END,
-           rating          = CASE WHEN $7 IS NULL THEN user_inventory_item.rating ELSE EXCLUDED.rating END,
-           tags            = CASE WHEN $8 IS NULL THEN user_inventory_item.tags ELSE EXCLUDED.tags END,
-           size_display    = CASE WHEN $9 IS NULL THEN user_inventory_item.size_display ELSE EXCLUDED.size_display END,
-           updated_at      = now()`,
-        [
-          userId,
-          resolvedShadeId,
-          body.quantity ?? null,
-          body.notes ?? null,
-          body.purchaseDate ?? null,
-          body.expirationDate ?? null,
-          body.rating ?? null,
-          body.tags && body.tags.length ? body.tags : null,
-          body.size ?? null,
-        ]
-      );
+      await upsertInventoryItem(client, userId, resolvedShadeId, body, inventoryFields);
 
       return { shadeId: resolvedShadeId };
     });
@@ -941,6 +1037,15 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
 
   try {
     const body = (await request.json()) as PolishUpdateRequest;
+    let inventoryFields: InventoryFieldsUpdate;
+    try {
+      inventoryFields = parseInventoryFields(body);
+    } catch (error) {
+      if (error instanceof InventoryValidationError) {
+        return { status: 400, jsonBody: { error: error.message } };
+      }
+      throw error;
+    }
     const finishUpdate = requestCarriesFinishData(body)
       ? resolveRequestedFinishes(body, await loadFinishCatalog())
       : undefined;
@@ -990,35 +1095,8 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
         );
       }
 
-      const result = await client.query<{ inventoryItemId: string }>(
-        `INSERT INTO user_inventory_item
-           (user_id, shade_id, quantity, notes, purchase_date, expiration_date,
-            rating, tags, size_display)
-         VALUES ($1, $2, COALESCE($3, 0), $4, $5, $6, $7, $8, $9)
-         ON CONFLICT (user_id, shade_id) DO UPDATE SET
-           quantity        = CASE WHEN $3 IS NULL THEN user_inventory_item.quantity ELSE EXCLUDED.quantity END,
-           notes           = CASE WHEN $4 IS NULL THEN user_inventory_item.notes ELSE EXCLUDED.notes END,
-           purchase_date   = CASE WHEN $5 IS NULL THEN user_inventory_item.purchase_date ELSE EXCLUDED.purchase_date END,
-           expiration_date = CASE WHEN $6 IS NULL THEN user_inventory_item.expiration_date ELSE EXCLUDED.expiration_date END,
-           rating          = CASE WHEN $7 IS NULL THEN user_inventory_item.rating ELSE EXCLUDED.rating END,
-           tags            = CASE WHEN $8 IS NULL THEN user_inventory_item.tags ELSE EXCLUDED.tags END,
-           size_display    = CASE WHEN $9 IS NULL THEN user_inventory_item.size_display ELSE EXCLUDED.size_display END,
-           updated_at      = now()
-         RETURNING inventory_item_id::text AS "inventoryItemId"`,
-        [
-          userId,
-          targetShadeId,
-          body.quantity ?? null,
-          body.notes ?? null,
-          body.purchaseDate ?? null,
-          body.expirationDate ?? null,
-          body.rating ?? null,
-          body.tags && body.tags.length ? body.tags : null,
-          body.size ?? null,
-        ]
-      );
-
-      if (result.rows.length === 0) {
+      const inventoryItemId = await upsertInventoryItem(client, userId, targetShadeId, body, inventoryFields);
+      if (!inventoryItemId) {
         throw new Error("Inventory upsert failed");
       }
 
@@ -1314,12 +1392,12 @@ async function matchImage(
 
   try {
     // Owned polishes only: POLISH_SELECT's inventory LEFT JOIN is scoped to $1,
-    // so requiring an inventory row with quantity > 0 limits this to the
+    // so requiring an inventory row with status 'owned' limits this to the
     // caller's own collection.
     const result = await query<Polish>(
       `${POLISH_SELECT}
        WHERE ui.inventory_item_id IS NOT NULL
-         AND COALESCE(ui.quantity, 0) > 0
+         AND ui.status = 'owned'
          AND ${POLISH_VISIBLE_SQL}`,
       [userId]
     );

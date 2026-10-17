@@ -164,7 +164,8 @@ describe("GET /api/polishes?family=", () => {
     const list = calls.find((c) => c.text.includes("COUNT(*) OVER()"));
     assert.ok(list);
     assert.match(list.text, /ILIKE/);
-    assert.match(list.text, /COALESCE\(ui\.quantity, 0\) > 0/);
+    // `availability=owned` is the legacy alias for the inventory status filter (#261).
+    assert.match(list.text, /ui\.status = 'owned'/);
     const placeholder = list.text.match(/s\.color_family = ANY\(\$(\d+)::text\[\]\)/);
     assert.deepEqual(list.params[Number(placeholder[1]) - 1], ["multichrome"]);
   });

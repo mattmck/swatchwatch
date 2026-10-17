@@ -469,14 +469,33 @@ CREATE TABLE user_inventory_item (
   condition TEXT,
   purchase_date DATE,
   purchase_price NUMERIC(10,2),
-  purchase_currency TEXT,
+  purchase_currency TEXT,          -- ISO 4217 code (e.g. USD), validated by the API
   notes TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  -- User-facing fields (migrations 002, 004)
+  rating SMALLINT CHECK (rating >= 1 AND rating <= 5),
+  tags TEXT[] DEFAULT '{}',
+  size_display TEXT,
+  expiration_date DATE,
+  -- Inventory status (migration 20261017061336791_inventory-status). "Untried" is derived:
+  -- status = 'owned' AND tried_at IS NULL. It is not a status value.
+  status TEXT NOT NULL DEFAULT 'owned'
+    CONSTRAINT chk_user_inventory_item_status
+    CHECK (status IN ('owned', 'wishlist', 'destash', 'archived')),
+  tried_at TIMESTAMPTZ,            -- NULL = untried
+  last_worn_at TIMESTAMPTZ,
+  wear_count INT NOT NULL DEFAULT 0
+    CONSTRAINT chk_user_inventory_item_wear_count CHECK (wear_count >= 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT uq_user_inventory_shade UNIQUE (user_id, shade_id)
 );
 
 CREATE UNIQUE INDEX idx_user_inventory_unique_shade
   ON user_inventory_item(user_id, shade_id)
   WHERE shade_id IS NOT NULL;
+
+CREATE INDEX idx_user_inventory_status
+  ON user_inventory_item(user_id, status);
 
 CREATE TABLE inventory_event (
   inventory_event_id BIGSERIAL PRIMARY KEY,

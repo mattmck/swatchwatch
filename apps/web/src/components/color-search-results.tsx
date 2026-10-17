@@ -6,6 +6,7 @@ import { BsPlusLg } from "react-icons/bs";
 import { Button } from "@/components/ui/button";
 import { ColorDot } from "@/components/color-dot";
 import { QuantityControls } from "@/components/quantity-controls";
+import { isOwnedPolish } from "@/lib/inventory-status";
 import { FinishBadges } from "@/components/finish-badges";
 import { buildSwatchThumbnailUrl } from "@/lib/image-url";
 import type { FinishTypeLike } from "@/lib/finish-options";
@@ -102,7 +103,7 @@ export function ColorSearchResults({
         </p>
       </div>
       {polishes.map((polish) => {
-        const owned = (polish.quantity ?? 0) > 0;
+        const owned = isOwnedPolish(polish);
         return (
           <div
             key={polish.id}
@@ -194,6 +195,7 @@ export function ColorSearchResults({
             {onQuantityChange && (
               <div className="shrink-0 w-[92px] flex justify-end">
                 <QuantityControls
+                  owned={owned}
                   quantity={polish.quantity ?? 0}
                   onIncrement={() => onQuantityChange(polish.id, 1)}
                   onDecrement={() => onQuantityChange(polish.id, -1)}
