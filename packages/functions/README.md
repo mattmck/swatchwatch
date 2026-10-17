@@ -331,6 +331,14 @@ Current source support:
 - `data_source.enabled = false` keeps a source out of `/api/ingestion/sources`, which feeds the admin single-job and bulk-run pickers; nothing schedules ingestion on a timer. Sources listed in `SHOPIFY_SOURCES_PENDING_APPROVAL` (`connectors/shopify-generic.ts`) are auto-provisioned disabled as well. Currently pending owner approval (#273, roadmap 2026-10-to-12 decision 4): `NightOwlLacquerShopify`, `PahlishShopify` (migration `20261017062550000_add-indie-shopify-sources`). To activate one: `UPDATE data_source SET enabled = true, metadata = metadata - 'pendingApproval' WHERE name = '<Source>';` (clears the `metadata.pendingApproval` flag both rows carry; also drop the source from `SHOPIFY_SOURCES_PENDING_APPROVAL`). `PahlishShopify` additionally needs a store-specific product filter before it is enabled: its products have an empty `product_type` and tags that are only collection names, so the generic connector polish filter accepts none of them (0 of 36 on 2026-10-17, see `metadata.verification`) and ingestion would yield nothing.
 - The generic Shopify connector replaces Shopify's placeholder vendor (`vendor-unknown`, `Default Vendor`) with the brand derived from the source name (`NightOwlLacquerShopify` → "Night Owl Lacquer").
 
+Generic `*Shopify` product filter (`isNailPolish` / `isBundle` in `src/lib/connectors/shopify-generic.ts`):
+a product is kept only when its `product_type` + tags contain a polish signal (`polish`, `lacquer`,
+`varnish`, `enamel`, optionally prefixed by `nail`, singular or plural, e.g. `Nail Polishes`) and no
+non-polish keyword (stamp, plate, brush, tool, file, buffer, lamp, decal, sticker, kit, remover, wipe,
+cuticle, treatment, primer, dehydrator, bond). Products with an exact `bundle`, `bundle:product`,
+`product-bundle`, `collection-set` or `gift-set` tag (case-insensitive, `_`/spaces read as `-`) are
+skipped as sets; per-shade collection tags such as `collection:<name>-set` are not.
+
 Auth requirement:
 - Ingestion endpoints are admin-only (`withAdmin`).
 - In production auth mode, admin is determined from the Entra access-token `roles` claim (`admin`).
