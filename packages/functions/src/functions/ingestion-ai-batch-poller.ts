@@ -15,9 +15,13 @@ import {
 } from "../lib/azure-openai-batch";
 import { trackMetric } from "../lib/telemetry";
 import {
+  AI_BATCHES_METRICS_KEY,
   CHECKPOINT_METRICS_KEY,
   CONTINUATION_QUEUED_STAGE,
   enqueueIngestionContinuation,
+  IngestionAiBatchEntry,
+  isAiBatchPending,
+  readAiBatchesFromMetrics,
   readResumeMessageFromMetrics,
   RESUME_MESSAGE_METRICS_KEY,
 } from "../lib/ingestion-continuation";
@@ -108,24 +112,35 @@ function appendJobLog(
   };
 }
 
-function readAiBatchFromMetrics(metrics: Record<string, unknown>): {
-  batchId: string;
-  overwriteDetectedHex: boolean;
-  requestCount: number | null;
-} | null {
+/**
+ * Batches the job is waiting on. Jobs list them in `aiBatches`; jobs paused by an older
+ * worker carry a single `aiBatch`, which is handled as a list of one.
+ */
+function readJobAiBatches(metrics: Record<string, unknown>): {
+  entries: IngestionAiBatchEntry[];
+  tracked: boolean;
+} {
+  const tracked = readAiBatchesFromMetrics(metrics);
+  if (tracked.length > 0) {
+    return { entries: tracked, tracked: true };
+  }
+
   const aiBatch = toRecord(metrics.aiBatch);
   const batchId = typeof aiBatch.batchId === "string" ? aiBatch.batchId.trim() : "";
   if (!batchId) {
-    return null;
+    return { entries: [], tracked: false };
   }
-
   return {
-    batchId,
-    overwriteDetectedHex: aiBatch.overwriteDetectedHex === true,
-    requestCount:
-      typeof aiBatch.requestCount === "number" && Number.isFinite(aiBatch.requestCount)
-        ? aiBatch.requestCount
-        : null,
+    entries: [
+      {
+        ...aiBatch,
+        batchId,
+        // A legacy job only reaches the poller while its single batch is outstanding.
+        status: aiBatch.status === "completed" ? "submitted" : String(aiBatch.status ?? "submitted"),
+        overwriteDetectedHex: aiBatch.overwriteDetectedHex === true,
+      },
+    ],
+    tracked: false,
   };
 }
 
@@ -140,7 +155,7 @@ function isBatchStillRunning(status: string): boolean {
 async function shouldApplyJobUpdate(
   jobId: number,
   context: InvocationContext,
-  updateType: "success" | "failure" | "continuation"
+  updateType: "success" | "failure" | "continuation" | "progress"
 ): Promise<boolean> {
   const latest = await getIngestionJobById(jobId);
   if (!latest || latest.status !== "running") {
@@ -214,8 +229,8 @@ const AI_BATCH_APPLY_TOTAL_KEYS = [
 type AiBatchApplyTotals = Record<(typeof AI_BATCH_APPLY_TOTAL_KEYS)[number], number>;
 
 /**
- * A job may pause for several Azure OpenAI batches (one per paused page). `aiBatchApply`
- * holds the latest batch only; `aiBatchApplyTotals` sums every batch applied for the job.
+ * A job may submit several Azure OpenAI batches. `aiBatchApply` holds the latest applied
+ * batch only; `aiBatchApplyTotals` sums every batch applied for the job.
  */
 function accumulateAiBatchApplyTotals(
   previous: unknown,
@@ -237,8 +252,126 @@ function readAiBatchesCompleted(metrics: Record<string, unknown>): number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }
 
+type BatchStatus = Awaited<ReturnType<typeof getVisionHexBatchStatus>>;
+type AwaitingJob = Awaited<ReturnType<typeof listIngestionJobsAwaitingAiBatch>>[number];
+
+function withBatchStatus(
+  entry: IngestionAiBatchEntry,
+  batchStatus: BatchStatus,
+  polledAt: string
+): IngestionAiBatchEntry {
+  return {
+    ...entry,
+    status: batchStatus.status,
+    lastPolledAt: polledAt,
+    outputFileId: batchStatus.outputFileId,
+    errorFileId: batchStatus.errorFileId,
+    requestCounts: batchStatus.requestCounts,
+    ...(batchStatus.status === "completed" ? { completedAt: polledAt } : {}),
+  };
+}
+
+/** Download a completed batch, apply its detections, and fold the results into metrics. */
+async function applyCompletedBatch(
+  job: AwaitingJob,
+  entry: IngestionAiBatchEntry,
+  batchStatus: BatchStatus,
+  metrics: Record<string, unknown>
+): Promise<{ metrics: Record<string, unknown>; logContext: Record<string, unknown> }> {
+  if (!batchStatus.outputFileId) {
+    throw new Error(`Batch ${batchStatus.id} completed without an output file id`);
+  }
+
+  const outputJsonl = await downloadBatchFileContent(batchStatus.outputFileId);
+  const outputRows = parseVisionHexBatchOutput(outputJsonl);
+  const parsedDetections = await parseVisionHexBatchDetections(outputRows);
+  const tokenUsage = sumBatchTokenUsage(parsedDetections);
+  const tokenMetricProperties = {
+    source: job.source,
+    jobId: String(job.jobId),
+    batchId: batchStatus.id,
+  };
+  trackMetric(
+    "hex_detection.batch.rows_with_token_usage",
+    tokenUsage.rowsWithUsage,
+    tokenMetricProperties
+  );
+  trackMetric(
+    "hex_detection.batch.prompt_tokens",
+    tokenUsage.promptTokens,
+    tokenMetricProperties
+  );
+  trackMetric(
+    "hex_detection.batch.completion_tokens",
+    tokenUsage.completionTokens,
+    tokenMetricProperties
+  );
+  trackMetric(
+    "hex_detection.batch.total_tokens",
+    tokenUsage.totalTokens,
+    tokenMetricProperties
+  );
+
+  const applyMetrics = await applyAiBatchShadeDetections(
+    job.dataSourceId,
+    parsedDetections.map((row) => ({
+      externalId: row.customId,
+      detectedHex: row.detection?.hex || null,
+      detectedFinishes: row.detection?.finishes || null,
+    })),
+    entry.overwriteDetectedHex
+  );
+
+  const parseErrors = parsedDetections.filter((row) => row.error).length;
+  const completionLogs = appendJobLog(
+    appendJobLog(metrics, "info", `Batch ${batchStatus.id} completed`, {
+      outputRows: outputRows.length,
+      parsedRows: parsedDetections.length,
+      parseErrors,
+    }),
+    "info",
+    `Applied ${applyMetrics.applied} batch detections`,
+    {
+      processed: applyMetrics.processed,
+      skippedNoDetection: applyMetrics.skippedNoDetection,
+      noShadeMatch: applyMetrics.noShadeMatch,
+    }
+  );
+
+  const batchApply: AiBatchApplyTotals = {
+    ...applyMetrics,
+    outputRows: outputRows.length,
+    parsedRows: parsedDetections.length,
+    parseErrors,
+    rowsWithTokenUsage: tokenUsage.rowsWithUsage,
+    promptTokens: tokenUsage.promptTokens,
+    completionTokens: tokenUsage.completionTokens,
+    totalTokens: tokenUsage.totalTokens,
+  };
+
+  return {
+    metrics: {
+      ...completionLogs,
+      aiBatchApply: batchApply,
+      aiBatchApplyTotals: accumulateAiBatchApplyTotals(metrics.aiBatchApplyTotals, batchApply),
+      aiBatchesCompleted: readAiBatchesCompleted(metrics) + 1,
+    },
+    logContext: {
+      batchId: batchStatus.id,
+      outputRows: outputRows.length,
+      parsedRows: parsedDetections.length,
+      applied: applyMetrics.applied,
+      noShadeMatch: applyMetrics.noShadeMatch,
+      rowsWithTokenUsage: tokenUsage.rowsWithUsage,
+      promptTokens: tokenUsage.promptTokens,
+      completionTokens: tokenUsage.completionTokens,
+      totalTokens: tokenUsage.totalTokens,
+    },
+  };
+}
+
 async function processAwaitingAiBatchJob(
-  job: Awaited<ReturnType<typeof listIngestionJobsAwaitingAiBatch>>[number],
+  job: AwaitingJob,
   context: InvocationContext
 ): Promise<void> {
   const currentJob = await getIngestionJobById(job.jobId);
@@ -249,10 +382,10 @@ async function processAwaitingAiBatchJob(
     return;
   }
 
-  const metrics = toRecord(currentJob.metrics);
-  const aiBatchMetrics = readAiBatchFromMetrics(metrics);
+  let metrics = toRecord(currentJob.metrics);
+  const { entries, tracked } = readJobAiBatches(metrics);
 
-  if (!aiBatchMetrics) {
+  if (entries.length === 0) {
     const message = "Missing aiBatch metadata for awaiting_ai ingestion job";
     const failedMetrics = withPipelineMetrics(
       appendJobLog(metrics, "error", message),
@@ -271,242 +404,198 @@ async function processAwaitingAiBatchJob(
     return;
   }
 
-  const batchStatus = await getVisionHexBatchStatus(aiBatchMetrics.batchId);
-  const polledAt = new Date().toISOString();
+  // `aiBatch` mirrors the most recently polled batch so existing readers keep working.
+  let latestEntry = entries[entries.length - 1];
+  const withEntries = (base: Record<string, unknown>): Record<string, unknown> => ({
+    ...base,
+    aiBatch: latestEntry,
+    ...(tracked ? { [AI_BATCHES_METRICS_KEY]: entries } : {}),
+  });
 
-  if (isBatchStillRunning(batchStatus.status)) {
-    const runningMetrics = withPipelineMetrics(
-      appendJobLog(metrics, "info", `Batch ${batchStatus.id} polled: ${batchStatus.status}`, {
+  const pendingIndexes = entries.flatMap((entry, index) => (isAiBatchPending(entry) ? [index] : []));
+  const polledAt = new Date().toISOString();
+  let stillRunning = 0;
+  let lastLogContext: Record<string, unknown> = {};
+  // The first batch that ended without completing. The job fails after the loop, so later
+  // batches that did complete are still applied: their records are already committed.
+  let terminalFailure: string | null = null;
+
+  for (const [position, index] of pendingIndexes.entries()) {
+    const entry = entries[index];
+    let batchStatus: BatchStatus;
+    try {
+      batchStatus = await getVisionHexBatchStatus(entry.batchId);
+    } catch (error) {
+      // A transient lookup error (timeout, 5xx) must not fail a long job and orphan its
+      // other batches: keep the entry as-is and retry it on the next poll.
+      const reason = error instanceof Error ? error.message : String(error);
+      stillRunning += 1;
+      metrics = appendJobLog(metrics, "warn", `Batch ${entry.batchId} status lookup failed; retrying next poll`, {
+        error: reason,
+      });
+      context.warn(
+        `[ingestion-ai-batch-poller] Job ${job.jobId} batch ${entry.batchId} status lookup failed: ${reason}`
+      );
+      continue;
+    }
+    entries[index] = withBatchStatus(entry, batchStatus, polledAt);
+    latestEntry = entries[index];
+
+    if (isBatchStillRunning(batchStatus.status)) {
+      stillRunning += 1;
+      metrics = appendJobLog(metrics, "info", `Batch ${batchStatus.id} polled: ${batchStatus.status}`, {
         outputFileId: batchStatus.outputFileId,
         errorFileId: batchStatus.errorFileId,
         requestCounts: batchStatus.requestCounts || undefined,
-      }),
-      "running",
-      "awaiting_ai",
-      {
-        aiBatch: {
-          ...toRecord(metrics.aiBatch),
-          status: batchStatus.status,
-          lastPolledAt: polledAt,
-          outputFileId: batchStatus.outputFileId,
-          errorFileId: batchStatus.errorFileId,
-          requestCounts: batchStatus.requestCounts,
-        },
-      }
-    );
-    await updateIngestionJobMetrics(job.jobId, runningMetrics);
-    context.log(
-      `[ingestion-ai-batch-poller] Job ${job.jobId} batch ${batchStatus.id} still ${batchStatus.status}`
-    );
-    return;
-  }
-
-  if (batchStatus.status === "completed") {
-    if (!batchStatus.outputFileId) {
-      throw new Error(`Batch ${batchStatus.id} completed without an output file id`);
+      });
+      context.log(
+        `[ingestion-ai-batch-poller] Job ${job.jobId} batch ${batchStatus.id} still ${batchStatus.status}`
+      );
+      continue;
     }
 
-    const outputJsonl = await downloadBatchFileContent(batchStatus.outputFileId);
-    const outputRows = parseVisionHexBatchOutput(outputJsonl);
-    const parsedDetections = await parseVisionHexBatchDetections(outputRows);
-    const tokenUsage = sumBatchTokenUsage(parsedDetections);
-    const tokenMetricProperties = {
-      source: job.source,
-      jobId: String(job.jobId),
-      batchId: batchStatus.id,
-    };
-    trackMetric(
-      "hex_detection.batch.rows_with_token_usage",
-      tokenUsage.rowsWithUsage,
-      tokenMetricProperties
-    );
-    trackMetric(
-      "hex_detection.batch.prompt_tokens",
-      tokenUsage.promptTokens,
-      tokenMetricProperties
-    );
-    trackMetric(
-      "hex_detection.batch.completion_tokens",
-      tokenUsage.completionTokens,
-      tokenMetricProperties
-    );
-    trackMetric(
-      "hex_detection.batch.total_tokens",
-      tokenUsage.totalTokens,
-      tokenMetricProperties
-    );
-
-    const applyMetrics = await applyAiBatchShadeDetections(
-      job.dataSourceId,
-      parsedDetections.map((row) => ({
-        externalId: row.customId,
-        detectedHex: row.detection?.hex || null,
-        detectedFinishes: row.detection?.finishes || null,
-      })),
-      aiBatchMetrics.overwriteDetectedHex
-    );
-
-    const parseErrors = parsedDetections.filter((row) => row.error).length;
-    const completionLogs = appendJobLog(
-      appendJobLog(metrics, "info", `Batch ${batchStatus.id} completed`, {
-        outputRows: outputRows.length,
-        parsedRows: parsedDetections.length,
-        parseErrors,
-      }),
-      "info",
-      `Applied ${applyMetrics.applied} batch detections`,
-      {
-        processed: applyMetrics.processed,
-        skippedNoDetection: applyMetrics.skippedNoDetection,
-        noShadeMatch: applyMetrics.noShadeMatch,
-      }
-    );
-
-    const batchApply: AiBatchApplyTotals = {
-      ...applyMetrics,
-      outputRows: outputRows.length,
-      parsedRows: parsedDetections.length,
-      parseErrors,
-      rowsWithTokenUsage: tokenUsage.rowsWithUsage,
-      promptTokens: tokenUsage.promptTokens,
-      completionTokens: tokenUsage.completionTokens,
-      totalTokens: tokenUsage.totalTokens,
-    };
-    const appliedBatchMetrics: Record<string, unknown> = {
-      ...completionLogs,
-      aiBatch: {
-        ...toRecord(completionLogs.aiBatch),
-        status: "completed",
-        completedAt: polledAt,
-        lastPolledAt: polledAt,
+    if (batchStatus.status !== "completed") {
+      const failedMessage = `Azure OpenAI batch ${batchStatus.id} ended with status ${batchStatus.status}`;
+      terminalFailure ??= failedMessage;
+      metrics = appendJobLog(metrics, "error", failedMessage, {
         outputFileId: batchStatus.outputFileId,
         errorFileId: batchStatus.errorFileId,
-        requestCounts: batchStatus.requestCounts,
-      },
-      aiBatchApply: batchApply,
-      aiBatchApplyTotals: accumulateAiBatchApplyTotals(metrics.aiBatchApplyTotals, batchApply),
-      aiBatchesCompleted: readAiBatchesCompleted(metrics) + 1,
-    };
-    const completionLogContext = {
-      outputRows: outputRows.length,
-      parsedRows: parsedDetections.length,
-      applied: applyMetrics.applied,
-      noShadeMatch: applyMetrics.noShadeMatch,
-      rowsWithTokenUsage: tokenUsage.rowsWithUsage,
-      promptTokens: tokenUsage.promptTokens,
-      completionTokens: tokenUsage.completionTokens,
-      totalTokens: tokenUsage.totalTokens,
-    };
-
-    // The worker stores the next queue message when the paused page was not the last unit
-    // of work. A key that is present but unreadable must fail loudly: completing the job
-    // would silently truncate an exhaustive run (the bug this hand-off exists to fix).
-    const hasResumeMessageKey = metrics[RESUME_MESSAGE_METRICS_KEY] !== undefined;
-    const resumeMessage = readResumeMessageFromMetrics(metrics);
-    if (hasResumeMessageKey) {
-      const invalidReason = !resumeMessage
-        ? "is malformed"
-        : resumeMessage.jobId !== job.jobId
-          ? `targets job ${resumeMessage.jobId}`
-          : !resumeMessage.checkpoint
-            ? "has no checkpoint"
-            : null;
-      if (invalidReason) {
-        const message = `Cannot continue job ${job.jobId} after batch ${batchStatus.id}: stored resume message ${invalidReason}`;
-        await failContinuation(job.jobId, appliedBatchMetrics, message, polledAt, context);
-        return;
-      }
+      });
+      continue;
     }
 
-    if (resumeMessage?.checkpoint) {
-      const { checkpoint } = resumeMessage;
-      const { [RESUME_MESSAGE_METRICS_KEY]: _consumedResumeMessage, ...withoutResumeMessage } =
-        appliedBatchMetrics;
-      const continuationMetrics = withPipelineMetrics(
-        appendJobLog(
-          withoutResumeMessage,
-          "info",
-          `Batch ${batchStatus.id} applied; continuation queued at page ${checkpoint.nextPage}`,
-          {
-            nextPage: checkpoint.nextPage,
-            recordOffset: checkpoint.recordOffset,
-            pagesCompleted: checkpoint.pagesCompleted,
-            recordsProcessed: checkpoint.recordsProcessed,
-            continuationCount: checkpoint.continuationCount,
-          }
-        ),
-        "running",
-        CONTINUATION_QUEUED_STAGE,
-        {
-          [CHECKPOINT_METRICS_KEY]: checkpoint,
-        }
-      );
-
-      if (!(await shouldApplyJobUpdate(job.jobId, context, "continuation"))) {
-        return;
-      }
-      // Persist the checkpoint + stage BEFORE enqueueing so a fast-starting worker never
-      // sees a stale awaiting_ai stage or an older continuationCount and drops the message.
-      await updateIngestionJobMetrics(job.jobId, continuationMetrics);
-
-      try {
-        await enqueueIngestionContinuation(resumeMessage);
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        const message = `Failed to enqueue continuation for job ${job.jobId} after batch ${batchStatus.id}: ${reason}`;
-        await failContinuation(job.jobId, continuationMetrics, message, polledAt, context);
-        return;
-      }
-
-      context.log(
-        `[ingestion-ai-batch-poller] Job ${job.jobId} applied batch ${batchStatus.id}; continuation ${checkpoint.continuationCount} queued at page ${checkpoint.nextPage}`,
-        completionLogContext
-      );
-      return;
-    }
-
-    const completionMetrics = withPipelineMetrics(appliedBatchMetrics, "succeeded", "completed", {
-      workerCompletedAt: polledAt,
-    });
-
-    if (!(await shouldApplyJobUpdate(job.jobId, context, "success"))) {
-      return;
-    }
-    await markIngestionJobSucceeded(job.jobId, completionMetrics);
+    const applied = await applyCompletedBatch(job, entry, batchStatus, metrics);
+    metrics = applied.metrics;
+    lastLogContext = applied.logContext;
     context.log(
-      `[ingestion-ai-batch-poller] Job ${job.jobId} completed from batch ${batchStatus.id}`,
-      completionLogContext
+      `[ingestion-ai-batch-poller] Job ${job.jobId} applied batch ${batchStatus.id}`,
+      applied.logContext
     );
-    return;
+
+    // Persist each applied batch unless the final write follows immediately, so a crash
+    // mid-poll does not re-apply batches that already landed.
+    if (position < pendingIndexes.length - 1) {
+      if (!(await shouldApplyJobUpdate(job.jobId, context, "progress"))) {
+        return;
+      }
+      await updateIngestionJobMetrics(
+        job.jobId,
+        withPipelineMetrics(withEntries(metrics), "running", "awaiting_ai")
+      );
+    }
   }
 
-  const failedMessage = `Azure OpenAI batch ${batchStatus.id} ended with status ${batchStatus.status}`;
-  const failedMetrics = withPipelineMetrics(
-    appendJobLog(metrics, "error", failedMessage, {
-      outputFileId: batchStatus.outputFileId,
-      errorFileId: batchStatus.errorFileId,
-    }),
-    "failed",
-    "awaiting_ai",
-    {
+  // A failure recorded by an earlier poll (a progress write, then a crash before the final
+  // write) is no longer pending, so it must be read back from the entries.
+  const persistedFailure = entries.find(
+    (entry) => !isAiBatchPending(entry) && entry.status !== "completed"
+  );
+  terminalFailure ??= persistedFailure
+    ? `Azure OpenAI batch ${persistedFailure.batchId} ended with status ${persistedFailure.status}`
+    : null;
+
+  if (terminalFailure) {
+    const failedMetrics = withPipelineMetrics(withEntries(metrics), "failed", "awaiting_ai", {
       failedAt: polledAt,
       failedStage: "awaiting_ai",
-      aiBatch: {
-        ...toRecord(metrics.aiBatch),
-        status: batchStatus.status,
-        lastPolledAt: polledAt,
-        outputFileId: batchStatus.outputFileId,
-        errorFileId: batchStatus.errorFileId,
-        requestCounts: batchStatus.requestCounts,
-      },
+    });
+    if (!(await shouldApplyJobUpdate(job.jobId, context, "failure"))) {
+      return;
     }
-  );
-  if (!(await shouldApplyJobUpdate(job.jobId, context, "failure"))) {
+    await markIngestionJobFailed(job.jobId, terminalFailure, failedMetrics);
+    context.error(`[ingestion-ai-batch-poller] Job ${job.jobId} failed: ${terminalFailure}`);
     return;
   }
-  await markIngestionJobFailed(job.jobId, failedMessage, failedMetrics);
-  context.error(
-    `[ingestion-ai-batch-poller] Job ${job.jobId} failed: ${failedMessage}`
+
+  if (stillRunning > 0) {
+    await updateIngestionJobMetrics(
+      job.jobId,
+      withPipelineMetrics(withEntries(metrics), "running", "awaiting_ai")
+    );
+    return;
+  }
+
+  const appliedBatchMetrics = withEntries(metrics);
+  const lastBatchId = latestEntry.batchId;
+
+  // The worker stores the next queue message when the paused page was not the last unit
+  // of work. A key that is present but unreadable must fail loudly: completing the job
+  // would silently truncate an exhaustive run (the bug this hand-off exists to fix).
+  const hasResumeMessageKey = metrics[RESUME_MESSAGE_METRICS_KEY] !== undefined;
+  const resumeMessage = readResumeMessageFromMetrics(metrics);
+  if (hasResumeMessageKey) {
+    const invalidReason = !resumeMessage
+      ? "is malformed"
+      : resumeMessage.jobId !== job.jobId
+        ? `targets job ${resumeMessage.jobId}`
+        : !resumeMessage.checkpoint
+          ? "has no checkpoint"
+          : null;
+    if (invalidReason) {
+      const message = `Cannot continue job ${job.jobId} after batch ${lastBatchId}: stored resume message ${invalidReason}`;
+      await failContinuation(job.jobId, appliedBatchMetrics, message, polledAt, context);
+      return;
+    }
+  }
+
+  if (resumeMessage?.checkpoint) {
+    const { checkpoint } = resumeMessage;
+    const { [RESUME_MESSAGE_METRICS_KEY]: _consumedResumeMessage, ...withoutResumeMessage } =
+      appliedBatchMetrics;
+    const continuationMetrics = withPipelineMetrics(
+      appendJobLog(
+        withoutResumeMessage,
+        "info",
+        `Batch ${lastBatchId} applied; continuation queued at page ${checkpoint.nextPage}`,
+        {
+          nextPage: checkpoint.nextPage,
+          recordOffset: checkpoint.recordOffset,
+          pagesCompleted: checkpoint.pagesCompleted,
+          recordsProcessed: checkpoint.recordsProcessed,
+          continuationCount: checkpoint.continuationCount,
+        }
+      ),
+      "running",
+      CONTINUATION_QUEUED_STAGE,
+      {
+        [CHECKPOINT_METRICS_KEY]: checkpoint,
+      }
+    );
+
+    if (!(await shouldApplyJobUpdate(job.jobId, context, "continuation"))) {
+      return;
+    }
+    // Persist the checkpoint + stage BEFORE enqueueing so a fast-starting worker never
+    // sees a stale awaiting_ai stage or an older continuationCount and drops the message.
+    await updateIngestionJobMetrics(job.jobId, continuationMetrics);
+
+    try {
+      await enqueueIngestionContinuation(resumeMessage);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      const message = `Failed to enqueue continuation for job ${job.jobId} after batch ${lastBatchId}: ${reason}`;
+      await failContinuation(job.jobId, continuationMetrics, message, polledAt, context);
+      return;
+    }
+
+    context.log(
+      `[ingestion-ai-batch-poller] Job ${job.jobId} applied batch ${lastBatchId}; continuation ${checkpoint.continuationCount} queued at page ${checkpoint.nextPage}`,
+      lastLogContext
+    );
+    return;
+  }
+
+  const completionMetrics = withPipelineMetrics(appliedBatchMetrics, "succeeded", "completed", {
+    workerCompletedAt: polledAt,
+  });
+
+  if (!(await shouldApplyJobUpdate(job.jobId, context, "success"))) {
+    return;
+  }
+  await markIngestionJobSucceeded(job.jobId, completionMetrics);
+  context.log(
+    `[ingestion-ai-batch-poller] Job ${job.jobId} completed from batch ${lastBatchId}`,
+    lastLogContext
   );
 }
 
