@@ -112,6 +112,9 @@ Dashboards: start with the built-in **Failures**, **Performance**, **Application
 
 ## Open decisions
 
+> **Decided 2026-10-17.** See [decisions-2026-10.md](decisions-2026-10.md) D14–D17: keep the cookies with no banner,
+> 0.5 GB/day dev and 2 GB/day prod caps, prod-only alerts to `var.alert_email`, and Phase 3 tracked under #281.
+
 1. **Cookies / consent:** the browser SDK sets `ai_user` / `ai_session` cookies. Either keep them (needed for Users/Sessions analytics) or set `disableCookiesUsage: true` (errors + traces still work, user counts get fuzzy). Is a consent banner planned?
 2. **Daily caps:** 1 GB/day dev, 5 GB/day prod. OK?
 3. **Alert email:** which address, and prod only or dev too?

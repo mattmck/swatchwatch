@@ -187,6 +187,9 @@ Goal: more indie coverage, and the ops to absorb user-created data.
 
 ## 6. Decisions needed
 
+> **Decided 2026-10-17.** See [decisions-2026-10.md](decisions-2026-10.md): D3 PWA-first, D1 opt-in wishlist, D4 hex gate
+> after hand-labeling with the color sip tool, D2 Night Owl first.
+
 1. **Mobile:** PWA-first through December (recommended) vs. start the Expo scaffold
    now at the cost of roughly Sprint 4.
 2. **Sharing:** opt-in public wishlist pages — yes/no. Everything else stays
