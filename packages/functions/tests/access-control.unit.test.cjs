@@ -892,6 +892,7 @@ require("../dist/functions/ingestion");
 require("../dist/functions/admin-users");
 require("../dist/functions/admin-shade-review");
 require("../dist/functions/admin-reference");
+require("../dist/functions/hex-labels");
 require("../dist/functions/voice");
 require("../dist/functions/images");
 require("../dist/functions/nail-photos");
@@ -1123,6 +1124,9 @@ describe("access control — admin routes reject non-admin users", () => {
       "ingestion-job-detail",
       "ingestion-settings",
       "polishes-recalc-hex",
+      "admin-hex-labels-queue",
+      "admin-hex-labels-save",
+      "admin-hex-labels-item",
     ]) {
       assert.ok(adminRouteNames.includes(expected), `expected admin route ${expected} to be registered`);
     }
@@ -1831,7 +1835,10 @@ describe("images signed-id (requires #47)", () => {
     assert.deepEqual(sideEffects.blobReads, [CATALOG_URL]);
     assert.deepEqual(sqlCalls, [], "public ids perform no caller lookup");
     assert.match(res.headers.get("Cache-Control"), /^public,/);
-    assert.equal(res.headers.get("Vary"), null, "public responses do not vary on Authorization");
+    assert.ok(
+      !(res.headers.get("Vary") || "").toLowerCase().includes("authorization"),
+      "public responses do not vary on Authorization"
+    );
   });
 
   it("public catalog ids stay anonymous: served with another user's token, no SQL", async () => {

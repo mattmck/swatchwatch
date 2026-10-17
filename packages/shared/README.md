@@ -35,6 +35,24 @@ The package is automatically linked via npm workspaces — no publishing require
 
 **Note:** All frontend pages now use the live API. The mock-data.ts file is no longer used.
 
+### `types/hex-label.ts`
+
+Admin Hex Labeling tool (admin console tab, routes `/api/hex-labels-admin/*`): hand-picked ground-truth hexes stored as `color_training_sample` rows with `source_type = 'manual'` (migration 20261017170047543_hex-ground-truth-labels) and exported by `npm run eval:hex:populate` as `manual` eval cases.
+
+| Type | Description |
+|------|-------------|
+| `HexLabelSampleMethod` | How the hex was picked: `canvas` (averaged canvas sample), `eyedropper` (native `EyeDropper` API), `manual` (typed) |
+| `HEX_LABEL_SAMPLE_SIZES` / `HexLabelSampleSize` | Averaging window sizes the canvas eyedropper offers: `1`, `3`, `5`, `9` px per side |
+| `HexLabelSamplePoint` | Where a canvas sample was taken: `x`/`y` normalized 0..1 to the natural image size, `size`, `imageWidth`, `imageHeight` |
+| `HexLabelImage` | A catalog product image of a shade: `imageId`, signed proxy `url`, `swatchType`, vendor `sourceUrl` (from `source_image_url`, null when unknown), `isPrimary` |
+| `HexLabel` | A saved manual label: `trainingSampleId`, `shadeId`, `hex` (null only when `unreliable`), `unreliable`, `imageId`, `note`, `method`, `samplePoint`, `labeledByUserId`, `labeledAt` |
+| `HexLabelQueueItem` | One queued shade: brand/name/finishes, `vendorHex`/`detectedHex`/`nameHex`, `hexAgreement`, detection confidence/method, `flagged` (agreement > MEDIUM), `images`, current `label` |
+| `HexLabelQueueFilters` | `GET /api/hex-labels-admin/queue` query: `brand`, `disagreeOnly`, `showLabeled`, `includeWithoutImages`, `cursor`, `pageSize` |
+| `HexLabelQueueResponse` | `{ items, nextCursor, total, labeled, pageSize, disagreementThreshold }` (`total`/`labeled` drive the progress bar) |
+| `HexLabelRequest` | `POST /api/hex-labels-admin/labels` body: `shadeId`, `hex` (`#RRGGBB`, required unless `unreliable`), `imageId`, `unreliable`, `note`, `method`, `samplePoint` |
+| `HexLabelSaveResponse` | `{ label, previous }`; `previous` is the label the save replaced (the client restores it to undo) |
+| `HexLabelDeleteResponse` | `{ deleted }` from `DELETE /api/hex-labels-admin/labels/{id}` |
+
 ### `types/inventory.ts`
 
 Inventory status model (#261). Every `user_inventory_item` row has one status; "untried" is **derived**, never stored.

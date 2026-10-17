@@ -15,6 +15,7 @@ export * from "./types/palette";
 export * from "./types/color-match";
 export * from "./types/dupes";
 export * from "./types/ingestion";
+export * from "./types/hex-label";
 export * from "./types/nail-photo";
 export * from "./types/shade-review";
 export * from "./types/wishlist-share";
