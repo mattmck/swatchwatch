@@ -1040,26 +1040,6 @@ async function addToInventoryFromMatch(
   entityId: number
 ): Promise<number> {
   if (entityType === "sku") {
-    const existing = await client.query<{ id: number }>(
-      `SELECT inventory_item_id AS id
-       FROM user_inventory_item
-       WHERE user_id = $1 AND sku_id = $2
-       ORDER BY created_at ASC
-       LIMIT 1`,
-      [userId, entityId]
-    );
-
-    if (existing.rows.length > 0) {
-      await client.query(
-        `UPDATE user_inventory_item
-         SET quantity = quantity + 1,
-             updated_at = now()
-         WHERE inventory_item_id = $1`,
-        [existing.rows[0].id]
-      );
-      return existing.rows[0].id;
-    }
-
     const skuResult = await client.query<{ shadeId: number | null }>(
       `SELECT shade_id AS "shadeId"
        FROM sku
@@ -1068,9 +1048,39 @@ async function addToInventoryFromMatch(
     );
     const shadeId = skuResult.rows[0]?.shadeId ?? null;
 
+    // A user has at most one row per shade, so the caller's row for the SKU's shade is the one
+    // to bump, with or without a sku_id. A row already carrying this SKU wins over a shade row.
+    const existing = await client.query<{ id: number }>(
+      `SELECT inventory_item_id AS id
+       FROM user_inventory_item
+       WHERE user_id = $1 AND (sku_id = $2 OR shade_id = $3)
+       ORDER BY (sku_id = $2) DESC NULLS LAST, created_at ASC
+       LIMIT 1`,
+      [userId, entityId, shadeId]
+    );
+
+    if (existing.rows.length > 0) {
+      await client.query(
+        `UPDATE user_inventory_item
+         SET quantity = quantity + 1,
+             sku_id = COALESCE(sku_id, $3),
+             updated_at = now()
+         WHERE inventory_item_id = $1 AND user_id = $2`,
+        [existing.rows[0].id, userId, entityId]
+      );
+      return existing.rows[0].id;
+    }
+
+    // ON CONFLICT covers a concurrent finalize that inserted the same shade first. The predicate
+    // makes the partial idx_user_inventory_unique_shade an arbiter too; without it the race
+    // fails on that index instead of bumping.
     const inserted = await client.query<{ id: number }>(
       `INSERT INTO user_inventory_item (user_id, sku_id, shade_id, quantity, notes)
        VALUES ($1, $2, $3, 1, $4)
+       ON CONFLICT (user_id, shade_id) WHERE shade_id IS NOT NULL DO UPDATE
+         SET quantity = user_inventory_item.quantity + 1,
+             sku_id = COALESCE(user_inventory_item.sku_id, EXCLUDED.sku_id),
+             updated_at = now()
        RETURNING inventory_item_id AS id`,
       [userId, entityId, shadeId, "Added via Rapid Add capture"]
     );
@@ -1099,7 +1109,7 @@ async function addToInventoryFromMatch(
   const existing = await client.query<{ id: number }>(
     `SELECT inventory_item_id AS id
      FROM user_inventory_item
-     WHERE user_id = $1 AND shade_id = $2 AND sku_id IS NULL
+     WHERE user_id = $1 AND shade_id = $2
      ORDER BY created_at ASC
      LIMIT 1`,
     [userId, entityId]
@@ -1110,8 +1120,8 @@ async function addToInventoryFromMatch(
       `UPDATE user_inventory_item
        SET quantity = quantity + 1,
            updated_at = now()
-       WHERE inventory_item_id = $1`,
-      [existing.rows[0].id]
+       WHERE inventory_item_id = $1 AND user_id = $2`,
+      [existing.rows[0].id, userId]
     );
     return existing.rows[0].id;
   }
@@ -1119,6 +1129,9 @@ async function addToInventoryFromMatch(
   const inserted = await client.query<{ id: number }>(
     `INSERT INTO user_inventory_item (user_id, shade_id, quantity, notes)
      VALUES ($1, $2, 1, $3)
+     ON CONFLICT (user_id, shade_id) WHERE shade_id IS NOT NULL DO UPDATE
+       SET quantity = user_inventory_item.quantity + 1,
+           updated_at = now()
      RETURNING inventory_item_id AS id`,
     [userId, entityId, "Added via Rapid Add capture"]
   );
