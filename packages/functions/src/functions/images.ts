@@ -79,6 +79,54 @@ export function isCatalogImageUrl(storageUrl: string): boolean {
   return container.length > 0 && defaultReadableContainers().includes(container);
 }
 
+const FRESHNESS_DIRECTIVES = new Set(["max-age", "s-maxage"]);
+// RFC 5861 stale windows: both let a cache keep serving after freshness ends.
+const STALE_DIRECTIVES = new Set(["stale-while-revalidate", "stale-if-error"]);
+
+/**
+ * Keep a blob's own private/no-cache directive, but make sure its lifetimes cannot outlive the
+ * signed id: max-age / s-maxage are capped at `remaining`, and the stale windows
+ * (stale-while-revalidate, stale-if-error) at whatever is left after the longest freshness
+ * window (dropped when nothing is left). Directive arguments
+ * may be quoted (RFC 9111), so the header is parsed rather than pattern-matched; a lifetime whose
+ * argument is not a non-negative integer is treated as 0 (fail closed).
+ */
+function capPassthroughCacheControl(header: string, remaining: number): string {
+  const directives = header
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const eq = part.indexOf("=");
+      const name = (eq === -1 ? part : part.slice(0, eq)).trim();
+      const rawValue = eq === -1 ? null : part.slice(eq + 1).trim().replace(/^"(.*)"$/, "$1");
+      return { name, key: name.toLowerCase(), rawValue };
+    });
+
+  const seconds = (rawValue: string | null): number =>
+    rawValue !== null && /^\d+$/.test(rawValue) ? Number.parseInt(rawValue, 10) : 0;
+
+  let freshFor = 0;
+  for (const d of directives) {
+    if (FRESHNESS_DIRECTIVES.has(d.key)) {
+      freshFor = Math.max(freshFor, Math.min(seconds(d.rawValue), remaining));
+    }
+  }
+
+  const out: string[] = [];
+  for (const d of directives) {
+    if (STALE_DIRECTIVES.has(d.key)) {
+      const stale = Math.min(seconds(d.rawValue), remaining - freshFor);
+      if (stale > 0) out.push(`${d.name}=${stale}`);
+    } else if (!FRESHNESS_DIRECTIVES.has(d.key)) {
+      out.push(d.rawValue === null ? d.name : `${d.name}=${d.rawValue}`);
+    } else {
+      out.push(`${d.name}=${Math.min(seconds(d.rawValue), remaining)}`);
+    }
+  }
+  return out.join(", ");
+}
+
 /**
  * Choose the Cache-Control header for a proxied image.
  *
@@ -100,7 +148,7 @@ export function selectImageCacheControl(params: {
 
   const blobDirective = params.blobCacheControl?.toLowerCase() ?? "";
   if (params.catalog && !params.transformed && /\b(no-store|no-cache|private)\b/.test(blobDirective)) {
-    return params.blobCacheControl as string;
+    return capPassthroughCacheControl(params.blobCacheControl as string, remaining);
   }
 
   let maxAge = params.transformed ? TRANSFORM_MAX_AGE_SECONDS : DEFAULT_MAX_AGE_SECONDS;

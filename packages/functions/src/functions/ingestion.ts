@@ -735,8 +735,10 @@ export async function processIngestionJobQueueMessage(
         resumeAt: resumeMessage?.checkpoint ?? null,
       });
 
+      // Stop periodic flushes before the final write: once the poller owns the job, a late
+      // flush from here could overwrite its continuation_queued state with awaiting_ai.
+      await logger.dispose({ flush: false });
       await updateIngestionJobMetrics(payload.jobId, logger.getMetricsWithLogs());
-      await logger.dispose();
     };
 
     const persistPageRecords = async (
@@ -943,6 +945,18 @@ export async function processIngestionJobQueueMessage(
       if (dbCheckpoint && dbCheckpoint.continuationCount > checkpoint.continuationCount) {
         context.warn(
           `Job ${payload.jobId} superseded by continuation ${dbCheckpoint.continuationCount}; stopping worker`
+        );
+        return false;
+      }
+      // A duplicate delivery of the same generation got further than this worker; stop rather
+      // than write an older checkpoint over its progress.
+      if (
+        dbCheckpoint &&
+        dbCheckpoint.continuationCount === checkpoint.continuationCount &&
+        isCheckpointAhead(dbCheckpoint, checkpoint)
+      ) {
+        context.warn(
+          `Job ${payload.jobId} checkpoint advanced by another worker (page ${dbCheckpoint.nextPage}, record ${dbCheckpoint.recordOffset}); stopping worker`
         );
         return false;
       }

@@ -1496,6 +1496,25 @@ export async function updateIngestionJobMetrics(
   );
 }
 
+/**
+ * Update metrics only while the job is still `running`, in one statement, so a cancel that
+ * lands between a status check and this write is never overwritten. Returns false when the
+ * job is no longer running (nothing was written).
+ */
+export async function updateRunningIngestionJobMetrics(
+  jobId: number,
+  metrics: Record<string, unknown>
+): Promise<boolean> {
+  const result = await query(
+    `UPDATE ingestion_job
+     SET metrics_json = $2::jsonb
+     WHERE ingestion_job_id = $1
+       AND status = 'running'`,
+    [jobId, metrics]
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
 export async function markIngestionJobSucceeded(
   jobId: number,
   metrics: Record<string, unknown>
@@ -1977,8 +1996,8 @@ export async function materializeMakeupApiRecords(
 
         const collection = makeup.name;
 
-        const existingShade = await client.query<{ shadeId: number }>(
-          `SELECT shade_id AS "shadeId"
+        const existingShade = await client.query<{ shadeId: number; finishes: string[] | null }>(
+          `SELECT shade_id AS "shadeId", finishes
            FROM shade
            WHERE brand_id = $1
              AND product_line_id IS NULL
@@ -1989,8 +2008,10 @@ export async function materializeMakeupApiRecords(
         );
 
         let shadeId: number;
+        let currentFinishes: string[] = [];
         if (existingShade.rows.length > 0) {
           shadeId = existingShade.rows[0].shadeId;
+          currentFinishes = existingShade.rows[0].finishes ?? [];
         } else {
           const insertedShade = await client.query<{ shadeId: number }>(
             `INSERT INTO shade (brand_id, shade_name_canonical, collection, status)
@@ -2005,24 +2026,20 @@ export async function materializeMakeupApiRecords(
         // Write color data to shade (product-level)
         const resolvedColorName = variant.name || makeup.name;
         const resolvedVendorHex = variant.hex;
+        // Merge (never remove) tag finishes in TypeScript, like the Holo Taco path, so aliases
+        // and legacy values are canonicalized and deduped; null leaves finishes untouched.
+        const mergedFinishes =
+          tagFinishes.length > 0 ? mergeFinishLists([currentFinishes, tagFinishes], finishCatalog) : null;
         await client.query(
           `UPDATE shade SET
              color_name = COALESCE($2, color_name),
              vendor_hex = COALESCE($3, vendor_hex),
-             finishes = CASE
-               WHEN cardinality($4::text[]) = 0 THEN finishes
-               ELSE ARRAY(
-                 SELECT f
-                 FROM unnest(finishes || $4::text[]) WITH ORDINALITY AS u(f, ord)
-                 GROUP BY f
-                 ORDER BY min(ord)
-               )
-             END,
+             finishes = COALESCE($4::text[], finishes),
              -- Catalog data confirms a user-submitted shade: promote it to the shared catalog.
              status = CASE WHEN status = 'user_submitted' THEN 'active' ELSE status END,
              updated_at = now()
            WHERE shade_id = $1`,
-          [shadeId, resolvedColorName, resolvedVendorHex, tagFinishes]
+          [shadeId, resolvedColorName, resolvedVendorHex, mergedFinishes]
         );
 
         const inventory = await client.query<{

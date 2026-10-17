@@ -245,6 +245,9 @@ const FINISH_CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
 
 let catalogCache: { value: FinishCatalog; expiresAtMs: number } | null = null;
 let pendingCatalogLoad: Promise<FinishCatalog> | null = null;
+// Bumped by resetFinishAliasCache so a load that started before the reset cannot write its
+// (stale) result back into the cache or clear a newer in-flight load.
+let catalogGeneration = 0;
 
 export interface LoadFinishCatalogOptions {
   /** Called when the DB lookup fails and the built-in fallback catalog is used. */
@@ -274,7 +277,8 @@ export async function loadFinishCatalog(options?: LoadFinishCatalogOptions): Pro
     return pendingCatalogLoad;
   }
 
-  pendingCatalogLoad = (async () => {
+  const generation = catalogGeneration;
+  const load: Promise<FinishCatalog> = (async () => {
     try {
       const result = await query<FinishCatalogRow>(
         `SELECT 'alias' AS kind,
@@ -315,7 +319,9 @@ export async function loadFinishCatalog(options?: LoadFinishCatalogOptions): Pro
       }
 
       const value: FinishCatalog = { aliases, validNames };
-      catalogCache = { value, expiresAtMs: now + FINISH_CATALOG_CACHE_TTL_MS };
+      if (generation === catalogGeneration) {
+        catalogCache = { value, expiresAtMs: now + FINISH_CATALOG_CACHE_TTL_MS };
+      }
       return value;
     } catch (error: unknown) {
       const code =
@@ -326,15 +332,19 @@ export async function loadFinishCatalog(options?: LoadFinishCatalogOptions): Pro
       options?.onFallback?.(message, code);
       return DEFAULT_FINISH_CATALOG;
     } finally {
-      pendingCatalogLoad = null;
+      if (generation === catalogGeneration) {
+        pendingCatalogLoad = null;
+      }
     }
   })();
+  pendingCatalogLoad = load;
 
-  return pendingCatalogLoad;
+  return load;
 }
 
 /** Clear the in-process catalog cache (tests, or after admin edits in the same process). */
 export function resetFinishAliasCache(): void {
+  catalogGeneration += 1;
   catalogCache = null;
   pendingCatalogLoad = null;
 }

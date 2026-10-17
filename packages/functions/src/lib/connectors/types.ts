@@ -32,7 +32,8 @@ export async function loadCatalogWithCache<T>(
   fetchCatalog: () => Promise<T[]>
 ): Promise<T[]> {
   const cached = cache ? await cache.load() : null;
-  if (cached) {
+  // An empty snapshot is more likely truncated than a store with no products; refetch.
+  if (cached && cached.length > 0) {
     return cached as T[];
   }
 

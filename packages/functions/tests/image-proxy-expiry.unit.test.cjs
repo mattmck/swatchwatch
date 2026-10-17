@@ -213,4 +213,40 @@ describe("images cache headers", () => {
     assert.equal(select({ transformed: true, expiresAt: nowS + 100 }), "public, max-age=100");
     assert.equal(select({ expiresAt: nowS - 5 }), "public, max-age=0");
   });
+
+  it("caps lifetimes in a passed-through private/no-cache catalog header too", () => {
+    assert.equal(
+      select({ blobCacheControl: "private, max-age=31536000", expiresAt: nowS + 600 }),
+      "private, max-age=600"
+    );
+    assert.equal(select({ blobCacheControl: "no-store" }), "no-store");
+    // max-age + stale-while-revalidate together must not outlive the id.
+    assert.equal(
+      select({ blobCacheControl: "private, max-age=600, stale-while-revalidate=600", expiresAt: nowS + 600 }),
+      "private, max-age=600"
+    );
+    assert.equal(
+      select({ blobCacheControl: "private, max-age=300, stale-while-revalidate=600", expiresAt: nowS + 600 }),
+      "private, max-age=300, stale-while-revalidate=300"
+    );
+    // Quoted arguments (RFC 9111) are capped too; an unparseable lifetime fails closed to 0.
+    assert.equal(
+      select({ blobCacheControl: 'private, max-age="3600"', expiresAt: nowS + 60 }),
+      "private, max-age=60"
+    );
+    assert.equal(select({ blobCacheControl: "private, max-age=soon", expiresAt: nowS + 60 }), "private, max-age=0");
+    // stale-if-error is a stale window too: capped after freshness, dropped when none is left.
+    assert.equal(
+      select({ blobCacheControl: "private, max-age=600, stale-if-error=3600", expiresAt: nowS + 60 }),
+      "private, max-age=60"
+    );
+    assert.equal(
+      select({ blobCacheControl: "private, max-age=60, stale-if-error=3600", expiresAt: nowS + 600 }),
+      "private, max-age=60, stale-if-error=540"
+    );
+    assert.equal(
+      select({ blobCacheControl: "no-cache, max-age=120", expiresAt: nowS + 600 }),
+      "no-cache, max-age=120"
+    );
+  });
 });

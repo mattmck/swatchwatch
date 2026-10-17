@@ -1,9 +1,10 @@
 -- Up Migration
 
--- 20261016040629000_add-color-training-sample.sql
--- (Originally 025_add_color_training_sample.sql; renamed because dev already has a
--- 025_ migration that sorts after it. Every statement is IF NOT EXISTS, so a DB that ran
--- it under the old name re-runs it harmlessly.)
+-- 20261017033500000_add-color-training-sample.sql
+-- (Originally 025_add_color_training_sample.sql, briefly 20261016040629000_...; renamed because dev has a
+-- 025_ migration and dated migrations that sort after it. Every statement is IF NOT
+-- EXISTS, so a DB that ran it under the old name re-runs it harmlessly once
+-- scripts/forget-renamed-migrations.cjs has dropped the old pgmigrations row.)
 -- Ground-truth samples for vendor-image hex detection (docs/schema.sql
 -- "Training Data Collection"). Written by the hex-detection evaluation
 -- harness (`npm run eval:hex:populate --workspace=swatchwatch-functions`)

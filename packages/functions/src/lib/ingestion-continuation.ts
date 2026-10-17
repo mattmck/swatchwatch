@@ -189,8 +189,12 @@ export function readResumeMessageFromMetrics(
   }
 
   if (
+    // Positive, matching the worker's parsePositiveInt so the poller never enqueues a
+    // message the worker would reject.
     !isNonNegativeInt(candidate.jobId) ||
+    candidate.jobId < 1 ||
     !isNonNegativeInt(candidate.userId) ||
+    candidate.userId < 1 ||
     typeof candidate.queuedAt !== "string" ||
     !isRecord(candidate.request) ||
     !isRecord(candidate.requestedMetrics)
