@@ -1,6 +1,6 @@
 # Observability Plan — Application Insights for Functions + Web
 
-**Status:** Proposed (2026-10-17)
+**Status:** Phase 1 implemented (#282); Phases 2–3 proposed (2026-10-17)
 **Goal:** Datadog-style visibility using what Azure already gives us: backend APM, browser errors/RUM, one trace from a click in the web app through the Functions API to Postgres/Azure OpenAI, and alerts when things break.
 **Out of scope:** Mobile (Expo) telemetry, which needs a separate decision (App Insights JS vs Sentry). Datadog/Sentry are also out of scope.
 
@@ -9,14 +9,14 @@
 | Area | State |
 |---|---|
 | Terraform | ✅ `azurerm_log_analytics_workspace.main` (30-day retention) + workspace-based `azurerm_application_insights.main`; Function App wired via `site_config.application_insights_connection_string`; Azure OpenAI diagnostics → same workspace |
-| Functions host | ✅ Request telemetry from the Functions host; `host.json` sampling on. ⚠️ `logLevel.default = "Trace"`, which ships every log line to App Insights (cost) |
+| Functions host | ✅ Request telemetry from the Functions host; `host.json` `logging.logLevel` at Information, sampling on with Requests/Exceptions excluded |
 | Functions worker | ✅ `src/lib/telemetry.ts` uses `applicationinsights@3` for `trackEvent`/`trackMetric`/`trackException`, used across auth, cache, capture, catalog, polishes, AI detection, and `internalServerError()` |
-| Worker correlation | ⚠️ Custom events/exceptions/dependencies aren't reliably tied to the host's request `operation_Id`. Microsoft now recommends `@azure/functions-opentelemetry-instrumentation` for the Node v4 model |
-| Worker init order | ⚠️ `telemetry.ts` is first imported via `functions/auth` → `lib/auth`, so the SDK may start after `pg` is already required, and Postgres dependency auto-collection is unreliable |
-| CORS | ⚠️ `CORS_ALLOWED_HEADERS` defaults to `Content-Type, Authorization`, so browser correlation headers (`traceparent`, `Request-Id`, `Request-Context`) would be rejected on preflight |
+| Worker correlation | ⚠️ Phase 1 binds worker telemetry to the host request context (distro `preInvocation` hook); post-deploy KQL validation still pending |
+| Worker init order | ✅ `src/index.ts` imports `./lib/telemetry` before the function modules, so the SDK starts before `pg` loads (previously `lib/auth` loaded `pg` first) |
+| CORS | ✅ Default `CORS_ALLOWED_HEADERS` includes `traceparent`, `tracestate`, `Request-Id`, `Request-Context`; `Request-Context` is exposed. ⚠️ App Service platform CORS preflight still needs post-deploy validation |
 | Web | ❌ No telemetry. No `error.tsx` / `global-error.tsx`, so render errors white-screen silently. Static export (`output: "export"`) means config must be `NEXT_PUBLIC_*` at **build** time (set in `deploy.yml`), not SWA app settings |
 | Alerts | ❌ None (only App Insights' default smart detection) |
-| Cost guard | ❌ No daily cap on App Insights / Log Analytics |
+| Cost guard | ✅ `appinsights_daily_cap_gb` caps App Insights and Log Analytics daily ingestion (5 GB prod, 1 GB otherwise by default) |
 
 ## Phase 1 — Backend hygiene + correlation (PR 1) — implemented
 

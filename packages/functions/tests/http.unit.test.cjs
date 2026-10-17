@@ -167,6 +167,36 @@ describe("lib/http — withCors", () => {
       assert.equal(res.headers.get("Access-Control-Expose-Headers"), "Request-Context");
     });
 
+    it("keeps headers the handler already exposes when adding Request-Context", async () => {
+      const modulePath = path.resolve(__dirname, "../dist/lib/http.js");
+      httpModule = require(modulePath);
+
+      const handler = httpModule.withCors(async () => ({
+        status: 200,
+        headers: { "Access-Control-Expose-Headers": "Content-Disposition, request-context" },
+      }));
+      const req = fakeRequest({
+        method: "GET",
+        headers: { origin: "http://localhost:3000" },
+      });
+
+      const res = await handler(req, fakeContext());
+      assert.equal(
+        res.headers.get("Access-Control-Expose-Headers"),
+        "Content-Disposition, request-context"
+      );
+
+      const handlerWithoutContext = httpModule.withCors(async () => ({
+        status: 200,
+        headers: { "Access-Control-Expose-Headers": "Content-Disposition" },
+      }));
+      const res2 = await handlerWithoutContext(req, fakeContext());
+      assert.equal(
+        res2.headers.get("Access-Control-Expose-Headers"),
+        "Content-Disposition, Request-Context"
+      );
+    });
+
     it("returns 204 without CORS headers for disallowed origin", async () => {
       const modulePath = path.resolve(__dirname, "../dist/lib/http.js");
       httpModule = require(modulePath);

@@ -37,11 +37,18 @@ function resolveAllowedOrigin(origin: string | null): string | null {
   return allowedOrigins.includes("*") ? "*" : null;
 }
 
+/** Adds EXPOSE_HEADERS to any list the handler already set, without duplicates. */
+function mergeExposeHeaders(existing: string | null): string {
+  if (!existing?.trim()) return EXPOSE_HEADERS;
+  const present = new Set(existing.split(",").map((h) => h.trim().toLowerCase()));
+  return present.has(EXPOSE_HEADERS.toLowerCase()) ? existing : `${existing}, ${EXPOSE_HEADERS}`;
+}
+
 function applyCorsHeaders(headers: Headers, allowedOrigin: string) {
   headers.set("Access-Control-Allow-Origin", allowedOrigin);
   headers.set("Access-Control-Allow-Headers", ALLOW_HEADERS);
   headers.set("Access-Control-Allow-Methods", ALLOW_METHODS);
-  headers.set("Access-Control-Expose-Headers", EXPOSE_HEADERS);
+  headers.set("Access-Control-Expose-Headers", mergeExposeHeaders(headers.get("Access-Control-Expose-Headers")));
   headers.set("Vary", "Origin");
   if (SUPPORT_CREDENTIALS && allowedOrigin !== "*") {
     headers.set("Access-Control-Allow-Credentials", "true");
