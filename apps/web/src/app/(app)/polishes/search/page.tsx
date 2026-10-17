@@ -2,13 +2,13 @@
 
 import { useState, useMemo, useCallback, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import type { Polish } from "swatchwatch-shared";
+import type { Polish, PolishUpdateRequest } from "swatchwatch-shared";
 import { polishHasFinish, resolveDisplayHex } from "swatchwatch-shared";
 import type { IconType } from "react-icons";
 import { BsCurrencyDollar, BsPlusLg, BsQuestionCircleFill, BsTrash3Fill } from "react-icons/bs";
 import { GiPerfumeBottle } from "react-icons/gi";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { listPolishes, updatePolish } from "@/lib/api";
+import { getPolishDupes, listPolishes, updatePolish } from "@/lib/api";
 import { buildBrandOptions, matchesBrandFilter } from "@/lib/polish-filters";
 import { isArchivingChange, isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
 import { showArchivedToast } from "@/components/archived-toast";
@@ -46,6 +46,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useReferenceData } from "@/hooks/use-reference-data";
+import { useAddGuard } from "@/hooks/use-add-guard";
+import { AddGuardDialog } from "@/components/add-guard-dialog";
+import { shadeGuardKey, wishlistInsteadUpdate } from "@/lib/add-guard";
+import { toast } from "sonner";
 
 type ResultsScope = "all" | "collection";
 type HarmonyColorSet = "any" | "all" | "collection";
@@ -640,12 +644,17 @@ function ColorSearchPageContent() {
     setPreviewHex(null);
   }, []);
 
-  const handleQuantityChange = useCallback(
-    (polishId: string, delta: number) => {
-      const original = allPolishes.find((p) => p.id === polishId);
-      if (!original) return;
+  // Add guard (#266): adding a not-owned shade shows its owned near-dupes first.
+  const { guardAdd, active: activeGuard, choose: chooseGuard, isChecking: isGuardChecking } = useAddGuard();
+  const isAddPending = useCallback(
+    (polishId: string) => isGuardChecking(shadeGuardKey(polishId)),
+    [isGuardChecking]
+  );
 
-      const change = quantityChangeUpdate(original, delta);
+  // Optimistic inventory update (rolled back on failure)
+  const applyInventoryChange = useCallback(
+    (original: Polish, change: Pick<PolishUpdateRequest, "quantity" | "status">) => {
+      const polishId = original.id;
       setAllPolishes((prev) =>
         prev.map((p) => (p.id === polishId ? applyInventoryPatch(p, change) : p))
       );
@@ -666,7 +675,39 @@ function ColorSearchPageContent() {
           );
         });
     },
-    [allPolishes]
+    []
+  );
+
+  const handleQuantityChange = useCallback(
+    (polishId: string, delta: number) => {
+      const original = allPolishes.find((p) => p.id === polishId);
+      if (!original) return;
+
+      if (delta > 0 && !isOwnedPolish(original)) {
+        void guardAdd({
+          guardKey: shadeGuardKey(original.id),
+          shadeLabel: `${original.brand} ${original.name}`,
+          status: original.status,
+          intent: "own",
+          surface: "color-search",
+          loadDupes: () => getPolishDupes(original.id),
+          proceed: (intent) => {
+            if (intent === "wishlist") {
+              applyInventoryChange(original, wishlistInsteadUpdate());
+              toast.success("Added to wishlist", {
+                description: `${original.brand} ${original.name} is on your wishlist.`,
+              });
+              return;
+            }
+            applyInventoryChange(original, quantityChangeUpdate(original, delta));
+          },
+        });
+        return;
+      }
+
+      applyInventoryChange(original, quantityChangeUpdate(original, delta));
+    },
+    [allPolishes, guardAdd, applyInventoryChange]
   );
 
   const handleApplyRecommendedPalette = useCallback((
@@ -1241,6 +1282,7 @@ function ColorSearchPageContent() {
                 finishTypes={finishTypes}
                 focusedTargetHex={focusedTargetHex}
                 onQuantityChange={handleQuantityChange}
+                isAddPending={isAddPending}
                 onAddFocus={(hex) => {
                   handleExternalColorSelect(hex);
                   addPaletteAnchorHex(hex);
@@ -1264,6 +1306,7 @@ function ColorSearchPageContent() {
         </Card>
 
       </div>
+      <AddGuardDialog guard={activeGuard} onChoice={chooseGuard} returnTo="/polishes/search" />
     </div>
   );
 }

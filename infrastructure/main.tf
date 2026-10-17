@@ -50,7 +50,12 @@ locals {
     var.environment == "prod" ? [] : ["http://localhost:3000"],
     ["https://*.azurestaticapps.net"]
   )
-  appinsights_daily_cap_gb             = coalesce(var.appinsights_daily_cap_gb, var.environment == "prod" ? 5 : 1)
+  appinsights_daily_cap_gb = coalesce(
+    var.appinsights_daily_cap_gb,
+    try(var.appinsights_daily_cap_gb_defaults[var.environment], var.appinsights_daily_cap_gb_defaults["dev"], 0.5)
+  )
+  alerts_enabled                       = coalesce(var.alerts_enabled, var.environment == "prod")
+  alert_email                          = trimspace(var.alert_email)
   static_web_app_custom_domain_name    = var.environment == "prod" ? var.domain_name : "dev.${var.domain_name}"
   static_web_app_validation_method     = var.environment == "prod" ? "dns-txt-token" : "cname-delegation"
   key_vault_name_prefix                = lower(replace("${var.base_name}${var.environment}", "/[^0-9a-z]/", ""))
@@ -394,6 +399,244 @@ resource "azurerm_application_insights" "main" {
   application_type     = "web"
   workspace_id         = azurerm_log_analytics_workspace.main.id
   daily_data_cap_in_gb = local.appinsights_daily_cap_gb
+}
+
+# ── Alerts + availability (observability Phase 3, #281) ────────
+# Prod only by default (D16). Everything here is gated by local.alerts_enabled.
+
+locals {
+  availability_tests = {
+    web = {
+      description = "Web home page"
+      url         = "https://${local.static_web_app_custom_domain_name}/"
+    }
+    api = {
+      description = "Anonymous API read (GET /api/reference/finishes)"
+      url         = "https://${azurerm_linux_function_app.main.default_hostname}/api/reference/finishes"
+    }
+  }
+}
+
+check "alert_email_configuration" {
+  assert {
+    condition     = !local.alerts_enabled || local.alert_email != ""
+    error_message = "alerts_enabled is true but alert_email is empty: alerts will fire in the portal but nobody is emailed. Set the ALERT_EMAIL GitHub environment secret (or variable)."
+  }
+}
+
+resource "azurerm_monitor_action_group" "main" {
+  count               = local.alerts_enabled ? 1 : 0
+  name                = "${local.resource_prefix}-ag-${local.unique_suffix}"
+  resource_group_name = azurerm_resource_group.main.name
+  short_name          = substr("sw-${var.environment}", 0, 12)
+
+  dynamic "email_receiver" {
+    for_each = local.alert_email != "" ? [local.alert_email] : []
+    content {
+      name                    = "owner"
+      email_address           = email_receiver.value
+      use_common_alert_schema = true
+    }
+  }
+}
+
+# Server errors only: requests/failed also counts 4xx (401s from expired tokens,
+# 404s), which would page on normal traffic. Each 5xx result code is its own series.
+resource "azurerm_monitor_metric_alert" "api_5xx" {
+  count               = local.alerts_enabled ? 1 : 0
+  name                = "${local.resource_prefix}-alert-api-5xx-${local.unique_suffix}"
+  resource_group_name = azurerm_resource_group.main.name
+  scopes              = [azurerm_application_insights.main.id]
+  description         = "More than ${var.alert_api_5xx_threshold} Functions API 5xx responses in 5 minutes. Start at App Insights > Failures."
+  severity            = 1
+  frequency           = "PT1M"
+  window_size         = "PT5M"
+
+  criteria {
+    metric_namespace = "microsoft.insights/components"
+    metric_name      = "requests/failed"
+    aggregation      = "Count"
+    operator         = "GreaterThan"
+    threshold        = var.alert_api_5xx_threshold
+
+    dimension {
+      name     = "request/resultCode"
+      operator = "StartsWith"
+      values   = ["5"]
+    }
+  }
+
+  action {
+    action_group_id = azurerm_monitor_action_group.main[0].id
+  }
+}
+
+# Workspace-scoped so the query can use AppExceptions.ClientType: "Browser" rows
+# come from the web SDK, everything else (ClientType "PC") from the Functions worker.
+# Each result row is a client kind over its own threshold. sum(ItemCount), not
+# count(): a sampled row (browser SDK sampling) stands for ItemCount exceptions.
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "exception_spike" {
+  count                = local.alerts_enabled ? 1 : 0
+  name                 = "${local.resource_prefix}-alert-exceptions-${local.unique_suffix}"
+  display_name         = "${local.resource_prefix} exception spike"
+  description          = "Exceptions above threshold in 15 minutes (server > ${var.alert_server_exception_threshold}, browser > ${var.alert_browser_exception_threshold}). Split by ClientKind."
+  resource_group_name  = azurerm_resource_group.main.name
+  location             = azurerm_log_analytics_workspace.main.location
+  scopes               = [azurerm_log_analytics_workspace.main.id]
+  severity             = 2
+  evaluation_frequency = "PT5M"
+  window_duration      = "PT15M"
+
+  criteria {
+    query                   = <<-KQL
+      AppExceptions
+      | where _ResourceId =~ "${lower(azurerm_application_insights.main.id)}"
+      | extend ClientKind = iff(ClientType == "Browser", "Browser", "Server")
+      | summarize Exceptions = sum(ItemCount) by ClientKind
+      | where Exceptions > iff(ClientKind == "Browser", ${var.alert_browser_exception_threshold}, ${var.alert_server_exception_threshold})
+    KQL
+    time_aggregation_method = "Count"
+    operator                = "GreaterThan"
+    threshold               = 0
+
+    dimension {
+      name     = "ClientKind"
+      operator = "Include"
+      values   = ["*"]
+    }
+
+    failing_periods {
+      minimum_failing_periods_to_trigger_alert = 1
+      number_of_evaluation_periods             = 1
+    }
+  }
+
+  auto_mitigation_enabled = true
+
+  action {
+    action_groups = [azurerm_monitor_action_group.main[0].id]
+  }
+}
+
+# markIngestionJobFailed() (packages/functions/src/lib/ingestion-repo.ts) emits
+# the ingestion.job_failed custom event for every job the worker, the AI batch
+# poller or the admin API marks failed.
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "ingestion_failed" {
+  count                = local.alerts_enabled ? 1 : 0
+  name                 = "${local.resource_prefix}-alert-ingestion-${local.unique_suffix}"
+  display_name         = "${local.resource_prefix} ingestion job failed"
+  description          = "An ingestion job was marked failed. See /admin?tab=admin-jobs for the job log."
+  resource_group_name  = azurerm_resource_group.main.name
+  location             = azurerm_log_analytics_workspace.main.location
+  scopes               = [azurerm_log_analytics_workspace.main.id]
+  severity             = 2
+  evaluation_frequency = "PT5M"
+  window_duration      = "PT15M"
+
+  criteria {
+    query                   = <<-KQL
+      AppEvents
+      | where _ResourceId =~ "${lower(azurerm_application_insights.main.id)}"
+      | where Name == "ingestion.job_failed"
+      | project TimeGenerated, JobId = tostring(Properties.jobId), Error = tostring(Properties.error)
+    KQL
+    time_aggregation_method = "Count"
+    operator                = "GreaterThan"
+    threshold               = 0
+
+    failing_periods {
+      minimum_failing_periods_to_trigger_alert = 1
+      number_of_evaluation_periods             = 1
+    }
+  }
+
+  auto_mitigation_enabled = true
+
+  action {
+    action_groups = [azurerm_monitor_action_group.main[0].id]
+  }
+}
+
+# The workspace logs "OverQuota" to _LogOperation (exempt from the cap) when its
+# daily cap stops ingestion (D15). App Insights uses the same cap value.
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "daily_cap" {
+  count                = local.alerts_enabled ? 1 : 0
+  name                 = "${local.resource_prefix}-alert-daily-cap-${local.unique_suffix}"
+  display_name         = "${local.resource_prefix} telemetry daily cap reached"
+  description          = "Log Analytics daily cap (${local.appinsights_daily_cap_gb} GB) reached: telemetry is dropped until the cap resets. Raise appinsights_daily_cap_gb if this is real traffic."
+  resource_group_name  = azurerm_resource_group.main.name
+  location             = azurerm_log_analytics_workspace.main.location
+  scopes               = [azurerm_log_analytics_workspace.main.id]
+  severity             = 2
+  evaluation_frequency = "PT15M"
+  window_duration      = "PT1H"
+
+  criteria {
+    query                   = <<-KQL
+      _LogOperation
+      | where Category =~ "Ingestion"
+      | where Detail contains "OverQuota"
+    KQL
+    time_aggregation_method = "Count"
+    operator                = "GreaterThan"
+    threshold               = 0
+
+    failing_periods {
+      minimum_failing_periods_to_trigger_alert = 1
+      number_of_evaluation_periods             = 1
+    }
+  }
+
+  auto_mitigation_enabled = true
+
+  action {
+    action_groups = [azurerm_monitor_action_group.main[0].id]
+  }
+}
+
+resource "azurerm_application_insights_standard_web_test" "availability" {
+  for_each                = local.alerts_enabled ? local.availability_tests : {}
+  name                    = "${local.resource_prefix}-webtest-${each.key}-${local.unique_suffix}"
+  description             = each.value.description
+  resource_group_name     = azurerm_resource_group.main.name
+  location                = azurerm_application_insights.main.location
+  application_insights_id = azurerm_application_insights.main.id
+  geo_locations           = var.availability_test_locations
+  frequency               = var.availability_test_frequency_seconds
+  timeout                 = 30
+  enabled                 = true
+  retry_enabled           = true
+
+  request {
+    url = each.value.url
+  }
+
+  validation_rules {
+    expected_status_code        = 200
+    ssl_check_enabled           = true
+    ssl_cert_remaining_lifetime = 7
+  }
+}
+
+resource "azurerm_monitor_metric_alert" "availability" {
+  for_each            = azurerm_application_insights_standard_web_test.availability
+  name                = "${local.resource_prefix}-alert-availability-${each.key}-${local.unique_suffix}"
+  resource_group_name = azurerm_resource_group.main.name
+  scopes              = [each.value.id, azurerm_application_insights.main.id]
+  description         = "${local.availability_tests[each.key].description} failing from 2+ locations: ${local.availability_tests[each.key].url}"
+  severity            = 1
+  frequency           = "PT1M"
+  window_size         = "PT5M"
+
+  application_insights_web_test_location_availability_criteria {
+    web_test_id           = each.value.id
+    component_id          = azurerm_application_insights.main.id
+    failed_location_count = 2
+  }
+
+  action {
+    action_group_id = azurerm_monitor_action_group.main[0].id
+  }
 }
 
 # ── Azure API Management (OpenAI Gateway) ──────────────────────

@@ -1,6 +1,6 @@
 # Observability Plan — Application Insights for Functions + Web
 
-**Status:** Phase 1 implemented (#282), Phase 2 implemented (#285); Phase 3 proposed (2026-10-17)
+**Status:** Phase 1 implemented (#282), Phase 2 implemented (#285), Phase 3 implemented (#281, 2026-10-17)
 **Goal:** Datadog-style visibility using what Azure already gives us: backend APM, browser errors/RUM, one trace from a click in the web app through the Functions API to Postgres/Azure OpenAI, and alerts when things break.
 **Out of scope:** Mobile (Expo) telemetry, which needs a separate decision (App Insights JS vs Sentry). Datadog/Sentry are also out of scope.
 
@@ -15,8 +15,8 @@
 | Worker init order | ✅ `src/index.ts` imports `./lib/telemetry` before the function modules, so the SDK starts before `pg` loads (previously `lib/auth` loaded `pg` first) |
 | CORS | ✅ Default `CORS_ALLOWED_HEADERS` includes `traceparent`, `tracestate`, `Request-Id`, `Request-Context`; `Request-Context` is exposed. ⚠️ App Service platform CORS preflight still needs post-deploy validation |
 | Web | ✅ (Phase 2) Lazy-loaded browser SDK in `src/lib/telemetry.ts`, `TelemetryProvider`, `error.tsx` / `global-error.tsx` boundaries; ⚠️ browser ↔ Functions `operation_Id` correlation still needs post-deploy validation. Static export (`output: "export"`) means config is `NEXT_PUBLIC_*` at **build** time (set in `deploy.yml`), not SWA app settings |
-| Alerts | ❌ None (only App Insights' default smart detection) |
-| Cost guard | ✅ `appinsights_daily_cap_gb` caps App Insights and Log Analytics daily ingestion (5 GB prod, 1 GB otherwise by default) |
+| Alerts | ✅ (Phase 3, prod only) Action group → `alert_email`; API 5xx, exception spike (server + browser), ingestion job failed, daily cap hit; availability tests for the web home page and `GET /api/reference/finishes` |
+| Cost guard | ✅ `appinsights_daily_cap_gb` caps App Insights and Log Analytics daily ingestion (2 GB prod, 0.5 GB otherwise by default, D15), with an alert when the cap is hit |
 
 ## Phase 1 — Backend hygiene + correlation (PR 1) — implemented
 
@@ -87,7 +87,17 @@
 
 **Tests:** a `telemetry.test.ts` covering the no-op path and the image-URL redaction initializer. Manual verify: dev build with the connection string, throw from a test button, then confirm a browser `exceptions` row and a fetch dependency sharing `operation_Id` with the matching Functions request in **Transaction search**.
 
-## Phase 3 — Alerts + availability (PR 3)
+## Phase 3 — Alerts + availability (PR 3) — implemented
+
+> **As built (differs from the original plan below):**
+> - **Gating:** `alerts_enabled` (null → `true` prod, `false` otherwise) gates the action group, every alert rule **and** the availability tests (standard tests are billed per run, so dev gets none). `deploy-infra.yml` passes `TF_VAR_alerts_enabled` (`ALERTS_ENABLED` variable, else prod-only) and `TF_VAR_alert_email` (`ALERT_EMAIL` secret, else variable). An empty email still creates the rules (they show in the portal) and a `check` block warns on plan.
+> - **API alert is 5xx-only:** `requests/failed` filtered to `request/resultCode` starting with `5`, > `alert_api_5xx_threshold` (5) in 5 min, evaluated every minute. Unfiltered `requests/failed` also counts 401/404s, which would page on normal traffic. Each 5xx code is its own series.
+> - **Exception spike** is one workspace-scoped log alert over `AppExceptions`: `ClientType == "Browser"` → browser, everything else → server, each with its own threshold (server > 10, browser > 25 in 15 min) and split by the `ClientKind` dimension.
+> - **Ingestion failures:** there was no ingestion telemetry to alert on, so `markIngestionJobFailed()` now emits an `ingestion.job_failed` custom event (`jobId`, error truncated to 500 chars). Every failure path (worker, AI batch poller, admin API) goes through it. Alert: any such event in 15 min.
+> - **Daily cap:** the workspace logs `OverQuota` to `_LogOperation` (exempt from the cap) when its cap stops ingestion; a log alert on that covers D15. App Insights uses the same cap value and keeps its built-in cap emails.
+> - **Availability:** two `azurerm_application_insights_standard_web_test`s (web home page on the custom domain, `GET /api/reference/finishes`) from 3 US locations every 5 min, expecting 200 and an SSL cert valid 7+ days; each has a metric alert that fires when 2+ locations fail. No `/api/health` endpoint was added.
+> - Severities: availability and API 5xx are sev 1; exceptions, ingestion and daily cap are sev 2. All alerts auto-resolve.
+> - **Owner to do:** set `ALERT_EMAIL` on the `prod` GitHub environment, then deploy infra; confirm the action group's confirmation email arrives.
 
 All in Terraform, gated by `var.alerts_enabled` (default `true` prod, `false` dev):
 
@@ -111,6 +121,8 @@ Dashboards: start with the built-in **Failures**, **Performance**, **Application
 - `packages/functions/local.settings.json.example`: confirm `APPLICATIONINSIGHTS_CONNECTION_STRING` is present.
 
 ## Open decisions
+
+Resolved 2026-10-17 (decision log D14–D17): keep the cookies with no consent banner (D14); caps 0.5 GB/day dev, 2 GB/day prod with a cap-hit alert (D15); alerts prod only, emailing `var.alert_email` from a GitHub secret (D16); one tracking issue, #281 (D17). Original questions kept below for context.
 
 1. **Cookies / consent:** the browser SDK sets `ai_user` / `ai_session` cookies. Either keep them (needed for Users/Sessions analytics) or set `disableCookiesUsage: true` (errors + traces still work, user counts get fuzzy). Is a consent banner planned?
 2. **Daily caps:** 1 GB/day dev, 5 GB/day prod. OK?

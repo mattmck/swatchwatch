@@ -291,9 +291,72 @@ variable "ingestion_ai_batch_max_poll_jobs" {
 }
 
 variable "appinsights_daily_cap_gb" {
-  description = "Daily ingestion cap (GB) for Application Insights and its Log Analytics workspace. null = 5 for prod, 1 otherwise. Telemetry stops for the rest of the day once hit."
+  description = "Daily ingestion cap (GB) for Application Insights and its Log Analytics workspace. null = the environment's entry in appinsights_daily_cap_gb_defaults. Telemetry stops for the rest of the day once hit (the daily-cap alert reports it)."
   type        = number
   default     = null
+}
+
+variable "appinsights_daily_cap_gb_defaults" {
+  description = "Default daily ingestion cap (GB) per environment, used when appinsights_daily_cap_gb is null. Environments not listed use the dev entry (D15: 0.5 GB dev, 2 GB prod)."
+  type        = map(number)
+  default = {
+    dev  = 0.5
+    prod = 2
+  }
+}
+
+# ── Alerts + availability (observability Phase 3) ──────────────
+
+variable "alerts_enabled" {
+  description = "Create the action group, alert rules and availability tests. null = true for prod, false otherwise (D16: prod only)."
+  type        = bool
+  default     = null
+}
+
+variable "alert_email" {
+  description = "Address the alert action group emails. Set through the ALERT_EMAIL GitHub environment secret/variable; never commit it in tfvars. Empty = alert rules still fire in the portal but nobody is emailed."
+  type        = string
+  default     = ""
+}
+
+variable "alert_api_5xx_threshold" {
+  description = "API alert fires when more than this many 5xx requests (per result code) are recorded in 5 minutes."
+  type        = number
+  default     = 5
+}
+
+variable "alert_server_exception_threshold" {
+  description = "Exception-spike alert fires when Functions (server) exceptions exceed this count in 15 minutes."
+  type        = number
+  default     = 10
+}
+
+variable "alert_browser_exception_threshold" {
+  description = "Exception-spike alert fires when browser exceptions exceed this count in 15 minutes. Higher than the server threshold because browser extensions and flaky networks add noise."
+  type        = number
+  default     = 25
+}
+
+variable "availability_test_frequency_seconds" {
+  description = "How often each availability test runs from each location (300, 600 or 900). Standard tests are billed per execution."
+  type        = number
+  default     = 300
+
+  validation {
+    condition     = contains([300, 600, 900], var.availability_test_frequency_seconds)
+    error_message = "availability_test_frequency_seconds must be 300, 600 or 900."
+  }
+}
+
+variable "availability_test_locations" {
+  description = "Availability test geo locations (Azure location ids). Default: East US, South Central US, West US. The availability alert fires when 2 or more fail."
+  type        = list(string)
+  default     = ["us-va-ash-azr", "us-tx-sn1-azr", "us-ca-sjc-azr"]
+
+  validation {
+    condition     = length(var.availability_test_locations) >= 2
+    error_message = "availability_test_locations needs at least 2 locations (the alert fires on 2 failed locations)."
+  }
 }
 
 variable "create_redis" {

@@ -34,6 +34,7 @@ import {
 } from "./finishes";
 import { PoolClient } from "pg";
 import { recordShadeSourceProduct } from "./buy-link";
+import { trackEvent } from "./telemetry";
 
 export interface DataSourceRecord {
   dataSourceId: number;
@@ -1603,6 +1604,8 @@ export async function markIngestionJobFailed(
      WHERE ingestion_job_id = $1`,
     [jobId, errorMessage, metrics]
   );
+  // Signal for the prod "ingestion job failed" alert (infrastructure/main.tf).
+  trackEvent("ingestion.job_failed", { jobId, error: errorMessage.slice(0, 500) });
 }
 
 export async function cancelIngestionJob(
