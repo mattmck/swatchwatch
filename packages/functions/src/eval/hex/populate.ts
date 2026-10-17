@@ -281,9 +281,15 @@ async function readCandidates(sources: string[] | null, limit: number): Promise<
      FROM shade s
      JOIN brand b ON b.brand_id = s.brand_id
      JOIN external_product ep
-       ON lower(COALESCE(NULLIF(trim(ep.normalized_json ->> 'brand'), ''), 'Holo Taco')) = lower(b.name_canonical)
-      AND lower(NULLIF(trim(ep.normalized_json ->> 'name'), '')) = lower(s.shade_name_canonical)
+       ON lower(NULLIF(trim(ep.normalized_json ->> 'name'), '')) = lower(s.shade_name_canonical)
      JOIN data_source ds ON ds.data_source_id = ep.data_source_id
+     -- The 'Holo Taco' fallback mirrors ingestion for older HoloTacoShopify rows without a
+     -- brand. It applies to that source only, so a brandless MakeupAPI product never
+     -- matches a Holo Taco shade.
+      AND lower(COALESCE(
+            NULLIF(trim(ep.normalized_json ->> 'brand'), ''),
+            CASE WHEN ds.name = 'HoloTacoShopify' THEN 'Holo Taco' END
+          )) = lower(b.name_canonical)
      WHERE s.vendor_hex IS NOT NULL
        AND ($1::text[] IS NULL OR ds.name = ANY($1::text[]))
      ORDER BY s.shade_id, ep.fetched_at DESC

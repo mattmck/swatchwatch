@@ -312,8 +312,8 @@ order `vendorHex > detectedHex > nameHex`:
 | Name hex | `name_hex` | `detectHexFromColorName` in `connectors/color-name-detection.ts` — Azure OpenAI (preferred) or the builtin `COMMON_COLORS` web palette. |
 
 **Brand-aware name hex.** The Shopify connector calls `detectHexFromColorName(colorName, { preferAi: true, context })`
-with `context = { brand (vendor), productLine (product_type), collection (first `collection:` tag), description
-(`body_html` stripped of tags via `stripHtmlToText`, 400 chars), tags, finishes }`. `buildColorNamePrompt` turns that
+with `context` = { `brand` (vendor), `productLine` (`product_type`), `collection` (first `collection:` tag), `description`
+(`body_html` stripped of tags via `stripHtmlToText`, 400 chars), `tags`, `finishes` }. `buildColorNamePrompt` turns that
 into `<product-context>Brand: X. Product line: … Collection: Y. Shade name: "Z". Finish: … Tags: … Description: …</product-context>`
 (vendor text is escaped so it cannot close the block, and the system prompt marks the block as untrusted data whose
 instructions are ignored), and the system prompt
