@@ -7,6 +7,7 @@ export * from "./types/capture";
 export * from "./types/palette";
 export * from "./types/color-match";
 export * from "./types/ingestion";
+export * from "./types/nail-photo";
 export {
   type FinishType,
   type FinishTypeCreateRequest,

@@ -16,7 +16,7 @@ The package is automatically linked via npm workspaces — no publishing require
 
 | Type | Description |
 |------|-------------|
-| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, legacy `finish`, multi-finish `finishes`, tags, timestamps, etc.). Detected-hex provenance (migration 20261017024958000_shade-detected-hex-provenance): `detectedHexConfidence` (0–1), `detectedHexMethod` (`vision-direct`, `palette-pick`, `region-crop`, `ensemble`, `client-supplied`, …), `detectedHexModel` (deployment), `detectedHexPromptVersion`, `detectedHexAt`, and `hexAgreement` (OKLAB distance vendorHex ↔ detectedHex, null unless both exist). Inventory status (#261, migration 20261017061336791_inventory-status): `status` (`PolishStatus`, null for catalog-only rows), derived `isUntried` (owned and `triedAt` null), `triedAt`, `lastWornAt`, `wearCount`, `purchasePrice`, `purchaseCurrency` |
+| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, reserved `nailImageUrl` (not populated; see `NailPhoto`), legacy `finish`, multi-finish `finishes`, tags, timestamps, etc.). Detected-hex provenance (migration 20261017024958000_shade-detected-hex-provenance): `detectedHexConfidence` (0–1), `detectedHexMethod` (`vision-direct`, `palette-pick`, `region-crop`, `ensemble`, `client-supplied`, …), `detectedHexModel` (deployment), `detectedHexPromptVersion`, `detectedHexAt`, and `hexAgreement` (OKLAB distance vendorHex ↔ detectedHex, null unless both exist). Inventory status (#261, migration 20261017061336791_inventory-status): `status` (`PolishStatus`, null for catalog-only rows), derived `isUntried` (owned and `triedAt` null), `triedAt`, `lastWornAt`, `wearCount`, `purchasePrice`, `purchaseCurrency` |
 | `resolveDisplayHex(polish)` | Display hex with the blind precedence vendor > detected > name (unchanged; used by the web app) |
 | `HexReviewItem` / `HexReviewResponse` / `HexReviewSort` | Admin hex-review queue payload (`GET /api/polishes-admin/hex-review`): hexes, provenance, agreement, display hex/source, `flagged`; sorted by `agreement` or `confidence` |
 | `PolishFinish` | Built-in finish name, derived as `(typeof CANONICAL_FINISHES)[number]` |
@@ -138,6 +138,17 @@ Inventory status model (#261). Every `user_inventory_item` row has one status; "
 | `IngestionJobRecord` | Ingestion job summary payload (source, status, timestamps, metrics, error) |
 | `IngestionJobRunResponse` | Job-trigger response wrapper: `{ job }` |
 | `IngestionJobListResponse` | Job list payload: `{ jobs, total }` |
+
+### `types/nail-photo.ts`
+
+| Export | Description |
+|--------|-------------|
+| `NailPhoto` | Private on-nail photo for one inventory item (#270): `inventoryItemId`, `shadeId`, `imageUrl` (owner-scoped `/api/images/v3.*` URL only, `null` if it cannot be signed; fetch with the bearer token, e.g. web `PrivateImage`), `contentType` (re-encoded, `image/jpeg`), `width`, `height`, `sizeBytes`, `createdAt`, `updatedAt` |
+| `NailPhotoResponse` | `GET`/`PUT /api/inventory/{inventoryItemId}/nail-photo` payload: `{ photo: NailPhoto \| null }` |
+| `NailPhotoUploadRequest` | `PUT` body: `{ image }` — a base64 data URL |
+| `NAIL_PHOTO_ACCEPTED_TYPES` / `NailPhotoUploadType` | Accepted upload types: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif` (HEIC only when the server can decode it, else 415) |
+| `NAIL_PHOTO_MAX_UPLOAD_BYTES` | Largest decoded upload the API accepts (8 MB) |
+| `NAIL_PHOTO_MAX_EDGE` | Longest edge (px) the server stores (2048; larger photos are downscaled) |
 
 ### `types/reference.ts`
 
