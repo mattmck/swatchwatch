@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { resolveDisplayHex, type Polish } from "swatchwatch-shared";
 import { listAllPolishes } from "@/lib/api";
+import { isOwnedPolish } from "@/lib/inventory-status";
 import {
   analyzeCollectionGaps,
   classifyHexToGapCell,
@@ -93,7 +94,7 @@ export default function PolishCollectionGapsPage() {
   }, []);
 
   const ownedPolishes = useMemo(
-    () => polishes.filter((polish) => (polish.quantity ?? 0) > 0),
+    () => polishes.filter(isOwnedPolish),
     [polishes],
   );
   const cellBoundPolishes = useMemo<CellBoundPolish[]>(() => {
@@ -109,7 +110,7 @@ export default function PolishCollectionGapsPage() {
         colorHex: normalizedHex,
         hueFamily: cell.hueFamily,
         lightnessBand: cell.lightnessBand,
-        owned: (polish.quantity ?? 0) > 0,
+        owned: isOwnedPolish(polish),
       });
     }
     return rows.sort((a, b) => {
