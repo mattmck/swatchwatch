@@ -4,13 +4,19 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import type { ManicureWearStat, Polish } from "swatchwatch-shared";
+import type { ManicureWearStat, Polish, PolishDupesResponse } from "swatchwatch-shared";
 import { isUntriedInventory, resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
-import { getPolish, deletePolish, listPolishes, updatePolish } from "@/lib/api";
+import { getPolish, getPolishDupes, deletePolish, listPolishes, updatePolish } from "@/lib/api";
 import { colorDistance, hexToOklch, oklchToHex } from "@/lib/color-utils";
 import { resolveFinishLabel } from "@/lib/finish-options";
 import { POLISH_STATUS_LABELS, canRebuy, formatPurchasePrice, rebuyUpdate } from "@/lib/inventory-status";
 import { showArchivedToast } from "@/components/archived-toast";
+import {
+  DUPE_GRADE_META,
+  FINISH_COMPATIBILITY_LABELS,
+  dupeCalloutText,
+  dupeHref,
+} from "@/lib/dupes";
 import { useReferenceData } from "@/hooks/use-reference-data";
 import { FinishBadges } from "@/components/finish-badges";
 import { BuyFromBrandLink } from "@/components/buy-from-brand-link";
@@ -72,6 +78,9 @@ export default function PolishDetailClient({
   const [deleting, setDeleting] = useState(false);
   const [rebuying, setRebuying] = useState(false);
   const archivedToastShown = useRef(false);
+  // Keyed by id so a stale response never shows on another polish's page.
+  const [dupesState, setDupesState] = useState<{ id: string; response: PolishDupesResponse } | null>(null);
+  const dupes = dupesState?.id === id ? dupesState.response : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -101,6 +110,14 @@ export default function PolishDetailClient({
         .catch(() => {
           // Keep detail view usable even if related-color enrichment fails.
         });
+      getPolishDupes(id)
+        .then((response) => {
+          if (cancelled) return;
+          setDupesState({ id, response });
+        })
+        .catch(() => {
+          // Dupes are an enhancement; the detail view works without them.
+        });
     }
 
     return () => {
@@ -122,6 +139,7 @@ export default function PolishDetailClient({
   }, [justArchived, polish, router]);
 
   const displayHex = polish ? resolveDisplayHex(polish) : undefined;
+  const dupeCallout = dupeCalloutText(dupes);
 
   const colorProfile = useMemo(() => {
     if (!displayHex) return null;
@@ -342,6 +360,63 @@ export default function PolishDetailClient({
           detectedHex={polish.detectedHex}
           nameHex={polish.nameHex}
         />
+      )}
+
+      {dupes && dupeCallout && (
+        <Card className="relative overflow-hidden" data-testid="dupe-callout">
+          <span
+            aria-hidden
+            className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-emerald-300 via-brand-lilac to-amber-300"
+          />
+          <CardHeader>
+            <CardTitle>{dupeCallout}</CardTitle>
+            <CardDescription>
+              Owned shades within the match-image distance thresholds; a clearly different
+              finish lowers the grade.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {dupes.dupes.map((dupe) => (
+                <Link
+                  key={dupe.shadeId}
+                  href={dupeHref(dupe, listHref)}
+                  className="flex items-center gap-3 rounded-lg border px-3 py-2 transition-colors hover:bg-brand-pink-light/15"
+                >
+                  <span className="flex shrink-0 items-center" aria-hidden>
+                    <ColorDot hex={displayHex} size="md" className="ring-2 ring-white/80" />
+                    <ColorDot hex={dupe.displayHex} size="md" className="-ml-2 ring-2 ring-white/80" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium">{dupe.name}</p>
+                    <p className="truncate text-sm text-muted-foreground">
+                      {dupe.brand}
+                      {dupe.finishes.length > 0
+                        ? ` · ${dupe.finishes.map((finish) => resolveFinishLabel(finish, finishTypes)).join(", ")}`
+                        : ""}
+                      {" · "}
+                      {FINISH_COMPATIBILITY_LABELS[dupe.finishCompatibility]}
+                    </p>
+                  </div>
+                  <span className="hidden font-mono text-xs text-muted-foreground sm:inline">
+                    ΔE {dupe.distance.toFixed(3)}
+                  </span>
+                  <Badge
+                    className={`shrink-0 ${DUPE_GRADE_META[dupe.grade].badgeClassName}`}
+                    title={DUPE_GRADE_META[dupe.grade].description}
+                  >
+                    {DUPE_GRADE_META[dupe.grade].label}
+                  </Badge>
+                </Link>
+              ))}
+            </div>
+            {dupes.dupeCount > dupes.dupes.length && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Showing the closest {dupes.dupes.length} of {dupes.dupeCount}.
+              </p>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       <Card className="relative overflow-hidden">

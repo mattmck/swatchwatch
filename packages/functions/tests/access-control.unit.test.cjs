@@ -836,6 +836,7 @@ function assertNoOwnerDataInBody(body) {
 // ---------------------------------------------------------------------------
 
 require("../dist/functions/polishes");
+require("../dist/functions/dupes");
 require("../dist/functions/capture");
 require("../dist/functions/ingestion");
 require("../dist/functions/admin-users");
@@ -908,6 +909,18 @@ const USER_SCOPED_REQUESTS = [
     body: { notes: "x" },
   },
   { route: "manicures-mutate", method: "DELETE", url: "http://localhost:7071/api/manicures/1", params: { id: "1" } },
+  {
+    route: "polishes-dupes",
+    method: "GET",
+    url: `http://localhost:7071/api/polishes/${OWNED_SHADE_ID}/dupes`,
+    params: { id: String(OWNED_SHADE_ID) },
+  },
+  {
+    route: "polishes-dupes-batch",
+    method: "POST",
+    url: "http://localhost:7071/api/polishes/dupes",
+    body: { shadeIds: [OWNED_SHADE_ID] },
+  },
   { route: "capture-start", method: "POST", url: "http://localhost:7071/api/capture/start", body: {} },
   { route: "voice-process", method: "POST", url: "http://localhost:7071/api/voice", body: {} },
   {
@@ -1130,6 +1143,37 @@ describe("access control — polishes inventory is scoped to the caller", () => 
     for (const polish of res.jsonBody.polishes) {
       assert.ok(polish.inventoryItemId == null, "attacker must not see the owner's inventory rows");
     }
+    assertScopedToCaller(ATTACKER);
+    assertNoMutations();
+  });
+
+  it("GET dupes by another user is scoped to the caller and leaks no owner inventory (#265)", async () => {
+    const res = await invoke("polishes-dupes", {
+      method: "GET",
+      userId: ATTACKER,
+      url: `${detailUrl}/dupes`,
+      params: { id: String(OWNED_SHADE_ID) },
+    });
+    assert.ok([200, 404].includes(res.status), `unexpected status ${res.status}: ${JSON.stringify(res.jsonBody)}`);
+    assertNoOwnerDataInBody(res.jsonBody);
+    assertScopedToCaller(ATTACKER);
+    assertNoMutations();
+    const inventoryQueries = handlerCalls().filter((c) => /user_inventory_item/i.test(c.sql));
+    assert.ok(
+      inventoryQueries.some((c) => /ui\.status\s*=\s*'owned'/i.test(c.sql)),
+      "the candidate pool must be limited to owned rows"
+    );
+  });
+
+  it("POST dupes batch by another user is scoped to the caller and leaks no owner inventory (#265)", async () => {
+    const res = await invoke("polishes-dupes-batch", {
+      method: "POST",
+      userId: ATTACKER,
+      url: "http://localhost:7071/api/polishes/dupes",
+      body: { shadeIds: [OWNED_SHADE_ID], userId: OWNER, user_id: OWNER },
+    });
+    assert.equal(res.status, 200, `unexpected status ${res.status}: ${JSON.stringify(res.jsonBody)}`);
+    assertNoOwnerDataInBody(res.jsonBody);
     assertScopedToCaller(ATTACKER);
     assertNoMutations();
   });

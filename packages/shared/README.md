@@ -125,6 +125,11 @@ Mani log (#269): `/api/manicures` payloads. Logging, editing or deleting a manic
 | `classifyColorFamily(polish)` | Family of a shade: `multichrome` when any of `finishes`/`finish` is a color-shifting finish (`MULTICHROME_FAMILY_FINISHES`: `multichrome`, `chameleon`, `colorshift`/`color shift`/`color-shift`; `duochrome` is binned by hex), otherwise the family of `resolveDisplayHex` (vendor > detected > name); null when that hex is missing/invalid. Mirrors the Postgres `shade_color_family()` behind the generated `shade.color_family` column |
 | `classifyHexColorFamily(hex)`, `classifyOklchColorFamily({ L, C, h })`, `hexToOklch(hex)`, `hasMultichromeFinish(polish)` | Building blocks: bin one hex / OKLCH triple (never `multichrome`), OKLCH conversion, finish check |
 | `COLOR_FAMILY_THRESHOLDS` | The OKLCH bins. Order: chroma < 0.03 → black (L < 0.30) / white (L ≥ 0.92) / grey; very dark (L < 0.20, C < 0.06) → black; pale tints (L ≥ 0.96, C < 0.06) → white; warm hue 20–100 with L ≥ 0.70 and C ≤ 0.10 → nude; warm hue 30–100 below L 0.70 with C ≤ 0.13 (or very dark from hue 36) → brown; then hue bands: pink 340–20 (dark → red, or purple for 340–350), 20–45 coral when L ≥ 0.68 else red/orange (split at 36), orange 45–80, yellow 80–115 (dark → brown/olive green), green 115–170, teal 170–205, blue 205–290, purple 290–320, 320–340 pink when light and saturated else purple. Changing a value needs a migration that redefines `shade_color_family_from_hex()`; `packages/functions/tests/color-family.unit.test.cjs` checks the SQL constants match |
+| `DUPE_LIMITS` | `{ defaultLimit: 5, maxLimit: 20, batchMaxShadeIds: 100 }` for the dupe endpoints (`color/dupes.ts`) |
+| `DUPE_FINISH_FAMILIES`, `finishFamily(finish)` | Finish families for dupe compatibility: solid (creme/crelly/jelly/sheer), shimmer (shimmer/metallic/magnetic/duochrome/multichrome), holo, glitter (glitter/flake/topper), matte, thermal, glow; `other` and admin-defined finishes have no family |
+| `finishCompatibility(targetFinishes, candidateFinishes)` | `same` (same primary), `compatible` (same family or any shared finish), `different` (known, different families), `unknown` (missing/`other`/unfamilied) |
+| `gradeDupe(distance, compatibility)` | `{ colorGrade, grade }`: `confidenceForDistance` (the match-image thresholds), dropped one step for `different` finishes; `grade` null when LOW |
+| `prepareDupeShade(shade)`, `prepareDupeCandidates(shades)`, `findDupes(target, candidates)`, `summarizeDupes(id, dupes)`, `compareDupes` | Pure dupe finder: resolve each display hex (`resolveDisplayHexDetailed`) and OKLAB once, then O(N) per target; excludes the target's own id; ordered by grade, finish compatibility, distance, brand/name |
 
 ### `types/user.ts`
 
@@ -214,6 +219,19 @@ Shareable wishlist (#268), behind the server flag `SHAREABLE_WISHLIST_ENABLED` (
 | `PolishImageMatchRequest` | Body for `POST /api/polishes/match-image`: `image` (base64 data URL), optional `maxColors` (1–10), `limit` (1–50) |
 | `PolishMatch` | `{ polish, matchedColor, distance, confidence }` — one owned polish matched to its closest extracted color |
 | `PolishImageMatchResponse` | `{ extractedColors, matches, candidateCount }` |
+
+### `types/dupes.ts` (dupe finder, #265)
+
+| Type | Description |
+|------|-------------|
+| `FinishCompatibility` | `"same" \| "compatible" \| "different" \| "unknown"` — how two shades' finishes relate (rule in `color/dupes.ts`) |
+| `DupeGrade` | `"high" \| "medium"` — grades that count as a dupe (`low` is never returned) |
+| `PolishDupe` | One owned dupe: `shadeId`, `brand`, `name`, `finishes`, `displayHex` + `displayHexSource`, OKLAB `distance`, `colorGrade` (distance only), final `grade`, `finishCompatibility` |
+| `PolishDupesTarget` | The shade the dupes were computed for: `shadeId`, `displayHex` (null = no usable hex), `displayHexSource`, `finishes` |
+| `PolishDupesResponse` | `GET /api/polishes/{id}/dupes`: `{ target, dupes, dupeCount, highCount, candidateCount }` (`dupes` capped by `limit`, counts are not) |
+| `PolishDupesBatchRequest` | `POST /api/polishes/dupes` body: `{ shadeIds }` (≤ `DUPE_LIMITS.batchMaxShadeIds`) |
+| `PolishDupeHint` | Compact list-row hint: `{ shadeId, best, dupeCount, highCount }` |
+| `PolishDupesBatchResponse` | `{ results: Record<shadeId, PolishDupeHint>, candidateCount }`; missing/invisible ids are omitted |
 
 ### `types/ingestion.ts`
 
