@@ -172,6 +172,16 @@ async function mergeUsers(
         [targetUserId, sourceUserId]
       );
 
+      // Mani log (#269): the merged wear stats above (summed wear_count, latest last_worn_at)
+      // equal what the moved manicures derive, and their used-events were repointed with the
+      // other inventory_event rows.
+      const movedManicures = await client.query(
+        `UPDATE manicure
+         SET user_id = $1
+         WHERE user_id = $2`,
+        [targetUserId, sourceUserId]
+      );
+
       const movedIdentities = await client.query(
         `INSERT INTO user_external_identities (user_id, external_id, email, last_seen_at)
          SELECT $1, external_id, email, last_seen_at
@@ -221,6 +231,7 @@ async function mergeUsers(
         mergedClickEventRows: movedClickEvents.rowCount || 0,
         message: `Merged user ${sourceUserId} into ${targetUserId}`,
         mergedInventoryDuplicateRows: mergeDuplicateInventory.rowCount || 0,
+        mergedManicureRows: movedManicures.rowCount || 0,
         targetRole: mergedTargetRole,
       };
     });

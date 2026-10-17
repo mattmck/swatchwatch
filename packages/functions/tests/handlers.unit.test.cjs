@@ -522,6 +522,7 @@ describe("functions/admin-users — merge validation", () => {
         if (sql.includes("UPDATE capture_session")) return { rows: [], rowCount: 4 };
         if (sql.includes("UPDATE capture_answer")) return { rows: [], rowCount: 5 };
         if (sql.includes("UPDATE click_event")) return { rows: [], rowCount: 6 };
+        if (sql.includes("UPDATE manicure")) return { rows: [], rowCount: 7 };
         if (sql.includes("INSERT INTO user_external_identities")) return { rows: [], rowCount: 2 };
         if (sql.includes("UPDATE app_user")) return { rows: [], rowCount: 1 };
         if (sql.includes("DELETE FROM app_user")) return { rows: [], rowCount: 1 };
@@ -549,6 +550,7 @@ describe("functions/admin-users — merge validation", () => {
     assert.equal(res.jsonBody.mergedCaptureAnswerRows, 5);
     assert.equal(res.jsonBody.mergedClickEventRows, 6);
     assert.equal(res.jsonBody.mergedInventoryDuplicateRows, 1);
+    assert.equal(res.jsonBody.mergedManicureRows, 7, "mani log moves with the account (#269)");
     assert.match(res.jsonBody.message, /Merged user 10 into 20/i);
   });
 });
@@ -1305,6 +1307,9 @@ describe("functions/polishes — multi-finish", () => {
       if (text.includes("COUNT(*) AS total")) {
         return { rows: [{ total: "1" }] };
       }
+      if (text.includes("shade_source_product")) {
+        return { rows: [] }; // buy-from-brand lookup (#267)
+      }
       listCalls.push({ text, params });
       return {
         rows: [
@@ -1357,6 +1362,9 @@ describe("functions/polishes — multi-finish", () => {
       }
       if (text.includes("COUNT(*) AS total")) {
         return { rows: [{ total: "1" }] };
+      }
+      if (text.includes("shade_source_product")) {
+        return { rows: [] }; // buy-from-brand lookup (#267)
       }
       listCalls.push({ text, params });
       return {
@@ -1606,7 +1614,7 @@ describe("functions/polishes — multi-finish", () => {
     assert.ok(inv.params.some((p) => Array.isArray(p) && p.includes("holographic")));
   });
 
-  it("replaces finishes on an existing shade when only finishes are updated", async () => {
+  it("replaces finishes on the caller's own submitted shade when only finishes are updated", async () => {
     process.env.AUTH_DEV_BYPASS = "true";
     queryMock = async (text) => {
       if (text.includes("FROM app_user")) {
@@ -1615,7 +1623,9 @@ describe("functions/polishes — multi-finish", () => {
       if (text.includes("FROM finish_normalization")) {
         return { rows: aliasRows() };
       }
-      return { rows: [{ id: "9", brand: "OPI", name: "X", finish: "creme", finishes: ["creme", "shimmer"] }] };
+      return {
+        rows: [{ id: "9", ownSubmitted: true, brand: "OPI", name: "X", finish: "creme", finishes: ["creme", "shimmer"] }],
+      };
     };
 
     const clientCalls = [];
@@ -1643,6 +1653,53 @@ describe("functions/polishes — multi-finish", () => {
     assert.ok(replace, "should replace shade.finishes");
     assert.equal(replace.params[0], 9);
     assert.deepEqual(replace.params[1], ["creme", "shimmer"]);
+  });
+
+  it("never writes finishes or colors on an existing shared shade (catalog write rule, #224)", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async (text) => {
+      if (text.includes("FROM app_user")) {
+        return { rows: [{ user_id: 1, external_id: "ext-1", email: null }] };
+      }
+      if (text.includes("FROM finish_normalization")) {
+        return { rows: aliasRows() };
+      }
+      // getVisibleShade on an active catalog shade: ownSubmitted false.
+      return { rows: [{ id: "9", ownSubmitted: false, brand: "OPI", name: "X", finish: "creme", finishes: [] }] };
+    };
+
+    const clientCalls = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          clientCalls.push({ text, params });
+          if (text.includes("INSERT INTO user_inventory_item")) return { rows: [{ inventoryItemId: "1" }] };
+          return { rows: [] };
+        },
+      });
+
+    for (const [route, method, extra] of [
+      ["polishes-mutate", "PUT", {}],
+      ["polishes-create", "POST", { shadeId: "9" }],
+    ]) {
+      const handler = registeredRoutes[route].handler;
+      const req = fakeRequest({
+        method,
+        url: method === "PUT" ? "http://localhost:7071/api/polishes/9" : "http://localhost:7071/api/polishes",
+        headers: { authorization: "Bearer dev:1" },
+        params: method === "PUT" ? { id: "9" } : {},
+        body: { ...extra, finishes: ["glitter"], vendorHex: "#000000", detectedHex: "#000000", color: "Black", quantity: 1 },
+      });
+      const res = await handler(req, fakeContext());
+      assert.ok(res.status < 300, `${method} failed: ${res.status}`);
+    }
+
+    assert.deepEqual(
+      clientCalls.filter((c) => /UPDATE\s+shade\b/i.test(c.text)).map((c) => c.text),
+      [],
+      "an existing shared shade must not be written"
+    );
+    assert.equal(clientCalls.filter((c) => c.text.includes("INSERT INTO user_inventory_item")).length, 2);
   });
 
   it("does not touch finishes when the update carries no finish data", async () => {
@@ -1794,6 +1851,150 @@ describe("functions/catalog — getShade validation", () => {
     assert.equal(res.jsonBody.shadeId, "1");
     assert.equal(res.jsonBody.brand, "OPI");
     assert.deepEqual(res.jsonBody.aliases, ["BAR", "Apple Red"]);
+  });
+});
+
+describe("buy-from-brand links (#267)", () => {
+  const authUserRow = { user_id: 1, external_id: "ext-1", email: null, role: "user" };
+  const candidate = (shadeId, url, extra = {}) => ({
+    shadeId,
+    url,
+    sourceEnabled: true,
+    lastSeenAt: new Date("2026-10-01T00:00:00Z"),
+    fetchedAt: new Date("2026-10-01T00:00:00Z"),
+    externalProductId: "1",
+    ...extra,
+  });
+
+  it("polish list rows carry a validated buyUrl only when a product URL is stored", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let buySql = null;
+    let buyParams = null;
+    queryMock = async (sql, params) => {
+      if (sql.includes("FROM app_user")) return { rows: [authUserRow] };
+      if (sql.includes("shade_source_product")) {
+        buySql = sql;
+        buyParams = params;
+        return {
+          rows: [
+            candidate("1", "https://brand.example/products/red"),
+            candidate("1", "https://disabled.example/products/red", {
+              sourceEnabled: false,
+              lastSeenAt: new Date("2026-10-15T00:00:00Z"),
+            }),
+            candidate("2", "javascript:alert(1)"),
+          ],
+        };
+      }
+      if (sql.includes("swatch_img")) {
+        return {
+          rows: [
+            { id: "1", brand: "OPI", name: "Red", finish: "creme", totalCount: "3" },
+            { id: "2", brand: "OPI", name: "Evil", finish: "creme", totalCount: "3" },
+            { id: "3", brand: "OPI", name: "Plain", finish: "creme", totalCount: "3" },
+          ],
+        };
+      }
+      return { rows: [] };
+    };
+
+    const res = await registeredRoutes["polishes-list"].handler(
+      fakeRequest({
+        url: "http://localhost:7071/api/polishes?availability=wishlist",
+        headers: { authorization: "Bearer dev:1" },
+        params: {},
+      }),
+      fakeContext()
+    );
+
+    assert.equal(res.status, 200);
+    assert.ok(buySql, "list should look up buy links");
+    assert.deepEqual(buyParams, [["1", "2", "3"]], "only the returned page's shades are looked up");
+    const [red, evil, plain] = res.jsonBody.polishes;
+    assert.equal(red.buyUrl, "https://brand.example/products/red");
+    assert.ok(!("buyUrl" in evil), "unsafe schemes never reach the client");
+    assert.ok(!("buyUrl" in plain), "rows without a stored URL show no link");
+  });
+
+  it("polish detail carries buyUrl and survives a failed buy-link lookup", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    let failLookup = false;
+    queryMock = async (sql) => {
+      if (sql.includes("FROM app_user")) return { rows: [authUserRow] };
+      if (sql.includes("shade_source_product")) {
+        if (failLookup) throw new Error('relation "shade_source_product" does not exist');
+        return { rows: [candidate("77", "https://brand.example/products/primary")] };
+      }
+      if (sql.includes("swatch_img")) {
+        return { rows: [{ id: "77", brand: "OPI", name: "Primary", finish: "creme" }] };
+      }
+      return { rows: [] };
+    };
+    const request = () =>
+      fakeRequest({
+        url: "http://localhost:7071/api/polishes/77",
+        headers: { authorization: "Bearer dev:1" },
+        params: { id: "77" },
+      });
+
+    const res = await registeredRoutes["polishes-list"].handler(request(), fakeContext());
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.buyUrl, "https://brand.example/products/primary");
+
+    failLookup = true;
+    const originalWarn = console.warn;
+    console.warn = () => {};
+    let degraded;
+    try {
+      degraded = await registeredRoutes["polishes-list"].handler(request(), fakeContext());
+    } finally {
+      console.warn = originalWarn;
+    }
+    assert.equal(degraded.status, 200);
+    assert.ok(!("buyUrl" in degraded.jsonBody));
+  });
+
+  it("catalog search results and shade detail carry buyUrl", async () => {
+    queryMock = async (sql) => {
+      if (sql.includes("shade_source_product")) {
+        return {
+          rows: [
+            candidate("1", "https://brand.example/products/big-apple-red"),
+            candidate("2", "https://user:pw@brand.example/products/x"),
+          ],
+        };
+      }
+      if (sql.includes("FROM shade_alias WHERE")) return { rows: [] };
+      if (sql.includes("similarity(")) {
+        return {
+          rows: [
+            { shadeId: "1", brand: "OPI", name: "Big Apple Red", finish: "creme", collection: null, similarity: 0.9 },
+            { shadeId: "2", brand: "OPI", name: "Big Apple Blue", finish: "creme", collection: null, similarity: 0.5 },
+          ],
+        };
+      }
+      return {
+        rows: [{
+          shadeId: "1", brand: "OPI", brandId: "10", name: "Big Apple Red",
+          finish: "creme", collection: null, releaseYear: null, status: "active",
+        }],
+      };
+    };
+
+    const search = await registeredRoutes["catalog-search"].handler(
+      fakeRequest({ url: "http://localhost:7071/api/catalog/search?q=big%20apple%20buy" }),
+      fakeContext()
+    );
+    assert.equal(search.status, 200);
+    assert.equal(search.jsonBody.results[0].buyUrl, "https://brand.example/products/big-apple-red");
+    assert.equal(search.jsonBody.results[1].buyUrl, undefined, "credentialed URLs are dropped");
+
+    const shade = await registeredRoutes["catalog-shade"].handler(
+      fakeRequest({ url: "http://localhost:7071/api/catalog/shade/1", params: { id: "1" } }),
+      fakeContext()
+    );
+    assert.equal(shade.status, 200);
+    assert.equal(shade.jsonBody.buyUrl, "https://brand.example/products/big-apple-red");
   });
 });
 

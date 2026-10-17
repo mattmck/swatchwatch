@@ -12,6 +12,23 @@
 const { describe, it, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 
+const path = require("node:path");
+
+// The label prompt lists the runtime finish catalog (loadFinishCatalog). Stub the DB so these
+// tests never try to reach Postgres; an empty finish_type result means "use the built-ins".
+const dbPath = path.resolve(__dirname, "../dist/lib/db.js");
+require.cache[dbPath] = {
+  id: dbPath,
+  filename: dbPath,
+  loaded: true,
+  exports: {
+    query: async () => ({ rows: [] }),
+    transaction: async () => {
+      throw new Error("not used");
+    },
+  },
+};
+
 const { parseLabelText } = require("../dist/lib/ocr-parser");
 
 const OPENAI_ENV_VARS = [

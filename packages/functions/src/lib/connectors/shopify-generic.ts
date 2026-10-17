@@ -717,8 +717,46 @@ export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
   StarrilyShopify: "https://www.starrily.com",
   TylerStrinketsShopify: "https://tylerstrinkets.com",
   DrunkFairyPolishShopify: "https://drunkfairypolish.com",
+  NightOwlLacquerShopify: "https://nightowllacquer.com",
+  PahlishShopify: "https://pahlish.com",
   HoloTacoShopify: "https://www.holotaco.com",
 };
+
+/**
+ * Shopify sources registered disabled until the owner approves them (roadmap
+ * 2026-10-to-12 §6 decision 4). Migration 20261017062550000_add-indie-shopify-sources
+ * seeds their data_source rows with enabled=false; this set makes auto-provisioning
+ * (ensureSupportedShopifyDataSources) create them disabled too, in case the code
+ * reaches an environment before that migration has run. Removing a name here does
+ * not enable an existing row: set data_source.enabled = true for that.
+ */
+export const SHOPIFY_SOURCES_PENDING_APPROVAL: ReadonlySet<string> = new Set([
+  "NightOwlLacquerShopify",
+  "PahlishShopify",
+]);
+
+/** Whether a newly auto-provisioned data_source row for `source` starts enabled. */
+export function isShopifySourceEnabledByDefault(source: string): boolean {
+  return !SHOPIFY_SOURCES_PENDING_APPROVAL.has(source);
+}
+
+// Shopify stores that never set a vendor publish a placeholder (Night Owl Lacquer
+// lists most of its catalog as "vendor-unknown"); a placeholder must not become a brand.
+const PLACEHOLDER_VENDORS: ReadonlySet<string> = new Set([
+  "vendor-unknown",
+  "vendor unknown",
+  "unknown vendor",
+  "default vendor",
+]);
+
+/** The product's vendor, or the source's brand when the vendor is missing or a placeholder. */
+export function resolveShopifyVendor(vendor: unknown, brandName: string): string {
+  const normalized = asNonEmptyString(vendor);
+  if (!normalized || PLACEHOLDER_VENDORS.has(normalized.toLowerCase())) {
+    return brandName;
+  }
+  return normalized;
+}
 
 export function defaultShopifyBaseUrl(source: string): string {
   return (
@@ -751,7 +789,7 @@ async function toNormalizedRecord(
   }
 
   const handle = asNonEmptyString(product.handle);
-  const vendor = asNonEmptyString(product.vendor) || brandName;
+  const vendor = resolveShopifyVendor(product.vendor, brandName);
   const collections = extractTaggedValues(tags, "collection:");
   const finishes = extractFinishFromTags(tags);
   const tagColors = extractColorFromTags(tags);
