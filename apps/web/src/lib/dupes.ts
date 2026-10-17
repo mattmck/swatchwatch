@@ -73,6 +73,26 @@ export async function fetchDupeHints(
   return Object.assign({}, ...responses.map((response) => response.results)) as Record<string, PolishDupeHint>;
 }
 
+/**
+ * Hints from an earlier fetch that are still worth showing while a refetch for `shadeIds` is in
+ * flight (#330): only entries for ids still in the list, so the badges of rows that stay put do
+ * not blink out when another row changes, while hints for rows that left the page are dropped.
+ * Returns `previous` itself when nothing needs dropping (keeps the reference stable).
+ */
+export function keepDupeHints(
+  previous: Readonly<Record<string, PolishDupeHint>>,
+  shadeIds: readonly string[]
+): Record<string, PolishDupeHint> {
+  const wanted = new Set(shadeIds);
+  const keys = Object.keys(previous);
+  if (keys.every((id) => wanted.has(id))) return previous as Record<string, PolishDupeHint>;
+  const kept: Record<string, PolishDupeHint> = {};
+  for (const id of keys) {
+    if (wanted.has(id)) kept[id] = previous[id];
+  }
+  return kept;
+}
+
 /** Short row hint ("Dupe owned" / "Near dupe owned"), or null when there is no owned dupe. */
 export function dupeHintLabel(hint: PolishDupeHint | null | undefined): string | null {
   if (!hint?.best) return null;

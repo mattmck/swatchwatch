@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Polish, PolishDupeHint } from "swatchwatch-shared";
 import { getPolishDupeHints } from "@/lib/api";
-import { dupeHintShadeIds, fetchDupeHints } from "@/lib/dupes";
+import { dupeHintShadeIds, fetchDupeHints, keepDupeHints } from "@/lib/dupes";
 
 const NO_HINTS: Record<string, PolishDupeHint> = {};
 
@@ -14,15 +14,14 @@ const NO_HINTS: Record<string, PolishDupeHint> = {};
  */
 export function useDupeHints(polishes: readonly Pick<Polish, "id" | "status">[]): Record<string, PolishDupeHint> {
   const idsKey = useMemo(() => dupeHintShadeIds(polishes).join(","), [polishes]);
-  // Keyed by the id list so hints for a previous page are never shown on the next one.
-  const [state, setState] = useState<{ key: string; hints: Record<string, PolishDupeHint> } | null>(null);
+  const [fetched, setFetched] = useState<Record<string, PolishDupeHint>>(NO_HINTS);
 
   useEffect(() => {
     if (!idsKey) return;
     let cancelled = false;
     fetchDupeHints(idsKey.split(","), getPolishDupeHints)
       .then((hints) => {
-        if (!cancelled) setState({ key: idsKey, hints });
+        if (!cancelled) setFetched(hints);
       })
       .catch(() => {
         // Hints are optional; keep the list usable.
@@ -32,5 +31,8 @@ export function useDupeHints(polishes: readonly Pick<Polish, "id" | "status">[])
     };
   }, [idsKey]);
 
-  return state && state.key === idsKey ? state.hints : NO_HINTS;
+  // While a refetch is in flight (e.g. after adding a polish from a row) keep the previous hints
+  // for rows that are still listed instead of blanking every badge (#330); hints for ids that
+  // left the list (previous page) are dropped.
+  return useMemo(() => keepDupeHints(fetched, idsKey ? idsKey.split(",") : []), [fetched, idsKey]);
 }

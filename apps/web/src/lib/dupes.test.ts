@@ -10,6 +10,7 @@ import {
   dupeHref,
   dupeVerdict,
   fetchDupeHints,
+  keepDupeHints,
 } from "./dupes";
 
 function dupe(overrides: Partial<PolishDupe> = {}): PolishDupe {
@@ -43,6 +44,24 @@ describe("dupeHintShadeIds", () => {
       { id: "2", status: "wishlist" },
     ]);
     assert.deepEqual(ids, ["2", "3", "4", "5"]);
+  });
+});
+
+describe("keepDupeHints (#330)", () => {
+  const previous = { "2": hint(dupe()), "3": hint(null), "4": hint(dupe({ shadeId: "8" })) };
+
+  it("keeps hints for rows that are still listed while a refetch is in flight", () => {
+    // Row 3 was just added (now owned) and left the hint list; rows 2 and 4 keep their badges.
+    assert.deepEqual(keepDupeHints(previous, ["2", "4"]), { "2": previous["2"], "4": previous["4"] });
+  });
+
+  it("drops hints for ids that left the list (e.g. the previous page)", () => {
+    assert.deepEqual(keepDupeHints(previous, ["9"]), {});
+    assert.deepEqual(keepDupeHints(previous, []), {});
+  });
+
+  it("returns the same object when nothing needs dropping", () => {
+    assert.equal(keepDupeHints(previous, ["2", "3", "4", "5"]), previous);
   });
 });
 

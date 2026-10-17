@@ -27,7 +27,10 @@ const {
   COLLECTION_EXPORT_VERSION,
   POLISH_CSV_COLUMNS,
   POLISH_CSV_HEADERS,
+  POLISH_IMPORT_FIELDS,
   collectionExportFilename,
+  detectPolishImportHeader,
+  matchImportHeader,
 } = require("swatchwatch-shared");
 
 function dbRow(overrides = {}) {
@@ -190,6 +193,29 @@ describe("CSV columns (round-trip contract with the import, #263)", () => {
       POLISH_CSV_COLUMNS.slice(0, firstExtra).map((column) => column.importField),
       ["brand", "name", "finish", "quantity", "status", "tried", "price", "currency", "purchaseDate", "notes"]
     );
+  });
+
+  it("is accepted by the import's header detection without a manual mapping (#329)", () => {
+    const detected = detectPolishImportHeader([[...POLISH_CSV_HEADERS]]);
+    assert.equal(detected.headerRowIndex, 0);
+    assert.equal(detected.confident, true);
+    const expected = {};
+    POLISH_CSV_COLUMNS.forEach((column, index) => {
+      if (column.importField) expected[column.importField] = index;
+    });
+    assert.deepEqual(detected.mapping, expected);
+    assert.deepEqual([...POLISH_IMPORT_FIELDS].sort(), Object.keys(expected).sort());
+  });
+
+  it("maps every round-trip header as a strong synonym and no export-only header", () => {
+    for (const column of POLISH_CSV_COLUMNS) {
+      const match = matchImportHeader(column.header);
+      if (column.importField) {
+        assert.deepEqual(match, { field: column.importField, strength: 2 }, column.header);
+      } else {
+        assert.equal(match, null, column.header);
+      }
+    }
   });
 
   it("has unique keys and headers", () => {
