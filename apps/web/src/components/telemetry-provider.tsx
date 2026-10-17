@@ -41,14 +41,13 @@ function MsalTelemetryUser() {
 
 /**
  * Resolves the internal user id (the MSAL account only has the B2C subject and
- * email) once per signed-in account, and clears it on sign-out.
+ * email) once per signed-in account. Clears the previous id on every account
+ * change, so a switch or a failed lookup never keeps the old user's id.
  */
 function TelemetryUser({ accountKey }: { accountKey: string | null }) {
   useEffect(() => {
-    if (!accountKey) {
-      clearUser();
-      return;
-    }
+    clearUser();
+    if (!accountKey) return;
 
     let cancelled = false;
     import("@/lib/api")
