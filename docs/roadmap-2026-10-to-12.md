@@ -21,7 +21,7 @@ spending.
 |---|---|---|
 | Land now | PRs #256, #258, #237; #245 flaky test; #227 owner-scoped image ids (security) | Week 0 |
 | Decide + do | #224 multi-finish follow-ups (3 decisions) | Week 0 |
-| Fold into this roadmap | #21 camera capture (web half), #103 color taxonomy, #104 LacquerTracker research (site is dead — close after harvesting), #45 admin users (remaining bits), #226 ingestion logs | Sprints 1–4 |
+| Fold into this roadmap | #21 camera capture (web half), #103 color taxonomy, #104 LacquerTracker research (site is dead — closed; findings harvested into §2 and the color-family filter), #45 admin users (remaining bits), #226 ingestion logs | Sprints 1–4 |
 | Defer to 2027 | #109 Expo scaffold, #2 ESM migration, #117 Redis, #158/#228 APIM gateway, #102 (superseded by `finish_type` admin) | See §5 |
 
 Hygiene: `dev` is 28 commits ahead of `main`; the M0 and M1 milestones are stale
@@ -71,7 +71,10 @@ Each sprint ships to `dev` continuously and promotes to `main` at sprint end.
 ### Week 0 — Stabilize and decide (20–24 Oct)
 
 - Merge #256, #258, #237; cut a `dev → main` release; close #245.
-- Fix #227: owner-scope and expire private-media image ids.
+- Fix #227: owner-scope and expire private-media image ids; flip the `known gap #227`
+  assertions in `tests/access-control.unit.test.cjs`, update the matching note in
+  `packages/functions/README.md`, and keep anonymous, cacheable access for public
+  catalog images.
 - **Hex detection decision gate (2 days, hard stop):** run the eval across
   `azure-current`, `pixel`, `region-crop`, `palette-pick`, `ensemble`; pick the
   production strategy by HIGH-confidence share × cost; wire it into ingestion; stop
@@ -102,7 +105,8 @@ Goal: a real collection model and a painless way in and out.
 - **Color family filter** (#103 lite) — derive family (red, pink, coral, orange,
   yellow, green, teal, blue, purple, nude, brown, grey, black, white, multichrome)
   from OKLAB hue/chroma/lightness bins; expose as a filter on `/polishes` and the
-  catalog. Closes #103 and #104.
+  catalog. Closes #103; this is the color-taxonomy harvest from the #104 research
+  (#104 itself is closed, the site is gone).
 
 ### Sprint 2 — "Don't buy it twice" (10–21 Nov, before Black Friday on 27 Nov)
 
