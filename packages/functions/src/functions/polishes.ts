@@ -31,7 +31,7 @@ import {
   hashCacheKey,
 } from "../lib/cache";
 import { trackEvent, trackException } from "../lib/telemetry";
-import { invalidatePolishCachesForUser } from "../lib/polish-cache";
+import { invalidateAllCollectionStats, invalidatePolishCachesForUser } from "../lib/polish-cache";
 import { recomputeWearStats } from "../lib/manicure";
 import {
   extractImagePalette,
@@ -509,6 +509,7 @@ async function invalidateGlobalPolishCaches(): Promise<void> {
   await Promise.all([
     cacheDeleteByPrefix("polishes:list:u:"),
     cacheDeleteByPrefix("polishes:detail:u:"),
+    invalidateAllCollectionStats(),
   ]);
 }
 

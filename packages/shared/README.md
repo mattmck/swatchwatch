@@ -65,6 +65,22 @@ Mani log (#269): `/api/manicures` payloads. Logging, editing or deleting a manic
 | `ManicureMutationResponse` / `ManicureDeleteResponse` | Create/update response (`Manicure` + `wearStats`) / delete response (`{ message, id, wearStats }`) |
 | `ManicureListResponse` / `ManicureFilters` | `{ manicures, total, page, pageSize }` / `from`, `to`, `shadeId`, `page`, `pageSize` (max 200) |
 
+### `types/stats.ts`
+
+Collection stats (#271): the `GET /api/stats/collection` payload behind the dashboard panels. Money is never summed across currencies — every amount sits in a per-currency group (`currency: null` = price saved without one).
+
+| Export | Description |
+|--------|-------------|
+| `COLLECTION_STATS_TOP_BRANDS` (8), `COLLECTION_STATS_MONTHS` (12), `COLLECTION_STATS_MOST_WORN` (10), `COLLECTION_STATS_COST_PER_WEAR_LIST` (5) | List sizes used by the API |
+| `SPEND_STATUSES` | `["owned", "destash", "archived"]` — statuses whose purchase price counts as spend (a wishlist price is a target, not money spent) |
+| `CollectionStatsResponse` | `{ generatedAt, totals: { byStatus, total }, untried: { owned, untried, percent \| null }, wornVsWaiting: { worn, waiting }, spend, mostWorn, costPerWear: { currencies, pricedUnwornCount } }` |
+| `CollectionSpendStats` | `{ currencies: CurrencySpend[], months (YYYY-MM, oldest first), pricedCount, unpricedCount }` |
+| `CurrencySpend` | One currency: `currency`, all-time `total` / `itemCount`, `byBrand` (top N + one "Other"), `byMonth` (zero-filled) |
+| `SpendByBrandEntry` / `SpendByMonthEntry` | `{ brand, isOther, brandCount, total, itemCount }` / `{ month, total, itemCount, estimatedDateCount }` (`estimatedDateCount` = rows bucketed by `createdAt` because they have no purchase date) |
+| `CollectionStatsShade` | Shared entry fields: `inventoryItemId`, `shadeId` (null for a SKU-only row), `brand`, `name`, `vendorHex`, `detectedHex`, `nameHex` |
+| `MostWornEntry` | `CollectionStatsShade` + `status`, `wearCount`, `lastWornAt` |
+| `CostPerWearEntry` / `CostPerWearCurrency` | `CollectionStatsShade` + `price`, `wearCount`, `costPerWear` / `{ currency, wornCount, pricedUnwornCount, best, worst }` (`worst` never repeats a `best` item) |
+
 ### `constants/finishes.ts`
 
 | Export | Description |

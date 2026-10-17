@@ -19,6 +19,7 @@ import { checkStorageImageUrl, stripImageMetadata, validateImageUpload } from ".
 import { withCors } from "../lib/http";
 import { internalServerError } from "../lib/errors";
 import { trackEvent } from "../lib/telemetry";
+import { invalidatePolishCachesForUser } from "../lib/polish-cache";
 import { extractTextFromImage, OcrResult } from "../lib/ocr";
 import { parseLabelText, ParsedLabelFields } from "../lib/ocr-parser";
 
@@ -1456,6 +1457,8 @@ async function finalizeCapture(
           ]
         );
       });
+      // Rapid Add added a bottle: drop the caller's polish list + collection stats caches.
+      await invalidatePolishCachesForUser(userId);
 
       const response: CaptureFinalizeResponse = {
         captureId: session.captureId,
@@ -1728,6 +1731,10 @@ async function answerCaptureQuestion(
         [session.id, openQuestion.key, answerJson]
       );
     });
+    if ((updatedStatus as CaptureStatus) === "matched") {
+      // Rapid Add added a bottle: drop the caller's polish list + collection stats caches.
+      await invalidatePolishCachesForUser(userId);
+    }
 
     // Re-resolve after non-selection answers (e.g., brand_shade free-text)
     if (body.answer !== "skip" && openQuestion.key !== "candidate_select") {
@@ -1777,6 +1784,8 @@ async function answerCaptureQuestion(
               [refreshedSession.id, outcome.confidence, outcome.entityType, outcome.entityId, metadataPatch, inventoryItemId]
             );
           });
+          // Rapid Add added a bottle: drop the caller's polish list + collection stats caches.
+          await invalidatePolishCachesForUser(userId);
         } else if (outcome.status === "needs_question") {
           updatedStatus = "needs_question";
           await transaction(async (client) => {
