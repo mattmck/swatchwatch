@@ -5,6 +5,7 @@ export * from "./types/polish-import";
 export * from "./import/csv";
 export * from "./import/polish-import";
 export * from "./types/collection-export";
+export * from "./types/stats";
 export * from "./constants/finishes";
 export * from "./constants/outbound-links";
 export * from "./types/user";
