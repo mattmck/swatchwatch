@@ -1,4 +1,5 @@
 import type { CANONICAL_FINISHES } from "../constants/finishes";
+import type { ColorFamily } from "../color/color-family";
 
 export interface Polish {
   /** Canonical shade identifier (global across all users) */
@@ -32,6 +33,13 @@ export interface Polish {
    * Stored on the shade (`shade.hex_agreement`); > 0.10 (MEDIUM) counts as a disagreement.
    */
   hexAgreement?: number | null;
+  /**
+   * Color family derived from the display hex (vendor > detected > name), or
+   * `multichrome` for color-shifting finishes. Stored on the shade as the generated
+   * `shade.color_family` column; null when the shade has no usable hex.
+   * See `classifyColorFamily`.
+   */
+  colorFamily?: ColorFamily | null;
   /**
    * Legacy single finish (the shade's identity/primary finish). Kept populated for
    * backward compatibility; prefer `finishes` (or `resolvePolishFinishes`) for display.
@@ -186,6 +194,8 @@ export interface PolishFilters {
   scope?: "all" | "collection";
   availability?: "all" | "owned" | "wishlist";
   tone?: "warm" | "cool" | "neutral";
+  /** Matches shades in ANY of these color families (`?family=red,pink`). */
+  families?: ColorFamily[];
   sortBy?:
     | "name"
     | "brand"
@@ -207,6 +217,8 @@ export interface CatalogSearchResult {
   finish?: string;
   finishes?: string[];
   collection?: string;
+  /** Color family of the shade (see `Polish.colorFamily`). */
+  colorFamily?: ColorFamily | null;
   similarity: number;
 }
 

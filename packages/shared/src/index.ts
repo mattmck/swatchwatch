@@ -26,3 +26,4 @@ export * from "./branding/swatchwatch-brand";
 export * from "./color/oklab";
 export * from "./color/thresholds";
 export * from "./color/hex-reconciliation";
+export * from "./color/color-family";
