@@ -318,6 +318,21 @@ describe("images cache headers", () => {
     assert.equal(select({ catalog: false, transformed: true }), "private, max-age=86400");
   });
 
+  it("private (v3) scope: private, max-age<=300, no public/stale, blob header and transforms ignored", () => {
+    const priv = (over) => select({ scope: "private", catalog: false, ...over });
+    assert.equal(priv({}), "private, max-age=300");
+    assert.equal(priv({ transformed: true }), "private, max-age=300");
+    assert.equal(priv({ blobCacheControl: "public, max-age=999999, stale-while-revalidate=99" }), "private, max-age=300");
+    assert.equal(priv({ blobCacheControl: "no-store" }), "private, max-age=300");
+    // Scope wins even if a caller passes catalog: true.
+    assert.equal(priv({ catalog: true, transformed: true }), "private, max-age=300");
+    // Never outlives the id.
+    assert.equal(priv({ expiresAt: nowS + 120 }), "private, max-age=120");
+    assert.equal(priv({ expiresAt: nowS - 5 }), "private, max-age=0");
+    // Explicit public scope is the default behaviour.
+    assert.equal(select({ scope: "public" }), select({}));
+  });
+
   it("caps max-age and SWR at the id's remaining lifetime", () => {
     assert.equal(select({ expiresAt: nowS + 600 }), "public, max-age=600");
     assert.equal(select({ catalog: false, expiresAt: nowS + 600 }), "private, max-age=600");

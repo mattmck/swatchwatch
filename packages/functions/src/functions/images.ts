@@ -1,17 +1,22 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { createHash } from "node:crypto";
+import { AuthError, authenticateRequest } from "../lib/auth";
 import {
   BlobAccessDeniedError,
   BlobReadError,
+  defaultReadableContainers,
   isCatalogStorageUrl,
   readBlobFromStorageUrl,
+  userMediaContainer,
 } from "../lib/blob-storage";
 import {
   decodeImageProxyIdWithExpiry,
   ImageProxyConfigError,
+  ImageProxyScope,
   ImageProxyTokenError,
 } from "../lib/image-proxy";
 import { withCors } from "../lib/http";
+import { trackEvent, trackException } from "../lib/telemetry";
 import sharp from "sharp";
 
 type ImageFormat = "webp" | "jpeg" | "png";
@@ -59,6 +64,8 @@ function hasTransformRequest(options: TransformOptions): boolean {
 const DEFAULT_MAX_AGE_SECONDS = 3600;
 const TRANSFORM_MAX_AGE_SECONDS = 86400;
 const TRANSFORM_STALE_WHILE_REVALIDATE_SECONDS = 604800;
+/** Upper bound on how long a browser may reuse an owner-scoped (v3) image response. */
+const PRIVATE_MAX_AGE_SECONDS = 300;
 
 // Re-exported under its historical name for existing callers/tests; the helper lives in
 // lib/blob-storage so lib/image-proxy can use it without a circular import.
@@ -115,6 +122,9 @@ function capPassthroughCacheControl(header: string, remaining: number): string {
 /**
  * Choose the Cache-Control header for a proxied image.
  *
+ * - Owner-scoped (`scope: "private"`, v3) ids: `private, max-age=<min(300, remaining)>` only, no
+ *   `public` and no stale directives; the blob's own cacheControl and the transform flag are
+ *   ignored. The caller also sets `Vary: Authorization`.
  * - Catalog blobs: `public`, honoring the blob's own max-age (default 1h; 1d + SWR for transforms).
  * - Everything else: `private, max-age=<n>` only, no `public` and no stale-while-revalidate;
  *   the blob's own cacheControl is ignored.
@@ -127,9 +137,15 @@ export function selectImageCacheControl(params: {
   blobCacheControl?: string | null;
   expiresAt: number;
   nowMs?: number;
+  /** Scope of the decoded id; defaults to "public" (v1/v2 ids). */
+  scope?: ImageProxyScope;
 }): string {
   const nowSeconds = Math.floor((params.nowMs ?? Date.now()) / 1000);
   const remaining = Math.max(0, params.expiresAt - nowSeconds);
+
+  if ((params.scope ?? "public") === "private") {
+    return `private, max-age=${Math.min(PRIVATE_MAX_AGE_SECONDS, remaining)}`;
+  }
 
   const blobDirective = params.blobCacheControl?.toLowerCase() ?? "";
   if (params.catalog && !params.transformed && /\b(no-store|no-cache|private)\b/.test(blobDirective)) {
@@ -200,13 +216,55 @@ async function transformImage(
 }
 
 /**
- * Proxy private blob-backed swatch images
+ * Owner-scoped (v3) ids additionally require the bound owner's bearer token. Returns the denial
+ * response, or null when the caller is the owner. Never throws: any auth failure is a 401 (as in
+ * `withAuth`), never a 500. Admins get no bypass.
+ */
+async function authorizePrivateImageRead(
+  request: HttpRequest,
+  context: InvocationContext,
+  ownerUserId: number | undefined
+): Promise<HttpResponseInit | null> {
+  let callerUserId: number;
+  try {
+    callerUserId = (await authenticateRequest(request, context)).userId;
+  } catch (error) {
+    if (!(error instanceof AuthError)) {
+      context.error("[images] Unexpected auth error:", error);
+      trackException(error, { route: "images", reason: "unexpected_auth_error" });
+    }
+    trackEvent("image_proxy.private_denied", { reason: "unauthenticated" });
+    return { status: 401, jsonBody: { error: "Unauthorized" } };
+  }
+
+  if (ownerUserId === undefined || callerUserId !== ownerUserId) {
+    trackEvent("image_proxy.private_denied", { reason: "wrong_user" });
+    return { status: 403, jsonBody: { error: "Forbidden" } };
+  }
+  return null;
+}
+
+/**
+ * Proxy blob-backed images
  * GET /api/images/:id
  *
- * Anonymous by design (ids are embedded in <img src>, which cannot send Authorization headers),
- * so the id itself is the capability: it must be an HMAC-signed id minted by the API
- * (see lib/image-proxy.ts). Unsigned, forged, tampered, or expired ids are rejected with 403, and the
- * decoded URL must still point at an allowlisted container of the configured storage account.
+ * The id must be an HMAC-signed, expiring id minted by the API (see lib/image-proxy.ts).
+ * Unsigned, forged, tampered, or expired ids are rejected with 403 before anything else happens
+ * (no auth lookup, no blob read). The decoded id's scope then decides the rest:
+ *
+ * - **Public** (v1/v2, catalog imagery in `SOURCE_IMAGE_CONTAINER`): anonymous, because these ids
+ *   are embedded in `<img src>` (which cannot send Authorization) and fetched by Azure OpenAI
+ *   vision. The id is the capability; it may only read `SOURCE_IMAGE_CONTAINER`. Cacheable
+ *   (`public`) for at most the id's remaining lifetime.
+ * - **Private** (v3, owner-scoped user media, #227): requires a bearer token whose user id equals
+ *   the owner bound into the id: 401 without a valid token, 403 for any other user (admins
+ *   included). May only read `USER_MEDIA_CONTAINER`. Served `Cache-Control: private,
+ *   max-age<=300` with `Vary: Authorization`.
+ *
+ * In both cases the decoded URL must point at the configured storage account, inside the scope's
+ * allowlisted container; a validly signed id outside it is a 403 without any fetch. Optional
+ * `w`/`h`/`fm`/`q`/`fit` transforms apply to both scopes. The route stays `authLevel: "anonymous"`
+ * so the public path keeps working; private ids authenticate in the handler.
  */
 app.http("images", {
   methods: ["GET"],
@@ -224,8 +282,16 @@ app.http("images", {
         };
       }
 
-      const { url: storageUrl, expiresAt } = decodeImageProxyIdWithExpiry(id);
-      const blob = await readBlobFromStorageUrl(storageUrl);
+      const { url: storageUrl, expiresAt, scope, ownerUserId } = decodeImageProxyIdWithExpiry(id);
+
+      if (scope === "private") {
+        const denial = await authorizePrivateImageRead(request, context, ownerUserId);
+        if (denial) return denial;
+      }
+
+      const blob = await readBlobFromStorageUrl(storageUrl, {
+        allowedContainers: scope === "private" ? [userMediaContainer()] : defaultReadableContainers(),
+      });
       const transform = parseTransformOptions(request.url);
 
       let bodyBytes = blob.bytes;
@@ -246,12 +312,15 @@ app.http("images", {
         transformed,
         blobCacheControl: blob.cacheControl,
         expiresAt,
+        scope,
       });
 
       const headers = new Headers({
         "Content-Type": contentType,
         "Cache-Control": cacheControl,
       });
+      // The response depends on the caller's token; no cache may reuse it across Authorization values.
+      if (scope === "private") headers.set("Vary", "Authorization");
       if (etag) headers.set("ETag", etag);
       if (blob.lastModified) headers.set("Last-Modified", blob.lastModified);
 

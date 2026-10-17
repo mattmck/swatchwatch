@@ -947,6 +947,66 @@ describe("functions/polishes — primary swatch image selection", () => {
     assert.equal(res.jsonBody.swatchImageUrl, "https://example.com/product.png");
   });
 
+  it("detail mints owner-scoped ids only for private image_asset rows the caller owns (#227)", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    const imageProxy = require("../dist/lib/image-proxy");
+    const CATALOG = "https://swatchacct.blob.core.windows.net/source-images/opi/product.png";
+    const MINE = "https://swatchacct.blob.core.windows.net/nail-photos/user-1/mine.png";
+    const THEIRS = "https://swatchacct.blob.core.windows.net/nail-photos/user-2/theirs.png";
+    const SYSTEM = "https://swatchacct.blob.core.windows.net/nail-photos/system/unowned.png";
+    let imagesSql = null;
+    queryMock = async (sql) => {
+      if (sql.includes("FROM app_user")) return { rows: [authUserRow] };
+      if (sql.includes('AS "storageUrl"')) {
+        imagesSql = sql;
+        return {
+          rows: [
+            { storageUrl: CATALOG, ownerType: "system", ownerId: null },
+            { storageUrl: MINE, ownerType: "user", ownerId: "1" },
+            { storageUrl: THEIRS, ownerType: "user", ownerId: "2" },
+            { storageUrl: SYSTEM, ownerType: "system", ownerId: "1" },
+          ],
+        };
+      }
+      if (sql.includes("swatch_img")) {
+        return { rows: [{ id: "77", brand: "OPI", name: "Primary", finish: "creme", swatchImageUrl: CATALOG }] };
+      }
+      return { rows: [] };
+    };
+
+    const errors = [];
+    const originalConsoleError = console.error;
+    console.error = (...args) => errors.push(args.join(" "));
+    let res;
+    try {
+      res = await registeredRoutes["polishes-list"].handler(
+        fakeRequest({
+          url: "http://localhost:7071/api/polishes/77",
+          headers: { authorization: "Bearer dev:1" },
+          params: { id: "77" },
+        }),
+        fakeContext()
+      );
+    } finally {
+      console.error = originalConsoleError;
+    }
+
+    assert.equal(res.status, 200);
+    assert.match(imagesSql, /ia\.owner_type AS "ownerType", ia\.owner_id AS "ownerId"/);
+    const decoded = res.jsonBody.sourceImageUrls.map((url) =>
+      imageProxy.decodeImageProxyIdWithExpiry(decodeURIComponent(new URL(url).pathname.split("/").pop()))
+    );
+    assert.deepEqual(
+      decoded.map(({ url, scope, ownerUserId }) => ({ url, scope, ownerUserId })),
+      [
+        { url: CATALOG, scope: "public", ownerUserId: undefined },
+        { url: MINE, scope: "private", ownerUserId: 1 },
+      ],
+      "other users' and unowned private media must be omitted"
+    );
+    assert.deepEqual(errors, [], "omitting another user's media is expected, not an error");
+  });
+
   it("recalc-hex shade lookup prefers the source_product swatch image", async () => {
     process.env.AUTH_DEV_BYPASS = "true";
     let shadeSql = null;

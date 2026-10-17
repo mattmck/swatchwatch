@@ -32,11 +32,23 @@ function resolveAllowedOrigin(origin: string | null): string | null {
   return allowedOrigins.includes("*") ? "*" : null;
 }
 
+/** Add `value` to the Vary header, keeping whatever the handler already set (e.g. Authorization). */
+function appendVary(headers: Headers, value: string) {
+  const existing = headers.get("Vary");
+  if (!existing) {
+    headers.set("Vary", value);
+    return;
+  }
+  const tokens = existing.split(",").map((token) => token.trim().toLowerCase());
+  if (tokens.includes("*") || tokens.includes(value.toLowerCase())) return;
+  headers.set("Vary", `${existing}, ${value}`);
+}
+
 function applyCorsHeaders(headers: Headers, allowedOrigin: string) {
   headers.set("Access-Control-Allow-Origin", allowedOrigin);
   headers.set("Access-Control-Allow-Headers", ALLOW_HEADERS);
   headers.set("Access-Control-Allow-Methods", ALLOW_METHODS);
-  headers.set("Vary", "Origin");
+  appendVary(headers, "Origin");
   if (SUPPORT_CREDENTIALS && allowedOrigin !== "*") {
     headers.set("Access-Control-Allow-Credentials", "true");
   }

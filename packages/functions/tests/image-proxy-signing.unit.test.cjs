@@ -8,11 +8,14 @@
  *   of the configured account are allowed.
  * - lib/image-proxy v3 (#227): owner-scoped ids for non-catalog URLs, scope errors at mint time,
  *   and rejection of every tampered/transplanted/non-canonical v3 envelope.
- * - functions/images: forged/unsigned ids → 403, valid signed ids → 200, missing key → 500.
+ * - functions/images: forged/unsigned ids → 403, valid signed ids → 200, missing key → 500;
+ *   owner-scoped v3 ids need the owner's bearer token (401/403 otherwise), may only read
+ *   USER_MEDIA_CONTAINER, and are served `Cache-Control: private` with `Vary: Authorization`.
  */
 const { describe, it, beforeEach, afterEach, after } = require("node:test");
 const assert = require("node:assert/strict");
 const Module = require("node:module");
+const path = require("node:path");
 const { createHmac } = require("node:crypto");
 
 // ---------------------------------------------------------------------------
@@ -47,6 +50,31 @@ for (const [id, exports] of Object.entries(mockModules)) {
   require.cache[id] = { id, filename: id, loaded: true, exports };
 }
 
+// lib/auth's dev-bypass user lookup is the only DB access functions/images can make (v3 ids).
+// Replace lib/db by its resolved path so no pg pool is ever created; every statement is recorded.
+const dbCalls = [];
+let dbFailure = null;
+const DB_MODULE_PATH = path.resolve(__dirname, "../dist/lib/db.js");
+require.cache[DB_MODULE_PATH] = {
+  id: DB_MODULE_PATH,
+  filename: DB_MODULE_PATH,
+  loaded: true,
+  exports: {
+    query: async (sql, params) => {
+      dbCalls.push({ sql, params });
+      if (dbFailure) throw dbFailure;
+      if (/FROM\s+app_user/i.test(sql)) {
+        const userId = Number(params[0]);
+        return { rows: [{ user_id: userId, external_id: `ext-${userId}`, email: null, role: "user" }] };
+      }
+      return { rows: [] };
+    },
+    transaction: async () => {
+      throw new Error("transactions are not expected in image proxy tests");
+    },
+  },
+};
+
 const imageProxy = require("../dist/lib/image-proxy");
 const blobStorage = require("../dist/lib/blob-storage");
 require("../dist/functions/images");
@@ -58,6 +86,7 @@ after(() => {
   for (const id of Object.keys(mockModules)) {
     delete require.cache[id];
   }
+  delete require.cache[DB_MODULE_PATH];
   globalThis.fetch = originalFetch;
 });
 
@@ -129,12 +158,13 @@ function signV3Id(url, key, { owner, expiresAt, ownerToken, expToken }) {
   ].join(".");
 }
 
-function fakeRequest(id, url) {
+function fakeRequest(id, url, headers = {}) {
+  const headerMap = new Map(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
   return {
     method: "GET",
     url: url || `http://localhost:7071/api/images/${id}`,
     params: { id },
-    headers: { get: () => null },
+    headers: { get: (name) => headerMap.get(String(name).toLowerCase()) ?? null },
   };
 }
 
@@ -142,19 +172,21 @@ function fakeContext() {
   return { log: () => {}, warn: () => {}, error: () => {} };
 }
 
-function mockBlobFetch() {
+function mockBlobFetch({ body = Buffer.from("fake-image-bytes"), headers = {} } = {}) {
   const calls = [];
   globalThis.fetch = async (url, init) => {
     calls.push({ url: String(url), init });
-    return new Response(Buffer.from("fake-image-bytes"), {
+    return new Response(body, {
       status: 200,
-      headers: { "content-type": "image/png", etag: '"etag-1"' },
+      headers: { "content-type": "image/png", etag: '"etag-1"', ...headers },
     });
   };
   return calls;
 }
 
 beforeEach(() => {
+  dbCalls.length = 0;
+  dbFailure = null;
   savedEnv = {};
   for (const key of ENV_KEYS) {
     savedEnv[key] = process.env[key];
@@ -708,5 +740,130 @@ describe("functions/images — signed id enforcement", () => {
     assert.equal(res.status, 500);
     assert.deepEqual(res.jsonBody, { error: "Failed to serve image" });
     assert.equal(calls.length, 0);
+  });
+});
+
+describe("functions/images — owner-scoped v3 ids (#227)", () => {
+  beforeEach(() => {
+    process.env.AZURE_STORAGE_CONNECTION = STORAGE_CONNECTION;
+    process.env.IMAGE_PROXY_SIGNING_KEY = TEST_KEY;
+    process.env.AUTH_DEV_BYPASS = "true";
+  });
+
+  const handler = () => registeredRoutes.images.handler;
+  const asUser = (userId) => ({ authorization: `Bearer dev:${userId}` });
+  const varyTokens = (res) =>
+    (res.headers?.get?.("Vary") || "").split(",").map((v) => v.trim().toLowerCase()).filter(Boolean);
+
+  it("serves the owner with Cache-Control: private (<=300s) and Vary: Authorization", async () => {
+    // The blob's own header must be ignored for private media.
+    const calls = mockBlobFetch({ headers: { "cache-control": "public, max-age=31536000" } });
+    const id = imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER });
+    const res = await handler()(fakeRequest(id, undefined, asUser(OWNER)), fakeContext());
+    assert.equal(res.status, 200);
+    assert.equal(Buffer.from(res.body).toString(), "fake-image-bytes");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, PRIVATE_URL);
+    const cacheControl = res.headers.get("Cache-Control");
+    assert.match(cacheControl, /^private, max-age=(\d+)$/);
+    assert.ok(Number(cacheControl.match(/max-age=(\d+)/)[1]) <= 300);
+    assert.deepEqual(varyTokens(res), ["authorization"]);
+  });
+
+  it("keeps transforms working for private images", async () => {
+    const sharp = require("sharp");
+    const png = await sharp({
+      create: { width: 32, height: 32, channels: 3, background: { r: 200, g: 20, b: 120 } },
+    }).png().toBuffer();
+    const calls = mockBlobFetch({ body: png });
+    const id = imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER });
+    const res = await handler()(
+      fakeRequest(id, `http://localhost:7071/api/images/${id}?w=16&fm=webp`, asUser(OWNER)),
+      fakeContext()
+    );
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("Content-Type"), "image/webp");
+    assert.equal(res.headers.get("Cache-Control"), "private, max-age=300");
+    assert.deepEqual(varyTokens(res), ["authorization"]);
+    assert.equal(calls.length, 1);
+  });
+
+  it("returns 401 without a token and 403 for another user, without touching storage", async () => {
+    const calls = mockBlobFetch();
+    const id = imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER });
+
+    const anonymous = await handler()(fakeRequest(id), fakeContext());
+    assert.equal(anonymous.status, 401);
+    assert.deepEqual(anonymous.jsonBody, { error: "Unauthorized" });
+
+    const malformed = await handler()(fakeRequest(id, undefined, { authorization: "Basic abc" }), fakeContext());
+    assert.equal(malformed.status, 401);
+
+    const otherUser = await handler()(fakeRequest(id, undefined, asUser(OTHER_USER)), fakeContext());
+    assert.equal(otherUser.status, 403);
+    assert.deepEqual(otherUser.jsonBody, { error: "Forbidden" });
+
+    assert.equal(calls.length, 0);
+  });
+
+  it("turns an unexpected auth failure into 401, never 500", async () => {
+    const calls = mockBlobFetch();
+    // The user lookup itself blows up (not an AuthError), e.g. the database is unreachable.
+    dbFailure = Object.assign(new Error("connection refused"), { code: "ECONNREFUSED" });
+    const id = imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER });
+    const res = await handler()(fakeRequest(id, undefined, asUser(OWNER)), fakeContext());
+    assert.equal(res.status, 401);
+    assert.deepEqual(res.jsonBody, { error: "Unauthorized" });
+    assert.equal(dbCalls.length, 1, "the failure came from the auth lookup");
+    assert.equal(calls.length, 0);
+  });
+
+  it("rejects a forged v3 id with 403 before any auth lookup", async () => {
+    const calls = mockBlobFetch();
+    const [v, u, exp, , sig] = imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER }).split(".");
+    const forged = `${v}.${u}.${exp}.${OTHER_USER.toString(36)}.${sig}`;
+    // Even without any Authorization header, a bad signature is a 403, not a 401.
+    const res = await handler()(fakeRequest(forged), fakeContext());
+    assert.equal(res.status, 403);
+    assert.deepEqual(dbCalls, []);
+    assert.equal(calls.length, 0);
+  });
+
+  it("refuses a validly signed v3 id outside USER_MEDIA_CONTAINER, even for its owner", async () => {
+    const calls = mockBlobFetch();
+    const expiresAt = Math.floor(Date.now() / 1000) + 600;
+    for (const url of [BLOB_URL, "https://swatchtest.blob.core.windows.net/connector-raw/run-1.json.gz"]) {
+      const id = signV3Id(url, TEST_KEY, { owner: OWNER, expiresAt });
+      const res = await handler()(fakeRequest(id, undefined, asUser(OWNER)), fakeContext());
+      assert.equal(res.status, 403, url);
+      assert.deepEqual(res.jsonBody, { error: "Forbidden" });
+    }
+    assert.equal(calls.length, 0);
+  });
+
+  it("honours USER_MEDIA_CONTAINER overrides for v3 reads", async () => {
+    process.env.USER_MEDIA_CONTAINER = "custom-media";
+    const calls = mockBlobFetch();
+    const customUrl = "https://swatchtest.blob.core.windows.net/custom-media/user-7/photo.png";
+    const ok = await handler()(
+      fakeRequest(imageProxy.encodeImageProxyId(customUrl, { ownerUserId: OWNER }), undefined, asUser(OWNER)),
+      fakeContext()
+    );
+    assert.equal(ok.status, 200);
+    const denied = await handler()(
+      fakeRequest(imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER }), undefined, asUser(OWNER)),
+      fakeContext()
+    );
+    assert.equal(denied.status, 403);
+    assert.deepEqual(calls.map((c) => c.url), [customUrl]);
+  });
+
+  it("public v2 ids stay anonymous: no auth lookup and no Vary: Authorization", async () => {
+    mockBlobFetch();
+    const res = await handler()(fakeRequest(imageProxy.encodeImageProxyId(BLOB_URL)), fakeContext());
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("Cache-Control"), /^public, /);
+    assert.deepEqual(varyTokens(res), []);
+    assert.deepEqual(dbCalls, []);
   });
 });
