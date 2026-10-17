@@ -3,6 +3,7 @@ import { resolveAzureOpenAiConfig } from "../../lib/azure-openai-config";
 import { extractDominantColors } from "../../lib/dominant-color";
 import { regionCropStrategy } from "./strategies/region-crop";
 import { palettePickStrategy } from "./strategies/palette-pick";
+import { IMAGE_SELECT_STRATEGIES } from "./strategies/image-select";
 import type { HexDetectionStrategy, StrategyInput, StrategyOutput } from "./types";
 
 /**
@@ -84,6 +85,7 @@ export const STRATEGIES: readonly HexDetectionStrategy[] = [
   pixelStrategy,
   regionCropStrategy,
   palettePickStrategy,
+  ...IMAGE_SELECT_STRATEGIES,
 ];
 
 export function getStrategy(name: string): HexDetectionStrategy | null {

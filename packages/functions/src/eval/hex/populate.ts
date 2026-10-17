@@ -20,7 +20,7 @@ import { normalizeHex } from "../../lib/color-match";
 import { closePool, query } from "../../lib/db";
 import { isSuspiciousHex } from "../../lib/suspicious-hex";
 import { EVAL_PATHS, loadLocalSettings } from "./env";
-import type { EvalCase, EvalFixture, GroundTruthSource } from "./types";
+import type { EvalCase, EvalCaseImageRef, EvalFixture, GroundTruthSource } from "./types";
 
 // ── Pure candidate selection ────────────────────────────────────────────────
 
@@ -35,8 +35,18 @@ export interface TrainingCandidateRow {
   vendorHex: string | null;
   primaryImageUrl: string | null;
   imageUrls: string[] | null;
+  /** `normalized_json.images` (`{url, alt, position}`) when the connector stored it. */
+  images?: unknown;
   productHandle: string | null;
   productName: string | null;
+}
+
+/** One `color_training_sample.image_urls` entry; alt/position only when known. */
+export interface TrainingSampleImage {
+  url: string;
+  is_primary: boolean;
+  alt?: string;
+  position?: number;
 }
 
 /** Row written to `color_training_sample`. */
@@ -48,7 +58,7 @@ export interface TrainingSampleInput {
   brandName: string;
   productName: string | null;
   productHandle: string | null;
-  imageUrls: Array<{ url: string; is_primary: boolean }>;
+  imageUrls: TrainingSampleImage[];
   sourceType: "vendor_option";
   notes: string;
 }
@@ -58,6 +68,23 @@ export type CandidateRejection = "invalid_hex" | "suspicious_hex" | "no_image";
 export interface CandidateSelection {
   accepted: TrainingSampleInput[];
   rejected: Array<{ row: TrainingCandidateRow; reason: CandidateRejection }>;
+}
+
+/** `{url → {alt, position}}` from a connector's `normalized.images`. */
+function imageMetadataByUrl(images: unknown): Map<string, { alt?: string; position?: number }> {
+  const byUrl = new Map<string, { alt?: string; position?: number }>();
+  if (!Array.isArray(images)) return byUrl;
+  for (const entry of images) {
+    if (!entry || typeof entry !== "object") continue;
+    const row = entry as Record<string, unknown>;
+    const url = typeof row.url === "string" ? row.url.trim() : "";
+    if (!url || byUrl.has(url)) continue;
+    const alt = typeof row.alt === "string" && row.alt.trim() ? row.alt.trim() : undefined;
+    const position =
+      typeof row.position === "number" && Number.isInteger(row.position) && row.position > 0 ? row.position : undefined;
+    byUrl.set(url, { ...(alt ? { alt } : {}), ...(position ? { position } : {}) });
+  }
+  return byUrl;
 }
 
 /** Keep candidates with a real-looking vendor hex and a public product image. Pure. */
@@ -81,6 +108,12 @@ export function selectTrainingCandidates(rows: TrainingCandidateRow[]): Candidat
       continue;
     }
     const extras = (row.imageUrls ?? []).map((url) => url.trim()).filter((url) => url && url !== primary);
+    const metadata = imageMetadataByUrl(row.images);
+    const withMetadata = (url: string, isPrimary: boolean): TrainingSampleImage => ({
+      url,
+      is_primary: isPrimary,
+      ...(metadata.get(url) ?? {}),
+    });
     accepted.push({
       dataSourceId: row.dataSourceId,
       externalProductId: row.externalProductId,
@@ -89,7 +122,7 @@ export function selectTrainingCandidates(rows: TrainingCandidateRow[]): Candidat
       brandName: row.brand,
       productName: row.productName,
       productHandle: row.productHandle,
-      imageUrls: [{ url: primary, is_primary: true }, ...extras.map((url) => ({ url, is_primary: false }))],
+      imageUrls: [withMetadata(primary, true), ...extras.map((url) => withMetadata(url, false))],
       sourceType: "vendor_option",
       notes: `shade.vendor_hex via ${row.sourceName} external_id=${row.externalId ?? "?"}`,
     });
@@ -137,6 +170,31 @@ function primaryImageUrl(imageUrls: unknown): string | null {
   return primary && typeof primary.url === "string" ? primary.url : null;
 }
 
+/**
+ * Every image on a training sample as fixture `images` (primary first), or []
+ * when there is only the primary and nothing else worth choosing between.
+ */
+export function caseImagesFromTrainingSample(imageUrls: unknown): EvalCaseImageRef[] {
+  if (!Array.isArray(imageUrls)) return [];
+  const entries = imageUrls.filter(
+    (e): e is Record<string, unknown> => !!e && typeof e === "object" && typeof (e as Record<string, unknown>).url === "string"
+  );
+  const ordered = [...entries.filter((e) => e.is_primary === true), ...entries.filter((e) => e.is_primary !== true)];
+  const seen = new Set<string>();
+  const refs: EvalCaseImageRef[] = [];
+  for (const entry of ordered) {
+    const url = String(entry.url).trim();
+    if (!/^https?:\/\//i.test(url) || seen.has(url)) continue;
+    seen.add(url);
+    const alt = typeof entry.alt === "string" && entry.alt.trim() ? entry.alt.trim() : undefined;
+    const position =
+      typeof entry.position === "number" && Number.isInteger(entry.position) && entry.position > 0 ? entry.position : undefined;
+    refs.push({ url, ...(alt ? { alt } : {}), ...(position ? { position } : {}) });
+  }
+  const hasMetadata = refs.some((ref) => ref.alt !== undefined || ref.position !== undefined);
+  return refs.length > 1 || hasMetadata ? refs : [];
+}
+
 function stripHtml(html: string | null, maxLength = 220): string | null {
   if (!html) return null;
   const text = html.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
@@ -163,6 +221,7 @@ export function trainingSampleToEvalCase(row: TrainingSampleExportRow): EvalCase
   if (!hex || !imageUrl || !brand || !shadeName) return null;
 
   const tags = asStringArray(row.tags);
+  const images = caseImagesFromTrainingSample(row.imageUrls);
   const finishes = asStringArray(row.finishes).length ? asStringArray(row.finishes) : finishesFromTags(tags);
 
   return {
@@ -174,6 +233,7 @@ export function trainingSampleToEvalCase(row: TrainingSampleExportRow): EvalCase
     groundTruthSource: SOURCE_TYPE_TO_GROUND_TRUTH[row.sourceType] ?? "manual",
     source: row.sourceName ?? "unknown",
     imageUrl,
+    ...(images.length ? { images } : {}),
     description: stripHtml(row.bodyHtml),
     tags,
     externalId: row.externalId,
@@ -281,6 +341,7 @@ export const READ_CANDIDATES_SQL = `SELECT DISTINCT ON (s.shade_id)
        CASE WHEN jsonb_typeof(ep.normalized_json -> 'imageUrls') = 'array'
             THEN ARRAY(SELECT jsonb_array_elements_text(ep.normalized_json -> 'imageUrls'))
             ELSE NULL END AS "imageUrls",
+       ep.normalized_json -> 'images' AS images,
        ep.raw_json ->> 'handle' AS "productHandle",
        ep.raw_json ->> 'title' AS "productName"
      FROM shade s

@@ -5,6 +5,7 @@ import {
   loadCatalogWithCache,
   ProductConnector,
 } from "./types";
+import { normalizeShopifyImages, type ShopifyProductImage } from "./shopify-images";
 
 const DEFAULT_BASE_URL = "https://www.holotaco.com";
 const REQUEST_TIMEOUT_MS = parseIntEnv(
@@ -41,10 +42,6 @@ interface ShopifyVariant {
   option1?: string | null;
   option2?: string | null;
   option3?: string | null;
-}
-
-interface ShopifyProductImage {
-  src?: string | null;
 }
 
 interface ShopifyProduct {
@@ -172,36 +169,6 @@ function normalizeTags(tags: unknown): string[] {
   return asStringArray(tags);
 }
 
-function normalizeImageUrls(images: unknown): string[] {
-  if (!Array.isArray(images)) {
-    return [];
-  }
-
-  const urls = images
-    .map((image) => {
-      if (typeof image === "string") {
-        return asNonEmptyString(image);
-      }
-      if (!image || typeof image !== "object") {
-        return null;
-      }
-      const row = image as ShopifyProductImage;
-      return asNonEmptyString(row.src);
-    })
-    .filter((url): url is string => Boolean(url));
-
-  return Array.from(
-    new Set(
-      urls.map((url) => {
-        if (url.startsWith("//")) {
-          return `https:${url}`;
-        }
-        return url;
-      })
-    )
-  );
-}
-
 function normalizeVariants(value: unknown): Array<Record<string, unknown>> {
   if (!Array.isArray(value)) {
     return [];
@@ -316,7 +283,8 @@ function toNormalizedRecord(
   // canonical multi-finish values are derived from `tags` at materialization time via
   // parseFinishesFromTags (lib/finishes.ts).
   const finishes = extractTaggedValues(tags, "finish:");
-  const imageUrls = normalizeImageUrls(product.images);
+  const images = normalizeShopifyImages(product.images);
+  const imageUrls = images.map((image) => image.url);
   const variants = normalizeVariants(product.variants);
   const gtin =
     variants
@@ -338,6 +306,9 @@ function toNormalizedRecord(
       finishes,
       tags,
       imageUrls,
+      // Same images as imageUrls with the Shopify alt text / position kept, so
+      // ingestion can pick the on-nail swatch for AI hex detection (lib/image-selection.ts).
+      images,
       primaryImageUrl: imageUrls[0] || null,
       productUrl: handle ? `${baseUrl}/products/${handle}` : null,
       variants,

@@ -33,12 +33,28 @@ export interface EvalCase {
   imageUrl?: string;
   /** Image path relative to the fixture file's directory. */
   imagePath?: string;
+  /**
+   * Optional: every product image with its Shopify alt text / position, for
+   * strategies that choose which photo to analyze (e.g. `image-select`).
+   * `imageUrl`/`imagePath` stays the primary image that single-image strategies see.
+   */
+  images?: EvalCaseImageRef[];
   /** Optional vendor context forwarded to the production prompt (strategy `azure-current`). */
   description?: string | null;
   tags?: string[];
   externalId?: string | null;
   /** Free-form provenance note (e.g. which photo the ground truth was measured from). */
   notes?: string | null;
+}
+
+/** One candidate product image on a case. */
+export interface EvalCaseImageRef {
+  /** Public http(s) URL. */
+  url: string;
+  /** Shopify image alt text, when the vendor set one. */
+  alt?: string;
+  /** Shopify image position (1-based), when known. */
+  position?: number;
 }
 
 export interface EvalFixture {
@@ -59,9 +75,25 @@ export interface CaseImage {
   sourceUrl: string | null;
 }
 
+/** A case's candidate image, loaded on demand (downloads go through the image cache). */
+export interface StrategyCaseImage {
+  /** Index in `evalCase.images`. */
+  index: number;
+  url: string;
+  alt: string | null;
+  position: number | null;
+  load(): Promise<CaseImage>;
+}
+
 export interface StrategyInput {
   evalCase: EvalCase;
+  /** The case's primary image (`imageUrl` / `imagePath`). */
   image: CaseImage;
+  /**
+   * Present only when the case has an `images` list. Lazy, so strategies that
+   * only read `image` never trigger extra downloads.
+   */
+  images?: StrategyCaseImage[];
 }
 
 export interface StrategyOutput {

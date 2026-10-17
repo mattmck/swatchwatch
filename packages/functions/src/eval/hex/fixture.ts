@@ -1,7 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { normalizeHex } from "../../lib/color-match";
-import type { EvalCase, EvalFixture, GroundTruthSource } from "./types";
+import type { EvalCase, EvalCaseImageRef, EvalFixture, GroundTruthSource } from "./types";
 
 export const GROUND_TRUTH_SOURCES: readonly GroundTruthSource[] = [
   "vendor_option",
@@ -31,6 +31,34 @@ function stringArray(value: unknown, label: string, field: string): string[] {
     fail(label, `${field} must be an array of strings`);
   }
   return (value as string[]).map((entry) => entry.trim()).filter(Boolean);
+}
+
+function parseImages(value: unknown, label: string): EvalCaseImageRef[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) fail(label, "images must be an array");
+  return value.map((entry, i) => {
+    const at = `images[${i}]`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) fail(label, `${at} must be an object`);
+    const row = entry as Record<string, unknown>;
+    const url = optionalString(row.url);
+    if (!url || !/^https?:\/\//i.test(url)) fail(label, `${at}.url must be an http(s) URL`);
+    if (row.alt !== undefined && row.alt !== null && typeof row.alt !== "string") {
+      fail(label, `${at}.alt must be a string`);
+    }
+    if (
+      row.position !== undefined &&
+      row.position !== null &&
+      !(typeof row.position === "number" && Number.isInteger(row.position) && row.position > 0)
+    ) {
+      fail(label, `${at}.position must be a positive integer`);
+    }
+    const alt = typeof row.alt === "string" ? row.alt.replace(/\s+/g, " ").trim() : "";
+    return {
+      url,
+      ...(alt ? { alt } : {}),
+      ...(typeof row.position === "number" ? { position: row.position } : {}),
+    };
+  });
 }
 
 function parseCase(raw: unknown, index: number): EvalCase {
@@ -69,6 +97,8 @@ function parseCase(raw: unknown, index: number): EvalCase {
     fail(label, "imagePath must be relative to the fixture directory and may not contain '..'");
   }
 
+  const images = parseImages(row.images, label);
+
   return {
     id,
     brand,
@@ -79,6 +109,7 @@ function parseCase(raw: unknown, index: number): EvalCase {
     source,
     ...(imageUrl ? { imageUrl } : {}),
     ...(imagePath ? { imagePath } : {}),
+    ...(images.length ? { images } : {}),
     description: optionalString(row.description),
     tags: stringArray(row.tags, label, "tags"),
     externalId: optionalString(row.externalId),

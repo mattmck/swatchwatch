@@ -13,7 +13,7 @@
 import path from "path";
 import { EVAL_PATHS, loadLocalSettings } from "./env";
 import { FixtureValidationError, loadFixture, type LoadedFixture } from "./fixture";
-import { loadCaseImage } from "./images";
+import { buildStrategyCaseImages, loadCaseImage } from "./images";
 import { formatReport, writeReportJson } from "./report";
 import { buildReport, scoreCase } from "./scoring";
 import { getStrategy, hasAzureOpenAiConfig, STRATEGIES, strategySkipReason } from "./strategies";
@@ -155,8 +155,10 @@ export async function runStrategy(
   for (const [index, evalCase] of cases.entries()) {
     const prefix = `[${strategy.name}] ${index + 1}/${cases.length} ${evalCase.id}`;
     try {
-      const image = await loadCaseImage(evalCase, { fixtureDir: loaded.fixtureDir, cacheDir: options.cacheDir });
-      const output = await strategy.run({ evalCase, image });
+      const imageOptions = { fixtureDir: loaded.fixtureDir, cacheDir: options.cacheDir };
+      const image = await loadCaseImage(evalCase, imageOptions);
+      const images = buildStrategyCaseImages(evalCase, imageOptions);
+      const output = await strategy.run(images.length ? { evalCase, image, images } : { evalCase, image });
       const score = scoreCase(evalCase, output);
       scores.push(score);
       log(`${prefix}: ${score.predictedHex ?? "no hex"} vs ${score.groundTruthHex} → ${score.distance ?? "-"} (${score.bucket})`);

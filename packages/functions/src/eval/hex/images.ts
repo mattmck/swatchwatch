@@ -2,7 +2,7 @@ import { createHash } from "crypto";
 import { promises as fs } from "fs";
 import path from "path";
 import sharp from "sharp";
-import type { CaseImage, EvalCase } from "./types";
+import type { CaseImage, EvalCase, StrategyCaseImage } from "./types";
 
 const FETCH_TIMEOUT_MS = 30000;
 
@@ -72,43 +72,6 @@ async function fetchBytes(url: string, fetchImpl: typeof fetch): Promise<Buffer>
   }
 }
 
-/** Resolve a case's image to bytes (local file or cached/downloaded URL). */
-export async function loadCaseImage(evalCase: EvalCase, options: LoadCaseImageOptions): Promise<CaseImage> {
-  let bytes: Buffer;
-  let sourceUrl: string | null = null;
-
-  if (evalCase.imagePath) {
-    const fixtureDir = path.resolve(options.fixtureDir);
-    const resolved = path.resolve(fixtureDir, evalCase.imagePath);
-    if (!resolved.startsWith(fixtureDir + path.sep)) {
-      throw new Error(`imagePath escapes the fixture directory: ${evalCase.imagePath}`);
-    }
-    bytes = await fs.readFile(resolved);
-  } else if (evalCase.imageUrl) {
-    sourceUrl = evalCase.imageUrl;
-    const cached = await readCached(options.cacheDir, sourceUrl);
-    if (cached) {
-      try {
-        const contentType = await detectContentType(cached);
-        return toCaseImage(cached, contentType, sourceUrl);
-      } catch {
-        // A truncated or corrupt cache entry would fail every run; drop it and refetch.
-        await evictCached(options.cacheDir, sourceUrl);
-      }
-    }
-    bytes = await fetchBytes(sourceUrl, options.fetchImpl ?? fetch);
-    // Decode before caching so undecodable bytes are never written to the cache.
-    const contentType = await detectContentType(bytes);
-    await writeCached(options.cacheDir, sourceUrl, bytes);
-    return toCaseImage(bytes, contentType, sourceUrl);
-  } else {
-    throw new Error(`Case ${evalCase.id} has neither imageUrl nor imagePath`);
-  }
-
-  const contentType = await detectContentType(bytes);
-  return toCaseImage(bytes, contentType, sourceUrl);
-}
-
 function toCaseImage(bytes: Buffer, contentType: string, sourceUrl: string | null): CaseImage {
   return {
     bytes,
@@ -116,4 +79,60 @@ function toCaseImage(bytes: Buffer, contentType: string, sourceUrl: string | nul
     dataUri: `data:${contentType};base64,${bytes.toString("base64")}`,
     sourceUrl,
   };
+}
+
+/** Read `url` from the cache or download it, and decode it. Shared by the case image and the lazy candidate loaders. */
+async function loadUrlImage(url: string, options: LoadCaseImageOptions): Promise<CaseImage> {
+  const cached = await readCached(options.cacheDir, url);
+  if (cached) {
+    try {
+      const contentType = await detectContentType(cached);
+      return toCaseImage(cached, contentType, url);
+    } catch {
+      // A truncated or corrupt cache entry would fail every run; drop it and refetch.
+      await evictCached(options.cacheDir, url);
+    }
+  }
+  const bytes = await fetchBytes(url, options.fetchImpl ?? fetch);
+  // Decode before caching so undecodable bytes are never written to the cache.
+  const contentType = await detectContentType(bytes);
+  await writeCached(options.cacheDir, url, bytes);
+  return toCaseImage(bytes, contentType, url);
+}
+
+/**
+ * Lazy loaders for a case's `images` list (empty when the case has none).
+ * Nothing is fetched until a strategy calls `load()`; each loader memoizes.
+ */
+export function buildStrategyCaseImages(evalCase: EvalCase, options: LoadCaseImageOptions): StrategyCaseImage[] {
+  return (evalCase.images ?? []).map((ref, index) => {
+    let pending: Promise<CaseImage> | null = null;
+    return {
+      index,
+      url: ref.url,
+      alt: ref.alt ?? null,
+      position: ref.position ?? null,
+      load: () => {
+        pending ??= loadUrlImage(ref.url, options);
+        return pending;
+      },
+    };
+  });
+}
+
+/** Resolve a case's image to bytes (local file or cached/downloaded URL). */
+export async function loadCaseImage(evalCase: EvalCase, options: LoadCaseImageOptions): Promise<CaseImage> {
+  if (evalCase.imagePath) {
+    const fixtureDir = path.resolve(options.fixtureDir);
+    const resolved = path.resolve(fixtureDir, evalCase.imagePath);
+    if (!resolved.startsWith(fixtureDir + path.sep)) {
+      throw new Error(`imagePath escapes the fixture directory: ${evalCase.imagePath}`);
+    }
+    const bytes = await fs.readFile(resolved);
+    return toCaseImage(bytes, await detectContentType(bytes), null);
+  }
+  if (evalCase.imageUrl) {
+    return loadUrlImage(evalCase.imageUrl, options);
+  }
+  throw new Error(`Case ${evalCase.id} has neither imageUrl nor imagePath`);
 }

@@ -7,6 +7,7 @@
  */
 
 import type { SupportedConnectorSource } from "./types.js";
+import { normalizeShopifyImages, type ShopifyProductImage } from "./shopify-images.js";
 import {
   ConnectorPullOptions,
   ConnectorPullResult,
@@ -56,10 +57,6 @@ interface ShopifyVariant {
   option1?: string | null;
   option2?: string | null;
   option3?: string | null;
-}
-
-interface ShopifyProductImage {
-  src?: string | null;
 }
 
 interface ShopifyProduct {
@@ -218,36 +215,6 @@ function normalizeTags(tags: unknown): string[] {
       .filter(Boolean);
   }
   return asStringArray(tags);
-}
-
-function normalizeImageUrls(images: unknown): string[] {
-  if (!Array.isArray(images)) {
-    return [];
-  }
-
-  const urls = images
-    .map((image) => {
-      if (typeof image === "string") {
-        return asNonEmptyString(image);
-      }
-      if (!image || typeof image !== "object") {
-        return null;
-      }
-      const row = image as ShopifyProductImage;
-      return asNonEmptyString(row.src);
-    })
-    .filter((url): url is string => Boolean(url));
-
-  return Array.from(
-    new Set(
-      urls.map((url) => {
-        if (url.startsWith("//")) {
-          return `https:${url}`;
-        }
-        return url;
-      })
-    )
-  );
 }
 
 function normalizeVariants(value: unknown): Array<Record<string, unknown>> {
@@ -788,7 +755,8 @@ async function toNormalizedRecord(
   const collections = extractTaggedValues(tags, "collection:");
   const finishes = extractFinishFromTags(tags);
   const tagColors = extractColorFromTags(tags);
-  const imageUrls = normalizeImageUrls(product.images);
+  const images = normalizeShopifyImages(product.images);
+  const imageUrls = images.map((image) => image.url);
   const variants = normalizeVariants(product.variants);
 
   // Extract vendor hex from variant options (stored as-is, even if suspicious)
@@ -845,6 +813,9 @@ async function toNormalizedRecord(
       tags,
       tagColors,
       imageUrls,
+      // Same images as imageUrls with the Shopify alt text / position kept, so
+      // ingestion can pick the on-nail swatch for AI hex detection (lib/image-selection.ts).
+      images,
       primaryImageUrl: imageUrls[0] || null,
       productUrl: handle ? `${baseUrl}/products/${handle}` : null,
       variants,

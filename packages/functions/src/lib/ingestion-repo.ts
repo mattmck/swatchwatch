@@ -4,6 +4,13 @@ import { SUPPORTED_SOURCES } from "./connectors/types";
 import { defaultShopifyBaseUrl } from "./connectors/shopify-generic";
 import { detectHexWithAzureOpenAI, type HexDetectionOptions } from "./ai-color-detection";
 import {
+  chooseUploadedImageForDetection,
+  parseProductImageCandidates,
+  type ProductImageCandidate,
+  type UploadedImageChoice,
+  type UploadedImageRef,
+} from "./image-selection";
+import {
   detectedHexProvenanceSetSql,
   provenanceFromDetection,
   provenanceParams,
@@ -124,6 +131,8 @@ interface HoloTacoProductNormalized {
   finish: string | null;
   primaryImageUrl: string | null;
   imageUrls: string[];
+  /** `imageUrls` with Shopify alt text / position when the connector kept them (see image-selection.ts). */
+  images: ProductImageCandidate[];
   tags: string[];
   vendorHex: string | null;
   nameHex: string | null;
@@ -254,6 +263,7 @@ function parseHoloTacoNormalized(
     finish: finishes[0] || null,
     primaryImageUrl: asString(normalized.primaryImageUrl),
     imageUrls: asStringArray(normalized.imageUrls),
+    images: parseProductImageCandidates(normalized.images, asStringArray(normalized.imageUrls)),
     tags: asStringArray(normalized.tags),
     vendorHex: asString(normalized.vendorHex),
     nameHex: asString(normalized.nameHex),
@@ -450,8 +460,8 @@ export interface UnchangedImageCandidate {
 }
 
 /**
- * External IDs whose shade already has a detected hex and already has a swatch on the exact
- * image just downloaded (same checksum). Shades are matched the same way
+ * External IDs whose shade already has a detected hex and already has a swatch (product or gallery) on the exact
+ * image chosen for detection (same checksum). Shades are matched the same way
  * materializePreparedHoloTacoRecord resolves them. A lookup failure returns an empty set:
  * skipping detection is an optimization and must never fail the job.
  */
@@ -491,7 +501,8 @@ export async function findRecordsWithUnchangedDetectedHex(
            FROM swatch s
            JOIN image_asset ia ON ia.image_id = s.image_id_original
            WHERE s.shade_id = sh.shade_id
-             AND s.swatch_type = 'source_product'
+             -- The detection image may be a gallery image (image-selection.ts).
+             AND s.swatch_type IN ('source_product', 'source_gallery')
              AND ia.owner_type = 'source'
              AND ia.owner_id = $1
              AND ia.checksum_sha256 = input.checksum_sha256
@@ -823,6 +834,23 @@ async function prepareHoloTacoImageData(
   const uploadElapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`${sourceLogPrefix} Phase 1 (parallel image upload) completed in ${uploadElapsed}s for ${records.length} records`);
 
+  // AI hex detection runs on the image most likely to show the polish on a nail
+  // (alt-text ranking, see image-selection.ts); the vendor's primary image stays
+  // the fallback and the blob upload set above is unchanged.
+  const chooseDetectionImage = (result: ImageUploadResult): UploadedImageChoice | null => {
+    const { holo, storageUrl, checksumSha256, additionalImages } = result;
+    if (!holo) return null;
+    const uploadedRefs: UploadedImageRef[] = [];
+    if (holo.primaryImageUrl && storageUrl) {
+      uploadedRefs.push({ sourceUrl: holo.primaryImageUrl, storageUrl, checksumSha256 });
+    }
+    for (const additional of additionalImages) {
+      uploadedRefs.push(additional);
+    }
+    return chooseUploadedImageForDetection(holo.images, holo.primaryImageUrl, uploadedRefs);
+  };
+  const detectionImages = new Map(uploadResults.map((result) => [result, chooseDetectionImage(result)] as const));
+
   // --- Phase 2: concurrent AI detection, sequential DB callbacks in record order ---
   const overwriteDetectedHex = options?.overwriteDetectedHex === true;
   const unchangedWithHex =
@@ -830,7 +858,9 @@ async function prepareHoloTacoImageData(
       ? await findRecordsWithUnchangedDetectedHex(
           dataSourceId,
           uploadResults.flatMap((result): UnchangedImageCandidate[] => {
-            const { holo, checksumSha256 } = result;
+            const { holo } = result;
+            // Compare against the image detection would run on, not always the primary.
+            const checksumSha256 = detectionImages.get(result)?.checksumSha256 ?? result.checksumSha256;
             if (!result.isCandidate || !holo?.name || !checksumSha256) {
               return [];
             }
@@ -891,7 +921,6 @@ async function prepareHoloTacoImageData(
     let detectedFinishes: string[] | null = null;
     let detectedHexProvenance: DetectedHexProvenance | null = null;
 
-    // AI hex detection on primary image only
     const vendorHexVerdict = holo
       ? classifySuspiciousHex(holo.vendorHex, suspiciousContext, {
           shadeName: holo.name ?? holo.colorName,
@@ -900,7 +929,26 @@ async function prepareHoloTacoImageData(
       : null;
     const shouldRunAiDetection = detectHexFromImage &&
       holo && (!detectHexOnSuspiciousOnly || vendorHexVerdict!.suspicious);
-    const imageForAi = resolveAiImageUrl(storageUrl);
+
+    const detectionImage = detectionImages.get(result) ?? null;
+    const imageForAi = resolveAiImageUrl(detectionImage?.storageUrl ?? storageUrl);
+
+    if (shouldRunAiDetection && holo && detectionImage && imageForAi) {
+      const selectionMessage = `${sourceLogPrefix} ${record.externalId} [image-selection] ${detectionImage.reason}`;
+      const selectionData = {
+        externalId: record.externalId,
+        colorName: holo.name,
+        chosenImageUrl: detectionImage.sourceUrl,
+        primaryImageUrl: holo.primaryImageUrl,
+        selectionSource: detectionImage.selection.source,
+        confident: detectionImage.selection.confident,
+        uploadFallback: detectionImage.uploadFallback,
+        candidates: holo.images.length,
+        candidatesWithAlt: holo.images.filter((image) => Boolean(image.alt)).length,
+      };
+      console.log(selectionMessage, selectionData);
+      progressLogger?.info(selectionMessage, selectionData);
+    }
 
     if (shouldRunAiDetection && holo && unchangedWithHex.has(record.externalId)) {
       // Without overwriteDetectedHex the shade write keeps the existing detected_hex, so a
