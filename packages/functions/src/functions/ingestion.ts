@@ -36,14 +36,19 @@ import {
 
 
 import {
+  AI_BATCHES_METRICS_KEY,
   CHECKPOINT_METRICS_KEY,
   CONTINUATION_QUEUED_STAGE,
   enqueueIngestionContinuation,
+  getMaxInFlightAiBatches,
   getWorkerTimeBudgetMs,
   INGESTION_JOB_QUEUE_NAME,
+  IngestionAiBatchEntry,
   IngestionCheckpoint,
   IngestionJobQueueMessage,
   IngestionJobRequest,
+  isAiBatchPending,
+  readAiBatchesFromMetrics,
   readCheckpointFromMetrics,
   RESUME_MESSAGE_METRICS_KEY,
 } from "../lib/ingestion-continuation";
@@ -669,6 +674,12 @@ export async function processIngestionJobQueueMessage(
     let hexBatchDegraded = startCheckpoint
       ? existingMetrics[HEX_BATCH_DEGRADED_METRICS_KEY] === true
       : false;
+    // Hex batches submitted so far (including by earlier invocations). Their records are
+    // already committed, so the worker keeps going and the poller applies each batch.
+    const aiBatches: IngestionAiBatchEntry[] = startCheckpoint
+      ? readAiBatchesFromMetrics(existingMetrics)
+      : [];
+    const maxInFlightAiBatches = getMaxInFlightAiBatches();
 
     // Position of the next unprocessed record; persisted after every chunk.
     let checkpoint: IngestionCheckpoint = startCheckpoint ?? {
@@ -692,6 +703,40 @@ export async function processIngestionJobQueueMessage(
       // aiBatch is per-batch state owned by the poller once submitted; never replay it.
       const { aiBatch: _aiBatch, ...materialization } = materializationMetricsAggregate ?? {};
       return { persistence: { ...persistenceMetricsAggregate }, materialization };
+    };
+
+    // Hand the job to the AI batch poller: it applies every pending batch, then enqueues
+    // `resumeMessage` (more work remains) or completes the job (null).
+    const pauseForAiBatches = async (
+      resumeMessage: IngestionJobQueueMessage | null,
+      latestAiBatch?: Record<string, unknown>
+    ): Promise<void> => {
+      stage = "awaiting_ai";
+      const pending = aiBatches.filter(isAiBatchPending);
+      const awaitingAiMetrics = {
+        ...buildCumulativeMetrics(),
+        [CHECKPOINT_METRICS_KEY]: checkpoint,
+        [WORKER_TOTALS_METRICS_KEY]: buildWorkerTotals(),
+        [AI_BATCHES_METRICS_KEY]: aiBatches,
+        // The poller enqueues this after applying the batches; absent means the job is done.
+        [RESUME_MESSAGE_METRICS_KEY]: resumeMessage ?? undefined,
+      };
+
+      logger.updateBaseMetrics(
+        withPipelineMetrics(awaitingAiMetrics, "running", stage, {
+          queuedAt: payload.queuedAt,
+          workerPausedAt: new Date().toISOString(),
+          ...(latestAiBatch ? { aiBatch: latestAiBatch } : {}),
+        })
+      );
+      logger.info(`Job ${payload.jobId} awaiting Azure OpenAI batch completion`, {
+        pendingBatches: pending.length,
+        batchIds: pending.map((entry) => entry.batchId),
+        resumeAt: resumeMessage?.checkpoint ?? null,
+      });
+
+      await updateIngestionJobMetrics(payload.jobId, logger.getMetricsWithLogs());
+      await logger.dispose();
     };
 
     const persistPageRecords = async (
@@ -842,32 +887,26 @@ export async function processIngestionJobQueueMessage(
           : null;
 
       if (aiBatch && aiBatch.status === "submitted" && typeof aiBatch.batchId === "string") {
-        stage = "awaiting_ai";
-        checkpoint = unit.checkpointAfter;
-        const awaitingAiMetrics = {
-          ...buildCumulativeMetrics(),
-          [CHECKPOINT_METRICS_KEY]: checkpoint,
-          [WORKER_TOTALS_METRICS_KEY]: buildWorkerTotals(),
-          // The poller enqueues this after applying the batch; absent means the job is done.
-          [RESUME_MESSAGE_METRICS_KEY]: unit.resumeMessage ?? undefined,
-        };
-
-        logger.updateBaseMetrics(
-          withPipelineMetrics(awaitingAiMetrics, "running", stage, {
-            queuedAt: payload.queuedAt,
-            workerPausedAt: new Date().toISOString(),
-            aiBatch,
-          })
-        );
-        logger.info(`Job ${payload.jobId} awaiting Azure OpenAI batch completion`, {
+        aiBatches.push({
+          ...aiBatch,
+          batchId: aiBatch.batchId,
+          status: "submitted",
+          overwriteDetectedHex: aiBatch.overwriteDetectedHex === true,
+        });
+        logger.updateBaseMetrics({ [AI_BATCHES_METRICS_KEY]: aiBatches });
+        logger.info(`Job ${payload.jobId} submitted Azure OpenAI batch; continuing ingestion`, {
           batchId: aiBatch.batchId,
           requestCount: aiBatch.requestCount,
-          resumeAt: unit.resumeMessage?.checkpoint ?? null,
+          pendingBatches: aiBatches.filter(isAiBatchPending).length,
         });
 
-        await updateIngestionJobMetrics(payload.jobId, logger.getMetricsWithLogs());
-        await logger.dispose();
-        return true;
+        // Pause only when the job would exceed its enqueued-token share; the poller resumes
+        // it once the pending batches are applied. The last unit pauses at the end instead.
+        if (unit.resumeMessage && aiBatches.filter(isAiBatchPending).length >= maxInFlightAiBatches) {
+          checkpoint = unit.checkpointAfter;
+          await pauseForAiBatches(unit.resumeMessage, aiBatch);
+          return true;
+        }
       }
 
       return false;
@@ -1134,6 +1173,12 @@ export async function processIngestionJobQueueMessage(
       logger.info(`Exhaustive pull complete: ${totalRecordsProcessed} total records across ${pagesFetched} pages`, {
         capped,
       });
+    }
+
+    if (aiBatches.some(isAiBatchPending)) {
+      // Every record is committed; only detected hex is still outstanding.
+      await pauseForAiBatches(null);
+      return;
     }
 
     // Build final metrics with logs

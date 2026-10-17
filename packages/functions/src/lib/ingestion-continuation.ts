@@ -8,8 +8,8 @@ import type { SupportedConnectorSource } from "./connectors/types";
  * cannot finish in one invocation. Instead, the worker processes records until its time
  * budget is spent, persists an {@link IngestionCheckpoint}, and enqueues a continuation
  * message that carries the checkpoint. The AI batch poller does the same after it applies
- * a batch: it re-enqueues the {@link RESUME_MESSAGE_METRICS_KEY} message the worker stored
- * when it paused for `awaiting_ai`.
+ * the job's pending batches: it re-enqueues the {@link RESUME_MESSAGE_METRICS_KEY} message the
+ * worker stored when it paused for `awaiting_ai`.
  */
 
 const AZURE_STORAGE_CONNECTION_SETTING = "AzureWebJobsStorage";
@@ -26,13 +26,79 @@ export const CHECKPOINT_METRICS_KEY = "checkpoint";
 
 /**
  * Key in `ingestion_job.metrics_json` holding the {@link IngestionJobQueueMessage} to
- * enqueue once an Azure OpenAI batch has been applied. Absent when the paused page was
- * the last unit of work, in which case the poller completes the job.
+ * enqueue once the job's pending Azure OpenAI batches have been applied. Absent when no work
+ * remains, in which case the poller completes the job.
  */
 export const RESUME_MESSAGE_METRICS_KEY = "resumeMessage";
 
 /** Pipeline stage set immediately before a continuation message is enqueued. */
 export const CONTINUATION_QUEUED_STAGE = "continuation_queued";
+
+/**
+ * Key in `ingestion_job.metrics_json` listing every Azure OpenAI hex batch submitted for the
+ * job ({@link IngestionAiBatchEntry}). Records are committed before their batch is submitted
+ * (the batch only fills in detected hex), so the worker keeps ingesting while batches run and
+ * the poller applies each one as it completes. The job finishes once none are pending.
+ */
+export const AI_BATCHES_METRICS_KEY = "aiBatches";
+
+const DEFAULT_MAX_IN_FLIGHT_AI_BATCHES = 20;
+
+/** One submitted hex detection batch; `status` mirrors the Azure OpenAI batch status. */
+export interface IngestionAiBatchEntry extends Record<string, unknown> {
+  batchId: string;
+  status: string;
+  overwriteDetectedHex: boolean;
+  requestCount?: number;
+  /** Deployment the batch was submitted to; stamped on applied detections as `detected_hex_model`. */
+  deployment?: string | null;
+  /** `PROMPT_VERSION` the batch requests were built with (`detected_hex_prompt_version`). */
+  promptVersion?: string | null;
+}
+
+/** Statuses after which a batch needs no more polling. */
+const TERMINAL_AI_BATCH_STATUSES = new Set(["completed", "failed", "expired", "cancelled"]);
+
+export function isAiBatchPending(entry: IngestionAiBatchEntry): boolean {
+  return !TERMINAL_AI_BATCH_STATUSES.has(entry.status);
+}
+
+/** Parse the job's batch list, dropping malformed entries. */
+export function readAiBatchesFromMetrics(
+  metrics: Record<string, unknown> | undefined | null
+): IngestionAiBatchEntry[] {
+  const raw = metrics?.[AI_BATCHES_METRICS_KEY];
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw.flatMap((value): IngestionAiBatchEntry[] => {
+    if (!isRecord(value) || typeof value.batchId !== "string" || !value.batchId.trim()) {
+      return [];
+    }
+    return [
+      {
+        ...value,
+        batchId: value.batchId.trim(),
+        status: typeof value.status === "string" ? value.status : "submitted",
+        overwriteDetectedHex: value.overwriteDetectedHex === true,
+      },
+    ];
+  });
+}
+
+/**
+ * Cap on batches a job may have pending at once. Each batch enqueues its prompt tokens
+ * against the batch deployment's enqueued-token quota; at ~3K tokens per image and 50
+ * images per batch, 20 batches stay well under a 5M-token quota. Once a job reaches the cap
+ * the worker pauses for `awaiting_ai` and the poller resumes it when they have completed.
+ */
+export function getMaxInFlightAiBatches(): number {
+  const parsed = Number.parseInt(process.env.HEX_DETECTION_BATCH_MAX_IN_FLIGHT || "", 10);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_MAX_IN_FLIGHT_AI_BATCHES;
+  }
+  return Math.min(100, Math.max(1, parsed));
+}
 
 export interface IngestionJobRequest {
   source: SupportedConnectorSource;
