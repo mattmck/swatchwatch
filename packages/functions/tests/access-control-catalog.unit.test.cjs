@@ -1,8 +1,9 @@
 /**
  * Shared-catalog access control (issue #47, findings F1 + F2).
  *
- *  F1: user input may only FILL an empty `shade.finishes`; it never rewrites a shared shade
- *      (exception: the caller's own `user_submitted` shade).
+ *  F1 (+ #224 decision 1b): user finishes and colors reach the catalog only when the request
+ *      CREATES the shade; adopting, matching or updating a shared shade never writes it, not even
+ *      to fill an empty value (exception: the caller's own `user_submitted` shade).
  *  F2: shades created through the user API are `user_submitted` + `created_by_user_id`, and are
  *      visible only to their creator / users holding them in inventory.
  *
@@ -30,6 +31,8 @@ const CATALOG_SHADE = 100; // active, finishes ['creme']
 const EMPTY_FINISH_SHADE = 101; // active, finishes []
 const A_PRIVATE_SHADE = 200; // user_submitted by A
 const B_PRIVATE_SHADE = 300; // user_submitted by B
+const A_MERGED_SHADE = 201; // user_submitted by A, retired by an admin merge into CATALOG_SHADE
+const B_REJECTED_SHADE = 301; // user_submitted by B, rejected by an admin (stays private)
 
 let sqlCalls = [];
 let state;
@@ -49,6 +52,12 @@ function resetState() {
         mk(EMPTY_FINISH_SHADE, 1, "Blank Blue", "creme", [], "active", null),
         { ...mk(A_PRIVATE_SHADE, 1, "A Secret", "creme", ["creme"], "user_submitted", USER_A), vendorHex: "#111111" },
         mk(B_PRIVATE_SHADE, 1, "B Secret", "creme", ["glitter"], "user_submitted", USER_B),
+        {
+          ...mk(A_MERGED_SHADE, 1, "Catalog Redd", "creme", ["creme"], "user_submitted", USER_A),
+          reviewStatus: "merged",
+          mergedInto: CATALOG_SHADE,
+        },
+        { ...mk(B_REJECTED_SHADE, 1, "B Rejected", "creme", ["creme"], "user_submitted", USER_B), reviewStatus: "rejected" },
       ].map((s) => [s.id, s])
     ),
     inventory: new Set(), // `${userId}:${shadeId}`
@@ -63,6 +72,15 @@ function visibleTo(shade, userId) {
     state.inventory.has(`${userId}:${shade.id}`)
   );
 }
+
+/**
+ * True when the SQL excludes shades retired by an admin merge (`merged_into_shade_id IS NULL`);
+ * the fake hides retired shades only then, so dropping the guard visibly leaks them.
+ */
+function hasMergedGuard(sql) {
+  return /merged_into_shade_id\s+IS\s+NULL/i.test(sql);
+}
+const isRetired = (shade) => shade.mergedInto != null;
 
 /**
  * True only if the SQL carries the real visibility predicate — `status <> 'user_submitted'` plus a
@@ -124,10 +142,16 @@ async function fakeQuery(via, sql, params = []) {
       (s) => s.brandId === brandId && s.name === name && (s.finish || "") === (finish || "")
     );
     if (hasVisibilityGuard(text, params, userId)) matches = matches.filter((s) => visibleTo(s, Number(userId)));
-    matches.sort((a, b) => Number(a.status === "user_submitted") - Number(b.status === "user_submitted") || a.id - b.id);
+    matches.sort(
+      (a, b) =>
+        Number(a.status === "user_submitted") - Number(b.status === "user_submitted") ||
+        Number(isRetired(a)) - Number(isRetired(b)) ||
+        a.id - b.id
+    );
     const rows = matches.slice(0, 1).map((s) => ({
       shade_id: s.id,
-      own_submitted: s.status === "user_submitted" && s.createdBy === Number(userId),
+      own_submitted: s.status === "user_submitted" && s.createdBy === Number(userId) && !isRetired(s),
+      merged_into_shade_id: s.mergedInto ?? null,
     }));
     return { rows, rowCount: rows.length };
   }
@@ -137,6 +161,7 @@ async function fakeQuery(via, sql, params = []) {
     const shade = state.shades.get(Number(params[0]));
     const userId = Number(params[1]);
     if (!shade || (hasVisibilityGuard(text, params, userId) && !visibleTo(shade, userId))) return { rows: [], rowCount: 0 };
+    if (hasMergedGuard(text) && isRetired(shade)) return { rows: [], rowCount: 0 };
     return {
       rows: [{
         ownSubmitted: shade.status === "user_submitted" && shade.createdBy === userId,
@@ -178,12 +203,13 @@ async function fakeQuery(via, sql, params = []) {
     shade.finishes = isAppend ? [...new Set([...shade.finishes, ...params[1]])] : [...params[1]];
     return { rows: [], rowCount: 1 };
   }
-  // Color write: fill-only, unless the owner-override guard ($6) is bound to true.
+  // Color write. Honors whichever COALESCE order the SQL uses: `COALESCE($3, vendor_hex)`
+  // replaces, `COALESCE(vendor_hex, $3)` only fills NULL.
   if (/^\s*UPDATE\s+shade\b/i.test(text) && /\bvendor_hex\s*=/i.test(text)) {
     const shade = state.shades.get(Number(params[0]));
     if (!shade) return { rows: [], rowCount: 0 };
-    const override = /CASE\s+WHEN\s+\$6/i.test(text) && params[5] === true;
-    if (params[2] != null && (override || shade.vendorHex == null)) shade.vendorHex = params[2];
+    const replaces = /vendor_hex\s*=\s*COALESCE\(\s*\$3\s*,\s*vendor_hex\s*\)/i.test(text);
+    if (params[2] != null && (replaces || shade.vendorHex == null)) shade.vendorHex = params[2];
     return { rows: [], rowCount: 1 };
   }
   if (/^\s*UPDATE\s+shade\b/i.test(text)) return { rows: [], rowCount: 1 };
@@ -200,6 +226,7 @@ async function fakeQuery(via, sql, params = []) {
     const idParam = text.match(/\bs\.shade_id\s*=\s*\$(\d+)/i);
     if (idParam) shades = shades.filter((s) => s.id === Number(params[Number(idParam[1]) - 1]));
     if (hasVisibilityGuard(text, params, userId)) shades = shades.filter((s) => visibleTo(s, userId));
+    if (hasMergedGuard(text)) shades = shades.filter((s) => !isRetired(s));
     if (/ui\.inventory_item_id\s+IS\s+NOT\s+NULL/i.test(text) && /COALESCE\(ui\.quantity/i.test(text)) {
       shades = shades.filter((s) => state.inventory.has(`${userId}:${s.id}`));
     }
@@ -330,7 +357,7 @@ afterEach(() => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// F1 — finishes on shared shades are fill-only
+// F1 — user requests never write finishes on existing shared shades (#224 decision 1b)
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("F1 — user input cannot rewrite finishes on shared catalog shades", () => {
@@ -374,24 +401,42 @@ describe("F1 — user input cannot rewrite finishes on shared catalog shades", (
     assert.deepEqual(state.shades.get(CATALOG_SHADE).finishes, ["creme"]);
   });
 
-  it("every finishes write from a non-owner is guarded to fill an EMPTY array only", async () => {
-    await put(USER_B, CATALOG_SHADE, evil);
-    await post(USER_B, { shadeId: String(CATALOG_SHADE), ...evil });
-    await post(USER_B, { brand: "Acme", name: "Catalog Red", finish: "creme", ...evil });
-    const finishWrites = calls().filter((c) => /^\s*UPDATE\s+shade\b/i.test(c.sql) && /\bfinishes\s*=/i.test(c.sql));
-    for (const w of finishWrites) {
-      assert.match(w.sql, /cardinality\(COALESCE\(finishes,\s*ARRAY\[\]::text\[\]\)\)\s*=\s*0/i, w.sql);
-      assert.doesNotMatch(w.sql, /\bfinish\s*=/i, "shade.finish (dedup key) must not be written");
-    }
+  it("no request from a non-owner issues any UPDATE against a shared shade", async () => {
+    const colors = { color: "Defaced", vendorHex: "#000000", detectedHex: "#000000", nameHex: "#000000" };
+    assert.equal((await put(USER_B, CATALOG_SHADE, { ...evil, ...colors })).status, 200);
+    assert.equal((await post(USER_B, { shadeId: String(CATALOG_SHADE), ...evil, ...colors })).status, 201);
+    assert.equal(
+      (await post(USER_B, { brand: "Acme", name: "Catalog Red", finish: "creme", ...evil, ...colors })).status,
+      201
+    );
+    assert.equal(
+      (await put(USER_B, CATALOG_SHADE, { brand: "Acme", name: "Catalog Red", finish: "creme", ...evil, ...colors })).status,
+      200
+    );
+    const shadeWrites = calls().filter((c) => /^\s*UPDATE\s+shade\b/i.test(c.sql));
+    assert.deepEqual(shadeWrites.map((c) => c.sql), [], "shared shades are read-only for users");
+    assert.equal(shadeInserts().length, 0, "matching an existing shade must not create one");
+    assert.ok(state.inventory.has(`${USER_B}:${CATALOG_SHADE}`), "the caller's inventory row is still written");
   });
 
-  it("fills an EMPTY finishes array (PUT and POST adopt)", async () => {
+  it("does not fill an EMPTY finishes array on a shared shade (PUT, POST adopt, POST brand+name)", async () => {
     await put(USER_B, EMPTY_FINISH_SHADE, { finishes: ["glitter"], quantity: 1 });
-    assert.deepEqual(state.shades.get(EMPTY_FINISH_SHADE).finishes, ["glitter"]);
+    assert.deepEqual(state.shades.get(EMPTY_FINISH_SHADE).finishes, []);
 
-    state.shades.get(EMPTY_FINISH_SHADE).finishes = [];
     await post(USER_B, { shadeId: String(EMPTY_FINISH_SHADE), finishes: ["matte"], quantity: 1 });
-    assert.deepEqual(state.shades.get(EMPTY_FINISH_SHADE).finishes, ["matte"]);
+    assert.deepEqual(state.shades.get(EMPTY_FINISH_SHADE).finishes, []);
+
+    await post(USER_B, { brand: "Acme", name: "Blank Blue", finish: "creme", finishes: ["matte"], quantity: 1 });
+    assert.deepEqual(state.shades.get(EMPTY_FINISH_SHADE).finishes, []);
+    assert.equal(shadeInserts().length, 0);
+  });
+
+  it("does not fill NULL color fields on a shared shade (PUT, POST adopt, POST brand+name)", async () => {
+    await put(USER_B, EMPTY_FINISH_SHADE, { vendorHex: "#123456", quantity: 1 });
+    await post(USER_B, { shadeId: String(EMPTY_FINISH_SHADE), vendorHex: "#123456", quantity: 1 });
+    await post(USER_B, { brand: "Acme", name: "Blank Blue", finish: "creme", vendorHex: "#123456", quantity: 1 });
+    assert.equal(state.shades.get(EMPTY_FINISH_SHADE).vendorHex, undefined);
+    assert.equal(calls().filter((c) => /^\s*UPDATE\s+shade\b/i.test(c.sql)).length, 0);
   });
 
   it("the creator may replace finishes on their own user_submitted shade", async () => {
@@ -403,11 +448,28 @@ describe("F1 — user input cannot rewrite finishes on shared catalog shades", (
     assert.deepEqual(state.shades.get(A_PRIVATE_SHADE).finishes, ["matte"]);
   });
 
-  it("finishes sent while creating a brand-new shade are stored on that new shade", async () => {
-    const res = await post(USER_B, { brand: "Acme", name: "Brand New", finishes: ["matte"], quantity: 1 });
+  it("finishes and colors sent while creating a brand-new shade are stored on that new shade", async () => {
+    const res = await post(USER_B, {
+      brand: "Acme", name: "Brand New", finishes: ["matte"], color: "Teal", vendorHex: "#00aaaa", quantity: 1,
+    });
     assert.equal(res.status, 201);
     const [insert] = shadeInserts();
     assert.deepEqual(insert.params.at(-1), ["matte"]);
+    assert.ok(insert.params.includes("Teal"), "color_name is written on create");
+    assert.ok(insert.params.includes("#00aaaa"), "vendor_hex is written on create");
+  });
+
+  it("PUT that renames to a brand-new brand+name creates the shade with the request's finishes and colors", async () => {
+    const res = await put(USER_B, CATALOG_SHADE, {
+      brand: "Acme", name: "Renamed Fresh", finishes: ["glitter"], vendorHex: "#abcdef", quantity: 1,
+    });
+    assert.equal(res.status, 200);
+    const [insert] = shadeInserts();
+    assert.ok(insert, "a new shade is created");
+    assert.deepEqual(insert.params.at(-1), ["glitter"]);
+    assert.ok(insert.params.includes("#abcdef"));
+    assert.deepEqual(state.shades.get(CATALOG_SHADE).finishes, ["creme"], "the original shared shade is untouched");
+    assert.equal(state.shades.get(CATALOG_SHADE).vendorHex, "#aa0000");
   });
 });
 
@@ -462,7 +524,10 @@ describe("F2 — user-submitted shades are private until approved", () => {
     assert.equal((await getDetail(USER_A, B_PRIVATE_SHADE)).status, 404);
     const list = await getList(USER_A);
     assert.ok(!list.jsonBody.polishes.some((p) => p.id === String(B_PRIVATE_SHADE)));
-    assert.equal(list.jsonBody.total, [...state.shades.values()].filter((s) => s.status !== "user_submitted" || s.createdBy === USER_A).length);
+    assert.equal(
+      list.jsonBody.total,
+      [...state.shades.values()].filter((s) => !isRetired(s) && (s.status !== "user_submitted" || s.createdBy === USER_A)).length
+    );
   });
 
   it("a user who holds a private shade in inventory can still see it", async () => {
@@ -518,20 +583,20 @@ describe("F2 — user-submitted shades are private until approved", () => {
 describe("edits to the caller's own submitted shade", () => {
   beforeEach(resetState);
 
-  it("an owner's color correction replaces the stored value (shared shades stay fill-only)", async () => {
+  it("an owner's color correction replaces the stored value (shared shades are never written)", async () => {
     const own = await put(USER_A, A_PRIVATE_SHADE, { vendorHex: "#222222", detectedHex: "#333333" });
     assert.ok(own.status < 400, `owner update failed: ${own.status}`);
     assert.equal(state.shades.get(A_PRIVATE_SHADE).vendorHex, "#222222");
     // A client-provided detected_hex records its provenance (#255) whenever it changes the value.
     const colorWrite = calls().find((c) => /^\s*UPDATE\s+shade\b/i.test(c.sql) && /\bdetected_hex_method\s*=/i.test(c.sql));
     assert.ok(colorWrite, "the color write must also set detected_hex_method");
-    assert.match(colorWrite.sql, /detected_hex IS NULL OR \(\$6 AND detected_hex IS DISTINCT FROM \$4\)\) THEN \$7/);
-    assert.equal(colorWrite.params[6], DETECTED_HEX_METHOD_CLIENT_SUPPLIED);
+    assert.match(colorWrite.sql, /\$4 IS NOT NULL AND detected_hex IS DISTINCT FROM \$4 THEN \$6/);
+    assert.equal(colorWrite.params[5], DETECTED_HEX_METHOD_CLIENT_SUPPLIED);
     // The AI provenance of the replaced value no longer describes the new hex, so it is cleared.
     for (const column of ["detected_hex_confidence", "detected_hex_model", "detected_hex_prompt_version"]) {
       assert.match(
         colorWrite.sql,
-        new RegExp(`${column} = CASE\\s+WHEN \\$4 IS NOT NULL AND \\(detected_hex IS NULL OR \\(\\$6 AND detected_hex IS DISTINCT FROM \\$4\\)\\) THEN NULL`),
+        new RegExp(`${column} = CASE\\s+WHEN \\$4 IS NOT NULL AND detected_hex IS DISTINCT FROM \\$4 THEN NULL`),
         `${column} must be cleared when a client-supplied detected_hex replaces the value`
       );
     }
@@ -558,5 +623,60 @@ describe("edits to the caller's own submitted shade", () => {
     assert.equal(shadeInserts().length, 0, "no new shade may be created");
     assert.equal(state.shades.size, before);
     assert.deepEqual(state.shades.get(A_PRIVATE_SHADE).finishes, ["glitter"]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Admin review queue (#45): reviewed submissions never leak to other users
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("admin review queue — rejected and merged submissions stay private", () => {
+  it("a rejected submission stays hidden from other users (list, detail, adopt by id)", async () => {
+    const list = await getList(USER_A);
+    assert.equal(list.status, 200);
+    assert.ok(!list.jsonBody.polishes.some((p) => p.id === String(B_REJECTED_SHADE)), "rejected shade leaked to another user's list");
+    assert.equal((await getDetail(USER_A, B_REJECTED_SHADE)).status, 404);
+    const adopt = await post(USER_A, { shadeId: String(B_REJECTED_SHADE) });
+    assert.equal(adopt.status, 404);
+    assert.ok(!state.inventory.has(`${USER_A}:${B_REJECTED_SHADE}`));
+  });
+
+  it("a rejected submission stays visible to its submitter", async () => {
+    assert.equal((await getDetail(USER_B, B_REJECTED_SHADE)).status, 200);
+    const list = await getList(USER_B);
+    assert.ok(list.jsonBody.polishes.some((p) => p.id === String(B_REJECTED_SHADE)));
+  });
+
+  it("brand+name matching another user's rejected submission does not link to it", async () => {
+    const res = await post(USER_A, { brand: "Acme", name: "B Rejected", finish: "creme" });
+    assert.equal(res.status, 201);
+    assert.notEqual(res.jsonBody.id, String(B_REJECTED_SHADE));
+    assert.ok(!state.inventory.has(`${USER_A}:${B_REJECTED_SHADE}`));
+  });
+
+  it("a shade retired by a merge is hidden even from its creator (list, detail, adopt by id)", async () => {
+    const list = await getList(USER_A);
+    assert.ok(!list.jsonBody.polishes.some((p) => p.id === String(A_MERGED_SHADE)), "retired shade still listed");
+    assert.equal((await getDetail(USER_A, A_MERGED_SHADE)).status, 404);
+    const adopt = await post(USER_A, { shadeId: String(A_MERGED_SHADE) });
+    assert.equal(adopt.status, 404);
+    for (const call of calls().filter((c) => /LEFT\s+JOIN\s+user_inventory_item/i.test(c.sql))) {
+      assert.match(call.sql, /merged_into_shade_id\s+IS\s+NULL/i, "polish queries must exclude retired shades");
+    }
+  });
+
+  it("the creator re-adding a merged submission by brand+name lands on the merge target", async () => {
+    const res = await post(USER_A, { brand: "Acme", name: "Catalog Redd", finish: "creme" });
+    assert.equal(res.status, 201);
+    assert.equal(shadeInserts().length, 0, "no new shade row is created");
+    assert.ok(state.inventory.has(`${USER_A}:${CATALOG_SHADE}`), "inventory row points at the merge target");
+    assert.ok(!state.inventory.has(`${USER_A}:${A_MERGED_SHADE}`));
+  });
+
+  it("another user's merged submission is never matched by brand+name", async () => {
+    const res = await post(USER_B, { brand: "Acme", name: "Catalog Redd", finish: "creme" });
+    assert.equal(res.status, 201);
+    assert.ok(!state.inventory.has(`${USER_B}:${A_MERGED_SHADE}`));
+    assert.ok(!state.inventory.has(`${USER_B}:${CATALOG_SHADE}`), "must not learn the private submission's merge target");
   });
 });

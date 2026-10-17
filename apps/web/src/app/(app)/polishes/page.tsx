@@ -4,9 +4,9 @@ import { Suspense, useState, useEffect, useMemo, useCallback, useRef } from "rea
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import type { Polish, PolishFilters } from "swatchwatch-shared";
+import type { Polish, PolishStatus, PolishUpdateRequest } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
-import { listAllPolishes, listPolishes, recalcPolishHex, updatePolish } from "@/lib/api";
+import { deletePolish, getPolishDupes, listAllPolishes, listPolishes, recalcPolishHex, updatePolish } from "@/lib/api";
 import { undertone, type Undertone } from "@/lib/color-utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -25,16 +25,50 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ArrowDown, ArrowUp, ArrowUpDown, Loader2, Sparkles } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Loader2, Sparkles, Upload } from "lucide-react";
 import { ColorDot } from "@/components/color-dot";
-import { QuantityControls } from "@/components/quantity-controls";
+import { LogManiButton } from "@/components/log-mani-button";
+import { WishlistShareCard } from "@/components/wishlist-share-card";
+import { CollectionQuickActions, type QuickActionSource } from "@/components/collection-quick-actions";
+import { StatusChip, UntriedBadge } from "@/components/status-chip";
+import { StatusFilter } from "@/components/status-filter";
+import { CollectionExportMenu } from "@/components/collection-export-menu";
 import { isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
+import {
+  applyInventoryPatch,
+  applyOptimistic,
+  collectionActionRequest,
+  commitOptimistic,
+  optimisticPolish,
+  rollbackOptimistic,
+  statusChangeEvent,
+  type CollectionAction,
+} from "@/lib/collection-actions";
+import {
+  buildPolishesListQueryString,
+  hasActiveFilters as listHasActiveFilters,
+  parsePolishesListState,
+  statusPresetFor,
+  toApiFilters,
+  type PolishesListState,
+  type SortDirection,
+  type SortKey,
+} from "@/lib/polish-list-url";
+import { trackEvent } from "@/lib/telemetry";
+import { DUPE_GRADE_META, dupeHintLabel, dupeHintTitle, dupeHref } from "@/lib/dupes";
+import { useDupeHints } from "@/hooks/use-dupe-hints";
+import { useAddGuard } from "@/hooks/use-add-guard";
+import { AddGuardDialog } from "@/components/add-guard-dialog";
+import { shadeGuardKey, wishlistInsteadUpdate, type AddGuardIntent } from "@/lib/add-guard";
 import { Pagination } from "@/components/pagination";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
 import { buildFinishOptions, knownFinishNames } from "@/lib/finish-options";
 import { FinishBadges } from "@/components/finish-badges";
+import { BuyFromBrandLink } from "@/components/buy-from-brand-link";
+import { ColorFamilyChips } from "@/components/color-family-chips";
+import { parseColorFamilyParam, serializeColorFamilies } from "@/lib/color-family-filter";
 import { buildSwatchThumbnailUrl } from "@/lib/image-url";
 import { runRecalcHexFlow } from "@/lib/recalc-hex-flow";
 import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
@@ -44,94 +78,14 @@ import { toast } from "sonner";
 
 /** Idle time after the last keystroke before the search box triggers a fetch. */
 const SEARCH_DEBOUNCE_MS = 350;
-const DEFAULT_PAGE_SIZE = 10;
-const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
-type SortKey = "status" | "brand" | "name" | "finish" | "collection";
-type SortDirection = "asc" | "desc";
-type AvailabilityFilter = "all" | "owned" | "wishlist";
-type ResultsScope = "all" | "collection";
-const SORT_KEYS: readonly SortKey[] = ["status", "brand", "name", "finish", "collection"];
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
 const HAS_B2C_CONFIG = buildMsalConfig() !== null;
 
-function parsePositiveInt(value: string | null, fallback: number): number {
-  if (!value) return fallback;
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function parseBooleanFlag(value: string | null, fallback: boolean): boolean {
-  if (!value) return fallback;
-  if (value === "1" || value === "true") return true;
-  if (value === "0" || value === "false") return false;
-  return fallback;
-}
-
-function parseSortKey(value: string | null): SortKey {
-  return SORT_KEYS.includes(value as SortKey) ? (value as SortKey) : "name";
-}
-
-function parseSortDirection(value: string | null): SortDirection {
-  return value === "desc" ? "desc" : "asc";
-}
-
-function parseToneFilter(value: string | null): Undertone | "all" {
-  return value === "warm" || value === "cool" || value === "neutral" ? value : "all";
-}
-
-function parseFinishFilter(value: string | null): string {
-  if (!value || value === "all") return "all";
-  return value;
-}
-
-function parseAvailabilityFilter(value: string | null): AvailabilityFilter {
-  return value === "owned" || value === "wishlist" ? value : "all";
-}
-
-function parseResultsScope(
-  scopeValue: string | null,
-  legacyIncludeAllValue: string | null
-): ResultsScope {
-  if (scopeValue === "collection") return "collection";
-  if (scopeValue === "all") return "all";
-  return parseBooleanFlag(legacyIncludeAllValue, true) ? "all" : "collection";
-}
-
-function parsePageSize(value: string | null): number {
-  const parsed = parsePositiveInt(value, DEFAULT_PAGE_SIZE);
-  return PAGE_SIZE_OPTIONS.includes(parsed as (typeof PAGE_SIZE_OPTIONS)[number])
-    ? parsed
-    : DEFAULT_PAGE_SIZE;
-}
-
-function toApiSortBy(sortKey: SortKey): PolishFilters["sortBy"] {
-  return sortKey;
-}
-
-type PolishesListQueryState = {
-  search: string;
-  scope: ResultsScope;
-  toneFilter: Undertone | "all";
-  finishFilter: string;
-  availabilityFilter: AvailabilityFilter;
-  sortKey: SortKey;
-  sortDirection: SortDirection;
-  page: number;
-  pageSize: number;
-};
-
-function buildPolishesListQueryString(state: PolishesListQueryState): string {
-  const params = new URLSearchParams();
-  if (state.search) params.set("q", state.search);
-  if (state.scope !== "all") params.set("scope", state.scope);
-  if (state.toneFilter !== "all") params.set("tone", state.toneFilter);
-  if (state.finishFilter !== "all") params.set("finish", state.finishFilter);
-  if (state.availabilityFilter !== "all") params.set("availability", state.availabilityFilter);
-  if (state.sortKey !== "name") params.set("sort", state.sortKey);
-  if (state.sortDirection !== "asc") params.set("dir", state.sortDirection);
-  if (state.page !== 1) params.set("page", String(state.page));
-  if (state.pageSize !== DEFAULT_PAGE_SIZE) params.set("pageSize", String(state.pageSize));
-  return params.toString();
+/** The PUT response carries no `buyUrl` (#267), so keep the one already on the row. */
+function keepBuyUrl(updated: Polish, previous: Polish): Polish {
+  return updated.buyUrl === undefined && previous.buyUrl !== undefined
+    ? { ...updated, buyUrl: previous.buyUrl }
+    : updated;
 }
 
 export default function PolishesPage() {
@@ -201,63 +155,48 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const finishOptions = useMemo(() => buildFinishOptions(finishTypes), [finishTypes]);
   const knownFinishes = useMemo(() => knownFinishNames(finishTypes), [finishTypes]);
 
-  // Filters
-  const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
-  const [scope, setScope] = useState<ResultsScope>(() =>
-    parseResultsScope(searchParams.get("scope"), searchParams.get("all"))
-  );
-  const [toneFilter, setToneFilter] = useState<Undertone | "all">(() =>
-    parseToneFilter(searchParams.get("tone"))
-  );
-  const [finishFilter, setFinishFilter] = useState<string>(() =>
-    parseFinishFilter(searchParams.get("finish"))
-  );
-  const [availabilityFilter, setAvailabilityFilter] = useState<AvailabilityFilter>(() =>
-    parseAvailabilityFilter(searchParams.get("availability") ?? searchParams.get("avail"))
-  );
-  const [sortKey, setSortKey] = useState<SortKey>(() =>
-    parseSortKey(searchParams.get("sort"))
-  );
-  const [sortDirection, setSortDirection] = useState<SortDirection>(() =>
-    parseSortDirection(searchParams.get("dir"))
-  );
+  // Filters (URL state: see lib/polish-list-url.ts; legacy scope/availability links are mapped
+  // to `status` once and the canonical URL is written back).
+  const [initialState] = useState(() => parsePolishesListState(searchParams));
+  const [search, setSearch] = useState(initialState.search);
+  const [statuses, setStatuses] = useState<PolishStatus[]>(initialState.statuses);
+  const [untried, setUntried] = useState(initialState.untried);
+  const [toneFilter, setToneFilter] = useState<Undertone | "all">(initialState.toneFilter);
+  const [finishFilter, setFinishFilter] = useState<string>(initialState.finishFilter);
+  // Canonical comma-separated color families (`red,pink`, #103); "" = no family filter.
+  const [familyFilter, setFamilyFilter] = useState<string>(initialState.familyFilter);
+  const selectedFamilies = useMemo(() => parseColorFamilyParam(familyFilter), [familyFilter]);
+  const [sortKey, setSortKey] = useState<SortKey>(initialState.sortKey);
+  const [sortDirection, setSortDirection] = useState<SortDirection>(initialState.sortDirection);
+  const statusesKey = statuses.join(",");
 
   // Pagination
-  const [page, setPage] = useState(() => parsePositiveInt(searchParams.get("page"), 1));
-  const [pageSize, setPageSize] = useState(() =>
-    parsePageSize(searchParams.get("pageSize"))
-  );
+  const [page, setPage] = useState(initialState.page);
+  const [pageSize, setPageSize] = useState(initialState.pageSize);
   const [recalcPendingById, setRecalcPendingById] = useState<
     Record<string, boolean>
   >({});
-  const [debouncedSearch, setDebouncedSearch] = useState(() => searchParams.get("q") ?? "");
+  // Rows with a status/tried request in flight (their quick actions are disabled meanwhile).
+  const [actionPendingById, setActionPendingById] = useState<Record<string, boolean>>({});
+  const [debouncedSearch, setDebouncedSearch] = useState(initialState.search);
 
   // Keep local state in sync with browser URL changes (back/forward).
   useEffect(() => {
-    const urlParams = new URLSearchParams(searchParamsString);
-    const nextSearch = urlParams.get("q") ?? "";
-    const nextScope = parseResultsScope(urlParams.get("scope"), urlParams.get("all"));
-    const nextToneFilter = parseToneFilter(urlParams.get("tone"));
-    const nextFinishFilter = parseFinishFilter(urlParams.get("finish"));
-    const nextAvailabilityFilter = parseAvailabilityFilter(
-      urlParams.get("availability") ?? urlParams.get("avail")
-    );
-    const nextSortKey = parseSortKey(urlParams.get("sort"));
-    const nextSortDirection = parseSortDirection(urlParams.get("dir"));
-    const nextPage = parsePositiveInt(urlParams.get("page"), 1);
-    const nextPageSize = parsePageSize(urlParams.get("pageSize"));
+    const next = parsePolishesListState(new URLSearchParams(searchParamsString));
 
     // The URL only ever carries the debounced search, so compare against that: comparing the
     // live input would revert characters typed between the debounce firing and the URL echo.
-    const searchChangedFromUrl = debouncedSearch !== nextSearch;
+    const searchChangedFromUrl = debouncedSearch !== next.search;
+    const statusesChangedFromUrl = statusesKey !== next.statuses.join(",");
     const filtersChangedFromUrl =
-      scope !== nextScope ||
-      toneFilter !== nextToneFilter ||
-      finishFilter !== nextFinishFilter ||
-      availabilityFilter !== nextAvailabilityFilter ||
-      sortKey !== nextSortKey ||
-      sortDirection !== nextSortDirection;
-    const paginationChangedFromUrl = page !== nextPage || pageSize !== nextPageSize;
+      statusesChangedFromUrl ||
+      untried !== next.untried ||
+      toneFilter !== next.toneFilter ||
+      finishFilter !== next.finishFilter ||
+      familyFilter !== next.familyFilter ||
+      sortKey !== next.sortKey ||
+      sortDirection !== next.sortDirection;
+    const paginationChangedFromUrl = page !== next.page || pageSize !== next.pageSize;
 
     if (!filtersChangedFromUrl && !paginationChangedFromUrl && !searchChangedFromUrl) {
       return;
@@ -267,18 +206,36 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     skipNextPageResetRef.current = true;
 
     if (searchChangedFromUrl) {
-      setSearch(nextSearch);
-      setDebouncedSearch(nextSearch);
+      setSearch(next.search);
+      setDebouncedSearch(next.search);
     }
-    setScope(nextScope);
-    setToneFilter(nextToneFilter);
-    setFinishFilter(nextFinishFilter);
-    setAvailabilityFilter(nextAvailabilityFilter);
-    setSortKey(nextSortKey);
-    setSortDirection(nextSortDirection);
-    setPage(nextPage);
-    setPageSize(nextPageSize);
+    if (statusesChangedFromUrl) setStatuses(next.statuses);
+    setUntried(next.untried);
+    setToneFilter(next.toneFilter);
+    setFinishFilter(next.finishFilter);
+    setFamilyFilter(next.familyFilter);
+    setSortKey(next.sortKey);
+    setSortDirection(next.sortDirection);
+    setPage(next.page);
+    setPageSize(next.pageSize);
   }, [searchParamsString]);
+
+  // Filter/sort state the API request and URL are built from (page/pageSize applied separately).
+  const listState = useMemo<PolishesListState>(
+    () => ({
+      search: debouncedSearch,
+      statuses: statusesKey ? (statusesKey.split(",") as PolishStatus[]) : [],
+      untried,
+      toneFilter,
+      finishFilter,
+      familyFilter,
+      sortKey,
+      sortDirection,
+      page: 1,
+      pageSize: 0,
+    }),
+    [debouncedSearch, statusesKey, untried, toneFilter, finishFilter, familyFilter, sortKey, sortDirection]
+  );
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -295,14 +252,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
         setLoading(true);
         setError(null);
 
-        const baseFilters: Omit<PolishFilters, "page" | "pageSize" | "tone"> = {
-          search: debouncedSearch.trim() || undefined,
-          finish: finishFilter !== "all" ? (finishFilter as PolishFilters["finish"]) : undefined,
-          scope,
-          availability: availabilityFilter,
-          sortBy: toApiSortBy(sortKey),
-          sortOrder: sortDirection,
-        };
+        const baseFilters = toApiFilters(listState);
 
         if (toneFilter !== "all") {
           const allRows = await listAllPolishes(baseFilters);
@@ -352,17 +302,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [
-    availabilityFilter,
-    debouncedSearch,
-    finishFilter,
-    page,
-    pageSize,
-    scope,
-    sortDirection,
-    sortKey,
-    toneFilter,
-  ]);
+  }, [listState, page, pageSize, toneFilter]);
 
   // Reset page when filters change (but keep initial URL-restored page).
   useEffect(() => {
@@ -375,32 +315,11 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       return;
     }
     setPage(1);
-  }, [debouncedSearch, scope, toneFilter, finishFilter, availabilityFilter, sortKey, sortDirection]);
+  }, [debouncedSearch, statusesKey, untried, toneFilter, finishFilter, familyFilter, sortKey, sortDirection]);
 
   const queryString = useMemo(
-    () =>
-      buildPolishesListQueryString({
-        search: debouncedSearch,
-        scope,
-        toneFilter,
-        finishFilter,
-        availabilityFilter,
-        sortKey,
-        sortDirection,
-        page,
-        pageSize,
-      }),
-    [
-      debouncedSearch,
-      scope,
-      toneFilter,
-      finishFilter,
-      availabilityFilter,
-      sortKey,
-      sortDirection,
-      page,
-      pageSize,
-    ]
+    () => buildPolishesListQueryString({ ...listState, page, pageSize }),
+    [listState, page, pageSize]
   );
   const returnToHref = queryString ? `${pathname}?${queryString}` : pathname;
 
@@ -413,23 +332,9 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, {
       scroll: false,
     });
-  }, [
-    availabilityFilter,
-    finishFilter,
-    page,
-    pageSize,
-    pathname,
-    queryString,
-    router,
-    searchParamsString,
-  ]);
+  }, [pathname, queryString, router, searchParamsString]);
 
-  const hasActiveFilters =
-    search.trim().length > 0 ||
-    scope !== "all" ||
-    toneFilter !== "all" ||
-    finishFilter !== "all" ||
-    availabilityFilter !== "all";
+  const hasActiveFilters = listHasActiveFilters({ search, statuses, untried, toneFilter, finishFilter, familyFilter });
 
   const handleSort = useCallback((key: SortKey) => {
     if (sortKey === key) {
@@ -455,6 +360,10 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
 
   const totalPages = Math.ceil(total / pageSize);
   const pageItems = polishes;
+  // Dupe hints (#265) for catalog and wishlist rows: one batch request per page, not per row.
+  const dupeHints = useDupeHints(pageItems);
+  // Add guard (#266): adding a not-owned shade shows its owned near-dupes first.
+  const { guardAdd, active: activeGuard, choose: chooseGuard, isChecking: isGuardChecking } = useAddGuard();
   const columnCount = 9 + (isAdmin ? 1 : 0);
 
   useEffect(() => {
@@ -467,28 +376,145 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     }
   }, [page, totalPages]);
 
-  // Optimistic quantity update
+  // Optimistic inventory update (stepper, add guard). Rollback only touches the row if no newer
+  // change replaced it (see lib/collection-actions.ts).
+  const applyInventoryChange = useCallback(
+    (original: Polish, change: Pick<PolishUpdateRequest, "quantity" | "status">) => {
+      const polishId = original.id;
+      const optimistic = applyInventoryPatch(original, change);
+      setPolishes((prev) => applyOptimistic(prev, polishId, optimistic));
+
+      updatePolish(polishId, change)
+        .then((updated) => {
+          setPolishes((prev) => commitOptimistic(prev, polishId, optimistic, keepBuyUrl(updated, original)));
+          if (change.status !== undefined && change.status !== original.status) {
+            trackEvent("collection.status_changed", statusChangeEvent(original.status, change.status, "stepper"));
+          }
+        })
+        .catch(() => {
+          setPolishes((prev) => rollbackOptimistic(prev, polishId, optimistic, original));
+          toast.error(`Couldn’t update ${original.brand} ${original.name}`);
+        });
+    },
+    []
+  );
+
   const handleQuantityChange = useCallback(
     (polishId: string, delta: number) => {
       const original = polishes.find((p) => p.id === polishId);
       if (!original) return;
 
-      const change = quantityChangeUpdate(original, delta);
-      setPolishes((prev) =>
-        prev.map((p) => (p.id === polishId ? { ...p, ...change } : p))
-      );
-
-      updatePolish(polishId, change)
-        .then((updated) => {
-          setPolishes((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-        })
-        .catch(() => {
-          setPolishes((prev) =>
-            prev.map((p) => (p.id === polishId ? original : p))
-          );
+      if (delta > 0 && !isOwnedPolish(original)) {
+        void guardAdd({
+          guardKey: shadeGuardKey(original.id),
+          shadeLabel: `${original.brand} ${original.name}`,
+          status: original.status,
+          intent: "own",
+          surface: "polishes-list",
+          hint: dupeHints[original.id],
+          loadDupes: () => getPolishDupes(original.id),
+          proceed: (intent) => {
+            if (intent === "wishlist") {
+              applyInventoryChange(original, wishlistInsteadUpdate());
+              toast.success("Added to wishlist", {
+                description: `${original.brand} ${original.name} is on your wishlist.`,
+              });
+              return;
+            }
+            applyInventoryChange(original, quantityChangeUpdate(original, delta));
+          },
         });
+        return;
+      }
+
+      applyInventoryChange(original, quantityChangeUpdate(original, delta));
     },
-    [polishes]
+    [polishes, dupeHints, guardAdd, applyInventoryChange]
+  );
+
+  // Optimistic status / tried-date quick actions with rollback on error.
+  const runCollectionAction = useCallback(
+    (original: Polish, action: CollectionAction, source: QuickActionSource) => {
+      const polishId = original.id;
+      const request = collectionActionRequest(original, action);
+      if (!request) return;
+
+      const optimistic = optimisticPolish(original, action);
+      setPolishes((prev) => applyOptimistic(prev, polishId, optimistic));
+      setActionPendingById((prev) => ({ ...prev, [polishId]: true }));
+
+      const settle = () =>
+        setActionPendingById((prev) => {
+          const next = { ...prev };
+          delete next[polishId];
+          return next;
+        });
+
+      const send: Promise<Polish> =
+        request.method === "delete"
+          ? deletePolish(polishId).then(() => optimistic)
+          : updatePolish(polishId, request.body);
+
+      send
+        .then((updated) => {
+          setPolishes((prev) => commitOptimistic(prev, polishId, optimistic, keepBuyUrl(updated, original)));
+          if (action.kind === "set-tried") {
+            trackEvent("collection.tried_changed", { tried: action.date !== null, via: source });
+          } else {
+            trackEvent(
+              "collection.status_changed",
+              statusChangeEvent(original.status, optimistic.status ?? null, source)
+            );
+          }
+        })
+        .catch((err: unknown) => {
+          setPolishes((prev) => rollbackOptimistic(prev, polishId, optimistic, original));
+          const reason = err instanceof Error && err.message ? `: ${err.message}` : "";
+          toast.error(`Couldn’t update ${original.brand} ${original.name}${reason}`);
+        })
+        .finally(settle);
+    },
+    []
+  );
+
+  const handleCollectionAction = useCallback(
+    (polishId: string, action: CollectionAction, source: QuickActionSource) => {
+      const original = polishes.find((p) => p.id === polishId);
+      if (!original || actionPendingById[polishId]) return;
+
+      // Add guard (#266): "✓ Own" / "♡ wishlist" on a shade the caller does not own yet shows its
+      // owned near-dupes first, like the stepper's Add.
+      const intent: AddGuardIntent | null =
+        action.kind === "set-status" && !isOwnedPolish(original) && action.status !== original.status
+          ? action.status === "owned"
+            ? "own"
+            : action.status === "wishlist"
+              ? "wishlist"
+              : null
+          : null;
+      if (!intent) {
+        runCollectionAction(original, action, source);
+        return;
+      }
+
+      void guardAdd({
+        guardKey: shadeGuardKey(original.id),
+        shadeLabel: `${original.brand} ${original.name}`,
+        status: original.status,
+        intent,
+        surface: "polishes-list",
+        hint: dupeHints[original.id],
+        loadDupes: () => getPolishDupes(original.id),
+        proceed: (finalIntent) => {
+          runCollectionAction(
+            original,
+            finalIntent === "wishlist" ? { kind: "set-status", status: "wishlist" } : action,
+            source
+          );
+        },
+      });
+    },
+    [actionPendingById, polishes, dupeHints, guardAdd, runCollectionAction]
   );
 
   const handleRecalcHex = useCallback(async (polishId: string) => {
@@ -522,9 +548,18 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
             {total} polishes &middot; {polishes.length} shown
           </p>
         </div>
-        <Button asChild>
-          <Link href="/polishes/new">+ Add Polish</Link>
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <CollectionExportMenu />
+          <Button asChild variant="outline">
+            <Link href="/polishes/import">
+              <Upload aria-hidden="true" />
+              Import
+            </Link>
+          </Button>
+          <Button asChild>
+            <Link href="/polishes/new">+ Add Polish</Link>
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -536,22 +571,12 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
           className="max-w-xs"
         />
 
-        <div className="flex rounded-lg border bg-muted p-1">
-          <Button
-            variant={scope === "all" ? "default" : "ghost"}
-            size="sm"
-            onClick={() => setScope("all")}
-          >
-            All
-          </Button>
-          <Button
-            variant={scope === "collection" ? "default" : "ghost"}
-            size="sm"
-            onClick={() => setScope("collection")}
-          >
-            My Collection
-          </Button>
-        </div>
+        <StatusFilter
+          statuses={statuses}
+          untried={untried}
+          onStatusesChange={setStatuses}
+          onUntriedChange={setUntried}
+        />
 
         <div className="flex flex-wrap items-center gap-2">
           <Select value={toneFilter} onValueChange={(v) => setToneFilter(v as Undertone | "all")}>
@@ -580,42 +605,33 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
             </SelectContent>
           </Select>
 
-          <Select
-            value={availabilityFilter}
-            onValueChange={(v) => setAvailabilityFilter(v as "all" | "owned" | "wishlist")}
-          >
-            <SelectTrigger className="h-8 w-[170px]">
-              <SelectValue placeholder="Availability" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Items</SelectItem>
-              <SelectItem value="owned">In Collection</SelectItem>
-              <SelectItem value="wishlist">Wishlist</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
 
-        {(search ||
-          scope !== "all" ||
-          toneFilter !== "all" ||
-          finishFilter !== "all" ||
-          availabilityFilter !== "all") && (
+        {hasActiveFilters && (
           <Button
             variant="ghost"
             size="sm"
             className="text-brand-purple hover:bg-brand-pink-light/30"
             onClick={() => {
               setSearch("");
-              setScope("all");
+              setStatuses([]);
+              setUntried(false);
               setToneFilter("all");
               setFinishFilter("all");
-              setAvailabilityFilter("all");
+              setFamilyFilter("");
             }}
           >
             Clear filters
           </Button>
         )}
       </div>
+
+      <ColorFamilyChips
+        value={selectedFamilies}
+        onChange={(next) => setFamilyFilter(serializeColorFamilies(next))}
+      />
+      {/* Opt-in public wishlist link (#268); hidden unless the server flag is on. */}
+      {statusPresetFor(statuses) === "wishlist" && <WishlistShareCard />}
 
       {/* Table */}
       <div
@@ -631,10 +647,10 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
         <Table>
           <TableHeader className="sticky top-0 z-10">
             <TableRow className="glass border-b border-border/60">
-              <TableHead className="w-10" aria-sort={getAriaSort("status")}>
+              <TableHead className="w-28" aria-sort={getAriaSort("status")}>
                 <button
                   type="button"
-                  className="flex w-full items-center justify-center gap-1 text-xs font-medium"
+                  className="flex items-center gap-1 text-xs font-medium"
                   onClick={() => handleSort("status")}
                   aria-label="Sort by status"
                 >
@@ -692,7 +708,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
               {isAdmin && (
                 <TableHead className="w-28 text-right">Recalc Hex</TableHead>
               )}
-              <TableHead className="w-28 text-right">Action</TableHead>
+              <TableHead className="w-40 text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -709,17 +725,20 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
               </TableRow>
             ) : (
               pageItems.map((polish) => {
-                const owned = isOwnedPolish(polish);
                 const recalcPending = recalcPendingById[polish.id] === true;
+                const owned = isOwnedPolish(polish);
+                const dupeHint = owned ? undefined : dupeHints[polish.id];
+                const dupeLabel = dupeHintLabel(dupeHint);
                 return (
                   <TableRow
                     key={polish.id}
                     className="transition-colors hover:bg-brand-pink-light/20"
                   >
-                    <TableCell className="text-center text-lg">
-                      <span aria-label={owned ? "In collection" : "Not in collection"}>
-                        {owned ? "\u2714\uFE0F" : "\u2795"}
-                      </span>
+                    <TableCell>
+                      <div className="flex flex-wrap items-center gap-1">
+                        <StatusChip status={polish.status} />
+                        {polish.isUntried && <UntriedBadge />}
+                      </div>
                     </TableCell>
                     <TableCell>
                       {polish.swatchImageUrl ? (
@@ -752,6 +771,23 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                       >
                         {polish.name}
                       </Link>
+                      <BuyFromBrandLink
+                        url={polish.buyUrl}
+                        brand={polish.brand}
+                        name={polish.name}
+                        className="mt-0.5 flex w-fit"
+                      />
+                      {dupeLabel && dupeHint?.best && (
+                        <Link
+                          href={dupeHref(dupeHint.best, returnToHref)}
+                          title={dupeHintTitle(dupeHint) ?? undefined}
+                          aria-label={dupeHintTitle(dupeHint) ?? dupeLabel}
+                          className={`ml-2 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 align-middle text-[10px] font-medium leading-none ${DUPE_GRADE_META[dupeHint.best.grade].badgeClassName}`}
+                        >
+                          <ColorDot hex={dupeHint.best.displayHex} size="sm" className="h-2.5 w-2.5" />
+                          {dupeLabel}
+                        </Link>
+                      )}
                     </TableCell>
                     <TableCell>
                       <ColorDot
@@ -797,13 +833,17 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                       </TableCell>
                     )}
                     <TableCell className="text-right">
-                      <QuantityControls
-                        owned={owned}
-                        quantity={polish.quantity ?? 0}
-                        onIncrement={() => handleQuantityChange(polish.id, 1)}
-                        onDecrement={() => handleQuantityChange(polish.id, -1)}
-                        onAdd={() => handleQuantityChange(polish.id, 1)}
-                      />
+                      <div className="flex items-center justify-end gap-1">
+                        {owned && <LogManiButton polish={polish} variant="icon" />}
+                        <CollectionQuickActions
+                          polish={polish}
+                          pending={
+                            actionPendingById[polish.id] === true || isGuardChecking(shadeGuardKey(polish.id))
+                          }
+                          onAction={(action, source) => handleCollectionAction(polish.id, action, source)}
+                          onQuantityChange={(delta) => handleQuantityChange(polish.id, delta)}
+                        />
+                      </div>
                     </TableCell>
                   </TableRow>
                 );
@@ -812,6 +852,8 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
           </TableBody>
         </Table>
       </div>
+
+      <AddGuardDialog guard={activeGuard} onChoice={chooseGuard} returnTo={returnToHref} />
 
       {/* Pagination */}
       <Pagination

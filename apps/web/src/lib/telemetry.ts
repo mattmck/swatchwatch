@@ -91,17 +91,34 @@ export function redactImageProxyIds(value: string): string {
   return value.replace(IMAGE_PROXY_ID, "$1[redacted]");
 }
 
+// Shareable-wishlist tokens (#268) are read capabilities too: the API path
+// `/api/wishlist/{token}` and the public page's `?token=` query parameter.
+const WISHLIST_API_TOKEN = /(\/api\/wishlist\/)[^/?#\s"']+/g;
+const TOKEN_QUERY_PARAM = /([?&]token=)[^&#\s"']+/g;
+
+export function redactWishlistTokens(value: string): string {
+  return value.replace(WISHLIST_API_TOKEN, "$1[redacted]").replace(TOKEN_QUERY_PARAM, "$1[redacted]");
+}
+
+/** Redacts every capability (image proxy ids, wishlist share tokens) in a string. */
+export function redactCapabilities(value: string): string {
+  return redactWishlistTokens(redactImageProxyIds(value));
+}
+
 function redactStrings(record: unknown): void {
   if (!record || typeof record !== "object") return;
   const fields = record as Record<string, unknown>;
   for (const [key, value] of Object.entries(fields)) {
     if (typeof value === "string") {
-      fields[key] = redactImageProxyIds(value);
+      fields[key] = redactCapabilities(value);
     }
   }
 }
 
-/** Telemetry initializer: redacts image-proxy ids in dependency, page view and custom fields. */
+/**
+ * Telemetry initializer: redacts image-proxy ids and wishlist share tokens in dependency, page
+ * view and custom fields.
+ */
 export function redactImageUrlsInitializer(item: ITelemetryItem): boolean {
   redactStrings(item.baseData);
   redactStrings(item.baseData?.properties);

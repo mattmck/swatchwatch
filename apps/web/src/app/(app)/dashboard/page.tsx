@@ -4,8 +4,9 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
-import { listAllPolishes } from "@/lib/api";
-import { isOwnedPolish } from "@/lib/inventory-status";
+import { listAllPolishes, listPolishes } from "@/lib/api";
+import { isOwnedPolish, summarizeCollection } from "@/lib/inventory-status";
+import { trackEvent } from "@/lib/telemetry";
 import {
   Card,
   CardContent,
@@ -21,7 +22,7 @@ import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
 import type { LucideIcon } from "lucide-react";
-import { Building2, Droplets, Sparkles, Star } from "lucide-react";
+import { Building2, Droplets, FlaskConical, Heart, Sparkles, Star } from "lucide-react";
 
 type StatCard = {
   key: string;
@@ -32,11 +33,16 @@ type StatCard = {
   icon: LucideIcon;
   accent: string;
   valueClassName?: string;
+  /** Optional link to the matching filtered table. */
+  href?: string;
+  /** Accessible name for the link (defaults to the label). */
+  linkLabel?: string;
 };
 
 export default function DashboardPage() {
   const { finishTypes } = useReferenceData();
   const [polishes, setPolishes] = useState<Polish[]>([]);
+  const [wishlistTotal, setWishlistTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,12 +53,26 @@ export default function DashboardPage() {
         setError(null);
         // Owned rows only: the dashboard never needs the shared catalog, and the
         // catalog is orders of magnitude larger than any user's collection.
-        const response = await listAllPolishes({
-          availability: "owned",
-          sortBy: "createdAt",
-          sortOrder: "desc",
+        // The wishlist count is the list `total` of a one-row page: no client-side over-fetch.
+        const [response, wishlistPage] = await Promise.all([
+          listAllPolishes({
+            status: ["owned"],
+            sortBy: "createdAt",
+            sortOrder: "desc",
+          }),
+          listPolishes({ status: ["wishlist"], page: 1, pageSize: 1 }),
+        ]);
+        const owned = response.filter(isOwnedPolish);
+        setPolishes(owned);
+        setWishlistTotal(wishlistPage.total);
+        // Sprint 1 success metric: how much of the collection carries status/tried data.
+        const summary = summarizeCollection(owned, wishlistPage.total);
+        trackEvent("collection.summary", {
+          owned: summary.owned,
+          untried: summary.untried,
+          untriedPercent: summary.untriedPercent,
+          wishlist: summary.wishlist,
         });
-        setPolishes(response.filter(isOwnedPolish));
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Failed to load dashboard data");
       } finally {
@@ -69,6 +89,7 @@ export default function DashboardPage() {
   }
 
   const totalPolishes = polishes.length;
+  const summary = summarizeCollection(polishes, wishlistTotal);
   const uniqueBrands = new Set(polishes.map((p) => p.brand)).size;
   const avgRating =
     totalPolishes > 0
@@ -128,6 +149,33 @@ export default function DashboardPage() {
       icon: Sparkles,
       accent: "from-brand-purple via-brand-lilac to-brand-pink-soft",
     },
+    {
+      key: "wishlist",
+      label: "Wishlist",
+      value: summary.wishlist.toLocaleString(),
+      subText: summary.wishlist === 1 ? "Shade you want next" : "Shades you want next",
+      icon: Heart,
+      accent: "from-brand-pink via-brand-pink-soft to-brand-lilac",
+      href: "/polishes?status=wishlist",
+      linkLabel: `Wishlist: ${summary.wishlist.toLocaleString()} polishes. View wishlist`,
+    },
+    {
+      key: "untried",
+      label: "Untried",
+      value: summary.untriedPercent === null ? "—" : String(summary.untriedPercent),
+      suffix: summary.untriedPercent === null ? undefined : "%",
+      subText:
+        summary.untriedPercent === null
+          ? "Own a polish to track what you've tried"
+          : `${summary.untried.toLocaleString()} of ${summary.owned.toLocaleString()} owned never tried`,
+      icon: FlaskConical,
+      accent: "from-brand-lilac via-brand-purple to-brand-pink-soft",
+      href: "/polishes?status=owned&untried=1",
+      linkLabel:
+        summary.untriedPercent === null
+          ? "Untried polishes"
+          : `Untried: ${summary.untriedPercent}% of owned (${summary.untried} polishes). View untried polishes`,
+    },
   ];
 
   return (
@@ -145,11 +193,14 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats row */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {statCards.map((card) => (
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {statCards.map((card) => {
+          const tile = (
           <Card
             key={card.key}
-            className="relative overflow-hidden border border-brand-purple/20 bg-card/95 shadow-[0_20px_45px_rgba(66,16,126,0.12)] backdrop-blur-xl"
+            className={`relative h-full overflow-hidden border border-brand-purple/20 bg-card/95 shadow-[0_20px_45px_rgba(66,16,126,0.12)] backdrop-blur-xl ${
+              card.href ? "transition-shadow group-hover:shadow-[0_24px_50px_rgba(66,16,126,0.2)]" : ""
+            }`}
           >
             <span
               aria-hidden
@@ -181,11 +232,24 @@ export default function DashboardPage() {
                 </p>
               </div>
               <div className="flex size-12 items-center justify-center rounded-xl bg-gradient-brand-soft text-white shadow-glow-brand">
-                <card.icon className="size-5" />
+                <card.icon className="size-5" aria-hidden="true" />
               </div>
             </CardContent>
           </Card>
-        ))}
+          );
+          return card.href ? (
+            <Link
+              key={card.key}
+              href={card.href}
+              aria-label={card.linkLabel ?? card.label}
+              className="group block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              {tile}
+            </Link>
+          ) : (
+            tile
+          );
+        })}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
