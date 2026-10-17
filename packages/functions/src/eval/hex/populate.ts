@@ -9,7 +9,7 @@
  *   npm run eval:hex:populate --workspace=swatchwatch-functions -- --export-only --status approved
  *
  * Needs Postgres (PG* vars, loaded from local.settings.json when present) and
- * migration 025. Candidate shades are matched to their latest external_product
+ * migration 20261017033500000_add-color-training-sample.sql. Candidate shades are matched to their latest external_product
  * row (same brand + shade name) so the fixture can reference the vendor's
  * public product image rather than a private blob.
  */
