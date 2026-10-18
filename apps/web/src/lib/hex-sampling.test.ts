@@ -10,6 +10,7 @@ import {
   normalizeHexInput,
   planUndo,
   readableTextColor,
+  sampleWindowBounds,
   rgbToHexString,
   stepSampleSize,
   toSamplePoint,
@@ -25,6 +26,23 @@ function image(width: number, height: number, pixel: (x: number, y: number) => [
   }
   return data;
 }
+
+describe("sampleWindowBounds", () => {
+  it("centres the window and clamps it to the image edges", () => {
+    assert.deepEqual(sampleWindowBounds(50, 50, 61, 200, 200), { x0: 20, y0: 20, x1: 80, y1: 80 });
+    // Near the top-left corner a 61×61 window is clipped to the pixels that exist.
+    assert.deepEqual(sampleWindowBounds(5, 10, 61, 200, 200), { x0: 0, y0: 0, x1: 35, y1: 40 });
+    assert.deepEqual(sampleWindowBounds(199, 110, 61, 200, 120), { x0: 169, y0: 80, x1: 199, y1: 119 });
+    assert.equal(sampleWindowBounds(10, 300, 5, 200, 120), null, "a centre far outside the image misses it");
+    assert.equal(sampleWindowBounds(5, 5, 3, 0, 10), null);
+  });
+
+  it("matches the pixels averageRegion counts at an edge", () => {
+    const data = image(20, 20, () => [10, 20, 30, 255]);
+    const b = sampleWindowBounds(2, 2, 15, 20, 20)!;
+    assert.equal(averageRegion(data, 20, 20, 2, 2, 15)?.count, (b.x1 - b.x0 + 1) * (b.y1 - b.y0 + 1));
+  });
+});
 
 describe("loupeRadiusFor", () => {
   it("keeps the minimum radius for small windows", () => {
