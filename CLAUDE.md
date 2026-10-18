@@ -256,6 +256,7 @@ Documentation files in this project:
 - `docs/schema.sql` — canonical Postgres DDL (pg_trgm, pgvector, all tables + indexes)
 - `docs/seed_data_sources.sql` — idempotent seed data for external sources (OpenBeautyFacts, CosIng, etc.)
 - `docs/mvp-backlog.md` — epics, capabilities, stories, and milestone timeline
+- `docs/decisions-2026-10.md` — decision log (D1–D22) for the M2 batch: product rules, observability, release, follow-up tickets
 - `docs/azure-iac-bom.md` — per-environment Azure resource bill of materials
 - `apps/web/README.md` — web app routes, components, conventions
 - `packages/functions/README.md` — API routes, handler patterns
