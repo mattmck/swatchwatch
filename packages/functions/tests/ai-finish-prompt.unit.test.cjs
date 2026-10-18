@@ -50,7 +50,11 @@ const {
 } = require("../dist/lib/finishes");
 const {
   buildHexDetectionRequestPayload,
+  buildProductTextContext,
   detectHexWithAzureOpenAI,
+  PRODUCT_TEXT_CONTEXT_LABEL,
+  PROMPT_PRODUCT_DESCRIPTION_MAX_CHARS,
+  PROMPT_PRODUCT_DESCRIPTORS_MAX,
   PROMPT_VERSION,
 } = require("../dist/lib/ai-color-detection");
 const { submitVisionHexBatch } = require("../dist/lib/azure-openai-batch");
@@ -142,7 +146,98 @@ describe("vision hex/finish prompt — buildHexDetectionRequestPayload", () => {
   });
 
   it("uses a bumped prompt version", () => {
-    assert.equal(PROMPT_VERSION, "vision-direct/2026-10-v2");
+    assert.equal(PROMPT_VERSION, "vision-direct/2026-10-v3");
+  });
+});
+
+// #352: vendor description + descriptors are sent as a separate, labeled hint for finishes.
+function productTextPart(payload) {
+  const user = payload.messages.find((m) => m.role === "user");
+  const part = user.content.find((p) => p.type === "text" && p.text.startsWith(PRODUCT_TEXT_CONTEXT_LABEL));
+  return part ? JSON.parse(part.text.slice(PRODUCT_TEXT_CONTEXT_LABEL.length)) : null;
+}
+
+describe("vision hex/finish prompt — vendor product text (#352)", () => {
+  const vendorContext = {
+    shadeName: "Nebula",
+    descriptionText: "A linear holo with gold shimmer.",
+    descriptors: ["Nail Polish", "Linear Holo", "nail polish"],
+  };
+
+  it("includes the description and descriptors in a labeled block before the image (normal and safe prompts)", () => {
+    for (const safePrompt of [false, true]) {
+      const payload = buildHexDetectionRequestPayload("https://img.example/a.jpg", { vendorContext }, safePrompt);
+      assert.deepEqual(productTextPart(payload), {
+        description: "A linear holo with gold shimmer.",
+        descriptors: ["Nail Polish", "Linear Holo"],
+      });
+      const user = payload.messages.find((m) => m.role === "user");
+      const labelIndex = user.content.findIndex((p) => p.text?.startsWith(PRODUCT_TEXT_CONTEXT_LABEL));
+      const imageIndex = user.content.findIndex((p) => p.type === "image_url");
+      assert.ok(labelIndex > 0 && labelIndex < imageIndex);
+    }
+    assert.match(PRODUCT_TEXT_CONTEXT_LABEL, /may be inaccurate/);
+    assert.match(PRODUCT_TEXT_CONTEXT_LABEL, /never use it for the color/);
+  });
+
+  it("truncates the description and caps the descriptors", () => {
+    const payload = buildHexDetectionRequestPayload("https://img.example/a.jpg", {
+      vendorContext: {
+        descriptionText: "holo ".repeat(1000),
+        descriptors: Array.from({ length: 80 }, (_, i) => `descriptor ${i}`),
+      },
+    });
+    const text = productTextPart(payload);
+    assert.ok(text.description.length <= PROMPT_PRODUCT_DESCRIPTION_MAX_CHARS, `length ${text.description.length}`);
+    assert.ok(text.description.endsWith("…"));
+    assert.equal(text.descriptors.length, PROMPT_PRODUCT_DESCRIPTORS_MAX);
+    assert.equal(PROMPT_PRODUCT_DESCRIPTION_MAX_CHARS, 600);
+    assert.equal(PROMPT_PRODUCT_DESCRIPTORS_MAX, 30);
+  });
+
+  it("omits the block when there is no product text", () => {
+    const payload = buildHexDetectionRequestPayload("https://img.example/a.jpg", { vendorContext: { shadeName: "X" } });
+    assert.equal(productTextPart(payload), null);
+    assert.equal(buildProductTextContext({ descriptionText: "  ", descriptors: [] }), null);
+    assert.equal(buildProductTextContext(undefined), null);
+  });
+
+  it("the sync path sends it and stamps the bumped prompt version", async () => {
+    const bodies = [];
+    global.fetch = async (_url, init) => {
+      bodies.push(JSON.parse(init.body));
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: '{"hex":"#112233","confidence":0.9,"finishes":["holographic"]}' } }] }),
+        { status: 200 }
+      );
+    };
+    const result = await detectHexWithAzureOpenAI("https://img.example/a.jpg", { onLog: () => {}, vendorContext });
+    assert.equal(productTextPart(bodies[0]).description, "A linear holo with gold shimmer.");
+    assert.equal(result.promptVersion, "vision-direct/2026-10-v3");
+  });
+
+  it("the batch path builds the same request body and records the same prompt version", async () => {
+    let uploadedJsonl;
+    global.fetch = async (url, init) => {
+      if (url.includes("/openai/files")) {
+        uploadedJsonl = await init.body.get("file").text();
+        return { ok: true, status: 200, text: async () => JSON.stringify({ id: "file-1" }) };
+      }
+      return { ok: true, status: 200, text: async () => JSON.stringify({ id: "batch-1" }) };
+    };
+    const finishCatalog = await loadFinishCatalog();
+    const result = await submitVisionHexBatch([
+      { customId: "a", imageUrlOrDataUri: "https://img.example/a.jpg", vendorContext },
+    ]);
+    assert.equal(result.promptVersion, PROMPT_VERSION);
+    const [line] = uploadedJsonl.trim().split("\n").map((l) => JSON.parse(l));
+    const { model, ...body } = line.body;
+    assert.equal(model, "hex-deploy");
+    assert.deepEqual(
+      body,
+      buildHexDetectionRequestPayload("https://img.example/a.jpg", { vendorContext, finishCatalog }, false)
+    );
+    assert.equal(productTextPart(line.body).descriptors.length, 2);
   });
 });
 

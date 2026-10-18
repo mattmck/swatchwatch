@@ -74,6 +74,7 @@ mockDistModule("db.js", {
 // ---------------------------------------------------------------------------
 
 let detectCalls;
+let detectContexts = [];
 let inFlightDetections;
 let maxInFlightDetections;
 
@@ -81,6 +82,7 @@ mockDistModule("ai-color-detection.js", {
   detectHexWithAzureOpenAI: async (_imageUrl, options) => {
     const shadeName = options.vendorContext.shadeName;
     detectCalls.push(shadeName);
+    detectContexts.push(options.vendorContext);
     inFlightDetections += 1;
     maxInFlightDetections = Math.max(maxInFlightDetections, inFlightDetections);
     // Earlier records answer slowest, so commit order can't just follow completion order.
@@ -158,6 +160,7 @@ describe("materializeHoloTacoRecords hex detection", () => {
     transactionCount = 0;
     failTransactionAt = null;
     detectCalls = [];
+    detectContexts = [];
     inFlightDetections = 0;
     maxInFlightDetections = 0;
     loadedImageUrls = [];
@@ -251,6 +254,22 @@ describe("materializeHoloTacoRecords hex detection", () => {
     assert.equal(lookupCalls.length, 0);
     assert.equal(detectCalls.length, 0);
   });
+
+  it("forwards the stored description and descriptors (#352) to the vision prompt", async () => {
+    const withText = record(0);
+    withText.normalized.collections = ["Space"];
+    withText.normalized.descriptionText = "A linear holo with gold shimmer.";
+    withText.normalized.descriptors = ["Nail Polish", "Linear Holo"];
+
+    await materializeHoloTacoRecords(1, 7, [withText], { detectHexFromImage: true });
+
+    assert.equal(detectContexts.length, 1);
+    const context = detectContexts[0];
+    assert.equal(context.descriptionText, "A linear holo with gold shimmer.");
+    assert.deepEqual(context.descriptors, ["Nail Polish", "Linear Holo"]);
+    assert.equal(context.description, undefined, "the collection is no longer sent as the description");
+    assert.equal(context.vendorJson.collection, "Space");
+  });
 });
 
 describe("materializeHoloTacoRecords hex snapping (HEX_DETECTION_SNAP_ENABLED)", () => {
@@ -267,6 +286,7 @@ describe("materializeHoloTacoRecords hex snapping (HEX_DETECTION_SNAP_ENABLED)",
     transactionCount = 0;
     failTransactionAt = null;
     detectCalls = [];
+    detectContexts = [];
     inFlightDetections = 0;
     maxInFlightDetections = 0;
     loadedImageUrls = [];

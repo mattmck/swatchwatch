@@ -153,6 +153,9 @@ interface HoloTacoProductNormalized {
   vendorHex: string | null;
   nameHex: string | null;
   colorName: string | null;
+  /** Vendor description / descriptors (#352), forwarded to the vision prompt as a finish hint. */
+  descriptionText: string | null;
+  descriptors: string[];
 }
 
 /** A source image stored in blob storage, keyed by the connector URL it was downloaded from. */
@@ -286,6 +289,23 @@ function parseHoloTacoNormalized(
     vendorHex: asString(normalized.vendorHex),
     nameHex: asString(normalized.nameHex),
     colorName: asString(normalized.colorName),
+    ...readProductText(normalized),
+  };
+}
+
+/** Vision-prompt vendor context for an ingested product (same for the sync and batch paths). */
+function holoTacoVendorContext(holo: HoloTacoProductNormalized): HexDetectionOptions["vendorContext"] {
+  return {
+    shadeName: holo.name,
+    vendorHex: holo.vendorHex,
+    tags: holo.tags,
+    vendorJson: {
+      finish: holo.finish,
+      colorName: holo.colorName,
+      collection: holo.collection,
+    },
+    descriptionText: holo.descriptionText,
+    descriptors: holo.descriptors,
   };
 }
 
@@ -1051,16 +1071,7 @@ async function prepareHoloTacoImageData(
         queuedBatchRequests.push({
           customId: record.externalId,
           imageUrlOrDataUri: imageForAi,
-          vendorContext: {
-            shadeName: holo.name!,
-            vendorHex: holo.vendorHex,
-            description: holo.collection,
-            tags: holo.tags,
-            vendorJson: {
-              finish: holo.finish,
-              colorName: holo.colorName,
-            },
-          },
+          vendorContext: holoTacoVendorContext(holo),
         });
         metrics.batchRequestsQueued += 1;
         const queuedMessage = `${sourceLogPrefix} ${record.externalId} [ai-color-detection] Queued for batch submission`;
@@ -1096,16 +1107,7 @@ async function prepareHoloTacoImageData(
                 progressLogger?.warn(withRecord, data);
               }
             },
-            vendorContext: {
-              shadeName: holo.name!,
-              vendorHex: holo.vendorHex,
-              description: holo.collection,
-              tags: holo.tags,
-              vendorJson: {
-                finish: holo.finish,
-                colorName: holo.colorName,
-              },
-            },
+            vendorContext: holoTacoVendorContext(holo),
           });
           // Post-processing (HEX_DETECTION_SNAP_ENABLED): re-read the image the model was shown
           // and replace its hex with the nearest measured palette chip. Never throws.
