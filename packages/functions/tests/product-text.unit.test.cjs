@@ -26,6 +26,17 @@ describe("lib/product-text — htmlToPlainText", () => {
     assert.equal(htmlToPlainText("<p> </p><br>"), null);
   });
 
+  it("never leaves a NUL in the output (jsonb rejects \\u0000)", () => {
+    assert.equal(htmlToPlainText("<br><br>A jelly"), "A jelly");
+    assert.equal(htmlToPlainText("<br>\n<br>A jelly"), "A jelly");
+    assert.equal(htmlToPlainText("<br><br><br>A jelly<br><br>"), "A jelly.");
+    assert.equal(htmlToPlainText("A\u0000jelly<br>holo"), "A jelly. holo");
+    assert.equal(htmlToPlainText("A\u0000jelly", undefined, { sentenceBreaks: false }), "A jelly");
+    for (const html of ["<br><br>A", "<li></li><li>B</li>", "\u0000<br>\u0000C"]) {
+      assert.ok(!htmlToPlainText(html).includes("\u0000"), JSON.stringify(html));
+    }
+  });
+
   it("strips tags, scripts, styles and comments; decodes named and numeric entities", () => {
     const text = htmlToPlainText(
       "<style>.x{color:red}</style><p>A <strong>linear&nbsp;holo</strong> with gold shimmer&#8230; it&rsquo;s &#x2018;magic&#x2019; &amp; more</p><!-- hidden --><script>alert('no')</script>"

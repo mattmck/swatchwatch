@@ -104,7 +104,9 @@ export function htmlToPlainText(
 ): string | null {
   if (typeof html !== "string" || !html) return null;
   const sentenceBreaks = options.sentenceBreaks !== false;
+  // NUL is both our block-end sentinel and a value Postgres jsonb rejects, so drop any in the input.
   let text = html
+    .replace(/\u0000/g, " ")
     .replace(/<\s*(script|style)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, " ")
     .replace(/<!--[\s\S]*?-->/g, " ")
     .replace(/<\s*(br|\/p|\/div|\/li|\/h[1-6]|\/tr|\/td)\s*\/?>/gi, sentenceBreaks ? BLOCK_END : " ")
@@ -114,13 +116,13 @@ export function htmlToPlainText(
   if (sentenceBreaks) {
     // Each run of block ends becomes one sentence break, unless the text before it already ends
     // a sentence (or there is no text before it).
-    text = text.replace(/(\S?)((?:\s*\u0000)+\s*)/g, (_match, before: string) => {
+    text = text.replace(/([^\s\u0000]?)((?:\s*\u0000)+\s*)/g, (_match, before: string) => {
       if (!before) return " ";
       return /[.!?:;]/.test(before) ? `${before} ` : `${before}. `;
     });
   }
   // Removing inline tags ("<b>jelly</b>.") leaves a space before punctuation; drop it.
-  text = text.replace(/\s+/g, " ").replace(/ ([.,!?;:])(?=\s|$)/g, "$1").trim();
+  text = text.replace(/\u0000/g, " ").replace(/\s+/g, " ").replace(/ ([.,!?;:])(?=\s|$)/g, "$1").trim();
   if (!text) return null;
   return truncateText(text, maxChars);
 }
