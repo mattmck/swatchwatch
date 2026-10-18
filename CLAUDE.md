@@ -159,7 +159,7 @@ Optional / dev-only:
 - `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` — Azure AI Document Intelligence endpoint for server-side OCR (graceful degradation when missing)
 - `AZURE_DOCUMENT_INTELLIGENCE_KEY` — Azure AI Document Intelligence subscription key
 - `AUTH_DEV_BYPASS` — enables `Bearer dev:<userId>` tokens for local dev only. Fails closed when hosted in Azure (`WEBSITE_INSTANCE_ID` or a non-loopback `WEBSITE_HOSTNAME`, see `src/lib/runtime-env.ts`); the deploy workflow always sets it to `false`
-- `IMAGE_PROXY_ID_TTL_SECONDS` — minimum lifetime of newly minted signed image ids (default `259200` = 3 days, clamped 1h–30d; keep above the AI batch completion window)
+- `IMAGE_PROXY_ID_TTL_SECONDS` — minimum lifetime of newly minted signed image ids (default `259200` = 3 days, clamped 1h–30d; keep above the AI batch completion window plus poller lag, since the batch poller re-reads the same proxy ids for the `HEX_DETECTION_SNAP_ENABLED` snap step and an expired id just keeps the raw `vision-direct` hex)
 - `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL` — optional ISO-8601 cutoff for accepting legacy non-expiring v1 image ids during rollout (unset = rejected)
 - `SHAREABLE_WISHLIST_ENABLED` — feature flag for opt-in public wishlist links (#268); default `false` (only `true` enables). Off → every wishlist-share route returns 404 `feature_disabled` and the web share card is hidden. Terraform-managed in Azure (`shareable_wishlist_enabled`, default `false`, fed by the `SHAREABLE_WISHLIST_ENABLED` GitHub variable in Deploy Infra); needs `IMAGE_PROXY_SIGNING_KEY`
 - `USER_MEDIA_CONTAINER` — blob container for private user media such as nail photos (default `nail-photos`, Terraform-provisioned); readable only through owner-scoped `v3` image ids (#227)

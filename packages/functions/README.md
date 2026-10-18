@@ -446,9 +446,12 @@ answer with `snapDetectionToImage` (`src/lib/hex-snap.ts`): the image the model 
 key and its blob read directly, any other URL is fetched), palette-pick's candidate extraction measures 8–12 chips
 from it, and the model's hex is replaced by the nearest chip in OKLAB when it is within `HEX_SNAP_MAX_DISTANCE`
 (default `0.10`). Snapped rows are written with `detected_hex_method = 'vision-snap'`; confidence, model and
-`detected_hex_prompt_version` are unchanged because the prompt is unchanged. When no chip is close enough, the
-image cannot be read or the palette is empty, the raw hex is kept as `vision-direct` and a warning is logged;
-the step never fails a detection or a batch. Call sites: the sync and batch-submit-fallback detections in
+`detected_hex_prompt_version` are unchanged because the prompt is unchanged. The raw hex is kept as
+`vision-direct` whenever the step does not snap: no chip close enough or an empty palette is an expected
+outcome and is logged at info level (`Not snapped (too_far|no_candidates)`), while an image that cannot be
+loaded (`image_unavailable`: blob read, fetch or proxy-id decode failed, including an expired id) or decoded
+(`palette_failed`) is logged as a warning and reaches the ingestion job log. The step never fails a detection or
+a batch. Call sites: the sync and batch-submit-fallback detections in
 `prepareHoloTacoImageData` (`metrics.hexSnapped`), the poller's `applyCompletedBatch` (which downloads the
 batch *input* file to map each `custom_id` to the exact image URL it was submitted with; `aiBatchApply.hexSnapped`),
 and `POST /api/polishes/{id}/recalc-hex` (response `snap: { snapped, modelHex, snapDistance }`). On the 18-case

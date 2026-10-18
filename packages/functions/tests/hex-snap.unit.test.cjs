@@ -256,7 +256,7 @@ describe("lib/hex-snap — snapDetectionToImage", () => {
     const onLog = (level, message) => level === "warn" && warnings.push(message);
 
     const failed = await snapDetectionToImage(input, async () => { throw new Error("blob gone"); }, { onLog });
-    assert.equal(failed.skipped, "palette_failed");
+    assert.equal(failed.skipped, "image_unavailable", "a loader error is an image problem, not a palette problem");
     assert.equal(failed.detection, input);
 
     const missing = await snapDetectionToImage(input, async () => null, { onLog });

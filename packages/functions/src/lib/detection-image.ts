@@ -60,13 +60,46 @@ async function fetchImageBytes(url: string, fetchImpl: typeof fetch): Promise<Bu
     if (Number.isFinite(declared) && declared > DETECTION_IMAGE_MAX_BYTES) {
       throw new Error(`Image too large: ${declared} bytes`);
     }
-    const bytes = Buffer.from(await response.arrayBuffer());
+    const bytes = await readBodyWithCap(response, DETECTION_IMAGE_MAX_BYTES, controller);
     if (bytes.length === 0) throw new Error("Image fetch returned an empty body");
-    if (bytes.length > DETECTION_IMAGE_MAX_BYTES) throw new Error(`Image too large: ${bytes.length} bytes`);
     return bytes;
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/**
+ * Read the body incrementally and abort as soon as it exceeds `maxBytes`, so a chunked or
+ * mislabeled third-party response cannot be buffered whole before the size check.
+ */
+async function readBodyWithCap(response: Response, maxBytes: number, controller: AbortController): Promise<Buffer> {
+  const body = response.body;
+  if (!body || typeof body.getReader !== "function") {
+    // Non-streaming Response implementation (tests, polyfills): fall back to one read, then check.
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length > maxBytes) throw new Error(`Image too large: ${bytes.length} bytes`);
+    return bytes;
+  }
+
+  const reader = body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        controller.abort();
+        throw new Error(`Image too large: more than ${maxBytes} bytes`);
+      }
+      chunks.push(Buffer.from(value.buffer, value.byteOffset, value.byteLength));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, total);
 }
 
 /** Bytes of the image behind `imageUrlOrDataUri` (see module docs). */

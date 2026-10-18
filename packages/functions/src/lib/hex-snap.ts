@@ -180,18 +180,30 @@ export async function snapDetectionToImage<T extends SnappableDetection>(
   }
 
   const prefix = `[hex-snap]${options?.label ? ` ${options.label}` : ""}`;
+  const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+  let bytes: Buffer | null | undefined;
+  try {
+    bytes = await loadImage();
+  } catch (error) {
+    options?.onLog?.("warn", `${prefix} Image unavailable; keeping the model hex`, {
+      modelHex: detection.hex,
+      error: describe(error),
+    });
+    return { detection, snap: null, skipped: "image_unavailable" };
+  }
+  if (!bytes || bytes.length === 0) {
+    options?.onLog?.("warn", `${prefix} Image unavailable; keeping the model hex`, { modelHex: detection.hex });
+    return { detection, snap: null, skipped: "image_unavailable" };
+  }
+
   let candidates: SnapCandidate[];
   try {
-    const bytes = await loadImage();
-    if (!bytes || bytes.length === 0) {
-      options?.onLog?.("warn", `${prefix} Image unavailable; keeping the model hex`, { modelHex: detection.hex });
-      return { detection, snap: null, skipped: "image_unavailable" };
-    }
     candidates = await extractPaletteCandidates(bytes);
   } catch (error) {
     options?.onLog?.("warn", `${prefix} Palette extraction failed; keeping the model hex`, {
       modelHex: detection.hex,
-      error: error instanceof Error ? error.message : String(error),
+      error: describe(error),
     });
     return { detection, snap: null, skipped: "palette_failed" };
   }
