@@ -3,10 +3,6 @@ name: CI
 on:
   pull_request:
     branches: [dev, main]
-    # Docs-only PRs have nothing to lint or build.
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
 
 # Jobs only check out and build; the GITHUB_TOKEN needs read access to contents.
 permissions:
@@ -16,11 +12,48 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Lint, Build and Test run in parallel; each restores the same cached
+# Docs-only PRs (only *.md files or docs/**) have nothing to lint, build or test, but
+# "Unit Tests" is a required check on dev, so the workflow must still run and report
+# it. A workflow-level paths-ignore would never report the check and block the merge;
+# instead `changes` classifies the PR and the jobs below are skipped by `if:`, which
+# GitHub counts as passing for required checks.
+#
+# Lint, Build and Test run in parallel after `changes`; each restores the same cached
 # node_modules (see .github/actions/setup-deps), so none waits on the others.
 jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+    steps:
+      - name: Classify changed files
+        id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files" --jq '.[].filename' > changed-files.txt
+          code=false
+          while IFS= read -r file; do
+            case "$file" in
+              docs/*|*.md) ;;
+              *) code=true; break ;;
+            esac
+          done < changed-files.txt
+          echo "Changed files: $(wc -l < changed-files.txt); code changes: $code"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
   lint-and-typecheck:
     name: Lint & Typecheck
+    needs: changes
+    # Run unless the PR is docs-only. If `changes` fails its output is empty, so the
+    # job still runs (fail safe: never skip checks because detection broke).
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -39,6 +72,8 @@ jobs:
 
   build:
     name: Build
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -59,6 +94,8 @@ jobs:
 
   test:
     name: Unit Tests
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
 
     steps:
