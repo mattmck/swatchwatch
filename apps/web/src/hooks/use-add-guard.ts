@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import type { PolishDupeHint, PolishDupesResponse, PolishStatus } from "swatchwatch-shared";
 import {
   ADD_GUARD_EVENTS,
+  ADD_GUARD_OUTCOMES,
   addGuardTelemetry,
   readSuppressedGuardKeys,
   resolveAddGuard,
@@ -14,6 +15,7 @@ import {
   type AddGuardSurface,
 } from "@/lib/add-guard";
 import type { DupeVerdictKind } from "@/lib/dupes";
+import { dupeSurfaceForIntent, trackDupeWarningOutcome, trackDupeWarningShown } from "@/lib/metrics-events";
 import { trackEvent } from "@/lib/telemetry";
 
 /** One add/wishlist action to guard. */
@@ -93,10 +95,11 @@ export function useAddGuard() {
       }
 
       if (outcome.kind === "warn") {
-        trackEvent(
-          ADD_GUARD_EVENTS.shown,
-          addGuardTelemetry({ ...request, response: outcome.response })
-        );
+        trackDupeWarningShown({
+          surface: dupeSurfaceForIntent(request.intent),
+          response: outcome.response,
+          details: addGuardTelemetry({ ...request, response: outcome.response }),
+        });
         setQueue((prev) => [...prev, { request, response: outcome.response, verdict: outcome.verdict }]);
         return;
       }
@@ -121,11 +124,11 @@ export function useAddGuard() {
       setQueue((prev) => (prev[0] === active ? prev.slice(1) : prev.filter((entry) => entry !== active)));
       const { request, response } = active;
       if (options.suppress) suppressGuardKey(safeSessionStorage(), request.guardKey);
-      trackEvent(ADD_GUARD_EVENTS.choice, {
-        ...addGuardTelemetry({ ...request, response }),
-        choice,
-        via: options.via,
-        suppressed: options.suppress,
+      trackDupeWarningOutcome({
+        surface: dupeSurfaceForIntent(request.intent),
+        response,
+        outcome: ADD_GUARD_OUTCOMES[choice],
+        details: { ...addGuardTelemetry({ ...request, response }), via: options.via, suppressed: options.suppress },
       });
       if (choice === "added_anyway") void request.proceed(request.intent);
       else if (choice === "wishlisted_instead") void request.proceed("wishlist");

@@ -600,15 +600,55 @@ describe("review decisions", () => {
     assert.throws(() => lib.applyDecisions(rows, [{ rowNumber: 40, action: "skip" }]), /not in this import/);
     assert.throws(() => lib.applyDecisions(rows, [{ rowNumber: 3, action: "create" }]), /only be skipped/);
   });
+
+  describe("status choices for quantity-0 rows (D5b)", () => {
+    const zeroRows = lib
+      .buildImportRows("brand,name,qty\nEssie,Wicked,0\nEssie,Ballet Slippers,2\nEssie,Bordeaux,")
+      .rows.map((row) => lib.withMatchResult(row, [hit({ nameSimilarity: 0.9, name: "Wickd" })]));
+
+    it("parses status-only decisions and validates the reason", () => {
+      assert.deepEqual(lib.parseDecisions({ decisions: [{ rowNumber: 2, statusChoice: "wishlist" }] }), [
+        { rowNumber: 2, statusChoice: "wishlist" },
+      ]);
+      assert.deepEqual(
+        lib.parseDecisions({ decisions: [{ rowNumber: 2, action: "skip", statusChoice: "archived", archiveReason: "decluttered" }] }),
+        [{ rowNumber: 2, statusChoice: "archived", archiveReason: "decluttered", action: "skip" }]
+      );
+      assert.throws(() => lib.parseDecisions({ decisions: [{ rowNumber: 2, statusChoice: "owned" }] }), /statusChoice/);
+      assert.throws(
+        () => lib.parseDecisions({ decisions: [{ rowNumber: 2, statusChoice: "wishlist", archiveReason: "used_up" }] }),
+        /archiveReason/
+      );
+      assert.throws(() => lib.parseDecisions({ decisions: [{ rowNumber: 2, archiveReason: "used_up" }] }), /archiveReason/);
+      assert.throws(() => lib.parseDecisions({ decisions: [{ rowNumber: 2 }] }), /action/);
+    });
+
+    it("sets the choice without touching the match decision; archived defaults to used_up", () => {
+      const before = zeroRows[0];
+      const applied = lib.applyDecisions(zeroRows, [{ rowNumber: 2, statusChoice: "archived" }]).rows[0];
+      assert.equal(applied.statusChoice, "archived");
+      assert.equal(applied.archiveReason, "used_up");
+      assert.equal(applied.action, before.action);
+      assert.equal(applied.shadeId, before.shadeId);
+      const wish = lib.applyDecisions(zeroRows, [{ rowNumber: 2, statusChoice: "wishlist" }]).rows[0];
+      assert.equal(wish.statusChoice, "wishlist");
+      assert.equal(wish.archiveReason, null);
+    });
+
+    it("rejects a status choice for rows whose status is already known", () => {
+      assert.throws(() => lib.applyDecisions(zeroRows, [{ rowNumber: 3, statusChoice: "wishlist" }]), /already has a status/);
+      assert.throws(() => lib.applyDecisions(zeroRows, [{ rowNumber: 4, statusChoice: "archived" }]), /already has a status/);
+    });
+  });
 });
 
 describe("buildUpsertRequest", () => {
   const NOW = new Date("2026-10-17T12:00:00Z");
   const fresh = { inCollection: false, triedAt: null };
 
-  it("defaults a new row to owned, or wishlist for quantity 0, and keeps an existing row's status", () => {
+  it("defaults a new row to owned (also with no quantity), and keeps an existing row's status", () => {
     assert.equal(lib.buildUpsertRequest({ brand: "A", name: "B", finishes: [] }, fresh, NOW).body.status, "owned");
-    assert.equal(lib.buildUpsertRequest({ brand: "A", name: "B", finishes: [], quantity: 0 }, fresh, NOW).body.status, "wishlist");
+    assert.equal(lib.buildUpsertRequest({ brand: "A", name: "B", finishes: [], quantity: 2 }, fresh, NOW).body.status, "owned");
     const existing = lib.buildUpsertRequest({ brand: "A", name: "B", finishes: [] }, { inCollection: true, triedAt: null }, NOW);
     assert.equal(existing.body.status, undefined);
     assert.equal(existing.fields.status, undefined);
@@ -617,7 +657,46 @@ describe("buildUpsertRequest", () => {
   it("omits blank cells so re-imports never clear stored values", () => {
     const { body, fields } = lib.buildUpsertRequest({ brand: "A", name: "B", finishes: [] }, { inCollection: true, triedAt: null }, NOW);
     assert.deepEqual(body, {});
-    assert.deepEqual(fields, { status: undefined, triedAt: undefined, purchasePrice: undefined, purchaseCurrency: undefined });
+    assert.deepEqual(fields, {
+      status: undefined,
+      triedAt: undefined,
+      purchasePrice: undefined,
+      purchaseCurrency: undefined,
+      archiveReason: undefined,
+      undoArchive: false,
+    });
+  });
+
+  it("quantity 0 without a status cell uses the review's status choice (D5b)", () => {
+    const values = { brand: "A", name: "B", finishes: [], quantity: 0 };
+    assert.equal(lib.rowStatusUndecided({ values }), true);
+    assert.equal(lib.rowStatusUndecided({ values, statusChoice: "wishlist" }), false);
+    assert.equal(lib.rowStatusUndecided({ values: { ...values, status: "wishlist" } }), false);
+    assert.equal(lib.rowStatusUndecided({ values: { brand: "A", name: "B", finishes: [] } }), false);
+
+    const undecided = lib.buildUpsertRequest(values, fresh, NOW);
+    assert.equal(undecided.body.status, undefined, "never guessed as wishlist");
+
+    const wish = lib.buildUpsertRequest(values, fresh, NOW, { statusChoice: "wishlist" });
+    assert.equal(wish.fields.status, "wishlist");
+    assert.equal(wish.fields.archiveReason, undefined);
+
+    const archived = lib.buildUpsertRequest(values, fresh, NOW, { statusChoice: "archived", archiveReason: "decluttered" });
+    assert.equal(archived.fields.status, "archived");
+    assert.equal(archived.fields.archiveReason, "decluttered");
+    assert.equal(
+      lib.buildUpsertRequest(values, fresh, NOW, { statusChoice: "archived" }).fields.archiveReason,
+      "used_up",
+      "default reason"
+    );
+
+    // The choice also applies to a polish already in the collection.
+    const existing = lib.buildUpsertRequest(values, { inCollection: true, triedAt: null }, NOW, { statusChoice: "archived" });
+    assert.equal(existing.fields.status, "archived");
+
+    // A status cell wins over a stale choice.
+    const explicit = lib.buildUpsertRequest({ ...values, status: "wishlist" }, fresh, NOW, { statusChoice: "archived" });
+    assert.equal(explicit.fields.status, "wishlist");
   });
 
   it("maps tried onto triedAt without overwriting an existing tried date", () => {
@@ -1051,6 +1130,43 @@ describe("POST /api/polish-imports/{id}/commit", () => {
     assert.equal(outcomes[6][0], "created");
     // Every row runs inside its own savepoint.
     assert.equal(calls.filter((c) => /^SAVEPOINT/.test(c.text)).length, 3);
+  });
+
+  it("skips quantity-0 rows until a status is chosen, then archives with the reason event (D5b)", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    queryMock = async (text, params) => authQuery(text, params) ?? { rows: [] };
+    const zero = (n) => ({ brand: "Essie", name: `Shade ${n}`, finishes: [], quantity: 0 });
+    const rows = [
+      baseRow(2, { values: zero(2) }), // undecided → skipped
+      baseRow(3, { values: zero(3) }), // decided below: archived (gave away)
+      baseRow(4, { values: zero(4) }), // decided below: wishlist
+      baseRow(5, { values: { ...zero(5), status: "wishlist" } }), // status cell → imported as-is
+    ];
+    const { client, calls, getSaved } = commitClient({ session: storedSession({ rows }) });
+    transactionMock = async (cb) => cb(client);
+    const res = await commit({
+      decisions: [
+        { rowNumber: 3, statusChoice: "archived", archiveReason: "decluttered" },
+        { rowNumber: 4, statusChoice: "wishlist" },
+      ],
+    });
+    assert.equal(res.status, 200, JSON.stringify(res.jsonBody));
+    assert.deepEqual(res.jsonBody.result, { created: 3, updated: 0, skipped: 1, failed: 0, shadesCreated: 0 });
+
+    const upserts = calls.filter((c) => /INSERT INTO user_inventory_item/.test(c.text));
+    assert.deepEqual(upserts.map((c) => [String(c.params[1]), c.params[9]]), [
+      ["103", "archived"],
+      ["104", "wishlist"],
+      ["105", "wishlist"],
+    ]);
+    const event = calls.find((c) => /INSERT INTO inventory_event/.test(c.text));
+    assert.ok(event, "the archive reason is recorded");
+    assert.deepEqual(event.params, ["inv-103", "decluttered", null]);
+
+    const saved = getSaved().payload.rows;
+    assert.deepEqual([saved[0].outcome, saved[0].outcomeMessage], ["skipped", "Quantity 0: choose wishlist or archived"]);
+    assert.equal(saved[1].statusChoice, "archived");
+    assert.equal(saved[1].archiveReason, "decluttered");
   });
 
   it("re-importing the same sheet updates instead of duplicating", async () => {

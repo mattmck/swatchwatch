@@ -20,6 +20,7 @@ import { ColorDot } from "@/components/color-dot";
 import { PhotoPickerButtons } from "@/components/photo-picker-buttons";
 import { PrivateImage } from "@/components/private-image";
 import { ApiError, createManicure, deleteManicurePhoto, updateManicure, uploadManicurePhoto } from "@/lib/api";
+import { trackManiLogged } from "@/lib/metrics-events";
 import { describeNailPhotoError, prepareNailPhotoUpload } from "@/lib/nail-photo";
 import {
   MANICURE_ROLE_LABELS,
@@ -176,6 +177,7 @@ function ManiLogFormBody({
     try {
       const request = buildManicureRequest(values);
       const written = manicure ? await updateManicure(manicure.id, request) : await createManicure(request);
+      if (!manicure) trackManiLogged({ polishCount: written.polishes.length, via: "form" });
       const { saved, error: photoFailure } = await savePhoto(written);
       toast.success(editing ? "Mani updated" : "Mani logged", {
         description: `${saved.polishes.length} polish${saved.polishes.length === 1 ? "" : "es"} · ${saved.wornOn}`,

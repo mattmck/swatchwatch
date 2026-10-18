@@ -33,3 +33,24 @@ export function isUntriedInventory(item: {
 }): boolean {
   return item.status === "owned" && !item.triedAt;
 }
+
+/**
+ * Why an owned polish left the collection (decision D5c). Sent as `archiveReason` with
+ * `status: "archived"` and stored as the `inventory_event.event_type`, distinct from the mani
+ * log's `used` events.
+ * - `used_up`     — the bottle ran out (the default when − takes the last bottle to 0)
+ * - `decluttered` — given away, sold or swapped
+ */
+export const ARCHIVE_REASONS = ["used_up", "decluttered"] as const;
+export type ArchiveReason = (typeof ARCHIVE_REASONS)[number];
+
+/** Display labels for `ArchiveReason`. */
+export const ARCHIVE_REASON_LABELS: Readonly<Record<ArchiveReason, string>> = Object.freeze({
+  used_up: "Used up",
+  decluttered: "Gave away",
+});
+
+/** True when `value` is one of `ARCHIVE_REASONS` (exact, case-sensitive). */
+export function isArchiveReason(value: unknown): value is ArchiveReason {
+  return typeof value === "string" && (ARCHIVE_REASONS as readonly string[]).includes(value);
+}

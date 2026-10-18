@@ -3,7 +3,7 @@
  * sheet into a session, the user reviews it, and `POST /api/polish-imports/{id}/commit`
  * upserts the inventory rows.
  */
-import type { PolishStatus } from "./inventory";
+import type { ArchiveReason, PolishStatus } from "./inventory";
 import type { PolishImportColumnMapping } from "../import/polish-import";
 import type { CsvDelimiter } from "../import/csv";
 
@@ -23,6 +23,9 @@ export type PolishImportMatchState = "matched" | "ambiguous" | "unmatched" | "in
  * - `skip`   — leave the row out
  */
 export type PolishImportAction = "match" | "create" | "skip" | "pending";
+
+/** Review choice for a quantity-0 row without a status cell (D5b). */
+export type PolishImportStatusChoice = "wishlist" | "archived";
 
 export interface PolishImportCandidate {
   shadeId: string;
@@ -74,6 +77,14 @@ export interface PolishImportRow {
   action: PolishImportAction;
   /** Shade the row is matched to when `action === "match"`. */
   shadeId: string | null;
+  /**
+   * Status picked in review for a row that needs one (`importRowNeedsStatus`: quantity 0 and
+   * no status cell). Collector sheets use 0 both for "want it" and "used it up", so those rows
+   * start undecided (absent / `null`) and commit skips them until the user picks (D5b).
+   */
+  statusChoice?: PolishImportStatusChoice | null;
+  /** Why the polish was archived when `statusChoice === "archived"` (default `used_up`). */
+  archiveReason?: ArchiveReason | null;
   /** Cells that were ignored (unparseable price, unknown finish, …); the row still imports. */
   warnings: string[];
   /** Reasons the row cannot be imported (`matchState === "invalid"`). */
@@ -135,11 +146,17 @@ export interface PolishImportCreateRequest {
   headerRowIndex?: number;
 }
 
-/** One review decision. `shadeId` is required for `match`. */
+/**
+ * One review decision: a match `action` (`shadeId` is required for `match`), a status choice
+ * for a row that needs one (`statusChoice`, with an optional `archiveReason` for `archived`),
+ * or both. At least one of `action` / `statusChoice` is required.
+ */
 export interface PolishImportDecision {
   rowNumber: number;
-  action: Exclude<PolishImportAction, "pending">;
+  action?: Exclude<PolishImportAction, "pending">;
   shadeId?: string;
+  statusChoice?: PolishImportStatusChoice;
+  archiveReason?: ArchiveReason;
 }
 
 /** `PATCH /api/polish-imports/{id}` and the optional body of `POST …/commit`. */

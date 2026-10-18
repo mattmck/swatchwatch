@@ -40,6 +40,14 @@ describe("indie Shopify sources pending approval (#273)", () => {
     assert.equal(isShopifySourceEnabledByDefault("DamNailPolishShopify"), true);
   });
 
+  it("enables approved sources: Night Owl Lacquer (decision D2)", () => {
+    assert.equal(SHOPIFY_SOURCES_PENDING_APPROVAL.has("NightOwlLacquerShopify"), false);
+    assert.equal(isShopifySourceEnabledByDefault("NightOwlLacquerShopify"), true);
+    const tuple = seedTuple(SEED_SQL, "NightOwlLacquerShopify");
+    assert.match(tuple, /,\s*true,\s*'\{/, "NightOwlLacquerShopify must be seeded enabled");
+    assert.doesNotMatch(tuple, /"pendingApproval"/);
+  });
+
   it("are seeded disabled, with verification notes, in docs/seed_data_sources.sql", () => {
     for (const source of SHOPIFY_SOURCES_PENDING_APPROVAL) {
       const tuple = seedTuple(SEED_SQL, source);

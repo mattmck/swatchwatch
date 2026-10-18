@@ -13,14 +13,20 @@ import {
   importColumns,
   importDataRowCount,
   importMappingError,
+  importableCount,
   parseDecisionValue,
+  parseStatusChoiceValue,
   pickSearchResult,
   rowsForTab,
+  rowsNeedingStatus,
   selectedCandidate,
   setActionForState,
   setColumnField,
   setRowDecision,
+  setStatusChoice,
+  statusChoiceValue,
   tabCounts,
+  undecidedStatusCount,
 } from "./polish-import";
 
 function candidate(shadeId: string, confidence = 0.8): PolishImportCandidate {
@@ -159,5 +165,66 @@ describe("polish-import — review state", () => {
     assert.deepEqual(parseDecisionValue("bogus"), { action: "pending" });
     assert.equal(formatConfidence(0.942), "94%");
     assert.equal(formatConfidence(1.2), "100%");
+  });
+});
+
+describe("polish-import — quantity-0 rows need a status (D5b)", () => {
+  const zero = (n: number, overrides: Partial<PolishImportRow> = {}) =>
+    row(n, {
+      matchState: "matched",
+      action: "match",
+      shadeId: "1",
+      values: { brand: "Essie", name: `Row ${n}`, finishes: [], quantity: 0 },
+      ...overrides,
+    });
+  const rows = [
+    zero(2),
+    zero(3),
+    zero(4, { action: "skip", shadeId: null }), // skipped: no choice needed
+    zero(5, { values: { brand: "Essie", name: "Row 5", finishes: [], quantity: 0, status: "wishlist" } }),
+    row(6, { matchState: "matched", action: "match", shadeId: "1" }), // no quantity → owned
+    zero(7, { matchState: "invalid", action: "skip", shadeId: null }),
+  ];
+
+  it("starts quantity-0 rows without a status undecided, and leaves them out of the import count", () => {
+    assert.deepEqual(rowsNeedingStatus(rows).map((r) => r.rowNumber), [2, 3]);
+    assert.equal(undecidedStatusCount(rows), 2);
+    assert.equal(importableCount(rows), 2, "rows 5 and 6 only");
+  });
+
+  it("bulk-marks every row that needs a status, with the archive reason", () => {
+    const wish = setStatusChoice(rows, "wishlist");
+    assert.deepEqual(wish.map((r) => r.statusChoice ?? null), ["wishlist", "wishlist", "wishlist", null, null, null]);
+    assert.equal(undecidedStatusCount(wish), 0);
+    assert.equal(importableCount(wish), 4);
+
+    const archived = setStatusChoice(rows, "archived", "decluttered");
+    assert.equal(archived[0].statusChoice, "archived");
+    assert.equal(archived[0].archiveReason, "decluttered");
+    assert.equal(setStatusChoice(rows, "archived")[1].archiveReason, "used_up", "default reason");
+  });
+
+  it("sets one row's choice and sends status decisions with commit", () => {
+    const edited = setStatusChoice(setStatusChoice(rows, "wishlist", undefined, 2), "archived", "decluttered", 3);
+    assert.equal(edited[0].statusChoice, "wishlist");
+    assert.equal(edited[1].archiveReason, "decluttered");
+    assert.equal(edited[2].statusChoice, undefined);
+    assert.deepEqual(changedDecisions(rows, edited), [
+      { rowNumber: 2, statusChoice: "wishlist" },
+      { rowNumber: 3, statusChoice: "archived", archiveReason: "decluttered" },
+    ]);
+    // A match change and a status choice on the same row travel in one decision.
+    const both = setRowDecision(edited, 2, "match", "2");
+    assert.deepEqual(changedDecisions(rows, both)[0], { rowNumber: 2, action: "match", shadeId: "2", statusChoice: "wishlist" });
+  });
+
+  it("round-trips the status Select value", () => {
+    assert.equal(statusChoiceValue({ statusChoice: "wishlist" }), "wishlist");
+    assert.equal(statusChoiceValue({ statusChoice: "archived", archiveReason: "decluttered" }), "archived:decluttered");
+    assert.equal(statusChoiceValue({ statusChoice: "archived" }), "archived:used_up");
+    assert.equal(statusChoiceValue({}), "");
+    assert.deepEqual(parseStatusChoiceValue("archived:used_up"), { choice: "archived", reason: "used_up" });
+    assert.deepEqual(parseStatusChoiceValue("wishlist"), { choice: "wishlist" });
+    assert.equal(parseStatusChoiceValue("owned"), null);
   });
 });

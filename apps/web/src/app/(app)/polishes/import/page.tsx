@@ -4,15 +4,19 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type {
+  ArchiveReason,
   CatalogSearchResult,
   PolishImportColumnMapping,
   PolishImportField,
   PolishImportRow,
   PolishImportSession,
+  PolishImportStatusChoice,
 } from "swatchwatch-shared";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { ARCHIVE_REASON_LABELS } from "swatchwatch-shared";
 import { commitPolishImport, createPolishImport, getPolishImport } from "@/lib/api";
+import { trackImportCompleted } from "@/lib/metrics-events";
 import {
   IMPORT_TABS,
   IMPORT_TAB_LABELS,
@@ -24,12 +28,16 @@ import {
   importColumns,
   importDataRowCount,
   importMappingError,
+  importableCount,
   pickSearchResult,
   rowsForTab,
+  rowsNeedingStatus,
   setActionForState,
   setColumnField,
   setRowDecision,
+  setStatusChoice,
   tabCounts,
+  undecidedStatusCount,
   type ImportPreview,
   type ImportTab,
 } from "@/lib/polish-import";
@@ -80,6 +88,7 @@ function PolishImportWizard() {
   const [tab, setTab] = useState<ImportTab>("ambiguous");
   const [visible, setVisible] = useState(ROWS_PER_PAGE);
   const [searchRow, setSearchRow] = useState<PolishImportRow | null>(null);
+  const [bulkArchiveReason, setBulkArchiveReason] = useState<ArchiveReason>("used_up");
   const loadedSessionRef = useRef<string | null>(null);
 
   const showSession = useCallback((loaded: PolishImportSession) => {
@@ -180,6 +189,7 @@ function PolishImportWizard() {
     setError(null);
     try {
       const response = await commitPolishImport(session.id, changedDecisions(session.rows, rows));
+      trackImportCompleted(response);
       showSession(response.session);
       toast.success(
         `Imported ${response.result.created + response.result.updated} polishes (${response.result.created} new, ${response.result.updated} updated)`
@@ -193,9 +203,15 @@ function PolishImportWizard() {
   const counts = useMemo(() => tabCounts(rows), [rows]);
   const actions = useMemo(() => actionCounts(rows), [rows]);
   const tabRows = useMemo(() => rowsForTab(rows, tab), [rows, tab]);
+  const statusRows = useMemo(() => rowsNeedingStatus(rows).length, [rows]);
+  const statusUndecided = useMemo(() => undecidedStatusCount(rows), [rows]);
+  const importable = useMemo(() => importableCount(rows), [rows]);
 
   const onDecision = useCallback((rowNumber: number, action: PolishImportRow["action"], shadeId?: string) => {
     setRows((current) => setRowDecision(current, rowNumber, action, shadeId));
+  }, []);
+  const onStatusChoice = useCallback((rowNumber: number, choice: PolishImportStatusChoice, reason?: ArchiveReason) => {
+    setRows((current) => setStatusChoice(current, choice, reason, rowNumber));
   }, []);
   const onPick = useCallback((row: PolishImportRow, result: CatalogSearchResult) => {
     setRows((current) => pickSearchResult(current, row.rowNumber, result));
@@ -311,6 +327,46 @@ function PolishImportWizard() {
               ))}
             </div>
 
+            {step === "review" && statusRows > 0 && (
+              <div
+                className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-300 bg-amber-50/60 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/30"
+                role="group"
+                aria-label="Status for rows with quantity 0"
+              >
+                <p className="mr-auto">
+                  {statusRows} {statusRows === 1 ? "row has" : "rows have"} quantity 0 and no status. Do you want
+                  {statusRows === 1 ? " it" : " them"}, or did you use {statusRows === 1 ? "it" : "them"} up?
+                  {statusUndecided > 0 && (
+                    <span className="text-amber-700 dark:text-amber-300"> {statusUndecided} undecided.</span>
+                  )}
+                </p>
+                <Button variant="outline" size="sm" onClick={() => setRows((current) => setStatusChoice(current, "wishlist"))}>
+                  Mark as wishlist
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setRows((current) => setStatusChoice(current, "archived", bulkArchiveReason))}
+                >
+                  Mark as archived
+                </Button>
+                <div className="flex items-center gap-1" role="radiogroup" aria-label="Archive reason">
+                  {(["used_up", "decluttered"] as const).map((reason) => (
+                    <Button
+                      key={reason}
+                      role="radio"
+                      aria-checked={bulkArchiveReason === reason}
+                      variant={bulkArchiveReason === reason ? "secondary" : "ghost"}
+                      size="xs"
+                      onClick={() => setBulkArchiveReason(reason)}
+                    >
+                      {ARCHIVE_REASON_LABELS[reason]}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {step === "review" && (
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 {tab === "ambiguous" && counts.ambiguous > 0 && (
@@ -347,6 +403,7 @@ function PolishImportWizard() {
                   rows={tabRows.slice(0, visible)}
                   readOnly={step === "summary"}
                   onDecision={onDecision}
+                  onStatusChoice={onStatusChoice}
                   onSearch={setSearchRow}
                 />
               </div>
@@ -369,13 +426,19 @@ function PolishImportWizard() {
                       · {actions.pending} undecided (will be skipped)
                     </span>
                   )}
+                  {statusUndecided > 0 && (
+                    <span className="text-amber-700 dark:text-amber-300">
+                      {" "}
+                      · {statusUndecided} need wishlist or archived (will be skipped)
+                    </span>
+                  )}
                 </p>
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={reset}>
                     Start over
                   </Button>
-                  <Button disabled={actions.match + actions.create === 0} onClick={commit}>
-                    Import {actions.match + actions.create} polishes
+                  <Button disabled={importable === 0} onClick={commit}>
+                    Import {importable} polishes
                   </Button>
                 </div>
               </div>

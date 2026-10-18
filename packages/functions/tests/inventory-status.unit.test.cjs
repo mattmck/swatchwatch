@@ -140,6 +140,8 @@ describe("lib/inventory — parseInventoryFields", () => {
       triedAt: undefined,
       purchasePrice: undefined,
       purchaseCurrency: undefined,
+      archiveReason: undefined,
+      undoArchive: false,
     });
     assert.deepEqual(parseInventoryFields(null).status, undefined);
   });
@@ -191,6 +193,32 @@ describe("lib/inventory — parseInventoryFields", () => {
     }
   });
 
+  it("accepts archiveReason only with status archived (D5c)", () => {
+    assert.equal(parseInventoryFields({ status: "archived", archiveReason: "used_up" }).archiveReason, "used_up");
+    assert.equal(parseInventoryFields({ status: "archived", archiveReason: "decluttered" }).archiveReason, "decluttered");
+    for (const body of [
+      { status: "archived", archiveReason: "used" },
+      { status: "archived", archiveReason: "Used_Up" },
+      { status: "archived", archiveReason: null },
+      { archiveReason: "used_up" },
+      { status: "wishlist", archiveReason: "used_up" },
+    ]) {
+      assert.throws(() => parseInventoryFields(body), InventoryValidationError, JSON.stringify(body));
+    }
+  });
+
+  it("accepts undoArchive=true only without an archive status or reason", () => {
+    assert.equal(parseInventoryFields({ status: "owned", quantity: 1, undoArchive: true }).undoArchive, true);
+    assert.equal(parseInventoryFields({ undoArchive: false }).undoArchive, false);
+    for (const body of [
+      { undoArchive: "yes" },
+      { status: "archived", undoArchive: true },
+      { status: "archived", archiveReason: "used_up", undoArchive: true },
+    ]) {
+      assert.throws(() => parseInventoryFields(body), InventoryValidationError, JSON.stringify(body));
+    }
+  });
+
   it("lists only the clearable fields that were sent", () => {
     const fields = parseInventoryFields({ triedAt: null, purchaseCurrency: "usd" });
     assert.deepEqual(inventory.providedInventoryFields(fields), ["triedAt", "purchaseCurrency"]);
@@ -199,13 +227,34 @@ describe("lib/inventory — parseInventoryFields", () => {
 });
 
 describe("lib/inventory — defaults and filters", () => {
-  it("defaults a new row's status from quantity exactly like the migration backfill", () => {
+  it("defaults a new row to owned unless the quantity is explicitly 0 (D5a)", () => {
     assert.equal(inventory.defaultStatusForNewItem(1), "owned");
     assert.equal(inventory.defaultStatusForNewItem(3), "owned");
+    assert.equal(inventory.defaultStatusForNewItem(undefined), "owned");
+    assert.equal(inventory.defaultStatusForNewItem(null), "owned");
     assert.equal(inventory.defaultStatusForNewItem(0), "wishlist");
     assert.equal(inventory.defaultStatusForNewItem(-1), "wishlist");
-    assert.equal(inventory.defaultStatusForNewItem(undefined), "wishlist");
-    assert.equal(inventory.defaultStatusForNewItem(null), "wishlist");
+  });
+
+  it("plans the archive-reason event for each status change (D5c)", () => {
+    const plan = (prev, next, fields = {}) =>
+      inventory.planArchiveEvent(prev, next, { archiveReason: undefined, undoArchive: false, ...fields });
+    assert.deepEqual(plan("owned", "archived"), { kind: "insert", eventType: "used_up" });
+    assert.deepEqual(plan("destash", "archived"), { kind: "insert", eventType: "decluttered" });
+    assert.deepEqual(plan("owned", "archived", { archiveReason: "decluttered" }), { kind: "insert", eventType: "decluttered" });
+    // Archiving something you never owned records a reason only when one is given.
+    assert.deepEqual(plan("wishlist", "archived"), { kind: "none" });
+    assert.deepEqual(plan(null, "archived"), { kind: "none" });
+    assert.deepEqual(plan(null, "archived", { archiveReason: "used_up" }), { kind: "insert", eventType: "used_up" });
+    // Already archived: a reason corrects the current archive, no reason changes nothing.
+    assert.deepEqual(plan("archived", "archived", { archiveReason: "decluttered" }), { kind: "update", eventType: "decluttered" });
+    assert.deepEqual(plan("archived", "archived"), { kind: "none" });
+    // Undo removes the reason only when the row actually leaves archived.
+    assert.deepEqual(plan("archived", "owned", { undoArchive: true }), { kind: "retract" });
+    assert.deepEqual(plan("owned", "owned", { undoArchive: true }), { kind: "none" });
+    // Rebuy (archived → wishlist) and restocking keep the history.
+    assert.deepEqual(plan("archived", "wishlist"), { kind: "none" });
+    assert.deepEqual(plan("archived", "owned"), { kind: "none" });
   });
 
   it("parses one or several statuses, de-duplicated in canonical order", () => {
@@ -435,12 +484,18 @@ describe("functions/polishes — create/update inventory fields", () => {
     assert.equal(param(call, 15), "owned");
   });
 
-  it("POST without status or quantity creates a wishlist row (legacy behavior)", async () => {
+  it("POST without status or quantity creates an owned row (D5a)", async () => {
     const { res, tx } = await post({ shadeId: "9" });
     assert.equal(res.status, 201);
     const call = upsertCall(tx);
     assert.equal(param(call, 3), null);
-    assert.equal(param(call, 15), "wishlist");
+    assert.equal(param(call, 15), "owned");
+  });
+
+  it("POST without status and quantity 0 still creates a wishlist row (legacy clients)", async () => {
+    const { res, tx } = await post({ shadeId: "9", quantity: 0 });
+    assert.equal(res.status, 201);
+    assert.equal(param(upsertCall(tx), 15), "wishlist");
   });
 
   it("POST status=wishlist with a quantity keeps the explicit status", async () => {
@@ -458,6 +513,93 @@ describe("functions/polishes — create/update inventory fields", () => {
       assert.ok(recompute > upsertIndex, "wear stats are recomputed after the upsert, in the same transaction");
       assert.deepEqual(tx[recompute].params, [1, [9], false], "caller's row only, tried_at left as sent");
     }
+  });
+
+  /** Transaction where the caller's row currently has `previous` (null = no row). */
+  function archiveTransaction(previous, { updatedEvents = 1 } = {}) {
+    const calls = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (text, params) => {
+          calls.push({ text: String(text), params });
+          if (/SELECT status FROM user_inventory_item/.test(text)) return { rows: previous ? [{ status: previous }] : [] };
+          if (/INSERT INTO user_inventory_item/.test(text)) {
+            const sent = params[9] ?? previous ?? params[14];
+            return { rows: [{ inventoryItemId: "42", status: sent }] };
+          }
+          if (/UPDATE inventory_event/.test(text)) return { rows: [], rowCount: updatedEvents };
+          return { rows: [], rowCount: 0 };
+        },
+      });
+    return calls;
+  }
+
+  async function putArchive(body, previous, options) {
+    visibleShadePool();
+    const tx = archiveTransaction(previous, options);
+    const res = await registeredRoutes["polishes-mutate"].handler(
+      fakeRequest({ method: "PUT", url: "http://localhost:7071/api/polishes/9", params: { id: "9" }, body }),
+      fakeContext()
+    );
+    return { res, tx };
+  }
+
+  const eventCalls = (tx) => tx.filter((c) => /inventory_event/.test(c.text));
+
+  it("PUT status=archived on an owned polish locks the caller's row and records used_up", async () => {
+    const { res, tx } = await putArchive({ quantity: 0, status: "archived" }, "owned");
+    assert.equal(res.status, 200);
+    const lock = tx.find((c) => /SELECT status FROM user_inventory_item/.test(c.text));
+    assert.match(lock.text, /WHERE user_id = \$1 AND shade_id = \$2 FOR UPDATE/);
+    assert.deepEqual(lock.params, [1, 9]);
+    const events = eventCalls(tx);
+    assert.equal(events.length, 1);
+    assert.match(events[0].text, /INSERT INTO inventory_event/);
+    assert.deepEqual(events[0].params, ["42", "used_up", "owned"]);
+  });
+
+  it("PUT archiveReason=decluttered while archived corrects the current archive's reason", async () => {
+    const { res, tx } = await putArchive({ status: "archived", archiveReason: "decluttered" }, "archived");
+    assert.equal(res.status, 200);
+    const events = eventCalls(tx);
+    assert.equal(events.length, 1, "updated in place, no second event");
+    assert.match(events[0].text, /UPDATE inventory_event/);
+    assert.match(events[0].text, /inventory_item_id = \$1::bigint/);
+    assert.deepEqual(events[0].params, ["42", ["used_up", "decluttered"], 24, "decluttered"]);
+  });
+
+  it("PUT archiveReason while archived inserts the reason when no recent one exists", async () => {
+    const { tx } = await putArchive({ status: "archived", archiveReason: "used_up" }, "archived", { updatedEvents: 0 });
+    const events = eventCalls(tx);
+    assert.equal(events.length, 2);
+    assert.match(events[1].text, /INSERT INTO inventory_event/);
+    assert.deepEqual(events[1].params, ["42", "used_up", "archived"]);
+  });
+
+  it("PUT undoArchive restores owned and deletes only the caller's latest archive reason", async () => {
+    const { res, tx } = await putArchive({ status: "owned", quantity: 1, undoArchive: true }, "archived");
+    assert.equal(res.status, 200);
+    assert.equal(param(upsertCall(tx), 10), "owned");
+    const events = eventCalls(tx);
+    assert.equal(events.length, 1);
+    assert.match(events[0].text, /DELETE FROM inventory_event/);
+    assert.match(events[0].text, /LIMIT 1/);
+    assert.deepEqual(events[0].params, ["42", ["used_up", "decluttered"], 24]);
+  });
+
+  it("PUT status=wishlist (Rebuy) and ordinary edits write no inventory events", async () => {
+    for (const body of [{ status: "wishlist" }, { quantity: 2 }, { status: "owned", quantity: 1 }]) {
+      const { res, tx } = await put(body);
+      assert.equal(res.status, 200);
+      assert.equal(eventCalls(tx).length, 0, JSON.stringify(body));
+      assert.ok(!tx.some((c) => /SELECT status FROM user_inventory_item/.test(c.text)), "no extra lock query");
+    }
+  });
+
+  it("PUT rejects archiveReason without status archived before touching the DB", async () => {
+    const { res, tx } = await putArchive({ archiveReason: "used_up" }, "owned");
+    assert.equal(res.status, 400);
+    assert.equal(tx.length, 0);
   });
 
   it("POST status=owned without quantity inserts one bottle", async () => {
