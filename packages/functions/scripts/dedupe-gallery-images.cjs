@@ -2,11 +2,12 @@
 /**
  * Unlink catalog gallery images that duplicate another image of the same shade (the same vendor
  * picture stored twice under different checksums), by calling POST /api/images-admin/gallery-dedupe
- * in batches until the scan is finished. Dry run unless --write is given.
+ * in batches until the scan is finished. Dry run unless --write is given. Also backfills
+ * image_asset perceptual fingerprints (even in a dry run) unless --no-store-fingerprints is given.
  *
  *   API_BASE_URL=https://<function-app>.azurewebsites.net/api \
  *   ADMIN_BEARER_TOKEN=<admin access token, or dev:<adminUserId> with AUTH_DEV_BYPASS locally> \
- *   npm run dedupe:gallery-images --workspace=swatchwatch-functions -- [--write] [--shade 294,295] [--after <shadeId>] [--limit <1-100>] [--verbose]
+ *   npm run dedupe:gallery-images --workspace=swatchwatch-functions -- [--write] [--no-store-fingerprints] [--shade 294,295] [--after <shadeId>] [--limit <1-100>] [--verbose]
  *
  * Idempotent: re-running removes nothing new. On an error it prints the `--after` value to resume from.
  */
@@ -23,6 +24,7 @@ function intOption(name, fallback) {
 }
 
 const write = args.includes("--write");
+const storeFingerprints = !args.includes("--no-store-fingerprints");
 const verbose = args.includes("--verbose");
 const shadeIndex = args.indexOf("--shade");
 const shadeIds =
@@ -50,7 +52,9 @@ async function main() {
   const totals = {
     scannedShades: 0,
     shadesWithDuplicates: 0,
+    storedFingerprintsUsed: 0,
     imagesFingerprinted: 0,
+    fingerprintsStored: 0,
     unreadableImages: 0,
     duplicateGroups: 0,
     swatchesRemoved: 0,
@@ -62,7 +66,7 @@ async function main() {
     const response = await fetch(`${apiBase}/images-admin/gallery-dedupe`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ afterShadeId, limit, dryRun: !write, ...(shadeIds ? { shadeIds } : {}) }),
+      body: JSON.stringify({ afterShadeId, limit, dryRun: !write, storeFingerprints, ...(shadeIds ? { shadeIds } : {}) }),
     });
     if (!response.ok) {
       const text = await response.text().catch(() => "");
@@ -90,7 +94,8 @@ async function main() {
   console.log(
     `Done${write ? "" : " (dry run)"}: ${totals.scannedShades} shades scanned, ${totals.shadesWithDuplicates} with duplicates, ` +
       `${totals.duplicateGroups} duplicate groups, ${totals.swatchesRemoved} gallery swatches ${write ? "removed" : "to remove"}, ` +
-      `${totals.duplicatesKept} duplicates kept (product/protected/current pipeline), ${totals.imagesFingerprinted} images fingerprinted, ${totals.unreadableImages} unreadable.`
+      `${totals.duplicatesKept} duplicates kept (product/protected/current pipeline), ${totals.storedFingerprintsUsed} stored fingerprints used, ${totals.imagesFingerprinted} blobs fingerprinted ` +
+      `(${totals.fingerprintsStored} saved), ${totals.unreadableImages} unreadable.`
   );
 }
 

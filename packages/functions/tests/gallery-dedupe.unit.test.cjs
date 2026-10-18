@@ -5,9 +5,16 @@ const sharp = require("sharp");
 const {
   computeImageFingerprint,
   compareFingerprints,
+  DEFAULT_DEDUPE_THRESHOLDS,
+  fingerprintFromColumns,
+  fingerprintToColumns,
+  getGalleryMaxImagesPerShade,
+  INGEST_NEAR_DUPLICATE_THRESHOLDS,
+  planProductGalleryLinks,
   planShadeGalleryDedupe,
   runGalleryDedupeBatch,
 } = require("../dist/lib/gallery-dedupe");
+const nearDuplicateFixture = require("./fixtures/gallery-near-duplicates.json");
 const { parseGalleryDedupeBody } = require("../dist/functions/gallery-dedupe-admin");
 
 // ---------------------------------------------------------------------------
@@ -180,7 +187,7 @@ describe("runGalleryDedupeBatch", () => {
   // Shade 294-like fixture: the vendor's 4 pictures stored by the current pipeline (with URLs)
   // plus the same 4 stored again by an older ingest; shade 300 has 2 distinct pictures; shade
   // 301 only one image (never read).
-  function fixture() {
+  function fixture(storedFingerprints = {}) {
     const blobs = {
       "cur-bottle": ["bottle", "jpeg"],
       "cur-left": ["nailsLeft", "jpeg"],
@@ -211,9 +218,12 @@ describe("runGalleryDedupeBatch", () => {
       storageUrl,
       hasSourceUrl,
       protected: false,
+      // node-postgres shape of the image_asset fingerprint columns (all null = not computed yet).
+      ...(storedFingerprints[storageUrl] ?? fingerprintToColumns(null)),
     }));
     const deletes = [];
     const reads = [];
+    const fingerprintWrites = [];
     const query = async (sql, params) => {
       if (sql.includes("SELECT DISTINCT sw.shade_id")) {
         const [after, limit, only] = params;
@@ -225,6 +235,10 @@ describe("runGalleryDedupeBatch", () => {
       }
       if (sql.includes("FROM swatch sw") && sql.includes("ANY($1::bigint[])")) {
         return { rows: rows.filter((r) => params[0].includes(Number(r.shadeId))) };
+      }
+      if (sql.includes("UPDATE image_asset") && sql.includes("perceptual_hash IS NULL")) {
+        fingerprintWrites.push({ imageId: params[0], perceptualHash: params[1], thumbBytes: params[2].length, width: params[3] });
+        return { rows: [{ image_id: params[0] }] };
       }
       throw new Error(`unexpected query: ${sql}`);
     };
@@ -244,7 +258,7 @@ describe("runGalleryDedupeBatch", () => {
         return ENCODINGS[encoding](photo(PICTURES[name]));
       },
     };
-    return { deps, deletes, reads };
+    return { deps, deletes, reads, fingerprintWrites };
   }
 
   it("dry run reports the old copies of shade 294 and deletes nothing", async () => {
@@ -271,6 +285,53 @@ describe("runGalleryDedupeBatch", () => {
     // Each blob is read once even when an image is on several shades; shade 301 is never read.
     assert.equal(reads.length, new Set(reads).size);
     assert.equal(result.imagesFingerprinted, 8);
+    assert.equal(result.storedFingerprintsUsed, 0);
+  });
+
+  it("saves the fingerprints it computes (also in a dry run), one per image row", async () => {
+    const { deps, fingerprintWrites } = fixture();
+    const result = await runGalleryDedupeBatch(deps, { afterShadeId: 0, limit: 25, dryRun: true });
+
+    // 8 blobs read; shade 300's images 201/202 share blobs with 101/102 and get the same fingerprint.
+    assert.equal(result.imagesFingerprinted, 8);
+    assert.equal(result.fingerprintsStored, 10);
+    assert.deepEqual(
+      fingerprintWrites.map((w) => w.imageId).sort((a, b) => a - b),
+      [51, 52, 53, 54, 101, 102, 103, 104, 201, 202]
+    );
+    for (const write of fingerprintWrites) {
+      assert.match(write.perceptualHash, /^[0-9a-f]{64}$/);
+      assert.equal(write.thumbBytes, 768);
+      assert.ok(write.width > 0);
+    }
+  });
+
+  it("is read-only with storeFingerprints: false", async () => {
+    const { deps, fingerprintWrites } = fixture();
+    const result = await runGalleryDedupeBatch(deps, { afterShadeId: 0, limit: 25, dryRun: true, storeFingerprints: false });
+    assert.equal(result.fingerprintsStored, 0);
+    assert.deepEqual(fingerprintWrites, []);
+    assert.equal(result.swatchesRemoved, 4);
+  });
+
+  it("uses stored fingerprints instead of reading those blobs", async () => {
+    const stored = {
+      "old-bottle": fingerprintToColumns(fp.bottle.png),
+      "old-left": fingerprintToColumns(fp.nailsLeft.webp),
+      "cur-macro": fingerprintToColumns(fp.macro.jpeg),
+    };
+    const { deps, reads, fingerprintWrites } = fixture(stored);
+    const result = await runGalleryDedupeBatch(deps, { afterShadeId: 0, limit: 25, dryRun: true });
+
+    assert.ok(!reads.includes("old-bottle") && !reads.includes("old-left") && !reads.includes("cur-macro"));
+    assert.equal(result.storedFingerprintsUsed, 3);
+    assert.equal(result.imagesFingerprinted, 5);
+    assert.ok(!fingerprintWrites.some((w) => [51, 52, 104].includes(w.imageId)));
+    // Same duplicate groups as when every blob is read.
+    assert.deepEqual(
+      result.groups.map((g) => [g.keepImageId, g.removeImageIds]),
+      [[101, [51]], [102, [52]], [103, [53]], [104, [54]]]
+    );
   });
 
   it("deletes the planned swatches in one transaction when dryRun is false", async () => {
@@ -315,23 +376,178 @@ describe("runGalleryDedupeBatch", () => {
 
 describe("parseGalleryDedupeBody", () => {
   it("defaults to a dry run of 25 shades", () => {
-    assert.deepEqual(parseGalleryDedupeBody({}), { afterShadeId: 0, limit: 25, dryRun: true, shadeIds: undefined });
+    assert.deepEqual(parseGalleryDedupeBody({}), {
+      afterShadeId: 0,
+      limit: 25,
+      dryRun: true,
+      storeFingerprints: true,
+      shadeIds: undefined,
+    });
   });
 
   it("rejects bad input", () => {
     assert.match(parseGalleryDedupeBody({ limit: 0 }), /limit/);
     assert.match(parseGalleryDedupeBody({ afterShadeId: -1 }), /afterShadeId/);
     assert.match(parseGalleryDedupeBody({ dryRun: "no" }), /dryRun/);
+    assert.match(parseGalleryDedupeBody({ storeFingerprints: 1 }), /storeFingerprints/);
     assert.match(parseGalleryDedupeBody({ shadeIds: [0] }), /shadeIds/);
     assert.match(parseGalleryDedupeBody({ shadeIds: [] }), /shadeIds/);
   });
 
   it("accepts a write run for specific shades", () => {
-    assert.deepEqual(parseGalleryDedupeBody({ dryRun: false, shadeIds: [294], limit: 10 }), {
+    assert.deepEqual(parseGalleryDedupeBody({ dryRun: false, shadeIds: [294], limit: 10, storeFingerprints: false }), {
       afterShadeId: 0,
       limit: 10,
       dryRun: false,
+      storeFingerprints: false,
       shadeIds: [294],
     });
+  });
+});
+
+describe("stored fingerprint columns", () => {
+  it("round-trips a fingerprint through the image_asset columns", () => {
+    const columns = fingerprintToColumns(fp.bottle.jpeg);
+    assert.match(columns.perceptualHash, /^[0-9a-f]{64}$/);
+    assert.ok(Buffer.isBuffer(columns.thumbFingerprint));
+    assert.equal(columns.thumbFingerprint.length, 768);
+    assert.deepEqual(fingerprintFromColumns(columns), fp.bottle.jpeg);
+  });
+
+  it("stores nothing for a missing or malformed fingerprint (all-or-nothing CHECK)", () => {
+    const none = { perceptualHash: null, thumbFingerprint: null, imageWidth: null, imageHeight: null };
+    assert.deepEqual(fingerprintToColumns(null), none);
+    assert.deepEqual(fingerprintToColumns({ ...fp.bottle.jpeg, width: 0 }), none);
+    assert.deepEqual(fingerprintToColumns({ ...fp.bottle.jpeg, dhash: "abc" }), none);
+    assert.deepEqual(fingerprintToColumns({ ...fp.bottle.jpeg, thumb: Buffer.alloc(10).toString("base64") }), none);
+    assert.equal(fingerprintFromColumns(none), null);
+    assert.equal(fingerprintFromColumns({ ...fingerprintToColumns(fp.bottle.jpeg), imageHeight: null }), null);
+  });
+});
+
+describe("INGEST_NEAR_DUPLICATE_THRESHOLDS on real Cracked Polish images", () => {
+  // Fingerprints measured on the vendor originals (tests/fixtures/gallery-near-duplicates.json).
+  for (const pair of nearDuplicateFixture.pairs) {
+    const label = `${pair.product} ${pair.images.join("/")} (${pair.note})`;
+    it(`${pair.nearDuplicate ? "skips" : "keeps"} ${label}`, () => {
+      const comparison = compareFingerprints(pair.a, pair.b, INGEST_NEAR_DUPLICATE_THRESHOLDS);
+      assert.equal(comparison.duplicate, pair.nearDuplicate, JSON.stringify(comparison));
+    });
+  }
+
+  it("is looser than the exact-duplicate cleanup thresholds", () => {
+    const nearPairs = nearDuplicateFixture.pairs.filter((pair) => pair.nearDuplicate);
+    assert.ok(nearPairs.length > 0);
+    for (const pair of nearPairs) {
+      assert.equal(compareFingerprints(pair.a, pair.b, DEFAULT_DEDUPE_THRESHOLDS).duplicate, false);
+    }
+  });
+
+  it("catches a slight vendor re-crop that the cleanup thresholds miss", async () => {
+    const source = photo(PICTURES.nailsLeft);
+    const original = await computeImageFingerprint(await source.clone().jpeg({ quality: 90 }).toBuffer());
+    // 4% trimmed off every edge (same aspect), re-exported as WebP.
+    const recrop = await computeImageFingerprint(
+      await source.clone().extract({ left: 10, top: 10, width: 460, height: 460 }).webp({ quality: 75 }).toBuffer()
+    );
+    assert.equal(compareFingerprints(original, recrop, INGEST_NEAR_DUPLICATE_THRESHOLDS).duplicate, true);
+    for (const name of ["bottle", "nailsRight", "macro"]) {
+      assert.equal(compareFingerprints(recrop, fp[name].jpeg, INGEST_NEAR_DUPLICATE_THRESHOLDS).duplicate, false, name);
+    }
+  });
+});
+
+describe("planProductGalleryLinks", () => {
+  const candidate = (key, fingerprint, pinned) => ({ key, fingerprint, ...(pinned ? { pinned } : {}) });
+  const decide = (additional, extra = {}) =>
+    planProductGalleryLinks({ primary: { key: "p", fingerprint: fp.bottle.jpeg }, additional, ...extra }).map(
+      ({ key, link, reason, duplicateOfKey }) => [key, link, reason, duplicateOfKey ?? null]
+    );
+
+  it("links distinct images and skips near-duplicates of an image already linked", () => {
+    assert.deepEqual(
+      decide([
+        candidate("left", fp.nailsLeft.jpeg),
+        candidate("left-again", fp.nailsLeft.webp),
+        candidate("bottle-again", fp.bottle.png),
+        candidate("macro", fp.macro.jpeg),
+      ]),
+      [
+        ["left", true, "linked", null],
+        ["left-again", false, "near_duplicate", "left"],
+        ["bottle-again", false, "near_duplicate", "p"],
+        ["macro", true, "linked", null],
+      ]
+    );
+  });
+
+  it("treats the primary's own image as already linked and never matches an unknown fingerprint", () => {
+    assert.deepEqual(decide([candidate("p", fp.bottle.jpeg), candidate("unknown", null), candidate("unknown-2", null)]), [
+      ["p", false, "same_image", "p"],
+      ["unknown", true, "linked", null],
+      ["unknown-2", true, "linked", null],
+    ]);
+  });
+
+  it("stops at the gallery cap, counting only linked gallery images", () => {
+    assert.deepEqual(
+      decide(
+        [
+          candidate("left", fp.nailsLeft.jpeg),
+          candidate("left-again", fp.nailsLeft.png),
+          candidate("right", fp.nailsRight.jpeg),
+          candidate("macro", fp.macro.jpeg),
+        ],
+        { maxGalleryImages: 2 }
+      ),
+      [
+        ["left", true, "linked", null],
+        ["left-again", false, "near_duplicate", "left"],
+        ["right", true, "linked", null],
+        ["macro", false, "over_cap", null],
+      ]
+    );
+  });
+
+  it("always links the pinned detection image, first, even past the cap", () => {
+    assert.deepEqual(
+      decide(
+        [
+          candidate("left", fp.nailsLeft.jpeg),
+          candidate("right", fp.nailsRight.jpeg),
+          candidate("left-detect", fp.nailsLeft.png, true),
+        ],
+        { maxGalleryImages: 1 }
+      ),
+      [
+        ["left", false, "near_duplicate", "left-detect"],
+        ["right", false, "over_cap", null],
+        ["left-detect", true, "pinned", null],
+      ]
+    );
+    assert.deepEqual(decide([candidate("bottle-detect", fp.bottle.webp, true)], { maxGalleryImages: 1 }), [
+      ["bottle-detect", true, "pinned", null],
+    ]);
+  });
+
+  it("gives the same decisions on every run", () => {
+    const additional = [
+      candidate("left", fp.nailsLeft.jpeg),
+      candidate("left-again", fp.nailsLeft.webp),
+      candidate("right", fp.nailsRight.jpeg),
+    ];
+    assert.deepEqual(decide(additional, { maxGalleryImages: 1 }), decide([...additional], { maxGalleryImages: 1 }));
+  });
+});
+
+describe("getGalleryMaxImagesPerShade", () => {
+  it("is unlimited unless set to a positive integer", () => {
+    assert.equal(getGalleryMaxImagesPerShade({}), null);
+    assert.equal(getGalleryMaxImagesPerShade({ GALLERY_MAX_IMAGES_PER_SHADE: "" }), null);
+    assert.equal(getGalleryMaxImagesPerShade({ GALLERY_MAX_IMAGES_PER_SHADE: "0" }), null);
+    assert.equal(getGalleryMaxImagesPerShade({ GALLERY_MAX_IMAGES_PER_SHADE: "-3" }), null);
+    assert.equal(getGalleryMaxImagesPerShade({ GALLERY_MAX_IMAGES_PER_SHADE: "2.5" }), null);
+    assert.equal(getGalleryMaxImagesPerShade({ GALLERY_MAX_IMAGES_PER_SHADE: "twelve" }), null);
+    assert.equal(getGalleryMaxImagesPerShade({ GALLERY_MAX_IMAGES_PER_SHADE: " 12 " }), 12);
   });
 });

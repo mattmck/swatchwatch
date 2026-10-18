@@ -20,6 +20,28 @@ export function protectedSwatchSql(alias: string): string {
 }
 
 /**
+ * Another product of the same data source also maps to the shade (`shade_source_product`), so
+ * this product's images are not the shade's whole gallery from that source: ingestion then never
+ * unlinks gallery swatches for it (stale prune, near-duplicate / over-cap unlink).
+ */
+export async function shadeSharedWithOtherProduct(
+  client: { query: (sql: string, params: unknown[]) => Promise<{ rows: any[] }> },
+  params: { shadeId: number; dataSourceId: number; externalId: string }
+): Promise<boolean> {
+  const shared = await client.query(
+    `SELECT 1
+     FROM shade_source_product ssp
+     JOIN external_product ep ON ep.external_product_id = ssp.external_product_id
+     WHERE ssp.shade_id = $1
+       AND ep.data_source_id = $2
+       AND ep.external_id IS DISTINCT FROM $3
+     LIMIT 1`,
+    [params.shadeId, params.dataSourceId, params.externalId]
+  );
+  return shared.rows.length > 0;
+}
+
+/**
  * Ingestion: make the shade's `source_gallery` swatches from this data source exactly the
  * product's current images. Deletes gallery swatches whose image belongs to `dataSourceId` but is
  * not in `keepImageIds` (this run's primary + additional image ids). Never touches
@@ -34,17 +56,7 @@ export async function pruneStaleGallerySwatches(
   client: { query: (sql: string, params: unknown[]) => Promise<{ rows: any[]; rowCount?: number | null }> },
   params: { shadeId: number; dataSourceId: number; externalId: string; keepImageIds: number[] }
 ): Promise<{ deleted: number; skippedSharedShade: boolean }> {
-  const shared = await client.query(
-    `SELECT 1
-     FROM shade_source_product ssp
-     JOIN external_product ep ON ep.external_product_id = ssp.external_product_id
-     WHERE ssp.shade_id = $1
-       AND ep.data_source_id = $2
-       AND ep.external_id IS DISTINCT FROM $3
-     LIMIT 1`,
-    [params.shadeId, params.dataSourceId, params.externalId]
-  );
-  if (shared.rows.length > 0) {
+  if (await shadeSharedWithOtherProduct(client, params)) {
     return { deleted: 0, skippedSharedShade: true };
   }
 
@@ -184,6 +196,203 @@ export function compareFingerprints(
   };
 }
 
+// ── Stored fingerprint (image_asset.perceptual_hash / thumb_fingerprint / image_width / image_height) ──
+
+/** `image_asset` fingerprint columns, all null or all set (CHECK image_asset_fingerprint_complete). */
+export interface FingerprintColumns {
+  perceptualHash: string | null;
+  thumbFingerprint: Buffer | null;
+  imageWidth: number | null;
+  imageHeight: number | null;
+}
+
+const EMPTY_FINGERPRINT_COLUMNS: FingerprintColumns = {
+  perceptualHash: null,
+  thumbFingerprint: null,
+  imageWidth: null,
+  imageHeight: null,
+};
+
+/** Columns for a fingerprint; all null when it is missing or would violate the CHECK. */
+export function fingerprintToColumns(fingerprint: ImageFingerprint | null | undefined): FingerprintColumns {
+  if (!fingerprint) return EMPTY_FINGERPRINT_COLUMNS;
+  const thumb = Buffer.from(fingerprint.thumb, "base64");
+  const valid =
+    /^[0-9a-f]{64}$/.test(fingerprint.dhash) &&
+    thumb.length === THUMB_SIZE * THUMB_SIZE * 3 &&
+    Number.isInteger(fingerprint.width) &&
+    fingerprint.width > 0 &&
+    Number.isInteger(fingerprint.height) &&
+    fingerprint.height > 0;
+  if (!valid) return EMPTY_FINGERPRINT_COLUMNS;
+  return {
+    perceptualHash: fingerprint.dhash,
+    thumbFingerprint: thumb,
+    imageWidth: fingerprint.width,
+    imageHeight: fingerprint.height,
+  };
+}
+
+/** Fingerprint read back from the columns (`thumbFingerprint` as a node-postgres bytea Buffer). */
+export function fingerprintFromColumns(row: Partial<FingerprintColumns> | null | undefined): ImageFingerprint | null {
+  if (!row?.perceptualHash || !row.thumbFingerprint || !row.imageWidth || !row.imageHeight) return null;
+  return {
+    dhash: row.perceptualHash,
+    thumb: Buffer.from(row.thumbFingerprint).toString("base64"),
+    width: Number(row.imageWidth),
+    height: Number(row.imageHeight),
+  };
+}
+
+/** SQL select list for the fingerprint columns of `alias` (an `image_asset` row). */
+export function fingerprintColumnsSql(alias: string): string {
+  return `${alias}.perceptual_hash AS "perceptualHash",
+       ${alias}.thumb_fingerprint AS "thumbFingerprint",
+       ${alias}.image_width AS "imageWidth",
+       ${alias}.image_height AS "imageHeight"`;
+}
+
+/** Fingerprint of stored bytes, or null when they cannot be decoded (never throws). */
+export async function computeImageFingerprintSafely(bytes: Buffer): Promise<ImageFingerprint | null> {
+  try {
+    const fingerprint = await computeImageFingerprint(bytes);
+    return fingerprintToColumns(fingerprint).perceptualHash ? fingerprint : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fill an image's fingerprint columns when they are still empty (never overwrites, so concurrent
+ * writers and re-ingests are harmless). No-op for a missing or invalid fingerprint. Returns
+ * whether the row was written.
+ */
+export async function storeImageFingerprint(
+  client: { query: (sql: string, params: unknown[]) => Promise<{ rows: unknown[] }> },
+  imageId: number,
+  fingerprint: ImageFingerprint | null | undefined
+): Promise<boolean> {
+  const columns = fingerprintToColumns(fingerprint);
+  if (!columns.perceptualHash) return false;
+  const updated = await client.query(
+    `UPDATE image_asset
+     SET perceptual_hash = $2, thumb_fingerprint = $3, image_width = $4, image_height = $5
+     WHERE image_id = $1
+       AND perceptual_hash IS NULL
+     RETURNING image_id`,
+    [imageId, columns.perceptualHash, columns.thumbFingerprint, columns.imageWidth, columns.imageHeight]
+  );
+  return (updated?.rows?.length ?? 0) > 0;
+}
+
+// ── Ingest: which of a product's images to link as gallery swatches ─────────
+
+/**
+ * Near-duplicate limits for gallery linking at ingest: looser than DEFAULT_DEDUPE_THRESHOLDS so a
+ * slightly re-cropped or re-shot copy of a photo already in the gallery is not linked again.
+ * Measured on Cracked Polish (2026-10-18; 5 products, 184 vendor images, 3,316 pairs; fixture
+ * tests/fixtures/gallery-near-duplicates.json):
+ * - same-aspect trims of every image, re-encoded as WebP: 3% trims caught 95–100%, a 6% centered
+ *   trim 99% (a 6% corner trim 19%); 10%+ trims are as far apart as different pictures (dHash p50
+ *   ≥ 66, MAD ≥ 16) and are not caught. Re-crops to another aspect never match (aspect gate); a
+ *   brute-force crop search found none in the sample.
+ * - real pairs inside 64/20: only two same-pose re-shoots (dHash 54 / MAD 14.8, 58 / 16.4); the
+ *   same 2 up to 72/24. The closest different pictures are dHash 70–80 with MAD 23–30 (other poses
+ *   from the same session) and the closest by thumbnail MAD 25.8 (dHash 101).
+ */
+export const INGEST_NEAR_DUPLICATE_THRESHOLDS: DedupeThresholds = {
+  maxHashDistance: 64,
+  maxThumbDistance: 20,
+  maxAspectDelta: DEFAULT_DEDUPE_THRESHOLDS.maxAspectDelta,
+};
+
+/**
+ * Max `source_gallery` images one product links to its shade per ingest
+ * (`GALLERY_MAX_IMAGES_PER_SHADE`, a positive integer; unset, empty, 0 or invalid = unlimited).
+ */
+export function getGalleryMaxImagesPerShade(env: NodeJS.ProcessEnv = process.env): number | null {
+  const raw = env.GALLERY_MAX_IMAGES_PER_SHADE?.trim();
+  if (!raw || !/^\d+$/.test(raw)) return null;
+  const value = Number.parseInt(raw, 10);
+  return value >= 1 ? value : null;
+}
+
+/** One of the product's images, in vendor order. `key` identifies the stored image (its checksum). */
+export interface GalleryLinkCandidate {
+  key: string;
+  fingerprint: ImageFingerprint | null;
+  /** Always linked, before the others and regardless of duplicates or the cap (the AI detection image). */
+  pinned?: boolean;
+}
+
+export type GalleryLinkReason = "linked" | "pinned" | "same_image" | "near_duplicate" | "over_cap";
+
+export interface GalleryLinkDecision {
+  key: string;
+  link: boolean;
+  reason: GalleryLinkReason;
+  /** `same_image` / `near_duplicate`: the linked image it repeats. */
+  duplicateOfKey?: string;
+}
+
+/**
+ * Decide which additional images of a product become `source_gallery` swatches. The primary is
+ * always linked (as the product swatch); pinned images next; then each other image in vendor
+ * order is linked unless it is the same stored image as, or a near-duplicate of
+ * (`compareFingerprints` with `thresholds`), an image already linked, or the product already
+ * links `maxGalleryImages` gallery images. Pure and order-deterministic, so the same vendor
+ * gallery gives the same decisions on every run. An image without a fingerprint is never a
+ * near-duplicate (it is linked unless capped). Returns one decision per `additional`, same order.
+ */
+export function planProductGalleryLinks(params: {
+  primary: { key: string; fingerprint: ImageFingerprint | null } | null;
+  additional: GalleryLinkCandidate[];
+  thresholds?: DedupeThresholds;
+  maxGalleryImages?: number | null;
+}): GalleryLinkDecision[] {
+  const thresholds = params.thresholds ?? INGEST_NEAR_DUPLICATE_THRESHOLDS;
+  const cap = params.maxGalleryImages ?? null;
+  const linked: Array<{ key: string; fingerprint: ImageFingerprint | null }> = params.primary ? [params.primary] : [];
+  let galleryCount = 0;
+  const decisions = new Map<number, GalleryLinkDecision>();
+
+  const order = params.additional
+    .map((candidate, index) => ({ candidate, index }))
+    .sort((a, b) => Number(Boolean(b.candidate.pinned)) - Number(Boolean(a.candidate.pinned)) || a.index - b.index);
+
+  for (const { candidate, index } of order) {
+    const same = linked.find((image) => image.key === candidate.key);
+    if (same) {
+      decisions.set(index, { key: candidate.key, link: false, reason: "same_image", duplicateOfKey: same.key });
+      continue;
+    }
+    if (!candidate.pinned) {
+      const fingerprint = candidate.fingerprint;
+      const duplicateOf = fingerprint
+        ? linked.find((image) => image.fingerprint && compareFingerprints(fingerprint, image.fingerprint, thresholds).duplicate)
+        : undefined;
+      if (duplicateOf) {
+        decisions.set(index, {
+          key: candidate.key,
+          link: false,
+          reason: "near_duplicate",
+          duplicateOfKey: duplicateOf.key,
+        });
+        continue;
+      }
+      if (cap !== null && galleryCount >= cap) {
+        decisions.set(index, { key: candidate.key, link: false, reason: "over_cap" });
+        continue;
+      }
+    }
+    linked.push(candidate);
+    galleryCount += 1;
+    decisions.set(index, { key: candidate.key, link: true, reason: candidate.pinned ? "pinned" : "linked" });
+  }
+
+  return params.additional.map((_, index) => decisions.get(index)!);
+}
+
 // ── Per-shade plan ───────────────────────────────────────────────────────────
 
 /** One catalog image linked to a shade (only `image_asset.owner_type = 'source'` rows). */
@@ -321,6 +530,12 @@ export interface GalleryDedupeOptions {
   limit: number;
   /** Report only (the default for callers); false deletes the duplicate swatches. */
   dryRun: boolean;
+  /**
+   * Save fingerprints computed from blobs into `image_asset` (only where still empty), also in a
+   * dry run: they are derived data with no visible effect, and they back ingestion's near-duplicate
+   * check for images reused without a download. Default true; false makes the run read-only.
+   */
+  storeFingerprints?: boolean;
   /** Only these shades (still keyset-paged by `afterShadeId`). */
   shadeIds?: number[];
   thresholds?: DedupeThresholds;
@@ -335,8 +550,12 @@ export interface GalleryDedupeBatchResult {
   /** Shades with at least one gallery swatch read in this batch. */
   scannedShades: number;
   shadesWithDuplicates: number;
-  /** Distinct blobs fingerprinted (shades with a single image are not read). */
+  /** Images whose fingerprint was already stored in `image_asset` (no blob read). */
+  storedFingerprintsUsed: number;
+  /** Distinct blobs read and fingerprinted (shades with a single image are not read). */
   imagesFingerprinted: number;
+  /** `image_asset` rows whose fingerprint columns this batch filled in. */
+  fingerprintsStored: number;
   /** Images whose blob could not be read or decoded; never removed or matched. */
   unreadableImages: number;
   duplicateGroups: number;
@@ -357,8 +576,11 @@ const MAX_REPORTED_FAILURES = 20;
 /**
  * One keyset batch of the gallery duplicate cleanup: for each shade (`shade_id > afterShadeId`
  * with a `source_gallery` swatch, `limit` shades), fingerprint its catalog images and unlink the
- * gallery swatches that duplicate another of its images (`planShadeGalleryDedupe`). Idempotent;
- * the `image_asset` rows and blobs are kept. Deletes re-check the safety rules in SQL.
+ * gallery swatches that duplicate another of its images (`planShadeGalleryDedupe`). Stored
+ * fingerprints (`image_asset.perceptual_hash` …) are used as is; only images without one are read
+ * from blob storage, and those fingerprints are saved (`storeFingerprints`), so the scan doubles as
+ * the fingerprint backfill. Idempotent; the `image_asset` rows and blobs are kept. Deletes re-check
+ * the safety rules in SQL.
  */
 export async function runGalleryDedupeBatch(
   deps: GalleryDedupeDeps,
@@ -381,7 +603,9 @@ export async function runGalleryDedupeBatch(
     dryRun: options.dryRun,
     scannedShades: shadeIds.length,
     shadesWithDuplicates: 0,
+    storedFingerprintsUsed: 0,
     imagesFingerprinted: 0,
+    fingerprintsStored: 0,
     unreadableImages: 0,
     duplicateGroups: 0,
     swatchesRemoved: 0,
@@ -399,6 +623,7 @@ export async function runGalleryDedupeBatch(
        sw.image_id_original::bigint AS "imageId",
        sw.swatch_type               AS "swatchType",
        ia.storage_url               AS "storageUrl",
+       ${fingerprintColumnsSql("ia")},
        EXISTS (SELECT 1 FROM source_image_url u WHERE u.image_id = ia.image_id) AS "hasSourceUrl",
        ${protectedSwatchSql("sw")} AS "protected"
      FROM swatch sw
@@ -419,43 +644,61 @@ export async function runGalleryDedupeBatch(
       swatchType: row.swatchType ?? null,
       hasSourceUrl: row.hasSourceUrl === true,
       protected: row.protected === true,
-      fingerprint: null,
+      fingerprint: fingerprintFromColumns(row),
       storageUrl: String(row.storageUrl ?? ""),
     });
     byShade.set(shadeId, list);
   }
 
-  // Fingerprint each distinct blob once (an image can be linked to several shades, and rows can
-  // share a storage URL).
-  const toRead = new Map<string, number>();
+  // Read each distinct blob without a stored fingerprint once (an image can be linked to several
+  // shades, and rows can share a storage URL).
+  const toRead = new Map<string, number[]>();
+  const storedUsed = new Set<number>();
   for (const images of byShade.values()) {
     if (images.length < 2) continue;
     for (const image of images) {
-      if (!toRead.has(image.storageUrl)) toRead.set(image.storageUrl, image.imageId);
+      if (image.fingerprint) {
+        storedUsed.add(image.imageId);
+        continue;
+      }
+      const ids = toRead.get(image.storageUrl) ?? [];
+      if (!ids.includes(image.imageId)) ids.push(image.imageId);
+      toRead.set(image.storageUrl, ids);
     }
   }
+  result.storedFingerprintsUsed = storedUsed.size;
   const fingerprints = new Map<string, ImageFingerprint | null>();
   const queue = [...toRead];
   const workers = Array.from({ length: Math.max(1, deps.concurrency ?? 4) }, async () => {
     for (let next = queue.shift(); next; next = queue.shift()) {
-      const [storageUrl, imageId] = next;
+      const [storageUrl, imageIds] = next;
       try {
         fingerprints.set(storageUrl, await computeImageFingerprint(await deps.readImage(storageUrl)));
         result.imagesFingerprinted += 1;
       } catch (error) {
         fingerprints.set(storageUrl, null);
         result.unreadableImages += 1;
-        result.failures.push({ imageId, error: error instanceof Error ? error.message : String(error) });
+        result.failures.push({ imageId: imageIds[0], error: error instanceof Error ? error.message : String(error) });
       }
     }
   });
   await Promise.all(workers);
 
+  if (options.storeFingerprints !== false) {
+    for (const [storageUrl, imageIds] of toRead) {
+      for (const imageId of imageIds) {
+        if (await storeImageFingerprint(deps, imageId, fingerprints.get(storageUrl))) {
+          result.fingerprintsStored += 1;
+        }
+      }
+    }
+  }
+
   const plans: GalleryDedupeShadeReport[] = [];
   for (const [shadeId, images] of byShade) {
     if (images.length < 2) continue;
     const groups = planShadeGalleryDedupe(
-      images.map((image) => ({ ...image, fingerprint: fingerprints.get(image.storageUrl) ?? null })),
+      images.map((image) => ({ ...image, fingerprint: image.fingerprint ?? fingerprints.get(image.storageUrl) ?? null })),
       thresholds
     );
     if (groups.length === 0) continue;

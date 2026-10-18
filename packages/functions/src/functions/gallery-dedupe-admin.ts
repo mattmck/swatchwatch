@@ -15,6 +15,7 @@ export function parseGalleryDedupeBody(raw: unknown): GalleryDedupeOptions | str
   const afterShadeId = body.afterShadeId ?? 0;
   const limit = body.limit ?? DEFAULT_BATCH_SIZE;
   const dryRun = body.dryRun ?? true;
+  const storeFingerprints = body.storeFingerprints ?? true;
   if (typeof afterShadeId !== "number" || !Number.isInteger(afterShadeId) || afterShadeId < 0) {
     return "afterShadeId must be a non-negative integer";
   }
@@ -23,6 +24,9 @@ export function parseGalleryDedupeBody(raw: unknown): GalleryDedupeOptions | str
   }
   if (typeof dryRun !== "boolean") {
     return "dryRun must be a boolean";
+  }
+  if (typeof storeFingerprints !== "boolean") {
+    return "storeFingerprints must be a boolean";
   }
   let shadeIds: number[] | undefined;
   if (body.shadeIds !== undefined) {
@@ -36,7 +40,7 @@ export function parseGalleryDedupeBody(raw: unknown): GalleryDedupeOptions | str
     }
     shadeIds = body.shadeIds as number[];
   }
-  return { afterShadeId, limit, dryRun, shadeIds };
+  return { afterShadeId, limit, dryRun, storeFingerprints, shadeIds };
 }
 
 /**
@@ -47,6 +51,8 @@ export function parseGalleryDedupeBody(raw: unknown): GalleryDedupeOptions | str
  * `source_gallery` swatch (`shade_id > afterShadeId`, `limit` shades, default 25, max 100,
  * optionally only `shadeIds`); the caller repeats with `nextAfterShadeId` until it is null
  * (`scripts/dedupe-gallery-images.cjs` does the loop). See `lib/gallery-dedupe.ts` for the rules.
+ * Also the `image_asset` fingerprint backfill: fingerprints computed from blobs are saved where
+ * still empty, even in a dry run, unless `"storeFingerprints": false`.
  */
 export async function dedupeGalleryImages(
   request: HttpRequest,
@@ -83,7 +89,7 @@ export async function dedupeGalleryImages(
   );
 
   context.log(
-    `[gallery-dedupe-admin] after=${parsed.afterShadeId} dryRun=${parsed.dryRun} shades=${result.scannedShades} groups=${result.duplicateGroups} removed=${result.swatchesRemoved} unreadable=${result.unreadableImages}`
+    `[gallery-dedupe-admin] after=${parsed.afterShadeId} dryRun=${parsed.dryRun} shades=${result.scannedShades} groups=${result.duplicateGroups} removed=${result.swatchesRemoved} unreadable=${result.unreadableImages} fingerprintsStored=${result.fingerprintsStored}`
   );
   trackEvent("gallery_dedupe.batch", {
     dryRun: String(parsed.dryRun),
@@ -91,6 +97,7 @@ export async function dedupeGalleryImages(
     duplicateGroups: String(result.duplicateGroups),
     swatchesRemoved: String(result.swatchesRemoved),
     unreadableImages: String(result.unreadableImages),
+    fingerprintsStored: String(result.fingerprintsStored),
   });
   return { status: 200, jsonBody: result };
 }
