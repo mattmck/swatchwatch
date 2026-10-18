@@ -33,6 +33,31 @@ export function rgbToHexString(r: number, g: number, b: number): string {
 }
 
 /**
+ * Inclusive pixel bounds of the `size`×`size` window centred on (`cx`, `cy`), clamped to a
+ * `width`×`height` image. Even sizes are treated as the next odd size so the window stays centred.
+ * Null when the window misses the image entirely. Shared by `averageRegion` and the on-image
+ * outline so the outline shows exactly the pixels that are averaged.
+ */
+export function sampleWindowBounds(
+  cx: number,
+  cy: number,
+  size: number,
+  width: number,
+  height: number
+): { x0: number; y0: number; x1: number; y1: number } | null {
+  if (width <= 0 || height <= 0) return null;
+  const radius = Math.max(0, Math.floor(Math.max(1, Math.round(size)) / 2));
+  const centerX = Math.round(cx);
+  const centerY = Math.round(cy);
+  const x0 = Math.max(0, centerX - radius);
+  const x1 = Math.min(width - 1, centerX + radius);
+  const y0 = Math.max(0, centerY - radius);
+  const y1 = Math.min(height - 1, centerY + radius);
+  if (x0 > x1 || y0 > y1) return null;
+  return { x0, y0, x1, y1 };
+}
+
+/**
  * Average the RGBA pixels in a `size`×`size` window centred on (`cx`, `cy`).
  *
  * - `data` is row-major RGBA (`ImageData.data`), `width`×`height` pixels.
@@ -52,14 +77,9 @@ export function averageRegion(
   size: number
 ): RegionSample | null {
   if (width <= 0 || height <= 0 || data.length < width * height * 4) return null;
-  const radius = Math.max(0, Math.floor(Math.max(1, Math.round(size)) / 2));
-  const centerX = Math.round(cx);
-  const centerY = Math.round(cy);
-  const x0 = Math.max(0, centerX - radius);
-  const x1 = Math.min(width - 1, centerX + radius);
-  const y0 = Math.max(0, centerY - radius);
-  const y1 = Math.min(height - 1, centerY + radius);
-  if (x0 > x1 || y0 > y1) return null;
+  const bounds = sampleWindowBounds(cx, cy, size, width, height);
+  if (!bounds) return null;
+  const { x0, y0, x1, y1 } = bounds;
 
   let r = 0;
   let g = 0;
@@ -209,11 +229,22 @@ export function hexLabelKeyAction(
   }
 }
 
-/** Step through `HEX_LABEL_SAMPLE_SIZES` (1/3/5/9), clamped at both ends. */
+/** Step through `HEX_LABEL_SAMPLE_SIZES` (1/3/5/9/15/25/41/61), clamped at both ends. */
 export function stepSampleSize(current: number, delta: 1 | -1): number {
   const sizes: readonly number[] = HEX_LABEL_SAMPLE_SIZES;
   const index = Math.max(0, sizes.indexOf(current));
   return sizes[Math.min(sizes.length - 1, Math.max(0, index + delta))];
+}
+
+/**
+ * Loupe radius (image pixels either side of the pointer) that keeps the whole `size`×`size` sample
+ * window inside the round loupe: at least `minRadius`, growing so the window's corners (at
+ * `(half + 0.5)·√2` from the centre) stay inside the circle with a pixel to spare.
+ */
+export function loupeRadiusFor(size: number, minRadius: number): number {
+  const half = Math.floor(Math.max(1, Math.round(size)) / 2);
+  const cornerFit = Math.ceil((half + 0.5) * Math.SQRT2 - 0.5) + 1;
+  return Math.max(minRadius, cornerFit);
 }
 
 /** Request that recreates a saved label exactly (used to undo an overwrite). */
