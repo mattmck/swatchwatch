@@ -779,13 +779,13 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                       )}
                     </TableCell>
                     <TableCell className="font-medium">{polish.brand}</TableCell>
-                    <TableCell>
+                    <TableCell className="whitespace-normal">
                       {/* Name block (name + buy link) on the left, descriptor pills right-aligned (#350). DOM order stays name -> buy link -> pills. */}
                       <div className="flex items-start gap-2">
                         <div className="min-w-0 flex-1">
                           <Link
                             href={`/polishes/detail?id=${polish.id}&returnTo=${encodeURIComponent(returnToHref)}`}
-                            className="text-primary hover:underline"
+                            className="break-words text-primary hover:underline"
                           >
                             {polish.name}
                           </Link>
