@@ -12,6 +12,7 @@ export * from './functions/catalog';
 export * from './functions/dupes';
 export * from './functions/hex-labels';
 export * from './functions/images';
+export * from './functions/image-variants-admin';
 export * from './functions/ingestion-worker';
 export * from './functions/ingestion-ai-batch-poller';
 export * from './functions/ingestion';
