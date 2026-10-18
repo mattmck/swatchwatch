@@ -45,7 +45,10 @@ npm run test:e2e --workspace=swatchwatch-functions  # E2E tests against the runn
   `tests/manicures.unit.test.cjs` covers the mani log (#269): request validation, wear-stat
   recomputation on create/edit/delete against an in-memory fake of the manicure tables, the
   `inventory_event` sync, and cross-user isolation (another user's manicures, inventory items and photos
-  are 404, every statement is bound to the caller).
+  are 404, every statement is bound to the caller). It also covers the mani photo routes (#327) with
+  real sharp: EXIF/GPS stripped from what reaches storage, replace/remove/manicure-delete cleanup that
+  only deletes photos the route created and nothing else references, and another user getting 404 on
+  `PUT`/`DELETE /api/manicures/{id}/photo` before the body is read or storage is touched.
   `tests/wishlist-share.unit.test.cjs` covers the shareable wishlist (#268): token derivation,
   hashing and canonical parsing, the flag (404 `feature_disabled` on every route, before auth and SQL),
   rotate/revoke making old links 404, the public payload allowlist (no PII, no private fields, only
@@ -99,6 +102,8 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `POST` | `/api/manicures` | `createManicure` | `manicures.ts` | ✅ Live |
 | `PUT`/`PATCH` | `/api/manicures/{id}` | `updateManicure` | `manicures.ts` | ✅ Live (partial update) |
 | `DELETE` | `/api/manicures/{id}` | `deleteManicure` | `manicures.ts` | ✅ Live |
+| `PUT` | `/api/manicures/{id}/photo` | `putManicurePhoto` | `manicure-photos.ts` | ✅ Live (owner only; upload/replace the mani photo, EXIF stripped, #327) |
+| `DELETE` | `/api/manicures/{id}/photo` | `deleteManicurePhoto` | `manicure-photos.ts` | ✅ Live (owner only; 204, idempotent) |
 | `POST` | `/api/polish-imports` | `createImport` | `polish-imports.ts` | ✅ Live (CSV upload → parse + match → review session) |
 | `GET` | `/api/polish-imports/{id}` | `getImport` | `polish-imports.ts` | ✅ Live (owner only) |
 | `PATCH` | `/api/polish-imports/{id}` | `patchImport` | `polish-imports.ts` | ✅ Live (save review decisions) |
@@ -277,6 +282,11 @@ One private on-nail photo per inventory item, linked by `inventory_nail_photo` (
 - **Responses:** `NailPhotoResponse` with `imageUrl` as an owner-scoped `v3` proxy URL only (never a raw blob URL or `v2` id; `null` if it cannot be signed), `Cache-Control: private, no-store`. Fetch the image with the bearer token (web: `PrivateImage`).
 - **Delete:** `DELETE` removes the link, the `image_asset` row and the blob (`204`, also when there was no photo). `DELETE /api/polishes/{id}` locks the inventory row (`FOR UPDATE`), deletes the photo's `image_asset` rows and the item in one transaction, and deletes the blobs only after commit (a failed delete leaves photo and blob untouched; a concurrent upload waits on the lock). Blob deletes are best-effort after the DB commit (`nail_photo.blob_delete_failed` telemetry); a photo without its row can no longer be minted a URL.
 - **Telemetry:** `nail_photo.uploaded`, `nail_photo.rejected` (status), `nail_photo.deleted`, `nail_photo.blob_delete_failed`.
+- **Clients:** the web app converts HEIC/HEIF to JPEG in the browser before uploading (#318, decision D9), so iPhone photos never depend on the server's HEIC support; the server still decodes, re-encodes and strips every upload.
+
+### Mani photos (`src/functions/manicure-photos.ts`, #327)
+
+`PUT /api/manicures/{id}/photo` uploads or replaces a manicure's photo and `DELETE` removes it (`204`, also when there is none). Same body, limits, decoding and metadata stripping as the nail-photo `PUT` (`src/lib/nail-photo-upload.ts` reads the body, `src/lib/nail-photo-image.ts` re-encodes). The manicure must be the caller's (`404` otherwise, before any body read, decode or storage access). The blob goes to `USER_MEDIA_CONTAINER` as `<userId>/manicures/<manicureId>/<uuid>.jpg` with an `image_asset` row (`owner_type 'user'`), which becomes `manicure.photo_image_id` under a `FOR UPDATE` lock on the manicure; `201` for a first photo, `200` for a replacement, body `ManicurePhotoResponse` (owner-scoped `v3` URL only, `Cache-Control: private, no-store`). Because `photoImageId` can also point at any other photo the caller owns (e.g. a nail photo), cleanup (`src/lib/manicure-photo.ts`) deletes the previous `image_asset` row and blob only when it is under that mani-photo path and no manicure or nail photo still references it; the same cleanup runs when `PATCH /api/manicures/{id}` changes or clears `photoImageId` and when the manicure is deleted. Telemetry: `manicure_photo.uploaded`, `manicure_photo.rejected` (status), `manicure_photo.deleted`.
 
 ### Finish canonicalization (`src/lib/finishes.ts`)
 

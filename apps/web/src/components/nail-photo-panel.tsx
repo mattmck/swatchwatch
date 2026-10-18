@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Camera, ImageOff, Lock, RefreshCw, Trash2, Upload } from "lucide-react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Camera, ImageOff, Lock, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { NailPhoto } from "swatchwatch-shared";
 import { ApiError, deleteNailPhoto, getNailPhoto, uploadNailPhoto } from "@/lib/api";
-import { describeNailPhotoError, NAIL_PHOTO_INPUT_ACCEPT, prepareNailPhotoUpload } from "@/lib/nail-photo";
+import { describeNailPhotoError, prepareNailPhotoUpload } from "@/lib/nail-photo";
+import { PhotoPickerButtons } from "@/components/photo-picker-buttons";
 import { PrivateImage } from "@/components/private-image";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -62,8 +63,6 @@ export function NailPhotoPanel({ inventoryItemId, polishLabel, vendorHex, detect
   const [photo, setPhoto] = useState<NailPhoto | null>(null);
   const [busy, setBusy] = useState<"uploading" | "deleting" | null>(null);
   const [imageAttempt, setImageAttempt] = useState(0);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const fetchPhoto = useCallback(
     (isCancelled: () => boolean = () => false) =>
@@ -97,9 +96,8 @@ export function NailPhotoPanel({ inventoryItemId, polishLabel, vendorHex, detect
     void fetchPhoto();
   };
 
-  async function handleFiles(files: FileList | null) {
-    const file = files?.[0];
-    if (!file || busy) return;
+  async function handleFile(file: File) {
+    if (busy) return;
     setBusy("uploading");
     try {
       const image = await prepareNailPhotoUpload(file);
@@ -210,58 +208,18 @@ export function NailPhotoPanel({ inventoryItemId, polishLabel, vendorHex, detect
           {!vendorHex && !detectedHex && <SwatchTile hex={nameHex} label="From name" />}
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            size="sm"
-            disabled={disabled}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <Upload aria-hidden="true" />
-            {busy === "uploading" ? "Uploading…" : photo ? "Replace photo" : "Choose photo"}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={disabled}
-            onClick={() => cameraInputRef.current?.click()}
-          >
-            <Camera aria-hidden="true" />
-            Take photo
-          </Button>
+        <PhotoPickerButtons
+          onFile={(file) => void handleFile(file)}
+          disabled={disabled}
+          chooseLabel={busy === "uploading" ? "Uploading…" : photo ? "Replace photo" : "Choose photo"}
+        >
           {photo && (
             <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={handleDelete}>
               <Trash2 aria-hidden="true" />
               {busy === "deleting" ? "Deleting…" : "Delete photo"}
             </Button>
           )}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={NAIL_PHOTO_INPUT_ACCEPT}
-            className="sr-only"
-            tabIndex={-1}
-            aria-hidden="true"
-            onChange={(event) => {
-              void handleFiles(event.target.files);
-              event.target.value = "";
-            }}
-          />
-          <input
-            ref={cameraInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="sr-only"
-            tabIndex={-1}
-            aria-hidden="true"
-            onChange={(event) => {
-              void handleFiles(event.target.files);
-              event.target.value = "";
-            }}
-          />
-        </div>
+        </PhotoPickerButtons>
         <p className="text-xs text-muted-foreground">
           Location and camera details are removed before the photo is stored.
         </p>

@@ -697,7 +697,7 @@ class NailPhotoInputError extends Error {
     this.status = status;
   }
 }
-registerMock("../lib/nail-photo-image", {
+const nailPhotoImageMock = {
   NailPhotoInputError,
   parseNailPhotoDataUrl: (value) => {
     if (typeof value !== "string" || !value.startsWith("data:image/")) {
@@ -715,7 +715,10 @@ registerMock("../lib/nail-photo-image", {
       checksumSha256: "c".repeat(64),
     };
   },
-});
+};
+registerMock("../lib/nail-photo-image", nailPhotoImageMock);
+// lib/nail-photo-upload imports it as "./nail-photo-image"; same exports so `instanceof` agrees.
+registerMock("./nail-photo-image", nailPhotoImageMock);
 
 // sharp is only used for on-the-fly image transforms; never reached without w/h/fm params.
 registerMock("sharp", () => {
@@ -897,6 +900,7 @@ require("../dist/functions/voice");
 require("../dist/functions/images");
 require("../dist/functions/nail-photos");
 require("../dist/functions/manicures");
+require("../dist/functions/manicure-photos");
 require("../dist/functions/stats");
 const imageProxy = require("../dist/lib/image-proxy");
 
@@ -963,6 +967,14 @@ const USER_SCOPED_REQUESTS = [
     body: { notes: "x" },
   },
   { route: "manicures-mutate", method: "DELETE", url: "http://localhost:7071/api/manicures/1", params: { id: "1" } },
+  {
+    route: "manicure-photo",
+    method: "PUT",
+    url: "http://localhost:7071/api/manicures/1/photo",
+    params: { id: "1" },
+    body: { image: "data:image/jpeg;base64,AAAA" },
+  },
+  { route: "manicure-photo", method: "DELETE", url: "http://localhost:7071/api/manicures/1/photo", params: { id: "1" } },
   {
     route: "polishes-dupes",
     method: "GET",

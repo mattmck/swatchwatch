@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Loader2, Plus, X } from "lucide-react";
+import { ImageOff, Loader2, Lock, Plus, Trash2, X } from "lucide-react";
 import type { Manicure, ManicureMutationResponse, ManicurePolishRole, Polish } from "swatchwatch-shared";
 import { MAX_MANICURE_NOTES_LENGTH, MAX_MANICURE_POLISHES } from "swatchwatch-shared";
 import { toast } from "sonner";
@@ -17,8 +17,11 @@ import {
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ColorDot } from "@/components/color-dot";
-import { createManicure, updateManicure } from "@/lib/api";
+import { PhotoPickerButtons } from "@/components/photo-picker-buttons";
+import { PrivateImage } from "@/components/private-image";
+import { ApiError, createManicure, deleteManicurePhoto, updateManicure, uploadManicurePhoto } from "@/lib/api";
 import { trackManiLogged } from "@/lib/metrics-events";
+import { describeNailPhotoError, prepareNailPhotoUpload } from "@/lib/nail-photo";
 import {
   MANICURE_ROLE_LABELS,
   MANICURE_ROLE_OPTIONS,
@@ -27,12 +30,23 @@ import {
   entryFromManicurePolish,
   entryFromPolish,
   filterPickable,
+  initialManiPhotoDraft,
+  maniPhotoSaveAction,
   pickablePolishes,
   validateManiForm,
   type ManiFormEntry,
+  type ManiPhotoDraft,
 } from "@/lib/mani-log";
 
 const MAX_PICKER_RESULTS = 8;
+
+/** Photo upload failures in mani-log wording (the nail-photo 403/404 text is about inventory). */
+function photoErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && [401, 413, 415, 503].includes(error.status)) {
+    return describeNailPhotoError(error.status);
+  }
+  return error instanceof Error ? error.message : describeNailPhotoError(undefined);
+}
 
 interface ManiLogFormProps {
   open: boolean;
@@ -51,7 +65,11 @@ interface ManiLogFormProps {
   onSaved: (saved: ManicureMutationResponse) => void;
 }
 
-/** "Log a mani" / "Edit mani" dialog (issue #269): date, polishes with roles, notes. */
+/**
+ * "Log a mani" / "Edit mani" dialog (issue #269): date, polishes with roles, notes and an optional
+ * private photo (#327). The photo is prepared on pick (HEIC converted, metadata stripped, see
+ * `prepareNailPhotoUpload`) and uploaded right after the manicure is saved.
+ */
 export function ManiLogForm(props: ManiLogFormProps) {
   const { open, onOpenChange } = props;
   return (
@@ -88,6 +106,9 @@ function ManiLogFormBody({
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [photo, setPhoto] = useState<ManiPhotoDraft>(() => initialManiPhotoDraft(manicure));
+  const [preparingPhoto, setPreparingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
   const results = useMemo(
     () => (search.trim() ? filterPickable(pickable, search).slice(0, MAX_PICKER_RESULTS) : []),
@@ -112,6 +133,37 @@ function ManiLogFormBody({
     setEntries((current) => current.filter((_, i) => i !== index));
   }
 
+  async function handlePhotoFile(file: File) {
+    if (preparingPhoto || saving) return;
+    setPreparingPhoto(true);
+    setPhotoError(null);
+    try {
+      setPhoto({ kind: "pending", dataUrl: await prepareNailPhotoUpload(file) });
+    } catch (err: unknown) {
+      setPhotoError(photoErrorMessage(err));
+    } finally {
+      setPreparingPhoto(false);
+    }
+  }
+
+  /** Apply the photo change to the just-saved manicure; returns it updated, or an error message. */
+  async function savePhoto(saved: ManicureMutationResponse): Promise<{ saved: ManicureMutationResponse; error?: string }> {
+    const action = maniPhotoSaveAction(photo, manicure);
+    try {
+      if (action.kind === "upload") {
+        const uploaded = await uploadManicurePhoto(saved.id, action.dataUrl);
+        return { saved: { ...saved, photoImageId: uploaded.photoImageId, photoUrl: uploaded.photoUrl } };
+      }
+      if (action.kind === "delete") {
+        await deleteManicurePhoto(saved.id);
+        return { saved: { ...saved, photoImageId: null, photoUrl: null } };
+      }
+    } catch (err: unknown) {
+      return { saved, error: photoErrorMessage(err) };
+    }
+    return { saved };
+  }
+
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     const values = { wornOn, entries, notes };
@@ -124,11 +176,17 @@ function ManiLogFormBody({
     setError(null);
     try {
       const request = buildManicureRequest(values);
-      const saved = manicure ? await updateManicure(manicure.id, request) : await createManicure(request);
-      if (!manicure) trackManiLogged({ polishCount: saved.polishes.length, via: "form" });
+      const written = manicure ? await updateManicure(manicure.id, request) : await createManicure(request);
+      if (!manicure) trackManiLogged({ polishCount: written.polishes.length, via: "form" });
+      const { saved, error: photoFailure } = await savePhoto(written);
       toast.success(editing ? "Mani updated" : "Mani logged", {
         description: `${saved.polishes.length} polish${saved.polishes.length === 1 ? "" : "es"} · ${saved.wornOn}`,
       });
+      if (photoFailure) {
+        toast.error("The mani was saved, but its photo wasn't", {
+          description: `${photoFailure} Edit the mani to try again.`,
+        });
+      }
       onSaved(saved);
       onOpenChange(false);
     } catch (err: unknown) {
@@ -255,6 +313,57 @@ function ManiLogFormBody({
         />
       </div>
 
+      <div className="space-y-2">
+        <p className="text-sm font-medium">
+          Photo <span className="font-normal text-muted-foreground">(optional)</span>
+        </p>
+        {photo.kind !== "none" && (
+          <div className="size-28 overflow-hidden rounded-lg border shadow-sm">
+            {photo.kind === "pending" ? (
+              // A local, already re-encoded data URL; nothing to optimize or authorize.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={photo.dataUrl} alt="New mani photo" className="size-full object-cover" />
+            ) : photo.url ? (
+              <PrivateImage
+                src={photo.url}
+                alt="Mani photo"
+                className="size-full object-cover"
+                fallback={<PhotoUnavailable />}
+              />
+            ) : (
+              <PhotoUnavailable />
+            )}
+          </div>
+        )}
+        <PhotoPickerButtons
+          onFile={(file) => void handlePhotoFile(file)}
+          disabled={saving || preparingPhoto}
+          chooseLabel={preparingPhoto ? "Preparing…" : photo.kind === "none" ? "Add photo" : "Replace photo"}
+        >
+          {photo.kind !== "none" && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={saving || preparingPhoto}
+              onClick={() => setPhoto({ kind: "none" })}
+            >
+              <Trash2 aria-hidden="true" />
+              Remove photo
+            </Button>
+          )}
+        </PhotoPickerButtons>
+        {photoError && (
+          <p role="alert" className="text-sm text-destructive">
+            {photoError}
+          </p>
+        )}
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Lock className="size-3.5" aria-hidden="true" />
+          Private to you. Location and camera details are removed before it&apos;s stored.
+        </p>
+      </div>
+
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}
@@ -265,11 +374,20 @@ function ManiLogFormBody({
         <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
           Cancel
         </Button>
-        <Button type="submit" disabled={saving}>
+        <Button type="submit" disabled={saving || preparingPhoto}>
           {saving && <Loader2 className="size-4 animate-spin" />}
           {editing ? "Save changes" : "Log mani"}
         </Button>
       </DialogFooter>
     </form>
+  );
+}
+
+function PhotoUnavailable() {
+  return (
+    <div className="flex size-full flex-col items-center justify-center gap-1 bg-muted p-2 text-center text-xs text-muted-foreground">
+      <ImageOff className="size-5" aria-hidden="true" />
+      <span>Photo unavailable</span>
+    </div>
   );
 }

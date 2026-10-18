@@ -101,6 +101,20 @@ export async function downscaleImageFile(
     throw new Error("Couldn't read that image in this browser. Try a JPEG or PNG.");
   }
 
+  return encodeScaledImage(source, maxEdge, jpegQuality, outputMimeType);
+}
+
+/**
+ * Draw an already-decoded image onto a canvas no larger than `maxEdge` on its longest side and
+ * return it as a base64 data URL (all source metadata is dropped). Closes `source` when it is an
+ * `ImageBitmap`. Used by `downscaleImageFile` and by the HEIC converter.
+ */
+export function encodeScaledImage(
+  source: CanvasImageSource & { width: number; height: number },
+  maxEdge: number,
+  jpegQuality: number,
+  mimeType: "image/png" | "image/jpeg",
+): DownscaledImage {
   const { width, height } = computeScaledSize(source.width, source.height, maxEdge);
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -110,7 +124,6 @@ export async function downscaleImageFile(
     throw new Error("Couldn't process that image in this browser.");
   }
 
-  const mimeType = outputMimeType;
   if (mimeType === "image/jpeg") {
     // JPEG has no alpha; paint white so transparent regions don't turn black.
     ctx.fillStyle = "#FFFFFF";

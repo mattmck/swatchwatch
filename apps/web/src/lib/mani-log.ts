@@ -237,3 +237,31 @@ export function quickLogRequest(
 export function canLogPolish(polish: Pick<Polish, "status">): boolean {
   return Boolean(polish.status);
 }
+
+/**
+ * Photo state of the mani form (#327): the manicure's saved photo, a freshly prepared upload
+ * (JPEG data URL, already HEIC-converted and metadata-free, see `prepareNailPhotoUpload`), or none.
+ * The photo is saved after the manicure itself through `PUT`/`DELETE /api/manicures/{id}/photo`.
+ */
+export type ManiPhotoDraft =
+  | { kind: "none" }
+  | { kind: "saved"; imageId: string; url: string | null }
+  | { kind: "pending"; dataUrl: string };
+
+export function initialManiPhotoDraft(manicure?: Pick<Manicure, "photoImageId" | "photoUrl"> | null): ManiPhotoDraft {
+  return manicure?.photoImageId
+    ? { kind: "saved", imageId: manicure.photoImageId, url: manicure.photoUrl }
+    : { kind: "none" };
+}
+
+/** What saving the form has to do with the photo once the manicure is written. */
+export type ManiPhotoSaveAction = { kind: "keep" } | { kind: "upload"; dataUrl: string } | { kind: "delete" };
+
+export function maniPhotoSaveAction(
+  draft: ManiPhotoDraft,
+  saved?: Pick<Manicure, "photoImageId"> | null
+): ManiPhotoSaveAction {
+  if (draft.kind === "pending") return { kind: "upload", dataUrl: draft.dataUrl };
+  if (draft.kind === "none" && saved?.photoImageId) return { kind: "delete" };
+  return { kind: "keep" };
+}

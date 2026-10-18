@@ -24,6 +24,8 @@ import { internalServerError } from "../lib/errors";
 import { toImageProxyUrl } from "../lib/image-proxy";
 import { isCatalogStorageUrl, isUserMediaStorageUrl } from "../lib/blob-storage";
 import { invalidatePolishCachesForUser } from "../lib/polish-cache";
+import { releaseManicurePhoto } from "../lib/manicure-photo";
+import { deleteNailPhotoBlobs } from "../lib/nail-photos";
 import { trackEvent } from "../lib/telemetry";
 import {
   ManicureRequestError,
@@ -182,6 +184,15 @@ async function assertOwnedPhoto(client: PoolClient, userId: number, imageId: num
   }
 }
 
+/** Current `photo_image_id` of a manicure already locked by `lockOwnManicure`. */
+async function currentPhotoImageId(client: PoolClient, userId: number, manicureId: number): Promise<string | null> {
+  const result = await client.query<{ photoImageId: string | null }>(
+    `SELECT photo_image_id::text AS "photoImageId" FROM manicure WHERE manicure_id = $1 AND user_id = $2`,
+    [manicureId, userId]
+  );
+  return result.rows[0]?.photoImageId ?? null;
+}
+
 /** Lock the caller's manicure and return its current shade ids; 404 when it is not theirs. */
 async function lockOwnManicure(client: PoolClient, userId: number, manicureId: number): Promise<number[]> {
   const found = await client.query(
@@ -336,9 +347,11 @@ async function updateManicure(request: HttpRequest, context: InvocationContext, 
     const manicureId = parseIdParam(request);
     const body = parseManicureBody(await readJsonBody(request), "update");
 
-    const { wearStats, affected } = await transaction(async (client) => {
+    const { wearStats, affected, releasedPhotoUrl } = await transaction(async (client) => {
       const previousShadeIds = await lockOwnManicure(client, userId, manicureId);
       if (body.photoImageId) await assertOwnedPhoto(client, userId, body.photoImageId);
+      const previousPhotoImageId =
+        body.photoImageId !== undefined ? await currentPhotoImageId(client, userId, manicureId) : null;
 
       const resolved = body.polishes
         ? await resolveManicurePolishes(client, userId, body.polishes, new Set(previousShadeIds))
@@ -365,9 +378,14 @@ async function updateManicure(request: HttpRequest, context: InvocationContext, 
       }
       await syncManicureEvents(client, userId, manicureId);
       const wearStats = await recomputeWearStats(client, userId, affected);
-      return { wearStats, affected };
+      const releasedPhotoUrl =
+        previousPhotoImageId && previousPhotoImageId !== String(body.photoImageId ?? "")
+          ? await releaseManicurePhoto(client, userId, previousPhotoImageId)
+          : null;
+      return { wearStats, affected, releasedPhotoUrl };
     });
 
+    if (releasedPhotoUrl) await deleteNailPhotoBlobs([releasedPhotoUrl], context);
     await finishWrite(userId, wearStats, affected);
     trackEvent("manicure.updated", { userId, polishesReplaced: Boolean(body.polishes) });
 
@@ -385,15 +403,19 @@ async function deleteManicure(request: HttpRequest, context: InvocationContext, 
   try {
     const manicureId = parseIdParam(request);
 
-    const { wearStats, affected } = await transaction(async (client) => {
+    const { wearStats, affected, releasedPhotoUrl } = await transaction(async (client) => {
       const affected = await lockOwnManicure(client, userId, manicureId);
+      const photoImageId = await currentPhotoImageId(client, userId, manicureId);
       await lockInventoryRows(client, userId, affected);
       // Cascades to manicure_polish and to the manicure's inventory_event rows.
       await client.query(`DELETE FROM manicure WHERE manicure_id = $1 AND user_id = $2`, [manicureId, userId]);
       const wearStats = await recomputeWearStats(client, userId, affected);
-      return { wearStats, affected };
+      // A photo uploaded for this mani (#327) goes with it; shared photos are kept.
+      const releasedPhotoUrl = await releaseManicurePhoto(client, userId, photoImageId);
+      return { wearStats, affected, releasedPhotoUrl };
     });
 
+    if (releasedPhotoUrl) await deleteNailPhotoBlobs([releasedPhotoUrl], context);
     await finishWrite(userId, wearStats, affected);
     trackEvent("manicure.deleted", { userId });
 

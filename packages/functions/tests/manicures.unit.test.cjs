@@ -87,6 +87,7 @@ function resetState() {
       [OWNER_PHOTO, { ownerId: OWNER, url: PHOTO_URL("owner") }],
       [ATTACKER_PHOTO, { ownerId: ATTACKER, url: PHOTO_URL("attacker") }],
     ]),
+    nextImageId: 900,
     nextManicureId: 1,
     manicures: new Map(), // id -> { userId, wornOn, notes, photo, polishes: [{ shadeId, role, position }] }
     events: [], // { inventoryItemId, manicureId }
@@ -265,6 +266,38 @@ function handle(via, rawSql, params = []) {
     }
     return { rows };
   }
+  // Mani photo (#327): functions/manicure-photos + lib/manicure-photo, and the photo lookups in
+  // manicures.ts that release a mani-uploaded photo on edit/delete.
+  if (/^SELECT (manicure_id::text AS id, )?photo_image_id::text AS "photoImageId" FROM manicure WHERE manicure_id = \$1 AND user_id = \$2( FOR UPDATE)?$/.test(sql)) {
+    const m = state.manicures.get(Number(params[0]));
+    if (!m || m.userId !== Number(params[1])) return { rows: [] };
+    return { rows: [{ id: String(params[0]), photoImageId: m.photo ? String(m.photo) : null }] };
+  }
+  if (/^INSERT INTO image_asset \(owner_type, owner_id, storage_url/.test(sql)) {
+    const imageId = state.nextImageId++;
+    state.images.set(imageId, { ownerId: Number(params[0]), url: params[1] });
+    return { rows: [{ imageId: String(imageId) }] };
+  }
+  if (/^UPDATE manicure SET photo_image_id = (\$3::bigint|NULL), updated_at = now\(\) WHERE manicure_id = \$1 AND user_id = \$2$/.test(sql)) {
+    const m = state.manicures.get(Number(params[0]));
+    if (m && m.userId === Number(params[1])) m.photo = params[2] === undefined ? null : Number(params[2]);
+    return { rows: [] };
+  }
+  if (/^SELECT ia\.storage_url AS "storageUrl" FROM image_asset ia WHERE ia\.image_id = \$1 AND ia\.owner_type = 'user' AND ia\.owner_id = \$2 AND NOT EXISTS \(SELECT 1 FROM manicure m WHERE m\.photo_image_id = ia\.image_id\) AND NOT EXISTS \(SELECT 1 FROM inventory_nail_photo p WHERE p\.image_id = ia\.image_id\)$/.test(sql)) {
+    const imageId = Number(params[0]);
+    const image = state.images.get(imageId);
+    const referenced =
+      (image && image.nailPhoto) || [...state.manicures.values()].some((m) => m.photo === imageId);
+    return { rows: image && image.ownerId === Number(params[1]) && !referenced ? [{ storageUrl: image.url }] : [] };
+  }
+  if (/^DELETE FROM image_asset WHERE image_id = \$1 AND owner_type = 'user' AND owner_id = \$2 RETURNING storage_url AS "storageUrl"$/.test(sql)) {
+    const imageId = Number(params[0]);
+    const image = state.images.get(imageId);
+    if (!image || image.ownerId !== Number(params[1])) return { rows: [] };
+    state.images.delete(imageId);
+    for (const m of state.manicures.values()) if (m.photo === imageId) m.photo = null; // ON DELETE SET NULL
+    return { rows: [{ storageUrl: image.url }] };
+  }
   throw new Error(`Unexpected SQL in fake DB: ${sql.slice(0, 160)}`);
 }
 
@@ -285,12 +318,37 @@ const dbMock = {
 };
 registerMock(path.resolve(__dirname, "../dist/lib/db.js"), dbMock);
 registerMock("../lib/db", dbMock);
+
+// Mani photo uploads (#327): record blob uploads/deletes instead of calling storage. Image
+// processing uses REAL sharp (lib/nail-photo-image), so stored bytes are proven metadata-free.
+let storage;
+function resetStorage() {
+  storage = { uploads: [], deletes: [] };
+}
+resetStorage();
+const realBlobStorage = require("../dist/lib/blob-storage");
+registerMock("../lib/blob-storage", {
+  ...realBlobStorage,
+  uploadBytesToBlob: async ({ containerName, blobName, bytes, contentType }) => {
+    const url = `http://127.0.0.1:10000/devstoreaccount1/${containerName}/${blobName}`;
+    storage.uploads.push({ url, containerName, blobName, bytes, contentType });
+    return url;
+  },
+});
+// lib/nail-photos deletes blobs through the real module ("./blob-storage"); record instead.
+realBlobStorage.deleteBlobFromStorageUrl = async (url, options) => {
+  assert.ok(options.allowedContainers.includes("nail-photos"), "deletes are limited to the user-media container");
+  storage.deletes.push(url);
+  return true;
+};
 for (const [id, exports] of Object.entries(mockModules)) {
   require.cache[id] = { id, filename: id, loaded: true, exports };
 }
 
 const manicureLib = require("../dist/lib/manicure");
 require("../dist/functions/manicures");
+require("../dist/functions/manicure-photos");
+const sharp = require("sharp");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -332,6 +390,7 @@ const mutations = () => calls.filter((c) => /^(INSERT|UPDATE|DELETE)\b/.test(c.s
 
 beforeEach(() => {
   resetState();
+  resetStorage();
   process.env.AUTH_DEV_BYPASS = "true";
 });
 afterEach(() => {
@@ -741,6 +800,231 @@ describe("manicures — access control", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 // Migration ↔ shared constants
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Mani photo upload (#327): PUT/DELETE /api/manicures/{id}/photo
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** A PUT/DELETE photo request with a streamed JSON body and matching Content-Length. */
+function photoRequest({ method, id, userId = OWNER, body, contentLength }) {
+  const bytes = body === undefined ? null : Buffer.from(JSON.stringify(body));
+  let bodyRead = false;
+  const headers = new Map();
+  if (userId) headers.set("authorization", `Bearer dev:${userId}`);
+  if (bytes) headers.set("content-length", contentLength ?? String(bytes.length));
+  if (contentLength === null) headers.delete("content-length");
+  const request = {
+    method,
+    url: `http://localhost:7071/api/manicures/${id}/photo`,
+    headers: { get: (name) => headers.get(name.toLowerCase()) ?? null },
+    params: { id: String(id) },
+    get body() {
+      if (!bytes) return null;
+      bodyRead = true;
+      return new ReadableStream({
+        start(controller) {
+          controller.enqueue(new Uint8Array(bytes));
+          controller.close();
+        },
+      });
+    },
+    arrayBuffer: async () => {
+      bodyRead = true;
+      return bytes ?? Buffer.alloc(0);
+    },
+    get bodyRead() {
+      return bodyRead;
+    },
+  };
+  return request;
+}
+async function photoCall(opts) {
+  const request = photoRequest(opts);
+  const res = await registeredRoutes["manicure-photo"].handler(request, fakeContext());
+  return { res, request };
+}
+async function taggedJpegDataUrl() {
+  const jpeg = await sharp({ create: { width: 40, height: 20, channels: 3, background: "#b0306a" } })
+    .withMetadata({ orientation: 6 })
+    .withExif({ IFD0: { Make: "LeakyPhone" }, IFD3: { GPSLatitudeRef: "N", GPSLatitude: "51/1 30/1 0/1" } })
+    .jpeg()
+    .toBuffer();
+  return `data:image/jpeg;base64,${jpeg.toString("base64")}`;
+}
+const isManiBlob = (url, userId, manicureId) =>
+  url.startsWith(`http://127.0.0.1:10000/devstoreaccount1/nail-photos/${userId}/manicures/${manicureId}/`);
+
+describe("manicure photos — upload, replace, delete", () => {
+  it("registers PUT/DELETE (+OPTIONS) on manicures/{id}/photo", () => {
+    const route = registeredRoutes["manicure-photo"];
+    assert.ok(route);
+    assert.equal(route.route, "manicures/{id}/photo");
+    assert.deepEqual([...route.methods].sort(), ["DELETE", "OPTIONS", "PUT"]);
+  });
+
+  it("uploads a metadata-free JPEG, links it to the manicure and returns an owner-scoped v3 URL", async () => {
+    const created = await create({ polishes: [{ shadeId: 10 }] });
+    const id = created.jsonBody.id;
+    const { res } = await photoCall({ method: "PUT", id, body: { image: await taggedJpegDataUrl() } });
+    assert.equal(res.status, 201);
+    assert.equal(res.headers["Cache-Control"], "private, no-store");
+    assert.equal(res.jsonBody.manicureId, id);
+    assert.match(res.jsonBody.photoUrl, /^http:\/\/localhost:7071\/api\/images\/v3\.[^.]+\.[^.]+\.1\./);
+    assert.doesNotMatch(JSON.stringify(res.jsonBody), /127\.0\.0\.1:10000|blob\.core/, "no raw blob URL");
+
+    assert.equal(storage.uploads.length, 1);
+    const [upload] = storage.uploads;
+    assert.equal(upload.containerName, "nail-photos");
+    assert.ok(isManiBlob(upload.url, OWNER, id), upload.url);
+    assert.equal(upload.contentType, "image/jpeg");
+    const meta = await sharp(upload.bytes).metadata();
+    assert.equal(meta.exif, undefined, "EXIF (incl. GPS) must be stripped");
+    assert.equal(meta.width, 20, "orientation applied to the pixels");
+
+    const stored = state.manicures.get(Number(id));
+    assert.equal(String(stored.photo), res.jsonBody.photoImageId);
+    assert.equal(state.images.get(stored.photo).ownerId, OWNER);
+    const read = await getOne(id);
+    assert.equal(read.jsonBody.photoImageId, res.jsonBody.photoImageId);
+    assert.match(read.jsonBody.photoUrl, /\/api\/images\/v3\./);
+  });
+
+  it("replacing deletes the previous mani-uploaded photo (row and blob)", async () => {
+    const id = (await create({ polishes: [{ shadeId: 10 }] })).jsonBody.id;
+    const first = (await photoCall({ method: "PUT", id, body: { image: await taggedJpegDataUrl() } })).res;
+    const { res } = await photoCall({ method: "PUT", id, body: { image: await taggedJpegDataUrl() } });
+    assert.equal(res.status, 200);
+    assert.notEqual(res.jsonBody.photoImageId, first.jsonBody.photoImageId);
+    assert.equal(state.images.has(Number(first.jsonBody.photoImageId)), false);
+    assert.deepEqual(storage.deletes, [storage.uploads[0].url]);
+  });
+
+  it("keeps a previous photo it did not create (e.g. a nail photo attached by id)", async () => {
+    const id = (await create({ photoImageId: OWNER_PHOTO, polishes: [{ shadeId: 10 }] })).jsonBody.id;
+    const { res } = await photoCall({ method: "PUT", id, body: { image: await taggedJpegDataUrl() } });
+    assert.equal(res.status, 200);
+    assert.ok(state.images.has(OWNER_PHOTO), "shared photo kept");
+    assert.deepEqual(storage.deletes, []);
+  });
+
+  it("keeps a mani-uploaded photo another manicure still uses", async () => {
+    const a = (await create({ polishes: [{ shadeId: 10 }] })).jsonBody.id;
+    const b = (await create({ polishes: [{ shadeId: 11 }] })).jsonBody.id;
+    const uploaded = (await photoCall({ method: "PUT", id: a, body: { image: await taggedJpegDataUrl() } })).res;
+    await update(b, { photoImageId: uploaded.jsonBody.photoImageId });
+    const { res } = await photoCall({ method: "DELETE", id: a });
+    assert.equal(res.status, 204);
+    assert.equal(state.manicures.get(Number(a)).photo, null);
+    assert.ok(state.images.has(Number(uploaded.jsonBody.photoImageId)), "still referenced by manicure b");
+    assert.deepEqual(storage.deletes, []);
+  });
+
+  it("DELETE unlinks and removes the mani-uploaded photo; repeating it is a 204 no-op", async () => {
+    const id = (await create({ polishes: [{ shadeId: 10 }] })).jsonBody.id;
+    const uploaded = (await photoCall({ method: "PUT", id, body: { image: await taggedJpegDataUrl() } })).res;
+    let { res } = await photoCall({ method: "DELETE", id });
+    assert.equal(res.status, 204);
+    assert.equal(state.manicures.get(Number(id)).photo, null);
+    assert.equal(state.images.has(Number(uploaded.jsonBody.photoImageId)), false);
+    assert.deepEqual(storage.deletes, [storage.uploads[0].url]);
+    ({ res } = await photoCall({ method: "DELETE", id }));
+    assert.equal(res.status, 204);
+    assert.equal(storage.deletes.length, 1);
+  });
+
+  it("deleting the manicure, or clearing photoImageId, removes its uploaded photo", async () => {
+    const a = (await create({ polishes: [{ shadeId: 10 }] })).jsonBody.id;
+    await photoCall({ method: "PUT", id: a, body: { image: await taggedJpegDataUrl() } });
+    assert.equal((await remove(a)).status, 200);
+    assert.deepEqual(storage.deletes, [storage.uploads[0].url]);
+
+    const b = (await create({ polishes: [{ shadeId: 10 }] })).jsonBody.id;
+    await photoCall({ method: "PUT", id: b, body: { image: await taggedJpegDataUrl() } });
+    const res = await update(b, { photoImageId: null });
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.photoUrl, null);
+    assert.deepEqual(storage.deletes, [storage.uploads[0].url, storage.uploads[1].url]);
+
+    // A shared photo survives the manicure being deleted.
+    const c = (await create({ photoImageId: OWNER_PHOTO, polishes: [{ shadeId: 10 }] })).jsonBody.id;
+    await remove(c);
+    assert.ok(state.images.has(OWNER_PHOTO));
+    assert.equal(storage.deletes.length, 2);
+  });
+
+  it("rejects bad uploads without storing anything", async () => {
+    const id = (await create({ polishes: [{ shadeId: 10 }] })).jsonBody.id;
+    let { res } = await photoCall({ method: "PUT", id, body: { image: "data:application/pdf;base64,AAAA" } });
+    assert.equal(res.status, 415);
+    ({ res } = await photoCall({ method: "PUT", id, body: { image: await taggedJpegDataUrl() }, contentLength: null }));
+    assert.equal(res.status, 411);
+    ({ res } = await photoCall({ method: "PUT", id: "abc", body: { image: "x" } }));
+    assert.equal(res.status, 400);
+    assert.deepEqual(storage.uploads, []);
+    assert.equal(state.manicures.get(Number(id)).photo, null);
+  });
+});
+
+describe("manicure photos — access control", () => {
+  async function ownerManicureWithPhoto() {
+    const id = (await create({ polishes: [{ shadeId: 10 }] })).jsonBody.id;
+    const uploaded = (await photoCall({ method: "PUT", id, body: { image: await taggedJpegDataUrl() } })).res;
+    resetStorage();
+    calls = [];
+    return { id, photoImageId: Number(uploaded.jsonBody.photoImageId) };
+  }
+
+  it("requires authentication", async () => {
+    const { id } = await ownerManicureWithPhoto();
+    for (const method of ["PUT", "DELETE"]) {
+      const { res, request } = await photoCall({ method, id, userId: null, body: { image: "x" } });
+      assert.equal(res.status, 401, method);
+      assert.equal(request.bodyRead, false);
+    }
+  });
+
+  it("another user cannot upload to the owner's manicure: 404 before reading the body or touching storage", async () => {
+    const { id, photoImageId } = await ownerManicureWithPhoto();
+    const { res, request } = await photoCall({
+      method: "PUT",
+      id,
+      userId: ATTACKER,
+      body: { image: await taggedJpegDataUrl() },
+    });
+    assert.equal(res.status, 404);
+    assert.equal(request.bodyRead, false, "body never read");
+    assert.deepEqual(storage.uploads, []);
+    assert.equal(state.manicures.get(Number(id)).photo, photoImageId);
+    assert.deepEqual(mutations(), [], "nothing written");
+  });
+
+  it("another user cannot delete the owner's mani photo", async () => {
+    const { id, photoImageId } = await ownerManicureWithPhoto();
+    const { res } = await photoCall({ method: "DELETE", id, userId: ATTACKER });
+    assert.equal(res.status, 404);
+    assert.equal(state.manicures.get(Number(id)).photo, photoImageId);
+    assert.ok(state.images.has(photoImageId));
+    assert.deepEqual(storage.deletes, []);
+    assert.deepEqual(mutations(), [], "nothing written");
+  });
+
+  it("every photo statement is bound to the caller", async () => {
+    const { id } = await ownerManicureWithPhoto();
+    await photoCall({ method: "PUT", id, body: { image: await taggedJpegDataUrl() } });
+    await photoCall({ method: "DELETE", id });
+    const photoCalls = calls.filter((c) => /\b(manicure|image_asset)\b/.test(c.sql));
+    assert.ok(photoCalls.length >= 5);
+    for (const c of photoCalls) {
+      const placeholders = [...c.sql.matchAll(/\b(?:user_id|owner_id)\s*=\s*\$(\d+)/g)].map((m) => Number(m[1]));
+      if (/^INSERT INTO image_asset/.test(c.sql)) {
+        assert.equal(Number(c.params[0]), OWNER, "asset owned by the caller");
+        continue;
+      }
+      assert.ok(placeholders.length > 0, `statement is not user-scoped: ${c.sql.slice(0, 120)}`);
+      for (const n of placeholders) assert.equal(Number(c.params[n - 1]), OWNER, c.sql.slice(0, 120));
+    }
+  });
+});
 
 describe("migration 20261017063740704_manicure-log", () => {
   const fs = require("node:fs");

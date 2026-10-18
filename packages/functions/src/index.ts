@@ -17,6 +17,7 @@ export * from './functions/ingestion-ai-batch-poller';
 export * from './functions/ingestion';
 export * from './functions/nail-photos';
 export * from './functions/manicures';
+export * from './functions/manicure-photos';
 export * from './functions/polishes';
 export * from './functions/polish-imports';
 export * from './functions/reference';
