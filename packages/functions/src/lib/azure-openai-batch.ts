@@ -397,6 +397,47 @@ function parseErrorMessage(value: unknown): string | null {
   return null;
 }
 
+/**
+ * `custom_id → image_url` from the JSONL that was *submitted* to Azure (the batch input
+ * file, `toJsonlLine`): the exact image each row's model call was shown. The poller
+ * downloads it when `HEX_DETECTION_SNAP_ENABLED` is on so the snap step measures the
+ * same image, rather than whatever the shade's primary image is by the time the batch
+ * completes. Rows without a readable image URL are left out.
+ */
+export function parseVisionHexBatchInputImages(jsonl: string): Map<string, string> {
+  const images = new Map<string, string>();
+
+  for (const rawLine of jsonl.split(/\r?\n/)) {
+    const parsed = parseJsonLine(rawLine);
+    if (!parsed) continue;
+
+    const customId =
+      typeof parsed.custom_id === "string" && parsed.custom_id.trim().length > 0
+        ? parsed.custom_id.trim()
+        : null;
+    if (!customId) continue;
+
+    const body = parsed.body && typeof parsed.body === "object" ? (parsed.body as Record<string, unknown>) : null;
+    const messages = Array.isArray(body?.messages) ? (body!.messages as unknown[]) : [];
+    for (const message of messages) {
+      const content = (message as Record<string, unknown> | null)?.content;
+      if (!Array.isArray(content)) continue;
+      for (const part of content as unknown[]) {
+        const record = part as Record<string, unknown> | null;
+        if (record?.type !== "image_url") continue;
+        const imageUrl = record.image_url as Record<string, unknown> | null;
+        if (typeof imageUrl?.url === "string" && imageUrl.url.trim()) {
+          images.set(customId, imageUrl.url.trim());
+          break;
+        }
+      }
+      if (images.has(customId)) break;
+    }
+  }
+
+  return images;
+}
+
 export function parseVisionHexBatchOutput(
   jsonl: string
 ): VisionHexBatchOutputRow[] {

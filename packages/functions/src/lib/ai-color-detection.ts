@@ -31,11 +31,14 @@ export const HEX_DETECTION_METHOD_VISION_DIRECT = "vision-direct";
 
 /**
  * Detection strategies. `vision-direct` is the single-call Azure OpenAI vision
- * prompt; the others are reserved for the strategies under evaluation in
- * `src/eval/hex/` (palette pick, region crop, ensemble).
+ * prompt; `vision-snap` is that same call whose hex was then replaced by the
+ * nearest palette chip measured from the image (`src/lib/hex-snap.ts`, behind
+ * `HEX_DETECTION_SNAP_ENABLED`); the others are reserved for the strategies
+ * under evaluation in `src/eval/hex/` (palette pick, region crop, ensemble).
  */
 export type HexDetectionMethod =
   | "vision-direct"
+  | "vision-snap"
   | "palette-pick"
   | "region-crop"
   | "ensemble"

@@ -730,6 +730,7 @@ resource "azurerm_linux_function_app" "main" {
     AZURE_OPENAI_VISION_DETAIL            = var.azure_openai_vision_detail
     HEX_DETECTION_BATCH_ENABLED           = var.hex_detection_batch_enabled ? "true" : "false"
     HEX_DETECTION_BATCH_MIN_IMAGES        = tostring(var.hex_detection_batch_min_images)
+    HEX_DETECTION_SNAP_ENABLED            = var.hex_detection_snap_enabled ? "true" : "false"
     INGESTION_AI_BATCH_POLL_SCHEDULE      = var.ingestion_ai_batch_poll_schedule
     INGESTION_AI_BATCH_MAX_POLL_JOBS      = tostring(var.ingestion_ai_batch_max_poll_jobs)
     AZURE_AD_B2C_TENANT                   = var.azure_ad_b2c_tenant

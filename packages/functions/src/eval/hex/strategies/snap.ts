@@ -1,4 +1,5 @@
-import { resolveHexSnapMaxDistance, snapHexToPalette } from "../../../lib/hex-snap";
+import { HEX_DETECTION_METHOD_VISION_DIRECT } from "../../../lib/ai-color-detection";
+import { resolveHexSnapMaxDistance, snapDetectionToCandidates } from "../../../lib/hex-snap";
 import { extractPaletteCandidates } from "../../../lib/palette-pick-detection";
 import type { CaseImage, HexDetectionStrategy, StrategyOutput } from "../types";
 import { chooseCaseImageWithAi, choiceMeta, detectOn } from "./image-select";
@@ -9,7 +10,10 @@ import { chooseCaseImageWithAi, choiceMeta, detectOn } from "./image-select";
  * The blind prompt (`detectHexWithAzureOpenAI`, no vendor context) names a hex;
  * that hex is replaced by the nearest color measured from the same photo
  * (palette-pick's candidate chips), unless no chip is within
- * `HEX_SNAP_MAX_DISTANCE` (default: the MEDIUM threshold, 0.10).
+ * `HEX_SNAP_MAX_DISTANCE` (default: the MEDIUM threshold, 0.10). The replacement
+ * is `snapDetectionToCandidates` from `src/lib/hex-snap.ts`, the same pure step
+ * production runs behind `HEX_DETECTION_SNAP_ENABLED`, so the eval cannot drift
+ * from what ingestion does.
  *
  * - `blind-snap`: the case image only, so the gain over `azure-blind` is the snap alone.
  * - `image-select-ai-snap`: picks the photo the way `image-select-ai` does, then
@@ -21,17 +25,22 @@ async function detectAndSnap(image: CaseImage): Promise<StrategyOutput> {
   if (!detection.hex) {
     return { hex: null, confidence: detection.confidence, finishes: detection.finishes, meta: { usage: detection.usage, candidates } };
   }
-  const snap = snapHexToPalette(detection.hex, candidates, resolveHexSnapMaxDistance());
+  const result = snapDetectionToCandidates(
+    { hex: detection.hex, method: HEX_DETECTION_METHOD_VISION_DIRECT },
+    candidates,
+    resolveHexSnapMaxDistance()
+  );
   return {
-    hex: snap.hex,
+    hex: result.detection.hex,
     confidence: detection.confidence,
     finishes: detection.finishes,
     meta: {
       modelHex: detection.hex,
-      snapped: snap.snapped,
-      nearestChip: snap.nearest,
-      snapDistance: snap.snapDistance,
-      maxSnapDistance: snap.maxDistance,
+      snapped: result.skipped === null,
+      method: result.detection.method ?? null,
+      nearestChip: result.snap?.nearest ?? null,
+      snapDistance: result.snap?.snapDistance ?? null,
+      maxSnapDistance: result.snap?.maxDistance ?? null,
       candidates,
       usage: detection.usage,
     },

@@ -260,6 +260,12 @@ variable "hex_detection_batch_enabled" {
   default     = false
 }
 
+variable "hex_detection_snap_enabled" {
+  description = "Snap vision-detected hexes to the nearest palette chip measured from the same image (HEX_DETECTION_SNAP_ENABLED)"
+  type        = bool
+  default     = false
+}
+
 variable "hex_detection_batch_min_images" {
   description = "Minimum candidate image count before switching ingestion to batch mode"
   type        = number
