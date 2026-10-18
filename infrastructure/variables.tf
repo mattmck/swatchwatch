@@ -213,6 +213,24 @@ variable "azure_ad_b2c_client_id" {
   default     = "to-be-added"
 }
 
+variable "manage_ciam_service_principal" {
+  description = "Manage the web sign-in app's service principal (enterprise app) in the Entra External ID tenant: imports it and sets app_role_assignment_required = false. Turn on per environment only after checking that tenant's current settings."
+  type        = bool
+  default     = false
+}
+
+variable "ciam_tenant_id" {
+  description = "Entra External ID (CIAM) tenant ID that hosts the web sign-in app (azure_ad_b2c_client_id). Required when manage_ciam_service_principal = true."
+  type        = string
+  default     = ""
+}
+
+variable "ciam_terraform_client_id" {
+  description = "Client ID of the deployer app registration in the CIAM tenant that Deploy Infra signs in to with GitHub OIDC (federated credential). Empty = use Azure CLI credentials (local runs)."
+  type        = string
+  default     = ""
+}
+
 variable "auth_dev_bypass" {
   description = "Enable dev auth bypass in Functions (`Bearer dev:<userId>` tokens)"
   type        = bool

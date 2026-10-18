@@ -25,3 +25,10 @@ openai_batch_deployment_name = "hex-detector-batch"
 # alert_api_5xx_threshold           = 5
 # alert_server_exception_threshold  = 10
 # alert_browser_exception_threshold = 25
+
+# Optional: manage the web sign-in app's service principal in the External ID
+# tenant (app_role_assignment_required = false). See README "External ID
+# service principal" for the one-time bootstrap. Leave ciam_terraform_client_id
+# empty locally to use `az login --tenant <ciam tenant> --allow-no-subscriptions`.
+# manage_ciam_service_principal = true
+# ciam_tenant_id                = "<prod External ID tenant id>"

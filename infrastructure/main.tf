@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.5.0"
+  required_version = ">= 1.7.0"
 
   backend "azurerm" {}
 
@@ -31,6 +31,20 @@ provider "azurerm" {
 
 data "azurerm_client_config" "current" {}
 
+# Entra External ID (CIAM) tenant that hosts the web sign-in app. Used only
+# when manage_ciam_service_principal = true; otherwise it falls back to the
+# default credentials and nothing is read through it. In Deploy Infra it
+# signs in with GitHub OIDC to a deployer app registration in the CIAM tenant
+# (ciam_terraform_client_id, federated credential, no secret); locally, leave
+# that empty and use `az login --tenant <ciam tenant> --allow-no-subscriptions`.
+# Bootstrap: infrastructure/README.md, "External ID service principal".
+provider "azuread" {
+  alias     = "ciam"
+  tenant_id = var.manage_ciam_service_principal ? var.ciam_tenant_id : null
+  client_id = local.ciam_use_oidc ? var.ciam_terraform_client_id : null
+  use_oidc  = local.ciam_use_oidc
+}
+
 resource "random_string" "suffix" {
   length  = 8
   special = false
@@ -40,6 +54,8 @@ resource "random_string" "suffix" {
 locals {
   resource_prefix = "${var.base_name}-${var.environment}"
   unique_suffix   = random_string.suffix.result
+  # GitHub OIDC to the CIAM deployer app; empty client id = Azure CLI (local).
+  ciam_use_oidc = var.manage_ciam_service_principal && var.ciam_terraform_client_id != ""
   web_app_origins = (
     var.environment == "prod"
     ? ["https://${var.domain_name}", "https://www.${var.domain_name}"]
@@ -848,7 +864,8 @@ resource "azurerm_key_vault_secret" "redis_key" {
 }
 
 # ── Azure Speech Services ──────────────────────────────────────
-# Azure AD B2C is provisioned separately via the portal
+# The External ID tenant and app registration are hand-managed; see the
+# "Entra External ID web sign-in service principal" section at the end.
 
 resource "azurerm_cognitive_account" "speech" {
   name                = "${local.resource_prefix}-speech"
@@ -982,4 +999,65 @@ resource "azurerm_key_vault_access_policy" "github_actions" {
   object_id    = azuread_service_principal.github_actions.object_id
 
   secret_permissions = ["Get", "List", "Set", "Delete", "Purge"]
+}
+
+# ── Entra External ID web sign-in service principal ────────────
+# Only the enterprise app (service principal) of the web sign-in app is
+# managed; the app registration (redirect URIs, app roles such as `admin`,
+# optional claims) stays hand-managed in the External ID tenant. Gated by
+# manage_ciam_service_principal so each environment opts in after its current
+# settings have been checked. Signing in must not need an app role
+# assignment: admin is still granted with the `admin` app role, which keeps
+# working with assignment not required.
+
+data "azuread_service_principal" "ciam_web" {
+  count     = var.manage_ciam_service_principal ? 1 : 0
+  provider  = azuread.ciam
+  client_id = var.azure_ad_b2c_client_id
+
+  lifecycle {
+    precondition {
+      condition     = can(regex("^[0-9a-fA-F-]{36}$", var.ciam_tenant_id)) && can(regex("^[0-9a-fA-F-]{36}$", var.azure_ad_b2c_client_id))
+      error_message = "manage_ciam_service_principal needs ciam_tenant_id and azure_ad_b2c_client_id set to GUIDs."
+    }
+  }
+}
+
+import {
+  for_each = data.azuread_service_principal.ciam_web
+  to       = azuread_service_principal.ciam_web[each.key]
+  id       = each.value.object_id
+}
+
+resource "azuread_service_principal" "ciam_web" {
+  count     = var.manage_ciam_service_principal ? 1 : 0
+  provider  = azuread.ciam
+  client_id = var.azure_ad_b2c_client_id
+
+  # AADSTS50105 for every new sign-up when true.
+  app_role_assignment_required = false
+
+  lifecycle {
+    # Deleting the service principal drops every app role assignment,
+    # including admin. To stop managing it, remove it from state
+    # (`terraform state rm` or a `removed` block with destroy = false)
+    # before turning manage_ciam_service_principal off.
+    prevent_destroy = true
+
+    # Hand-managed in the portal for now.
+    ignore_changes = [
+      account_enabled,
+      alternative_names,
+      description,
+      feature_tags,
+      features,
+      login_url,
+      notes,
+      notification_email_addresses,
+      owners,
+      preferred_single_sign_on_mode,
+      saml_single_sign_on,
+      tags,
+    ]
+  }
 }
