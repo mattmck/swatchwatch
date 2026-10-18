@@ -369,7 +369,7 @@ The web sign-in app's enterprise app (service principal) in each External ID ten
 
 Only the service principal is managed (`azuread_service_principal.ciam_web`, imported by `azure_ad_b2c_client_id`). The app registration stays hand-managed. Everything except the assignment flag is in `ignore_changes`, and `prevent_destroy` stops a plan from deleting it, because deleting it would drop every app role assignment, `admin` included.
 
-Deploy Infra authenticates to the CIAM tenant with GitHub OIDC, through a federated credential on a deployer app registration in that tenant. No client secret is involved. That app holds the **Cloud Application Administrator** directory role, the role External ID documents for managing apps in external tenants. Graph application permissions such as `Application.ReadWrite.OwnedBy` haven't been tried there.
+Deploy Infra authenticates to the CIAM tenant with GitHub OIDC, through a federated credential on a deployer app registration in that tenant. No client secret is involved. That app holds the **Cloud Application Administrator** directory role, the role External ID documents for managing apps in external tenants. A directory role assigned to a service principal applies to its app-only Graph calls, so it needs no Graph application permission on top. Graph application permissions haven't been tried in external tenants. `Application.ReadWrite.OwnedBy` would also need the deployer to be an owner of the web app's service principal (it has none today). `Application.ReadWrite.All` is about as broad as the role.
 
 ### One-time bootstrap (per environment)
 
