@@ -35,7 +35,7 @@ import {
 } from "./finishes";
 import {
   applyIngestedFinishes,
-  resolveProductFinishes,
+  resolveNormalizedProductFinishes,
   type IngestedFinishResolution,
 } from "./finish-text";
 import { readProductText } from "./product-text";
@@ -318,12 +318,7 @@ export function resolveIngestedShadeFinishResolution(
   normalized: Record<string, unknown> | null | undefined,
   catalog?: FinishCatalog
 ): IngestedFinishResolution {
-  if (!normalized) return { finishes: [], source: "none" };
-  const { descriptionText, descriptors } = readProductText(normalized);
-  return resolveProductFinishes(
-    { tags: asStringArray(normalized.tags), descriptors, descriptionText, brand: asString(normalized.brand) },
-    catalog
-  );
+  return resolveNormalizedProductFinishes(normalized, catalog);
 }
 
 /** Canonical finishes for an ingested product (see `resolveIngestedShadeFinishResolution`). */

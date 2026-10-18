@@ -33,6 +33,10 @@ describe("lib/product-text — htmlToPlainText", () => {
     assert.equal(text, "A linear holo with gold shimmer… it's ‘magic’ & more.");
   });
 
+  it("does not leave a space before punctuation where an inline tag closed", () => {
+    assert.equal(htmlToPlainText("A squishy <b>jelly</b>, with <i>holo</i>."), "A squishy jelly, with holo.");
+  });
+
   it("ends a sentence at block ends so list items stay separate", () => {
     const text = htmlToPlainText("<ul><li>Pairs well with Onyx</li><li>Linear holo</li></ul><p>Done!</p>");
     assert.equal(text, "Pairs well with Onyx. Linear holo. Done!");

@@ -119,7 +119,8 @@ export function htmlToPlainText(
       return /[.!?:;]/.test(before) ? `${before} ` : `${before}. `;
     });
   }
-  text = text.replace(/\s+/g, " ").trim();
+  // Removing inline tags ("<b>jelly</b>.") leaves a space before punctuation; drop it.
+  text = text.replace(/\s+/g, " ").replace(/ ([.,!?;:])(?=\s|$)/g, "$1").trim();
   if (!text) return null;
   return truncateText(text, maxChars);
 }
@@ -261,6 +262,19 @@ export function openBeautyFactsProductText(product: Record<string, unknown> | nu
       [...stringList(product.categories_tags), ...stringList(product.labels_tags)].map(openBeautyFactsTagText)
     ),
   };
+}
+
+/**
+ * Product text for a raw connector payload by data source name (the same extractor the
+ * connector uses): `OpenBeautyFacts`, `MakeupAPI`, or any `*Shopify` source. Returns `null` for
+ * an unknown source so callers leave its rows alone.
+ */
+export function productTextFromRaw(sourceName: string, raw: unknown): ProductText | null {
+  const product = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null;
+  if (sourceName === "OpenBeautyFacts") return openBeautyFactsProductText(product);
+  if (sourceName === "MakeupAPI") return makeupApiProductText(product);
+  if (sourceName.endsWith("Shopify")) return shopifyProductText(product);
+  return null;
 }
 
 /**

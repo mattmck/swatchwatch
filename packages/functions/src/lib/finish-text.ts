@@ -48,6 +48,7 @@ import {
   parseFinishesFromTags,
   type FinishCatalog,
 } from "./finishes";
+import { readProductText } from "./product-text";
 
 /** Words that negate a finish named within the next 3 words of the same clause. */
 export const NEGATION_WORDS: ReadonlySet<string> = new Set([
@@ -337,6 +338,24 @@ export function resolveProductFinishes(
   const fromDescription = parseFinishesFromText(input.descriptionText, catalog, textOptions);
   if (fromDescription.length > 0) return { finishes: fromDescription, source: "description" };
   return { finishes: [], source: "none" };
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+}
+
+/**
+ * `resolveProductFinishes` for a connector `normalized` record / `external_product.normalized_json`:
+ * reads `tags`, `descriptors`, `descriptionText` and `brand` (masked out of the text).
+ */
+export function resolveNormalizedProductFinishes(
+  normalized: Record<string, unknown> | null | undefined,
+  catalog: FinishCatalog = DEFAULT_FINISH_CATALOG
+): IngestedFinishResolution {
+  if (!normalized || typeof normalized !== "object") return { finishes: [], source: "none" };
+  const { descriptionText, descriptors } = readProductText(normalized);
+  const brand = typeof normalized.brand === "string" ? normalized.brand : null;
+  return resolveProductFinishes({ tags: stringArray(normalized.tags), descriptors, descriptionText, brand }, catalog);
 }
 
 /**
