@@ -1,5 +1,11 @@
 import { createHash, createHmac } from "node:crypto";
 import { ImageProxyConfigError } from "./image-proxy-errors";
+import {
+  IMAGE_VARIANT_SIZES,
+  type ImageVariantSize,
+  imageVariantBlobName,
+  renderImageVariant,
+} from "./image-variants";
 
 const AZURE_STORAGE_API_VERSION = "2023-11-03";
 const DEFAULT_SOURCE_IMAGE_CONTAINER = "source-images";
@@ -903,6 +909,9 @@ export async function uploadSourceImageToBlob(
   const alreadyStored = await blobExists(connectionString, containerName, blobName).catch(() => false);
   if (alreadyStored) {
     console.log(`[blob-storage] Blob already stored, skipping upload: ${blobName}`);
+    // Re-ingesting an unchanged image also fills in thumbnails it is missing (e.g. stored before
+    // variants existed), so a catalog re-sync doubles as a variant backfill.
+    await ensureImageVariantsSafely({ connectionString, containerName, blobName, bytes: cleanBytes });
     return {
       storageUrl: blobUrl.toString(),
       checksumSha256,
@@ -931,6 +940,7 @@ export async function uploadSourceImageToBlob(
   }
 
   console.log(`[blob-storage] Blob uploaded successfully: ${blobUrl.toString()}`);
+  await ensureImageVariantsSafely({ connectionString, containerName, blobName, bytes: cleanBytes });
 
   return {
     storageUrl: blobUrl.toString(),
@@ -939,6 +949,89 @@ export async function uploadSourceImageToBlob(
     sizeBytes: cleanBytes.length,
     imageBase64DataUri,
   };
+}
+
+export interface EnsureImageVariantsResult {
+  /** Variant sizes uploaded by this call. */
+  written: ImageVariantSize[];
+  /** Variant sizes that were already stored (skipped). */
+  existing: ImageVariantSize[];
+  /** Variant sizes that could not be rendered or uploaded. */
+  failed: ImageVariantSize[];
+}
+
+/**
+ * Make sure every pre-generated thumbnail (`IMAGE_VARIANT_SIZES`, see lib/image-variants) of the
+ * catalog blob `blobName` exists, rendering only the missing ones from `bytes` (the stored
+ * original, or a loader that is only called when something is missing, so a backfill never reads
+ * an original whose variants are complete). Idempotent: a variant blob is a pure function of the
+ * checksum-named original, so an existing one is never rewritten. A failed existence check counts
+ * as missing (the PUT just overwrites with identical bytes); a size that fails to render or upload
+ * is reported in `failed` and the others still proceed.
+ *
+ * @throws only when the `bytes` loader throws.
+ */
+export async function ensureImageVariants(params: {
+  connectionString: string;
+  containerName: string;
+  blobName: string;
+  bytes: Buffer | (() => Promise<Buffer>);
+  sizes?: readonly ImageVariantSize[];
+}): Promise<EnsureImageVariantsResult> {
+  const sizes = params.sizes ?? IMAGE_VARIANT_SIZES;
+  const present = await Promise.all(
+    sizes.map((size) =>
+      blobExists(params.connectionString, params.containerName, imageVariantBlobName(params.blobName, size)).catch(
+        () => false
+      )
+    )
+  );
+
+  const result: EnsureImageVariantsResult = { written: [], existing: [], failed: [] };
+  const missing: ImageVariantSize[] = [];
+  sizes.forEach((size, index) => (present[index] ? result.existing : missing).push(size));
+  if (missing.length === 0) return result;
+
+  const original = typeof params.bytes === "function" ? await params.bytes() : params.bytes;
+  await Promise.all(
+    missing.map(async (size) => {
+      try {
+        const variant = await renderImageVariant(original, size);
+        await uploadBytesToBlob({
+          connectionString: params.connectionString,
+          containerName: params.containerName,
+          blobName: imageVariantBlobName(params.blobName, size),
+          bytes: variant,
+          contentType: "image/webp",
+          skipContainerEnsure: true,
+        });
+        result.written.push(size);
+      } catch (error) {
+        console.warn(`[blob-storage] Failed to store ${size}px variant of ${params.blobName}:`, error);
+        result.failed.push(size);
+      }
+    })
+  );
+  result.written.sort((a, b) => a - b);
+  result.failed.sort((a, b) => a - b);
+  return result;
+}
+
+/** Ingest-path wrapper: thumbnails are an optimization, so a failure never fails the upload. */
+async function ensureImageVariantsSafely(params: {
+  connectionString: string;
+  containerName: string;
+  blobName: string;
+  bytes: Buffer;
+}): Promise<void> {
+  try {
+    const { written } = await ensureImageVariants(params);
+    if (written.length > 0) {
+      console.log(`[blob-storage] Stored ${written.join("/")}px variants of ${params.blobName}`);
+    }
+  } catch (error) {
+    console.warn(`[blob-storage] Failed to store variants of ${params.blobName}:`, error);
+  }
 }
 
 /**

@@ -2,7 +2,6 @@
 
 import { Suspense, useState, useEffect, useMemo, useCallback, useRef } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { Polish, PolishStatus, PolishUpdateRequest } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
@@ -71,7 +70,7 @@ import { FinishBadges } from "@/components/finish-badges";
 import { BuyFromBrandLink } from "@/components/buy-from-brand-link";
 import { ColorFamilyChips } from "@/components/color-family-chips";
 import { parseColorFamilyParam, serializeColorFamilies } from "@/lib/color-family-filter";
-import { buildSwatchThumbnailUrl } from "@/lib/image-url";
+import { SwatchThumbnail } from "@/components/swatch-thumbnail";
 import { runRecalcHexFlow } from "@/lib/recalc-hex-flow";
 import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
 import { useReferenceData } from "@/hooks/use-reference-data";
@@ -764,13 +763,10 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                           aria-label={`Open ${polish.brand} ${polish.name} swatch image in new tab`}
                           className="inline-block"
                         >
-                          <Image
-                            src={buildSwatchThumbnailUrl(polish.swatchImageUrl)}
+                          <SwatchThumbnail
+                            src={polish.swatchImageUrl}
+                            displaySize={40}
                             alt={`${polish.brand} ${polish.name} swatch`}
-                            width={40}
-                            height={40}
-                            unoptimized
-                            sizes="40px"
                             className="h-10 w-10 rounded-md border object-cover transition-opacity hover:opacity-85"
                           />
                         </a>

@@ -7,6 +7,8 @@
  * - stripImageMetadata() removes EXIF metadata from real image bytes
  * - uploadSourceImageToBlob() skips the PUT when the checksum-named blob already exists
  * - resize-on-ingest: oversize source images are downscaled/re-encoded and stored, downloads are capped
+ * - pre-generated thumbnails: uploadSourceImageToBlob() / ensureImageVariants() write the missing
+ *   `<blob>.w<size>.webp` variants, skip existing ones, and never fail the ingest on a variant error
  * - userMediaContainer() default/override, and readBlobFromStorageUrl() scoped to it (#227)
  */
 const { describe, it, beforeEach, afterEach } = require("node:test");
@@ -20,6 +22,7 @@ const {
   normalizeSourceImage,
   resolveSourceImageLimits,
   uploadSourceImageToBlob,
+  ensureImageVariants,
   readBlobFromStorageUrl,
   userMediaContainer,
   BlobAccessDeniedError,
@@ -97,7 +100,9 @@ describe("lib/blob-storage — uploadSourceImageToBlob", () => {
     }
   });
 
-  async function runUpload(headStatus) {
+  const VARIANT = /\.w(\d+)\.webp$/;
+
+  async function runUpload(headStatus, variantHeadStatus = 200) {
     process.env.AZURE_STORAGE_CONNECTION = `DefaultEndpointsProtocol=https;AccountName=testacct;AccountKey=${Buffer.from(
       "test-key"
     ).toString("base64")};EndpointSuffix=core.windows.net`;
@@ -108,8 +113,14 @@ describe("lib/blob-storage — uploadSourceImageToBlob", () => {
       .toBuffer();
 
     const methods = [];
+    const variantCalls = [];
     global.fetch = async (url, init = {}) => {
       const method = init.method || "GET";
+      const variant = String(url).match(VARIANT);
+      if (variant) {
+        variantCalls.push({ method, size: Number(variant[1]), body: init.body, headers: init.headers });
+        return new Response(null, { status: method === "HEAD" ? variantHeadStatus : 201 });
+      }
       methods.push(method);
       if (String(url).startsWith("https://shop.example/")) {
         return new Response(png, { status: 200, headers: { "content-type": "image/png" } });
@@ -126,7 +137,7 @@ describe("lib/blob-storage — uploadSourceImageToBlob", () => {
       externalId: "p1",
       skipContainerEnsure: true,
     });
-    return { result, methods };
+    return { result, methods, variantCalls };
   }
 
   it("skips the upload when the blob already exists", async () => {
@@ -144,6 +155,137 @@ describe("lib/blob-storage — uploadSourceImageToBlob", () => {
   it("still uploads when the existence check fails", async () => {
     const { methods } = await runUpload(500);
     assert.deepEqual(methods, ["GET", "HEAD", "PUT"]);
+  });
+
+  it("writes every missing thumbnail variant as square cover WebP next to a new blob", async () => {
+    const { result, variantCalls } = await runUpload(404, 404);
+    const puts = variantCalls.filter((call) => call.method === "PUT");
+    assert.deepEqual(puts.map((call) => call.size).sort((a, b) => a - b), [64, 128, 256, 512]);
+    for (const put of puts) {
+      assert.equal(put.headers["Content-Type"], "image/webp");
+      const meta = await sharp(Buffer.from(put.body)).metadata();
+      assert.equal(meta.format, "webp");
+      // The 4px fixture is never enlarged.
+      assert.equal(meta.width, 4);
+      assert.equal(meta.height, 4);
+    }
+    const heads = variantCalls.filter((call) => call.method === "HEAD");
+    assert.equal(heads.length, 4);
+    assert.match(result.storageUrl, /\.png$/, "the returned URL is still the original");
+  });
+
+  it("skips variants that are already stored", async () => {
+    const { variantCalls } = await runUpload(404, 200);
+    assert.deepEqual(variantCalls.map((call) => call.method), ["HEAD", "HEAD", "HEAD", "HEAD"]);
+  });
+
+  it("fills in missing variants when the original was already stored (re-ingest)", async () => {
+    const { methods, variantCalls } = await runUpload(200, 404);
+    assert.deepEqual(methods, ["GET", "HEAD"]);
+    assert.equal(variantCalls.filter((call) => call.method === "PUT").length, 4);
+  });
+
+  it("does not fail the ingest when variant uploads fail", async () => {
+    process.env.AZURE_STORAGE_CONNECTION = `DefaultEndpointsProtocol=https;AccountName=testacct;AccountKey=${Buffer.from(
+      "test-key"
+    ).toString("base64")};EndpointSuffix=core.windows.net`;
+    const png = await sharp({
+      create: { width: 4, height: 4, channels: 3, background: { r: 1, g: 2, b: 3 } },
+    })
+      .png()
+      .toBuffer();
+    global.fetch = async (url, init = {}) => {
+      const method = init.method || "GET";
+      if (String(url).startsWith("https://shop.example/")) {
+        return new Response(png, { status: 200, headers: { "content-type": "image/png" } });
+      }
+      if (VARIANT.test(String(url))) {
+        return new Response("boom", { status: method === "HEAD" ? 404 : 500 });
+      }
+      return new Response(null, { status: method === "HEAD" ? 404 : 201 });
+    };
+    const result = await uploadSourceImageToBlob({
+      sourceImageUrl: "https://shop.example/p1.png",
+      source: "TestShopify",
+      externalId: "p1",
+      skipContainerEnsure: true,
+    });
+    assert.match(result.storageUrl, /\/testshopify\/p1-[0-9a-f]{12}\.png$/);
+  });
+});
+
+describe("lib/blob-storage — ensureImageVariants", () => {
+  const originalFetch = global.fetch;
+  const CONNECTION = `DefaultEndpointsProtocol=https;AccountName=testacct;AccountKey=${Buffer.from(
+    "test-key"
+  ).toString("base64")};EndpointSuffix=core.windows.net`;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  function mockStorage(existing) {
+    const calls = [];
+    global.fetch = async (url, init = {}) => {
+      const method = init.method || "GET";
+      const name = decodeURIComponent(new URL(String(url)).pathname);
+      calls.push({ method, name, body: init.body });
+      if (method === "HEAD") return new Response(null, { status: existing.has(name) ? 200 : 404 });
+      return new Response(null, { status: 201 });
+    };
+    return calls;
+  }
+
+  it("does not load the original when every variant exists", async () => {
+    const sizes = [64, 128, 256, 512];
+    mockStorage(new Set(sizes.map((size) => `/source-images/shop/a.jpg.w${size}.webp`)));
+    let loaded = false;
+    const result = await ensureImageVariants({
+      connectionString: CONNECTION,
+      containerName: "source-images",
+      blobName: "shop/a.jpg",
+      bytes: async () => {
+        loaded = true;
+        return Buffer.alloc(0);
+      },
+    });
+    assert.equal(loaded, false);
+    assert.deepEqual(result, { written: [], existing: sizes, failed: [] });
+  });
+
+  it("renders only the missing sizes, center-cropped to a square", async () => {
+    const calls = mockStorage(new Set(["/source-images/shop/a.jpg.w64.webp"]));
+    const wide = await sharp({
+      create: { width: 1200, height: 600, channels: 3, background: { r: 200, g: 40, b: 90 } },
+    })
+      .jpeg()
+      .toBuffer();
+    const result = await ensureImageVariants({
+      connectionString: CONNECTION,
+      containerName: "source-images",
+      blobName: "shop/a.jpg",
+      bytes: async () => wide,
+    });
+    assert.deepEqual(result, { written: [128, 256, 512], existing: [64], failed: [] });
+    const puts = calls.filter((call) => call.method === "PUT");
+    for (const put of puts) {
+      const size = Number(put.name.match(/\.w(\d+)\.webp$/)[1]);
+      const meta = await sharp(Buffer.from(put.body)).metadata();
+      assert.equal(meta.width, size);
+      assert.equal(meta.height, size);
+    }
+  });
+
+  it("reports sizes that fail to render as failed", async () => {
+    mockStorage(new Set());
+    const result = await ensureImageVariants({
+      connectionString: CONNECTION,
+      containerName: "source-images",
+      blobName: "shop/a.jpg",
+      bytes: Buffer.from("not-an-image"),
+      sizes: [64, 128],
+    });
+    assert.deepEqual(result, { written: [], existing: [], failed: [64, 128] });
   });
 });
 
@@ -269,9 +411,13 @@ describe("lib/blob-storage — uploadSourceImageToBlob size handling", () => {
 
   /** Serves `image` for the source URL and records the blob PUT. */
   function mockFetch(makeSourceResponse) {
-    const calls = { methods: [], putBody: null, putHeaders: null };
+    const calls = { methods: [], putBody: null, putHeaders: null, variantPuts: 0 };
     global.fetch = async (url, init = {}) => {
       const method = init.method || "GET";
+      if (/\.w\d+\.webp$/.test(String(url))) {
+        if (method === "PUT") calls.variantPuts += 1;
+        return new Response(null, { status: method === "HEAD" ? 404 : 201 });
+      }
       calls.methods.push(method);
       if (String(url).startsWith("https://shop.example/")) return makeSourceResponse();
       if (method === "HEAD") return new Response(null, { status: 404 });
