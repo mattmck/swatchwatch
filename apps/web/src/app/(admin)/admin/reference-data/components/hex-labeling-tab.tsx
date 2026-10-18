@@ -33,6 +33,8 @@ import {
   normalizeHexInput,
   planUndo,
   readableTextColor,
+  loupeRadiusFor,
+  sampleWindowBounds,
   stepSampleSize,
   toSamplePoint,
   type HexLabelKeyAction,
@@ -49,7 +51,10 @@ import { cn } from "@/lib/utils";
 const PAGE_SIZE = 20;
 /** Prefetch the next page when this many shades are left in the loaded queue. */
 const PREFETCH_REMAINING = 3;
-/** Loupe: (2 * LOUPE_RADIUS + 1) image pixels shown at LOUPE_SIZE CSS pixels. */
+/**
+ * Loupe: (2 * radius + 1) image pixels shown at LOUPE_SIZE CSS pixels. The radius is at least
+ * LOUPE_RADIUS and grows with the sample window (`loupeRadiusFor`) so large windows stay visible.
+ */
 const LOUPE_RADIUS = 7;
 const LOUPE_SIZE = 150;
 
@@ -141,6 +146,27 @@ interface SamplerPick {
 }
 
 /**
+ * CSS box for the sample-window outline: the clamped pixel bounds scaled to the displayed canvas,
+ * never extending past it. No minimum size: the outline covers exactly the averaged pixels (its
+ * 1px border keeps even a sub-pixel window visible).
+ */
+function outlineStyle(
+  bounds: { x0: number; y0: number; x1: number; y1: number },
+  scale: number,
+  boxW: number,
+  boxH: number
+): { left: number; top: number; width: number; height: number } {
+  const left = bounds.x0 * scale;
+  const top = bounds.y0 * scale;
+  return {
+    left,
+    top,
+    width: Math.min((bounds.x1 - bounds.x0 + 1) * scale, Math.max(0, boxW - left)),
+    height: Math.min((bounds.y1 - bounds.y0 + 1) * scale, Math.max(0, boxH - top)),
+  };
+}
+
+/**
  * Draws one product image into a canvas and samples an averaged `sampleSize`×`sampleSize` area
  * under the pointer. Images load with `crossOrigin="anonymous"` (the image proxy answers with
  * Access-Control-Allow-Origin for the web origin); if that fails, the image is shown without CORS
@@ -166,9 +192,19 @@ function ImageSampler({
   const loupeRef = useRef<HTMLCanvasElement | null>(null);
   const imageDataRef = useRef<ImageData | null>(null);
   const [status, setStatus] = useState<ImageStatus>("loading");
-  const [pointer, setPointer] = useState<{ cssX: number; cssY: number; px: number; py: number; boxW: number; boxH: number } | null>(
-    null
-  );
+  const [pointer, setPointer] = useState<{
+    cssX: number;
+    cssY: number;
+    px: number;
+    py: number;
+    boxW: number;
+    boxH: number;
+    /** CSS pixels per image pixel (the canvas is shown scaled to fit). */
+    scale: number;
+    /** Natural image size (canvas pixels). */
+    imageW: number;
+    imageH: number;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -214,15 +250,16 @@ function ImageSampler({
     if (!loupe || !canvas || !pointer) return;
     const ctx = loupe.getContext("2d");
     if (!ctx) return;
-    const span = LOUPE_RADIUS * 2 + 1;
+    const radius = loupeRadiusFor(sampleSize, LOUPE_RADIUS);
+    const span = radius * 2 + 1;
     const cell = LOUPE_SIZE / span;
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, LOUPE_SIZE, LOUPE_SIZE);
     ctx.fillStyle = "#808080";
     ctx.fillRect(0, 0, LOUPE_SIZE, LOUPE_SIZE);
-    ctx.drawImage(canvas, pointer.px - LOUPE_RADIUS, pointer.py - LOUPE_RADIUS, span, span, 0, 0, LOUPE_SIZE, LOUPE_SIZE);
+    ctx.drawImage(canvas, pointer.px - radius, pointer.py - radius, span, span, 0, 0, LOUPE_SIZE, LOUPE_SIZE);
     const half = Math.floor(sampleSize / 2);
-    const start = (LOUPE_RADIUS - half) * cell;
+    const start = (radius - half) * cell;
     ctx.lineWidth = 2;
     ctx.strokeStyle = "rgba(0,0,0,0.85)";
     ctx.strokeRect(start, start, sampleSize * cell, sampleSize * cell);
@@ -244,6 +281,9 @@ function ImageSampler({
         cssY: event.clientY - rect.top,
         boxW: rect.width,
         boxH: rect.height,
+        scale: canvas.width > 0 ? rect.width / canvas.width : 1,
+        imageW: canvas.width,
+        imageH: canvas.height,
       };
     },
     []
@@ -266,7 +306,17 @@ function ImageSampler({
       onHover(null);
       return;
     }
-    setPointer({ cssX: hit.cssX, cssY: hit.cssY, px: hit.pixel.x, py: hit.pixel.y, boxW: hit.boxW, boxH: hit.boxH });
+    setPointer({
+      cssX: hit.cssX,
+      cssY: hit.cssY,
+      px: hit.pixel.x,
+      py: hit.pixel.y,
+      boxW: hit.boxW,
+      boxH: hit.boxH,
+      scale: hit.scale,
+      imageW: hit.imageW,
+      imageH: hit.imageH,
+    });
     onHover(sampleAt(hit.pixel));
   }
 
@@ -287,6 +337,13 @@ function ImageSampler({
     setPointer(null);
     onHover(null);
   }
+
+  const sampleBounds =
+    pointer && status === "ready" && sampleSize > 1
+      ? sampleWindowBounds(pointer.px, pointer.py, sampleSize, pointer.imageW, pointer.imageH)
+      : null;
+  const sampleOutline =
+    pointer && sampleBounds ? outlineStyle(sampleBounds, pointer.scale, pointer.boxW, pointer.boxH) : null;
 
   const loupeLeft = pointer ? (pointer.cssX + 24 + LOUPE_SIZE > pointer.boxW ? pointer.cssX - 24 - LOUPE_SIZE : pointer.cssX + 24) : 0;
   const loupeTop = pointer ? (pointer.cssY + 24 + LOUPE_SIZE > pointer.boxH ? pointer.cssY - 24 - LOUPE_SIZE : pointer.cssY + 24) : 0;
@@ -315,6 +372,17 @@ function ImageSampler({
               aria-hidden
               className="pointer-events-none absolute size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_2px_rgba(0,0,0,0.8)]"
               style={{ left: `${marker.x * 100}%`, top: `${marker.y * 100}%` }}
+            />
+          ) : null}
+          {sampleOutline ? (
+            // The sample window outlined on the image itself, so large windows are easy to place
+            // inside the polish (away from the cap, label and highlights). Clamped to the image
+            // exactly like averageRegion, so it shows only the pixels that are averaged.
+            <span
+              aria-hidden
+              data-testid="hex-label-sample-window"
+              className="pointer-events-none absolute border border-white shadow-[0_0_0_1px_rgba(0,0,0,0.8)]"
+              style={sampleOutline}
             />
           ) : null}
           {pointer && status !== "loading" && status !== "error" ? (

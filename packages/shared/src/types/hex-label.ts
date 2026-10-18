@@ -11,8 +11,12 @@
 /** How the labelled hex was picked. */
 export type HexLabelSampleMethod = "canvas" | "eyedropper" | "manual";
 
-/** Averaging window sizes (pixels per side) the canvas eyedropper offers. */
-export const HEX_LABEL_SAMPLE_SIZES = [1, 3, 5, 9] as const;
+/**
+ * Averaging window sizes (pixels per side) the canvas eyedropper offers. Odd so the window stays
+ * centred on the pointer. The large windows (15–61) average across glitter, flakies and shimmer,
+ * where a small window lands on a single particle or a bare patch of base.
+ */
+export const HEX_LABEL_SAMPLE_SIZES = [1, 3, 5, 9, 15, 25, 41, 61] as const;
 export type HexLabelSampleSize = (typeof HEX_LABEL_SAMPLE_SIZES)[number];
 
 /** Where on the image a canvas sample was taken. x/y are normalized 0..1 to the natural image size. */
