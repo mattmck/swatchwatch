@@ -450,8 +450,30 @@ CREATE TABLE app_user (
   email TEXT,
   role TEXT NOT NULL DEFAULT 'user',
   CONSTRAINT app_user_role_check CHECK (role IN ('user', 'admin')),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- Account suspension (issue #45; migration 20261018180032156_admin-user-management). Suspended
+  -- = suspended_at IS NOT NULL; withAuth / withAdmin answer 403 account_suspended.
+  suspended_at TIMESTAMPTZ,
+  suspended_reason TEXT,
+  suspended_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL
 );
+
+-- Audit log of admin user-management actions (issue #45). User ids are plain BIGINTs without
+-- foreign keys so the history outlives merged/deleted accounts.
+CREATE TABLE admin_audit_event (
+  admin_audit_event_id BIGSERIAL PRIMARY KEY,
+  actor_user_id BIGINT NOT NULL,
+  target_user_id BIGINT,
+  action TEXT NOT NULL,
+  changes JSONB NOT NULL DEFAULT '{}'::jsonb, -- { field: { from, to } } or merge counters
+  note TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT admin_audit_event_action_check
+    CHECK (action IN ('user.update', 'user.suspend', 'user.unsuspend', 'user.merge'))
+);
+
+CREATE INDEX idx_admin_audit_event_target ON admin_audit_event(target_user_id, created_at DESC);
+CREATE INDEX idx_admin_audit_event_actor ON admin_audit_event(actor_user_id, created_at DESC);
 
 CREATE TABLE user_external_identities (
   user_external_identity_id BIGSERIAL PRIMARY KEY,

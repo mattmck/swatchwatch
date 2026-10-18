@@ -114,7 +114,7 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `GET` | `/api/stats/collection` | `getCollectionStats` | `stats.ts` | ✅ Live (dashboard collection stats, per-user 60s cache) |
 | `GET` | `/api/catalog/search` | `searchCatalog` | `catalog.ts` | ✅ Working |
 | `GET` | `/api/catalog/shade/{id}` | `getShade` | `catalog.ts` | ✅ Working |
-| `POST` | `/api/auth/validate` | `validateToken` | `auth.ts` | ✅ Working |
+| `POST` | `/api/auth/validate` | `validateToken` | `auth.ts` | ✅ Working (403 `account_suspended` for suspended accounts, #45) |
 | `GET` | `/api/auth/config` | `getAuthConfig` | `auth.ts` | ✅ Working |
 | `POST` | `/api/capture/start` | `startCapture` | `capture.ts` | ✅ Working |
 | `POST` | `/api/capture/{captureId}/frame` | `addCaptureFrame` | `capture.ts` | ✅ Working |
@@ -148,8 +148,10 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `POST` | `/api/reference-admin/finish-normalizations` | `adminFinishNormalizationsCollectionHandler` | `admin-reference.ts` | ✅ Working (admin-only) |
 | `PUT` | `/api/reference-admin/finish-normalizations/{id}` | `adminFinishNormalizationsItemHandler` | `admin-reference.ts` | ✅ Working (admin-only) |
 | `DELETE` | `/api/reference-admin/finish-normalizations/{id}` | `adminFinishNormalizationsItemHandler` | `admin-reference.ts` | ✅ Working (admin-only) |
-| `GET` | `/api/users-admin` | `listUsers` | `admin-users.ts` | ✅ Working (admin-only) |
-| `POST` | `/api/users-admin/merge` | `mergeUsers` | `admin-users.ts` | ✅ Working (admin-only) |
+| `GET` | `/api/users-admin` | `listUsers` | `admin-users.ts` | ✅ Working (admin-only; search/filter/sort/paginate, #45) |
+| `GET` | `/api/users-admin/{id}` | `getUser` | `admin-users.ts` | ✅ Working (admin-only; user + identities + audit, #45) |
+| `PATCH` | `/api/users-admin/{id}` | `updateUser` | `admin-users.ts` | ✅ Working (admin-only; handle, suspend/reactivate, audited, #45) |
+| `POST` | `/api/users-admin/merge` | `mergeUsers` | `admin-users.ts` | ✅ Working (admin-only; audited) |
 | `GET` | `/api/shades-admin/review` | `listReviewQueue` | `admin-shade-review.ts` | ✅ Working (admin-only) |
 | `GET` | `/api/shades-admin/review/{id}/candidates` | `getCandidates` | `admin-shade-review.ts` | ✅ Working (admin-only) |
 | `POST` | `/api/shades-admin/review/{id}/approve` | `approve` | `admin-shade-review.ts` | ✅ Working (admin-only) |
@@ -300,8 +302,17 @@ Helpers (all take an optional `FinishCatalog`, defaulting to the built-ins): `ca
 
 **AI prompt finish list (#224, item 3).** The vision hex/finish detection prompt (`buildHexDetectionRequestPayload`, used by the synchronous `detectHexWithAzureOpenAI` path and by the batch JSONL in `submitVisionHexBatch`) and the label OCR prompt (`buildLabelSystemPrompt` in `ocr-parser.ts`) list the finishes the model may return from `finishNamesForPrompt(await loadFinishCatalog())`: built-ins in seeded order, then admin-added finish types alphabetically, without the `other` catch-all. So an admin-added type such as `chrome` is offered to the model. When the catalog cannot be loaded the built-in `CANONICAL_FINISHES` are listed. The sync path loads the catalog once per call and uses it for both the prompt and validating the reply; the batch path loads it once per batch. The list only changes when an admin edits `finish_type`, so the prompt prefix stays cacheable. `PROMPT_VERSION` is `vision-direct/2026-10-v2` since this change; admin edits to the list do not bump it. The eval-only strategy prompts (`palette-pick-detection.ts`, `src/eval/hex/strategies/region-crop.ts`) still carry their own example lists.
 - `GET /api/reference-admin/jobs` lists recent ingestion jobs with pagination (`page`, `pageSize`) and optional `status` filter (`queued|running|succeeded|failed|cancelled`), joined with `data_source` for source metadata.
-- `GET /api/users-admin` lists users with linked identities plus quick counts (inventory, submissions, capture sessions) for account-repair workflows.
-- `POST /api/users-admin/merge` manually merges one local user account into another (inventory, capture sessions, submissions, click events, and linked external identities), intended for repairing duplicate accounts created before identity linking was enabled.
+### User management (`admin-users.ts`, `src/lib/admin-users.ts`, issue #45)
+
+All routes are `withAdmin` (migration `20261018180032156_admin-user-management`).
+
+- `GET /api/users-admin` — `AdminUserListResponse` `{ users, total, limit, offset }`. Query: `q` (case-insensitive substring of email, handle, `external_id` or any linked identity's external id / email, `%`/`_` matched literally; a numeric `q` also matches the user id), `role` (`user|admin`), `state` (`active|suspended`), `sort` (`created` default, `lastSeen`, `email`, `inventory`), `dir` (`desc` default, `asc`), `limit` (1–500, default 100), `offset`. `total` counts the rows matching the filters. Each `AdminUserListItem` has role, `state`, `suspendedAt`, `lastSeenAt` (latest `user_external_identities.last_seen_at`), linked external ids and inventory / submission / capture counts. Unknown filter values are a 400.
+- `GET /api/users-admin/{id}` — `AdminUserDetailResponse`: the row plus linked identities (external id, email, linked / last seen), `suspendedReason`, `suspendedByUserId` and the 20 newest `admin_audit_event` rows for the user (with the actor's email/handle).
+- `PATCH /api/users-admin/{id}` — `AdminUserUpdateRequest` `{ handle?, suspended?, suspendedReason?, note? }`, only changed fields. Locks the row, applies the change and writes one audit event (`user.update` / `user.suspend` / `user.unsuspend`, `changes` = `{ field: { from, to } }`, optional `note`) in one transaction; a no-op writes nothing. Returns the refreshed detail. Errors: 400 for invalid input or unknown fields; 400 `role_managed_in_entra` for `role` (it is assigned in Entra and re-synced from the token's `roles` claim on every sign-in by `getOrCreateUser`, so an edit here would silently revert); 409 `cannot_modify_self` when an admin suspends their own account; 409 `handle_taken`; 404 for an unknown user.
+- `POST /api/users-admin/merge` manually merges one local user account into another (inventory, capture sessions, submissions, click events, and linked external identities), intended for repairing duplicate accounts created before identity linking was enabled. It writes a `user.merge` audit event (target = kept user; source id/email and moved-row counts in `changes`) in the merge transaction.
+- **Suspension.** A suspended account (`app_user.suspended_at` set) gets 403 `{ code: "account_suspended" }` from `withAuth` / `withAdmin` without the handler running; `/api/auth/validate` answers 403 with the same code and the private image proxy (`authenticateRequestReadOnly`) refuses it. The auth queries read the flag as `(to_jsonb(app_user.*) ->> 'suspended_at') IS NOT NULL`, which stays valid (as "not suspended") before the migration has run.
+- **Audit log.** `admin_audit_event` (`actor_user_id`, `target_user_id`, `action`, `changes` jsonb, `note`, `created_at`); the ids have no foreign keys, so history survives merges and deletions.
+- **Password reset is not available.** Entra External ID / B2C only lets an admin start a reset through Microsoft Graph: `authenticationMethod: resetPassword` needs the delegated `UserAuthenticationMethod.ReadWrite.All` permission and a signed-in admin with an Entra admin role (no application permission), and `passwordProfile` updates need a Graph app registration with `User.ReadWrite.All` plus a secret. Users reset their own password with "Forgot password?" in the sign-in flow.
 
 ### Shade review queue (`admin-shade-review.ts`, `src/lib/shade-review.ts`)
 
@@ -972,6 +983,7 @@ Key variables:
 | `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` | Azure AI Document Intelligence endpoint for server-side OCR (`src/lib/ocr.ts`). Graceful degradation when missing. |
 | `AZURE_DOCUMENT_INTELLIGENCE_KEY` | Azure AI Document Intelligence subscription key for OCR. |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Optional custom telemetry sink for `trackEvent` / `trackMetric` / `trackException` in `src/lib/telemetry.ts`. When unset, telemetry calls are no-ops. `src/index.ts` imports `lib/telemetry` first so `pg`/`http` dependencies are auto-instrumented; the SDK's Functions `preInvocation` hook puts dependencies, custom events and exceptions under the host request's `operation_Id`. |
+| `CORS_ALLOWED_METHODS` | Overrides `Access-Control-Allow-Methods` in `src/lib/http.ts` (default `GET,POST,PUT,PATCH,DELETE,OPTIONS`; PATCH is used by `PATCH /api/users-admin/{id}`). |
 | `CORS_ALLOWED_HEADERS` | Overrides `Access-Control-Allow-Headers` in `src/lib/http.ts` (default `Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context`; the last four let browser telemetry correlate with Functions requests). `Request-Context` is always exposed. |
 | `REDIS_URL` | Redis endpoint URL for API read-through caching (for example `rediss://<host>:10000`). |
 | `REDIS_KEY` | Redis access key paired with `REDIS_URL`. When either Redis var is missing, cache helpers become no-ops and requests fall back to Postgres. |

@@ -14,7 +14,7 @@ const ALLOW_HEADERS =
   process.env.CORS_ALLOWED_HEADERS ??
   "Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context";
 const EXPOSE_HEADERS = "Request-Context";
-const ALLOW_METHODS = process.env.CORS_ALLOWED_METHODS ?? "GET,POST,PUT,DELETE,OPTIONS";
+const ALLOW_METHODS = process.env.CORS_ALLOWED_METHODS ?? "GET,POST,PUT,PATCH,DELETE,OPTIONS";
 const SUPPORT_CREDENTIALS = process.env.CORS_SUPPORT_CREDENTIALS === "true";
 
 // Matches `*` wildcards without building a RegExp from configured origins.

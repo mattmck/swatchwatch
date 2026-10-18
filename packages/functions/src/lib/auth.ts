@@ -9,6 +9,8 @@ export interface AuthResult {
   externalId: string;
   email?: string;
   role: string;
+  /** True when an admin suspended the account (issue #45); `authenticateRequest` rejects it. */
+  suspended?: boolean;
 }
 
 type EntraRole = "admin" | "user";
@@ -22,8 +24,31 @@ type EntraRole = "admin" | "user";
  *   token goes through normal JWT validation, so `dev:*` tokens fail with 401.
  * - **Production** (Entra/B2C configured): validates JWT against tenant JWKS,
  *   extracts `oid` claim, and upserts the user by external_id.
+ *
+ * A suspended account (`app_user.suspended_at`, issue #45) throws `AccountSuspendedError`, which
+ * `withAuth` / `withAdmin` turn into 403 `account_suspended`.
  */
 export async function authenticateRequest(
+  request: HttpRequest,
+  context: InvocationContext
+): Promise<AuthResult> {
+  return rejectSuspended(await resolveAuthenticatedUser(request, context));
+}
+
+/**
+ * Suspension is read as `(to_jsonb(app_user.*) ->> 'suspended_at') IS NOT NULL` rather than the
+ * bare column so the auth queries keep working (as "not suspended") on a database that has not
+ * run migration 20261018180032156 yet: a missing column would abort the login transaction.
+ */
+function rejectSuspended<T extends { userId: number; suspended?: boolean }>(auth: T): T {
+  if (auth.suspended) {
+    trackEvent("auth.failure", { reason: "account_suspended", userId: auth.userId });
+    throw new AccountSuspendedError();
+  }
+  return auth;
+}
+
+async function resolveAuthenticatedUser(
   request: HttpRequest,
   context: InvocationContext
 ): Promise<AuthResult> {
@@ -69,8 +94,10 @@ async function handleDevBypass(
         external_id: string;
         email: string | null;
         role: string;
+        suspended?: boolean;
       }>(
-        `SELECT user_id, external_id, email, COALESCE(role, 'user') AS role
+        `SELECT user_id, external_id, email, COALESCE(role, 'user') AS role,
+                (to_jsonb(app_user.*) ->> 'suspended_at') IS NOT NULL AS suspended
          FROM app_user
          WHERE user_id = $1`,
         [userId]
@@ -83,6 +110,7 @@ async function handleDevBypass(
           external_id: string;
           email: string | null;
           role: string;
+          suspended?: boolean;
         }>(
           `SELECT user_id, external_id, email, 'user'::text AS role FROM app_user WHERE user_id = $1`,
           [userId]
@@ -105,6 +133,7 @@ async function handleDevBypass(
     externalId: user.external_id || `dev-user-${userId}`,
     email: user.email || undefined,
     role: user.role,
+    suspended: user.suspended === true,
   };
 }
 
@@ -221,7 +250,7 @@ async function handleB2CToken(
   const user = await getOrCreateUser(externalId, email, role, emailVerified);
   trackEvent("auth.success", { mode: "jwt", role, userId: user.userId });
 
-  return { userId: user.userId, externalId, email, role: user.role };
+  return { userId: user.userId, externalId, email, role: user.role, suspended: user.suspended };
 }
 
 /**
@@ -252,25 +281,28 @@ export async function authenticateRequestReadOnly(
   }
 
   if (isDevBypassEnabled()) {
-    const { userId } = await handleDevBypass(token, context);
+    const { userId } = rejectSuspended(await handleDevBypass(token, context));
     return { userId };
   }
   reportDevBypassRefusedIfNeeded();
 
   const { externalId } = await verifyB2CToken(token, context);
-  const userId = await findUserIdByExternalId(externalId);
-  if (userId === null) {
+  const found = await findUserIdByExternalId(externalId);
+  if (found === null) {
     trackEvent("auth.failure", { reason: "user_not_provisioned", mode: "jwt_read_only" });
     throw new AuthError("User not found");
   }
-  return { userId };
+  return { userId: rejectSuspended(found).userId };
 }
 
 /** Read-only counterpart of the lookups at the start of `getOrCreateUserWithLinkedIdentities`. */
-async function findUserIdByExternalId(externalId: string): Promise<number | null> {
+async function findUserIdByExternalId(
+  externalId: string
+): Promise<{ userId: number; suspended: boolean } | null> {
+  type Row = { userId: unknown; suspended?: boolean };
   const legacyLookup = () =>
-    query<{ userId: unknown }>(
-      `SELECT user_id AS "userId"
+    query<Row>(
+      `SELECT user_id AS "userId", (to_jsonb(app_user.*) ->> 'suspended_at') IS NOT NULL AS suspended
        FROM app_user
        WHERE external_id = $1
        LIMIT 1`,
@@ -279,15 +311,16 @@ async function findUserIdByExternalId(externalId: string): Promise<number | null
 
   let result;
   try {
-    result = await query<{ userId: unknown }>(
-      `SELECT COALESCE(
-         (SELECT u.user_id
+    result = await query<Row>(
+      `SELECT app_user.user_id AS "userId", (to_jsonb(app_user.*) ->> 'suspended_at') IS NOT NULL AS suspended
+       FROM app_user
+       WHERE app_user.user_id = COALESCE(
+         (SELECT uei.user_id
           FROM user_external_identities uei
-          INNER JOIN app_user u ON u.user_id = uei.user_id
           WHERE uei.external_id = $1
           LIMIT 1),
          (SELECT user_id FROM app_user WHERE external_id = $1 LIMIT 1)
-       ) AS "userId"`,
+       )`,
       [externalId]
     );
   } catch (error: any) {
@@ -296,9 +329,9 @@ async function findUserIdByExternalId(externalId: string): Promise<number | null
     result = await legacyLookup();
   }
 
-  const raw = result.rows[0]?.userId;
-  if (raw === null || raw === undefined) return null;
-  return toAuthUserId(raw);
+  const row = result.rows[0];
+  if (!row || row.userId === null || row.userId === undefined) return null;
+  return { userId: toAuthUserId(row.userId), suspended: row.suspended === true };
 }
 
 function isTrueClaim(value: unknown): boolean {
@@ -325,6 +358,13 @@ function resolveEntraRole(rolesClaim: unknown): EntraRole {
   return roles.some((role) => role.toLowerCase() === "admin") ? "admin" : "user";
 }
 
+/** Local account resolved for a sign-in: id, effective role and suspension state (#45). */
+interface ResolvedUser {
+  userId: number;
+  role: string;
+  suspended?: boolean;
+}
+
 /**
  * Upsert a user by external_id. Returns the local user_id.
  */
@@ -333,7 +373,7 @@ export async function getOrCreateUser(
   email?: string,
   role: EntraRole = "user",
   emailVerified = false
-): Promise<{ userId: number; role: string }> {
+): Promise<ResolvedUser> {
   // An unverified email is attacker-controllable (anyone can claim any address at some
   // identity providers), so it is never trusted: it cannot link accounts, and it is not
   // stored either (a stored unverified address would let the claimant squat the address
@@ -382,7 +422,7 @@ async function getOrCreateUserWithLinkedIdentities(
   externalId: string,
   email: string | null,
   role: EntraRole
-): Promise<{ userId: number; role: string }> {
+): Promise<ResolvedUser> {
   return transaction(async (client) => {
     const linkedIdentity = await client.query<{ userId: number }>(
       `SELECT u.user_id AS "userId"
@@ -464,21 +504,21 @@ async function getOrCreateUserWithLinkedIdentities(
       nextExternalId: string,
       nextEmail: string | null,
       nextRole: EntraRole
-    ): Promise<{ userId: number; role: string }> {
+    ): Promise<ResolvedUser> {
       const updated = await (async () => {
         try {
-          return await client.query<{ role: string | null }>(
+          return await client.query<{ role: string | null; suspended?: boolean }>(
             `UPDATE app_user
              SET
                email = COALESCE($2, app_user.email),
                role = $3
              WHERE user_id = $1
-             RETURNING role`,
+             RETURNING role, (to_jsonb(app_user.*) ->> 'suspended_at') IS NOT NULL AS suspended`,
             [userId, nextEmail, nextRole]
           );
         } catch (error: any) {
           if (error?.code === "42703") {
-            return client.query<{ role: string | null }>(
+            return client.query<{ role: string | null; suspended?: boolean }>(
               `UPDATE app_user
                SET email = COALESCE($2, app_user.email)
                WHERE user_id = $1
@@ -495,6 +535,7 @@ async function getOrCreateUserWithLinkedIdentities(
       return {
         userId,
         role: updated.rows[0]?.role || nextRole,
+        suspended: updated.rows[0]?.suspended === true,
       };
     }
 
@@ -521,22 +562,22 @@ async function getOrCreateUserLegacy(
   externalId: string,
   email: string | null,
   role: EntraRole
-): Promise<{ userId: number; role: string }> {
+): Promise<ResolvedUser> {
   const result = await (async () => {
     try {
-      return await query<{ user_id: number; role: string | null }>(
+      return await query<{ user_id: number; role: string | null; suspended?: boolean }>(
         `INSERT INTO app_user (external_id, email, handle, role)
          VALUES ($1, $2, $3, $4)
          ON CONFLICT (external_id) DO UPDATE
          SET
            email = COALESCE(EXCLUDED.email, app_user.email),
            role = EXCLUDED.role
-         RETURNING user_id, role`,
+         RETURNING user_id, role, (to_jsonb(app_user.*) ->> 'suspended_at') IS NOT NULL AS suspended`,
         [externalId, email, email || externalId, role]
       );
     } catch (error: any) {
       if (error?.code === "42703") {
-        return query<{ user_id: number; role: string | null }>(
+        return query<{ user_id: number; role: string | null; suspended?: boolean }>(
           `INSERT INTO app_user (external_id, email, handle)
            VALUES ($1, $2, $3)
            ON CONFLICT (external_id) DO UPDATE SET email = COALESCE(EXCLUDED.email, app_user.email)
@@ -551,6 +592,7 @@ async function getOrCreateUserLegacy(
   return {
     userId: result.rows[0].user_id,
     role: result.rows[0].role || role,
+    suspended: result.rows[0].suspended === true,
   };
 }
 
@@ -559,6 +601,24 @@ export class AuthError extends Error {
     super(message);
     this.name = "AuthError";
   }
+}
+
+/** The account was suspended by an admin (issue #45). The wrappers answer 403, not 401. */
+export class AccountSuspendedError extends AuthError {
+  readonly code = "account_suspended";
+
+  constructor() {
+    super("Account suspended");
+    this.name = "AccountSuspendedError";
+  }
+}
+
+/** 403 body for a suspended account: the token is valid, the account may not use the API. */
+export function accountSuspendedResponse(): HttpResponseInit {
+  return {
+    status: 403,
+    jsonBody: { error: "Account suspended", code: "account_suspended" },
+  };
 }
 
 /**
@@ -583,6 +643,9 @@ export function withAuth(
       const auth = await authenticateRequest(request, context);
       return handler(request, context, auth.userId);
     } catch (error) {
+      if (error instanceof AccountSuspendedError) {
+        return accountSuspendedResponse();
+      }
       if (error instanceof AuthError) {
         trackEvent("auth.failure", { wrapper: "withAuth", reason: error.message });
         return {
@@ -614,6 +677,9 @@ export function withAdmin(
       }
       return handler(request, context, auth.userId);
     } catch (error) {
+      if (error instanceof AccountSuspendedError) {
+        return accountSuspendedResponse();
+      }
       if (error instanceof AuthError) {
         trackEvent("auth.failure", { wrapper: "withAdmin", reason: error.message });
         return {

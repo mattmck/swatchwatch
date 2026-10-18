@@ -83,7 +83,7 @@ function AdminContent() {
         <CardHeader>
           <CardTitle>Admin Console</CardTitle>
           <CardDescription>
-            Configuration manages reference data, Job Runs lists recent reference-data jobs, Admin Jobs controls ingestion, User Management repairs duplicate identities, Review Queue approves, merges, or rejects user-submitted shades, and Hex Labeling builds ground-truth colours for the hex-detection eval.
+            Configuration manages reference data, Job Runs lists recent reference-data jobs, Admin Jobs controls ingestion, User Management searches, edits, suspends and merges user accounts, Review Queue approves, merges, or rejects user-submitted shades, and Hex Labeling builds ground-truth colours for the hex-detection eval.
           </CardDescription>
         </CardHeader>
         <CardContent>

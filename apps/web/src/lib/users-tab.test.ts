@@ -1,11 +1,26 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type { AdminUserListItem, AdminUserMergeResponse } from "swatchwatch-shared";
+import type {
+  AdminAuditEvent,
+  AdminUserDetailResponse,
+  AdminUserListItem,
+  AdminUserListQuery,
+  AdminUserListResponse,
+  AdminUserMergeResponse,
+} from "swatchwatch-shared";
 import {
-  filterUsersByQuery,
+  buildUserListQuery,
+  DEFAULT_USER_TABLE_FILTERS,
+  describePageRange,
   handleMergeAction,
   loadUsersState,
+  USERS_PAGE_SIZE,
 } from "../app/(admin)/admin/reference-data/components/users-tab";
+import {
+  buildUserUpdateRequest,
+  describeAuditChanges,
+  toUserEditForm,
+} from "../app/(admin)/admin/reference-data/components/user-detail-dialog";
 
 function buildUser(overrides: Partial<AdminUserListItem> = {}): AdminUserListItem {
   return {
@@ -16,30 +31,45 @@ function buildUser(overrides: Partial<AdminUserListItem> = {}): AdminUserListIte
     inventoryCount: 0,
     submissionCount: 0,
     captureSessionCount: 0,
+    state: "active",
+    ...overrides,
+  };
+}
+
+function buildDetail(overrides: Partial<AdminUserDetailResponse> = {}): AdminUserDetailResponse {
+  return {
+    user: buildUser({ userId: 7, handle: "polishfan" }),
+    identities: [],
+    auditEvents: [],
     ...overrides,
   };
 }
 
 describe("UsersTab helpers", () => {
-  it("loadUsersState sets loading/error/users on success", async () => {
+  it("loadUsersState passes the server query and sets loading/error/result on success", async () => {
     const loadingStates: boolean[] = [];
     const errorStates: Array<string | null> = [];
-    let users: AdminUserListItem[] = [];
+    let result: AdminUserListResponse | null = null;
+    let seenQuery: AdminUserListQuery | undefined;
 
     await loadUsersState({
-      listUsers: async () => ({ users: [buildUser({ userId: 42, email: "a@test.dev" })], total: 1 }),
+      listUsers: async (query) => {
+        seenQuery = query;
+        return { users: [buildUser({ userId: 42, email: "a@test.dev" })], total: 1 };
+      },
+      query: { q: "a@test", limit: 50, offset: 0 },
       isMounted: () => true,
       setIsLoading: (loading) => loadingStates.push(loading),
       setLoadError: (message) => errorStates.push(message),
-      setUsers: (nextUsers) => {
-        users = nextUsers;
+      setResult: (next) => {
+        result = next;
       },
     });
 
     assert.deepEqual(loadingStates, [true, false]);
     assert.deepEqual(errorStates, [null]);
-    assert.equal(users.length, 1);
-    assert.equal(users[0].userId, 42);
+    assert.deepEqual(seenQuery, { q: "a@test", limit: 50, offset: 0 });
+    assert.equal(result!.users[0].userId, 42);
   });
 
   it("loadUsersState sets loadError on failure", async () => {
@@ -50,37 +80,79 @@ describe("UsersTab helpers", () => {
       listUsers: async () => {
         throw new Error("boom");
       },
+      query: {},
       isMounted: () => true,
       setIsLoading: (loading) => loadingStates.push(loading),
       setLoadError: (message) => errorStates.push(message),
-      setUsers: () => {},
+      setResult: () => {},
     });
 
     assert.deepEqual(loadingStates, [true, false]);
     assert.deepEqual(errorStates, [null, "boom"]);
   });
 
-  it("filterUsersByQuery returns all users when query is empty", () => {
-    const users = [
-      buildUser({ userId: 1, email: "one@test.dev" }),
-      buildUser({ userId: 2, email: "two@test.dev" }),
-    ];
-
-    const result = filterUsersByQuery(users, "   ");
-    assert.equal(result, users);
+  it("buildUserListQuery omits 'all' filters and turns the page into an offset", () => {
+    assert.deepEqual(buildUserListQuery(DEFAULT_USER_TABLE_FILTERS), {
+      sort: "created",
+      dir: "desc",
+      limit: USERS_PAGE_SIZE,
+      offset: 0,
+    });
+    assert.deepEqual(
+      buildUserListQuery({ q: "  ana ", role: "admin", state: "suspended", sort: "email", dir: "asc", page: 2 }),
+      { q: "ana", role: "admin", state: "suspended", sort: "email", dir: "asc", limit: USERS_PAGE_SIZE, offset: 2 * USERS_PAGE_SIZE }
+    );
   });
 
-  it("filterUsersByQuery matches by email/ids/linked identities", () => {
-    const users = [
-      buildUser({ userId: 1, email: "one@test.dev", linkedExternalIds: ["abc-def"] }),
-      buildUser({ userId: 2, email: "two@test.dev", linkedExternalIds: ["xyz-ghi"] }),
-    ];
+  it("describePageRange", () => {
+    assert.equal(describePageRange(0, 0, 0), "0 of 0");
+    assert.equal(describePageRange(0, 50, 75), "1–50 of 75");
+    assert.equal(describePageRange(1, 25, 75), "51–75 of 75");
+  });
+});
 
-    assert.deepEqual(filterUsersByQuery(users, "two@test.dev").map((u) => u.userId), [2]);
-    assert.deepEqual(filterUsersByQuery(users, "abc-def").map((u) => u.userId), [1]);
-    assert.deepEqual(filterUsersByQuery(users, "2").map((u) => u.userId), [2]);
+describe("UserDetailDialog helpers", () => {
+  it("buildUserUpdateRequest sends only changed fields", () => {
+    const detail = buildDetail();
+    const form = toUserEditForm(detail);
+    assert.equal(buildUserUpdateRequest(detail, form), null);
+    assert.equal(buildUserUpdateRequest(detail, { ...form, note: "only a note" }), null);
+    assert.deepEqual(buildUserUpdateRequest(detail, { ...form, handle: " renamed " }), { handle: "renamed" });
+    assert.deepEqual(
+      buildUserUpdateRequest(detail, { ...form, suspended: true, suspendedReason: " spam ", note: " ticket 4 " }),
+      { suspended: true, suspendedReason: "spam", note: "ticket 4" }
+    );
   });
 
+  it("buildUserUpdateRequest reactivates and edits the reason of a suspended user", () => {
+    const detail = buildDetail({
+      user: buildUser({ userId: 7, handle: "polishfan", state: "suspended", suspendedAt: "2026-10-01" }),
+      suspendedReason: "spam",
+    });
+    const form = toUserEditForm(detail);
+    assert.equal(form.suspended, true);
+    assert.deepEqual(buildUserUpdateRequest(detail, { ...form, suspended: false }), { suspended: false });
+    assert.deepEqual(buildUserUpdateRequest(detail, { ...form, suspendedReason: "abuse" }), { suspendedReason: "abuse" });
+    assert.deepEqual(buildUserUpdateRequest(detail, { ...form, suspendedReason: "" }), { suspendedReason: null });
+  });
+
+  it("describeAuditChanges renders before → after and merges", () => {
+    const base: AdminAuditEvent = {
+      auditEventId: 1,
+      actorUserId: 2,
+      action: "user.suspend",
+      changes: { suspended: { from: false, to: true }, suspendedReason: { from: null, to: "spam" } },
+      createdAt: "2026-10-01",
+    };
+    assert.equal(describeAuditChanges(base), "suspended: no → yes; suspendedReason: — → spam");
+    assert.equal(
+      describeAuditChanges({ ...base, action: "user.merge", changes: { sourceUserId: 9, sourceEmail: "dup@test.dev" } }),
+      "from user #9 (dup@test.dev)"
+    );
+  });
+});
+
+describe("UsersTab merge", () => {
   it("handleMergeAction rejects non-numeric IDs", async () => {
     let mergeError: string | null = null;
     let mergeCalled = false;
