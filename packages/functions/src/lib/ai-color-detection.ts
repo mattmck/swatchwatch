@@ -5,6 +5,7 @@ import {
   type FinishCatalog,
 } from "./finishes";
 import { trackMetric } from "./telemetry";
+import { normalizeDescriptors, truncateText } from "./product-text";
 import { resolveAzureOpenAiConfig } from "./azure-openai-config";
 
 const OPENAI_API_VERSION = "2024-05-01-preview";
@@ -23,8 +24,15 @@ const MAX_ERROR_BODY_LOG_CHARS = 400;
  * admin edits to `finish_type` do not need a bump.
  *
  * v2 (#224): the finish list is the runtime catalog instead of a hard-coded example list.
+ * v3 (#352): vendor product text (description + descriptors) is sent as a separate, clearly
+ *   labeled hint for finishes; ingestion no longer sends the collection name as `description`.
  */
-export const PROMPT_VERSION = "vision-direct/2026-10-v2";
+export const PROMPT_VERSION = "vision-direct/2026-10-v3";
+
+/** Longest vendor description forwarded to the vision prompt (characters, ellipsis included). */
+export const PROMPT_PRODUCT_DESCRIPTION_MAX_CHARS = 600;
+/** Most vendor descriptors forwarded to the vision prompt. */
+export const PROMPT_PRODUCT_DESCRIPTORS_MAX = 30;
 
 /** Detection strategy identifier stored in `shade.detected_hex_method`. */
 export const HEX_DETECTION_METHOD_VISION_DIRECT = "vision-direct";
@@ -79,6 +87,13 @@ export interface HexDetectionOptions {
     description?: string | null;
     tags?: string[] | null;
     vendorJson?: Record<string, unknown> | null;
+    /**
+     * Vendor product description (`normalized_json.descriptionText`, #352). Sent in its own
+     * labeled block, truncated to `PROMPT_PRODUCT_DESCRIPTION_MAX_CHARS`.
+     */
+    descriptionText?: string | null;
+    /** Vendor descriptors (`normalized_json.descriptors`), at most `PROMPT_PRODUCT_DESCRIPTORS_MAX`. */
+    descriptors?: string[] | null;
   };
   /**
    * Sampling temperature. Defaults to 0 (deterministic), which is what
@@ -311,8 +326,13 @@ export function buildHexDetectionRequestPayload(
   const vendorContext = buildVendorContext({
     vendorContext: options?.vendorContext,
   });
+  const productText = buildProductTextContext(options?.vendorContext);
   const imageUrl = { url: imageUrlOrDataUri, detail: resolveVisionImageDetail() };
   const finishList = finishNamesForPrompt(options?.finishCatalog).join(", ");
+  const contextParts = [
+    ...(vendorContext ? [{ type: "text", text: `Vendor context: ${vendorContext}` }] : []),
+    ...(productText ? [{ type: "text", text: productText }] : []),
+  ];
 
   return {
     temperature: normalizeTemperature(options?.temperature),
@@ -333,7 +353,7 @@ export function buildHexDetectionRequestPayload(
                 text:
                   `Return exactly one hex code for the primary polish shade. Ignore non-polish areas and reflections. Also identify all finishes mentioned or visible, using only these finish names: ${finishList}. If uncertain, provide best guess with low confidence.`,
               },
-              ...(vendorContext ? [{ type: "text", text: `Vendor context: ${vendorContext}` }] : []),
+              ...contextParts,
               {
                 type: "image_url",
                 image_url: imageUrl,
@@ -355,7 +375,7 @@ export function buildHexDetectionRequestPayload(
                 text:
                   `Image may show either a bottle product shot or closeup painted nails. Return exactly one hex for the primary marketed base shade. Exclude background, brush, cap, box, and sparkle highlights. Identify any finishes mentioned or visible, using only these finish names: ${finishList}. ALWAYS return a hex value and confidence score. If the image is unclear or unusable, make your best guess and include an 'error' field explaining why confidence is low.`,
               },
-              ...(vendorContext ? [{ type: "text", text: `Vendor context: ${vendorContext}` }] : []),
+              ...contextParts,
               {
                 type: "image_url",
                 image_url: imageUrl,
@@ -388,6 +408,31 @@ function parseRetryAfter(response: Response): number | null {
     return seconds * 1000;
   }
   return null;
+}
+
+/** Label for the vendor product text block; the model is told it is a hint, not ground truth. */
+export const PRODUCT_TEXT_CONTEXT_LABEL =
+  "Vendor product text (copied from the brand's store listing; it may be inaccurate, generic marketing, or mention other products, so never use it for the color and use it only as a hint for finishes that the image does not contradict):";
+
+/**
+ * The vendor product text block (#352): description truncated to
+ * `PROMPT_PRODUCT_DESCRIPTION_MAX_CHARS`, descriptors capped at `PROMPT_PRODUCT_DESCRIPTORS_MAX`,
+ * JSON-encoded after `PRODUCT_TEXT_CONTEXT_LABEL`. Null when there is no text.
+ */
+export function buildProductTextContext(
+  ctx: HexDetectionOptions["vendorContext"] | null | undefined
+): string | null {
+  if (!ctx) return null;
+  const description =
+    typeof ctx.descriptionText === "string" && ctx.descriptionText.trim()
+      ? truncateText(ctx.descriptionText.replace(/\s+/g, " ").trim(), PROMPT_PRODUCT_DESCRIPTION_MAX_CHARS)
+      : null;
+  const descriptors = normalizeDescriptors(ctx.descriptors ?? [], PROMPT_PRODUCT_DESCRIPTORS_MAX);
+  if (!description && descriptors.length === 0) return null;
+  const payload: Record<string, unknown> = {};
+  if (description) payload.description = description;
+  if (descriptors.length > 0) payload.descriptors = descriptors;
+  return `${PRODUCT_TEXT_CONTEXT_LABEL} ${JSON.stringify(payload)}`;
 }
 
 function buildVendorContext(options?: HexDetectionOptions): string | null {

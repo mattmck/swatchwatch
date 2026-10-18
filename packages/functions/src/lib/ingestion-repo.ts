@@ -31,9 +31,14 @@ import {
 import {
   loadFinishCatalog,
   mergeFinishLists,
-  parseFinishesFromTags,
   type FinishCatalog,
 } from "./finishes";
+import {
+  applyIngestedFinishes,
+  resolveNormalizedProductFinishes,
+  type IngestedFinishResolution,
+} from "./finish-text";
+import { readProductText } from "./product-text";
 import { PoolClient } from "pg";
 import { recordShadeSourceProduct } from "./buy-link";
 import { trackEvent } from "./telemetry";
@@ -148,6 +153,9 @@ interface HoloTacoProductNormalized {
   vendorHex: string | null;
   nameHex: string | null;
   colorName: string | null;
+  /** Vendor description / descriptors (#352), forwarded to the vision prompt as a finish hint. */
+  descriptionText: string | null;
+  descriptors: string[];
 }
 
 /** A source image stored in blob storage, keyed by the connector URL it was downloaded from. */
@@ -281,19 +289,44 @@ function parseHoloTacoNormalized(
     vendorHex: asString(normalized.vendorHex),
     nameHex: asString(normalized.nameHex),
     colorName: asString(normalized.colorName),
+    ...readProductText(normalized),
+  };
+}
+
+/** Vision-prompt vendor context for an ingested product (same for the sync and batch paths). */
+function holoTacoVendorContext(holo: HoloTacoProductNormalized): HexDetectionOptions["vendorContext"] {
+  return {
+    shadeName: holo.name,
+    vendorHex: holo.vendorHex,
+    tags: holo.tags,
+    vendorJson: {
+      finish: holo.finish,
+      colorName: holo.colorName,
+      collection: holo.collection,
+    },
+    descriptionText: holo.descriptionText,
+    descriptors: holo.descriptors,
   };
 }
 
 /**
- * Canonical finishes for an ingested product, derived from its vendor tags
- * (`finish:<value>` + bare `<value>` tags) via `parseFinishesFromTags`.
+ * Canonical finishes for an ingested product and where they came from: vendor tags
+ * (`finish:<value>` + bare `<value>` tags) win, then descriptors, then description text (#352;
+ * `resolveProductFinishes` in lib/finish-text.ts). The brand is masked out of the text.
  */
+export function resolveIngestedShadeFinishResolution(
+  normalized: Record<string, unknown> | null | undefined,
+  catalog?: FinishCatalog
+): IngestedFinishResolution {
+  return resolveNormalizedProductFinishes(normalized, catalog);
+}
+
+/** Canonical finishes for an ingested product (see `resolveIngestedShadeFinishResolution`). */
 export function resolveIngestedShadeFinishes(
   normalized: Record<string, unknown> | null | undefined,
   catalog?: FinishCatalog
 ): string[] {
-  if (!normalized) return [];
-  return parseFinishesFromTags(asStringArray(normalized.tags), catalog);
+  return resolveIngestedShadeFinishResolution(normalized, catalog).finishes;
 }
 
 function isHttpUrl(value: string | null): value is string {
@@ -1033,16 +1066,7 @@ async function prepareHoloTacoImageData(
         queuedBatchRequests.push({
           customId: record.externalId,
           imageUrlOrDataUri: imageForAi,
-          vendorContext: {
-            shadeName: holo.name!,
-            vendorHex: holo.vendorHex,
-            description: holo.collection,
-            tags: holo.tags,
-            vendorJson: {
-              finish: holo.finish,
-              colorName: holo.colorName,
-            },
-          },
+          vendorContext: holoTacoVendorContext(holo),
         });
         metrics.batchRequestsQueued += 1;
         const queuedMessage = `${sourceLogPrefix} ${record.externalId} [ai-color-detection] Queued for batch submission`;
@@ -1078,16 +1102,7 @@ async function prepareHoloTacoImageData(
                 progressLogger?.warn(withRecord, data);
               }
             },
-            vendorContext: {
-              shadeName: holo.name!,
-              vendorHex: holo.vendorHex,
-              description: holo.collection,
-              tags: holo.tags,
-              vendorJson: {
-                finish: holo.finish,
-                colorName: holo.colorName,
-              },
-            },
+            vendorContext: holoTacoVendorContext(holo),
           });
           // Post-processing (HEX_DETECTION_SNAP_ENABLED): re-read the image the model was shown
           // and replace its hex with the nearest measured palette chip. Never throws.
@@ -2024,7 +2039,8 @@ export async function materializeMakeupApiRecords(
       }
 
       const makeup = parseMakeupNormalized(normalized);
-      const tagFinishes = parseFinishesFromTags(makeup.tags, finishCatalog);
+      // Tags, else descriptors, else description text (#352).
+      const finishResolution = resolveIngestedShadeFinishResolution(normalized, finishCatalog);
       if (!makeup.brand || !makeup.name) {
         skipped += 1;
         continue;
@@ -2140,9 +2156,9 @@ export async function materializeMakeupApiRecords(
         const resolvedColorName = variant.name || makeup.name;
         const resolvedVendorHex = variant.hex;
         // Merge (never remove) tag finishes in TypeScript, like the Holo Taco path, so aliases
-        // and legacy values are canonicalized and deduped; null leaves finishes untouched.
-        const mergedFinishes =
-          tagFinishes.length > 0 ? mergeFinishLists([currentFinishes, tagFinishes], finishCatalog) : null;
+        // and legacy values are canonicalized and deduped; descriptor/description finishes only
+        // fill a shade with none (#352); null leaves finishes untouched.
+        const mergedFinishes = applyIngestedFinishes(currentFinishes, finishResolution, finishCatalog);
         await client.query(
           `UPDATE shade SET
              color_name = COALESCE($2, color_name),
@@ -2257,7 +2273,9 @@ async function materializePreparedHoloTacoRecord(
     delta.skipped += 1;
     return delta;
   }
-  const tagFinishes = resolveIngestedShadeFinishes(normalized, finishCatalog);
+  // Tags, else descriptors, else description text (#352).
+  const finishResolution = resolveIngestedShadeFinishResolution(normalized, finishCatalog);
+  const ingestedFinishes = finishResolution.finishes;
 
   console.log(`${sourceLogPrefix} Processing record: externalId=${record.externalId}, name=${holo.name}`);
 
@@ -2313,7 +2331,7 @@ async function materializePreparedHoloTacoRecord(
       `INSERT INTO shade (brand_id, shade_name_canonical, finish, collection, status, finishes)
        VALUES ($1, $2, $3, $4, 'active', $5::text[])
        RETURNING shade_id AS "shadeId"`,
-      [brandId, holo.name, holo.finish, holo.collection, tagFinishes]
+      [brandId, holo.name, holo.finish, holo.collection, ingestedFinishes]
     );
     shadeId = insertedShade.rows[0].shadeId;
     delta.shadesCreated += 1;
@@ -2357,9 +2375,12 @@ async function materializePreparedHoloTacoRecord(
      FROM shade WHERE shade_id = $1`,
     [shadeId]
   );
-  // Vendor tag finishes are merged (never removed) so manual edits survive re-imports.
+  // Vendor tag finishes are merged (never removed) so manual edits survive re-imports;
+  // descriptor/description finishes only fill a shade that has none yet (#352).
   const currentFinishes = currentShade.rows[0]?.finishes ?? [];
-  const mergedFinishes = mergeFinishLists([currentFinishes, tagFinishes], finishCatalog);
+  const mergedFinishes =
+    applyIngestedFinishes(currentFinishes, finishResolution, finishCatalog) ??
+    mergeFinishLists([currentFinishes], finishCatalog);
 
   const shouldOverwrite = overwriteDetectedHex;
   if (

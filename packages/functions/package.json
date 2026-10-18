@@ -12,6 +12,7 @@
     "eval:hex": "npm run build --workspace=swatchwatch-shared && npm run build && node dist/eval/hex/cli.js",
     "eval:hex:populate": "npm run build --workspace=swatchwatch-shared && npm run build && node dist/eval/hex/populate.js",
     "backfill:image-variants": "node scripts/backfill-image-variants.cjs",
+    "backfill:product-text": "npm run build --workspace=swatchwatch-shared && npm run build && node dist/scripts/backfill-product-text.js",
     "pack": "func pack --output ./dist/functions.zip --skip-install",
     "start": "func start",
     "watch": "tsc -w",

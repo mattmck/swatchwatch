@@ -16,6 +16,7 @@ import {
   ProductConnector,
 } from "./types.js";
 import { detectHexFromColorName, stripHtmlToText } from "./color-name-detection.js";
+import { shopifyProductText } from "../product-text.js";
 
 const REQUEST_TIMEOUT_MS = parseIntEnv(
   process.env.SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS,
@@ -860,6 +861,8 @@ async function toNormalizedRecord(
   const gtin = variants
     .map((variant) => asNonEmptyString(variant.barcode))
     .find((barcode): barcode is string => Boolean(barcode)) || null;
+  // Description + descriptors for finish detection (#352); never shown to users.
+  const { descriptionText, descriptors } = shopifyProductText(product);
 
   return {
     externalId,
@@ -875,6 +878,8 @@ async function toNormalizedRecord(
       collections,
       finishes,
       tags,
+      descriptionText,
+      descriptors,
       tagColors,
       imageUrls,
       // Same images as imageUrls with the Shopify alt text / position kept, so

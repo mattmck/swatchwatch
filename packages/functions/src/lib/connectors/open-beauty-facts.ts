@@ -4,6 +4,7 @@ import {
   ConnectorProductRecord,
   ProductConnector,
 } from "./types";
+import { openBeautyFactsProductText } from "../product-text";
 
 const DEFAULT_BASE_URL = "https://world.openbeautyfacts.org";
 const REQUEST_TIMEOUT_MS = 15000;
@@ -49,6 +50,9 @@ function normalizeProduct(product: Record<string, unknown>): ConnectorProductRec
   const lastModifiedEpoch =
     typeof product.last_modified_t === "number" ? product.last_modified_t : null;
 
+  // Description + descriptors for finish detection (#352); never shown to users.
+  const { descriptionText, descriptors } = openBeautyFactsProductText(product);
+
   return {
     externalId: gtin,
     gtin,
@@ -60,6 +64,8 @@ function normalizeProduct(product: Record<string, unknown>): ConnectorProductRec
       brand,
       ingredientsText,
       categoriesTags,
+      descriptionText,
+      descriptors,
       imageUrl,
       lastModifiedAt: lastModifiedEpoch
         ? new Date(lastModifiedEpoch * 1000).toISOString()

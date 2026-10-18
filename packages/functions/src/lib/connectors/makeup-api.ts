@@ -4,6 +4,7 @@ import {
   ConnectorProductRecord,
   ProductConnector,
 } from "./types";
+import { makeupApiProductText } from "../product-text";
 
 const DEFAULT_BASE_URL = "https://makeup-api.herokuapp.com";
 const REQUEST_TIMEOUT_MS = 15000;
@@ -83,6 +84,9 @@ function toNormalizedRecord(product: MakeupApiProduct): ConnectorProductRecord |
         ? Number.parseFloat(product.rating)
         : null;
 
+  // Description + descriptors for finish detection (#352); never shown to users.
+  const { descriptionText, descriptors } = makeupApiProductText(product);
+
   return {
     externalId,
     gtin: null,
@@ -104,6 +108,8 @@ function toNormalizedRecord(product: MakeupApiProduct): ConnectorProductRecord |
       productApiUrl: asNonEmptyString(product.product_api_url),
       rating: Number.isFinite(rating) ? rating : null,
       tags: normalizeTagList(product.tag_list),
+      descriptionText,
+      descriptors,
       createdAt: asNonEmptyString(product.created_at),
       updatedAt: asNonEmptyString(product.updated_at),
       colorVariantCount: colorVariants.length,
