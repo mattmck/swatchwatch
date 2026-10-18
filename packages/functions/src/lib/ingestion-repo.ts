@@ -41,6 +41,7 @@ import {
 import { readProductText } from "./product-text";
 import { PoolClient } from "pg";
 import { recordShadeSourceProduct } from "./buy-link";
+import { pruneStaleGallerySwatches } from "./gallery-dedupe";
 import { trackEvent } from "./telemetry";
 
 export interface DataSourceRecord {
@@ -93,6 +94,8 @@ export interface HoloTacoMaterializationMetrics {
   imageUploads: number;
   imageUploadFailures: number;
   swatchesLinked: number;
+  /** Stale `source_gallery` swatches unlinked because the product no longer lists the image. */
+  gallerySwatchesPruned: number;
   hexDetected: number;
   hexDetectionFailures: number;
   hexDetectionSkipped: number;
@@ -175,6 +178,12 @@ interface HoloTacoPreparedImage {
   /** Provenance for `detectedHex` (null when no detection ran). */
   detectedHexProvenance: DetectedHexProvenance | null;
   additionalImages: StoredSourceImage[];
+  /**
+   * The primary and every additional image of the product were stored this run, so
+   * `additionalImages` is the product's whole current gallery and stale gallery swatches can be
+   * pruned (`pruneStaleGallerySwatches`). False when any download failed.
+   */
+  imageSetComplete: boolean;
 }
 
 interface HoloTacoImagePreparationMetrics {
@@ -743,6 +752,8 @@ async function prepareHoloTacoImageData(
     checksumSha256: string | null;
     sourceUrl: string | null;
     additionalImages: StoredSourceImage[];
+    /** Every image URL of the product was stored (see HoloTacoPreparedImage.imageSetComplete). */
+    imageSetComplete: boolean;
     isCandidate: boolean;
     primaryReused: boolean;
     additionalUploaded: number;
@@ -811,6 +822,7 @@ async function prepareHoloTacoImageData(
         checksumSha256: null,
         sourceUrl: null,
         additionalImages: [],
+        imageSetComplete: false,
         isCandidate: false,
         primaryReused: false,
         additionalUploaded: 0,
@@ -838,6 +850,7 @@ async function prepareHoloTacoImageData(
       let primaryReused = false;
       let additionalUploaded = 0;
       let imagesReused = 0;
+      let additionalFailures = 0;
       const additionalImages: StoredSourceImage[] = [];
 
       // Upload primary image (container already ensured)
@@ -872,6 +885,7 @@ async function prepareHoloTacoImageData(
             additionalUploaded += 1;
           }
         } catch (err) {
+          additionalFailures += 1;
           console.error(`${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId}:`, String(err));
           progressLogger?.warn(`${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId}`, {
             externalId: record.externalId,
@@ -888,6 +902,7 @@ async function prepareHoloTacoImageData(
         checksumSha256,
         sourceUrl: storageUrl ? holo.primaryImageUrl : null,
         additionalImages,
+        imageSetComplete: storageUrl !== null && additionalFailures === 0,
         isCandidate: true,
         primaryReused,
         additionalUploaded,
@@ -994,6 +1009,7 @@ async function prepareHoloTacoImageData(
         detectedFinishes: null,
         detectedHexProvenance: null,
         additionalImages: [],
+        imageSetComplete: false,
       };
     }
 
@@ -1189,6 +1205,7 @@ async function prepareHoloTacoImageData(
       detectedFinishes,
       detectedHexProvenance,
       additionalImages,
+      imageSetComplete: result.imageSetComplete,
     };
   };
 
@@ -1215,6 +1232,7 @@ async function prepareHoloTacoImageData(
           detectedFinishes: null,
           detectedHexProvenance: null,
           additionalImages: result.additionalImages,
+          imageSetComplete: result.imageSetComplete,
         };
       })
     )
@@ -2233,6 +2251,7 @@ interface HoloTacoRecordMaterializationDelta {
   inventoryUpdated: number;
   hexOverwritten: number;
   swatchesLinked: number;
+  gallerySwatchesPruned: number;
   skipped: number;
 }
 
@@ -2255,6 +2274,7 @@ async function materializePreparedHoloTacoRecord(
     inventoryUpdated: 0,
     hexOverwritten: 0,
     swatchesLinked: 0,
+    gallerySwatchesPruned: 0,
     skipped: 0,
   };
 
@@ -2493,6 +2513,10 @@ async function materializePreparedHoloTacoRecord(
     console.log(`${sourceLogPrefix} Updated inventory item successfully`);
   }
 
+  // Image ids of the product's current images (primary first), for the gallery prune below.
+  const currentImageIds: number[] = [];
+  let galleryLinked = preparedImage.imageSetComplete;
+
   if (preparedImage.storageUrl && preparedImage.checksumSha256) {
     console.log(`${sourceLogPrefix} Processing swatch for shade ${shadeId}: checksum=${preparedImage.checksumSha256}`);
     const existingImage = await client.query<{ imageId: number }>(
@@ -2520,6 +2544,7 @@ async function materializePreparedHoloTacoRecord(
       imageId = insertedImage.rows[0].imageId;
       console.log(`${sourceLogPrefix} Inserted new image ${imageId}`);
     }
+    currentImageIds.push(imageId);
     if (preparedImage.sourceUrl) {
       await recordSourceImageUrl(client, dataSourceId, preparedImage.sourceUrl, imageId);
     }
@@ -2569,7 +2594,7 @@ async function materializePreparedHoloTacoRecord(
     );
   }
 
-  // Store additional images as image_assets (no swatch — for training data)
+  // Store additional images as image_assets and link each as a source_gallery swatch
   if (preparedImage.additionalImages.length > 0) {
     for (const addImg of preparedImage.additionalImages) {
       try {
@@ -2599,6 +2624,7 @@ async function materializePreparedHoloTacoRecord(
         } else {
           galleryImageId = existingAdditional.rows[0].imageId;
         }
+        currentImageIds.push(galleryImageId);
         await recordSourceImageUrl(client, dataSourceId, addImg.sourceUrl, galleryImageId);
 
         const existingGallerySwatch = await client.query<{ swatchId: number }>(
@@ -2622,9 +2648,33 @@ async function materializePreparedHoloTacoRecord(
           );
         }
       } catch (err) {
+        galleryLinked = false;
         console.error(`${sourceLogPrefix} Error storing additional image:`, String(err));
         // Non-fatal: don't throw for additional images
       }
+    }
+  }
+
+  // Gallery swatches are otherwise only ever added, so every image ever stored for the shade
+  // (including the same picture stored twice under different checksums by older ingests) would
+  // stay linked. Reconcile this data source's gallery with the product's current images, but
+  // only when all of them were stored and linked: a failed download must not unlink anything.
+  if (galleryLinked && currentImageIds.length > 0) {
+    const pruned = await pruneStaleGallerySwatches(client, {
+      shadeId,
+      dataSourceId,
+      externalId: record.externalId,
+      keepImageIds: currentImageIds,
+    });
+    if (pruned.deleted > 0) {
+      delta.gallerySwatchesPruned += pruned.deleted;
+      console.log(
+        `${sourceLogPrefix} Unlinked ${pruned.deleted} stale gallery image(s) from shade ${shadeId}`
+      );
+    } else if (pruned.skippedSharedShade) {
+      console.log(
+        `${sourceLogPrefix} Gallery prune skipped for shade ${shadeId}: another product of this source maps to it`
+      );
     }
   }
 
@@ -2676,6 +2726,7 @@ export async function materializeHoloTacoRecords(
   let inventoryUpdated = 0;
   let hexOverwritten = 0;
   let swatchesLinked = 0;
+  let gallerySwatchesPruned = 0;
   let skipped = 0;
 
   const brandCache = new Map<string, number>();
@@ -2715,6 +2766,7 @@ export async function materializeHoloTacoRecords(
       inventoryUpdated += delta.inventoryUpdated;
       hexOverwritten += delta.hexOverwritten;
       swatchesLinked += delta.swatchesLinked;
+      gallerySwatchesPruned += delta.gallerySwatchesPruned;
       skipped += delta.skipped;
       if (delta.skipped > 0) {
         options?.progressLogger?.warn(
@@ -2735,6 +2787,7 @@ export async function materializeHoloTacoRecords(
     ...preparedImageData.metrics,
     ...(preparedImageData.aiBatch ? { aiBatch: preparedImageData.aiBatch } : {}),
     swatchesLinked,
+    gallerySwatchesPruned,
     skipped,
   };
 

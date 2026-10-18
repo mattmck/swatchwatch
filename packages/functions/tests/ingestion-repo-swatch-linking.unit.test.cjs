@@ -17,6 +17,10 @@ function mockDistModule(relativePath, exports) {
 let images;
 let swatches;
 let nextId;
+// Image ids with a hex ground-truth label (color_training_sample.image_id).
+let labeledImageIds;
+// Another product of the same data source maps to the shade (shade_source_product).
+let sharedShade;
 
 function swatchTypeFilter(sql) {
   const match = sql.match(/swatch_type = '([a-z_]+)'/);
@@ -51,6 +55,25 @@ const transactionClient = {
       if (target) target.imageId = params[1];
       return { rows: [] };
     }
+    if (sql.includes("FROM shade_source_product")) {
+      return { rows: sharedShade ? [{ "?column?": 1 }] : [] };
+    }
+    if (sql.includes("DELETE FROM swatch") && sql.includes("<> ALL($3::bigint[])")) {
+      const [shadeId, dataSourceId, keep] = params;
+      const removed = swatches.filter((sw) => {
+        const image = images.find((img) => img.imageId === sw.imageId);
+        return (
+          sw.shadeId === shadeId &&
+          sw.swatchType === "source_gallery" &&
+          image &&
+          image.ownerId === dataSourceId &&
+          !keep.includes(sw.imageId) &&
+          !labeledImageIds.includes(sw.imageId)
+        );
+      });
+      swatches = swatches.filter((sw) => !removed.includes(sw));
+      return { rows: removed.map((sw) => ({ swatchId: sw.swatchId })) };
+    }
     if (sql.includes("DELETE FROM swatch")) {
       const type = swatchTypeFilter(sql);
       swatches = swatches.filter(
@@ -80,12 +103,16 @@ mockDistModule("db.js", {
 });
 
 // Each upload's checksum is derived from its URL, so changing a URL changes the image.
+// URLs containing "fail" simulate a download error.
 mockDistModule("blob-storage.js", {
   ensureContainer: async () => {},
-  uploadSourceImageToBlob: async ({ sourceImageUrl }) => ({
-    storageUrl: `https://blob.example/${encodeURIComponent(sourceImageUrl)}`,
-    checksumSha256: `sum-${sourceImageUrl}`,
-  }),
+  uploadSourceImageToBlob: async ({ sourceImageUrl }) => {
+    if (sourceImageUrl.includes("fail")) throw new Error("download failed");
+    return {
+      storageUrl: `https://blob.example/${encodeURIComponent(sourceImageUrl)}`,
+      checksumSha256: `sum-${sourceImageUrl}`,
+    };
+  },
 });
 
 mockDistModule("ai-color-detection.js", {
@@ -132,6 +159,8 @@ describe("materializeHoloTacoRecords swatch linking", () => {
     images = [];
     swatches = [];
     nextId = 0;
+    labeledImageIds = [];
+    sharedShade = false;
   });
 
   const urls = [
@@ -209,5 +238,81 @@ describe("materializeHoloTacoRecords swatch linking", () => {
       swatchSnapshot().map(({ imageId, swatchType }) => ({ imageId, swatchType })),
       [productSwatch, gallery1, gallery2].map(({ imageId, swatchType }) => ({ imageId, swatchType }))
     );
+  });
+  // An older ingest stored different bytes for the same vendor picture (different checksum), so
+  // the shade carries a second image_asset + gallery swatch the current run never references.
+  function addStaleGallerySwatch(ownerId = 7) {
+    const imageId = ++nextId;
+    images.push({ imageId, ownerId, checksum: `old-bytes-${imageId}` });
+    swatches.push({ swatchId: ++nextId, shadeId: 1, imageId, swatchType: "source_gallery" });
+    return imageId;
+  }
+
+  const gallerySnapshot = () =>
+    swatches.map(({ imageId, swatchType }) => ({ imageId, swatchType }));
+
+  it("leaves exactly the vendor's current gallery after a re-ingest", async () => {
+    await run(urls);
+    addStaleGallerySwatch();
+    addStaleGallerySwatch();
+
+    const metrics = await run(urls);
+
+    assert.equal(metrics.gallerySwatchesPruned, 2);
+    assert.deepEqual(gallerySnapshot(), [
+      { imageId: imageIdFor(urls[0]), swatchType: "source_product" },
+      { imageId: imageIdFor(urls[1]), swatchType: "source_gallery" },
+      { imageId: imageIdFor(urls[2]), swatchType: "source_gallery" },
+    ]);
+  });
+
+  it("unlinks a gallery image the vendor removed", async () => {
+    await run(urls);
+
+    const metrics = await run([urls[0], urls[2]]);
+
+    assert.equal(metrics.gallerySwatchesPruned, 1);
+    assert.deepEqual(gallerySnapshot(), [
+      { imageId: imageIdFor(urls[0]), swatchType: "source_product" },
+      { imageId: imageIdFor(urls[2]), swatchType: "source_gallery" },
+    ]);
+  });
+
+  it("keeps other data sources' images and hex-labelled images", async () => {
+    await run(urls);
+    const otherSource = addStaleGallerySwatch(99);
+    const labelled = addStaleGallerySwatch();
+    labeledImageIds = [labelled];
+    const stale = addStaleGallerySwatch();
+
+    const metrics = await run(urls);
+
+    assert.equal(metrics.gallerySwatchesPruned, 1);
+    const linked = swatches.map((sw) => sw.imageId);
+    assert.ok(linked.includes(otherSource));
+    assert.ok(linked.includes(labelled));
+    assert.ok(!linked.includes(stale));
+  });
+
+  it("prunes nothing when one of the product's images failed to download", async () => {
+    await run(urls);
+    const stale = addStaleGallerySwatch();
+
+    const metrics = await run([urls[0], urls[1], "https://shop.example/fail.png"]);
+
+    assert.equal(metrics.gallerySwatchesPruned, 0);
+    assert.ok(swatches.some((sw) => sw.imageId === stale));
+    assert.ok(swatches.some((sw) => sw.imageId === imageIdFor(urls[2])));
+  });
+
+  it("prunes nothing when another product of the same source maps to the shade", async () => {
+    await run(urls);
+    const stale = addStaleGallerySwatch();
+    sharedShade = true;
+
+    const metrics = await run(urls);
+
+    assert.equal(metrics.gallerySwatchesPruned, 0);
+    assert.ok(swatches.some((sw) => sw.imageId === stale));
   });
 });
