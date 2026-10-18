@@ -1,4 +1,5 @@
 import { resolveAzureOpenAiConfig } from "../azure-openai-config";
+import { htmlToPlainText } from "../product-text";
 
 /**
  * Color Name to Hex Detection
@@ -148,36 +149,17 @@ export interface DetectHexOptions {
 export const COLOR_NAME_DESCRIPTION_MAX_CHARS = 400;
 const COLOR_NAME_MAX_TAGS = 20;
 
-const DECODE_ENTITIES: Record<string, string> = {
-  "&amp;": "&",
-  "&lt;": "<",
-  "&gt;": ">",
-  "&quot;": '"',
-  "&#39;": "'",
-  "&apos;": "'",
-  "&nbsp;": " ",
-};
-
 /**
  * Turn vendor HTML (Shopify `body_html`) into plain text for the prompt:
- * drops tags, decodes common entities, collapses whitespace and truncates
+ * drops tags, decodes entities, collapses whitespace and truncates
  * to `maxChars` (default `COLOR_NAME_DESCRIPTION_MAX_CHARS`) with an ellipsis.
+ * Thin wrapper over the shared `htmlToPlainText` (`lib/product-text.ts`, #352).
  */
 export function stripHtmlToText(
   html: string | null | undefined,
   maxChars: number = COLOR_NAME_DESCRIPTION_MAX_CHARS
 ): string | null {
-  if (!html || typeof html !== "string") return null;
-  let text = html
-    .replace(/<\s*(br|\/p|\/div|\/li|\/h[1-6])\s*\/?>/gi, " ")
-    .replace(/<[^>]*>/g, " ");
-  text = text.replace(/&(amp|lt|gt|quot|#39|apos|nbsp);/gi, (entity) => DECODE_ENTITIES[entity.toLowerCase()] ?? " ");
-  text = text.replace(/\s+/g, " ").trim();
-  if (!text) return null;
-  if (text.length > maxChars) {
-    text = `${text.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
-  }
-  return text;
+  return htmlToPlainText(html, maxChars, { sentenceBreaks: false });
 }
 
 function cleanText(value: unknown): string | null {

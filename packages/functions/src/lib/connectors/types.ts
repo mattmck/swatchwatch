@@ -42,11 +42,26 @@ export async function loadCatalogWithCache<T>(
   return products;
 }
 
+/**
+ * A connector's `normalized` record (stored as `external_product.normalized_json`). Fields are
+ * connector-specific; the ones every connector writes are typed here.
+ */
+export interface ConnectorNormalizedProduct extends Record<string, unknown> {
+  /**
+   * Vendor product description as plain text (HTML stripped, capped; `lib/product-text.ts`),
+   * or null. Used for finish detection only, never returned to users (#352). Optional because
+   * rows ingested before #352 lack it until `npm run backfill:product-text` runs.
+   */
+  descriptionText?: string | null;
+  /** Product type, variant options, tags, collection names, deduped and capped (#352). */
+  descriptors?: string[];
+}
+
 export interface ConnectorProductRecord {
   externalId: string;
   gtin?: string | null;
   raw: Record<string, unknown>;
-  normalized: Record<string, unknown>;
+  normalized: ConnectorNormalizedProduct;
   etag?: string | null;
 }
 
