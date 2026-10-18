@@ -5,12 +5,43 @@ import { ChevronDown, ChevronRight, Pipette } from "lucide-react";
 import { toast } from "sonner";
 import { MEDIUM_CONFIDENCE_MAX_DISTANCE, type HexLabelQueueItem, type HexLabelRequest } from "swatchwatch-shared";
 import { deleteHexLabel, getHexLabelShade, saveHexLabel } from "@/lib/api";
+import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
+import { buildMsalConfig } from "@/lib/msal-config";
 import { ShadeLabeler } from "@/components/shade-hex-labeler";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
+const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
+const HAS_B2C_CONFIG = buildMsalConfig() !== null;
+
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
+}
+
+/**
+ * Renders `AdminHexSipPanel` for admins only; everyone else gets nothing (no markup, no request).
+ * Picks the auth hook for the current mode (dev bypass / unconfigured / B2C) the same way the
+ * admin and polishes pages do, because `useAuth()` may only run inside `<MsalProvider>`.
+ */
+export function AdminHexSipSection({ shadeId }: { shadeId: string }) {
+  if (IS_DEV_BYPASS) return <DevAdminHexSip shadeId={shadeId} />;
+  if (!HAS_B2C_CONFIG) return <UnconfiguredAdminHexSip shadeId={shadeId} />;
+  return <B2CAdminHexSip shadeId={shadeId} />;
+}
+
+function DevAdminHexSip({ shadeId }: { shadeId: string }) {
+  const { isAdmin } = useDevAuth();
+  return isAdmin ? <AdminHexSipPanel shadeId={shadeId} /> : null;
+}
+
+function B2CAdminHexSip({ shadeId }: { shadeId: string }) {
+  const { isAdmin } = useAuth();
+  return isAdmin ? <AdminHexSipPanel shadeId={shadeId} /> : null;
+}
+
+function UnconfiguredAdminHexSip({ shadeId }: { shadeId: string }) {
+  const { isAdmin } = useUnconfiguredAuth();
+  return isAdmin ? <AdminHexSipPanel shadeId={shadeId} /> : null;
 }
 
 /**
