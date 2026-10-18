@@ -29,7 +29,7 @@ import {
   type HexLabelKeyAction,
   type RegionSample,
 } from "@/lib/hex-sampling";
-import { buildSwatchThumbnailUrl } from "@/lib/image-url";
+import { SwatchThumbnail } from "@/components/swatch-thumbnail";
 import { FinishBadges } from "@/components/finish-badges";
 import { ToggleChip } from "@/components/toggle-chip";
 import { Badge } from "@/components/ui/badge";
@@ -260,8 +260,7 @@ export function ShadeLabeler({
                 )}
                 title={`Image ${index + 1}${image.isPrimary ? " (primary)" : ""}`}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element -- proxied thumbnails, not optimizable at build time */}
-                <img src={buildSwatchThumbnailUrl(image.url, 96)} alt="" className="size-full object-cover" loading="lazy" />
+                <SwatchThumbnail src={image.url} displaySize={64} alt="" className="size-full object-cover" />
                 {index < 9 ? (
                   <span className="absolute left-0.5 top-0.5 rounded bg-black/70 px-1 font-mono text-[10px] text-white">{index + 1}</span>
                 ) : null}

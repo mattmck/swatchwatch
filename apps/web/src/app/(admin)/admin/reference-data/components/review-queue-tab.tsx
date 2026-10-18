@@ -16,6 +16,7 @@ import {
   rejectShadeReview,
 } from "@/lib/api";
 import { FinishBadges } from "@/components/finish-badges";
+import { SwatchThumbnail } from "@/components/swatch-thumbnail";
 import { ToggleChip } from "@/components/toggle-chip";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -563,9 +564,9 @@ export function ReviewQueueTab() {
                       <Swatch hex={selectedCandidate.displayHex} size="lg" />
                       {selectedCandidate.swatchImageUrl && (
                         // Public catalog swatch served through the signed image proxy.
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
+                        <SwatchThumbnail
                           src={selectedCandidate.swatchImageUrl}
+                          displaySize={80}
                           alt={`${selectedCandidate.brand} ${selectedCandidate.name}`}
                           className="h-20 w-20 rounded-md border object-cover"
                         />

@@ -8,6 +8,7 @@ import {
 import { query } from "../lib/db";
 import { withCors } from "../lib/http";
 import { cacheGetJson, cacheSetJson } from "../lib/cache";
+import { toFinishFamily } from "../lib/finish-family";
 
 const REFERENCE_CACHE_CONTROL = "public, max-age=300, stale-while-revalidate=900";
 const REFERENCE_CACHE_TTL_SECONDS = 900;
@@ -40,6 +41,7 @@ async function getReferenceFinishes(
       displayName: string;
       description: string | null;
       sortOrder: number;
+      family: string | null;
       createdAt: string;
       updatedAt: string;
       updatedByUserId: number | null;
@@ -50,6 +52,7 @@ async function getReferenceFinishes(
          display_name AS "displayName",
          description,
          sort_order AS "sortOrder",
+         family,
          created_at::text AS "createdAt",
          updated_at::text AS "updatedAt",
          updated_by_user_id AS "updatedByUserId"
@@ -63,6 +66,7 @@ async function getReferenceFinishes(
       displayName: row.displayName,
       description: row.description || undefined,
       sortOrder: row.sortOrder,
+      family: toFinishFamily(row.family),
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       updatedByUserId: row.updatedByUserId ?? undefined,

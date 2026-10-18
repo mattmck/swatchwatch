@@ -47,3 +47,24 @@ const CANONICAL_FINISH_SET: ReadonlySet<string> = new Set(CANONICAL_FINISHES);
 export function isCanonicalFinish(value: unknown): value is CanonicalFinish {
   return typeof value === "string" && CANONICAL_FINISH_SET.has(value);
 }
+
+/**
+ * Finish families for dupe grading (#320, decision D10). Finishes in the same family read alike on
+ * the nail (creme vs jelly); finishes in different families do not (holo vs creme), which drops a
+ * dupe's grade one step (`finishCompatibility` in `color/dupes.ts`).
+ *
+ * Each `finish_type` row carries an optional `family` (admin-editable); the DB CHECK constraint
+ * (migration `20261018175839000_finish-type-family.sql`) allows exactly these values, and
+ * `packages/functions/tests/finish-family.unit.test.cjs` keeps the two equal. A finish with no
+ * family is never penalized.
+ */
+export const FINISH_FAMILIES = ["solid", "shimmer", "holo", "glitter", "matte", "thermal", "glow"] as const;
+
+export type FinishFamily = (typeof FINISH_FAMILIES)[number];
+
+const FINISH_FAMILY_SET: ReadonlySet<string> = new Set(FINISH_FAMILIES);
+
+/** True when `value` is exactly one of `FINISH_FAMILIES` (case-sensitive). */
+export function isFinishFamily(value: unknown): value is FinishFamily {
+  return typeof value === "string" && FINISH_FAMILY_SET.has(value);
+}

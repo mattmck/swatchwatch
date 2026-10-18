@@ -1,5 +1,4 @@
 import Link from "next/link";
-import Image from "next/image";
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
 import { BsPlusLg } from "react-icons/bs";
@@ -8,7 +7,7 @@ import { ColorDot } from "@/components/color-dot";
 import { QuantityControls } from "@/components/quantity-controls";
 import { isOwnedPolish } from "@/lib/inventory-status";
 import { FinishBadges } from "@/components/finish-badges";
-import { buildSwatchThumbnailUrl } from "@/lib/image-url";
+import { SwatchThumbnail } from "@/components/swatch-thumbnail";
 import type { FinishTypeLike } from "@/lib/finish-options";
 
 interface ColorSearchResultsProps {
@@ -122,13 +121,10 @@ export function ColorSearchResults({
               className="flex min-w-0 flex-1 items-center gap-3"
             >
               {polish.swatchImageUrl ? (
-                <Image
-                  src={buildSwatchThumbnailUrl(polish.swatchImageUrl)}
+                <SwatchThumbnail
+                  src={polish.swatchImageUrl}
+                  displaySize={40}
                   alt={`${polish.brand} ${polish.name} swatch`}
-                  width={40}
-                  height={40}
-                  unoptimized
-                  sizes="40px"
                   className="h-10 w-10 shrink-0 rounded-md border object-cover transition-opacity hover:opacity-85"
                 />
               ) : (

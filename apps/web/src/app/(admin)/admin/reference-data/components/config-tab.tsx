@@ -1,11 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
-import type {
-  FinishNormalization,
-  FinishType,
-  FinishTypeUpdateResponse,
-  ReferenceHarmonyType,
+import {
+  DUPE_FINISH_FAMILIES,
+  FINISH_FAMILIES,
+  isFinishFamily,
+  type FinishFamily,
+  type FinishNormalization,
+  type FinishType,
+  type FinishTypeUpdateResponse,
+  type ReferenceHarmonyType,
 } from "swatchwatch-shared";
 import {
   createFinishNormalization,
@@ -61,6 +65,35 @@ interface ReferenceFormValues {
   displayName: string;
   description: string;
   sortOrder: string;
+  /** Finish types only: a `FINISH_FAMILIES` value, or `NO_FAMILY`. */
+  family: string;
+}
+
+/** Select value for "no family" (Radix Select items cannot use an empty string). */
+const NO_FAMILY = "none";
+
+const FINISH_FAMILY_LABELS: Record<FinishFamily, string> = {
+  solid: "Solid",
+  shimmer: "Shimmer",
+  holo: "Holo",
+  glitter: "Glitter",
+  matte: "Matte",
+  thermal: "Thermal",
+  glow: "Glow",
+};
+
+/** Built-in finishes per family, shown as examples in the Family select. */
+const FINISH_FAMILY_EXAMPLES: Record<FinishFamily, string[]> = Object.entries(DUPE_FINISH_FAMILIES).reduce(
+  (acc, [finish, family]) => {
+    acc[family].push(finish);
+    return acc;
+  },
+  Object.fromEntries(FINISH_FAMILIES.map((family) => [family, [] as string[]])) as Record<FinishFamily, string[]>
+);
+
+/** Label for a finish type's dupe-grading family in the admin table. */
+export function finishFamilyLabel(family: string | null | undefined): string {
+  return isFinishFamily(family) ? FINISH_FAMILY_LABELS[family] : "—";
 }
 
 interface FinishNormalizationFormValues {
@@ -82,6 +115,7 @@ interface ReferenceSectionProps<T extends ReferenceRecord> {
     displayName: string;
     description?: string;
     sortOrder?: number;
+    family?: FinishFamily | null;
   }) => Promise<void>;
   onUpdate: (
     id: number,
@@ -90,6 +124,7 @@ interface ReferenceSectionProps<T extends ReferenceRecord> {
       displayName?: string;
       description?: string;
       sortOrder?: number;
+      family?: FinishFamily | null;
     }
   ) => Promise<string | void>;
   onDelete: (id: number) => Promise<void>;
@@ -97,6 +132,8 @@ interface ReferenceSectionProps<T extends ReferenceRecord> {
   deleteHint?: string;
   /** Extra sentence for the edit dialog when updating an existing row (e.g. what a rename does). */
   editHint?: string;
+  /** Finish types: show and edit the dupe-grading `family` (#320). */
+  showFamily?: boolean;
 }
 
 /**
@@ -184,11 +221,13 @@ export function finishTypeRenameNotice(response: FinishTypeUpdateResponse): stri
 }
 
 function toFormValues(record?: ReferenceRecord): ReferenceFormValues {
+  const family = record && "family" in record ? record.family : undefined;
   return {
     name: record?.name ?? "",
     displayName: record?.displayName ?? "",
     description: record?.description ?? "",
     sortOrder: String(record?.sortOrder ?? 0),
+    family: isFinishFamily(family) ? family : NO_FAMILY,
   };
 }
 
@@ -227,6 +266,7 @@ function ReferenceSection<T extends ReferenceRecord>({
   onDelete,
   deleteHint,
   editHint,
+  showFamily = false,
 }: ReferenceSectionProps<T>) {
   const fieldId = useId();
   const [query, setQuery] = useState("");
@@ -291,6 +331,7 @@ function ReferenceSection<T extends ReferenceRecord>({
       displayName,
       description: description || undefined,
       sortOrder: parsedSortOrder,
+      ...(showFamily ? { family: isFinishFamily(formValues.family) ? formValues.family : null } : {}),
     };
 
     function closeEditDialog() {
@@ -370,6 +411,7 @@ function ReferenceSection<T extends ReferenceRecord>({
                 <TableHead>Name</TableHead>
                 <TableHead>Display name</TableHead>
                 <TableHead>Sort order</TableHead>
+                {showFamily && <TableHead>Family</TableHead>}
                 <TableHead>Updated</TableHead>
                 <TableHead className="w-40">Actions</TableHead>
               </TableRow>
@@ -377,14 +419,14 @@ function ReferenceSection<T extends ReferenceRecord>({
             <TableBody>
               {loading && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground">
+                  <TableCell colSpan={showFamily ? 6 : 5} className="text-center text-muted-foreground">
                     Loading…
                   </TableCell>
                 </TableRow>
               )}
               {!loading && filteredRows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground">
+                  <TableCell colSpan={showFamily ? 6 : 5} className="text-center text-muted-foreground">
                     No records found.
                   </TableCell>
                 </TableRow>
@@ -394,6 +436,9 @@ function ReferenceSection<T extends ReferenceRecord>({
                   <TableCell className="font-medium">{row.name}</TableCell>
                   <TableCell>{row.displayName}</TableCell>
                   <TableCell>{row.sortOrder}</TableCell>
+                  {showFamily && (
+                    <TableCell>{finishFamilyLabel("family" in row ? row.family : undefined)}</TableCell>
+                  )}
                   <TableCell>{formatDateTime(row.updatedAt)}</TableCell>
                   <TableCell>
                     <div className="flex gap-2">
@@ -479,6 +524,36 @@ function ReferenceSection<T extends ReferenceRecord>({
                 type="number"
               />
             </div>
+            {showFamily && (
+              <div className="space-y-1">
+                <label htmlFor={`${fieldId}-family`} className="text-sm font-medium">
+                  Family
+                </label>
+                <Select
+                  value={formValues.family}
+                  onValueChange={(value) => setFormValues((prev) => ({ ...prev, family: value }))}
+                >
+                  <SelectTrigger id={`${fieldId}-family`} aria-describedby={`${fieldId}-family-hint`}>
+                    <SelectValue placeholder="No family" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_FAMILY}>No family</SelectItem>
+                    {FINISH_FAMILIES.map((family) => (
+                      <SelectItem key={family} value={family}>
+                        {FINISH_FAMILY_LABELS[family]}
+                        {FINISH_FAMILY_EXAMPLES[family].length > 0 && (
+                          <span className="text-muted-foreground"> ({FINISH_FAMILY_EXAMPLES[family].join(", ")})</span>
+                        )}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p id={`${fieldId}-family-hint`} className="text-xs text-muted-foreground">
+                  Used by the dupe finder: finishes in the same family count as compatible, finishes in different
+                  families lower a dupe&apos;s grade. With no family, a finish never lowers a grade.
+                </p>
+              </div>
+            )}
             {formError && <p className="text-sm text-destructive">{formError}</p>}
             {formNotice && (
               <p role="status" className="text-sm text-muted-foreground">
@@ -915,6 +990,7 @@ export function ConfigTab() {
         }}
         deleteHint="A finish type still used by shades or finish normalizations can't be deleted."
         editHint="Renaming also renames it on every shade and finish normalization that uses it."
+        showFamily
       />
 
       <ReferenceSection<ReferenceHarmonyType>
