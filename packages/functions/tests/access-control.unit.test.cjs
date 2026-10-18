@@ -1142,6 +1142,7 @@ describe("access control — admin routes reject non-admin users", () => {
       "ingestion-settings",
       "polishes-recalc-hex",
       "admin-hex-labels-queue",
+      "admin-hex-labels-shade",
       "admin-hex-labels-save",
       "admin-hex-labels-item",
     ]) {

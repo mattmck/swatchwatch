@@ -174,6 +174,8 @@ describe("hex-labels — route registration", () => {
   it("registers admin routes with OPTIONS and stable paths", () => {
     assert.deepEqual(registeredRoutes["admin-hex-labels-queue"].methods, ["GET", "OPTIONS"]);
     assert.equal(registeredRoutes["admin-hex-labels-queue"].route, "hex-labels-admin/queue");
+    assert.deepEqual(registeredRoutes["admin-hex-labels-shade"].methods, ["GET", "OPTIONS"]);
+    assert.equal(registeredRoutes["admin-hex-labels-shade"].route, "hex-labels-admin/shades/{shadeId}");
     assert.deepEqual(registeredRoutes["admin-hex-labels-save"].methods, ["POST", "OPTIONS"]);
     assert.equal(registeredRoutes["admin-hex-labels-save"].route, "hex-labels-admin/labels");
     assert.deepEqual(registeredRoutes["admin-hex-labels-item"].methods, ["DELETE", "OPTIONS"]);
@@ -184,6 +186,7 @@ describe("hex-labels — route registration", () => {
 describe("hex-labels — admin-only access", () => {
   const cases = [
     ["admin-hex-labels-queue", { method: "GET" }],
+    ["admin-hex-labels-shade", { method: "GET", params: { shadeId: "10" } }],
     ["admin-hex-labels-save", { method: "POST", body: { shadeId: "10", hex: "#112233" } }],
     ["admin-hex-labels-item", { method: "DELETE", params: { id: "1" } }],
   ];
@@ -472,6 +475,80 @@ describe("hex-labels — GET queue", () => {
     assert.equal(res.jsonBody.pageSize, 100);
     const page = handlerCalls().find((c) => /FROM \(/.test(c.sql));
     assert.equal(page.params[page.params.length - 1], 101);
+  });
+});
+
+describe("hex-labels — GET shade (detail page, #351)", () => {
+  const shadeUrl = "http://localhost:7071/api/hex-labels-admin/shades/10";
+
+  it("returns the queue-shaped item with catalog images only and the current label", async () => {
+    responder = (sql, params) => {
+      if (/WHERE s\.shade_id = \$1/.test(sql)) {
+        assert.deepEqual(params, [10]);
+        assert.match(sql, /s\.status <> 'user_submitted'/);
+        return {
+          rows: [
+            queueRow({
+              labelId: "900",
+              labelHex: "#ABCDEF",
+              labelStatus: "approved",
+              labelImageId: "501",
+              labelMeta: { method: "eyedropper", samplePoint: null },
+              labelUserId: String(ADMIN),
+              labelAt: new Date("2026-10-17T00:00:00Z"),
+              labeledRank: 1,
+            }),
+          ],
+        };
+      }
+      if (/FROM swatch sw/.test(sql) && /ANY\(\$1::bigint\[\]\)/.test(sql)) {
+        assert.deepEqual(params, [["10"]]);
+        assert.match(sql, /ia\.owner_type = 'source'/);
+        return {
+          rows: [
+            imageRow(),
+            imageRow({ imageId: "501", storageUrl: GALLERY_URL, swatchType: "source_gallery", sourceUrl: null }),
+            imageRow({ imageId: "502", storageUrl: USER_MEDIA_URL, swatchType: "source_gallery" }),
+          ],
+        };
+      }
+      return undefined;
+    };
+    const res = await invoke("admin-hex-labels-shade", { userId: ADMIN, url: shadeUrl, params: { shadeId: "10" } });
+    assert.equal(res.status, 200, JSON.stringify(res.jsonBody));
+    const item = res.jsonBody;
+    assert.equal(item.shadeId, "10");
+    assert.equal(item.brand, "Holo Taco");
+    assert.equal(item.flagged, true);
+    assert.deepEqual(item.images.map((img) => img.imageId), ["500", "501"], "private user media omitted");
+    assert.match(item.images[0].url, /^http:\/\/localhost:7071\/api\/images\/v2\./);
+    assert.equal(item.label.hex, "#ABCDEF");
+    assert.equal(item.label.method, "eyedropper");
+    assert.ok(!JSON.stringify(item).includes("blob.core.windows.net"), "raw storage URLs never leak");
+    assert.equal(transactionCount, 0, "read-only");
+    assert.ok(handlerCalls().every((c) => /^\s*SELECT/i.test(c.sql)), "only SELECTs");
+  });
+
+  it("returns images: [] for a shade without catalog images", async () => {
+    responder = (sql) => (/WHERE s\.shade_id = \$1/.test(sql) ? { rows: [queueRow()] } : { rows: [] });
+    const res = await invoke("admin-hex-labels-shade", { userId: ADMIN, url: shadeUrl, params: { shadeId: "10" } });
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.jsonBody.images, []);
+    assert.equal(res.jsonBody.label, null);
+  });
+
+  it("404 when the shade does not exist (or is a private user_submitted shade)", async () => {
+    const res = await invoke("admin-hex-labels-shade", { userId: ADMIN, url: shadeUrl, params: { shadeId: "10" } });
+    assert.equal(res.status, 404);
+    assert.ok(!handlerCalls().some((c) => /ANY\(\$1::bigint\[\]\)/.test(c.sql)), "no image query for a missing shade");
+  });
+
+  it("400 for an invalid shade id, before any SQL", async () => {
+    for (const shadeId of ["abc", "0", "-1", "1.5", "10;DROP", ""]) {
+      const res = await invoke("admin-hex-labels-shade", { userId: ADMIN, url: shadeUrl, params: { shadeId } });
+      assert.equal(res.status, 400, `shadeId ${JSON.stringify(shadeId)}`);
+    }
+    assert.deepEqual(handlerCalls(), []);
   });
 });
 
