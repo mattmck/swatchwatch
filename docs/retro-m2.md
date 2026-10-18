@@ -19,7 +19,7 @@ line listing its PRs. In short:
 | Sprint 4, "Grow the catalog, harden": indie Shopify sources, admin review queue, ingestion logs, hex labeling tool, prod alerts, CI/CodeQL hardening | #292, #333, #295, #298, #290, #311, #312, #332, #341, #342, #343 |
 
 The release has 12 new DB migrations (deploy notes are in the #340 body). It was squash-merged,
-which is not the merge commit that #340 and decision D18 called for. So PRs that targeted `dev`
+which is not the merge commit that the #340 description asked for. So PRs that targeted `dev`
 show up on `main` as one commit, and the housekeeping pass after the release had to close their
 issues by hand.
 
@@ -41,9 +41,9 @@ Insights (KQL in [observability-plan.md](observability-plan.md), "M2 success met
 |---|---|---|---|
 | Time from signup to 20 polishes in collection (import path) | < 5 min | `m2-metrics.sql` (signup cohort, 20th row, `via_import`) | Not readable yet: needs users |
 | Dupe warnings shown → user cancels or wishlists instead | tracked; > 20% | App Insights `dupe.warning_shown` / `dupe.warning_outcome` | Not readable yet: needs users |
-| Share of owned polishes with a status other than default | > 60% of active users | `m2-metrics.sql` (`status_adoption_share`) | Not readable yet: needs users |
+| Share of owned polishes with a status other than default | > 60% of active users | `m2-metrics.sql` (`status_adoption_share`: share of active users with at least one non-default row; the row-level share is `avg_non_default_share` / `median_non_default_share`) | Not readable yet: needs users |
 | Manis logged per active user per week | ≥ 1 | `m2-metrics.sql` (`manis_per_active_user`) | Not readable yet: needs users |
-| Catalog shades (active) | +10k via indie sources | `m2-metrics.sql` (`active_shades`, `active_shades_added`) | Readable now from prod. TODO: record the pre-indie baseline and the current count. More stores are pending in #273 / #328 |
+| Catalog shades (active) | +10k via indie sources | `m2-metrics.sql` (`active_shades`, `active_shades_added`) | Total catalog growth is readable now from prod (TODO: record the 2026-10-17 baseline and the current count). Indie-source attribution is not available: the query counts all active shades by `created_at`, not by source. More stores are pending in #273 / #328 |
 | Detected-hex HIGH-confidence share | frozen at Week 0 baseline or better | hex eval harness (`npm run eval:hex`) | Not readable yet: needs the hand-labeled ground truth from #322 (D4) |
 
 TODO: paste the first weekly `m2-metrics.sql` row here once prod has active users.
