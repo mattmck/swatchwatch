@@ -156,9 +156,11 @@ ORDER BY toppers DESC;
 -- 4. Dupe exposure: near-dupe pairs inside each user's owned collection where at least one
 --    side is not a color polish (topper vs color, topper vs topper, coat vs color, ...), each
 --    pair counted once, split by grade and by the color side's family.
---    This measures the data, not the dupe finder's output: hex distances don't change when
---    categories are added, so these pairs stay after the fix. It sizes how many warnings
---    toppers and coats can cause today; plan §4 Phase 6 verifies the dupe finder separately.
+--    This measures the data, not the dupe finder's output. Adding categories doesn't change
+--    hex distances, but clearing a topper's detected_hex (plan D-D) moves or removes that
+--    topper's pairs, so save this section before a backfill and compare after (plan §4 Phase 6).
+--    It sizes how many warnings toppers and coats can cause today; Phase 6 verifies the dupe
+--    finder separately.
 \echo '== 4. Owned near-dupe pairs involving non-color shades'
 WITH owned AS (
   SELECT i.user_id, a.shade_id, a.category, a.display_hex, a.color_family

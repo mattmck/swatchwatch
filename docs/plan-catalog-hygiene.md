@@ -33,8 +33,9 @@ linked source product's title, product type and tags, and reports:
 4. **Dupe exposure:** near-dupe pairs (HIGH ≤ 0.05, MEDIUM ≤ 0.10 OKLAB) inside each user's owned
    collection where at least one side isn't a color polish (topper vs color, topper vs topper,
    and so on), each pair counted once, split by the color side's family. This sizes how many
-   false warnings are possible today. It doesn't read the dupe finder's output, so it won't
-   change after the fix (see Phase 6).
+   false warnings are possible today. It doesn't read the dupe finder's output. Adding categories
+   leaves it unchanged, but clearing topper hexes (D-D) moves or removes those toppers' pairs,
+   so it's compared before and after the backfill (see Phase 6).
 5. Toppers whose detected hex looks like a base color (far from the vendor hex, or saturated
    with no vendor hex).
 6. Ten sample rows per category, to check for false positives before trusting the counts.
@@ -184,9 +185,14 @@ search, gaps, match-image, Pick for me and stats; a topper-only path in the dupe
 role prefill.
 
 **Phase 6 — Verify on dev, then prod.**
-1. Re-run the audit on dev. Section 5 should be empty and section 1 should match the backfill
-   report. Section 4 will **not** change: it measures hex distances between owned shades, which
-   categories don't alter. It is the exposure baseline, not the success check.
+1. Save the full audit output on dev **before** the backfill. After it, re-run and compare:
+   - Section 5 should be empty, and section 1 should match the backfill report.
+   - Section 4 measures hex distances between owned shades, so category changes alone don't
+     alter it. Clearing a topper's `detected_hex` (D-D) does: if that hex was its display hex,
+     the topper's pairs move to a different distance or grade, or drop out when no other hex
+     is left. Every pair that changed must belong to a topper whose hex the backfill cleared;
+     any other change means the backfill touched something it shouldn't have.
+   - Section 4 stays an exposure measure, not the success check.
 2. Check the dupe finder itself on dev. Take the pairs section 4 listed before the fix. For a
    color shade, `GET /api/polishes/{id}/dupes` must no longer return its topper, coat or
    treatment partners. For a topper, it must return only other toppers. The same rules need
