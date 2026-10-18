@@ -1,3 +1,4 @@
+import { isFinishFamily, type FinishFamily } from "../constants/finishes";
 import type { MatchConfidence } from "../types/color-match";
 import type {
   DupeGrade,
@@ -22,7 +23,9 @@ import { confidenceForDistance } from "./thresholds";
  *    `colorGrade` = `confidenceForDistance(distance)`: HIGH ≤ 0.05, MEDIUM ≤ 0.10, else LOW —
  *    the same thresholds as photo matching (`POST /api/polishes/match-image`).
  * 3. Finish compatibility (`finishCompatibility`) compares the primary finishes and their
- *    families (`DUPE_FINISH_FAMILIES`):
+ *    families. Families come from the `finish_type.family` catalog column when the caller
+ *    passes it (`buildFinishFamilyMap`, #320), with the static `DUPE_FINISH_FAMILIES` as the
+ *    fallback, the same way `CANONICAL_FINISHES` backs the finish catalog:
  *    - `same` (same primary finish) and `compatible` (same family, or any shared finish) keep
  *      the color grade;
  *    - `unknown` (either side lacks finish data) keeps the color grade — missing data should
@@ -52,12 +55,14 @@ export const DUPE_LIMITS = {
 } as const;
 
 /**
- * Finish families used for compatibility. Finishes in the same family read alike on the nail;
- * finishes in different families do not. Keys are built-in canonical finish names
- * (`CANONICAL_FINISHES`). `other` and admin-created finishes outside this map have no family,
- * so they can only ever be `same` (identical name), `compatible` (shared finish) or `unknown`.
+ * Built-in finish families used for compatibility when no catalog is available. Finishes in the
+ * same family read alike on the nail; finishes in different families do not. Keys are built-in
+ * canonical finish names (`CANONICAL_FINISHES`). Migration `20261018175839000_finish-type-family`
+ * seeds the same values into `finish_type.family` (a test keeps them equal). `other`, and a
+ * finish with no family, can only ever be `same` (identical name), `compatible` (shared finish)
+ * or `unknown`.
  */
-export const DUPE_FINISH_FAMILIES: Readonly<Record<string, string>> = {
+export const DUPE_FINISH_FAMILIES: Readonly<Record<string, FinishFamily>> = {
   // Opaque or translucent solid color.
   creme: "solid",
   crelly: "solid",
@@ -90,6 +95,54 @@ const FINISH_ALIASES: Readonly<Record<string, string>> = {
   flakies: "flake",
 };
 
+/**
+ * Finish name (lowercase) → family. A key mapped to `null` is a finish known to have no family;
+ * a missing key falls back to nothing (no family). Build it from the finish catalog with
+ * `buildFinishFamilyMap`; `DUPE_FINISH_FAMILIES` is the built-in default.
+ */
+export type FinishFamilyMap = Readonly<Record<string, FinishFamily | null>>;
+
+/** The `finish_type` fields `buildFinishFamilyMap` reads (a `FinishType` or a DB row). */
+export interface FinishFamilySource {
+  name: string;
+  family?: string | null;
+}
+
+function hasOwn(map: FinishFamilyMap, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(map, key);
+}
+
+function lookupFamily(map: FinishFamilyMap, finish: string): FinishFamily | undefined {
+  return hasOwn(map, finish) ? map[finish] ?? undefined : undefined;
+}
+
+/**
+ * Finish → family map from the finish catalog (`finish_type.family`), layered over the built-in
+ * `DUPE_FINISH_FAMILIES`: a catalog row with a `family` key wins for its name (`null` or an
+ * unknown value means "no family", even for a built-in name). Names the catalog does not list,
+ * and rows without a `family` key at all (older payloads), keep their built-in family. With no
+ * catalog (`undefined`, `null` or empty) it returns the built-in map.
+ */
+export function buildFinishFamilyMap(
+  finishTypes: readonly FinishFamilySource[] | null | undefined
+): FinishFamilyMap {
+  if (!finishTypes || finishTypes.length === 0) return DUPE_FINISH_FAMILIES;
+  const map: Record<string, FinishFamily | null> = { ...DUPE_FINISH_FAMILIES };
+  for (const type of finishTypes) {
+    if (typeof type?.name !== "string") continue;
+    const name = type.name.trim().toLowerCase();
+    if (!name || type.family === undefined) continue;
+    map[name] = isFinishFamily(type.family) ? type.family : null;
+  }
+  return Object.freeze(map);
+}
+
+/** Options for the finish-aware dupe helpers. */
+export interface DupeFinishOptions {
+  /** Finish → family map (`buildFinishFamilyMap`); defaults to `DUPE_FINISH_FAMILIES`. */
+  finishFamilies?: FinishFamilyMap;
+}
+
 const FINISH_COMPATIBILITY_RANK: Record<FinishCompatibility, number> = {
   same: 0,
   compatible: 1,
@@ -99,12 +152,18 @@ const FINISH_COMPATIBILITY_RANK: Record<FinishCompatibility, number> = {
 
 const GRADE_RANK: Record<MatchConfidence, number> = { high: 0, medium: 1, low: 2 };
 
-function normalizeFinishList(finishes: readonly string[]): string[] {
+/** A legacy alias spelling resolves to its finish unless the family map knows the spelling itself. */
+function resolveFinishName(lower: string, families: FinishFamilyMap): string {
+  if (hasOwn(families, lower)) return lower;
+  return Object.prototype.hasOwnProperty.call(FINISH_ALIASES, lower) ? FINISH_ALIASES[lower] : lower;
+}
+
+function normalizeFinishList(finishes: readonly string[], families: FinishFamilyMap): string[] {
   const out: string[] = [];
   for (const raw of finishes) {
     const lower = raw.trim().toLowerCase();
     if (!lower) continue;
-    const finish = FINISH_ALIASES[lower] ?? lower;
+    const finish = resolveFinishName(lower, families);
     // `other` carries no information about how the shade looks.
     if (finish === "other" || out.includes(finish)) continue;
     out.push(finish);
@@ -112,26 +171,34 @@ function normalizeFinishList(finishes: readonly string[]): string[] {
   return out;
 }
 
-/** Family of a finish name, or undefined for `other` / admin-defined finishes. */
-export function finishFamily(finish: string): string | undefined {
+/**
+ * Family of a finish name, or undefined for `other` and finishes without a family. Pass the
+ * catalog map (`buildFinishFamilyMap`) to honor admin-set families; defaults to the built-ins.
+ */
+export function finishFamily(
+  finish: string,
+  families: FinishFamilyMap = DUPE_FINISH_FAMILIES
+): FinishFamily | undefined {
   const lower = finish.trim().toLowerCase();
-  return DUPE_FINISH_FAMILIES[FINISH_ALIASES[lower] ?? lower];
+  return lookupFamily(families, resolveFinishName(lower, families));
 }
 
 /**
- * Compare two finish lists (primary first). See `FinishCompatibility` for the buckets.
+ * Compare two finish lists (primary first). See `FinishCompatibility` for the buckets. Pass the
+ * catalog map (`buildFinishFamilyMap`) to honor admin-set families; defaults to the built-ins.
  */
 export function finishCompatibility(
   targetFinishes: readonly string[],
-  candidateFinishes: readonly string[]
+  candidateFinishes: readonly string[],
+  families: FinishFamilyMap = DUPE_FINISH_FAMILIES
 ): FinishCompatibility {
-  const a = normalizeFinishList(targetFinishes);
-  const b = normalizeFinishList(candidateFinishes);
+  const a = normalizeFinishList(targetFinishes, families);
+  const b = normalizeFinishList(candidateFinishes, families);
   if (a.length === 0 || b.length === 0) return "unknown";
   if (a[0] === b[0]) return "same";
 
-  const familyA = DUPE_FINISH_FAMILIES[a[0]];
-  const familyB = DUPE_FINISH_FAMILIES[b[0]];
+  const familyA = lookupFamily(families, a[0]);
+  const familyB = lookupFamily(families, b[0]);
   if (familyA && familyA === familyB) return "compatible";
   if (a.some((finish) => b.includes(finish))) return "compatible";
   if (familyA && familyB) return "different";
@@ -236,18 +303,22 @@ export interface FindDupesResult {
 /**
  * All dupes of `target` among `candidates`, best first. The target's own shade id is always
  * excluded. O(N) per target. Pure — callers are responsible for passing only owned shades.
+ * `options.finishFamilies` is the catalog family map (`buildFinishFamilyMap`); without it the
+ * built-in `DUPE_FINISH_FAMILIES` are used.
  */
 export function findDupes(
   target: PreparedDupeShade,
-  candidates: readonly PreparedDupeShade[]
+  candidates: readonly PreparedDupeShade[],
+  options: DupeFinishOptions = {}
 ): FindDupesResult {
+  const families = options.finishFamilies ?? DUPE_FINISH_FAMILIES;
   const dupes: PolishDupe[] = [];
   let candidateCount = 0;
   for (const candidate of candidates) {
     if (candidate.shadeId === target.shadeId) continue;
     candidateCount += 1;
     const distance = oklabDistance(target.lab, candidate.lab);
-    const compatibility = finishCompatibility(target.finishes, candidate.finishes);
+    const compatibility = finishCompatibility(target.finishes, candidate.finishes, families);
     const { colorGrade, grade } = gradeDupe(distance, compatibility);
     if (!grade) continue;
     dupes.push({
