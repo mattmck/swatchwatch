@@ -44,13 +44,18 @@ function normalizeImageContentType(contentType: string): string {
   return contentType.split(";")[0].trim().toLowerCase();
 }
 
-export function validateImageUpload(contentType: string, sizeBytes: number): string {
+function assertAllowedImageType(contentType: string): string {
   const normalizedType = normalizeImageContentType(contentType || "");
   if (!normalizedType || !UPLOAD_LIMITS.allowedMimeTypes.has(normalizedType)) {
     throw new Error(
       `Unsupported image type: ${normalizedType || "unknown"}. Allowed: ${[...UPLOAD_LIMITS.allowedMimeTypes].join(", ")}`
     );
   }
+  return normalizedType;
+}
+
+export function validateImageUpload(contentType: string, sizeBytes: number): string {
+  const normalizedType = assertAllowedImageType(contentType);
   if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
     throw new Error("Image payload is empty");
   }
@@ -61,6 +66,145 @@ export function validateImageUpload(contentType: string, sizeBytes: number): str
   }
 
   return normalizedType;
+}
+
+const DEFAULT_SOURCE_IMAGE_MAX_EDGE_PX = 2048;
+const MIN_SOURCE_IMAGE_MAX_EDGE_PX = 256;
+const MAX_SOURCE_IMAGE_MAX_EDGE_PX = 8192;
+const DEFAULT_SOURCE_IMAGE_MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
+const MAX_SOURCE_IMAGE_MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024;
+/** Quality for the WebP fallback used when the format-preserving re-encode is still too big. */
+const OVERSIZE_WEBP_QUALITY = 85;
+
+export interface SourceImageLimits {
+  /** Long edge (px) above which an ingested source image is downscaled before storage. */
+  maxEdgePx: number;
+  /** Largest source image download accepted; bigger ones are refused before decoding. */
+  maxDownloadBytes: number;
+}
+
+function readClampedIntEnv(name: string, fallback: number, min: number, max: number): number {
+  const parsed = Number.parseInt(process.env[name] || "", 10);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, parsed));
+}
+
+/**
+ * `SOURCE_IMAGE_MAX_EDGE_PX` (default 2048, clamped 256–8192) and
+ * `SOURCE_IMAGE_MAX_DOWNLOAD_BYTES` (default 25 MB, clamped 5–100 MB). 2048px covers every
+ * consumer: Azure OpenAI vision downsamples to 2048px even at `detail: high` (512px at `low`),
+ * and the image proxy's display transforms stop at 1024px.
+ */
+export function resolveSourceImageLimits(): SourceImageLimits {
+  return {
+    maxEdgePx: readClampedIntEnv(
+      "SOURCE_IMAGE_MAX_EDGE_PX",
+      DEFAULT_SOURCE_IMAGE_MAX_EDGE_PX,
+      MIN_SOURCE_IMAGE_MAX_EDGE_PX,
+      MAX_SOURCE_IMAGE_MAX_EDGE_PX
+    ),
+    maxDownloadBytes: readClampedIntEnv(
+      "SOURCE_IMAGE_MAX_DOWNLOAD_BYTES",
+      DEFAULT_SOURCE_IMAGE_MAX_DOWNLOAD_BYTES,
+      UPLOAD_LIMITS.maxSizeBytes,
+      MAX_SOURCE_IMAGE_MAX_DOWNLOAD_BYTES
+    ),
+  };
+}
+
+export interface NormalizedSourceImage {
+  bytes: Buffer;
+  contentType: string;
+  /** True when the long edge was downscaled to `maxEdgePx`. */
+  resized: boolean;
+  /** True when the image was re-encoded as WebP to fit `maxStoredBytes`. */
+  reencoded: boolean;
+}
+
+/**
+ * Prepare a downloaded catalog image for storage: strip metadata (as `stripImageMetadata`),
+ * downscale a long edge over `maxEdgePx`, and, if the format-preserving result is still over
+ * `maxStoredBytes` (large PNGs), re-encode it as WebP. An image within both limits goes through
+ * exactly the `stripImageMetadata` pipeline, so its checksum (and checksum-named blob) is
+ * unchanged. Undecodable input is returned as-is for the caller's size check to judge.
+ */
+export async function normalizeSourceImage(
+  bytes: Buffer,
+  contentType: string,
+  options: { maxEdgePx: number; maxStoredBytes?: number }
+): Promise<NormalizedSourceImage> {
+  const maxStoredBytes = options.maxStoredBytes ?? UPLOAD_LIMITS.maxSizeBytes;
+  try {
+    const sharpModule = await import("sharp");
+    const sharp = sharpModule.default;
+    const metadata = await sharp(bytes, { failOn: "none" }).metadata();
+    const longEdge = Math.max(metadata.width ?? 0, metadata.height ?? 0);
+    const resized = longEdge > options.maxEdgePx;
+    const pipeline = () => {
+      const image = sharp(bytes, { failOn: "none" }).rotate();
+      return resized
+        ? image.resize({
+            width: options.maxEdgePx,
+            height: options.maxEdgePx,
+            fit: "inside",
+            withoutEnlargement: true,
+          })
+        : image;
+    };
+
+    const output = await pipeline().toBuffer();
+    if (output.length <= maxStoredBytes) {
+      return { bytes: output, contentType, resized, reencoded: false };
+    }
+    const webp = await pipeline().webp({ quality: OVERSIZE_WEBP_QUALITY }).toBuffer();
+    return { bytes: webp, contentType: "image/webp", resized, reencoded: true };
+  } catch (error) {
+    console.warn("[blob-storage] Failed to normalize source image, using original bytes:", error);
+    return { bytes, contentType, resized: false, reencoded: false };
+  }
+}
+
+function formatMb(bytes: number): string {
+  return (bytes / (1024 * 1024)).toFixed(1);
+}
+
+function downloadTooLarge(sizeBytes: number | null, maxBytes: number): Error {
+  const size = sizeBytes === null ? `more than ${formatMb(maxBytes)}MB` : `${formatMb(sizeBytes)}MB`;
+  return new Error(`Image too large to download: ${size} exceeds ${formatMb(maxBytes)}MB download limit`);
+}
+
+/**
+ * Read a fetch response body, never buffering more than `maxBytes`: a declared Content-Length
+ * over the cap is refused without reading, and a streamed body is cancelled once it passes it.
+ */
+async function readResponseCapped(response: Response, maxBytes: number): Promise<Buffer> {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await response.body?.cancel().catch(() => undefined);
+    throw downloadTooLarge(declared, maxBytes);
+  }
+  if (!response.body) {
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length > maxBytes) throw downloadTooLarge(bytes.length, maxBytes);
+    return bytes;
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw downloadTooLarge(null, maxBytes);
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks, total);
 }
 
 export async function stripImageMetadata(bytes: Buffer): Promise<Buffer> {
@@ -692,11 +836,28 @@ export async function uploadSourceImageToBlob(
   }
 
   const sourceContentType = sourceResponse.headers.get("content-type") || "image/jpeg";
-  const arrayBuffer = await sourceResponse.arrayBuffer();
-  const bytes = Buffer.from(arrayBuffer);
-  const contentType = validateImageUpload(sourceContentType, bytes.length);
-  const cleanBytes = await stripImageMetadata(bytes);
-  validateImageUpload(contentType, cleanBytes.length);
+  const limits = resolveSourceImageLimits();
+  let sourceType: string;
+  try {
+    sourceType = assertAllowedImageType(sourceContentType);
+  } catch (error) {
+    await sourceResponse.body?.cancel().catch(() => undefined);
+    throw error;
+  }
+  const bytes = await readResponseCapped(sourceResponse, limits.maxDownloadBytes);
+  if (bytes.length === 0) {
+    throw new Error("Image payload is empty");
+  }
+  // Oversize images are downscaled/re-encoded rather than rejected; UPLOAD_LIMITS.maxSizeBytes
+  // still guards what is stored (and handed to AI vision as a data URI).
+  const normalized = await normalizeSourceImage(bytes, sourceType, { maxEdgePx: limits.maxEdgePx });
+  const contentType = validateImageUpload(normalized.contentType, normalized.bytes.length);
+  const cleanBytes = normalized.bytes;
+  if (normalized.resized || normalized.reencoded) {
+    console.log(
+      `[blob-storage] Normalized oversize image for ${params.source}:${params.externalId}: ${formatMb(bytes.length)}MB ${sourceType} → ${formatMb(cleanBytes.length)}MB ${contentType}${normalized.resized ? ` (long edge capped at ${limits.maxEdgePx}px)` : ""}`
+    );
+  }
 
   const checksumSha256 = createHash("sha256").update(cleanBytes).digest("hex");
   const includeBase64DataUri = params.includeBase64DataUri === true;

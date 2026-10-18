@@ -6,15 +6,19 @@
  * - validateImageUpload() accepts and normalizes allowed types
  * - stripImageMetadata() removes EXIF metadata from real image bytes
  * - uploadSourceImageToBlob() skips the PUT when the checksum-named blob already exists
+ * - resize-on-ingest: oversize source images are downscaled/re-encoded and stored, downloads are capped
  * - userMediaContainer() default/override, and readBlobFromStorageUrl() scoped to it (#227)
  */
 const { describe, it, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
+const { randomBytes } = require("node:crypto");
 const sharp = require("sharp");
 
 const {
   validateImageUpload,
   stripImageMetadata,
+  normalizeSourceImage,
+  resolveSourceImageLimits,
   uploadSourceImageToBlob,
   readBlobFromStorageUrl,
   userMediaContainer,
@@ -140,6 +144,223 @@ describe("lib/blob-storage — uploadSourceImageToBlob", () => {
   it("still uploads when the existence check fails", async () => {
     const { methods } = await runUpload(500);
     assert.deepEqual(methods, ["GET", "HEAD", "PUT"]);
+  });
+});
+
+/** Incompressible RGB noise, so encoded size tracks pixel count. */
+function noiseImage(width, height) {
+  return sharp(randomBytes(width * height * 3), { raw: { width, height, channels: 3 } });
+}
+
+describe("lib/blob-storage — resolveSourceImageLimits", () => {
+  const saved = {};
+  const names = ["SOURCE_IMAGE_MAX_EDGE_PX", "SOURCE_IMAGE_MAX_DOWNLOAD_BYTES"];
+  beforeEach(() => {
+    for (const name of names) {
+      saved[name] = process.env[name];
+      delete process.env[name];
+    }
+  });
+  afterEach(() => {
+    for (const name of names) {
+      if (saved[name] === undefined) delete process.env[name];
+      else process.env[name] = saved[name];
+    }
+  });
+
+  it("defaults to a 2048px long edge and a 25 MB download cap", () => {
+    assert.deepEqual(resolveSourceImageLimits(), {
+      maxEdgePx: 2048,
+      maxDownloadBytes: 25 * 1024 * 1024,
+    });
+  });
+
+  it("honours overrides and clamps them", () => {
+    process.env.SOURCE_IMAGE_MAX_EDGE_PX = "1024";
+    process.env.SOURCE_IMAGE_MAX_DOWNLOAD_BYTES = String(40 * 1024 * 1024);
+    assert.deepEqual(resolveSourceImageLimits(), { maxEdgePx: 1024, maxDownloadBytes: 40 * 1024 * 1024 });
+
+    process.env.SOURCE_IMAGE_MAX_EDGE_PX = "10";
+    process.env.SOURCE_IMAGE_MAX_DOWNLOAD_BYTES = "1";
+    assert.deepEqual(resolveSourceImageLimits(), {
+      maxEdgePx: 256,
+      maxDownloadBytes: UPLOAD_LIMITS.maxSizeBytes,
+    });
+
+    process.env.SOURCE_IMAGE_MAX_EDGE_PX = "999999";
+    process.env.SOURCE_IMAGE_MAX_DOWNLOAD_BYTES = "nope";
+    assert.deepEqual(resolveSourceImageLimits(), { maxEdgePx: 8192, maxDownloadBytes: 25 * 1024 * 1024 });
+  });
+});
+
+describe("lib/blob-storage — normalizeSourceImage", () => {
+  it("downscales an image whose long edge exceeds the limit, keeping its format and aspect", async () => {
+    const jpeg = await sharp({
+      create: { width: 3000, height: 1000, channels: 3, background: { r: 200, g: 40, b: 90 } },
+    })
+      .withExif({ IFD0: { Make: "TestCam" } })
+      .jpeg()
+      .toBuffer();
+
+    const result = await normalizeSourceImage(jpeg, "image/jpeg", { maxEdgePx: 2048 });
+    const meta = await sharp(result.bytes).metadata();
+    assert.equal(result.resized, true);
+    assert.equal(result.contentType, "image/jpeg");
+    assert.equal(meta.format, "jpeg");
+    assert.equal(meta.width, 2048);
+    assert.equal(meta.height, 683);
+    assert.equal(meta.exif, undefined, "metadata is still stripped");
+  });
+
+  it("leaves images within the limit at their size and matches stripImageMetadata byte-for-byte", async () => {
+    const png = await sharp({
+      create: { width: 640, height: 480, channels: 3, background: { r: 1, g: 2, b: 3 } },
+    })
+      .png()
+      .toBuffer();
+
+    const result = await normalizeSourceImage(png, "image/png", { maxEdgePx: 2048 });
+    assert.equal(result.resized, false);
+    assert.equal(result.contentType, "image/png");
+    // Unchanged pipeline keeps checksums (and so checksum-named blobs) stable across releases.
+    assert.ok(result.bytes.equals(await stripImageMetadata(png)));
+  });
+
+  it("re-encodes as WebP when the format-preserving output is still over the stored-size guard", async () => {
+    const png = await noiseImage(300, 300).png().toBuffer();
+    const maxStoredBytes = Math.floor(png.length * 0.8);
+
+    const result = await normalizeSourceImage(png, "image/png", { maxEdgePx: 2048, maxStoredBytes });
+    assert.equal(result.contentType, "image/webp");
+    assert.equal((await sharp(result.bytes).metadata()).format, "webp");
+    assert.ok(result.bytes.length <= maxStoredBytes);
+  });
+
+  it("returns the original bytes when the image cannot be decoded", async () => {
+    const garbage = Buffer.from("not-an-image");
+    const result = await normalizeSourceImage(garbage, "image/jpeg", { maxEdgePx: 2048 });
+    assert.equal(result.resized, false);
+    assert.equal(result.contentType, "image/jpeg");
+    assert.equal(result.bytes.toString(), "not-an-image");
+  });
+});
+
+describe("lib/blob-storage — uploadSourceImageToBlob size handling", () => {
+  const originalFetch = global.fetch;
+  const originalConnection = process.env.AZURE_STORAGE_CONNECTION;
+  const originalCap = process.env.SOURCE_IMAGE_MAX_DOWNLOAD_BYTES;
+
+  beforeEach(() => {
+    process.env.AZURE_STORAGE_CONNECTION = `DefaultEndpointsProtocol=https;AccountName=testacct;AccountKey=${Buffer.from(
+      "test-key"
+    ).toString("base64")};EndpointSuffix=core.windows.net`;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    for (const [name, value] of [
+      ["AZURE_STORAGE_CONNECTION", originalConnection],
+      ["SOURCE_IMAGE_MAX_DOWNLOAD_BYTES", originalCap],
+    ]) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+
+  /** Serves `image` for the source URL and records the blob PUT. */
+  function mockFetch(makeSourceResponse) {
+    const calls = { methods: [], putBody: null, putHeaders: null };
+    global.fetch = async (url, init = {}) => {
+      const method = init.method || "GET";
+      calls.methods.push(method);
+      if (String(url).startsWith("https://shop.example/")) return makeSourceResponse();
+      if (method === "HEAD") return new Response(null, { status: 404 });
+      if (method === "PUT") {
+        calls.putBody = Buffer.from(init.body);
+        calls.putHeaders = init.headers;
+        calls.putUrl = String(url);
+      }
+      return new Response(null, { status: 201 });
+    };
+    return calls;
+  }
+
+  const upload = (name = "big.png") =>
+    uploadSourceImageToBlob({
+      sourceImageUrl: `https://shop.example/${name}`,
+      source: "TestShopify",
+      externalId: "p1",
+      skipContainerEnsure: true,
+    });
+
+  it("stores an image over 5 MB instead of rejecting it", async () => {
+    // ~6.75 MB of noise as PNG: within the 2048px edge, so only the size guard forces a re-encode.
+    const png = await noiseImage(1500, 1500).png().toBuffer();
+    assert.ok(png.length > UPLOAD_LIMITS.maxSizeBytes, "fixture must exceed the old 5 MB limit");
+    const calls = mockFetch(() => new Response(png, { status: 200, headers: { "content-type": "image/png" } }));
+
+    const result = await upload();
+    assert.deepEqual(calls.methods, ["GET", "HEAD", "PUT"]);
+    assert.ok(calls.putBody.length <= UPLOAD_LIMITS.maxSizeBytes);
+    assert.equal(result.contentType, "image/webp");
+    assert.equal(result.sizeBytes, calls.putBody.length);
+    assert.equal(calls.putHeaders["Content-Type"], "image/webp");
+    assert.match(calls.putUrl, /\/testshopify\/p1-[0-9a-f]{12}\.webp$/);
+  });
+
+  it("stores a downscaled copy of an image whose long edge exceeds the limit", async () => {
+    const jpeg = await sharp({
+      create: { width: 3000, height: 3000, channels: 3, background: { r: 30, g: 60, b: 90 } },
+    })
+      .jpeg()
+      .toBuffer();
+    const calls = mockFetch(() => new Response(jpeg, { status: 200, headers: { "content-type": "image/jpeg" } }));
+
+    const result = await upload("big.jpg");
+    const meta = await sharp(calls.putBody).metadata();
+    assert.equal(meta.width, 2048);
+    assert.equal(meta.height, 2048);
+    assert.equal(result.contentType, "image/jpeg");
+  });
+
+  it("refuses a download whose Content-Length exceeds the download cap", async () => {
+    process.env.SOURCE_IMAGE_MAX_DOWNLOAD_BYTES = String(UPLOAD_LIMITS.maxSizeBytes);
+    let cancelled = false;
+    const body = new ReadableStream({
+      pull(controller) {
+        controller.enqueue(new Uint8Array(1024));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const calls = mockFetch(
+      () =>
+        new Response(body, {
+          status: 200,
+          headers: { "content-type": "image/jpeg", "content-length": String(UPLOAD_LIMITS.maxSizeBytes + 1) },
+        })
+    );
+
+    await assert.rejects(upload(), /too large to download/i);
+    assert.deepEqual(calls.methods, ["GET"]);
+    assert.equal(cancelled, true, "the body stream is cancelled, not drained");
+  });
+
+  it("stops reading a body without Content-Length once it passes the download cap", async () => {
+    process.env.SOURCE_IMAGE_MAX_DOWNLOAD_BYTES = String(UPLOAD_LIMITS.maxSizeBytes);
+    let sent = 0;
+    const body = new ReadableStream({
+      pull(controller) {
+        sent += 1024 * 1024;
+        controller.enqueue(new Uint8Array(1024 * 1024));
+      },
+    });
+    const calls = mockFetch(() => new Response(body, { status: 200, headers: { "content-type": "image/jpeg" } }));
+
+    await assert.rejects(upload(), /too large to download/i);
+    assert.deepEqual(calls.methods, ["GET"]);
+    assert.ok(sent <= UPLOAD_LIMITS.maxSizeBytes + 2 * 1024 * 1024, `read ${sent} bytes before stopping`);
   });
 });
 
