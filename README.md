@@ -96,6 +96,7 @@ npm run dev:mobile       # → mobile via Expo
 | `npm run test` | Run workspace tests where present (includes Functions unit tests; builds shared + functions first) |
 | `npm run test:e2e --workspace=swatchwatch-functions` | E2E API + cross-user access-control tests against a running local Functions host (`AUTH_DEV_BYPASS=true`); skips when the host is unreachable |
 | `npm run typecheck` | `tsc --noEmit` across all workspaces |
+| `npm run backfill:image-variants --workspace=swatchwatch-functions` | Generate missing pre-generated catalog thumbnails for images stored before variants existed, in batches via `POST /api/images-admin/variants/backfill` (`API_BASE_URL`, `ADMIN_BEARER_TOKEN`; idempotent, `--after <imageId>` resumes) |
 
 `dev`, `dev:web`, `dev:functions`, and `dev:shared` run a dependency preflight and print a clear
 `npm run setup` hint if dependencies are missing.

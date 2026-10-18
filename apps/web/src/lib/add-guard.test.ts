@@ -350,6 +350,26 @@ describe("dupesForNewShade", () => {
     assert.equal(result.candidateCount, 2);
   });
 
+  it("grades admin-created finishes with the reference finish families", () => {
+    const shade = { brand: "New", name: "One", hex: "#B0303A", finishes: ["creme"] };
+    const pool = [owned({ id: "10", vendorHex: "#B1313B", name: "Velvet Twin", finishes: ["velvet"] })];
+
+    const builtIn = dupesForNewShade(shade, pool);
+    assert.equal(builtIn?.dupes[0].finishCompatibility, "unknown", "no family: not penalized");
+    assert.equal(builtIn?.dupes[0].grade, "high");
+
+    const noFamily = dupesForNewShade(shade, pool, { finishTypes: [{ name: "velvet", family: null }] });
+    assert.equal(noFamily?.dupes[0].finishCompatibility, "unknown");
+
+    const different = dupesForNewShade(shade, pool, { finishTypes: [{ name: "velvet", family: "matte" }] });
+    assert.equal(different?.dupes[0].finishCompatibility, "different");
+    assert.equal(different?.dupes[0].grade, "medium");
+
+    const compatible = dupesForNewShade(shade, pool, { finishTypes: [{ name: "velvet", family: "solid" }] });
+    assert.equal(compatible?.dupes[0].finishCompatibility, "compatible");
+    assert.equal(compatible?.dupes[0].grade, "high");
+  });
+
   it("returns null when the user already owns the same brand + name", () => {
     assert.equal(
       dupesForNewShade({ brand: "brand ", name: "SHADE", hex: "#B0303A", finishes: [] }, [owned({ vendorHex: "#B0303A" })]),

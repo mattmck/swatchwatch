@@ -15,8 +15,9 @@ import type { MatchConfidence } from "./color-match";
  *   share any finish (jelly+glitter vs glitter).
  * - `different`: both finishes are known and in different families (holographic vs creme).
  *   The dupe grade is downgraded one step.
- * - `unknown`: one side has no finish data (or only `other` / an admin-defined finish
- *   outside the built-in families), so finish cannot confirm or rule out a dupe.
+ * - `unknown`: one side has no finish data (or only `other` / a finish type with no family),
+ *   so finish cannot confirm or rule out a dupe. Admin-created finish types grade
+ *   `compatible`/`different` once an admin gives them a `family` (#320).
  */
 export type FinishCompatibility = "same" | "compatible" | "different" | "unknown";
 

@@ -8,6 +8,7 @@ export * from "./types/collection-export";
 export * from "./types/stats";
 export * from "./constants/finishes";
 export * from "./constants/outbound-links";
+export * from "./constants/image-variants";
 export * from "./types/user";
 export * from "./types/voice";
 export * from "./types/capture";
