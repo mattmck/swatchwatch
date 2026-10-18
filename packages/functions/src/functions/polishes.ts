@@ -19,6 +19,7 @@ import { withCors } from "../lib/http";
 import { internalServerError } from "../lib/errors";
 import { ImageProxyScopeError, toImageProxyUrl } from "../lib/image-proxy";
 import { detectHexWithAzureOpenAI } from "../lib/ai-color-detection";
+import { snapDetectionToImage } from "../lib/hex-snap";
 import {
   DETECTED_HEX_METHOD_CLIENT_SUPPLIED,
   provenanceFromDetection,
@@ -1399,7 +1400,7 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
     const blob = await readBlobFromStorageUrl(shade.storage_url);
     const dataUri = `data:${blob.contentType};base64,${blob.bytes.toString("base64")}`;
 
-    const result = await detectHexWithAzureOpenAI(dataUri, {
+    const rawResult = await detectHexWithAzureOpenAI(dataUri, {
       onLog: (level, msg) => {
         if (level === "error") context.error(msg);
         else if (level === "warn") context.warn(msg);
@@ -1411,6 +1412,20 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
         tags: shade.vendor_tags,
       },
     });
+    // HEX_DETECTION_SNAP_ENABLED: same post-processing as ingestion, on the bytes the model saw.
+    const snapped = await snapDetectionToImage(rawResult, async () => blob.bytes, {
+      label: `shade ${shade.shade_id}`,
+      onLog: (level, msg, data) => {
+        if (level === "warn") context.warn(msg, data ?? "");
+        else context.log(msg, data ?? "");
+      },
+    });
+    const result = snapped.detection;
+    const snap = {
+      snapped: snapped.skipped === null,
+      modelHex: rawResult.hex,
+      snapDistance: snapped.snap?.snapDistance ?? null,
+    };
     const tokenUsage = result.usage || null;
     if (tokenUsage) {
       const tokenUsageLog = {
@@ -1501,6 +1516,7 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
         previousHexAgreement: previousAgreement,
         hexAgreement,
         finishes: mergedFinishes.length ? mergedFinishes : null,
+        snap,
         tokenUsage,
       },
     };

@@ -50,6 +50,8 @@ export interface IngestionAiBatchEntry extends Record<string, unknown> {
   status: string;
   overwriteDetectedHex: boolean;
   requestCount?: number;
+  /** Azure OpenAI input file of the submitted JSONL; the poller re-reads it to snap detections to the image each row saw. */
+  inputFileId?: string | null;
   /** Deployment the batch was submitted to; stamped on applied detections as `detected_hex_model`. */
   deployment?: string | null;
   /** `PROMPT_VERSION` the batch requests were built with (`detected_hex_prompt_version`). */

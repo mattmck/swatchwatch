@@ -20,6 +20,8 @@ import {
 import { submitVisionHexBatch } from "./azure-openai-batch";
 import { uploadSourceImageToBlob, ensureContainer } from "./blob-storage";
 import { toImageProxyUrlFromOrigin } from "./image-proxy";
+import { snapDetectionToImage, type HexSnapLogLevel } from "./hex-snap";
+import { loadDetectionImageBytes } from "./detection-image";
 import pLimit = require("p-limit");
 import {
   buildSuspiciousHexContext,
@@ -181,6 +183,8 @@ interface HoloTacoImagePreparationMetrics {
   hexDetectionSkipped: number;
   /** Subset of hexDetectionSkipped: same image as last run and the shade already has a hex. */
   hexDetectionSkippedUnchanged: number;
+  /** Subset of hexDetected whose hex was replaced by a measured palette chip (`HEX_DETECTION_SNAP_ENABLED`). */
+  hexSnapped: number;
   batchRequestsQueued: number;
   batchFallbacks: number;
   hexDetectionPromptTokens: number;
@@ -618,6 +622,18 @@ async function prepareHoloTacoImageData(
     detectHexFromImage &&
     estimatedBatchCandidates >= batchMinImages;
   const progressLogger = options?.progressLogger;
+  // Snap diagnostics: info lines stay on the console, problems also reach the job log.
+  const snapLogger =
+    (externalId: string) =>
+    (level: HexSnapLogLevel, message: string, data?: Record<string, unknown>): void => {
+      const withRecord = `${sourceLogPrefix} ${externalId} ${message}`;
+      if (level === "warn") {
+        console.warn(withRecord, data ?? "");
+        progressLogger?.warn(withRecord, data);
+      } else {
+        console.log(withRecord, data ?? "");
+      }
+    };
   const byExternalId = new Map<string, HoloTacoPreparedImage>();
   const queuedBatchRequests: Array<{
     customId: string;
@@ -634,6 +650,7 @@ async function prepareHoloTacoImageData(
     hexDetectionFailures: 0,
     hexDetectionSkipped: 0,
     hexDetectionSkippedUnchanged: 0,
+    hexSnapped: 0,
     batchRequestsQueued: 0,
     batchFallbacks: 0,
     hexDetectionPromptTokens: 0,
@@ -1051,7 +1068,7 @@ async function prepareHoloTacoImageData(
           console.log(`${sourceLogPrefix} No vendor hex for ${record.externalId}, running AI detection`);
         }
         try {
-          const detection = await detectHexWithAzureOpenAI(imageForAi, {
+          const rawDetection = await detectHexWithAzureOpenAI(imageForAi, {
             onLog: (level, message, data) => {
               // Info lines are already on the console (emitLog); only problems reach the job log.
               const withRecord = `${sourceLogPrefix} ${record.externalId} ${message}`;
@@ -1072,6 +1089,16 @@ async function prepareHoloTacoImageData(
               },
             },
           });
+          // Post-processing (HEX_DETECTION_SNAP_ENABLED): re-read the image the model was shown
+          // and replace its hex with the nearest measured palette chip. Never throws.
+          const snapped = await snapDetectionToImage(rawDetection, () => loadDetectionImageBytes(imageForAi), {
+            label: record.externalId,
+            onLog: snapLogger(record.externalId),
+          });
+          const detection = snapped.detection;
+          if (snapped.skipped === null) {
+            metrics.hexSnapped += 1;
+          }
           const promptTokens = detection.usage?.promptTokens ?? 0;
           const completionTokens = detection.usage?.completionTokens ?? 0;
           const totalTokens = detection.usage?.totalTokens ?? 0;
@@ -1088,7 +1115,11 @@ async function prepareHoloTacoImageData(
             const tokenUsageMessage = `${sourceLogPrefix} ${record.externalId} [ai-color-detection] Token usage`;
             console.log(tokenUsageMessage, tokenUsageData);
           }
-          console.log(`${sourceLogPrefix} AI detection result for ${record.externalId}:`, { detectedHex: detection.hex, vendorHex: holo.vendorHex });
+          console.log(`${sourceLogPrefix} AI detection result for ${record.externalId}:`, {
+            detectedHex: detection.hex,
+            vendorHex: holo.vendorHex,
+            ...(snapped.skipped === null ? { modelHex: rawDetection.hex, snapDistance: snapped.snap?.snapDistance ?? null } : {}),
+          });
           if (detection.hex) {
             detectedHex = detection.hex;
             detectedFinishes = detection.finishes;
@@ -1203,6 +1234,7 @@ async function prepareHoloTacoImageData(
       hexDetectionFailures: metrics.hexDetectionFailures,
       hexDetectionSkipped: metrics.hexDetectionSkipped,
       hexDetectionSkippedUnchanged: metrics.hexDetectionSkippedUnchanged,
+      hexSnapped: metrics.hexSnapped,
       batchRequestsQueued: metrics.batchRequestsQueued,
       hexDetectionTotalTokens: metrics.hexDetectionTotalTokens,
     }
@@ -1249,7 +1281,7 @@ async function prepareHoloTacoImageData(
         queuedBatchRequests.map((queued) =>
           fallbackLimit(async () => {
             try {
-              const detection = await detectHexWithAzureOpenAI(queued.imageUrlOrDataUri, {
+              const rawDetection = await detectHexWithAzureOpenAI(queued.imageUrlOrDataUri, {
                 vendorContext: queued.vendorContext,
                 onLog: (level, message, data) => {
                   const withRecord = `${sourceLogPrefix} ${queued.customId} ${message}`;
@@ -1260,6 +1292,16 @@ async function prepareHoloTacoImageData(
                   }
                 },
               });
+              // Same post-processing as the sync path, on the image that was sent to the model.
+              const snapped = await snapDetectionToImage(
+                rawDetection,
+                () => loadDetectionImageBytes(queued.imageUrlOrDataUri),
+                { label: queued.customId, onLog: snapLogger(queued.customId) }
+              );
+              const detection = snapped.detection;
+              if (snapped.skipped === null) {
+                metrics.hexSnapped += 1;
+              }
               metrics.hexDetectionPromptTokens += detection.usage?.promptTokens ?? 0;
               metrics.hexDetectionCompletionTokens += detection.usage?.completionTokens ?? 0;
               metrics.hexDetectionTotalTokens += detection.usage?.totalTokens ?? 0;
