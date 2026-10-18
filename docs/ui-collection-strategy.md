@@ -14,17 +14,16 @@ This document describes the UI/UX strategy for the "All Polishes" (Collection) p
 - Each row represents a polish, with columns for brand, name, color swatch, finish, collection, and user-specific controls.
 
 ### 2. Inventory Controls Per Row
-- **Status Icon:**
-  - ✔️ (checkmark) if the user owns the polish (quantity > 0)
-  - ➕ (plus) if not owned
-- **Quantity Controls:**
-  - If owned: [ - ] [quantity] [ + ] buttons to adjust quantity
-  - If not owned: [Add] button to add to collection (sets quantity to 1)
-- **Immediate, in-place actions** (no need to open a detail page)
+- **Status chip** (#262): Owned / Wishlist / Destash / Archived, or "Not added" for catalog-only rows, plus an **Untried** badge for owned polishes with no tried date.
+- **Quick actions:**
+  - If owned: [ - ] [quantity] [ + ] buttons to adjust quantity. Removing the last bottle moves the polish to **Archived** (used up), not the wishlist.
+  - If not owned: ♡ (wishlist toggle; un-hearting removes the wishlist entry) and ✓ Own (owned with at least one bottle).
+  - ⋯ menu: move to any status; mark tried today / on a date / as untried.
+- **Immediate, in-place actions** (no need to open a detail page), optimistic with rollback and an error toast on failure
 
 ### 3. Search & Filtering Toggles
-- **Favor My Collection:** Prioritizes polishes the user owns in search results
-- **Include All:** Shows all polishes, regardless of ownership
+- **Status presets:** All / My Collection / Wishlist, plus a multi-select status menu and an **Untried** toggle (URL: `status=owned,destash&untried=1`)
+- **Include All:** Shows all polishes, regardless of ownership (the "All" preset)
 - **Similar / Complementary:** Toggles for advanced search modes (e.g., color similarity, complementary shades)
 - **Search bar** for text-based filtering
 
@@ -54,8 +53,8 @@ This document describes the UI/UX strategy for the "All Polishes" (Collection) p
 ---
 
 ## Example Row
-| ✔️ | OPI | Lincoln Park After Dark | 🟣 | Creme | Fall 2022 | [ - ] 2 [ + ] |
-| ➕ | Essie | Ballet Slippers | 🩰 | Sheer | Core | [Add] |
+| Owned · Untried | OPI | Lincoln Park After Dark | 🟣 | Creme | Fall 2022 | [ - ] 2 [ + ] ⋯ |
+| Not added | Essie | Ballet Slippers | 🩰 | Sheer | Core | ♡ [✓ Own] ⋯ |
 
 ---
 

@@ -3,14 +3,35 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import type { FinishName } from "swatchwatch-shared";
+import type { FinishName, PolishCreateRequest, PolishStatus } from "swatchwatch-shared";
 import { resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
 import { buildFinishOptions } from "@/lib/finish-options";
 import { ToggleChip } from "@/components/toggle-chip";
-import { createPolish, getPolish, updatePolish } from "@/lib/api";
+import { createPolish, getPolish, getPolishDupes, listAllPolishes, updatePolish } from "@/lib/api";
+import {
+  dupesForNewShade,
+  newShadeGuardKey,
+  shadeGuardKey,
+  type AddGuardIntent,
+} from "@/lib/add-guard";
+import { useAddGuard } from "@/hooks/use-add-guard";
+import { AddGuardDialog } from "@/components/add-guard-dialog";
+import {
+  POLISH_STATUS_LABELS,
+  POLISH_STATUS_OPTIONS,
+  formStatusForSave,
+  isArchivingChange,
+} from "@/lib/inventory-status";
 import { useReferenceData } from "@/hooks/use-reference-data";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Card,
   CardContent,
@@ -68,6 +89,10 @@ export default function PolishForm() {
     finishes: [] as FinishName[],
     collection: "",
     quantity: 1,
+    status: "owned" as PolishStatus,
+    /** Purchase price as typed (empty = none). */
+    purchasePrice: "",
+    purchaseCurrency: "",
     size: "",
     rating: 0,
     notes: "",
@@ -76,6 +101,10 @@ export default function PolishForm() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [loadingExisting, setLoadingExisting] = useState(false);
+  // Edit mode: the status the polish had when loaded. Moving it into owned/wishlist is an add.
+  const [originalStatus, setOriginalStatus] = useState<PolishStatus | null | undefined>(undefined);
+  // Add guard (#266): saving as owned/wishlist shows owned near-dupes first.
+  const { guardAdd, active: activeGuard, choose: chooseGuard } = useAddGuard();
   // Edit mode: the shade's stored legacy `finish` (its identity key) and the initial primary
   // finish, so finish-only edits update the same shade instead of re-keying it.
   const [originalShadeFinish, setOriginalShadeFinish] = useState<{
@@ -85,6 +114,7 @@ export default function PolishForm() {
   // Finishes already saved on the polish being edited. They stay visible/selectable even when
   // they are not (or no longer) in the reference finish list, so editing never silently drops them.
   const [savedFinishes, setSavedFinishes] = useState<string[]>([]);
+  const minQuantity = isEditing ? 0 : 1;
   const { finishTypes } = useReferenceData();
   const finishOptions = useMemo(
     () => buildFinishOptions(finishTypes, savedFinishes),
@@ -121,6 +151,7 @@ export default function PolishForm() {
           .map((finish) => (finish === "cream" ? "creme" : finish))
           .filter(Boolean);
         setSavedFinishes(existingFinishes);
+        setOriginalStatus(data.status ?? null);
         setOriginalShadeFinish({
           legacyFinish: data.finish ?? "",
           primary: existingFinishes[0],
@@ -133,6 +164,9 @@ export default function PolishForm() {
           finishes: Array.from(new Set(existingFinishes)),
           collection: data.collection ?? "",
           quantity: data.quantity ?? 1,
+          status: data.status ?? "owned",
+          purchasePrice: data.purchasePrice != null ? String(data.purchasePrice) : "",
+          purchaseCurrency: data.purchaseCurrency ?? "",
           size: data.size ?? "",
           rating: data.rating ?? 0,
           notes: data.notes ?? "",
@@ -147,9 +181,24 @@ export default function PolishForm() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setSubmitting(true);
     setSubmitError(null);
-    const payload = {
+    const trimmedPrice = form.purchasePrice.trim();
+    const parsedPrice = trimmedPrice ? Number(trimmedPrice) : null;
+    if (parsedPrice !== null && (!Number.isFinite(parsedPrice) || parsedPrice < 0)) {
+      setSubmitError("Purchase price must be a positive number");
+      return;
+    }
+    const currency = form.purchaseCurrency.trim().toUpperCase();
+    if (currency && !/^[A-Z]{3}$/.test(currency)) {
+      setSubmitError("Currency must be a 3-letter code such as USD");
+      return;
+    }
+    setSubmitting(true);
+    // Editing sends null for emptied fields so the API clears them; creating omits them.
+    const emptyValue = isEditing ? null : undefined;
+    // An owned polish saved with 0 bottles is archived, like − on the last bottle (D5c).
+    const status = formStatusForSave(form.status, form.quantity);
+    const payload: PolishCreateRequest = {
       brand: form.brand,
       name: form.name,
       color: form.color,
@@ -158,6 +207,9 @@ export default function PolishForm() {
       finishes: form.finishes,
       collection: form.collection || undefined,
       quantity: form.quantity,
+      status,
+      purchasePrice: parsedPrice === null ? emptyValue : Math.round(parsedPrice * 100) / 100,
+      purchaseCurrency: currency || emptyValue,
       size: form.size || undefined,
       rating: form.rating || undefined,
       notes: form.notes || undefined,
@@ -165,11 +217,45 @@ export default function PolishForm() {
         ? form.tags.split(",").map((t) => t.trim()).filter(Boolean)
         : undefined,
     };
+    // `status`, not `form.status`: an owned polish saved with 0 bottles is archived, not an add.
+    const intent: AddGuardIntent | null =
+      status === "owned" ? "own" : status === "wishlist" ? "wishlist" : null;
+    // Only guard a transition *into* owned/wishlist; re-saving an owned polish is not an add.
+    if (intent && (!isEditing || originalStatus !== status)) {
+      const finishes = [...form.finishes];
+      await guardAdd({
+        guardKey: editId ? shadeGuardKey(editId) : newShadeGuardKey(form.brand, form.name),
+        shadeLabel: `${form.brand} ${form.name}`.trim(),
+        status: isEditing ? originalStatus : null,
+        intent,
+        surface: isEditing ? "polish-form-edit" : "polish-form-create",
+        loadDupes: editId
+          ? () => getPolishDupes(editId)
+          : async () =>
+              // A brand-new shade has no id yet: compare the entered hex against the owned
+              // shades with the shared dupe rule (no new endpoint needed).
+              dupesForNewShade(
+                { brand: form.brand, name: form.name, hex: form.colorHex, finishes },
+                await listAllPolishes({ status: ["owned"] })
+              ),
+        proceed: (finalIntent) =>
+          savePolish(finalIntent === "wishlist" ? { ...payload, status: "wishlist" } : payload),
+        onCancel: () => setSubmitting(false),
+      });
+      return;
+    }
+    await savePolish(payload);
+  }
+
+  async function savePolish(payload: PolishCreateRequest) {
+    setSubmitting(true);
     try {
       if (isEditing && editId) {
         const updated = await updatePolish(editId, payload);
+        // `archived=1` makes the detail page show the archive toast (reason / Undo).
+        const archived = originalStatus && isArchivingChange({ status: originalStatus }, payload) ? "&archived=1" : "";
         router.push(
-          `/polishes/detail?id=${updated.id}&returnTo=${encodeURIComponent(listHref)}`
+          `/polishes/detail?id=${updated.id}&returnTo=${encodeURIComponent(listHref)}${archived}`
         );
       } else {
         const created = await createPolish(payload);
@@ -353,10 +439,19 @@ export default function PolishForm() {
                 <Input
                   id="quantity"
                   type="number"
-                  min={1}
+                  min={minQuantity}
                   value={form.quantity}
-                  onChange={(e) => update("quantity", parseInt(e.target.value, 10) || 1)}
+                  aria-describedby={isEditing && form.quantity === 0 ? "quantity-archive-hint" : undefined}
+                  onChange={(e) => {
+                    const parsed = parseInt(e.target.value, 10);
+                    update("quantity", Number.isNaN(parsed) ? minQuantity : Math.max(minQuantity, parsed));
+                  }}
                 />
+                {isEditing && form.quantity === 0 && form.status === "owned" && (
+                  <p id="quantity-archive-hint" className="text-xs text-muted-foreground">
+                    Saving with 0 bottles archives this polish.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <label htmlFor="size" className="text-sm font-medium">
@@ -401,6 +496,56 @@ export default function PolishForm() {
                     {form.rating ? `${form.rating} / 5` : "Tap a star to rate"}
                   </span>
                 </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <label htmlFor="status" className="text-sm font-medium">
+                  Status
+                </label>
+                <Select
+                  value={form.status}
+                  onValueChange={(value) => update("status", value)}
+                >
+                  <SelectTrigger id="status" className="w-full">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {POLISH_STATUS_OPTIONS.map((status) => (
+                      <SelectItem key={status} value={status}>
+                        {POLISH_STATUS_LABELS[status]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="purchasePrice" className="text-sm font-medium">
+                  Purchase price
+                </label>
+                <Input
+                  id="purchasePrice"
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  step="0.01"
+                  placeholder="e.g. 12.50"
+                  value={form.purchasePrice}
+                  onChange={(e) => update("purchasePrice", e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="purchaseCurrency" className="text-sm font-medium">
+                  Currency
+                </label>
+                <Input
+                  id="purchaseCurrency"
+                  placeholder="e.g. USD"
+                  maxLength={3}
+                  value={form.purchaseCurrency}
+                  onChange={(e) => update("purchaseCurrency", e.target.value.toUpperCase())}
+                />
               </div>
             </div>
 
@@ -458,6 +603,7 @@ export default function PolishForm() {
           </form>
         </CardContent>
       </Card>
+      <AddGuardDialog guard={activeGuard} onChoice={chooseGuard} returnTo={listHref} />
     </div>
   );
 }

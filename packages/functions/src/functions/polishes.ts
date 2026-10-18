@@ -10,6 +10,8 @@ import {
   type HexReviewItem,
   type HexReviewResponse,
   type HexReviewSort,
+  type PolishStatus,
+  type CollectionExportFormat,
 } from "swatchwatch-shared";
 import { query, transaction } from "../lib/db";
 import { withAuth, withAdmin } from "../lib/auth";
@@ -30,6 +32,9 @@ import {
   hashCacheKey,
 } from "../lib/cache";
 import { trackEvent, trackException } from "../lib/telemetry";
+import { deleteNailPhotoBlobs, detachNailPhotosForShade } from "../lib/nail-photos";
+import { invalidateAllCollectionStats, invalidatePolishCachesForUser } from "../lib/polish-cache";
+import { recomputeWearStats } from "../lib/manicure";
 import {
   extractImagePalette,
   MatchImageInputError,
@@ -44,6 +49,26 @@ import {
   resolveRequestedFinishes,
   type ShadeFinishUpdate,
 } from "../lib/finishes";
+import { withBuyUrls } from "../lib/buy-link";
+import { parseColorFamilyFilter } from "../lib/color-family-filter";
+import {
+  ARCHIVE_EVENT_EDIT_WINDOW_HOURS,
+  ARCHIVE_EVENT_TYPES,
+  InventoryValidationError,
+  defaultStatusForNewItem,
+  parseBooleanFlag,
+  parseInventoryFields,
+  parseStatusFilter,
+  planArchiveEvent,
+  providedInventoryFields,
+  type ArchiveEventPlan,
+  type InventoryFieldsUpdate,
+} from "../lib/inventory";
+import {
+  CollectionExportRequestError,
+  buildCollectionExport,
+  parseExportFormat,
+} from "../lib/collection-export";
 import { PoolClient } from "pg";
 
 const FINISH_NORMALIZATION_MAP: Record<string, string> = {
@@ -64,14 +89,22 @@ function primaryFinishForRequest(
   return body.finish || finishUpdate?.values[0] || undefined;
 }
 
-/**
- * Apply a requested finish change to a shade.
+/*
+ * Catalog write rule for user requests (#224, decision 1b).
  *
- * Shades are shared catalog rows, so (mirroring the color rule) user input may only FILL an
- * EMPTY `shade.finishes`; it never replaces, removes or appends to a non-empty array.
- * The only exception is the caller's own `user_submitted` shade (`ownSubmitted`), which is
- * private to them until approved and can be edited freely. `shade.finish` (the legacy single
- * field and part of the dedup key) is never written here.
+ * Shades are shared catalog rows. A user's request writes finish and color fields to the
+ * catalog ONLY when the request creates the shade (`findOrCreateShade`'s INSERT branch). A
+ * request that adopts, matches or updates an existing shared shade never changes its
+ * `finishes`, `finish` or color columns, not even to fill an empty value: ingestion
+ * connectors and admins own catalog data. The one exception is the caller's own private
+ * `user_submitted` shade (`ownSubmitted`): it is still the caller's creation, invisible to
+ * other users until an admin promotes it, so its creator may keep correcting it.
+ */
+
+/**
+ * Apply a requested finish change to the caller's own `user_submitted` shade. A no-op for
+ * every other shade (catalog write rule above). `shade.finish` (the legacy single field and
+ * part of the dedup key) is never written here.
  */
 async function applyShadeFinishUpdate(
   client: PoolClient,
@@ -79,18 +112,7 @@ async function applyShadeFinishUpdate(
   finishUpdate: ShadeFinishUpdate | undefined,
   ownSubmitted: boolean
 ): Promise<void> {
-  if (!finishUpdate) return;
-
-  if (!ownSubmitted) {
-    if (finishUpdate.values.length === 0) return;
-    // Fill-only: the guard is part of the statement so a concurrent write cannot be clobbered.
-    await client.query(
-      `UPDATE shade SET finishes = $2::text[], updated_at = now()
-       WHERE shade_id = $1 AND cardinality(COALESCE(finishes, ARRAY[]::text[])) = 0`,
-      [shadeId, finishUpdate.values]
-    );
-    return;
-  }
+  if (!finishUpdate || !ownSubmitted) return;
 
   if (finishUpdate.mode === "replace") {
     await client.query(
@@ -119,13 +141,15 @@ async function applyShadeFinishUpdate(
  * Visibility of a shade to a user (alias `s` = shade, `ui` = the caller's inventory join,
  * `$1` = caller id as in POLISH_SELECT). Shades created through the user API start as
  * `user_submitted` and stay private to their creator (and anyone holding them in inventory)
- * until an admin promotes them to `active`.
+ * until an admin promotes them to `active`. A submission an admin merged into another shade
+ * (`merged_into_shade_id`, admin review queue) is retired and visible to nobody.
  */
-const POLISH_VISIBLE_SQL = `(s.status <> 'user_submitted' OR s.created_by_user_id = $1 OR ui.inventory_item_id IS NOT NULL)`;
+const POLISH_VISIBLE_SQL = `(s.merged_into_shade_id IS NULL AND (s.status <> 'user_submitted' OR s.created_by_user_id = $1 OR ui.inventory_item_id IS NOT NULL))`;
 
 /**
- * Look up a shade by id if the caller may see it. Returns null when it is missing or another
- * user's private `user_submitted` shade (callers answer 404 for both, so existence never leaks).
+ * Look up a shade by id if the caller may see it. Returns null when it is missing, another
+ * user's private `user_submitted` shade, or retired by an admin merge (callers answer 404 for
+ * all of them, so existence never leaks).
  */
 async function getVisibleShade(
   shadeId: number,
@@ -138,6 +162,7 @@ async function getVisibleShade(
      FROM shade s
      LEFT JOIN brand b ON b.brand_id = s.brand_id
      WHERE s.shade_id = $1
+       AND s.merged_into_shade_id IS NULL
        AND (
          s.status <> 'user_submitted'
          OR s.created_by_user_id = $2
@@ -151,40 +176,50 @@ async function getVisibleShade(
   return { ownSubmitted: Boolean(row.ownSubmitted), brand: row.brand ?? null, shadeName: row.shadeName ?? null };
 }
 
+interface ShadeColorData {
+  colorName?: string | null;
+  vendorHex?: string | null;
+  detectedHex?: string | null;
+  nameHex?: string | null;
+}
+
+function hasShadeColorData(colorData: ShadeColorData): boolean {
+  return Boolean(colorData.colorName || colorData.vendorHex || colorData.detectedHex || colorData.nameHex);
+}
+
 /**
- * Write color data to a shade. Shared catalog shades are fill-only: user input only fills NULL
- * columns and never overwrites values other users see. The caller's own private submission
- * takes explicit corrections ($6 = true lets provided values replace stored ones).
+ * Write color corrections to the caller's own `user_submitted` shade: provided values replace
+ * stored ones. A no-op for every other shade (catalog write rule above).
  */
 async function applyShadeColorUpdate(
   client: PoolClient,
   shadeId: number,
-  colorData: { colorName?: string | null; vendorHex?: string | null; detectedHex?: string | null; nameHex?: string | null },
+  colorData: ShadeColorData,
   ownSubmitted: boolean
 ): Promise<void> {
+  if (!ownSubmitted || !hasShadeColorData(colorData)) return;
   await client.query(
     `UPDATE shade SET
-       color_name   = CASE WHEN $6 THEN COALESCE($2, color_name)   ELSE COALESCE(color_name, $2)   END,
-       vendor_hex   = CASE WHEN $6 THEN COALESCE($3, vendor_hex)   ELSE COALESCE(vendor_hex, $3)   END,
-       detected_hex = CASE WHEN $6 THEN COALESCE($4, detected_hex) ELSE COALESCE(detected_hex, $4) END,
-       name_hex     = CASE WHEN $6 THEN COALESCE($5, name_hex)     ELSE COALESCE(name_hex, $5)     END,
-       -- When this request changes detected_hex (filling an empty value, or an owner
-       -- correction), record it as client-supplied and clear the AI provenance that no
-       -- longer describes it; hex_agreement is a generated column.
+       color_name   = COALESCE($2, color_name),
+       vendor_hex   = COALESCE($3, vendor_hex),
+       detected_hex = COALESCE($4, detected_hex),
+       name_hex     = COALESCE($5, name_hex),
+       -- When this request changes detected_hex, record it as client-supplied and clear the
+       -- AI provenance that no longer describes it; hex_agreement is a generated column.
        detected_hex_method = CASE
-         WHEN $4 IS NOT NULL AND (detected_hex IS NULL OR ($6 AND detected_hex IS DISTINCT FROM $4)) THEN $7
+         WHEN $4 IS NOT NULL AND detected_hex IS DISTINCT FROM $4 THEN $6
          ELSE detected_hex_method END,
        detected_hex_confidence = CASE
-         WHEN $4 IS NOT NULL AND (detected_hex IS NULL OR ($6 AND detected_hex IS DISTINCT FROM $4)) THEN NULL
+         WHEN $4 IS NOT NULL AND detected_hex IS DISTINCT FROM $4 THEN NULL
          ELSE detected_hex_confidence END,
        detected_hex_model = CASE
-         WHEN $4 IS NOT NULL AND (detected_hex IS NULL OR ($6 AND detected_hex IS DISTINCT FROM $4)) THEN NULL
+         WHEN $4 IS NOT NULL AND detected_hex IS DISTINCT FROM $4 THEN NULL
          ELSE detected_hex_model END,
        detected_hex_prompt_version = CASE
-         WHEN $4 IS NOT NULL AND (detected_hex IS NULL OR ($6 AND detected_hex IS DISTINCT FROM $4)) THEN NULL
+         WHEN $4 IS NOT NULL AND detected_hex IS DISTINCT FROM $4 THEN NULL
          ELSE detected_hex_prompt_version END,
        detected_hex_at = CASE
-         WHEN $4 IS NOT NULL AND (detected_hex IS NULL OR ($6 AND detected_hex IS DISTINCT FROM $4)) THEN now()
+         WHEN $4 IS NOT NULL AND detected_hex IS DISTINCT FROM $4 THEN now()
          ELSE detected_hex_at END,
        updated_at   = now()
      WHERE shade_id = $1`,
@@ -194,7 +229,6 @@ async function applyShadeColorUpdate(
       colorData.vendorHex || null,
       colorData.detectedHex || null,
       colorData.nameHex || null,
-      ownSubmitted,
       DETECTED_HEX_METHOD_CLIENT_SUPPLIED,
     ]
   );
@@ -223,11 +257,21 @@ const POLISH_COLUMNS = `
     s.detected_hex_prompt_version                AS "detectedHexPromptVersion",
     s.detected_hex_at                            AS "detectedHexAt",
     s.hex_agreement::float8                      AS "hexAgreement",
+    s.color_family                               AS "colorFamily",
     -- Legacy single finish; falls back to the primary multi-finish value when unset.
     COALESCE(NULLIF(s.finish, ''), s.finishes[1], '') AS finish,
     COALESCE(s.finishes, ARRAY[]::text[])        AS finishes,
     COALESCE(s.collection, '')                   AS collection,
     ui.quantity,
+    -- Inventory status model (migration 20261017061336791_inventory-status). NULL status means
+    -- the caller has no inventory row (plain catalog entry); "untried" is derived, not stored.
+    ui.status,
+    COALESCE(ui.status = 'owned' AND ui.tried_at IS NULL, false) AS "isUntried",
+    ui.tried_at                                  AS "triedAt",
+    ui.last_worn_at                              AS "lastWornAt",
+    ui.wear_count                                AS "wearCount",
+    ui.purchase_price::float8                    AS "purchasePrice",
+    ui.purchase_currency                         AS "purchaseCurrency",
     ui.size_display                              AS size,
     ui.rating,
     ui.notes,
@@ -271,15 +315,19 @@ ${POLISH_FROM}`;
 /**
  * Find or create a brand + shade, returning the shade_id.
  * Uses a transaction client so this can be part of a larger transaction.
+ *
+ * `colorData` and `finishUpdate` are written in full when a new shade is inserted. A matched
+ * existing shade is left untouched unless it is the caller's own `user_submitted` shade (see the
+ * catalog write rule above).
  */
-async function findOrCreateShade(
+export async function findOrCreateShade(
   client: PoolClient,
   userId: number,
   brandName: string,
   shadeName: string,
   finish?: string,
   collection?: string,
-  colorData?: { colorName?: string; vendorHex?: string; detectedHex?: string; nameHex?: string },
+  colorData?: ShadeColorData,
   finishUpdate?: ShadeFinishUpdate
 ): Promise<number> {
   // Find or create brand
@@ -298,8 +346,11 @@ async function findOrCreateShade(
   // caller must not be linked to (or learn about) it. idx_shade_unique includes product_line_id
   // (NULL here, and NULLs are distinct in a unique index), so the caller can still get their own
   // row with the same brand + name + finish. Catalog rows are preferred over private ones.
-  const existingShade = await client.query<{ shade_id: number; own_submitted: boolean }>(
-    `SELECT s.shade_id, (s.status = 'user_submitted' AND s.created_by_user_id = $4) AS own_submitted
+  // A submission an admin merged into a catalog shade (review queue) resolves to its merge target.
+  const existingShade = await client.query<{ shade_id: number; own_submitted: boolean; merged_into_shade_id: number | null }>(
+    `SELECT s.shade_id,
+            (s.status = 'user_submitted' AND s.created_by_user_id = $4 AND s.merged_into_shade_id IS NULL) AS own_submitted,
+            s.merged_into_shade_id
      FROM shade s
      WHERE s.brand_id = $1
        AND s.shade_name_canonical = $2
@@ -310,13 +361,13 @@ async function findOrCreateShade(
          OR s.created_by_user_id = $4
          OR EXISTS (SELECT 1 FROM user_inventory_item ui WHERE ui.shade_id = s.shade_id AND ui.user_id = $4)
        )
-     ORDER BY (s.status = 'user_submitted') ASC, s.shade_id ASC
+     ORDER BY (s.status = 'user_submitted') ASC, (s.merged_into_shade_id IS NOT NULL) ASC, s.shade_id ASC
      LIMIT 1`,
     [brandId, shadeName, normalizeFinish(finish), userId]
   );
 
   if (existingShade.rows.length > 0) {
-    const shadeId = existingShade.rows[0].shade_id;
+    const shadeId = existingShade.rows[0].merged_into_shade_id ?? existingShade.rows[0].shade_id;
     const ownSubmitted = Boolean(existingShade.rows[0].own_submitted);
     if (colorData) {
       await applyShadeColorUpdate(client, shadeId, colorData, ownSubmitted);
@@ -345,9 +396,139 @@ async function findOrCreateShade(
   return newShade.rows[0].shade_id;
 }
 
+/**
+ * Write the archive-reason `inventory_event` for an upsert (decision D5c). `inventoryItemId`
+ * comes from the caller's own `(user_id, shade_id)` row, so events stay user-scoped. Only the
+ * newest reason event inside `ARCHIVE_EVENT_EDIT_WINDOW_HOURS` is corrected or retracted.
+ */
+async function applyArchiveEventPlan(
+  client: PoolClient,
+  inventoryItemId: string,
+  previousStatus: PolishStatus | null,
+  plan: ArchiveEventPlan
+): Promise<void> {
+  if (plan.kind === "none") return;
+  const latestReasonEvent = `
+    SELECT inventory_event_id FROM inventory_event
+    WHERE inventory_item_id = $1::bigint
+      AND event_type = ANY($2::text[])
+      AND created_at > now() - make_interval(hours => $3::int)
+    ORDER BY created_at DESC, inventory_event_id DESC
+    LIMIT 1`;
+  const scope = [inventoryItemId, ARCHIVE_EVENT_TYPES, ARCHIVE_EVENT_EDIT_WINDOW_HOURS];
+  if (plan.kind === "retract") {
+    await client.query(`DELETE FROM inventory_event WHERE inventory_event_id IN (${latestReasonEvent})`, scope);
+    return;
+  }
+  if (plan.kind === "update") {
+    const updated = await client.query(
+      `UPDATE inventory_event
+       SET event_type = $4::text, event_payload = COALESCE(event_payload, '{}'::jsonb) || jsonb_build_object('reason', $4::text)
+       WHERE inventory_event_id IN (${latestReasonEvent})`,
+      [...scope, plan.eventType]
+    );
+    if (updated.rowCount) return;
+  }
+  // user_id / shade_id come from the same row: events are keyed by them so they survive
+  // deleting the polish (D8, #317).
+  await client.query(
+    `INSERT INTO inventory_event (inventory_item_id, user_id, shade_id, event_type, event_payload)
+     SELECT ui.inventory_item_id, ui.user_id, ui.shade_id, $2::text,
+            jsonb_build_object('reason', $2::text, 'previousStatus', $3::text)
+     FROM user_inventory_item ui
+     WHERE ui.inventory_item_id = $1::bigint`,
+    [inventoryItemId, plan.eventType, previousStatus]
+  );
+}
+
+/**
+ * Insert or update the caller's inventory row for a shade (keyed on `(user_id, shade_id)`, so
+ * it can only ever touch the caller's own row).
+ *
+ * Omitted fields keep their stored value. On a NEW row an omitted `status` defaults to
+ * `owned` (only an explicit `quantity: 0` gives `wishlist`; `defaultStatusForNewItem`,
+ * decision D5a) and an omitted `quantity` from the status (one bottle when owned/destash,
+ * else none), so clients that predate the status model behave as before. Nothing moves to the
+ * wishlist automatically: an update without `status` keeps the stored status, and running
+ * out is an explicit `status: "archived"`.
+ * The clearable fields (`triedAt`, `purchasePrice`, `purchaseCurrency`) are written whenever
+ * they are present in the request, including `null`;
+ * `$14` lists which ones were sent. `$15` is the status a new row gets.
+ *
+ * Archiving (or undoing an archive) also records the reason as an `inventory_event`
+ * (`used_up` / `decluttered`, see `planArchiveEvent`); the previous status is read under a
+ * row lock only for those requests. Returns the inventory item id.
+ */
+export async function upsertInventoryItem(
+  client: PoolClient,
+  userId: number,
+  shadeId: number,
+  body: PolishUpdateRequest,
+  fields: InventoryFieldsUpdate
+): Promise<string | undefined> {
+  const quantity = body.quantity ?? null;
+  const insertStatus = fields.status ?? defaultStatusForNewItem(quantity === null ? null : Number(quantity));
+  const touchesArchive = fields.status === "archived" || fields.undoArchive;
+  let previousStatus: PolishStatus | null = null;
+  if (touchesArchive) {
+    const previous = await client.query<{ status: PolishStatus }>(
+      `SELECT status FROM user_inventory_item WHERE user_id = $1 AND shade_id = $2 FOR UPDATE`,
+      [userId, shadeId]
+    );
+    previousStatus = previous.rows[0]?.status ?? null;
+  }
+  const result = await client.query<{ inventoryItemId: string; status: PolishStatus }>(
+    `INSERT INTO user_inventory_item
+       (user_id, shade_id, quantity, notes, purchase_date, expiration_date,
+        rating, tags, size_display, status, tried_at, purchase_price, purchase_currency)
+     VALUES ($1, $2, COALESCE($3::int, CASE WHEN $15::text IN ('owned', 'destash') THEN 1 ELSE 0 END),
+             $4, $5, $6, $7, $8, $9,
+             $15::text, $11::timestamptz, $12::numeric, $13::text)
+     ON CONFLICT (user_id, shade_id) DO UPDATE SET
+       quantity          = CASE WHEN $3::int IS NULL THEN user_inventory_item.quantity ELSE EXCLUDED.quantity END,
+       notes             = CASE WHEN $4 IS NULL THEN user_inventory_item.notes ELSE EXCLUDED.notes END,
+       purchase_date     = CASE WHEN $5 IS NULL THEN user_inventory_item.purchase_date ELSE EXCLUDED.purchase_date END,
+       expiration_date   = CASE WHEN $6 IS NULL THEN user_inventory_item.expiration_date ELSE EXCLUDED.expiration_date END,
+       rating            = CASE WHEN $7 IS NULL THEN user_inventory_item.rating ELSE EXCLUDED.rating END,
+       tags              = CASE WHEN $8 IS NULL THEN user_inventory_item.tags ELSE EXCLUDED.tags END,
+       size_display      = CASE WHEN $9 IS NULL THEN user_inventory_item.size_display ELSE EXCLUDED.size_display END,
+       status            = CASE WHEN $10::text IS NULL THEN user_inventory_item.status ELSE EXCLUDED.status END,
+       tried_at          = CASE WHEN 'triedAt' = ANY($14::text[]) THEN EXCLUDED.tried_at ELSE user_inventory_item.tried_at END,
+       purchase_price    = CASE WHEN 'purchasePrice' = ANY($14::text[]) THEN EXCLUDED.purchase_price ELSE user_inventory_item.purchase_price END,
+       purchase_currency = CASE WHEN 'purchaseCurrency' = ANY($14::text[]) THEN EXCLUDED.purchase_currency ELSE user_inventory_item.purchase_currency END,
+       updated_at        = now()
+     RETURNING inventory_item_id::text AS "inventoryItemId", status`,
+    [
+      userId,
+      shadeId,
+      quantity,
+      body.notes ?? null,
+      body.purchaseDate ?? null,
+      body.expirationDate ?? null,
+      body.rating ?? null,
+      body.tags && body.tags.length ? body.tags : null,
+      body.size ?? null,
+      fields.status ?? null,
+      fields.triedAt ?? null,
+      fields.purchasePrice ?? null,
+      fields.purchaseCurrency ?? null,
+      providedInventoryFields(fields),
+      insertStatus,
+    ]
+  );
+  const row = result.rows[0];
+  if (row && touchesArchive) {
+    const newStatus = row.status ?? fields.status ?? previousStatus ?? insertStatus;
+    await applyArchiveEventPlan(client, row.inventoryItemId, previousStatus, planArchiveEvent(previousStatus, newStatus, fields));
+  }
+  return row?.inventoryItemId;
+}
+
 /** Whitelist of allowed sort columns to prevent SQL injection */
 const SORT_COLUMNS: Record<string, string> = {
-  status: "CASE WHEN COALESCE(ui.quantity, 0) > 0 THEN 0 ELSE 1 END",
+  // Owned first, then wishlist, destash, archived; catalog rows without inventory last.
+  status:
+    "CASE ui.status WHEN 'owned' THEN 0 WHEN 'wishlist' THEN 1 WHEN 'destash' THEN 2 WHEN 'archived' THEN 3 ELSE 4 END",
   name: "s.shade_name_canonical",
   brand: "b.name_canonical",
   finish: "COALESCE(s.finishes[1], NULLIF(s.finish, ''), '')",
@@ -405,7 +586,10 @@ function buildPolishListCacheKey(
     finishes: string;
     scope: string;
     availability: string;
+    status: string;
+    untried: boolean;
     tags: string;
+    family?: string;
     sortBy: string;
     sortOrder: "ASC" | "DESC";
     page: number;
@@ -417,21 +601,15 @@ function buildPolishListCacheKey(
   return `polishes:list:u:${userId}:o:${originHash}:h:${hash}`;
 }
 
-async function invalidatePolishCachesForUser(userId: number, shadeIds: number[] = []): Promise<void> {
-  await Promise.all([
-    cacheDeleteByPrefix(`polishes:list:u:${userId}:`),
-    ...shadeIds.map((shadeId) => cacheDeleteByPrefix(`polishes:detail:u:${userId}:id:${shadeId}:`)),
-  ]);
-}
-
 async function invalidateGlobalPolishCaches(): Promise<void> {
   await Promise.all([
     cacheDeleteByPrefix("polishes:list:u:"),
     cacheDeleteByPrefix("polishes:detail:u:"),
+    invalidateAllCollectionStats(),
   ]);
 }
 
-async function invalidateCatalogCaches(shadeIds: number[] = []): Promise<void> {
+export async function invalidateCatalogCaches(shadeIds: number[] = []): Promise<void> {
   await Promise.all([
     cacheDeleteByPrefix("catalog:search:"),
     ...shadeIds.map((shadeId) => cacheDelete(`catalog:shade:id:${shadeId}`)),
@@ -551,10 +729,72 @@ function withReadableImageUrl(
   }
 }
 
+/**
+ * GET /api/polishes/export?format=csv|json[&status=owned,wishlist] — download the caller's
+ * collection (issue #264). Every inventory row of the caller (all statuses unless `status` is
+ * given); SQL is scoped by `ui.user_id = $1`. See lib/collection-export.ts.
+ */
+async function exportCollection(
+  request: HttpRequest,
+  context: InvocationContext,
+  userId: number
+): Promise<HttpResponseInit> {
+  context.log("GET /api/polishes/export");
+  const url = new URL(request.url);
+  let format: CollectionExportFormat;
+  let statusFilter: PolishStatus[];
+  try {
+    format = parseExportFormat(url.searchParams.get("format"));
+    statusFilter = parseStatusFilter(url.searchParams.get("status"));
+  } catch (error) {
+    if (error instanceof CollectionExportRequestError || error instanceof InventoryValidationError) {
+      return { status: 400, jsonBody: { error: error.message } };
+    }
+    throw error;
+  }
+
+  try {
+    const built = await buildCollectionExport({
+      queryFn: query,
+      userId,
+      format,
+      statusFilter,
+    });
+    trackEvent("polish.collection_export", {
+      format,
+      itemCount: built.itemCount,
+      statusFilter: statusFilter.join(","),
+    });
+    return {
+      status: 200,
+      headers: {
+        "Content-Type": built.contentType,
+        "Content-Disposition": `attachment; filename="${built.filename}"`,
+        // Private, per-user data: never stored by browsers or shared caches.
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+        // Lets the web app read the server's filename on a cross-origin fetch.
+        "Access-Control-Expose-Headers": "Content-Disposition",
+      },
+      body: built.body,
+    };
+  } catch (error: any) {
+    return internalServerError(context, error, "Failed to export collection", "polishes.export");
+  }
+}
+
 async function getPolishes(request: HttpRequest, context: InvocationContext, userId: number): Promise<HttpResponseInit> {
+  const id = request.params.id;
+
+  // `/api/polishes/export` shares the `polishes/{id?}` route template, so it is dispatched here
+  // rather than registered separately (a literal route next to `{id?}` relies on host route
+  // precedence; dispatching keeps it unambiguous).
+  if (id === "export") {
+    return exportCollection(request, context, userId);
+  }
+
   context.log("GET /api/polishes");
 
-  const id = request.params.id;
   const requestOrigin = getRequestOrigin(request.url);
 
   // Single polish by shade id
@@ -609,9 +849,11 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
         )
       );
 
+      // "Buy from brand" link (#267): validated stored product URL, absent when none.
+      const [polishWithBuyUrl] = await withBuyUrls([result.rows[0]], (row) => row.id);
       const responseBody = withReadableSwatchUrl(
         {
-          ...result.rows[0],
+          ...polishWithBuyUrl,
           sourceImageUrls: sourceImageUrls.length > 0 ? sourceImageUrls : undefined,
         },
         request.url
@@ -638,6 +880,17 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
     const finishesParam = url.searchParams.get("finishes");
     const scope = url.searchParams.get("scope");
     const availability = url.searchParams.get("availability") || url.searchParams.get("avail");
+    let statusFilter: PolishStatus[];
+    let untriedOnly: boolean;
+    try {
+      statusFilter = parseStatusFilter(url.searchParams.get("status"));
+      untriedOnly = parseBooleanFlag("untried", url.searchParams.get("untried"));
+    } catch (error) {
+      if (error instanceof InventoryValidationError) {
+        return { status: 400, jsonBody: { error: error.message } };
+      }
+      throw error;
+    }
     const tagsParam = url.searchParams.get("tags");
     const sortBy = url.searchParams.get("sortBy")?.trim() || "createdAt";
     const sortOrder = url.searchParams.get("sortOrder")?.toUpperCase() === "ASC" ? "ASC" : "DESC";
@@ -651,6 +904,10 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
     const normalizedScope = normalizeFilterValue(scope);
     const normalizedAvailability = normalizeFilterValue(availability);
     const parsedTags = parseTagsFilter(tagsParam);
+    const familyFilter = parseColorFamilyFilter(url.searchParams);
+    if (!familyFilter.ok) {
+      return { status: 400, jsonBody: { error: familyFilter.error } };
+    }
     const listCacheKey = buildPolishListCacheKey(userId, requestOrigin, {
       search: normalizedSearch,
       brand: normalizedBrandFilter,
@@ -658,7 +915,11 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       finishes: canonicalizeTagsForCache(parsedFinishesFilter),
       scope: normalizedScope,
       availability: normalizedAvailability,
+      status: statusFilter.join(","),
+      untried: untriedOnly,
       tags: canonicalizeTagsForCache(parsedTags),
+      // Only present when filtering so existing cache keys are unchanged.
+      ...(familyFilter.families.length > 0 ? { family: familyFilter.families.join(",") } : {}),
       sortBy,
       sortOrder,
       page,
@@ -722,19 +983,40 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       }
     }
 
+    // Ownership comes from the inventory status (never from quantity). A NULL ui.status (no
+    // inventory row) never matches a status condition.
     if (normalizedScope === "collection") {
-      conditions.push(`COALESCE(ui.quantity, 0) > 0`);
+      conditions.push(`ui.status = 'owned'`);
     }
 
+    // Legacy `availability` alias for the status filter.
     if (normalizedAvailability === "owned") {
-      conditions.push(`COALESCE(ui.quantity, 0) > 0`);
+      conditions.push(`ui.status = 'owned'`);
     } else if (normalizedAvailability === "wishlist") {
-      conditions.push(`COALESCE(ui.quantity, 0) <= 0`);
+      conditions.push(`ui.status = 'wishlist'`);
+    }
+
+    if (statusFilter.length > 0) {
+      conditions.push(`ui.status = ANY($${paramIndex}::text[])`);
+      params.push(statusFilter);
+      paramIndex++;
+    }
+
+    if (untriedOnly) {
+      conditions.push(`(ui.status = 'owned' AND ui.tried_at IS NULL)`);
     }
 
     if (parsedTags.length > 0) {
       conditions.push(`ui.tags @> $${paramIndex}`);
       params.push(parsedTags);
+      paramIndex++;
+    }
+
+    // Color family (#103): shade.color_family is a generated column, so this is a plain indexed
+    // WHERE clause and COUNT(*) OVER() / the fallback count stay correct.
+    if (familyFilter.families.length > 0) {
+      conditions.push(`s.color_family = ANY($${paramIndex}::text[])`);
+      params.push(familyFilter.families);
       paramIndex++;
     }
 
@@ -769,7 +1051,10 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       total = parseInt(countResult.rows[0].total, 10);
     }
 
-    const polishes = result.rows.map(({ totalCount: _totalCount, ...polish }) => polish as Polish);
+    const polishes = await withBuyUrls(
+      result.rows.map(({ totalCount: _totalCount, ...polish }) => polish as Polish),
+      (polish) => polish.id
+    );
 
     const responseBody = {
       polishes: mapReadableSwatchUrls(polishes, request.url),
@@ -794,6 +1079,15 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
 
   try {
     const body = (await request.json()) as PolishCreateRequest;
+    let inventoryFields: InventoryFieldsUpdate;
+    try {
+      inventoryFields = parseInventoryFields(body);
+    } catch (error) {
+      if (error instanceof InventoryValidationError) {
+        return { status: 400, jsonBody: { error: error.message } };
+      }
+      throw error;
+    }
     const adoptingExistingShade = typeof body.shadeId === "string" && body.shadeId.trim().length > 0;
 
     if (!adoptingExistingShade && (!body.brand || !body.name)) {
@@ -833,11 +1127,9 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
         ));
 
       if (adoptingExistingShade) {
+        // Adopting never writes a shared catalog shade; only the caller's own submission
+        // takes corrections (same rule as PUT).
         await applyShadeFinishUpdate(client, resolvedShadeId, finishUpdate, adoptedShade!.ownSubmitted);
-      }
-
-      if (adoptingExistingShade && (body.color || body.vendorHex || body.detectedHex || body.nameHex)) {
-        // Same rule as PUT: owners may correct their own submission; shared shades are fill-only.
         await applyShadeColorUpdate(
           client,
           resolvedShadeId,
@@ -846,32 +1138,9 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
         );
       }
 
-      await client.query(
-        `INSERT INTO user_inventory_item
-           (user_id, shade_id, quantity, notes, purchase_date, expiration_date,
-            rating, tags, size_display)
-         VALUES ($1, $2, COALESCE($3, 0), $4, $5, $6, $7, $8, $9)
-         ON CONFLICT (user_id, shade_id) DO UPDATE SET
-           quantity        = CASE WHEN $3 IS NULL THEN user_inventory_item.quantity ELSE EXCLUDED.quantity END,
-           notes           = CASE WHEN $4 IS NULL THEN user_inventory_item.notes ELSE EXCLUDED.notes END,
-           purchase_date   = CASE WHEN $5 IS NULL THEN user_inventory_item.purchase_date ELSE EXCLUDED.purchase_date END,
-           expiration_date = CASE WHEN $6 IS NULL THEN user_inventory_item.expiration_date ELSE EXCLUDED.expiration_date END,
-           rating          = CASE WHEN $7 IS NULL THEN user_inventory_item.rating ELSE EXCLUDED.rating END,
-           tags            = CASE WHEN $8 IS NULL THEN user_inventory_item.tags ELSE EXCLUDED.tags END,
-           size_display    = CASE WHEN $9 IS NULL THEN user_inventory_item.size_display ELSE EXCLUDED.size_display END,
-           updated_at      = now()`,
-        [
-          userId,
-          resolvedShadeId,
-          body.quantity ?? null,
-          body.notes ?? null,
-          body.purchaseDate ?? null,
-          body.expirationDate ?? null,
-          body.rating ?? null,
-          body.tags && body.tags.length ? body.tags : null,
-          body.size ?? null,
-        ]
-      );
+      await upsertInventoryItem(client, userId, resolvedShadeId, body, inventoryFields);
+      // A re-added polish picks its wear stats back up from the mani log (#269).
+      await recomputeWearStats(client, userId, [resolvedShadeId], { fillTriedAt: false });
 
       return { shadeId: resolvedShadeId };
     });
@@ -924,6 +1193,15 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
 
   try {
     const body = (await request.json()) as PolishUpdateRequest;
+    let inventoryFields: InventoryFieldsUpdate;
+    try {
+      inventoryFields = parseInventoryFields(body);
+    } catch (error) {
+      if (error instanceof InventoryValidationError) {
+        return { status: 400, jsonBody: { error: error.message } };
+      }
+      throw error;
+    }
     const finishUpdate = requestCarriesFinishData(body)
       ? resolveRequestedFinishes(body, await loadFinishCatalog())
       : undefined;
@@ -961,10 +1239,9 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
           finishUpdate
         );
       } else {
+        // Editing the URL's shade in place: a shared catalog shade is never written; only the
+        // caller's own submission takes finish/color corrections.
         await applyShadeFinishUpdate(client, targetShadeId, finishUpdate, targetShade!.ownSubmitted);
-      }
-
-      if (!resolveByIdentity && (body.color || body.vendorHex || body.detectedHex || body.nameHex)) {
         await applyShadeColorUpdate(
           client,
           targetShadeId,
@@ -973,37 +1250,12 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
         );
       }
 
-      const result = await client.query<{ inventoryItemId: string }>(
-        `INSERT INTO user_inventory_item
-           (user_id, shade_id, quantity, notes, purchase_date, expiration_date,
-            rating, tags, size_display)
-         VALUES ($1, $2, COALESCE($3, 0), $4, $5, $6, $7, $8, $9)
-         ON CONFLICT (user_id, shade_id) DO UPDATE SET
-           quantity        = CASE WHEN $3 IS NULL THEN user_inventory_item.quantity ELSE EXCLUDED.quantity END,
-           notes           = CASE WHEN $4 IS NULL THEN user_inventory_item.notes ELSE EXCLUDED.notes END,
-           purchase_date   = CASE WHEN $5 IS NULL THEN user_inventory_item.purchase_date ELSE EXCLUDED.purchase_date END,
-           expiration_date = CASE WHEN $6 IS NULL THEN user_inventory_item.expiration_date ELSE EXCLUDED.expiration_date END,
-           rating          = CASE WHEN $7 IS NULL THEN user_inventory_item.rating ELSE EXCLUDED.rating END,
-           tags            = CASE WHEN $8 IS NULL THEN user_inventory_item.tags ELSE EXCLUDED.tags END,
-           size_display    = CASE WHEN $9 IS NULL THEN user_inventory_item.size_display ELSE EXCLUDED.size_display END,
-           updated_at      = now()
-         RETURNING inventory_item_id::text AS "inventoryItemId"`,
-        [
-          userId,
-          targetShadeId,
-          body.quantity ?? null,
-          body.notes ?? null,
-          body.purchaseDate ?? null,
-          body.expirationDate ?? null,
-          body.rating ?? null,
-          body.tags && body.tags.length ? body.tags : null,
-          body.size ?? null,
-        ]
-      );
-
-      if (result.rows.length === 0) {
+      const inventoryItemId = await upsertInventoryItem(client, userId, targetShadeId, body, inventoryFields);
+      if (!inventoryItemId) {
         throw new Error("Inventory upsert failed");
       }
+      // wear_count / last_worn_at are derived from the mani log (#269); tried_at is left as sent.
+      await recomputeWearStats(client, userId, [targetShadeId], { fillTriedAt: false });
 
       return targetShadeId;
     });
@@ -1044,20 +1296,39 @@ async function deletePolish(request: HttpRequest, context: InvocationContext, us
       return { status: 400, jsonBody: { error: "Invalid polish id" } };
     }
 
-    const result = await query(
-      `DELETE FROM user_inventory_item
-       WHERE shade_id = $1 AND user_id = $2
-       RETURNING inventory_item_id::text AS id`,
-      [shadeId, userId]
-    );
+    // #270: the item and its private nail photo (image_asset rows) are deleted in one transaction;
+    // the photo blobs are deleted only after it commits, so a failure leaves both untouched.
+    const { deletedId, nailPhotoBlobUrls } = await transaction(async (client) => {
+      // Lock the caller's row first: a concurrent nail-photo PUT locks it too, so it cannot attach
+      // a new photo between the detach and the delete.
+      await client.query(
+        `SELECT inventory_item_id
+         FROM user_inventory_item
+         WHERE shade_id = $1 AND user_id = $2
+         FOR UPDATE`,
+        [shadeId, userId]
+      );
+      const blobUrls = await detachNailPhotosForShade(client, userId, shadeId);
+      // inventory_event rows are detached (ON DELETE SET NULL), not deleted: wear history is kept
+      // by user + shade and re-attached if the polish is re-added (D8, #317).
+      const result = await client.query<{ id: string }>(
+        `DELETE FROM user_inventory_item
+         WHERE shade_id = $1 AND user_id = $2
+         RETURNING inventory_item_id::text AS id`,
+        [shadeId, userId]
+      );
+      return { deletedId: result.rows[0]?.id ?? null, nailPhotoBlobUrls: blobUrls };
+    });
 
-    if (result.rows.length === 0) {
+    await deleteNailPhotoBlobs(nailPhotoBlobUrls, context);
+
+    if (deletedId === null) {
       return { status: 404, jsonBody: { error: "Polish not found for user" } };
     }
 
     await invalidatePolishCachesForUser(userId, [shadeId]);
 
-    return { status: 200, jsonBody: { message: "Polish deleted successfully", id: result.rows[0].id } };
+    return { status: 200, jsonBody: { message: "Polish deleted successfully", id: deletedId } };
   } catch (error: any) {
     return internalServerError(context, error, "Failed to delete polish", "polishes.delete");
   }
@@ -1297,12 +1568,12 @@ async function matchImage(
 
   try {
     // Owned polishes only: POLISH_SELECT's inventory LEFT JOIN is scoped to $1,
-    // so requiring an inventory row with quantity > 0 limits this to the
+    // so requiring an inventory row with status 'owned' limits this to the
     // caller's own collection.
     const result = await query<Polish>(
       `${POLISH_SELECT}
        WHERE ui.inventory_item_id IS NOT NULL
-         AND COALESCE(ui.quantity, 0) > 0
+         AND ui.status = 'owned'
          AND ${POLISH_VISIBLE_SQL}`,
       [userId]
     );

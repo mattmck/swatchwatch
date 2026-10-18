@@ -90,7 +90,18 @@ async function mergeUsers(
 
       const mergeDuplicateInventory = await client.query(
         `UPDATE user_inventory_item target
-         SET quantity = target.quantity + source.quantity
+         SET quantity = target.quantity + source.quantity,
+             -- Strongest status on either account wins: owned > destash (still has the
+             -- bottle) > wishlist > archived.
+             status = CASE
+               WHEN 'owned' IN (source.status, target.status) THEN 'owned'
+               WHEN 'destash' IN (source.status, target.status) THEN 'destash'
+               WHEN 'wishlist' IN (source.status, target.status) THEN 'wishlist'
+               ELSE target.status
+             END,
+             tried_at = LEAST(target.tried_at, source.tried_at),
+             last_worn_at = GREATEST(target.last_worn_at, source.last_worn_at),
+             wear_count = target.wear_count + source.wear_count
          FROM user_inventory_item source
          WHERE source.user_id = $1
            AND target.user_id = $2
@@ -161,6 +172,38 @@ async function mergeUsers(
         [targetUserId, sourceUserId]
       );
 
+      // Mani log (#269): the merged wear stats above (summed wear_count, latest last_worn_at)
+      // equal what the moved manicures derive, and their used-events were repointed with the
+      // other inventory_event rows.
+      const movedManicures = await client.query(
+        `UPDATE manicure
+         SET user_id = $1
+         WHERE user_id = $2`,
+        [targetUserId, sourceUserId]
+      );
+
+      // Wear history is keyed by user + shade (D8, #317), including events detached from a
+      // deleted inventory row: move the owner with the rest.
+      await client.query(
+        `UPDATE inventory_event
+         SET user_id = $1
+         WHERE user_id = $2`,
+        [targetUserId, sourceUserId]
+      );
+      // Events the source detached (polish deleted) re-attach to the target's row for the same
+      // shade, if the target holds it; the rest stay detached.
+      await client.query(
+        `UPDATE inventory_event ie
+         SET inventory_item_id = ui.inventory_item_id
+         FROM user_inventory_item ui
+         WHERE ie.user_id = $1
+           AND ie.inventory_item_id IS NULL
+           AND ie.shade_id IS NOT NULL
+           AND ui.user_id = $1
+           AND ui.shade_id = ie.shade_id`,
+        [targetUserId]
+      );
+
       const movedIdentities = await client.query(
         `INSERT INTO user_external_identities (user_id, external_id, email, last_seen_at)
          SELECT $1, external_id, email, last_seen_at
@@ -210,6 +253,7 @@ async function mergeUsers(
         mergedClickEventRows: movedClickEvents.rowCount || 0,
         message: `Merged user ${sourceUserId} into ${targetUserId}`,
         mergedInventoryDuplicateRows: mergeDuplicateInventory.rowCount || 0,
+        mergedManicureRows: movedManicures.rowCount || 0,
         targetRole: mergedTargetRole,
       };
     });

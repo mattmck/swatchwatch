@@ -135,7 +135,7 @@ The web app is the most developed part of the project. Key pages:
 |-------|------|-------------|
 | `/` | `apps/web/src/app/(marketing)/page.tsx` | Marketing landing page |
 | `/dashboard` | `apps/web/src/app/(app)/dashboard/page.tsx` | Dashboard — stats cards, recent additions, finish breakdown |
-| `/admin` | `apps/web/src/app/(admin)/admin/page.tsx` | Unified admin console — tabs: Configuration (finish/harmony CRUD), Job Runs (reference-admin jobs), Admin Jobs (ingestion jobs), User Management (duplicate-account repair + merges) |
+| `/admin` | `apps/web/src/app/(admin)/admin/page.tsx` | Unified admin console — tabs: Configuration (finish/harmony CRUD), Job Runs (reference-admin jobs), Admin Jobs (ingestion jobs), User Management (duplicate-account repair + merges), Hex Labeling (eyedropper ground-truth hexes for the hex-detection eval) |
 | `/admin/reference-data` | `apps/web/src/app/(admin)/admin/reference-data/page.tsx` | Legacy redirect → `/admin?tab=configuration` |
 | `/admin/jobs` | `apps/web/src/app/(app)/admin/jobs/page.tsx` | Legacy redirect → `/admin?tab=admin-jobs` |
 | `/polishes` | `apps/web/src/app/(app)/polishes/page.tsx` | Collection table — search/filter/sort with All/My Collection scope toggle and URL-persisted list state |
@@ -184,6 +184,7 @@ Functions require secrets defined in `packages/functions/local.settings.json`:
 | `INGESTION_AI_BATCH_MAX_POLL_JOBS` | Max awaiting batch-backed ingestion jobs processed per poll run (default `10`) |
 | `INGESTION_AI_IMAGE_PROXY_ORIGIN` | Optional public origin used to build AI image-proxy URLs for Azure OpenAI vision calls (defaults to `https://$WEBSITE_HOSTNAME`) |
 | `INGESTION_LOG_FLUSH_INTERVAL_MS` | Interval for ingestion worker metric/log flushes while a job runs (default `10000`) |
+| `INGESTION_JOB_LOG_MAX_ENTRIES` | Entries kept in a job's log across the whole run (default `500`, clamped 100–2000); keeps the start and the newest lines, with a marker counting the omitted ones |
 | `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS` | Per-request timeout for Shopify `products.json` downloads (default `45000`) |
 | `SHOPIFY_CONNECTOR_MAX_RETRIES` | Retry count for transient Shopify request errors (default `2`) |
 | `SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS` | Linear backoff base delay for Shopify retries (default `1000`) |

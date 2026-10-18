@@ -26,9 +26,11 @@ export type SupportedConnectorSource =
   | "LoudBabbsShopify"
   | "MakeupAPI"
   | "MooncatShopify"
+  | "NightOwlLacquerShopify"
   | "OliveAvePolishShopify"
   | "OpenBeautyFacts"
   | "OrlyShopify"
+  | "PahlishShopify"
   | "PaintItPrettyPolishShopify"
   | "PotionPolishShopify"
   | "PrismParadeShopify"
@@ -65,9 +67,11 @@ export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProt
   LoudBabbsShopify: "Shopify",
   MakeupAPI: "MakeupAPI",
   MooncatShopify: "Shopify",
+  NightOwlLacquerShopify: "Shopify",
   OliveAvePolishShopify: "Shopify",
   OpenBeautyFacts: "OpenBeautyFacts",
   OrlyShopify: "Shopify",
+  PahlishShopify: "Shopify",
   PaintItPrettyPolishShopify: "Shopify",
   PotionPolishShopify: "Shopify",
   PrismParadeShopify: "Shopify",
@@ -105,9 +109,11 @@ export const SUPPORTED_SOURCES: SupportedConnectorSource[] = [
   "LoudBabbsShopify",
   "MakeupAPI",
   "MooncatShopify",
+  "NightOwlLacquerShopify",
   "OliveAvePolishShopify",
   "OpenBeautyFacts",
   "OrlyShopify",
+  "PahlishShopify",
   "PaintItPrettyPolishShopify",
   "PotionPolishShopify",
   "PrismParadeShopify",

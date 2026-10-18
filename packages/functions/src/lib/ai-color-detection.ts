@@ -1,4 +1,9 @@
-import { canonicalizeFinishes, loadFinishCatalog } from "./finishes";
+import {
+  canonicalizeFinishes,
+  finishNamesForPrompt,
+  loadFinishCatalog,
+  type FinishCatalog,
+} from "./finishes";
 import { trackMetric } from "./telemetry";
 import { resolveAzureOpenAiConfig } from "./azure-openai-config";
 
@@ -13,9 +18,13 @@ const MAX_ERROR_BODY_LOG_CHARS = 400;
  * Revision of the vision prompt in `buildHexDetectionRequestPayload`. Bump it
  * whenever the system/user prompt text, temperature, or response contract
  * changes so detections made with different prompts can be told apart
- * (`shade.detected_hex_prompt_version`).
+ * (`shade.detected_hex_prompt_version`). The finish list inside the prompt comes from the
+ * runtime finish catalog (`finishNamesForPrompt`); it is data, not a template change, so
+ * admin edits to `finish_type` do not need a bump.
+ *
+ * v2 (#224): the finish list is the runtime catalog instead of a hard-coded example list.
  */
-export const PROMPT_VERSION = "vision-direct/2026-10-v1";
+export const PROMPT_VERSION = "vision-direct/2026-10-v2";
 
 /** Detection strategy identifier stored in `shade.detected_hex_method`. */
 export const HEX_DETECTION_METHOD_VISION_DIRECT = "vision-direct";
@@ -79,6 +88,11 @@ export interface HexDetectionOptions {
    * AZURE_OPENAI_DEPLOYMENT_HEX / AZURE_OPENAI_DEPLOYMENT.
    */
   deployment?: string;
+  /**
+   * Finish catalog for the prompt's finish list and for validating returned finishes.
+   * Loaded with `loadFinishCatalog()` (built-ins on failure) when omitted.
+   */
+  finishCatalog?: FinishCatalog;
 }
 
 export type VisionImageDetail = "low" | "high" | "auto";
@@ -196,14 +210,15 @@ export function parseHexDetectionTokenUsage(
   };
 }
 
-/** Canonicalize a model-returned finishes array against the runtime finish catalog (null when empty/invalid). */
-export async function parseDetectedFinishes(
-  value: unknown,
-  options?: Pick<HexDetectionOptions, "onLog">
-): Promise<string[] | null> {
-  if (!Array.isArray(value)) return null;
-  // Uses the runtime finish catalog so admin-added finish types are accepted too.
-  const catalog = await loadFinishCatalog({
+/**
+ * The runtime finish catalog for detection prompts and parsing: `options.finishCatalog` when
+ * given, else `loadFinishCatalog()` (cached; the built-in finishes when the DB is unavailable).
+ */
+export async function loadDetectionFinishCatalog(
+  options?: Pick<HexDetectionOptions, "onLog" | "finishCatalog">
+): Promise<FinishCatalog> {
+  if (options?.finishCatalog) return options.finishCatalog;
+  return loadFinishCatalog({
     onFallback: (message, code) =>
       emitLog(
         options,
@@ -212,6 +227,16 @@ export async function parseDetectedFinishes(
         { code }
       ),
   });
+}
+
+/** Canonicalize a model-returned finishes array against the runtime finish catalog (null when empty/invalid). */
+export async function parseDetectedFinishes(
+  value: unknown,
+  options?: Pick<HexDetectionOptions, "onLog" | "finishCatalog">
+): Promise<string[] | null> {
+  if (!Array.isArray(value)) return null;
+  // Uses the runtime finish catalog so admin-added finish types are accepted too.
+  const catalog = await loadDetectionFinishCatalog(options);
   const out = canonicalizeFinishes(value, catalog);
   return out.length ? out : null;
 }
@@ -270,15 +295,21 @@ export async function parseHexDetectionContent(
   };
 }
 
+/**
+ * Build the vision hex/finish detection request (sync and batch). Pure: the finish list comes
+ * from `options.finishCatalog` (callers pass the runtime catalog from `loadFinishCatalog()`),
+ * defaulting to the built-in finishes.
+ */
 export function buildHexDetectionRequestPayload(
   imageUrlOrDataUri: string,
-  options?: Pick<HexDetectionOptions, "vendorContext" | "temperature">,
+  options?: Pick<HexDetectionOptions, "vendorContext" | "temperature" | "finishCatalog">,
   safePrompt = false
 ): HexDetectionRequestPayload {
   const vendorContext = buildVendorContext({
     vendorContext: options?.vendorContext,
   });
   const imageUrl = { url: imageUrlOrDataUri, detail: resolveVisionImageDetail() };
+  const finishList = finishNamesForPrompt(options?.finishCatalog).join(", ");
 
   return {
     temperature: normalizeTemperature(options?.temperature),
@@ -297,7 +328,7 @@ export function buildHexDetectionRequestPayload(
               {
                 type: "text",
                 text:
-                  "Return exactly one hex code for the primary polish shade. Ignore non-polish areas and reflections. Also identify all finishes mentioned or visible (e.g., creme, shimmer, glitter, metallic, matte, jelly, holographic, duochrome, multichrome, flake, topper, sheer, magnetic, thermal, crelly, velvet, etc.). If uncertain, provide best guess with low confidence.",
+                  `Return exactly one hex code for the primary polish shade. Ignore non-polish areas and reflections. Also identify all finishes mentioned or visible, using only these finish names: ${finishList}. If uncertain, provide best guess with low confidence.`,
               },
               ...(vendorContext ? [{ type: "text", text: `Vendor context: ${vendorContext}` }] : []),
               {
@@ -319,7 +350,7 @@ export function buildHexDetectionRequestPayload(
               {
                 type: "text",
                 text:
-                  "Image may show either a bottle product shot or closeup painted nails. Return exactly one hex for the primary marketed base shade. Exclude background, brush, cap, box, and sparkle highlights. Identify any finishes mentioned or visible (creme, shimmer, glitter, metallic, matte, jelly, holographic, duochrome, multichrome, flake, topper, sheer, magnetic, thermal, crelly, velvet, etc.). ALWAYS return a hex value and confidence score. If the image is unclear or unusable, make your best guess and include an 'error' field explaining why confidence is low.",
+                  `Image may show either a bottle product shot or closeup painted nails. Return exactly one hex for the primary marketed base shade. Exclude background, brush, cap, box, and sparkle highlights. Identify any finishes mentioned or visible, using only these finish names: ${finishList}. ALWAYS return a hex value and confidence score. If the image is unclear or unusable, make your best guess and include an 'error' field explaining why confidence is low.`,
               },
               ...(vendorContext ? [{ type: "text", text: `Vendor context: ${vendorContext}` }] : []),
               {
@@ -741,12 +772,15 @@ export async function detectHexWithAzureOpenAI(
   options?: HexDetectionOptions
 ): Promise<HexDetectionResult> {
   const logLabel = imageUrlOrDataUri.startsWith("data:") ? "data:…(base64)" : imageUrlOrDataUri;
+  // One catalog for both the prompt's finish list and validating the returned finishes.
+  const finishCatalog = await loadDetectionFinishCatalog(options);
+  const detectionOptions: HexDetectionOptions = { ...options, finishCatalog };
   const response = await requestAzureOpenAIChatCompletion(
     {
       buildPayload: (safePrompt) =>
         buildHexDetectionRequestPayload(
           imageUrlOrDataUri,
-          { vendorContext: options?.vendorContext, temperature: options?.temperature },
+          { vendorContext: options?.vendorContext, temperature: options?.temperature, finishCatalog },
           safePrompt
         ),
       deploymentEnvKeys: DEFAULT_DEPLOYMENT_ENV_KEYS,
@@ -775,7 +809,7 @@ export async function detectHexWithAzureOpenAI(
     };
   }
 
-  const parsed = await parseHexDetectionContent(response.content, logLabel, options, response.usage);
+  const parsed = await parseHexDetectionContent(response.content, logLabel, detectionOptions, response.usage);
   return { ...parsed, model: response.deployment };
 }
 

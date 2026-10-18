@@ -10,7 +10,7 @@ export interface ListFilterInput {
   polishes: Polish[];
   /** Free-text query matched against name/brand/color/collection/notes. */
   search: string;
-  /** When true, include owned + wishlist rows unless overridden by availabilityFilter. */
+  /** When true, include every row (not only owned ones) unless overridden by availabilityFilter. */
   includeAll: boolean;
   /** Undertone filter derived from vendor/detected/name hex values. */
   toneFilter: Undertone | "all";
@@ -80,7 +80,8 @@ export function matchesBrandFilter(brand: string, brandFilter: string): boolean 
 /**
  * Apply list-level polish filters for search text, ownership, tone, brand, finish, and availability.
  *
- * Uses an internal `isOwned` check (`quantity > 0`), tone matching via `undertone(...)`,
+ * Uses an internal `isOwned` check (`status === "owned"`; `"wishlist"` matches `status === "wishlist"`),
+ * tone matching via `undertone(...)`,
  * and brand matching via `matchesBrandFilter(...)` to compose the final result.
  * When `availabilityFilter` is not `"all"`, availability filtering takes precedence over `includeAll`.
  *
@@ -99,7 +100,9 @@ export function filterPolishesForList(input: ListFilterInput): Polish[] {
     availabilityFilter,
   } = input;
 
-  const isOwned = (p: Polish) => (p.quantity ?? 0) > 0;
+  // Ownership comes from the inventory status (issue #261), never from quantity.
+  const isOwned = (p: Polish) => p.status === "owned";
+  const isWishlisted = (p: Polish) => p.status === "wishlist";
 
   let result = polishes;
 
@@ -136,7 +139,7 @@ export function filterPolishesForList(input: ListFilterInput): Polish[] {
 
   if (availabilityFilter !== "all") {
     result = result.filter((p) =>
-      availabilityFilter === "owned" ? isOwned(p) : !isOwned(p)
+      availabilityFilter === "owned" ? isOwned(p) : isWishlisted(p)
     );
   }
 

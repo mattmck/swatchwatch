@@ -1,4 +1,6 @@
 import type { CANONICAL_FINISHES } from "../constants/finishes";
+import type { ColorFamily } from "../color/color-family";
+import type { ArchiveReason, PolishStatus } from "./inventory";
 
 export interface Polish {
   /** Canonical shade identifier (global across all users) */
@@ -33,6 +35,13 @@ export interface Polish {
    */
   hexAgreement?: number | null;
   /**
+   * Color family derived from the display hex (vendor > detected > name), or
+   * `multichrome` for color-shifting finishes. Stored on the shade as the generated
+   * `shade.color_family` column; null when the shade has no usable hex.
+   * See `classifyColorFamily`.
+   */
+  colorFamily?: ColorFamily | null;
+  /**
    * Legacy single finish (the shade's identity/primary finish). Kept populated for
    * backward compatibility; prefer `finishes` (or `resolvePolishFinishes`) for display.
    */
@@ -41,6 +50,23 @@ export interface Polish {
   finishes?: FinishName[];
   collection?: string;
   quantity?: number;
+  /**
+   * Inventory status (`owned | wishlist | destash | archived`). Null/undefined when the caller
+   * has no inventory row for this shade (a plain catalog entry).
+   */
+  status?: PolishStatus | null;
+  /** Derived: `status === "owned"` and `triedAt` is null. False for catalog-only rows. */
+  isUntried?: boolean;
+  /** ISO-8601 time the user first tried the polish; null = never tried. */
+  triedAt?: string | null;
+  /** ISO-8601 time of the last logged wear (read-only for now; written by the mani log). */
+  lastWornAt?: string | null;
+  /** Number of logged wears (read-only for now). 0 for owned rows that were never worn. */
+  wearCount?: number | null;
+  /** Price paid per bottle (`user_inventory_item.purchase_price`, 2 decimals). */
+  purchasePrice?: number | null;
+  /** ISO 4217 currency code for `purchasePrice` (e.g. `USD`). */
+  purchaseCurrency?: string | null;
   size?: string;
   purchaseDate?: string;
   expirationDate?: string;
@@ -48,7 +74,18 @@ export interface Polish {
   notes?: string;
   swatchImageUrl?: string;
   sourceImageUrls?: string[];
+  /**
+   * Reserved; not populated by the polishes API. The private on-nail photo is served by
+   * `GET /api/inventory/{inventoryItemId}/nail-photo` (`NailPhotoResponse`, #270).
+   */
   nailImageUrl?: string;
+  /**
+   * "Buy from brand" link: the stored source product URL (absolute http/https, no
+   * credentials; validated server-side). Absent when the shade has no stored product URL.
+   * When a shade has several source products the API picks one deterministically
+   * (enabled source first, then most recently seen). No affiliate parameters.
+   */
+  buyUrl?: string;
   tags?: string[];
   createdAt: string;
   updatedAt: string;
@@ -144,6 +181,12 @@ export interface PolishCreateRequest {
   shadeId?: string;
   brand: string;
   name: string;
+  /**
+   * Catalog fields: `color`, `vendorHex`, `detectedHex`, `nameHex`, `finish` and `finishes`
+   * are written to the shared shade ONLY when this request creates it. Adopting, matching or
+   * updating an existing shared shade never changes them (the caller's own private
+   * `user_submitted` shade is the exception: its creator may correct them).
+   */
   color: string;
   vendorHex?: string;
   detectedHex?: string;
@@ -152,11 +195,38 @@ export interface PolishCreateRequest {
   finish?: FinishName;
   /**
    * Multi-finish list. The first entry is the primary finish (used for the legacy
-   * `finish` column). Unknown values are ignored; aliases are normalized.
+   * `finish` column). Unknown values are ignored; aliases are normalized. Never derived
+   * from `tags`.
    */
   finishes?: FinishName[];
   collection?: string;
   quantity?: number;
+  /**
+   * Inventory status. When omitted, a NEW inventory row is `owned` unless `quantity` is
+   * exactly 0 (then `wishlist`, so clients that predate the status model keep working); an
+   * existing row keeps its stored status. Nothing moves to the wishlist automatically:
+   * running out sends `archived` (decision D5).
+   */
+  status?: PolishStatus;
+  /**
+   * Why the polish is archived; only allowed with `status: "archived"`. Recorded as an
+   * `inventory_event` when the request archives the row (default `used_up` from owned,
+   * `decluttered` from destash); sent again while already archived, it corrects the reason of
+   * the current archive.
+   */
+  archiveReason?: ArchiveReason;
+  /**
+   * Undo of an archive (the toast's Undo): with a non-archived `status`, removes the reason
+   * event recorded for the current archive. Not allowed with `status: "archived"` or
+   * `archiveReason`.
+   */
+  undoArchive?: boolean;
+  /** ISO-8601 date or date-time the polish was first tried; `null` clears it (back to untried). */
+  triedAt?: string | null;
+  /** Price paid, >= 0 with at most 2 decimals (max 99,999,999.99); `null` clears it. */
+  purchasePrice?: number | null;
+  /** ISO 4217 three-letter currency code (normalized to upper case); `null` clears it. */
+  purchaseCurrency?: string | null;
   size?: string;
   purchaseDate?: string;
   expirationDate?: string;
@@ -183,9 +253,17 @@ export interface PolishFilters {
   color?: string;
   tags?: string[];
   search?: string;
+  /** `collection` = only rows with `status === "owned"`. */
   scope?: "all" | "collection";
+  /** Legacy alias: `owned` ≡ `status=owned`, `wishlist` ≡ `status=wishlist`. Prefer `status`. */
   availability?: "all" | "owned" | "wishlist";
+  /** Only inventory rows with one of these statuses (sent as `status=owned,destash`). */
+  status?: PolishStatus[];
+  /** Only owned rows that were never tried (`untried=true`). */
+  untried?: boolean;
   tone?: "warm" | "cool" | "neutral";
+  /** Matches shades in ANY of these color families (`?family=red,pink`). */
+  families?: ColorFamily[];
   sortBy?:
     | "name"
     | "brand"
@@ -207,7 +285,11 @@ export interface CatalogSearchResult {
   finish?: string;
   finishes?: string[];
   collection?: string;
+  /** Color family of the shade (see `Polish.colorFamily`). */
+  colorFamily?: ColorFamily | null;
   similarity: number;
+  /** "Buy from brand" link (see `Polish.buyUrl`); absent when none is stored. */
+  buyUrl?: string;
 }
 
 export interface CatalogSearchResponse {
@@ -264,4 +346,6 @@ export interface CatalogShadeDetail {
   releaseYear?: number;
   status: string;
   aliases: string[];
+  /** "Buy from brand" link (see `Polish.buyUrl`); absent when none is stored. */
+  buyUrl?: string;
 }

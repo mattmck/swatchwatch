@@ -1,7 +1,7 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { createHash } from "node:crypto";
 import { errors as joseErrors } from "jose";
-import { AuthError, authenticateRequest } from "../lib/auth";
+import { AuthError, authenticateRequestReadOnly } from "../lib/auth";
 import {
   BlobAccessDeniedError,
   BlobReadError,
@@ -16,7 +16,7 @@ import {
   ImageProxyScope,
   ImageProxyTokenError,
 } from "../lib/image-proxy";
-import { withCors } from "../lib/http";
+import { appendVary, withCors } from "../lib/http";
 import { trackEvent, trackException } from "../lib/telemetry";
 import sharp from "sharp";
 
@@ -221,6 +221,8 @@ async function transformImage(
  * response, or null when the caller is the owner. Never throws: any auth failure is a 401 (as in
  * `withAuth`), never a 500. Admins get no bypass. Expired/invalid JWTs surface as jose errors and
  * are ordinary auth failures; only genuinely unexpected errors are logged as exceptions.
+ * The caller is resolved read-only (`authenticateRequestReadOnly`): serving an image never
+ * provisions or updates a user, so a gallery of N photos costs N reads, not N write transactions.
  */
 async function authorizePrivateImageRead(
   request: HttpRequest,
@@ -229,7 +231,7 @@ async function authorizePrivateImageRead(
 ): Promise<HttpResponseInit | null> {
   let callerUserId: number;
   try {
-    callerUserId = (await authenticateRequest(request, context)).userId;
+    callerUserId = (await authenticateRequestReadOnly(request, context)).userId;
   } catch (error) {
     if (error instanceof AuthError || error instanceof joseErrors.JOSEError) {
       trackEvent("auth.failure", {
@@ -279,20 +281,44 @@ app.http("images", {
   methods: ["GET"],
   authLevel: "anonymous",
   route: "images/{id}",
-  handler: withCors(
-    async (request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> => {
-      const outcome: { scope?: ImageProxyScope } = {};
-      const response = await serveImage(request, context, outcome);
-      // Error responses for private ids must not be cached anywhere (404 is heuristically cacheable).
-      if (outcome.scope === "private" && response.status !== 200) {
-        const headers = new Headers(response.headers ?? {});
-        headers.set("Cache-Control", "no-store");
-        return { ...response, headers };
-      }
-      return response;
-    }
-  ),
+  handler: imagesHandler,
 });
+
+/**
+ * CORS for image reads (canvas pixel access, e.g. the admin Hex Labeling eyedropper loads
+ * `<img crossOrigin="anonymous">`): `withCors` reflects an allowed Origin
+ * (`CORS_ALLOWED_ORIGINS`) on every response. On top of that:
+ *
+ * - Every response carries `Vary: Origin`, including ones requested without an Origin header,
+ *   so a browser or shared cache never replays a response that lacks
+ *   `Access-Control-Allow-Origin` to a later CORS request (which would fail or taint the canvas).
+ * - Owner-scoped (v3) responses never carry a wildcard `Access-Control-Allow-Origin: *` (possible
+ *   only when `CORS_ALLOWED_ORIGINS` contains `*`); the header is dropped instead, so private media
+ *   is readable cross-origin only by explicitly allowed origins.
+ */
+export async function imagesHandler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+  const outcome: { scope?: ImageProxyScope } = {};
+  const response = await withCors(async (req, ctx): Promise<HttpResponseInit> => {
+    const served = await serveImage(req, ctx, outcome);
+    const headers = new Headers(served.headers ?? {});
+    appendVary(headers, "Origin");
+    // Error responses for private ids must not be cached anywhere (404 is heuristically cacheable).
+    if (outcome.scope === "private" && served.status !== 200) {
+      headers.set("Cache-Control", "no-store");
+    }
+    return { ...served, headers };
+  })(request, context);
+
+  if (outcome.scope === "private") {
+    const headers = new Headers(response.headers ?? {});
+    if (headers.get("Access-Control-Allow-Origin") === "*") {
+      headers.delete("Access-Control-Allow-Origin");
+      headers.delete("Access-Control-Allow-Credentials");
+      return { ...response, headers };
+    }
+  }
+  return response;
+}
 
 async function serveImage(
   request: HttpRequest,

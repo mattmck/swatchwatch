@@ -125,6 +125,8 @@ Goal: the in-aisle answer.
   URL. Free now; the hook for affiliate later.
 - **Shareable wishlist** (opt-in) — signed, revocable public read-only page at
   `/w/{token}`; no auth, no PII beyond display name. Rate-limit by token.
+  Built in #268 behind `SHAREABLE_WISHLIST_ENABLED` (off), pending decision 2 in §6; the static
+  export serves it at `/w/?token=…`.
 
 ### Sprint 3 — "Wear it" (24 Nov – 5 Dec, short week)
 
@@ -167,6 +169,12 @@ Goal: more indie coverage, and the ops to absorb user-created data.
 | Catalog shades (active) | +10k via indie sources |
 | Detected-hex HIGH-confidence share | frozen at Week 0 baseline or better |
 
+How each number is read (decision D19, #323): the dupe-warning funnel from the browser events
+`dupe.warning_shown` / `dupe.warning_outcome`, the rest from the weekly query
+`docs/queries/m2-metrics.sql`. Definitions and the funnel KQL are in
+`docs/observability-plan.md` ("M2 success metrics"). The detected-hex share comes from the hex
+eval harness (`npm run eval:hex`).
+
 ## 5. Deferred, and why
 
 - **Native Expo app (#109)** — the biggest single item on the list and the blank
@@ -185,14 +193,16 @@ Goal: more indie coverage, and the ops to absorb user-created data.
 - **ESM migration (#2)** — pure debt; pair it with the Expo work when the toolchain
   gets touched anyway.
 
-## 6. Decisions needed
+## 6. Decisions (resolved 2026-10-17)
 
-1. **Mobile:** PWA-first through December (recommended) vs. start the Expo scaffold
-   now at the cost of roughly Sprint 4.
-2. **Sharing:** opt-in public wishlist pages — yes/no. Everything else stays
-   private-by-default.
-3. **Hex detection freeze:** agree to the two-day gate in Week 0.
-4. **Indie source list:** which stores first — you know the community better.
+All four are decided. Full context is in [decisions-2026-10.md](decisions-2026-10.md).
+
+1. **Mobile** (D3): ✅ PWA-first through December. The Expo scaffold (#109) starts in January.
+2. **Sharing** (D1): ✅ Opt-in public wishlist pages (#305), switched on once #305 and the inventory status rules
+   (#314) are in prod. Everything else stays private by default.
+3. **Hex detection freeze** (D4): ✅ Tuning is frozen now. The gate runs after the color sip tool (#311) has been
+   used to hand-label ground truth (#322).
+4. **Indie source list** (D2): ✅ Night Owl Lacquer first. Pahlish waits for a store-specific filter (#328).
 
 ## 7. Sources
 

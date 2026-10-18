@@ -294,6 +294,36 @@ VALUES
     true,
     '{"priority":"medium","mvp":"no","notes":"Drunk Fairy Polish Shopify store."}'::jsonb
   ),
+  -- Indie Shopify sources added for #273. Registered disabled: nothing ingests until the
+  -- owner approves them (roadmap 2026-10-to-12 decision 4). Verification in metadata.notes.
+  -- Candidates checked 2026-10-17 and NOT added:
+  --   Shopify default ToS "Prohibited uses ... spider, crawl, or scrape" (products.json exposed,
+  --   robots.txt allows it): Cirque Colors (cirquecolors.com), Emily de Molly (emilydemolly.com),
+  --   F.U.N Lacquer (funlacquer.com), Glam Polish (glampolish.com.au), Moon Shine Mani
+  --   (moonshinemani.com). Newer template "use any robot, spider, scraping ... AI tools":
+  --   Dreamland Lacquer, Ethereal Lacquer. Add only with the store's written permission.
+  --   Not Shopify: ILNP (WooCommerce), Painted Polish (Big Cartel). Blocked: KBShimmer
+  --   (Cloudflare challenge, 403). products.json 404/400/401: Blush Lacquers, Dimension Nails,
+  --   Femme Fatale, Picture Polish, Polished for Days, Wildflower Lacquer, Leesha's Lacquer,
+  --   Baroness X. MooncatShopify and CupcakePolishShopify (above) carry the same ToS clause.
+  (
+    'NightOwlLacquerShopify',
+    'api',
+    'https://nightowllacquer.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://nightowllacquer.com/policies/terms-of-service',
+    true,
+    '{"priority": "medium", "mvp": "no", "notes": "Night Owl Lacquer Shopify store (indie, US). Verified 2026-10-17: /products.json?limit=1 returns 200 with Shopify products; robots.txt is the Shopify default (User-agent * Allow /, products.json not disallowed; /agents.md asks server-side agents to identify via Web Bot Auth and back off on 429); /policies/terms-of-service has no terms text and /pages/policies-shipping has no automated-access clause. Catalog: product_type Polish (233 of the first 250 products pass the polish filter), vendor is the placeholder vendor-unknown on most products (the connector falls back to the brand Night Owl Lacquer), finishes in plain tags (Creme, Jelly, Crelly, Neon). Enabled 2026-10-17 by owner decision (docs/decisions-2026-10.md D2); written acceptable-use OK from the store not yet obtained.", "verification": {"checkedAt": "2026-10-17", "productsJson": true, "firstPageProducts": 250, "firstPagePolishFilterPass": 233, "robotsTxt": "shopify-default-allows-products-json", "termsScrapingClause": false}}'::jsonb
+  ),
+  (
+    'PahlishShopify',
+    'api',
+    'https://pahlish.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://www.pahlish.com/policies/terms-of-service',
+    false,
+    '{"priority": "medium", "mvp": "no", "notes": "Pahlish Shopify store (indie, US). Verified 2026-10-17: /products.json?limit=1 returns 200 with Shopify products (36 listed: current releases only); robots.txt is the Shopify default (products.json not disallowed); /policies/terms-of-service has no terms text, no automated-access clause found. The generic connector polish filter accepts 0 of the 36 products (empty product_type, tags are collection names only), so ingestion yields nothing until a per-source product filter exists. Disabled pending owner approval (roadmap 2026-10-to-12 decision 4); acceptable use not yet confirmed with the store.", "pendingApproval": true, "verification": {"checkedAt": "2026-10-17", "productsJson": true, "firstPageProducts": 36, "firstPagePolishFilterPass": 0, "robotsTxt": "shopify-default-allows-products-json", "termsScrapingClause": false}}'::jsonb
+  ),
   (
     'CosIng',
     'api',
