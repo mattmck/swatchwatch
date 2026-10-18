@@ -557,6 +557,14 @@ describe("functions/admin-users — merge validation", () => {
     const eventOwner = txStatements.find((s) => /UPDATE inventory_event\s+SET user_id = \$1\s+WHERE user_id = \$2/.test(s.sql));
     assert.ok(eventOwner, "inventory_event.user_id must move with the account");
     assert.deepEqual(eventOwner.params, [20, 10]);
+    // ...and the source's detached events re-attach to the target's row for the same shade.
+    const reattach = txStatements.find((s) => /UPDATE inventory_event ie\s+SET inventory_item_id = ui\.inventory_item_id/.test(s.sql));
+    assert.ok(reattach, "detached events must re-attach to the target's rows");
+    assert.match(reattach.sql, /ie\.user_id = \$1/);
+    assert.match(reattach.sql, /ie\.inventory_item_id IS NULL/);
+    assert.match(reattach.sql, /ui\.user_id = \$1\s+AND ui\.shade_id = ie\.shade_id/);
+    assert.deepEqual(reattach.params, [20]);
+    assert.ok(txStatements.indexOf(reattach) > txStatements.indexOf(eventOwner), "re-attach runs after the owner move");
     assert.match(res.jsonBody.message, /Merged user 10 into 20/i);
   });
 });
