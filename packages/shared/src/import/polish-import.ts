@@ -4,6 +4,7 @@
  * the API re-runs all of it on the uploaded text (it never trusts client-parsed rows).
  */
 import { POLISH_STATUSES, type PolishStatus } from "../types/inventory";
+import { POLISH_CSV_COLUMNS } from "../types/collection-export";
 import type { PolishImportRowValues } from "../types/polish-import";
 
 /** Sheet columns the importer understands, in display order. */
@@ -55,7 +56,7 @@ export const POLISH_IMPORT_HEADER_SCAN_ROWS = 10;
  * `strong` names are unambiguous; `weak` ones are only used when no strong column exists
  * (e.g. "Color" is often the shade name, but sometimes a color description).
  */
-const HEADER_SYNONYMS: Readonly<Record<PolishImportField, { strong: string[]; weak: string[] }>> = {
+const MANUAL_HEADER_SYNONYMS: Readonly<Record<PolishImportField, { strong: string[]; weak: string[] }>> = {
   brand: {
     strong: ["brand", "brand name", "polish brand", "maker", "manufacturer", "brands"],
     weak: ["company", "vendor", "label", "make"],
@@ -122,6 +123,25 @@ const HEADER_SYNONYMS: Readonly<Record<PolishImportField, { strong: string[]; we
     weak: ["description", "details", "memo", "review"],
   },
 };
+
+/**
+ * The collection export's headers (`POLISH_CSV_COLUMNS`, #264) are always strong synonyms for
+ * the field they feed, so renaming an export header can never silently break the round trip.
+ * Export-only columns (`importField: null`) contribute nothing.
+ */
+const HEADER_SYNONYMS: Readonly<Record<PolishImportField, { strong: string[]; weak: string[] }>> = (() => {
+  const merged = {} as Record<PolishImportField, { strong: string[]; weak: string[] }>;
+  for (const field of POLISH_IMPORT_FIELDS) {
+    const exported = POLISH_CSV_COLUMNS.filter((column) => column.importField === field).map((column) =>
+      normalizeImportHeader(column.header)
+    );
+    merged[field] = {
+      strong: [...new Set([...MANUAL_HEADER_SYNONYMS[field].strong, ...exported])],
+      weak: MANUAL_HEADER_SYNONYMS[field].weak.filter((name) => !exported.includes(name)),
+    };
+  }
+  return merged;
+})();
 
 /** Lowercase, punctuation → space, collapse whitespace. */
 export function normalizeImportHeader(value: string): string {
