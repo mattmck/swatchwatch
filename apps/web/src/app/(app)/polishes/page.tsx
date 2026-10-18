@@ -775,30 +775,37 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                       )}
                     </TableCell>
                     <TableCell className="font-medium">{polish.brand}</TableCell>
-                    <TableCell>
-                      <Link
-                        href={`/polishes/detail?id=${polish.id}&returnTo=${encodeURIComponent(returnToHref)}`}
-                        className="text-primary hover:underline"
-                      >
-                        {polish.name}
-                      </Link>
-                      <BuyFromBrandLink
-                        url={polish.buyUrl}
-                        brand={polish.brand}
-                        name={polish.name}
-                        className="mt-0.5 flex w-fit"
-                      />
-                      {dupeLabel && dupeHint?.best && (
-                        <Link
-                          href={dupeHref(dupeHint.best, returnToHref)}
-                          title={dupeHintTitle(dupeHint) ?? undefined}
-                          aria-label={dupeHintTitle(dupeHint) ?? dupeLabel}
-                          className={`ml-2 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 align-middle text-[10px] font-medium leading-none ${DUPE_GRADE_META[dupeHint.best.grade].badgeClassName}`}
-                        >
-                          <ColorDot hex={dupeHint.best.displayHex} size="sm" className="h-2.5 w-2.5" />
-                          {dupeLabel}
-                        </Link>
-                      )}
+                    <TableCell className="whitespace-normal">
+                      {/* Name block (name + buy link) on the left, descriptor pills right-aligned (#350). DOM order stays name -> buy link -> pills. */}
+                      <div className="flex items-start gap-2">
+                        <div className="min-w-0 flex-1">
+                          <Link
+                            href={`/polishes/detail?id=${polish.id}&returnTo=${encodeURIComponent(returnToHref)}`}
+                            className="break-words text-primary hover:underline"
+                          >
+                            {polish.name}
+                          </Link>
+                          <BuyFromBrandLink
+                            url={polish.buyUrl}
+                            brand={polish.brand}
+                            name={polish.name}
+                            className="mt-0.5 flex w-fit"
+                          />
+                        </div>
+                        {dupeLabel && dupeHint?.best && (
+                          <div className="ml-auto flex shrink-0 flex-wrap justify-end gap-1">
+                            <Link
+                              href={dupeHref(dupeHint.best, returnToHref)}
+                              title={dupeHintTitle(dupeHint) ?? undefined}
+                              aria-label={dupeHintTitle(dupeHint) ?? dupeLabel}
+                              className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none ${DUPE_GRADE_META[dupeHint.best.grade].badgeClassName}`}
+                            >
+                              <ColorDot hex={dupeHint.best.displayHex} size="sm" className="h-2.5 w-2.5" />
+                              {dupeLabel}
+                            </Link>
+                          </div>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <ColorDot
