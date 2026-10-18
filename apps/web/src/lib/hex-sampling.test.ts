@@ -9,6 +9,7 @@ import {
   loupeRadiusFor,
   normalizeHexInput,
   planUndo,
+  undoHexLabelSave,
   readableTextColor,
   sampleWindowBounds,
   rgbToHexString,
@@ -236,6 +237,60 @@ describe("undo planning and progress", () => {
       method: "eyedropper",
       samplePoint: null,
     });
+  });
+
+  it("undoHexLabelSave deletes a brand-new label and reports no label left", async () => {
+    const calls: string[] = [];
+    const result = await undoHexLabelSave(
+      { label: label(), previous: null },
+      {
+        saveHexLabel: async () => {
+          throw new Error("must not save");
+        },
+        deleteHexLabel: async (id) => {
+          calls.push(`delete:${id}`);
+        },
+      }
+    );
+    assert.deepEqual(calls, ["delete:900"]);
+    assert.equal(result.plan.kind, "delete");
+    assert.equal(result.label, null);
+  });
+
+  it("undoHexLabelSave re-posts the replaced label and returns the restored one", async () => {
+    const previous = label({ trainingSampleId: "899", hex: "#000000", note: "old" });
+    const posted: unknown[] = [];
+    const result = await undoHexLabelSave(
+      { label: label(), previous },
+      {
+        saveHexLabel: async (request) => {
+          posted.push(request);
+          return { label: { ...previous, trainingSampleId: "901" }, previous: label() };
+        },
+        deleteHexLabel: async () => {
+          throw new Error("must not delete");
+        },
+      }
+    );
+    assert.equal(posted.length, 1);
+    assert.equal((posted[0] as { hex: string }).hex, "#000000");
+    assert.equal(result.plan.kind, "restore");
+    assert.equal(result.label?.hex, "#000000");
+  });
+
+  it("undoHexLabelSave propagates API failures so the caller keeps the undo available", async () => {
+    await assert.rejects(
+      undoHexLabelSave(
+        { label: label(), previous: null },
+        {
+          saveHexLabel: async () => ({ label: label(), previous: null }),
+          deleteHexLabel: async () => {
+            throw new Error("boom");
+          },
+        }
+      ),
+      /boom/
+    );
   });
 
   it("computes progress safely", () => {

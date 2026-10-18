@@ -272,6 +272,30 @@ export function planUndo(saved: HexLabelSaveResponse): UndoPlan {
   return { kind: "delete", trainingSampleId: saved.label.trainingSampleId, shadeId: saved.label.shadeId };
 }
 
+/** The two label calls an undo needs (the `@/lib/api` functions; injected so tests can fake them). */
+export interface HexLabelUndoApi {
+  saveHexLabel(request: HexLabelRequest): Promise<HexLabelSaveResponse>;
+  deleteHexLabel(trainingSampleId: string): Promise<unknown>;
+}
+
+/**
+ * Carry out `planUndo(saved)`: delete a brand-new label or re-post the one it replaced. Resolves to
+ * the plan and the shade's label afterwards (`null` once deleted). Shared by the Hex Labeling tab
+ * and the polish detail sip panel.
+ */
+export async function undoHexLabelSave(
+  saved: HexLabelSaveResponse,
+  api: HexLabelUndoApi
+): Promise<{ plan: UndoPlan; label: HexLabel | null }> {
+  const plan = planUndo(saved);
+  if (plan.kind === "delete") {
+    await api.deleteHexLabel(plan.trainingSampleId);
+    return { plan, label: null };
+  }
+  const restored = await api.saveHexLabel(plan.request);
+  return { plan, label: restored.label };
+}
+
 /** "12 / 340 labeled (3.5%)" style progress numbers; percent is 0 when total is 0. */
 export function labelProgress(labeled: number, total: number): { labeled: number; total: number; percent: number } {
   const safeTotal = Math.max(0, total);

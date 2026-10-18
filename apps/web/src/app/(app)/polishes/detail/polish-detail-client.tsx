@@ -35,6 +35,7 @@ import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { NailPhotoPanel } from "@/components/nail-photo-panel";
 import { LogManiButton } from "@/components/log-mani-button";
+import { AdminHexSipSection } from "@/components/admin-hex-sip-panel";
 import { canLogPolish, formatWornOn, toLocalIsoDate } from "@/lib/mani-log";
 import { toast } from "sonner";
 
@@ -350,6 +351,9 @@ export default function PolishDetailClient({
           </div>
         </div>
       </div>
+
+      {/* Admins only: sip a ground-truth hex from the catalog images (#351). Not mounted for others. */}
+      <AdminHexSipSection key={polish.id} shadeId={polish.id} />
 
       {polish.inventoryItemId && (
         <NailPhotoPanel
