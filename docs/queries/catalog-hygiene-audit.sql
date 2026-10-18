@@ -193,6 +193,29 @@ HAVING count(*) FILTER (WHERE distance <= 0.10) > 0
 ORDER BY count(*) FILTER (WHERE distance <= 0.10) DESC
 LIMIT 30;
 
+-- 4b. Every owned near-dupe pair with a non-color side, one row per pair, unaggregated and
+--     untruncated, for the Phase 6 before/after comparison (plan §4). Save it to a file before
+--     the backfill and diff it after. It holds internal user ids, so keep it out of issues and
+--     PR comments; post section 4's totals there instead.
+\echo '== 4b. All owned near-dupe pairs with a non-color side (for Phase 6; do not post)'
+WITH owned AS (
+  SELECT i.user_id, a.shade_id, a.category, a.display_hex
+  FROM user_inventory_item i
+  JOIN audit_shade a ON a.shade_id = i.shade_id
+  WHERE i.status IN ('owned', 'destash') AND a.display_hex IS NOT NULL
+)
+SELECT
+  x.user_id,
+  x.shade_id AS shade_a, x.category AS category_a, x.display_hex AS hex_a,
+  y.shade_id AS shade_b, y.category AS category_b, y.display_hex AS hex_b,
+  round(hex_oklab_distance(x.display_hex, y.display_hex)::numeric, 4) AS distance,
+  CASE WHEN hex_oklab_distance(x.display_hex, y.display_hex) <= 0.05 THEN 'HIGH' ELSE 'MEDIUM' END AS grade
+FROM owned x
+JOIN owned y ON y.user_id = x.user_id AND x.shade_id < y.shade_id
+WHERE (x.category <> 'color' OR y.category <> 'color')
+  AND hex_oklab_distance(x.display_hex, y.display_hex) <= 0.10
+ORDER BY x.user_id, x.shade_id, y.shade_id;
+
 -- 5. Toppers whose detected hex may be the base color underneath: the detected hex is far
 --    from the vendor hex, or there is no vendor hex and the detected hex is saturated (a
 --    clear-based topper should read near white/grey, not as a strong color).

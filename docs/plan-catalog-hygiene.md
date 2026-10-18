@@ -38,6 +38,8 @@ linked source product's title, product type and tags, and reports:
    so it's compared before and after the backfill (see Phase 6).
 5. Toppers whose detected hex looks like a base color (far from the vendor hex, or saturated
    with no vendor hex).
+4b. Every pair behind section 4, one row each, for the Phase 6 before/after diff. It contains
+   internal user ids, so it stays in a local file and isn't posted.
 6. Ten sample rows per category, to check for false positives before trusting the counts.
 
 It runs in one transaction that ends in `ROLLBACK`. Its only write is a session temp table,
@@ -51,7 +53,7 @@ psql "$DATABASE_URL" -f docs/queries/catalog-hygiene-audit.sql
 so it is where the heuristics get tuned and every backfill is rehearsed. Prod is only audited
 once the dev results look right, and only changed after the same steps have run cleanly on dev
 (see §4). If a Postgres firewall doesn't allow your IP, use the Azure portal query editor (paste
-the file) rather than opening the firewall. Post the output on #347 and #349.
+the file) rather than opening the firewall. Post the output on #347 and #349, except section 4b.
 
 ### What the local dry run already shows (dev seed data, 267 shades)
 
@@ -187,6 +189,9 @@ role prefill.
 **Phase 6 — Verify on dev, then prod.**
 1. Save the full audit output on dev **before** the backfill. After it, re-run and compare:
    - Section 5 should be empty, and section 1 should match the backfill report.
+   - Diff section 4b, the full pair listing, not section 4's totals, which are grouped and
+     truncated. Section 4b holds internal user ids, so keep it in a local file rather than on
+     an issue.
    - Section 4 measures hex distances between owned shades, so category changes alone don't
      alter it. Clearing a topper's `detected_hex` (D-D) does: if that hex was its display hex,
      the topper's pairs move to a different distance or grade, or drop out when no other hex
