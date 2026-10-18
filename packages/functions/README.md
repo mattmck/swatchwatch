@@ -54,6 +54,10 @@ npm run test:e2e --workspace=swatchwatch-functions  # E2E tests against the runn
   rotate/revoke making old links 404, the public payload allowlist (no PII, no private fields, only
   `wishlist` items on catalog shades, public `v2` images only), the rate limiter (429 + `Retry-After`
   per IP and per token), and cross-user isolation of the owner routes.
+  `tests/orphan-media-sweep.unit.test.cjs` covers the orphan media sweep (#319): env defaults and
+  clamps, foreign-key discovery (fails closed on multi-column keys), the container/owner prefilter, blob-before-row order, shared blob URLs, 404 blobs,
+  blob/row failures kept for the next run, never deleting catalog / `inline://` / other-owner blobs,
+  lock and re-check skips, `image_id` paging with the per-run cap, and the timer's telemetry.
   `tests/capture-check.unit.test.cjs` covers `POST /api/capture/{captureId}/check`: owned /
   wishlisted / notOwned relationships (shade and barcode→SKU matches, candidates), zero
   `INSERT`/`UPDATE`/`DELETE` (none on `user_inventory_item` or `inventory_event`, no transaction),
@@ -171,6 +175,7 @@ Background triggers:
 - `ingestion-job-worker` (`ingestion-worker.ts`) — Azure Storage Queue trigger for async ingestion jobs.
 - `ingestion-ai-batch-poller` (`ingestion-ai-batch-poller.ts`) — Timer trigger that polls Azure OpenAI batch status and applies completed detections.
 - `polish-import-session-cleanup` (`polish-imports.ts`) — Hourly timer (`0 23 * * * *`) that deletes expired `polish_import_session` rows (the API already hides them).
+- `orphan-media-sweep` (`orphan-media-sweep.ts`, logic in `src/lib/orphan-media-sweep.ts`) — Daily timer (`ORPHAN_MEDIA_SWEEP_SCHEDULE`, default `0 17 3 * * *`) that deletes private user media orphaned by cascade deletes outside the API (#319, decision D9): `image_asset` rows with `owner_type = 'user'`, `captured_at` older than `ORPHAN_MEDIA_SWEEP_GRACE_SECONDS`, and no referencing row in any table with a foreign key into `image_asset` (read from `pg_constraint` on every run; a multi-column key aborts the run). Each candidate is locked `FOR UPDATE SKIP LOCKED` and re-checked, then its blob (and a user-media `thumb_url`) is deleted before the row; a 404 blob counts as `blobMissing` and the row is still deleted, any other blob error keeps the row for the next run. Only blobs in `USER_MEDIA_CONTAINER` under the owner's `<ownerId>/` prefix are deleted; user rows pointing elsewhere (catalog blobs or `inline://` capture frames) are kept and, thanks to an `ILIKE '%/<container>/<owner_id>/%'` prefilter in the candidate query, not rescanned every run (so they cannot crowd out real orphans); a blob or thumbnail URL that another `image_asset` row also uses is never deleted, and `owner_type = 'source'` catalog assets are never scanned. Pages by `image_id` (`ORPHAN_MEDIA_SWEEP_BATCH_SIZE`) up to `ORPHAN_MEDIA_SWEEP_MAX_PER_RUN` candidates. Skips when `AZURE_STORAGE_CONNECTION` is unset (`orphan_media_sweep.skipped`); otherwise emits `orphan_media_sweep.completed` (properties `scanned`, `deleted`, `blobMissing`, `failed`, `skipped`, `truncated`, plus the config) and one `orphan_media_sweep.<count>` metric per count, or `orphan_media_sweep.failed` + an exception (`area: orphan-media-sweep`, `stage: run`) when the run cannot start or scan (e.g. `USER_MEDIA_CONTAINER` equals `SOURCE_IMAGE_CONTAINER`, or the DB is down).
 
 
 All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpRequest, context: InvocationContext)`.
@@ -931,6 +936,10 @@ Key variables:
 | `INGESTION_JOB_QUEUE_NAME` | Optional queue name for async ingestion jobs. Defaults to `ingestion-jobs`. |
 | `SOURCE_IMAGE_CONTAINER` | Optional blob container override for source-ingested images. Defaults to `source-images`. |
 | `USER_MEDIA_CONTAINER` | Optional blob container override for private user media (e.g. nail photos). Defaults to `nail-photos`; Terraform sets it from `azurerm_storage_container.nail_photos`. The only container owner-scoped `v3` image ids may read (and `v2` ids may not), see #227. |
+| `ORPHAN_MEDIA_SWEEP_SCHEDULE` | NCRONTAB schedule for the `orphan-media-sweep` timer (default `0 17 3 * * *`, daily 03:17 UTC), #319. |
+| `ORPHAN_MEDIA_SWEEP_GRACE_SECONDS` | Minimum age (by `image_asset.captured_at`) before an unreferenced owner-scoped asset may be swept (default `86400` = 24h, clamped 3600–2592000). Rows without `captured_at` are never swept. |
+| `ORPHAN_MEDIA_SWEEP_BATCH_SIZE` | Candidates fetched per sweep scan query (default `100`, clamped 1–1000). |
+| `ORPHAN_MEDIA_SWEEP_MAX_PER_RUN` | Most candidates one sweep run examines (default `2000`, clamped 1–20000); the rest are picked up by the next run (`truncated: true` in the completed event). |
 | `IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS` | Minimum remaining lifetime of newly minted owner-scoped private (`v3`) image ids (default `3600` = 1h, clamped to 300–86400, expiry bucketed to 15 minutes), see #227. |
 | `AZURE_STORAGE_CONNECTION` | Connection string for uploading source images to Azure Blob Storage. When unset (for local dev or bring-up), ingestion falls back to storing the original source image URLs so swatch images still appear. |
 | `AZURE_OPENAI_GATEWAY_ENDPOINT` | Optional APIM gateway base URL used when `AZURE_OPENAI_USE_GATEWAY=true`. |
