@@ -26,7 +26,9 @@ M2; drafted against 17 open issues and 2 milestones):
 | Defer to 2027 | #109 Expo scaffold, #2 ESM migration, #117 Redis, #158/#228 APIM gateway, #102 (superseded by `finish_type` admin) | Still deferred, see §5 and [retro-m2.md](retro-m2.md) Q1 candidates |
 
 Hygiene: M0 and M1 are closed; **M2 — Collector's companion** holds the batch. Release #340
-(2026-10-17) promoted every Sprint 1–4 item below to `main` as one squash commit. Several PRs in it
+(2026-10-17) promoted every Sprint 1–4 item below to `main` as one squash commit. Deploy Prod run
+39083042415 applied all 12 migrations cleanly, and prod served 0 failed requests in the first 90
+minutes. Several PRs in it
 targeted `dev`, so their closing keywords only fired on the release; the housekeeping pass on
 2026-10-17 closed the rest by hand with a comment citing the PR.
 
