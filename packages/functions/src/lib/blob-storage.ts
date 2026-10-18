@@ -1,5 +1,12 @@
 import { createHash, createHmac } from "node:crypto";
 import { ImageProxyConfigError } from "./image-proxy-errors";
+import {
+  IMAGE_VARIANT_SIZES,
+  type ImageVariantSize,
+  imageVariantBlobName,
+  planImageVariantCrop,
+  renderImageVariant,
+} from "./image-variants";
 
 const AZURE_STORAGE_API_VERSION = "2023-11-03";
 const DEFAULT_SOURCE_IMAGE_CONTAINER = "source-images";
@@ -44,13 +51,18 @@ function normalizeImageContentType(contentType: string): string {
   return contentType.split(";")[0].trim().toLowerCase();
 }
 
-export function validateImageUpload(contentType: string, sizeBytes: number): string {
+function assertAllowedImageType(contentType: string): string {
   const normalizedType = normalizeImageContentType(contentType || "");
   if (!normalizedType || !UPLOAD_LIMITS.allowedMimeTypes.has(normalizedType)) {
     throw new Error(
       `Unsupported image type: ${normalizedType || "unknown"}. Allowed: ${[...UPLOAD_LIMITS.allowedMimeTypes].join(", ")}`
     );
   }
+  return normalizedType;
+}
+
+export function validateImageUpload(contentType: string, sizeBytes: number): string {
+  const normalizedType = assertAllowedImageType(contentType);
   if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
     throw new Error("Image payload is empty");
   }
@@ -61,6 +73,145 @@ export function validateImageUpload(contentType: string, sizeBytes: number): str
   }
 
   return normalizedType;
+}
+
+const DEFAULT_SOURCE_IMAGE_MAX_EDGE_PX = 2048;
+const MIN_SOURCE_IMAGE_MAX_EDGE_PX = 256;
+const MAX_SOURCE_IMAGE_MAX_EDGE_PX = 8192;
+const DEFAULT_SOURCE_IMAGE_MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
+const MAX_SOURCE_IMAGE_MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024;
+/** Quality for the WebP fallback used when the format-preserving re-encode is still too big. */
+const OVERSIZE_WEBP_QUALITY = 85;
+
+export interface SourceImageLimits {
+  /** Long edge (px) above which an ingested source image is downscaled before storage. */
+  maxEdgePx: number;
+  /** Largest source image download accepted; bigger ones are refused before decoding. */
+  maxDownloadBytes: number;
+}
+
+function readClampedIntEnv(name: string, fallback: number, min: number, max: number): number {
+  const parsed = Number.parseInt(process.env[name] || "", 10);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, parsed));
+}
+
+/**
+ * `SOURCE_IMAGE_MAX_EDGE_PX` (default 2048, clamped 256–8192) and
+ * `SOURCE_IMAGE_MAX_DOWNLOAD_BYTES` (default 25 MB, clamped 5–100 MB). 2048px covers every
+ * consumer: Azure OpenAI vision downsamples to 2048px even at `detail: high` (512px at `low`),
+ * and the image proxy's display transforms stop at 1024px.
+ */
+export function resolveSourceImageLimits(): SourceImageLimits {
+  return {
+    maxEdgePx: readClampedIntEnv(
+      "SOURCE_IMAGE_MAX_EDGE_PX",
+      DEFAULT_SOURCE_IMAGE_MAX_EDGE_PX,
+      MIN_SOURCE_IMAGE_MAX_EDGE_PX,
+      MAX_SOURCE_IMAGE_MAX_EDGE_PX
+    ),
+    maxDownloadBytes: readClampedIntEnv(
+      "SOURCE_IMAGE_MAX_DOWNLOAD_BYTES",
+      DEFAULT_SOURCE_IMAGE_MAX_DOWNLOAD_BYTES,
+      UPLOAD_LIMITS.maxSizeBytes,
+      MAX_SOURCE_IMAGE_MAX_DOWNLOAD_BYTES
+    ),
+  };
+}
+
+export interface NormalizedSourceImage {
+  bytes: Buffer;
+  contentType: string;
+  /** True when the long edge was downscaled to `maxEdgePx`. */
+  resized: boolean;
+  /** True when the image was re-encoded as WebP to fit `maxStoredBytes`. */
+  reencoded: boolean;
+}
+
+/**
+ * Prepare a downloaded catalog image for storage: strip metadata (as `stripImageMetadata`),
+ * downscale a long edge over `maxEdgePx`, and, if the format-preserving result is still over
+ * `maxStoredBytes` (large PNGs), re-encode it as WebP. An image within both limits goes through
+ * exactly the `stripImageMetadata` pipeline, so its checksum (and checksum-named blob) is
+ * unchanged. Undecodable input is returned as-is for the caller's size check to judge.
+ */
+export async function normalizeSourceImage(
+  bytes: Buffer,
+  contentType: string,
+  options: { maxEdgePx: number; maxStoredBytes?: number }
+): Promise<NormalizedSourceImage> {
+  const maxStoredBytes = options.maxStoredBytes ?? UPLOAD_LIMITS.maxSizeBytes;
+  try {
+    const sharpModule = await import("sharp");
+    const sharp = sharpModule.default;
+    const metadata = await sharp(bytes, { failOn: "none" }).metadata();
+    const longEdge = Math.max(metadata.width ?? 0, metadata.height ?? 0);
+    const resized = longEdge > options.maxEdgePx;
+    const pipeline = () => {
+      const image = sharp(bytes, { failOn: "none" }).rotate();
+      return resized
+        ? image.resize({
+            width: options.maxEdgePx,
+            height: options.maxEdgePx,
+            fit: "inside",
+            withoutEnlargement: true,
+          })
+        : image;
+    };
+
+    const output = await pipeline().toBuffer();
+    if (output.length <= maxStoredBytes) {
+      return { bytes: output, contentType, resized, reencoded: false };
+    }
+    const webp = await pipeline().webp({ quality: OVERSIZE_WEBP_QUALITY }).toBuffer();
+    return { bytes: webp, contentType: "image/webp", resized, reencoded: true };
+  } catch (error) {
+    console.warn("[blob-storage] Failed to normalize source image, using original bytes:", error);
+    return { bytes, contentType, resized: false, reencoded: false };
+  }
+}
+
+function formatMb(bytes: number): string {
+  return (bytes / (1024 * 1024)).toFixed(1);
+}
+
+function downloadTooLarge(sizeBytes: number | null, maxBytes: number): Error {
+  const size = sizeBytes === null ? `more than ${formatMb(maxBytes)}MB` : `${formatMb(sizeBytes)}MB`;
+  return new Error(`Image too large to download: ${size} exceeds ${formatMb(maxBytes)}MB download limit`);
+}
+
+/**
+ * Read a fetch response body, never buffering more than `maxBytes`: a declared Content-Length
+ * over the cap is refused without reading, and a streamed body is cancelled once it passes it.
+ */
+async function readResponseCapped(response: Response, maxBytes: number): Promise<Buffer> {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await response.body?.cancel().catch(() => undefined);
+    throw downloadTooLarge(declared, maxBytes);
+  }
+  if (!response.body) {
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length > maxBytes) throw downloadTooLarge(bytes.length, maxBytes);
+    return bytes;
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw downloadTooLarge(null, maxBytes);
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks, total);
 }
 
 export async function stripImageMetadata(bytes: Buffer): Promise<Buffer> {
@@ -692,11 +843,28 @@ export async function uploadSourceImageToBlob(
   }
 
   const sourceContentType = sourceResponse.headers.get("content-type") || "image/jpeg";
-  const arrayBuffer = await sourceResponse.arrayBuffer();
-  const bytes = Buffer.from(arrayBuffer);
-  const contentType = validateImageUpload(sourceContentType, bytes.length);
-  const cleanBytes = await stripImageMetadata(bytes);
-  validateImageUpload(contentType, cleanBytes.length);
+  const limits = resolveSourceImageLimits();
+  let sourceType: string;
+  try {
+    sourceType = assertAllowedImageType(sourceContentType);
+  } catch (error) {
+    await sourceResponse.body?.cancel().catch(() => undefined);
+    throw error;
+  }
+  const bytes = await readResponseCapped(sourceResponse, limits.maxDownloadBytes);
+  if (bytes.length === 0) {
+    throw new Error("Image payload is empty");
+  }
+  // Oversize images are downscaled/re-encoded rather than rejected; UPLOAD_LIMITS.maxSizeBytes
+  // still guards what is stored (and handed to AI vision as a data URI).
+  const normalized = await normalizeSourceImage(bytes, sourceType, { maxEdgePx: limits.maxEdgePx });
+  const contentType = validateImageUpload(normalized.contentType, normalized.bytes.length);
+  const cleanBytes = normalized.bytes;
+  if (normalized.resized || normalized.reencoded) {
+    console.log(
+      `[blob-storage] Normalized oversize image for ${params.source}:${params.externalId}: ${formatMb(bytes.length)}MB ${sourceType} → ${formatMb(cleanBytes.length)}MB ${contentType}${normalized.resized ? ` (long edge capped at ${limits.maxEdgePx}px)` : ""}`
+    );
+  }
 
   const checksumSha256 = createHash("sha256").update(cleanBytes).digest("hex");
   const includeBase64DataUri = params.includeBase64DataUri === true;
@@ -742,6 +910,9 @@ export async function uploadSourceImageToBlob(
   const alreadyStored = await blobExists(connectionString, containerName, blobName).catch(() => false);
   if (alreadyStored) {
     console.log(`[blob-storage] Blob already stored, skipping upload: ${blobName}`);
+    // Re-ingesting an unchanged image also fills in thumbnails it is missing (e.g. stored before
+    // variants existed), so a catalog re-sync doubles as a variant backfill.
+    await ensureImageVariantsSafely({ connectionString, containerName, blobName, bytes: cleanBytes });
     return {
       storageUrl: blobUrl.toString(),
       checksumSha256,
@@ -770,6 +941,7 @@ export async function uploadSourceImageToBlob(
   }
 
   console.log(`[blob-storage] Blob uploaded successfully: ${blobUrl.toString()}`);
+  await ensureImageVariantsSafely({ connectionString, containerName, blobName, bytes: cleanBytes });
 
   return {
     storageUrl: blobUrl.toString(),
@@ -778,6 +950,90 @@ export async function uploadSourceImageToBlob(
     sizeBytes: cleanBytes.length,
     imageBase64DataUri,
   };
+}
+
+export interface EnsureImageVariantsResult {
+  /** Variant sizes uploaded by this call. */
+  written: ImageVariantSize[];
+  /** Variant sizes that were already stored (skipped). */
+  existing: ImageVariantSize[];
+  /** Variant sizes that could not be rendered or uploaded. */
+  failed: ImageVariantSize[];
+}
+
+/**
+ * Make sure every pre-generated thumbnail (`IMAGE_VARIANT_SIZES`, see lib/image-variants) of the
+ * catalog blob `blobName` exists, rendering only the missing ones from `bytes` (the stored
+ * original, or a loader that is only called when something is missing, so a backfill never reads
+ * an original whose variants are complete). Idempotent: a variant blob is a pure function of the
+ * checksum-named original, so an existing one is never rewritten. A failed existence check counts
+ * as missing (the PUT just overwrites with identical bytes); a size that fails to render or upload
+ * is reported in `failed` and the others still proceed.
+ *
+ * @throws only when the `bytes` loader throws.
+ */
+export async function ensureImageVariants(params: {
+  connectionString: string;
+  containerName: string;
+  blobName: string;
+  bytes: Buffer | (() => Promise<Buffer>);
+  sizes?: readonly ImageVariantSize[];
+}): Promise<EnsureImageVariantsResult> {
+  const sizes = params.sizes ?? IMAGE_VARIANT_SIZES;
+  const present = await Promise.all(
+    sizes.map((size) =>
+      blobExists(params.connectionString, params.containerName, imageVariantBlobName(params.blobName, size)).catch(
+        () => false
+      )
+    )
+  );
+
+  const result: EnsureImageVariantsResult = { written: [], existing: [], failed: [] };
+  const missing: ImageVariantSize[] = [];
+  sizes.forEach((size, index) => (present[index] ? result.existing : missing).push(size));
+  if (missing.length === 0) return result;
+
+  const original = typeof params.bytes === "function" ? await params.bytes() : params.bytes;
+  const crop = await planImageVariantCrop(original);
+  await Promise.all(
+    missing.map(async (size) => {
+      try {
+        const variant = await renderImageVariant(original, size, crop);
+        await uploadBytesToBlob({
+          connectionString: params.connectionString,
+          containerName: params.containerName,
+          blobName: imageVariantBlobName(params.blobName, size),
+          bytes: variant,
+          contentType: "image/webp",
+          skipContainerEnsure: true,
+        });
+        result.written.push(size);
+      } catch (error) {
+        console.warn(`[blob-storage] Failed to store ${size}px variant of ${params.blobName}:`, error);
+        result.failed.push(size);
+      }
+    })
+  );
+  result.written.sort((a, b) => a - b);
+  result.failed.sort((a, b) => a - b);
+  return result;
+}
+
+/** Ingest-path wrapper: thumbnails are an optimization, so a failure never fails the upload. */
+async function ensureImageVariantsSafely(params: {
+  connectionString: string;
+  containerName: string;
+  blobName: string;
+  bytes: Buffer;
+}): Promise<void> {
+  try {
+    const { written } = await ensureImageVariants(params);
+    if (written.length > 0) {
+      console.log(`[blob-storage] Stored ${written.join("/")}px variants of ${params.blobName}`);
+    }
+  } catch (error) {
+    console.warn(`[blob-storage] Failed to store variants of ${params.blobName}:`, error);
+  }
 }
 
 /**
