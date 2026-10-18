@@ -309,6 +309,21 @@ describe("lib/http — withCors", () => {
       assert.equal(res.headers.get("Access-Control-Allow-Origin"), "https://my-app.azurestaticapps.net");
     });
 
+    it("matches the wildcard pattern case-insensitively and only on the full suffix", async () => {
+      httpModule = require(path.resolve(__dirname, "../dist/lib/http.js"));
+      const handler = httpModule.withCors(async () => ({ status: 200 }));
+      const allow = async (origin) => {
+        const res = await handler(fakeRequest({ method: "GET", headers: { origin } }), fakeContext());
+        return res.headers?.get("Access-Control-Allow-Origin") ?? null;
+      };
+
+      assert.equal(await allow("HTTPS://My-App.AzureStaticApps.net"), "HTTPS://My-App.AzureStaticApps.net");
+      assert.equal(await allow("https://azurestaticapps.net"), null);
+      assert.equal(await allow("https://my-app.azurestaticapps.net.evil.com"), null);
+      assert.equal(await allow("https://my-appXazurestaticapps.net"), null);
+      assert.equal(await allow("http://my-app.azurestaticapps.net"), null);
+    });
+
     it("does not add CORS headers for disallowed origin", async () => {
       const modulePath = path.resolve(__dirname, "../dist/lib/http.js");
       httpModule = require(modulePath);
