@@ -1,6 +1,7 @@
 /**
  * Unit tests for pre-generated catalog thumbnails ("image variants"):
- * - lib/image-variants: blob naming, storage URL derivation, transform → variant matching/snapping
+ * - lib/image-variants: blob naming, storage URL derivation, transform → variant matching/snapping,
+ *   and the product-framing crop (trim the flat background, square around the product)
  * - functions/images: square cover WebP requests are served from the variant blob, snapped to the
  *   ladder, and fall back to on-the-fly resizing when the variant is missing; private (v3) media
  *   and non-matching transforms never read variants; scope/Cache-Control rules are unchanged
@@ -155,24 +156,26 @@ const fakeContext = () => ({ log: () => {}, warn: () => {}, error: () => {} });
 
 describe("lib/image-variants", () => {
   it("names variants by pixel size next to the original", () => {
-    assert.equal(variants.imageVariantBlobName("shop/a-123.jpg", 128), "shop/a-123.jpg.w128.webp");
+    assert.equal(variants.IMAGE_VARIANT_CROP_VERSION, 1);
+    assert.equal(variants.imageVariantBlobName("shop/a-123.jpg", 128), "shop/a-123.jpg.c1.w128.webp");
+    assert.equal(variants.isImageVariantBlobName("shop/a-123.jpg.c1.w128.webp"), true);
     assert.equal(variants.isImageVariantBlobName("shop/a-123.jpg.w128.webp"), true);
     assert.equal(variants.isImageVariantBlobName("shop/a-123.jpg"), false);
   });
 
   it("derives the variant storage URL in the same container", () => {
-    assert.equal(variants.imageVariantStorageUrl(BLOB_URL, 64), `${BLOB_URL}.w64.webp`);
+    assert.equal(variants.imageVariantStorageUrl(BLOB_URL, 64), `${BLOB_URL}.c1.w64.webp`);
     // Path-style (Azurite) URLs keep their account segment.
     assert.equal(
       variants.imageVariantStorageUrl("http://127.0.0.1:10000/devstore/source-images/x.png", 256),
-      "http://127.0.0.1:10000/devstore/source-images/x.png.w256.webp"
+      "http://127.0.0.1:10000/devstore/source-images/x.png.c1.w256.webp"
     );
   });
 
   it("refuses URLs that cannot carry a variant", () => {
     assert.equal(variants.imageVariantStorageUrl("not a url", 64), null);
     assert.equal(variants.imageVariantStorageUrl(`${BLOB_URL}?comp=list`, 64), null);
-    assert.equal(variants.imageVariantStorageUrl(`${BLOB_URL}.w64.webp`, 64), null);
+    assert.equal(variants.imageVariantStorageUrl(`${BLOB_URL}.c1.w64.webp`, 64), null);
   });
 
   it("matches only square cover WebP requests at the variant quality, snapping up", () => {
@@ -189,6 +192,84 @@ describe("lib/image-variants", () => {
     assert.equal(variants.matchImageVariantSize({ ...base, quality: 90, width: 96, height: 96 }), null);
   });
 
+  /** Mean RGB of an encoded image. */
+  async function meanColor(buf) {
+    const { channels } = await sharp(buf).removeAlpha().stats();
+    return channels.slice(0, 3).map((c) => Math.round(c.mean));
+  }
+  /** A `w`×`h` red product at (`left`, `top`) on a white `size`×`size` studio background. */
+  function studioShot({ size = 1000, left, top, w, h }) {
+    return sharp({ create: { width: size, height: size, channels: 3, background: "#ffffff" } })
+      .composite([
+        {
+          input: { create: { width: w, height: h, channels: 3, background: { r: 220, g: 20, b: 40 } } },
+          left,
+          top,
+        },
+      ])
+      .png()
+      .toBuffer();
+  }
+
+  it("frames an off-center product on a flat background instead of the empty center", async () => {
+    // A small product in the top-right corner of a white square: the plain resize is ~97% white.
+    const shot = await studioShot({ left: 760, top: 60, w: 160, h: 160 });
+    const plan = await variants.planImageVariantCrop(shot);
+    assert.ok(plan, "a flat-background studio shot gets a product crop");
+    assert.ok(plan.left > 600 && plan.top < 100, `crop is around the product: ${JSON.stringify(plan)}`);
+    assert.equal(plan.width, plan.height);
+
+    const [r, g] = await meanColor(await variants.renderImageVariant(shot, 128));
+    assert.ok(r > 180 && g < 120, `variant is mostly product, got r=${r} g=${g}`);
+    const centered = await sharp(shot).resize({ width: 128, height: 128, fit: "cover" }).png().toBuffer();
+    assert.ok((await meanColor(centered))[1] > 240, "the plain center crop is mostly background");
+  });
+
+  it("keeps a tall bottle's body: the square is at least 65% of its height", async () => {
+    const shot = await studioShot({ left: 450, top: 100, w: 100, h: 800 });
+    const plan = await variants.planImageVariantCrop(shot);
+    assert.ok(plan);
+    assert.ok(plan.width >= 0.65 * 800 && plan.width <= 0.65 * 800 * 1.1, `side ${plan.width}`);
+    // Centered on the bottle (center y = 500).
+    assert.ok(Math.abs(plan.top + plan.height / 2 - 500) < 12);
+  });
+
+  it("pads with the background when the square would leave the image", async () => {
+    // Tall 400×1000 image filled top to bottom by a narrow product: the square (≈ 700px) is wider
+    // than the image, so the crop is clamped and the variant padded with the white background.
+    const shot = await sharp({ create: { width: 400, height: 1000, channels: 3, background: "#ffffff" } })
+      .composite([{ input: { create: { width: 80, height: 990, channels: 3, background: "#dc1428" } }, left: 160, top: 5 }])
+      .png()
+      .toBuffer();
+    const plan = await variants.planImageVariantCrop(shot);
+    assert.ok(plan);
+    assert.equal(plan.width, 400);
+    const variant = await variants.renderImageVariant(shot, 128, plan);
+    const meta = await sharp(variant).metadata();
+    assert.equal(meta.width, 128);
+    assert.equal(meta.height, 128);
+    const { data } = await sharp(variant).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    assert.deepEqual([...data.subarray(0, 3)].map((v) => v > 240), [true, true, true], "corner is background white");
+  });
+
+  it("center-crops photos without a flat background", async () => {
+    const { randomBytes } = require("node:crypto");
+    const noise = await sharp(randomBytes(300 * 200 * 3), { raw: { width: 300, height: 200, channels: 3 } }).png().toBuffer();
+    assert.equal(await variants.planImageVariantCrop(noise), null);
+    const expected = await sharp(noise)
+      .rotate()
+      .resize({ width: 128, height: 128, fit: "cover", withoutEnlargement: true })
+      .webp({ quality: 72 })
+      .toBuffer();
+    assert.deepEqual(await variants.renderImageVariant(noise, 128), expected);
+  });
+
+  it("center-crops uniform and undecodable images without throwing", async () => {
+    const flat = await sharp({ create: { width: 64, height: 64, channels: 3, background: "#336699" } }).png().toBuffer();
+    assert.equal(await variants.planImageVariantCrop(flat), null);
+    assert.equal(await variants.planImageVariantCrop(Buffer.from("not-an-image")), null);
+  });
+
   it("keeps the shared ladder in the documented order", () => {
     assert.deepEqual([...variants.IMAGE_VARIANT_SIZES], [64, 128, 256, 512]);
     assert.equal(variants.IMAGE_VARIANT_QUALITY, 72);
@@ -201,7 +282,7 @@ describe("functions/images — pre-generated variants", () => {
   it("serves a stored variant without reading the original", async () => {
     const variantBody = Buffer.from("variant-128-bytes");
     const calls = mockStorage({
-      [`${BLOB_URL}.w128.webp`]: { body: variantBody, contentType: "image/webp", etag: '"variant-etag"' },
+      [`${BLOB_URL}.c1.w128.webp`]: { body: variantBody, contentType: "image/webp", etag: '"variant-etag"' },
       [BLOB_URL]: { body: await fixturePng(), contentType: "image/png" },
     });
     const id = imageProxy.encodeImageProxyId(BLOB_URL);
@@ -209,7 +290,7 @@ describe("functions/images — pre-generated variants", () => {
 
     assert.equal(res.status, 200);
     assert.deepEqual(Buffer.from(res.body), variantBody);
-    assert.deepEqual(calls.map((call) => call.url), [`${BLOB_URL}.w128.webp`]);
+    assert.deepEqual(calls.map((call) => call.url), [`${BLOB_URL}.c1.w128.webp`]);
     assert.equal(res.headers.get("Content-Type"), "image/webp");
     assert.equal(res.headers.get("ETag"), '"variant-etag"');
     assert.match(res.headers.get("Cache-Control"), /^public, max-age=86400, stale-while-revalidate=\d+$/);
@@ -222,7 +303,7 @@ describe("functions/images — pre-generated variants", () => {
     const res = await images.imagesHandler(fakeRequest(id, VARIANT_QUERY), fakeContext());
 
     assert.equal(res.status, 200);
-    assert.deepEqual(calls.map((call) => call.url), [`${BLOB_URL}.w128.webp`, BLOB_URL]);
+    assert.deepEqual(calls.map((call) => call.url), [`${BLOB_URL}.c1.w128.webp`, BLOB_URL]);
     const meta = await sharp(Buffer.from(res.body)).metadata();
     assert.equal(meta.format, "webp");
     assert.equal(meta.width, 128);
@@ -245,7 +326,7 @@ describe("functions/images — pre-generated variants", () => {
     const calls = [];
     global.fetch = async (url) => {
       calls.push(String(url));
-      if (String(url).endsWith(".w128.webp")) return new Response("busy", { status: 503 });
+      if (String(url).endsWith(".c1.w128.webp")) return new Response("busy", { status: 503 });
       return new Response(png, { status: 200, headers: { "content-type": "image/png" } });
     };
     const id = imageProxy.encodeImageProxyId(BLOB_URL);
@@ -329,7 +410,7 @@ describe("functions/image-variants-admin — backfill", () => {
       [blobUrl("b.png")]: { body: png, contentType: "image/png" },
     };
     for (const size of SIZES) {
-      blobs[`${blobUrl("b.png")}.w${size}.webp`] = { body: Buffer.from("x"), contentType: "image/webp" };
+      blobs[`${blobUrl("b.png")}.c1.w${size}.webp`] = { body: Buffer.from("x"), contentType: "image/webp" };
     }
     const calls = mockStorage(blobs);
     imageAssetRows = [
@@ -350,7 +431,7 @@ describe("functions/image-variants-admin — backfill", () => {
       nextAfterImageId: 3,
     });
     for (const size of SIZES) {
-      assert.ok(blobs[`${blobUrl("a.png")}.w${size}.webp`], `${size}px variant written`);
+      assert.ok(blobs[`${blobUrl("a.png")}.c1.w${size}.webp`], `${size}px variant written`);
     }
     assert.equal(
       calls.filter((call) => call.method === "GET" && call.url === blobUrl("b.png")).length,

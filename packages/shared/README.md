@@ -167,7 +167,7 @@ Collection stats (#271): the `GET /api/stats/collection` payload behind the dash
 
 | Export | Description |
 |--------|-------------|
-| `IMAGE_VARIANT_SIZES` | `[64, 128, 256, 512]` — square `fit=cover` WebP thumbnails pre-generated next to every catalog image blob at ingest (`<blob>.w<size>.webp`); the image proxy serves matching `?w=&h=&fit=cover&fm=webp` requests from them |
+| `IMAGE_VARIANT_SIZES` | `[64, 128, 256, 512]` — square WebP thumbnails pre-generated next to every catalog image blob at ingest (`<blob>.c<n>.w<size>.webp`; studio shots cropped around the product, other photos center-cropped); the image proxy serves matching `?w=&h=&fit=cover&fm=webp` requests from them |
 | `ImageVariantSize` | Union of the ladder sizes |
 | `IMAGE_VARIANT_QUALITY` | `72` — WebP quality of every variant (the proxy's default `q`) |
 | `snapImageVariantSize(size)` | Smallest ladder size ≥ `size`, or `null` above 512 |

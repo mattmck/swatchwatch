@@ -8,7 +8,7 @@
  * - uploadSourceImageToBlob() skips the PUT when the checksum-named blob already exists
  * - resize-on-ingest: oversize source images are downscaled/re-encoded and stored, downloads are capped
  * - pre-generated thumbnails: uploadSourceImageToBlob() / ensureImageVariants() write the missing
- *   `<blob>.w<size>.webp` variants, skip existing ones, and never fail the ingest on a variant error
+ *   `<blob>.c<n>.w<size>.webp` variants, skip existing ones, and never fail the ingest on a variant error
  * - userMediaContainer() default/override, and readBlobFromStorageUrl() scoped to it (#227)
  */
 const { describe, it, beforeEach, afterEach } = require("node:test");
@@ -238,7 +238,7 @@ describe("lib/blob-storage — ensureImageVariants", () => {
 
   it("does not load the original when every variant exists", async () => {
     const sizes = [64, 128, 256, 512];
-    mockStorage(new Set(sizes.map((size) => `/source-images/shop/a.jpg.w${size}.webp`)));
+    mockStorage(new Set(sizes.map((size) => `/source-images/shop/a.jpg.c1.w${size}.webp`)));
     let loaded = false;
     const result = await ensureImageVariants({
       connectionString: CONNECTION,
@@ -253,8 +253,8 @@ describe("lib/blob-storage — ensureImageVariants", () => {
     assert.deepEqual(result, { written: [], existing: sizes, failed: [] });
   });
 
-  it("renders only the missing sizes, center-cropped to a square", async () => {
-    const calls = mockStorage(new Set(["/source-images/shop/a.jpg.w64.webp"]));
+  it("renders only the missing sizes as squares", async () => {
+    const calls = mockStorage(new Set(["/source-images/shop/a.jpg.c1.w64.webp"]));
     const wide = await sharp({
       create: { width: 1200, height: 600, channels: 3, background: { r: 200, g: 40, b: 90 } },
     })

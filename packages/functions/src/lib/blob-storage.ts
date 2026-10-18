@@ -4,6 +4,7 @@ import {
   IMAGE_VARIANT_SIZES,
   type ImageVariantSize,
   imageVariantBlobName,
+  planImageVariantCrop,
   renderImageVariant,
 } from "./image-variants";
 
@@ -993,10 +994,11 @@ export async function ensureImageVariants(params: {
   if (missing.length === 0) return result;
 
   const original = typeof params.bytes === "function" ? await params.bytes() : params.bytes;
+  const crop = await planImageVariantCrop(original);
   await Promise.all(
     missing.map(async (size) => {
       try {
-        const variant = await renderImageVariant(original, size);
+        const variant = await renderImageVariant(original, size, crop);
         await uploadBytesToBlob({
           connectionString: params.connectionString,
           containerName: params.containerName,

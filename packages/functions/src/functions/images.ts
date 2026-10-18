@@ -18,7 +18,12 @@ import {
   ImageProxyTokenError,
 } from "../lib/image-proxy";
 import { appendVary, withCors } from "../lib/http";
-import { type ImageVariantSize, imageVariantStorageUrl, matchImageVariantSize } from "../lib/image-variants";
+import {
+  type ImageVariantSize,
+  imageVariantStorageUrl,
+  matchImageVariantSize,
+  renderImageVariant,
+} from "../lib/image-variants";
 import { trackEvent, trackException } from "../lib/telemetry";
 import sharp from "sharp";
 
@@ -301,8 +306,8 @@ async function authorizePrivateImageRead(
  * allowlisted container; a validly signed id outside it is a 403 without any fetch. Optional
  * `w`/`h`/`fm`/`q`/`fit` transforms apply to both scopes. A public square cover WebP request at
  * the default quality (`?w=n&h=n&fit=cover&fm=webp`) is snapped up to the variant ladder
- * (`IMAGE_VARIANT_SIZES`) and served from the pre-generated `<blob>.w<size>.webp` sibling, falling
- * back to resizing the original when that variant is not stored. The route stays `authLevel: "anonymous"`
+ * (`IMAGE_VARIANT_SIZES`) and served from the pre-generated `<blob>.c<n>.w<size>.webp` sibling,
+ * falling back to rendering it from the original (same product-framing crop) when not stored. The route stays `authLevel: "anonymous"`
  * so the public path keeps working; private ids authenticate in the handler.
  */
 app.http("images", {
@@ -399,12 +404,11 @@ async function serveImage(
 
     // Square cover WebP thumbnails of catalog images come from pre-generated variant blobs (a
     // small read, no resize). The size snaps up to the variant ladder whether or not the variant
-    // exists yet, so a hit and an on-the-fly miss return the same image. Private media has no
-    // variants and keeps the exact requested transform.
+    // exists yet, and a miss is rendered with the variant's own product-framing crop, so a hit
+    // and an on-the-fly miss return the same image. Private media has no variants and keeps the
+    // exact requested transform.
     const variantSize = scope === "public" ? matchImageVariantSize(transform) : null;
     if (variantSize !== null) {
-      transform.width = variantSize;
-      transform.height = variantSize;
       const variant = await readImageVariant(storageUrl, variantSize, context);
       if (variant) {
         return respond({
@@ -420,6 +424,17 @@ async function serveImage(
     const blob = await readBlobFromStorageUrl(storageUrl, {
       allowedContainers: scope === "private" ? [userMediaContainer()] : defaultReadableContainers(),
     });
+
+    if (variantSize !== null && isTransformableContentType(blob.contentType)) {
+      const bytes = await renderImageVariant(blob.bytes, variantSize);
+      return respond({
+        bytes,
+        contentType: "image/webp",
+        transformed: true,
+        etag: `"${createHash("sha1").update(bytes).digest("hex")}"`,
+        blob,
+      });
+    }
 
     if (hasTransformRequest(transform) && isTransformableContentType(blob.contentType)) {
       const result = await transformImage(blob.bytes, transform);

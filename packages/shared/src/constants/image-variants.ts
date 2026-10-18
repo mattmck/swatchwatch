@@ -1,6 +1,7 @@
 /**
- * Pre-generated catalog image thumbnails ("variants"). Ingestion writes one square, center-cropped
- * (`fit=cover`) WebP per size next to each catalog blob, and the image proxy serves
+ * Pre-generated catalog image thumbnails ("variants"). Ingestion writes one square WebP per size
+ * next to each catalog blob, cropped around the product on studio shots and center-cropped
+ * otherwise (see `planImageVariantCrop` in packages/functions), and the image proxy serves
  * `?w=<n>&h=<n>&fit=cover&fm=webp` requests from them instead of resizing the original per request.
  *
  * The sizes cover what the web actually renders, at 1x and 2x density: 40–64px list/strip
