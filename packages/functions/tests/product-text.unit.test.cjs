@@ -74,6 +74,20 @@ describe("lib/product-text — truncateText", () => {
     assert.ok(cut.length <= 12);
     assert.equal(cut, "alpha beta…");
   });
+
+  it("never splits a surrogate pair (a lone surrogate is invalid in jsonb)", () => {
+    const hasLoneSurrogate = (value) =>
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(value);
+    const text = "ab" + "\u{1F485}".repeat(3);
+    for (let max = 1; max <= text.length; max += 1) {
+      const cut = truncateText(text, max);
+      assert.ok(cut.length <= max, `max ${max}`);
+      assert.ok(!hasLoneSurrogate(cut), `max ${max}: ${JSON.stringify(cut)}`);
+    }
+    assert.equal(truncateText(text, 4), "ab…");
+    assert.equal(truncateText(text, 5), "ab\u{1F485}…");
+    assert.ok(!hasLoneSurrogate(htmlToPlainText(`<p>${"x".repeat(1998)}\u{1F485} jelly</p>`)));
+  });
 });
 
 describe("lib/product-text — normalizeDescriptors", () => {

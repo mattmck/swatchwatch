@@ -71,6 +71,8 @@ export function truncateText(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   const room = Math.max(0, maxChars - 1);
   let cut = text.slice(0, room);
+  // Never keep half of a surrogate pair (emoji etc.): a lone surrogate is invalid in Postgres jsonb.
+  if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
   const lastSpace = cut.lastIndexOf(" ");
   // Only back off to a word boundary when it costs little of the budget.
   if (lastSpace > 0 && room - lastSpace <= 30) {
