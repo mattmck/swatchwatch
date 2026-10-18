@@ -92,10 +92,11 @@ function createFakeDb(assets, options = {}) {
   async function query(text, values = []) {
     if (text.includes("pg_constraint")) return { rows: state.references };
     if (text.includes("LIMIT $3")) {
-      const [grace, cursor, limit] = values;
-      state.candidateCalls.push({ grace, cursor, limit });
+      const [grace, cursor, limit, pattern] = values;
+      state.candidateCalls.push({ grace, cursor, limit, pattern });
+      assert.equal(pattern, "%/nail-photos/");
       const rows = [...state.assets.entries()]
-        .filter(([id, a]) => id > Number(cursor) && eligible(a) && a.refs === 0)
+        .filter(([id, a]) => id > Number(cursor) && eligible(a) && a.refs === 0 && a.storageUrl.includes(`/nail-photos/${a.ownerId}/`))
         .sort(([a], [b]) => a - b)
         .slice(0, limit)
         .map(([id]) => ({ imageId: String(id) }));
@@ -110,8 +111,14 @@ function createFakeDb(assets, options = {}) {
       return { rows: [{ ownerId: String(asset.ownerId), storageUrl: asset.storageUrl, thumbUrl: asset.thumbUrl }] };
     }
     if (text.includes('AS "orphan"')) {
-      const asset = state.assets.get(Number(values[0]));
-      return { rows: asset ? [{ orphan: asset.refs === 0 }] : [] };
+      assert.match(text, /o\.image_id <> ia\.image_id/);
+      const id = Number(values[0]);
+      const asset = state.assets.get(id);
+      const urls = [asset?.storageUrl, asset?.thumbUrl].filter(Boolean);
+      const shared = [...state.assets.entries()].some(
+        ([otherId, o]) => otherId !== id && (urls.includes(o.storageUrl) || urls.includes(o.thumbUrl))
+      );
+      return { rows: asset ? [{ orphan: asset.refs === 0 && !shared }] : [] };
     }
     if (/^\s*DELETE FROM image_asset/.test(text)) {
       const id = Number(values[0]);
@@ -242,10 +249,16 @@ describe("image_asset reference discovery", () => {
     assert.match(sql, /ia\.captured_at IS NOT NULL/);
     assert.match(sql, /ia\.captured_at < now\(\) - make_interval\(secs => \$1\)/);
     assert.match(sql, /ia\.image_id > \$2/);
+    assert.match(sql, /ia\.storage_url ILIKE \(\$4 \|\| ia\.owner_id::text \|\| '\/%'\)/);
     assert.match(sql, /NOT EXISTS \(SELECT 1 FROM "public"\."manicure" r WHERE r\."photo_image_id" = ia\.image_id\)/);
     assert.match(sql, /NOT EXISTS \(SELECT 1 FROM "public"\."we""ird" r WHERE r\."image_id" = ia\.image_id\)/);
     assert.match(sql, /ORDER BY ia\.image_id\s+LIMIT \$3/);
     assert.equal(sweep.buildUnreferencedSql([]), "TRUE");
+  });
+
+  it("prefilters candidates on the user-media container, escaping LIKE wildcards", () => {
+    assert.equal(sweep.userMediaUrlLikePrefix("nail-photos"), "%/nail-photos/");
+    assert.equal(sweep.userMediaUrlLikePrefix("a_b%c"), "%/a\\_b\\%c/");
   });
 });
 
@@ -327,7 +340,7 @@ describe("sweepOrphanedUserMedia", () => {
     assert.match(warnings[0], /blob already deleted/);
   });
 
-  it("never deletes catalog, inline or other-owner blobs of user rows", async () => {
+  it("never deletes catalog, inline or other-owner blobs of user rows, and does not rescan them", async () => {
     const db = createFakeDb({
       10: { ownerId: 1, storageUrl: catalogUrl("1/5/a.jpg") }, // capture frame reusing a catalog blob
       11: { ownerId: 1, storageUrl: "inline://capture/abc/def.jpg" },
@@ -335,9 +348,35 @@ describe("sweepOrphanedUserMedia", () => {
     });
     const { deps, deleted } = createDeps(db);
     const result = await sweep.sweepOrphanedUserMedia(deps, CONFIG);
-    assert.deepEqual(result, { scanned: 3, deleted: 0, blobMissing: 0, failed: 0, skipped: 3, truncated: false });
+    assert.deepEqual(result, { scanned: 0, deleted: 0, blobMissing: 0, failed: 0, skipped: 0, truncated: false });
     assert.deepEqual(deleted, []);
     assert.equal(db.state.assets.size, 3);
+  });
+
+  it("still refuses an other-owner blob if one gets past the SQL prefilter", async () => {
+    const db = createFakeDb({ 10: { ownerId: 1, storageUrl: mediaUrl("1/5/a.jpg") } });
+    const query = db.query;
+    db.query = async (text, values) =>
+      text.includes("FOR UPDATE SKIP LOCKED")
+        ? { rows: [{ ownerId: "2", storageUrl: mediaUrl("1/5/a.jpg"), thumbUrl: null }] }
+        : query(text, values);
+    const { deps, deleted } = createDeps(db);
+    deps.transaction = async (cb) => cb({ query: db.query });
+    const result = await sweep.sweepOrphanedUserMedia(deps, CONFIG);
+    assert.equal(result.skipped, 1);
+    assert.deepEqual(deleted, []);
+  });
+
+  it("never deletes a blob another image_asset row also uses", async () => {
+    const db = createFakeDb({
+      10: { ownerId: 1, storageUrl: mediaUrl("1/5/a.jpg") },
+      11: { ownerId: 1, storageUrl: mediaUrl("1/6/b.jpg"), refs: 1, thumbUrl: mediaUrl("1/5/a.jpg") },
+    });
+    const { deps, deleted } = createDeps(db);
+    const result = await sweep.sweepOrphanedUserMedia(deps, CONFIG);
+    assert.deepEqual(result, { scanned: 1, deleted: 0, blobMissing: 0, failed: 0, skipped: 1, truncated: false });
+    assert.deepEqual(deleted, []);
+    assert.equal(db.state.assets.size, 2);
   });
 
   it("skips an asset locked by another transaction or referenced after the scan", async () => {

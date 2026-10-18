@@ -1,5 +1,5 @@
 import type { PoolClient, QueryResult, QueryResultRow } from "pg";
-import { isUserMediaStorageUrl, storageUrlBlobName } from "./blob-storage";
+import { isUserMediaStorageUrl, storageUrlBlobName, userMediaContainer } from "./blob-storage";
 
 /**
  * Orphaned private media sweep (#319, decision D9).
@@ -18,6 +18,7 @@ import { isUserMediaStorageUrl, storageUrlBlobName } from "./blob-storage";
  * - Only blobs in USER_MEDIA_CONTAINER whose path starts with the row's `owner_id/`. Anything else
  *   (catalog `v2` imagery, `inline://` capture frames, other containers) is skipped, and the row
  *   is kept.
+ * - A blob URL shared with any other `image_asset` row is never deleted.
  * - Each asset is locked (`FOR UPDATE SKIP LOCKED`) and re-checked before deleting, so a reference
  *   added since the scan (which needs a key-share lock on the row) either wins or waits.
  * - The blob is deleted before the row: a failed row delete is retried on the next run (the blob
@@ -141,8 +142,11 @@ export function buildUnreferencedSql(references: readonly ImageAssetReference[])
 }
 
 /**
- * Keyset page of unreferenced user assets past the grace period. Params: $1 grace seconds,
- * $2 last image_id seen, $3 limit.
+ * Keyset page of unreferenced user assets past the grace period whose URL contains
+ * `/<user-media container>/<owner_id>/`. Params: $1 grace seconds, $2 last image_id seen, $3 limit,
+ * $4 pattern prefix from `userMediaUrlLikePrefix`. The ILIKE is only a prefilter, so rows that can
+ * never be swept (catalog blobs, `inline://` capture frames, other owners' paths) are not rescanned
+ * every run and cannot crowd out real orphans; `isSweepableUserMediaUrl` decides.
  */
 export function buildCandidateSql(references: readonly ImageAssetReference[]): string {
   return `SELECT ia.image_id::text AS "imageId"
@@ -151,10 +155,26 @@ export function buildCandidateSql(references: readonly ImageAssetReference[]): s
        AND ia.captured_at IS NOT NULL
        AND ia.captured_at < now() - make_interval(secs => $1)
        AND ia.image_id > $2
+       AND ia.storage_url ILIKE ($4 || ia.owner_id::text || '/%')
        AND ${buildUnreferencedSql(references)}
      ORDER BY ia.image_id
      LIMIT $3`;
 }
+
+/** `%/<container>/` with LIKE wildcards in the container name escaped (the SQL appends `<owner_id>/%`). */
+export function userMediaUrlLikePrefix(container: string): string {
+  return `%/${container.replace(/[\\%_]/g, (ch) => `\\${ch}`)}/`;
+}
+
+/**
+ * True when no other `image_asset` row uses `ia`'s blob or thumbnail URL (every upload path writes
+ * a fresh UUID name today; this keeps a future dedupe/reuse path from losing a live photo's blob).
+ */
+const BLOB_NOT_SHARED_SQL = `NOT EXISTS (
+           SELECT 1 FROM image_asset o
+           WHERE o.image_id <> ia.image_id
+             AND (o.storage_url IN (ia.storage_url, ia.thumb_url) OR o.thumb_url IN (ia.storage_url, ia.thumb_url))
+         )`;
 
 /**
  * True when `storageUrl` is a blob the sweep may delete for `ownerId`: in USER_MEDIA_CONTAINER and
@@ -215,9 +235,10 @@ async function sweepCandidate(
       const asset = locked.rows[0];
       if (!asset || !isSweepableUserMediaUrl(asset.storageUrl, asset.ownerId)) return "skipped";
 
-      // Re-check in a new statement (new snapshot) now that the row lock blocks new references.
+      // Re-check in a new statement (new snapshot) now that the row lock blocks new references, and
+      // make sure no other row shares the blob.
       const stillOrphan = await client.query<{ orphan: boolean }>(
-        `SELECT (${unreferencedSql}) AS "orphan"
+        `SELECT (${unreferencedSql}) AND ${BLOB_NOT_SHARED_SQL} AS "orphan"
          FROM image_asset ia
          WHERE ia.image_id = $1`,
         [imageId]
@@ -265,6 +286,7 @@ export async function sweepOrphanedUserMedia(
   const references = await loadImageAssetReferences(deps);
   const unreferencedSql = buildUnreferencedSql(references);
   const candidateSql = buildCandidateSql(references);
+  const urlPattern = userMediaUrlLikePrefix(userMediaContainer());
 
   const result: OrphanMediaSweepResult = {
     scanned: 0,
@@ -278,7 +300,7 @@ export async function sweepOrphanedUserMedia(
   let cursor = "0";
   while (result.scanned < config.maxPerRun) {
     const limit = Math.min(config.batchSize, config.maxPerRun - result.scanned);
-    const page = await deps.query<{ imageId: string }>(candidateSql, [config.graceSeconds, cursor, limit]);
+    const page = await deps.query<{ imageId: string }>(candidateSql, [config.graceSeconds, cursor, limit, urlPattern]);
     if (page.rows.length === 0) break;
 
     for (const { imageId } of page.rows) {
