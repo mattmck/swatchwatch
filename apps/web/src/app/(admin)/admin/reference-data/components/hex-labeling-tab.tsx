@@ -147,7 +147,8 @@ interface SamplerPick {
 
 /**
  * CSS box for the sample-window outline: the clamped pixel bounds scaled to the displayed canvas,
- * at least 4px so a tiny window stays visible, but never extending past the canvas.
+ * never extending past it. No minimum size: the outline covers exactly the averaged pixels (its
+ * 1px border keeps even a sub-pixel window visible).
  */
 function outlineStyle(
   bounds: { x0: number; y0: number; x1: number; y1: number },
@@ -160,8 +161,8 @@ function outlineStyle(
   return {
     left,
     top,
-    width: Math.min(Math.max(4, (bounds.x1 - bounds.x0 + 1) * scale), Math.max(0, boxW - left)),
-    height: Math.min(Math.max(4, (bounds.y1 - bounds.y0 + 1) * scale), Math.max(0, boxH - top)),
+    width: Math.min((bounds.x1 - bounds.x0 + 1) * scale, Math.max(0, boxW - left)),
+    height: Math.min((bounds.y1 - bounds.y0 + 1) * scale, Math.max(0, boxH - top)),
   };
 }
 
