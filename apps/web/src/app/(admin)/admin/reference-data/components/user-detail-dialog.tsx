@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import type { AdminAuditEvent, AdminUserDetailResponse, AdminUserUpdateRequest } from "swatchwatch-shared";
+import { toast } from "sonner";
 import { getAdminUser, updateAdminUser } from "@/lib/api";
+import { configuredEntraTenantId, entraUserAdminUrl, passwordResetInstructions } from "@/lib/entra-admin-links";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -106,7 +108,8 @@ export function formatDateTime(value: string | undefined): string {
 /**
  * Admin detail panel for one user (issue #45): state, auth linkage, edit form (handle,
  * suspend / reactivate with reason, audit note), linked identities and audit history.
- * Role is read-only (assigned in Entra); password reset is not available from the app.
+ * Role is read-only (assigned in Entra). Password reset hands off to the sign-in provider: copyable
+ * instructions for the user, plus an Entra admin center link per linked identity.
  */
 export function UserDetailDialog({
   userId,
@@ -125,6 +128,16 @@ export function UserDetailDialog({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const entraTenantId = configuredEntraTenantId();
+
+  async function copyResetInstructions() {
+    try {
+      await navigator.clipboard.writeText(passwordResetInstructions());
+      toast.success("Reset instructions copied");
+    } catch {
+      toast.error("Couldn't copy. Try again, or tell the user to choose “Forgot password?” on the sign-in page.");
+    }
+  }
 
   useEffect(() => {
     // The parent keys this component by user id, so state starts empty for every user.
@@ -257,12 +270,25 @@ export function UserDetailDialog({
                   onChange={(event) => setForm({ ...form, note: event.target.value })}
                 />
               </label>
-              <p className="text-xs text-muted-foreground">
-                Password reset: users reset their own password with “Forgot password?” on the sign-in page. An admin-started
-                reset isn’t available yet (it needs Microsoft Graph access to the tenant).
-              </p>
               {saveError && <p className="text-destructive">{saveError}</p>}
               {saveMessage && <p className="text-muted-foreground">{saveMessage}</p>}
+            </section>
+
+            <section className="space-y-2">
+              <h4 className="font-medium">Password</h4>
+              <p className="text-xs text-muted-foreground">
+                SwatchWatch doesn’t store passwords. Each sign-in uses one method and that method’s own reset: email +
+                password accounts use “Forgot password?” on the Microsoft sign-in page (Microsoft emails a code); Google
+                and Facebook accounts reset with Google or Facebook. To lock someone out, use Suspend.
+              </p>
+              <Button type="button" variant="outline" size="sm" onClick={() => void copyResetInstructions()}>
+                Copy reset instructions for the user
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                To reset an email + password account yourself, open it in the Entra admin center and choose Reset
+                password: Entra creates a temporary password for you to pass on, and records the reset in its own audit
+                log (not the SwatchWatch history below). Google and Facebook sign-ins have nothing to reset there.
+              </p>
             </section>
 
             <section className="space-y-2">
@@ -278,6 +304,19 @@ export function UserDetailDialog({
                         {identity.email ?? "no email"} · linked {formatDateTime(identity.createdAt)} · last seen{" "}
                         {formatDateTime(identity.lastSeenAt)}
                       </div>
+                      {(() => {
+                        const adminUrl = entraUserAdminUrl(entraTenantId, identity.externalId);
+                        return adminUrl ? (
+                          <a
+                            href={adminUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs underline underline-offset-2"
+                          >
+                            Open in Entra admin center
+                          </a>
+                        ) : null;
+                      })()}
                     </li>
                   ))}
                 </ul>
