@@ -35,6 +35,8 @@ import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { NailPhotoPanel } from "@/components/nail-photo-panel";
 import { LogManiButton } from "@/components/log-mani-button";
+import { AdminHexSipPanel } from "@/components/admin-hex-sip-panel";
+import { useAuth } from "@/hooks/use-auth";
 import { canLogPolish, formatWornOn, toLocalIsoDate } from "@/lib/mani-log";
 import { toast } from "sonner";
 
@@ -69,6 +71,7 @@ export default function PolishDetailClient({
   justArchived?: boolean;
 }) {
   const router = useRouter();
+  const { isAdmin } = useAuth();
   const { finishTypes } = useReferenceData();
   const listHref = resolveReturnTo(returnTo ?? null);
   const [polish, setPolish] = useState<Polish | null>(null);
@@ -350,6 +353,9 @@ export default function PolishDetailClient({
           </div>
         </div>
       </div>
+
+      {/* Admins only: sip a ground-truth hex from the catalog images (#351). Not mounted for others. */}
+      {isAdmin && <AdminHexSipPanel key={polish.id} shadeId={polish.id} />}
 
       {polish.inventoryItemId && (
         <NailPhotoPanel

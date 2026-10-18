@@ -60,6 +60,7 @@ import type {
   IngestionJob,
   HexLabelDeleteResponse,
   HexLabelQueueFilters,
+  HexLabelQueueItem,
   HexLabelQueueResponse,
   HexLabelRequest,
   HexLabelSaveResponse,
@@ -976,6 +977,14 @@ export async function getHexLabelQueue(filters?: HexLabelQueueFilters): Promise<
     headers: await getAuthHeaders({ admin: true }),
   });
   return handleResponse<HexLabelQueueResponse>(response);
+}
+
+/** One shade's labeling payload for the polish detail page (`GET /api/hex-labels-admin/shades/{shadeId}`, #351). */
+export async function getHexLabelShade(shadeId: string): Promise<HexLabelQueueItem> {
+  const response = await fetch(`${API_BASE_URL}/hex-labels-admin/shades/${encodeURIComponent(shadeId)}`, {
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<HexLabelQueueItem>(response);
 }
 
 /** Save (create or replace) a shade's ground-truth hex label (`POST /api/hex-labels-admin/labels`). */

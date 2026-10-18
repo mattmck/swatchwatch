@@ -333,7 +333,8 @@ export function ShadeLabeler({
           {typedHex ? (
             <p className="text-xs text-muted-foreground">
               Δ vendor <span className="font-mono">{formatDistance(typedHex, item.vendorHex) ?? "n/a"}</span> · Δ detected{" "}
-              <span className="font-mono">{formatDistance(typedHex, item.detectedHex) ?? "n/a"}</span>
+              <span className="font-mono">{formatDistance(typedHex, item.detectedHex) ?? "n/a"}</span> · Δ name{" "}
+              <span className="font-mono">{formatDistance(typedHex, item.nameHex) ?? "n/a"}</span>
             </p>
           ) : null}
           <label className="block space-y-1 text-sm">

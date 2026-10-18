@@ -4,7 +4,8 @@
  * Stored as `color_training_sample` rows with `source_type = 'manual'` and
  * exported by `npm run eval:hex:populate` as `manual` eval cases.
  *
- * Routes (admin-only): `GET /api/hex-labels-admin/queue`,
+ * Routes (admin-only): `GET /api/hex-labels-admin/queue`, `GET /api/hex-labels-admin/shades/{shadeId}`
+ * (one `HexLabelQueueItem`, for the polish detail page),
  * `POST /api/hex-labels-admin/labels`, `DELETE /api/hex-labels-admin/labels/{trainingSampleId}`.
  */
 
