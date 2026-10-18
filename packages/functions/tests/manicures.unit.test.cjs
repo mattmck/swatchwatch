@@ -90,7 +90,7 @@ function resetState() {
     nextImageId: 900,
     nextManicureId: 1,
     manicures: new Map(), // id -> { userId, wornOn, notes, photo, polishes: [{ shadeId, role, position }] }
-    events: [], // { inventoryItemId, manicureId }
+    events: [], // { inventoryItemId (null = detached, D8), userId, shadeId, manicureId }
   };
 }
 resetState();
@@ -205,7 +205,8 @@ function handle(via, rawSql, params = []) {
     return { rows: [] };
   }
   if (/inventory_event/.test(sql)) {
-    // syncManicureEvents: model the end state (one event per current inventory row).
+    // syncManicureEvents: model the end state (one event per shade on the manicure, attached to
+    // the caller's inventory row for it or detached when the polish is not in the collection).
     if (/^INSERT INTO inventory_event/.test(sql)) {
       const [userId, manicureId] = [Number(params[0]), Number(params[1])];
       const m = state.manicures.get(manicureId);
@@ -213,8 +214,17 @@ function handle(via, rawSql, params = []) {
       if (m && m.userId === userId) {
         for (const shadeId of new Set(m.polishes.map((p) => p.shadeId))) {
           const item = state.inventory.find((i) => i.userId === userId && i.shadeId === shadeId);
-          if (item) state.events.push({ inventoryItemId: item.id, manicureId });
+          state.events.push({ inventoryItemId: item ? item.id : null, userId, shadeId, manicureId });
         }
+      }
+    }
+    // reattachInventoryEvents: the caller's detached events → their current row for the shade.
+    if (/^UPDATE inventory_event ie SET inventory_item_id = ui\.inventory_item_id/.test(sql)) {
+      const [userId, shadeIds] = [Number(params[0]), ids(params[1])];
+      for (const e of state.events) {
+        if (e.userId !== userId || e.inventoryItemId !== null || !shadeIds.includes(e.shadeId)) continue;
+        const item = state.inventory.find((i) => i.userId === userId && i.shadeId === e.shadeId);
+        if (item) e.inventoryItemId = item.id;
       }
     }
     return { rows: [], rowCount: 0 };
@@ -634,6 +644,47 @@ describe("manicures — wear stats", () => {
     assert.deepEqual(res.jsonBody.polishes.map((p) => [p.shadeId, p.inventoryItemId]), [["11", null], ["10", "101"]]);
   });
 
+  it("deleting a polish from the collection keeps its wear events; re-adding re-attaches them (D8, #317)", async () => {
+    const first = await create({ wornOn: "2026-10-10", polishes: [{ shadeId: 10 }, { shadeId: 11, role: "accent" }] });
+    const manicureId = Number(first.jsonBody.id);
+    // DELETE /api/polishes/11: inventory_event.inventory_item_id is ON DELETE SET NULL.
+    state.inventory = state.inventory.filter((i) => i.id !== 102);
+    for (const e of state.events) if (e.inventoryItemId === 102) e.inventoryItemId = null;
+
+    // An edit keeps the detached event (it is keyed by shade, not by the deleted row).
+    await update(manicureId, { notes: "still have the photo" });
+    const eventFor = (shadeId) => state.events.find((e) => e.manicureId === manicureId && e.shadeId === shadeId);
+    assert.deepEqual(eventFor(11), { inventoryItemId: null, userId: OWNER, shadeId: 11, manicureId });
+    assert.equal(eventFor(10).inventoryItemId, 101);
+
+    // Re-adding the polish (POST /api/polishes recomputes wear stats) re-attaches the event.
+    state.inventory.push({ id: 104, userId: OWNER, shadeId: 11, wearCount: 0, lastWornOn: null, triedOn: null });
+    const client = { query: async (sql, params) => handle("client", sql, params) };
+    const rows = await manicureLib.recomputeWearStats(client, OWNER, [11], { fillTriedAt: false });
+    assert.equal(eventFor(11).inventoryItemId, 104);
+    assert.deepEqual(rows.map((r) => [r.inventoryItemId, r.wearCount]), [["104", 1]]);
+  });
+
+  it("event sync and re-attach SQL are keyed by user + shade and bound to the caller", async () => {
+    await create({ polishes: [{ shadeId: 10 }] });
+    const eventCalls = calls.filter((c) => /inventory_event/.test(c.sql));
+    assert.ok(eventCalls.length >= 4, "re-attach + delete / update / insert");
+    for (const call of eventCalls) {
+      assert.equal(Number(call.params[0]), OWNER, call.sql);
+      assert.match(call.sql, /ie\.user_id = \$1/, call.sql);
+    }
+    const reattach = eventCalls.find((c) => /^UPDATE inventory_event ie SET inventory_item_id = ui\.inventory_item_id/.test(c.sql));
+    assert.match(reattach.sql, /ie\.inventory_item_id IS NULL/);
+    assert.match(reattach.sql, /ui\.user_id = \$1 AND ui\.shade_id = ie\.shade_id/);
+    const reattachAt = calls.indexOf(reattach);
+    assert.ok(reattachAt < calls.indexOf(recomputeCalls()[0]), "re-attach runs before the recompute");
+    const insert = eventCalls.find((c) => /^INSERT INTO inventory_event/.test(c.sql));
+    assert.match(insert.sql, /\(inventory_item_id, user_id, shade_id, event_type, event_payload, manicure_id\)/);
+    assert.match(insert.sql, /LEFT JOIN user_inventory_item ui ON ui\.user_id = m\.user_id AND ui\.shade_id = mp\.shade_id/);
+    const del = eventCalls.find((c) => /^DELETE FROM inventory_event/.test(c.sql));
+    assert.match(del.sql, /ie\.shade_id NOT IN/);
+  });
+
   it("the recompute SQL derives stats from the mani log (count / max / min), never inc/dec", async () => {
     await create({ polishes: [{ shadeId: 10 }] });
     const { sql } = recomputeCalls()[0];
@@ -1050,6 +1101,41 @@ describe("migration 20261017063740704_manicure-log", () => {
       /DROP TABLE IF EXISTS manicure;/,
       /DROP COLUMN IF EXISTS manicure_id/,
       /DROP INDEX IF EXISTS idx_inventory_event_manicure/,
+    ]) {
+      assert.match(down, stmt);
+    }
+  });
+});
+
+describe("migration 20261017232537776_inventory-event-keep-wear-history (D8, #317)", () => {
+  const fs = require("node:fs");
+  const sql = fs.readFileSync(
+    path.join(__dirname, "../migrations/20261017232537776_inventory-event-keep-wear-history.sql"),
+    "utf8"
+  );
+  const [up, down] = sql.split("-- Down Migration");
+
+  it("detaches events on inventory delete instead of cascading, keyed by user + shade", () => {
+    assert.match(up, /ADD COLUMN IF NOT EXISTS user_id BIGINT REFERENCES app_user\(user_id\) ON DELETE CASCADE/);
+    assert.match(up, /ADD COLUMN IF NOT EXISTS shade_id BIGINT REFERENCES shade\(shade_id\) ON DELETE CASCADE/);
+    assert.match(up, /ALTER COLUMN user_id SET NOT NULL/);
+    assert.match(up, /ALTER COLUMN inventory_item_id DROP NOT NULL/);
+    assert.match(up, /REFERENCES user_inventory_item\(inventory_item_id\) ON DELETE SET NULL/);
+    assert.doesNotMatch(up, /user_inventory_item\(inventory_item_id\) ON DELETE CASCADE/, "the inventory FK must not cascade");
+    // Backfill happens before NOT NULL.
+    assert.ok(up.indexOf("UPDATE inventory_event ie") < up.indexOf("SET NOT NULL"));
+  });
+
+  it("has a Down section that restores the cascading NOT NULL FK and drops the new columns", () => {
+    assert.ok(down, "missing -- Down Migration");
+    for (const stmt of [
+      /DELETE FROM inventory_event WHERE inventory_item_id IS NULL/,
+      /REFERENCES user_inventory_item\(inventory_item_id\) ON DELETE CASCADE/,
+      /ALTER COLUMN inventory_item_id SET NOT NULL/,
+      /DROP INDEX IF EXISTS idx_inventory_event_user_shade/,
+      /DROP INDEX IF EXISTS idx_inventory_event_item/,
+      /DROP COLUMN IF EXISTS shade_id/,
+      /DROP COLUMN IF EXISTS user_id/,
     ]) {
       assert.match(down, stmt);
     }

@@ -351,10 +351,31 @@ function toIso(value: Date | string | null): string | null {
 }
 
 /**
+ * Re-attach the caller's detached `inventory_event` rows (left by deleting a polish from the
+ * collection, D8 / #317) for `shadeIds` to their current inventory row for the same shade.
+ * A no-op for shades the caller does not hold.
+ */
+export async function reattachInventoryEvents(client: PoolClient, userId: number, shadeIds: number[]): Promise<void> {
+  if (shadeIds.length === 0) return;
+  await client.query(
+    `UPDATE inventory_event ie
+     SET inventory_item_id = ui.inventory_item_id
+     FROM user_inventory_item ui
+     WHERE ie.user_id = $1
+       AND ie.inventory_item_id IS NULL
+       AND ie.shade_id = ANY($2::bigint[])
+       AND ui.user_id = $1
+       AND ui.shade_id = ie.shade_id`,
+    [userId, shadeIds]
+  );
+}
+
+/**
  * Recompute wear stats for the caller's inventory rows of `shadeIds` from the mani log (see the
- * file comment). `fillTriedAt: false` leaves `tried_at` alone (used by the polishes API, where
- * the user may have just cleared it on purpose). Returns the new stats of every row it touched;
- * shades the caller has no inventory row for are skipped.
+ * file comment), after re-attaching their detached events (`reattachInventoryEvents`, so a
+ * re-added polish gets its history back). `fillTriedAt: false` leaves `tried_at` alone (used by
+ * the polishes API, where the user may have just cleared it on purpose). Returns the new stats
+ * of every row it touched; shades the caller has no inventory row for are skipped.
  */
 export async function recomputeWearStats(
   client: PoolClient,
@@ -364,6 +385,7 @@ export async function recomputeWearStats(
 ): Promise<ManicureWearStat[]> {
   const unique = Array.from(new Set(shadeIds));
   if (unique.length === 0) return [];
+  await reattachInventoryEvents(client, userId, unique);
   const result = await client.query<WearStatRow>(
     `WITH target AS (
        SELECT DISTINCT unnest($2::bigint[]) AS shade_id
@@ -411,14 +433,17 @@ export async function recomputeWearStats(
 
 /**
  * Bring the manicure's `inventory_event(used)` rows in line with its current polishes: one event
- * per inventory row (payload: `wornOn`, `roles`). Events of polishes no longer on the manicure
- * are deleted, remaining ones get the current payload, and new polishes get a new event (so an
- * event keeps its original `created_at` across edits). Deleting the manicure removes its events
- * through `inventory_event.manicure_id ON DELETE CASCADE`.
+ * per shade (payload: `wornOn`, `roles`), attached to the caller's inventory row for that shade,
+ * or detached (`inventory_item_id` NULL) when the polish is no longer in the collection (D8,
+ * #317). Events of shades no longer on the manicure are deleted, remaining ones get the current
+ * payload and inventory row, and new shades get a new event (so an event keeps its original
+ * `created_at` across edits). Deleting the manicure removes its events through
+ * `inventory_event.manicure_id ON DELETE CASCADE`.
  */
 export async function syncManicureEvents(client: PoolClient, userId: number, manicureId: number): Promise<void> {
   const current = `
-    SELECT ui.inventory_item_id,
+    SELECT mp.shade_id,
+           ui.inventory_item_id,
            jsonb_build_object(
              'source', 'manicure',
              'manicureId', m.manicure_id::text,
@@ -427,35 +452,39 @@ export async function syncManicureEvents(client: PoolClient, userId: number, man
            ) AS payload
     FROM manicure m
     JOIN manicure_polish mp ON mp.manicure_id = m.manicure_id
-    JOIN user_inventory_item ui ON ui.user_id = m.user_id AND ui.shade_id = mp.shade_id
+    LEFT JOIN user_inventory_item ui ON ui.user_id = m.user_id AND ui.shade_id = mp.shade_id
     WHERE m.manicure_id = $2 AND m.user_id = $1
-    GROUP BY ui.inventory_item_id, m.manicure_id, m.worn_on`;
+    GROUP BY mp.shade_id, ui.inventory_item_id, m.manicure_id, m.worn_on`;
 
   await client.query(
     `DELETE FROM inventory_event ie
      WHERE ie.manicure_id = $2
+       AND ie.user_id = $1
        AND ie.event_type = 'used'
-       AND ie.inventory_item_id NOT IN (SELECT c.inventory_item_id FROM (${current}) c)`,
+       AND (ie.shade_id IS NULL OR ie.shade_id NOT IN (SELECT c.shade_id FROM (${current}) c))`,
     [userId, manicureId]
   );
   await client.query(
     `UPDATE inventory_event ie
-     SET event_payload = c.payload
+     SET event_payload = c.payload,
+         inventory_item_id = c.inventory_item_id
      FROM (${current}) c
      WHERE ie.manicure_id = $2
+       AND ie.user_id = $1
        AND ie.event_type = 'used'
-       AND ie.inventory_item_id = c.inventory_item_id`,
+       AND ie.shade_id = c.shade_id`,
     [userId, manicureId]
   );
   await client.query(
-    `INSERT INTO inventory_event (inventory_item_id, event_type, event_payload, manicure_id)
-     SELECT c.inventory_item_id, 'used', c.payload, $2
+    `INSERT INTO inventory_event (inventory_item_id, user_id, shade_id, event_type, event_payload, manicure_id)
+     SELECT c.inventory_item_id, $1, c.shade_id, 'used', c.payload, $2
      FROM (${current}) c
      WHERE NOT EXISTS (
        SELECT 1 FROM inventory_event ie
        WHERE ie.manicure_id = $2
+         AND ie.user_id = $1
          AND ie.event_type = 'used'
-         AND ie.inventory_item_id = c.inventory_item_id
+         AND ie.shade_id = c.shade_id
      )`,
     [userId, manicureId]
   );

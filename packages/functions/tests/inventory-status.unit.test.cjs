@@ -544,7 +544,10 @@ describe("functions/polishes — create/update inventory fields", () => {
     return { res, tx };
   }
 
-  const eventCalls = (tx) => tx.filter((c) => /inventory_event/.test(c.text));
+  // Archive-reason statements only: the wear-stat recompute also re-attaches detached events
+  // (D8, #317), which writes no event.
+  const eventCalls = (tx) =>
+    tx.filter((c) => /inventory_event/.test(c.text) && !/SET inventory_item_id = ui\.inventory_item_id/.test(c.text));
 
   it("PUT status=archived on an owned polish locks the caller's row and records used_up", async () => {
     const { res, tx } = await putArchive({ quantity: 0, status: "archived" }, "owned");
@@ -555,6 +558,10 @@ describe("functions/polishes — create/update inventory fields", () => {
     const events = eventCalls(tx);
     assert.equal(events.length, 1);
     assert.match(events[0].text, /INSERT INTO inventory_event/);
+    // user_id / shade_id are copied from the caller's own row (D8, #317), never from input.
+    assert.match(events[0].text, /\(inventory_item_id, user_id, shade_id, event_type, event_payload\)/);
+    assert.match(events[0].text, /SELECT ui\.inventory_item_id, ui\.user_id, ui\.shade_id/);
+    assert.match(events[0].text, /WHERE ui\.inventory_item_id = \$1::bigint/);
     assert.deepEqual(events[0].params, ["42", "used_up", "owned"]);
   });
 

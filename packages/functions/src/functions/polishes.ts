@@ -429,9 +429,14 @@ async function applyArchiveEventPlan(
     );
     if (updated.rowCount) return;
   }
+  // user_id / shade_id come from the same row: events are keyed by them so they survive
+  // deleting the polish (D8, #317).
   await client.query(
-    `INSERT INTO inventory_event (inventory_item_id, event_type, event_payload)
-     VALUES ($1::bigint, $2::text, jsonb_build_object('reason', $2::text, 'previousStatus', $3::text))`,
+    `INSERT INTO inventory_event (inventory_item_id, user_id, shade_id, event_type, event_payload)
+     SELECT ui.inventory_item_id, ui.user_id, ui.shade_id, $2::text,
+            jsonb_build_object('reason', $2::text, 'previousStatus', $3::text)
+     FROM user_inventory_item ui
+     WHERE ui.inventory_item_id = $1::bigint`,
     [inventoryItemId, plan.eventType, previousStatus]
   );
 }
@@ -1304,6 +1309,8 @@ async function deletePolish(request: HttpRequest, context: InvocationContext, us
         [shadeId, userId]
       );
       const blobUrls = await detachNailPhotosForShade(client, userId, shadeId);
+      // inventory_event rows are detached (ON DELETE SET NULL), not deleted: wear history is kept
+      // by user + shade and re-attached if the polish is re-added (D8, #317).
       const result = await client.query<{ id: string }>(
         `DELETE FROM user_inventory_item
          WHERE shade_id = $1 AND user_id = $2

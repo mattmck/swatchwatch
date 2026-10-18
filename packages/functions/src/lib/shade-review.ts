@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
-import { normalizeHexColor, type ShadeReviewApproveRequest } from "swatchwatch-shared";
+import { normalizeHexColor, type PolishStatus, type ShadeReviewApproveRequest } from "swatchwatch-shared";
 import { canonicalizeFinish, type FinishCatalog } from "./finishes";
+import { recomputeWearStats } from "./manicure";
 
 /**
  * Admin review of `user_submitted` shades (#45): approve, merge into an active shade, reject.
@@ -45,6 +46,12 @@ export function quoteIdent(name: string): string {
 const INVENTORY_KEY_COLUMNS = new Set(["inventory_item_id", "user_id", "shade_id"]);
 
 /**
+ * Inventory status precedence when two rows are combined, highest first (decision D7, #316):
+ * a merge never quietly turns a polish someone owns into a wishlist item.
+ */
+export const INVENTORY_STATUS_MERGE_PRIORITY: readonly PolishStatus[] = ["owned", "destash", "wishlist", "archived"];
+
+/**
  * SQL expression that combines one column of a user's existing target row (`t`) with the same
  * column of their source row (`s`), or null when the column must not be assigned.
  *
@@ -54,9 +61,10 @@ const INVENTORY_KEY_COLUMNS = new Set(["inventory_item_id", "user_id", "shade_id
  * - `purchase_date`, `created_at`: earliest (LEAST ignores NULLs)
  * - `notes`: concatenated with a blank line (deduplicated when equal; empty sides dropped)
  * - `updated_at`: now()
+ * - `status`: the higher status wins, per `INVENTORY_STATUS_MERGE_PRIORITY` (D7, #316)
  * - array columns (e.g. `tags`): ordered union, target values first
- * - every other column, including columns added after this code was written (e.g. the
- *   inventory `status` from #261): the target row's value wins, NULLs are filled from the source
+ * - every other column, including columns added after this code was written: the target row's
+ *   value wins, NULLs are filled from the source
  */
 export function inventoryCombineExpression(column: InventoryColumnMeta): string | null {
   if (column.isGenerated || column.isIdentity || INVENTORY_KEY_COLUMNS.has(column.name)) {
@@ -73,6 +81,12 @@ export function inventoryCombineExpression(column: InventoryColumnMeta): string 
       return `LEAST(${t}, ${s})`;
     case "updated_at":
       return "now()";
+    case "status":
+      return (
+        "CASE " +
+        INVENTORY_STATUS_MERGE_PRIORITY.map((status) => `WHEN '${status}' IN (${t}, ${s}) THEN '${status}' `).join("") +
+        `ELSE COALESCE(${t}, ${s}) END`
+      );
     case "notes":
       return (
         `CASE WHEN NULLIF(btrim(${t}), '') IS NULL THEN ${s} ` +
@@ -259,7 +273,9 @@ export interface MergeShadeOutcome {
  *    `inventoryCombineExpression`; one row per user+shade is enforced by a unique index), move
  *    every row that references the source row (e.g. inventory_event) to the target row, then
  *    delete the source row.
- * 3. Every other inventory row is re-pointed to the target.
+ * 3. Every other inventory row is re-pointed to the target. Manicure polishes and inventory
+ *    events of the source move to the target too, and wear stats are recomputed for the users
+ *    involved.
  * 4. Aliases are copied (plus the submitted name, unless `keepNameAsAlias` is false); SKUs and
  *    catalog-sourced swatches (`image_asset.owner_type = 'source'`) move. User-owned swatch
  *    images stay on the retired row so private media never surfaces on a shared shade.
@@ -323,6 +339,49 @@ export async function mergeShadeInto(client: PoolClient, options: MergeShadeOpti
     [sourceShadeId, targetShadeId]
   );
   for (const row of moved.rows) affectedUsers.add(Number(row.userId));
+
+  // 3b. The mani log (#269) and wear history (D8, #317) follow the shade. A manicure that already
+  // lists the target in the same role keeps that row (uq_manicure_polish_shade_role), and a
+  // manicure's `used` event for the target supersedes the source's.
+  await client.query(
+    `DELETE FROM manicure_polish AS s
+     USING manicure_polish AS t
+     WHERE s.shade_id = $1
+       AND t.shade_id = $2
+       AND t.manicure_id = s.manicure_id
+       AND t.role = s.role`,
+    [sourceShadeId, targetShadeId]
+  );
+  const movedWear = await client.query<{ userId: string }>(
+    `UPDATE manicure_polish AS mp
+     SET shade_id = $2
+     FROM manicure m
+     WHERE mp.shade_id = $1
+       AND m.manicure_id = mp.manicure_id
+     RETURNING m.user_id::text AS "userId"`,
+    [sourceShadeId, targetShadeId]
+  );
+  await client.query(
+    `DELETE FROM inventory_event AS s
+     USING inventory_event AS t
+     WHERE s.shade_id = $1
+       AND t.shade_id = $2
+       AND s.event_type = 'used'
+       AND t.event_type = 'used'
+       AND t.manicure_id = s.manicure_id
+       AND t.user_id = s.user_id`,
+    [sourceShadeId, targetShadeId]
+  );
+  await client.query(`UPDATE inventory_event SET shade_id = $2 WHERE shade_id = $1`, [sourceShadeId, targetShadeId]);
+
+  // Wear stats are derived per (user, shade): recompute the target for everyone whose inventory or
+  // mani log changed (a combined row's counts, or manicures of the source now counting for a
+  // target the user already held).
+  const wearUsers = new Set<number>([...affectedUsers, ...movedWear.rows.map((row) => Number(row.userId))]);
+  for (const userId of [...wearUsers].sort((a, b) => a - b)) {
+    const stats = await recomputeWearStats(client, userId, [targetShadeId]);
+    if (stats.length > 0) affectedUsers.add(userId);
+  }
 
   // 4. Aliases, SKUs, catalog swatches.
   const aliases = await client.query(
