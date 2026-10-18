@@ -6,6 +6,7 @@ import {
   clientToPixel,
   hexLabelKeyAction,
   labelProgress,
+  loupeRadiusFor,
   normalizeHexInput,
   planUndo,
   readableTextColor,
@@ -25,7 +26,34 @@ function image(width: number, height: number, pixel: (x: number, y: number) => [
   return data;
 }
 
+describe("loupeRadiusFor", () => {
+  it("keeps the minimum radius for small windows", () => {
+    for (const size of [1, 3, 5, 9]) assert.equal(loupeRadiusFor(size, 7), 7, `size ${size}`);
+  });
+
+  it("grows so the whole window fits inside the round loupe", () => {
+    for (const size of [15, 25, 41, 61]) {
+      const radius = loupeRadiusFor(size, 7);
+      const half = Math.floor(size / 2);
+      // The window's far corner must sit inside the loupe circle of radius (radius + 0.5).
+      assert.ok((half + 0.5) * Math.SQRT2 <= radius + 0.5, `size ${size} → radius ${radius}`);
+      assert.ok(radius < size * 2, `size ${size} → radius ${radius} is not oversized`);
+    }
+  });
+});
+
 describe("averageRegion", () => {
+  it("averages a large window across glitter specks", () => {
+    // 61×61 polish: a grey base with a bright glitter speck on every 4th pixel in each axis.
+    const data = image(61, 61, (x, y) => (x % 4 === 0 && y % 4 === 0 ? [255, 255, 255, 255] : [100, 100, 100, 255]));
+    const small = averageRegion(data, 61, 61, 0, 0, 1);
+    assert.equal(small?.hex, "#FFFFFF", "a 1×1 window can land on a single speck");
+    const large = averageRegion(data, 61, 61, 30, 30, 61);
+    assert.equal(large?.count, 61 * 61);
+    // 16×16 speck pixels of 3721 → mean ≈ 100 + 155·256/3721 ≈ 110.7
+    assert.equal(large?.hex, "#6F6F6F");
+  });
+
   it("returns the exact colour of a single pixel (size 1)", () => {
     const data = image(3, 3, (x, y) => (x === 1 && y === 1 ? [34, 186, 204, 255] : [0, 0, 0, 255]));
     assert.deepEqual(averageRegion(data, 3, 3, 1, 1, 1), { r: 34, g: 186, b: 204, hex: "#22BACC", count: 1 });
@@ -146,9 +174,12 @@ describe("keyboard shortcuts", () => {
     assert.deepEqual(hexLabelKeyAction({ key: "Enter" }, { inTextField: true, inHexInput: true }), { type: "save" });
   });
 
-  it("steps sample sizes within 1/3/5/9", () => {
+  it("steps sample sizes within 1/3/5/9/15/25/41/61", () => {
     assert.equal(stepSampleSize(5, 1), 9);
-    assert.equal(stepSampleSize(9, 1), 9);
+    assert.equal(stepSampleSize(9, 1), 15);
+    assert.equal(stepSampleSize(41, 1), 61);
+    assert.equal(stepSampleSize(61, 1), 61);
+    assert.equal(stepSampleSize(15, -1), 9);
     assert.equal(stepSampleSize(3, -1), 1);
     assert.equal(stepSampleSize(1, -1), 1);
   });

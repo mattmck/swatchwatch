@@ -209,11 +209,22 @@ export function hexLabelKeyAction(
   }
 }
 
-/** Step through `HEX_LABEL_SAMPLE_SIZES` (1/3/5/9), clamped at both ends. */
+/** Step through `HEX_LABEL_SAMPLE_SIZES` (1/3/5/9/15/25/41/61), clamped at both ends. */
 export function stepSampleSize(current: number, delta: 1 | -1): number {
   const sizes: readonly number[] = HEX_LABEL_SAMPLE_SIZES;
   const index = Math.max(0, sizes.indexOf(current));
   return sizes[Math.min(sizes.length - 1, Math.max(0, index + delta))];
+}
+
+/**
+ * Loupe radius (image pixels either side of the pointer) that keeps the whole `size`×`size` sample
+ * window inside the round loupe: at least `minRadius`, growing so the window's corners (at
+ * `(half + 0.5)·√2` from the centre) stay inside the circle with a pixel to spare.
+ */
+export function loupeRadiusFor(size: number, minRadius: number): number {
+  const half = Math.floor(Math.max(1, Math.round(size)) / 2);
+  const cornerFit = Math.ceil((half + 0.5) * Math.SQRT2 - 0.5) + 1;
+  return Math.max(minRadius, cornerFit);
 }
 
 /** Request that recreates a saved label exactly (used to undo an overwrite). */

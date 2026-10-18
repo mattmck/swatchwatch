@@ -33,6 +33,7 @@ import {
   normalizeHexInput,
   planUndo,
   readableTextColor,
+  loupeRadiusFor,
   stepSampleSize,
   toSamplePoint,
   type HexLabelKeyAction,
@@ -49,7 +50,10 @@ import { cn } from "@/lib/utils";
 const PAGE_SIZE = 20;
 /** Prefetch the next page when this many shades are left in the loaded queue. */
 const PREFETCH_REMAINING = 3;
-/** Loupe: (2 * LOUPE_RADIUS + 1) image pixels shown at LOUPE_SIZE CSS pixels. */
+/**
+ * Loupe: (2 * radius + 1) image pixels shown at LOUPE_SIZE CSS pixels. The radius is at least
+ * LOUPE_RADIUS and grows with the sample window (`loupeRadiusFor`) so large windows stay visible.
+ */
 const LOUPE_RADIUS = 7;
 const LOUPE_SIZE = 150;
 
@@ -166,9 +170,16 @@ function ImageSampler({
   const loupeRef = useRef<HTMLCanvasElement | null>(null);
   const imageDataRef = useRef<ImageData | null>(null);
   const [status, setStatus] = useState<ImageStatus>("loading");
-  const [pointer, setPointer] = useState<{ cssX: number; cssY: number; px: number; py: number; boxW: number; boxH: number } | null>(
-    null
-  );
+  const [pointer, setPointer] = useState<{
+    cssX: number;
+    cssY: number;
+    px: number;
+    py: number;
+    boxW: number;
+    boxH: number;
+    /** CSS pixels per image pixel (the canvas is shown scaled to fit). */
+    scale: number;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -214,15 +225,16 @@ function ImageSampler({
     if (!loupe || !canvas || !pointer) return;
     const ctx = loupe.getContext("2d");
     if (!ctx) return;
-    const span = LOUPE_RADIUS * 2 + 1;
+    const radius = loupeRadiusFor(sampleSize, LOUPE_RADIUS);
+    const span = radius * 2 + 1;
     const cell = LOUPE_SIZE / span;
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, LOUPE_SIZE, LOUPE_SIZE);
     ctx.fillStyle = "#808080";
     ctx.fillRect(0, 0, LOUPE_SIZE, LOUPE_SIZE);
-    ctx.drawImage(canvas, pointer.px - LOUPE_RADIUS, pointer.py - LOUPE_RADIUS, span, span, 0, 0, LOUPE_SIZE, LOUPE_SIZE);
+    ctx.drawImage(canvas, pointer.px - radius, pointer.py - radius, span, span, 0, 0, LOUPE_SIZE, LOUPE_SIZE);
     const half = Math.floor(sampleSize / 2);
-    const start = (LOUPE_RADIUS - half) * cell;
+    const start = (radius - half) * cell;
     ctx.lineWidth = 2;
     ctx.strokeStyle = "rgba(0,0,0,0.85)";
     ctx.strokeRect(start, start, sampleSize * cell, sampleSize * cell);
@@ -244,6 +256,7 @@ function ImageSampler({
         cssY: event.clientY - rect.top,
         boxW: rect.width,
         boxH: rect.height,
+        scale: canvas.width > 0 ? rect.width / canvas.width : 1,
       };
     },
     []
@@ -266,7 +279,15 @@ function ImageSampler({
       onHover(null);
       return;
     }
-    setPointer({ cssX: hit.cssX, cssY: hit.cssY, px: hit.pixel.x, py: hit.pixel.y, boxW: hit.boxW, boxH: hit.boxH });
+    setPointer({
+      cssX: hit.cssX,
+      cssY: hit.cssY,
+      px: hit.pixel.x,
+      py: hit.pixel.y,
+      boxW: hit.boxW,
+      boxH: hit.boxH,
+      scale: hit.scale,
+    });
     onHover(sampleAt(hit.pixel));
   }
 
@@ -315,6 +336,21 @@ function ImageSampler({
               aria-hidden
               className="pointer-events-none absolute size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_2px_rgba(0,0,0,0.8)]"
               style={{ left: `${marker.x * 100}%`, top: `${marker.y * 100}%` }}
+            />
+          ) : null}
+          {pointer && status === "ready" && sampleSize > 1 ? (
+            // The sample window outlined on the image itself, so large windows are easy to place
+            // inside the polish (away from the cap, label and highlights).
+            <span
+              aria-hidden
+              data-testid="hex-label-sample-window"
+              className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 border border-white shadow-[0_0_0_1px_rgba(0,0,0,0.8)]"
+              style={{
+                left: (pointer.px + 0.5) * pointer.scale,
+                top: (pointer.py + 0.5) * pointer.scale,
+                width: Math.max(4, sampleSize * pointer.scale),
+                height: Math.max(4, sampleSize * pointer.scale),
+              }}
             />
           ) : null}
           {pointer && status !== "loading" && status !== "error" ? (

@@ -273,6 +273,17 @@ describe("hex-labels — parseHexLabelRequest", () => {
     err(null, /JSON object/);
     err([], /JSON object/);
   });
+
+  it("accepts every offered sample size, including the large glitter windows", () => {
+    const point = { x: 0.5, y: 0.5, size: 5, imageWidth: 100, imageHeight: 100 };
+    for (const size of [1, 3, 5, 9, 15, 25, 41, 61]) {
+      const value = ok({ shadeId: 1, hex: "#112233", imageId: 1, samplePoint: { ...point, size } });
+      assert.equal(value.samplePoint.size, size);
+    }
+    for (const size of [2, 7, 61.5, 81]) {
+      err({ shadeId: 1, hex: "#112233", imageId: 1, samplePoint: { ...point, size } }, /samplePoint must be/);
+    }
+  });
 });
 
 describe("hex-labels — queue cursor", () => {
