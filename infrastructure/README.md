@@ -81,6 +81,7 @@ Recommended auth config (propagated to Terraform `TF_VAR_*` inputs):
 - Secrets: `AZURE_AD_B2C_CLIENT_ID`
 - Variables: `AUTH_DEV_BYPASS`, `AZURE_AD_B2C_TENANT` (falls back to `NEXT_PUBLIC_B2C_TENANT` if unset)
 - Feature flags: `SHAREABLE_WISHLIST_ENABLED` (default `false`; exported as `TF_VAR_shareable_wishlist_enabled`)
+- External ID service principal (opt-in, see [External ID service principal](#external-id-service-principal-opt-in)): variables `MANAGE_CIAM_SERVICE_PRINCIPAL` (default `false`), `CIAM_TENANT_ID`, `CIAM_TERRAFORM_CLIENT_ID` (exported as `TF_VAR_manage_ciam_service_principal`, `TF_VAR_ciam_tenant_id`, `TF_VAR_ciam_terraform_client_id`)
 - Alerts (observability Phase 3, #281): `ALERT_EMAIL` (**secret** recommended so the address is masked in logs; a variable also works; exported as `TF_VAR_alert_email`, never committed to tfvars) and optional variable `ALERTS_ENABLED` (default `true` for `prod`, `false` otherwise; exported as `TF_VAR_alerts_enabled`)
 The workflow creates the state container automatically if it does not exist.
 The workflow reads the `pg-password` secret from Key Vault and exports it as `TF_VAR_pg_admin_password` for Terraform.
@@ -122,8 +123,9 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | Azure AD Application | `azuread_application.github_actions` | GitHub Actions OIDC identity |
 | Service Principal | `azuread_service_principal.github_actions` | Grants GitHub Actions access |
 | Federated Credential | `azuread_application_federated_identity_credential.github_actions` | Passwordless OIDC trust |
+| External ID enterprise app *(opt-in)* | `azuread_service_principal.ciam_web` (provider `azuread.ciam`) | Service principal of the web sign-in app (`azure_ad_b2c_client_id`) in the External ID tenant, imported by client id. Only `app_role_assignment_required = false` is managed (other attributes are `ignore_changes`); `prevent_destroy` is on. Created only when `manage_ciam_service_principal = true` |
 
-**Not in Terraform:** Azure AD B2C tenant — provisioned manually via the Azure portal.
+**Not in Terraform:** the Entra External ID tenants, the web sign-in **app registration** (redirect URIs, app roles such as `admin`, optional claims, user flows) and the CIAM deployer app used to manage the service principal — all hand-managed in the portal. Only the web app's service principal is Terraform-managed, and only where `manage_ciam_service_principal = true`.
 
 ## Variables
 
@@ -165,6 +167,9 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | `domain_name` | `swatchwatch.app` | Root domain name for the application (used for custom domains and CORS; prod allows both apex and `www`) |
 | `azure_ad_b2c_tenant` | `to-be-added` | Azure AD B2C/Entra External ID tenant name applied to Function App setting `AZURE_AD_B2C_TENANT` |
 | `azure_ad_b2c_client_id` | `to-be-added` | Azure AD B2C/Entra External ID app client ID applied to Function App setting `AZURE_AD_B2C_CLIENT_ID` |
+| `manage_ciam_service_principal` | `false` | Import and manage the web sign-in app's service principal in the External ID tenant (sets `app_role_assignment_required = false`). Turn on per environment only after checking that tenant's current setting; see [External ID service principal](#external-id-service-principal-opt-in) |
+| `ciam_tenant_id` | `""` | External ID (CIAM) tenant ID for the `azuread.ciam` provider. Required when `manage_ciam_service_principal = true` |
+| `ciam_terraform_client_id` | `""` | Client ID of the deployer app in the CIAM tenant; Deploy Infra signs in to it with GitHub OIDC. Empty = Azure CLI credentials (local runs) |
 | `auth_dev_bypass` | `false` | Controls Function App setting `AUTH_DEV_BYPASS`; keep `false` to require JWT validation |
 | `shareable_wishlist_enabled` | `false` | Controls Function App setting `SHAREABLE_WISHLIST_ENABLED` (opt-in public wishlist links, #268). Set the `SHAREABLE_WISHLIST_ENABLED` repository/environment variable to `true` and run Deploy Infra to ship it; app settings are Terraform-managed, so a portal-only change is reverted by the next infra apply |
 | `ingestion_job_queue_name` | `ingestion-jobs` | Function App queue name for ingestion worker (`INGESTION_JOB_QUEUE_NAME`) |
@@ -357,6 +362,65 @@ OpenAI settings are optional:
   - `AZURE_OPENAI_GATEWAY_ENDPOINT`
   - `AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY` (from `apim_openai_subscription_key_uri` when provided, otherwise from a Terraform-managed Key Vault secret created from `apim_openai_subscription_key`)
   - `AZURE_OPENAI_USE_GATEWAY` (controlled by `openai_gateway_enabled`, with Terraform validation to fail fast if gateway endpoint/secret wiring is incomplete)
+
+## External ID service principal (opt-in)
+
+The web sign-in app's enterprise app (service principal) in each External ID tenant can be managed by Terraform, starting with **Assignment required = No** (`app_role_assignment_required = false`). With it set to Yes, every new sign-up fails with AADSTS50105. Admin access is unaffected: it comes from the `admin` app role assignment, which still lands in the token's `roles` claim when assignment isn't required.
+
+Only the service principal is managed (`azuread_service_principal.ciam_web`, imported by `azure_ad_b2c_client_id`). The app registration stays hand-managed. Everything except the assignment flag is in `ignore_changes`, and `prevent_destroy` stops a plan from deleting it, because deleting it would drop every app role assignment, `admin` included.
+
+Deploy Infra authenticates to the CIAM tenant with GitHub OIDC, through a federated credential on a deployer app registration in that tenant. No client secret is involved. That app holds the **Cloud Application Administrator** directory role, the role External ID documents for managing apps in external tenants. Graph application permissions such as `Application.ReadWrite.OwnedBy` haven't been tried there.
+
+### One-time bootstrap (per environment)
+
+Run as an admin of the External ID tenant who can assign directory roles (Global Administrator or Privileged Role Administrator). Example for `dev`; for prod use the prod tenant and `environment:prod`.
+
+```bash
+CIAM_TENANT_ID="<external ID tenant id>"        # dev: 2bff1c8d-f022-45ed-91bf-7485529ba989
+WEB_CLIENT_ID="<azure_ad_b2c_client_id>"         # the web sign-in app
+GH_ENV=dev
+az login --tenant "$CIAM_TENANT_ID" --allow-no-subscriptions
+
+# 0. Check the current setting first (prod: decide whether it should change).
+az ad sp show --id "$WEB_CLIENT_ID" --query "{name:displayName,assignmentRequired:appRoleAssignmentRequired}"
+
+# 1. Deployer app + service principal in the CIAM tenant.
+DEPLOYER_APP_ID=$(az ad app create --display-name "swatchwatch-$GH_ENV-terraform-ciam" \
+  --sign-in-audience AzureADMyOrg --query appId -o tsv)
+DEPLOYER_SP_ID=$(az ad sp create --id "$DEPLOYER_APP_ID" --query id -o tsv)
+
+# 2. Trust GitHub Actions OIDC for this repo + GitHub environment (same subject as the workforce app).
+az ad app federated-credential create --id "$DEPLOYER_APP_ID" --parameters "{
+  \"name\": \"github-actions-$GH_ENV\",
+  \"issuer\": \"https://token.actions.githubusercontent.com\",
+  \"subject\": \"repo:mattmck/swatchwatch:environment:$GH_ENV\",
+  \"audiences\": [\"api://AzureADTokenExchange\"]
+}"
+
+# 3. Cloud Application Administrator (role template 158c047a-c907-4556-b7ef-446551a6b5f7), tenant scope.
+az rest --method POST \
+  --url https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignments \
+  --body "{\"principalId\":\"$DEPLOYER_SP_ID\",\"roleDefinitionId\":\"158c047a-c907-4556-b7ef-446551a6b5f7\",\"directoryScopeId\":\"/\"}"
+
+echo "CIAM_TERRAFORM_CLIENT_ID=$DEPLOYER_APP_ID"
+```
+
+Then in the GitHub environment (`dev` or `prod`):
+
+1. Set variables `CIAM_TENANT_ID` and `CIAM_TERRAFORM_CLIENT_ID`. Check that the `AZURE_AD_B2C_CLIENT_ID` secret is the real web client id: a precondition fails the plan if either id isn't a GUID.
+2. Set `MANAGE_CIAM_SERVICE_PRINCIPAL=true`.
+3. Run **Deploy Infra** with `apply = false`. The plan should show `azuread_service_principal.ciam_web[0]` with `1 to import` and only `app_role_assignment_required = true -> false` changed (or no change if it is already `false`). Then rerun with `apply = true`.
+
+To plan locally instead, leave `ciam_terraform_client_id` empty so the `azuread.ciam` provider uses your Azure CLI login (`az login --tenant <ciam tenant> --allow-no-subscriptions`):
+
+```bash
+terraform plan -target=azuread_service_principal.ciam_web -lock=false \
+  -var-file=terraform.dev.tfvars \
+  -var manage_ciam_service_principal=true \
+  -var ciam_tenant_id="$CIAM_TENANT_ID" -var azure_ad_b2c_client_id="$WEB_CLIENT_ID"
+```
+
+**To stop managing it**, first take it out of state without deleting it, using `terraform state rm 'azuread_service_principal.ciam_web[0]'` or a `removed { from = azuread_service_principal.ciam_web, lifecycle { destroy = false } }` block. Then set `MANAGE_CIAM_SERVICE_PRINCIPAL=false`. Turning the flag off first makes the plan fail on `prevent_destroy`.
 
 ## Destroying Infrastructure
 
