@@ -13,6 +13,7 @@ import { withAuth } from "../lib/auth";
 import { withCors } from "../lib/http";
 import { internalServerError } from "../lib/errors";
 import { trackEvent } from "../lib/telemetry";
+import { loadFinishCatalog, type FinishCatalog } from "../lib/finishes";
 import {
   DupesInputError,
   loadOwnedDupeShades,
@@ -29,9 +30,20 @@ import {
  * between display hexes graded with the match-image HIGH/MEDIUM thresholds, then a finish rule
  * (a clearly different finish family drops the grade one step). Only HIGH/MEDIUM are returned.
  *
- * Cost: one query for the target(s) and one for the caller's owned shades; the OKLAB scan is
- * O(N) per target in TypeScript (N = owned shades with a hex, a few thousand at most).
+ * Finish families come from the finish catalog (`finish_type.family`, #320) via the cached
+ * `loadFinishCatalog()`, falling back to the built-in `DUPE_FINISH_FAMILIES`.
+ *
+ * Cost: one query for the target(s) and one for the caller's owned shades (plus the finish
+ * catalog query when its 5 minute in-process cache is cold); the OKLAB scan is O(N) per target
+ * in TypeScript (N = owned shades with a hex, a few thousand at most).
  */
+
+/** Finish catalog for grading; a failed lookup is logged and grades with the built-in families. */
+function loadDupeFinishCatalog(context: InvocationContext): Promise<FinishCatalog> {
+  return loadFinishCatalog({
+    onFallback: (message) => context.warn(`[dupes] finish catalog unavailable, using built-in families: ${message}`),
+  });
+}
 
 /** GET /api/polishes/{id}/dupes?limit= — dupes of one shade among the caller's owned shades. */
 export async function getPolishDupes(
@@ -55,9 +67,10 @@ export async function getPolishDupes(
   }
 
   try {
-    const [targets, owned] = await Promise.all([
+    const [targets, owned, catalog] = await Promise.all([
       loadVisibleDupeTargets(userId, [shadeId]),
       loadOwnedDupeShades(userId),
+      loadDupeFinishCatalog(context),
     ]);
     const targetRow = targets.find((row) => String(row.shadeId) === String(shadeId));
     if (!targetRow) {
@@ -84,7 +97,7 @@ export async function getPolishDupes(
       return { status: 200, jsonBody: body };
     }
 
-    const { dupes, candidateCount } = findDupes(target, candidates);
+    const { dupes, candidateCount } = findDupes(target, candidates, { finishFamilies: catalog.families });
     const summary = summarizeDupes(targetId, dupes);
     const body: PolishDupesResponse = {
       target: {
@@ -140,18 +153,20 @@ export async function batchPolishDupes(
   }
 
   try {
-    const [targets, owned] = await Promise.all([
+    const [targets, owned, catalog] = await Promise.all([
       loadVisibleDupeTargets(userId, shadeIds),
       loadOwnedDupeShades(userId),
+      loadDupeFinishCatalog(context),
     ]);
     const candidates = prepareDupeCandidates(owned);
+    const finishOptions = { finishFamilies: catalog.families };
 
     const results: Record<string, PolishDupeHint> = {};
     for (const row of targets) {
       const shadeId = String(row.shadeId);
       const target = prepareDupeShade(row);
       results[shadeId] = target
-        ? summarizeDupes(shadeId, findDupes(target, candidates).dupes)
+        ? summarizeDupes(shadeId, findDupes(target, candidates, finishOptions).dupes)
         : { shadeId, best: null, dupeCount: 0, highCount: 0 };
     }
 

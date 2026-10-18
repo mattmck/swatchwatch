@@ -1,9 +1,18 @@
+import type { FinishFamily } from "../constants/finishes";
+
 export interface FinishType {
   finishTypeId: number;
   name: string;
   displayName: string;
   description?: string;
   sortOrder: number;
+  /**
+   * Dupe-grading family (#320). `null` when the finish type has none: such a finish grades
+   * `unknown` against other finishes and is never penalized. The API always sends it; it is only
+   * missing from older cached payloads and the web's offline fallback, where the built-in family
+   * (`DUPE_FINISH_FAMILIES`) applies.
+   */
+  family?: FinishFamily | null;
   createdAt: string;
   updatedAt: string;
   updatedByUserId?: number;
@@ -25,6 +34,8 @@ export interface FinishTypeCreateRequest {
   displayName: string;
   description?: string;
   sortOrder?: number;
+  /** One of `FINISH_FAMILIES`; omitted or `null` = no family. */
+  family?: FinishFamily | null;
 }
 
 export interface FinishTypeUpdateRequest {
@@ -32,6 +43,8 @@ export interface FinishTypeUpdateRequest {
   displayName?: string;
   description?: string;
   sortOrder?: number;
+  /** One of `FINISH_FAMILIES`; `null` clears it, omitted leaves it unchanged. */
+  family?: FinishFamily | null;
 }
 
 /**

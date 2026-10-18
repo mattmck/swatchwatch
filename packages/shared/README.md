@@ -150,6 +150,7 @@ Collection stats (#271): the `GET /api/stats/collection` payload behind the dash
 
 | Export | Description |
 |--------|-------------|
+| `FINISH_FAMILIES`, `FinishFamily`, `isFinishFamily(value)` | Dupe-grading finish families (#320): `solid`, `shimmer`, `holo`, `glitter`, `matte`, `thermal`, `glow` — the values `finish_type.family` allows (DB CHECK kept equal by `packages/functions/tests/finish-family.unit.test.cjs`) |
 | `CANONICAL_FINISHES` | Built-in seeded default finishes — typing + offline fallback, not the runtime authority (`creme`, `sheer`, `jelly`, `shimmer`, `metallic`, `glitter`, `holographic`, `duochrome`, `multichrome`, `flake`, `matte`, `topper`, `magnetic`, `thermal`, `crelly`, `glow`, `other`) in `finish_type.sort_order` order |
 | `isCanonicalFinish(value)` | Type guard for exact BUILT-IN names (unaware of finish types added at runtime) |
 
@@ -177,10 +178,11 @@ Collection stats (#271): the `GET /api/stats/collection` payload behind the dash
 | `classifyHexColorFamily(hex)`, `classifyOklchColorFamily({ L, C, h })`, `hexToOklch(hex)`, `hasMultichromeFinish(polish)` | Building blocks: bin one hex / OKLCH triple (never `multichrome`), OKLCH conversion, finish check |
 | `COLOR_FAMILY_THRESHOLDS` | The OKLCH bins. Order: chroma < 0.03 → black (L < 0.30) / white (L ≥ 0.92) / grey; very dark (L < 0.20, C < 0.06) → black; pale tints (L ≥ 0.96, C < 0.06) → white; warm hue 20–100 with L ≥ 0.70 and C ≤ 0.10 → nude; warm hue 30–100 below L 0.70 with C ≤ 0.13 (or very dark from hue 36) → brown; then hue bands: pink 340–20 (dark → red, or purple for 340–350), 20–45 coral when L ≥ 0.68 else red/orange (split at 36), orange 45–80, yellow 80–115 (dark → brown/olive green), green 115–170, teal 170–205, blue 205–290, purple 290–320, 320–340 pink when light and saturated else purple. Changing a value needs a migration that redefines `shade_color_family_from_hex()`; `packages/functions/tests/color-family.unit.test.cjs` checks the SQL constants match |
 | `DUPE_LIMITS` | `{ defaultLimit: 5, maxLimit: 20, batchMaxShadeIds: 100 }` for the dupe endpoints (`color/dupes.ts`) |
-| `DUPE_FINISH_FAMILIES`, `finishFamily(finish)` | Finish families for dupe compatibility: solid (creme/crelly/jelly/sheer), shimmer (shimmer/metallic/magnetic/duochrome/multichrome), holo, glitter (glitter/flake/topper), matte, thermal, glow; `other` and admin-defined finishes have no family |
-| `finishCompatibility(targetFinishes, candidateFinishes)` | `same` (same primary), `compatible` (same family or any shared finish), `different` (known, different families), `unknown` (missing/`other`/unfamilied) |
+| `DUPE_FINISH_FAMILIES`, `finishFamily(finish, families?)` | Built-in finish families for dupe compatibility (the fallback when no catalog is passed; seeded into `finish_type.family`): solid (creme/crelly/jelly/sheer), shimmer (shimmer/metallic/magnetic/duochrome/multichrome), holo, glitter (glitter/flake/topper), matte, thermal, glow; `other` has no family |
+| `FinishFamilyMap`, `FinishFamilySource`, `buildFinishFamilyMap(finishTypes)` | Catalog-driven families (#320): finish name → `FinishFamily \| null` from `finish_type.family` rows layered over `DUPE_FINISH_FAMILIES` (a row with a `family` key wins, `null` = no family; rows without the key and names the catalog omits keep the built-in family; no catalog → the built-in map) |
+| `finishCompatibility(targetFinishes, candidateFinishes, families?)` | `same` (same primary), `compatible` (same family or any shared finish), `different` (known, different families), `unknown` (missing/`other`/no family — never penalized); `families` defaults to `DUPE_FINISH_FAMILIES` |
 | `gradeDupe(distance, compatibility)` | `{ colorGrade, grade }`: `confidenceForDistance` (the match-image thresholds), dropped one step for `different` finishes; `grade` null when LOW |
-| `prepareDupeShade(shade)`, `prepareDupeCandidates(shades)`, `findDupes(target, candidates)`, `summarizeDupes(id, dupes)`, `compareDupes` | Pure dupe finder: resolve each display hex (`resolveDisplayHexDetailed`) and OKLAB once, then O(N) per target; excludes the target's own id; ordered by grade, finish compatibility, distance, brand/name |
+| `prepareDupeShade(shade)`, `prepareDupeCandidates(shades)`, `findDupes(target, candidates, { finishFamilies? })`, `summarizeDupes(id, dupes)`, `compareDupes` | Pure dupe finder: resolve each display hex (`resolveDisplayHexDetailed`) and OKLAB once, then O(N) per target; excludes the target's own id; ordered by grade, finish compatibility, distance, brand/name |
 
 ### `types/user.ts`
 
@@ -321,7 +323,7 @@ Shareable wishlist (#268), behind the server flag `SHAREABLE_WISHLIST_ENABLED` (
 
 | Type | Description |
 |------|-------------|
-| `FinishType` | Reference finish row contract (`finishTypeId`, `name`, `displayName`, `description`, `sortOrder`, audit fields) |
+| `FinishType` | Reference finish row contract (`finishTypeId`, `name`, `displayName`, `description`, `sortOrder`, `family` (`FinishFamily \| null`, #320), audit fields); `FinishTypeCreateRequest` / `FinishTypeUpdateRequest` take an optional `family` (`null` clears) |
 | `HarmonyType` | Reference harmony row contract (`harmonyTypeId`, `name`, `displayName`, `description`, `sortOrder`, audit fields) |
 | `FinishTypeCreateRequest` / `FinishTypeUpdateRequest` | Request payloads for admin finish create/update endpoints |
 | `FinishTypeInUseResponse` | `409` body of `DELETE /api/reference-admin/finishes/{id}` when the finish type is still in use (`error`, `code: "FINISH_TYPE_IN_USE"`, `finishTypeId`, `name`, `shadeCount`, `normalizationCount`) |

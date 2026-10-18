@@ -17,7 +17,14 @@
  * returned by this module is a member of the catalog's `validNames`; alias rows
  * pointing at a name that is not a `finish_type` are ignored.
  */
-import { CANONICAL_FINISHES, type PolishCreateRequest } from "swatchwatch-shared";
+import {
+  CANONICAL_FINISHES,
+  DUPE_FINISH_FAMILIES,
+  buildFinishFamilyMap,
+  type FinishFamilyMap,
+  type FinishFamilySource,
+  type PolishCreateRequest,
+} from "swatchwatch-shared";
 import { query } from "./db";
 
 /**
@@ -83,16 +90,21 @@ export const DEFAULT_FINISH_ALIAS_MAP: FinishAliasMap = new Map(Object.entries(D
  * Everything needed to validate and normalize a finish string at runtime:
  * - `aliases`: lowercased source spelling → finish name (from `finish_normalization`)
  * - `validNames`: the finish names that exist (from `finish_type`)
+ * - `families`: finish name → dupe-grading family (`finish_type.family`, #320) layered over the
+ *   built-in `DUPE_FINISH_FAMILIES`; optional so hand-built catalogs keep working (callers fall
+ *   back to the built-ins when it is missing)
  */
 export interface FinishCatalog {
   aliases: FinishAliasMap;
   validNames: ReadonlySet<string>;
+  families?: FinishFamilyMap;
 }
 
 /** Built-in seeded defaults: used when no DB catalog is available. */
 export const DEFAULT_FINISH_CATALOG: FinishCatalog = Object.freeze({
   aliases: DEFAULT_FINISH_ALIAS_MAP,
   validNames: new Set<string>(CANONICAL_FINISHES),
+  families: DUPE_FINISH_FAMILIES,
 });
 
 /** Tag prefix for explicit finish tags (`finish:holographic`). */
@@ -284,12 +296,15 @@ interface FinishCatalogRow {
   kind: string;
   sourceValue: string;
   normalizedFinishName: string;
+  /** `finish_type.family` on 'type' rows; always NULL on 'alias' rows. */
+  family?: string | null;
 }
 
 /**
  * Load the finish catalog in ONE query: `finish_type` names (the valid finishes, plus
  * identity aliases) and `finish_normalization` rows (aliases, which win over identity
- * rows). An alias only resolves when its target is a `finish_type` name. Cached for
+ * rows). An alias only resolves when its target is a `finish_type` name. The same query
+ * reads `finish_type.family` into `families` (`buildFinishFamilyMap`). Cached for
  * 5 minutes (cleared on admin reference edits); falls back to
  * `DEFAULT_FINISH_CATALOG` (built-in finishes + `DEFAULT_FINISH_ALIAS_MAP`) if the
  * query fails.
@@ -309,18 +324,21 @@ export async function loadFinishCatalog(options?: LoadFinishCatalogOptions): Pro
       const result = await query<FinishCatalogRow>(
         `SELECT 'alias' AS kind,
                 source_value AS "sourceValue",
-                normalized_finish_name AS "normalizedFinishName"
+                normalized_finish_name AS "normalizedFinishName",
+                NULL::text AS family
          FROM finish_normalization
          UNION ALL
          SELECT 'type' AS kind,
                 name AS "sourceValue",
-                name AS "normalizedFinishName"
+                name AS "normalizedFinishName",
+                family
          FROM finish_type`
       );
 
       const validNames = new Set<string>();
       const aliases = new Map<string, string>();
       const aliasRows: Array<[string, string]> = [];
+      const familyRows: FinishFamilySource[] = [];
       for (const row of result.rows ?? []) {
         if (typeof row?.sourceValue !== "string" || typeof row?.normalizedFinishName !== "string") continue;
         const source = normalizeFinishKey(row.sourceValue);
@@ -329,6 +347,7 @@ export async function loadFinishCatalog(options?: LoadFinishCatalogOptions): Pro
         if (row.kind === "type") {
           validNames.add(normalized);
           aliases.set(source, normalized);
+          familyRows.push({ name: normalized, family: row.family ?? null });
         } else {
           aliasRows.push([source, normalized]);
         }
@@ -344,7 +363,7 @@ export async function loadFinishCatalog(options?: LoadFinishCatalogOptions): Pro
         if (validNames.has(normalized)) aliases.set(source, normalized);
       }
 
-      const value: FinishCatalog = { aliases, validNames };
+      const value: FinishCatalog = { aliases, validNames, families: buildFinishFamilyMap(familyRows) };
       if (generation === catalogGeneration) {
         catalogCache = { value, expiresAtMs: now + FINISH_CATALOG_CACHE_TTL_MS };
       }

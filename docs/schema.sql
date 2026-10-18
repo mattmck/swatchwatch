@@ -479,6 +479,9 @@ CREATE TABLE finish_type (
   display_name TEXT NOT NULL,
   description TEXT,
   sort_order SMALLINT NOT NULL DEFAULT 0,
+  -- Dupe-grading family (#320, D10): FINISH_FAMILIES in packages/shared, NULL = no family.
+  family TEXT CONSTRAINT finish_type_family_check
+    CHECK (family IS NULL OR family IN ('solid', 'shimmer', 'holo', 'glitter', 'matte', 'thermal', 'glow')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL

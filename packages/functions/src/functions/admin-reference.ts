@@ -24,6 +24,7 @@ import { query, transaction } from "../lib/db";
 import { withCors } from "../lib/http";
 import { cacheDelete, cacheDeleteByPrefix } from "../lib/cache";
 import { normalizeFinishKey, resetFinishAliasCache } from "../lib/finishes";
+import { FINISH_FAMILY_INVALID_MESSAGE, parseFinishFamilyField, toFinishFamily } from "../lib/finish-family";
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
@@ -128,6 +129,7 @@ function mapFinishTypeRow(row: {
   displayName: string;
   description: string | null;
   sortOrder: number;
+  family: string | null;
   createdAt: string;
   updatedAt: string;
   updatedByUserId: number | null;
@@ -138,6 +140,7 @@ function mapFinishTypeRow(row: {
     displayName: row.displayName,
     description: row.description || undefined,
     sortOrder: row.sortOrder,
+    family: toFinishFamily(row.family),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     updatedByUserId: row.updatedByUserId ?? undefined,
@@ -197,6 +200,7 @@ async function listAdminFinishes(
       displayName: string;
       description: string | null;
       sortOrder: number;
+      family: string | null;
       createdAt: string;
       updatedAt: string;
       updatedByUserId: number | null;
@@ -207,6 +211,7 @@ async function listAdminFinishes(
          display_name AS "displayName",
          description,
          sort_order AS "sortOrder",
+         family,
          created_at::text AS "createdAt",
          updated_at::text AS "updatedAt",
          updated_by_user_id AS "updatedByUserId"
@@ -245,6 +250,7 @@ async function createFinish(
   const displayNameField = getFieldString(body, "displayName", "display_name");
   const descriptionField = getOptionalDescription(body, "description", "description");
   const sortOrderField = getOptionalSortOrder(body);
+  const familyField = parseFinishFamilyField(body);
 
   if (nameField.invalid || displayNameField.invalid) {
     return {
@@ -264,6 +270,9 @@ async function createFinish(
       jsonBody: { error: "sortOrder (or sort_order) must be an integer" },
     };
   }
+  if (familyField.invalid) {
+    return { status: 400, jsonBody: { error: FINISH_FAMILY_INVALID_MESSAGE } };
+  }
   if (!nameField.provided || !displayNameField.provided) {
     return {
       status: 400,
@@ -278,6 +287,7 @@ async function createFinish(
       displayName: string;
       description: string | null;
       sortOrder: number;
+      family: string | null;
       createdAt: string;
       updatedAt: string;
       updatedByUserId: number | null;
@@ -287,16 +297,18 @@ async function createFinish(
          display_name,
          description,
          sort_order,
+         family,
          updated_at,
          updated_by_user_id
        )
-       VALUES ($1, $2, $3, $4, now(), $5)
+       VALUES ($1, $2, $3, $4, $5, now(), $6)
        RETURNING
          finish_type_id AS "finishTypeId",
          name,
          display_name AS "displayName",
          description,
          sort_order AS "sortOrder",
+         family,
          created_at::text AS "createdAt",
          updated_at::text AS "updatedAt",
          updated_by_user_id AS "updatedByUserId"`,
@@ -305,6 +317,7 @@ async function createFinish(
         displayNameField.value,
         descriptionField.provided ? descriptionField.value : null,
         sortOrderField.provided ? sortOrderField.value : 0,
+        familyField.value,
         userId,
       ]
     );
@@ -330,6 +343,7 @@ interface FinishTypeRow {
   displayName: string;
   description: string | null;
   sortOrder: number;
+  family: string | null;
   createdAt: string;
   updatedAt: string;
   updatedByUserId: number | null;
@@ -340,6 +354,7 @@ const FINISH_TYPE_RETURNING_SQL = `finish_type_id AS "finishTypeId",
          display_name AS "displayName",
          description,
          sort_order AS "sortOrder",
+         family,
          created_at::text AS "createdAt",
          updated_at::text AS "updatedAt",
          updated_by_user_id AS "updatedByUserId"`;
@@ -460,6 +475,7 @@ async function updateFinish(
   const displayNameField = getFieldString(body, "displayName", "display_name");
   const descriptionField = getOptionalDescription(body, "description", "description");
   const sortOrderField = getOptionalSortOrder(body);
+  const familyField = parseFinishFamilyField(body);
 
   if (nameField.invalid) {
     return { status: 400, jsonBody: { error: "name must be a non-empty string" } };
@@ -473,11 +489,22 @@ async function updateFinish(
   if (sortOrderField.invalid) {
     return { status: 400, jsonBody: { error: "sortOrder (or sort_order) must be an integer" } };
   }
+  if (familyField.invalid) {
+    return { status: 400, jsonBody: { error: FINISH_FAMILY_INVALID_MESSAGE } };
+  }
 
-  if (!nameField.provided && !displayNameField.provided && !descriptionField.provided && !sortOrderField.provided) {
+  if (
+    !nameField.provided &&
+    !displayNameField.provided &&
+    !descriptionField.provided &&
+    !sortOrderField.provided &&
+    !familyField.provided
+  ) {
     return {
       status: 400,
-      jsonBody: { error: "At least one of name, displayName/display_name, description, sortOrder/sort_order is required" },
+      jsonBody: {
+        error: "At least one of name, displayName/display_name, description, sortOrder/sort_order, family is required",
+      },
     };
   }
 
@@ -499,6 +526,10 @@ async function updateFinish(
   if (sortOrderField.provided) {
     params.push(sortOrderField.value);
     setClauses.push(`sort_order = $${params.length}`);
+  }
+  if (familyField.provided) {
+    params.push(familyField.value);
+    setClauses.push(`family = $${params.length}`);
   }
 
   params.push(userId);
