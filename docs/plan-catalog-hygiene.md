@@ -68,8 +68,8 @@ the file) rather than opening the firewall. Post the output on #347 and #349, ex
   pusher) with product types "Nail Tools" and "Cuticle Pushers". **Product type is the strongest
   signal**, and the filter should lean on it.
 - **Tags are noisy.** Holo Taco tags a magnetic polish `magnetic-wand` (a wand ships with it), and
-  tags some ordinary polishes `toppers`. Accessories therefore need to be decided on title and
-  product type only. Topper-by-tag needs a review step.
+  tags some ordinary polishes `toppers`. Accessories therefore need to be decided without tags,
+  from the shade name, color name, title and product type. Topper-by-tag needs a review step.
 - Holo Taco sells flakie toppers under product type **"Top Coat"**, so "top coat" wording alone
   can't mean top coat. An explicit topper finish or tag must win.
 - Holo Taco's base coats ("Quick-Dry Base", "Sticky Base") are in the catalog as color polishes.
@@ -160,11 +160,12 @@ samples cover it. Record the counts on #347 and #349. These are the dev baseline
 2. Move the classifier into `packages/functions/src/lib/product-category.ts`. The audit query is
    its reference: the TypeScript version applies the same rules in the same order, and its unit
    tests are built from the audit's reviewed samples. The rules, first match wins:
-   1. **accessory** when the shade name, title or product type (never tags) names a tool or
-      accessory;
+   1. **accessory** when the shade name, color name, source title or product type (never tags)
+      names a tool or accessory;
    2. **topper** when the shade's finishes say topper, or the word topper appears anywhere,
       tags included, so it beats coat wording;
-   3. **base_coat**, **top_coat**, **treatment** from name, title, product type or tags;
+   3. **base_coat**, **top_coat**, **treatment** from the shade name, color name, source title,
+      product type or tags;
    4. **color** otherwise.
 
    If the classifier needs a different precedence (for example trusting product type over the
@@ -212,7 +213,7 @@ role prefill.
 
 | Risk | Mitigation |
 |---|---|
-| The classifier misfiles real polishes (a polish named "Base Camp", a shade called "Gold Plate") | Accessory rules use product type and title only, with word boundaries. Every backfill is dry-run first and sampled. Admin override is sticky |
+| The classifier misfiles real polishes (a polish named "Base Camp", a shade called "Gold Plate") | Accessory rules read only the shade name, color name, source title and product type (never tags), with word boundaries. Every backfill is dry-run first and sampled. Admin override is sticky |
 | Users lose a shade they track | Never exclude held shades automatically; hide from discovery only |
 | Vendors reuse product types loosely (Holo Taco's "Top Coat" toppers) | Topper evidence wins over coat wording; per-source overrides in `data_source.metadata` if needed |
 | Toppers vanish from Pick for me / color search and users miss them | Catalog search and the collection table still show them; pair-it can suggest a topper |
