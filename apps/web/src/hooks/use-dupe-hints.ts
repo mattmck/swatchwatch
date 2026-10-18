@@ -24,7 +24,9 @@ export function useDupeHints(polishes: readonly Pick<Polish, "id" | "status">[])
         if (!cancelled) setFetched(hints);
       })
       .catch(() => {
-        // Hints are optional; keep the list usable.
+        // Hints are optional; keep the list usable. Drop the retained hints too, so badges that
+        // may no longer be true don't stay on screen when the refetch can't confirm them.
+        if (!cancelled) setFetched(NO_HINTS);
       });
     return () => {
       cancelled = true;
