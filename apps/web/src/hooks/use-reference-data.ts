@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { FinishType, ReferenceHarmonyType } from "swatchwatch-shared";
+import { DUPE_FINISH_FAMILIES, type FinishType, type ReferenceHarmonyType } from "swatchwatch-shared";
 import { listReferenceFinishTypes, listReferenceHarmonyTypes } from "@/lib/api";
 import { HARMONY_TYPES } from "@/lib/color-harmonies";
 import { FINISHES, finishLabel } from "@/lib/constants";
@@ -30,6 +30,7 @@ function buildFallbackFinishTypes(): FinishType[] {
     displayName: finishLabel(name),
     description: undefined,
     sortOrder: index + 1,
+    family: DUPE_FINISH_FAMILIES[name] ?? null,
     createdAt: now,
     updatedAt: now,
     updatedByUserId: undefined,
