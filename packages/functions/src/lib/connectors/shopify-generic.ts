@@ -506,6 +506,13 @@ function recordTimestamp(record: ConnectorProductRecord): number {
   );
 }
 
+/** Linear-time trailing-slash trim (a `/\/+$/` regex backtracks quadratically on long runs). */
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) end--;
+  return value.slice(0, end);
+}
+
 export class ShopifyGenericConnector implements ProductConnector {
   readonly source: SupportedConnectorSource;
 
@@ -516,7 +523,7 @@ export class ShopifyGenericConnector implements ProductConnector {
     this.source = source;
     // Extract brand name from source (e.g., "MooncatShopify" -> "Mooncat")
     this.brandName = source.replace(/Shopify$/, "").replace(/([A-Z])/g, " $1").trim();
-    this.baseUrl = (baseUrl || this.defaultBaseUrl()).replace(/\/+$/, "");
+    this.baseUrl = stripTrailingSlashes(baseUrl || this.defaultBaseUrl());
   }
 
   private defaultBaseUrl(): string {
