@@ -200,8 +200,15 @@ Collection stats (#271): the `GET /api/stats/collection` payload behind the dash
 | `User` | User entity (id, email, displayName, avatarUrl, authProvider, timestamps) |
 | `AuthProvider` | `"apple" \| "facebook" \| "google" \| "email"` |
 | `AuthConfig` | B2C configuration (authority, clientId, knownAuthorities, redirectUri, scopes) |
-| `AdminUserListItem` | Admin user-management table row (`userId`, role, linked identities, and activity counts) |
-| `AdminUserListResponse` | Admin user list payload wrapper (`users`, `total`) |
+| `AdminUserListItem` | Admin user-management table row (`userId`, role, `state`, `suspendedAt`, `lastSeenAt`, linked identities, and activity counts) |
+| `AdminUserListResponse` | Admin user list payload wrapper (`users`, `total` matching the filters, `limit`, `offset`) |
+| `AdminUserListQuery` | `GET /api/users-admin` query: `q`, `role`, `state`, `sort`, `dir`, `limit`, `offset` (#45) |
+| `AdminUserState` / `ADMIN_USER_STATES` | `"active" \| "suspended"` (#45) |
+| `AdminUserSort` / `ADMIN_USER_SORTS` | `"created" \| "lastSeen" \| "email" \| "inventory"` (#45) |
+| `AdminUserIdentity` | Linked external identity (`externalId`, `email`, `createdAt`, `lastSeenAt`) |
+| `AdminUserDetailResponse` | `GET`/`PATCH /api/users-admin/{id}`: `user`, `identities`, `suspendedReason`, `suspendedByUserId`, newest 20 `auditEvents` |
+| `AdminUserUpdateRequest` | `PATCH /api/users-admin/{id}` body: `handle`, `suspended`, `suspendedReason`, `note` (role is not editable: assigned in Entra) |
+| `AdminAuditEvent` / `AdminAuditAction` | `admin_audit_event` row: actor, target, `user.update \| user.suspend \| user.unsuspend \| user.merge`, `changes`, `note`, `createdAt` |
 | `AdminUserMergeRequest` | Admin payload for duplicate-account repair (`sourceUserId`, `targetUserId`) |
 | `AdminUserMergeResponse` | Admin merge result summary (moved row counts incl. `mergedManicureRows` + merge status/message) |
 

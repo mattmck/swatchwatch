@@ -1126,9 +1126,20 @@ describe("access control — admin routes reject non-admin users", () => {
     .filter((name) => /^(ingestion-|admin-)/.test(name) || name === "polishes-recalc-hex")
     .sort();
 
+  it("registers each route template once (the Functions host refuses duplicates)", () => {
+    const byRoute = new Map();
+    for (const [name, opts] of Object.entries(registeredRoutes)) {
+      const key = String(opts.route).toLowerCase();
+      byRoute.set(key, [...(byRoute.get(key) ?? []), name]);
+    }
+    const duplicates = [...byRoute.entries()].filter(([, names]) => names.length > 1);
+    assert.deepEqual(duplicates, [], "route templates registered by more than one function");
+  });
+
   it("discovers the expected admin route families", () => {
     for (const expected of [
       "admin-users-list",
+      "admin-users-item",
       "admin-users-merge",
       "admin-shade-review-list",
       "admin-shade-review-candidates",

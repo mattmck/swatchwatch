@@ -15,9 +15,12 @@ import type {
   CaptureStartResponse,
   CaptureStatusResponse,
   AdminJobsListResponse,
+  AdminUserDetailResponse,
+  AdminUserListQuery,
   AdminUserListResponse,
   AdminUserMergeRequest,
   AdminUserMergeResponse,
+  AdminUserUpdateRequest,
   ShadeReviewActionResponse,
   ShadeReviewApproveRequest,
   ShadeReviewCandidatesResponse,
@@ -132,10 +135,11 @@ async function handleResponse<T>(response: Response): Promise<T> {
 /**
  * Resolve the caller's internal user id via `POST /api/auth/validate`.
  * Returns null when there is no token or it doesn't validate. Used to tag
- * browser telemetry (never the email).
+ * browser telemetry (never the email). `admin: true` resolves the admin identity instead (only
+ * differs under dev bypass, where admin calls use a separate dev user).
  */
-export async function getCurrentUserId(): Promise<number | null> {
-  const headers = await getAuthHeaders();
+export async function getCurrentUserId(options?: { admin?: boolean }): Promise<number | null> {
+  const headers = await getAuthHeaders(options);
   if (!headers.Authorization) return null;
 
   const response = await fetch(`${API_BASE_URL}/auth/validate`, { method: "POST", headers });
@@ -937,17 +941,45 @@ export async function deleteFinishNormalization(
   return handleResponse<{ success?: boolean; message?: string }>(response);
 }
 
-/** List users for admin account-repair workflows (`GET /api/users-admin`). */
-export async function listAdminUsers(params?: {
-  limit?: number;
-}): Promise<AdminUserListResponse> {
+/**
+ * List users for admin user management (`GET /api/users-admin`, issue #45): server-side search
+ * (`q`), role/state filters, sort and offset pagination.
+ */
+export async function listAdminUsers(params?: AdminUserListQuery): Promise<AdminUserListResponse> {
   const searchParams = new URLSearchParams();
+  if (params?.q?.trim()) searchParams.set("q", params.q.trim());
+  if (params?.role) searchParams.set("role", params.role);
+  if (params?.state) searchParams.set("state", params.state);
+  if (params?.sort) searchParams.set("sort", params.sort);
+  if (params?.dir) searchParams.set("dir", params.dir);
   if (typeof params?.limit === "number") searchParams.set("limit", String(params.limit));
+  if (typeof params?.offset === "number" && params.offset > 0) searchParams.set("offset", String(params.offset));
   const qs = searchParams.toString();
   const response = await fetch(`${API_BASE_URL}/users-admin${qs ? `?${qs}` : ""}`, {
     headers: await getAuthHeaders({ admin: true }),
   });
   return handleResponse<AdminUserListResponse>(response);
+}
+
+/** One user with linked identities and recent audit events (`GET /api/users-admin/{id}`). */
+export async function getAdminUser(userId: number): Promise<AdminUserDetailResponse> {
+  const response = await fetch(`${API_BASE_URL}/users-admin/${userId}`, {
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<AdminUserDetailResponse>(response);
+}
+
+/** Edit a user's handle or suspension state (`PATCH /api/users-admin/{id}`); audited server-side. */
+export async function updateAdminUser(
+  userId: number,
+  data: AdminUserUpdateRequest
+): Promise<AdminUserDetailResponse> {
+  const response = await fetch(`${API_BASE_URL}/users-admin/${userId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<AdminUserDetailResponse>(response);
 }
 
 /** Merge one duplicate user into another (`POST /api/users-admin/merge`). */
