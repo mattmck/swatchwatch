@@ -612,6 +612,15 @@ describe("public wishlist payload", () => {
     assert.doesNotMatch(shareSql.sql, /\b(email|external_id|handle|token_salt)\b/i);
   });
 
+  it("does not serve the page of a suspended owner (#45)", async () => {
+    const token = (await owner.enable()).jsonBody.token;
+    sqlCalls = [];
+    await viewPublic(token);
+    const shareSql = sqlCalls.find((c) => /token_hash\s*=\s*\$1/i.test(c.sql));
+    assert.match(shareSql.sql, /JOIN app_user u ON u\.user_id = ws\.user_id/);
+    assert.match(shareSql.sql, /\(to_jsonb\(u\.\*\) ->> 'suspended_at'\) IS NULL/);
+  });
+
   it("returns only wishlist-status, shared-catalog items of the share owner", async () => {
     const token = (await owner.enable()).jsonBody.token;
     const { jsonBody } = await viewPublic(token);

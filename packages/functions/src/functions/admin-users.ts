@@ -72,6 +72,14 @@ async function mergeUsers(
     };
   }
 
+  // The source account is deleted: an admin must not merge away (and lock out) their own account.
+  if (sourceUserId === adminUserId) {
+    return {
+      status: 409,
+      jsonBody: { error: "You cannot merge away your own account", code: "cannot_modify_self" },
+    };
+  }
+
   try {
     const result = await transaction<AdminUserMergeResponse>(async (client) => {
       const users = await client.query<{
@@ -79,12 +87,18 @@ async function mergeUsers(
         role: string | null;
         email: string | null;
         externalId: string | null;
+        suspendedAt: string | null;
+        suspendedReason: string | null;
+        suspendedByUserId: number | string | null;
       }>(
         `SELECT
            user_id AS "userId",
            COALESCE(role, 'user') AS role,
            email,
-           external_id AS "externalId"
+           external_id AS "externalId",
+           suspended_at AS "suspendedAt",
+           suspended_reason AS "suspendedReason",
+           suspended_by_user_id AS "suspendedByUserId"
          FROM app_user
          WHERE user_id = ANY($1::bigint[])
          ORDER BY user_id ASC
@@ -254,6 +268,18 @@ async function mergeUsers(
         [targetUserId, mergedTargetRole, sourceUser.email, sourceUser.externalId]
       );
 
+      // The source's identities now sign in to the target, so a suspension on the source must
+      // carry over (#45): otherwise merging a suspended duplicate would silently lift it.
+      const carrySuspension = sourceUser.suspendedAt !== null && targetUser.suspendedAt === null;
+      if (carrySuspension) {
+        await client.query(
+          `UPDATE app_user
+           SET suspended_at = $2, suspended_reason = $3, suspended_by_user_id = $4
+           WHERE user_id = $1`,
+          [targetUserId, sourceUser.suspendedAt, sourceUser.suspendedReason, sourceUser.suspendedByUserId]
+        );
+      }
+
       await client.query(
         `UPDATE app_settings
          SET updated_by = NULL
@@ -280,6 +306,12 @@ async function mergeUsers(
           movedIdentityRows: movedIdentities.rowCount || 0,
           movedManicureRows: movedManicures.rowCount || 0,
           targetRole: { from: targetUser.role, to: mergedTargetRole },
+          ...(carrySuspension
+            ? {
+                suspended: { from: false, to: true },
+                suspendedReason: { from: null, to: sourceUser.suspendedReason },
+              }
+            : {}),
         },
       });
 

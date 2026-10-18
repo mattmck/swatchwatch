@@ -614,6 +614,71 @@ describe("functions/admin-users — PATCH", () => {
   });
 });
 
+describe("functions/admin-users — merge guards", () => {
+  function mergeTx(sourceSuspended) {
+    const statements = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (sql, params) => {
+          statements.push({ sql, params });
+          if (/WHERE user_id = ANY/.test(sql)) {
+            return {
+              rows: [
+                {
+                  userId: "10",
+                  role: "user",
+                  email: "source@test.dev",
+                  externalId: "oid-source",
+                  suspendedAt: sourceSuspended ? "2026-10-01T00:00:00.000Z" : null,
+                  suspendedReason: sourceSuspended ? "spam" : null,
+                  suspendedByUserId: sourceSuspended ? "2" : null,
+                },
+                { userId: "20", role: "user", email: "t@test.dev", externalId: "oid-t", suspendedAt: null, suspendedReason: null, suspendedByUserId: null },
+              ],
+            };
+          }
+          return { rows: [], rowCount: 1 };
+        },
+      });
+    return statements;
+  }
+
+  function merge(body) {
+    return registeredRoutes["admin-users-merge"].handler(
+      fakeRequest({ method: "POST", url: "http://x", headers: { authorization: `Bearer dev:${ADMIN}` }, body }),
+      fakeContext()
+    );
+  }
+
+  it("refuses merging away the caller's own account (409) before any transaction", async () => {
+    queryMock = adminQueryMock(async () => ({ rows: [] }));
+    const statements = mergeTx(false);
+    const res = await merge({ sourceUserId: ADMIN, targetUserId: 20 });
+    assert.equal(res.status, 409);
+    assert.equal(res.jsonBody.code, "cannot_modify_self");
+    assert.equal(statements.length, 0);
+  });
+
+  it("carries a source suspension onto the target and audits it", async () => {
+    queryMock = adminQueryMock(async () => ({ rows: [] }));
+    const statements = mergeTx(true);
+    const res = await merge({ sourceUserId: 10, targetUserId: 20 });
+    assert.equal(res.status, 200);
+    const carry = statements.find((s) => /SET suspended_at = \$2, suspended_reason = \$3, suspended_by_user_id = \$4/.test(s.sql));
+    assert.ok(carry, "target inherits the suspension");
+    assert.deepEqual(carry.params, [20, "2026-10-01T00:00:00.000Z", "spam", "2"]);
+    const audit = statements.find((s) => /INSERT INTO admin_audit_event/.test(s.sql));
+    assert.deepEqual(JSON.parse(audit.params[3]).suspended, { from: false, to: true });
+  });
+
+  it("leaves the target's state alone when the source is active", async () => {
+    queryMock = adminQueryMock(async () => ({ rows: [] }));
+    const statements = mergeTx(false);
+    assert.equal((await merge({ sourceUserId: 10, targetUserId: 20 })).status, 200);
+    assert.ok(!statements.some((s) => /SET suspended_at = \$2/.test(s.sql)));
+  });
+});
+
 describe("functions/admin-users — merge is audited", () => {
   it("writes a user.merge audit row inside the merge transaction", async () => {
     queryMock = adminQueryMock(async () => ({ rows: [] }));
