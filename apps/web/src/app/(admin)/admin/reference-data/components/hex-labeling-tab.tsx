@@ -9,7 +9,7 @@ import type {
   HexLabelSaveResponse,
 } from "swatchwatch-shared";
 import { deleteHexLabel, getHexLabelQueue, saveHexLabel } from "@/lib/api";
-import { labelProgress, planUndo } from "@/lib/hex-sampling";
+import { labelProgress, undoHexLabelSave } from "@/lib/hex-sampling";
 import { ShadeLabeler } from "@/components/shade-hex-labeler";
 import { ToggleChip } from "@/components/toggle-chip";
 import { Button } from "@/components/ui/button";
@@ -194,16 +194,10 @@ export function HexLabelingTab() {
 
   const handleUndo = useCallback(async () => {
     if (!lastSave || saving) return;
-    const plan = planUndo(lastSave);
     setSaving(true);
     try {
-      if (plan.kind === "delete") {
-        await deleteHexLabel(plan.trainingSampleId);
-        applyLabel(plan.shadeId, null);
-      } else {
-        const restored = await saveHexLabel(plan.request);
-        applyLabel(plan.shadeId, restored.label);
-      }
+      const { plan, label } = await undoHexLabelSave(lastSave, { saveHexLabel, deleteHexLabel });
+      applyLabel(plan.shadeId, label);
       setLastSave(null);
       setQueue((prev) => {
         if (!prev) return prev;

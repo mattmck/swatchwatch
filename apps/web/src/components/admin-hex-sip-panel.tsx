@@ -3,10 +3,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, Pipette } from "lucide-react";
 import { toast } from "sonner";
-import { MEDIUM_CONFIDENCE_MAX_DISTANCE, type HexLabelQueueItem, type HexLabelRequest } from "swatchwatch-shared";
+import {
+  MEDIUM_CONFIDENCE_MAX_DISTANCE,
+  type HexLabelQueueItem,
+  type HexLabelRequest,
+  type HexLabelSaveResponse,
+} from "swatchwatch-shared";
 import { deleteHexLabel, getHexLabelShade, saveHexLabel } from "@/lib/api";
 import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
 import { buildMsalConfig } from "@/lib/msal-config";
+import { undoHexLabelSave } from "@/lib/hex-sampling";
 import { ShadeLabeler } from "@/components/shade-hex-labeler";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,6 +65,8 @@ export function AdminHexSipPanel({ shadeId }: { shadeId: string }) {
   const [reloadToken, setReloadToken] = useState(0);
   const [sampleSize, setSampleSize] = useState(5);
   const [saving, setSaving] = useState(false);
+  // The last save, so U / Undo can revert it (same flow as the Hex Labeling tab).
+  const [lastSave, setLastSave] = useState<HexLabelSaveResponse | null>(null);
 
   const key = `${shadeId}#${reloadToken}`;
 
@@ -90,6 +98,7 @@ export function AdminHexSipPanel({ shadeId }: { shadeId: string }) {
       try {
         const response = await saveHexLabel(request);
         setLabel(response.label);
+        setLastSave(response);
         toast.success(response.label.unreliable ? "Flagged as unreliable" : `Saved ${response.label.hex}`, {
           description: response.previous ? "Replaced the previous label." : undefined,
         });
@@ -109,6 +118,8 @@ export function AdminHexSipPanel({ shadeId }: { shadeId: string }) {
     try {
       await deleteHexLabel(label.trainingSampleId);
       setLabel(null);
+      // The removed label is gone, so the last save can no longer be undone.
+      setLastSave(null);
       toast.success("Label removed");
     } catch (error) {
       toast.error("Failed to remove label", { description: errorMessage(error, "Request failed") });
@@ -116,6 +127,21 @@ export function AdminHexSipPanel({ shadeId }: { shadeId: string }) {
       setSaving(false);
     }
   }, [current, setLabel]);
+
+  const handleUndo = useCallback(async () => {
+    if (!lastSave || saving) return;
+    setSaving(true);
+    try {
+      const { plan, label } = await undoHexLabelSave(lastSave, { saveHexLabel, deleteHexLabel });
+      setLabel(label);
+      setLastSave(null);
+      toast.success(plan.kind === "delete" ? "Label removed" : "Previous label restored");
+    } catch (error) {
+      toast.error("Undo failed", { description: errorMessage(error, "Request failed") });
+    } finally {
+      setSaving(false);
+    }
+  }, [lastSave, saving, setLabel]);
 
   return (
     <Card data-testid="admin-hex-sip-panel">
@@ -162,6 +188,8 @@ export function AdminHexSipPanel({ shadeId }: { shadeId: string }) {
               saving={saving}
               onSave={handleSave}
               onRemove={handleRemove}
+              canUndo={lastSave !== null}
+              onUndo={handleUndo}
               layout="stacked"
               shortcutScope="panel"
             />
