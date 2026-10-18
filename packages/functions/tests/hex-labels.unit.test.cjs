@@ -23,6 +23,15 @@ const CATALOG_URL = "https://swatchacct.blob.core.windows.net/source-images/holo
 const GALLERY_URL = "https://swatchacct.blob.core.windows.net/source-images/holotaco/hand.png";
 const USER_MEDIA_URL = "https://swatchacct.blob.core.windows.net/nail-photos/user-1/private.png";
 
+/** Hostnames of every URL in a JSON payload, so blob hosts are matched exactly / by suffix, never by substring (CodeQL). */
+function responseHostnames(payload) {
+  return (JSON.stringify(payload).match(/https?:\/\/[^"\s\\]+/g) ?? []).map((u) => new URL(u).hostname);
+}
+
+function blobHostnames(payload) {
+  return responseHostnames(payload).filter((host) => host === "blob.core.windows.net" || host.endsWith(".blob.core.windows.net"));
+}
+
 // ---------------------------------------------------------------------------
 // Fake DB
 // ---------------------------------------------------------------------------
@@ -421,13 +430,8 @@ describe("hex-labels — GET queue", () => {
     assert.equal(first.images[0].isPrimary, true);
     assert.equal(first.images[0].sourceUrl, "https://cdn.shopify.com/hero.png");
     assert.equal(first.images[1].isPrimary, false);
-    const responseHosts = (JSON.stringify(body).match(/https?:\/\/[^"\s\\]+/g) ?? []).map((u) => new URL(u).hostname);
-    assert.ok(responseHosts.length > 0);
-    assert.deepEqual(
-      responseHosts.filter((host) => host === "blob.core.windows.net" || host.endsWith(".blob.core.windows.net")),
-      [],
-      "raw storage URLs never leak"
-    );
+    assert.ok(responseHostnames(body).length > 0);
+    assert.deepEqual(blobHostnames(body), [], "raw storage URLs never leak");
 
     assert.deepEqual(second.finishes, ["holo"], "falls back to the legacy single finish");
     assert.equal(second.flagged, false);
@@ -524,7 +528,8 @@ describe("hex-labels — GET shade (detail page, #351)", () => {
     assert.match(item.images[0].url, /^http:\/\/localhost:7071\/api\/images\/v2\./);
     assert.equal(item.label.hex, "#ABCDEF");
     assert.equal(item.label.method, "eyedropper");
-    assert.ok(!JSON.stringify(item).includes("blob.core.windows.net"), "raw storage URLs never leak");
+    assert.ok(responseHostnames(item).length > 0);
+    assert.deepEqual(blobHostnames(item), [], "raw storage URLs never leak");
     assert.equal(transactionCount, 0, "read-only");
     assert.ok(handlerCalls().every((c) => /^\s*SELECT/i.test(c.sql)), "only SELECTs");
   });
