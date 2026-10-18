@@ -68,7 +68,8 @@ base AS (
     s.detected_hex,
     s.detected_hex_method,
     s.color_family,
-    COALESCE(s.vendor_hex, s.detected_hex, s.name_hex) AS display_hex,
+    -- Same fallback as resolveDisplayHex, which skips empty strings.
+    COALESCE(NULLIF(s.vendor_hex, ''), NULLIF(s.detected_hex, ''), NULLIF(s.name_hex, '')) AS display_hex,
     COALESCE(st.sources, '(no source product)') AS sources,
     st.sample_title,
     st.product_types,
@@ -105,15 +106,27 @@ SET LOCAL transaction_read_only = on;
 -- 1. Size of the problem by category.
 --    in_inventory = shades someone holds (any status); those must never be hidden silently.
 \echo '== 1. Shades by category'
+--    Inventory is collapsed to one row per shade first, so a shade held by many users still
+--    counts once in shades / active / with_detected_hex.
+WITH holders AS (
+  SELECT shade_id, array_agg(DISTINCT user_id) AS user_ids
+  FROM user_inventory_item
+  WHERE shade_id IS NOT NULL
+  GROUP BY shade_id
+)
 SELECT
   a.category,
   count(*)                                                    AS shades,
   count(*) FILTER (WHERE a.status = 'active')                 AS active,
   count(*) FILTER (WHERE a.detected_hex IS NOT NULL)          AS with_detected_hex,
-  count(DISTINCT i.shade_id)                                  AS in_inventory,
-  count(DISTINCT i.user_id)                                   AS users_holding
+  count(h.shade_id)                                           AS in_inventory,
+  (SELECT count(DISTINCT u)
+     FROM audit_shade a2
+     JOIN holders h2 ON h2.shade_id = a2.shade_id
+     CROSS JOIN LATERAL unnest(h2.user_ids) AS u
+    WHERE a2.category = a.category)                           AS users_holding
 FROM audit_shade a
-LEFT JOIN user_inventory_item i ON i.shade_id = a.shade_id
+LEFT JOIN holders h ON h.shade_id = a.shade_id
 GROUP BY a.category
 ORDER BY shades DESC;
 
@@ -140,8 +153,12 @@ WHERE a.category = 'topper'
 GROUP BY 1
 ORDER BY toppers DESC;
 
--- 4. Dupe inflation: near-dupe pairs inside each user's owned collection where at least one
---    side is not a color polish, split by grade and by the color shade's family.
+-- 4. Dupe exposure: near-dupe pairs inside each user's owned collection where at least one
+--    side is not a color polish (topper vs color, topper vs topper, coat vs color, ...), each
+--    pair counted once, split by grade and by the color side's family.
+--    This measures the data, not the dupe finder's output: hex distances don't change when
+--    categories are added, so these pairs stay after the fix. It sizes how many warnings
+--    toppers and coats can cause today; plan §4 Phase 6 verifies the dupe finder separately.
 \echo '== 4. Owned near-dupe pairs involving non-color shades'
 WITH owned AS (
   SELECT i.user_id, a.shade_id, a.category, a.display_hex, a.color_family
@@ -152,21 +169,24 @@ WITH owned AS (
 pairs AS (
   SELECT
     x.user_id,
-    x.category AS non_color_category,
-    y.color_family AS color_side_family,
+    least(x.category, y.category)    AS category_a,
+    greatest(x.category, y.category) AS category_b,
+    CASE WHEN x.category = 'color' THEN x.color_family
+         WHEN y.category = 'color' THEN y.color_family END AS color_side_family,
     hex_oklab_distance(x.display_hex, y.display_hex) AS distance
   FROM owned x
-  JOIN owned y ON y.user_id = x.user_id AND y.shade_id <> x.shade_id AND y.category = 'color'
-  WHERE x.category <> 'color'
+  JOIN owned y ON y.user_id = x.user_id AND x.shade_id < y.shade_id
+  WHERE x.category <> 'color' OR y.category <> 'color'
 )
 SELECT
-  non_color_category,
-  COALESCE(color_side_family, '(none)')   AS color_side_family,
+  category_a,
+  category_b,
+  COALESCE(color_side_family, '-')         AS color_side_family,
   count(*) FILTER (WHERE distance <= 0.05) AS high_pairs,
   count(*) FILTER (WHERE distance > 0.05 AND distance <= 0.10) AS medium_pairs,
   count(DISTINCT user_id) FILTER (WHERE distance <= 0.10) AS users_affected
 FROM pairs
-GROUP BY 1, 2
+GROUP BY 1, 2, 3
 HAVING count(*) FILTER (WHERE distance <= 0.10) > 0
 ORDER BY count(*) FILTER (WHERE distance <= 0.10) DESC
 LIMIT 30;
@@ -184,7 +204,10 @@ WHERE a.category = 'topper'
   AND a.detected_hex IS NOT NULL
   AND (
     hex_oklab_distance(a.vendor_hex, a.detected_hex) > 0.10
-    OR (a.vendor_hex IS NULL AND a.color_family NOT IN ('white', 'grey', 'nude'))
+    -- Family of the detected hex itself (color_family can come from finish metadata);
+    -- an unparseable hex is suspicious too.
+    OR (a.vendor_hex IS NULL
+        AND COALESCE(shade_color_family_from_hex(a.detected_hex), '') NOT IN ('white', 'grey', 'nude'))
   )
 ORDER BY vendor_vs_detected DESC NULLS LAST
 LIMIT 40;

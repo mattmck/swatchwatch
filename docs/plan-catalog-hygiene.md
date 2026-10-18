@@ -30,8 +30,11 @@ linked source product's title, product type and tags, and reports:
 1. Shades per category: active, with a detected hex, held in someone's inventory, users holding.
 2. Non-color shades per data source, which shows where the filter leaks.
 3. Toppers by color family and hex source.
-4. **Dupe inflation:** near-dupe pairs (HIGH ≤ 0.05, MEDIUM ≤ 0.10 OKLAB) inside each user's owned
-   collection where one side isn't a color polish, split by the color side's family.
+4. **Dupe exposure:** near-dupe pairs (HIGH ≤ 0.05, MEDIUM ≤ 0.10 OKLAB) inside each user's owned
+   collection where at least one side isn't a color polish (topper vs color, topper vs topper,
+   and so on), each pair counted once, split by the color side's family. This sizes how many
+   false warnings are possible today. It doesn't read the dupe finder's output, so it won't
+   change after the fix (see Phase 6).
 5. Toppers whose detected hex looks like a base color (far from the vendor hex, or saturated
    with no vendor hex).
 6. Ten sample rows per category, to check for false positives before trusting the counts.
@@ -151,9 +154,19 @@ samples cover it. Record the counts on #347 and #349. These are the dev baseline
 **Phase 3 — #349 model (2–3 days).**
 1. Migration via `/create-migration`: `product_category` + `product_category_source`, the
    `excluded` status, and an index on `(product_category, status)`.
-2. Move the classifier into `packages/functions/src/lib/product-category.ts`, sharing its rules
-   with the audit query: product type first, then title, then tags, with the precedence the dry
-   run settled on (accessory on title and type only; topper beats coat wording).
+2. Move the classifier into `packages/functions/src/lib/product-category.ts`. The audit query is
+   its reference: the TypeScript version applies the same rules in the same order, and its unit
+   tests are built from the audit's reviewed samples. The rules, first match wins:
+   1. **accessory** when the shade name, title or product type (never tags) names a tool or
+      accessory;
+   2. **topper** when the shade's finishes say topper, or the word topper appears anywhere,
+      tags included, so it beats coat wording;
+   3. **base_coat**, **top_coat**, **treatment** from name, title, product type or tags;
+   4. **color** otherwise.
+
+   If the classifier needs a different precedence (for example trusting product type over the
+   title when they conflict), change the audit query first and re-review its samples, so the
+   two never disagree.
 3. Backfill as an admin job with a **dry-run mode** that writes a report instead of updating.
    Dry-run on dev, review the report, apply on dev. Admin override in the Review Queue (or a small Category control on the shade) sets
    `product_category_source = 'admin'`, which re-ingestion never overwrites.
@@ -171,12 +184,17 @@ search, gaps, match-image, Pick for me and stats; a topper-only path in the dupe
 role prefill.
 
 **Phase 6 — Verify on dev, then prod.**
-1. Re-run the audit on dev. Section 4 (dupe pairs involving non-color shades) should drop to
-   topper-vs-topper only, and section 5 should be empty.
-2. Only then: run the audit on prod as its baseline, ship the release (the migration adds the
+1. Re-run the audit on dev. Section 5 should be empty and section 1 should match the backfill
+   report. Section 4 will **not** change: it measures hex distances between owned shades, which
+   categories don't alter. It is the exposure baseline, not the success check.
+2. Check the dupe finder itself on dev. Take the pairs section 4 listed before the fix. For a
+   color shade, `GET /api/polishes/{id}/dupes` must no longer return its topper, coat or
+   treatment partners. For a topper, it must return only other toppers. The same rules need
+   unit tests in the shared dupe code, so CI keeps them.
+3. Only then: run the audit on prod as its baseline, ship the release (the migration adds the
    columns), run the backfill on prod in dry-run mode, compare its report with dev's, apply, and
    re-run the audit.
-3. Watch the dupe-warning funnel (`dupe.warning_shown`) for a fall in warnings on white and light
+4. Watch the dupe-warning funnel (`dupe.warning_shown`) for a fall in warnings on white and light
    shades.
 
 ## 5. Risks
