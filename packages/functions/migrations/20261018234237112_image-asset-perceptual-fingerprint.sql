@@ -37,9 +37,14 @@ ALTER TABLE image_asset
       AND image_width > 0
       AND image_height > 0
     )
-  );
+  ) NOT VALID;
 
 COMMIT;
+
+-- Validated after COMMIT: VALIDATE CONSTRAINT takes only a SHARE UPDATE EXCLUSIVE lock, so image
+-- reads and writes continue while it scans image_asset (the new columns are all NULL, so it passes).
+-- Adding the CHECK without NOT VALID would scan under the ACCESS EXCLUSIVE lock of ADD COLUMN.
+ALTER TABLE image_asset VALIDATE CONSTRAINT image_asset_fingerprint_complete;
 
 -- Down Migration
 
