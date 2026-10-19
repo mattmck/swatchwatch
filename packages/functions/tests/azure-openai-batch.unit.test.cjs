@@ -366,7 +366,7 @@ describe("lib/azure-openai-batch — getBatchConfig gateway/direct matrix", () =
 
     await getVisionHexBatchStatus("batch-001");
 
-    assert.ok(capturedUrl.startsWith("https://direct.openai.azure.com"), `Expected direct endpoint, got: ${capturedUrl}`);
+    assert.equal(new URL(capturedUrl).origin, "https://direct.openai.azure.com", `Expected direct endpoint, got: ${capturedUrl}`);
     assert.equal(capturedHeaders["api-key"], "direct-api-key");
     assert.equal(capturedHeaders["Ocp-Apim-Subscription-Key"], undefined);
   });
@@ -389,7 +389,7 @@ describe("lib/azure-openai-batch — getBatchConfig gateway/direct matrix", () =
 
     await getVisionHexBatchStatus("batch-001");
 
-    assert.ok(capturedUrl.startsWith("https://apim.example.com"), `Expected gateway endpoint, got: ${capturedUrl}`);
+    assert.equal(new URL(capturedUrl).origin, "https://apim.example.com", `Expected gateway endpoint, got: ${capturedUrl}`);
     assert.equal(capturedHeaders["Ocp-Apim-Subscription-Key"], "apim-sub-key");
     assert.equal(capturedHeaders["api-key"], undefined);
   });
@@ -410,7 +410,7 @@ describe("lib/azure-openai-batch — getBatchConfig gateway/direct matrix", () =
 
     await getVisionHexBatchStatus("batch-001");
 
-    assert.ok(capturedUrl.startsWith("https://direct.openai.azure.com"), `Expected direct endpoint fallback, got: ${capturedUrl}`);
+    assert.equal(new URL(capturedUrl).origin, "https://direct.openai.azure.com", `Expected direct endpoint fallback, got: ${capturedUrl}`);
     assert.equal(capturedHeaders["api-key"], "direct-api-key");
     assert.equal(capturedHeaders["Ocp-Apim-Subscription-Key"], undefined);
   });
