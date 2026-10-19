@@ -94,7 +94,26 @@ registerMock("../lib/ingestion-repo", {
   },
 });
 
+// HEX_DETECTION_SNAP_ENABLED tests swap this for a loader returning a solid-color PNG.
+let imageLoader = async () => {
+  throw new Error("image loader not configured");
+};
+let loadedImageUrls = [];
+registerMock("../lib/detection-image", {
+  loadDetectionImageBytes: async (url) => {
+    loadedImageUrls.push(url);
+    return imageLoader(url);
+  },
+});
+
+let downloadedFileIds = [];
+let inputImages = new Map();
 registerMock("../lib/azure-openai-batch", {
+  downloadBatchFileContent: async (fileId) => {
+    downloadedFileIds.push(fileId);
+    return "{}\n{}\n";
+  },
+  parseVisionHexBatchInputImages: () => new Map(inputImages),
   getVisionHexBatchStatus: async (batchId) => {
     polledBatchIds.push(batchId);
     onPoll(batchId);
@@ -102,7 +121,6 @@ registerMock("../lib/azure-openai-batch", {
     if (status instanceof Error) throw status;
     return { ...status };
   },
-  downloadBatchFileContent: async () => "{}\n{}\n",
   parseVisionHexBatchOutput: () => [{}, {}],
   parseVisionHexBatchDetections: async (_rows, provenance) => {
     parseProvenanceArgs.push(provenance ?? null);
@@ -202,6 +220,10 @@ beforeEach(() => {
   calls = [];
   parseProvenanceArgs = [];
   appliedDetections = [];
+  loadedImageUrls = [];
+  downloadedFileIds = [];
+  inputImages = new Map();
+  delete process.env.HEX_DETECTION_SNAP_ENABLED;
   batchStatus = {
     id: "batch-1",
     status: "completed",
@@ -353,6 +375,7 @@ describe("ingestion-ai-batch-poller completed batch", () => {
       outputRows: 4,
       parsedRows: 4,
       parseErrors: 2,
+      hexSnapped: 0,
       rowsWithTokenUsage: 4,
       promptTokens: 300,
       completionTokens: 30,
@@ -728,5 +751,92 @@ describe("ingestion-ai-batch-poller job log", () => {
     assert.ok(markers[0].omitted.count >= 1);
     assert.match(markers[0].msg, /earlier log line/);
     assert.match(logs[logs.length - 1].msg, /^\[poller\]/, "the newest line is the poller's");
+  });
+});
+
+describe("ingestion-ai-batch-poller detected-hex snapping (HEX_DETECTION_SNAP_ENABLED)", () => {
+  const sharp = require("sharp");
+  // The measured palette of a solid #102030 image is one chip; the model's #112233 is close to it.
+  const solidPng = () =>
+    sharp({ create: { width: 24, height: 24, channels: 3, background: { r: 0x10, g: 0x20, b: 0x30 } } })
+      .png()
+      .toBuffer();
+
+  function seedSnapJob(extraBatch = {}) {
+    const metrics = makeAwaitingMetrics({ resumeMessage: makeResumeMessage() });
+    metrics.aiBatch = { ...metrics.aiBatch, inputFileId: "file-in-1", ...extraBatch };
+    seedJob(metrics);
+  }
+
+  it("leaves detections untouched and never reads the input file while the flag is off", async () => {
+    seedSnapJob();
+    inputImages = new Map([["ext-1", "https://api.example/api/images/v2.abc"]]);
+
+    await runPoller();
+
+    assert.deepEqual(downloadedFileIds, ["file-out-1"], "only the output file is downloaded");
+    assert.deepEqual(loadedImageUrls, []);
+    assert.equal(appliedDetections[0][0].detectedHex, "#112233");
+    assert.equal(appliedDetections[0][0].provenance.method, "vision-direct");
+    assert.equal(calls.find((c) => c.type === "update").metrics.aiBatchApply.hexSnapped, 0);
+  });
+
+  it("snaps each detection to the image its batch row was shown and records vision-snap", async () => {
+    process.env.HEX_DETECTION_SNAP_ENABLED = "true";
+    seedSnapJob();
+    inputImages = new Map([["ext-1", "https://api.example/api/images/v2.abc"]]);
+    imageLoader = solidPng;
+
+    await runPoller();
+
+    assert.deepEqual(downloadedFileIds, ["file-out-1", "file-in-1"]);
+    assert.deepEqual(loadedImageUrls, ["https://api.example/api/images/v2.abc"]);
+    const [applied] = appliedDetections[0];
+    assert.equal(applied.externalId, "ext-1");
+    assert.equal(applied.detectedHex, "#102030", "the measured chip replaces the model hex");
+    assert.equal(applied.provenance.method, "vision-snap");
+    assert.equal(applied.provenance.confidence, 0.8, "confidence is untouched");
+    assert.equal(appliedDetections[0][1].detectedHex, null, "rows without a detection pass through");
+    const update = calls.find((c) => c.type === "update");
+    assert.equal(update.metrics.aiBatchApply.hexSnapped, 1);
+    assert.equal(update.metrics.aiBatchApplyTotals.hexSnapped, 1);
+  });
+
+  it("keeps the model hex when the palette has no chip close enough", async () => {
+    process.env.HEX_DETECTION_SNAP_ENABLED = "true";
+    seedSnapJob();
+    inputImages = new Map([["ext-1", "https://api.example/api/images/v2.abc"]]);
+    imageLoader = () =>
+      sharp({ create: { width: 24, height: 24, channels: 3, background: { r: 0xf4, g: 0xf4, b: 0xf4 } } })
+        .png()
+        .toBuffer();
+
+    await runPoller();
+
+    const [applied] = appliedDetections[0];
+    assert.equal(applied.detectedHex, "#112233");
+    assert.equal(applied.provenance.method, "vision-direct");
+    assert.equal(calls.find((c) => c.type === "update").metrics.aiBatchApply.hexSnapped, 0);
+  });
+
+  it("keeps the model hex when the image cannot be loaded or the batch has no input file", async () => {
+    process.env.HEX_DETECTION_SNAP_ENABLED = "true";
+    seedSnapJob();
+    inputImages = new Map([["ext-1", "https://api.example/api/images/v2.abc"]]);
+    imageLoader = async () => {
+      throw new Error("blob gone");
+    };
+    await runPoller();
+    assert.equal(appliedDetections[0][0].detectedHex, "#112233");
+    assert.equal(appliedDetections[0][0].provenance.method, "vision-direct");
+    assert.equal(dbJob.status, "running", "a snap failure never fails the batch");
+
+    calls = [];
+    appliedDetections = [];
+    downloadedFileIds = [];
+    seedSnapJob({ inputFileId: undefined });
+    await runPoller();
+    assert.deepEqual(downloadedFileIds, ["file-out-1"]);
+    assert.equal(appliedDetections[0][0].provenance.method, "vision-direct");
   });
 });

@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const {
   parseVisionHexBatchOutput,
   parseVisionHexBatchDetections,
+  parseVisionHexBatchInputImages,
   getVisionHexBatchStatus,
   submitVisionHexBatch,
 } = require("../dist/lib/azure-openai-batch");
@@ -79,6 +80,59 @@ describe("lib/azure-openai-batch — parseVisionHexBatchOutput", () => {
 
   it("returns an empty array for empty input", () => {
     assert.deepEqual(parseVisionHexBatchOutput(""), []);
+  });
+});
+
+describe("lib/azure-openai-batch — parseVisionHexBatchInputImages", () => {
+  // One submitted JSONL line in the shape toJsonlLine writes (chat-completions request).
+  function inputLine(customId, imageUrl) {
+    return JSON.stringify({
+      custom_id: customId,
+      method: "POST",
+      url: "/chat/completions",
+      body: {
+        model: "hex-detector-batch",
+        messages: [
+          { role: "system", content: "You identify nail polish colors." },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "What is the hex?" },
+              { type: "image_url", image_url: { url: imageUrl, detail: "low" } },
+            ],
+          },
+        ],
+      },
+    });
+  }
+
+  it("maps each custom_id to the image URL its request carried", () => {
+    const images = parseVisionHexBatchInputImages(
+      [
+        inputLine("ext-1", "https://api.example/api/images/v2.abc"),
+        inputLine("ext-2", "https://cdn.shopify.com/s/files/p2.png"),
+      ].join("\n")
+    );
+    assert.deepEqual(
+      [...images.entries()],
+      [
+        ["ext-1", "https://api.example/api/images/v2.abc"],
+        ["ext-2", "https://cdn.shopify.com/s/files/p2.png"],
+      ]
+    );
+  });
+
+  it("skips malformed lines, rows without a custom_id and requests without an image part", () => {
+    const noImage = JSON.stringify({
+      custom_id: "ext-3",
+      body: { messages: [{ role: "user", content: "text only" }] },
+    });
+    const noId = JSON.stringify({ body: { messages: [] } });
+    const images = parseVisionHexBatchInputImages(
+      ["not json", "", noImage, noId, inputLine("ext-1", "https://img.example/a.png")].join("\n")
+    );
+    assert.deepEqual([...images.entries()], [["ext-1", "https://img.example/a.png"]]);
+    assert.equal(parseVisionHexBatchInputImages("").size, 0);
   });
 });
 
@@ -312,7 +366,7 @@ describe("lib/azure-openai-batch — getBatchConfig gateway/direct matrix", () =
 
     await getVisionHexBatchStatus("batch-001");
 
-    assert.ok(capturedUrl.startsWith("https://direct.openai.azure.com"), `Expected direct endpoint, got: ${capturedUrl}`);
+    assert.equal(new URL(capturedUrl).origin, "https://direct.openai.azure.com", `Expected direct endpoint, got: ${capturedUrl}`);
     assert.equal(capturedHeaders["api-key"], "direct-api-key");
     assert.equal(capturedHeaders["Ocp-Apim-Subscription-Key"], undefined);
   });
@@ -335,7 +389,7 @@ describe("lib/azure-openai-batch — getBatchConfig gateway/direct matrix", () =
 
     await getVisionHexBatchStatus("batch-001");
 
-    assert.ok(capturedUrl.startsWith("https://apim.example.com"), `Expected gateway endpoint, got: ${capturedUrl}`);
+    assert.equal(new URL(capturedUrl).origin, "https://apim.example.com", `Expected gateway endpoint, got: ${capturedUrl}`);
     assert.equal(capturedHeaders["Ocp-Apim-Subscription-Key"], "apim-sub-key");
     assert.equal(capturedHeaders["api-key"], undefined);
   });
@@ -356,7 +410,7 @@ describe("lib/azure-openai-batch — getBatchConfig gateway/direct matrix", () =
 
     await getVisionHexBatchStatus("batch-001");
 
-    assert.ok(capturedUrl.startsWith("https://direct.openai.azure.com"), `Expected direct endpoint fallback, got: ${capturedUrl}`);
+    assert.equal(new URL(capturedUrl).origin, "https://direct.openai.azure.com", `Expected direct endpoint fallback, got: ${capturedUrl}`);
     assert.equal(capturedHeaders["api-key"], "direct-api-key");
     assert.equal(capturedHeaders["Ocp-Apim-Subscription-Key"], undefined);
   });

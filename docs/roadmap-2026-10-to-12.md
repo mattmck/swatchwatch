@@ -15,17 +15,37 @@ a rating, notes, and strong color tooling. The last two weeks of commits were al
 entirely hex-detection quality, which is now good enough to stop tuning and start
 spending.
 
-**Open items, triaged** (17 open issues, 2 milestones):
+**Open items, triaged** (as of 2026-10-17, after release #340: 18 open issues, 11 of them in
+M2; drafted against 17 open issues and 2 milestones):
 
-| Bucket | Issues | Call |
+| Bucket | Issues | Status |
 |---|---|---|
-| Land now | ✅ 17 Oct: #256, #258, #237 shipped to `main` in release #276 (Deploy Prod green, migration rename applied cleanly); #245 closed (fixed by #246, hardened in #237). Remaining: #227 owner-scoped image ids (security) | Week 0 |
-| Decide + do | #224 multi-finish follow-ups (3 decisions) | Week 0 |
-| Fold into this roadmap | #21 camera capture (web half), #103 color taxonomy, #104 LacquerTracker research (site is dead — closed; findings harvested into §2 and the color-family filter), #45 admin users (remaining bits), #226 ingestion logs | Sprints 1–4 |
-| Defer to 2027 | #109 Expo scaffold, #2 ESM migration, #117 Redis, #158/#228 APIM gateway, #102 (superseded by `finish_type` admin) | See §5 |
+| Land now | #256, #258, #237 (release #276); #245 closed (fixed by #246, hardened in #237); #227 owner-scoped image ids | ✅ All shipped; #227 closed |
+| Decide + do | #224 multi-finish follow-ups (3 decisions) | ✅ Shipped in #288 + #306 (decision D11), closed |
+| Fold into this roadmap | #21 camera capture (web half), #103 color taxonomy, #104 LacquerTracker research, #45 admin users (remaining bits), #226 ingestion logs | ✅ #21 web half (#294; mobile remainder moved to #109), #103 (#293), #104 (closed, site dead), #226 (#290) closed. #45 stays open: the review-queue half shipped in #298, user management remains |
+| Defer to 2027 | #109 Expo scaffold, #2 ESM migration, #117 Redis, #158/#228 APIM gateway, #102 (superseded by `finish_type` admin) | Still deferred, see §5 and [retro-m2.md](retro-m2.md) Q1 candidates |
 
-Hygiene: `dev` and `main` are level since release #276 (17 Oct); the M0 and M1 milestones are stale
-(49 of 54 closed) and should be closed in favor of a new **M2 — Collector's companion**.
+Hygiene: M0 and M1 are closed; **M2 — Collector's companion** holds the batch. Release #340
+(2026-10-17) promoted every Sprint 1–4 item below to `main` as one squash commit. Deploy Prod run
+39083042415 applied all 12 migrations cleanly, and prod served 0 failed requests in the first 90
+minutes. Several PRs in it
+targeted `dev`, so their closing keywords only fired on the release; the housekeeping pass on
+2026-10-17 closed the rest by hand with a comment citing the PR.
+
+**Remaining for M2** (open after release #340):
+
+- #45 admin user management: list users, state, password reset, editable settings, audit (review queue half shipped in #298)
+- #105 image-to-polish matching, web/API gaps only (filters, add-to-wishlist, per-color matches, Phase 5); mobile items moved to #109
+- #273 indie Shopify sources: Night Owl Lacquer approved (#333); more stores still to add, Pahlish waits on #328
+- #328 store-specific product filter for Pahlish
+- #319 sweep orphaned `image_asset` rows and blobs
+- #320 optional family on finish types for dupe grading
+- #321 opt-in promote a hand-labeled hex to `vendor_hex`, with provenance
+- #322 label ground truth with the color sip tool, then run the hex detection gate (D4)
+- #325 verify camera Rapid Add on real iOS and Android devices
+- #326 nail-photo upload/delete end-to-end against a live host
+- #313 decide the feature-flag mechanism (env vars vs. Azure App Configuration); not in the M2 milestone but raised by #305
+- #274 release, docs sweep and retro (skeleton in [retro-m2.md](retro-m2.md))
 
 ## 2. What nail polish nerds want (research)
 
@@ -70,6 +90,8 @@ Each sprint ships to `dev` continuously and promotes to `main` at sprint end.
 
 ### Week 0 — Stabilize and decide (20–24 Oct)
 
+> **Status:** ✅ shipped in release #340 on 2026-10-17 — #288 (#224 decisions, D11), #306 (atomic finish-type rename), #331 (decision log). #227 shipped before #340; the hex gate is frozen until #322 (D4).
+
 - ✅ Merge #256, #258, #237; cut a `dev → main` release (#276, 17 Oct); close #245.
 - Fix #227: owner-scope and expire private-media image ids; flip the `known gap #227`
   assertions in `tests/access-control.unit.test.cjs`, update the matching note in
@@ -86,6 +108,8 @@ Each sprint ships to `dev` continuously and promotes to `main` at sprint end.
 - Close M0/M1; open **M2 — Collector's companion** with the issues below.
 
 ### Sprint 1 — "Know what you own" (27 Oct – 7 Nov)
+
+> **Status:** ✅ shipped in release #340 on 2026-10-17 — #291 (inventory status), #296 (collection UI), #334 (status rules), #304 (CSV import), #300 (export), #336 (shared CSV columns, dupe-hint fix), #293 (color family filter), #301 (CI unit tests), #337 (M2 metrics).
 
 Goal: a real collection model and a painless way in and out.
 
@@ -110,6 +134,8 @@ Goal: a real collection model and a painless way in and out.
 
 ### Sprint 2 — "Don't buy it twice" (10–21 Nov, before Black Friday on 27 Nov)
 
+> **Status:** ✅ shipped in release #340 on 2026-10-17 — #297 (dupe finder), #303 (add guard), #294 (camera Rapid Add), #307 (check-only capture), #310 (capture finalize on barcode match), #335 (PWA icons), #289 (buy from brand), #305 (shareable wishlist, flagged off).
+
 Goal: the in-aisle answer.
 
 - **Dupe finder** — `GET /api/polishes/{id}/dupes`: nearest owned shades by OKLAB
@@ -130,6 +156,8 @@ Goal: the in-aisle answer.
 
 ### Sprint 3 — "Wear it" (24 Nov – 5 Dec, short week)
 
+> **Status:** ✅ shipped in release #340 on 2026-10-17 — #302 (mani log), #338 (wear history survives deletes/merges), #339 (HEIC conversion, mani photos), #299 (private nail photo), #309 (collection stats), #308 (Pick for me).
+
 Goal: the collection changes because you used it.
 
 - **Mani log** — `manicure` table (user, date, polishes[] with role base/accent/
@@ -144,6 +172,8 @@ Goal: the collection changes because you used it.
   This is the seed of the Looks plan without building the Looks page.
 
 ### Sprint 4 — "Grow the catalog, harden" (8–19 Dec)
+
+> **Status:** ✅ shipped in release #340 on 2026-10-17 — #292, #333, #295 (indie Shopify sources; more stores open in #273/#328), #298 (admin review queue), #290 (ingestion run logs), #311, #312 (hex labeling tool), #332 (prod alerts), #341, #342, #343 (CI hardening). Release done; retro skeleton in [retro-m2.md](retro-m2.md) (#274).
 
 Goal: more indie coverage, and the ops to absorb user-created data.
 

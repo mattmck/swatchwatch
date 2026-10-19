@@ -213,6 +213,24 @@ variable "azure_ad_b2c_client_id" {
   default     = "to-be-added"
 }
 
+variable "manage_ciam_service_principal" {
+  description = "Manage the web sign-in app's service principal (enterprise app) in the Entra External ID tenant: imports it and sets app_role_assignment_required = false. Turn on per environment only after checking that tenant's current settings."
+  type        = bool
+  default     = false
+}
+
+variable "ciam_tenant_id" {
+  description = "Entra External ID (CIAM) tenant ID that hosts the web sign-in app (azure_ad_b2c_client_id). Required when manage_ciam_service_principal = true."
+  type        = string
+  default     = ""
+}
+
+variable "ciam_terraform_client_id" {
+  description = "Client ID of the deployer app registration in the CIAM tenant that Deploy Infra signs in to with GitHub OIDC (federated credential). Empty = use Azure CLI credentials (local runs)."
+  type        = string
+  default     = ""
+}
+
 variable "auth_dev_bypass" {
   description = "Enable dev auth bypass in Functions (`Bearer dev:<userId>` tokens)"
   type        = bool
@@ -256,6 +274,12 @@ variable "azure_openai_vision_detail" {
 
 variable "hex_detection_batch_enabled" {
   description = "Enable Azure OpenAI Batch API for Shopify image-based hex detection"
+  type        = bool
+  default     = false
+}
+
+variable "hex_detection_snap_enabled" {
+  description = "Snap vision-detected hexes to the nearest palette chip measured from the same image (HEX_DETECTION_SNAP_ENABLED)"
   type        = bool
   default     = false
 }
@@ -363,4 +387,70 @@ variable "create_redis" {
   description = "Provision Azure Managed Redis and wire REDIS_URL/REDIS_KEY into the Function App. Disabled by default; the API caching layer (lib/cache.ts) degrades gracefully when these settings are empty. Set to true to enable read-through caching."
   type        = bool
   default     = false
+}
+
+# ── Backups ─────────────────────────────────────────────────────
+
+variable "pg_backup_retention_days" {
+  description = "Postgres built-in point-in-time restore window in days (7-35). Backup storage up to the provisioned storage size is included in the server price."
+  type        = number
+  default     = 35
+
+  validation {
+    condition     = var.pg_backup_retention_days >= 7 && var.pg_backup_retention_days <= 35
+    error_message = "pg_backup_retention_days must be between 7 and 35."
+  }
+}
+
+variable "blob_soft_delete_retention_days" {
+  description = "Days deleted blobs and deleted containers stay recoverable in the app storage account (1-365)."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.blob_soft_delete_retention_days >= 1 && var.blob_soft_delete_retention_days <= 365
+    error_message = "blob_soft_delete_retention_days must be between 1 and 365."
+  }
+}
+
+variable "blob_version_retention_days" {
+  description = "Days previous versions of swatch and nail-photo blobs are kept before the management policy deletes them."
+  type        = number
+  default     = 30
+}
+
+variable "tfstate_version_retention_days" {
+  description = "Days previous Terraform state versions are kept in the tfstate container."
+  type        = number
+  default     = 90
+}
+
+variable "backup_vault_enabled" {
+  description = "Create the Azure Backup vault with weekly Postgres and daily nail-photo backups. null = true for prod, false otherwise. The first apply that enables it needs User Access Administrator (role assignments), so run it locally."
+  type        = bool
+  default     = null
+}
+
+variable "delete_locks_enabled" {
+  description = "Put CanNotDelete locks on the Postgres server, storage account and backup vault. null = true for prod, false otherwise. Creating locks needs Owner or User Access Administrator."
+  type        = bool
+  default     = null
+}
+
+variable "pg_vault_backup_retention" {
+  description = "ISO 8601 retention for weekly Postgres vault backups (e.g. P3M). Changing it replaces the backup policy; see the Backups section in main.tf."
+  type        = string
+  default     = "P3M"
+}
+
+variable "nail_photo_vault_backup_retention" {
+  description = "ISO 8601 retention for daily nail-photo vault backups (e.g. P30D). Changing it replaces the backup policy; see the Backups section in main.tf."
+  type        = string
+  default     = "P30D"
+}
+
+variable "vault_backup_monthly_retention" {
+  description = "ISO 8601 retention for the first vault backup of each month, Postgres and nail photos (e.g. P1Y). Changing it replaces the backup policies."
+  type        = string
+  default     = "P1Y"
 }

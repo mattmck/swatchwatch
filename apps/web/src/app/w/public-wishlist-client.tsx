@@ -10,7 +10,7 @@ import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
 import { FinishBadges } from "@/components/finish-badges";
 import { ApiError, getPublicWishlist } from "@/lib/api";
-import { buildSwatchThumbnailUrl } from "@/lib/image-url";
+import { SwatchThumbnail } from "@/components/swatch-thumbnail";
 import { publicWishlistErrorMessage, publicWishlistTitle, readShareToken } from "@/lib/wishlist-share";
 
 type LoadState =
@@ -91,11 +91,10 @@ function WishlistGrid({ data }: { data: PublicWishlistResponse }) {
               >
                 {!item.hex && <div className="absolute inset-0 bg-muted" aria-hidden />}
                 {item.imageUrl && (
-                  // eslint-disable-next-line @next/next/no-img-element -- public proxy URL, no optimizer in static export
-                  <img
-                    src={buildSwatchThumbnailUrl(item.imageUrl, 256)}
+                  <SwatchThumbnail
+                    src={item.imageUrl}
+                    displaySize={56}
                     alt=""
-                    loading="lazy"
                     referrerPolicy="no-referrer"
                     className="absolute bottom-2 right-2 size-14 rounded-lg border-2 border-white/80 object-cover shadow"
                   />

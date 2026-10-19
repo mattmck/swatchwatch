@@ -1,9 +1,11 @@
 import {
   DUPE_LIMITS,
+  buildFinishFamilyMap,
   findDupes,
   prepareDupeCandidates,
   prepareDupeShade,
   type DupeShade,
+  type FinishFamilySource,
   type Polish,
   type PolishDupeHint,
   type PolishDupesResponse,
@@ -234,15 +236,18 @@ function normalizeName(value: string | null | undefined): string {
 /**
  * Dupes for a shade that does not exist yet, computed client-side from the entered hex and
  * finishes against the caller's owned shades (`GET /api/polishes?status=owned`) with the same
- * shared rule as the API (`prepareDupeShade` / `findDupes`). Returns null when the user already
+ * shared rule as the API (`prepareDupeShade` / `findDupes`). `options.finishTypes` are the reference
+ * finish types (`useReferenceData`): their `family` grades admin-created finishes the way the API
+ * does (#320); without them the built-in families apply. Returns null when the user already
  * owns a shade with the same brand and name (saving it is a quantity increase, not a dupe) or
  * when the entered hex is unusable.
  */
 export function dupesForNewShade(
   shade: { brand: string; name: string; hex: string; finishes: readonly string[] },
   owned: readonly Polish[],
-  limit: number = DUPE_LIMITS.defaultLimit
+  options: { limit?: number; finishTypes?: readonly FinishFamilySource[] } = {}
 ): PolishDupesResponse | null {
+  const limit = options.limit ?? DUPE_LIMITS.defaultLimit;
   const brand = normalizeName(shade.brand);
   const name = normalizeName(shade.name);
   const ownedPool = owned.filter((polish) => polish.status === "owned");
@@ -278,7 +283,9 @@ export function dupesForNewShade(
       })
     )
   );
-  const { dupes, candidateCount } = findDupes(target, candidates);
+  const { dupes, candidateCount } = findDupes(target, candidates, {
+    finishFamilies: buildFinishFamilyMap(options.finishTypes),
+  });
   return {
     target: {
       shadeId: target.shadeId,

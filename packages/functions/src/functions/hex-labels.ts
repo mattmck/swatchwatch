@@ -224,6 +224,32 @@ const QUEUE_FROM = `
       AND ia.owner_type = 'source'
   ) img ON true`;
 
+/** Columns of one queue item (shade, hexes, current manual label, sort ranks). Shared with the single-shade read. */
+const QUEUE_COLUMNS = `
+      s.shade_id                                    AS "shadeKey",
+      s.shade_id::text                              AS "shadeId",
+      COALESCE(b.name_canonical, '')                AS brand,
+      COALESCE(s.shade_name_canonical, '')          AS name,
+      COALESCE(s.finishes, ARRAY[]::text[])         AS finishes,
+      NULLIF(s.finish, '')                          AS "legacyFinish",
+      s.vendor_hex                                  AS "vendorHex",
+      s.detected_hex                                AS "detectedHex",
+      s.name_hex                                    AS "nameHex",
+      s.hex_agreement::float8                       AS "hexAgreement",
+      s.detected_hex_confidence::float8             AS "detectedHexConfidence",
+      s.detected_hex_method                         AS "detectedHexMethod",
+      lbl.training_sample_id::text                  AS "labelId",
+      lbl.hex                                       AS "labelHex",
+      lbl.training_status                           AS "labelStatus",
+      lbl.image_id::text                            AS "labelImageId",
+      lbl.notes                                     AS "labelNote",
+      lbl.label_meta                                AS "labelMeta",
+      lbl.labeled_by_user_id::text                  AS "labelUserId",
+      lbl.updated_at                                AS "labelAt",
+      (lbl.training_sample_id IS NOT NULL)::int     AS "labeledRank",
+      (img.image_count > 0)::int                    AS "imageRank",
+      COALESCE(s.hex_agreement, -1)                 AS "agreementRank"`;
+
 /** Queue order; must match the keyset predicate in `buildQueueQueries`. */
 export const HEX_LABEL_QUEUE_ORDER = `q."labeledRank" ASC, q."imageRank" DESC, q."agreementRank" DESC, q."shadeKey" ASC`;
 
@@ -271,29 +297,7 @@ export function buildQueueQueries(options: HexLabelQueueQueryOptions): {
   const pageSql = `SELECT q.*
   FROM (
     SELECT
-      s.shade_id                                    AS "shadeKey",
-      s.shade_id::text                              AS "shadeId",
-      COALESCE(b.name_canonical, '')                AS brand,
-      COALESCE(s.shade_name_canonical, '')          AS name,
-      COALESCE(s.finishes, ARRAY[]::text[])         AS finishes,
-      NULLIF(s.finish, '')                          AS "legacyFinish",
-      s.vendor_hex                                  AS "vendorHex",
-      s.detected_hex                                AS "detectedHex",
-      s.name_hex                                    AS "nameHex",
-      s.hex_agreement::float8                       AS "hexAgreement",
-      s.detected_hex_confidence::float8             AS "detectedHexConfidence",
-      s.detected_hex_method                         AS "detectedHexMethod",
-      lbl.training_sample_id::text                  AS "labelId",
-      lbl.hex                                       AS "labelHex",
-      lbl.training_status                           AS "labelStatus",
-      lbl.image_id::text                            AS "labelImageId",
-      lbl.notes                                     AS "labelNote",
-      lbl.label_meta                                AS "labelMeta",
-      lbl.labeled_by_user_id::text                  AS "labelUserId",
-      lbl.updated_at                                AS "labelAt",
-      (lbl.training_sample_id IS NOT NULL)::int     AS "labeledRank",
-      (img.image_count > 0)::int                    AS "imageRank",
-      COALESCE(s.hex_agreement, -1)                 AS "agreementRank"
+      ${QUEUE_COLUMNS}
     ${QUEUE_FROM}
     WHERE ${inner.join(" AND ")}
   ) q
@@ -478,6 +482,25 @@ interface QueueRow extends LabelColumns {
   agreementRank: string;
 }
 
+function toQueueItem(row: QueueRow, imageRows: ShadeImageRow[], requestUrl: string): HexLabelQueueItem {
+  const finishes = row.finishes?.length ? row.finishes : row.legacyFinish ? [row.legacyFinish] : [];
+  return {
+    shadeId: row.shadeId,
+    brand: row.brand,
+    name: row.name,
+    finishes,
+    vendorHex: row.vendorHex,
+    detectedHex: row.detectedHex,
+    nameHex: row.nameHex,
+    hexAgreement: row.hexAgreement,
+    detectedHexConfidence: row.detectedHexConfidence,
+    detectedHexMethod: row.detectedHexMethod,
+    flagged: row.hexAgreement !== null && row.hexAgreement > MEDIUM_CONFIDENCE_MAX_DISTANCE,
+    images: toLabelImages(imageRows, requestUrl),
+    label: toHexLabel(row.shadeId, row),
+  };
+}
+
 /**
  * GET /api/hex-labels-admin/queue (admin-only)
  *
@@ -539,24 +562,9 @@ export async function getHexLabelQueue(request: HttpRequest, context: Invocation
       : [];
     const imagesByShade = groupImages(imageRows);
 
-    const items: HexLabelQueueItem[] = rows.map((row) => {
-      const finishes = row.finishes?.length ? row.finishes : row.legacyFinish ? [row.legacyFinish] : [];
-      return {
-        shadeId: row.shadeId,
-        brand: row.brand,
-        name: row.name,
-        finishes,
-        vendorHex: row.vendorHex,
-        detectedHex: row.detectedHex,
-        nameHex: row.nameHex,
-        hexAgreement: row.hexAgreement,
-        detectedHexConfidence: row.detectedHexConfidence,
-        detectedHexMethod: row.detectedHexMethod,
-        flagged: row.hexAgreement !== null && row.hexAgreement > MEDIUM_CONFIDENCE_MAX_DISTANCE,
-        images: toLabelImages(imagesByShade.get(row.shadeId) ?? [], request.url),
-        label: toHexLabel(row.shadeId, row),
-      };
-    });
+    const items: HexLabelQueueItem[] = rows.map((row) =>
+      toQueueItem(row, imagesByShade.get(row.shadeId) ?? [], request.url)
+    );
 
     const last = rows[rows.length - 1];
     const nextCursor =
@@ -580,6 +588,34 @@ export async function getHexLabelQueue(request: HttpRequest, context: Invocation
     return { status: 200, jsonBody: body };
   } catch (error) {
     return internalServerError(context, error, "Failed to load hex labeling queue", "hex-labels.queue");
+  }
+}
+
+// ── GET /api/hex-labels-admin/shades/{shadeId} ──────────────────────────────
+
+/**
+ * One shade's labeling payload (same shape as a queue item), for the polish detail page (#351).
+ * Mirrors the queue's scope: `user_submitted` shades are private to their creator and answer 404
+ * like a missing shade; only catalog (`owner_type = 'source'`) images are returned.
+ */
+export async function getHexLabelShade(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
+  const shadeId = parseId(request.params.shadeId);
+  if (shadeId === null) return { status: 400, jsonBody: { error: "Invalid shade id" } };
+  try {
+    const result = await query<QueueRow>(
+      `SELECT ${QUEUE_COLUMNS}
+       ${QUEUE_FROM}
+       WHERE s.shade_id = $1
+         AND s.status <> 'user_submitted'`,
+      [shadeId]
+    );
+    const row = result.rows[0];
+    if (!row) return { status: 404, jsonBody: { error: "Shade not found" } };
+    const imageRows = (await query<ShadeImageRow>(SHADE_IMAGES_SQL, [[row.shadeId]])).rows;
+    const item = toQueueItem(row, groupImages(imageRows).get(row.shadeId) ?? [], request.url);
+    return { status: 200, jsonBody: item };
+  } catch (error) {
+    return internalServerError(context, error, "Failed to load hex labeling shade", "hex-labels.shade");
   }
 }
 
@@ -760,6 +796,13 @@ app.http("admin-hex-labels-queue", {
   authLevel: "anonymous",
   route: "hex-labels-admin/queue",
   handler: withCors(withAdmin(async (request, context) => getHexLabelQueue(request, context))),
+});
+
+app.http("admin-hex-labels-shade", {
+  methods: ["GET", "OPTIONS"],
+  authLevel: "anonymous",
+  route: "hex-labels-admin/shades/{shadeId}",
+  handler: withCors(withAdmin(async (request, context) => getHexLabelShade(request, context))),
 });
 
 app.http("admin-hex-labels-save", {

@@ -11,10 +11,14 @@ import {
   downloadBatchFileContent,
   getVisionHexBatchStatus,
   parseVisionHexBatchDetections,
+  parseVisionHexBatchInputImages,
   parseVisionHexBatchOutput,
 } from "../lib/azure-openai-batch";
 import { trackMetric } from "../lib/telemetry";
 import { provenanceFromDetection } from "../lib/hex-provenance";
+import { isHexSnapEnabled, snapDetectionToImage } from "../lib/hex-snap";
+import { loadDetectionImageBytes } from "../lib/detection-image";
+import pLimit = require("p-limit");
 import {
   AI_BATCHES_METRICS_KEY,
   CHECKPOINT_METRICS_KEY,
@@ -210,6 +214,7 @@ const AI_BATCH_APPLY_TOTAL_KEYS = [
   "outputRows",
   "parsedRows",
   "parseErrors",
+  "hexSnapped",
   "rowsWithTokenUsage",
   "promptTokens",
   "completionTokens",
@@ -217,6 +222,74 @@ const AI_BATCH_APPLY_TOTAL_KEYS = [
 ] as const;
 
 type AiBatchApplyTotals = Record<(typeof AI_BATCH_APPLY_TOTAL_KEYS)[number], number>;
+
+type ParsedBatchDetections = Awaited<ReturnType<typeof parseVisionHexBatchDetections>>;
+
+/** Palette extractions in flight while snapping one batch's detections. */
+const SNAP_CONCURRENCY = 4;
+
+/**
+ * `HEX_DETECTION_SNAP_ENABLED` post-processing for a completed batch: re-read the image
+ * each row was shown (from the submitted input file, `custom_id → image_url`) and snap the
+ * model's hex to its nearest measured palette chip. Rows are returned unchanged when the
+ * flag is off, the input file cannot be read, a row has no image, or no chip is close enough;
+ * problems are logged and never fail the batch.
+ */
+async function snapBatchDetections(
+  detections: ParsedBatchDetections,
+  entry: IngestionAiBatchEntry,
+  batchId: string,
+  context: InvocationContext
+): Promise<{ detections: ParsedBatchDetections; hexSnapped: number }> {
+  if (!isHexSnapEnabled() || !detections.some((row) => row.detection?.hex)) {
+    return { detections, hexSnapped: 0 };
+  }
+
+  const inputFileId = typeof entry.inputFileId === "string" ? entry.inputFileId.trim() : "";
+  if (!inputFileId) {
+    context.warn(`[ingestion-ai-batch-poller] Batch ${batchId} has no inputFileId; detections are not snapped`);
+    return { detections, hexSnapped: 0 };
+  }
+
+  let images: Map<string, string>;
+  try {
+    images = parseVisionHexBatchInputImages(await downloadBatchFileContent(inputFileId));
+  } catch (error) {
+    context.warn(
+      `[ingestion-ai-batch-poller] Batch ${batchId} input file ${inputFileId} unavailable; detections are not snapped: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+    return { detections, hexSnapped: 0 };
+  }
+
+  let hexSnapped = 0;
+  const limit = pLimit(SNAP_CONCURRENCY);
+  const snapped = await Promise.all(
+    detections.map((row) =>
+      limit(async () => {
+        if (!row.detection?.hex) return row;
+        const imageUrl = images.get(row.customId);
+        if (!imageUrl) {
+          context.warn(`[ingestion-ai-batch-poller] Batch ${batchId} row ${row.customId} has no input image; not snapped`);
+          return row;
+        }
+        const result = await snapDetectionToImage(row.detection, () => loadDetectionImageBytes(imageUrl), {
+          enabled: true,
+          label: `batch ${batchId} ${row.customId}`,
+          onLog: (level, message, data) => {
+            if (level === "warn") context.warn(message, data ?? "");
+            else context.log(message, data ?? "");
+          },
+        });
+        if (result.skipped === null) hexSnapped += 1;
+        return { ...row, detection: result.detection };
+      })
+    )
+  );
+
+  return { detections: snapped, hexSnapped };
+}
 
 /**
  * A job may submit several Azure OpenAI batches. `aiBatchApply` holds the latest applied
@@ -266,7 +339,8 @@ async function applyCompletedBatch(
   job: AwaitingJob,
   entry: IngestionAiBatchEntry,
   batchStatus: BatchStatus,
-  metrics: Record<string, unknown>
+  metrics: Record<string, unknown>,
+  context: InvocationContext
 ): Promise<{ metrics: Record<string, unknown>; logContext: Record<string, unknown> }> {
   if (!batchStatus.outputFileId) {
     throw new Error(`Batch ${batchStatus.id} completed without an output file id`);
@@ -276,10 +350,16 @@ async function applyCompletedBatch(
   const outputRows = parseVisionHexBatchOutput(outputJsonl);
   // Stamp detections with the deployment / prompt recorded when this batch was submitted.
   // Older entries lack them; parsing then falls back to the echoed model id and PROMPT_VERSION.
-  const parsedDetections = await parseVisionHexBatchDetections(outputRows, {
+  const rawDetections = await parseVisionHexBatchDetections(outputRows, {
     deployment: typeof entry.deployment === "string" ? entry.deployment : null,
     promptVersion: typeof entry.promptVersion === "string" ? entry.promptVersion : null,
   });
+  const { detections: parsedDetections, hexSnapped } = await snapBatchDetections(
+    rawDetections,
+    entry,
+    batchStatus.id,
+    context
+  );
   const tokenUsage = sumBatchTokenUsage(parsedDetections);
   const tokenMetricProperties = {
     source: job.source,
@@ -339,6 +419,7 @@ async function applyCompletedBatch(
     outputRows: outputRows.length,
     parsedRows: parsedDetections.length,
     parseErrors,
+    hexSnapped,
     rowsWithTokenUsage: tokenUsage.rowsWithUsage,
     promptTokens: tokenUsage.promptTokens,
     completionTokens: tokenUsage.completionTokens,
@@ -357,6 +438,7 @@ async function applyCompletedBatch(
       outputRows: outputRows.length,
       parsedRows: parsedDetections.length,
       applied: applyMetrics.applied,
+      hexSnapped,
       noShadeMatch: applyMetrics.noShadeMatch,
       rowsWithTokenUsage: tokenUsage.rowsWithUsage,
       promptTokens: tokenUsage.promptTokens,
@@ -464,7 +546,7 @@ async function processAwaitingAiBatchJob(
       continue;
     }
 
-    const applied = await applyCompletedBatch(job, entry, batchStatus, metrics);
+    const applied = await applyCompletedBatch(job, entry, batchStatus, metrics, context);
     metrics = applied.metrics;
     lastLogContext = applied.logContext;
     context.log(

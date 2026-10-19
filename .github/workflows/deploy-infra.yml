@@ -66,6 +66,13 @@ jobs:
       TF_VAR_shareable_wishlist_enabled: ${{ vars.SHAREABLE_WISHLIST_ENABLED || 'false' }}
       TF_VAR_azure_ad_b2c_tenant: ${{ vars.AZURE_AD_B2C_TENANT || vars.NEXT_PUBLIC_B2C_TENANT || 'to-be-added' }}
       TF_VAR_azure_ad_b2c_client_id: ${{ secrets.AZURE_AD_B2C_CLIENT_ID || 'to-be-added' }}
+      # External ID (CIAM) web service principal, opt-in per environment. The
+      # azuread.ciam provider signs in to CIAM_TERRAFORM_CLIENT_ID with this
+      # job's GitHub OIDC token (federated credential, no secret); see
+      # infrastructure/README.md "External ID service principal".
+      TF_VAR_manage_ciam_service_principal: ${{ vars.MANAGE_CIAM_SERVICE_PRINCIPAL || 'false' }}
+      TF_VAR_ciam_tenant_id: ${{ vars.CIAM_TENANT_ID || '' }}
+      TF_VAR_ciam_terraform_client_id: ${{ vars.CIAM_TERRAFORM_CLIENT_ID || '' }}
       TF_VAR_is_automation: true
       TF_VAR_create_openai_resources: ${{ vars.CREATE_OPENAI_RESOURCES || 'true' }}
       TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -77,6 +84,7 @@ jobs:
       TF_VAR_openai_batch_deployment_sku_name: ${{ vars.OPENAI_BATCH_DEPLOYMENT_SKU_NAME || 'GlobalBatch' }}
       TF_VAR_openai_batch_deployment_capacity: ${{ vars.OPENAI_BATCH_DEPLOYMENT_CAPACITY || '5000' }}
       TF_VAR_hex_detection_batch_enabled: ${{ vars.HEX_DETECTION_BATCH_ENABLED || 'false' }}
+      TF_VAR_hex_detection_snap_enabled: ${{ vars.HEX_DETECTION_SNAP_ENABLED || 'false' }}
       OPENAI_ACCOUNT_NAME: ${{ vars.OPENAI_ACCOUNT_NAME || '' }}
       TF_VAR_apim_enabled: ${{ vars.APIM_ENABLED || 'false' }}
       # vars first, then literal default

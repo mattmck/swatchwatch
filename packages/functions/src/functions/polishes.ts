@@ -19,6 +19,7 @@ import { withCors } from "../lib/http";
 import { internalServerError } from "../lib/errors";
 import { ImageProxyScopeError, toImageProxyUrl } from "../lib/image-proxy";
 import { detectHexWithAzureOpenAI } from "../lib/ai-color-detection";
+import { snapDetectionToImage } from "../lib/hex-snap";
 import {
   DETECTED_HEX_METHOD_CLIENT_SUPPLIED,
   provenanceFromDetection,
@@ -1356,6 +1357,8 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
       hex_agreement: number | null;
       storage_url: string | null;
       vendor_tags: string[] | null;
+      product_description_text: string | null;
+      product_descriptors: string[] | null;
     }>(
       `SELECT s.shade_id,
               s.shade_name_canonical,
@@ -1369,10 +1372,25 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
                 WHEN s.finish IS NOT NULL AND btrim(s.finish) <> ''
                   THEN ARRAY[s.finish]::text[]
                 ELSE NULL::text[]
-              END AS vendor_tags
+              END AS vendor_tags,
+              pt.description_text AS product_description_text,
+              pt.descriptors AS product_descriptors
        FROM shade s
        LEFT JOIN swatch sw ON sw.shade_id = s.shade_id
        LEFT JOIN image_asset ia ON ia.image_id = sw.image_id_original
+       -- Vendor product text (#352) of the most recently seen linked product: a finish hint for
+       -- the vision prompt only, never part of the response.
+       LEFT JOIN LATERAL (
+         SELECT NULLIF(btrim(ep.normalized_json ->> 'descriptionText'), '') AS description_text,
+                CASE WHEN jsonb_typeof(ep.normalized_json -> 'descriptors') = 'array'
+                  THEN ARRAY(SELECT jsonb_array_elements_text(ep.normalized_json -> 'descriptors'))
+                END AS descriptors
+         FROM shade_source_product ssp
+         JOIN external_product ep ON ep.external_product_id = ssp.external_product_id
+         WHERE ssp.shade_id = s.shade_id
+         ORDER BY ssp.last_seen_at DESC, ep.fetched_at DESC, ep.external_product_id DESC
+         LIMIT 1
+       ) pt ON true
        WHERE s.shade_id = $1
        ORDER BY COALESCE(sw.swatch_type = 'source_product', false) DESC, sw.swatch_id DESC
        LIMIT 1`,
@@ -1399,7 +1417,7 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
     const blob = await readBlobFromStorageUrl(shade.storage_url);
     const dataUri = `data:${blob.contentType};base64,${blob.bytes.toString("base64")}`;
 
-    const result = await detectHexWithAzureOpenAI(dataUri, {
+    const rawResult = await detectHexWithAzureOpenAI(dataUri, {
       onLog: (level, msg) => {
         if (level === "error") context.error(msg);
         else if (level === "warn") context.warn(msg);
@@ -1409,8 +1427,24 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
         shadeName: shade.shade_name_canonical,
         vendorHex: shade.vendor_hex,
         tags: shade.vendor_tags,
+        descriptionText: shade.product_description_text ?? null,
+        descriptors: shade.product_descriptors ?? null,
       },
     });
+    // HEX_DETECTION_SNAP_ENABLED: same post-processing as ingestion, on the bytes the model saw.
+    const snapped = await snapDetectionToImage(rawResult, async () => blob.bytes, {
+      label: `shade ${shade.shade_id}`,
+      onLog: (level, msg, data) => {
+        if (level === "warn") context.warn(msg, data ?? "");
+        else context.log(msg, data ?? "");
+      },
+    });
+    const result = snapped.detection;
+    const snap = {
+      snapped: snapped.skipped === null,
+      modelHex: rawResult.hex,
+      snapDistance: snapped.snap?.snapDistance ?? null,
+    };
     const tokenUsage = result.usage || null;
     if (tokenUsage) {
       const tokenUsageLog = {
@@ -1501,6 +1535,7 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
         previousHexAgreement: previousAgreement,
         hexAgreement,
         finishes: mergedFinishes.length ? mergedFinishes : null,
+        snap,
         tokenUsage,
       },
     };

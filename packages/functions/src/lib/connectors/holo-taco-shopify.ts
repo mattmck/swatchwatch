@@ -6,6 +6,7 @@ import {
   ProductConnector,
 } from "./types";
 import { normalizeShopifyImages, type ShopifyProductImage } from "./shopify-images";
+import { shopifyProductText } from "../product-text";
 
 const DEFAULT_BASE_URL = "https://www.holotaco.com";
 const REQUEST_TIMEOUT_MS = parseIntEnv(
@@ -290,6 +291,8 @@ function toNormalizedRecord(
     variants
       .map((variant) => asNonEmptyString(variant.barcode))
       .find((barcode): barcode is string => Boolean(barcode)) || null;
+  // Description + descriptors for finish detection (#352); never shown to users.
+  const { descriptionText, descriptors } = shopifyProductText(product);
 
   return {
     externalId,
@@ -305,6 +308,8 @@ function toNormalizedRecord(
       collections,
       finishes,
       tags,
+      descriptionText,
+      descriptors,
       imageUrls,
       // Same images as imageUrls with the Shopify alt text / position kept, so
       // ingestion can pick the on-nail swatch for AI hex detection (lib/image-selection.ts).

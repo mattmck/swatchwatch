@@ -26,6 +26,7 @@ let committedShadeNames;
 let idSequence;
 let transactionCount;
 let failTransactionAt;
+let shadeColorUpdates = [];
 
 const transactionClient = {
   async query(sql, params) {
@@ -33,6 +34,10 @@ const transactionClient = {
     await new Promise((resolve) => setImmediate(resolve));
     if (sql.includes("lower(shade_name_canonical) = lower($2)") && sql.includes("SELECT shade_id")) {
       committedShadeNames.push(params[1]);
+    }
+    if (sql.includes("detected_hex_method = CASE") && sql.includes("WHERE shade_id = $1")) {
+      // [shadeId, name, vendorHex, detectedHex, finishes, overwrite, nameHex, mergedFinishes, confidence, method, model, promptVersion]
+      shadeColorUpdates.push({ detectedHex: params[3], confidence: params[8], method: params[9], promptVersion: params[11] });
     }
     if (sql.includes("RETURNING brand_id")) return { rows: [{ brandId: 1 }] };
     if (sql.includes("RETURNING shade_id")) return { rows: [{ shadeId: ++idSequence }] };
@@ -69,6 +74,7 @@ mockDistModule("db.js", {
 // ---------------------------------------------------------------------------
 
 let detectCalls;
+let detectContexts = [];
 let inFlightDetections;
 let maxInFlightDetections;
 
@@ -76,6 +82,7 @@ mockDistModule("ai-color-detection.js", {
   detectHexWithAzureOpenAI: async (_imageUrl, options) => {
     const shadeName = options.vendorContext.shadeName;
     detectCalls.push(shadeName);
+    detectContexts.push(options.vendorContext);
     inFlightDetections += 1;
     maxInFlightDetections = Math.max(maxInFlightDetections, inFlightDetections);
     // Earlier records answer slowest, so commit order can't just follow completion order.
@@ -84,8 +91,13 @@ mockDistModule("ai-color-detection.js", {
     inFlightDetections -= 1;
     return {
       hex: "#112233",
+      confidence: 0.8,
       finishes: ["creme"],
       usage: { promptTokens: 10, completionTokens: 2, totalTokens: 12 },
+      provider: "azure-openai",
+      method: "vision-direct",
+      model: "gpt-4o-mini",
+      promptVersion: "vision-direct/test",
     };
   },
 });
@@ -104,7 +116,20 @@ mockDistModule("azure-openai-batch.js", {
   },
 });
 
+// Image the snap step re-reads (HEX_DETECTION_SNAP_ENABLED); records which URL it was asked for.
+let imageLoader = async () => {
+  throw new Error("image loader not configured");
+};
+let loadedImageUrls = [];
+mockDistModule("detection-image.js", {
+  loadDetectionImageBytes: async (url) => {
+    loadedImageUrls.push(url);
+    return imageLoader(url);
+  },
+});
+
 const { materializeHoloTacoRecords } = require("../dist/lib/ingestion-repo");
+const sharp = require("sharp");
 
 function record(index) {
   return {
@@ -135,8 +160,12 @@ describe("materializeHoloTacoRecords hex detection", () => {
     transactionCount = 0;
     failTransactionAt = null;
     detectCalls = [];
+    detectContexts = [];
     inFlightDetections = 0;
     maxInFlightDetections = 0;
+    loadedImageUrls = [];
+    shadeColorUpdates = [];
+    delete process.env.HEX_DETECTION_SNAP_ENABLED;
     process.env.HEX_DETECTION_CONCURRENCY = "3";
   });
 
@@ -224,5 +253,95 @@ describe("materializeHoloTacoRecords hex detection", () => {
 
     assert.equal(lookupCalls.length, 0);
     assert.equal(detectCalls.length, 0);
+  });
+
+  it("forwards the stored description and descriptors (#352) to the vision prompt", async () => {
+    const withText = record(0);
+    withText.normalized.collections = ["Space"];
+    withText.normalized.descriptionText = "A linear holo with gold shimmer.";
+    withText.normalized.descriptors = ["Nail Polish", "Linear Holo"];
+
+    await materializeHoloTacoRecords(1, 7, [withText], { detectHexFromImage: true });
+
+    assert.equal(detectContexts.length, 1);
+    const context = detectContexts[0];
+    assert.equal(context.descriptionText, "A linear holo with gold shimmer.");
+    assert.deepEqual(context.descriptors, ["Nail Polish", "Linear Holo"]);
+    assert.equal(context.description, undefined, "the collection is no longer sent as the description");
+    assert.equal(context.vendorJson.collection, "Space");
+  });
+});
+
+describe("materializeHoloTacoRecords hex snapping (HEX_DETECTION_SNAP_ENABLED)", () => {
+  const solidPng = (r, g, b) =>
+    sharp({ create: { width: 24, height: 24, channels: 3, background: { r, g, b } } }).png().toBuffer();
+
+  beforeEach(() => {
+    lookupHandler = async () => [];
+    lookupCalls = [];
+    activeTransactions = 0;
+    maxActiveTransactions = 0;
+    committedShadeNames = [];
+    idSequence = 0;
+    transactionCount = 0;
+    failTransactionAt = null;
+    detectCalls = [];
+    detectContexts = [];
+    inFlightDetections = 0;
+    maxInFlightDetections = 0;
+    loadedImageUrls = [];
+    shadeColorUpdates = [];
+    delete process.env.HEX_DETECTION_SNAP_ENABLED;
+    process.env.HEX_DETECTION_CONCURRENCY = "3";
+  });
+
+  it("writes the model hex as vision-direct and never loads the image while the flag is off", async () => {
+    imageLoader = () => solidPng(0x10, 0x20, 0x30);
+    const metrics = await materializeHoloTacoRecords(1, 7, records(2), { detectHexFromImage: true });
+
+    assert.equal(metrics.hexSnapped, 0);
+    assert.deepEqual(loadedImageUrls, []);
+    assert.equal(shadeColorUpdates.length, 2);
+    for (const update of shadeColorUpdates) {
+      assert.equal(update.detectedHex, "#112233");
+      assert.equal(update.method, "vision-direct");
+    }
+  });
+
+  it("snaps the model hex to the image sent to the model and records vision-snap provenance", async () => {
+    process.env.HEX_DETECTION_SNAP_ENABLED = "true";
+    imageLoader = () => solidPng(0x10, 0x20, 0x30);
+    const metrics = await materializeHoloTacoRecords(1, 7, records(2), { detectHexFromImage: true });
+
+    assert.equal(metrics.hexDetected, 2);
+    assert.equal(metrics.hexSnapped, 2);
+    // Storage is unset in this file, so the model was sent the upload URL itself; the snap re-reads that same URL.
+    assert.deepEqual(loadedImageUrls.sort(), ["https://img.example/p0.png", "https://img.example/p1.png"]);
+    assert.equal(shadeColorUpdates.length, 2);
+    for (const update of shadeColorUpdates) {
+      assert.equal(update.detectedHex, "#102030");
+      assert.equal(update.method, "vision-snap");
+      assert.equal(update.confidence, 0.8, "confidence is untouched");
+      assert.equal(update.promptVersion, "vision-direct/test", "the prompt did not change, so neither does its version");
+    }
+  });
+
+  it("keeps the model hex (vision-direct) when the image cannot be read or no chip is close", async () => {
+    process.env.HEX_DETECTION_SNAP_ENABLED = "true";
+    let call = 0;
+    imageLoader = async () => {
+      call += 1;
+      if (call === 1) throw new Error("fetch failed");
+      return solidPng(0xf4, 0xf4, 0xf4);
+    };
+    const metrics = await materializeHoloTacoRecords(1, 7, records(2), { detectHexFromImage: true });
+
+    assert.equal(metrics.hexDetected, 2, "a snap problem never drops the detection");
+    assert.equal(metrics.hexDetectionFailures, 0);
+    assert.equal(metrics.hexSnapped, 0);
+    for (const update of shadeColorUpdates) {
+      assert.equal(update.detectedHex, "#112233");
+      assert.equal(update.method, "vision-direct");
+    }
   });
 });

@@ -8,6 +8,7 @@ import {
   defaultReadableContainers,
   isCatalogStorageUrl,
   readBlobFromStorageUrl,
+  type ReadBlobResult,
   userMediaContainer,
 } from "../lib/blob-storage";
 import {
@@ -17,6 +18,12 @@ import {
   ImageProxyTokenError,
 } from "../lib/image-proxy";
 import { appendVary, withCors } from "../lib/http";
+import {
+  type ImageVariantSize,
+  imageVariantStorageUrl,
+  matchImageVariantSize,
+  renderImageVariant,
+} from "../lib/image-variants";
 import { trackEvent, trackException } from "../lib/telemetry";
 import sharp from "sharp";
 
@@ -217,6 +224,29 @@ async function transformImage(
 }
 
 /**
+ * Read the pre-generated `size` variant of a catalog blob (lib/image-variants), or null when it is
+ * not stored yet (images ingested before variants existed, until the backfill reaches them) or the
+ * read fails for any reason other than an access refusal: the caller then resizes on the fly.
+ */
+async function readImageVariant(
+  storageUrl: string,
+  size: ImageVariantSize,
+  context: InvocationContext
+): Promise<ReadBlobResult | null> {
+  const variantUrl = imageVariantStorageUrl(storageUrl, size);
+  if (!variantUrl) return null;
+  try {
+    return await readBlobFromStorageUrl(variantUrl, { allowedContainers: defaultReadableContainers() });
+  } catch (error) {
+    if (error instanceof BlobAccessDeniedError || error instanceof ImageProxyConfigError) throw error;
+    if (!(error instanceof BlobReadError && error.status === 404)) {
+      context.warn(`[images] Variant read failed, resizing on the fly: ${error instanceof Error ? error.message : error}`);
+    }
+    return null;
+  }
+}
+
+/**
  * Owner-scoped (v3) ids additionally require the bound owner's bearer token. Returns the denial
  * response, or null when the caller is the owner. Never throws: any auth failure is a 401 (as in
  * `withAuth`), never a 500. Admins get no bypass. Expired/invalid JWTs surface as jose errors and
@@ -274,7 +304,10 @@ async function authorizePrivateImageRead(
  *
  * In both cases the decoded URL must point at the configured storage account, inside the scope's
  * allowlisted container; a validly signed id outside it is a 403 without any fetch. Optional
- * `w`/`h`/`fm`/`q`/`fit` transforms apply to both scopes. The route stays `authLevel: "anonymous"`
+ * `w`/`h`/`fm`/`q`/`fit` transforms apply to both scopes. A public square cover WebP request at
+ * the default quality (`?w=n&h=n&fit=cover&fm=webp`) is snapped up to the variant ladder
+ * (`IMAGE_VARIANT_SIZES`) and served from the pre-generated `<blob>.c<n>.w<size>.webp` sibling,
+ * falling back to rendering it from the original (same product-framing crop) when not stored. The route stays `authLevel: "anonymous"`
  * so the public path keeps working; private ids authenticate in the handler.
  */
 app.http("images", {
@@ -343,46 +376,78 @@ async function serveImage(
       if (denial) return denial;
     }
 
+    const transform = parseTransformOptions(request.url);
+    const respond = (image: {
+      bytes: Buffer;
+      contentType: string;
+      transformed: boolean;
+      etag: string | null;
+      blob: ReadBlobResult;
+    }): HttpResponseInit => {
+      const cacheControl = selectImageCacheControl({
+        catalog: isCatalogStorageUrl(storageUrl),
+        transformed: image.transformed,
+        blobCacheControl: image.blob.cacheControl,
+        expiresAt,
+        scope,
+      });
+      const headers = new Headers({
+        "Content-Type": image.contentType,
+        "Cache-Control": cacheControl,
+      });
+      // The response depends on the caller's token; no cache may reuse it across Authorization values.
+      if (scope === "private") headers.set("Vary", "Authorization");
+      if (image.etag) headers.set("ETag", image.etag);
+      if (image.blob.lastModified) headers.set("Last-Modified", image.blob.lastModified);
+      return { status: 200, headers, body: image.bytes };
+    };
+
+    // Square cover WebP thumbnails of catalog images come from pre-generated variant blobs (a
+    // small read, no resize). The size snaps up to the variant ladder whether or not the variant
+    // exists yet, and a miss is rendered with the variant's own product-framing crop, so a hit
+    // and an on-the-fly miss return the same image. Private media has no variants and keeps the
+    // exact requested transform.
+    const variantSize = scope === "public" ? matchImageVariantSize(transform) : null;
+    if (variantSize !== null) {
+      const variant = await readImageVariant(storageUrl, variantSize, context);
+      if (variant) {
+        return respond({
+          bytes: variant.bytes,
+          contentType: "image/webp",
+          transformed: true,
+          etag: variant.etag,
+          blob: variant,
+        });
+      }
+    }
+
     const blob = await readBlobFromStorageUrl(storageUrl, {
       allowedContainers: scope === "private" ? [userMediaContainer()] : defaultReadableContainers(),
     });
-    const transform = parseTransformOptions(request.url);
 
-    let bodyBytes = blob.bytes;
-    let contentType = blob.contentType;
-    let transformed = false;
-    let etag = blob.etag;
+    if (variantSize !== null && isTransformableContentType(blob.contentType)) {
+      const bytes = await renderImageVariant(blob.bytes, variantSize);
+      return respond({
+        bytes,
+        contentType: "image/webp",
+        transformed: true,
+        etag: `"${createHash("sha1").update(bytes).digest("hex")}"`,
+        blob,
+      });
+    }
 
     if (hasTransformRequest(transform) && isTransformableContentType(blob.contentType)) {
       const result = await transformImage(blob.bytes, transform);
-      bodyBytes = result.bytes;
-      contentType = result.contentType;
-      transformed = true;
-      etag = `"${createHash("sha1").update(bodyBytes).digest("hex")}"`;
+      return respond({
+        bytes: result.bytes,
+        contentType: result.contentType,
+        transformed: true,
+        etag: `"${createHash("sha1").update(result.bytes).digest("hex")}"`,
+        blob,
+      });
     }
 
-    const cacheControl = selectImageCacheControl({
-      catalog: isCatalogStorageUrl(storageUrl),
-      transformed,
-      blobCacheControl: blob.cacheControl,
-      expiresAt,
-      scope,
-    });
-
-    const headers = new Headers({
-      "Content-Type": contentType,
-      "Cache-Control": cacheControl,
-    });
-    // The response depends on the caller's token; no cache may reuse it across Authorization values.
-    if (scope === "private") headers.set("Vary", "Authorization");
-    if (etag) headers.set("ETag", etag);
-    if (blob.lastModified) headers.set("Last-Modified", blob.lastModified);
-
-    return {
-      status: 200,
-      headers,
-      body: bodyBytes,
-    };
+    return respond({ bytes: blob.bytes, contentType: blob.contentType, transformed: false, etag: blob.etag, blob });
   } catch (error) {
     if (error instanceof ImageProxyTokenError || error instanceof BlobAccessDeniedError) {
       if (error instanceof BlobAccessDeniedError) {

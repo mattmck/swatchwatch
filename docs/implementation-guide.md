@@ -205,6 +205,8 @@ Store originals, generate normalized chips, and compute features for search and 
 
 7. Persist swatch + color_features + derived normalized image.
 
+**Product text for finish detection (#352).** Connectors keep each product's description (`descriptionText`, plain text, capped) and descriptors (product type, variant options, tags, collection names) in `external_product.normalized_json`. At materialization, finishes come from vendor tags first; only when tags name none are descriptors used, and only when both name none is the description text used (`packages/functions/src/lib/finish-text.ts`: catalog names + aliases as whole words, ignoring negated mentions, cross-sell/layering sentences, top-coat names, the brand, and everyday words like "glow" without finish context). Text-derived finishes only fill a shade that has no finishes. The vision hex/finish prompt (sync and batch) also receives the description (≤ 600 chars) and descriptors (≤ 30) as a hint labeled as possibly inaccurate vendor text (`PROMPT_VERSION` `vision-direct/2026-10-v3`). `npm run backfill:product-text` recomputes the fields for existing rows and reports the finish coverage change.
+
 ## 8.3 AI Roadmap
 
 - Finish classification (creme/jelly/shimmer/holo/glitter) from normalized chips.

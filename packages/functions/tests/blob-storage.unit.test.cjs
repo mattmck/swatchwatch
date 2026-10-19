@@ -6,16 +6,24 @@
  * - validateImageUpload() accepts and normalizes allowed types
  * - stripImageMetadata() removes EXIF metadata from real image bytes
  * - uploadSourceImageToBlob() skips the PUT when the checksum-named blob already exists
+ * - uploadSourceImageToBlob() returns the stored bytes' perceptual fingerprint (lib/gallery-dedupe)
+ * - resize-on-ingest: oversize source images are downscaled/re-encoded and stored, downloads are capped
+ * - pre-generated thumbnails: uploadSourceImageToBlob() / ensureImageVariants() write the missing
+ *   `<blob>.c<n>.w<size>.webp` variants, skip existing ones, and never fail the ingest on a variant error
  * - userMediaContainer() default/override, and readBlobFromStorageUrl() scoped to it (#227)
  */
 const { describe, it, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
+const { randomBytes } = require("node:crypto");
 const sharp = require("sharp");
 
 const {
   validateImageUpload,
   stripImageMetadata,
+  normalizeSourceImage,
+  resolveSourceImageLimits,
   uploadSourceImageToBlob,
+  ensureImageVariants,
   readBlobFromStorageUrl,
   userMediaContainer,
   BlobAccessDeniedError,
@@ -93,7 +101,9 @@ describe("lib/blob-storage — uploadSourceImageToBlob", () => {
     }
   });
 
-  async function runUpload(headStatus) {
+  const VARIANT = /\.w(\d+)\.webp$/;
+
+  async function runUpload(headStatus, variantHeadStatus = 200) {
     process.env.AZURE_STORAGE_CONNECTION = `DefaultEndpointsProtocol=https;AccountName=testacct;AccountKey=${Buffer.from(
       "test-key"
     ).toString("base64")};EndpointSuffix=core.windows.net`;
@@ -104,8 +114,14 @@ describe("lib/blob-storage — uploadSourceImageToBlob", () => {
       .toBuffer();
 
     const methods = [];
+    const variantCalls = [];
     global.fetch = async (url, init = {}) => {
       const method = init.method || "GET";
+      const variant = String(url).match(VARIANT);
+      if (variant) {
+        variantCalls.push({ method, size: Number(variant[1]), body: init.body, headers: init.headers });
+        return new Response(null, { status: method === "HEAD" ? variantHeadStatus : 201 });
+      }
       methods.push(method);
       if (String(url).startsWith("https://shop.example/")) {
         return new Response(png, { status: 200, headers: { "content-type": "image/png" } });
@@ -122,7 +138,7 @@ describe("lib/blob-storage — uploadSourceImageToBlob", () => {
       externalId: "p1",
       skipContainerEnsure: true,
     });
-    return { result, methods };
+    return { result, methods, variantCalls };
   }
 
   it("skips the upload when the blob already exists", async () => {
@@ -137,9 +153,370 @@ describe("lib/blob-storage — uploadSourceImageToBlob", () => {
     assert.deepEqual(methods, ["GET", "HEAD", "PUT"]);
   });
 
+  it("returns the perceptual fingerprint of the stored bytes, for new and already stored blobs", async () => {
+    for (const headStatus of [404, 200]) {
+      const { result } = await runUpload(headStatus);
+      assert.match(result.fingerprint.dhash, /^[0-9a-f]{64}$/);
+      assert.equal(Buffer.from(result.fingerprint.thumb, "base64").length, 768);
+      assert.deepEqual([result.fingerprint.width, result.fingerprint.height], [4, 4]);
+    }
+  });
+
   it("still uploads when the existence check fails", async () => {
     const { methods } = await runUpload(500);
     assert.deepEqual(methods, ["GET", "HEAD", "PUT"]);
+  });
+
+  it("writes every missing thumbnail variant as square cover WebP next to a new blob", async () => {
+    const { result, variantCalls } = await runUpload(404, 404);
+    const puts = variantCalls.filter((call) => call.method === "PUT");
+    assert.deepEqual(puts.map((call) => call.size).sort((a, b) => a - b), [64, 128, 256, 512]);
+    for (const put of puts) {
+      assert.equal(put.headers["Content-Type"], "image/webp");
+      const meta = await sharp(Buffer.from(put.body)).metadata();
+      assert.equal(meta.format, "webp");
+      // The 4px fixture is never enlarged.
+      assert.equal(meta.width, 4);
+      assert.equal(meta.height, 4);
+    }
+    const heads = variantCalls.filter((call) => call.method === "HEAD");
+    assert.equal(heads.length, 4);
+    assert.match(result.storageUrl, /\.png$/, "the returned URL is still the original");
+  });
+
+  it("skips variants that are already stored", async () => {
+    const { variantCalls } = await runUpload(404, 200);
+    assert.deepEqual(variantCalls.map((call) => call.method), ["HEAD", "HEAD", "HEAD", "HEAD"]);
+  });
+
+  it("fills in missing variants when the original was already stored (re-ingest)", async () => {
+    const { methods, variantCalls } = await runUpload(200, 404);
+    assert.deepEqual(methods, ["GET", "HEAD"]);
+    assert.equal(variantCalls.filter((call) => call.method === "PUT").length, 4);
+  });
+
+  it("does not fail the ingest when variant uploads fail", async () => {
+    process.env.AZURE_STORAGE_CONNECTION = `DefaultEndpointsProtocol=https;AccountName=testacct;AccountKey=${Buffer.from(
+      "test-key"
+    ).toString("base64")};EndpointSuffix=core.windows.net`;
+    const png = await sharp({
+      create: { width: 4, height: 4, channels: 3, background: { r: 1, g: 2, b: 3 } },
+    })
+      .png()
+      .toBuffer();
+    global.fetch = async (url, init = {}) => {
+      const method = init.method || "GET";
+      if (String(url).startsWith("https://shop.example/")) {
+        return new Response(png, { status: 200, headers: { "content-type": "image/png" } });
+      }
+      if (VARIANT.test(String(url))) {
+        return new Response("boom", { status: method === "HEAD" ? 404 : 500 });
+      }
+      return new Response(null, { status: method === "HEAD" ? 404 : 201 });
+    };
+    const result = await uploadSourceImageToBlob({
+      sourceImageUrl: "https://shop.example/p1.png",
+      source: "TestShopify",
+      externalId: "p1",
+      skipContainerEnsure: true,
+    });
+    assert.match(result.storageUrl, /\/testshopify\/p1-[0-9a-f]{12}\.png$/);
+  });
+});
+
+describe("lib/blob-storage — ensureImageVariants", () => {
+  const originalFetch = global.fetch;
+  const CONNECTION = `DefaultEndpointsProtocol=https;AccountName=testacct;AccountKey=${Buffer.from(
+    "test-key"
+  ).toString("base64")};EndpointSuffix=core.windows.net`;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  function mockStorage(existing) {
+    const calls = [];
+    global.fetch = async (url, init = {}) => {
+      const method = init.method || "GET";
+      const name = decodeURIComponent(new URL(String(url)).pathname);
+      calls.push({ method, name, body: init.body });
+      if (method === "HEAD") return new Response(null, { status: existing.has(name) ? 200 : 404 });
+      return new Response(null, { status: 201 });
+    };
+    return calls;
+  }
+
+  it("does not load the original when every variant exists", async () => {
+    const sizes = [64, 128, 256, 512];
+    mockStorage(new Set(sizes.map((size) => `/source-images/shop/a.jpg.c1.w${size}.webp`)));
+    let loaded = false;
+    const result = await ensureImageVariants({
+      connectionString: CONNECTION,
+      containerName: "source-images",
+      blobName: "shop/a.jpg",
+      bytes: async () => {
+        loaded = true;
+        return Buffer.alloc(0);
+      },
+    });
+    assert.equal(loaded, false);
+    assert.deepEqual(result, { written: [], existing: sizes, failed: [] });
+  });
+
+  it("renders only the missing sizes as squares", async () => {
+    const calls = mockStorage(new Set(["/source-images/shop/a.jpg.c1.w64.webp"]));
+    const wide = await sharp({
+      create: { width: 1200, height: 600, channels: 3, background: { r: 200, g: 40, b: 90 } },
+    })
+      .jpeg()
+      .toBuffer();
+    const result = await ensureImageVariants({
+      connectionString: CONNECTION,
+      containerName: "source-images",
+      blobName: "shop/a.jpg",
+      bytes: async () => wide,
+    });
+    assert.deepEqual(result, { written: [128, 256, 512], existing: [64], failed: [] });
+    const puts = calls.filter((call) => call.method === "PUT");
+    for (const put of puts) {
+      const size = Number(put.name.match(/\.w(\d+)\.webp$/)[1]);
+      const meta = await sharp(Buffer.from(put.body)).metadata();
+      assert.equal(meta.width, size);
+      assert.equal(meta.height, size);
+    }
+  });
+
+  it("reports sizes that fail to render as failed", async () => {
+    mockStorage(new Set());
+    const result = await ensureImageVariants({
+      connectionString: CONNECTION,
+      containerName: "source-images",
+      blobName: "shop/a.jpg",
+      bytes: Buffer.from("not-an-image"),
+      sizes: [64, 128],
+    });
+    assert.deepEqual(result, { written: [], existing: [], failed: [64, 128] });
+  });
+});
+
+/** Incompressible RGB noise, so encoded size tracks pixel count. */
+function noiseImage(width, height) {
+  return sharp(randomBytes(width * height * 3), { raw: { width, height, channels: 3 } });
+}
+
+describe("lib/blob-storage — resolveSourceImageLimits", () => {
+  const saved = {};
+  const names = ["SOURCE_IMAGE_MAX_EDGE_PX", "SOURCE_IMAGE_MAX_DOWNLOAD_BYTES"];
+  beforeEach(() => {
+    for (const name of names) {
+      saved[name] = process.env[name];
+      delete process.env[name];
+    }
+  });
+  afterEach(() => {
+    for (const name of names) {
+      if (saved[name] === undefined) delete process.env[name];
+      else process.env[name] = saved[name];
+    }
+  });
+
+  it("defaults to a 2048px long edge and a 25 MB download cap", () => {
+    assert.deepEqual(resolveSourceImageLimits(), {
+      maxEdgePx: 2048,
+      maxDownloadBytes: 25 * 1024 * 1024,
+    });
+  });
+
+  it("honours overrides and clamps them", () => {
+    process.env.SOURCE_IMAGE_MAX_EDGE_PX = "1024";
+    process.env.SOURCE_IMAGE_MAX_DOWNLOAD_BYTES = String(40 * 1024 * 1024);
+    assert.deepEqual(resolveSourceImageLimits(), { maxEdgePx: 1024, maxDownloadBytes: 40 * 1024 * 1024 });
+
+    process.env.SOURCE_IMAGE_MAX_EDGE_PX = "10";
+    process.env.SOURCE_IMAGE_MAX_DOWNLOAD_BYTES = "1";
+    assert.deepEqual(resolveSourceImageLimits(), {
+      maxEdgePx: 256,
+      maxDownloadBytes: UPLOAD_LIMITS.maxSizeBytes,
+    });
+
+    process.env.SOURCE_IMAGE_MAX_EDGE_PX = "999999";
+    process.env.SOURCE_IMAGE_MAX_DOWNLOAD_BYTES = "nope";
+    assert.deepEqual(resolveSourceImageLimits(), { maxEdgePx: 8192, maxDownloadBytes: 25 * 1024 * 1024 });
+  });
+});
+
+describe("lib/blob-storage — normalizeSourceImage", () => {
+  it("downscales an image whose long edge exceeds the limit, keeping its format and aspect", async () => {
+    const jpeg = await sharp({
+      create: { width: 3000, height: 1000, channels: 3, background: { r: 200, g: 40, b: 90 } },
+    })
+      .withExif({ IFD0: { Make: "TestCam" } })
+      .jpeg()
+      .toBuffer();
+
+    const result = await normalizeSourceImage(jpeg, "image/jpeg", { maxEdgePx: 2048 });
+    const meta = await sharp(result.bytes).metadata();
+    assert.equal(result.resized, true);
+    assert.equal(result.contentType, "image/jpeg");
+    assert.equal(meta.format, "jpeg");
+    assert.equal(meta.width, 2048);
+    assert.equal(meta.height, 683);
+    assert.equal(meta.exif, undefined, "metadata is still stripped");
+  });
+
+  it("leaves images within the limit at their size and matches stripImageMetadata byte-for-byte", async () => {
+    const png = await sharp({
+      create: { width: 640, height: 480, channels: 3, background: { r: 1, g: 2, b: 3 } },
+    })
+      .png()
+      .toBuffer();
+
+    const result = await normalizeSourceImage(png, "image/png", { maxEdgePx: 2048 });
+    assert.equal(result.resized, false);
+    assert.equal(result.contentType, "image/png");
+    // Unchanged pipeline keeps checksums (and so checksum-named blobs) stable across releases.
+    assert.ok(result.bytes.equals(await stripImageMetadata(png)));
+  });
+
+  it("re-encodes as WebP when the format-preserving output is still over the stored-size guard", async () => {
+    const png = await noiseImage(300, 300).png().toBuffer();
+    const maxStoredBytes = Math.floor(png.length * 0.8);
+
+    const result = await normalizeSourceImage(png, "image/png", { maxEdgePx: 2048, maxStoredBytes });
+    assert.equal(result.contentType, "image/webp");
+    assert.equal((await sharp(result.bytes).metadata()).format, "webp");
+    assert.ok(result.bytes.length <= maxStoredBytes);
+  });
+
+  it("returns the original bytes when the image cannot be decoded", async () => {
+    const garbage = Buffer.from("not-an-image");
+    const result = await normalizeSourceImage(garbage, "image/jpeg", { maxEdgePx: 2048 });
+    assert.equal(result.resized, false);
+    assert.equal(result.contentType, "image/jpeg");
+    assert.equal(result.bytes.toString(), "not-an-image");
+  });
+});
+
+describe("lib/blob-storage — uploadSourceImageToBlob size handling", () => {
+  const originalFetch = global.fetch;
+  const originalConnection = process.env.AZURE_STORAGE_CONNECTION;
+  const originalCap = process.env.SOURCE_IMAGE_MAX_DOWNLOAD_BYTES;
+
+  beforeEach(() => {
+    process.env.AZURE_STORAGE_CONNECTION = `DefaultEndpointsProtocol=https;AccountName=testacct;AccountKey=${Buffer.from(
+      "test-key"
+    ).toString("base64")};EndpointSuffix=core.windows.net`;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    for (const [name, value] of [
+      ["AZURE_STORAGE_CONNECTION", originalConnection],
+      ["SOURCE_IMAGE_MAX_DOWNLOAD_BYTES", originalCap],
+    ]) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+
+  /** Serves `image` for the source URL and records the blob PUT. */
+  function mockFetch(makeSourceResponse) {
+    const calls = { methods: [], putBody: null, putHeaders: null, variantPuts: 0 };
+    global.fetch = async (url, init = {}) => {
+      const method = init.method || "GET";
+      if (/\.w\d+\.webp$/.test(String(url))) {
+        if (method === "PUT") calls.variantPuts += 1;
+        return new Response(null, { status: method === "HEAD" ? 404 : 201 });
+      }
+      calls.methods.push(method);
+      if (String(url).startsWith("https://shop.example/")) return makeSourceResponse();
+      if (method === "HEAD") return new Response(null, { status: 404 });
+      if (method === "PUT") {
+        calls.putBody = Buffer.from(init.body);
+        calls.putHeaders = init.headers;
+        calls.putUrl = String(url);
+      }
+      return new Response(null, { status: 201 });
+    };
+    return calls;
+  }
+
+  const upload = (name = "big.png") =>
+    uploadSourceImageToBlob({
+      sourceImageUrl: `https://shop.example/${name}`,
+      source: "TestShopify",
+      externalId: "p1",
+      skipContainerEnsure: true,
+    });
+
+  it("stores an image over 5 MB instead of rejecting it", async () => {
+    // ~6.75 MB of noise as PNG: within the 2048px edge, so only the size guard forces a re-encode.
+    const png = await noiseImage(1500, 1500).png().toBuffer();
+    assert.ok(png.length > UPLOAD_LIMITS.maxSizeBytes, "fixture must exceed the old 5 MB limit");
+    const calls = mockFetch(() => new Response(png, { status: 200, headers: { "content-type": "image/png" } }));
+
+    const result = await upload();
+    assert.deepEqual(calls.methods, ["GET", "HEAD", "PUT"]);
+    assert.ok(calls.putBody.length <= UPLOAD_LIMITS.maxSizeBytes);
+    assert.equal(result.contentType, "image/webp");
+    assert.equal(result.sizeBytes, calls.putBody.length);
+    assert.equal(calls.putHeaders["Content-Type"], "image/webp");
+    assert.match(calls.putUrl, /\/testshopify\/p1-[0-9a-f]{12}\.webp$/);
+  });
+
+  it("stores a downscaled copy of an image whose long edge exceeds the limit", async () => {
+    const jpeg = await sharp({
+      create: { width: 3000, height: 3000, channels: 3, background: { r: 30, g: 60, b: 90 } },
+    })
+      .jpeg()
+      .toBuffer();
+    const calls = mockFetch(() => new Response(jpeg, { status: 200, headers: { "content-type": "image/jpeg" } }));
+
+    const result = await upload("big.jpg");
+    const meta = await sharp(calls.putBody).metadata();
+    assert.equal(meta.width, 2048);
+    assert.equal(meta.height, 2048);
+    assert.equal(result.contentType, "image/jpeg");
+  });
+
+  it("refuses a download whose Content-Length exceeds the download cap", async () => {
+    process.env.SOURCE_IMAGE_MAX_DOWNLOAD_BYTES = String(UPLOAD_LIMITS.maxSizeBytes);
+    let cancelled = false;
+    const body = new ReadableStream({
+      pull(controller) {
+        controller.enqueue(new Uint8Array(1024));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const calls = mockFetch(
+      () =>
+        new Response(body, {
+          status: 200,
+          headers: { "content-type": "image/jpeg", "content-length": String(UPLOAD_LIMITS.maxSizeBytes + 1) },
+        })
+    );
+
+    await assert.rejects(upload(), /too large to download/i);
+    assert.deepEqual(calls.methods, ["GET"]);
+    assert.equal(cancelled, true, "the body stream is cancelled, not drained");
+  });
+
+  it("stops reading a body without Content-Length once it passes the download cap", async () => {
+    process.env.SOURCE_IMAGE_MAX_DOWNLOAD_BYTES = String(UPLOAD_LIMITS.maxSizeBytes);
+    let sent = 0;
+    const body = new ReadableStream({
+      pull(controller) {
+        sent += 1024 * 1024;
+        controller.enqueue(new Uint8Array(1024 * 1024));
+      },
+    });
+    const calls = mockFetch(() => new Response(body, { status: 200, headers: { "content-type": "image/jpeg" } }));
+
+    await assert.rejects(upload(), /too large to download/i);
+    assert.deepEqual(calls.methods, ["GET"]);
+    assert.ok(sent <= UPLOAD_LIMITS.maxSizeBytes + 2 * 1024 * 1024, `read ${sent} bytes before stopping`);
   });
 });
 

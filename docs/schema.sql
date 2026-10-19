@@ -382,7 +382,24 @@ CREATE TABLE image_asset (
   thumb_url TEXT,
   copyright_status TEXT NOT NULL DEFAULT 'user_uploaded',
   checksum_sha256 TEXT,
-  captured_at TIMESTAMPTZ
+  captured_at TIMESTAMPTZ,
+  -- Perceptual fingerprint (computeImageFingerprint, src/lib/gallery-dedupe.ts) for catalog gallery
+  -- near-duplicate detection; filled on upload, backfilled by POST /api/images-admin/gallery-dedupe.
+  -- All four NULL (not computed yet / undecodable) or all set.
+  perceptual_hash TEXT,      -- 256-bit dHash as 64 hex chars
+  thumb_fingerprint BYTEA,   -- 16×16 RGB thumbnail (768 bytes)
+  image_width INTEGER,       -- displayed size (EXIF orientation applied)
+  image_height INTEGER,
+  CONSTRAINT image_asset_fingerprint_complete CHECK (
+    num_nulls(perceptual_hash, thumb_fingerprint, image_width, image_height) = 4
+    OR (
+      num_nonnulls(perceptual_hash, thumb_fingerprint, image_width, image_height) = 4
+      AND perceptual_hash ~ '^[0-9a-f]{64}$'
+      AND octet_length(thumb_fingerprint) = 768
+      AND image_width > 0
+      AND image_height > 0
+    )
+  )
 );
 
 CREATE TABLE swatch (
@@ -450,8 +467,30 @@ CREATE TABLE app_user (
   email TEXT,
   role TEXT NOT NULL DEFAULT 'user',
   CONSTRAINT app_user_role_check CHECK (role IN ('user', 'admin')),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- Account suspension (issue #45; migration 20261018180032156_admin-user-management). Suspended
+  -- = suspended_at IS NOT NULL; withAuth / withAdmin answer 403 account_suspended.
+  suspended_at TIMESTAMPTZ,
+  suspended_reason TEXT,
+  suspended_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL
 );
+
+-- Audit log of admin user-management actions (issue #45). User ids are plain BIGINTs without
+-- foreign keys so the history outlives merged/deleted accounts.
+CREATE TABLE admin_audit_event (
+  admin_audit_event_id BIGSERIAL PRIMARY KEY,
+  actor_user_id BIGINT NOT NULL,
+  target_user_id BIGINT,
+  action TEXT NOT NULL,
+  changes JSONB NOT NULL DEFAULT '{}'::jsonb, -- { field: { from, to } } or merge counters
+  note TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT admin_audit_event_action_check
+    CHECK (action IN ('user.update', 'user.suspend', 'user.unsuspend', 'user.merge'))
+);
+
+CREATE INDEX idx_admin_audit_event_target ON admin_audit_event(target_user_id, created_at DESC);
+CREATE INDEX idx_admin_audit_event_actor ON admin_audit_event(actor_user_id, created_at DESC);
 
 CREATE TABLE user_external_identities (
   user_external_identity_id BIGSERIAL PRIMARY KEY,
@@ -479,6 +518,9 @@ CREATE TABLE finish_type (
   display_name TEXT NOT NULL,
   description TEXT,
   sort_order SMALLINT NOT NULL DEFAULT 0,
+  -- Dupe-grading family (#320, D10): FINISH_FAMILIES in packages/shared, NULL = no family.
+  family TEXT CONSTRAINT finish_type_family_check
+    CHECK (family IS NULL OR family IN ('solid', 'shimmer', 'holo', 'glitter', 'matte', 'thermal', 'glow')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL

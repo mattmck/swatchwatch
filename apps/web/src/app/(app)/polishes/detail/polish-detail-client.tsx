@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import type { ManicureWearStat, Polish, PolishDupesResponse } from "swatchwatch-shared";
 import { isUntriedInventory, resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
@@ -20,6 +19,7 @@ import {
 import { useReferenceData } from "@/hooks/use-reference-data";
 import { FinishBadges } from "@/components/finish-badges";
 import { BuyFromBrandLink } from "@/components/buy-from-brand-link";
+import { SwatchThumbnail } from "@/components/swatch-thumbnail";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -35,6 +35,7 @@ import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { NailPhotoPanel } from "@/components/nail-photo-panel";
 import { LogManiButton } from "@/components/log-mani-button";
+import { AdminHexSipSection } from "@/components/admin-hex-sip-panel";
 import { canLogPolish, formatWornOn, toLocalIsoDate } from "@/lib/mani-log";
 import { toast } from "sonner";
 
@@ -351,6 +352,9 @@ export default function PolishDetailClient({
         </div>
       </div>
 
+      {/* Admins only: sip a ground-truth hex from the catalog images (#351). Not mounted for others. */}
+      <AdminHexSipSection key={polish.id} shadeId={polish.id} />
+
       {polish.inventoryItemId && (
         <NailPhotoPanel
           key={polish.inventoryItemId}
@@ -522,13 +526,11 @@ export default function PolishDetailClient({
                       title="Open image"
                       className="relative inline-block h-36 w-full overflow-hidden rounded-lg border"
                     >
-                      <Image
+                      <SwatchThumbnail
                         src={imageUrl}
+                        displaySize={256}
                         alt={`${polish.brand} ${polish.name} image ${index + 1}`}
-                        fill
-                        unoptimized
-                        sizes="(min-width: 640px) 33vw, 50vw"
-                        className="object-cover transition-opacity hover:opacity-90"
+                        className="absolute inset-0 size-full object-cover transition-opacity hover:opacity-90"
                       />
                     </a>
                   ))}

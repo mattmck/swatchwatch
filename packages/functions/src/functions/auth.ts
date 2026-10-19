@@ -1,5 +1,5 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
-import { authenticateRequest, AuthError } from "../lib/auth";
+import { AccountSuspendedError, authenticateRequest, AuthError } from "../lib/auth";
 import { withCors } from "../lib/http";
 
 interface TokenValidationResult {
@@ -8,6 +8,8 @@ interface TokenValidationResult {
   email?: string;
   role?: string;
   error?: string;
+  /** `account_suspended` when an admin suspended the account (issue #45; status 403). */
+  code?: string;
 }
 
 async function validateToken(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
@@ -26,6 +28,16 @@ async function validateToken(request: HttpRequest, context: InvocationContext): 
       } satisfies TokenValidationResult,
     };
   } catch (error) {
+    if (error instanceof AccountSuspendedError) {
+      return {
+        status: 403,
+        jsonBody: {
+          valid: false,
+          error: error.message,
+          code: error.code,
+        } satisfies TokenValidationResult,
+      };
+    }
     const message = error instanceof AuthError
       ? error.message
       : "Token validation failed";

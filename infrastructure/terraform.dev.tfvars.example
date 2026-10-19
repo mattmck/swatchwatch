@@ -18,3 +18,10 @@ openai_batch_deployment_name = "hex-detector-batch"
 # hex_detection_batch_min_images   = 5
 # ingestion_ai_batch_poll_schedule = "0 */2 * * * *"
 # ingestion_ai_batch_max_poll_jobs = 10
+
+# Optional: manage the web sign-in app's service principal in the External ID
+# tenant (app_role_assignment_required = false). See README "External ID
+# service principal" for the one-time bootstrap. Leave ciam_terraform_client_id
+# empty locally to use `az login --tenant <ciam tenant> --allow-no-subscriptions`.
+# manage_ciam_service_principal = true
+# ciam_tenant_id                = "2bff1c8d-f022-45ed-91bf-7485529ba989"

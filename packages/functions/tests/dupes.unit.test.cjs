@@ -130,6 +130,8 @@ const INVENTORY = [
 ];
 
 let sqlCalls = [];
+/** `finish_type` rows the fake finish catalog returns (`{ name, family }`); empty = built-ins only. */
+let catalogTypes = [];
 
 function shadeRow(shadeId) {
   const shade = SHADES[shadeId];
@@ -180,6 +182,17 @@ async function fakeQuery(sql, params = []) {
     return { rows, rowCount: rows.length };
   }
 
+  // loadFinishCatalog (finish_type + finish_normalization in one UNION ALL).
+  if (/UNION ALL/i.test(text) && /FROM\s+finish_type/i.test(text)) {
+    const rows = catalogTypes.map((t) => ({
+      kind: "type",
+      sourceValue: t.name,
+      normalizedFinishName: t.name,
+      family: t.family ?? null,
+    }));
+    return { rows, rowCount: rows.length };
+  }
+
   // Candidate pool: the caller's owned shades.
   if (/FROM\s+user_inventory_item\s+ui/i.test(text)) {
     const userId = boundUser(text, params);
@@ -209,10 +222,13 @@ for (const [id, exports] of Object.entries(mockModules)) {
 }
 
 const { parseDupesBatchRequest, parseDupesLimit, parseShadeId, DupesInputError } = require("../dist/lib/dupes");
+const { resetFinishAliasCache } = require("../dist/lib/finishes");
 require("../dist/functions/dupes");
 
 beforeEach(() => {
   sqlCalls = [];
+  catalogTypes = [];
+  resetFinishAliasCache();
   process.env.AUTH_DEV_BYPASS = "true";
 });
 afterEach(() => {
@@ -263,6 +279,11 @@ async function batchDupes(body, options = {}) {
 /** Handler statements (excluding the auth user lookup). */
 function handlerCalls() {
   return sqlCalls.filter((c) => !/FROM\s+app_user/i.test(c.sql));
+}
+
+/** The finish catalog lookup (`loadFinishCatalog`), cached in-process for 5 minutes. */
+function isCatalogQuery(call) {
+  return /UNION ALL/i.test(call.sql) && /FROM\s+finish_type/i.test(call.sql);
 }
 
 /** Every statement touching user_inventory_item binds its user_id predicates to the caller. */
@@ -551,8 +572,9 @@ describe("POST /api/polishes/dupes", () => {
     assert.equal(results["105"].best, null, "the owned blue has no other blue to dupe");
     assert.equal(results["400"].best, null);
 
-    const queries = handlerCalls();
+    const queries = handlerCalls().filter((call) => !isCatalogQuery(call));
     assert.equal(queries.length, 2, "one target query + one owned query, no N+1");
+    assert.equal(handlerCalls().filter(isCatalogQuery).length, 1, "plus one (cached) finish catalog query");
     assertScopedToCaller(OWNER);
   });
 
@@ -587,4 +609,59 @@ describe("POST /api/polishes/dupes", () => {
     assert.equal(res.jsonBody.candidateCount, 2);
     assertScopedToCaller(OTHER);
   });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Catalog finish families (#320)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("dupe endpoints — finish families from the finish catalog (#320)", () => {
+  /** Temporarily add an owned red shade with an admin-created finish. */
+  function withAdminFinishShade(finish, fn) {
+    SHADES[110] = { brand: "J", name: "Owned Red Admin Finish", vendorHex: shiftL(BASE_RED, 0.01), finishes: [finish] };
+    INVENTORY.push({ userId: OWNER, shadeId: 110, status: "owned" });
+    return Promise.resolve()
+      .then(fn)
+      .finally(() => {
+        delete SHADES[110];
+        INVENTORY.splice(INVENTORY.findIndex((item) => item.shadeId === 110), 1);
+      });
+  }
+
+  it("an admin finish without a family grades `unknown` and keeps its grade", () =>
+    withAdminFinishShade("velvet", async () => {
+      catalogTypes = [{ name: "creme", family: "solid" }, { name: "velvet", family: null }];
+      const res = await getDupes(100, { query: "?limit=20" });
+      const dupe = res.jsonBody.dupes.find((d) => d.shadeId === "110");
+      assert.equal(dupe.finishCompatibility, "unknown");
+      assert.equal(dupe.grade, "high");
+
+      const batch = await batchDupes({ shadeIds: [100] });
+      assert.equal(batch.jsonBody.results["100"].highCount, 4);
+    }));
+
+  it("an admin finish with a different family is downgraded on GET and in the batch", () =>
+    withAdminFinishShade("velvet", async () => {
+      catalogTypes = [{ name: "creme", family: "solid" }, { name: "velvet", family: "matte" }];
+      const res = await getDupes(100, { query: "?limit=20" });
+      const dupe = res.jsonBody.dupes.find((d) => d.shadeId === "110");
+      assert.equal(dupe.finishCompatibility, "different");
+      assert.equal(dupe.colorGrade, "high");
+      assert.equal(dupe.grade, "medium");
+
+      // Batch: 100's HIGH dupes are 101, 103, 109 (+110 only while velvet has no family).
+      const batch = await batchDupes({ shadeIds: [100] });
+      assert.equal(batch.status, 200);
+      assert.equal(batch.jsonBody.results["100"].dupeCount, 6);
+      assert.equal(batch.jsonBody.results["100"].highCount, 3, "the matte velvet dupe is MEDIUM, not HIGH");
+    }));
+
+  it("an admin finish in the same family as the target is `compatible`", () =>
+    withAdminFinishShade("velvet", async () => {
+      catalogTypes = [{ name: "creme", family: "solid" }, { name: "velvet", family: "solid" }];
+      const res = await getDupes(100, { query: "?limit=20" });
+      const dupe = res.jsonBody.dupes.find((d) => d.shadeId === "110");
+      assert.equal(dupe.finishCompatibility, "compatible");
+      assert.equal(dupe.grade, "high");
+    }));
 });

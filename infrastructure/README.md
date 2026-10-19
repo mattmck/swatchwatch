@@ -81,6 +81,7 @@ Recommended auth config (propagated to Terraform `TF_VAR_*` inputs):
 - Secrets: `AZURE_AD_B2C_CLIENT_ID`
 - Variables: `AUTH_DEV_BYPASS`, `AZURE_AD_B2C_TENANT` (falls back to `NEXT_PUBLIC_B2C_TENANT` if unset)
 - Feature flags: `SHAREABLE_WISHLIST_ENABLED` (default `false`; exported as `TF_VAR_shareable_wishlist_enabled`)
+- External ID service principal (opt-in, see [External ID service principal](#external-id-service-principal-opt-in)): variables `MANAGE_CIAM_SERVICE_PRINCIPAL` (default `false`), `CIAM_TENANT_ID`, `CIAM_TERRAFORM_CLIENT_ID` (exported as `TF_VAR_manage_ciam_service_principal`, `TF_VAR_ciam_tenant_id`, `TF_VAR_ciam_terraform_client_id`)
 - Alerts (observability Phase 3, #281): `ALERT_EMAIL` (**secret** recommended so the address is masked in logs; a variable also works; exported as `TF_VAR_alert_email`, never committed to tfvars) and optional variable `ALERTS_ENABLED` (default `true` for `prod`, `false` otherwise; exported as `TF_VAR_alerts_enabled`)
 The workflow creates the state container automatically if it does not exist.
 The workflow reads the `pg-password` secret from Key Vault and exports it as `TF_VAR_pg_admin_password` for Terraform.
@@ -93,12 +94,19 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | Resource Group | `azurerm_resource_group.main` | Container for all resources |
 | Key Vault | `azurerm_key_vault.main` | Secure secrets storage (PG password, API keys) |
 | Key Vault Secret | `azurerm_key_vault_secret.image_proxy_signing_key` (from `random_password.image_proxy_signing_key`) | 64-char HMAC key exposed to Functions as `IMAGE_PROXY_SIGNING_KEY` (Key Vault reference) to sign `/api/images/{id}` capability URLs. Replace the `random_password` to rotate; previously issued image URLs stop working. |
-| PostgreSQL Flexible Server | `azurerm_postgresql_flexible_server.main` | PostgreSQL 16 with pg_trgm + pgvector |
+| PostgreSQL Flexible Server | `azurerm_postgresql_flexible_server.main` | PostgreSQL 16 with pg_trgm + pgvector; point-in-time restore for `pg_backup_retention_days` (default 35) |
 | PostgreSQL Database | `azurerm_postgresql_flexible_server_database.main` | `swatchwatch` database |
-| Storage Account | `azurerm_storage_account.main` | Blob storage for images |
+| Storage Account | `azurerm_storage_account.main` | Blob storage for images and the Terraform state; blob versioning, change feed, and blob + container soft delete (`blob_soft_delete_retention_days`) |
+| Storage Management Policy | `azurerm_storage_management_policy.main` | Expires old blob versions (media `blob_version_retention_days`, tfstate `tfstate_version_retention_days`, connector-raw 7 days) and `pg-restores` dumps after 14 days |
 | Storage Container | `azurerm_storage_container.swatches` | Swatch photos |
 | Storage Container | `azurerm_storage_container.nail_photos` | Nail photos (private user media). Name exposed to Functions as `USER_MEDIA_CONTAINER`; readable only through owner-scoped `v3` image ids (#227). |
-| Storage Container | `azurerm_storage_container.tfstate` | Terraform remote state container |
+| Storage Container | `azurerm_storage_container.tfstate` | **Live** Terraform remote state for this environment (the azurerm backend points here). Never remove it |
+| Backup Vault *(backups)* | `azurerm_data_protection_backup_vault.main` | Azure Backup vault (locally redundant, soft delete 14 days, immutability unlocked); `backup_vault_enabled`, prod only by default |
+| Postgres vault backup *(backups)* | `azurerm_data_protection_backup_policy_postgresql_flexible_server.weekly`, `azurerm_data_protection_backup_instance_postgresql_flexible_server.main` | Weekly (Sun 07:00 UTC) full logical backup of the server, kept `pg_vault_backup_retention` (3 months); first of each month kept `vault_backup_monthly_retention` (1 year). Survives server deletion |
+| Nail-photo vault backup *(backups)* | `azurerm_data_protection_backup_policy_blob_storage.nail_photos`, `azurerm_data_protection_backup_instance_blob_storage.nail_photos` | Daily (06:00 UTC) vaulted copy of the `nail-photos` container, kept `nail_photo_vault_backup_retention` (30 days); first of each month kept 1 year. Survives storage account deletion |
+| Storage Container *(backups)* | `azurerm_storage_container.pg_restores` | `pg-restores`: target for Postgres vault restores (restored as dump files) |
+| Role Assignments *(backups)* | `azurerm_role_assignment.backup_vault_*` | Vault identity: Reader on the resource group, PostgreSQL Flexible Server Long Term Retention Backup Role on the server, Storage Account Backup Contributor on the storage account, Storage Blob Data Contributor on `pg-restores` |
+| Delete Locks *(locks)* | `azurerm_management_lock.data["postgres"\|"storage"\|"backup_vault"]` | `CanNotDelete` locks (`delete_locks_enabled`, prod only by default) |
 | Log Analytics Workspace | `azurerm_log_analytics_workspace.main` | Centralized log storage/query backend (daily quota = `appinsights_daily_cap_gb`) |
 | Application Insights | `azurerm_application_insights.main` | Function telemetry, traces, requests, and exceptions (daily cap = `appinsights_daily_cap_gb`) |
 | Action Group *(alerts)* | `azurerm_monitor_action_group.main` | Emails `alert_email` for every alert below (`alerts_enabled`, prod only by default) |
@@ -122,8 +130,9 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | Azure AD Application | `azuread_application.github_actions` | GitHub Actions OIDC identity |
 | Service Principal | `azuread_service_principal.github_actions` | Grants GitHub Actions access |
 | Federated Credential | `azuread_application_federated_identity_credential.github_actions` | Passwordless OIDC trust |
+| External ID enterprise app *(opt-in)* | `azuread_service_principal.ciam_web` (provider `azuread.ciam`) | Service principal of the web sign-in app (`azure_ad_b2c_client_id`) in the External ID tenant, imported by client id. Only `app_role_assignment_required = false` is managed (other attributes are `ignore_changes`); `prevent_destroy` is on. Created only when `manage_ciam_service_principal = true` |
 
-**Not in Terraform:** Azure AD B2C tenant — provisioned manually via the Azure portal.
+**Not in Terraform:** the Entra External ID tenants, the web sign-in **app registration** (redirect URIs, app roles such as `admin`, optional claims, user flows) and the CIAM deployer app used to manage the service principal — all hand-managed in the portal. Only the web app's service principal is Terraform-managed, and only where `manage_ciam_service_principal = true`.
 
 ## Variables
 
@@ -165,6 +174,9 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | `domain_name` | `swatchwatch.app` | Root domain name for the application (used for custom domains and CORS; prod allows both apex and `www`) |
 | `azure_ad_b2c_tenant` | `to-be-added` | Azure AD B2C/Entra External ID tenant name applied to Function App setting `AZURE_AD_B2C_TENANT` |
 | `azure_ad_b2c_client_id` | `to-be-added` | Azure AD B2C/Entra External ID app client ID applied to Function App setting `AZURE_AD_B2C_CLIENT_ID` |
+| `manage_ciam_service_principal` | `false` | Import and manage the web sign-in app's service principal in the External ID tenant (sets `app_role_assignment_required = false`). Turn on per environment only after checking that tenant's current setting; see [External ID service principal](#external-id-service-principal-opt-in) |
+| `ciam_tenant_id` | `""` | External ID (CIAM) tenant ID for the `azuread.ciam` provider. Required when `manage_ciam_service_principal = true` |
+| `ciam_terraform_client_id` | `""` | Client ID of the deployer app in the CIAM tenant; Deploy Infra signs in to it with GitHub OIDC. Empty = Azure CLI credentials (local runs) |
 | `auth_dev_bypass` | `false` | Controls Function App setting `AUTH_DEV_BYPASS`; keep `false` to require JWT validation |
 | `shareable_wishlist_enabled` | `false` | Controls Function App setting `SHAREABLE_WISHLIST_ENABLED` (opt-in public wishlist links, #268). Set the `SHAREABLE_WISHLIST_ENABLED` repository/environment variable to `true` and run Deploy Infra to ship it; app settings are Terraform-managed, so a portal-only change is reverted by the next infra apply |
 | `ingestion_job_queue_name` | `ingestion-jobs` | Function App queue name for ingestion worker (`INGESTION_JOB_QUEUE_NAME`) |
@@ -173,6 +185,7 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | `azure_openai_vision_detail` | `low` | Function App setting `AZURE_OPENAI_VISION_DETAIL` — image detail level (`low`/`high`/`auto`) for vision hex detection |
 | `hex_detection_batch_enabled` | `false` | Feature-flag Function App setting `HEX_DETECTION_BATCH_ENABLED` |
 | `hex_detection_batch_min_images` | `5` | Function App setting `HEX_DETECTION_BATCH_MIN_IMAGES` threshold before batch mode |
+| `hex_detection_snap_enabled` | `false` | Feature-flag Function App setting `HEX_DETECTION_SNAP_ENABLED` — snap vision-detected hexes to the nearest palette chip measured from the same image (`detected_hex_method = 'vision-snap'`) |
 | `ingestion_ai_batch_poll_schedule` | `0 */2 * * * *` | Function App setting `INGESTION_AI_BATCH_POLL_SCHEDULE` for timer polling |
 | `ingestion_ai_batch_max_poll_jobs` | `10` | Function App setting `INGESTION_AI_BATCH_MAX_POLL_JOBS` per poll run |
 | `appinsights_daily_cap_gb` | `null` (→ `appinsights_daily_cap_gb_defaults`) | Daily ingestion cap (GB) for Application Insights and the Log Analytics workspace; telemetry stops for the rest of the day once hit (the daily cap alert reports it) |
@@ -184,6 +197,15 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | `alert_browser_exception_threshold` | `25` | Browser exceptions in 15 min before the exception spike alert fires |
 | `availability_test_frequency_seconds` | `300` | Availability test interval per location (`300`, `600` or `900`) |
 | `availability_test_locations` | East US, South Central US, West US | Availability test geo location ids (at least 2) |
+| `pg_backup_retention_days` | `35` | Postgres point-in-time restore window (7–35 days) |
+| `blob_soft_delete_retention_days` | `30` | Days deleted blobs and containers stay recoverable |
+| `blob_version_retention_days` | `30` | Days previous swatch / nail-photo blob versions are kept |
+| `tfstate_version_retention_days` | `90` | Days previous Terraform state versions are kept |
+| `backup_vault_enabled` | `null` (→ `true` prod, `false` otherwise) | Create the Azure Backup vault, policies and backup instances |
+| `delete_locks_enabled` | `null` (→ `true` prod, `false` otherwise) | `CanNotDelete` locks on the Postgres server, storage account and backup vault |
+| `pg_vault_backup_retention` | `P3M` | Retention of weekly Postgres vault backups (ISO 8601). Changing it replaces the policy, see [Backups & Restore](#backups--restore) |
+| `nail_photo_vault_backup_retention` | `P30D` | Retention of daily nail-photo vault backups (ISO 8601) |
+| `vault_backup_monthly_retention` | `P1Y` | Retention of the first vault backup of each month (both policies) |
 
 **Sensitive variables** are stored in environment-specific tfvars files (gitignored), for example:
 - `terraform.dev.tfvars`
@@ -199,6 +221,42 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 ✅ **OpenAI Observability** — Azure OpenAI diagnostic logs/metrics flow into the shared Log Analytics/App Insights workspace  
 ✅ **Key Vault References** — Function App settings use `@Microsoft.KeyVault(...)` syntax
 ✅ **Versionless Secret URIs** — Function App secret references use Key Vault `versionless_id` to avoid app-setting churn on each secret version rotation
+
+## Backups & Restore
+
+What is protected, and how far back you can go:
+
+| Data | Protection | Window |
+|------|------------|--------|
+| Postgres (all user data, catalog, admin labels) | Built-in point-in-time restore | `pg_backup_retention_days` (35 days), any second |
+| Postgres | Backup vault, weekly full logical backup *(prod)* | 3 months weekly, 1 year monthly; survives server deletion |
+| `nail-photos` (private user media, the only copy) | Soft delete + versioning, plus a daily vaulted backup *(prod)* | 30 days locally; vault 30 days daily, 1 year monthly; survives account deletion |
+| `swatches`, `connector-raw` | Soft delete + versioning | 30 days (connector-raw versions 7 days); regenerable from vendors / connectors |
+| Terraform state (`tfstate` container) | Soft delete + versioning | 90 days of prior versions |
+| Key Vault secrets | Soft delete; purge protection in prod | 7 days (the window is fixed at vault creation) |
+| Delete locks *(prod)* | `CanNotDelete` on Postgres, storage account, backup vault | — |
+
+Nothing is geo-redundant (intentional). Redis (cache), App Insights (logs), and the web/Functions code (git) need no backups.
+
+**First apply.** The vault's role assignments and the delete locks need `Microsoft.Authorization/*/write`, which the GitHub Actions service principal (Contributor) doesn't have. Run the first prod apply of this change locally as a user with Owner or User Access Administrator; later CI applies only read them. Locks also block deleting child resources (storage containers, Postgres firewall rules) until removed: `az lock delete --name <name> --resource-group <rg> --resource-type ... --resource <name>`.
+
+**Changing vault retention.** Backup policies can't be edited in place and can't be replaced while an instance uses them. Add a new policy, point the backup instance at it, apply, then remove the old one.
+
+### Restore procedures
+
+- **Postgres, point in time** (bad migration, bad bulk write within 35 days): restore into a new server, check it, then point `PGHOST` at it (or copy the affected rows back).
+  ```bash
+  az postgres flexible-server restore --resource-group <rg> --source-server <server> \
+    --name <server>-restore --restore-time "2026-10-18T13:00:00Z"
+  ```
+- **Postgres, from the vault** (server gone, or older than 35 days): Portal → Backup vault → Backup instances → the server → Restore → *Restore as files* → container `pg-restores`. Load the dump files into a new flexible server with `pg_restore --no-owner`. Errors about `azure_pg_admin`/`azuresu` roles are expected and safe to ignore.
+- **A deleted or overwritten blob** (nail photo, swatch): Portal → container → *Show deleted blobs* → Undelete, or the blob → *Versions* → make a previous version current. CLI: `az storage blob undelete --account-name <acct> -c nail-photos -n <blob> --auth-mode login`.
+- **A deleted container**: `az storage container restore --account-name <acct> --name nail-photos --deleted-version <version>` (find it with `az storage container list --include-deleted`).
+- **Nail photos from the vault** (account gone or past 30 days): Portal → Backup vault → Backup instances → nail photos → Restore, to the same or another storage account.
+- **Terraform state**: `az storage blob list --account-name <acct> -c tfstate --prefix <env>.terraform.tfstate --include v --auth-mode login` lists versions; copy the good version over the current blob (`az storage blob copy start --source-uri '<blob-url>?versionId=<id>'`).
+- **Key Vault**: a deleted vault, `az keyvault recover --name <vault>`; a deleted secret, `az keyvault secret recover --vault-name <vault> --name <secret>`.
+
+**Restore drill (quarterly, prod).** Do a point-in-time restore to a scratch server and compare row counts for `user_inventory_item`, `manicure` and `color_training_sample`. Undelete one test blob in `nail-photos`, and check that the vault's latest Postgres and blob backup jobs succeeded. Delete the scratch server afterwards.
 
 ## Naming Convention
 
@@ -357,6 +415,65 @@ OpenAI settings are optional:
   - `AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY` (from `apim_openai_subscription_key_uri` when provided, otherwise from a Terraform-managed Key Vault secret created from `apim_openai_subscription_key`)
   - `AZURE_OPENAI_USE_GATEWAY` (controlled by `openai_gateway_enabled`, with Terraform validation to fail fast if gateway endpoint/secret wiring is incomplete)
 
+## External ID service principal (opt-in)
+
+The web sign-in app's enterprise app (service principal) in each External ID tenant can be managed by Terraform, starting with **Assignment required = No** (`app_role_assignment_required = false`). With it set to Yes, every new sign-up fails with AADSTS50105. Admin access is unaffected: it comes from the `admin` app role assignment, which still lands in the token's `roles` claim when assignment isn't required.
+
+Only the service principal is managed (`azuread_service_principal.ciam_web`, imported by `azure_ad_b2c_client_id`). The app registration stays hand-managed. Everything except the assignment flag is in `ignore_changes`, and `prevent_destroy` stops a plan from deleting it, because deleting it would drop every app role assignment, `admin` included.
+
+Deploy Infra authenticates to the CIAM tenant with GitHub OIDC, through a federated credential on a deployer app registration in that tenant. No client secret is involved. That app holds the **Cloud Application Administrator** directory role, the role External ID documents for managing apps in external tenants. A directory role assigned to a service principal applies to its app-only Graph calls, so it needs no Graph application permission on top. Graph application permissions haven't been tried in external tenants. `Application.ReadWrite.OwnedBy` would also need the deployer to be an owner of the web app's service principal (it has none today). `Application.ReadWrite.All` is about as broad as the role.
+
+### One-time bootstrap (per environment)
+
+Run as an admin of the External ID tenant who can assign directory roles (Global Administrator or Privileged Role Administrator). Example for `dev`; for prod use the prod tenant and `environment:prod`.
+
+```bash
+CIAM_TENANT_ID="<external ID tenant id>"        # dev: 2bff1c8d-f022-45ed-91bf-7485529ba989
+WEB_CLIENT_ID="<azure_ad_b2c_client_id>"         # the web sign-in app
+GH_ENV=dev
+az login --tenant "$CIAM_TENANT_ID" --allow-no-subscriptions
+
+# 0. Check the current setting first (prod: decide whether it should change).
+az ad sp show --id "$WEB_CLIENT_ID" --query "{name:displayName,assignmentRequired:appRoleAssignmentRequired}"
+
+# 1. Deployer app + service principal in the CIAM tenant.
+DEPLOYER_APP_ID=$(az ad app create --display-name "swatchwatch-$GH_ENV-terraform-ciam" \
+  --sign-in-audience AzureADMyOrg --query appId -o tsv)
+DEPLOYER_SP_ID=$(az ad sp create --id "$DEPLOYER_APP_ID" --query id -o tsv)
+
+# 2. Trust GitHub Actions OIDC for this repo + GitHub environment (same subject as the workforce app).
+az ad app federated-credential create --id "$DEPLOYER_APP_ID" --parameters "{
+  \"name\": \"github-actions-$GH_ENV\",
+  \"issuer\": \"https://token.actions.githubusercontent.com\",
+  \"subject\": \"repo:mattmck/swatchwatch:environment:$GH_ENV\",
+  \"audiences\": [\"api://AzureADTokenExchange\"]
+}"
+
+# 3. Cloud Application Administrator (role template 158c047a-c907-4556-b7ef-446551a6b5f7), tenant scope.
+az rest --method POST \
+  --url https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignments \
+  --body "{\"principalId\":\"$DEPLOYER_SP_ID\",\"roleDefinitionId\":\"158c047a-c907-4556-b7ef-446551a6b5f7\",\"directoryScopeId\":\"/\"}"
+
+echo "CIAM_TERRAFORM_CLIENT_ID=$DEPLOYER_APP_ID"
+```
+
+Then in the GitHub environment (`dev` or `prod`):
+
+1. Set variables `CIAM_TENANT_ID` and `CIAM_TERRAFORM_CLIENT_ID`. Check that the `AZURE_AD_B2C_CLIENT_ID` secret is the real web client id: a precondition fails the plan if either id isn't a GUID.
+2. Set `MANAGE_CIAM_SERVICE_PRINCIPAL=true`.
+3. Run **Deploy Infra** with `apply = false`. The plan should show `azuread_service_principal.ciam_web[0]` with `1 to import` and only `app_role_assignment_required = true -> false` changed (or no change if it is already `false`). Then rerun with `apply = true`.
+
+To plan locally instead, leave `ciam_terraform_client_id` empty so the `azuread.ciam` provider uses your Azure CLI login (`az login --tenant <ciam tenant> --allow-no-subscriptions`):
+
+```bash
+terraform plan -target=azuread_service_principal.ciam_web -lock=false \
+  -var-file=terraform.dev.tfvars \
+  -var manage_ciam_service_principal=true \
+  -var ciam_tenant_id="$CIAM_TENANT_ID" -var azure_ad_b2c_client_id="$WEB_CLIENT_ID"
+```
+
+**To stop managing it**, first take it out of state without deleting it, using `terraform state rm 'azuread_service_principal.ciam_web[0]'` or a `removed { from = azuread_service_principal.ciam_web, lifecycle { destroy = false } }` block. Then set `MANAGE_CIAM_SERVICE_PRINCIPAL=false`. Turning the flag off first makes the plan fail on `prevent_destroy`.
+
 ## Destroying Infrastructure
 
 ```bash
@@ -364,7 +481,9 @@ cd infrastructure
 terraform destroy -var-file=terraform.dev.tfvars
 ```
 
-**Warning:** This permanently deletes all data. Key Vault secrets are soft-deleted (recoverable for 7 days).
+**Warning:** This permanently deletes all data, including this environment's Terraform state (the `tfstate` container lives in the storage account being destroyed). Key Vault secrets are soft-deleted (recoverable for 7 days).
+
+In prod, destroy is blocked on purpose: the delete locks must be removed first, purge protection means the vault name stays reserved for the soft-delete window, and backup vault data stays in soft delete for 14 days after protection is stopped.
 
 To completely purge:
 ```bash

@@ -20,6 +20,8 @@ import {
 import { submitVisionHexBatch } from "./azure-openai-batch";
 import { uploadSourceImageToBlob, ensureContainer } from "./blob-storage";
 import { toImageProxyUrlFromOrigin } from "./image-proxy";
+import { snapDetectionToImage, type HexSnapLogLevel } from "./hex-snap";
+import { loadDetectionImageBytes } from "./detection-image";
 import pLimit = require("p-limit");
 import {
   buildSuspiciousHexContext,
@@ -29,11 +31,29 @@ import {
 import {
   loadFinishCatalog,
   mergeFinishLists,
-  parseFinishesFromTags,
   type FinishCatalog,
 } from "./finishes";
+import {
+  applyIngestedFinishes,
+  resolveNormalizedProductFinishes,
+  type IngestedFinishResolution,
+} from "./finish-text";
+import { readProductText } from "./product-text";
 import { PoolClient } from "pg";
 import { recordShadeSourceProduct } from "./buy-link";
+import {
+  fingerprintColumnsSql,
+  fingerprintFromColumns,
+  fingerprintToColumns,
+  getGalleryMaxImagesPerShade,
+  planProductGalleryLinks,
+  protectedSwatchSql,
+  pruneStaleGallerySwatches,
+  shadeSharedWithOtherProduct,
+  storeImageFingerprint,
+  type FingerprintColumns,
+  type ImageFingerprint,
+} from "./gallery-dedupe";
 import { trackEvent } from "./telemetry";
 
 export interface DataSourceRecord {
@@ -86,6 +106,15 @@ export interface HoloTacoMaterializationMetrics {
   imageUploads: number;
   imageUploadFailures: number;
   swatchesLinked: number;
+  /**
+   * `source_gallery` swatches unlinked: the product no longer lists the image, or a previous run
+   * linked an image that is now skipped as a near-duplicate or over the cap.
+   */
+  gallerySwatchesPruned: number;
+  /** Additional images not linked because they near-duplicate an image already linked for the product. */
+  galleryNearDuplicatesSkipped: number;
+  /** Additional images not linked because the product reached `GALLERY_MAX_IMAGES_PER_SHADE`. */
+  galleryOverCapSkipped: number;
   hexDetected: number;
   hexDetectionFailures: number;
   hexDetectionSkipped: number;
@@ -146,6 +175,9 @@ interface HoloTacoProductNormalized {
   vendorHex: string | null;
   nameHex: string | null;
   colorName: string | null;
+  /** Vendor description / descriptors (#352), forwarded to the vision prompt as a finish hint. */
+  descriptionText: string | null;
+  descriptors: string[];
 }
 
 /** A source image stored in blob storage, keyed by the connector URL it was downloaded from. */
@@ -153,11 +185,21 @@ interface StoredSourceImage {
   sourceUrl: string;
   storageUrl: string;
   checksumSha256: string;
+  /** Perceptual fingerprint of the stored bytes (from the upload, or `image_asset` when reused); null when unknown. */
+  fingerprint: ImageFingerprint | null;
 }
 
 interface HoloTacoPreparedImage {
   storageUrl: string | null;
   checksumSha256: string | null;
+  /** Perceptual fingerprint of the primary image (null when unknown). */
+  fingerprint: ImageFingerprint | null;
+  /**
+   * Connector URL of the image AI hex detection chose (chooseUploadedImageForDetection), which may
+   * be a gallery image: it is always linked to the shade, never skipped as a near-duplicate or
+   * over the gallery cap, so the unchanged-image check keeps finding it.
+   */
+  detectionSourceUrl: string | null;
   /** Connector URL of the primary image; recorded in source_image_url so reruns can skip it. */
   sourceUrl: string | null;
   detectedHex: string | null;
@@ -165,6 +207,12 @@ interface HoloTacoPreparedImage {
   /** Provenance for `detectedHex` (null when no detection ran). */
   detectedHexProvenance: DetectedHexProvenance | null;
   additionalImages: StoredSourceImage[];
+  /**
+   * The primary and every additional image of the product were stored this run, so
+   * `additionalImages` is the product's whole current gallery and stale gallery swatches can be
+   * pruned (`pruneStaleGallerySwatches`). False when any download failed.
+   */
+  imageSetComplete: boolean;
 }
 
 interface HoloTacoImagePreparationMetrics {
@@ -181,6 +229,8 @@ interface HoloTacoImagePreparationMetrics {
   hexDetectionSkipped: number;
   /** Subset of hexDetectionSkipped: same image as last run and the shade already has a hex. */
   hexDetectionSkippedUnchanged: number;
+  /** Subset of hexDetected whose hex was replaced by a measured palette chip (`HEX_DETECTION_SNAP_ENABLED`). */
+  hexSnapped: number;
   batchRequestsQueued: number;
   batchFallbacks: number;
   hexDetectionPromptTokens: number;
@@ -277,19 +327,44 @@ function parseHoloTacoNormalized(
     vendorHex: asString(normalized.vendorHex),
     nameHex: asString(normalized.nameHex),
     colorName: asString(normalized.colorName),
+    ...readProductText(normalized),
+  };
+}
+
+/** Vision-prompt vendor context for an ingested product (same for the sync and batch paths). */
+function holoTacoVendorContext(holo: HoloTacoProductNormalized): HexDetectionOptions["vendorContext"] {
+  return {
+    shadeName: holo.name,
+    vendorHex: holo.vendorHex,
+    tags: holo.tags,
+    vendorJson: {
+      finish: holo.finish,
+      colorName: holo.colorName,
+      collection: holo.collection,
+    },
+    descriptionText: holo.descriptionText,
+    descriptors: holo.descriptors,
   };
 }
 
 /**
- * Canonical finishes for an ingested product, derived from its vendor tags
- * (`finish:<value>` + bare `<value>` tags) via `parseFinishesFromTags`.
+ * Canonical finishes for an ingested product and where they came from: vendor tags
+ * (`finish:<value>` + bare `<value>` tags) win, then descriptors, then description text (#352;
+ * `resolveProductFinishes` in lib/finish-text.ts). The brand is masked out of the text.
  */
+export function resolveIngestedShadeFinishResolution(
+  normalized: Record<string, unknown> | null | undefined,
+  catalog?: FinishCatalog
+): IngestedFinishResolution {
+  return resolveNormalizedProductFinishes(normalized, catalog);
+}
+
+/** Canonical finishes for an ingested product (see `resolveIngestedShadeFinishResolution`). */
 export function resolveIngestedShadeFinishes(
   normalized: Record<string, unknown> | null | undefined,
   catalog?: FinishCatalog
 ): string[] {
-  if (!normalized) return [];
-  return parseFinishesFromTags(asStringArray(normalized.tags), catalog);
+  return resolveIngestedShadeFinishResolution(normalized, catalog).finishes;
 }
 
 function isHttpUrl(value: string | null): value is string {
@@ -554,11 +629,12 @@ export async function findStoredSourceImages(
   }
 
   try {
-    const result = await query<StoredSourceImage>(
+    const result = await query<Omit<StoredSourceImage, "fingerprint"> & FingerprintColumns>(
       `SELECT
          siu.source_url AS "sourceUrl",
          ia.storage_url AS "storageUrl",
-         ia.checksum_sha256 AS "checksumSha256"
+         ia.checksum_sha256 AS "checksumSha256",
+         ${fingerprintColumnsSql("ia")}
        FROM source_image_url siu
        JOIN image_asset ia ON ia.image_id = siu.image_id
        WHERE siu.data_source_id = $1
@@ -566,7 +642,17 @@ export async function findStoredSourceImages(
          AND ia.checksum_sha256 IS NOT NULL`,
       [dataSourceId, urls]
     );
-    return new Map(result.rows.map((row) => [row.sourceUrl, row]));
+    return new Map(
+      result.rows.map((row) => [
+        row.sourceUrl,
+        {
+          sourceUrl: row.sourceUrl,
+          storageUrl: row.storageUrl,
+          checksumSha256: row.checksumSha256,
+          fingerprint: fingerprintFromColumns(row),
+        },
+      ])
+    );
   } catch (error) {
     console.warn(
       `[ingestion-repo] Stored source image lookup failed; downloading every image: ${
@@ -575,6 +661,34 @@ export async function findStoredSourceImages(
     );
     return new Map();
   }
+}
+
+/** New catalog `image_asset` row for a stored source image, with its perceptual fingerprint when known. */
+async function insertSourceImageAsset(
+  client: PoolClient,
+  dataSourceId: number,
+  storageUrl: string,
+  checksumSha256: string,
+  fingerprint: ImageFingerprint | null
+): Promise<number> {
+  const columns = fingerprintToColumns(fingerprint);
+  const inserted = await client.query<{ imageId: number }>(
+    `INSERT INTO image_asset
+       (owner_type, owner_id, storage_url, checksum_sha256, copyright_status, captured_at,
+        perceptual_hash, thumb_fingerprint, image_width, image_height)
+     VALUES ('source', $1, $2, $3, 'licensed_source', now(), $4, $5, $6, $7)
+     RETURNING image_id AS "imageId"`,
+    [
+      dataSourceId,
+      storageUrl,
+      checksumSha256,
+      columns.perceptualHash,
+      columns.thumbFingerprint,
+      columns.imageWidth,
+      columns.imageHeight,
+    ]
+  );
+  return inserted.rows[0].imageId;
 }
 
 async function recordSourceImageUrl(
@@ -618,6 +732,18 @@ async function prepareHoloTacoImageData(
     detectHexFromImage &&
     estimatedBatchCandidates >= batchMinImages;
   const progressLogger = options?.progressLogger;
+  // Snap diagnostics: info lines stay on the console, problems also reach the job log.
+  const snapLogger =
+    (externalId: string) =>
+    (level: HexSnapLogLevel, message: string, data?: Record<string, unknown>): void => {
+      const withRecord = `${sourceLogPrefix} ${externalId} ${message}`;
+      if (level === "warn") {
+        console.warn(withRecord, data ?? "");
+        progressLogger?.warn(withRecord, data);
+      } else {
+        console.log(withRecord, data ?? "");
+      }
+    };
   const byExternalId = new Map<string, HoloTacoPreparedImage>();
   const queuedBatchRequests: Array<{
     customId: string;
@@ -634,6 +760,7 @@ async function prepareHoloTacoImageData(
     hexDetectionFailures: 0,
     hexDetectionSkipped: 0,
     hexDetectionSkippedUnchanged: 0,
+    hexSnapped: 0,
     batchRequestsQueued: 0,
     batchFallbacks: 0,
     hexDetectionPromptTokens: 0,
@@ -691,8 +818,11 @@ async function prepareHoloTacoImageData(
     holo: HoloTacoProductNormalized | null;
     storageUrl: string | null;
     checksumSha256: string | null;
+    fingerprint: ImageFingerprint | null;
     sourceUrl: string | null;
     additionalImages: StoredSourceImage[];
+    /** Every image URL of the product was stored (see HoloTacoPreparedImage.imageSetComplete). */
+    imageSetComplete: boolean;
     isCandidate: boolean;
     primaryReused: boolean;
     additionalUploaded: number;
@@ -747,7 +877,12 @@ async function prepareHoloTacoImageData(
       skipContainerEnsure: true,
     });
     return {
-      image: { sourceUrl: sourceImageUrl, storageUrl: upload.storageUrl, checksumSha256: upload.checksumSha256 },
+      image: {
+        sourceUrl: sourceImageUrl,
+        storageUrl: upload.storageUrl,
+        checksumSha256: upload.checksumSha256,
+        fingerprint: upload.fingerprint ?? null,
+      },
       reused: false,
     };
   };
@@ -759,8 +894,10 @@ async function prepareHoloTacoImageData(
         holo,
         storageUrl: null,
         checksumSha256: null,
+        fingerprint: null,
         sourceUrl: null,
         additionalImages: [],
+        imageSetComplete: false,
         isCandidate: false,
         primaryReused: false,
         additionalUploaded: 0,
@@ -785,9 +922,11 @@ async function prepareHoloTacoImageData(
 
       let storageUrl: string | null = null;
       let checksumSha256: string | null = null;
+      let fingerprint: ImageFingerprint | null = null;
       let primaryReused = false;
       let additionalUploaded = 0;
       let imagesReused = 0;
+      let additionalFailures = 0;
       const additionalImages: StoredSourceImage[] = [];
 
       // Upload primary image (container already ensured)
@@ -795,6 +934,7 @@ async function prepareHoloTacoImageData(
         const { image, reused } = await storeSourceImage(holo.primaryImageUrl, record.externalId);
         storageUrl = image.storageUrl;
         checksumSha256 = image.checksumSha256;
+        fingerprint = image.fingerprint;
         primaryReused = reused;
         if (reused) imagesReused += 1;
         console.log(
@@ -822,6 +962,7 @@ async function prepareHoloTacoImageData(
             additionalUploaded += 1;
           }
         } catch (err) {
+          additionalFailures += 1;
           console.error(`${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId}:`, String(err));
           progressLogger?.warn(`${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId}`, {
             externalId: record.externalId,
@@ -836,8 +977,10 @@ async function prepareHoloTacoImageData(
         holo,
         storageUrl,
         checksumSha256,
+        fingerprint,
         sourceUrl: storageUrl ? holo.primaryImageUrl : null,
         additionalImages,
+        imageSetComplete: storageUrl !== null && additionalFailures === 0,
         isCandidate: true,
         primaryReused,
         additionalUploaded,
@@ -939,11 +1082,14 @@ async function prepareHoloTacoImageData(
       return {
         storageUrl: null,
         checksumSha256: null,
+        fingerprint: null,
+        detectionSourceUrl: null,
         sourceUrl: null,
         detectedHex: null,
         detectedFinishes: null,
         detectedHexProvenance: null,
         additionalImages: [],
+        imageSetComplete: false,
       };
     }
 
@@ -1016,16 +1162,7 @@ async function prepareHoloTacoImageData(
         queuedBatchRequests.push({
           customId: record.externalId,
           imageUrlOrDataUri: imageForAi,
-          vendorContext: {
-            shadeName: holo.name!,
-            vendorHex: holo.vendorHex,
-            description: holo.collection,
-            tags: holo.tags,
-            vendorJson: {
-              finish: holo.finish,
-              colorName: holo.colorName,
-            },
-          },
+          vendorContext: holoTacoVendorContext(holo),
         });
         metrics.batchRequestsQueued += 1;
         const queuedMessage = `${sourceLogPrefix} ${record.externalId} [ai-color-detection] Queued for batch submission`;
@@ -1051,7 +1188,7 @@ async function prepareHoloTacoImageData(
           console.log(`${sourceLogPrefix} No vendor hex for ${record.externalId}, running AI detection`);
         }
         try {
-          const detection = await detectHexWithAzureOpenAI(imageForAi, {
+          const rawDetection = await detectHexWithAzureOpenAI(imageForAi, {
             onLog: (level, message, data) => {
               // Info lines are already on the console (emitLog); only problems reach the job log.
               const withRecord = `${sourceLogPrefix} ${record.externalId} ${message}`;
@@ -1061,17 +1198,18 @@ async function prepareHoloTacoImageData(
                 progressLogger?.warn(withRecord, data);
               }
             },
-            vendorContext: {
-              shadeName: holo.name!,
-              vendorHex: holo.vendorHex,
-              description: holo.collection,
-              tags: holo.tags,
-              vendorJson: {
-                finish: holo.finish,
-                colorName: holo.colorName,
-              },
-            },
+            vendorContext: holoTacoVendorContext(holo),
           });
+          // Post-processing (HEX_DETECTION_SNAP_ENABLED): re-read the image the model was shown
+          // and replace its hex with the nearest measured palette chip. Never throws.
+          const snapped = await snapDetectionToImage(rawDetection, () => loadDetectionImageBytes(imageForAi), {
+            label: record.externalId,
+            onLog: snapLogger(record.externalId),
+          });
+          const detection = snapped.detection;
+          if (snapped.skipped === null) {
+            metrics.hexSnapped += 1;
+          }
           const promptTokens = detection.usage?.promptTokens ?? 0;
           const completionTokens = detection.usage?.completionTokens ?? 0;
           const totalTokens = detection.usage?.totalTokens ?? 0;
@@ -1088,7 +1226,11 @@ async function prepareHoloTacoImageData(
             const tokenUsageMessage = `${sourceLogPrefix} ${record.externalId} [ai-color-detection] Token usage`;
             console.log(tokenUsageMessage, tokenUsageData);
           }
-          console.log(`${sourceLogPrefix} AI detection result for ${record.externalId}:`, { detectedHex: detection.hex, vendorHex: holo.vendorHex });
+          console.log(`${sourceLogPrefix} AI detection result for ${record.externalId}:`, {
+            detectedHex: detection.hex,
+            vendorHex: holo.vendorHex,
+            ...(snapped.skipped === null ? { modelHex: rawDetection.hex, snapDistance: snapped.snap?.snapDistance ?? null } : {}),
+          });
           if (detection.hex) {
             detectedHex = detection.hex;
             detectedFinishes = detection.finishes;
@@ -1138,11 +1280,14 @@ async function prepareHoloTacoImageData(
     return {
       storageUrl,
       checksumSha256,
+      fingerprint: result.fingerprint,
+      detectionSourceUrl: detectionImages.get(result)?.sourceUrl ?? null,
       sourceUrl,
       detectedHex,
       detectedFinishes,
       detectedHexProvenance,
       additionalImages,
+      imageSetComplete: result.imageSetComplete,
     };
   };
 
@@ -1164,11 +1309,14 @@ async function prepareHoloTacoImageData(
         return {
           storageUrl: result.storageUrl,
           checksumSha256: result.checksumSha256,
+          fingerprint: result.fingerprint,
+          detectionSourceUrl: detectionImages.get(result)?.sourceUrl ?? null,
           sourceUrl: result.sourceUrl,
           detectedHex: null,
           detectedFinishes: null,
           detectedHexProvenance: null,
           additionalImages: result.additionalImages,
+          imageSetComplete: result.imageSetComplete,
         };
       })
     )
@@ -1203,6 +1351,7 @@ async function prepareHoloTacoImageData(
       hexDetectionFailures: metrics.hexDetectionFailures,
       hexDetectionSkipped: metrics.hexDetectionSkipped,
       hexDetectionSkippedUnchanged: metrics.hexDetectionSkippedUnchanged,
+      hexSnapped: metrics.hexSnapped,
       batchRequestsQueued: metrics.batchRequestsQueued,
       hexDetectionTotalTokens: metrics.hexDetectionTotalTokens,
     }
@@ -1249,7 +1398,7 @@ async function prepareHoloTacoImageData(
         queuedBatchRequests.map((queued) =>
           fallbackLimit(async () => {
             try {
-              const detection = await detectHexWithAzureOpenAI(queued.imageUrlOrDataUri, {
+              const rawDetection = await detectHexWithAzureOpenAI(queued.imageUrlOrDataUri, {
                 vendorContext: queued.vendorContext,
                 onLog: (level, message, data) => {
                   const withRecord = `${sourceLogPrefix} ${queued.customId} ${message}`;
@@ -1260,6 +1409,16 @@ async function prepareHoloTacoImageData(
                   }
                 },
               });
+              // Same post-processing as the sync path, on the image that was sent to the model.
+              const snapped = await snapDetectionToImage(
+                rawDetection,
+                () => loadDetectionImageBytes(queued.imageUrlOrDataUri),
+                { label: queued.customId, onLog: snapLogger(queued.customId) }
+              );
+              const detection = snapped.detection;
+              if (snapped.skipped === null) {
+                metrics.hexSnapped += 1;
+              }
               metrics.hexDetectionPromptTokens += detection.usage?.promptTokens ?? 0;
               metrics.hexDetectionCompletionTokens += detection.usage?.completionTokens ?? 0;
               metrics.hexDetectionTotalTokens += detection.usage?.totalTokens ?? 0;
@@ -1982,7 +2141,8 @@ export async function materializeMakeupApiRecords(
       }
 
       const makeup = parseMakeupNormalized(normalized);
-      const tagFinishes = parseFinishesFromTags(makeup.tags, finishCatalog);
+      // Tags, else descriptors, else description text (#352).
+      const finishResolution = resolveIngestedShadeFinishResolution(normalized, finishCatalog);
       if (!makeup.brand || !makeup.name) {
         skipped += 1;
         continue;
@@ -2098,9 +2258,9 @@ export async function materializeMakeupApiRecords(
         const resolvedColorName = variant.name || makeup.name;
         const resolvedVendorHex = variant.hex;
         // Merge (never remove) tag finishes in TypeScript, like the Holo Taco path, so aliases
-        // and legacy values are canonicalized and deduped; null leaves finishes untouched.
-        const mergedFinishes =
-          tagFinishes.length > 0 ? mergeFinishLists([currentFinishes, tagFinishes], finishCatalog) : null;
+        // and legacy values are canonicalized and deduped; descriptor/description finishes only
+        // fill a shade with none (#352); null leaves finishes untouched.
+        const mergedFinishes = applyIngestedFinishes(currentFinishes, finishResolution, finishCatalog);
         await client.query(
           `UPDATE shade SET
              color_name = COALESCE($2, color_name),
@@ -2175,6 +2335,9 @@ interface HoloTacoRecordMaterializationDelta {
   inventoryUpdated: number;
   hexOverwritten: number;
   swatchesLinked: number;
+  gallerySwatchesPruned: number;
+  galleryNearDuplicatesSkipped: number;
+  galleryOverCapSkipped: number;
   skipped: number;
 }
 
@@ -2197,6 +2360,9 @@ async function materializePreparedHoloTacoRecord(
     inventoryUpdated: 0,
     hexOverwritten: 0,
     swatchesLinked: 0,
+    gallerySwatchesPruned: 0,
+    galleryNearDuplicatesSkipped: 0,
+    galleryOverCapSkipped: 0,
     skipped: 0,
   };
 
@@ -2215,7 +2381,9 @@ async function materializePreparedHoloTacoRecord(
     delta.skipped += 1;
     return delta;
   }
-  const tagFinishes = resolveIngestedShadeFinishes(normalized, finishCatalog);
+  // Tags, else descriptors, else description text (#352).
+  const finishResolution = resolveIngestedShadeFinishResolution(normalized, finishCatalog);
+  const ingestedFinishes = finishResolution.finishes;
 
   console.log(`${sourceLogPrefix} Processing record: externalId=${record.externalId}, name=${holo.name}`);
 
@@ -2271,7 +2439,7 @@ async function materializePreparedHoloTacoRecord(
       `INSERT INTO shade (brand_id, shade_name_canonical, finish, collection, status, finishes)
        VALUES ($1, $2, $3, $4, 'active', $5::text[])
        RETURNING shade_id AS "shadeId"`,
-      [brandId, holo.name, holo.finish, holo.collection, tagFinishes]
+      [brandId, holo.name, holo.finish, holo.collection, ingestedFinishes]
     );
     shadeId = insertedShade.rows[0].shadeId;
     delta.shadesCreated += 1;
@@ -2315,9 +2483,12 @@ async function materializePreparedHoloTacoRecord(
      FROM shade WHERE shade_id = $1`,
     [shadeId]
   );
-  // Vendor tag finishes are merged (never removed) so manual edits survive re-imports.
+  // Vendor tag finishes are merged (never removed) so manual edits survive re-imports;
+  // descriptor/description finishes only fill a shade that has none yet (#352).
   const currentFinishes = currentShade.rows[0]?.finishes ?? [];
-  const mergedFinishes = mergeFinishLists([currentFinishes, tagFinishes], finishCatalog);
+  const mergedFinishes =
+    applyIngestedFinishes(currentFinishes, finishResolution, finishCatalog) ??
+    mergeFinishLists([currentFinishes], finishCatalog);
 
   const shouldOverwrite = overwriteDetectedHex;
   if (
@@ -2430,6 +2601,10 @@ async function materializePreparedHoloTacoRecord(
     console.log(`${sourceLogPrefix} Updated inventory item successfully`);
   }
 
+  // Image ids of the product's current images (primary first), for the gallery prune below.
+  const currentImageIds: number[] = [];
+  let galleryLinked = preparedImage.imageSetComplete;
+
   if (preparedImage.storageUrl && preparedImage.checksumSha256) {
     console.log(`${sourceLogPrefix} Processing swatch for shade ${shadeId}: checksum=${preparedImage.checksumSha256}`);
     const existingImage = await client.query<{ imageId: number }>(
@@ -2446,17 +2621,18 @@ async function materializePreparedHoloTacoRecord(
     if (existingImage.rows.length > 0) {
       imageId = existingImage.rows[0].imageId;
       console.log(`${sourceLogPrefix} Found existing image ${imageId}`);
+      await storeImageFingerprint(client, imageId, preparedImage.fingerprint);
     } else {
-      const insertedImage = await client.query<{ imageId: number }>(
-        `INSERT INTO image_asset
-           (owner_type, owner_id, storage_url, checksum_sha256, copyright_status, captured_at)
-         VALUES ('source', $1, $2, $3, 'licensed_source', now())
-         RETURNING image_id AS "imageId"`,
-        [dataSourceId, preparedImage.storageUrl, preparedImage.checksumSha256]
+      imageId = await insertSourceImageAsset(
+        client,
+        dataSourceId,
+        preparedImage.storageUrl,
+        preparedImage.checksumSha256,
+        preparedImage.fingerprint
       );
-      imageId = insertedImage.rows[0].imageId;
       console.log(`${sourceLogPrefix} Inserted new image ${imageId}`);
     }
+    currentImageIds.push(imageId);
     if (preparedImage.sourceUrl) {
       await recordSourceImageUrl(client, dataSourceId, preparedImage.sourceUrl, imageId);
     }
@@ -2506,62 +2682,141 @@ async function materializePreparedHoloTacoRecord(
     );
   }
 
-  // Store additional images as image_assets (no swatch — for training data)
-  if (preparedImage.additionalImages.length > 0) {
-    for (const addImg of preparedImage.additionalImages) {
-      try {
-        const existingAdditional = await client.query<{ imageId: number }>(
-          `SELECT image_id AS "imageId"
-           FROM image_asset
-           WHERE owner_type = 'source'
-             AND owner_id = $1
-             AND checksum_sha256 = $2
-           LIMIT 1`,
-          [dataSourceId, addImg.checksumSha256]
+  // Store additional images as image_assets and link each as a source_gallery swatch, except
+  // near-duplicates of an image already linked for this product (vendor re-crops / re-exports of
+  // one photo) and images past GALLERY_MAX_IMAGES_PER_SHADE. Skipped images are still stored and
+  // stay in the prune keep-set (currentImageIds); a swatch an earlier run linked for one is
+  // unlinked here, so the decision is the same on every run for the same vendor gallery. AI
+  // detection already chose its image from every upload, and that image is always linked.
+  const galleryPlan = planProductGalleryLinks({
+    primary: preparedImage.checksumSha256
+      ? { key: preparedImage.checksumSha256, fingerprint: preparedImage.fingerprint }
+      : null,
+    additional: preparedImage.additionalImages.map((image) => ({
+      key: image.checksumSha256,
+      fingerprint: image.fingerprint,
+      pinned: preparedImage.detectionSourceUrl !== null && image.sourceUrl === preparedImage.detectionSourceUrl,
+    })),
+    maxGalleryImages: getGalleryMaxImagesPerShade(),
+  });
+  let sharedShade: boolean | null = null;
+  for (const [index, addImg] of preparedImage.additionalImages.entries()) {
+    const decision = galleryPlan[index];
+    try {
+      const existingAdditional = await client.query<{ imageId: number }>(
+        `SELECT image_id AS "imageId"
+         FROM image_asset
+         WHERE owner_type = 'source'
+           AND owner_id = $1
+           AND checksum_sha256 = $2
+         LIMIT 1`,
+        [dataSourceId, addImg.checksumSha256]
+      );
+
+      let galleryImageId: number;
+      if (existingAdditional.rows.length === 0) {
+        galleryImageId = await insertSourceImageAsset(
+          client,
+          dataSourceId,
+          addImg.storageUrl,
+          addImg.checksumSha256,
+          addImg.fingerprint
         );
+        console.log(
+          `${sourceLogPrefix} Stored additional image for ${record.externalId}: checksum=${addImg.checksumSha256}`
+        );
+      } else {
+        galleryImageId = existingAdditional.rows[0].imageId;
+        await storeImageFingerprint(client, galleryImageId, addImg.fingerprint);
+      }
+      currentImageIds.push(galleryImageId);
+      await recordSourceImageUrl(client, dataSourceId, addImg.sourceUrl, galleryImageId);
 
-        let galleryImageId: number;
-        if (existingAdditional.rows.length === 0) {
-          const insertedAdditional = await client.query<{ imageId: number }>(
-            `INSERT INTO image_asset
-               (owner_type, owner_id, storage_url, checksum_sha256, copyright_status, captured_at)
-             VALUES ('source', $1, $2, $3, 'licensed_source', now())
-             RETURNING image_id AS "imageId"`,
-            [dataSourceId, addImg.storageUrl, addImg.checksumSha256]
-          );
-          galleryImageId = insertedAdditional.rows[0].imageId;
-          console.log(
-            `${sourceLogPrefix} Stored additional image for ${record.externalId}: checksum=${addImg.checksumSha256}`
-          );
+      if (decision.reason === "same_image") {
+        // Same stored image as the primary or an earlier gallery image: already linked.
+        continue;
+      }
+      if (!decision.link) {
+        if (decision.reason === "near_duplicate") {
+          delta.galleryNearDuplicatesSkipped += 1;
         } else {
-          galleryImageId = existingAdditional.rows[0].imageId;
+          delta.galleryOverCapSkipped += 1;
         }
-        await recordSourceImageUrl(client, dataSourceId, addImg.sourceUrl, galleryImageId);
+        // Like the stale prune: never unlink when another product of this source maps to the shade.
+        sharedShade ??= await shadeSharedWithOtherProduct(client, {
+          shadeId,
+          dataSourceId,
+          externalId: record.externalId,
+        });
+        const unlinked = sharedShade
+          ? { rows: [] }
+          : await client.query(
+              `DELETE FROM swatch sw
+               WHERE sw.shade_id = $1
+                 AND sw.image_id_original = $2
+                 AND sw.swatch_type = 'source_gallery'
+                 AND NOT ${protectedSwatchSql("sw")}
+               RETURNING sw.swatch_id`,
+              [shadeId, galleryImageId]
+            );
+        delta.gallerySwatchesPruned += unlinked.rows.length;
+        console.log(
+          `${sourceLogPrefix} Not linking additional image ${galleryImageId} to shade ${shadeId}: ${
+            decision.reason === "near_duplicate"
+              ? `near-duplicate of checksum=${decision.duplicateOfKey}`
+              : "gallery cap reached"
+          }${unlinked.rows.length > 0 ? " (unlinked the earlier swatch)" : ""}`
+        );
+        continue;
+      }
 
-        const existingGallerySwatch = await client.query<{ swatchId: number }>(
-          `SELECT swatch_id AS "swatchId"
-           FROM swatch
-           WHERE shade_id = $1
-             AND image_id_original = $2
-           LIMIT 1`,
+      const existingGallerySwatch = await client.query<{ swatchId: number }>(
+        `SELECT swatch_id AS "swatchId"
+         FROM swatch
+         WHERE shade_id = $1
+           AND image_id_original = $2
+         LIMIT 1`,
+        [shadeId, galleryImageId]
+      );
+
+      if (existingGallerySwatch.rows.length === 0) {
+        await client.query(
+          `INSERT INTO swatch (shade_id, image_id_original, swatch_type, lighting, background, quality_score)
+           VALUES ($1, $2, 'source_gallery', 'unknown', 'transparent', 70.0)`,
           [shadeId, galleryImageId]
         );
-
-        if (existingGallerySwatch.rows.length === 0) {
-          await client.query(
-            `INSERT INTO swatch (shade_id, image_id_original, swatch_type, lighting, background, quality_score)
-             VALUES ($1, $2, 'source_gallery', 'unknown', 'transparent', 70.0)`,
-            [shadeId, galleryImageId]
-          );
-          delta.swatchesLinked += 1;
-          console.log(
-            `${sourceLogPrefix} Linked additional image to shade ${shadeId}: imageId=${galleryImageId}`
-          );
-        }
-      } catch (err) {
-        console.error(`${sourceLogPrefix} Error storing additional image:`, String(err));
-        // Non-fatal: don't throw for additional images
+        delta.swatchesLinked += 1;
+        console.log(
+          `${sourceLogPrefix} Linked additional image to shade ${shadeId}: imageId=${galleryImageId}`
+        );
       }
+    } catch (err) {
+      galleryLinked = false;
+      console.error(`${sourceLogPrefix} Error storing additional image:`, String(err));
+      // Non-fatal: don't throw for additional images
+    }
+  }
+
+  // Gallery swatches are otherwise only ever added, so every image ever stored for the shade
+  // (including the same picture stored twice under different checksums by older ingests) would
+  // stay linked. Reconcile this data source's gallery with the product's current images, but
+  // only when all of them were stored and linked: a failed download must not unlink anything.
+  if (galleryLinked && currentImageIds.length > 0) {
+    const pruned = await pruneStaleGallerySwatches(client, {
+      shadeId,
+      dataSourceId,
+      externalId: record.externalId,
+      keepImageIds: currentImageIds,
+    });
+    if (pruned.deleted > 0) {
+      delta.gallerySwatchesPruned += pruned.deleted;
+      console.log(
+        `${sourceLogPrefix} Unlinked ${pruned.deleted} stale gallery image(s) from shade ${shadeId}`
+      );
+    } else if (pruned.skippedSharedShade) {
+      console.log(
+        `${sourceLogPrefix} Gallery prune skipped for shade ${shadeId}: another product of this source maps to it`
+      );
     }
   }
 
@@ -2613,6 +2868,9 @@ export async function materializeHoloTacoRecords(
   let inventoryUpdated = 0;
   let hexOverwritten = 0;
   let swatchesLinked = 0;
+  let gallerySwatchesPruned = 0;
+  let galleryNearDuplicatesSkipped = 0;
+  let galleryOverCapSkipped = 0;
   let skipped = 0;
 
   const brandCache = new Map<string, number>();
@@ -2652,6 +2910,9 @@ export async function materializeHoloTacoRecords(
       inventoryUpdated += delta.inventoryUpdated;
       hexOverwritten += delta.hexOverwritten;
       swatchesLinked += delta.swatchesLinked;
+      gallerySwatchesPruned += delta.gallerySwatchesPruned;
+      galleryNearDuplicatesSkipped += delta.galleryNearDuplicatesSkipped;
+      galleryOverCapSkipped += delta.galleryOverCapSkipped;
       skipped += delta.skipped;
       if (delta.skipped > 0) {
         options?.progressLogger?.warn(
@@ -2672,6 +2933,9 @@ export async function materializeHoloTacoRecords(
     ...preparedImageData.metrics,
     ...(preparedImageData.aiBatch ? { aiBatch: preparedImageData.aiBatch } : {}),
     swatchesLinked,
+    gallerySwatchesPruned,
+    galleryNearDuplicatesSkipped,
+    galleryOverCapSkipped,
     skipped,
   };
 

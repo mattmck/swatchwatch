@@ -302,8 +302,8 @@ Open follow-ups taken from the PR descriptions. Give each one an owner and a tic
 | Feature-flag mechanism | D22 | owner | [#313](https://github.com/mattmck/swatchwatch/issues/313) |
 
 ### Actions after merge (no ticket needed)
-- **D1:** once #305 and #314 (PR #334) are released to prod, set the `SHAREABLE_WISHLIST_ENABLED` GitHub variable to `true` and run Deploy Infra.
-- **D2:** after #292 merges, enable `NightOwlLacquerShopify` and remove it from `SHOPIFY_SOURCES_PENDING_APPROVAL` (tracked under #273).
+- **D1:** ✅ Done. Once #305 and #314 (PR #334) were released to prod, `SHAREABLE_WISHLIST_ENABLED` was set to `true` in the prod GitHub environment. Deploy Infra Prod run 39087542550 applied it on 2026-10-18 at 01:45 UTC, and prod `/api/wishlist-share` now answers 401 instead of 404 `feature_disabled`.
+- **D2:** `NightOwlLacquerShopify` was removed from `SHOPIFY_SOURCES_PENDING_APPROVAL` in #333 (released in #340). The owner still needs to enable its prod `data_source` row and run its first job (tracked under #273).
 - **D11:** close #224 once #288 and #306 merge.
 - **D14–D16:** implement in Phase 3 under #281: keep the cookies; 0.5 GB/2 GB caps; prod-only alerts to `var.alert_email`.
 - **D18:** cut one `dev → main` release before 27 Nov, following the pre-release checklist on #274.

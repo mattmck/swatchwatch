@@ -384,9 +384,13 @@ export async function getPublicWishlist(
 
   try {
     const shareResult = await query<{ userId: number | string; displayName: string | null }>(
-      `SELECT user_id AS "userId", display_name AS "displayName"
-       FROM wishlist_share
-       WHERE token_hash = $1`,
+      // A suspended owner's page is not served (#45). Read via to_jsonb so the query stays valid
+      // before the suspension migration has run.
+      `SELECT ws.user_id AS "userId", ws.display_name AS "displayName"
+       FROM wishlist_share ws
+       JOIN app_user u ON u.user_id = ws.user_id
+       WHERE ws.token_hash = $1
+         AND (to_jsonb(u.*) ->> 'suspended_at') IS NULL`,
       [hashShareToken(token)]
     );
     const share = shareResult.rows[0];

@@ -95,7 +95,10 @@ npm run dev:mobile       # → mobile via Expo
 | `npm run lint` | ESLint across all workspaces |
 | `npm run test` | Run workspace tests where present (includes Functions unit tests; builds shared + functions first) |
 | `npm run test:e2e --workspace=swatchwatch-functions` | E2E API + cross-user access-control tests against a running local Functions host (`AUTH_DEV_BYPASS=true`); skips when the host is unreachable |
+| `npm run backfill:product-text --workspace=swatchwatch-functions` | Recompute product `descriptionText`/`descriptors` from `raw_json` and report empty-finish coverage (#352); dry run unless `--write` (`--fill-finishes` also fills empty shade finishes) |
 | `npm run typecheck` | `tsc --noEmit` across all workspaces |
+| `npm run dedupe:gallery-images --workspace=swatchwatch-functions` | Unlink catalog gallery images that duplicate another image of the same shade (the same vendor picture stored twice), matched perceptually, in batches via `POST /api/images-admin/gallery-dedupe` (`API_BASE_URL`, `ADMIN_BEARER_TOKEN`; dry run unless `--write`, `--shade <ids>`, `--after <shadeId>` resumes); also backfills `image_asset` perceptual fingerprints, even in a dry run, unless `--no-store-fingerprints` |
+| `npm run backfill:image-variants --workspace=swatchwatch-functions` | Generate missing pre-generated catalog thumbnails for images stored before variants existed, in batches via `POST /api/images-admin/variants/backfill` (`API_BASE_URL`, `ADMIN_BEARER_TOKEN`; idempotent, `--after <imageId>` resumes) |
 
 `dev`, `dev:web`, `dev:functions`, and `dev:shared` run a dependency preflight and print a clear
 `npm run setup` hint if dependencies are missing.
@@ -135,7 +138,7 @@ The web app is the most developed part of the project. Key pages:
 |-------|------|-------------|
 | `/` | `apps/web/src/app/(marketing)/page.tsx` | Marketing landing page |
 | `/dashboard` | `apps/web/src/app/(app)/dashboard/page.tsx` | Dashboard — stats cards, recent additions, finish breakdown |
-| `/admin` | `apps/web/src/app/(admin)/admin/page.tsx` | Unified admin console — tabs: Configuration (finish/harmony CRUD), Job Runs (reference-admin jobs), Admin Jobs (ingestion jobs), User Management (duplicate-account repair + merges), Hex Labeling (eyedropper ground-truth hexes for the hex-detection eval) |
+| `/admin` | `apps/web/src/app/(admin)/admin/page.tsx` | Unified admin console — tabs: Configuration (finish/harmony CRUD), Job Runs (reference-admin jobs), Admin Jobs (ingestion jobs), User Management (search/filter/sort users, detail dialog to edit the handle and suspend/reactivate, audit history, duplicate-account merge), Review Queue (user-submitted shades), Hex Labeling (eyedropper ground-truth hexes for the hex-detection eval) |
 | `/admin/reference-data` | `apps/web/src/app/(admin)/admin/reference-data/page.tsx` | Legacy redirect → `/admin?tab=configuration` |
 | `/admin/jobs` | `apps/web/src/app/(app)/admin/jobs/page.tsx` | Legacy redirect → `/admin?tab=admin-jobs` |
 | `/polishes` | `apps/web/src/app/(app)/polishes/page.tsx` | Collection table — search/filter/sort with All/My Collection scope toggle and URL-persisted list state |

@@ -236,7 +236,8 @@ export default function PolishForm() {
               // shades with the shared dupe rule (no new endpoint needed).
               dupesForNewShade(
                 { brand: form.brand, name: form.name, hex: form.colorHex, finishes },
-                await listAllPolishes({ status: ["owned"] })
+                await listAllPolishes({ status: ["owned"] }),
+                { finishTypes }
               ),
         proceed: (finalIntent) =>
           savePolish(finalIntent === "wishlist" ? { ...payload, status: "wishlist" } : payload),
