@@ -129,3 +129,133 @@ describe("collectProductGtins", () => {
     assert.deepEqual(collectProductGtins({ normalized: { variants: "nope" } }), []);
   });
 });
+
+// ---------------------------------------------------------------------------
+// upsertShadeBarcodes: fake client over in-memory sku/barcode tables
+// ---------------------------------------------------------------------------
+
+const { upsertShadeBarcodes } = require("../dist/lib/barcodes");
+
+function fakeCatalog({ skus = [], barcodes = [], shades = [] } = {}) {
+  const db = {
+    shades: new Map(shades.map((s) => [s.shadeId, s])),
+    skus: [...skus],
+    barcodes: [...barcodes],
+    nextSku: 1000,
+    nextBarcode: 5000,
+    calls: [],
+  };
+  const client = {
+    async query(sql, params = []) {
+      const text = String(sql).replace(/\s+/g, " ");
+      db.calls.push({ sql: text, params });
+      if (/^SELECT sku_id/i.test(text.trim()) && /FROM sku WHERE shade_id = \$1/i.test(text)) {
+        const sku = db.skus.filter((s) => s.shadeId === params[0]).sort((a, b) => a.skuId - b.skuId)[0];
+        return { rows: sku ? [{ skuId: sku.skuId }] : [], rowCount: sku ? 1 : 0 };
+      }
+      if (/^INSERT INTO sku/i.test(text.trim())) {
+        const shade = db.shades.get(params[0]);
+        if (!shade) return { rows: [], rowCount: 0 };
+        const sku = { skuId: db.nextSku++, shadeId: shade.shadeId, brandId: shade.brandId };
+        db.skus.push(sku);
+        return { rows: [{ skuId: sku.skuId }], rowCount: 1 };
+      }
+      if (/^INSERT INTO barcode/i.test(text.trim())) {
+        const [skuId, gtin, barcodeType, isPrimary, source, externalProductId] = params;
+        if (db.barcodes.some((b) => b.gtin === gtin)) return { rows: [], rowCount: 0 };
+        db.barcodes.push({ barcodeId: db.nextBarcode++, skuId, gtin, barcodeType, isPrimary, source, externalProductId });
+        return { rows: [{ inserted: true }], rowCount: 1 };
+      }
+      if (/FROM barcode b JOIN sku s/i.test(text)) {
+        const row = db.barcodes.find((b) => b.gtin === params[0]);
+        const sku = row && db.skus.find((s) => s.skuId === row.skuId);
+        return { rows: sku ? [{ shadeId: sku.shadeId }] : [], rowCount: sku ? 1 : 0 };
+      }
+      throw new Error(`unexpected SQL: ${text}`);
+    },
+  };
+  return { db, client };
+}
+
+describe("upsertShadeBarcodes", () => {
+  it("does nothing (no SQL) without GTINs", async () => {
+    const { db, client } = fakeCatalog();
+    const result = await upsertShadeBarcodes(client, { shadeId: 7, gtins: [], source: "ingestion" });
+    assert.deepEqual(result, { inserted: 0, alreadyLinked: 0, conflicts: [], skuCreated: false });
+    assert.equal(db.calls.length, 0);
+  });
+
+  it("creates a SKU for a shade without one and links every GTIN to it", async () => {
+    const { db, client } = fakeCatalog({ shades: [{ shadeId: 7, brandId: 3 }] });
+    const result = await upsertShadeBarcodes(client, {
+      shadeId: 7,
+      gtins: [
+        { gtin: `0${UPC_A}`, barcodeType: "UPC_A" },
+        { gtin: EAN_13, barcodeType: "EAN_13" },
+      ],
+      source: "ingestion",
+      externalProductId: 44,
+    });
+    assert.deepEqual(result, { inserted: 2, alreadyLinked: 0, conflicts: [], skuCreated: true });
+    assert.equal(db.skus.length, 1);
+    assert.deepEqual(
+      db.barcodes.map((b) => [b.skuId, b.gtin, b.barcodeType, b.isPrimary, b.source, b.externalProductId]),
+      [
+        [1000, `0${UPC_A}`, "UPC_A", true, "ingestion", 44],
+        [1000, EAN_13, "EAN_13", false, "ingestion", 44],
+      ]
+    );
+  });
+
+  it("reuses the shade's existing SKU", async () => {
+    const { db, client } = fakeCatalog({
+      shades: [{ shadeId: 7, brandId: 3 }],
+      skus: [{ skuId: 12, shadeId: 7 }, { skuId: 11, shadeId: 7 }],
+    });
+    const result = await upsertShadeBarcodes(client, {
+      shadeId: 7,
+      gtins: [{ gtin: EAN_13, barcodeType: "EAN_13" }],
+      source: "backfill",
+    });
+    assert.equal(result.skuCreated, false);
+    assert.equal(db.barcodes[0].skuId, 11);
+    assert.equal(db.barcodes[0].externalProductId, null);
+  });
+
+  it("counts a GTIN already linked to the same shade and keeps the first shade on a conflict", async () => {
+    const { db, client } = fakeCatalog({
+      shades: [{ shadeId: 7, brandId: 3 }, { shadeId: 8, brandId: 3 }],
+      skus: [{ skuId: 11, shadeId: 7 }, { skuId: 21, shadeId: 8 }],
+      barcodes: [
+        { barcodeId: 1, skuId: 11, gtin: EAN_13 },
+        { barcodeId: 2, skuId: 21, gtin: `0${UPC_A}` },
+      ],
+    });
+    const result = await upsertShadeBarcodes(client, {
+      shadeId: 7,
+      gtins: [
+        { gtin: EAN_13, barcodeType: "EAN_13" },
+        { gtin: `0${UPC_A}`, barcodeType: "UPC_A" },
+      ],
+      source: "ingestion",
+    });
+    assert.deepEqual(result, {
+      inserted: 0,
+      alreadyLinked: 1,
+      conflicts: [{ gtin: `0${UPC_A}`, existingShadeId: 8 }],
+      skuCreated: false,
+    });
+    assert.equal(db.barcodes.length, 2, "the first shade keeps the GTIN");
+  });
+
+  it("does nothing when the shade does not exist", async () => {
+    const { db, client } = fakeCatalog();
+    const result = await upsertShadeBarcodes(client, {
+      shadeId: 99,
+      gtins: [{ gtin: EAN_13, barcodeType: "EAN_13" }],
+      source: "ingestion",
+    });
+    assert.deepEqual(result, { inserted: 0, alreadyLinked: 0, conflicts: [], skuCreated: false });
+    assert.equal(db.barcodes.length, 0);
+  });
+});

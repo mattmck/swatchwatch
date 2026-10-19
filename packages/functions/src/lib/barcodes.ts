@@ -179,3 +179,126 @@ export function collectProductGtins(record: {
   }
   return out;
 }
+
+/** Who wrote a `barcode` row (`barcode.source`). */
+export type BarcodeSource = "ingestion" | "backfill" | "admin";
+
+export interface BarcodeConflict {
+  gtin: string;
+  /** The shade that already owns the GTIN (and keeps it). */
+  existingShadeId: number;
+}
+
+export interface ShadeBarcodeUpsertResult {
+  inserted: number;
+  /** GTINs already linked to this shade. */
+  alreadyLinked: number;
+  /** GTINs another shade claimed first; skipped, for the caller to log. */
+  conflicts: BarcodeConflict[];
+  skuCreated: boolean;
+}
+
+interface QueryClient {
+  query<R = any>(sql: string, params?: unknown[]): Promise<{ rows: R[]; rowCount: number | null }>;
+}
+
+/**
+ * Link catalog GTINs to a shade: `barcode` rows hang off a SKU, so the shade's first SKU is
+ * reused (or one is created from the shade). Conflict rule: a GTIN belongs to one shade
+ * (`barcode.gtin` is UNIQUE) and the first shade to claim it keeps it; a claim by another
+ * shade is returned in `conflicts` and nothing is overwritten. Runs inside the caller's
+ * transaction.
+ */
+export async function upsertShadeBarcodes(
+  client: QueryClient,
+  input: {
+    shadeId: number;
+    gtins: readonly NormalizedGtin[];
+    source: BarcodeSource;
+    externalProductId?: number | null;
+  }
+): Promise<ShadeBarcodeUpsertResult> {
+  const result: ShadeBarcodeUpsertResult = { inserted: 0, alreadyLinked: 0, conflicts: [], skuCreated: false };
+  if (input.gtins.length === 0 || !Number.isSafeInteger(input.shadeId)) return result;
+
+  const existingSku = await client.query<{ skuId: number }>(
+    `SELECT sku_id AS "skuId" FROM sku WHERE shade_id = $1 ORDER BY sku_id LIMIT 1`,
+    [input.shadeId]
+  );
+  let skuId = existingSku.rows[0]?.skuId;
+  if (skuId === undefined) {
+    const createdSku = await client.query<{ skuId: number }>(
+      `INSERT INTO sku (brand_id, product_line_id, shade_id, product_name)
+       SELECT brand_id, product_line_id, shade_id, shade_name_canonical
+       FROM shade
+       WHERE shade_id = $1
+       RETURNING sku_id AS "skuId"`,
+      [input.shadeId]
+    );
+    skuId = createdSku.rows[0]?.skuId;
+    if (skuId === undefined) return result;
+    result.skuCreated = true;
+  }
+
+  for (const [index, { gtin, barcodeType }] of input.gtins.entries()) {
+    const inserted = await client.query(
+      `INSERT INTO barcode (sku_id, gtin, barcode_type, is_primary, source, external_product_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (gtin) DO NOTHING
+       RETURNING true AS inserted`,
+      [skuId, gtin, barcodeType, index === 0, input.source, input.externalProductId ?? null]
+    );
+    if ((inserted.rowCount ?? 0) > 0) {
+      result.inserted += 1;
+      continue;
+    }
+    const owner = await client.query<{ shadeId: number | string | null }>(
+      `SELECT s.shade_id AS "shadeId" FROM barcode b JOIN sku s ON s.sku_id = b.sku_id WHERE b.gtin = $1`,
+      [gtin]
+    );
+    const ownerShadeId = owner.rows[0]?.shadeId;
+    if (ownerShadeId !== undefined && ownerShadeId !== null && Number(ownerShadeId) === input.shadeId) {
+      result.alreadyLinked += 1;
+    } else {
+      result.conflicts.push({ gtin, existingShadeId: Number(ownerShadeId ?? NaN) });
+    }
+  }
+  return result;
+}
+
+/**
+ * Ingestion step: link a connector product's GTIN and variant barcodes to the shade it was
+ * materialized into, with the product as provenance. No SQL for a product without a valid
+ * barcode. Conflicts (GTIN owned by another shade) are returned for the job log.
+ */
+export async function materializeProductBarcodes(
+  client: QueryClient,
+  input: {
+    shadeId: number;
+    dataSourceId: number;
+    record: { externalId?: string | null; gtin?: string | null; normalized?: unknown };
+  }
+): Promise<ShadeBarcodeUpsertResult> {
+  const gtins = collectProductGtins(input.record);
+  if (gtins.length === 0) {
+    return { inserted: 0, alreadyLinked: 0, conflicts: [], skuCreated: false };
+  }
+  const externalId = input.record.externalId?.trim();
+  let externalProductId: number | null = null;
+  if (externalId) {
+    const product = await client.query<{ externalProductId: number | string }>(
+      `SELECT external_product_id AS "externalProductId"
+       FROM external_product
+       WHERE data_source_id = $1 AND external_id = $2`,
+      [input.dataSourceId, externalId]
+    );
+    const id = product.rows[0]?.externalProductId;
+    externalProductId = id === undefined ? null : Number(id);
+  }
+  return upsertShadeBarcodes(client, {
+    shadeId: input.shadeId,
+    gtins,
+    source: "ingestion",
+    externalProductId,
+  });
+}
