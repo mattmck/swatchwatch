@@ -128,7 +128,7 @@ Shared heading scale utilities are defined in `src/app/globals.css` and reused a
 
 | Component | Purpose |
 |-----------|---------|
-| `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with exact active-route matching, branded active-nav pills, logo accent divider, app theme toggle, and `<UserCard>` footer with auth state. A single Admin link (`/admin`) is shown only for admin users & Gap Map, Photo Match, Mani Log and Rapid Add routes in primary navigation |
+| `app-shell.tsx` | Sidebar navigation (desktop) + header nav (mobile) with exact active-route matching, branded active-nav pills, logo accent divider, app theme toggle, and `<UserCard>` footer with auth state. A single Admin link (`/admin`) is shown only for admin users & Looks, Gap Map, Photo Match, Mani Log and Rapid Add routes in primary navigation. The main column and the mobile icon nav are `min-w-0`, so the nav scrolls inside the header instead of widening the page |
 | `auth-provider.tsx` | MSAL provider wrapper with three modes: dev bypass (no MSAL), B2C via MSAL, unconfigured fallback. Manages token lifecycle and stores in module-level `auth-token.ts` |
 | `require-auth.tsx` | Route guard for `(app)` routes. Dev bypass → render children; B2C unconfigured → show "Sign in" button; B2C authenticated → render children; unauthenticated → show "Sign in" button |
 | `user-card.tsx` | Sidebar footer: displays user initials, name, email, and sign-out button. Conditionally uses `useAuth()` (B2C) or `useDevAuth()` (dev bypass) |
