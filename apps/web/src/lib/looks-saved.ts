@@ -3,15 +3,25 @@ import { MAX_SAVED_LOOKS, savedLookKey, validateSavedLookInput } from "swatchwat
 import type { Look, Vibe } from "./looks";
 
 /**
- * Saved looks. The source of truth is the caller's `user_look` rows (`GET/POST/DELETE /api/looks`);
- * localStorage holds a copy for offline use and for an API without the endpoint yet, and looks saved
- * there before the endpoint existed are uploaded once (`looksToUpload`). Only what is needed to show
- * the look again and re-wear it is stored: names, hexes, roles and shade ids.
+ * Saved looks. The source of truth is the caller's `user_look` rows (`GET/POST/DELETE /api/looks`).
+ * localStorage keeps two lists:
+ *
+ * - **pending** (`SAVED_LOOKS_PENDING_KEY`): saves the server has not accepted yet (offline, an API
+ *   without the endpoint, or looks saved before it existed, which used this same key). They are
+ *   uploaded on the next successful load (`looksToUpload`) and then cleared.
+ * - **cache** (`SAVED_LOOKS_CACHE_KEY`): the last list the server returned, shown while loading or
+ *   offline. It is never uploaded, so a look deleted on another device does not come back.
+ *
+ * Only what is needed to show the look again and re-wear it is stored: names, hexes, roles and
+ * shade ids.
  */
 export { MAX_SAVED_LOOKS };
 export type { SavedLook, SavedLookStep };
 
-export const SAVED_LOOKS_STORAGE_KEY = "swatchwatch.looks.saved.v1";
+/** Saves not yet on the server (the pre-endpoint key, so older local saves upload once). */
+export const SAVED_LOOKS_PENDING_KEY = "swatchwatch.looks.saved.v1";
+/** The last server list, for display while loading or offline. */
+export const SAVED_LOOKS_CACHE_KEY = "swatchwatch.looks.cache.v1";
 
 export function toSavedLook(look: Look, vibe: Vibe, now: Date): SavedLook {
   const steps: SavedLookStep[] = look.steps.map((step) => ({
@@ -74,21 +84,27 @@ export function mergeSavedLooks(server: readonly SavedLook[], local: readonly Sa
   return [...byId.values()].sort((a, b) => b.savedAt.localeCompare(a.savedAt)).slice(0, MAX_SAVED_LOOKS);
 }
 
-/** Read saved looks; empty when storage is blocked or unavailable. */
-export function readSavedLooks(): SavedLook[] {
+/** Read a stored list; empty when storage is blocked or unavailable. */
+export function readLookList(key: string): SavedLook[] {
   try {
-    return parseSavedLooks(window.localStorage.getItem(SAVED_LOOKS_STORAGE_KEY));
+    return parseSavedLooks(window.localStorage.getItem(key));
   } catch {
     return [];
   }
 }
 
-/** Write saved looks; returns false when storage is blocked or full. */
-export function writeSavedLooks(list: readonly SavedLook[]): boolean {
+/** Write a stored list (an empty list removes the key); returns false when storage is blocked or full. */
+export function writeLookList(key: string, list: readonly SavedLook[]): boolean {
   try {
-    window.localStorage.setItem(SAVED_LOOKS_STORAGE_KEY, JSON.stringify(list));
+    if (list.length === 0) window.localStorage.removeItem(key);
+    else window.localStorage.setItem(key, JSON.stringify(list));
     return true;
   } catch {
     return false;
   }
+}
+
+/** What to show before the server answers: the cached server list plus pending saves. */
+export function readSavedLooksForDisplay(): SavedLook[] {
+  return mergeSavedLooks(readLookList(SAVED_LOOKS_CACHE_KEY), readLookList(SAVED_LOOKS_PENDING_KEY));
 }

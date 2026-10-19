@@ -9,8 +9,8 @@ import { toast } from "sonner";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ManiLogForm } from "@/components/mani-log-form";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { listAllPolishes, listPolishes } from "@/lib/api";
+import { ToggleChip } from "@/components/toggle-chip";
+import { deleteSavedLook, listAllPolishes, listPolishes, listSavedLooks, saveLookToServer } from "@/lib/api";
 import { isOwnedPolish } from "@/lib/inventory-status";
 import {
   LOOK_COUNT,
@@ -25,7 +25,19 @@ import {
   type LookStepRole,
   type Vibe,
 } from "@/lib/looks";
-import { addSavedLook, readSavedLooks, removeSavedLook, toSavedLook, writeSavedLooks, type SavedLook } from "@/lib/looks-saved";
+import {
+  SAVED_LOOKS_CACHE_KEY,
+  SAVED_LOOKS_PENDING_KEY,
+  addSavedLook,
+  looksToUpload,
+  mergeSavedLooks,
+  readLookList,
+  readSavedLooksForDisplay,
+  removeSavedLook,
+  toSavedLook,
+  writeLookList,
+  type SavedLook,
+} from "@/lib/looks-saved";
 import { buildLooksQueryString, parseLooksState, type LooksState } from "@/lib/looks-url";
 import { toLocalIsoDate } from "@/lib/mani-log";
 import { trackLooksGenerated, trackLooksWearClicked, type LooksTrigger } from "@/lib/metrics-events";
@@ -72,7 +84,8 @@ function LooksPageContent() {
   const [catalog, setCatalog] = useState<Record<string, Polish[]>>({});
   const [overrides, setOverrides] = useState<{ key: string; looks: Record<string, Look> }>({ key: "", looks: {} });
   // Read once on the client (empty during SSR); only rendered once `result` exists, so hydration matches.
-  const [saved, setSaved] = useState<SavedLook[]>(readSavedLooks);
+  const [saved, setSaved] = useState<SavedLook[]>(readSavedLooksForDisplay);
+  const [tab, setTab] = useState<"looks" | "saved">("looks");
   const [wear, setWear] = useState<WearState | null>(null);
   const [todayIso] = useState(() => toLocalIsoDate(new Date()));
   const triggerRef = useRef<LooksTrigger>("vibe");
@@ -90,6 +103,35 @@ function LooksPageContent() {
         setLoadError(err instanceof Error ? err.message : "Couldn't load your collection");
         setOwned([]);
       });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Saved looks: load the account's list, upload saves made offline or before the endpoint existed,
+  // then cache the result. On failure the cached + pending lists stay on screen.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const server = await listSavedLooks();
+        const uploaded: SavedLook[] = [];
+        for (const look of looksToUpload(readLookList(SAVED_LOOKS_PENDING_KEY), server)) {
+          try {
+            uploaded.push(await saveLookToServer(look));
+          } catch {
+            // Leave it pending for the next load.
+          }
+        }
+        const merged = mergeSavedLooks([...uploaded, ...server], []);
+        const stillPending = looksToUpload(readLookList(SAVED_LOOKS_PENDING_KEY), merged);
+        writeLookList(SAVED_LOOKS_PENDING_KEY, stillPending);
+        writeLookList(SAVED_LOOKS_CACHE_KEY, merged);
+        if (!cancelled) setSaved(mergeSavedLooks(merged, stillPending));
+      } catch {
+        // Offline or an API without /api/looks: keep showing the local lists.
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -203,22 +245,37 @@ function LooksPageContent() {
     setWear({ entries: maniEntriesForLook(look) });
   }
 
-  function toggleSave(look: Look) {
+  async function toggleSave(look: Look) {
     const entry = toSavedLook(look, vibe, new Date());
-    const isSaved = saved.some((s) => s.id === entry.id);
-    const next = isSaved ? removeSavedLook(saved, entry.id) : addSavedLook(saved, entry);
-    setSaved(next);
-    if (!writeSavedLooks(next)) {
-      toast.error("Couldn't save looks in this browser", { description: "Storage may be full or blocked." });
-    } else if (!isSaved) {
+    if (saved.some((s) => s.id === entry.id)) {
+      await removeSaved(entry.id);
+      return;
+    }
+    setSaved((current) => addSavedLook(current, entry));
+    try {
+      const stored = await saveLookToServer(entry);
+      writeLookList(SAVED_LOOKS_CACHE_KEY, addSavedLook(readLookList(SAVED_LOOKS_CACHE_KEY), stored));
       toast.success(`Saved ${look.name}`);
+    } catch {
+      // Keep it on this device and upload it on the next visit.
+      const ok = writeLookList(SAVED_LOOKS_PENDING_KEY, addSavedLook(readLookList(SAVED_LOOKS_PENDING_KEY), entry));
+      if (ok) toast.success(`Saved ${look.name} on this device`, { description: "It will sync to your account next time." });
+      else toast.error("Couldn't save this look", { description: "Storage may be full or blocked." });
     }
   }
 
-  function removeSaved(id: string) {
-    const next = removeSavedLook(saved, id);
-    setSaved(next);
-    writeSavedLooks(next);
+  async function removeSaved(id: string) {
+    const previous = saved;
+    setSaved((current) => removeSavedLook(current, id));
+    try {
+      await deleteSavedLook(id);
+    } catch {
+      setSaved(previous);
+      toast.error("Couldn't remove this look", { description: "Check your connection and try again." });
+      return;
+    }
+    writeLookList(SAVED_LOOKS_CACHE_KEY, removeSavedLook(readLookList(SAVED_LOOKS_CACHE_KEY), id));
+    writeLookList(SAVED_LOOKS_PENDING_KEY, removeSavedLook(readLookList(SAVED_LOOKS_PENDING_KEY), id));
   }
 
   function wearSaved(look: SavedLook) {
@@ -247,116 +304,127 @@ function LooksPageContent() {
           </h1>
           <p className="text-muted-foreground">Pick a vibe. Get three complete looks from the polishes you own.</p>
         </div>
-        <Button type="button" variant="outline" onClick={shuffle} disabled={!result}>
-          <Shuffle className="size-4" aria-hidden />
-          Shuffle
-        </Button>
+        {tab === "looks" && (
+          <Button type="button" variant="outline" onClick={shuffle} disabled={!result}>
+            <Shuffle className="size-4" aria-hidden />
+            Shuffle
+          </Button>
+        )}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="min-w-0 lg:sticky lg:top-6 lg:self-start">
-          <VibeSelector vibe={vibe} onChange={changeVibe} />
-        </aside>
-
-        <section aria-label={`Looks for ${vibeSummary}`} aria-busy={!result} className="@container min-w-0 space-y-4">
-          {loadError && (
-            <Notice>
-              Couldn&apos;t load your collection ({loadError}), so these looks use template colors.
-            </Notice>
-          )}
-          {result && ownedCount === 0 && !loadError && (
-            <Notice>
-              {vibe.ownedOnly
-                ? "You haven't added polishes you own yet."
-                : "You haven't added polishes you own yet, so these looks use catalog shades."}{" "}
-              <Link href="/polishes/import" className="font-medium underline">
-                Import your collection
-              </Link>{" "}
-              or{" "}
-              <Link href="/rapid-add" className="font-medium underline">
-                Rapid Add
-              </Link>{" "}
-              a few bottles to see looks you can wear today.{" "}
-              {vibe.ownedOnly && (
-                <button type="button" className="font-medium underline" onClick={() => changeVibe({ ...vibe, ownedOnly: false })}>
-                  Show catalog looks
-                </button>
-              )}
-            </Notice>
-          )}
-          {result && result.shortfall && ownedCount > 0 && (
-            <Notice>
-              {result.looks.length === 0
-                ? "None of our looks can be made only from polishes you own yet."
-                : `Only ${result.looks.length} of ${LOOK_COUNT} looks can be made from polishes you own for this vibe.`}{" "}
-              {vibe.ownedOnly && (
-                <button type="button" className="font-medium underline" onClick={() => changeVibe({ ...vibe, ownedOnly: false })}>
-                  Show looks with polishes to add
-                </button>
-              )}
-            </Notice>
-          )}
-
-          {!result ? (
-            <BrandSpinner label="Mixing your looks…" />
-          ) : (
-            <div className="grid gap-4 @2xl:grid-cols-2 @5xl:grid-cols-3" aria-live="polite">
-              {looks.map((look, index) => (
-                <LookCard
-                  key={look.templateId}
-                  look={look}
-                  saved={savedIds.has(toSavedLook(look, vibe, new Date(0)).id)}
-                  onWear={() => wearLook(look, index)}
-                  onSave={() => toggleSave(look)}
-                  onSwap={(role, polish) => swap(look, role, polish)}
-                />
-              ))}
-            </div>
-          )}
-        </section>
+      <div className="flex gap-1.5" role="group" aria-label="Show">
+        <ToggleChip pressed={tab === "looks"} onPressedChange={() => setTab("looks")} className="rounded-full border border-border">
+          For your vibe
+        </ToggleChip>
+        <ToggleChip pressed={tab === "saved"} onPressedChange={() => setTab("saved")} className="rounded-full border border-border">
+          {/* The count comes from localStorage, so it waits for the client-only `result` to keep hydration stable. */}
+          Saved{result && saved.length > 0 ? ` (${saved.length})` : ""}
+        </ToggleChip>
       </div>
 
-      {/* Gated on `result` (client-only, after the collection loads) so localStorage never affects the first render. */}
-      {result && saved.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Saved looks</CardTitle>
-            <CardDescription>Kept in this browser.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {saved.map((look) => (
-                <li key={look.id} className="space-y-2 rounded-lg border border-border p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="truncate font-medium">{look.name}</p>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {LOOK_OCCASION_LABELS[look.vibe.occasion]} · {LOOK_MOOD_LABELS[look.vibe.mood]}
-                    </span>
-                  </div>
-                  <LookSwatchStrip steps={look.steps} className="h-8" />
-                  <p className="truncate text-xs text-muted-foreground">
-                    {look.steps.map((s) => s.name ?? s.label).join(" · ")}
-                  </p>
-                  <div className="flex gap-2">
-                    <Button type="button" size="sm" variant="outline" className="flex-1" onClick={() => wearSaved(look)}>
-                      <Paintbrush className="size-4" aria-hidden />
-                      Wear
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      aria-label={`Remove ${look.name} from saved looks`}
-                      onClick={() => removeSaved(look.id)}
-                    >
-                      <Trash2 className="size-4" aria-hidden />
-                    </Button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
+      {tab === "looks" ? (
+        <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
+          <aside className="min-w-0 lg:sticky lg:top-6 lg:self-start">
+            <VibeSelector vibe={vibe} onChange={changeVibe} />
+          </aside>
+
+          <section aria-label={`Looks for ${vibeSummary}`} aria-busy={!result} className="@container min-w-0 space-y-4">
+            {loadError && (
+              <Notice>
+                Couldn&apos;t load your collection ({loadError}), so these looks use template colors.
+              </Notice>
+            )}
+            {result && ownedCount === 0 && !loadError && (
+              <Notice>
+                {vibe.ownedOnly
+                  ? "You haven't added polishes you own yet."
+                  : "You haven't added polishes you own yet, so these looks use catalog shades."}{" "}
+                <Link href="/polishes/import" className="font-medium underline">
+                  Import your collection
+                </Link>{" "}
+                or{" "}
+                <Link href="/rapid-add" className="font-medium underline">
+                  Rapid Add
+                </Link>{" "}
+                a few bottles to see looks you can wear today.{" "}
+                {vibe.ownedOnly && (
+                  <button type="button" className="font-medium underline" onClick={() => changeVibe({ ...vibe, ownedOnly: false })}>
+                    Show catalog looks
+                  </button>
+                )}
+              </Notice>
+            )}
+            {result && result.shortfall && ownedCount > 0 && (
+              <Notice>
+                {result.looks.length === 0
+                  ? "None of our looks can be made only from polishes you own yet."
+                  : `Only ${result.looks.length} of ${LOOK_COUNT} looks can be made from polishes you own for this vibe.`}{" "}
+                {vibe.ownedOnly && (
+                  <button type="button" className="font-medium underline" onClick={() => changeVibe({ ...vibe, ownedOnly: false })}>
+                    Show looks with polishes to add
+                  </button>
+                )}
+              </Notice>
+            )}
+
+            {!result ? (
+              <BrandSpinner label="Mixing your looks…" />
+            ) : (
+              <div className="grid gap-4 @2xl:grid-cols-2 @5xl:grid-cols-3" aria-live="polite">
+                {looks.map((look, index) => (
+                  <LookCard
+                    key={look.templateId}
+                    look={look}
+                    saved={savedIds.has(toSavedLook(look, vibe, new Date(0)).id)}
+                    onWear={() => wearLook(look, index)}
+                    onSave={() => void toggleSave(look)}
+                    onSwap={(role, polish) => swap(look, role, polish)}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+
+      ) : !result ? (
+        <BrandSpinner label="Loading your saved looks…" />
+      ) : saved.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+          No saved looks yet. Tap <span className="font-medium text-foreground">Save</span> on a look to keep it here,
+          on every device you sign in on.
+        </p>
+      ) : (
+        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label="Saved looks">
+          {saved.map((look) => (
+            <li key={look.id} className="space-y-2 rounded-lg border border-border p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="truncate font-medium">{look.name}</p>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {LOOK_OCCASION_LABELS[look.vibe.occasion]} · {LOOK_MOOD_LABELS[look.vibe.mood]}
+                </span>
+              </div>
+              <LookSwatchStrip steps={look.steps} className="h-8" />
+              <p className="truncate text-xs text-muted-foreground">
+                {look.steps.map((s) => s.name ?? s.label).join(" · ")}
+              </p>
+              <div className="flex gap-2">
+                <Button type="button" size="sm" variant="outline" className="flex-1" onClick={() => wearSaved(look)}>
+                  <Paintbrush className="size-4" aria-hidden />
+                  Wear
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  aria-label={`Remove ${look.name} from saved looks`}
+                  onClick={() => void removeSaved(look.id)}
+                >
+                  <Trash2 className="size-4" aria-hidden />
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
       )}
 
       <ManiLogForm
