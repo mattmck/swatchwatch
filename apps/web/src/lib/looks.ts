@@ -868,12 +868,15 @@ export interface LookCatalogQueries {
   toppers: boolean;
 }
 
-/** What to fetch from the catalog to fill the looks' gaps. */
-export function catalogQueriesForLooks(looks: readonly Pick<Look, "steps">[]): LookCatalogQueries {
+/** What to fetch from the catalog to fill the looks' gaps (or, with `includeOwned`, to offer substitutes for every step). */
+export function catalogQueriesForLooks(
+  looks: readonly Pick<Look, "steps">[],
+  options: { includeOwned?: boolean } = {}
+): LookCatalogQueries {
   const families: ColorFamily[] = [];
   let toppers = false;
   for (const step of looks.flatMap((l) => l.steps)) {
-    if (step.source === "owned") continue;
+    if (step.source === "owned" && !options.includeOwned) continue;
     if (step.role === "topper") {
       toppers = true;
       continue;

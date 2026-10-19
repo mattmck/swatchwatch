@@ -397,3 +397,13 @@ describe("shopCandidatesForStep", () => {
     }
   });
 });
+
+describe("catalogQueriesForLooks — includeOwned", () => {
+  it("asks for every step's family when includeOwned is set (detail drawer substitutions)", () => {
+    const { looks } = recommendLooks({ polishes: collection(), vibe: vibe(), seed: 1 });
+    assert.ok(looks.every((l) => l.missingSteps === 0), "setup: all steps owned");
+    assert.deepEqual(catalogQueriesForLooks(looks), { families: [], toppers: false });
+    const all = catalogQueriesForLooks(looks.slice(0, 1), { includeOwned: true });
+    assert.ok(all.families.length > 0);
+  });
+});

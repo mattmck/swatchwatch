@@ -48,6 +48,7 @@ import { toLocalIsoDate } from "@/lib/mani-log";
 import { trackLooksGenerated, trackLooksWearClicked, type LooksTrigger } from "@/lib/metrics-events";
 import { TOPPER_FINISHES } from "@/lib/pick-for-me";
 import { LookCard, LookSwatchStrip } from "./look-card";
+import { LookDrawer } from "./look-drawer";
 import { ShoppingListDialog } from "./shopping-list-dialog";
 import { VibeSelector } from "./vibe-selector";
 
@@ -56,6 +57,22 @@ const CATALOG_PAGE_SIZE = 60;
 /** Most color-family queries per render, so a fully-empty collection doesn't fan out too far. */
 const MAX_CATALOG_FAMILY_QUERIES = 6;
 const TOPPER_QUERY_KEY = "toppers";
+
+/** One catalog gap query (a color family or the topper finishes). A failure just yields no rows. */
+async function fetchCatalogKey(key: string): Promise<readonly [string, Polish[]]> {
+  try {
+    const response =
+      key === TOPPER_QUERY_KEY
+        ? await listPolishes({ finishes: [...TOPPER_FINISHES], pageSize: CATALOG_PAGE_SIZE })
+        : await listPolishes({
+            families: [key.slice("family:".length) as NonNullable<Polish["colorFamily"]>],
+            pageSize: CATALOG_PAGE_SIZE,
+          });
+    return [key, response.polishes] as const;
+  } catch {
+    return [key, [] as Polish[]] as const;
+  }
+}
 
 export default function LooksPage() {
   return (
@@ -93,6 +110,7 @@ function LooksPageContent() {
   const [saved, setSaved] = useState<SavedLook[]>(readSavedLooksForDisplay);
   const [tab, setTab] = useState<"looks" | "saved">("looks");
   const [shoppingId, setShoppingId] = useState<string | null>(null);
+  const [drawerId, setDrawerId] = useState<string | null>(null);
   const [wishlisted, setWishlisted] = useState<ReadonlySet<string>>(() => new Set());
   const { guardAdd, active: activeGuard, choose: chooseGuard, isChecking: isGuardChecking } = useAddGuard();
   const [wishlistBusy, setWishlistBusy] = useState<ReadonlySet<string>>(() => new Set());
@@ -176,23 +194,7 @@ function LooksPageContent() {
     const missing = catalogKeys.filter((key) => !(key in catalog));
     if (missing.length === 0) return;
     let cancelled = false;
-    Promise.all(
-      missing.map(async (key) => {
-        try {
-          const response =
-            key === TOPPER_QUERY_KEY
-              ? await listPolishes({ finishes: [...TOPPER_FINISHES], pageSize: CATALOG_PAGE_SIZE })
-              : await listPolishes({
-                  families: [key.slice("family:".length) as NonNullable<Polish["colorFamily"]>],
-                  pageSize: CATALOG_PAGE_SIZE,
-                });
-          return [key, response.polishes] as const;
-        } catch {
-          // A failed gap query just leaves those steps as template swatches.
-          return [key, [] as Polish[]] as const;
-        }
-      })
-    ).then((entries) => {
+    Promise.all(missing.map(fetchCatalogKey)).then((entries) => {
       if (!cancelled) setCatalog((current) => ({ ...current, ...Object.fromEntries(entries) }));
     });
     return () => {
@@ -220,6 +222,35 @@ function LooksPageContent() {
     const swapped = overrides.key === resultKey ? overrides.looks : {};
     return result.looks.map((look) => swapped[look.templateId] ?? look);
   }, [result, overrides, resultKey]);
+
+  // Detail drawer: load catalog rows for the open look's colors so it can offer "to buy" substitutes.
+  // They feed only the drawer (`drawerPool`), never `recommendLooks`, so opening it can't reshuffle the looks.
+  const drawerLook = looks.find((l) => l.templateId === drawerId) ?? null;
+  const drawerKeys = useMemo(() => {
+    if (!drawerLook || vibe.ownedOnly) return [];
+    const queries = catalogQueriesForLooks([drawerLook], { includeOwned: true });
+    const keys = queries.families.slice(0, MAX_CATALOG_FAMILY_QUERIES).map((family) => `family:${family}`);
+    if (queries.toppers) keys.push(TOPPER_QUERY_KEY);
+    return keys;
+  }, [drawerLook, vibe.ownedOnly]);
+  useEffect(() => {
+    const missing = drawerKeys.filter((key) => !(key in catalog));
+    if (missing.length === 0) return;
+    let cancelled = false;
+    Promise.all(missing.map(fetchCatalogKey)).then((entries) => {
+      if (!cancelled) setCatalog((current) => ({ ...current, ...Object.fromEntries(entries) }));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [drawerKeys, catalog]);
+  const drawerLoading = drawerKeys.some((key) => !(key in catalog));
+  const drawerPool = useMemo(() => {
+    if (vibe.ownedOnly) return [];
+    const byId = new Map<string, Polish>();
+    for (const rows of Object.values(catalog)) for (const row of rows) byId.set(row.id, row);
+    return [...byId.values()];
+  }, [catalog, vibe.ownedOnly]);
 
   useEffect(() => {
     if (!result || !catalogReady || trackedKeyRef.current === stateKey) return;
@@ -432,6 +463,7 @@ function LooksPageContent() {
                     onWear={() => wearLook(look, index)}
                     onSave={() => void toggleSave(look)}
                   onShop={() => setShoppingId(look.templateId)}
+                  onDetails={() => setDrawerId(look.templateId)}
                     onSwap={(role, polish) => swap(look, role, polish)}
                   />
                 ))}
@@ -481,6 +513,16 @@ function LooksPageContent() {
         </ul>
       )}
 
+      <LookDrawer
+        look={drawerLook}
+        vibe={vibe}
+        catalogPool={drawerPool}
+        catalogLoading={drawerLoading}
+        onOpenChange={(open) => {
+          if (!open) setDrawerId(null);
+        }}
+        onSwap={(role, polish) => drawerLook && swap(drawerLook, role, polish)}
+      />
       <ShoppingListDialog
         look={looks.find((l) => l.templateId === shoppingId) ?? null}
         onOpenChange={(open) => {
