@@ -73,7 +73,7 @@ jobs:
         run: npm run typecheck --workspace=apps/web --workspace=packages/functions --workspace=packages/shared --if-present
 
   mobile:
-    name: Mobile (lint, typecheck, unit tests)
+    name: Mobile (lint, typecheck, tests, export)
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
@@ -100,6 +100,12 @@ jobs:
 
       - name: Unit tests
         run: npm run test --workspace=apps/mobile
+
+      # Bundles the JS for both platforms with Metro + Hermes (no device or Xcode needed), which
+      # catches imports of modules that don't resolve and syntax Hermes can't compile.
+      - name: Export smoke (iOS and Android bundles)
+        working-directory: apps/mobile
+        run: npx expo export --platform ios --platform android --output-dir "$RUNNER_TEMP/expo-export"
 
   build:
     name: Build
