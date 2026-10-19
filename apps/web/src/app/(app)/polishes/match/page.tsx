@@ -3,12 +3,15 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { PolishImageMatchResponse } from "swatchwatch-shared";
-import { X } from "lucide-react";
+import { ImageUp, X } from "lucide-react";
 import { matchPolishesToImage } from "@/lib/api";
 import { downscaleImageFile, type DownscaledImage } from "@/lib/image-downscale";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
+import { useOwnedCount } from "@/hooks/use-owned-count";
+import { trackOnboardingStepClicked } from "@/lib/metrics-events";
+import { CATALOG_SEARCH_HREF } from "@/lib/onboarding";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -34,6 +37,8 @@ export default function PolishImageMatchPage() {
   const [result, setResult] = useState<PolishImageMatchResponse | null>(null);
   const [selectedHex, setSelectedHex] = useState<string | null>(null);
   const requestIdRef = useRef(0);
+  // Matching only searches owned polishes: with none, say so before the user uploads a photo.
+  const ownedCount = useOwnedCount();
 
   const runMatch = useCallback(async (prepared: DownscaledImage) => {
     const requestId = ++requestIdRef.current;
@@ -107,7 +112,18 @@ export default function PolishImageMatchPage() {
         </Button>
       </div>
 
-      {!image && status !== "processing" && (
+      {ownedCount === 0 && !image && (
+        <EmptyState
+          icon={ImageUp}
+          title="Photo matching needs a collection"
+          description="Upload a photo and this page finds the polishes you own in its colors, so add a few polishes first."
+          actionLabel="Search the catalog"
+          actionHref={CATALOG_SEARCH_HREF}
+          onAction={() => trackOnboardingStepClicked({ step: "search", surface: "match_empty", ownedCount: 0 })}
+        />
+      )}
+
+      {ownedCount !== 0 && !image && status !== "processing" && (
         <>
           <ImageDropZone onFile={handleFile} />
           {status === "error" && error && (
