@@ -110,7 +110,7 @@ export default function SearchScreen() {
         <Button title="Match a photo to my collection" variant="outline" compact onPress={() => router.push("/match")} />
         {error && <ErrorBanner message={error} onRetry={() => void run(query.trim())} />}
         {loading && <ActivityIndicator color={theme.colors.primary} />}
-        {!loading && searched && results.length > 0 && (
+        {!loading && Boolean(searched) && results.length > 0 && (
           <AppText variant="tiny" muted>
             {total > results.length ? `Top ${results.length} of ${total}` : `${total}`} results for “{searched}”
           </AppText>

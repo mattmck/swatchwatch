@@ -190,12 +190,12 @@ export function CenteredState({
   return (
     <View style={[styles.centered, { padding: theme.spacing(8), gap: theme.spacing(3) }]}>
       {loading && <ActivityIndicator color={theme.colors.primary} />}
-      {title && (
+      {Boolean(title) && (
         <AppText variant="heading" style={{ textAlign: "center" }}>
           {title}
         </AppText>
       )}
-      {message && (
+      {Boolean(message) && (
         <AppText muted style={{ textAlign: "center" }}>
           {message}
         </AppText>

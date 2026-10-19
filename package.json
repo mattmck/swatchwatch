@@ -40,5 +40,9 @@
     "husky": "^9.1.7",
     "next": "16.3.8",
     "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
   }
 }

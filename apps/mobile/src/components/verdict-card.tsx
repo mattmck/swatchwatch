@@ -67,7 +67,7 @@ export function VerdictCard(props: VerdictCardProps) {
       actions = (
         <>
           <Button title="View polish" variant="outline" compact onPress={() => openPolish(verdict.candidate.shadeId)} />
-          {verdict.candidate.shadeId && (
+          {Boolean(verdict.candidate.shadeId) && (
             <Button
               title="I bought another"
               variant="outline"
@@ -113,7 +113,7 @@ export function VerdictCard(props: VerdictCardProps) {
       actions = (
         <>
           <Button title="Add anyway" compact loading={busy === "owned"} onPress={() => props.onAdd(verdict.candidate, "owned")} />
-          {verdict.candidate.shadeId && (
+          {Boolean(verdict.candidate.shadeId) && (
             <Button title="Wishlist" variant="outline" compact loading={busy === "wishlist"} onPress={() => props.onAdd(verdict.candidate, "wishlist")} />
           )}
         </>
@@ -128,7 +128,7 @@ export function VerdictCard(props: VerdictCardProps) {
       actions = (
         <>
           <Button title="Add to collection" compact loading={busy === "owned"} onPress={() => props.onAdd(verdict.candidate, "owned")} />
-          {verdict.candidate.shadeId && (
+          {Boolean(verdict.candidate.shadeId) && (
             <Button title="Wishlist" variant="outline" compact loading={busy === "wishlist"} onPress={() => props.onAdd(verdict.candidate, "wishlist")} />
           )}
         </>

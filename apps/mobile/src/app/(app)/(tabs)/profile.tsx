@@ -24,7 +24,7 @@ export default function ProfileScreen() {
         <AppText variant="heading" testID="profile-name">
           {user?.name ?? "—"}
         </AppText>
-        {user?.email && <AppText muted>{user.email}</AppText>}
+        {user?.email ? <AppText muted>{user.email}</AppText> : null}
         <Row label="User id" value={user ? String(user.userId) : "—"} />
         <Row label="Role" value={user?.role ?? "—"} />
       </Card>

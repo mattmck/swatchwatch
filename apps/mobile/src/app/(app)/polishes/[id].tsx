@@ -273,7 +273,7 @@ export default function PolishDetailScreen() {
           <HexRow label="From name" hex={polish.nameHex} />
         </Card>
 
-        {polish.buyUrl && (
+        {Boolean(polish.buyUrl) && (
           <Button title={`Buy from ${polish.brand}`} variant="ghost" onPress={() => void Linking.openURL(polish.buyUrl as string)} />
         )}
       </ScrollView>
