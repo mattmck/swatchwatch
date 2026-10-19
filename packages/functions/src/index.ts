@@ -14,6 +14,7 @@ export * from './functions/hex-labels';
 export * from './functions/images';
 export * from './functions/image-variants-admin';
 export * from './functions/gallery-dedupe-admin';
+export * from './functions/barcodes-admin';
 export * from './functions/ingestion-worker';
 export * from './functions/ingestion-ai-batch-poller';
 export * from './functions/ingestion';

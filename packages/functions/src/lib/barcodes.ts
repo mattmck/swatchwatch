@@ -199,7 +199,7 @@ export interface ShadeBarcodeUpsertResult {
 }
 
 interface QueryClient {
-  query<R = any>(sql: string, params?: unknown[]): Promise<{ rows: R[]; rowCount: number | null }>;
+  query<R extends Record<string, any> = any>(sql: string, params?: any[]): Promise<{ rows: R[]; rowCount: number | null }>;
 }
 
 /**
