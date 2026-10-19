@@ -250,6 +250,8 @@ function EntraAuthProvider({ settings, children }: { settings: EntraSettings; ch
             scopes: entraApiScopes(settings),
             extraParams,
           });
+          // Before any refresh: it re-saves the session and must keep the saved identity.
+          setSessionExtras({ user: stored.user, tokenEndpoint });
           const fresh = isExpired(stored.tokens) ? await refreshTokens() : stored.tokens;
           if (fresh && (await adopt(fresh, tokenEndpoint))) return;
           await clearStoredAuth();
