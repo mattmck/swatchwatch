@@ -1,4 +1,4 @@
-import type { MatchConfidence, PolishMatch } from "swatchwatch-shared";
+import type { MatchConfidence } from "swatchwatch-shared";
 
 /**
  * OKLAB distance treated as "0% match" for the percentage readout. Same
@@ -34,23 +34,6 @@ export const CONFIDENCE_META: Record<
 export function matchPercent(distance: number): number {
   const normalized = Math.min(Math.max(distance, 0) / MATCH_PERCENT_MAX_DISTANCE, 1);
   return Math.round((1 - normalized) * 100);
-}
-
-/** Matches whose closest extracted color is `hex` (case-insensitive); all when `hex` is null. */
-export function filterMatchesByColor(matches: PolishMatch[], hex: string | null): PolishMatch[] {
-  if (!hex) return matches;
-  const target = hex.toUpperCase();
-  return matches.filter((match) => match.matchedColor.toUpperCase() === target);
-}
-
-/** Count matches per extracted color, keyed by uppercase hex. */
-export function countMatchesByColor(matches: PolishMatch[]): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const match of matches) {
-    const key = match.matchedColor.toUpperCase();
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return counts;
 }
 
 /** Format a 0–1 pixel share as a whole-number percent label (min "<1%"). */
