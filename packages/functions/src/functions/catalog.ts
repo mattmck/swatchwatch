@@ -203,7 +203,8 @@ async function getShade(request: HttpRequest, context: InvocationContext): Promi
        JOIN brand b ON s.brand_id = b.brand_id
        WHERE s.shade_id = $1
          AND s.status <> 'user_submitted'
-         AND s.status <> 'excluded'`,
+         AND s.status <> 'excluded'
+         AND s.product_category <> 'accessory'`,
       [shadeId]
     );
 

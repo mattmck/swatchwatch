@@ -207,8 +207,18 @@ async function setCategory(request: HttpRequest, context: InvocationContext, adm
       );
       const before = current.rows[0];
       if (!before) return null;
-      // An excluded accessory that is no longer an accessory goes back to the catalog.
-      const status = before.status === "excluded" && productCategory !== "accessory" ? "active" : before.status;
+      // An excluded accessory that is no longer an accessory goes back to the catalog; an active
+      // shade made an accessory is excluded right away when nobody holds it (same rule as the backfill).
+      let status = before.status;
+      if (before.status === "excluded" && productCategory !== "accessory") {
+        status = "active";
+      } else if (before.status === "active" && productCategory === "accessory") {
+        const held = await client.query(
+          `SELECT 1 FROM user_inventory_item WHERE shade_id = $1 LIMIT 1`,
+          [shadeId]
+        );
+        if (held.rows.length === 0) status = "excluded";
+      }
       await client.query(
         `UPDATE shade
          SET product_category = $2, product_category_source = 'admin', status = $3, updated_at = now()
