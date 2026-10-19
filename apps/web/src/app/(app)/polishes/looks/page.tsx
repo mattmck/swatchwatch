@@ -88,7 +88,9 @@ function LooksPageContent() {
   const [tab, setTab] = useState<"looks" | "saved">("looks");
   const [wear, setWear] = useState<WearState | null>(null);
   const [todayIso] = useState(() => toLocalIsoDate(new Date()));
-  const triggerRef = useRef<LooksTrigger>("vibe");
+  // The trigger of the last explicit change, tied to the URL state it produced, so Back/Forward
+  // (which change the URL without `setState`) are never reported as a shuffle.
+  const triggerRef = useRef<{ stateKey: string; trigger: LooksTrigger } | null>(null);
   const trackedKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -139,8 +141,8 @@ function LooksPageContent() {
 
   const setState = useCallback(
     (next: LooksState, trigger: LooksTrigger) => {
-      triggerRef.current = trigger;
       const qs = buildLooksQueryString(next);
+      triggerRef.current = { stateKey: qs, trigger };
       router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     },
     [pathname, router]
@@ -212,12 +214,14 @@ function LooksPageContent() {
   useEffect(() => {
     if (!result || !catalogReady || trackedKeyRef.current === stateKey) return;
     trackedKeyRef.current = stateKey;
+    const explicit = triggerRef.current?.stateKey === stateKey ? triggerRef.current : null;
+    if (explicit) triggerRef.current = null;
     trackLooksGenerated({
       vibe,
       looks: result.looks,
       shortfall: result.shortfall,
       ownedCount: result.ownedCount,
-      trigger: triggerRef.current,
+      trigger: explicit?.trigger ?? "vibe",
     });
   }, [result, catalogReady, stateKey, vibe]);
 
