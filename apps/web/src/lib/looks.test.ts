@@ -9,6 +9,7 @@ import {
   LOOK_MIN_BASE_DISTANCE,
   LOOK_TEMPLATES,
   MAX_STEP_ALTERNATIVES,
+  applyStepSwap,
   catalogQueriesForLooks,
   maniEntriesForLook,
   rankTemplatesForVibe,
@@ -272,5 +273,28 @@ describe("catalogQueriesForLooks", () => {
 
   it("asks for nothing when every step is owned", () => {
     assert.deepEqual(catalogQueriesForLooks([]), { families: [], toppers: false });
+  });
+});
+
+describe("applyStepSwap", () => {
+  it("swaps a step to an alternative, keeps the old owned polish as an alternative and recounts", () => {
+    const { looks } = recommendLooks({ polishes: collection(), vibe: vibe(), seed: 1 });
+    const look = looks.find((l) => l.steps.some((s) => s.alternatives.length > 0))!;
+    const step = look.steps.find((s) => s.alternatives.length > 0)!;
+    const alt = step.alternatives[0];
+    const swapped = applyStepSwap(look, step.role, alt);
+    const next = swapped.steps.find((s) => s.role === step.role)!;
+    assert.equal(next.polish?.id, alt.id);
+    assert.equal(next.source, "owned");
+    assert.ok(!next.alternatives.some((a) => a.id === alt.id));
+    if (step.source === "owned") assert.equal(next.alternatives[0].id, step.polish!.id);
+    assert.equal(swapped.ownedSteps, swapped.steps.filter((s) => s.source === "owned").length);
+    assert.notEqual(swapped, look);
+  });
+
+  it("returns the look unchanged for an unknown role", () => {
+    const look = recommendLooks({ polishes: collection(), vibe: vibe(), seed: 1 }).looks[0];
+    const missing = look.steps.some((s) => s.role === "topper") ? "accent" : "topper";
+    if (!look.steps.some((s) => s.role === missing)) assert.equal(applyStepSwap(look, missing, collection()[0]), look);
   });
 });

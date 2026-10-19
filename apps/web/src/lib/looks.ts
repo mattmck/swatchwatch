@@ -843,3 +843,27 @@ export function catalogQueriesForLooks(looks: readonly Pick<Look, "steps">[]): L
   }
   return { families, toppers };
 }
+
+/**
+ * "Swap": replace a step's polish with one of its owned alternatives. The previous polish, when
+ * owned, becomes the first alternative so the user can swap back. Returns a new look.
+ */
+export function applyStepSwap(look: Look, role: LookStepRole, polish: Polish): Look {
+  const index = look.steps.findIndex((s) => s.role === role);
+  if (index < 0) return look;
+  const step = look.steps[index];
+  const hex = resolveDisplayHex(polish);
+  const previous = step.source === "owned" && step.polish ? [step.polish] : [];
+  const alternatives = [...previous, ...step.alternatives.filter((a) => a.id !== polish.id)].slice(0, MAX_STEP_ALTERNATIVES);
+  const nextStep: LookStep = {
+    ...step,
+    polish,
+    source: "owned",
+    hex: hex && HEX_RE.test(hex) ? hex.toUpperCase() : step.targetHex,
+    distance: hex && HEX_RE.test(hex) ? Math.round(colorDistance(hex, step.targetHex) * 10_000) / 10_000 : null,
+    alternatives,
+  };
+  const steps = look.steps.map((s, i) => (i === index ? nextStep : s));
+  const ownedSteps = steps.filter((s) => s.source === "owned").length;
+  return { ...look, steps, ownedSteps, missingSteps: steps.length - ownedSteps };
+}

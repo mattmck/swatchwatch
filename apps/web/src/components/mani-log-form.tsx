@@ -62,6 +62,8 @@ interface ManiLogFormProps {
   initialDate?: string;
   /** New mani: polishes to start with (e.g. from the polish detail page). */
   initialShadeIds?: string[];
+  /** New mani: polishes with roles to start with (e.g. "Wear this" on `/polishes/looks`); wins over `initialShadeIds`. */
+  initialEntries?: { shadeId: string; role: ManicurePolishRole }[];
   onSaved: (saved: ManicureMutationResponse) => void;
 }
 
@@ -90,6 +92,7 @@ function ManiLogFormBody({
   manicure,
   initialDate,
   initialShadeIds,
+  initialEntries,
   onSaved,
 }: ManiLogFormProps) {
   const editing = Boolean(manicure);
@@ -98,9 +101,10 @@ function ManiLogFormBody({
   const [notes, setNotes] = useState(manicure?.notes ?? "");
   const [entries, setEntries] = useState<ManiFormEntry[]>(() => {
     if (manicure) return manicure.polishes.map(entryFromManicurePolish);
-    return (initialShadeIds ?? []).flatMap((shadeId) => {
+    const initial = initialEntries ?? (initialShadeIds ?? []).map((shadeId) => ({ shadeId, role: undefined }));
+    return initial.flatMap(({ shadeId, role }) => {
       const polish = collection.find((p) => p.id === shadeId);
-      return polish ? [entryFromPolish(polish)] : [];
+      return polish ? [entryFromPolish(polish, role)] : [];
     });
   });
   const [search, setSearch] = useState("");
