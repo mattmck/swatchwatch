@@ -657,7 +657,10 @@ locals {
       postgres = azurerm_postgresql_flexible_server.main.id
       storage  = azurerm_storage_account.main.id
     },
-    local.backup_vault_enabled ? { backup_vault = azurerm_data_protection_backup_vault.main[0].id } : {}
+    # Splat, not [0]: in a refresh-only or -target run the vault may not be in
+    # state yet, and indexing the empty tuple fails even when it is enabled
+    # (Deploy Prod run 39183078392). The splat is empty until the vault exists.
+    { for id in azurerm_data_protection_backup_vault.main[*].id : "backup_vault" => id }
   ) : {}
 }
 
