@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { Polish } from "swatchwatch-shared";
 import type { Look } from "./looks";
 import { DEFAULT_VIBE } from "./looks";
-import { MAX_SAVED_LOOKS, addSavedLook, parseSavedLooks, removeSavedLook, toSavedLook } from "./looks-saved";
+import { MAX_SAVED_LOOKS, addSavedLook, looksToUpload, mergeSavedLooks, parseSavedLooks, removeSavedLook, toSavedLook } from "./looks-saved";
 
 const polish = { id: "12", brand: "Brand", name: "Nude", vendorHex: "#E8D5C4", status: "owned" } as Polish;
 
@@ -53,5 +53,19 @@ describe("saved look list", () => {
     assert.deepEqual(parseSavedLooks("not json"), []);
     assert.deepEqual(parseSavedLooks(JSON.stringify({ a: 1 })), []);
     assert.deepEqual(parseSavedLooks(JSON.stringify([{ id: 3 }, saved])), [saved]);
+  });
+});
+
+describe("server sync helpers", () => {
+  const a = { ...toSavedLook(look, DEFAULT_VIBE, new Date("2026-10-01T00:00:00Z")) };
+  const b = { ...a, id: "french-modern:-,-", templateId: "french-modern", savedAt: "2026-10-02T00:00:00.000Z" };
+
+  it("uploads only local looks the server lacks, oldest first", () => {
+    const c = { ...a, id: "milk-bath:-", templateId: "milk-bath", savedAt: "2026-10-03T00:00:00.000Z" };
+    assert.deepEqual(looksToUpload([c, b, a], [a]).map((l) => l.id), [b.id, c.id]);
+  });
+
+  it("merges server and local looks newest first without duplicates", () => {
+    assert.deepEqual(mergeSavedLooks([a], [b, a]).map((l) => l.id), [b.id, a.id]);
   });
 });

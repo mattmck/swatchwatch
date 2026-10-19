@@ -37,7 +37,17 @@
  * 7. **Owned only.** Every required step must be owned (optional toppers are dropped instead);
  *    templates that can't be built are skipped, and `shortfall` says fewer than three fit.
  */
-import type { ColorFamily, ManicurePolishRole, Polish } from "swatchwatch-shared";
+import type {
+  ColorFamily,
+  LookFinish,
+  LookMood,
+  LookOccasion,
+  LookStepRole,
+  LookStepSource,
+  LookVibe,
+  ManicurePolishRole,
+  Polish,
+} from "swatchwatch-shared";
 import { classifyHexColorFamily, finishCompatibility, finishFamily, resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
 import { colorDistance } from "./color-utils";
 import { generateHarmonyColors } from "./color-harmonies";
@@ -46,13 +56,9 @@ import { TOPPER_FINISHES, createSeededRandom, type RandomSource } from "./pick-f
 
 // ── Vibe ─────────────────────────────────────────────────────
 
-export const LOOK_OCCASIONS = ["work", "date", "party", "everyday", "formal"] as const;
-export const LOOK_MOODS = ["soft", "bold", "edgy", "playful"] as const;
-export const LOOK_FINISHES = ["gloss", "matte", "chrome", "holo", "flake", "sheer"] as const;
-
-export type LookOccasion = (typeof LOOK_OCCASIONS)[number];
-export type LookMood = (typeof LOOK_MOODS)[number];
-export type LookFinish = (typeof LOOK_FINISHES)[number];
+// The vibe vocabulary is shared with the API (saved looks), so it lives in swatchwatch-shared.
+export { LOOK_FINISHES, LOOK_MOODS, LOOK_OCCASIONS } from "swatchwatch-shared";
+export type { LookFinish, LookMood, LookOccasion, LookStepRole, LookStepSource } from "swatchwatch-shared";
 
 export const LOOK_OCCASION_LABELS: Record<LookOccasion, string> = {
   work: "Work",
@@ -76,14 +82,7 @@ export const LOOK_FINISH_LABELS: Record<LookFinish, string> = {
   sheer: "Sheer",
 };
 
-export interface Vibe {
-  occasion: LookOccasion;
-  mood: LookMood;
-  /** Finish preference; null = any finish. */
-  finish: LookFinish | null;
-  /** Only build looks entirely from owned polishes. */
-  ownedOnly: boolean;
-}
+export type Vibe = LookVibe;
 
 /** The vibe the page opens with (no "trending" data yet, so a safe everyday default). */
 export const DEFAULT_VIBE: Vibe = { occasion: "everyday", mood: "soft", finish: null, ownedOnly: false };
@@ -100,7 +99,6 @@ export const LOOK_FINISH_POLISH_FINISHES: Record<LookFinish, readonly string[]> 
 
 // ── Templates ────────────────────────────────────────────────
 
-export type LookStepRole = "base" | "accent" | "topper";
 export type LookDifficulty = "easy" | "medium" | "advanced";
 /** How an accent relates to the chosen base: a harmony rotation of it, or the template hex only. */
 export type LookAccentHarmony = "complementary" | "analogous" | "monochromatic" | "fixed";
@@ -436,8 +434,6 @@ const VIBE_WEIGHTS = { occasion: 3, mood: 3, finish: 2 } as const;
 
 // ── Results ──────────────────────────────────────────────────
 
-/** Where a step's polish comes from: your collection, the catalog (to buy), or just the template color. */
-export type LookStepSource = "owned" | "catalog" | "template";
 
 export interface LookStep {
   role: LookStepRole;

@@ -1,48 +1,33 @@
-import { LOOK_FINISHES, LOOK_MOODS, LOOK_OCCASIONS, type Look, type LookStepRole, type LookStepSource, type Vibe } from "./looks";
+import type { SavedLook, SavedLookStep } from "swatchwatch-shared";
+import { MAX_SAVED_LOOKS, savedLookKey, validateSavedLookInput } from "swatchwatch-shared";
+import type { Look, Vibe } from "./looks";
 
 /**
- * Saved looks, kept in this browser's localStorage for now (no `user_look` table yet). Only what
- * is needed to show the look again and re-wear it is stored: names, hexes, roles and shade ids.
+ * Saved looks. The source of truth is the caller's `user_look` rows (`GET/POST/DELETE /api/looks`);
+ * localStorage holds a copy for offline use and for an API without the endpoint yet, and looks saved
+ * there before the endpoint existed are uploaded once (`looksToUpload`). Only what is needed to show
+ * the look again and re-wear it is stored: names, hexes, roles and shade ids.
  */
+export { MAX_SAVED_LOOKS };
+export type { SavedLook, SavedLookStep };
+
 export const SAVED_LOOKS_STORAGE_KEY = "swatchwatch.looks.saved.v1";
 
-/** Most looks kept; older ones fall off. */
-export const MAX_SAVED_LOOKS = 30;
-
-export interface SavedLookStep {
-  role: LookStepRole;
-  label: string;
-  hex: string;
-  source: LookStepSource;
-  shadeId?: string;
-  brand?: string;
-  name?: string;
-}
-
-export interface SavedLook {
-  /** `templateId:shadeIds` (a dash for steps without a polish): the same combo is saved once. */
-  id: string;
-  templateId: string;
-  name: string;
-  savedAt: string;
-  vibe: Vibe;
-  steps: SavedLookStep[];
-}
-
 export function toSavedLook(look: Look, vibe: Vibe, now: Date): SavedLook {
+  const steps: SavedLookStep[] = look.steps.map((step) => ({
+    role: step.role,
+    label: step.label,
+    hex: step.hex,
+    source: step.source,
+    ...(step.polish ? { shadeId: step.polish.id, brand: step.polish.brand, name: step.polish.name } : {}),
+  }));
   return {
-    id: `${look.templateId}:${look.steps.map((s) => s.polish?.id ?? "-").join(",")}`,
+    id: savedLookKey(look.templateId, steps),
     templateId: look.templateId,
     name: look.name,
     savedAt: now.toISOString(),
     vibe,
-    steps: look.steps.map((step) => ({
-      role: step.role,
-      label: step.label,
-      hex: step.hex,
-      source: step.source,
-      ...(step.polish ? { shadeId: step.polish.id, brand: step.polish.brand, name: step.polish.name } : {}),
-    })),
+    steps,
   };
 }
 
@@ -55,41 +40,13 @@ export function removeSavedLook(list: readonly SavedLook[], id: string): SavedLo
   return list.filter((l) => l.id !== id);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isSavedStep(value: unknown): value is SavedLookStep {
-  return (
-    isRecord(value) &&
-    typeof value.role === "string" &&
-    typeof value.label === "string" &&
-    typeof value.hex === "string" &&
-    typeof value.source === "string"
-  );
-}
-
-function isVibe(value: unknown): value is Vibe {
-  return (
-    isRecord(value) &&
-    (LOOK_OCCASIONS as readonly unknown[]).includes(value.occasion) &&
-    (LOOK_MOODS as readonly unknown[]).includes(value.mood) &&
-    (value.finish === null || (LOOK_FINISHES as readonly unknown[]).includes(value.finish)) &&
-    typeof value.ownedOnly === "boolean"
-  );
-}
-
-function isSavedLook(value: unknown): value is SavedLook {
-  return (
-    isRecord(value) &&
-    typeof value.id === "string" &&
-    typeof value.templateId === "string" &&
-    typeof value.name === "string" &&
-    typeof value.savedAt === "string" &&
-    isVibe(value.vibe) &&
-    Array.isArray(value.steps) &&
-    value.steps.every(isSavedStep)
-  );
+/** A stored or fetched look, validated by the same rule as the API; null when malformed. */
+export function toValidSavedLook(value: unknown): SavedLook | null {
+  const result = validateSavedLookInput(value);
+  if (!result.ok) return null;
+  const savedAt = (value as { savedAt?: unknown }).savedAt;
+  if (typeof savedAt !== "string" || !Number.isFinite(Date.parse(savedAt))) return null;
+  return { ...result.look, savedAt };
 }
 
 /** Parse the stored list; anything malformed is dropped rather than thrown. */
@@ -97,10 +54,24 @@ export function parseSavedLooks(raw: string | null): SavedLook[] {
   if (!raw) return [];
   try {
     const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter(isSavedLook).slice(0, MAX_SAVED_LOOKS) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((item) => toValidSavedLook(item) ?? []).slice(0, MAX_SAVED_LOOKS);
   } catch {
     return [];
   }
+}
+
+/** Local looks the server doesn't have yet (saved before the endpoint existed, or offline), oldest first. */
+export function looksToUpload(local: readonly SavedLook[], server: readonly SavedLook[]): SavedLook[] {
+  const onServer = new Set(server.map((l) => l.id));
+  return local.filter((l) => !onServer.has(l.id)).reverse();
+}
+
+/** Server looks merged with not-yet-uploaded local ones, newest first, capped. */
+export function mergeSavedLooks(server: readonly SavedLook[], local: readonly SavedLook[]): SavedLook[] {
+  const byId = new Map<string, SavedLook>();
+  for (const look of [...server, ...local]) if (!byId.has(look.id)) byId.set(look.id, look);
+  return [...byId.values()].sort((a, b) => b.savedAt.localeCompare(a.savedAt)).slice(0, MAX_SAVED_LOOKS);
 }
 
 /** Read saved looks; empty when storage is blocked or unavailable. */
