@@ -23,21 +23,22 @@ function seedTuple(sql, name) {
   return sql.slice(start, sql.indexOf("::jsonb", start));
 }
 
-describe("indie Shopify sources pending approval (#273)", () => {
-  it("are supported generic Shopify sources with an explicit base URL", () => {
-    assert.ok(SHOPIFY_SOURCES_PENDING_APPROVAL.size > 0);
+describe("indie Shopify sources (#273, #328)", () => {
+  const SIGNED_OFF = {
+    PahlishShopify: "https://pahlish.com",
+    EmilyDeMollyShopify: "https://emilydemolly.com",
+    CirqueColorsShopify: "https://cirquecolors.com",
+  };
+
+  it("any source still pending approval is a supported source, auto-provisioned disabled and seeded disabled", () => {
     for (const source of SHOPIFY_SOURCES_PENDING_APPROVAL) {
       assert.ok(SUPPORTED_SOURCES.includes(source), `${source} not in generated SUPPORTED_SOURCES`);
       assert.match(SHOPIFY_SOURCE_BASE_URLS[source] ?? "", /^https:\/\//, `${source} has no base URL`);
-    }
-  });
-
-  it("are auto-provisioned disabled while existing sources stay enabled", () => {
-    for (const source of SHOPIFY_SOURCES_PENDING_APPROVAL) {
       assert.equal(isShopifySourceEnabledByDefault(source), false, source);
+      const tuple = seedTuple(SEED_SQL, source);
+      assert.match(tuple, /,\s*false,\s*'\{/, `${source} must be seeded with enabled=false`);
+      assert.match(tuple, /"pendingApproval": true/, source);
     }
-    assert.equal(isShopifySourceEnabledByDefault("MooncatShopify"), true);
-    assert.equal(isShopifySourceEnabledByDefault("DamNailPolishShopify"), true);
   });
 
   it("enables approved sources: Night Owl Lacquer (decision D2)", () => {
@@ -48,44 +49,38 @@ describe("indie Shopify sources pending approval (#273)", () => {
     assert.doesNotMatch(tuple, /"pendingApproval"/);
   });
 
-  it("are seeded disabled, with verification notes, in docs/seed_data_sources.sql", () => {
-    for (const source of SHOPIFY_SOURCES_PENDING_APPROVAL) {
+  it("enables the three stores that signed off on 2026-10-19", () => {
+    for (const [source, baseUrl] of Object.entries(SIGNED_OFF)) {
+      assert.ok(SUPPORTED_SOURCES.includes(source), source);
+      assert.equal(SHOPIFY_SOURCE_BASE_URLS[source], baseUrl, source);
+      assert.equal(SHOPIFY_SOURCES_PENDING_APPROVAL.has(source), false, source);
+      assert.equal(isShopifySourceEnabledByDefault(source), true, source);
       const tuple = seedTuple(SEED_SQL, source);
-      assert.match(tuple, /,\s*false,\s*'\{/, `${source} must be seeded with enabled=false`);
-      assert.match(tuple, /Verified \d{4}-\d{2}-\d{2}/, `${source} notes must record the verification`);
-      assert.match(tuple, /"pendingApproval": true/, source);
+      assert.match(tuple, /,\s*true,\s*'\{/, `${source} must be seeded enabled`);
+      assert.doesNotMatch(tuple, /"pendingApproval"/, source);
+      assert.match(tuple, /acceptable use confirmed: the owner reports the store signed off on 2026-10-19/, source);
+      assert.doesNotMatch(tuple, /Disabled pending|not yet confirmed/, source);
     }
   });
 
-  it("are inserted disabled by a migration", () => {
-    const ups = readdirSync(MIGRATIONS_DIR)
-      .filter((file) => /_add-(?:more-)?indie-shopify-sources\.sql$/.test(file))
-      .map((file) => readFileSync(resolve(MIGRATIONS_DIR, file), "utf8"))
-      .map((migration) => migration.slice(0, migration.indexOf("-- Down Migration")));
-    assert.ok(ups.length > 0, "indie Shopify sources migration missing");
-    for (const up of ups) {
+  it("a migration inserts the indie sources disabled and another enables the signed-off ones", () => {
+    const read = (suffix) =>
+      readdirSync(MIGRATIONS_DIR)
+        .filter((file) => file.endsWith(suffix))
+        .map((file) => readFileSync(resolve(MIGRATIONS_DIR, file), "utf8"))
+        .map((migration) => migration.slice(0, migration.indexOf("-- Down Migration")))[0];
+    for (const suffix of ["_add-indie-shopify-sources.sql", "_add-more-indie-shopify-sources.sql"]) {
+      const up = read(suffix);
+      assert.ok(up, `${suffix} missing`);
       assert.match(up, /enabled\s+=\s+false/, "an existing row must be disabled on conflict");
     }
-    for (const source of SHOPIFY_SOURCES_PENDING_APPROVAL) {
-      const up = ups.find((sql) => sql.includes(`'${source}',`));
-      assert.ok(up, `${source} is inserted by no indie Shopify sources migration`);
-      assert.match(seedTuple(up, source), /,\s*false,\s*'\{/, `${source} must be inserted with enabled=false`);
+    const enable = read("_enable-signed-off-indie-sources.sql");
+    assert.ok(enable, "enable migration missing");
+    assert.match(enable, /enabled = true/);
+    for (const source of Object.keys(SIGNED_OFF)) {
+      assert.ok(enable.includes(`'${source}'`), `${source} not enabled by the migration`);
     }
-  });
-
-  it("registers the 2026-10-18 survey candidates (#273) pending approval", () => {
-    const expected = {
-      EmilyDeMollyShopify: "https://emilydemolly.com",
-      CirqueColorsShopify: "https://cirquecolors.com",
-    };
-    for (const [source, baseUrl] of Object.entries(expected)) {
-      assert.equal(SHOPIFY_SOURCE_BASE_URLS[source], baseUrl, source);
-      assert.equal(SHOPIFY_SOURCES_PENDING_APPROVAL.has(source), true, source);
-      assert.equal(isShopifySourceEnabledByDefault(source), false, source);
-      // Shopify's default ToS forbids spidering/scraping: the note must say so.
-      assert.match(seedTuple(SEED_SQL, source), /spider, crawl, or scrape/, source);
-    }
-    assert.equal(SHOPIFY_SOURCES_PENDING_APPROVAL.has("PahlishShopify"), true);
+    assert.match(enable, /metadata->>'pendingApproval' = 'true'/, "must only touch rows still pending");
   });
 });
 

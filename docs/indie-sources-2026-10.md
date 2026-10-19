@@ -6,8 +6,12 @@ Survey of the next indie stores for the generic Shopify connector
 five more makers from the collector research (roadmap §2 item 8: "Holo Taco, ILNP, Mooncat, Cirque,
 KBShimmer, Emily de Molly, Polish Pickup makers").
 
-**Nothing here is enabled.** Enabling a store is the owner's call (decision D2 in
-`docs/decisions-2026-10.md`), after the store's OK is recorded in `data_source.metadata.notes`.
+**Update 2026-10-19:** the owner reported sign-off from Pahlish, Emily de Molly and Cirque Colors, and they
+are enabled by migration `20261019020000000_enable-signed-off-indie-sources` (who and how are not recorded;
+the notes say so). Cirque still ingests only about 10 of its 415 products until it has a store filter.
+Everything else below is the survey as it stood on 2026-10-18, before that. Enabling a store remains the
+owner's call (decision D2 in `docs/decisions-2026-10.md`), after the store's OK is recorded in
+`data_source.metadata.notes`.
 
 ## How each store was checked
 
