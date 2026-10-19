@@ -124,6 +124,7 @@ Roadmap §4 (`docs/roadmap-2026-10-to-12.md`) metrics are measured two ways (dec
 | `dupe.warning_outcome` | the user answers the dialog | the same, plus `outcome` = `cancel` / `wishlist_instead` / `add_anyway`, `via` (`button` / `dismiss` / `dupe_link`), `suppressed` |
 | `mani.logged` | a new mani is saved (not edits) | `polishCount`, `via` (`quick` = one-tap button, `form`) |
 | `import.completed` | a CSV import commits (a retried commit of the same session is not counted again) | `rowsCommitted` (= `created` + `updated`), `created`, `updated`, `skipped`, `failed`, `shadesCreated` |
+| `onboarding.step_clicked` | a new user taps a way in: a row of the dashboard getting-started checklist, or the action of an empty state that needs a collection first | `step` (`import` / `scan` / `search`), `surface` (`dashboard_checklist`, `dashboard_stats_empty`, `polishes_empty` (empty My Collection), `manis_empty`, `gaps_empty`, `match_empty`), `ownedCount` (owned polishes at the time; 0 for every empty-state surface) |
 
 These replace the add guard's earlier `add_guard.shown` / `add_guard.choice` events; `add_guard.check_failed` stays. Rapid Add has no near-dupe verdict yet (the #265 extension point in `lib/capture-verdict.ts`), so `surface = rapid_add` is reserved: the verdict card should call `trackDupeWarningShown` / `trackDupeWarningOutcome` when it gains one.
 
@@ -155,6 +156,16 @@ Use `bin(timestamp, 1d)` in the `by` clause for a daily trend, or `tostring(cust
 | `active_shades`, `active_shades_added` | catalog shades with `status = 'active'` that aren't merged, and how many were created this week | +10k by 19 Dec |
 
 `mani.logged` and `import.completed` in App Insights are a cross-check for the DB numbers (and show the one-tap vs. form split, which the DB doesn't record).
+
+`onboarding.step_clicked` explains the time-to-20 number: which way in new users pick, and from where. Pair it with `median_minutes_to_20` from the weekly query.
+
+```kusto
+customEvents
+| where timestamp > ago(7d) and name == "onboarding.step_clicked"
+| extend step = tostring(customDimensions.step), surface = tostring(customDimensions.surface)
+| summarize clicks = sum(itemCount), users = dcount(user_AuthenticatedId) by step, surface
+| order by clicks desc
+```
 
 ## Docs to update (per CLAUDE.md)
 
