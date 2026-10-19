@@ -1,6 +1,6 @@
 import { refreshAsync, TokenError, type TokenResponse } from "expo-auth-session";
 import { AUTH_MODE, DEV_USER_ID } from "@/config/env";
-import { saveStoredAuth, type StoredTokens } from "./token-store";
+import { loadStoredAuth, saveStoredAuth, type StoredTokens } from "./token-store";
 
 /**
  * Module-level token holder, the mobile twin of `apps/web/src/lib/auth-token.ts`: the auth
@@ -82,7 +82,10 @@ export async function refreshTokens(): Promise<StoredTokens | null> {
       .then(async (response) => {
         const next = tokensFromResponse(response, current);
         tokens = next;
-        await saveStoredAuth({ mode: "entra", tokens: next });
+        // Merge into the stored record: replacing it would drop the saved user and token
+        // endpoint that an offline launch needs.
+        const stored = await loadStoredAuth();
+        await saveStoredAuth({ ...(stored?.mode === "entra" ? stored : {}), mode: "entra", tokens: next });
         return next;
       })
       .catch((error: unknown) => {

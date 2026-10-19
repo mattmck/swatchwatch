@@ -60,6 +60,7 @@ export default function ManisScreen() {
         if (!entry || cancelled || freshArrived) return;
         setItems(entry.data.items);
         setTotal(entry.data.total);
+        setPage(1);
         setLoading(false);
       });
     }
@@ -103,6 +104,8 @@ export default function ManisScreen() {
             .then(() => {
               setItems((prev) => prev.filter((m) => m.id !== mani.id));
               setTotal((t) => Math.max(0, t - 1));
+              // Reload page 1: resets paging offsets and rewrites the saved copy.
+              void load(1);
             })
             .catch((err: unknown) => setError(errorMessage(err, "Couldn't delete that mani.")));
         },

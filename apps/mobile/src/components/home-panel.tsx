@@ -35,7 +35,7 @@ export function HomePanel({ refreshToken }: { refreshToken: number }) {
   const [pick, setPick] = useState<PickResult | null>(null);
   const [noPick, setNoPick] = useState(false);
   const [logging, setLogging] = useState(false);
-  const [logged, setLogged] = useState<{ id: string; label: string } | null>(null);
+  const [logged, setLogged] = useState<{ id: string; label: string; before: Polish } | null>(null);
   const history = useRef<string[]>([]);
   const random = useRef<RandomSource | null>(null);
 
@@ -92,6 +92,7 @@ export function HomePanel({ refreshToken }: { refreshToken: number }) {
       setLogged({
         id: entry.id,
         label: `Logged today's mani${stat ? ` · worn ${stat.wearCount}×` : ""}`,
+        before: pick.polish,
       });
       // Reflect the new wear stats so the next pick respects the cooldown.
       setData((prev) =>
@@ -115,6 +116,9 @@ export function HomePanel({ refreshToken }: { refreshToken: number }) {
     if (!logged) return;
     try {
       await deleteManicure(logged.id);
+      // Put the pre-log row back so the cooldown and tried state match the server again.
+      const { before } = logged;
+      setData((prev) => (prev ? { ...prev, owned: prev.owned.map((p) => (p.id === before.id ? before : p)) } : prev));
       setLogged(null);
     } catch (err) {
       setActionError(errorMessage(err, "Couldn't undo the log."));
