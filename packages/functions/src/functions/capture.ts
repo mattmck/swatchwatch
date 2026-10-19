@@ -25,7 +25,7 @@ import { invalidatePolishCachesForUser } from "../lib/polish-cache";
 import { extractTextFromImage, OcrResult } from "../lib/ocr";
 import { parseLabelText, ParsedLabelFields } from "../lib/ocr-parser";
 import { loadInventoryOwnership } from "../lib/inventory-relationship";
-import { gtinLookupKeys, gtinSpellings, normalizeGtin } from "../lib/barcodes";
+import { gtinLookupKeys, gtinSpellings, normalizeGtin, rememberUserShadeBarcode } from "../lib/barcodes";
 
 const GUIDANCE_CONFIG = {
   recommendedFrameTypes: ["barcode", "label", "color"],
@@ -933,16 +933,7 @@ async function rememberScannedBarcode(
     shadeId = found === undefined || found === null ? null : Number(found);
   }
   if (shadeId === null || !Number.isSafeInteger(shadeId)) return;
-  await client.query(
-    `INSERT INTO user_shade_barcode (user_id, gtin, shade_id, barcode_type, capture_session_id)
-     VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (user_id, gtin) DO UPDATE
-       SET shade_id = EXCLUDED.shade_id,
-           barcode_type = EXCLUDED.barcode_type,
-           capture_session_id = EXCLUDED.capture_session_id,
-           updated_at = now()`,
-    [userId, normalized.gtin, shadeId, normalized.barcodeType, sessionId]
-  );
+  await rememberUserShadeBarcode(client, { userId, shadeId, gtin: normalized, captureSessionId: sessionId });
 }
 
 async function resolveShadeCandidates(evidence: CaptureEvidence): Promise<CaptureMatchCandidate[]> {

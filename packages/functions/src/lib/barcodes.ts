@@ -302,3 +302,24 @@ export async function materializeProductBarcodes(
     externalProductId,
   });
 }
+
+/**
+ * Remember a scanned GTIN on a shade for one user (`user_shade_barcode`, #21): the capture
+ * resolver matches it for that user only, after the shared catalog. Upserts on (user, GTIN), so
+ * re-teaching moves the GTIN to the newer shade. Runs inside the caller's transaction.
+ */
+export async function rememberUserShadeBarcode(
+  client: QueryClient,
+  input: { userId: number; shadeId: number; gtin: NormalizedGtin; captureSessionId?: number | null }
+): Promise<void> {
+  await client.query(
+    `INSERT INTO user_shade_barcode (user_id, gtin, shade_id, barcode_type, capture_session_id)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (user_id, gtin) DO UPDATE
+       SET shade_id = EXCLUDED.shade_id,
+           barcode_type = EXCLUDED.barcode_type,
+           capture_session_id = EXCLUDED.capture_session_id,
+           updated_at = now()`,
+    [input.userId, input.gtin.gtin, input.shadeId, input.gtin.barcodeType, input.captureSessionId ?? null]
+  );
+}
