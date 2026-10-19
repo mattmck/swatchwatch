@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, RefreshControl, View } from "react-native";
 import type { Manicure, ManicureListResponse, Polish } from "swatchwatch-shared";
 import { useAuth } from "@/auth/auth-provider";
@@ -19,6 +19,8 @@ export default function ManisScreen() {
   const { user } = useAuth();
   const scope = user ? String(user.userId) : null;
   const { log } = useLocalSearchParams<{ log?: string }>();
+  /** Serializes saved-copy updates after deletes. */
+  const cacheUpdates = useRef<Promise<void>>(Promise.resolve());
   const [items, setItems] = useState<Manicure[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
@@ -106,16 +108,18 @@ export default function ManisScreen() {
               setTotal((t) => Math.max(0, t - 1));
               // Drop it from the saved copy right away (the reload below may fail offline),
               // then reload page 1 to reset paging offsets.
-              if (scope) {
-                void readCache<{ items: Manicure[]; total: number }>(scope, "manis").then((entry) => {
+              // Updates are chained so overlapping deletes each start from the latest copy.
+              cacheUpdates.current = cacheUpdates.current
+                .then(async () => {
+                  if (!scope) return;
+                  const entry = await readCache<{ items: Manicure[]; total: number }>(scope, "manis");
                   if (!entry) return;
-                  void writeCache(scope, "manis", {
+                  await writeCache(scope, "manis", {
                     items: entry.data.items.filter((m) => m.id !== mani.id),
                     total: Math.max(0, entry.data.total - 1),
                   });
-                });
-              }
-              void load(1);
+                })
+                .then(() => load(1));
             })
             .catch((err: unknown) => setError(errorMessage(err, "Couldn't delete that mani.")));
         },
