@@ -23,7 +23,9 @@ provider "azurerm" {
   subscription_id = var.subscription_id
   features {
     key_vault {
-      purge_soft_delete_on_destroy    = true
+      # Prod keeps soft-deleted vaults recoverable (and purge protection blocks
+      # the purge anyway); dev purges on destroy so a re-create can reuse names.
+      purge_soft_delete_on_destroy    = var.environment != "prod"
       recover_soft_deleted_key_vaults = true
     }
   }
@@ -71,6 +73,8 @@ locals {
     try(var.appinsights_daily_cap_gb_defaults[var.environment], var.appinsights_daily_cap_gb_defaults["dev"], 0.5)
   )
   alerts_enabled                       = coalesce(var.alerts_enabled, var.environment == "prod")
+  backup_vault_enabled                 = coalesce(var.backup_vault_enabled, var.environment == "prod")
+  delete_locks_enabled                 = coalesce(var.delete_locks_enabled, var.environment == "prod")
   alert_email                          = trimspace(var.alert_email)
   static_web_app_custom_domain_name    = var.environment == "prod" ? var.domain_name : "dev.${var.domain_name}"
   static_web_app_validation_method     = var.environment == "prod" ? "dns-txt-token" : "cname-delegation"
@@ -264,7 +268,11 @@ resource "azurerm_key_vault" "main" {
   tenant_id           = data.azurerm_client_config.current.tenant_id
   sku_name            = "standard"
 
-  purge_protection_enabled   = false # Set true for production
+  # Purge protection is one-way: once enabled it can't be turned off, and a
+  # deleted prod vault (with IMAGE_PROXY_SIGNING_KEY, which wishlist share
+  # tokens and signed image ids derive from) stays recoverable for the full
+  # soft-delete window. The retention window can only be set at vault creation.
+  purge_protection_enabled   = var.environment == "prod"
   soft_delete_retention_days = 7
 
   rbac_authorization_enabled = false # Using access policies for simplicity
@@ -335,7 +343,9 @@ resource "azurerm_postgresql_flexible_server" "main" {
   sku_name   = "B_Standard_B1ms"
   storage_mb = 32768
 
-  backup_retention_days        = 7
+  # Built-in point-in-time restore. Weekly long-term copies that survive the
+  # server being deleted live in the backup vault (see "Backups" below).
+  backup_retention_days        = var.pg_backup_retention_days
   geo_redundant_backup_enabled = false
 
   zone = "1"
@@ -370,6 +380,90 @@ resource "azurerm_storage_account" "main" {
   account_tier                    = "Standard"
   account_replication_type        = "LRS"
   allow_nested_items_to_be_public = false
+
+  # Recovery from accidental deletes/overwrites. Versioning also keeps prior
+  # Terraform state versions (the tfstate container below is the live remote
+  # state backend). Change feed is required by the vaulted blob backup's object
+  # replication; Azure Backup would otherwise enable it out of band.
+  blob_properties {
+    versioning_enabled            = true
+    change_feed_enabled           = true
+    change_feed_retention_in_days = 7
+
+    delete_retention_policy {
+      days = var.blob_soft_delete_retention_days
+    }
+
+    container_delete_retention_policy {
+      days = var.blob_soft_delete_retention_days
+    }
+  }
+}
+
+# Expire old blob versions so versioning doesn't grow storage without bound.
+resource "azurerm_storage_management_policy" "main" {
+  storage_account_id = azurerm_storage_account.main.id
+
+  rule {
+    name    = "expire-media-versions"
+    enabled = true
+    filters {
+      blob_types   = ["blockBlob"]
+      prefix_match = ["${azurerm_storage_container.swatches.name}/", "${azurerm_storage_container.nail_photos.name}/"]
+    }
+    actions {
+      version {
+        delete_after_days_since_creation = var.blob_version_retention_days
+      }
+    }
+  }
+
+  rule {
+    name    = "expire-tfstate-versions"
+    enabled = true
+    filters {
+      blob_types   = ["blockBlob"]
+      prefix_match = ["${azurerm_storage_container.tfstate.name}/"]
+    }
+    actions {
+      version {
+        delete_after_days_since_creation = var.tfstate_version_retention_days
+      }
+    }
+  }
+
+  # Connector snapshots/catalog cache are regenerable and rewritten often.
+  rule {
+    name    = "expire-connector-raw-versions"
+    enabled = true
+    filters {
+      blob_types   = ["blockBlob"]
+      prefix_match = ["${azurerm_storage_container.connector_raw.name}/"]
+    }
+    actions {
+      version {
+        delete_after_days_since_creation = 7
+      }
+    }
+  }
+
+  # Postgres vault restores land here as dump files; they're scratch copies.
+  rule {
+    name    = "expire-pg-restores"
+    enabled = true
+    filters {
+      blob_types   = ["blockBlob"]
+      prefix_match = ["pg-restores/"]
+    }
+    actions {
+      base_blob {
+        delete_after_days_since_modification_greater_than = 14
+      }
+      version {
+        delete_after_days_since_creation = 1
+      }
+    }
+  }
 }
 
 resource "azurerm_storage_container" "swatches" {
@@ -384,6 +478,8 @@ resource "azurerm_storage_container" "nail_photos" {
   container_access_type = "private"
 }
 
+# Live Terraform remote state for this environment (the azurerm backend points
+# here). Never remove: deleting it deletes the state.
 resource "azurerm_storage_container" "tfstate" {
   name                  = "tfstate"
   storage_account_id    = azurerm_storage_account.main.id
@@ -394,6 +490,183 @@ resource "azurerm_storage_container" "connector_raw" {
   name                  = "connector-raw"
   storage_account_id    = azurerm_storage_account.main.id
   container_access_type = "private"
+}
+
+# ── Backups (Azure Backup vault) ───────────────────────────────
+# Off-resource copies that survive the source being deleted: weekly logical
+# backups of the whole Postgres server and daily vaulted backups of the
+# nail-photos container (private user media, the only copy). Locally redundant
+# by design. Prod only by default (backup_vault_enabled).
+#
+# The vault's managed identity needs role assignments, which the CI service
+# principal (Contributor) can't create: the first apply that enables this must
+# be run locally by someone with User Access Administrator (as for bootstrap).
+#
+# Retention values feed backup policies, and changing a policy forces Azure to
+# replace it, which fails while an instance uses it. To change retention, add
+# a new policy, point the instance at it, then remove the old one.
+
+resource "azurerm_data_protection_backup_vault" "main" {
+  count               = local.backup_vault_enabled ? 1 : 0
+  name                = "${local.resource_prefix}-bv-${local.unique_suffix}"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  datastore_type      = "VaultStore"
+  redundancy          = "LocallyRedundant"
+
+  # Deleted backup data is kept 14 more days; recovery points can't be
+  # deleted before they expire. "Unlocked" can still be turned off; switching
+  # to "Locked" is irreversible.
+  soft_delete                = "On"
+  retention_duration_in_days = 14
+  immutability               = "Unlocked"
+
+  identity {
+    type = "SystemAssigned"
+  }
+}
+
+resource "azurerm_role_assignment" "backup_vault_reader" {
+  count                = local.backup_vault_enabled ? 1 : 0
+  scope                = azurerm_resource_group.main.id
+  role_definition_name = "Reader"
+  principal_id         = azurerm_data_protection_backup_vault.main[0].identity[0].principal_id
+}
+
+resource "azurerm_role_assignment" "backup_vault_postgres" {
+  count                = local.backup_vault_enabled ? 1 : 0
+  scope                = azurerm_postgresql_flexible_server.main.id
+  role_definition_name = "PostgreSQL Flexible Server Long Term Retention Backup Role"
+  principal_id         = azurerm_data_protection_backup_vault.main[0].identity[0].principal_id
+}
+
+resource "azurerm_role_assignment" "backup_vault_storage" {
+  count                = local.backup_vault_enabled ? 1 : 0
+  scope                = azurerm_storage_account.main.id
+  role_definition_name = "Storage Account Backup Contributor"
+  principal_id         = azurerm_data_protection_backup_vault.main[0].identity[0].principal_id
+}
+
+# Postgres vault backups restore only as dump files into a container; this is
+# the pre-wired target (expired after 14 days by the management policy).
+resource "azurerm_storage_container" "pg_restores" {
+  count                 = local.backup_vault_enabled ? 1 : 0
+  name                  = "pg-restores"
+  storage_account_id    = azurerm_storage_account.main.id
+  container_access_type = "private"
+}
+
+resource "azurerm_role_assignment" "backup_vault_pg_restores" {
+  count                = local.backup_vault_enabled ? 1 : 0
+  scope                = azurerm_storage_container.pg_restores[0].id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = azurerm_data_protection_backup_vault.main[0].identity[0].principal_id
+}
+
+# Weekly (the only frequency the vault supports for Postgres), Sundays 07:00 UTC.
+resource "azurerm_data_protection_backup_policy_postgresql_flexible_server" "weekly" {
+  count                           = local.backup_vault_enabled ? 1 : 0
+  name                            = "postgres-weekly"
+  vault_id                        = azurerm_data_protection_backup_vault.main[0].id
+  backup_repeating_time_intervals = ["R/2026-10-18T07:00:00+00:00/P1W"]
+
+  default_retention_rule {
+    life_cycle {
+      duration        = var.pg_vault_backup_retention
+      data_store_type = "VaultStore"
+    }
+  }
+
+  retention_rule {
+    name     = "monthly"
+    priority = 25
+
+    criteria {
+      absolute_criteria = "FirstOfMonth"
+    }
+
+    life_cycle {
+      duration        = var.vault_backup_monthly_retention
+      data_store_type = "VaultStore"
+    }
+  }
+}
+
+resource "azurerm_data_protection_backup_instance_postgresql_flexible_server" "main" {
+  count            = local.backup_vault_enabled ? 1 : 0
+  name             = "${azurerm_postgresql_flexible_server.main.name}-backup"
+  location         = azurerm_resource_group.main.location
+  vault_id         = azurerm_data_protection_backup_vault.main[0].id
+  server_id        = azurerm_postgresql_flexible_server.main.id
+  backup_policy_id = azurerm_data_protection_backup_policy_postgresql_flexible_server.weekly[0].id
+
+  depends_on = [
+    azurerm_role_assignment.backup_vault_reader,
+    azurerm_role_assignment.backup_vault_postgres,
+  ]
+}
+
+# Daily at 06:00 UTC.
+resource "azurerm_data_protection_backup_policy_blob_storage" "nail_photos" {
+  count                            = local.backup_vault_enabled ? 1 : 0
+  name                             = "nail-photos-daily"
+  vault_id                         = azurerm_data_protection_backup_vault.main[0].id
+  backup_repeating_time_intervals  = ["R/2026-10-18T06:00:00+00:00/P1D"]
+  vault_default_retention_duration = var.nail_photo_vault_backup_retention
+
+  retention_rule {
+    name     = "monthly"
+    priority = 25
+
+    criteria {
+      absolute_criteria = "FirstOfMonth"
+    }
+
+    life_cycle {
+      duration        = var.vault_backup_monthly_retention
+      data_store_type = "VaultStore"
+    }
+  }
+}
+
+resource "azurerm_data_protection_backup_instance_blob_storage" "nail_photos" {
+  count                           = local.backup_vault_enabled ? 1 : 0
+  name                            = "${azurerm_storage_account.main.name}-nail-photos"
+  location                        = azurerm_resource_group.main.location
+  vault_id                        = azurerm_data_protection_backup_vault.main[0].id
+  storage_account_id              = azurerm_storage_account.main.id
+  backup_policy_id                = azurerm_data_protection_backup_policy_blob_storage.nail_photos[0].id
+  storage_account_container_names = [azurerm_storage_container.nail_photos.name]
+
+  depends_on = [
+    azurerm_role_assignment.backup_vault_reader,
+    azurerm_role_assignment.backup_vault_storage,
+  ]
+}
+
+# ── Delete locks ───────────────────────────────────────────────
+# CanNotDelete locks on the data stores (prod only by default). They block
+# deletes from Terraform, the portal and the CLI alike, including deleting
+# child resources such as storage containers or Postgres firewall rules:
+# remove the lock first (Owner / User Access Administrator) when that's
+# intended. The storage account also holds the live Terraform state.
+
+locals {
+  delete_locked_resources = local.delete_locks_enabled ? merge(
+    {
+      postgres = azurerm_postgresql_flexible_server.main.id
+      storage  = azurerm_storage_account.main.id
+    },
+    local.backup_vault_enabled ? { backup_vault = azurerm_data_protection_backup_vault.main[0].id } : {}
+  ) : {}
+}
+
+resource "azurerm_management_lock" "data" {
+  for_each   = local.delete_locked_resources
+  name       = "${each.key}-do-not-delete"
+  scope      = each.value
+  lock_level = "CanNotDelete"
+  notes      = "Holds user data, backups or Terraform state. Remove this lock deliberately before deleting."
 }
 
 # ── Monitoring (Application Insights + Log Analytics) ──────────
