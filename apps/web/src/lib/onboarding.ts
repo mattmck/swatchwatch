@@ -8,6 +8,7 @@
  * own `ONBOARDING_GOAL`, then gets a completed card they dismiss. Closing it hides it for good.
  * Users who already owned 5+ before this shipped never see it.
  */
+import { hasActiveFilters, statusPresetFor, type PolishesListState } from "./polish-list-url";
 
 export const ONBOARDING_GOAL = 20;
 export const ONBOARDING_SHOW_BELOW = 5;
@@ -122,4 +123,19 @@ export function gettingStartedStorageKey(userId: string | null | undefined): str
 /** `/polishes?focus=search` (from the checklist and empty states) focuses the search box. */
 export function shouldFocusSearch(params: Pick<URLSearchParams, "get">): boolean {
   return params.get("focus") === "search";
+}
+
+/** Which `/polishes` empty state fits the current filters. */
+export type PolishesEmptyStateKind = "collection" | "wishlist" | "status" | "filtered" | "catalog";
+
+export function polishesEmptyStateKind(
+  state: Pick<PolishesListState, "search" | "statuses" | "untried" | "toneFilter" | "finishFilter" | "familyFilter">
+): PolishesEmptyStateKind {
+  // Any filter besides the status presets (search, untried, tone, finish, color family).
+  if (hasActiveFilters({ ...state, statuses: [] })) return "filtered";
+  const preset = statusPresetFor(state.statuses);
+  if (preset === "collection") return "collection";
+  if (preset === "wishlist") return "wishlist";
+  if (preset === "custom") return "status";
+  return "catalog";
 }
