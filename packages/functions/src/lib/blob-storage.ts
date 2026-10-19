@@ -1,4 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
+import { computeImageFingerprintSafely, type ImageFingerprint } from "./gallery-dedupe";
 import { ImageProxyConfigError } from "./image-proxy-errors";
 import {
   IMAGE_VARIANT_SIZES,
@@ -38,6 +39,11 @@ export interface UploadedBlobImage {
   contentType: string;
   sizeBytes: number;
   imageBase64DataUri?: string | null;
+  /**
+   * Perceptual fingerprint of the stored (normalized) bytes, for `image_asset.perceptual_hash` etc.
+   * (catalog gallery near-duplicate checks, see lib/gallery-dedupe). Null when it cannot be computed.
+   */
+  fingerprint?: ImageFingerprint | null;
 }
 
 interface UploadSourceImageOptions {
@@ -867,6 +873,8 @@ export async function uploadSourceImageToBlob(
   }
 
   const checksumSha256 = createHash("sha256").update(cleanBytes).digest("hex");
+  // Fingerprinted from exactly the bytes stored, like the checksum; a decode failure just leaves it null.
+  const fingerprint = await computeImageFingerprintSafely(cleanBytes);
   const includeBase64DataUri = params.includeBase64DataUri === true;
   const imageBase64DataUri = includeBase64DataUri
     ? `data:${contentType};base64,${cleanBytes.toString("base64")}`
@@ -885,6 +893,7 @@ export async function uploadSourceImageToBlob(
       contentType,
       sizeBytes: cleanBytes.length,
       imageBase64DataUri,
+      fingerprint,
     };
   }
 
@@ -919,6 +928,7 @@ export async function uploadSourceImageToBlob(
       contentType,
       sizeBytes: cleanBytes.length,
       imageBase64DataUri,
+      fingerprint,
     };
   }
 
@@ -949,6 +959,7 @@ export async function uploadSourceImageToBlob(
     contentType,
     sizeBytes: cleanBytes.length,
     imageBase64DataUri,
+    fingerprint,
   };
 }
 

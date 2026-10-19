@@ -45,5 +45,5 @@ References: [resetPassword](https://learn.microsoft.com/en-us/graph/api/authenti
 
 ## Tenant issues found along the way (not fixed here)
 
-- The dev enterprise app "SwatchWatch Dev" has **Assignment required = Yes** (`appRoleAssignmentRequired: true`), so every brand-new sign-up fails with AADSTS50105. Only admin-assigned users can sign in. Set it to No unless dev is meant to be invite-only, and check prod.
+- The dev enterprise app "SwatchWatch Dev" has **Assignment required = Yes** (`appRoleAssignmentRequired: true`), so every brand-new sign-up fails with AADSTS50105. Only admin-assigned users can sign in. Still true on 2026-10-18; prod hasn't been checked. Terraform can now own this flag: `azuread_service_principal.ciam_web` sets it to No once `MANAGE_CIAM_SERVICE_PRINCIPAL=true` and the one-time CIAM deployer app bootstrap are done for an environment (see `infrastructure/README.md`, "External ID service principal"). The flag defaults to `false`, so nothing changes until then. Check prod's current setting before turning it on there. The `admin` app role keeps working either way.
 - Google's account chooser shows "ciamlogin.com". Set the branding in Google Cloud (app name, logo, authorized domain `ciamlogin.com`) and request brand verification, or add an External ID custom URL domain.

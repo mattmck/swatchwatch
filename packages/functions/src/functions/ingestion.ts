@@ -201,6 +201,8 @@ const ADDITIVE_METRIC_KEYS = new Set([
   "imagesReused",
   "swatchesLinked",
   "gallerySwatchesPruned",
+  "galleryNearDuplicatesSkipped",
+  "galleryOverCapSkipped",
   "hexDetected",
   "hexDetectionFailures",
   "hexDetectionSkipped",

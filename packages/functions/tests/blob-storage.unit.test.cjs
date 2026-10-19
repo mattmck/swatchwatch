@@ -6,6 +6,7 @@
  * - validateImageUpload() accepts and normalizes allowed types
  * - stripImageMetadata() removes EXIF metadata from real image bytes
  * - uploadSourceImageToBlob() skips the PUT when the checksum-named blob already exists
+ * - uploadSourceImageToBlob() returns the stored bytes' perceptual fingerprint (lib/gallery-dedupe)
  * - resize-on-ingest: oversize source images are downscaled/re-encoded and stored, downloads are capped
  * - pre-generated thumbnails: uploadSourceImageToBlob() / ensureImageVariants() write the missing
  *   `<blob>.c<n>.w<size>.webp` variants, skip existing ones, and never fail the ingest on a variant error
@@ -150,6 +151,15 @@ describe("lib/blob-storage — uploadSourceImageToBlob", () => {
   it("uploads when the blob is missing", async () => {
     const { methods } = await runUpload(404);
     assert.deepEqual(methods, ["GET", "HEAD", "PUT"]);
+  });
+
+  it("returns the perceptual fingerprint of the stored bytes, for new and already stored blobs", async () => {
+    for (const headStatus of [404, 200]) {
+      const { result } = await runUpload(headStatus);
+      assert.match(result.fingerprint.dhash, /^[0-9a-f]{64}$/);
+      assert.equal(Buffer.from(result.fingerprint.thumb, "base64").length, 768);
+      assert.deepEqual([result.fingerprint.width, result.fingerprint.height], [4, 4]);
+    }
   });
 
   it("still uploads when the existence check fails", async () => {

@@ -1,0 +1,152 @@
+{
+ "source": "Cracked Polish products.json (crackedpolish.com), fetched 2026-10-18. Fingerprints only (computeImageFingerprint of the vendor originals; image index = position in the product images array), no image bytes. See INGEST_NEAR_DUPLICATE_THRESHOLDS.",
+ "pairs": [
+  {
+   "product": "summon-thee-polish",
+   "images": [
+    15,
+    31
+   ],
+   "nearDuplicate": true,
+   "note": "same pose and ring re-shot with other lighting, slightly reframed",
+   "a": {
+    "dhash": "ff40ee60f4e0ecf0ccf0cce68dee99ce998f199b339f339b773b673fe73be73b",
+    "thumb": "rbG0sba5s7m8tbu+t77AusHDu8LEvcXIusPFusPFuMDCtb2/srm8r7S3qq+ypKqqsrm7tr7AusHDvMHFvMHEv8bIw8zOusHCu6KSu6qfvMfKu8LEtr/Btbu+sbe5q7Gyt7/Bu8PFvsbIxcrPzNTZx87RzNXZlI2FnWhQpn1oucHBw8vNvMTGucDCtru+sbW4vMTGwMfJyNDSub/Ch3h1vr/Dw8fIdVdIm2pZkGVQraulyNLVwcfJvsXHusDDtLm8wMjKw8rM0tvdjIyJVy0hjnt2s6ijaUU1f1pJi15Jq5mQztrdxs/SwsvOvcTGuL6/w8rMydHUyc/RaldOYEI6a0tDimRSW0AyfVtNlGZRu6qjub++kHpourm1wsrNur/AxsvP0trdr62rOiYeSzQueVdOd0w4b0w1iGZWlm1Yu7CnfnFmnWdPp5B/w83RvcHDx8vP1t7jlYmARS4iYk1FnHVkckk2ek4ymnFYqoFqlHlrYEEzl2dSo4BrvsTGwMbJy9DUz9XafmhYfVIyo3ldoHlkbUk2eE4ynnNXo3hdeVZGVDgpkGRNrIBpu7u4v8fK0NbaxMbKaUo3hFc3qXhblG1QdVM3elM3j2VJjWNLakc1ZEQzonhmpHhhvry6vsbJ1d3ipZ+cVDIdf1Q3pHFUhVkwb1Aie104kWpFkGxGaUUpfFE0oHtlp3thvbu2wsvMztjbiHFhbkguglc7n25PckszbEosbFAtknhHk3M3eEwmjl4/uo5xsoRlvbmzxs/QtbWze1Y7l25Qqnxbp3padEovmm9LsIZkwZZ1jGRFc0csjGA+qn1arHtZv7u1ytLTh3dseE8yn3RUvpFsnXNVckcsnXBKuYxnzZ54gVQ2eEswlmxLonRUp3hUv7y2zdXWWz8relI0nHFNwZhziF5Bd08uo3ZNuoxowpJrcUUqiFk4soRfuopmsYRfwcC7zNTVVjYgfFU3mXBMuI9pdk8yflc0nnZNsYVgsYZeaEAllGM+wZFozZxyuYxlw8O/zNPT",
+    "width": 2958,
+    "height": 2958
+   },
+   "b": {
+    "dhash": "ff00fcc0f4c0c960c9688dcc9bde9b9e139e333e33be373a673e673ee73aef7b",
+    "thumb": "qrCzr7W4s7q8uL7Bu8LEvcXHvsbIwMrNvcjNvMTGucHDt7/BtLu9sLa4qq+yoaapsbi6t77BusLEvcTGwMjKxMzOxtDTvLKqwq6fw8vNwsnMvcXHusLEt7/Bs7q8rLG0t7/BvMTGv8fJxs7RyNLUztbYu8LDn3liw4lqurmzy9XZxMvNwcnLvcXHusDDtLm8vsbIwcnLydLTtbi5trW22OTnm5KKmGdTuH9mqpeKztjby9LVyNDSw8vNwMbJur/BwsrMx8/QytXYfnBpimJYxcfHj3ZqkGJPq3ljqIJu0dfYydHSyNDRydHUxcrNv8THxMzOz9fZtry8eVlMfVZNjW5hfFxLelhJqXRfsot5w8fGk3dhvaKPy9TYyc7Qw8jKxMzO1uDiko2IYkE2dlZQgllIc0ozhF9MonZisZB9kIiAkmBJwIlsv8LA0NbaxcnMyM7R0trcfm1iUDkwi25hlWtXc0cvkmRDtIlun3dfbVFCjmVSuoVmvq2h0dreyMzPz9TZxcnKfFtDj2REsIRmi2RQckoxkmZFtYhphllCXDssjGZUxotrw6SSz9ndyMzQ0trftLKwc0symmhIr39fgmBDdFEyhFw8l2xObkg0XjomjWhWtIJowJ6JztjcxsvN1uDkloyFXTgelGVGqHlYdU8iZUslcFcwmn9IfFsyb0MllGpNuoxwv5h8zdXWx8zNzdXXe2JQaUUqj2JDlmpKa0gtgmA9lHJNrIpYdVArekwtpXZVz5x6vpR1zNLRyc/Qraqlck4zkGdJsYRgj2RHeU8yqH1VyJp1wZNwa0MqeU0vmmxKuoVeuI1ty8/Oy9LSeWdadU8zoXdUw5lzgVg9flMzqHlRy514uIllZjsiiF0+m29PsHxWtopnyczKzNPTVDYje1M1p35ZvpRxdUsviF45rHxTzp53p3pYYTcfoXFMtIRgx5JpvJBryczLzNPTVTchfFU2qH5ZrIJga0MnkGg/q39Uw5RrkWlHZTshqHZNyphv16J3wpVux8nHy9LS",
+    "width": 2878,
+    "height": 2878
+   }
+  },
+  {
+   "product": "cloud-dancer",
+   "images": [
+    5,
+    28
+   ],
+   "nearDuplicate": true,
+   "note": "same hand pose re-shot, same framing",
+   "a": {
+    "dhash": "00008180c9e261f4a57025362526656635ae96ae962e4f2ecd4ee68ee3ced1e6",
+    "thumb": "9vX19/X29/b29vb39vb39vb4+Pf49/f49vb49vb49vb39vb39vX39fX19fb29fX29fLz9fT09fT19PT29PP19vX27/P37/L39vX29fT28/T28/Pz8/Pz8/Lz8/Lz8/Lz9PLz9PP09PT29PP18fb69PX4zsPEzbe04t3h7fL48fDz8fHy8PHx8O/w8PDw8fDw9PL09PLz9PX19fLy1r640Lu4rX9trmpLvq+pxqqi2tLT8PLz7u3t7u7u7e3t7e3t8/Hz9PLz9PT18/Pzvn5juH5lupN93JdzuZB7tG1Mz7+68PT38vT17u7u7ezs7Ozs8/Hy8/Hy9PPz8PLywY5x4p98wZiAy4Viy5d51o5n0Lyx6uHe5dPM29rb7e3t7Ozs8/Hy8/Ly8fDw+fv9rot3vXJPs4NrrWpKvHtXqGVByLKl17mounZUzs3M7u/u7u7t8vHx8e7v9e/v/P//wKmayXpQzJN00Y1ozohgtWtAyqqY06uTsXZTzc7P7+/v7u7u9vPz2dzf0Law987IzcG6uHRJz49pwnhN5p530oVY1qeLxYxrnW9W1dfY8PDv7u7u8u/v9ff7n4B0tWRDyKCQlFw52ZJr3JFpyoJe0Ydh0Ylkw3xVo3RZ19nZ8fHw7u7u8e7u+vn60snFt3NO2pVzs3RP3JFm8ad/25Fs2Yxi14pis21KnGdJ1NLR7u7u7e3t8+/w8/Dw7OrssYJo15Nq7KR87qB1966E+K6D7Jtt8aJ12IdZsnxdzszO7Ovs7Ovr7Ojo7erq9vb5ooh6pV819al99KZ49qp+76F27Z9x76J02odTqH9m0NHW6+jo6efo3tra5eHh7+3u39vbhVIwumc08Jxv7Jxv7qB28ad/55pruHA9nol92trf6OXl5ePl29fW3trb4t7f7ezvzcC5fT8VrVws34xf55du862K8KuFxYNXr6Gd2drd4uDh4N7h29fX3NjZ3trb3NnZ5eTmyL64gEwowG9B55hw9KyH/8Wj96+Guoxyw8LG29nZ2dfZ",
+    "width": 1536,
+    "height": 2048
+   },
+   "b": {
+    "dhash": "04244980a9e0a168a560a56ca56c656c252c36ac922c936cde4ccfcce7cc93ed",
+    "thumb": "7ezs7ezs7u3t7u3u7e3t7e3t7+7t7u7u7e3u7e3t7u7u7u7u7u7u7+/v7+/v7+/v6urq6+vr6+vr6+vr7e3s6+rq3ePp5efr7u7t7O3t7Ozs7Ozs7Ozs7Ozs7Ozs7e3t6efp6ujp6unq6+rp4ufs4OLnoI6Pwqqk2t3i2dzi7evp6uvq6urq6urq6uvr6uvq6Obm6Ofn6Ojo7OrpuaCbsJSPlGpatYdwraGfpIR46+jm6Ovq6Ojo6enp6ejo6Ojo5ubm5+fm5+jm5Obmq4FtrX1mtZB916eMtpeGqXFT493a6O7w5urq5ufn5ujn5ufm5eTj5uXj5ufl4eXlp4V0xZF0pYNxqn1nwJiAuYJk3tHJvaWc0cG66u7u5Ofl5ebl5eTj5ebl4uPi6OvrkHtyoW1TnHdlnm9YpnlfiF9I0sG3sIBlwaOR6vHz5OXj5Obl4ODh5d/f6ebl6vL0p5SNpGlDqn9lqndcsYBim2pNzbKhn3NZtqGU7PLz4uPi4+Pj3t3fnJmcxpSH7eDesKmkhltAsIJmoW5SxpBzqHRWxZuBnGtPtaKW6/H04+Ti4+Tk7Ozsurq6cUQyzpiCv7CphFxHyJV3v4lvs4Bpu4RovYZpmWhOs5aF6u3v5Obl5eXl5OHi6u3wm4R6xolqzKCLtodsxopq0ph6zJN2y45v0Zd4rHddtIx15ufo5ubn5OTk5OHh7O3vu7CtqHti1KCB0pp70JJv1Zh11Zd015h13aB+0I9pvpZ+4uTn5uXn4+Pj3trb5uXm1NPUZ0k9o25NzI5o0ZFq1JZzzY9s2Jt52598w4Rbr5WC5Ofr4uLj4eHi1NLS2NjY5+nrmo2JVykMqW5JzItlzI1o05Vy3KGB2Jt3qXNNs6mi5+rt397g39/h1NPT1tbW2NjY4ePmiXJgVCMDpGlIxoVhzYtn3qKF4qeIyJJw0MrJ3uHl29vd3Nze1tXV1tbW1dXV1dXX19fZjn1wcEAlwIBd0I5t3p1977WY5KSBzKuY1drg1tfY19fZ",
+    "width": 1536,
+    "height": 2048
+   }
+  },
+  {
+   "product": "summon-thee-polish",
+   "images": [
+    19,
+    37
+   ],
+   "nearDuplicate": false,
+   "note": "same session, different lighting and finger positions",
+   "a": {
+    "dhash": "c6b7c19e834c8246ceccd598f734ad3c8c30c6e161c361ecb079b29e998cb78f",
+    "thumb": "cTwpfkg1ik82iEwwez4mVTcuSlBUUj43bzUfcDgicDwnd0EqcUAsX05JXmFkYGNmbzwrm2dVnGZRkVI3iUcxYj4zRUdKZDUkhEYsfEIpbDYjcDomeEMtYVVSWl5hWktFcEM1p3Ril2VTkl1Lj1VEaEA1WUQ8ll1FnGJHmWNJilZBdTsmZ0AwVU9OZEM0bj4oXz81snhqllhEhVdHhFFFbz4zi15NsoRxn2ZNqHponWtWdz0mRisjbD8siEswfkcwTTQusHNjsXhhhk86eUIwgEk7nm1coHJjnm1XqH5ul19ITSESYTAdjU4xh0sxhkkvNCcjp3RgoW9bp29glF1NgVA/lFlIk1xKp3Nmll5MdD0pazonml0+klo+hksxhEguMTEzZEg6fEYuvY6AmGpbe0Yzq25Ws39usXdqg0c1eUg4oGpSnGNJpXhlkV1GgkYtQDc2dmRfXj4wZkM2Tican3FevY99uIuBlmZUgFA7ilpMm2pVo3NgrIV3j1Y/aTEdWTcqmHhteF1USS8nJA4InXhmomxUj1dFeEs6eks4ilZDrHdqm2pammNNbDcjSSQbSzYreVRGk3tybk5BPCcgLhoTXTorYTgocD0qilI7vI6CpGpcklZFfUMuVikacz0pSDQoTDQnfWJZi2dbVjkvIRUSDQYGKRYRml5EpG1cnGlbjVNAjlVBgkg2llc9pWNDSTMmRjIkWkA0iHJrdVNFTTgwQS4oKRURWzImhUw5jVVAjVxGjltJp3hso2xcnmRNRTElRzQmSDEjcVhPjGxfcUs8Vj81VDowOyQdPR4WXzksm2tWqHhrqHRnn2RVo2xWRDAkSDMlRDEkVjoucVpSXkM4TzoyUDkxV0I5YFFKMR8abkMzkFA9nV1Nn2RSklZDRTAkSjMlRjElQzEpUj41Uz85QyojRCskTDgwVEE5Py4oLxsVXTElajktXSwhSyEYRjAkSjElQy8mTj00YEc9XEhBbVtTfGtlhndxjoF8WEZBMBoROxwTTiQbYC8lbz4z",
+    "width": 1200,
+    "height": 1200
+   },
+   "b": {
+    "dhash": "c6c6d0b6931e8246864ea70ce5302c6c09600de1830389afcce9d636ea38b649",
+    "thumb": "hk01lmVSpHBXn2ZKlVg7a0o9Vl1iWV5jdk49lFc5jVg+hFQ/dkczZldSanJ4bHB2dEU0s4V1sYBsqXRdo21XdE0/VF5lZlBIkFI0kFEziVA0kFg/i1hAdFxSa3F3bnN5aUU5v4+BpnRjpnhopXVmeVRIWVdYkl9KqnRYom5RkFxDh040kFo/cmNeaXN7bG1vWkA4xI6AvIl0r4V4n21edVJIkHJmxp2Msn9otIdypnxojlM2d0o2aF9demJWgFdDUzw2xY17w4pru4BtoGpah1dMs4h6tYx8qnJZs4h0qXdfdDwmYDkqkWBFnWdIkV1EOy4puo92sn5nyIBqnGRTkl1RuYBuvpKErH1qn2ZMhk41YDAfm2NDp29MmmRGmF9ESDkye1tGo3pmvXxngk89o29c1Z2E0ZSDs3tviU44fE07rX5ns39jrIBpm2ZLlV5Bl3xuakg6ZEI0aEY2Yjcm0KGLuop4tn5xmGBMhVFAqoN2s4JsrH1psox7mmdPjFE1oIN0gWJTclBFPCQdaUg4xJJ2i1pIkWJPjGBKmGtatoyArn1ponBZom5WfkIqZzYjtZCAiGpbblNIWkE5NSEaY0IydEs4c0g1oHNetYVyxYp4qHBhllpCh0wzUykdWzYsknNmn4FxXkM4OCskMyYhKxwYGQ0LhV9MxpJ6qXVnoGdWlllJi047ZjMkekk1ll1Ba09DpId3j2hWYkpAZk5Dbk9DPiUeVzksmW9bjl5Ll2RRlF1JlWFSp3NlsnhftHtfVjwuj3NnkW9ecE9CYUtBa01DaEU5QCMbTzEkdUc4nnJgpXtqs4BwuYN3pG5bp21USzgrWkg/ZVZQXUhAW0pFW0xHX1JPbWBaTDkzIxUQaU1AmmpWlVxNoWVXpmxYoWdNQjMrSToxY1VSYlJNV0Q9WEU/WUU9W0g/SDMsLR0ZMR0XZzQmj1ZJkVlJhk4+fUc1PzAqTkE6TDoxdWVein14iXx4joB6j4F+Tjw2Lx0XNh0WLxALNhQOOBUPLA4JOhgQ",
+    "width": 1200,
+    "height": 1200
+   }
+  },
+  {
+   "product": "cascade-curtain",
+   "images": [
+    9,
+    35
+   ],
+   "nearDuplicate": false,
+   "note": "same hand, different pose",
+   "a": {
+    "dhash": "18001400268056c04ac04e58494865a076d4726a332709960cd80ce40f3e0780",
+    "thumb": "19fN1tbM19fM19fN2dnP2djO1tbM0NDGyMfAurq1rK2no6Sel5iSjY6HhIV9e3xy1tbN1dXM1NTK1NTK09TK2NjO2dnP09PIyMe/uLmzq6ymoqOcmJmTjY6JhIV9entz1dXO09LM0dHI5+PYpKijXGdn2NTKwsS7yMe9ubmyqKmloaKcmJmTjI2HgoN7eXpw1NPN0tHNy8rEoKulsaifJS8viJuVdHFsb3Zwubiyp6ijoKCalZaQiouFgIF6d3dt09LN0M/L1tLMTGJibXx4jG9gpY99on5tRExHq6GUpaWgnZ6ZlJWOiImDfn93dXVr1NPO0M/K3t3YjYB5OUdEqn9s0pBz266Vr3xo2aWLnY1/aXFulJOOg4R+entycnJoy8rGx8bB0NHMwLmyn3Je2KOJsXFWy5yC0qiRv4Rr0KWOo31rqJSHen12eHdtbW1ktba0rq6rtrSxysrGooV3wYtt06GFpm9X0qiOzZl/0J6E1aSHyJp/kYh6bG9la2tgm5qXk5KOmJeTtrWvqKSgiGJOz6GCuYdromxR05x7xYhkzJd2x5Z6xpuBgnlsXmBXhoWAeXhzfHt3j42Inp6ZgXNpmmlPzJh3oGlMrHZZ2KiJvoZlu5Fwr4Jkr494dnNmhYR/cW9pamhjdHNudHJscnVxd11Osn9i2auOl2dPuo93x5t8r4JgqopvuKiQysSshIN+bGpjYFxTTUpFX1ZNcmRXWlZPgVtFxpp9vZF0kWNKxqGHx6yUz8St2tS+0cq0dXVxWlhSUEtCPzoxLigjoHJglmhWPyARhF1Hx6SLt6CJv7Kd1My318+608y3zsmzeXl0WVhPSkY7RUA1ODQtaE9ExpmGl4Jxq5+MwbmlzMezz8ezzMSv0Mm00Mq1z8q2hoaAZ2VeTkpBREA1REA1gHhrwb2r0c25zsm2xL2rwrupxb6ryMOwysSw1M+8x8OwkpOOc3NuVVNLSEQ6PTkuREE3k4+Cu7WlwbuqxL+uwr2twr2twr2swbyrraiXnJaF",
+    "width": 2341,
+    "height": 3121
+   },
+   "b": {
+    "dhash": "0000000004002580869092520f614db08cd04668033503930dce06ee0e7607f9",
+    "thumb": "397R29rMz87Bw8O2tLSqqamioqKcmpmPkZGFiIh8gIB0enlsdXNlbm1dbGxaZF9P3tvQ3NnN0c/CxsO5wb+2r6+ppKOemZmQkpKGiop+gYF0enlsdXNlbmxdbGtZZ2FR3drQ29fO0c7Eyca8naGbpqehpaScnZ2QkpSHh4d8fn5xeHdqc3FkbWtebGlYaWFS29rO2NbM2NPK2NHHTllZSlVTkZCHU1tViIN3hoR4fXtveHVocnBjbGldbGZZamJU2NjN3NnPs7avvMC5mId8Hi8tYHx2XEQ2RGJdj4l6W2deZmtfbWtea2dba2NYaGBU2NfS5eLZfoqFOWNjsqebgWRUm4Vyz52DdFtLy6eSmH9semhafnRlYV9UaWFVZV1S2tnU29vSx8G4OT05QV9brIh2yIVq6bOa25yAyoht67ed2KWLx5yCbmZYXVlPY1tP29rV19fN29nQmYV5Ykw+1KmRxYhtwIBl6cGn0ZyCzpJ54bSbzZp+yKKJcGNVWVNJz87J0tDKysnEu7mzrn5p2Zh76bCTtnthvYZs5r6m26qO3aeL3ayO051+u5F5XlVIu7y4urm1vLm0sbGsk46Hm2pT2Z6B5LGWsnVbwYtv6beZ15l22Zp40Jp7u4ptlH5nrKunoJ6bn56ZmpeQhIR9bWJXn29V4quP46yPpGZKun1e2515wIVhwpFtoHZYrJ6Fn56ZjIuHgYF5dXNqaWFWYldLVz8upmxS251/yJBxjFg/wZJ216iIxJFywauTubSdl5aSgH92bWpfYVxRRj0zgF1HjFg+TigSmmpP2qiKwpNynmtPw5h9zrWcxLynsKqUoJ+ahoV8aWdbWVJGUUk/Tj0vwIFpmmBKTioVnXda0KqPx6yTuq2WwLmkwbqlvLWft7awnZ2UfX1zZF9UVU5De21eqYx3xqqUopOBqp+NtayburWku7aivbeiyMGowbigx8jBt7awmpmTfXxyX1tQTEY8ZWBUmJWIrqmZs62dta6eurKivrekvbShvbSeysKo",
+    "width": 2422,
+    "height": 3229
+   }
+  },
+  {
+   "product": "cascade-curtain",
+   "images": [
+    6,
+    34
+   ],
+   "nearDuplicate": false,
+   "note": "same hand, bottle added",
+   "a": {
+    "dhash": "917808dc04666672121b882d61690a494cd70985918911923198331033312630",
+    "thumb": "3+Dk3+Hn29rd0czM1sfAyIllpGA/snVXsnleZ1FIyMfH7fDz8PP16urs5+fo5ufo4OLp3djYwZZ6nmpMrXFRtXthdVJBgUo1lU07vXdeoGpRrIZvqpWI4eHk6enr5ubn3N7k0sO81KODwoxql1QxjmFKd351UEI4Og0HZigeq2hOqmpIaDQYr6Wh8vT15OTjupF6n2hHvIBeuZF8XlNEeEUtuJNzdYN9HwsKKAQERBgRpnJXtnxXi2lU4uTm5+jnz5x9xZV4hUcniFY/UYeLMUlMRiAVTCwjKxIRKAsJHwECZzQl1Zp1pmxFsKSd7/T0vodlxJR5q4ZpYk07clNCSVFOJSwtLwMBLgkGGQAASDUwOT49qW9T3pxth1s/ysjHyZd4nmNDoXZYg21XOigdOBgPLgwIQB4XLiIgTRwRho2DGy4xsntc3J1zbj0fX05Fu4ZqqHhfV01ELSAZNBwWLRQOTisgYmtjIx0cmWJMSlNSAgUJUSwgVi4fJQwDMyYevqqiq29Ro3JcUzwxGgwIYC8gjHtoFiwxSiMXt4RnMSclHBEQHgYDFAsMKygjTzop0NTdy7Cl1Yhpq19CoWdL0pZ2bVJEGQgHlVs92JZrm109XTMhKxYPRGBhKjEtRysZzM3S1dbcsI58nnNe6q2NzYtlnl48dz0izYtgxX9ZmFs4WysXb1pRQGpsEAoIGAoGzM/Z0sW7ZVZCil1M4qB8w4ZghUkplFc36Kh9yIZhfEUoazYlelpODxEVHw8LEggF1dLYk3NeKBAFiVZG5aqCv4JbaiwSpmhE9LuOxIVeViUQiFA3xIBbckIrOx8SFQsK0rasrW1Lcjgjt31d6rKHn186ZigP1Zds5ad6omU+ShsJqWtLxXxShUwtJQ8IFw0M1KKFunVOmVIv25pxzI1nfUAfhUcn5aN4wnxThk0oTiEPyoxkuXVMTigWEAUFEQcG2Z93kE8toV470pBtoGE+YSkPo2RCy4Vbp2Q+aDUaYzYi3JxwnmA7JxAHEQcGFQkG",
+    "width": 2720,
+    "height": 3626
+   },
+   "b": {
+    "dhash": "4730073023341330535a239d232d024c04cd84cd4989999b1b18333022302622",
+    "thumb": "397j4N/j4OHm4NvaxLmztLKx0NTX8PP3u7u8WFhXJSUnu7u95ebo2dnb2Nja19fY3t7k3Nve29fX16aFn2E8j1xEm3JdtKehjo6MPD08Hh4fz8/R5ebo3Nze2trb2NjY2tLRy5p5rHRRwYRmpm5RajYmXScbdks7ZmdlGBobZWdp9PT23d3e4ODg3Nzc2dnY0svL26mHxopkl1w4p4hfXkArDQAARz8+UVRTDAsLdmhh5+jn4ODg3d3d3d3c2trYwJZ7p3Zcsn9knXFIw5ddZFREGhERJyksFBkfEg8QIwsFWU9P2tra2tra2trZ2trYy49ps3lZilY7tpF4gm9dLikkKiwuOzk1Qz46NzQyHRMSLDAuhYeH4eDg1tbU2NjWyqeUu4hpbW1ninBVaFNAEiUrIiYlU0M3XF5XMi0oaGJXQ2FgWlZV4eHh0tLR19fVxqCIwXxSg2lXZ2NVV0UwKzAtSzsvcHFiIzAxaEw8hHRoAAwRTUNB4ODg09PTy8zKx8LEv5+QfV5McWJYXD80VS8hmHFaKzg5MB4XyJBsblFDCgEBYVZTz8/QW19ffHp2yMfNyczUwrCss4JquX5hvX5eq3NVNRkQd0Mo25Zmr2pEXS4XXUtEgpycER8eQDYvyMbKxsfOz8S8e21broZz3ZZtqmdAfz8fxYRZzYVbl1k2WSsUYEM5OmNkGRsZPjIsx8fNzMfKf2FFOCAVw52I25tuhkcmk1U08rOE0pBnd0AkcTwmonNbMCQfNR0SPzIqx8jQ0KaPgkswdT0l5qp/wX9TeD4izJl18LOBs3ZNVSQOlVw+1Yteol85QR8PEggExr281JNsp102xYBV36F3kVAri1U47LKE0o9gjFErTx4MwIBaxHtPdkEkHwoDFAcD2q6Qv4BWikcj0I5nrm1IbDARpmlE041irGc+ZDATYjIf5KR0pmU9MxQHGwkDHAsDzpBnj1Arn147unpVgkgmcEEszZJrr2k/jlMwUSMPrHdW0o5ce0UkIQkCIg4HHwwF",
+    "width": 2894,
+    "height": 3882
+   }
+  },
+  {
+   "product": "cloud-dancer",
+   "images": [
+    14,
+    26
+   ],
+   "nearDuplicate": false,
+   "note": "different hands, similar framing (closest thumbnail MAD)",
+   "a": {
+    "dhash": "03d004ac016c044b04d304b605a6056c344c25182e193c937d8e6c1c107001e0",
+    "thumb": "4uHm397h2djb0tLTzMzMycrKx8nIy8vKzs3M09TV1NPV2tnb3Nzf19jZ1dXXzs7P4uDl3t3g2Nja0tLSzMvMycnJy8vNwMLEwcLFxcC/wb6+xb/Ay8jJ2tvc1NPVzc7O4eDl3dzh19bZ0tLSz9DQzs/Px8TEw6ids5uTjnNp4q+emHx4oamu3+Dh1dbVzc7O4eDl29vf2NfawsDAt6Sfu76/xbav1pB1iWhbvI572I52kXJozbasopSQwcTE0dHQ4ODk3dzf0dLVzp+MnHFjj5mcz62cx493jHJl7rKWnn5ttId23ZJ3fG9sv8LD0dLQ4N/k3d3hzczO2KCFnH1vmpqY05d6uoJnyJB41JJ3k3Zn5KeKpHdgjI+P2NnYzM7L3t3i3Nzhxr++2pt/lntvj4F20qCEvYds8rOVqnxlvIpy1Ytsg2xgr7O02tvZyMvJ3Nrd2NvgxLKq7a6Qr4d2yZp+566O5ayO15l5rX1l+reXq3ddfn180tPSz9HQxsjF2dja0NPXxaCO9LCQ6qyO7ayJ+riX97SR77KO87OS4Z19fGVbr7S219zbzc3MycrH1dTXx8fIuItz+LiV5aaD7KyI966M9rSP/8Oe/LeWs39kfX5/zcjH27mzuKihnZ2c0M7Rvbq4vIxu7K6H6KyG9baS9beS+b+Z97aU7aqHjmxbnImE9rOgy4ZrXlROdHZ4ysrNsKahypFr46N6666H87WP9biQ77KM972b5LCNu4Nr86+UwIFnblNGfX18ubq2uLi7rot015Rp8K2D8bOM9bWP87ON7LON8LyX6rKQ4aF/oHVfa2Vhmp2ct7i0srKv06eN46B18aqA97WN87SM+bmT9bmT6bCM2Z97s3xddlhHbWxprrGvwL+9srKwra2q/sWa/sOZ97OK9LOK9bSN7q6JzI9soGtMelE8X1FLhoiJt7i1urm3srKwrq2rqKim/cif+76V+LiP8K2F25t1rXZVaEYzWUpCcW5snZ6euLe1s7KxsLCurq6sp6eloqKg",
+    "width": 1536,
+    "height": 2048
+   },
+   "b": {
+    "dhash": "809f04580c56449646a647ae450c424d4a9949539ec69cce180c6438c0f081c0",
+    "thumb": "3t/h39/h39/h3d7g3N3f29vd2trc2Njb19jb09jc0tfb1dTU2dna2drb29zc29zc3d7g3d7g3t7g3d3f29vd2drb2NXWzMfIvLCwtp6XspqTmZiZ29/h3N3d2dra2trb3d7g3d7g3d7g3N3f2t3g4OPm0czNw4x1onZkyIZopWtSsaysuLa2wL+/3t/e2tra3N3g3d3f3d/h1tXWx7++vri50L602Zh4u4ht9LWTo3Vd0Y9zkWxeoaio4+Tj29zb3N3f3Nze3eLlzLy0zIttgnZuto540Y5qxoRizopovYhq4ZhzgWxhuL/A4uPi293c3N7g3N3e3uPmxbetxIRfkHpsxYdnxn1X2ZBrtnRRw31avXdVf3x1z9LR4eDg3N3c3N7g3N3e3uPmybuyw31WqYZvwaKO1pp38KZ91Ixk5JdwnmdMiY+O3OLh4ePj3t/f3N7f3Nzd3eXox7Ci35Vry4pj1Zhx6aV84ZZp4Zdu7J1zjHBeoJ+g8tfTz8jF09TU3d7f3d3e3OPowqKN0IVa3pZs4ZZo24xf6J5w4JJlyIFYnHdr5ZuIsYV2dHx8rKyr3N3f3d3f2NzfyJ6E3pNl5Jpu4ZZo45hp4ZZo3Y9k0Ytl6qCCwntUYVFDnaOj2tva29vd3dze09TWypZ17qJw66Fy7aJ17KN266F0/r6T56aB66N6h19GgYiJ1tjX19nZ19bY29vezczKyIhf7J9t8qh58qh68qh686t9/76T762Eq2lEaFxTs7e42tva0tPT1dbYztHWvpd+1otc76Jx96t89qt886h4651t3o9ipWI7ZU08homJz8/P0tLS0NHRx8jLxJ2I6Z5y9Kp/7aF07J5w8KJz45Rirmc9ckQnYFVLkZWUycnJz8/QzMzNzc3M1Jt99Kh9/72U96+G6Jpv55hr04RTh1MyYFVNh4qJs7e4z8/Oy8vLyMjJyMjIx8fH/bmR/8ij/sWf/LKK55VrxXhNf1EzYF9cpqusz8/Oy8rKxMTFw8PEw8PEw8PDwsLD",
+    "width": 1536,
+    "height": 2048
+   }
+  },
+  {
+   "product": "mall-goth-ppu",
+   "images": [
+    11,
+    32
+   ],
+   "nearDuplicate": false,
+   "note": "different photos, same aspect",
+   "a": {
+    "dhash": "19bc664573816199c363cbc38fa486788631c127c1e0c3c0e380e326e20fc20f",
+    "thumb": "jXRbU0Q4NSwmODIucmVYeGthcGdgeW5lg3lvf3Ztin50l4t/n5OIoZiOnJOLmpCIYUYwS0M8YFJHYlZJTkVOUjpUk2JTwJF7nW9jsY1+xJ6PoYF0hXZpioF5hHdujX1zNyQYIxsYSUE3jHhvsYKPpVpYlGB4tXR04J+F36+YvoF0bEA9Ni8sLCcmJSIiMi4tRS0gJhkTgmhf5KWdwm9blE9oNieVlVVd5a6fxYd1kktCrH923LKjo350X1ZQdm9pRC0ffl1O8a+hwGpgiTwvbUxvajtksXJ+aFStllNa2J6K4rOiuYN5c0ZEWk1FhHVpPisgx5yL3qGTk0I7WjItZ0Y+YRsWVTeMSCpwxoh+6r6uuH1vay8sPyIiQzs0ZFRLVUI447OjyIp9hTkzViknczw5fkVEc094pnF/g2i0lGR3ikE5WCUojmxkgmlfYE5EbVZM77uq0JKEum9ktG1jr21gtnxqyo10fl+mUTp4pF1ZwoZ63KuY0ZyOkmZfV0Q+aVlQ7bqp5K6k1pmRtHluompfqXRlqXNpeFqFbEV3cEeE1aWfvYRzeEE8TSsrTDo2REA81aub6raqz5uSu4Z7sXttrHdprHZjo3mLgF6HsoSJu3ZrXxwiRh8mQyovUkE7IyIhrJKE5ren0qabxI2BuoZ3sYJzs35t2KCJ7LKV872kzIp+k1VXg1tfXkZGVkU8Dw4OiHxy17Oh0amcx5eKv4h6toR0x4983qiW466e6LKj5bGj46+js4l/YU5HW0tCBgUGamZhxaqWzaWTzqOSxpaGwIp52KCO7bqp57Cf46qa4aiav4qBfmRcc2ZbYVJKAAAAT09NwamU4Luh1q2XxJqJyZKD562d7Lqq36SW3aOUz5mNfFpUemlcoJB/gnZrAAAAOzk317Ob6set2befyqKN1qiX67Sl5bCh3KKUxI+EZkZBOjEsbl1UlINyqp6NAAAEdmBT98us6seu37ul16+a1a6b2q6c0aGUtIN5WT46CQQEFRAOWk5JfGxhpZWE",
+    "width": 2160,
+    "height": 2880
+   },
+   "b": {
+    "dhash": "64969f239f6732c865b8c061ca54c13cc130c134c138c1d0c382e307c607c012",
+    "thumb": "PkAcMz0ZNkIXQ1AbPUIcLToONkUfIS4MKT4OPEolJDMPPlMoS08pS1EqWWxCXm0+W2EmX2IuSE0jND8YRVEaT0hKgFZelG5GlndLWEgng2pKinpTT1swICkKKSwKRlcSdnE3fHs5XGQlRUsZe2de04uM33xa65yF9pxy5pt8/7+Z6ZxsOjUWFSgSPlMeV2wrf3k9VFEkYlswxZ6K4Zugx3BbpWeNm2Odwndsy5mYzYFkv2lBtYZlrY5jVGU8PFUpk41Kbmo0uJOM6aSotGJYlFJHZlCwg0ppi2WfZE6etF9P56KF/8Wa7JdqaWlJT2VBT04min1c78HCzYyCm1FBk19TilRdilt1Ozu2az1l1ZmM2qaXzoBdlVw6SFo0Tl80QDgZoIJ97Lazvm9dn1RGoF5Yl11ViW2NaUdzk2eLcmOyqWljrVQ8jmhDTVk6N0gphYVL2bOq7bOp3Yt5yXprr2RXnl9Ymmpmkm16RD+qZkB3zH1t55x2/Kt+uYBVVWJAd3dFzaqk77e27Kmh3ZOBvHFdr2xbomdYiWyCdV2PomyN1Jug3p6FwHFTpWVFY2UxW1wttJyO6rm956uf3pmEzodxunhlp2pXoXR6ZlCdblCRqXV8qm5nsWtickk0MDgRanUtopZ32rW83ayn5aCJ2pR6v4Rxuntmv4mHq32Jt4iDvoqHyIt/0ItxS0EgDRUAZ28xjohpyLCzyqam1JyP2JN7xYZwyIp6z5eO0Z+Y05yY3J6P5Zd8knNIQVQfIyoHUlkueXtXv6qowaOhyp6YzJSFy4l01pmP4Keg4qOX5aWV7J+Gt3pYTFMjT14nPEgZOEEhb3ZZybKtzLKuwaKduI+HzJKK46ik6K6m6KKQ5ZqHvH1ePS8aPkkkT1smUF4oOVE0lo6A2bmz0Lewx6edv5qS0KSj3Kmo3aWf2JF/pXRbVGI+KTESQEgsUWAtWWUvYWFU2Lqw4L+z3Luw16+g0KWZyaCbvZeVuYV/jWVQRFk2UHFVRE8oPDwiWGtAW2cy",
+    "width": 2160,
+    "height": 2880
+   }
+  }
+ ]
+}
