@@ -111,7 +111,7 @@ The web app uses Next.js route groups to separate public marketing pages from th
 | `/admin/reference-data` | `src/app/(admin)/admin/reference-data/page.tsx` | Legacy redirect → `/admin?tab=configuration` |
 | `/admin/jobs` | `src/app/(app)/admin/jobs/page.tsx` | Legacy redirect → `/admin?tab=admin-jobs` |
 | `/polishes` | `src/app/(app)/polishes/page.tsx` | Client component, filterable/sortable table; status chips + untried badge, optimistic row quick actions (♡ wishlist, ✓ own, status/tried menu), `status=` / `untried=` URL filters, color family chips (`?family=`); header "Export" menu downloads the collection as CSV/JSON |
-| `/polishes/new` | `src/app/(app)/polishes/new/page.tsx` | Client component, form with color picker + star rating |
+| `/polishes/new` | `src/app/(app)/polishes/new/page.tsx` | Client component, form with color picker + star rating; accepts `?barcode=` / `barcodeFormat` (and prefilled brand/name) from Rapid Add's Add manually link and sends the barcode with the create request (#21) |
 | `/polishes/detail` | `src/app/(app)/polishes/detail/page.tsx` | Client component, detail shell driven by query params; admins also get a collapsed "Sip ground-truth hex" panel (`AdminHexSipPanel`, #351); owned polishes show the private nail photo (`NailPhotoPanel`) beside the vendor/AI swatches |
 | `/polishes/gaps` | `src/app/(app)/polishes/gaps/page.tsx` | Client component, collection gap heatmap (hue × lightness coverage + next-buy targets) |
 | `/polishes/match` | `src/app/(app)/polishes/match/page.tsx` | Client component, photo → owned-polish color matching (upload/drop/camera, extracted palette filter, confidence badges) via `POST /api/polishes/match-image` |

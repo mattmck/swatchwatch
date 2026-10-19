@@ -93,7 +93,7 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 |--------|-------|---------|------|--------|
 | `GET` | `/api/polishes/{id?}` | `getPolishes` | `polishes.ts` | ✅ Live |
 | `GET` | `/api/polishes/export?format=csv\|json` | `exportCollection` (dispatched from `polishes-list`) | `polishes.ts`, `lib/collection-export.ts` | ✅ Live |
-| `POST` | `/api/polishes` | `createPolish` | `polishes.ts` | ✅ Live |
+| `POST` | `/api/polishes` | `createPolish` | `polishes.ts` | ✅ Live (optional create-only `barcode` / `barcodeFormat`: remembered on the shade for the caller only via `user_shade_barcode`; 400 when not a valid EAN/UPC, #21) |
 | `PUT` | `/api/polishes/{id}` | `updatePolish` | `polishes.ts` | ✅ Live |
 | `DELETE` | `/api/polishes/{id}` | `deletePolish` | `polishes.ts` | ✅ Live |
 | `POST` | `/api/polishes/{id}/recalc-hex` | `recalcHex` | `polishes.ts` | ✅ Live (admin-only) |

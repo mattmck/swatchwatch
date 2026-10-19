@@ -321,6 +321,13 @@ describe("capture resolver — barcode lookup", () => {
     assert.equal(lookup.params[1], OWNER);
   });
 
+  it("the catalog lookup is bound to the caller and skips shades they cannot see", async () => {
+    await invoke("capture-check");
+    const lookup = sqlCalls.find((c) => /FROM barcode bc/i.test(c.sql));
+    assert.equal(lookup.params[1], OWNER, "visibility is checked against the caller");
+    assert.match(lookup.sql.replace(/\s+/g, " "), /sh\.merged_into_shade_id IS NULL AND \(sh\.status <> 'user_submitted' OR sh\.created_by_user_id = \$2\)/);
+  });
+
   it("still matches a legacy raw GTIN row (exact string) for codes with a bad check digit", async () => {
     const legacy = "1234567890123";
     state.session.metadata = { gtin: legacy };
