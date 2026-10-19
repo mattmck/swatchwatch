@@ -34,6 +34,12 @@ export interface LookVibe {
 export const MAX_SAVED_LOOKS = 30;
 /** Most steps in a look (Base, Accent, Topper, plus one spare). */
 export const MAX_LOOK_STEPS = 4;
+/**
+ * Largest UTF-8 size of the steps' JSON. The `user_look.steps` CHECK allows 4000 bytes of
+ * `jsonb::text` (which adds a space after each `:` and `,`); this leaves room for that, so text
+ * within the character limits but heavy in multibyte characters gets a 400, not a DB error.
+ */
+export const MAX_LOOK_STEPS_BYTES = 3500;
 
 export interface SavedLookStep {
   role: LookStepRole;
@@ -148,6 +154,9 @@ export function validateSavedLookInput(input: unknown): SavedLookValidation {
     const step = validateStep(input.steps[i], i);
     if (typeof step === "string") return { ok: false, error: step };
     steps.push(step);
+  }
+  if (new TextEncoder().encode(JSON.stringify(steps)).length > MAX_LOOK_STEPS_BYTES) {
+    return { ok: false, error: "steps are too large" };
   }
   const id = savedLookKey(input.templateId, steps);
   if (input.id !== id) return { ok: false, error: "id must be the look key of templateId and steps" };

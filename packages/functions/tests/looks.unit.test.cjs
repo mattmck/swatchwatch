@@ -247,6 +247,17 @@ describe("POST /api/looks", () => {
     assert.equal(rows.length, 0);
   });
 
+  it("rejects steps whose JSON would exceed the database byte limit with 400, not a 500", async () => {
+    const wide = "€".repeat(160); // 3 bytes each in UTF-8: within the character limits, over the byte budget
+    const steps = Array.from({ length: 4 }, (_, i) => ({
+      role: "accent", label: "€".repeat(40), hex: "#A8846A", source: "owned", shadeId: String(i + 1), brand: "€".repeat(120), name: wide,
+    }));
+    const body = { ...look(), steps, id: `office-neutral:${steps.map((s) => s.shadeId).join(",")}` };
+    const res = await call("POST", { userId: OWNER, body });
+    assert.ok(res.status === 400 || res.status === 413, String(res.status));
+    assert.equal(rows.length, 0);
+  });
+
   it("rejects oversized bodies", async () => {
     const res = await call("POST", { userId: OWNER, body: { ...look(), padding: "x".repeat(20_000) } });
     assert.equal(res.status, 413);
