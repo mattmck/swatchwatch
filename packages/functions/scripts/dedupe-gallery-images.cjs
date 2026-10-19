@@ -6,16 +6,19 @@
  *
  *   API_BASE_URL=https://<function-app>.azurewebsites.net/api \
  *   ADMIN_BEARER_TOKEN=<admin access token, or dev:<adminUserId> with AUTH_DEV_BYPASS locally> \
- *   npm run dedupe:gallery-images --workspace=swatchwatch-functions -- [--write] [--shade 294,295] [--after <shadeId>] [--limit <1-100>] [--verbose]
+ *   npm run dedupe:gallery-images --workspace=swatchwatch-functions -- [--write] [--shade 294,295] [--after <shadeId>] [--limit <1-100>] [--verbose] [--allow-unreadable]
  *
  * Idempotent: re-running removes nothing new. On an error it prints the `--after` value to resume from.
+ * A batch with unreadable images stops the run before the cursor moves past it, so the batch can be
+ * retried; pass --allow-unreadable to continue past images that stay unreadable (they are never removed).
  */
 const args = process.argv.slice(2);
 function intOption(name, fallback) {
   const index = args.indexOf(`--${name}`);
   if (index === -1) return fallback;
-  const value = Number.parseInt(args[index + 1], 10);
-  if (!Number.isInteger(value) || value < 0) {
+  const raw = String(args[index + 1] ?? "");
+  const value = /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
+  if (!Number.isSafeInteger(value)) {
     console.error(`--${name} needs a non-negative integer`);
     process.exit(2);
   }
@@ -24,14 +27,16 @@ function intOption(name, fallback) {
 
 const write = args.includes("--write");
 const verbose = args.includes("--verbose");
+const allowUnreadable = args.includes("--allow-unreadable");
 const shadeIndex = args.indexOf("--shade");
 const shadeIds =
   shadeIndex === -1
     ? undefined
     : String(args[shadeIndex + 1] ?? "")
         .split(",")
-        .map((id) => Number.parseInt(id.trim(), 10));
-if (shadeIds && !shadeIds.every((id) => Number.isInteger(id) && id > 0)) {
+        // Whole tokens only: parseInt would read "294oops" as 294.
+        .map((id) => (/^[1-9]\d*$/.test(id.trim()) ? Number(id.trim()) : Number.NaN));
+if (shadeIds && !shadeIds.every((id) => Number.isSafeInteger(id) && id > 0)) {
   console.error("--shade needs a comma-separated list of shade ids");
   process.exit(2);
 }
@@ -83,6 +88,12 @@ async function main() {
     console.log(
       `after=${afterShadeId}: ${batch.scannedShades} shades, ${batch.shadesWithDuplicates} with duplicates, ${batch.swatchesRemoved} swatches ${write ? "removed" : "to remove"}`
     );
+    if (batch.unreadableImages > 0 && !allowUnreadable) {
+      // Duplicates of an unreadable image were not matched; stop before moving the cursor past them.
+      throw new Error(
+        `${batch.unreadableImages} image(s) in this batch could not be read; retry, or pass --allow-unreadable to continue past them`
+      );
+    }
     if (batch.nextAfterShadeId === null) break;
     afterShadeId = batch.nextAfterShadeId;
   }

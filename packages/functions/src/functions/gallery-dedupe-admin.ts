@@ -2,6 +2,7 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/fu
 import { isCatalogStorageUrl, readBlobFromStorageUrl } from "../lib/blob-storage";
 import { withAdmin } from "../lib/auth";
 import { query, transaction } from "../lib/db";
+import { internalServerError } from "../lib/errors";
 import { runGalleryDedupeBatch, type GalleryDedupeOptions } from "../lib/gallery-dedupe";
 import { withCors } from "../lib/http";
 import { trackEvent } from "../lib/telemetry";
@@ -68,19 +69,24 @@ export async function dedupeGalleryImages(
     return { status: 400, jsonBody: { error: parsed } };
   }
 
-  const result = await runGalleryDedupeBatch(
-    {
-      query,
-      transaction,
-      readImage: async (storageUrl) => {
-        if (!isCatalogStorageUrl(storageUrl)) {
-          throw new Error("not a catalog blob on the configured storage account");
-        }
-        return (await readBlobFromStorageUrl(storageUrl)).bytes;
+  let result: Awaited<ReturnType<typeof runGalleryDedupeBatch>>;
+  try {
+    result = await runGalleryDedupeBatch(
+      {
+        query,
+        transaction,
+        readImage: async (storageUrl) => {
+          if (!isCatalogStorageUrl(storageUrl)) {
+            throw new Error("not a catalog blob on the configured storage account");
+          }
+          return (await readBlobFromStorageUrl(storageUrl)).bytes;
+        },
       },
-    },
-    parsed
-  );
+      parsed
+    );
+  } catch (error) {
+    return internalServerError(context, error, "Gallery dedupe batch failed", "images-admin.gallery-dedupe");
+  }
 
   context.log(
     `[gallery-dedupe-admin] after=${parsed.afterShadeId} dryRun=${parsed.dryRun} shades=${result.scannedShades} groups=${result.duplicateGroups} removed=${result.swatchesRemoved} unreadable=${result.unreadableImages}`
