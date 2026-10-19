@@ -69,6 +69,8 @@ import { buildFinishOptions, knownFinishNames } from "@/lib/finish-options";
 import { FinishBadges } from "@/components/finish-badges";
 import { BuyFromBrandLink } from "@/components/buy-from-brand-link";
 import { ColorFamilyChips } from "@/components/color-family-chips";
+import { ProductCategoryChips, ProductCategoryPill, TopperSwatch, showsTopperSwatch } from "@/components/product-category";
+import { parseProductCategoryParam } from "@/lib/product-category-filter";
 import { parseColorFamilyParam, serializeColorFamilies } from "@/lib/color-family-filter";
 import { SwatchThumbnail } from "@/components/swatch-thumbnail";
 import { runRecalcHexFlow } from "@/lib/recalc-hex-flow";
@@ -167,6 +169,9 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   // Canonical comma-separated color families (`red,pink`, #103); "" = no family filter.
   const [familyFilter, setFamilyFilter] = useState<string>(initialState.familyFilter);
   const selectedFamilies = useMemo(() => parseColorFamilyParam(familyFilter), [familyFilter]);
+  // Canonical comma-separated product categories (`color,topper`, #349); "" = every category.
+  const [categoryFilter, setCategoryFilter] = useState<string>(initialState.categoryFilter);
+  const selectedCategories = useMemo(() => parseProductCategoryParam(categoryFilter), [categoryFilter]);
   const [sortKey, setSortKey] = useState<SortKey>(initialState.sortKey);
   const [sortDirection, setSortDirection] = useState<SortDirection>(initialState.sortDirection);
   const statusesKey = statuses.join(",");
@@ -195,6 +200,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       toneFilter !== next.toneFilter ||
       finishFilter !== next.finishFilter ||
       familyFilter !== next.familyFilter ||
+      categoryFilter !== next.categoryFilter ||
       sortKey !== next.sortKey ||
       sortDirection !== next.sortDirection;
     const paginationChangedFromUrl = page !== next.page || pageSize !== next.pageSize;
@@ -215,6 +221,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     setToneFilter(next.toneFilter);
     setFinishFilter(next.finishFilter);
     setFamilyFilter(next.familyFilter);
+    setCategoryFilter(next.categoryFilter);
     setSortKey(next.sortKey);
     setSortDirection(next.sortDirection);
     setPage(next.page);
@@ -230,12 +237,13 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       toneFilter,
       finishFilter,
       familyFilter,
+      categoryFilter,
       sortKey,
       sortDirection,
       page: 1,
       pageSize: 0,
     }),
-    [debouncedSearch, statusesKey, untried, toneFilter, finishFilter, familyFilter, sortKey, sortDirection]
+    [debouncedSearch, statusesKey, untried, toneFilter, finishFilter, familyFilter, categoryFilter, sortKey, sortDirection]
   );
 
   useEffect(() => {
@@ -316,7 +324,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       return;
     }
     setPage(1);
-  }, [debouncedSearch, statusesKey, untried, toneFilter, finishFilter, familyFilter, sortKey, sortDirection]);
+  }, [debouncedSearch, statusesKey, untried, toneFilter, finishFilter, familyFilter, categoryFilter, sortKey, sortDirection]);
 
   const queryString = useMemo(
     () => buildPolishesListQueryString({ ...listState, page, pageSize }),
@@ -335,7 +343,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     });
   }, [pathname, queryString, router, searchParamsString]);
 
-  const hasActiveFilters = listHasActiveFilters({ search, statuses, untried, toneFilter, finishFilter, familyFilter });
+  const hasActiveFilters = listHasActiveFilters({ search, statuses, untried, toneFilter, finishFilter, familyFilter, categoryFilter });
 
   const handleSort = useCallback((key: SortKey) => {
     if (sortKey === key) {
@@ -633,6 +641,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
               setToneFilter("all");
               setFinishFilter("all");
               setFamilyFilter("");
+              setCategoryFilter("");
             }}
           >
             Clear filters
@@ -644,6 +653,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
         value={selectedFamilies}
         onChange={(next) => setFamilyFilter(serializeColorFamilies(next))}
       />
+      <ProductCategoryChips value={selectedCategories} onChange={(next) => setCategoryFilter(next.join(","))} />
       {/* Opt-in public wishlist link (#268); hidden unless the server flag is on. */}
       {statusPresetFor(statuses) === "wishlist" && <WishlistShareCard />}
 
@@ -785,6 +795,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                           >
                             {polish.name}
                           </Link>
+                          <ProductCategoryPill category={polish.productCategory} className="ml-1.5 align-middle" />
                           <BuyFromBrandLink
                             url={polish.buyUrl}
                             brand={polish.brand}
@@ -808,14 +819,18 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <ColorDot
-                        hex={resolveDisplayHex(polish)}
-                        size="md"
-                        className="ring-2 ring-white/80 shadow-[0_0_0_1px_rgba(66,16,126,0.18),0_8px_20px_rgba(66,16,126,0.16)]"
-                      />
+                      {showsTopperSwatch(polish.productCategory) ? (
+                        <TopperSwatch size="md" />
+                      ) : (
+                        <ColorDot
+                          hex={resolveDisplayHex(polish)}
+                          size="md"
+                          className="ring-2 ring-white/80 shadow-[0_0_0_1px_rgba(66,16,126,0.18),0_8px_20px_rgba(66,16,126,0.16)]"
+                        />
+                      )}
                     </TableCell>
                     <TableCell className="text-center">
-                      {resolveDisplayHex(polish) && (
+                      {resolveDisplayHex(polish) && !showsTopperSwatch(polish.productCategory) && (
                         <Link
                           href={`/polishes/search?color=${resolveDisplayHex(polish)!.replace("#", "")}`}
                           className="text-muted-foreground hover:text-primary"
