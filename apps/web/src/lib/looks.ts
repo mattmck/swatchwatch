@@ -15,19 +15,23 @@
  * 2. **Base.** Owned polishes ranked by OKLAB distance to the template's base hex plus a finish
  *    penalty (`finishPenalty`: 0 when the polish has a preferred finish, then by the shared
  *    finish-family rule from `color/dupes.ts`). The vibe's finish preference overrides the base
- *    step's finishes (except Flake, which asks for a topper). A base must be within
- *    `BASE_MAX_DISTANCE`; among the near-ties (`BASE_TIE_BAND`) the seed picks one.
+ *    step's finishes (except Flake, which asks for a topper). A base's score (distance + finish
+ *    penalty) must be within `BASE_MAX_DISTANCE`; among the near-ties (`BASE_TIE_BAND`) the seed picks one.
  * 3. **Accent.** Targets are the template's accent hex plus the harmony rotation of the chosen
  *    base (`generateHarmonyColors`: complementary, analogous or monochromatic). Candidates must
  *    be within `ACCENT_MAX_DISTANCE` of a target and at least `ACCENT_MIN_CONTRAST` from the
  *    base; among them, contrast with the base is rewarded ("maximize contrast within harmony").
  * 4. **Topper.** Owned topper/flake/glitter polishes (`TOPPER_FINISHES`, `topper` first), nearest
- *    the template's topper hex. Skipped over a glitter-family base (no glitter-on-glitter).
+ *    the template's topper hex. No glitter-on-glitter: a look with a topper step never gets a
+ *    glitter-family base (and a topper is skipped over one).
  * 5. **Gaps.** A step with no owned match is filled from the catalog pool (non-owned rows, same
  *    scoring, within `CATALOG_MAX_DISTANCE`) and otherwise left as the template swatch; both are
  *    "Add" steps. `catalogQueriesForLooks` tells the page which color families to fetch.
+ *    Toppers and flakies are never a base or accent; a swap never offers a polish another step of
+ *    the same look uses.
  * 6. **Diversity.** Looks are chosen greedily, one per round, from every remaining template,
- *    ranked by vibe score + jitter + `OWNED_BASE_BONUS` (owned base) + `OWNED_BONUS` × owned share. A base may not repeat, and must be at
+ *    ranked by vibe score + jitter + `OWNED_BASE_BONUS` (owned base) + `OWNED_BONUS` × owned share.
+ *    A base may not be any polish an earlier look used, and must be at
  *    least `LOOK_MIN_BASE_DISTANCE` from earlier bases unless both finish families are known and
  *    differ.
  * 7. **Owned only.** Every required step must be owned (optional toppers are dropped instead);
@@ -88,7 +92,7 @@ export const DEFAULT_VIBE: Vibe = { occasion: "everyday", mood: "soft", finish: 
 export const LOOK_FINISH_POLISH_FINISHES: Record<LookFinish, readonly string[]> = {
   gloss: ["creme", "crelly", "jelly"],
   matte: ["matte"],
-  chrome: ["chrome", "metallic", "magnetic", "duochrome", "multichrome"],
+  chrome: ["metallic", "chrome", "magnetic", "duochrome", "multichrome"],
   holo: ["holographic"],
   flake: ["flake", "glitter", "topper"],
   sheer: ["sheer", "jelly"],
@@ -130,7 +134,8 @@ export interface LookTemplate {
 
 const SOLID = ["creme", "crelly", "jelly"] as const;
 const SHEER = ["sheer", "jelly"] as const;
-const CHROME = ["chrome", "metallic", "magnetic"] as const;
+// `metallic` first: finish compatibility compares against the first preferred finish, and `chrome` has no built-in family.
+const CHROME = ["metallic", "chrome", "magnetic"] as const;
 const SPARKLE = ["topper", "flake", "glitter"] as const;
 
 /** Built-in looks: defaults for every vibe and the fallback when the collection is sparse. */
@@ -402,7 +407,7 @@ const FLAKE_TOPPER_STEP: LookTemplateStep = {
 // ── Tuning ───────────────────────────────────────────────────
 
 export const LOOK_COUNT = 3;
-/** Largest OKLAB distance from the base target for an owned base. */
+/** Largest base score (OKLAB distance to the target + finish penalty) for an owned base. */
 export const BASE_MAX_DISTANCE = 0.14;
 /** Owned bases scoring within this of the best are near-ties; the seed picks among them. */
 export const BASE_TIE_BAND = 0.03;
@@ -423,7 +428,7 @@ export const MAX_STEP_ALTERNATIVES = 3;
 /** Rank bonus for a fully owned look (scaled by the owned share of its steps). */
 export const OWNED_BONUS = 2;
 /** Extra rank bonus when the base is owned, so an owned base beats the template jitter. */
-export const OWNED_BASE_BONUS = 2;
+export const OWNED_BASE_BONUS = 4;
 /** Max seeded jitter added to a template's vibe score. */
 export const TEMPLATE_JITTER = 2;
 
@@ -524,6 +529,11 @@ function isTopperCandidate(candidate: Candidate): boolean {
   return Number.isFinite(topperRank(candidate));
 }
 
+/** Toppers and flakies only go on top; full-coverage glitters may still be a base or accent. */
+function isTopOnly(candidate: Candidate): boolean {
+  return candidate.finishes.includes("topper") || candidate.finishes.includes("flake");
+}
+
 interface Scored {
   candidate: Candidate;
   score: number;
@@ -621,7 +631,8 @@ interface BuildContext {
   owned: Candidate[];
   catalog: Candidate[];
   chosenBases: ChosenBase[];
-  usedBaseIds: Set<string>;
+  /** Polishes used by earlier looks (any step); never a later look's base. */
+  usedIds: Set<string>;
   seed: number;
 }
 
@@ -657,15 +668,17 @@ function buildLook(template: LookTemplate, ctx: BuildContext): Look | null {
   const steps = templateSteps(template, vibe);
   const baseStep = steps.find((s) => s.role === "base");
   if (!baseStep) return null;
+  // No glitter-on-glitter: a look with a topper step never gets a glitter base.
+  const hasTopper = steps.some((s) => s.role === "topper");
   const used = new Set<string>();
   const out: LookStep[] = [];
 
   // Base.
   const baseRanked = sortScored(
     ctx.owned
-      .filter((c) => !isTopperCandidate(c) || c.finishes[0] !== "topper")
+      .filter((c) => !isTopOnly(c) && !ctx.usedIds.has(c.polish.id) && !(hasTopper && c.family === "glitter"))
       .map((c) => scoreBase(c, baseStep, vibe))
-      .filter((s) => s.distance <= BASE_MAX_DISTANCE)
+      .filter((s) => s.score <= BASE_MAX_DISTANCE)
       .filter((s) => diverseFrom(s.candidate.hex, s.candidate.family, s.candidate.polish.id, ctx.chosenBases))
   );
   let baseHex: string;
@@ -673,7 +686,8 @@ function buildLook(template: LookTemplate, ctx: BuildContext): Look | null {
   if (baseRanked.length > 0) {
     const ties = baseRanked.filter((s) => s.score <= baseRanked[0].score + BASE_TIE_BAND);
     const pick = ties[Math.floor(seededRandom(ctx.seed, template.id)() * ties.length)];
-    const alternatives = baseRanked.filter((s) => s !== pick).slice(0, MAX_STEP_ALTERNATIVES).map((s) => s.candidate.polish);
+    // Extra headroom: alternatives used by later steps are filtered out at the end.
+    const alternatives = baseRanked.filter((s) => s !== pick).slice(0, MAX_STEP_ALTERNATIVES * 2).map((s) => s.candidate.polish);
     out.push(filledStep(baseStep, pick, "owned", alternatives));
     used.add(pick.candidate.polish.id);
     baseHex = pick.candidate.hex;
@@ -682,8 +696,9 @@ function buildLook(template: LookTemplate, ctx: BuildContext): Look | null {
     if (vibe.ownedOnly) return null;
     const catalogPick = sortScored(
       ctx.catalog
+        .filter((c) => !isTopOnly(c) && !(hasTopper && c.family === "glitter"))
         .map((c) => scoreBase(c, baseStep, vibe))
-        .filter((s) => s.distance <= CATALOG_MAX_DISTANCE)
+        .filter((s) => s.score <= CATALOG_MAX_DISTANCE)
         .filter((s) => diverseFrom(s.candidate.hex, s.candidate.family, s.candidate.polish.id, ctx.chosenBases))
     )[0];
     if (catalogPick) {
@@ -708,7 +723,7 @@ function buildLook(template: LookTemplate, ctx: BuildContext): Look | null {
     if (step.role === "accent") {
       const harmony = step.harmony ?? "fixed";
       const targets = harmony === "fixed" ? [step.hex] : [step.hex, ...generateHarmonyColors(baseHex, harmony)];
-      rank = (c) => (isTopperCandidate(c) ? null : scoreAccent(c, step, targets, baseHex));
+      rank = (c) => (isTopOnly(c) ? null : scoreAccent(c, step, targets, baseHex));
     } else {
       rank = (c) => scoreTopper(c, step);
     }
@@ -718,7 +733,7 @@ function buildLook(template: LookTemplate, ctx: BuildContext): Look | null {
     );
     const pick = ownedRanked[0];
     if (pick) {
-      const alternatives = ownedRanked.slice(1, 1 + MAX_STEP_ALTERNATIVES).map((s) => s.candidate.polish);
+      const alternatives = ownedRanked.slice(1, 1 + MAX_STEP_ALTERNATIVES * 2).map((s) => s.candidate.polish);
       out.push(filledStep(step, pick, "owned", alternatives));
       used.add(pick.candidate.polish.id);
       continue;
@@ -744,16 +759,21 @@ function buildLook(template: LookTemplate, ctx: BuildContext): Look | null {
     }
   }
 
-  const ownedSteps = out.filter((s) => s.source === "owned").length;
+  // A swap never offers a polish another step of this look already uses.
+  const finalSteps = out.map((step) => ({
+    ...step,
+    alternatives: step.alternatives.filter((alt) => !used.has(alt.id)).slice(0, MAX_STEP_ALTERNATIVES),
+  }));
+  const ownedSteps = finalSteps.filter((s) => s.source === "owned").length;
   return {
     templateId: template.id,
     name: template.name,
     description: template.description,
     difficulty: template.difficulty,
     minutes: template.minutes,
-    steps: out,
+    steps: finalSteps,
     ownedSteps,
-    missingSteps: out.length - ownedSteps,
+    missingSteps: finalSteps.length - ownedSteps,
   };
 }
 
@@ -776,7 +796,7 @@ export function recommendLooks(input: RecommendLooksInput): LooksResult {
     owned,
     catalog,
     chosenBases: [],
-    usedBaseIds: new Set(),
+    usedIds: new Set(),
     seed: input.seed,
   };
   const remaining = [...LOOK_TEMPLATES];
@@ -797,6 +817,7 @@ export function recommendLooks(input: RecommendLooksInput): LooksResult {
     if (!best) break;
     looks.push(best.look);
     remaining.splice(remaining.indexOf(best.template), 1);
+    for (const step of best.look.steps) if (step.polish) ctx.usedIds.add(step.polish.id);
     const base = best.look.steps.find((s) => s.role === "base")!;
     const baseFinishes = base.polish ? resolvePolishFinishes(base.polish).map((f) => f.toLowerCase()) : [];
     ctx.chosenBases.push({

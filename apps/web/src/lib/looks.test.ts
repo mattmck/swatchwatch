@@ -298,3 +298,68 @@ describe("applyStepSwap", () => {
     if (!look.steps.some((s) => s.role === missing)) assert.equal(applyStepSwap(look, missing, collection()[0]), look);
   });
 });
+
+describe("recommendLooks — step hygiene", () => {
+  it("never offers a polish already used in another step of the same look as a swap", () => {
+    for (const seed of [1, 2, 3]) {
+      const { looks } = recommendLooks({ polishes: collection(), vibe: vibe(), seed });
+      for (const look of looks) {
+        const usedIds = new Set(look.steps.map((s) => s.polish?.id).filter(Boolean));
+        for (const step of look.steps) {
+          assert.ok(!step.alternatives.some((alt) => usedIds.has(alt.id)), `${look.templateId}/${step.role}`);
+        }
+      }
+    }
+  });
+
+  it("never uses a topper or flakie as a base or accent, nor offers one as their swap", () => {
+    const owned = [
+      polish("#F2DCD5", { finishes: ["sheer"] }),
+      polish("#F0E6FF", { finishes: ["topper"] }),
+      polish("#F3D6DE", { finishes: ["flake"] }),
+      polish("#FFFFFF"),
+    ];
+    const { looks } = recommendLooks({ polishes: owned, vibe: vibe(), seed: 1 });
+    for (const step of looks.flatMap((l) => l.steps).filter((s) => s.role !== "topper")) {
+      for (const p of [step.polish, ...step.alternatives].filter((x): x is Polish => Boolean(x))) {
+        const finishes = resolvePolishFinishes(p);
+        assert.ok(!finishes.includes("topper") && !finishes.includes("flake"), `${step.role}: ${p.id}`);
+      }
+    }
+  });
+
+  it("does not reuse a polish from an earlier look as a later look's base", () => {
+    for (const seed of [1, 2, 3, 4]) {
+      const { looks } = recommendLooks({ polishes: collection(), vibe: vibe(), seed });
+      const used = new Set<string>();
+      for (const look of looks) {
+        const base = look.steps.find((s) => s.role === "base")!;
+        if (base.polish) assert.ok(!used.has(base.polish.id), `seed ${seed}: ${look.templateId}`);
+        for (const step of look.steps) if (step.polish) used.add(step.polish.id);
+      }
+    }
+  });
+});
+
+describe("recommendLooks — glitter bases", () => {
+  it("never puts a glitter base under a look that has a topper step", () => {
+    const owned = [polish("#F4C2C2", { finishes: ["glitter"] }), polish("#F3E6E8", { finishes: ["glitter"] })];
+    for (const seed of [1, 2, 3]) {
+      const { looks } = recommendLooks({ polishes: owned, vibe: vibe({ finish: "flake" }), seed });
+      for (const look of looks) {
+        const base = look.steps.find((s) => s.role === "base")!;
+        assert.ok(!base.polish || !resolvePolishFinishes(base.polish).includes("glitter"), look.templateId);
+      }
+    }
+  });
+});
+
+describe("recommendLooks — finish fit", () => {
+  it("counts a finish clash against the base threshold (no near-miss glitter nude for Office Neutral)", () => {
+    // ~0.11 from the Office Neutral base target: a fine creme match, but too far once the glitter penalty is added.
+    const glitter = polish("#BE9A80", { finishes: ["glitter"] });
+    const { looks } = recommendLooks({ polishes: [glitter], vibe: vibe({ occasion: "work", mood: "soft" }), seed: 1 });
+    assert.ok(looks.length > 0);
+    for (const look of looks) assert.notEqual(look.steps[0].polish?.id, glitter.id, look.templateId);
+  });
+});

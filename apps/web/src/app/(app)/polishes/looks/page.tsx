@@ -258,7 +258,7 @@ function LooksPageContent() {
           <VibeSelector vibe={vibe} onChange={changeVibe} />
         </aside>
 
-        <section aria-label={`Looks for ${vibeSummary}`} aria-busy={!result} className="min-w-0 space-y-4">
+        <section aria-label={`Looks for ${vibeSummary}`} aria-busy={!result} className="@container min-w-0 space-y-4">
           {loadError && (
             <Notice>
               Couldn&apos;t load your collection ({loadError}), so these looks use template colors.
@@ -293,7 +293,7 @@ function LooksPageContent() {
           {!result ? (
             <BrandSpinner label="Mixing your looks…" />
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" aria-live="polite">
+            <div className="grid gap-4 @2xl:grid-cols-2 @5xl:grid-cols-3" aria-live="polite">
               {looks.map((look, index) => (
                 <LookCard
                   key={look.templateId}
