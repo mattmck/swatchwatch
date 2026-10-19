@@ -162,6 +162,21 @@ export function listPolishes(filters: PolishFilters = {}): Promise<PolishListRes
   );
 }
 
+const LIST_ALL_PAGE_SIZE = 250;
+
+/** Every row of a filter set, walking the paged API (web: `listAllPolishes`). */
+export async function listAllPolishes(filters: Omit<PolishFilters, "page" | "pageSize"> = {}): Promise<Polish[]> {
+  const first = await listPolishes({ ...filters, page: 1, pageSize: LIST_ALL_PAGE_SIZE });
+  const totalPages = Math.ceil(first.total / LIST_ALL_PAGE_SIZE);
+  const rest = await Promise.all(
+    Array.from({ length: Math.max(0, totalPages - 1) }, (_, i) =>
+      listPolishes({ ...filters, page: i + 2, pageSize: LIST_ALL_PAGE_SIZE }),
+    ),
+  );
+  const byId = new Map([...first.polishes, ...rest.flatMap((page) => page.polishes)].map((p) => [p.id, p]));
+  return [...byId.values()];
+}
+
 /** One polish by shade id (the caller's inventory fields when they have a row). */
 export function getPolish(id: string | number): Promise<Polish> {
   return apiRequest<Polish>(`/polishes/${encodeURIComponent(String(id))}`);

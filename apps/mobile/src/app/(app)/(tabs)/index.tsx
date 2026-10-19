@@ -2,6 +2,7 @@ import { router } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, FlatList, RefreshControl, ScrollView, TextInput, View } from "react-native";
 import type { PolishFilters } from "swatchwatch-shared";
+import { HomePanel } from "@/components/home-panel";
 import { PolishRow } from "@/components/polish-row";
 import { AppText, Button, CenteredState, Chip, ErrorBanner } from "@/components/ui";
 import { COLLECTION_PRESETS, type CollectionPreset } from "@/lib/status";
@@ -26,10 +27,16 @@ export default function CollectionScreen() {
   }, [preset, debounced]);
 
   const list = usePagedPolishes(filters);
+  const [homeToken, setHomeToken] = useState(0);
+  const refreshAll = () => {
+    setHomeToken((n) => n + 1);
+    list.refresh();
+  };
 
-  return (
-    <View style={{ flex: 1 }}>
-      <View style={{ paddingTop: theme.spacing(3), gap: theme.spacing(3) }}>
+  const header = (
+    <View>
+      <HomePanel refreshToken={homeToken} />
+      <View style={{ gap: theme.spacing(3) }}>
         <View style={{ paddingHorizontal: theme.spacing(4) }}>
           <TextInput
             value={search}
@@ -68,50 +75,43 @@ export default function CollectionScreen() {
         )}
         {list.error && (
           <View style={{ paddingHorizontal: theme.spacing(4) }}>
-            <ErrorBanner message={list.error} onRetry={list.refresh} />
+            <ErrorBanner message={list.error} onRetry={refreshAll} />
           </View>
         )}
       </View>
-
-      {list.loading ? (
-        <CenteredState loading />
-      ) : (
-        <FlatList
-          data={list.items}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <PolishRow
-              polish={item}
-              onPress={() => router.push({ pathname: "/polishes/[id]", params: { id: item.id } })}
-            />
-          )}
-          ItemSeparatorComponent={() => (
-            <View style={{ height: 1, marginLeft: 84, backgroundColor: theme.colors.border }} />
-          )}
-          onEndReached={list.loadMore}
-          onEndReachedThreshold={0.5}
-          refreshControl={
-            <RefreshControl refreshing={list.refreshing} onRefresh={list.refresh} tintColor={theme.colors.primary} />
-          }
-          ListFooterComponent={
-            list.loadingMore ? <ActivityIndicator style={{ margin: theme.spacing(4) }} color={theme.colors.primary} /> : null
-          }
-          ListEmptyComponent={
-            list.error ? null : (
-              <CenteredState
-                title={debounced ? "No matches" : preset === "wishlist" ? "Your wishlist is empty" : "Nothing here yet"}
-                message={
-                  debounced
-                    ? `Nothing in this view matches “${debounced}”.`
-                    : "Scan a bottle on the Add tab or find shades in Search."
-                }
-                action={<Button title="Scan a bottle" variant="outline" onPress={() => router.navigate("/add")} />}
-              />
-            )
-          }
-          contentContainerStyle={list.items.length === 0 ? { flexGrow: 1 } : { paddingBottom: theme.spacing(6) }}
-        />
-      )}
     </View>
+  );
+
+  return (
+    <FlatList
+      data={list.items}
+      keyExtractor={(item) => item.id}
+      keyboardShouldPersistTaps="handled"
+      ListHeaderComponent={header}
+      renderItem={({ item }) => (
+        <PolishRow polish={item} onPress={() => router.push({ pathname: "/polishes/[id]", params: { id: item.id } })} />
+      )}
+      ItemSeparatorComponent={() => <View style={{ height: 1, marginLeft: 84, backgroundColor: theme.colors.border }} />}
+      onEndReached={list.loadMore}
+      onEndReachedThreshold={0.5}
+      refreshControl={<RefreshControl refreshing={list.refreshing} onRefresh={refreshAll} tintColor={theme.colors.primary} />}
+      ListFooterComponent={
+        list.loadingMore ? <ActivityIndicator style={{ margin: theme.spacing(4) }} color={theme.colors.primary} /> : null
+      }
+      ListEmptyComponent={
+        list.loading ? (
+          <CenteredState loading />
+        ) : list.error ? null : (
+          <CenteredState
+            title={debounced ? "No matches" : preset === "wishlist" ? "Your wishlist is empty" : "Nothing here yet"}
+            message={
+              debounced ? `Nothing in this view matches “${debounced}”.` : "Scan a bottle on the Add tab or find shades in Search."
+            }
+            action={<Button title="Scan a bottle" variant="outline" onPress={() => router.navigate("/add")} />}
+          />
+        )
+      }
+      contentContainerStyle={{ paddingBottom: theme.spacing(6) }}
+    />
   );
 }
