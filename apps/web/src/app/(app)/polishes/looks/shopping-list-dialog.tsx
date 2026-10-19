@@ -50,7 +50,7 @@ export function ShoppingListDialog({ look, onOpenChange, wishlisted, isPending, 
         </DialogHeader>
         <ul className="divide-y divide-border">
           {items.map((item) => {
-            const onList = item.shadeId !== null && wishlisted.has(item.shadeId);
+            const onList = item.polish?.status === "wishlist" || (item.shadeId !== null && wishlisted.has(item.shadeId));
             const busy = item.shadeId !== null && isPending(item.shadeId);
             return (
               <li key={`${item.role}-${item.label}`} className="space-y-1.5 py-3">

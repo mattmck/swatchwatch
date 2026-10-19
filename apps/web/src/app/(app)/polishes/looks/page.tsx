@@ -15,7 +15,7 @@ import { AddGuardDialog } from "@/components/add-guard-dialog";
 import { useAddGuard } from "@/hooks/use-add-guard";
 import { shadeGuardKey, wishlistInsteadUpdate } from "@/lib/add-guard";
 import { copyText } from "@/lib/clipboard";
-import { shoppingListText, type ShoppingItem } from "@/lib/looks-detail";
+import { lookShareText, shoppingListText, skinToneBackdrop, type ShoppingItem } from "@/lib/looks-detail";
 import { isOwnedPolish } from "@/lib/inventory-status";
 import {
   LOOK_COUNT,
@@ -43,7 +43,7 @@ import {
   writeLookList,
   type SavedLook,
 } from "@/lib/looks-saved";
-import { buildLooksQueryString, parseLooksState, type LooksState } from "@/lib/looks-url";
+import { buildLooksQueryString, lookShareUrl, parseLooksState, type LooksState } from "@/lib/looks-url";
 import { toLocalIsoDate } from "@/lib/mani-log";
 import { trackLooksGenerated, trackLooksWearClicked, type LooksTrigger } from "@/lib/metrics-events";
 import { TOPPER_FINISHES } from "@/lib/pick-for-me";
@@ -111,6 +111,8 @@ function LooksPageContent() {
   const [tab, setTab] = useState<"looks" | "saved">("looks");
   const [shoppingId, setShoppingId] = useState<string | null>(null);
   const [drawerId, setDrawerId] = useState<string | null>(null);
+  // Skin-tone preview: null = off, else 0 (cool) to 100 (warm). Cosmetic: only the swatch mat changes.
+  const [skinTone, setSkinTone] = useState<number | null>(null);
   const [wishlisted, setWishlisted] = useState<ReadonlySet<string>>(() => new Set());
   const { guardAdd, active: activeGuard, choose: chooseGuard, isChecking: isGuardChecking } = useAddGuard();
   const [wishlistBusy, setWishlistBusy] = useState<ReadonlySet<string>>(() => new Set());
@@ -317,6 +319,14 @@ function LooksPageContent() {
     });
   }
 
+  async function copyLook(look: Look) {
+    // The link carries the vibe + seed only: the recipient sees the same vibe built from their own collection.
+    const url = lookShareUrl(window.location.origin, window.location.pathname, { vibe, seed });
+    const ok = await copyText(lookShareText(look, vibe, url));
+    if (ok) toast.success("Look copied", { description: "Paste it into a message to share it." });
+    else toast.error("Couldn't copy", { description: "Your browser blocked clipboard access." });
+  }
+
   async function copyShoppingList(look: Look) {
     const ok = await copyText(shoppingListText(look));
     if (ok) toast.success("Shopping list copied");
@@ -451,6 +461,33 @@ function LooksPageContent() {
               </Notice>
             )}
 
+            {result && looks.length > 0 && (
+              <div className="flex flex-wrap items-center gap-3">
+                <ToggleChip
+                  pressed={skinTone !== null}
+                  onPressedChange={(on) => setSkinTone(on ? 50 : null)}
+                  className="rounded-full border border-border"
+                >
+                  Skin tone preview
+                </ToggleChip>
+                {skinTone !== null && (
+                  <label className="flex min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground">
+                    Cool
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={skinTone}
+                      onChange={(event) => setSkinTone(Number(event.target.value))}
+                      aria-label="Skin undertone, cool to warm"
+                      className="min-w-24 flex-1 accent-brand-purple"
+                    />
+                    Warm
+                  </label>
+                )}
+              </div>
+            )}
+
             {!result ? (
               <BrandSpinner label="Mixing your looks…" />
             ) : (
@@ -464,6 +501,8 @@ function LooksPageContent() {
                     onSave={() => void toggleSave(look)}
                   onShop={() => setShoppingId(look.templateId)}
                   onDetails={() => setDrawerId(look.templateId)}
+                    onShare={() => void copyLook(look)}
+                    backdrop={skinTone === null ? undefined : skinToneBackdrop(skinTone)}
                     onSwap={(role, polish) => swap(look, role, polish)}
                   />
                 ))}
