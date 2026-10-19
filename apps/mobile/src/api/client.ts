@@ -28,7 +28,7 @@ import type {
   PolishUpdateRequest,
 } from "swatchwatch-shared";
 import { API_BASE_URL } from "@/config/env";
-import { getAuthorizationHeader } from "@/auth/auth-token";
+import { getAuthorizationHeader, notifySessionExpired } from "@/auth/auth-token";
 
 export { API_BASE_URL };
 
@@ -65,8 +65,14 @@ interface RequestOptions {
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json" };
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
-  const authorization =
-    options.authorization ?? (options.auth === false ? null : await getAuthorizationHeader());
+  let authorization: string | null = options.authorization ?? null;
+  if (authorization === null && options.auth !== false) {
+    try {
+      authorization = await getAuthorizationHeader();
+    } catch {
+      throw new ApiError(0, "Couldn't renew your sign-in. Check your connection and try again.");
+    }
+  }
   if (authorization) headers.Authorization = authorization;
 
   const controller = new AbortController();
@@ -90,6 +96,10 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 
   if (response.status === 204) return undefined as T;
+  if (response.status === 401 && options.auth !== false && options.authorization === undefined) {
+    // The session's token was refused: send the user back to sign-in.
+    notifySessionExpired();
+  }
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
     throw new ApiError(response.status, body?.error || body?.message || `Request failed (${response.status})`, body);

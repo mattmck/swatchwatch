@@ -25,6 +25,7 @@ import {
   isExpired,
   refreshTokens,
   setDevSignedIn,
+  setSessionExpiredHandler,
   setTokens,
   tokensFromResponse,
 } from "./auth-token";
@@ -154,6 +155,15 @@ function DevBypassAuthProvider({ children }: { children: ReactNode }) {
     await clearStoredAuth();
     setStatus("signedOut");
   }, []);
+
+  // A 401 from the API: the local host lost dev bypass or the user; back to sign-in.
+  useEffect(() => {
+    setSessionExpiredHandler(() => {
+      setError("The API stopped accepting the dev session. Sign in again.");
+      void signOut();
+    });
+    return () => setSessionExpiredHandler(null);
+  }, [signOut]);
 
   const value = useMemo<AuthContextValue>(
     () => ({ mode: "dev-bypass", status, user, error, busy, signIn, signOut }),
@@ -295,6 +305,18 @@ function EntraAuthProvider({ settings, children }: { settings: EntraSettings; ch
       await WebBrowser.openAuthSessionAsync(`${endSession}?${params.toString()}`, redirectUri).catch(() => undefined);
     }
   }, [redirectUri]);
+
+  // Refresh token rejected or a 401 mid-session: clear it and return to sign-in.
+  useEffect(() => {
+    setSessionExpiredHandler(() => {
+      setTokens(null);
+      setUser(null);
+      setError("Your session expired. Sign in again.");
+      setStatus("signedOut");
+      void clearStoredAuth();
+    });
+    return () => setSessionExpiredHandler(null);
+  }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({ mode: "entra", status, user, error, busy, signIn, signOut }),

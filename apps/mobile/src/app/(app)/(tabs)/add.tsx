@@ -87,6 +87,8 @@ export default function RapidAddScreen() {
   const sessionPromise = useRef<Promise<string> | null>(null);
   const captureIdRef = useRef<string | null>(null);
   const barcodeLock = useRef(false);
+  /** Bumped by "Scan next": async work from an earlier scan must not touch the new one. */
+  const scanGeneration = useRef(0);
   const hintsRef = useRef({ brand: "", shadeName: "" });
 
   useFocusEffect(
@@ -98,17 +100,24 @@ export default function RapidAddScreen() {
 
   const ensureSession = useCallback((scanned: ScannedBarcode | null): Promise<string> => {
     if (!sessionPromise.current) {
-      sessionPromise.current = startCapture({ metadata: buildStartMetadata({ barcode: scanned, hints: hintsRef.current }) }).then(
+      // Only the current scan's promise may write the refs: "Scan next" can replace it while
+      // an older start request is still in flight.
+      const promise: Promise<string> = startCapture({
+        metadata: buildStartMetadata({ barcode: scanned, hints: hintsRef.current }),
+      }).then(
         (started) => {
-          captureIdRef.current = started.captureId;
-          setSessionStarted(true);
+          if (sessionPromise.current === promise) {
+            captureIdRef.current = started.captureId;
+            setSessionStarted(true);
+          }
           return started.captureId;
         },
         (err: unknown) => {
-          sessionPromise.current = null;
+          if (sessionPromise.current === promise) sessionPromise.current = null;
           throw err;
         },
       );
+      sessionPromise.current = promise;
     }
     return sessionPromise.current;
   }, []);
@@ -116,9 +125,12 @@ export default function RapidAddScreen() {
   /** Upload one frame; transient failures retry automatically, then it waits for a manual Retry. */
   const uploadFrame = useCallback(
     async (frame: Pick<CaptureFrameEntry, "localId" | "frameType" | "dataUrl" | "quality">, scanned: ScannedBarcode | null) => {
+      const generation = scanGeneration.current;
       for (let attempt = 0; ; attempt += 1) {
+        if (generation !== scanGeneration.current) return;
         try {
           const captureId = await ensureSession(scanned);
+          if (generation !== scanGeneration.current) return;
           const res = await addCaptureFrame(captureId, {
             frameType: frame.frameType,
             imageBlobUrl: frame.dataUrl,
@@ -129,6 +141,7 @@ export default function RapidAddScreen() {
         } catch (err) {
           const status = err instanceof ApiError ? err.status : 0;
           const delay = UPLOAD_RETRY_DELAYS_MS[attempt];
+          if (generation !== scanGeneration.current) return;
           if (delay !== undefined && isRetryableStatus(status)) {
             await wait(delay);
             continue;
@@ -160,19 +173,22 @@ export default function RapidAddScreen() {
         }),
       };
       dispatchFrames({ type: "added", frame });
-      void uploadFrame(frame, input.scanned);
+      // Wrapped so callers can await the photo being queued without waiting for the upload.
+      return { upload: uploadFrame(frame, input.scanned) };
     },
     [uploadFrame],
   );
 
   const runCheck = useCallback(
     async (scanned: ScannedBarcode | null) => {
+      const generation = scanGeneration.current;
       setBusy("checking");
       setError(null);
       try {
         const captureId = await ensureSession(scanned);
         const res = await checkCapture(captureId);
         const next = await enrich(deriveVerdict(res, scanned?.gtin));
+        if (generation !== scanGeneration.current) return;
         setVerdict(next);
         void Haptics.notificationAsync(
           next.kind === "owned" || next.kind === "near-dupe"
@@ -180,27 +196,30 @@ export default function RapidAddScreen() {
             : Haptics.NotificationFeedbackType.Success,
         ).catch(() => undefined);
       } catch (err) {
-        setError(errorMessage(err, "Matching failed. Try again."));
+        if (generation === scanGeneration.current) setError(errorMessage(err, "Matching failed. Try again."));
       } finally {
-        setBusy(null);
+        if (generation === scanGeneration.current) setBusy(null);
       }
     },
     [ensureSession],
   );
 
   const takeFrame = useCallback(
-    async (type: CaptureFrameType, scanned: ScannedBarcode | null) => {
+    /** Resolves once the photo is taken and its upload has finished (or failed). */
+    async (type: CaptureFrameType, scanned: ScannedBarcode | null): Promise<void> => {
       const camera = cameraRef.current;
       if (!camera) return;
       setBusy((b) => b ?? "capturing");
+      let upload: Promise<void> = Promise.resolve();
       try {
         const picture = await camera.takePictureAsync({ quality: 0.8, shutterSound: false });
-        await addFrame({ uri: picture.uri, width: picture.width, height: picture.height, type, source: "mobile-camera", scanned });
+        ({ upload } = await addFrame({ uri: picture.uri, width: picture.width, height: picture.height, type, source: "mobile-camera", scanned }));
       } catch (err) {
         setError(errorMessage(err, "Couldn't take the photo."));
       } finally {
         setBusy((b) => (b === "capturing" ? null : b));
       }
+      await upload;
     },
     [addFrame],
   );
@@ -213,9 +232,16 @@ export default function RapidAddScreen() {
       barcodeLock.current = true;
       setBarcode(scanned);
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
-      // The GTIN alone usually resolves; the photo is kept as evidence for the resolver.
-      void takeFrame("barcode", scanned);
-      void runCheck(scanned);
+      if (sessionPromise.current) {
+        // A session already exists (started by an earlier photo) without this GTIN: it only
+        // reaches the resolver through the barcode frame's quality, so check after that upload.
+        void takeFrame("barcode", scanned).then(() => runCheck(scanned));
+      } else {
+        // A new session carries the GTIN in its start metadata, so check right away; the
+        // photo is uploaded alongside as evidence for the resolver.
+        void takeFrame("barcode", scanned);
+        void runCheck(scanned);
+      }
     },
     [runCheck, takeFrame],
   );
@@ -290,6 +316,7 @@ export default function RapidAddScreen() {
   }
 
   function scanNext() {
+    scanGeneration.current += 1;
     sessionPromise.current = null;
     captureIdRef.current = null;
     barcodeLock.current = false;

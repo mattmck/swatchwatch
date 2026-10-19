@@ -1,4 +1,4 @@
-import { refreshAsync, type TokenResponse } from "expo-auth-session";
+import { refreshAsync, TokenError, type TokenResponse } from "expo-auth-session";
 import { AUTH_MODE, DEV_USER_ID } from "@/config/env";
 import { saveStoredAuth, type StoredTokens } from "./token-store";
 
@@ -18,6 +18,17 @@ let tokens: StoredTokens | null = null;
 let refreshConfig: RefreshConfig | null = null;
 let refreshing: Promise<StoredTokens | null> | null = null;
 let devSignedIn = false;
+let sessionExpiredHandler: (() => void) | null = null;
+
+/** The auth provider registers this to send the user back to sign-in. */
+export function setSessionExpiredHandler(handler: (() => void) | null): void {
+  sessionExpiredHandler = handler;
+}
+
+/** The session can't be used any more (refresh token rejected, or the API answered 401). */
+export function notifySessionExpired(): void {
+  sessionExpiredHandler?.();
+}
 
 /** Refresh this many seconds before expiry so a request never carries a stale token. */
 const EXPIRY_SKEW_SECONDS = 60;
@@ -49,7 +60,11 @@ export function isExpired(stored: StoredTokens, nowSeconds = Date.now() / 1000):
   return stored.expiresAt !== undefined && stored.expiresAt - EXPIRY_SKEW_SECONDS <= nowSeconds;
 }
 
-/** Refresh the access token with the stored refresh token (single flight). */
+/**
+ * Refresh the access token with the stored refresh token (single flight). Resolves null when
+ * the token endpoint rejects the refresh token (e.g. `invalid_grant`: the session is over);
+ * rejects on network/transport errors so a temporary outage never discards a valid session.
+ */
 export async function refreshTokens(): Promise<StoredTokens | null> {
   const current = tokens;
   const config = refreshConfig;
@@ -70,7 +85,13 @@ export async function refreshTokens(): Promise<StoredTokens | null> {
         await saveStoredAuth({ mode: "entra", tokens: next });
         return next;
       })
-      .catch(() => null)
+      .catch((error: unknown) => {
+        if (error instanceof TokenError) {
+          tokens = null;
+          return null;
+        }
+        throw error;
+      })
       .finally(() => {
         refreshing = null;
       });
@@ -89,6 +110,7 @@ export async function getAuthorizationHeader(): Promise<string | null> {
   let current = tokens;
   if (current && isExpired(current)) {
     current = (await refreshTokens()) ?? null;
+    if (!current) notifySessionExpired();
   }
   return current ? `Bearer ${current.accessToken}` : null;
 }

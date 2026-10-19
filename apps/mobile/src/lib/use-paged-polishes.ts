@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Polish, PolishFilters } from "swatchwatch-shared";
 import { errorMessage, listPolishes } from "@/api/client";
 
@@ -36,13 +36,18 @@ export function usePagedPolishes(filters: PolishFilters): PagedPolishes {
   const [failed, setFailed] = useState<{ key: string; message: string } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  /**
+   * Request generation: bumped on every filter change and refresh. A response from an older
+   * generation is dropped, so a slow "load more" can never land on a newer list (skipping
+   * pages after a refresh, or replacing the rows of a newer filter set).
+   */
+  const generation = useRef(0);
 
-  /** Fetch one page and merge it; `isStale` drops answers for a filter set no longer shown. */
   const fetchPage = useCallback(
-    (forKey: string, page: number, isStale: () => boolean = () => false): Promise<void> =>
+    (forKey: string, page: number, requestGeneration: number): Promise<void> =>
       listPolishes({ ...(JSON.parse(forKey) as PolishFilters), page, pageSize: PAGE_SIZE }).then(
         (res) => {
-          if (isStale()) return;
+          if (requestGeneration !== generation.current) return;
           setLoaded((prev) => {
             if (page === 1 || !prev || prev.key !== forKey) {
               return { key: forKey, items: res.polishes, total: res.total, page };
@@ -58,18 +63,17 @@ export function usePagedPolishes(filters: PolishFilters): PagedPolishes {
           setFailed(null);
         },
         (err: unknown) => {
-          if (!isStale()) setFailed({ key: forKey, message: errorMessage(err, "Couldn't load your polishes.") });
+          if (requestGeneration === generation.current) {
+            setFailed({ key: forKey, message: errorMessage(err, "Couldn't load your polishes.") });
+          }
         },
       ),
     [],
   );
 
   useEffect(() => {
-    let stale = false;
-    void fetchPage(key, 1, () => stale);
-    return () => {
-      stale = true;
-    };
+    generation.current += 1;
+    void fetchPage(key, 1, generation.current);
   }, [fetchPage, key]);
 
   const current = loaded?.key === key ? loaded : null;
@@ -80,14 +84,20 @@ export function usePagedPolishes(filters: PolishFilters): PagedPolishes {
   const loading = !current && !error;
 
   const refresh = useCallback(() => {
+    // A new generation also cancels an in-flight "load more".
+    generation.current += 1;
     setRefreshing(true);
-    void fetchPage(key, 1).finally(() => setRefreshing(false));
+    setLoadingMore(false);
+    void fetchPage(key, 1, generation.current).finally(() => setRefreshing(false));
   }, [fetchPage, key]);
 
   const loadMore = useCallback(() => {
     if (!current || loadingMore || refreshing || !hasMore) return;
+    const requestGeneration = generation.current;
     setLoadingMore(true);
-    void fetchPage(key, current.page + 1).finally(() => setLoadingMore(false));
+    void fetchPage(key, current.page + 1, requestGeneration).finally(() => {
+      if (requestGeneration === generation.current) setLoadingMore(false);
+    });
   }, [current, fetchPage, hasMore, key, loadingMore, refreshing]);
 
   const replace = useCallback((polish: Polish) => {
