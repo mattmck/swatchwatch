@@ -165,6 +165,19 @@ describe("lib/product-category — classifyIngestedProduct (connector gate)", ()
     assert.equal(gate("Glossy", "Top Coat").accept, true);
   });
 
+  it("keeps the June (#184) tag blocklist as a reject-only gate rule", () => {
+    // "Nail Art" + a stamping-plate tag + a polish tag was rejected before; it still is.
+    const result = gate("Witchy Vibes", "Nail Art", ["stamping-plate", "nail-polish"]);
+    assert.equal(result.accept, false);
+    assert.equal(result.category, "accessory");
+    assert.equal(result.evidence, "legacy-tag");
+    assert.equal(gate("Fun Set", "Nail Care", ["nail-kit", "nail-polish"]).accept, false);
+    // ...but not for coat/treatment words, which are ingested now (D-E).
+    assert.equal(gate("Bond Base", "Nail Polish", ["bond", "primer"]).accept, true);
+    // ...and Holo Taco's magnetic-wand tag is not on it.
+    assert.equal(gate("Holo Magnetic Taco", "Nail Polish", ["magnetic-wand", "nail-polish", "toppers"]).accept, true);
+  });
+
   it("hasPolishSignal matches the legacy polish words in product type and tags only", () => {
     assert.equal(hasPolishSignal("Nail Lacquers", []), true);
     assert.equal(hasPolishSignal(null, ["nailpolish"]), true);

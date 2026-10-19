@@ -17,6 +17,7 @@ import {
 } from "./types.js";
 import { detectHexFromColorName, stripHtmlToText } from "./color-name-detection.js";
 import { shopifyProductText } from "../product-text.js";
+import { classifyIngestedProduct } from "../product-category";
 
 const REQUEST_TIMEOUT_MS = parseIntEnv(
   process.env.SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS,
@@ -377,52 +378,17 @@ function extractTaggedValues(tags: string[], prefix: string): string[] {
     .filter(Boolean);
 }
 
-const NON_POLISH_KEYWORDS = [
-  "stamp",
-  "plate",
-  "brush",
-  "tool",
-  "file",
-  "buffer",
-  "lamp",
-  "decal",
-  "sticker",
-  "kit",
-  "remover",
-  "wipe",
-  "cuticle",
-  "treatment",
-  "primer",
-  "dehydrator",
-  "bond",
-];
-
-const POLISH_SIGNAL_REGEX = /\b(?:nail\s*)?(?:polish(?:es)?|lacquers?|varnish(?:es)?|enamels?)\b/;
-const NON_POLISH_REGEX = new RegExp(`\\b(?:${NON_POLISH_KEYWORDS.join("|")})(?:s|es)?\\b`);
-
 /**
- * Classifies whether a Shopify product is a nail polish based on its
- * `product_type` and tags. Returns true only when at least one polish signal
- * (`nail polish`, `polish`, `lacquer`, `varnish`, `enamel`, or their plurals
- * such as `Nail Polishes`/`lacquers`) is present AND no
- * non-polish keyword (stamp, plate, brush, tool, file, buffer, lamp, decal,
- * sticker, kit, remover, wipe, cuticle, treatment, primer, dehydrator, bond)
- * appears.
- *
- * Inputs are matched case-insensitively. Tag separators `_` and `-` are
- * normalized to spaces so `nail-polish`/`nail_polish` are recognized; the
- * polish-signal regex also matches the concatenated form `nailpolish` via
- * `\s*`. Only plural forms are accepted as inflections (`polishes`, not
- * `polished`). All matching uses word boundaries to avoid substring false positives
- * (e.g., `kit` won't match inside an unrelated word).
+ * Whether a Shopify product is ingested: the shared connector gate (`classifyIngestedProduct` in
+ * lib/product-category.ts, #347/#349). Accessories (tools, stamping plates, charms, magnets, ... in
+ * the title or product type, explicit tool type tags, or the June tag blocklist) are rejected;
+ * color polishes need a polish signal (`nail polish`, `polish`, `lacquer`, `varnish`, `enamel` and
+ * plurals) in the product type or tags; toppers, top/base coats and treatments are accepted with
+ * their category even without one (D-E). Matching is case-insensitive, `_`/`-` count as spaces,
+ * and words match whole (`polished` is not a polish signal).
  */
-export function isNailPolish(productType: string | null, tags: string[]): boolean {
-  const haystack = [productType ?? "", ...tags].join(" ").toLowerCase();
-  const normalizedHaystack = haystack.replace(/[_-]+/g, " ");
-  if (NON_POLISH_REGEX.test(normalizedHaystack)) {
-    return false;
-  }
-  return POLISH_SIGNAL_REGEX.test(normalizedHaystack);
+export function isNailPolish(productType: string | null, tags: string[], title?: string | null): boolean {
+  return classifyIngestedProduct({ title, productType, tags }).accept;
 }
 
 /**
@@ -805,8 +771,9 @@ async function toNormalizedRecord(
   const tags = normalizeTags(product.tags);
   const productType = asNonEmptyString(product.product_type);
 
-  // Skip non-nail products
-  if (!isNailPolish(productType, tags) || isBundle(tags)) {
+  // Skip accessories, non-nail products and bundles; keep coats/toppers with their category (#347).
+  const gate = classifyIngestedProduct({ title: asNonEmptyString(product.title), productType, tags });
+  if (!gate.accept || isBundle(tags)) {
     return null;
   }
 
@@ -875,6 +842,8 @@ async function toNormalizedRecord(
       name,
       handle,
       productType,
+      // Connector-gate category (#349); materialization re-classifies with the shade's finishes.
+      productCategory: gate.category,
       collections,
       finishes,
       tags,

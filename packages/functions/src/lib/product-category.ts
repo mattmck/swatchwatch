@@ -27,7 +27,7 @@
 import type { ProductCategory } from "swatchwatch-shared";
 
 /** Which signal decided the category; null for the `color` default. */
-export type ProductCategoryEvidence = "text" | "type-tag" | "finish" | "tag" | null;
+export type ProductCategoryEvidence = "text" | "type-tag" | "finish" | "tag" | "legacy-tag" | null;
 
 export interface ProductCategoryResult {
   category: ProductCategory;
@@ -57,6 +57,14 @@ const TOPPER_REGEX = /\btoppers?\b/;
 const BASE_COAT_REGEX = /\b(?:base ?coats?|basecoats?|ridge filler|primer|bonder|bond)\b/;
 const TOP_COAT_REGEX = /\b(?:top ?coats?|topcoats?|sealer|sealant|quick ?dry top)\b/;
 const TREATMENT_REGEX = /\b(?:treatments?|strengthener|hardener|cuticle oil|cuticle|growth serum)\b/;
+
+/**
+ * The June (#183/#184) connector tag blocklist minus the coat/treatment words (cuticle, treatment,
+ * primer, bond), which are ingested now (D-E). Connector gate only: it rejects, it never classifies
+ * a stored shade, so the backfill and the audit query do not use it.
+ */
+const LEGACY_TAG_BLOCKLIST_REGEX =
+  /\b(?:stamp|plate|brush|tool|file|buffer|lamp|decal|sticker|kit|remover|wipe|dehydrator)(?:s|es)?\b/;
 
 /** The legacy polish signal (nail polish / lacquer / varnish / enamel), from `isNailPolish`. */
 const POLISH_SIGNAL_REGEX = /\b(?:nail\s*)?(?:polish(?:es)?|lacquers?|varnish(?:es)?|enamels?)\b/;
@@ -131,8 +139,9 @@ export interface IngestedProductClassification extends ProductCategoryResult {
 
 /**
  * Connector gate (#347): classify one source product and decide whether to ingest it. Accessories
- * are always skipped. A product is ingested when its type or tags carry a polish signal, or when it
- * is a topper, coat or treatment (base coats are often typed "Base Coat" with no polish word; D-E).
+ * are always skipped, and so is a product whose tags hit the June tag blocklist (`legacy-tag`).
+ * Otherwise a product is ingested when its type or tags carry a polish signal, or when it is a
+ * topper, coat or treatment (base coats are often typed "Base Coat" with no polish word; D-E).
  */
 export function classifyIngestedProduct(input: IngestedProductInput): IngestedProductClassification {
   const tags = (input.tags ?? []).filter((tag): tag is string => typeof tag === "string");
@@ -141,6 +150,10 @@ export function classifyIngestedProduct(input: IngestedProductInput): IngestedPr
     finishes: input.finishes,
     products: [{ productType: input.productType, tags }],
   });
+  const tagText = tags.join(" ").toLowerCase().replace(/[_-]+/g, " ");
+  if (result.category !== "accessory" && LEGACY_TAG_BLOCKLIST_REGEX.test(tagText)) {
+    return { category: "accessory", evidence: "legacy-tag", accept: false };
+  }
   const accept =
     result.category !== "accessory" &&
     (result.category !== "color" || hasPolishSignal(input.productType, tags));
