@@ -4,6 +4,10 @@
 **Author:** Codex (with Matt)  
 **Context:** Preserve existing search while adding a new, goal-driven "Looks" experience that recommends nail combos using owned shades first, then suggests purchases to complete the look.
 
+## Status (2026-10-18)
+
+The MVP shipped client-side instead of behind `GET /api/looks` (the same approach as "Pick for me"): `/polishes/looks` (`apps/web/src/app/(app)/polishes/looks/`), with the recommender in `apps/web/src/lib/looks.ts` (pure, seeded, unit-tested; its header documents the rules), URL state in `lib/looks-url.ts`, browser-local saved looks in `lib/looks-saved.ts`, and telemetry `looks.generated` / `looks.wear_clicked` (`docs/observability-plan.md`). Not built yet: the server endpoint and `user_look` persistence, skin-tone / nail-shape inputs, the `Include toppers` and `Advanced / Color Lab` toggles, Share, the shopping-list modal with prices, the detail drawer, and a feature flag (the page is linked from the sidebar and the dashboard "Pick for me" card). The sections below are the original plan.
+
 ## 1) Intent & Success Criteria
 - Answer one question fast: *“What combo will make my nails look awesome for my vibe, and what do I need to buy to finish it?”*
 - Keep existing search/color-lab for power users; do not regress it.

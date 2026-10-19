@@ -124,6 +124,10 @@ Roadmap §4 (`docs/roadmap-2026-10-to-12.md`) metrics are measured two ways (dec
 | `dupe.warning_outcome` | the user answers the dialog | the same, plus `outcome` = `cancel` / `wishlist_instead` / `add_anyway`, `via` (`button` / `dismiss` / `dupe_link`), `suppressed` |
 | `mani.logged` | a new mani is saved (not edits) | `polishCount`, `via` (`quick` = one-tap button, `form`) |
 | `import.completed` | a CSV import commits (a retried commit of the same session is not counted again) | `rowsCommitted` (= `created` + `updated`), `created`, `updated`, `skipped`, `failed`, `shadesCreated` |
+| `looks.generated` | `/polishes/looks` shows a set of looks: first render, a vibe change, or Shuffle (once per URL state, after any catalog gap fill) | `occasion`, `mood`, `finish` (`any` when unset), `ownedOnly`, `trigger` (`vibe` / `shuffle`), `lookCount`, `ownedSteps`, `missingSteps`, `fullyOwnedLooks`, `ownedCount` (owned polishes considered), `shortfall` (fewer than 3 looks fit), `templates` (comma list of look template ids, e.g. `french-modern`) |
+| `looks.wear_clicked` | "Wear this" on a look card (opens the mani-log dialog prefilled with its owned polishes and roles; a saved mani still emits `mani.logged`) | `template`, `position` (0-based card), `ownedSteps`, `missingSteps`, `swapped` (any step swapped first) |
+
+The two `looks.*` events back the Looks plan's success metrics (`docs/looks-experience-plan.md` §1): owned-only completion (`fullyOwnedLooks` / `lookCount`), drop-off after a vibe (generated without a later `wear_clicked`), and repeat use. Time-to-first-look is not measured yet.
 
 These replace the add guard's earlier `add_guard.shown` / `add_guard.choice` events; `add_guard.check_failed` stays. Rapid Add has no near-dupe verdict yet (the #265 extension point in `lib/capture-verdict.ts`), so `surface = rapid_add` is reserved: the verdict card should call `trackDupeWarningShown` / `trackDupeWarningOutcome` when it gains one.
 
