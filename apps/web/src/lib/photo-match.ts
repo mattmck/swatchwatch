@@ -4,6 +4,8 @@ import type {
   MatchConfidence,
   MatchScope,
   PaletteColorKind,
+  Polish,
+  PolishImageMatchResponse,
   PolishMatch,
 } from "swatchwatch-shared";
 import { classifyPaletteColor } from "swatchwatch-shared";
@@ -202,4 +204,56 @@ export function matchEmptyReason(input: {
   if (input.activeColorCount === 0) return "no-active-colors";
   if (input.matches.length > 0 && input.matches.every((match) => match.confidence === "low")) return "only-loose";
   return null;
+}
+
+/**
+ * Replace polish `id` in every list of a response (flat matches and each color group). With
+ * `expected`, a row is only replaced while it is still that exact object, so an older request
+ * settling cannot overwrite a newer optimistic change (same rule as `commitOptimistic`).
+ */
+export function replacePolishInResponse(
+  response: PolishImageMatchResponse,
+  id: string,
+  next: Polish,
+  expected?: Polish
+): PolishImageMatchResponse {
+  let changed = false;
+  const patch = (list: PolishMatch[]) =>
+    list.map((match) => {
+      if (match.polish.id !== id || (expected && match.polish !== expected)) return match;
+      changed = true;
+      return { ...match, polish: next };
+    });
+  const matches = patch(response.matches);
+  const colorMatches = response.colorMatches.map((group) => ({ ...group, matches: patch(group.matches) }));
+  return changed ? { ...response, matches, colorMatches } : response;
+}
+
+/** The first copy of polish `id` in a response (all copies are the same object after a replace). */
+export function findPolishInResponse(response: PolishImageMatchResponse, id: string): Polish | null {
+  for (const match of response.matches) if (match.polish.id === id) return match.polish;
+  for (const group of response.colorMatches) {
+    for (const match of group.matches) if (match.polish.id === id) return match.polish;
+  }
+  return null;
+}
+
+/**
+ * Hydrate a response so every copy of the same polish is one shared object (the API sends a
+ * separate copy per list). Lets optimistic updates compare rows by identity.
+ */
+export function shareResponsePolishes(response: PolishImageMatchResponse): PolishImageMatchResponse {
+  const byId = new Map<string, Polish>();
+  const share = (list: PolishMatch[]) =>
+    list.map((match) => {
+      const existing = byId.get(match.polish.id);
+      if (existing) return { ...match, polish: existing };
+      byId.set(match.polish.id, match.polish);
+      return match;
+    });
+  return {
+    ...response,
+    matches: share(response.matches),
+    colorMatches: (response.colorMatches ?? []).map((group) => ({ ...group, matches: share(group.matches) })),
+  };
 }

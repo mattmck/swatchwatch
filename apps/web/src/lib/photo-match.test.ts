@@ -12,7 +12,10 @@ import {
   normalizePaletteHex,
   paletteChipState,
   paletteColorKind,
+  findPolishInResponse,
   rankFlatMatches,
+  replacePolishInResponse,
+  shareResponsePolishes,
   togglePaletteColor,
 } from "./photo-match";
 
@@ -154,5 +157,35 @@ describe("photo-match: empty state reason", () => {
     assert.equal(matchEmptyReason({ ...base, activeColorCount: 0 }), "no-active-colors");
     assert.equal(matchEmptyReason({ ...base, matches: [match("a", RED, 0.3, "low")] }), "only-loose");
     assert.equal(matchEmptyReason(base), null);
+  });
+});
+
+describe("photo-match: response updates", () => {
+  function response() {
+    return shareResponsePolishes({
+      extractedColors: [{ hex: RED, fraction: 1, kind: "color" }],
+      matches: [match("a", RED, 0.01), match("b", RED, 0.02)],
+      colorMatches: [{ hex: RED, matches: [match("a", RED, 0.01)] }],
+      candidateCount: 2,
+      scope: "catalog",
+    });
+  }
+
+  it("shares one polish object per id across lists", () => {
+    const shared = response();
+    assert.equal(shared.matches[0].polish, shared.colorMatches[0].matches[0].polish);
+  });
+
+  it("replaces a polish everywhere, and only while it is still the expected object", () => {
+    const shared = response();
+    const original = findPolishInResponse(shared, "a");
+    assert.ok(original);
+    const optimistic = { ...original, status: "wishlist" as const };
+    const next = replacePolishInResponse(shared, "a", optimistic, original);
+    assert.equal(next.matches[0].polish.status, "wishlist");
+    assert.equal(next.colorMatches[0].matches[0].polish, optimistic);
+    // A stale settle (expected = the old object) leaves the newer row alone.
+    assert.equal(replacePolishInResponse(next, "a", original, original), next);
+    assert.equal(findPolishInResponse(next, "zzz"), null);
   });
 });
