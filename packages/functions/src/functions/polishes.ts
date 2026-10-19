@@ -36,6 +36,7 @@ import { trackEvent, trackException } from "../lib/telemetry";
 import { deleteNailPhotoBlobs, detachNailPhotosForShade } from "../lib/nail-photos";
 import { invalidateAllCollectionStats, invalidatePolishCachesForUser } from "../lib/polish-cache";
 import { recomputeWearStats } from "../lib/manicure";
+import { normalizeGtin, rememberUserShadeBarcode, type NormalizedGtin } from "../lib/barcodes";
 import {
   extractImagePalette,
   MatchImageInputError,
@@ -1109,6 +1110,16 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       }
     }
 
+    // Rapid Add's unknown-barcode path sends the scanned code along (#21): remembered for the
+    // caller only, never written to the shared catalog.
+    let scannedBarcode: NormalizedGtin | null = null;
+    if (body.barcode !== undefined && body.barcode !== null && body.barcode !== "") {
+      scannedBarcode = normalizeGtin(body.barcode, body.barcodeFormat);
+      if (!scannedBarcode) {
+        return { status: 400, jsonBody: { error: "barcode must be a valid EAN/UPC barcode" } };
+      }
+    }
+
     const finishUpdate = requestCarriesFinishData(body)
       ? resolveRequestedFinishes(body, await loadFinishCatalog())
       : undefined;
@@ -1142,6 +1153,9 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       await upsertInventoryItem(client, userId, resolvedShadeId, body, inventoryFields);
       // A re-added polish picks its wear stats back up from the mani log (#269).
       await recomputeWearStats(client, userId, [resolvedShadeId], { fillTriedAt: false });
+      if (scannedBarcode) {
+        await rememberUserShadeBarcode(client, { userId, shadeId: resolvedShadeId, gtin: scannedBarcode });
+      }
 
       return { shadeId: resolvedShadeId };
     });

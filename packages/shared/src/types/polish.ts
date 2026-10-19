@@ -200,6 +200,15 @@ export interface PolishCreateRequest {
    */
   finishes?: FinishName[];
   collection?: string;
+  /**
+   * Create only: a barcode scanned in Rapid Add for this polish (EAN-13 / UPC-A / UPC-E /
+   * EAN-8, as decoded). Remembered on the resulting shade for the caller only, so their next
+   * scan of the bottle matches; never written to the shared catalog. 400 when not a valid
+   * GTIN. Ignored by PUT.
+   */
+  barcode?: string;
+  /** Decoder format of `barcode` (`ean_13`, `upc_a`, `upc_e`, `ean_8`), used to read 8-digit codes. */
+  barcodeFormat?: string;
   quantity?: number;
   /**
    * Inventory status. When omitted, a NEW inventory row is `owned` unless `quantity` is

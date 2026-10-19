@@ -41,6 +41,7 @@ import {
 import { readProductText } from "./product-text";
 import { PoolClient } from "pg";
 import { recordShadeSourceProduct } from "./buy-link";
+import { materializeProductBarcodes, type BarcodeConflict } from "./barcodes";
 import {
   fingerprintColumnsSql,
   fingerprintFromColumns,
@@ -115,6 +116,10 @@ export interface HoloTacoMaterializationMetrics {
   galleryNearDuplicatesSkipped: number;
   /** Additional images not linked because the product reached `GALLERY_MAX_IMAGES_PER_SHADE`. */
   galleryOverCapSkipped: number;
+  /** Catalog `barcode` rows newly linked (product GTIN + variant barcodes, #21). */
+  barcodesLinked: number;
+  /** GTINs skipped because another shade already owns them (each one is in the job log). */
+  barcodeConflicts: number;
   hexDetected: number;
   hexDetectionFailures: number;
   hexDetectionSkipped: number;
@@ -2338,6 +2343,12 @@ interface HoloTacoRecordMaterializationDelta {
   gallerySwatchesPruned: number;
   galleryNearDuplicatesSkipped: number;
   galleryOverCapSkipped: number;
+  /** The materialized shade (unset when the record was skipped). */
+  shadeId?: number;
+  /** Catalog barcodes newly linked to the shade (#21). */
+  barcodesLinked: number;
+  /** GTINs another shade already owns (kept by that shade; logged by the caller). */
+  barcodeConflicts: BarcodeConflict[];
   skipped: number;
 }
 
@@ -2363,6 +2374,8 @@ async function materializePreparedHoloTacoRecord(
     gallerySwatchesPruned: 0,
     galleryNearDuplicatesSkipped: 0,
     galleryOverCapSkipped: 0,
+    barcodesLinked: 0,
+    barcodeConflicts: [],
     skipped: 0,
   };
 
@@ -2447,6 +2460,11 @@ async function materializePreparedHoloTacoRecord(
 
   // Remember which product this shade came from (drives the "Buy from brand" link, #267).
   await recordShadeSourceProduct(client, shadeId, dataSourceId, record.externalId);
+  delta.shadeId = shadeId;
+  // Catalog barcodes (#21): the product GTIN and variant barcodes resolve scans to this shade.
+  const barcodeResult = await materializeProductBarcodes(client, { shadeId, dataSourceId, record });
+  delta.barcodesLinked += barcodeResult.inserted;
+  delta.barcodeConflicts.push(...barcodeResult.conflicts);
 
   const importNote = `Imported from ${sourceLogPrefix.replace(/[\[\]]/g, "")} external_id=${record.externalId}`;
   const vendorHex = holo.vendorHex;
@@ -2871,6 +2889,8 @@ export async function materializeHoloTacoRecords(
   let gallerySwatchesPruned = 0;
   let galleryNearDuplicatesSkipped = 0;
   let galleryOverCapSkipped = 0;
+  let barcodesLinked = 0;
+  let barcodeConflicts = 0;
   let skipped = 0;
 
   const brandCache = new Map<string, number>();
@@ -2913,6 +2933,20 @@ export async function materializeHoloTacoRecords(
       gallerySwatchesPruned += delta.gallerySwatchesPruned;
       galleryNearDuplicatesSkipped += delta.galleryNearDuplicatesSkipped;
       galleryOverCapSkipped += delta.galleryOverCapSkipped;
+      barcodesLinked += delta.barcodesLinked;
+      barcodeConflicts += delta.barcodeConflicts.length;
+      for (const conflict of delta.barcodeConflicts) {
+        // First shade wins: the GTIN stays where it is; an admin can move it if it is wrong.
+        options?.progressLogger?.warn(
+          `${sourceLogPrefix} Barcode ${conflict.gtin} of ${record.externalId} already belongs to shade ${conflict.existingShadeId}; kept there`,
+          {
+            externalId: record.externalId,
+            gtin: conflict.gtin,
+            shadeId: delta.shadeId,
+            existingShadeId: conflict.existingShadeId,
+          }
+        );
+      }
       skipped += delta.skipped;
       if (delta.skipped > 0) {
         options?.progressLogger?.warn(
@@ -2936,6 +2970,8 @@ export async function materializeHoloTacoRecords(
     gallerySwatchesPruned,
     galleryNearDuplicatesSkipped,
     galleryOverCapSkipped,
+    barcodesLinked,
+    barcodeConflicts,
     skipped,
   };
 
