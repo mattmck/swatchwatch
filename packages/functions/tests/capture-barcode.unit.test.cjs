@@ -134,6 +134,12 @@ async function fakeQuery(via, sql, params = []) {
     return { rows, rowCount: rows.length };
   }
 
+  if (/vendor_hex/i.test(norm) && /shade_id = ANY\(\$1::bigint\[\]\)/i.test(norm)) {
+    const rows = params[0]
+      .filter((id) => String(id) === String(SHADE_ID))
+      .map((id) => ({ shadeId: String(id), vendorHex: null, detectedHex: "#C1121F", nameHex: "#FF0000" }));
+    return { rows, rowCount: rows.length };
+  }
   if (/similarity\(/i.test(norm) && /FROM shade s/i.test(norm)) {
     return { rows: state.shadeCandidates, rowCount: state.shadeCandidates.length };
   }
@@ -344,6 +350,7 @@ describe("capture frame — decoded barcode evidence", () => {
     assert.equal(res.jsonBody.check.outcome, "matched");
     assert.equal(res.jsonBody.check.match.entityId, String(SKU_ID));
     assert.deepEqual(res.jsonBody.check.match.ownership, { relationship: "notOwned" });
+    assert.equal(res.jsonBody.check.match.hex, "#C1121F", "display hex (vendor > detected > name) for the swatch");
   });
 
   it("reports an unknown barcode as unmatched without OCR", async () => {

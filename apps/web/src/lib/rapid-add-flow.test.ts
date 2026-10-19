@@ -12,6 +12,7 @@ import {
   INITIAL_SESSION_STATE,
   MAX_CAPTURE_FRAMES,
   rapidAddPhase,
+  scanBadge,
   sessionReducer,
   summarizeFrames,
   type CaptureFrameEntry,
@@ -249,5 +250,49 @@ describe("buildQuestionView", () => {
   it("renders candidates with readable labels and the raw value as the answer", () => {
     const view = buildQuestionView(question({ options: ["42: OPI — Big Apple Red", "skip"] }));
     assert.deepEqual(view.choices, [{ kind: "answer", label: "OPI — Big Apple Red", value: "42: OPI — Big Apple Red" }]);
+  });
+});
+
+describe("barcode check flow", () => {
+  const started: RapidAddSessionState = {
+    ...INITIAL_SESSION_STATE,
+    captureId: "c1",
+    status: "processing",
+    barcode,
+  };
+
+  it("shows the barcode as read (✓) while the server is checking, then plainly read", () => {
+    assert.equal(scanBadge(INITIAL_SESSION_STATE), null);
+    assert.deepEqual(scanBadge({ ...started, busy: "checking" }), { gtin: barcode.gtin, checking: true });
+    assert.deepEqual(scanBadge(started), { gtin: barcode.gtin, checking: false });
+  });
+
+  it("a check verdict is shown while the session stays open (nothing finalized)", () => {
+    const state = sessionReducer(
+      { ...started, busy: "checking" },
+      { type: "verdict_resolved", verdict: { kind: "unknown_barcode", gtin: barcode.gtin } },
+    );
+    assert.equal(rapidAddPhase(state), "verdict");
+    assert.equal(state.status, "processing");
+    assert.equal(state.busy, null);
+  });
+
+  it("'Photograph the label' leaves the verdict and keeps the session and barcode for the label frame", () => {
+    const withVerdict = sessionReducer(started, {
+      type: "verdict_resolved",
+      verdict: { kind: "unknown_barcode", gtin: barcode.gtin },
+    });
+    const next = sessionReducer(withVerdict, { type: "label_requested" });
+    assert.equal(next.verdict, null);
+    assert.equal(next.captureId, "c1");
+    assert.deepEqual(next.barcode, barcode);
+    assert.equal(next.labelRequested, true);
+    assert.equal(rapidAddPhase(next), "collecting");
+    assert.equal(canFinalize({ frames: [], session: next, hasHints: false }), true);
+  });
+
+  it("a reset clears the label request", () => {
+    const next = sessionReducer({ ...started, labelRequested: true }, { type: "reset" });
+    assert.equal(next.labelRequested, false);
   });
 });

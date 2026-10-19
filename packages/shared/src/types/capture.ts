@@ -110,6 +110,8 @@ export interface CaptureCheckCandidate {
   /** 0–1 resolver confidence. */
   confidence: number;
   ownership: CaptureOwnership;
+  /** Display hex of the shade (vendor > detected > name) for a swatch; absent when unknown. */
+  hex?: string;
 }
 
 /**

@@ -14,6 +14,7 @@ import {
   CaptureStartResponse,
   CaptureStatus,
   CaptureStatusResponse,
+  resolveDisplayHex,
 } from "swatchwatch-shared";
 import { query, transaction } from "../lib/db";
 import { withAuth } from "../lib/auth";
@@ -1825,6 +1826,33 @@ function sameEntity(a: CaptureMatchCandidate, b: CaptureMatchCandidate): boolean
   return a.entityType === b.entityType && a.entityId === b.entityId;
 }
 
+/** Display hex (vendor > detected > name) per shade id, for the verdict swatch. */
+async function loadDisplayHexes(shadeIds: Array<number | null>): Promise<Map<string, string>> {
+  const ids = Array.from(new Set(shadeIds.filter((id): id is number => id !== null)));
+  const hexes = new Map<string, string>();
+  if (ids.length === 0) return hexes;
+  const result = await query<{
+    shadeId: string;
+    vendorHex: string | null;
+    detectedHex: string | null;
+    nameHex: string | null;
+  }>(
+    `SELECT shade_id::text AS "shadeId", vendor_hex AS "vendorHex", detected_hex AS "detectedHex", name_hex AS "nameHex"
+     FROM shade
+     WHERE shade_id = ANY($1::bigint[])`,
+    [ids]
+  );
+  for (const row of result.rows) {
+    const hex = resolveDisplayHex({
+      vendorHex: row.vendorHex ?? undefined,
+      detectedHex: row.detectedHex ?? undefined,
+      nameHex: row.nameHex ?? undefined,
+    });
+    if (hex) hexes.set(row.shadeId, hex);
+  }
+  return hexes;
+}
+
 /**
  * The read-only check verdict for a session (shared by POST /check and the decoded-barcode
  * frame response): resolver outcome plus the caller's relationship to each candidate.
@@ -1868,6 +1896,7 @@ async function computeCaptureCheck(session: CaptureSessionRow, userId: number): 
       skuId: c.entityType === "sku" ? String(c.entityId) : null,
     }))
   );
+  const hexes = await loadDisplayHexes(candidates.map((c) => c.shadeId));
   const checkCandidates: CaptureCheckCandidate[] = candidates.map((c, i) => ({
     entityType: c.entityType,
     entityId: String(c.entityId),
@@ -1875,6 +1904,7 @@ async function computeCaptureCheck(session: CaptureSessionRow, userId: number): 
     display: c.display,
     confidence: c.confidence,
     ownership: ownerships[i],
+    ...(c.shadeId !== null && hexes.has(String(c.shadeId)) ? { hex: hexes.get(String(c.shadeId)) } : {}),
   }));
   const matched = match;
   const matchIndex = matched ? candidates.findIndex((c) => sameEntity(c, matched)) : -1;
