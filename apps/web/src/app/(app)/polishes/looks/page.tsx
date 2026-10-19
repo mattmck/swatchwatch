@@ -71,7 +71,7 @@ function LooksPageContent() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<Record<string, Polish[]>>({});
   const [overrides, setOverrides] = useState<{ key: string; looks: Record<string, Look> }>({ key: "", looks: {} });
-  // Client-only: the page renders inside a Suspense boundary that `useSearchParams` keeps off the static prerender.
+  // Read once on the client (empty during SSR); only rendered once `result` exists, so hydration matches.
   const [saved, setSaved] = useState<SavedLook[]>(readSavedLooks);
   const [wear, setWear] = useState<WearState | null>(null);
   const [todayIso] = useState(() => toLocalIsoDate(new Date()));
@@ -254,7 +254,7 @@ function LooksPageContent() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="lg:sticky lg:top-6 lg:self-start">
+        <aside className="min-w-0 lg:sticky lg:top-6 lg:self-start">
           <VibeSelector vibe={vibe} onChange={changeVibe} />
         </aside>
 
@@ -266,7 +266,9 @@ function LooksPageContent() {
           )}
           {result && ownedCount === 0 && !loadError && (
             <Notice>
-              You haven&apos;t added polishes you own yet, so these looks use catalog shades.{" "}
+              {vibe.ownedOnly
+                ? "You haven't added polishes you own yet."
+                : "You haven't added polishes you own yet, so these looks use catalog shades."}{" "}
               <Link href="/polishes/import" className="font-medium underline">
                 Import your collection
               </Link>{" "}
@@ -274,10 +276,15 @@ function LooksPageContent() {
               <Link href="/rapid-add" className="font-medium underline">
                 Rapid Add
               </Link>{" "}
-              a few bottles to see looks you can wear today.
+              a few bottles to see looks you can wear today.{" "}
+              {vibe.ownedOnly && (
+                <button type="button" className="font-medium underline" onClick={() => changeVibe({ ...vibe, ownedOnly: false })}>
+                  Show catalog looks
+                </button>
+              )}
             </Notice>
           )}
-          {result && result.shortfall && (
+          {result && result.shortfall && ownedCount > 0 && (
             <Notice>
               {result.looks.length === 0
                 ? "None of our looks can be made only from polishes you own yet."
@@ -309,7 +316,8 @@ function LooksPageContent() {
         </section>
       </div>
 
-      {saved.length > 0 && (
+      {/* Gated on `result` (client-only, after the collection loads) so localStorage never affects the first render. */}
+      {result && saved.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle>Saved looks</CardTitle>

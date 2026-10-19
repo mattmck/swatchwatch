@@ -157,7 +157,7 @@ export const LOOK_TEMPLATES: readonly LookTemplate[] = [
   {
     id: "office-neutral",
     name: "Office Neutral",
-    description: "Polished nude with a deeper accent nail.",
+    description: "Polished nude with a tonal accent nail.",
     occasions: ["work", "everyday"],
     moods: ["soft"],
     finishes: ["gloss", "matte"],

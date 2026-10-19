@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { ChevronDown, SlidersHorizontal } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { ToggleChip } from "@/components/toggle-chip";
 import {
@@ -59,10 +61,48 @@ interface VibeSelectorProps {
   className?: string;
 }
 
-/** Occasion, mood and finish chips plus the Owned only switch. */
+/**
+ * Occasion, mood and finish chips plus the Owned only switch. Below `lg` the controls collapse
+ * into a one-line summary of the current vibe (tap to change), so the looks sit above the fold
+ * on a phone; on `lg` they are always open in the left rail.
+ */
 export function VibeSelector({ vibe, onChange, className }: VibeSelectorProps) {
+  const [open, setOpen] = useState(false);
+  const summary = [
+    LOOK_OCCASION_LABELS[vibe.occasion],
+    LOOK_MOOD_LABELS[vibe.mood],
+    vibe.finish ? LOOK_FINISH_LABELS[vibe.finish] : "Any finish",
+    ...(vibe.ownedOnly ? ["Owned only"] : []),
+  ];
   return (
-    <div className={cn("space-y-4", className)} role="group" aria-label="Your vibe">
+    <div className={className}>
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 rounded-lg border border-border px-3 py-2 text-left text-sm lg:hidden"
+        aria-expanded={open}
+        aria-controls="looks-vibe-controls"
+        onClick={() => setOpen((current) => !current)}
+      >
+        <SlidersHorizontal className="size-4 shrink-0 text-brand-purple" aria-hidden />
+        <span className="flex min-w-0 flex-1 flex-wrap gap-1">
+          <span className="sr-only">Your vibe: </span>
+          {summary.map((label) => (
+            <span key={label} className="rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium">
+              {label}
+            </span>
+          ))}
+        </span>
+        <span className="shrink-0 text-xs text-muted-foreground">{open ? "Done" : "Change"}</span>
+        <ChevronDown className={cn("size-4 shrink-0 transition-transform", open && "rotate-180")} aria-hidden />
+      </button>
+      <VibeControls id="looks-vibe-controls" vibe={vibe} onChange={onChange} className={cn("mt-4 lg:mt-0 lg:block", !open && "hidden")} />
+    </div>
+  );
+}
+
+function VibeControls({ id, vibe, onChange, className }: VibeSelectorProps & { id: string }) {
+  return (
+    <div id={id} className={cn("space-y-4", className)} role="group" aria-label="Your vibe">
       <ChipRow
         label="Occasion"
         options={LOOK_OCCASIONS}
