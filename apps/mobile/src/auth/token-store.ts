@@ -44,7 +44,27 @@ export async function loadStoredAuth(): Promise<StoredAuth | null> {
   }
 }
 
-export async function saveStoredAuth(auth: StoredAuth): Promise<void> {
+/**
+ * Writes run one at a time, in call order: a refresh's save can never land after (and undo) a
+ * sign-out's clear, and a slow save never overwrites a newer one.
+ */
+let writeQueue: Promise<void> = Promise.resolve();
+
+function enqueueWrite(write: () => Promise<void>): Promise<void> {
+  const result = writeQueue.then(write);
+  writeQueue = result.catch(() => undefined);
+  return result;
+}
+
+export function saveStoredAuth(auth: StoredAuth): Promise<void> {
+  return enqueueWrite(() => writeStoredAuth(auth));
+}
+
+export function clearStoredAuth(): Promise<void> {
+  return enqueueWrite(removeStoredAuth);
+}
+
+async function writeStoredAuth(auth: StoredAuth): Promise<void> {
   const raw = JSON.stringify(auth);
   if (Platform.OS === "web") {
     globalThis.localStorage?.setItem(KEY, raw);
@@ -55,7 +75,7 @@ export async function saveStoredAuth(auth: StoredAuth): Promise<void> {
   });
 }
 
-export async function clearStoredAuth(): Promise<void> {
+async function removeStoredAuth(): Promise<void> {
   if (Platform.OS === "web") {
     globalThis.localStorage?.removeItem(KEY);
     return;
