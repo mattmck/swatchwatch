@@ -61,6 +61,7 @@ npm run migrate          # Run Postgres migrations (needs DATABASE_URL)
 npm run migrate:down     # Roll back last migration
 npm run sync:design-tokens  # Regenerate packages/shared/src/constants/design-tokens.ts (hex light/dark palettes for mobile) from apps/web/src/app/globals.css; `-- --check` fails on drift (CI)
 npm run generate:pwa-icons  # Regenerate PWA/apple-touch PNG icons in apps/web/public from the brand SVG (sharp; commit the PNGs)
+npm run lint --workspace=apps/mobile                 # Mobile ESLint (eslint-config-expo); typecheck: npm run typecheck --workspace=apps/mobile
 npm run test --workspace=apps/mobile                 # Mobile unit tests (node:test via tsx: Rapid Add state, status rules)
 npm run test --workspace=swatchwatch-functions      # Functions unit tests (no DB; includes access-control isolation tests)
 npm run test:e2e --workspace=swatchwatch-functions  # E2E API + cross-user access-control tests against a running local host (skips if unreachable)

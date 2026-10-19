@@ -87,6 +87,7 @@ npm run dev:mobile       # → mobile via Expo (see apps/mobile/README.md)
 | `npm run dev` | Run shared type watcher, Functions host, and web dev server together (CTRL+C stops all) |
 | `npm run dev:web` | Next.js dev server (port 3000) |
 | `npm run dev:mobile` | Build shared types, then Expo start for `apps/mobile` (copy `apps/mobile/.env.example` to `.env.local` first) |
+| `npm run lint\|typecheck\|test --workspace=apps/mobile` | Mobile ESLint, `tsc --noEmit` and unit tests (what CI's Mobile job runs) |
 | `npm run sync:design-tokens` | Regenerate the shared light/dark color tokens (used by mobile) from the web theme; `-- --check` fails on drift |
 | `npm run dev:functions` | Functions TypeScript watch + Azure Functions Core Tools (`func start`) |
 | `npm run build` | Build all workspaces (shared → web → functions) |
