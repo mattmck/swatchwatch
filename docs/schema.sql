@@ -640,6 +640,35 @@ CREATE TABLE wishlist_share (
   )
 );
 
+-- Saved looks (migration 20261019013934159_user-look, docs/looks-experience-plan.md). A look
+-- saved from /polishes/looks: template, vibe and steps. `steps` is an opaque display snapshot the
+-- client sends (role, label, hex, source, optional shade id/brand/name) returned to its owner
+-- as-is and never joined to shade, so it can't expose another user's private shade. `look_key`
+-- (`<templateId>:<shadeIds>`) makes re-saving the same combo an upsert; the API keeps ≤ 30 per user.
+CREATE TABLE user_look (
+  user_look_id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES app_user(user_id) ON DELETE CASCADE,
+  look_key TEXT NOT NULL,
+  template_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  vibe JSONB NOT NULL,
+  steps JSONB NOT NULL,
+  saved_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT uq_user_look_key UNIQUE (user_id, look_key),
+  CONSTRAINT chk_user_look_key CHECK (char_length(look_key) BETWEEN 3 AND 160),
+  CONSTRAINT chk_user_look_template CHECK (template_id ~ '^[a-z0-9-]{1,40}$'),
+  CONSTRAINT chk_user_look_name CHECK (char_length(name) BETWEEN 1 AND 80),
+  CONSTRAINT chk_user_look_vibe CHECK (jsonb_typeof(vibe) = 'object'),
+  CONSTRAINT chk_user_look_steps CHECK (
+    jsonb_typeof(steps) = 'array'
+    AND jsonb_array_length(steps) BETWEEN 1 AND 4
+    AND octet_length(steps::text) <= 4000
+  )
+);
+
+CREATE INDEX idx_user_look_user_saved
+  ON user_look(user_id, saved_at DESC);
+
 -- Keyed by (user_id, shade_id) like the mani log, so history survives deleting the polish from
 -- the collection (D8, #317; migration 20261017232537776_inventory-event-keep-wear-history):
 -- the delete only detaches events (inventory_item_id SET NULL), and the API re-attaches them

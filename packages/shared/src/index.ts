@@ -20,6 +20,7 @@ export * from "./types/hex-label";
 export * from "./types/nail-photo";
 export * from "./types/shade-review";
 export * from "./types/wishlist-share";
+export * from "./types/looks";
 export {
   type FinishType,
   type FinishTypeCreateRequest,
