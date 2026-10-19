@@ -749,6 +749,8 @@ export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
   DrunkFairyPolishShopify: "https://drunkfairypolish.com",
   NightOwlLacquerShopify: "https://nightowllacquer.com",
   PahlishShopify: "https://pahlish.com",
+  EmilyDeMollyShopify: "https://emilydemolly.com",
+  CirqueColorsShopify: "https://cirquecolors.com",
   HoloTacoShopify: "https://www.holotaco.com",
 };
 
@@ -763,6 +765,10 @@ export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
 export const SHOPIFY_SOURCES_PENDING_APPROVAL: ReadonlySet<string> = new Set([
   // NightOwlLacquerShopify approved 2026-10-17 (docs/decisions-2026-10.md D2).
   "PahlishShopify",
+  // Surveyed 2026-10-18 (#273, docs/indie-sources-2026-10.md): both stores' terms
+  // forbid spidering/scraping, so each needs the store's written OK first.
+  "EmilyDeMollyShopify",
+  "CirqueColorsShopify",
 ]);
 
 /** Whether a newly auto-provisioned data_source row for `source` starts enabled. */

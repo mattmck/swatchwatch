@@ -58,15 +58,34 @@ describe("indie Shopify sources pending approval (#273)", () => {
   });
 
   it("are inserted disabled by a migration", () => {
-    const migration = readdirSync(MIGRATIONS_DIR)
-      .filter((file) => file.endsWith("_add-indie-shopify-sources.sql"))
-      .map((file) => readFileSync(resolve(MIGRATIONS_DIR, file), "utf8"))[0];
-    assert.ok(migration, "indie Shopify sources migration missing");
-    const up = migration.slice(0, migration.indexOf("-- Down Migration"));
-    assert.match(up, /enabled\s+=\s+false/, "an existing row must be disabled on conflict");
+    const ups = readdirSync(MIGRATIONS_DIR)
+      .filter((file) => /_add-(?:more-)?indie-shopify-sources\.sql$/.test(file))
+      .map((file) => readFileSync(resolve(MIGRATIONS_DIR, file), "utf8"))
+      .map((migration) => migration.slice(0, migration.indexOf("-- Down Migration")));
+    assert.ok(ups.length > 0, "indie Shopify sources migration missing");
+    for (const up of ups) {
+      assert.match(up, /enabled\s+=\s+false/, "an existing row must be disabled on conflict");
+    }
     for (const source of SHOPIFY_SOURCES_PENDING_APPROVAL) {
+      const up = ups.find((sql) => sql.includes(`'${source}',`));
+      assert.ok(up, `${source} is inserted by no indie Shopify sources migration`);
       assert.match(seedTuple(up, source), /,\s*false,\s*'\{/, `${source} must be inserted with enabled=false`);
     }
+  });
+
+  it("registers the 2026-10-18 survey candidates (#273) pending approval", () => {
+    const expected = {
+      EmilyDeMollyShopify: "https://emilydemolly.com",
+      CirqueColorsShopify: "https://cirquecolors.com",
+    };
+    for (const [source, baseUrl] of Object.entries(expected)) {
+      assert.equal(SHOPIFY_SOURCE_BASE_URLS[source], baseUrl, source);
+      assert.equal(SHOPIFY_SOURCES_PENDING_APPROVAL.has(source), true, source);
+      assert.equal(isShopifySourceEnabledByDefault(source), false, source);
+      // Shopify's default ToS forbids spidering/scraping: the note must say so.
+      assert.match(seedTuple(SEED_SQL, source), /spider, crawl, or scrape/, source);
+    }
+    assert.equal(SHOPIFY_SOURCES_PENDING_APPROVAL.has("PahlishShopify"), true);
   });
 });
 
