@@ -2,6 +2,7 @@ import { router } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, FlatList, RefreshControl, ScrollView, TextInput, View } from "react-native";
 import type { PolishFilters } from "swatchwatch-shared";
+import { useAuth } from "@/auth/auth-provider";
 import { HomePanel } from "@/components/home-panel";
 import { PolishRow } from "@/components/polish-row";
 import { AppText, Button, CenteredState, Chip, ErrorBanner } from "@/components/ui";
@@ -26,7 +27,8 @@ export default function CollectionScreen() {
     return { ...chosen.filters, search: debounced || undefined, sortBy: "createdAt", sortOrder: "desc" };
   }, [preset, debounced]);
 
-  const list = usePagedPolishes(filters);
+  const { user } = useAuth();
+  const list = usePagedPolishes(filters, user ? String(user.userId) : undefined);
   const [homeToken, setHomeToken] = useState(0);
   const refreshAll = () => {
     setHomeToken((n) => n + 1);
@@ -75,7 +77,10 @@ export default function CollectionScreen() {
         )}
         {list.error && (
           <View style={{ paddingHorizontal: theme.spacing(4) }}>
-            <ErrorBanner message={list.error} onRetry={refreshAll} />
+            <ErrorBanner
+              message={list.fromCache ? `${list.error} Showing your last saved list.` : list.error}
+              onRetry={refreshAll}
+            />
           </View>
         )}
       </View>

@@ -2,6 +2,8 @@ import { router } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import type { Polish } from "swatchwatch-shared";
+import { useAuth } from "@/auth/auth-provider";
+import { readCache, writeCache } from "@/lib/api-cache";
 import { createManicure, deleteManicure, errorMessage, listAllPolishes, listPolishes } from "@/api/client";
 import { summarizeCollection, type CollectionSummary } from "@/lib/collection-summary";
 import { createSeededRandom, pickForMe, pushPickHistory, type PickResult, type RandomSource } from "@/lib/pick-for-me";
@@ -23,8 +25,13 @@ interface HomeData {
  */
 export function HomePanel({ refreshToken }: { refreshToken: number }) {
   const theme = useTheme();
+  const { user } = useAuth();
+  const scope = user ? String(user.userId) : null;
   const [data, setData] = useState<HomeData | null>(null);
+  /** Saved counts shown until the fresh ones arrive (stale-while-revalidate). */
+  const [savedSummary, setSavedSummary] = useState<CollectionSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [pick, setPick] = useState<PickResult | null>(null);
   const [noPick, setNoPick] = useState(false);
   const [logging, setLogging] = useState(false);
@@ -33,11 +40,24 @@ export function HomePanel({ refreshToken }: { refreshToken: number }) {
   const random = useRef<RandomSource | null>(null);
 
   useEffect(() => {
+    if (!scope) return;
+    let cancelled = false;
+    void readCache<CollectionSummary>(scope, "home-summary").then((entry) => {
+      if (entry && !cancelled) setSavedSummary(entry.data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [scope]);
+
+  useEffect(() => {
     let cancelled = false;
     Promise.all([listAllPolishes({ status: ["owned"] }), listPolishes({ status: ["wishlist"], pageSize: 1 })])
       .then(([owned, wishlist]) => {
         if (cancelled) return;
-        setData({ owned, summary: summarizeCollection(owned, wishlist.total) });
+        const summary = summarizeCollection(owned, wishlist.total);
+        setData({ owned, summary });
+        if (scope) void writeCache(scope, "home-summary", summary);
         setError(null);
       })
       .catch((err: unknown) => {
@@ -46,7 +66,7 @@ export function HomePanel({ refreshToken }: { refreshToken: number }) {
     return () => {
       cancelled = true;
     };
-  }, [refreshToken]);
+  }, [refreshToken, scope]);
 
   const doPick = useCallback(() => {
     if (!data) return;
@@ -61,7 +81,7 @@ export function HomePanel({ refreshToken }: { refreshToken: number }) {
   async function logPick() {
     if (!pick) return;
     setLogging(true);
-    setError(null);
+    setActionError(null);
     try {
       const finishes = resolvePolishFinishes(pick.polish);
       const entry = await createManicure({
@@ -85,7 +105,7 @@ export function HomePanel({ refreshToken }: { refreshToken: number }) {
           : prev,
       );
     } catch (err) {
-      setError(errorMessage(err, "Couldn't log the mani."));
+      setActionError(errorMessage(err, "Couldn't log the mani."));
     } finally {
       setLogging(false);
     }
@@ -97,11 +117,11 @@ export function HomePanel({ refreshToken }: { refreshToken: number }) {
       await deleteManicure(logged.id);
       setLogged(null);
     } catch (err) {
-      setError(errorMessage(err, "Couldn't undo the log."));
+      setActionError(errorMessage(err, "Couldn't undo the log."));
     }
   }
 
-  const summary = data?.summary;
+  const summary = data?.summary ?? savedSummary ?? undefined;
   return (
     <View style={{ padding: theme.spacing(4), gap: theme.spacing(3) }}>
       <View style={{ flexDirection: "row", gap: theme.spacing(2) }}>
@@ -110,7 +130,9 @@ export function HomePanel({ refreshToken }: { refreshToken: number }) {
         <Stat label="Untried" value={summary?.untried} hint={summary?.untriedPercent != null ? `${summary.untriedPercent}%` : undefined} />
       </View>
 
-      {error && <ErrorBanner message={error} />}
+      {/* A failed refresh with saved counts on screen is already explained by the list's banner. */}
+      {error && !summary && <ErrorBanner message={error} />}
+      {actionError && <ErrorBanner message={actionError} />}
 
       {pick ? (
         <Card testID="pick-card">

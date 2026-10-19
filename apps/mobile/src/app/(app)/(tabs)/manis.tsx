@@ -2,6 +2,8 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, RefreshControl, View } from "react-native";
 import type { Manicure, ManicureListResponse, Polish } from "swatchwatch-shared";
+import { useAuth } from "@/auth/auth-provider";
+import { readCache, writeCache } from "@/lib/api-cache";
 import { deleteManicure, errorMessage, getPolish, listManicures } from "@/api/client";
 import { LogManiSheet } from "@/components/log-mani-sheet";
 import { ColorDot } from "@/components/swatch";
@@ -14,6 +16,8 @@ const PAGE_SIZE = 20;
 /** Manis tab (web: `/manis`): the mani log, newest first, with a "Log a mani" sheet. */
 export default function ManisScreen() {
   const theme = useTheme();
+  const { user } = useAuth();
+  const scope = user ? String(user.userId) : null;
   const { log } = useLocalSearchParams<{ log?: string }>();
   const [items, setItems] = useState<Manicure[]>([]);
   const [total, setTotal] = useState(0);
@@ -35,7 +39,8 @@ export default function ManisScreen() {
       return [...prev, ...res.manicures.filter((m) => !seen.has(m.id))];
     });
     setError(null);
-  }, []);
+    if (nextPage === 1 && scope) void writeCache(scope, "manis", { items: res.manicures, total: res.total });
+  }, [scope]);
 
   const load = useCallback(
     (nextPage: number): Promise<void> =>
@@ -48,14 +53,27 @@ export default function ManisScreen() {
 
   useEffect(() => {
     let cancelled = false;
+    let freshArrived = false;
+    // Saved page 1 first (stale-while-revalidate), unless the fresh one already landed.
+    if (scope) {
+      void readCache<{ items: Manicure[]; total: number }>(scope, "manis").then((entry) => {
+        if (!entry || cancelled || freshArrived) return;
+        setItems(entry.data.items);
+        setTotal(entry.data.total);
+        setLoading(false);
+      });
+    }
     listManicures({ page: 1, pageSize: PAGE_SIZE })
-      .then((res) => !cancelled && apply(res, 1))
+      .then((res) => {
+        freshArrived = true;
+        if (!cancelled) apply(res, 1);
+      })
       .catch((err: unknown) => !cancelled && setError(errorMessage(err, "Couldn't load your manis.")))
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
-  }, [apply]);
+  }, [apply, scope]);
 
   // `/manis?log=<shadeId>` (from a polish) opens the sheet with that polish selected.
   useEffect(() => {
