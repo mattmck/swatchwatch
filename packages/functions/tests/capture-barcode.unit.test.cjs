@@ -429,3 +429,38 @@ describe("capture — remembering an unknown barcode", () => {
     assert.deepEqual(state.userBarcodes, []);
   });
 });
+
+describe("capture — question options are stored as JSON", () => {
+  it("finalize binds options_json as a JSON string (node-pg would send a JS array as a Postgres array literal)", async () => {
+    state.session.metadata = { gtin: UNKNOWN };
+    state.frames = [{ frameType: "barcode", quality: { gtin: UNKNOWN } }];
+    const res = await invoke("capture-finalize");
+    assert.equal(res.status, 200, JSON.stringify(res.jsonBody));
+    assert.equal(res.jsonBody.status, "needs_question");
+    const insert = sqlCalls.find((c) => /INSERT INTO capture_question/i.test(c.sql));
+    assert.ok(insert, "a question is opened");
+    const options = insert.params[4];
+    assert.equal(typeof options, "string", "options must be serialized JSON");
+    assert.deepEqual(JSON.parse(options), ["brand + shade", "upload_label_photo", "skip"]);
+  });
+});
+
+describe("capture — SQL parameters Postgres must be able to type", () => {
+  // Postgres cannot infer the type of a bare parameter inside jsonb_build_object (42P18,
+  // "could not determine data type of parameter"), which made every matched finalize/answer
+  // fail against a real database while the in-memory fakes passed.
+  it("every jsonb_build_object value parameter in capture.ts carries a cast", () => {
+    const fs = require("node:fs");
+    const source = fs.readFileSync(path.resolve(__dirname, "../src/functions/capture.ts"), "utf8");
+    const bare = [...source.matchAll(/jsonb_build_object\([^()]*?,\s*(\$\d+)(?!::)\s*\)/g)].map((m) => m[0]);
+    assert.deepEqual(bare, []);
+  });
+
+  it("a matched finalize records inventoryItemId with a typed parameter", async () => {
+    state.barcodes.set(CANONICAL, { skuId: String(SKU_ID), shadeId: String(SHADE_ID), brand: "OPI", productName: "X", shadeName: "X" });
+    const res = await invoke("capture-finalize");
+    assert.equal(res.jsonBody.status, "matched");
+    const update = sqlCalls.find((c) => /UPDATE capture_session/i.test(c.sql) && /inventoryItemId/.test(c.sql));
+    assert.match(update.sql, /'inventoryItemId', \$\d+::bigint/);
+  });
+});

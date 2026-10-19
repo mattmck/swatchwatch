@@ -1012,6 +1012,14 @@ async function resolveShadeCandidates(evidence: CaptureEvidence): Promise<Captur
   }));
 }
 
+/**
+ * `capture_question.options_json` parameter. node-pg sends a JS array as a Postgres array
+ * literal (`{"a","b"}`), which `::jsonb` rejects, so serialize it as JSON text.
+ */
+function serializeQuestionOptions(options: string[] | undefined): string | null {
+  return options ? JSON.stringify(options) : null;
+}
+
 function buildNeedsFrameQuestion(): CaptureQuestionSpec {
   return {
     key: "capture_frame",
@@ -1656,7 +1664,7 @@ async function finalizeCapture(
                accepted_entity_id = $4,
                metadata = COALESCE(metadata, '{}'::jsonb)
                  || $5::jsonb
-                 || jsonb_build_object('inventoryItemId', $6),
+                 || jsonb_build_object('inventoryItemId', $6::bigint),
                updated_at = now()
            WHERE capture_session_id = $1`,
           [
@@ -1718,7 +1726,7 @@ async function finalizeCapture(
             outcome.question.key,
             outcome.question.prompt,
             outcome.question.type,
-            outcome.question.options ?? null,
+            serializeQuestionOptions(outcome.question.options),
           ]
         );
 
@@ -2131,7 +2139,7 @@ async function answerCaptureQuestion(
                       COALESCE(metadata->'answers', '{}'::jsonb)
                         || jsonb_build_object($3::text, $4::jsonb)
                     )
-                 || jsonb_build_object('inventoryItemId', $5),
+                 || jsonb_build_object('inventoryItemId', $5::bigint),
                updated_at = now()
            WHERE capture_session_id = $1`,
           [session.id, selectedShadeId, openQuestion.key, answerJson, inventoryItemId]
@@ -2217,7 +2225,7 @@ async function answerCaptureQuestion(
                    top_confidence = $2,
                    accepted_entity_type = $3,
                    accepted_entity_id = $4,
-                   metadata = COALESCE(metadata, '{}'::jsonb) || $5::jsonb || jsonb_build_object('inventoryItemId', $6),
+                   metadata = COALESCE(metadata, '{}'::jsonb) || $5::jsonb || jsonb_build_object('inventoryItemId', $6::bigint),
                    updated_at = now()
                WHERE capture_session_id = $1`,
               [refreshedSession.id, outcome.confidence, outcome.entityType, outcome.entityId, metadataPatch, inventoryItemId]
@@ -2241,7 +2249,7 @@ async function answerCaptureQuestion(
             await client.query(
               `INSERT INTO capture_question (capture_session_id, question_key, prompt, question_type, options_json, status)
                VALUES ($1, $2, $3, $4, $5::jsonb, 'open')`,
-              [refreshedSession.id, outcome.question.key, outcome.question.prompt, outcome.question.type, outcome.question.options ?? null]
+              [refreshedSession.id, outcome.question.key, outcome.question.prompt, outcome.question.type, serializeQuestionOptions(outcome.question.options)]
             );
           });
         } else {
