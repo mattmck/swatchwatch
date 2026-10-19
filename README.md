@@ -145,7 +145,7 @@ The web app is the most developed part of the project. Key pages:
 | `/polishes/new` | `apps/web/src/app/(app)/polishes/new/page.tsx` | Add polish form — color picker, star rating, voice input placeholder |
 | `/polishes/detail` | `apps/web/src/app/(app)/polishes/detail/page.tsx` | Polish detail shell (query-param based) |
 | `/polishes/gaps` | `apps/web/src/app/(app)/polishes/gaps/page.tsx` | Collection gap map — 8×5 hue/lightness heatmap with missing/thin coverage, next-buy suggestions, and deep-link handoff to color search |
-| `/polishes/match` | `apps/web/src/app/(app)/polishes/match/page.tsx` | Photo match — upload, drop, or snap a photo; extracts its dominant colors and ranks your owned polishes by OKLAB distance with confidence badges (image is never stored) |
+| `/polishes/match` | `apps/web/src/app/(app)/polishes/match/page.tsx` | Photo match (#105) — upload, drop, or snap a photo (drag to focus on one area); extracts its dominant colors and ranks shades from your collection, wishlist or the whole catalog by OKLAB distance, with finish/color-family filters, per-color matches, confidence badges and wishlist/own actions (image is never stored) |
 | `/polishes/search` | `apps/web/src/app/(app)/polishes/search/page.tsx` | Color wheel search — hover to preview, click to lock, similar/complementary modes |
 | `/rapid-add` | `apps/web/src/app/rapid-add/page.tsx` | Capture-driven rapid add flow |
 
