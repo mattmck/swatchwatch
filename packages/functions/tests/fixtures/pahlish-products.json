@@ -1,0 +1,661 @@
+{
+  "_source": "https://pahlish.com/products.json?limit=250&page=1 fetched 2026-10-18 (36 products, one page). Trimmed for #328: no images, prices or inventory; body_html reduced to plain text.",
+  "products": [
+    {
+      "id": 15432941895774,
+      "title": "Halloween Mysteries Round 2!",
+      "handle": "halloween-mysteries-ii",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Halloween"
+      ],
+      "body_html": "Three final Halloween mystery batches! Items from this listing include: Ghoul's Ghoul Ghastly Spectral Kitten *Please be aware that if you order more than 3 items from this listing you will receive duplicates!*",
+      "published_at": "2026-10-11T18:57:32-05:00",
+      "variants": [
+        {
+          "id": 67719830470750,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7761146675294,
+      "title": "Enjoy the Silence Collection",
+      "handle": "enjoy-the-silence-collection-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Enjoy the Silence",
+        "Halloween"
+      ],
+      "body_html": "Withered Bloom - faded rust with green/aqua/blue shifting shimmer Memento Mori - soft ivy green with scattered holographic pigment and red/gold/green shifting shimmer Dust and Shadow - blackened violet with aqua/blue shifting shimmer Vanitas Rouge - deep burgundy with pink/copper/green shifting magnetic flakes Catacombs - ethereal grey with scattered holographic pigment and silver to green shifting shimmer with a strong green glow in the dark effect Danse Macabre - bright violet packed with lavender/pink shifting shimmer Blood Moon - deep strawberry red with teal/purple/pink shifting magnetic flakes *please allow up to 15 business days for shipment of all preorder items!*",
+      "published_at": "2026-09-07T22:22:04-05:00",
+      "variants": [
+        {
+          "id": 43290466189406,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7761143201886,
+      "title": "Withered Bloom",
+      "handle": "withered-bloom-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Enjoy the Silence",
+        "Halloween"
+      ],
+      "body_html": "faded rust with green/aqua/blue shifting shimmer *please allow up to 15 business days for shipment of all preorder items!*",
+      "published_at": "2026-09-07T22:22:03-05:00",
+      "variants": [
+        {
+          "id": 43290429816926,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7761143136350,
+      "title": "Memento Mori",
+      "handle": "memento-mori-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Enjoy the Silence",
+        "Halloween"
+      ],
+      "body_html": "soft ivy green with scattered holographic pigment and red/gold/green shifting shimmer *please allow up to 15 business days for shipment of all preorder items!*",
+      "published_at": "2026-09-07T22:22:02-05:00",
+      "variants": [
+        {
+          "id": 43290429554782,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7761143070814,
+      "title": "Dust and Shadow",
+      "handle": "dust-and-shadow-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Enjoy the Silence",
+        "Halloween"
+      ],
+      "body_html": "blackened violet with aqua/blue shifting shimmer *please allow up to 15 business days for shipment of all preorder items!*",
+      "published_at": "2026-09-07T22:22:01-05:00",
+      "variants": [
+        {
+          "id": 43290429292638,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7761143005278,
+      "title": "Danse Macabre",
+      "handle": "danse-maracbre-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Enjoy the Silence",
+        "Halloween"
+      ],
+      "body_html": "bright violet packed with lavender/pink shifting shimmer *please allow up to 15 business days for shipment of all preorder items!*",
+      "published_at": "2026-09-07T22:22:00-05:00",
+      "variants": [
+        {
+          "id": 43290429030494,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7761142939742,
+      "title": "Catacombs",
+      "handle": "catacombs-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Enjoy the Silence",
+        "Halloween"
+      ],
+      "body_html": "ethereal grey with scattered holographic pigment and silver to green shifting shimmer with a strong green glow in the dark effect *please allow up to 15 business days for shipment of all preorder items!*",
+      "published_at": "2026-09-07T22:22:00-05:00",
+      "variants": [
+        {
+          "id": 43290428768350,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7761142841438,
+      "title": "Blood Moon",
+      "handle": "blood-moon-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Enjoy the Silence",
+        "Halloween"
+      ],
+      "body_html": "deep strawberry red with teal/purple/pink shifting magnetic flakes *please allow up to 15 business days for shipment of all preorder items!*",
+      "published_at": "2026-09-07T22:21:59-05:00",
+      "variants": [
+        {
+          "id": 43290428276830,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7761142546526,
+      "title": "Vanitas Rouge",
+      "handle": "vanitas-rouge-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Enjoy the Silence",
+        "Halloween"
+      ],
+      "body_html": "deep burgundy with pink/copper/green shifting magnetic flakes *please allow up to 15 business days for shipment of all preorder items!*",
+      "published_at": "2026-09-07T22:21:58-05:00",
+      "variants": [
+        {
+          "id": 43290425720926,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7743437930590,
+      "title": "Halloween Mysteries 2026",
+      "handle": "halloween-mysteries-2026",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Halloween"
+      ],
+      "body_html": "A selection of mystery batches pulled from our Halloween 2026 development! Four unique polishes that didn't make the final cut but still haunt us with their charm! =P Items from this listing include: Cemetery Ivy Lilith Masoleum Season of the Witch *Please be aware that if you order more than 4 items from this listing you will receive duplicates!*",
+      "published_at": "2026-08-23T16:07:02-05:00",
+      "variants": [
+        {
+          "id": 43204354179166,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7737350488158,
+      "title": "Ballad of Lemons",
+      "handle": "ballad-of-lemons",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Life of a Showgirl"
+      ],
+      "body_html": "neon yellow with crushed golden flakes Originally released: Summer 2019",
+      "published_at": "2026-08-16T17:31:41-05:00",
+      "variants": [
+        {
+          "id": 43168584663134,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7735468654686,
+      "title": "Nosferatu",
+      "handle": "nosferatu",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Halloween"
+      ],
+      "body_html": "rich blood red with metallic black flakes Originally released: October 2025",
+      "published_at": "2026-08-13T18:00:22-05:00",
+      "variants": [
+        {
+          "id": 43157775581278,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7735465705566,
+      "title": "Godzilla",
+      "handle": "haunted-grove",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Halloween"
+      ],
+      "body_html": "soft black jelly with a mix of iridescent and metallic blue flakes Originally released: October 2025",
+      "published_at": "2026-08-13T17:58:49-05:00",
+      "variants": [
+        {
+          "id": 43157764014174,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7735465214046,
+      "title": "Vampirella",
+      "handle": "vampirella",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Halloween"
+      ],
+      "body_html": "deep violet packed with metallic black/red shifting microflakes Originally released: October 2024",
+      "published_at": "2026-08-13T17:52:45-05:00",
+      "variants": [
+        {
+          "id": 43157761949790,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7735464525918,
+      "title": "Hey Boo",
+      "handle": "hey-boo",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Halloween"
+      ],
+      "body_html": "pale lavender pink packed with glowing blue shimmer and black metallic flakes Originally released: October 2024",
+      "published_at": "2026-08-13T17:51:48-05:00",
+      "variants": [
+        {
+          "id": 43157760606302,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7497908977758,
+      "title": "Poison Thorny Flowers",
+      "handle": "poison-thorny-flowers-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Life of a Showgirl"
+      ],
+      "body_html": "blackened olive with a mix of glowing blue/violet shimmer and scattered holographic pigment",
+      "published_at": "2026-08-13T17:49:48-05:00",
+      "variants": [
+        {
+          "id": 42187754930270,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7697312219230,
+      "title": "Camelot Collection",
+      "handle": "camelot-collection-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Camelot"
+      ],
+      "body_html": "Set includes: Guinevere - delicate lavender base packed with super glowy silvery aqua/green/blue shifting shimmer Lady of the Lake - soft emerald scattered holographic with green/blue shifting shimmer Excalibur - sheer steel blue with glowing red/gold/green shifting shimmer Morgan le Fay - delicate violet packed with holographic flakes and a mix of pink, copper, and blue iridescent shimmers Lancelot - pale silvery blue scattered holographic with glowing blue iridescent shimmer Arthur - deep blue packed with ultrafine purple/gold shifting shimmer and teal/purple shifting magnetic microflakes Merlin - bruised plum based with glowing blue shimmer and pink/gold shifting magnetic microflakes Please note that magnetic microflakes are a very large particle magnetic and will produce a softer magnetic effect!",
+      "published_at": "2026-07-08T16:17:08-05:00",
+      "variants": [
+        {
+          "id": 42985783623774,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7697311924318,
+      "title": "Merlin",
+      "handle": "merlin-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Camelot"
+      ],
+      "body_html": "bruised plum based with glowing blue shimmer and pink/gold shifting magnetic microflakes Please note that magnetic microflakes are a very large particle magnetic and will produce a softer magnetic effect!",
+      "published_at": "2026-07-08T16:17:07-05:00",
+      "variants": [
+        {
+          "id": 42985782902878,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7697311039582,
+      "title": "Arthur",
+      "handle": "arthur-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Camelot"
+      ],
+      "body_html": "deep blue packed with ultrafine purple/gold shifting shimmer and teal/purple shifting magnetic microflakes Please note that magnetic microflakes are a very large particle magnetic and will produce a softer magnetic effect!",
+      "published_at": "2026-07-08T16:17:06-05:00",
+      "variants": [
+        {
+          "id": 42985780412510,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7697310679134,
+      "title": "Lancelot",
+      "handle": "lancelot-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Camelot"
+      ],
+      "body_html": "pale silvery blue scattered holographic with glowing blue iridescent shimmer",
+      "published_at": "2026-07-08T16:17:06-05:00",
+      "variants": [
+        {
+          "id": 42985779527774,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7697310253150,
+      "title": "Morgan le Fay",
+      "handle": "morgan-le-fay-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Camelot"
+      ],
+      "body_html": "delicate violet packed with holographic flakes and a mix of pink, copper, and blue iridescent shimmers",
+      "published_at": "2026-07-08T16:17:05-05:00",
+      "variants": [
+        {
+          "id": 42985778741342,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7697309827166,
+      "title": "Excalibur",
+      "handle": "excalibur-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Camelot"
+      ],
+      "body_html": "sheer steel blue with glowing red/gold/green shifting shimmer",
+      "published_at": "2026-07-08T16:17:04-05:00",
+      "variants": [
+        {
+          "id": 42985777168478,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7697309499486,
+      "title": "Lady of the Lake",
+      "handle": "lady-of-the-lake-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Camelot"
+      ],
+      "body_html": "soft emerald scattered holographic with green/blue shifting shimmer",
+      "published_at": "2026-07-08T16:17:04-05:00",
+      "variants": [
+        {
+          "id": 42985775104094,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7697308844126,
+      "title": "Guinevere",
+      "handle": "guinevere-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Camelot"
+      ],
+      "body_html": "delicate lavender base packed with super glowy silvery aqua/green/blue shifting shimmer",
+      "published_at": "2026-07-08T16:17:03-05:00",
+      "variants": [
+        {
+          "id": 42985773203550,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7641057886302,
+      "title": "Beauty and the Base Smoothing Base Coat",
+      "handle": "beauty-and-the-base-smoothing-base-coat",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Essentials"
+      ],
+      "body_html": "The milky base coat of your dreams has arrived! This super sheer petal pink base coat smooths and nourishes to create the perfect start to your manicure. AHAs and hibiscus flower extract nourish and moisturize the nail plate while the subtle ridge filling smooths out any imperfections! Ingredients: Butyl Acetate, Ethyl Acetate, Nitrocellulose, Adipic Acid/Neopentyl Glycol/Trimellitic Anhydride Copolymer, Acetyl Tributyl Citrate, Isopropyl Alcohol, Silica, Acrylates Copolymer, Oryza Sativa Starch, Glycolic Acid, Water, N-Butyl Alcohol, Etocrylene, Olive Oil Decyl Esters, Hibiscus Sabdariffa Flower Extract, Titanium Dioxide, Hexanal, Squalene, Lithothamnion Calcareum Extract, Mannitol, Iron Oxides, Aluminum Hydroxide, Triethoxycaprylysilane, Diatomaceous Earth, Zinc Sulfate, Tocopherol 15 mL / .5 fl oz.",
+      "published_at": "2026-05-10T17:38:08-05:00",
+      "variants": [
+        {
+          "id": 42753352794206,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7267839180894,
+      "title": "Magic Mirror Quick Dry Topcoat",
+      "handle": "magic-mirror-quick-dry-topcoat-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Essentials"
+      ],
+      "body_html": "Our favorite quick dry topcoat is back in stock. The perfect crystal clear 10-free finish for all of our polishes! Ingredients: Ethyl Acetate, Isopropyl Alcohol, Butyl Acetate, Cellulose Acetate Butyrate, Acrylates Copolymer, Trimethyl Pentanyl Diisobutyrate, Acetyl Tributyl Citrate, Benzophenone-1, Etocrylene, Dimethicone, Violet 2 15 mL / .5 fl oz.",
+      "published_at": "2026-03-31T23:35:05-05:00",
+      "variants": [
+        {
+          "id": 41303430365278,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7180314902622,
+      "title": "Red Wine Supernova",
+      "handle": "red-wine-supernova-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [],
+      "body_html": "deep berry with aqua/green/blue shifting pigment",
+      "published_at": "2026-02-06T17:23:05-06:00",
+      "variants": [
+        {
+          "id": 41090706702430,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7546267697246,
+      "title": "Glittoris 2026",
+      "handle": "glittoris-2026",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [],
+      "body_html": "A new spin on an old Pahlish classic! Glittoris is a sheer bright pink base packed with a mix of iridescent pink/red flakes, holo flakes, pink metallic micro shimmer, and metallic red/gold shifting flakes",
+      "published_at": "2026-01-09T17:23:33-06:00",
+      "variants": [
+        {
+          "id": 42369384349790,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7499301716062,
+      "title": "Howl's Moving Castle",
+      "handle": "howls-moving-castle-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [],
+      "body_html": "periwinkle base packed with copper/pink/green microflakes *originally released in For the Love of Polish Box 2/24*",
+      "published_at": "2025-11-17T18:12:08-06:00",
+      "variants": [
+        {
+          "id": 42193157685342,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7497909043294,
+      "title": "Honey",
+      "handle": "honey-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Life of a Showgirl"
+      ],
+      "body_html": "honey blonde packed with golden/copper/green shifting shimmer",
+      "published_at": "2025-11-17T18:10:04-06:00",
+      "variants": [
+        {
+          "id": 42187754995806,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7497908682846,
+      "title": "Father Figure",
+      "handle": "father-figure-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [
+        "Life of a Showgirl"
+      ],
+      "body_html": "sheer gingerbread base packed with glowing blue/violet microfine shimmer",
+      "published_at": "2025-11-17T18:10:00-06:00",
+      "variants": [
+        {
+          "id": 42187754504286,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7395718004830,
+      "title": "Y2K",
+      "handle": "y2k-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [],
+      "body_html": "warm mauve based packed with teal/aqua/violet shifting shimmer",
+      "published_at": "2025-06-10T20:34:48-05:00",
+      "variants": [
+        {
+          "id": 41780553056350,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7180318146654,
+      "title": "Pink Pony Club",
+      "handle": "pink-pony-club-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [],
+      "body_html": "hot pink packed with hot pink microflakes",
+      "published_at": "2024-11-23T17:12:33-06:00",
+      "variants": [
+        {
+          "id": 41090713616478,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 7133212573790,
+      "title": "Empty Boxes",
+      "handle": "empty-boxes",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [],
+      "body_html": "Empty boxes for all of your older Pahlishes! Listing is for FIVE empty boxes",
+      "published_at": "2024-06-15T15:49:19-05:00",
+      "variants": [
+        {
+          "id": 40992930299998,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 6909725540446,
+      "title": "Fancy",
+      "handle": "fancy-preorder",
+      "vendor": "Pahlish",
+      "product_type": "",
+      "tags": [],
+      "body_html": "soft lavender tinted base packed with iridescent aqua/green/violet pigment",
+      "published_at": "2024-02-06T21:40:09-06:00",
+      "variants": [
+        {
+          "id": 40366307344478,
+          "title": "Default Title"
+        }
+      ]
+    },
+    {
+      "id": 1756683763754,
+      "title": "Gift Cards",
+      "handle": "gift-card",
+      "vendor": "Pahlish",
+      "product_type": "Gift Card",
+      "tags": [],
+      "body_html": "Shopping for someone else but not sure what to give them? Give them the gift of choice with a Pahlish gift card. Gift cards are delivered by email and contain instructions to redeem them at checkout. Our gift cards have no additional processing fees.",
+      "published_at": "2019-12-13T14:05:49-06:00",
+      "variants": [
+        {
+          "id": 14162309808170,
+          "title": "$10.00"
+        },
+        {
+          "id": 14162309840938,
+          "title": "$25.00"
+        },
+        {
+          "id": 14162309873706,
+          "title": "$50.00"
+        },
+        {
+          "id": 14162309906474,
+          "title": "$100.00"
+        },
+        {
+          "id": 29397375778858,
+          "title": "$35.00"
+        }
+      ]
+    }
+  ]
+}

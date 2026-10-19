@@ -17,6 +17,7 @@ import {
 } from "./types.js";
 import { detectHexFromColorName, stripHtmlToText } from "./color-name-detection.js";
 import { shopifyProductText } from "../product-text.js";
+import { shopifyStoreProductVerdict } from "./store-filters/index.js";
 
 const REQUEST_TIMEOUT_MS = parseIntEnv(
   process.env.SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS,
@@ -536,7 +537,9 @@ export class ShopifyGenericConnector implements ProductConnector {
       this.fetchAllProducts()
     );
     const normalizedRecords = await Promise.all(
-      allProducts.map((product) => toNormalizedRecord(product, this.baseUrl, this.brandName))
+      allProducts.map((product) =>
+        toNormalizedRecord(product, this.baseUrl, this.brandName, this.source)
+      )
     );
     const filteredRecords = normalizedRecords.filter(
       (record): record is ConnectorProductRecord => Boolean(record)
@@ -795,7 +798,8 @@ export function defaultShopifyBaseUrl(source: string): string {
 async function toNormalizedRecord(
   product: ShopifyProduct,
   baseUrl: string,
-  brandName: string
+  brandName: string,
+  source: string
 ): Promise<ConnectorProductRecord | null> {
   const externalId = asNonEmptyString(product.id);
   if (!externalId) {
@@ -805,8 +809,11 @@ async function toNormalizedRecord(
   const tags = normalizeTags(product.tags);
   const productType = asNonEmptyString(product.product_type);
 
-  // Skip non-nail products
-  if (!isNailPolish(productType, tags) || isBundle(tags)) {
+  // Skip non-nail products. A store-specific filter (store-filters/, #328) decides
+  // first for stores the generic check cannot classify; null defers to it.
+  const isPolish =
+    shopifyStoreProductVerdict(source, product) ?? isNailPolish(productType, tags);
+  if (!isPolish || isBundle(tags)) {
     return null;
   }
 
