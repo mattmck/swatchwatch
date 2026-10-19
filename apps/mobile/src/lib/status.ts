@@ -88,3 +88,8 @@ export function statusActionsFor(status: PolishStatus | null | undefined): Statu
       ];
   }
 }
+
+/** Role for a one-tap mani log (web: `defaultRoleFor`): toppers log as `topper`. */
+export function quickLogRole(finishes: readonly string[]): "topper" | "color" {
+  return finishes.some((f) => f.toLowerCase() === "topper") ? "topper" : "color";
+}
