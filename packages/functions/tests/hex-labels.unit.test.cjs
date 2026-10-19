@@ -331,6 +331,7 @@ describe("hex-labels — queue SQL shape", () => {
     assert.match(page.sql, /s\.status <> 'user_submitted'/, "private user shades never queued");
     assert.match(page.sql, /ia\.owner_type = 'source'/, "only catalog images count");
     assert.match(page.sql, /lbl\.source_type = 'manual'/);
+    assert.match(page.sql, /s\.product_category = 'color'/, "only color polishes are queued (#349)");
   });
 
   it("binds brand and disagreement filters as parameters (never interpolated)", () => {
