@@ -47,6 +47,7 @@ import {
 } from "@/lib/collection-actions";
 import {
   buildPolishesListQueryString,
+  clampPageAfterLoad,
   hasActiveFilters as listHasActiveFilters,
   parsePolishesListState,
   statusPresetFor,
@@ -76,6 +77,7 @@ import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
 import { useReferenceData } from "@/hooks/use-reference-data";
 import { buildMsalConfig } from "@/lib/msal-config";
 import { toast } from "sonner";
+import { detailHref } from "@/lib/detail-href";
 
 /** Idle time after the last keystroke before the search box triggers a fetch. */
 const SEARCH_DEBOUNCE_MS = 350;
@@ -145,7 +147,6 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const searchParamsString = searchParams.toString();
-  const didMountRef = useRef(false);
   const skipNextPageResetRef = useRef(false);
   const [polishes, setPolishes] = useState<Polish[]>([]);
   const [total, setTotal] = useState(0);
@@ -305,18 +306,22 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     };
   }, [listState, page, pageSize, toneFilter]);
 
-  // Reset page when filters change (but keep initial URL-restored page).
+  // Reset page when filters change (but keep initial URL-restored page). Compares against the
+  // last seen filters instead of a "did mount" flag, so React Strict Mode's second effect run on
+  // mount cannot reset a restored page either (#348).
+  const filtersKey = JSON.stringify([
+    debouncedSearch, statusesKey, untried, toneFilter, finishFilter, familyFilter, sortKey, sortDirection,
+  ]);
+  const lastFiltersKeyRef = useRef(filtersKey);
   useEffect(() => {
-    if (!didMountRef.current) {
-      didMountRef.current = true;
-      return;
-    }
+    if (lastFiltersKeyRef.current === filtersKey) return;
+    lastFiltersKeyRef.current = filtersKey;
     if (skipNextPageResetRef.current) {
       skipNextPageResetRef.current = false;
       return;
     }
     setPage(1);
-  }, [debouncedSearch, statusesKey, untried, toneFilter, finishFilter, familyFilter, sortKey, sortDirection]);
+  }, [filtersKey]);
 
   const queryString = useMemo(
     () => buildPolishesListQueryString({ ...listState, page, pageSize }),
@@ -367,15 +372,12 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const { guardAdd, active: activeGuard, choose: chooseGuard, isChecking: isGuardChecking } = useAddGuard();
   const columnCount = 9 + (isAdmin ? 1 : 0);
 
+  // Clamp a page past the end only once real data is in (#348): on mount `total` is still 0, and
+  // clamping then rewrote a restored `?page=N` to page 1. A failed load keeps the page too.
   useEffect(() => {
-    if (totalPages === 0 && page !== 1) {
-      setPage(1);
-      return;
-    }
-    if (totalPages > 0 && page > totalPages) {
-      setPage(totalPages);
-    }
-  }, [page, totalPages]);
+    const nextPage = clampPageAfterLoad({ page, total, pageSize, hasLoaded: hasLoaded && !error, loading });
+    if (nextPage !== null) setPage(nextPage); // eslint-disable-line react-hooks/set-state-in-effect
+  }, [page, total, pageSize, hasLoaded, error, loading]);
 
   /** The archive toast's reason / Undo answers (D5c): replace the row, keeping its buyUrl. */
   const applyArchiveToastUpdate = useCallback((updated: Polish) => {
@@ -780,7 +782,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                       <div className="flex items-start gap-2">
                         <div className="min-w-0 flex-1">
                           <Link
-                            href={`/polishes/detail?id=${polish.id}&returnTo=${encodeURIComponent(returnToHref)}`}
+                            href={detailHref(polish.id, returnToHref)}
                             className="break-words text-primary hover:underline"
                           >
                             {polish.name}

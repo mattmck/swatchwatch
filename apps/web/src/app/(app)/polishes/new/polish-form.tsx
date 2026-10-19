@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/card";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { scanPrefillFromParams } from "@/lib/capture-verdict";
+import { detailHref, safeReturnTo } from "@/lib/detail-href";
 
 const PRESET_SWATCHES = [
   "#F8D3E2",
@@ -61,25 +62,12 @@ const PRESET_SWATCHES = [
 
 const RATING_STARS = [1, 2, 3, 4, 5] as const;
 
-function resolveReturnTo(returnTo: string | null): string {
-  if (!returnTo) return "/polishes";
-  try {
-    const decoded = decodeURIComponent(returnTo);
-    if (decoded.startsWith("/") && !decoded.startsWith("//")) {
-      return decoded;
-    }
-  } catch {
-    // Ignore malformed values and use fallback.
-  }
-  return "/polishes";
-}
-
 export default function PolishForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const editId = searchParams.get("id");
   const returnTo = searchParams.get("returnTo");
-  const listHref = resolveReturnTo(returnTo);
+  const listHref = safeReturnTo(returnTo);
   const isEditing = Boolean(editId);
   // Rapid Add's unknown-barcode path: the scanned code (remembered on save) and any names it read.
   const [scanPrefill] = useState(() => (editId ? {} : scanPrefillFromParams(new URLSearchParams(searchParams.toString()))));
@@ -262,13 +250,13 @@ export default function PolishForm() {
         // `archived=1` makes the detail page show the archive toast (reason / Undo).
         const archived = originalStatus && isArchivingChange({ status: originalStatus }, payload) ? "&archived=1" : "";
         router.push(
-          `/polishes/detail?id=${updated.id}&returnTo=${encodeURIComponent(listHref)}${archived}`
+          `${detailHref(updated.id, listHref)}${archived}`
         );
       } else {
         const created = await createPolish(payload);
         if (created?.id) {
           router.push(
-            `/polishes/detail?id=${created.id}&returnTo=${encodeURIComponent(listHref)}`
+            detailHref(created.id, listHref)
           );
         } else {
           router.push(listHref);
@@ -603,7 +591,7 @@ export default function PolishForm() {
                 onClick={() => {
                   if (isEditing && editId) {
                     router.push(
-                      `/polishes/detail?id=${editId}&returnTo=${encodeURIComponent(listHref)}`
+                      detailHref(editId, listHref)
                     );
                   } else {
                     router.push(listHref);
