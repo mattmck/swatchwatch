@@ -81,6 +81,14 @@ describe("indie Shopify sources (#273, #328)", () => {
       assert.ok(enable.includes(`'${source}'`), `${source} not enabled by the migration`);
     }
     assert.match(enable, /metadata->>'pendingApproval' = 'true'/, "must only touch rows still pending");
+    const down = readdirSync(MIGRATIONS_DIR)
+      .filter((file) => file.endsWith("_enable-signed-off-indie-sources.sql"))
+      .map((file) => readFileSync(resolve(MIGRATIONS_DIR, file), "utf8"))[0];
+    assert.match(
+      down.slice(down.indexOf("-- Down Migration")),
+      /metadata->>'enabledByMigration' = '20261019020000000'/,
+      "down must only revert rows this migration enabled"
+    );
   });
 });
 

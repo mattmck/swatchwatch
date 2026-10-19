@@ -12,6 +12,7 @@ UPDATE data_source
 SET enabled = true,
     metadata = (metadata - 'pendingApproval')
       || jsonb_build_object(
+           'enabledByMigration', '20261019020000000',
            'notes',
            coalesce(metadata->>'notes', '')
            || ' Update 2026-10-19: acceptable use confirmed: the owner reports the store signed off on 2026-10-19 (who and how not recorded here); the earlier "disabled pending approval" wording above no longer applies. Enabled 2026-10-19.'
@@ -21,9 +22,12 @@ WHERE name IN ('PahlishShopify', 'EmilyDeMollyShopify', 'CirqueColorsShopify')
 
 
 -- Down Migration
--- Disable the three sources again and restore the pending flag. The notes keep the sign-off
--- sentence (history is not rewritten); ingestion data already imported is untouched.
+-- Disable again, restore the pending flag and drop the marker, only for rows this migration's
+-- Up changed (they carry metadata.enabledByMigration). A row that was already enabled (for
+-- example by the updated seed) is left alone. The notes keep the sign-off sentence (history is
+-- not rewritten); ingestion data already imported is untouched.
 UPDATE data_source
 SET enabled = false,
-    metadata = metadata || '{"pendingApproval": true}'::jsonb
-WHERE name IN ('PahlishShopify', 'EmilyDeMollyShopify', 'CirqueColorsShopify');
+    metadata = (metadata - 'enabledByMigration') || '{"pendingApproval": true}'::jsonb
+WHERE name IN ('PahlishShopify', 'EmilyDeMollyShopify', 'CirqueColorsShopify')
+  AND metadata->>'enabledByMigration' = '20261019020000000';
