@@ -96,7 +96,7 @@ export function VerdictCard(props: VerdictCardProps) {
       tone = "dupe";
       icon = "copy";
       eyebrow = "New to you — but close";
-      title = verdict.dupes.highCount > 0 ? "You own a near-identical shade" : "You own something close";
+      title = `You own ${verdict.dupes.dupeCount} close ${verdict.dupes.dupeCount === 1 ? "dupe" : "dupes"}`;
       body = (
         <View style={{ gap: theme.spacing(1.5) }}>
           {verdict.dupes.dupes.slice(0, 3).map((dupe) => (

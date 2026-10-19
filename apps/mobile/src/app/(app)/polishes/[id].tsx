@@ -1,4 +1,4 @@
-import { Stack, useLocalSearchParams } from "expo-router";
+import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Linking, ScrollView, View } from "react-native";
 import {
@@ -20,6 +20,7 @@ import {
 import { ColorDot, Swatch } from "@/components/swatch";
 import { AppText, Button, Card, CenteredState, Chip, ErrorBanner } from "@/components/ui";
 import { finishLabel } from "@/lib/finishes";
+import { formatWornOn } from "@/lib/mani";
 import {
   isOwnedPolish,
   localIsoDate,
@@ -207,10 +208,17 @@ export default function PolishDetailScreen() {
             {polish.isUntried && (
               <Button title="Mark tried today" variant="outline" loading={busy === "tried"} disabled={busy !== null} onPress={() => void markTriedToday()} />
             )}
-            <AppText variant="small" muted>
+            <AppText variant="small" muted testID="wear-stats">
               {polish.wearCount ? `Worn ${polish.wearCount}×` : "Not worn yet"}
-              {polish.lastWornAt ? ` · last ${polish.lastWornAt.slice(0, 10)}` : ""}
+              {polish.lastWornAt ? ` · last worn ${formatWornOn(polish.lastWornAt.slice(0, 10))}` : ""}
+              {polish.triedAt ? ` · tried ${polish.triedAt.slice(0, 10)}` : " · untried"}
             </AppText>
+            <Button
+              title="Log a mani with this…"
+              variant="outline"
+              compact
+              onPress={() => router.navigate({ pathname: "/manis", params: { log: polish.id } })}
+            />
           </Card>
         )}
 

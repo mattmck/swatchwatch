@@ -1,6 +1,6 @@
 import { refreshAsync, TokenError, type TokenResponse } from "expo-auth-session";
 import { AUTH_MODE, DEV_USER_ID } from "@/config/env";
-import { saveStoredAuth, type StoredTokens } from "./token-store";
+import { saveStoredAuth, type StoredAuth, type StoredTokens } from "./token-store";
 
 /**
  * Module-level token holder, the mobile twin of `apps/web/src/lib/auth-token.ts`: the auth
@@ -18,6 +18,13 @@ let tokens: StoredTokens | null = null;
 let refreshConfig: RefreshConfig | null = null;
 let refreshing: Promise<StoredTokens | null> | null = null;
 let devSignedIn = false;
+/** The saved user and token endpoint, re-written with every refreshed token set. */
+let sessionExtras: Pick<StoredAuth, "user" | "tokenEndpoint"> = {};
+
+/** The provider sets this once a session is validated or restored (cleared by `setTokens(null)`). */
+export function setSessionExtras(extras: Pick<StoredAuth, "user" | "tokenEndpoint">): void {
+  sessionExtras = extras;
+}
 let sessionExpiredHandler: (() => void) | null = null;
 
 /** The auth provider registers this to send the user back to sign-in. */
@@ -35,6 +42,7 @@ const EXPIRY_SKEW_SECONDS = 60;
 
 export function setTokens(next: StoredTokens | null, config?: RefreshConfig | null): void {
   tokens = next;
+  if (!next) sessionExtras = {};
   if (config !== undefined) refreshConfig = config;
 }
 
@@ -82,7 +90,9 @@ export async function refreshTokens(): Promise<StoredTokens | null> {
       .then(async (response) => {
         const next = tokensFromResponse(response, current);
         tokens = next;
-        await saveStoredAuth({ mode: "entra", tokens: next });
+        // Keep the saved user and token endpoint (an offline launch needs them). They come from
+        // memory, not a storage read, so a failed read can never drop them.
+        await saveStoredAuth({ ...sessionExtras, mode: "entra", tokens: next });
         return next;
       })
       .catch((error: unknown) => {
