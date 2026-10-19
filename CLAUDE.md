@@ -137,7 +137,7 @@ This project is in early development. The web UI is now fully API-driven. Backen
 - ✅ Catalog search — `pg_trgm`-based fuzzy search across brand/shade names and aliases (`catalog.ts`)
 - ✅ Image proxy — private blob storage served through `/api/images/{id}` (`images.ts`); ids are HMAC-signed, expiring capabilities. Public `v2` ids (anonymous, `Cache-Control: public`) read only the source-image container; owner-scoped `v3` ids for private media (#227) read only `USER_MEDIA_CONTAINER` and are served only to the owner's bearer token (401/403 otherwise, `Cache-Control: private` + `Vary: Authorization`)
 - ✅ Per-user access control (#47) — all user-data routes use `withAuth` with `user_id`-scoped SQL; admin/ops routes use `withAdmin`; capture frames can only reference the caller's own `image_asset` rows; user-created shades are `user_submitted` (private until an admin approves them in the review queue; rejected and merged submissions stay private, merged ones are hidden even from their creator), shared shades are read-only for users (catalog finishes/colors are written only when the request creates the shade, #224), and email account-linking requires a verified email
-- ✅ Connector ingestion pipeline — async queue-backed jobs for OpenBeautyFacts, MakeupAPI, HoloTacoShopify, and generic Shopify sources
+- ✅ Connector ingestion pipeline — async queue-backed jobs for OpenBeautyFacts, MakeupAPI, HoloTacoShopify, and generic Shopify sources; stores whose products.json the generic polish filter cannot classify get a per-source pre-filter in `src/lib/connectors/store-filters/` (`SHOPIFY_STORE_PRODUCT_FILTERS`: true keeps, false drops, null defers to the generic filter; Pahlish, #328). New indie stores are registered disabled in `SHOPIFY_SOURCES_PENDING_APPROVAL` until the owner records the store's OK in `data_source.metadata.notes` (`docs/indie-sources-2026-10.md`)
 - ✅ AI hex detection — Azure OpenAI vision-based `detected_hex` from product images, with `recalc-hex` admin endpoint
 - ✅ Detected-hex provenance + reconciliation — confidence/method/deployment/prompt version/timestamp on every `detected_hex` write, generated `hex_agreement` (migration 20261017024958000_shade-detected-hex-provenance), `resolveDisplayHexDetailed`, admin review queue `GET /api/polishes-admin/hex-review`
 - ✅ Reference data management — `finish_type`, `harmony_type`, `finish_normalization` tables with admin CRUD and public read endpoints
@@ -276,6 +276,7 @@ Documentation files in this project:
 - `docs/schema.sql` — canonical Postgres DDL (pg_trgm, pgvector, all tables + indexes)
 - `docs/seed_data_sources.sql` — idempotent seed data for external sources (OpenBeautyFacts, CosIng, etc.)
 - `docs/mvp-backlog.md` — epics, capabilities, stories, and milestone timeline
+- `docs/indie-sources-2026-10.md` — #273/#328 indie Shopify store survey: per-store products.json, polish-filter counts, terms/robots findings, recommended order and the `data_source.metadata.notes` text for each
 - `docs/decisions-2026-10.md` — decision log (D1–D22) for the M2 batch: product rules, observability, release, follow-up tickets
 - `docs/retro-m2.md` — M2 retro (#274): what shipped in release #340, decisions, §4 metric readings, open issues, Q1 candidates
 - `docs/azure-iac-bom.md` — per-environment Azure resource bill of materials
