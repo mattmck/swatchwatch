@@ -18,6 +18,8 @@ import type {
   ColorFamily,
   ManicureCreateRequest,
   ManicureDeleteResponse,
+  ManicureFilters,
+  ManicureListResponse,
   ManicureMutationResponse,
   Polish,
   PolishDupesResponse,
@@ -215,6 +217,19 @@ export function matchPolishesToImage(
 }
 
 // ── Mani log ────────────────────────────────────────────────────────────────
+
+/** The caller's manicures, newest first (`GET /api/manicures`). */
+export function listManicures(filters: ManicureFilters = {}): Promise<ManicureListResponse> {
+  return apiRequest<ManicureListResponse>(
+    `/manicures${query({
+      from: filters.from,
+      to: filters.to,
+      shadeId: filters.shadeId,
+      page: filters.page,
+      pageSize: filters.pageSize,
+    })}`,
+  );
+}
 
 export function createManicure(data: ManicureCreateRequest): Promise<ManicureMutationResponse> {
   return apiRequest<ManicureMutationResponse>("/manicures", { method: "POST", body: data });
