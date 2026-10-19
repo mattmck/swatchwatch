@@ -44,12 +44,28 @@ export default function ManisScreen() {
     if (nextPage === 1 && scope) void writeCache(scope, "manis", { items: res.manicures, total: res.total });
   }, [scope]);
 
+  /**
+   * Request version: every page-1 load (including the first one) starts a new one, and only the
+   * latest version may change the list, the error or the loading state, so a slow older
+   * response can't overwrite a newer result. "Load more" belongs to the version it started in.
+   */
+  const requestVersion = useRef(0);
+
   const load = useCallback(
-    (nextPage: number): Promise<void> =>
-      listManicures({ page: nextPage, pageSize: PAGE_SIZE })
-        .then((res) => apply(res, nextPage))
-        .catch((err: unknown) => setError(errorMessage(err, "Couldn't load your manis.")))
-        .finally(() => setLoading(false)),
+    (nextPage: number): Promise<void> => {
+      const version = nextPage === 1 ? ++requestVersion.current : requestVersion.current;
+      const isCurrent = () => version === requestVersion.current;
+      return listManicures({ page: nextPage, pageSize: PAGE_SIZE })
+        .then((res) => {
+          if (isCurrent()) apply(res, nextPage);
+        })
+        .catch((err: unknown) => {
+          if (isCurrent()) setError(errorMessage(err, "Couldn't load your manis."));
+        })
+        .finally(() => {
+          if (isCurrent()) setLoading(false);
+        });
+    },
     [apply],
   );
 
@@ -66,13 +82,15 @@ export default function ManisScreen() {
         setLoading(false);
       });
     }
+    const version = ++requestVersion.current;
+    const isCurrent = () => !cancelled && version === requestVersion.current;
     listManicures({ page: 1, pageSize: PAGE_SIZE })
       .then((res) => {
         freshArrived = true;
-        if (!cancelled) apply(res, 1);
+        if (isCurrent()) apply(res, 1);
       })
-      .catch((err: unknown) => !cancelled && setError(errorMessage(err, "Couldn't load your manis.")))
-      .finally(() => !cancelled && setLoading(false));
+      .catch((err: unknown) => isCurrent() && setError(errorMessage(err, "Couldn't load your manis.")))
+      .finally(() => isCurrent() && setLoading(false));
     return () => {
       cancelled = true;
     };
