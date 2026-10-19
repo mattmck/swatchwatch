@@ -225,7 +225,7 @@ function SwatchStrip({ polishes, label, count }: { polishes: Polish[]; label: st
         aria-valuenow={count}
         aria-valuetext={label}
         aria-label="Polishes added"
-        className="grid grid-cols-[repeat(20,minmax(0,1fr))] gap-1 sm:gap-1.5"
+        className="grid max-w-[18rem] grid-cols-10 gap-1.5 sm:max-w-xl sm:grid-cols-[repeat(20,minmax(0,1fr))]"
       >
         {Array.from({ length: ONBOARDING_GOAL }, (_, i) => {
           const filled = i < count;
@@ -237,8 +237,8 @@ function SwatchStrip({ polishes, label, count }: { polishes: Polish[]; label: st
               className={cn(
                 "aspect-[3/4] rounded-t-full rounded-b-[3px]",
                 filled
-                  ? "shadow-[inset_0_-2px_0_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.35)]"
-                  : "border border-dashed border-brand-purple/35 dark:border-brand-lilac/30"
+                  ? "shadow-[inset_0_-2px_0_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.35)] ring-1 ring-inset ring-black/10 dark:ring-white/20"
+                  : "border border-dashed border-brand-purple/45 dark:border-brand-lilac/30"
               )}
               style={filled ? { backgroundColor: hex ?? "var(--brand-lilac)" } : undefined}
             />
