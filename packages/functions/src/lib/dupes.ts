@@ -23,7 +23,8 @@ const DUPE_SHADE_COLUMNS = `
     s.name_hex                                   AS "nameHex",
     s.hex_agreement::float8                      AS "hexAgreement",
     COALESCE(NULLIF(s.finish, ''), s.finishes[1], '') AS finish,
-    COALESCE(s.finishes, ARRAY[]::text[])        AS finishes`;
+    COALESCE(s.finishes, ARRAY[]::text[])        AS finishes,
+    s.product_category                           AS "productCategory"`;
 
 export type DupeShadeRow = DupeShade & { shadeId: string };
 

@@ -36,6 +36,7 @@ recommendation in place for the record.
 | D20 | Milestones | Decided | Housekeeping |
 | D21 | Owners for follow-ups | Decided | Follow-up work |
 | D22 | How feature flags work | Deferred ([#313](https://github.com/mattmck/swatchwatch/issues/313)) | Nothing yet |
+| D23 | Product categories and non-polish cleanup | Decided | #349, #347 |
 
 ---
 
@@ -311,3 +312,18 @@ Open follow-ups taken from the PR descriptions. Give each one an owner and a tic
 ### D22 — How feature flags work
 - **Status:** Deferred, see [#313](https://github.com/mattmck/swatchwatch/issues/313). Env vars for now; revisit
   at the third or fourth flag, or when per-user targeting is needed.
+
+## E. Catalog hygiene
+
+### D23 — Product categories and non-polish cleanup
+- **Status:** Decided
+- **Context:** owner accepted the plan's recommendations for the overnight build; revisit on PR review.
+  Plan: [plan-catalog-hygiene.md](plan-catalog-hygiene.md) §3. Issues [#349](https://github.com/mattmck/swatchwatch/issues/349), [#347](https://github.com/mattmck/swatchwatch/issues/347).
+- **Decision:**
+  - **D-A (model):** option (a), a column on `shade`: `product_category` (`color | topper | top_coat | base_coat | treatment | accessory`, default `color`) plus `product_category_source` (`rule | admin`). Topper is a category; its finishes describe the particles, and the `topper` finish keeps setting the category at ingestion.
+  - **D-B (accessories):** option (a), classify as `accessory` and set the new shade status `excluded` when nobody holds the shade. Held ones are listed for admin review and stay visible to their holders. Nothing is hard-deleted.
+  - **D-C (surfaces):** the plan's recommended table as written (collection table all categories with accessories for holders only; catalog search everything but accessories; color search, gaps and photo match color only; dupes color vs color and topper vs topper; Pick for me color main picks with an optional topper pairing; stats with coats/treatments in spend only and accessories out; mani log role prefill from the category).
+  - **D-D (topper hexes):** recommended option, no vision hex detection on toppers (or any non-color category); toppers show a neutral swatch with finish chips; `vendor_hex` is kept; `detected_hex` is cleared on toppers only by the backfill's explicit flag, with the old value and provenance recorded so it can be undone.
+  - **D-E (coats and treatments at ingestion):** stop dropping treatment, primer and bond products; ingest them as `base_coat` / `top_coat` / `treatment`. True accessories are still skipped.
+- **Date:** 2026-10-18
+
