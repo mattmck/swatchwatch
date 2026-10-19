@@ -94,12 +94,19 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | Resource Group | `azurerm_resource_group.main` | Container for all resources |
 | Key Vault | `azurerm_key_vault.main` | Secure secrets storage (PG password, API keys) |
 | Key Vault Secret | `azurerm_key_vault_secret.image_proxy_signing_key` (from `random_password.image_proxy_signing_key`) | 64-char HMAC key exposed to Functions as `IMAGE_PROXY_SIGNING_KEY` (Key Vault reference) to sign `/api/images/{id}` capability URLs. Replace the `random_password` to rotate; previously issued image URLs stop working. |
-| PostgreSQL Flexible Server | `azurerm_postgresql_flexible_server.main` | PostgreSQL 16 with pg_trgm + pgvector |
+| PostgreSQL Flexible Server | `azurerm_postgresql_flexible_server.main` | PostgreSQL 16 with pg_trgm + pgvector; point-in-time restore for `pg_backup_retention_days` (default 35) |
 | PostgreSQL Database | `azurerm_postgresql_flexible_server_database.main` | `swatchwatch` database |
-| Storage Account | `azurerm_storage_account.main` | Blob storage for images |
+| Storage Account | `azurerm_storage_account.main` | Blob storage for images and the Terraform state; blob versioning, change feed, and blob + container soft delete (`blob_soft_delete_retention_days`) |
+| Storage Management Policy | `azurerm_storage_management_policy.main` | Expires old blob versions (media `blob_version_retention_days`, tfstate `tfstate_version_retention_days`, connector-raw 7 days) and `pg-restores` dumps after 14 days |
 | Storage Container | `azurerm_storage_container.swatches` | Swatch photos |
 | Storage Container | `azurerm_storage_container.nail_photos` | Nail photos (private user media). Name exposed to Functions as `USER_MEDIA_CONTAINER`; readable only through owner-scoped `v3` image ids (#227). |
-| Storage Container | `azurerm_storage_container.tfstate` | Terraform remote state container |
+| Storage Container | `azurerm_storage_container.tfstate` | **Live** Terraform remote state for this environment (the azurerm backend points here). Never remove it |
+| Backup Vault *(backups)* | `azurerm_data_protection_backup_vault.main` | Azure Backup vault (locally redundant, soft delete 14 days, immutability unlocked); `backup_vault_enabled`, prod only by default |
+| Postgres vault backup *(backups)* | `azurerm_data_protection_backup_policy_postgresql_flexible_server.weekly`, `azurerm_data_protection_backup_instance_postgresql_flexible_server.main` | Weekly (Sun 07:00 UTC) full logical backup of the server, kept `pg_vault_backup_retention` (3 months); first of each month kept `vault_backup_monthly_retention` (1 year). Survives server deletion |
+| Nail-photo vault backup *(backups)* | `azurerm_data_protection_backup_policy_blob_storage.nail_photos`, `azurerm_data_protection_backup_instance_blob_storage.nail_photos` | Daily (06:00 UTC) vaulted copy of the `nail-photos` container, kept `nail_photo_vault_backup_retention` (30 days); first of each month kept 1 year. Survives storage account deletion |
+| Storage Container *(backups)* | `azurerm_storage_container.pg_restores` | `pg-restores`: target for Postgres vault restores (restored as dump files) |
+| Role Assignments *(backups)* | `azurerm_role_assignment.backup_vault_*` | Vault identity: Reader on the resource group, PostgreSQL Flexible Server Long Term Retention Backup Role on the server, Storage Account Backup Contributor on the storage account, Storage Blob Data Contributor on `pg-restores` |
+| Delete Locks *(locks)* | `azurerm_management_lock.data["postgres"\|"storage"\|"backup_vault"]` | `CanNotDelete` locks (`delete_locks_enabled`, prod only by default) |
 | Log Analytics Workspace | `azurerm_log_analytics_workspace.main` | Centralized log storage/query backend (daily quota = `appinsights_daily_cap_gb`) |
 | Application Insights | `azurerm_application_insights.main` | Function telemetry, traces, requests, and exceptions (daily cap = `appinsights_daily_cap_gb`) |
 | Action Group *(alerts)* | `azurerm_monitor_action_group.main` | Emails `alert_email` for every alert below (`alerts_enabled`, prod only by default) |
@@ -190,6 +197,15 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 | `alert_browser_exception_threshold` | `25` | Browser exceptions in 15 min before the exception spike alert fires |
 | `availability_test_frequency_seconds` | `300` | Availability test interval per location (`300`, `600` or `900`) |
 | `availability_test_locations` | East US, South Central US, West US | Availability test geo location ids (at least 2) |
+| `pg_backup_retention_days` | `35` | Postgres point-in-time restore window (7–35 days) |
+| `blob_soft_delete_retention_days` | `30` | Days deleted blobs and containers stay recoverable |
+| `blob_version_retention_days` | `30` | Days previous swatch / nail-photo blob versions are kept |
+| `tfstate_version_retention_days` | `90` | Days previous Terraform state versions are kept |
+| `backup_vault_enabled` | `null` (→ `true` prod, `false` otherwise) | Create the Azure Backup vault, policies and backup instances |
+| `delete_locks_enabled` | `null` (→ `true` prod, `false` otherwise) | `CanNotDelete` locks on the Postgres server, storage account and backup vault |
+| `pg_vault_backup_retention` | `P3M` | Retention of weekly Postgres vault backups (ISO 8601). Changing it replaces the policy, see [Backups & Restore](#backups--restore) |
+| `nail_photo_vault_backup_retention` | `P30D` | Retention of daily nail-photo vault backups (ISO 8601) |
+| `vault_backup_monthly_retention` | `P1Y` | Retention of the first vault backup of each month (both policies) |
 
 **Sensitive variables** are stored in environment-specific tfvars files (gitignored), for example:
 - `terraform.dev.tfvars`
@@ -205,6 +221,42 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 ✅ **OpenAI Observability** — Azure OpenAI diagnostic logs/metrics flow into the shared Log Analytics/App Insights workspace  
 ✅ **Key Vault References** — Function App settings use `@Microsoft.KeyVault(...)` syntax
 ✅ **Versionless Secret URIs** — Function App secret references use Key Vault `versionless_id` to avoid app-setting churn on each secret version rotation
+
+## Backups & Restore
+
+What is protected, and how far back you can go:
+
+| Data | Protection | Window |
+|------|------------|--------|
+| Postgres (all user data, catalog, admin labels) | Built-in point-in-time restore | `pg_backup_retention_days` (35 days), any second |
+| Postgres | Backup vault, weekly full logical backup *(prod)* | 3 months weekly, 1 year monthly; survives server deletion |
+| `nail-photos` (private user media, the only copy) | Soft delete + versioning, plus a daily vaulted backup *(prod)* | 30 days locally; vault 30 days daily, 1 year monthly; survives account deletion |
+| `swatches`, `connector-raw` | Soft delete + versioning | 30 days (connector-raw versions 7 days); regenerable from vendors / connectors |
+| Terraform state (`tfstate` container) | Soft delete + versioning | 90 days of prior versions |
+| Key Vault secrets | Soft delete; purge protection in prod | 7 days (the window is fixed at vault creation) |
+| Delete locks *(prod)* | `CanNotDelete` on Postgres, storage account, backup vault | — |
+
+Nothing is geo-redundant (intentional). Redis (cache), App Insights (logs), and the web/Functions code (git) need no backups.
+
+**First apply.** The vault's role assignments and the delete locks need `Microsoft.Authorization/*/write`, which the GitHub Actions service principal (Contributor) doesn't have. Run the first prod apply of this change locally as a user with Owner or User Access Administrator; later CI applies only read them. Locks also block deleting child resources (storage containers, Postgres firewall rules) until removed: `az lock delete --name <name> --resource-group <rg> --resource-type ... --resource <name>`.
+
+**Changing vault retention.** Backup policies can't be edited in place and can't be replaced while an instance uses them. Add a new policy, point the backup instance at it, apply, then remove the old one.
+
+### Restore procedures
+
+- **Postgres, point in time** (bad migration, bad bulk write within 35 days): restore into a new server, check it, then point `PGHOST` at it (or copy the affected rows back).
+  ```bash
+  az postgres flexible-server restore --resource-group <rg> --source-server <server> \
+    --name <server>-restore --restore-time "2026-10-18T13:00:00Z"
+  ```
+- **Postgres, from the vault** (server gone, or older than 35 days): Portal → Backup vault → Backup instances → the server → Restore → *Restore as files* → container `pg-restores`. Load the dump files into a new flexible server with `pg_restore --no-owner`. Errors about `azure_pg_admin`/`azuresu` roles are expected and safe to ignore.
+- **A deleted or overwritten blob** (nail photo, swatch): Portal → container → *Show deleted blobs* → Undelete, or the blob → *Versions* → make a previous version current. CLI: `az storage blob undelete --account-name <acct> -c nail-photos -n <blob> --auth-mode login`.
+- **A deleted container**: `az storage container restore --account-name <acct> --name nail-photos --deleted-version <version>` (find it with `az storage container list --include-deleted`).
+- **Nail photos from the vault** (account gone or past 30 days): Portal → Backup vault → Backup instances → nail photos → Restore, to the same or another storage account.
+- **Terraform state**: `az storage blob list --account-name <acct> -c tfstate --prefix <env>.terraform.tfstate --include v --auth-mode login` lists versions; copy the good version over the current blob (`az storage blob copy start --source-uri '<blob-url>?versionId=<id>'`).
+- **Key Vault**: a deleted vault, `az keyvault recover --name <vault>`; a deleted secret, `az keyvault secret recover --vault-name <vault> --name <secret>`.
+
+**Restore drill (quarterly, prod).** Do a point-in-time restore to a scratch server and compare row counts for `user_inventory_item`, `manicure` and `color_training_sample`. Undelete one test blob in `nail-photos`, and check that the vault's latest Postgres and blob backup jobs succeeded. Delete the scratch server afterwards.
 
 ## Naming Convention
 
@@ -429,7 +481,9 @@ cd infrastructure
 terraform destroy -var-file=terraform.dev.tfvars
 ```
 
-**Warning:** This permanently deletes all data. Key Vault secrets are soft-deleted (recoverable for 7 days).
+**Warning:** This permanently deletes all data, including this environment's Terraform state (the `tfstate` container lives in the storage account being destroyed). Key Vault secrets are soft-deleted (recoverable for 7 days).
+
+In prod, destroy is blocked on purpose: the delete locks must be removed first, purge protection means the vault name stays reserved for the soft-delete window, and backup vault data stays in soft delete for 14 days after protection is stopped.
 
 To completely purge:
 ```bash

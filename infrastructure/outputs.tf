@@ -157,3 +157,8 @@ output "redis_primary_access_key" {
   value       = try(azurerm_managed_redis.main[0].default_database[0].primary_access_key, "")
   sensitive   = true
 }
+
+output "backup_vault_name" {
+  description = "Azure Backup vault holding the Postgres and nail-photo backups (empty when backup_vault_enabled resolves to false)"
+  value       = try(azurerm_data_protection_backup_vault.main[0].name, "")
+}

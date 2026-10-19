@@ -388,3 +388,69 @@ variable "create_redis" {
   type        = bool
   default     = false
 }
+
+# ── Backups ─────────────────────────────────────────────────────
+
+variable "pg_backup_retention_days" {
+  description = "Postgres built-in point-in-time restore window in days (7-35). Backup storage up to the provisioned storage size is included in the server price."
+  type        = number
+  default     = 35
+
+  validation {
+    condition     = var.pg_backup_retention_days >= 7 && var.pg_backup_retention_days <= 35
+    error_message = "pg_backup_retention_days must be between 7 and 35."
+  }
+}
+
+variable "blob_soft_delete_retention_days" {
+  description = "Days deleted blobs and deleted containers stay recoverable in the app storage account (1-365)."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.blob_soft_delete_retention_days >= 1 && var.blob_soft_delete_retention_days <= 365
+    error_message = "blob_soft_delete_retention_days must be between 1 and 365."
+  }
+}
+
+variable "blob_version_retention_days" {
+  description = "Days previous versions of swatch and nail-photo blobs are kept before the management policy deletes them."
+  type        = number
+  default     = 30
+}
+
+variable "tfstate_version_retention_days" {
+  description = "Days previous Terraform state versions are kept in the tfstate container."
+  type        = number
+  default     = 90
+}
+
+variable "backup_vault_enabled" {
+  description = "Create the Azure Backup vault with weekly Postgres and daily nail-photo backups. null = true for prod, false otherwise. The first apply that enables it needs User Access Administrator (role assignments), so run it locally."
+  type        = bool
+  default     = null
+}
+
+variable "delete_locks_enabled" {
+  description = "Put CanNotDelete locks on the Postgres server, storage account and backup vault. null = true for prod, false otherwise. Creating locks needs Owner or User Access Administrator."
+  type        = bool
+  default     = null
+}
+
+variable "pg_vault_backup_retention" {
+  description = "ISO 8601 retention for weekly Postgres vault backups (e.g. P3M). Changing it replaces the backup policy; see the Backups section in main.tf."
+  type        = string
+  default     = "P3M"
+}
+
+variable "nail_photo_vault_backup_retention" {
+  description = "ISO 8601 retention for daily nail-photo vault backups (e.g. P30D). Changing it replaces the backup policy; see the Backups section in main.tf."
+  type        = string
+  default     = "P30D"
+}
+
+variable "vault_backup_monthly_retention" {
+  description = "ISO 8601 retention for the first vault backup of each month, Postgres and nail photos (e.g. P1Y). Changing it replaces the backup policies."
+  type        = string
+  default     = "P1Y"
+}
