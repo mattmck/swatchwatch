@@ -279,6 +279,33 @@ describe("capture resolver — barcode lookup", () => {
     assert.ok(lookup.params[0].includes(CANONICAL));
   });
 
+  for (const [label, scanned, format] of [
+    ["iOS: UPC-A reported as a 13-digit EAN with a leading 0", `0${UPC_A}`, "ean_13"],
+    ["UPC-A as printed", UPC_A, "upc_a"],
+    ["UPC-A as a 14-digit GTIN", `00${UPC_A}`, undefined],
+    ["UPC-A that lost its leading zero", UPC_A.slice(1), undefined],
+  ]) {
+    it(`matches the same catalog barcode however it is scanned: ${label}`, async () => {
+      state.barcodes.set(CANONICAL, { skuId: String(SKU_ID), shadeId: String(SHADE_ID), brand: "OPI", productName: "X", shadeName: "X" });
+      state.session.metadata = { gtin: scanned, ...(format ? { barcodeFormat: format } : {}) };
+      state.frames = [{ frameType: "barcode", quality: { gtin: scanned } }];
+      const res = await invoke("capture-check");
+      assert.equal(res.jsonBody.outcome, "matched");
+      assert.equal(res.jsonBody.match.entityId, String(SKU_ID));
+    });
+  }
+
+  it("a scan with a bad check digit is still looked up by its canonical key (not rejected)", async () => {
+    const BAD = "036000291453";
+    state.barcodes.set(`0${BAD}`, { skuId: String(SKU_ID), shadeId: String(SHADE_ID), brand: "OPI", productName: "X", shadeName: "X" });
+    state.session.metadata = { gtin: BAD };
+    state.frames = [{ frameType: "barcode", quality: { gtin: BAD } }];
+    const res = await invoke("capture-check");
+    assert.equal(res.jsonBody.outcome, "matched");
+    const lookup = sqlCalls.find((c) => /FROM barcode bc/i.test(c.sql));
+    assert.ok(lookup.params[0].includes(`0${BAD}`));
+  });
+
   it("falls back to a connector product's raw GTIN linked to one active shade", async () => {
     state.externalProducts.push({ gtin: "0 36000 29145 2", shadeId: SHADE_ID, status: "active", brand: "Holo Taco", shadeName: "Blurple" });
     const res = await invoke("capture-check");
@@ -380,6 +407,17 @@ describe("capture frame — decoded barcode evidence", () => {
     assert.equal(res.jsonBody.check, undefined, "no verdict without decoded evidence");
   });
 
+  it("a decoded value with a bad check digit is still looked up, but the frame also gets OCR", async () => {
+    state.session.metadata = {};
+    state.frames = [];
+    const res = await invoke("capture-frame", {
+      body: { ...decodedFrame, quality: { gtin: "036000291453", barcodeFormat: "upc_a", barcodeDecoder: "zxing" } },
+    });
+    assert.equal(res.status, 201);
+    assert.equal(ocrCalls, 1, "an unverifiable read keeps the OCR fallback");
+    assert.equal(res.jsonBody.check, undefined);
+  });
+
   it("does not trust a decoded value that is not a valid barcode", async () => {
     state.session.metadata = {};
     state.frames = [];
@@ -418,6 +456,14 @@ describe("capture — remembering an unknown barcode", () => {
     const second = await invoke("capture-check");
     assert.equal(second.jsonBody.outcome, "matched");
     assert.equal(second.jsonBody.match.entityId, String(SHADE_ID));
+  });
+
+  it("learns the canonical form when the scan was reported as an EAN-13 with a leading 0", async () => {
+    state.session.metadata = { gtin: `0${UPC_A}`, barcodeFormat: "ean_13", brand: "Indie", shadeName: "Label Shade" };
+    state.frames = [{ frameType: "label", quality: { extracted: { brand: "Indie", shadeName: "Label Shade" } } }];
+    state.shadeCandidates = [{ shadeId: String(SHADE_ID), brand: "Indie", shadeName: "Label Shade", score: 0.97 }];
+    await invoke("capture-finalize");
+    assert.deepEqual(state.userBarcodes.map((r) => [r.gtin, r.barcodeType]), [[CANONICAL, "EAN_13"]]);
   });
 
   it("learns nothing when the catalog barcode matched", async () => {

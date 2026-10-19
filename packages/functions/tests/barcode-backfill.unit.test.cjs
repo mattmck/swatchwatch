@@ -155,6 +155,14 @@ describe("runBarcodeBackfillBatch", () => {
     assert.equal(again.shadesGainingBarcode, 0);
   });
 
+  it("keeps a code with a bad check digit and lists it in the report", async () => {
+    products.push({ id: 5, externalId: "e", gtin: "036000291453", variants: [], shadeIds: [51] });
+    const report = await runBarcodeBackfillBatch(db, { afterExternalProductId: 4, limit: 200, dryRun: false });
+    assert.equal(report.inserted, 1);
+    assert.deepEqual(report.invalidCheckDigit, [{ externalProductId: 5, shadeId: 51, gtin: "0036000291453" }]);
+    assert.ok(barcodes.some((b) => b.gtin === "0036000291453"));
+  });
+
   it("pages with a keyset cursor", async () => {
     const first = await runBarcodeBackfillBatch(db, { afterExternalProductId: 0, limit: 2, dryRun: true });
     assert.equal(first.scannedProducts, 2);

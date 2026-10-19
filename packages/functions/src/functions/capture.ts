@@ -797,6 +797,11 @@ async function resolveByBarcode(
   userId: number
 ): Promise<{ candidate: CaptureMatchCandidate; via: BarcodeMatchVia } | null> {
   const keys = gtinLookupKeys(gtin, format);
+  const scanned = normalizeGtin(gtin, format);
+  if (scanned && !scanned.checkDigitValid) {
+    // Looked up anyway: the bottle may still be known under its (mis)printed code.
+    trackEvent("capture.barcode_bad_check_digit", { gtin: scanned.gtin, source: "resolver" });
+  }
   const raw = gtin.trim();
   const catalogKeys = Array.from(new Set([...keys, raw])).filter(Boolean);
 
@@ -1450,8 +1455,10 @@ async function addCaptureFrame(
     // A barcode the client already decoded on-device (BarcodeDetector / zxing) is trusted
     // evidence when it is a valid GTIN: no OCR, and the verdict goes back in this response.
     const frameQuality = toRecord(body.quality);
-    const decodedBarcode =
+    const scannedBarcode =
       body.frameType === "barcode" ? normalizeGtin(frameQuality.gtin, frameQuality.barcodeFormat) : null;
+    // A wrong check digit is evidence worth looking up but not worth skipping OCR for.
+    const decodedBarcode = scannedBarcode?.checkDigitValid ? scannedBarcode : null;
 
     // Pre-transaction: normalize image and run AI extraction pipeline
     let normalizedImage: PreparedImageInput | null = null;

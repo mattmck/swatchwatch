@@ -2349,6 +2349,8 @@ interface HoloTacoRecordMaterializationDelta {
   barcodesLinked: number;
   /** GTINs another shade already owns (kept by that shade; logged by the caller). */
   barcodeConflicts: BarcodeConflict[];
+  /** GTINs stored although their check digit is wrong (logged by the caller). */
+  barcodeInvalidCheckDigits: string[];
   skipped: number;
 }
 
@@ -2376,6 +2378,7 @@ async function materializePreparedHoloTacoRecord(
     galleryOverCapSkipped: 0,
     barcodesLinked: 0,
     barcodeConflicts: [],
+    barcodeInvalidCheckDigits: [],
     skipped: 0,
   };
 
@@ -2465,6 +2468,7 @@ async function materializePreparedHoloTacoRecord(
   const barcodeResult = await materializeProductBarcodes(client, { shadeId, dataSourceId, record });
   delta.barcodesLinked += barcodeResult.inserted;
   delta.barcodeConflicts.push(...barcodeResult.conflicts);
+  delta.barcodeInvalidCheckDigits.push(...barcodeResult.invalidCheckDigit);
 
   const importNote = `Imported from ${sourceLogPrefix.replace(/[\[\]]/g, "")} external_id=${record.externalId}`;
   const vendorHex = holo.vendorHex;
@@ -2935,6 +2939,13 @@ export async function materializeHoloTacoRecords(
       galleryOverCapSkipped += delta.galleryOverCapSkipped;
       barcodesLinked += delta.barcodesLinked;
       barcodeConflicts += delta.barcodeConflicts.length;
+      for (const gtin of delta.barcodeInvalidCheckDigits) {
+        // Kept (a vendor typo still names the bottle), but worth a look.
+        options?.progressLogger?.warn(
+          `${sourceLogPrefix} Barcode ${gtin} of ${record.externalId} has a wrong check digit; stored anyway`,
+          { externalId: record.externalId, gtin, shadeId: delta.shadeId }
+        );
+      }
       for (const conflict of delta.barcodeConflicts) {
         // First shade wins: the GTIN stays where it is; an admin can move it if it is wrong.
         options?.progressLogger?.warn(

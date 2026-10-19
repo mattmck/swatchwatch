@@ -1118,6 +1118,9 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       if (!scannedBarcode) {
         return { status: 400, jsonBody: { error: "barcode must be a valid EAN/UPC barcode" } };
       }
+      if (!scannedBarcode.checkDigitValid) {
+        trackEvent("polish.barcode_bad_check_digit", { gtin: scannedBarcode.gtin });
+      }
     }
 
     const finishUpdate = requestCarriesFinishData(body)

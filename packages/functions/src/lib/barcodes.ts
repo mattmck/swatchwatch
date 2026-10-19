@@ -8,8 +8,18 @@
  * - GTIN-14 with packaging indicator 0 → the 13-digit form (other indicators stay 14 digits);
  * - EAN-8 and EAN-13 as they are.
  * Only spaces and hyphens are stripped; anything else non-numeric (a SKU typed into Shopify's
- * barcode field) and every code with a wrong GS1 check digit are rejected, so junk never
- * becomes a match key. `barcode_type` records how the code was read.
+ * barcode field), and any length that is not 8/11/12/13/14, is rejected, so junk never becomes a
+ * match key. A wrong GS1 check digit is NOT rejected (a vendor typo or a bad read still names
+ * a bottle): the code gets its canonical key with `checkDigitValid: false` and each caller logs it.
+ * `barcode_type` records how the code was read.
+ *
+ * Equivalence classes (one canonical key): UPC-A (12 digits, or 11 when a leading zero was
+ * lost) = its 0-prefixed EAN-13 (what iOS reports) = its 00-prefixed GTIN-14 = the UPC-E that
+ * expands to it; an EAN-13 = its 0-prefixed GTIN-14.
+ *
+ * Duplication note: apps/mobile's Expo scanner helper (packages/shared `barcode/gtin.ts`, PR
+ * #376) validates codes as printed and has the same check-digit/UPC-E routines; once both
+ * land, `hasValidGtinCheckDigit`/`expandUpcE` here can import them from swatchwatch-shared.
  */
 
 export type BarcodeType = "EAN_13" | "UPC_A" | "UPC_E" | "EAN_8" | "GTIN_14";
@@ -17,6 +27,8 @@ export type BarcodeType = "EAN_13" | "UPC_A" | "UPC_E" | "EAN_8" | "GTIN_14";
 export interface NormalizedGtin {
   gtin: string;
   barcodeType: BarcodeType;
+  /** False when the GS1 check digit is wrong; the code is kept (callers log it). */
+  checkDigitValid: boolean;
 }
 
 /** GS1 mod-10 check digit validation for GTIN-8/12/13/14. */
@@ -32,8 +44,11 @@ export function hasValidGtinCheckDigit(digits: string): boolean {
   return (10 - (sum % 10)) % 10 === digits.charCodeAt(digits.length - 1) - 48;
 }
 
-/** Expand an 8-digit UPC-E (number system 0/1 + 6 digits + check) to its 12-digit UPC-A. */
-export function expandUpcE(upcE: string): string | null {
+/**
+ * Expand an 8-digit UPC-E (number system 0/1 + 6 digits + check) to its 12-digit UPC-A. Returns
+ * null when the expansion's check digit is wrong, unless `lenient` (the digit is carried over).
+ */
+export function expandUpcE(upcE: string, lenient = false): string | null {
   if (!/^[01]\d{7}$/.test(upcE)) return null;
   const ns = upcE[0];
   const d = upcE.slice(1, 7);
@@ -50,7 +65,7 @@ export function expandUpcE(upcE: string): string | null {
     body = `${d[0]}${d[1]}${d[2]}${d[3]}${d[4]}0000${last}`;
   }
   const upcA = `${ns}${body}${check}`;
-  return hasValidGtinCheckDigit(upcA) ? upcA : null;
+  return lenient || hasValidGtinCheckDigit(upcA) ? upcA : null;
 }
 
 type FormatHint = "ean_13" | "upc_a" | "upc_e" | "ean_8" | null;
@@ -78,22 +93,25 @@ function digitsOf(raw: unknown): string | null {
   return digits;
 }
 
-function fromUpcA(upcA: string, barcodeType: BarcodeType): NormalizedGtin | null {
-  return hasValidGtinCheckDigit(upcA) ? { gtin: `0${upcA}`, barcodeType } : null;
+function fromUpcA(upcA: string): NormalizedGtin {
+  return { gtin: `0${upcA}`, barcodeType: "UPC_A", checkDigitValid: hasValidGtinCheckDigit(upcA) };
 }
 
-function readEightDigits(digits: string, reading: "ean_8" | "upc_e"): NormalizedGtin | null {
+function readEightDigits(digits: string, reading: "ean_8" | "upc_e", lenient: boolean): NormalizedGtin | null {
   if (reading === "ean_8") {
-    return hasValidGtinCheckDigit(digits) ? { gtin: digits, barcodeType: "EAN_8" } : null;
+    const valid = hasValidGtinCheckDigit(digits);
+    return valid || lenient ? { gtin: digits, barcodeType: "EAN_8", checkDigitValid: valid } : null;
   }
-  const upcA = expandUpcE(digits);
-  return upcA ? { gtin: `0${upcA}`, barcodeType: "UPC_E" } : null;
+  const upcA = expandUpcE(digits, lenient);
+  return upcA
+    ? { gtin: `0${upcA}`, barcodeType: "UPC_E", checkDigitValid: hasValidGtinCheckDigit(upcA) }
+    : null;
 }
 
 /**
- * The canonical `barcode.gtin` key for a raw code, or null when it is not a valid retail
- * barcode. `format` is the decoder's format name (`ean_13`, `UPC_E`, …), used to read an
- * 8-digit code as UPC-E rather than EAN-8 and to label `barcodeType`.
+ * The canonical `barcode.gtin` key for a raw code, or null when it is not a plausible retail
+ * barcode (non-numeric, wrong length). `format` is the decoder's format name (`ean_13`, `UPC_E`,
+ * …), used to read an 8-digit code as UPC-E rather than EAN-8 and to label `barcodeType`.
  */
 export function normalizeGtin(raw: unknown, format?: unknown): NormalizedGtin | null {
   const digits = digitsOf(raw);
@@ -102,20 +120,29 @@ export function normalizeGtin(raw: unknown, format?: unknown): NormalizedGtin | 
 
   switch (digits.length) {
     case 8:
-      if (hint === "upc_e") return readEightDigits(digits, "upc_e");
-      if (hint === "ean_8") return readEightDigits(digits, "ean_8");
-      return readEightDigits(digits, "ean_8") ?? readEightDigits(digits, "upc_e");
+      if (hint === "upc_e") return readEightDigits(digits, "upc_e", true);
+      if (hint === "ean_8") return readEightDigits(digits, "ean_8", true);
+      // No hint: prefer a reading whose check digit is right; else it is an EAN-8 as printed.
+      return (
+        readEightDigits(digits, "ean_8", false) ??
+        readEightDigits(digits, "upc_e", false) ??
+        readEightDigits(digits, "ean_8", true)
+      );
     case 11:
       // A UPC-A stored as a number loses its leading zero.
-      return fromUpcA(`0${digits}`, "UPC_A");
+      return fromUpcA(`0${digits}`);
     case 12:
-      return fromUpcA(digits, "UPC_A");
-    case 13:
-      if (!hasValidGtinCheckDigit(digits)) return null;
-      return { gtin: digits, barcodeType: hint === "upc_a" && digits[0] === "0" ? "UPC_A" : "EAN_13" };
+      return fromUpcA(digits);
+    case 13: {
+      const valid = hasValidGtinCheckDigit(digits);
+      return { gtin: digits, barcodeType: hint === "upc_a" && digits[0] === "0" ? "UPC_A" : "EAN_13", checkDigitValid: valid };
+    }
     case 14:
-      if (!hasValidGtinCheckDigit(digits)) return null;
-      return { gtin: digits[0] === "0" ? digits.slice(1) : digits, barcodeType: "GTIN_14" };
+      return {
+        gtin: digits[0] === "0" ? digits.slice(1) : digits,
+        barcodeType: "GTIN_14",
+        checkDigitValid: hasValidGtinCheckDigit(digits),
+      };
     default:
       return null;
   }
@@ -132,7 +159,7 @@ export function gtinLookupKeys(raw: unknown, format?: unknown): string[] {
   const digits = digitsOf(raw);
   if (digits?.length === 8 && !normalizeFormatHint(format)) {
     for (const reading of ["ean_8", "upc_e"] as const) {
-      const alt = readEightDigits(digits, reading);
+      const alt = readEightDigits(digits, reading, false);
       if (alt) keys.add(alt.gtin);
     }
   }
@@ -147,7 +174,11 @@ export function gtinSpellings(canonical: string): string[] {
   const spellings = new Set<string>([canonical]);
   if (canonical.length === 13) {
     spellings.add(`0${canonical}`);
-    if (canonical[0] === "0") spellings.add(canonical.slice(1));
+    if (canonical[0] === "0") {
+      spellings.add(canonical.slice(1));
+      // A UPC-A whose own leading zero a vendor's spreadsheet dropped.
+      if (canonical[1] === "0") spellings.add(canonical.slice(2));
+    }
   } else if (canonical.length === 8) {
     spellings.add(`000000${canonical}`);
   }
@@ -196,6 +227,8 @@ export interface ShadeBarcodeUpsertResult {
   /** GTINs another shade claimed first; skipped, for the caller to log. */
   conflicts: BarcodeConflict[];
   skuCreated: boolean;
+  /** GTINs written (or already linked) whose check digit is wrong; callers log them. */
+  invalidCheckDigit: string[];
 }
 
 interface QueryClient {
@@ -218,7 +251,7 @@ export async function upsertShadeBarcodes(
     externalProductId?: number | null;
   }
 ): Promise<ShadeBarcodeUpsertResult> {
-  const result: ShadeBarcodeUpsertResult = { inserted: 0, alreadyLinked: 0, conflicts: [], skuCreated: false };
+  const result: ShadeBarcodeUpsertResult = { inserted: 0, alreadyLinked: 0, conflicts: [], skuCreated: false, invalidCheckDigit: [] };
   if (input.gtins.length === 0 || !Number.isSafeInteger(input.shadeId)) return result;
 
   const existingSku = await client.query<{ skuId: number }>(
@@ -240,7 +273,7 @@ export async function upsertShadeBarcodes(
     result.skuCreated = true;
   }
 
-  for (const [index, { gtin, barcodeType }] of input.gtins.entries()) {
+  for (const [index, { gtin, barcodeType, checkDigitValid }] of input.gtins.entries()) {
     const inserted = await client.query(
       `INSERT INTO barcode (sku_id, gtin, barcode_type, is_primary, source, external_product_id)
        VALUES ($1, $2, $3, $4, $5, $6)
@@ -250,6 +283,7 @@ export async function upsertShadeBarcodes(
     );
     if ((inserted.rowCount ?? 0) > 0) {
       result.inserted += 1;
+      if (checkDigitValid === false) result.invalidCheckDigit.push(gtin);
       continue;
     }
     const owner = await client.query<{ shadeId: number | string | null }>(
@@ -281,7 +315,7 @@ export async function materializeProductBarcodes(
 ): Promise<ShadeBarcodeUpsertResult> {
   const gtins = collectProductGtins(input.record);
   if (gtins.length === 0) {
-    return { inserted: 0, alreadyLinked: 0, conflicts: [], skuCreated: false };
+    return { inserted: 0, alreadyLinked: 0, conflicts: [], skuCreated: false, invalidCheckDigit: [] };
   }
   const externalId = input.record.externalId?.trim();
   let externalProductId: number | null = null;

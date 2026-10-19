@@ -49,6 +49,7 @@ async function main() {
     shadesGainingBarcode: 0,
     conflicts: 0,
     ambiguousProducts: 0,
+    invalidCheckDigit: 0,
   };
   console.log(write ? "Writing barcode rows." : "Dry run (pass --write to write).");
 
@@ -72,6 +73,9 @@ async function main() {
         `  conflict: GTIN ${conflict.gtin} of product ${conflict.externalProductId} (shade ${conflict.shadeId}) already belongs to shade ${conflict.existingShadeId}; kept there`
       );
     }
+    for (const bad of batch.invalidCheckDigit ?? []) {
+      console.warn(`  wrong check digit: GTIN ${bad.gtin} of product ${bad.externalProductId} (shade ${bad.shadeId}); stored anyway`);
+    }
     if (verbose) {
       for (const product of batch.ambiguousProducts) {
         console.log(`  skipped product ${product.externalProductId}: linked to shades ${product.shadeIds.join(", ")}`);
@@ -87,7 +91,7 @@ async function main() {
   console.log(
     `Done${write ? "" : " (dry run)"}: ${totals.scannedProducts} products scanned, ${totals.productsWithGtins} with GTINs, ` +
       `${totals.gtinsFound} GTINs, ${totals.inserted} barcode rows ${write ? "written" : "to write"}, ${totals.alreadyLinked} already linked, ` +
-      `${totals.shadesGainingBarcode} shades gain a barcode, ${totals.conflicts} conflicts, ${totals.ambiguousProducts} ambiguous products skipped.`
+      `${totals.shadesGainingBarcode} shades gain a barcode, ${totals.conflicts} conflicts, ${totals.ambiguousProducts} ambiguous products skipped, ${totals.invalidCheckDigit} with a wrong check digit (kept).`
   );
 }
 

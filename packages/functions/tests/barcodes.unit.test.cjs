@@ -20,11 +20,11 @@ const UPC_E = "04252614"; // UPC-E, expands to UPC-A 042100005264
 
 describe("normalizeGtin", () => {
   it("stores a UPC-A as its 13-digit EAN form", () => {
-    assert.deepEqual(normalizeGtin(UPC_A), { gtin: `0${UPC_A}`, barcodeType: "UPC_A" });
+    assert.deepEqual(normalizeGtin(UPC_A), { gtin: `0${UPC_A}`, barcodeType: "UPC_A", checkDigitValid: true });
   });
 
   it("keeps an EAN-13 as is", () => {
-    assert.deepEqual(normalizeGtin(EAN_13), { gtin: EAN_13, barcodeType: "EAN_13" });
+    assert.deepEqual(normalizeGtin(EAN_13), { gtin: EAN_13, barcodeType: "EAN_13", checkDigitValid: true });
   });
 
   it("maps a UPC-A and the same code read as EAN-13 to the same key", () => {
@@ -32,12 +32,12 @@ describe("normalizeGtin", () => {
   });
 
   it("drops the leading zero of a GTIN-14 with indicator 0", () => {
-    assert.deepEqual(normalizeGtin(`0${EAN_13}`), { gtin: EAN_13, barcodeType: "GTIN_14" });
+    assert.deepEqual(normalizeGtin(`0${EAN_13}`), { gtin: EAN_13, barcodeType: "GTIN_14", checkDigitValid: true });
   });
 
   it("keeps a GTIN-14 with a packaging indicator", () => {
     const gtin14 = "10012345678902";
-    assert.deepEqual(normalizeGtin(gtin14), { gtin: gtin14, barcodeType: "GTIN_14" });
+    assert.deepEqual(normalizeGtin(gtin14), { gtin: gtin14, barcodeType: "GTIN_14", checkDigitValid: true });
   });
 
   it("strips spaces and hyphens", () => {
@@ -45,16 +45,16 @@ describe("normalizeGtin", () => {
   });
 
   it("restores a UPC-A whose leading zero was lost (11 digits)", () => {
-    assert.deepEqual(normalizeGtin(UPC_A.slice(1)), { gtin: `0${UPC_A}`, barcodeType: "UPC_A" });
+    assert.deepEqual(normalizeGtin(UPC_A.slice(1)), { gtin: `0${UPC_A}`, barcodeType: "UPC_A", checkDigitValid: true });
   });
 
   it("treats an 8-digit code as EAN-8 by default and expands UPC-E when told so", () => {
-    assert.deepEqual(normalizeGtin(EAN_8), { gtin: EAN_8, barcodeType: "EAN_8" });
-    assert.deepEqual(normalizeGtin(UPC_E, "upc_e"), { gtin: "0042100005264", barcodeType: "UPC_E" });
+    assert.deepEqual(normalizeGtin(EAN_8), { gtin: EAN_8, barcodeType: "EAN_8", checkDigitValid: true });
+    assert.deepEqual(normalizeGtin(UPC_E, "upc_e"), { gtin: "0042100005264", barcodeType: "UPC_E", checkDigitValid: true });
   });
 
   it("falls back to UPC-E for an 8-digit code that is not a valid EAN-8", () => {
-    assert.deepEqual(normalizeGtin(UPC_E), { gtin: "0042100005264", barcodeType: "UPC_E" });
+    assert.deepEqual(normalizeGtin(UPC_E), { gtin: "0042100005264", barcodeType: "UPC_E", checkDigitValid: true });
   });
 
   it("honours an upc_a / ean_13 format hint for the type", () => {
@@ -67,7 +67,6 @@ describe("normalizeGtin", () => {
     ["null", null],
     ["a number", 36000291452],
     ["letters (a SKU typed into the barcode field)", "HT-0123"],
-    ["wrong check digit", "036000291453"],
     ["too short", "12345"],
     ["too long", "123456789012345"],
     ["all zeros", "0000000000000"],
@@ -76,6 +75,68 @@ describe("normalizeGtin", () => {
       assert.equal(normalizeGtin(value), null);
     });
   }
+});
+
+describe("normalizeGtin — wrong check digit is flagged, not rejected", () => {
+  it("keeps a UPC-A with a bad check digit under its canonical key and flags it", () => {
+    assert.deepEqual(normalizeGtin("036000291453"), { gtin: "0036000291453", barcodeType: "UPC_A", checkDigitValid: false });
+  });
+
+  it("keeps an EAN-13, GTIN-14 and 11-digit code with a bad check digit", () => {
+    assert.deepEqual(normalizeGtin("4006381333932"), { gtin: "4006381333932", barcodeType: "EAN_13", checkDigitValid: false });
+    assert.deepEqual(normalizeGtin("04006381333932"), { gtin: "4006381333932", barcodeType: "GTIN_14", checkDigitValid: false });
+    assert.deepEqual(normalizeGtin("36000291453"), { gtin: "0036000291453", barcodeType: "UPC_A", checkDigitValid: false });
+  });
+
+  it("an 8-digit code valid as neither EAN-8 nor UPC-E is an EAN-8 as printed, flagged; with a upc_e hint it is expanded, flagged", () => {
+    assert.deepEqual(normalizeGtin("04252615"), { gtin: "04252615", barcodeType: "EAN_8", checkDigitValid: false });
+    assert.equal(normalizeGtin("04252615", "upc_e").barcodeType, "UPC_E");
+    assert.equal(normalizeGtin("04252615", "upc_e").checkDigitValid, false);
+  });
+
+  it("the bad-check-digit and good-check-digit spellings of different digits stay different keys", () => {
+    assert.notEqual(normalizeGtin("036000291453").gtin, normalizeGtin("036000291452").gtin);
+  });
+});
+
+describe("normalizeGtin — equivalence classes of one code", () => {
+  const canonical = `0${UPC_A}`;
+  const classes = {
+    "UPC-A, 12 digits": UPC_A,
+    "UPC-A with spaces/hyphens": "0 36000-29145 2",
+    "UPC-A lost its leading zero, 11 digits": UPC_A.slice(1),
+    "UPC-A as 13-digit EAN with leading 0 (iOS)": `0${UPC_A}`,
+    "UPC-A as 14-digit GTIN with 00 prefix": `00${UPC_A}`,
+  };
+  for (const [label, raw] of Object.entries(classes)) {
+    it(`${label} → one canonical key`, () => {
+      assert.equal(normalizeGtin(raw).gtin, canonical);
+      assert.equal(normalizeGtin(raw).checkDigitValid, true);
+      assert.deepEqual(gtinLookupKeys(raw), [canonical]);
+    });
+  }
+
+  it("UPC-E expands to the same key as its UPC-A, whether 8-digit or via a 13-digit EAN", () => {
+    assert.equal(normalizeGtin(UPC_E, "upc_e").gtin, "0042100005264");
+    assert.equal(normalizeGtin("042100005264").gtin, "0042100005264");
+    assert.equal(normalizeGtin("0042100005264").gtin, "0042100005264");
+  });
+
+  it("an EAN-13 equals its 0-prefixed GTIN-14", () => {
+    assert.equal(normalizeGtin(`0${EAN_13}`).gtin, normalizeGtin(EAN_13).gtin);
+  });
+
+  it("an EAN-13 without a leading 0 is not confused with any UPC-A", () => {
+    assert.equal(normalizeGtin(EAN_13).gtin, EAN_13);
+    assert.equal(normalizeGtin(EAN_13).barcodeType, "EAN_13");
+  });
+
+  it("every canonical spelling is found by gtinSpellings (raw connector GTIN fallback)", () => {
+    const spellings = gtinSpellings(canonical);
+    for (const raw of Object.values(classes).map((v) => v.replace(/[\s-]/g, ""))) {
+      assert.ok(spellings.includes(raw), `${raw} should be among ${spellings.join(", ")}`);
+    }
+  });
 });
 
 describe("gtinLookupKeys", () => {
@@ -89,6 +150,10 @@ describe("gtinLookupKeys", () => {
     assert.ok(keys.includes("0042100005264"));
   });
 
+  it("a bad check digit still yields a key (lookup by the canonical form)", () => {
+    assert.deepEqual(gtinLookupKeys("036000291453"), ["0036000291453"]);
+  });
+
   it("is empty for junk", () => {
     assert.deepEqual(gtinLookupKeys("not-a-code"), []);
   });
@@ -96,7 +161,9 @@ describe("gtinLookupKeys", () => {
 
 describe("gtinSpellings", () => {
   it("lists every way a vendor may have stored the code", () => {
-    assert.deepEqual(gtinSpellings(`0${UPC_A}`).sort(), [UPC_A, `0${UPC_A}`, `00${UPC_A}`].sort());
+    assert.deepEqual(gtinSpellings(`0${UPC_A}`).sort(), [UPC_A.slice(1), UPC_A, `0${UPC_A}`, `00${UPC_A}`].sort());
+    // A UPC-A that itself starts with 0 may also have lost that zero in a spreadsheet.
+    assert.deepEqual(gtinSpellings(`00${UPC_A.slice(1)}`).sort(), [UPC_A.slice(1), `0${UPC_A.slice(1)}`, `00${UPC_A.slice(1)}`, `000${UPC_A.slice(1)}`].sort());
   });
 
   it("does not invent a 12-digit form for an EAN-13 that does not start with 0", () => {
@@ -119,9 +186,14 @@ describe("collectProductGtins", () => {
       },
     });
     assert.deepEqual(gtins, [
-      { gtin: `0${UPC_A}`, barcodeType: "UPC_A" },
-      { gtin: EAN_13, barcodeType: "EAN_13" },
+      { gtin: `0${UPC_A}`, barcodeType: "UPC_A", checkDigitValid: true },
+      { gtin: EAN_13, barcodeType: "EAN_13", checkDigitValid: true },
     ]);
+  });
+
+  it("keeps a variant barcode with a bad check digit, flagged", () => {
+    const gtins = collectProductGtins({ gtin: null, normalized: { variants: [{ barcode: "036000291453" }] } });
+    assert.deepEqual(gtins, [{ gtin: "0036000291453", barcodeType: "UPC_A", checkDigitValid: false }]);
   });
 
   it("tolerates a record without variants or GTIN", () => {
@@ -181,7 +253,7 @@ describe("upsertShadeBarcodes", () => {
   it("does nothing (no SQL) without GTINs", async () => {
     const { db, client } = fakeCatalog();
     const result = await upsertShadeBarcodes(client, { shadeId: 7, gtins: [], source: "ingestion" });
-    assert.deepEqual(result, { inserted: 0, alreadyLinked: 0, conflicts: [], skuCreated: false });
+    assert.deepEqual(result, { inserted: 0, alreadyLinked: 0, conflicts: [], skuCreated: false, invalidCheckDigit: [] });
     assert.equal(db.calls.length, 0);
   });
 
@@ -196,7 +268,7 @@ describe("upsertShadeBarcodes", () => {
       source: "ingestion",
       externalProductId: 44,
     });
-    assert.deepEqual(result, { inserted: 2, alreadyLinked: 0, conflicts: [], skuCreated: true });
+    assert.deepEqual(result, { inserted: 2, alreadyLinked: 0, conflicts: [], skuCreated: true, invalidCheckDigit: [] });
     assert.equal(db.skus.length, 1);
     assert.deepEqual(
       db.barcodes.map((b) => [b.skuId, b.gtin, b.barcodeType, b.isPrimary, b.source, b.externalProductId]),
@@ -244,8 +316,21 @@ describe("upsertShadeBarcodes", () => {
       alreadyLinked: 1,
       conflicts: [{ gtin: `0${UPC_A}`, existingShadeId: 8 }],
       skuCreated: false,
+      invalidCheckDigit: [],
     });
     assert.equal(db.barcodes.length, 2, "the first shade keeps the GTIN");
+  });
+
+  it("stores a code with a bad check digit and reports it for the job log", async () => {
+    const { db, client } = fakeCatalog({ shades: [{ shadeId: 7, brandId: 3 }] });
+    const result = await upsertShadeBarcodes(client, {
+      shadeId: 7,
+      gtins: [{ gtin: "0036000291453", barcodeType: "UPC_A", checkDigitValid: false }],
+      source: "ingestion",
+    });
+    assert.equal(result.inserted, 1);
+    assert.deepEqual(result.invalidCheckDigit, ["0036000291453"]);
+    assert.equal(db.barcodes[0].gtin, "0036000291453");
   });
 
   it("does nothing when the shade does not exist", async () => {
@@ -255,7 +340,7 @@ describe("upsertShadeBarcodes", () => {
       gtins: [{ gtin: EAN_13, barcodeType: "EAN_13" }],
       source: "ingestion",
     });
-    assert.deepEqual(result, { inserted: 0, alreadyLinked: 0, conflicts: [], skuCreated: false });
+    assert.deepEqual(result, { inserted: 0, alreadyLinked: 0, conflicts: [], skuCreated: false, invalidCheckDigit: [] });
     assert.equal(db.barcodes.length, 0);
   });
 });

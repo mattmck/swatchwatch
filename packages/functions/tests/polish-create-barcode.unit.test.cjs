@@ -160,6 +160,17 @@ describe("functions/polishes — create with a scanned barcode", () => {
     assert.equal(tx.length, 0);
   });
 
+  it("keeps a barcode with a bad check digit (canonical key), not a 400", async () => {
+    const { res, tx } = await post({ shadeId: "9", brand: "Indie", name: "X", color: "#ff0000", barcode: "036000291453" });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    assert.deepEqual(learned(tx)[0].params, [1, "0036000291453", 9, "UPC_A", null]);
+  });
+
+  it("learns the canonical key for an iOS-style 13-digit UPC-A", async () => {
+    const { tx } = await post({ shadeId: "9", brand: "Indie", name: "X", color: "#ff0000", barcode: "0036000291452", barcodeFormat: "ean_13" });
+    assert.equal(learned(tx)[0].params[1], "0036000291452");
+  });
+
   it("writes nothing extra without a barcode", async () => {
     const { res, tx } = await post({ shadeId: "9", brand: "Indie", name: "X", color: "#ff0000" });
     assert.equal(res.status, 201);

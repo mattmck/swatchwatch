@@ -46,6 +46,8 @@ export interface BarcodeBackfillReport {
   shadesGainingBarcode: number;
   conflicts: BarcodeBackfillConflict[];
   ambiguousProducts: Array<{ externalProductId: number; shadeIds: number[] }>;
+  /** Barcodes written although their check digit is wrong (kept, not rejected). */
+  invalidCheckDigit: Array<{ externalProductId: number; shadeId: number; gtin: string }>;
   /** Pass as `afterExternalProductId` for the next batch; null when the scan is finished. */
   nextAfterExternalProductId: number | null;
 }
@@ -127,6 +129,7 @@ export async function runBarcodeBackfillBatch(
     shadesGainingBarcode: 0,
     conflicts: [],
     ambiguousProducts: [],
+    invalidCheckDigit: [],
     nextAfterExternalProductId:
       rows.length === options.limit ? Number(rows[rows.length - 1].externalProductId) : null,
   };
@@ -162,6 +165,9 @@ export async function runBarcodeBackfillBatch(
       report.inserted += result.inserted;
       report.alreadyLinked += result.alreadyLinked;
       if (result.inserted > 0 && !before.rows[0]?.hasBarcode) gainedShades.add(shadeId);
+      for (const gtin of result.invalidCheckDigit) {
+        report.invalidCheckDigit.push({ externalProductId, shadeId, gtin });
+      }
       for (const conflict of result.conflicts) {
         report.conflicts.push({ externalProductId, shadeId, ...conflict });
       }

@@ -169,6 +169,21 @@ describe("materializeHoloTacoRecords barcodes", () => {
     });
   });
 
+  it("stores a barcode with a bad check digit and warns in the job log", async () => {
+    const progressLogger = logger();
+    const metrics = await materializeHoloTacoRecords(
+      1,
+      7,
+      [record({ gtin: "036000291453", variantBarcodes: [] })],
+      { detectHexFromImage: false, progressLogger }
+    );
+    assert.deepEqual(barcodes.map((b) => b.gtin), ["0036000291453"]);
+    assert.equal(metrics.barcodesLinked, 1);
+    const warning = progressLogger.entries.find((e) => e.level === "warn" && /check digit/i.test(e.message));
+    assert.ok(warning, "bad check digit is written to the job log");
+    assert.deepEqual(warning.data, { externalId: "p1", gtin: "0036000291453", shadeId: SHADE_ID });
+  });
+
   it("issues no barcode SQL for a product without barcodes", async () => {
     await materializeHoloTacoRecords(1, 7, [record({ gtin: null, variantBarcodes: [""] })], {
       detectHexFromImage: false,
