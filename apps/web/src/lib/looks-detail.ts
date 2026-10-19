@@ -16,6 +16,8 @@ export interface ShoppingItem {
   label: string;
   /** The template color for this step (what to look for when there is no specific polish). */
   targetHex: string;
+  /** The color to show: the polish's display hex, or the target color. */
+  hex: string;
   /** The catalog polish to buy, or null when only the target color is known. */
   polish: LookStep["polish"];
   shadeId: string | null;
@@ -33,6 +35,7 @@ export function shoppingItemsForLook(look: Pick<Look, "steps">): ShoppingItem[] 
       role: step.role,
       label: step.label,
       targetHex: step.targetHex,
+      hex: step.hex,
       polish: step.polish,
       shadeId: step.polish?.id ?? null,
       buyUrl: safeOutboundUrl(step.polish?.buyUrl),

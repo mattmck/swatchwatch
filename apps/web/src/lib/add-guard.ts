@@ -33,7 +33,7 @@ export type AddGuardIntent = "own" | "wishlist";
 export type AddGuardChoice = "cancelled" | "wishlisted_instead" | "added_anyway";
 
 /** Where the guard ran (telemetry `page` value; the funnel `surface` comes from the intent). */
-export type AddGuardSurface = "polishes-list" | "color-search" | "polish-form-create" | "polish-form-edit";
+export type AddGuardSurface = "polishes-list" | "color-search" | "polish-form-create" | "polish-form-edit" | "looks";
 
 /** Abandon the dupe check after this long and proceed with the add. */
 export const ADD_GUARD_TIMEOUT_MS = 2000;

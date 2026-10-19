@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Bookmark, BookmarkCheck, Check, Clock, Paintbrush, Plus, Repeat, Search } from "lucide-react";
+import { Bookmark, BookmarkCheck, Check, Clock, Paintbrush, Plus, Repeat, Search, ShoppingBag } from "lucide-react";
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
 import { BuyFromBrandLink } from "@/components/buy-from-brand-link";
@@ -147,10 +147,12 @@ interface LookCardProps {
   onWear: () => void;
   onSave: () => void;
   onSwap: (role: LookStepRole, polish: Polish) => void;
+  /** Open the "Add missing items" shopping list. */
+  onShop: () => void;
 }
 
 /** One look: swatch strip, steps with ownership pills and Swap, difficulty/time, Wear this and Save. */
-export function LookCard({ look, saved, onWear, onSave, onSwap }: LookCardProps) {
+export function LookCard({ look, saved, onWear, onSave, onSwap, onShop }: LookCardProps) {
   const canWear = look.ownedSteps > 0;
   return (
     <Card className="flex flex-col gap-4">
@@ -179,7 +181,7 @@ export function LookCard({ look, saved, onWear, onSave, onSwap }: LookCardProps)
           </p>
         )}
       </CardContent>
-      <CardFooter className="flex gap-2">
+      <CardFooter className="flex flex-wrap gap-2">
         <Button
           type="button"
           className="flex-1"
@@ -194,6 +196,12 @@ export function LookCard({ look, saved, onWear, onSave, onSwap }: LookCardProps)
           {saved ? <BookmarkCheck className="size-4" aria-hidden /> : <Bookmark className="size-4" aria-hidden />}
           {saved ? "Saved" : "Save"}
         </Button>
+        {look.missingSteps > 0 && (
+          <Button type="button" variant="secondary" className="w-full" onClick={onShop}>
+            <ShoppingBag className="size-4" aria-hidden />
+            Add missing items ({look.missingSteps})
+          </Button>
+        )}
       </CardFooter>
     </Card>
   );

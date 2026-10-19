@@ -10,7 +10,12 @@ import { BrandSpinner } from "@/components/brand-spinner";
 import { ManiLogForm } from "@/components/mani-log-form";
 import { Button } from "@/components/ui/button";
 import { ToggleChip } from "@/components/toggle-chip";
-import { deleteSavedLook, listAllPolishes, listPolishes, listSavedLooks, saveLookToServer } from "@/lib/api";
+import { deleteSavedLook, getPolishDupes, listAllPolishes, listPolishes, listSavedLooks, saveLookToServer, updatePolish } from "@/lib/api";
+import { AddGuardDialog } from "@/components/add-guard-dialog";
+import { useAddGuard } from "@/hooks/use-add-guard";
+import { shadeGuardKey, wishlistInsteadUpdate } from "@/lib/add-guard";
+import { copyText } from "@/lib/clipboard";
+import { shoppingListText, type ShoppingItem } from "@/lib/looks-detail";
 import { isOwnedPolish } from "@/lib/inventory-status";
 import {
   LOOK_COUNT,
@@ -43,6 +48,7 @@ import { toLocalIsoDate } from "@/lib/mani-log";
 import { trackLooksGenerated, trackLooksWearClicked, type LooksTrigger } from "@/lib/metrics-events";
 import { TOPPER_FINISHES } from "@/lib/pick-for-me";
 import { LookCard, LookSwatchStrip } from "./look-card";
+import { ShoppingListDialog } from "./shopping-list-dialog";
 import { VibeSelector } from "./vibe-selector";
 
 /** Catalog rows fetched per gap query (one color family, or toppers). */
@@ -86,6 +92,10 @@ function LooksPageContent() {
   // Read once on the client (empty during SSR); only rendered once `result` exists, so hydration matches.
   const [saved, setSaved] = useState<SavedLook[]>(readSavedLooksForDisplay);
   const [tab, setTab] = useState<"looks" | "saved">("looks");
+  const [shoppingId, setShoppingId] = useState<string | null>(null);
+  const [wishlisted, setWishlisted] = useState<ReadonlySet<string>>(() => new Set());
+  const { guardAdd, active: activeGuard, choose: chooseGuard, isChecking: isGuardChecking } = useAddGuard();
+  const [wishlistBusy, setWishlistBusy] = useState<ReadonlySet<string>>(() => new Set());
   const [wear, setWear] = useState<WearState | null>(null);
   const [todayIso] = useState(() => toLocalIsoDate(new Date()));
   // The trigger of the last explicit change, tied to the URL state it produced, so Back/Forward
@@ -243,6 +253,45 @@ function LooksPageContent() {
     }));
   }
 
+  /** ♡ a catalog step from the shopping list, through the add guard (owned near-dupes first). */
+  function wishlistItem(item: ShoppingItem) {
+    const row = item.polish;
+    if (!row) return;
+    const busy = (on: boolean) =>
+      setWishlistBusy((current) => {
+        const next = new Set(current);
+        if (on) next.add(row.id);
+        else next.delete(row.id);
+        return next;
+      });
+    void guardAdd({
+      guardKey: shadeGuardKey(row.id),
+      shadeLabel: `${row.brand} ${row.name}`,
+      status: row.status,
+      intent: "wishlist",
+      surface: "looks",
+      loadDupes: () => getPolishDupes(row.id),
+      proceed: async () => {
+        busy(true);
+        try {
+          await updatePolish(row.id, wishlistInsteadUpdate());
+          setWishlisted((current) => new Set(current).add(row.id));
+          toast.success("Added to wishlist", { description: `${row.brand} ${row.name} is on your wishlist.` });
+        } catch {
+          toast.error("Couldn't add to your wishlist", { description: "Check your connection and try again." });
+        } finally {
+          busy(false);
+        }
+      },
+    });
+  }
+
+  async function copyShoppingList(look: Look) {
+    const ok = await copyText(shoppingListText(look));
+    if (ok) toast.success("Shopping list copied");
+    else toast.error("Couldn't copy", { description: "Your browser blocked clipboard access." });
+  }
+
   function wearLook(look: Look, position: number) {
     const original = result?.looks.find((l) => l.templateId === look.templateId);
     trackLooksWearClicked({ look, position, swapped: Boolean(original && original !== look) });
@@ -382,6 +431,7 @@ function LooksPageContent() {
                     saved={savedIds.has(toSavedLook(look, vibe, new Date(0)).id)}
                     onWear={() => wearLook(look, index)}
                     onSave={() => void toggleSave(look)}
+                  onShop={() => setShoppingId(look.templateId)}
                     onSwap={(role, polish) => swap(look, role, polish)}
                   />
                 ))}
@@ -430,6 +480,18 @@ function LooksPageContent() {
           ))}
         </ul>
       )}
+
+      <ShoppingListDialog
+        look={looks.find((l) => l.templateId === shoppingId) ?? null}
+        onOpenChange={(open) => {
+          if (!open) setShoppingId(null);
+        }}
+        wishlisted={wishlisted}
+        isPending={(shadeId) => wishlistBusy.has(shadeId) || isGuardChecking(shadeGuardKey(shadeId))}
+        onWishlist={wishlistItem}
+        onCopy={(look) => void copyShoppingList(look)}
+      />
+      <AddGuardDialog guard={activeGuard} onChoice={chooseGuard} returnTo="/polishes/looks" />
 
       <ManiLogForm
         open={wear !== null}
