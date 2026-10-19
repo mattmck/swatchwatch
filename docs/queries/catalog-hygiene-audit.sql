@@ -9,7 +9,8 @@
 --
 --   psql "$DATABASE_URL" -f docs/queries/catalog-hygiene-audit.sql
 --
--- How shades are classified (a heuristic for sizing, not the final classifier):
+-- How shades are classified. classifyProductCategory in packages/functions/src/lib/product-category.ts
+-- applies the same rules in the same order; change this query first, then mirror it there:
 --   text       lower-cased shade name + color name + every linked source product's title and
 --              product_type ("strong" text), plus its tags ("all" text). Shopify payloads keep
 --              these in raw_json; other connectors fall back to the shade name alone.
@@ -17,7 +18,9 @@
 --              magnetic polish "magnetic-wand" because a wand ships with it).
 --   category   first match wins, in this order:
 --                accessory  stamping plates, buffers, files, tools, brushes, charms, magnets, pushers,
---                           kits, ... in the strong text
+--                           kits, ... in the strong text, or an explicit accessory type tag
+--                           (nail-tool, type:nail-tool, type:accessories: Mooncat's "Nail Elixir"
+--                           is typed "Nail Polishes" but tagged type:nail-tool)
 --                topper     'topper' in finishes/detected_finishes, or the word topper(s) anywhere
 --                           (beats coat wording)
 --                base_coat  base coat, ridge filler, primer, bonder
@@ -49,6 +52,17 @@ WITH source_text AS (
            ELSE e.raw_json ->> 'tags' END,
       ' '
     ) AS tag_text,
+    -- An explicit accessory type tag (nail-tool, type:nail-tool, type:accessories, ...): a whole
+    -- tag that declares the product type, unlike free-form tags such as magnetic-wand.
+    bool_or(EXISTS (
+      SELECT 1
+      FROM (
+        SELECT t FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(e.raw_json -> 'tags') = 'array' THEN e.raw_json -> 'tags' ELSE '[]'::jsonb END) AS t
+        UNION ALL
+        SELECT t FROM regexp_split_to_table(CASE WHEN jsonb_typeof(e.raw_json -> 'tags') = 'string' THEN e.raw_json ->> 'tags' ELSE '' END, ',') AS t
+      ) tag
+      WHERE lower(trim(tag.t)) ~ '^(type:)?(nail[-_ ]?)?(tools?|accessor(y|ies))$'
+    )) AS has_accessory_type_tag,
     string_agg(DISTINCT e.raw_json ->> 'product_type', ', ') AS product_types,
     min(e.raw_json ->> 'title') AS sample_title
   FROM shade_source_product ssp
@@ -73,6 +87,7 @@ base AS (
     COALESCE(st.sources, '(no source product)') AS sources,
     st.sample_title,
     st.product_types,
+    COALESCE(st.has_accessory_type_tag, false) AS has_accessory_type_tag,
     -- strong: name, title and product type. all: strong plus tags (hyphens/underscores as spaces).
     lower(concat_ws(' ', s.shade_name_canonical, s.color_name, st.strong_text)) AS strong_haystack,
     lower(regexp_replace(concat_ws(' ', s.shade_name_canonical, s.color_name, st.strong_text, st.tag_text), '[_-]+', ' ', 'g')) AS haystack
@@ -84,7 +99,8 @@ base AS (
 SELECT
   base.*,
   CASE
-    WHEN strong_haystack ~ '\m(stamp(ing|er|ers)?|plates?|buffers?|files?|brush(es)?|tools?|charms?|decals?|stickers?|kits?|jewels?|jewelry|studs?|rhinestones?|foils?|tapes?|stencils?|lamps?|magnets?|wands?|pushers?|clippers?|remover|wipes?|dehydrator|rack|display|tote|gift ?cards?|samplers?|mystery box)\M'
+    WHEN strong_haystack ~ '\m(stamp(ing|er|ers)?|plates?|buffers?|files?|brush(es)?|tools?|charms?|decals?|stickers?|kits?|jewels?|jewelry|studs?|rhinestones?|foils?|tapes?|stencils?|lamps?|magnets?|wands?|pushers?|clippers?|removers?|wipes?|dehydrators?|racks?|displays?|totes?|gift ?cards?|samplers?|mystery box)\M'
+      OR has_accessory_type_tag
       THEN 'accessory'
     -- Topper beats coat wording: Holo Taco files its flakie toppers under product type "Top Coat"
     -- with a "toppers" tag.

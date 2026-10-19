@@ -304,7 +304,8 @@ function ColorSearchPageContent() {
   useEffect(() => {
     let cancelled = false;
 
-    listPolishes()
+    // Color search compares hexes: color polishes only (#349).
+    listPolishes({ categories: ["color"] })
       .then((res) => {
         if (!cancelled) {
           setAllPolishes(res.polishes);

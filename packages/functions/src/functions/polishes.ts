@@ -12,6 +12,7 @@ import {
   type HexReviewSort,
   type PolishStatus,
   type CollectionExportFormat,
+  resolveProductCategory,
 } from "swatchwatch-shared";
 import { query, transaction } from "../lib/db";
 import { withAuth, withAdmin } from "../lib/auth";
@@ -56,6 +57,7 @@ import {
 import { withBuyUrls } from "../lib/buy-link";
 import { parseColorFamilyFilter } from "../lib/color-family-filter";
 import { buildMatchCandidateWhere } from "../lib/match-image-query";
+import { parseProductCategoryFilter } from "../lib/product-category-filter";
 import {
   ARCHIVE_EVENT_EDIT_WINDOW_HOURS,
   ARCHIVE_EVENT_TYPES,
@@ -148,8 +150,11 @@ async function applyShadeFinishUpdate(
  * `user_submitted` and stay private to their creator (and anyone holding them in inventory)
  * until an admin promotes them to `active`. A submission an admin merged into another shade
  * (`merged_into_shade_id`, admin review queue) is retired and visible to nobody.
+ *
+ * Accessories (`product_category = 'accessory'`, #347) and `excluded` shades are shown only to
+ * users who hold them (an inventory row), the same way: they never appear in discovery.
  */
-const POLISH_VISIBLE_SQL = `(s.merged_into_shade_id IS NULL AND (s.status <> 'user_submitted' OR s.created_by_user_id = $1 OR ui.inventory_item_id IS NOT NULL))`;
+const POLISH_VISIBLE_SQL = `(s.merged_into_shade_id IS NULL AND (s.status <> 'user_submitted' OR s.created_by_user_id = $1 OR ui.inventory_item_id IS NOT NULL) AND ((s.product_category <> 'accessory' AND s.status <> 'excluded') OR ui.inventory_item_id IS NOT NULL))`;
 
 /**
  * Look up a shade by id if the caller may see it. Returns null when it is missing, another
@@ -263,6 +268,8 @@ const POLISH_COLUMNS = `
     s.detected_hex_at                            AS "detectedHexAt",
     s.hex_agreement::float8                      AS "hexAgreement",
     s.color_family                               AS "colorFamily",
+    -- Product category (migration 20261019011858000_shade-product-category, #349).
+    s.product_category                           AS "productCategory",
     -- Legacy single finish; falls back to the primary multi-finish value when unset.
     COALESCE(NULLIF(s.finish, ''), s.finishes[1], '') AS finish,
     COALESCE(s.finishes, ARRAY[]::text[])        AS finishes,
@@ -913,6 +920,10 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
     if (!familyFilter.ok) {
       return { status: 400, jsonBody: { error: familyFilter.error } };
     }
+    const categoryFilter = parseProductCategoryFilter(url.searchParams);
+    if (!categoryFilter.ok) {
+      return { status: 400, jsonBody: { error: categoryFilter.error } };
+    }
     const listCacheKey = buildPolishListCacheKey(userId, requestOrigin, {
       search: normalizedSearch,
       brand: normalizedBrandFilter,
@@ -925,6 +936,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       tags: canonicalizeTagsForCache(parsedTags),
       // Only present when filtering so existing cache keys are unchanged.
       ...(familyFilter.families.length > 0 ? { family: familyFilter.families.join(",") } : {}),
+      ...(categoryFilter.categories.length > 0 ? { category: categoryFilter.categories.join(",") } : {}),
       sortBy,
       sortOrder,
       page,
@@ -1022,6 +1034,14 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
     if (familyFilter.families.length > 0) {
       conditions.push(`s.color_family = ANY($${paramIndex}::text[])`);
       params.push(familyFilter.families);
+      paramIndex++;
+    }
+
+    // Product category (#349): default is every category (the collection table shows coats and
+    // toppers too; accessories only to holders, via POLISH_VISIBLE_SQL).
+    if (categoryFilter.categories.length > 0) {
+      conditions.push(`s.product_category = ANY($${paramIndex}::text[])`);
+      params.push(categoryFilter.categories);
       paramIndex++;
     }
 
@@ -1376,9 +1396,11 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
       vendor_tags: string[] | null;
       product_description_text: string | null;
       product_descriptors: string[] | null;
+      product_category: string;
     }>(
       `SELECT s.shade_id,
               s.shade_name_canonical,
+              s.product_category,
               s.detected_hex,
               s.vendor_hex,
               s.hex_agreement::float8 AS hex_agreement,
@@ -1416,6 +1438,19 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
 
     if (shadeResult.rows.length === 0) {
       return { status: 404, jsonBody: { error: "Shade not found" } };
+    }
+
+    // Hex detection runs on color polishes only (#349, D-D): a topper, coat or treatment has no
+    // meaningful single hex, and an accessory is not a polish.
+    const productCategory = resolveProductCategory(shadeResult.rows[0].product_category);
+    if (productCategory !== "color") {
+      return {
+        status: 409,
+        jsonBody: {
+          error: `Hex detection only runs on color polishes; this shade is a ${productCategory}`,
+          code: "not_color_polish",
+        },
+      };
     }
 
     const shade = shadeResult.rows[0];
@@ -1753,7 +1788,8 @@ async function getHexReview(request: HttpRequest, context: InvocationContext): P
     const pageSize = Math.min(200, Math.max(1, parseInt(url.searchParams.get("pageSize") || "50", 10) || 50));
     const offset = (page - 1) * pageSize;
 
-    const conditions: string[] = ["s.detected_hex IS NOT NULL"];
+    // Color polishes only: recalc-hex refuses other categories (#349), so they cannot be fixed here.
+    const conditions: string[] = ["s.detected_hex IS NOT NULL", "s.product_category = 'color'"];
     const params: Array<string | number> = [];
     const addParam = (value: string | number) => {
       params.push(value);

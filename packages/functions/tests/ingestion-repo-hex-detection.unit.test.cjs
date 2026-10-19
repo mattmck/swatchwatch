@@ -27,6 +27,7 @@ let idSequence;
 let transactionCount;
 let failTransactionAt;
 let shadeColorUpdates = [];
+let categoryWrites = [];
 
 const transactionClient = {
   async query(sql, params) {
@@ -38,6 +39,9 @@ const transactionClient = {
     if (sql.includes("detected_hex_method = CASE") && sql.includes("WHERE shade_id = $1")) {
       // [shadeId, name, vendorHex, detectedHex, finishes, overwrite, nameHex, mergedFinishes, confidence, method, model, promptVersion]
       shadeColorUpdates.push({ detectedHex: params[3], confidence: params[8], method: params[9], promptVersion: params[11] });
+    }
+    if (sql.includes("SET product_category = $2")) {
+      categoryWrites.push({ sql, shadeId: params[0], category: params[1] });
     }
     if (sql.includes("RETURNING brand_id")) return { rows: [{ brandId: 1 }] };
     if (sql.includes("RETURNING shade_id")) return { rows: [{ shadeId: ++idSequence }] };
@@ -165,6 +169,7 @@ describe("materializeHoloTacoRecords hex detection", () => {
     maxInFlightDetections = 0;
     loadedImageUrls = [];
     shadeColorUpdates = [];
+    categoryWrites = [];
     delete process.env.HEX_DETECTION_SNAP_ENABLED;
     process.env.HEX_DETECTION_CONCURRENCY = "3";
   });
@@ -181,6 +186,31 @@ describe("materializeHoloTacoRecords hex detection", () => {
     );
     assert.equal(metrics.hexDetected, 7);
     assert.equal(metrics.hexDetectionTotalTokens, 84);
+  });
+
+  it("skips hex detection for toppers and coats and writes each record's category (#349)", async () => {
+    const topper = record(1);
+    topper.normalized.tags = ["toppers", "nail-polish"];
+    topper.normalized.productType = "Top Coat";
+    const base = record(2);
+    base.normalized.name = "Sticky Base";
+    base.normalized.tags = ["base-coat", "nail-polish"];
+
+    const metrics = await materializeHoloTacoRecords(1, 7, [record(0), topper, base], { detectHexFromImage: true });
+
+    assert.deepEqual(detectCalls, ["Shade 0"]);
+    assert.equal(metrics.hexDetected, 1);
+    assert.equal(metrics.hexDetectionSkippedCategory, 2);
+    assert.deepEqual(
+      categoryWrites.map((write) => write.category),
+      ["color", "topper", "base_coat"]
+    );
+    assert.ok(
+      categoryWrites.every((write) => write.sql.includes("product_category_source <> 'admin'")),
+      "an admin-set category is never overwritten"
+    );
+    // The unchanged-image lookup is only asked about color polishes.
+    assert.deepEqual(lookupCalls[0][1], ["p0"]);
   });
 
   it("falls back to the default concurrency for invalid values", async () => {

@@ -1,5 +1,11 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
-import { CatalogSearchResponse, CatalogShadeDetail, type ColorFamily } from "swatchwatch-shared";
+import {
+  CatalogSearchResponse,
+  CatalogShadeDetail,
+  resolveProductCategory,
+  type ColorFamily,
+  type ProductCategory,
+} from "swatchwatch-shared";
 import { query } from "../lib/db";
 import { withCors } from "../lib/http";
 import { internalServerError } from "../lib/errors";
@@ -7,6 +13,7 @@ import { cacheGetJson, cacheSetJson, hashCacheKey } from "../lib/cache";
 import { trackEvent } from "../lib/telemetry";
 import { loadBuyUrlsForShades } from "../lib/buy-link";
 import { parseColorFamilyFilter } from "../lib/color-family-filter";
+import { parseProductCategoryFilter } from "../lib/product-category-filter";
 
 const CATALOG_SEARCH_CACHE_TTL_SECONDS = 120;
 const CATALOG_SHADE_CACHE_TTL_SECONDS = 300;
@@ -17,7 +24,9 @@ const CATALOG_SHADE_CACHE_TTL_SECONDS = 300;
  * Trigram search across brand names, shade names, and their aliases.
  * Uses pg_trgm similarity() for ranking. Returns top matches. `family` (optional,
  * comma-separated) restricts results to shades in any of those color families
- * (`shade.color_family`, #103) before ranking and the limit are applied.
+ * (`shade.color_family`, #103) before ranking and the limit are applied. `category` (optional,
+ * comma-separated) does the same for `shade.product_category` (#349). Accessories are never
+ * returned (D-C), whatever the filter says.
  */
 async function searchCatalog(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
   context.log("GET /api/catalog/search");
@@ -35,10 +44,16 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
     return { status: 400, jsonBody: { error: familyFilter.error } };
   }
   const families = familyFilter.families;
+  const categoryFilter = parseProductCategoryFilter(url.searchParams);
+  if (!categoryFilter.ok) {
+    return { status: 400, jsonBody: { error: categoryFilter.error } };
+  }
+  const categories = categoryFilter.categories;
   const normalizedQuery = q.toLowerCase();
   // The family suffix is only added when filtering so existing cache keys are unchanged.
   const familyCachePart = families.length > 0 ? `|family:${families.join(",")}` : "";
-  const searchCacheKey = `catalog:search:h:${hashCacheKey(`${normalizedQuery}|${limit}${familyCachePart}`)}`;
+  const categoryCachePart = categories.length > 0 ? `|category:${categories.join(",")}` : "";
+  const searchCacheKey = `catalog:search:h:${hashCacheKey(`${normalizedQuery}|${limit}${familyCachePart}${categoryCachePart}`)}`;
 
   try {
     const cachedSearch = await cacheGetJson<CatalogSearchResponse>(searchCacheKey);
@@ -63,6 +78,7 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
       finishes: string[] | null;
       collection: string | null;
       colorFamily: ColorFamily | null;
+      productCategory: ProductCategory;
       similarity: number;
     }>(
       `SELECT DISTINCT ON (s.shade_id)
@@ -73,6 +89,7 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
          COALESCE(s.finishes, ARRAY[]::text[]) AS finishes,
          s.collection,
          s.color_family                AS "colorFamily",
+         s.product_category            AS "productCategory",
          GREATEST(
            similarity(s.shade_name_canonical, $1),
            similarity(b.name_canonical, $1),
@@ -82,7 +99,9 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
        FROM shade s
        JOIN brand b ON s.brand_id = b.brand_id
        WHERE s.status = 'active'
+         AND s.product_category <> 'accessory'
          AND ($2::text[] IS NULL OR s.color_family = ANY($2::text[]))
+         AND ($3::text[] IS NULL OR s.product_category = ANY($3::text[]))
          AND (
            s.shade_name_canonical % $1
            OR b.name_canonical % $1
@@ -90,7 +109,7 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
            OR EXISTS (SELECT 1 FROM brand_alias ba WHERE ba.brand_id = b.brand_id AND ba.alias % $1)
          )
        ORDER BY s.shade_id, similarity DESC`,
-      [q, families.length > 0 ? families : null]
+      [q, families.length > 0 ? families : null, categories.length > 0 ? categories : null]
     );
 
     // Re-sort by similarity descending and apply limit
@@ -110,6 +129,7 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
         finishes: r.finishes ?? [],
         collection: r.collection || undefined,
         colorFamily: r.colorFamily ?? null,
+        productCategory: resolveProductCategory(r.productCategory),
         similarity: Math.round(r.similarity * 1000) / 1000,
         buyUrl: buyUrls.get(r.shadeId),
       })),
@@ -166,6 +186,7 @@ async function getShade(request: HttpRequest, context: InvocationContext): Promi
       collection: string | null;
       releaseYear: number | null;
       status: string;
+      productCategory: string;
     }>(
       `SELECT
          s.shade_id::text          AS "shadeId",
@@ -176,11 +197,14 @@ async function getShade(request: HttpRequest, context: InvocationContext): Promi
          COALESCE(s.finishes, ARRAY[]::text[]) AS finishes,
          s.collection,
          s.release_year            AS "releaseYear",
-         s.status
+         s.status,
+         s.product_category        AS "productCategory"
        FROM shade s
        JOIN brand b ON s.brand_id = b.brand_id
        WHERE s.shade_id = $1
-         AND s.status <> 'user_submitted'`,
+         AND s.status <> 'user_submitted'
+         AND s.status <> 'excluded'
+         AND s.product_category <> 'accessory'`,
       [shadeId]
     );
 
@@ -208,6 +232,7 @@ async function getShade(request: HttpRequest, context: InvocationContext): Promi
       collection: shade.collection || undefined,
       releaseYear: shade.releaseYear || undefined,
       status: shade.status,
+      productCategory: resolveProductCategory(shade.productCategory),
       aliases: aliasResult.rows.map((r) => r.alias),
       buyUrl: buyUrls.get(shade.shadeId),
     };

@@ -39,6 +39,8 @@ import {
   type IngestedFinishResolution,
 } from "./finish-text";
 import { readProductText } from "./product-text";
+import { classifyProductCategory } from "./product-category";
+import type { ProductCategory } from "swatchwatch-shared";
 import { PoolClient } from "pg";
 import { recordShadeSourceProduct } from "./buy-link";
 import { materializeProductBarcodes, type BarcodeConflict } from "./barcodes";
@@ -183,6 +185,11 @@ interface HoloTacoProductNormalized {
   /** Vendor description / descriptors (#352), forwarded to the vision prompt as a finish hint. */
   descriptionText: string | null;
   descriptors: string[];
+  /**
+   * Rule category of the product (#349): name, color name, product type, tags and raw finishes
+   * through `classifyProductCategory`. Hex detection runs only for `color`.
+   */
+  productCategory: ProductCategory;
 }
 
 /** A source image stored in blob storage, keyed by the connector URL it was downloaded from. */
@@ -234,6 +241,8 @@ interface HoloTacoImagePreparationMetrics {
   hexDetectionSkipped: number;
   /** Subset of hexDetectionSkipped: same image as last run and the shade already has a hex. */
   hexDetectionSkippedUnchanged: number;
+  /** Subset of hexDetectionSkipped: not a color polish (topper, coat, treatment; #349, D-D). */
+  hexDetectionSkippedCategory: number;
   /** Subset of hexDetected whose hex was replaced by a measured palette chip (`HEX_DETECTION_SNAP_ENABLED`). */
   hexSnapped: number;
   batchRequestsQueued: number;
@@ -320,6 +329,15 @@ function parseHoloTacoNormalized(
 ): HoloTacoProductNormalized {
   const collections = asStringArray(normalized.collections);
   const finishes = asStringArray(normalized.finishes);
+  const name = asString(normalized.name);
+  const colorName = asString(normalized.colorName);
+  const tags = asStringArray(normalized.tags);
+  const { category: productCategory } = classifyProductCategory({
+    shadeName: name,
+    colorName,
+    finishes,
+    products: [{ title: name, productType: asString(normalized.productType), tags }],
+  });
   return {
     brand: asString(normalized.brand),
     name: asString(normalized.name),
@@ -333,6 +351,7 @@ function parseHoloTacoNormalized(
     nameHex: asString(normalized.nameHex),
     colorName: asString(normalized.colorName),
     ...readProductText(normalized),
+    productCategory,
   };
 }
 
@@ -350,6 +369,11 @@ function holoTacoVendorContext(holo: HoloTacoProductNormalized): HexDetectionOpt
     descriptionText: holo.descriptionText,
     descriptors: holo.descriptors,
   };
+}
+
+/** Vision hex detection runs on color polishes only (#349, D-D). */
+function detectsHex(holo: HoloTacoProductNormalized): boolean {
+  return holo.productCategory === "color";
 }
 
 /**
@@ -370,6 +394,25 @@ export function resolveIngestedShadeFinishes(
   catalog?: FinishCatalog
 ): string[] {
   return resolveIngestedShadeFinishResolution(normalized, catalog).finishes;
+}
+
+/**
+ * Write the classifier's category to an ingested shade (#349). Never touches a category an admin
+ * set (`product_category_source = 'admin'`); a no-op when it is already right.
+ */
+export async function applyRuleProductCategory(
+  client: Pick<PoolClient, "query">,
+  shadeId: number,
+  category: ProductCategory
+): Promise<void> {
+  await client.query(
+    `UPDATE shade
+     SET product_category = $2
+     WHERE shade_id = $1
+       AND product_category_source <> 'admin'
+       AND product_category IS DISTINCT FROM $2`,
+    [shadeId, category]
+  );
 }
 
 function isHttpUrl(value: string | null): value is string {
@@ -517,7 +560,7 @@ function estimateBatchCandidateCount(
     }
 
     const holo = parseHoloTacoNormalized(normalized);
-    if (!holo.name || !isHttpUrl(holo.primaryImageUrl)) {
+    if (!holo.name || !isHttpUrl(holo.primaryImageUrl) || !detectsHex(holo)) {
       continue;
     }
 
@@ -765,6 +808,7 @@ async function prepareHoloTacoImageData(
     hexDetectionFailures: 0,
     hexDetectionSkipped: 0,
     hexDetectionSkippedUnchanged: 0,
+    hexDetectionSkippedCategory: 0,
     hexSnapped: 0,
     batchRequestsQueued: 0,
     batchFallbacks: 0,
@@ -1038,7 +1082,7 @@ async function prepareHoloTacoImageData(
             const { holo } = result;
             // Compare against the image detection would run on, not always the primary.
             const checksumSha256 = detectionImages.get(result)?.checksumSha256 ?? result.checksumSha256;
-            if (!result.isCandidate || !holo?.name || !checksumSha256) {
+            if (!result.isCandidate || !holo?.name || !checksumSha256 || !detectsHex(holo)) {
               return [];
             }
             if (
@@ -1118,7 +1162,7 @@ async function prepareHoloTacoImageData(
         })
       : null;
     const shouldRunAiDetection = detectHexFromImage &&
-      holo && (!detectHexOnSuspiciousOnly || vendorHexVerdict!.suspicious);
+      holo && detectsHex(holo) && (!detectHexOnSuspiciousOnly || vendorHexVerdict!.suspicious);
 
     const detectionImage = detectionImages.get(result) ?? null;
     const imageForAi = resolveAiImageUrl(detectionImage?.storageUrl ?? storageUrl);
@@ -1274,7 +1318,10 @@ async function prepareHoloTacoImageData(
       }
     } else {
       metrics.hexDetectionSkipped += 1;
-      if (holo && detectHexOnSuspiciousOnly && holo.vendorHex && vendorHexVerdict && !vendorHexVerdict.suspicious) {
+      if (holo && detectHexFromImage && !detectsHex(holo)) {
+        metrics.hexDetectionSkippedCategory += 1;
+        console.log(`${sourceLogPrefix} Skipping AI for ${record.externalId}: not a color polish (${holo.productCategory})`);
+      } else if (holo && detectHexOnSuspiciousOnly && holo.vendorHex && vendorHexVerdict && !vendorHexVerdict.suspicious) {
         const trustedMessage = `${sourceLogPrefix} Skipping AI for ${record.externalId}: vendor hex ${holo.vendorHex} not suspicious`;
         console.log(trustedMessage);
       } else {
@@ -1356,6 +1403,7 @@ async function prepareHoloTacoImageData(
       hexDetectionFailures: metrics.hexDetectionFailures,
       hexDetectionSkipped: metrics.hexDetectionSkipped,
       hexDetectionSkippedUnchanged: metrics.hexDetectionSkippedUnchanged,
+      hexDetectionSkippedCategory: metrics.hexDetectionSkippedCategory,
       hexSnapped: metrics.hexSnapped,
       batchRequestsQueued: metrics.batchRequestsQueued,
       hexDetectionTotalTokens: metrics.hexDetectionTotalTokens,
@@ -2278,6 +2326,13 @@ export async function materializeMakeupApiRecords(
            WHERE shade_id = $1`,
           [shadeId, resolvedColorName, resolvedVendorHex, mergedFinishes]
         );
+        const { category: productCategory } = classifyProductCategory({
+          shadeName,
+          colorName: resolvedColorName,
+          finishes: mergedFinishes ?? currentFinishes,
+          products: [{ title: makeup.name, productType: asString(normalized.category), tags: makeup.tags }],
+        });
+        await applyRuleProductCategory(client, shadeId, productCategory);
 
         const inventory = await client.query<{
           inventoryItemId: number;
@@ -2573,6 +2628,16 @@ async function materializePreparedHoloTacoRecord(
       ...provenanceParams(detectedHexProvenance),
     ]
   );
+
+  // Product category (#349): the connector's rule category, re-checked with the merged finishes
+  // (a `topper` finish makes a topper). An admin-set category is never changed.
+  const { category: productCategory } = classifyProductCategory({
+    shadeName: holo.name,
+    colorName: holo.colorName,
+    finishes: [...asStringArray(normalized.finishes), ...(mergedFinishes ?? [])],
+    products: [{ title: holo.name, productType: asString(normalized.productType), tags: holo.tags }],
+  });
+  await applyRuleProductCategory(client, shadeId, productCategory);
 
   const inventory = await client.query<{
     inventoryItemId: number;

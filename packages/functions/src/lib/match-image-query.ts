@@ -35,6 +35,8 @@ export const MATCH_SCOPE_SQL: Record<MatchScope, string | null> = {
 /** A shade with no hex at all can never be scored; skip it in SQL (the ranker re-checks validity). */
 export const MATCH_HAS_HEX_SQL = `COALESCE(NULLIF(s.vendor_hex, ''), NULLIF(s.detected_hex, ''), NULLIF(s.name_hex, '')) IS NOT NULL`;
 
+export const MATCH_COLOR_ONLY_SQL = `s.product_category = 'color'`;
+
 export function buildMatchCandidateWhere(filters: MatchCandidateFilters, visibleSql: string): MatchCandidateWhere {
   const conditions: string[] = [visibleSql, MATCH_HAS_HEX_SQL];
   const params: unknown[] = [];
@@ -42,6 +44,10 @@ export function buildMatchCandidateWhere(filters: MatchCandidateFilters, visible
 
   const scopeSql = MATCH_SCOPE_SQL[filters.scope];
   if (scopeSql) conditions.push(scopeSql);
+
+  // Photo match compares colors: color polishes only (#349 D-C; toppers and coats have no
+  // meaningful single hex).
+  conditions.push(MATCH_COLOR_ONLY_SQL);
 
   if (filters.canonicalFinishes.length > 0 || filters.legacyFinishes.length > 0) {
     // Same rule as the polishes list: the multi-finish array is authoritative when populated;

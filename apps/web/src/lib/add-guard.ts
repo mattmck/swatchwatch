@@ -285,6 +285,8 @@ export function dupesForNewShade(
         hexAgreement: polish.hexAgreement,
         finish: polish.finish,
         finishes: polish.finishes,
+        // A new shade is a color polish: owned toppers and coats are never its dupes (#349).
+        productCategory: polish.productCategory,
       })
     )
   );

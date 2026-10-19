@@ -271,6 +271,8 @@ export function buildQueueQueries(options: HexLabelQueueQueryOptions): {
   if (options.brand) base.push(`b.name_canonical ILIKE ${add(`%${options.brand}%`)}`);
   if (options.disagreeOnly) base.push(`s.hex_agreement > ${add(MEDIUM_CONFIDENCE_MAX_DISTANCE)}`);
   if (!options.includeWithoutImages) base.push("img.image_count > 0");
+  // Ground truth is for color polishes: toppers, coats and accessories have no single hex (#349).
+  base.push("s.product_category = 'color'");
 
   const countSql = `SELECT count(*)::int AS total,
          count(lbl.training_sample_id)::int AS labeled
