@@ -171,8 +171,17 @@ describe("ShopifyGenericConnector applies the store pre-filter", () => {
     assert.ok(result.records.every((record) => record.normalized.brand === "Pahlish"));
   });
 
-  it("the same products through a source without a store filter still get the generic filter (0 pass)", async () => {
+  it("the same products through a source without a store filter get the generic gate: no color polishes, coats keep their category (#349)", async () => {
     const result = await new ShopifyGenericConnector("NightOwlLacquerShopify").pullProducts(pull);
-    assert.equal(result.records.length, 0);
+    // The generic rules find no polish signal on Pahlish's color shades (hence the store filter),
+    // while base and top coats no longer need one and are ingested with their category (D-E).
+    assert.deepEqual(
+      result.records.map((record) => [record.normalized.name, record.normalized.productCategory]).sort(),
+      [
+        ["Beauty and the Base Smoothing Base Coat", "base_coat"],
+        ["Magic Mirror Quick Dry Topcoat", "top_coat"],
+      ]
+    );
+    assert.ok(result.records.every((record) => record.normalized.productCategory !== "color"));
   });
 });

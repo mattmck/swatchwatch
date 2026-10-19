@@ -231,6 +231,9 @@ describe("metrics events: photo match (#105)", () => {
       ],
     ]);
     assert.equal(matchResultActionEvent({ action: "own", scope: "wishlist", view: "list", confidence: "medium", rank: 1, fromStatus: "wishlist" }).properties.fromStatus, "wishlist");
+  });
+});
+
 describe("metrics events: onboarding", () => {
   it("names the step, the surface and the owned count", () => {
     assert.deepEqual(onboardingStepClickedEvent({ step: "import", surface: "dashboard_checklist", ownedCount: 3 }), {
