@@ -376,7 +376,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   // clamping then rewrote a restored `?page=N` to page 1. A failed load keeps the page too.
   useEffect(() => {
     const nextPage = clampPageAfterLoad({ page, total, pageSize, hasLoaded: hasLoaded && !error, loading });
-    if (nextPage !== null) setPage(nextPage);
+    if (nextPage !== null) setPage(nextPage); // eslint-disable-line react-hooks/set-state-in-effect
   }, [page, total, pageSize, hasLoaded, error, loading]);
 
   /** The archive toast's reason / Undo answers (D5c): replace the row, keeping its buyUrl. */

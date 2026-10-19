@@ -11,7 +11,6 @@
 export const DEFAULT_RETURN_TO = "/polishes";
 
 const SAFE_ORIGIN = "http://swatchwatch.invalid";
-// eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 
 /**
