@@ -382,7 +382,24 @@ CREATE TABLE image_asset (
   thumb_url TEXT,
   copyright_status TEXT NOT NULL DEFAULT 'user_uploaded',
   checksum_sha256 TEXT,
-  captured_at TIMESTAMPTZ
+  captured_at TIMESTAMPTZ,
+  -- Perceptual fingerprint (computeImageFingerprint, src/lib/gallery-dedupe.ts) for catalog gallery
+  -- near-duplicate detection; filled on upload, backfilled by POST /api/images-admin/gallery-dedupe.
+  -- All four NULL (not computed yet / undecodable) or all set.
+  perceptual_hash TEXT,      -- 256-bit dHash as 64 hex chars
+  thumb_fingerprint BYTEA,   -- 16×16 RGB thumbnail (768 bytes)
+  image_width INTEGER,       -- displayed size (EXIF orientation applied)
+  image_height INTEGER,
+  CONSTRAINT image_asset_fingerprint_complete CHECK (
+    num_nulls(perceptual_hash, thumb_fingerprint, image_width, image_height) = 4
+    OR (
+      num_nonnulls(perceptual_hash, thumb_fingerprint, image_width, image_height) = 4
+      AND perceptual_hash ~ '^[0-9a-f]{64}$'
+      AND octet_length(thumb_fingerprint) = 768
+      AND image_width > 0
+      AND image_height > 0
+    )
+  )
 );
 
 CREATE TABLE swatch (
