@@ -104,7 +104,17 @@ export default function ManisScreen() {
             .then(() => {
               setItems((prev) => prev.filter((m) => m.id !== mani.id));
               setTotal((t) => Math.max(0, t - 1));
-              // Reload page 1: resets paging offsets and rewrites the saved copy.
+              // Drop it from the saved copy right away (the reload below may fail offline),
+              // then reload page 1 to reset paging offsets.
+              if (scope) {
+                void readCache<{ items: Manicure[]; total: number }>(scope, "manis").then((entry) => {
+                  if (!entry) return;
+                  void writeCache(scope, "manis", {
+                    items: entry.data.items.filter((m) => m.id !== mani.id),
+                    total: Math.max(0, entry.data.total - 1),
+                  });
+                });
+              }
               void load(1);
             })
             .catch((err: unknown) => setError(errorMessage(err, "Couldn't delete that mani.")));

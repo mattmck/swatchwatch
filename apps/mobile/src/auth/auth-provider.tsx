@@ -26,6 +26,7 @@ import {
   refreshTokens,
   setDevSignedIn,
   setSessionExpiredHandler,
+  setSessionExtras,
   setTokens,
   tokensFromResponse,
 } from "./auth-token";
@@ -224,6 +225,7 @@ function EntraAuthProvider({ settings, children }: { settings: EntraSettings; ch
         setError(next);
         return false;
       }
+      setSessionExtras({ user: next, tokenEndpoint });
       await saveStoredAuth({ mode: "entra", tokens, user: next, tokenEndpoint });
       setUser(next);
       setError(null);
@@ -256,6 +258,7 @@ function EntraAuthProvider({ settings, children }: { settings: EntraSettings; ch
         if (stored?.mode === "entra" && stored.tokens && stored.user) {
           // Offline or the identity service is unreachable: keep the session and open the
           // saved data. Requests refresh the token themselves once the connection is back.
+          setSessionExtras({ user: stored.user, tokenEndpoint: stored.tokenEndpoint });
           if (!cancelled) {
             setUser(stored.user);
             setStatus("signedIn");
