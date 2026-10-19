@@ -88,6 +88,8 @@ export async function refreshTokens(): Promise<StoredTokens | null> {
       { tokenEndpoint: config.tokenEndpoint },
     )
       .then(async (response) => {
+        // The session was signed out or replaced while the request ran: don't bring it back.
+        if (tokens !== current) return null;
         const next = tokensFromResponse(response, current);
         tokens = next;
         // Keep the saved user and token endpoint (an offline launch needs them). They come from
