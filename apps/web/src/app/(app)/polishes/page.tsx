@@ -77,6 +77,7 @@ import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
 import { useReferenceData } from "@/hooks/use-reference-data";
 import { buildMsalConfig } from "@/lib/msal-config";
 import { toast } from "sonner";
+import { detailHref } from "@/lib/detail-href";
 
 /** Idle time after the last keystroke before the search box triggers a fetch. */
 const SEARCH_DEBOUNCE_MS = 350;
@@ -781,7 +782,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                       <div className="flex items-start gap-2">
                         <div className="min-w-0 flex-1">
                           <Link
-                            href={`/polishes/detail?id=${polish.id}&returnTo=${encodeURIComponent(returnToHref)}`}
+                            href={detailHref(polish.id, returnToHref)}
                             className="break-words text-primary hover:underline"
                           >
                             {polish.name}
