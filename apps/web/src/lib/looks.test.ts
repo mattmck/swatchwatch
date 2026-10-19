@@ -14,6 +14,7 @@ import {
   maniEntriesForLook,
   rankTemplatesForVibe,
   recommendLooks,
+  shopCandidatesForStep,
   type Vibe,
 } from "./looks";
 import { colorDistance } from "./color-utils";
@@ -361,5 +362,48 @@ describe("recommendLooks — finish fit", () => {
     const { looks } = recommendLooks({ polishes: [glitter], vibe: vibe({ occasion: "work", mood: "soft" }), seed: 1 });
     assert.ok(looks.length > 0);
     for (const look of looks) assert.notEqual(look.steps[0].polish?.id, glitter.id, look.templateId);
+  });
+});
+
+describe("shopCandidatesForStep", () => {
+  it("returns up to three non-owned catalog shades near the step, never ones the look already uses, owned or top-only for a color step", () => {
+    const owned = [polish("#E8D5C4"), polish("#B22222")];
+    const { looks } = recommendLooks({ polishes: owned, vibe: vibe(), seed: 1 });
+    const look = looks[0];
+    const base = look.steps.find((s) => s.role === "base")!;
+    const pool = [
+      polish("#E9D6C5", { status: undefined, brand: "Cat" }),
+      polish("#E7D3C1", { status: undefined, brand: "Cat" }),
+      polish("#EAD8C8", { status: undefined, brand: "Cat" }),
+      polish("#E6D2C0", { status: undefined, brand: "Cat" }),
+      polish("#E8D5C4", { status: undefined, finishes: ["topper"] }),
+      owned[0],
+      ...(base.polish ? [{ ...base.polish, status: undefined } as Polish] : []),
+    ];
+    const picks = shopCandidatesForStep(look, "base", pool, vibe());
+    assert.ok(picks.length > 0 && picks.length <= 3);
+    for (const p of picks) {
+      assert.notEqual(p.status, "owned");
+      assert.ok(!resolvePolishFinishes(p).includes("topper"));
+      assert.ok(!look.steps.some((s) => s.polish?.id === p.id));
+    }
+  });
+
+  it("returns nothing for a role the look doesn't have", () => {
+    const look = recommendLooks({ polishes: collection(), vibe: vibe(), seed: 1 }).looks[0];
+    const missing = look.steps.some((s) => s.role === "topper") ? "accent" : "topper";
+    if (!look.steps.some((s) => s.role === missing)) {
+      assert.deepEqual(shopCandidatesForStep(look, missing, collection(), vibe()), []);
+    }
+  });
+});
+
+describe("catalogQueriesForLooks — includeOwned", () => {
+  it("asks for every step's family when includeOwned is set (detail drawer substitutions)", () => {
+    const { looks } = recommendLooks({ polishes: collection(), vibe: vibe(), seed: 1 });
+    assert.ok(looks.every((l) => l.missingSteps === 0), "setup: all steps owned");
+    assert.deepEqual(catalogQueriesForLooks(looks), { families: [], toppers: false });
+    const all = catalogQueriesForLooks(looks.slice(0, 1), { includeOwned: true });
+    assert.ok(all.families.length > 0);
   });
 });

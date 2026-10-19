@@ -868,12 +868,15 @@ export interface LookCatalogQueries {
   toppers: boolean;
 }
 
-/** What to fetch from the catalog to fill the looks' gaps. */
-export function catalogQueriesForLooks(looks: readonly Pick<Look, "steps">[]): LookCatalogQueries {
+/** What to fetch from the catalog to fill the looks' gaps (or, with `includeOwned`, to offer substitutes for every step). */
+export function catalogQueriesForLooks(
+  looks: readonly Pick<Look, "steps">[],
+  options: { includeOwned?: boolean } = {}
+): LookCatalogQueries {
   const families: ColorFamily[] = [];
   let toppers = false;
   for (const step of looks.flatMap((l) => l.steps)) {
-    if (step.source === "owned") continue;
+    if (step.source === "owned" && !options.includeOwned) continue;
     if (step.role === "topper") {
       toppers = true;
       continue;
@@ -906,4 +909,41 @@ export function applyStepSwap(look: Look, role: LookStepRole, polish: Polish): L
   const steps = look.steps.map((s, i) => (i === index ? nextStep : s));
   const ownedSteps = steps.filter((s) => s.source === "owned").length;
   return { ...look, steps, ownedSteps, missingSteps: steps.length - ownedSteps };
+}
+
+/**
+ * Catalog shades to buy for one step of a look, for the detail drawer's substitutions: up to
+ * `MAX_STEP_ALTERNATIVES` non-owned polishes from `pool` nearest the step's target (scored like the
+ * recommender: color distance plus finish penalty), within `CATALOG_MAX_DISTANCE`. Never a polish
+ * the look already uses, one the user owns, or (for color steps) a topper/flakie. Separate from
+ * `recommendLooks` on purpose: loading these never changes which looks are shown.
+ */
+export function shopCandidatesForStep(
+  look: Pick<Look, "templateId" | "steps">,
+  role: LookStepRole,
+  pool: readonly Polish[],
+  vibe: Vibe
+): Polish[] {
+  const current = look.steps.find((s) => s.role === role);
+  const template = LOOK_TEMPLATES.find((t) => t.id === look.templateId);
+  const templateStep = template ? templateSteps(template, vibe).find((s) => s.role === role) : undefined;
+  if (!current || !templateStep) return [];
+  const used = new Set(look.steps.flatMap((s) => (s.polish ? [s.polish.id] : [])));
+  const baseHex = look.steps.find((s) => s.role === "base")?.hex ?? templateStep.hex;
+
+  const scored: Scored[] = [];
+  for (const row of pool) {
+    if (isOwnedPolish(row) || used.has(row.id)) continue;
+    const c = toCandidate(row);
+    if (!c) continue;
+    let s: Scored | null;
+    if (role === "topper") s = scoreTopper(c, templateStep);
+    else if (isTopOnly(c)) s = null;
+    else if (role === "base") s = scoreBase(c, templateStep, vibe);
+    else s = scoreAccent(c, templateStep, [templateStep.hex], baseHex);
+    if (s && s.distance <= CATALOG_MAX_DISTANCE) scored.push(s);
+  }
+  return sortScored(scored)
+    .slice(0, MAX_STEP_ALTERNATIVES)
+    .map((s) => s.candidate.polish);
 }

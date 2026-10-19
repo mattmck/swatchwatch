@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Bookmark, BookmarkCheck, Check, Clock, Paintbrush, Plus, Repeat, Search } from "lucide-react";
+import { Bookmark, BookmarkCheck, Check, Clock, Info, Link2, Paintbrush, Plus, Repeat, Search, ShoppingBag } from "lucide-react";
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
 import { BuyFromBrandLink } from "@/components/buy-from-brand-link";
@@ -22,9 +22,20 @@ const DIFFICULTY_LABELS: Record<LookDifficulty, string> = {
 /** Swatch strip widths: the base dominates, toppers are a sliver. */
 const STRIP_GROW: Record<LookStepRole, number> = { base: 3, accent: 2, topper: 1 };
 
-/** A swatch strip for the look's steps, in order (toppers get a sparkle sheen). */
-export function LookSwatchStrip({ steps, className }: { steps: Pick<LookStep, "role" | "hex">[]; className?: string }) {
-  return (
+/**
+ * A swatch strip for the look's steps, in order (toppers get a sparkle sheen). With `backdrop`
+ * (the skin-tone preview) the strip sits on a skin-colored mat; that changes only the mat.
+ */
+export function LookSwatchStrip({
+  steps,
+  className,
+  backdrop,
+}: {
+  steps: Pick<LookStep, "role" | "hex">[];
+  className?: string;
+  backdrop?: string;
+}) {
+  const strip = (
     <div aria-hidden className={cn("flex h-14 overflow-hidden rounded-xl border border-border shadow-inner", className)}>
       {steps.map((step, index) => (
         <span
@@ -37,6 +48,12 @@ export function LookSwatchStrip({ steps, className }: { steps: Pick<LookStep, "r
           )}
         </span>
       ))}
+    </div>
+  );
+  if (!backdrop) return strip;
+  return (
+    <div aria-hidden className="rounded-2xl p-2.5 transition-colors" style={{ backgroundColor: backdrop }} data-testid="skin-backdrop">
+      {strip}
     </div>
   );
 }
@@ -147,10 +164,18 @@ interface LookCardProps {
   onWear: () => void;
   onSave: () => void;
   onSwap: (role: LookStepRole, polish: Polish) => void;
+  /** Open the "Add missing items" shopping list. */
+  onShop: () => void;
+  /** Open the detail drawer. */
+  onDetails: () => void;
+  /** Copy the look as text + link. */
+  onShare: () => void;
+  /** Skin-tone preview mat color behind the swatch strip (cosmetic). */
+  backdrop?: string;
 }
 
 /** One look: swatch strip, steps with ownership pills and Swap, difficulty/time, Wear this and Save. */
-export function LookCard({ look, saved, onWear, onSave, onSwap }: LookCardProps) {
+export function LookCard({ look, saved, onWear, onSave, onSwap, onShop, onDetails, onShare, backdrop }: LookCardProps) {
   const canWear = look.ownedSteps > 0;
   return (
     <Card className="flex flex-col gap-4">
@@ -165,7 +190,7 @@ export function LookCard({ look, saved, onWear, onSave, onSwap }: LookCardProps)
         <CardDescription>{look.description}</CardDescription>
       </CardHeader>
       <CardContent className="flex-1 space-y-2">
-        <LookSwatchStrip steps={look.steps} />
+        <LookSwatchStrip steps={look.steps} backdrop={backdrop} />
         <ul className="divide-y divide-border">
           {look.steps.map((step) => (
             <StepRow key={step.role} step={step} onSwap={(polish) => onSwap(step.role, polish)} />
@@ -179,7 +204,7 @@ export function LookCard({ look, saved, onWear, onSave, onSwap }: LookCardProps)
           </p>
         )}
       </CardContent>
-      <CardFooter className="flex gap-2">
+      <CardFooter className="flex flex-wrap gap-2">
         <Button
           type="button"
           className="flex-1"
@@ -193,6 +218,20 @@ export function LookCard({ look, saved, onWear, onSave, onSwap }: LookCardProps)
         <Button type="button" variant="outline" onClick={onSave} aria-pressed={saved}>
           {saved ? <BookmarkCheck className="size-4" aria-hidden /> : <Bookmark className="size-4" aria-hidden />}
           {saved ? "Saved" : "Save"}
+        </Button>
+        {look.missingSteps > 0 && (
+          <Button type="button" variant="secondary" className="w-full" onClick={onShop}>
+            <ShoppingBag className="size-4" aria-hidden />
+            Add missing items ({look.missingSteps})
+          </Button>
+        )}
+        <Button type="button" variant="ghost" size="sm" className="flex-1" onClick={onDetails}>
+          <Info className="size-4" aria-hidden />
+          Details
+        </Button>
+        <Button type="button" variant="ghost" size="sm" className="flex-1" onClick={onShare}>
+          <Link2 className="size-4" aria-hidden />
+          Copy look
         </Button>
       </CardFooter>
     </Card>
