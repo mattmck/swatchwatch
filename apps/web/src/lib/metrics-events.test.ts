@@ -12,6 +12,8 @@ import {
   matchImageProcessedEvent,
   matchResultActionEvent,
   trackMatchResultAction,
+  onboardingStepClickedEvent,
+  trackOnboardingStepClicked,
   trackDupeWarningOutcome,
   trackDupeWarningShown,
   trackImportCompleted,
@@ -226,5 +228,29 @@ describe("metrics events: photo match (#105)", () => {
       ],
     ]);
     assert.equal(matchResultActionEvent({ action: "own", scope: "wishlist", view: "list", confidence: "medium", rank: 1, fromStatus: "wishlist" }).properties.fromStatus, "wishlist");
+describe("metrics events: onboarding", () => {
+  it("names the step, the surface and the owned count", () => {
+    assert.deepEqual(onboardingStepClickedEvent({ step: "import", surface: "dashboard_checklist", ownedCount: 3 }), {
+      name: "onboarding.step_clicked",
+      properties: { step: "import", surface: "dashboard_checklist", ownedCount: 3 },
+    });
+    assert.equal(METRIC_EVENTS.onboardingStepClicked, "onboarding.step_clicked");
+  });
+
+  it("clamps a bad owned count to a non-negative integer", () => {
+    const event = onboardingStepClickedEvent({ step: "scan", surface: "polishes_empty", ownedCount: -1 });
+    assert.equal(event.properties.ownedCount, 0);
+  });
+
+  it("sends through the injected tracker", () => {
+    const { calls, track } = recorder();
+    trackOnboardingStepClicked({ step: "search", surface: "gaps_empty", ownedCount: 0 }, track);
+    assert.deepEqual(calls, [
+      { name: "onboarding.step_clicked", properties: { step: "search", surface: "gaps_empty", ownedCount: 0 } },
+    ]);
+  });
+
+  it("never throws when telemetry is off", () => {
+    assert.doesNotThrow(() => trackOnboardingStepClicked({ step: "import", surface: "match_empty", ownedCount: 0 }));
   });
 });

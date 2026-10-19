@@ -10,7 +10,7 @@ import type {
   PolishImageMatchResponse,
   PolishMatch,
 } from "swatchwatch-shared";
-import { X } from "lucide-react";
+import { ImageUp, X } from "lucide-react";
 import { toast } from "sonner";
 import { deletePolish, getPolishDupes, matchPolishesToImage, updatePolish } from "@/lib/api";
 import { downscaleImageFile, type DownscaledImage } from "@/lib/image-downscale";
@@ -64,6 +64,7 @@ import {
   type MatchResultAction,
 } from "@/lib/metrics-events";
 import { trackEvent } from "@/lib/telemetry";
+import { trackOnboardingStepClicked } from "@/lib/metrics-events";
 import { useAddGuard } from "@/hooks/use-add-guard";
 import { useReferenceData } from "@/hooks/use-reference-data";
 import { AddGuardDialog } from "@/components/add-guard-dialog";
@@ -72,7 +73,10 @@ import { BrandSpinner } from "@/components/brand-spinner";
 import { ColorDot } from "@/components/color-dot";
 import { ColorFamilyChips } from "@/components/color-family-chips";
 import { CollectionQuickActions, type QuickActionSource } from "@/components/collection-quick-actions";
+import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
+import { useOwnedCount } from "@/hooks/use-owned-count";
+import { CATALOG_SEARCH_HREF } from "@/lib/onboarding";
 import { ToggleChip } from "@/components/toggle-chip";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -193,6 +197,8 @@ function PolishImageMatchContent() {
   );
   const [error, setError] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(false);
+  // Matching only searches owned polishes: with none, say so before the user uploads a photo.
+  const ownedCount = useOwnedCount();
   const requestIdRef = useRef(0);
   const triggerRef = useRef<MatchImageTrigger>("filters");
 
@@ -543,7 +549,18 @@ function PolishImageMatchContent() {
         </Button>
       </div>
 
-      {!image && !preparing && (
+      {ownedCount === 0 && !image && !preparing && (
+        <EmptyState
+          icon={ImageUp}
+          title="Photo matching needs a collection"
+          description="Upload a photo and this page finds the polishes you own in its colors, so add a few polishes first."
+          actionLabel="Search the catalog"
+          actionHref={CATALOG_SEARCH_HREF}
+          onAction={() => trackOnboardingStepClicked({ step: "search", surface: "match_empty", ownedCount: 0 })}
+        />
+      )}
+
+      {ownedCount !== 0 && !image && !preparing && (
         <>
           <ImageDropZone onFile={handleFile} />
           {status === "error" && error && (

@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CalendarHeart, Pencil, Trash2 } from "lucide-react";
+import { CalendarHeart, Droplets, Pencil, Trash2 } from "lucide-react";
 import type { Manicure, Polish } from "swatchwatch-shared";
 import { toast } from "sonner";
 import { deleteManicure, listAllPolishes, listManicures } from "@/lib/api";
@@ -21,6 +21,8 @@ import { BrandSpinner } from "@/components/brand-spinner";
 import { ColorDot } from "@/components/color-dot";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
+import { trackOnboardingStepClicked } from "@/lib/metrics-events";
+import { CATALOG_SEARCH_HREF } from "@/lib/onboarding";
 import { ManiCalendarStrip } from "@/components/mani-calendar-strip";
 import { ManiLogForm } from "@/components/mani-log-form";
 import { PrivateImage } from "@/components/private-image";
@@ -206,10 +208,24 @@ function ManisPageContent() {
         </div>
 
         {visibleHistory.length === 0 ? (
-          <EmptyState
-            title="No manis yet"
-            description="Log what you're wearing to start tracking wear counts and untried polishes."
-          />
+          !collectionLoading && collection.length === 0 ? (
+            <EmptyState
+              icon={Droplets}
+              title="Your log starts with polishes you own"
+              description="Add a few to your collection, then log what you wear to see wear counts and what's still untried."
+              actionLabel="Find your polishes"
+              actionHref={CATALOG_SEARCH_HREF}
+              onAction={() => trackOnboardingStepClicked({ step: "search", surface: "manis_empty", ownedCount: 0 })}
+            />
+          ) : (
+            <EmptyState
+              icon={CalendarHeart}
+              title="No manis yet"
+              description="Log what you're wearing to start tracking wear counts and untried polishes."
+              actionLabel="Log a mani"
+              onAction={() => setForm({ mode: "create" })}
+            />
+          )
         ) : (
           <ul className="space-y-3">
             {visibleHistory.map((manicure) => (
