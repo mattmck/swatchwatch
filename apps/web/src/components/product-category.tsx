@@ -56,12 +56,13 @@ export function TopperSwatch({ size = "md", className }: { size?: keyof typeof S
       title="Topper: shown over another polish, no single color"
       className={cn("inline-block shrink-0 rounded-full border border-border", SWATCH_SIZES[size], className)}
       style={{
+        // Sparkles over a faint iridescent clear base, so it never reads as a white polish.
         background:
-          "radial-gradient(circle at 30% 30%, rgba(255,255,255,0.95) 0 8%, transparent 9%), " +
-          "radial-gradient(circle at 68% 42%, rgba(200,200,215,0.9) 0 7%, transparent 8%), " +
-          "radial-gradient(circle at 45% 72%, rgba(255,255,255,0.9) 0 6%, transparent 7%), " +
-          "radial-gradient(circle at 75% 75%, rgba(180,180,200,0.8) 0 5%, transparent 6%), " +
-          "linear-gradient(135deg, #f4f4f6, #d9d9e0)",
+          "radial-gradient(circle at 30% 30%, #ffffff 0 11%, transparent 12%), " +
+          "radial-gradient(circle at 68% 40%, #8a8aa3 0 9%, transparent 10%), " +
+          "radial-gradient(circle at 42% 72%, #ffffff 0 9%, transparent 10%), " +
+          "radial-gradient(circle at 74% 74%, #6f6f88 0 7%, transparent 8%), " +
+          "conic-gradient(from 210deg, #d8d0f0, #cdeef0, #f3d6e6, #e9e2c8, #d8d0f0)",
       }}
     />
   );
