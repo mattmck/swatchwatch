@@ -172,6 +172,29 @@ Collection stats (#271): the `GET /api/stats/collection` payload behind the dash
 | `IMAGE_VARIANT_QUALITY` | `72` — WebP quality of every variant (the proxy's default `q`) |
 | `snapImageVariantSize(size)` | Smallest ladder size ≥ `size`, or `null` above 512 |
 
+### `constants/design-tokens.ts` (generated)
+
+Generated from `apps/web/src/app/globals.css` by `npm run sync:design-tokens` (don't edit; CI checks it with `--check`). Hex values for clients that can't use the web's `oklch()` CSS variables (the Expo app).
+
+| Export | Description |
+|--------|-------------|
+| `ThemeColorTokens` | Semantic colors with the shadcn/ui names: `background`, `foreground`, `card`, `primary`, `secondary`, `muted`, `accent` (+ `*Foreground`), `destructive`, `border`, `input`, `ring` |
+| `LIGHT_THEME_COLORS` / `DARK_THEME_COLORS` | The `:root` / `.dark` palettes (`#rrggbb`, or `#rrggbbaa` where the CSS has alpha) |
+| `THEME_COLORS` | `{ light, dark }` keyed by `ThemeColorScheme` |
+| `BRAND_COLOR_TOKENS` | The `--brand-*` palette (equal to `swatchWatchBrandPalette`) |
+
+### `barcode/gtin.ts`
+
+Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/barcode-scan.ts`, used by the mobile app). The capture API looks GTINs up exactly as printed.
+
+| Export | Description |
+|--------|-------------|
+| `RetailBarcodeFormat`, `RETAIL_BARCODE_FORMATS` | `ean_13`, `upc_a`, `ean_8`, `upc_e` (preference order) |
+| `normalizeBarcodeFormat(format)` | Decoder spellings (`ean13`, `EAN_13`, `EAN13`) → ours, or `null` |
+| `hasValidGtinCheckDigit(digits)` | GS1 mod-10 check for GTIN-8/12/13/14 |
+| `expandUpcE(upcE)` | 8-digit UPC-E → 12-digit UPC-A, or `null` |
+| `normalizeScannedBarcode({ rawValue, format })` | Validated `{ gtin, format }` (digits as printed) or `null` |
+
 ### `color/` (OKLAB math, thresholds, hex reconciliation, color families)
 
 | Export | Description |
