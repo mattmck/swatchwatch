@@ -8,7 +8,10 @@ import {
   dupeWarningOutcomeEvent,
   dupeWarningShownEvent,
   importCompletedEvent,
+  looksGeneratedEvent,
+  looksWearClickedEvent,
   maniLoggedEvent,
+  trackLooksWearClicked,
   trackDupeWarningOutcome,
   trackDupeWarningShown,
   trackImportCompleted,
@@ -167,5 +170,55 @@ describe("metrics events: mani and import", () => {
         if (typeof value === "string") assert.ok(allowedStrings.has(value), `${event.name}: ${value}`);
       }
     }
+  });
+});
+
+describe("looks events", () => {
+  const look = {
+    templateId: "french-modern",
+    steps: [
+      { role: "base", source: "owned" },
+      { role: "accent", source: "catalog" },
+    ],
+    ownedSteps: 1,
+    missingSteps: 1,
+  } as const;
+
+  it("looks.generated carries the vibe and counts only", () => {
+    const event = looksGeneratedEvent({
+      vibe: { occasion: "work", mood: "soft", finish: null, ownedOnly: false },
+      looks: [look],
+      shortfall: true,
+      ownedCount: 4,
+      trigger: "shuffle",
+    });
+    assert.equal(event.name, METRIC_EVENTS.looksGenerated);
+    assert.equal(event.name, "looks.generated");
+    assert.deepEqual(event.properties, {
+      occasion: "work",
+      mood: "soft",
+      finish: "any",
+      ownedOnly: false,
+      trigger: "shuffle",
+      lookCount: 1,
+      ownedSteps: 1,
+      missingSteps: 1,
+      fullyOwnedLooks: 0,
+      ownedCount: 4,
+      shortfall: true,
+      templates: "french-modern",
+    });
+  });
+
+  it("looks.wear_clicked carries the template and step counts", () => {
+    const calls: Array<[string, MetricProperties]> = [];
+    trackLooksWearClicked({ look, swapped: true, position: 2 }, (name, properties) => calls.push([name, properties]));
+    assert.deepEqual(calls, [
+      [
+        "looks.wear_clicked",
+        { template: "french-modern", position: 2, ownedSteps: 1, missingSteps: 1, swapped: true },
+      ],
+    ]);
+    assert.equal(looksWearClickedEvent({ look, swapped: false, position: 0 }).properties.swapped, false);
   });
 });
