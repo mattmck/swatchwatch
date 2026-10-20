@@ -149,7 +149,7 @@ export function AdminHexSipPanel({ shadeId }: { shadeId: string }) {
         <CardTitle>
           <button
             type="button"
-            className="flex w-full items-center gap-2 text-left"
+            className="-my-3 flex w-full items-center gap-2 py-3 text-left"
             aria-expanded={open}
             aria-controls="admin-hex-sip-body"
             onClick={() => setOpen((value) => !value)}
