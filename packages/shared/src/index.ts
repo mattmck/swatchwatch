@@ -9,6 +9,8 @@ export * from "./types/stats";
 export * from "./constants/finishes";
 export * from "./constants/outbound-links";
 export * from "./constants/image-variants";
+export * from "./constants/design-tokens";
+export * from "./barcode/gtin";
 export * from "./constants/product-categories";
 export * from "./types/user";
 export * from "./types/voice";

@@ -27,6 +27,10 @@ const checks = [
     paths: ["node_modules/next", "apps/web/node_modules/next"],
   },
   {
+    label: "Expo package",
+    paths: ["node_modules/expo", "apps/mobile/node_modules/expo"],
+  },
+  {
     label: "Azure Functions package",
     paths: [
       "node_modules/@azure/functions",
