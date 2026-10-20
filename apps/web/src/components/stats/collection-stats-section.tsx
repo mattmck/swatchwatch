@@ -7,6 +7,10 @@ import { getCollectionStats } from "@/lib/api";
 import { currencyKey, currencyLabel, currencyOptions } from "@/lib/collection-stats";
 import { POLISH_STATUS_LABELS } from "@/lib/inventory-status";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/empty-state";
+import { trackOnboardingStepClicked } from "@/lib/metrics-events";
+import { GETTING_STARTED_STEPS } from "@/lib/onboarding";
+import { BarChart3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SpendByBrandPanel } from "./spend-by-brand-panel";
 import { SpendByMonthPanel } from "./spend-by-month-panel";
@@ -47,6 +51,12 @@ export function CollectionStatsSection({ className }: { className?: string }) {
       active = false;
     };
   }, []);
+
+  // Nothing bought yet: one empty state instead of five empty panels.
+  const nothingBought =
+    stats !== null &&
+    stats.totals.byStatus.owned + stats.totals.byStatus.destash + stats.totals.byStatus.archived === 0;
+  const importStep = GETTING_STARTED_STEPS.find((step) => step.id === "import");
 
   const currencies = useMemo(() => (stats ? currencyOptions(stats) : []), [stats]);
   const currency =
@@ -96,6 +106,18 @@ export function CollectionStatsSection({ className }: { className?: string }) {
             Retry
           </Button>
         </div>
+      ) : nothingBought ? (
+        <EmptyState
+          icon={BarChart3}
+          title="Stats fill in as you go"
+          description="Spend by brand and month, what you wear most and cost per wear appear here once you add polishes you own."
+          actionLabel="Import a spreadsheet"
+          actionHref={importStep?.href}
+          onAction={() =>
+            trackOnboardingStepClicked({ step: "import", surface: "dashboard_stats_empty", ownedCount: 0 })
+          }
+          className="min-h-[240px] px-0 py-2"
+        />
       ) : (
         <div className="grid gap-6 lg:grid-cols-2">
           <SpendByBrandPanel stats={stats} currency={currency} />

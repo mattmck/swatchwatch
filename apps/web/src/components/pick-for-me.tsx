@@ -2,12 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Dices, Loader2, Palette, Shuffle } from "lucide-react";
+import { Dices, Loader2, Palette, Shuffle, WandSparkles } from "lucide-react";
 import type { ManicureWearStat, Polish } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -31,6 +31,7 @@ import {
   type PickResult,
 } from "@/lib/pick-for-me";
 import { trackEvent } from "@/lib/telemetry";
+import { detailHref } from "@/lib/detail-href";
 
 /** Where the pick UI is shown; sent with every telemetry event. */
 type PickSource = "dashboard" | "polishes";
@@ -140,7 +141,7 @@ export function PickForMePanel({ polishes: initialPolishes, source }: PickForMeP
         <div className="min-w-0 flex-1" aria-live="polite" aria-atomic="true">
           <p className="sr-only">Your pick:</p>
           <Link
-            href={`/polishes/detail?id=${polish.id}`}
+            href={detailHref(polish.id)}
             className="block truncate text-lg font-semibold hover:underline"
           >
             {polish.name}
@@ -173,7 +174,7 @@ export function PickForMePanel({ polishes: initialPolishes, source }: PickForMeP
                   <ColorDot hex={resolveDisplayHex(pairing.polish)} size="md" />
                   <div className="min-w-0 flex-1">
                     <Link
-                      href={`/polishes/detail?id=${pairing.polish.id}`}
+                      href={detailHref(pairing.polish.id)}
                       className="block truncate text-sm font-medium hover:underline"
                     >
                       {pairing.polish.name}
@@ -228,6 +229,14 @@ export function PickForMeCard({ polishes }: { polishes: Polish[] }) {
           Pick for me
         </CardTitle>
         <CardDescription>Can&apos;t decide? A random owned polish, favoring untried shades, ones you haven&apos;t worn lately, and thin spots in your collection.</CardDescription>
+        <CardAction>
+          <Button asChild size="sm" variant="ghost">
+            <Link href="/polishes/looks">
+              <WandSparkles className="size-4" aria-hidden />
+              Looks
+            </Link>
+          </Button>
+        </CardAction>
       </CardHeader>
       <CardContent>
         <PickForMePanel polishes={polishes} source="dashboard" />

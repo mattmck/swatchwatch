@@ -1,6 +1,7 @@
 import type { PolishFilters, PolishStatus } from "swatchwatch-shared";
 import type { Undertone } from "@/lib/color-utils";
 import { parseColorFamilyParam } from "@/lib/color-family-filter";
+import { parseProductCategoryParam } from "@/lib/product-category-filter";
 
 /**
  * URL state for the `/polishes` table (issue #262).
@@ -10,7 +11,8 @@ import { parseColorFamilyParam } from "@/lib/color-family-filter";
  * (`all|collection`), `availability`/`avail` (`all|owned|wishlist`) and `all=0|1` params are
  * still read so old links and bookmarks keep working, but the page only ever writes `status`
  * and `untried`: `scope=collection` ≡ `status=owned`, `availability=wishlist` ≡ `status=wishlist`.
- * The color family chips (#103) live in the same state as `family` (canonical comma list).
+ * The color family chips (#103) live in the same state as `family` (canonical comma list), and
+ * the product category chips (#349) as `category`.
  */
 
 export const DEFAULT_PAGE_SIZE = 10;
@@ -39,6 +41,8 @@ export interface PolishesListState {
   finishFilter: string;
   /** Canonical comma-separated color families (`red,pink`, #103), or "" for no family filter. */
   familyFilter: string;
+  /** Canonical comma-separated product categories (`color,topper`, #349), or "" for all. */
+  categoryFilter: string;
   sortKey: SortKey;
   sortDirection: SortDirection;
   page: number;
@@ -52,6 +56,7 @@ export const DEFAULT_LIST_STATE: PolishesListState = {
   toneFilter: "all",
   finishFilter: "all",
   familyFilter: "",
+  categoryFilter: "",
   sortKey: "name",
   sortDirection: "asc",
   page: 1,
@@ -126,6 +131,7 @@ export function parsePolishesListState(params: ReadableParams): PolishesListStat
     toneFilter: parseToneFilter(params.get("tone")),
     finishFilter: !finish || finish === "all" ? "all" : finish,
     familyFilter: parseColorFamilyParam(params.get("family")).join(","),
+    categoryFilter: parseProductCategoryParam(params.get("category")).join(","),
     sortKey: parseSortKey(params.get("sort")),
     sortDirection: params.get("dir") === "desc" ? "desc" : "asc",
     page: parsePositiveInt(params.get("page"), 1),
@@ -144,6 +150,8 @@ export function buildPolishesListQueryString(state: PolishesListState): string {
   if (state.finishFilter !== "all") params.set("finish", state.finishFilter);
   const families = parseColorFamilyParam(state.familyFilter);
   if (families.length > 0) params.set("family", families.join(","));
+  const categories = parseProductCategoryParam(state.categoryFilter);
+  if (categories.length > 0) params.set("category", categories.join(","));
   if (state.sortKey !== "name") params.set("sort", state.sortKey);
   if (state.sortDirection !== "asc") params.set("dir", state.sortDirection);
   if (state.page !== 1) params.set("page", String(state.page));
@@ -160,9 +168,31 @@ export function sameFilters(a: PolishesListState, b: PolishesListState): boolean
     a.toneFilter === b.toneFilter &&
     a.finishFilter === b.finishFilter &&
     a.familyFilter === b.familyFilter &&
+    a.categoryFilter === b.categoryFilter &&
     a.sortKey === b.sortKey &&
     a.sortDirection === b.sortDirection
   );
+}
+
+/**
+ * The page the table should move to after a load, or `null` to keep the current one (#348).
+ *
+ * Nothing is clamped before the first load has finished or while a fetch is in flight: on mount
+ * `total` is still 0, and clamping then would rewrite a URL-restored `?page=5` to page 1 before
+ * the data arrives (the regression of #87). Once a real total is known, a page past the end
+ * moves to the last page, and an empty result goes back to page 1.
+ */
+export function clampPageAfterLoad(input: {
+  page: number;
+  total: number;
+  pageSize: number;
+  hasLoaded: boolean;
+  loading: boolean;
+}): number | null {
+  if (!input.hasLoaded || input.loading) return null;
+  const totalPages = input.pageSize > 0 ? Math.ceil(input.total / input.pageSize) : 0;
+  if (totalPages === 0) return input.page !== 1 ? 1 : null;
+  return input.page > totalPages ? totalPages : null;
 }
 
 /** Which preset (if any) the status list corresponds to. */
@@ -205,7 +235,7 @@ export function toggleStatus(
 /** True when any filter (not sort or paging) differs from the defaults. */
 export function hasActiveFilters(
   state: Pick<PolishesListState, "search" | "statuses" | "untried" | "toneFilter" | "finishFilter"> &
-    Partial<Pick<PolishesListState, "familyFilter">>
+    Partial<Pick<PolishesListState, "familyFilter" | "categoryFilter">>
 ): boolean {
   return (
     state.search.trim().length > 0 ||
@@ -213,7 +243,8 @@ export function hasActiveFilters(
     state.untried ||
     state.toneFilter !== "all" ||
     state.finishFilter !== "all" ||
-    Boolean(state.familyFilter)
+    Boolean(state.familyFilter) ||
+    Boolean(state.categoryFilter)
   );
 }
 
@@ -226,6 +257,7 @@ export function toApiFilters(
 ): Omit<PolishFilters, "page" | "pageSize" | "tone"> {
   const statuses = normalizeStatuses(state.statuses);
   const families = parseColorFamilyParam(state.familyFilter);
+  const categories = parseProductCategoryParam(state.categoryFilter);
   return {
     search: state.search.trim() || undefined,
     finish: state.finishFilter !== "all" ? (state.finishFilter as PolishFilters["finish"]) : undefined,
@@ -234,6 +266,7 @@ export function toApiFilters(
     sortBy: state.sortKey,
     sortOrder: state.sortDirection,
     ...(families.length > 0 ? { families } : {}),
+    ...(categories.length > 0 ? { categories } : {}),
   };
 }
 

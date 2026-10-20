@@ -1,5 +1,6 @@
 import type { CANONICAL_FINISHES } from "../constants/finishes";
 import type { ColorFamily } from "../color/color-family";
+import type { ProductCategory } from "../constants/product-categories";
 import type { ArchiveReason, PolishStatus } from "./inventory";
 
 export interface Polish {
@@ -41,6 +42,12 @@ export interface Polish {
    * See `classifyColorFamily`.
    */
   colorFamily?: ColorFamily | null;
+  /**
+   * What kind of product the shade is (`shade.product_category`, #349): `color`, `topper`,
+   * `top_coat`, `base_coat`, `treatment` or `accessory`. Missing from older responses; treat
+   * that as `color` (`resolveProductCategory`).
+   */
+  productCategory?: ProductCategory;
   /**
    * Legacy single finish (the shade's identity/primary finish). Kept populated for
    * backward compatibility; prefer `finishes` (or `resolvePolishFinishes`) for display.
@@ -264,6 +271,8 @@ export interface PolishFilters {
   tone?: "warm" | "cool" | "neutral";
   /** Matches shades in ANY of these color families (`?family=red,pink`). */
   families?: ColorFamily[];
+  /** Matches shades in ANY of these product categories (`?category=color,topper`). */
+  categories?: ProductCategory[];
   sortBy?:
     | "name"
     | "brand"
@@ -287,6 +296,8 @@ export interface CatalogSearchResult {
   collection?: string;
   /** Color family of the shade (see `Polish.colorFamily`). */
   colorFamily?: ColorFamily | null;
+  /** Product category (see `Polish.productCategory`). */
+  productCategory?: ProductCategory;
   similarity: number;
   /** "Buy from brand" link (see `Polish.buyUrl`); absent when none is stored. */
   buyUrl?: string;
@@ -345,6 +356,8 @@ export interface CatalogShadeDetail {
   collection?: string;
   releaseYear?: number;
   status: string;
+  /** Product category (see `Polish.productCategory`). */
+  productCategory?: ProductCategory;
   aliases: string[];
   /** "Buy from brand" link (see `Polish.buyUrl`); absent when none is stored. */
   buyUrl?: string;

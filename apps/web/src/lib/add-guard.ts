@@ -33,7 +33,12 @@ export type AddGuardIntent = "own" | "wishlist";
 export type AddGuardChoice = "cancelled" | "wishlisted_instead" | "added_anyway";
 
 /** Where the guard ran (telemetry `page` value; the funnel `surface` comes from the intent). */
-export type AddGuardSurface = "polishes-list" | "color-search" | "polish-form-create" | "polish-form-edit";
+export type AddGuardSurface =
+  | "polishes-list"
+  | "color-search"
+  | "photo-match"
+  | "polish-form-create"
+  | "polish-form-edit";
 
 /** Abandon the dupe check after this long and proceed with the add. */
 export const ADD_GUARD_TIMEOUT_MS = 2000;
@@ -280,6 +285,8 @@ export function dupesForNewShade(
         hexAgreement: polish.hexAgreement,
         finish: polish.finish,
         finishes: polish.finishes,
+        // A new shade is a color polish: owned toppers and coats are never its dupes (#349).
+        productCategory: polish.productCategory,
       })
     )
   );

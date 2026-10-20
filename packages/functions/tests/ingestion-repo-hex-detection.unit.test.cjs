@@ -27,6 +27,9 @@ let idSequence;
 let transactionCount;
 let failTransactionAt;
 let shadeColorUpdates = [];
+let categoryWrites = [];
+let adminLookups = [];
+let adminCategoryRows = [];
 
 const transactionClient = {
   async query(sql, params) {
@@ -39,6 +42,9 @@ const transactionClient = {
       // [shadeId, name, vendorHex, detectedHex, finishes, overwrite, nameHex, mergedFinishes, confidence, method, model, promptVersion]
       shadeColorUpdates.push({ detectedHex: params[3], confidence: params[8], method: params[9], promptVersion: params[11] });
     }
+    if (sql.includes("SET product_category = $2")) {
+      categoryWrites.push({ sql, shadeId: params[0], category: params[1] });
+    }
     if (sql.includes("RETURNING brand_id")) return { rows: [{ brandId: 1 }] };
     if (sql.includes("RETURNING shade_id")) return { rows: [{ shadeId: ++idSequence }] };
     if (sql.includes("RETURNING image_id")) return { rows: [{ imageId: ++idSequence }] };
@@ -48,6 +54,10 @@ const transactionClient = {
 
 mockDistModule("db.js", {
   query: async (sql, params) => {
+    if (sql.includes("product_category_source = 'admin'")) {
+      adminLookups.push(params);
+      return { rows: adminCategoryRows };
+    }
     if (sql.includes("WITH input AS")) {
       lookupCalls.push(params);
       return { rows: await lookupHandler(params) };
@@ -165,6 +175,9 @@ describe("materializeHoloTacoRecords hex detection", () => {
     maxInFlightDetections = 0;
     loadedImageUrls = [];
     shadeColorUpdates = [];
+    categoryWrites = [];
+    adminLookups = [];
+    adminCategoryRows = [];
     delete process.env.HEX_DETECTION_SNAP_ENABLED;
     process.env.HEX_DETECTION_CONCURRENCY = "3";
   });
@@ -181,6 +194,52 @@ describe("materializeHoloTacoRecords hex detection", () => {
     );
     assert.equal(metrics.hexDetected, 7);
     assert.equal(metrics.hexDetectionTotalTokens, 84);
+  });
+
+  it("skips hex detection for toppers and coats and writes each record's category (#349)", async () => {
+    const topper = record(1);
+    topper.normalized.tags = ["toppers", "nail-polish"];
+    topper.normalized.productType = "Top Coat";
+    const base = record(2);
+    base.normalized.name = "Sticky Base";
+    base.normalized.tags = ["base-coat", "nail-polish"];
+
+    const metrics = await materializeHoloTacoRecords(1, 7, [record(0), topper, base], { detectHexFromImage: true });
+
+    assert.deepEqual(detectCalls, ["Shade 0"]);
+    assert.equal(metrics.hexDetected, 1);
+    assert.equal(metrics.hexDetectionSkippedCategory, 2);
+    assert.deepEqual(
+      categoryWrites.map((write) => write.category),
+      ["color", "topper", "base_coat"]
+    );
+    assert.ok(
+      categoryWrites.every((write) => write.sql.includes("product_category_source <> 'admin'")),
+      "an admin-set category is never overwritten"
+    );
+    // The unchanged-image lookup is only asked about color polishes.
+    assert.deepEqual(lookupCalls[0][1], ["p0"]);
+  });
+
+  it("gates detection on an admin-set category, not the connector's rule category (CodeRabbit, #349)", async () => {
+    // The connector sees two plain color polishes; an admin made p1 a topper and p2 an accessory.
+    adminCategoryRows = [
+      { externalId: "p1", productCategory: "topper" },
+      { externalId: "p2", productCategory: "accessory" },
+    ];
+    const metrics = await materializeHoloTacoRecords(1, 7, records(3), { detectHexFromImage: true });
+
+    assert.deepEqual(detectCalls, ["Shade 0"], "no vision call for admin-categorized shades");
+    assert.equal(metrics.hexDetected, 1);
+    assert.equal(metrics.hexDetectionSkippedCategory, 2);
+    assert.equal(adminLookups.length, 1);
+    assert.deepEqual(adminLookups[0][0], ["p0", "p1", "p2"]);
+    assert.deepEqual(lookupCalls[0][1], ["p0"], "unchanged-image lookup only asks about detectable shades");
+  });
+
+  it("skips the admin lookup when hex detection is off", async () => {
+    await materializeHoloTacoRecords(1, 7, records(2), { detectHexFromImage: false });
+    assert.equal(adminLookups.length, 0);
   });
 
   it("falls back to the default concurrency for invalid values", async () => {

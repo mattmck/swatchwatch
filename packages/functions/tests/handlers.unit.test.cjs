@@ -1205,10 +1205,17 @@ describe("functions/polishes — matchImage", () => {
     const res = await handler(matchRequest({ image: await splitPngDataUrl(), limit: 2 }), fakeContext());
 
     assert.equal(res.status, 200);
-    assert.equal(seen.length, 1);
+    // Stage 1 ranks lightweight candidate rows; stage 2 loads the winners in full.
+    assert.equal(seen.length, 2);
     assert.deepEqual(seen[0].params, [1]);
     assert.match(seen[0].sql, /ui\.status = 'owned'/);
+    assert.match(seen[0].sql, /ui\.user_id = \$1/);
     assert.doesNotMatch(seen[0].sql, /ui\.quantity, 0\) > 0/, "ownership must come from status, not quantity");
+    assert.equal(seen[1].params[0], 1);
+    assert.deepEqual([...seen[1].params[1]].sort(), ["10", "11", "13"]);
+    assert.match(seen[1].sql, /s\.shade_id = ANY\(\$2::bigint\[\]\)/);
+    assert.match(seen[1].sql, /ui\.user_id = \$1/);
+    assert.equal(res.jsonBody.scope, "owned");
 
     const body = res.jsonBody;
     const hexes = body.extractedColors.map((c) => c.hex);
@@ -1222,6 +1229,52 @@ describe("functions/polishes — matchImage", () => {
     }
     assert.ok(body.matches[0].distance <= body.matches[1].distance);
     assert.equal(body.matches.find((m) => m.polish.id === "10").polish.finish, "creme");
+
+    // Per-color groups (#105): one per extracted color, each led by its own closest polish.
+    assert.deepEqual(body.colorMatches.map((g) => g.hex), hexes);
+    const redGroup = body.colorMatches.find((g) => g.hex === "#D01020");
+    const blueGroup = body.colorMatches.find((g) => g.hex === "#1030C0");
+    assert.equal(redGroup.matches[0].polish.id, "10");
+    assert.equal(blueGroup.matches[0].polish.id, "11");
+    assert.ok(body.extractedColors.every((c) => c.kind === "color"));
+  });
+
+  it("wishlist scope ranks only the caller's wishlist rows", async () => {
+    const seen = [];
+    mockAuthThen([{ id: "10", shadeId: "10", brand: "OPI", name: "Red", color: "", vendorHex: "#D11121" }], seen);
+    const handler = registeredRoutes["polishes-match-image"].handler;
+    const res = await handler(matchRequest({ image: await splitPngDataUrl(), scope: "wishlist" }), fakeContext());
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.scope, "wishlist");
+    assert.match(seen[0].sql, /ui\.status = 'wishlist'/);
+    assert.doesNotMatch(seen[0].sql, /ui\.status = 'owned'/);
+  });
+
+  it("catalog scope ranks every visible shade and applies the family filter", async () => {
+    const seen = [];
+    mockAuthThen([{ id: "10", shadeId: "10", brand: "OPI", name: "Red", color: "", vendorHex: "#D11121" }], seen);
+    const handler = registeredRoutes["polishes-match-image"].handler;
+    const res = await handler(
+      matchRequest({ image: await splitPngDataUrl(), scope: "catalog", families: ["red"] }),
+      fakeContext()
+    );
+    assert.equal(res.status, 200);
+    assert.doesNotMatch(seen[0].sql, /ui\.status =/);
+    // Visibility (other users' private submissions, merged shades) still applies to the catalog.
+    assert.match(seen[0].sql, /s\.merged_into_shade_id IS NULL/);
+    assert.match(seen[0].sql, /s\.created_by_user_id = \$1/);
+    assert.match(seen[0].sql, /s\.color_family = ANY\(\$2::text\[\]\)/);
+    assert.deepEqual(seen[0].params, [1, ["red"]]);
+  });
+
+  it("returns 400 for an unknown scope before touching the database", async () => {
+    const seen = [];
+    mockAuthThen([], seen);
+    const handler = registeredRoutes["polishes-match-image"].handler;
+    const res = await handler(matchRequest({ image: await splitPngDataUrl(), scope: "everyone" }), fakeContext());
+    assert.equal(res.status, 400);
+    assert.match(res.jsonBody.error, /scope/);
+    assert.equal(seen.length, 0);
   });
 });
 

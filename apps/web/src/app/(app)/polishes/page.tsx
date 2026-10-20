@@ -47,6 +47,7 @@ import {
 } from "@/lib/collection-actions";
 import {
   buildPolishesListQueryString,
+  clampPageAfterLoad,
   hasActiveFilters as listHasActiveFilters,
   parsePolishesListState,
   statusPresetFor,
@@ -64,11 +65,14 @@ import { shadeGuardKey, wishlistInsteadUpdate, type AddGuardIntent } from "@/lib
 import { Pagination } from "@/components/pagination";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
-import { EmptyState } from "@/components/empty-state";
+import { PolishesEmptyState } from "@/components/polishes-empty-state";
+import { polishesEmptyStateKind, shouldFocusSearch } from "@/lib/onboarding";
 import { buildFinishOptions, knownFinishNames } from "@/lib/finish-options";
 import { FinishBadges } from "@/components/finish-badges";
 import { BuyFromBrandLink } from "@/components/buy-from-brand-link";
 import { ColorFamilyChips } from "@/components/color-family-chips";
+import { ProductCategoryChips, ProductCategoryPill, TopperSwatch, showsTopperSwatch } from "@/components/product-category";
+import { parseProductCategoryParam } from "@/lib/product-category-filter";
 import { parseColorFamilyParam, serializeColorFamilies } from "@/lib/color-family-filter";
 import { SwatchThumbnail } from "@/components/swatch-thumbnail";
 import { runRecalcHexFlow } from "@/lib/recalc-hex-flow";
@@ -76,6 +80,7 @@ import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
 import { useReferenceData } from "@/hooks/use-reference-data";
 import { buildMsalConfig } from "@/lib/msal-config";
 import { toast } from "sonner";
+import { detailHref } from "@/lib/detail-href";
 
 /** Idle time after the last keystroke before the search box triggers a fetch. */
 const SEARCH_DEBOUNCE_MS = 350;
@@ -145,7 +150,6 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const searchParamsString = searchParams.toString();
-  const didMountRef = useRef(false);
   const skipNextPageResetRef = useRef(false);
   const [polishes, setPolishes] = useState<Polish[]>([]);
   const [total, setTotal] = useState(0);
@@ -159,6 +163,9 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   // Filters (URL state: see lib/polish-list-url.ts; legacy scope/availability links are mapped
   // to `status` once and the canonical URL is written back).
   const [initialState] = useState(() => parsePolishesListState(searchParams));
+  // `?focus=search` (getting-started checklist, empty states) opens with the search box focused.
+  const [focusSearchOnLoad] = useState(() => shouldFocusSearch(searchParams));
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState(initialState.search);
   const [statuses, setStatuses] = useState<PolishStatus[]>(initialState.statuses);
   const [untried, setUntried] = useState(initialState.untried);
@@ -167,6 +174,9 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   // Canonical comma-separated color families (`red,pink`, #103); "" = no family filter.
   const [familyFilter, setFamilyFilter] = useState<string>(initialState.familyFilter);
   const selectedFamilies = useMemo(() => parseColorFamilyParam(familyFilter), [familyFilter]);
+  // Canonical comma-separated product categories (`color,topper`, #349); "" = every category.
+  const [categoryFilter, setCategoryFilter] = useState<string>(initialState.categoryFilter);
+  const selectedCategories = useMemo(() => parseProductCategoryParam(categoryFilter), [categoryFilter]);
   const [sortKey, setSortKey] = useState<SortKey>(initialState.sortKey);
   const [sortDirection, setSortDirection] = useState<SortDirection>(initialState.sortDirection);
   const statusesKey = statuses.join(",");
@@ -195,6 +205,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       toneFilter !== next.toneFilter ||
       finishFilter !== next.finishFilter ||
       familyFilter !== next.familyFilter ||
+      categoryFilter !== next.categoryFilter ||
       sortKey !== next.sortKey ||
       sortDirection !== next.sortDirection;
     const paginationChangedFromUrl = page !== next.page || pageSize !== next.pageSize;
@@ -215,6 +226,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     setToneFilter(next.toneFilter);
     setFinishFilter(next.finishFilter);
     setFamilyFilter(next.familyFilter);
+    setCategoryFilter(next.categoryFilter);
     setSortKey(next.sortKey);
     setSortDirection(next.sortDirection);
     setPage(next.page);
@@ -230,12 +242,13 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       toneFilter,
       finishFilter,
       familyFilter,
+      categoryFilter,
       sortKey,
       sortDirection,
       page: 1,
       pageSize: 0,
     }),
-    [debouncedSearch, statusesKey, untried, toneFilter, finishFilter, familyFilter, sortKey, sortDirection]
+    [debouncedSearch, statusesKey, untried, toneFilter, finishFilter, familyFilter, categoryFilter, sortKey, sortDirection]
   );
 
   useEffect(() => {
@@ -305,18 +318,22 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     };
   }, [listState, page, pageSize, toneFilter]);
 
-  // Reset page when filters change (but keep initial URL-restored page).
+  // Reset page when filters change (but keep initial URL-restored page). Compares against the
+  // last seen filters instead of a "did mount" flag, so React Strict Mode's second effect run on
+  // mount cannot reset a restored page either (#348).
+  const filtersKey = JSON.stringify([
+    debouncedSearch, statusesKey, untried, toneFilter, finishFilter, familyFilter, categoryFilter, sortKey, sortDirection,
+  ]);
+  const lastFiltersKeyRef = useRef(filtersKey);
   useEffect(() => {
-    if (!didMountRef.current) {
-      didMountRef.current = true;
-      return;
-    }
+    if (lastFiltersKeyRef.current === filtersKey) return;
+    lastFiltersKeyRef.current = filtersKey;
     if (skipNextPageResetRef.current) {
       skipNextPageResetRef.current = false;
       return;
     }
     setPage(1);
-  }, [debouncedSearch, statusesKey, untried, toneFilter, finishFilter, familyFilter, sortKey, sortDirection]);
+  }, [filtersKey]);
 
   const queryString = useMemo(
     () => buildPolishesListQueryString({ ...listState, page, pageSize }),
@@ -335,7 +352,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     });
   }, [pathname, queryString, router, searchParamsString]);
 
-  const hasActiveFilters = listHasActiveFilters({ search, statuses, untried, toneFilter, finishFilter, familyFilter });
+  const hasActiveFilters = listHasActiveFilters({ search, statuses, untried, toneFilter, finishFilter, familyFilter, categoryFilter });
 
   const handleSort = useCallback((key: SortKey) => {
     if (sortKey === key) {
@@ -365,17 +382,13 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const dupeHints = useDupeHints(pageItems);
   // Add guard (#266): adding a not-owned shade shows its owned near-dupes first.
   const { guardAdd, active: activeGuard, choose: chooseGuard, isChecking: isGuardChecking } = useAddGuard();
-  const columnCount = 9 + (isAdmin ? 1 : 0);
 
+  // Clamp a page past the end only once real data is in (#348): on mount `total` is still 0, and
+  // clamping then rewrote a restored `?page=N` to page 1. A failed load keeps the page too.
   useEffect(() => {
-    if (totalPages === 0 && page !== 1) {
-      setPage(1);
-      return;
-    }
-    if (totalPages > 0 && page > totalPages) {
-      setPage(totalPages);
-    }
-  }, [page, totalPages]);
+    const nextPage = clampPageAfterLoad({ page, total, pageSize, hasLoaded: hasLoaded && !error, loading });
+    if (nextPage !== null) setPage(nextPage); // eslint-disable-line react-hooks/set-state-in-effect
+  }, [page, total, pageSize, hasLoaded, error, loading]);
 
   /** The archive toast's reason / Undo answers (D5c): replace the row, keeping its buyUrl. */
   const applyArchiveToastUpdate = useCallback((updated: Polish) => {
@@ -541,6 +554,25 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     });
   }, [knownFinishes]);
 
+  const clearAllFilters = () => {
+    setSearch("");
+    setStatuses([]);
+    setUntried(false);
+    setToneFilter("all");
+    setFinishFilter("all");
+    setFamilyFilter("");
+    setCategoryFilter("");
+  };
+
+  // Empty collection/wishlist → every polish, with the search box ready to type in.
+  const browseCatalog = () => {
+    setStatuses([]);
+    setUntried(false);
+    requestAnimationFrame(() => searchInputRef.current?.focus());
+  };
+
+  const showEmptyState = hasLoaded && pageItems.length === 0;
+
   // Full-page spinner only before the first result: unmounting the page on every refetch
   // would drop the search input (and its focus) mid-typing.
   if (loading && !hasLoaded) {
@@ -579,6 +611,9 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
         <Input
+          ref={searchInputRef}
+          autoFocus={focusSearchOnLoad}
+          aria-label="Search polishes"
           placeholder="Search by name, brand, or color..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -626,14 +661,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
             variant="ghost"
             size="sm"
             className="text-brand-purple hover:bg-brand-pink-light/30"
-            onClick={() => {
-              setSearch("");
-              setStatuses([]);
-              setUntried(false);
-              setToneFilter("all");
-              setFinishFilter("all");
-              setFamilyFilter("");
-            }}
+            onClick={clearAllFilters}
           >
             Clear filters
           </Button>
@@ -644,14 +672,23 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
         value={selectedFamilies}
         onChange={(next) => setFamilyFilter(serializeColorFamilies(next))}
       />
+      <ProductCategoryChips value={selectedCategories} onChange={(next) => setCategoryFilter(next.join(","))} />
       {/* Opt-in public wishlist link (#268); hidden unless the server flag is on. */}
       {statusPresetFor(statuses) === "wishlist" && <WishlistShareCard />}
 
-      {/* Table */}
+      {showEmptyState && (
+        <PolishesEmptyState
+          kind={polishesEmptyStateKind({ search, statuses, untried, toneFilter, finishFilter, familyFilter })}
+          onBrowseCatalog={browseCatalog}
+          onClearFilters={clearAllFilters}
+        />
+      )}
+
+      {/* Table (replaced by the empty state above: a full-width table cell clips it on phones) */}
       <div
         className={`relative overflow-hidden rounded-lg border transition-opacity ${
           loading ? "opacity-60" : ""
-        }`}
+        } ${showEmptyState ? "hidden" : ""}`}
         aria-busy={loading}
       >
         <span
@@ -726,18 +763,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {pageItems.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={columnCount} className="p-0">
-                  <EmptyState
-                    title={hasActiveFilters ? "No matches" : "No polishes yet"}
-                    description={hasActiveFilters ? "Try adjusting your filters." : "Add your first polish to get started."}
-                    actionLabel={hasActiveFilters ? undefined : "+ Add Polish"}
-                    actionHref={hasActiveFilters ? undefined : "/polishes/new"}
-                  />
-                </TableCell>
-              </TableRow>
-            ) : (
+            {pageItems.length === 0 ? null : (
               pageItems.map((polish) => {
                 const recalcPending = recalcPendingById[polish.id] === true;
                 const owned = isOwnedPolish(polish);
@@ -780,11 +806,12 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                       <div className="flex items-start gap-2">
                         <div className="min-w-0 flex-1">
                           <Link
-                            href={`/polishes/detail?id=${polish.id}&returnTo=${encodeURIComponent(returnToHref)}`}
+                            href={detailHref(polish.id, returnToHref)}
                             className="break-words text-primary hover:underline"
                           >
                             {polish.name}
                           </Link>
+                          <ProductCategoryPill category={polish.productCategory} className="ml-1.5 align-middle" />
                           <BuyFromBrandLink
                             url={polish.buyUrl}
                             brand={polish.brand}
@@ -808,14 +835,18 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <ColorDot
-                        hex={resolveDisplayHex(polish)}
-                        size="md"
-                        className="ring-2 ring-white/80 shadow-[0_0_0_1px_rgba(66,16,126,0.18),0_8px_20px_rgba(66,16,126,0.16)]"
-                      />
+                      {showsTopperSwatch(polish.productCategory) ? (
+                        <TopperSwatch size="md" />
+                      ) : (
+                        <ColorDot
+                          hex={resolveDisplayHex(polish)}
+                          size="md"
+                          className="ring-2 ring-white/80 shadow-[0_0_0_1px_rgba(66,16,126,0.18),0_8px_20px_rgba(66,16,126,0.16)]"
+                        />
+                      )}
                     </TableCell>
                     <TableCell className="text-center">
-                      {resolveDisplayHex(polish) && (
+                      {resolveDisplayHex(polish) && !showsTopperSwatch(polish.productCategory) && (
                         <Link
                           href={`/polishes/search?color=${resolveDisplayHex(polish)!.replace("#", "")}`}
                           className="text-muted-foreground hover:text-primary"

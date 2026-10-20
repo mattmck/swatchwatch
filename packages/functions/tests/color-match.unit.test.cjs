@@ -10,6 +10,8 @@ const {
   normalizeHex,
   mergeSimilarColors,
   rankPolishMatches,
+  rankColorMatches,
+  buildPalette,
   parseMatchImageRequest,
   extractImagePalette,
   MatchImageInputError,
@@ -294,4 +296,135 @@ describe("lib/color-match — extractImagePalette", () => {
       MatchImageInputError
     );
   });
+});
+
+// ── #105: per-color matches, palette quality, scope / filter parsing ─────────
+
+describe("lib/color-match — rankColorMatches", () => {
+  const red = polish(1, "#D01020", { name: "Red" });
+  const darkRed = polish(2, "#A00818", { name: "Dark Red" });
+  const blue = polish(3, "#1030C0", { name: "Blue" });
+  const noHex = polish(4, null, { name: "No hex" });
+  const colors = [
+    { hex: "#D01020", fraction: 0.8 },
+    { hex: "#1030c0", fraction: 0.2 },
+  ];
+
+  it("returns one group per extracted color, in palette order, each sorted by distance to that color", () => {
+    const groups = rankColorMatches([blue, darkRed, red, noHex], colors, 5);
+    assert.deepEqual(groups.map((g) => g.hex), ["#D01020", "#1030C0"]);
+    assert.deepEqual(groups[0].matches.map((m) => m.polish.name), ["Red", "Dark Red", "Blue"]);
+    assert.equal(groups[1].matches[0].polish.name, "Blue");
+    assert.ok(groups.every((g) => g.matches.every((m) => m.matchedColor === g.hex)));
+    assert.equal(groups[0].matches[0].distance, 0);
+    assert.equal(groups[0].matches[0].confidence, "high");
+  });
+
+  it("gives a minor color its own top matches even when another color wins every polish overall", () => {
+    // Every polish is closer to red, so the flat list never names blue — the per-color group still does.
+    const flat = rankPolishMatches([red, darkRed], colors, 10).matches;
+    assert.ok(flat.every((m) => m.matchedColor === "#D01020"));
+    const groups = rankColorMatches([red, darkRed], colors, 1);
+    assert.equal(groups[1].matches.length, 1);
+    assert.equal(groups[1].matches[0].matchedColor, "#1030C0");
+  });
+
+  it("caps each group at perColorLimit and skips invalid palette hexes", () => {
+    const groups = rankColorMatches([red, darkRed, blue], [{ hex: "nope", fraction: 1 }, ...colors], 2);
+    assert.equal(groups.length, 2);
+    assert.ok(groups.every((g) => g.matches.length === 2));
+  });
+});
+
+describe("lib/color-match — buildPalette", () => {
+  const raw = [
+    { hex: "#FFFFFF", fraction: 0.5 }, // light background
+    { hex: "#E0AC69", fraction: 0.2 }, // skin
+    { hex: "#D01020", fraction: 0.15 }, // polish red
+    { hex: "#808078", fraction: 0.1 }, // warm grey
+    { hex: "#101010", fraction: 0.05 }, // dark background
+  ];
+
+  it("without options equals mergeSimilarColors plus a kind on every color", () => {
+    const palette = buildPalette(raw, { maxColors: 6 });
+    const merged = mergeSimilarColors(raw, { maxColors: 6 });
+    assert.deepEqual(palette.map(({ hex, fraction }) => ({ hex, fraction })), merged);
+    assert.deepEqual(
+      palette.map((c) => c.kind),
+      ["light", "skin", "color", "color", "dark"]
+    );
+  });
+
+  it("drops skin and background colors when asked, freeing their palette slots", () => {
+    const palette = buildPalette(raw, { maxColors: 2, excludeSkinTones: true, excludeBackground: true });
+    assert.deepEqual(palette.map((c) => c.hex), ["#D01020", "#808078"]);
+  });
+
+  it("preferVibrant picks saturated colors over a larger grey area, then sorts by share", () => {
+    const greyHeavy = [
+      { hex: "#808080", fraction: 0.3 },
+      { hex: "#7A7A7A", fraction: 0.0 }, // merged away
+      { hex: "#D01020", fraction: 0.2 },
+      { hex: "#1030C0", fraction: 0.18 },
+    ];
+    assert.deepEqual(buildPalette(greyHeavy, { maxColors: 2 }).map((c) => c.hex), ["#808080", "#D01020"]);
+    assert.deepEqual(
+      buildPalette(greyHeavy, { maxColors: 2, preferVibrant: true }).map((c) => c.hex),
+      ["#D01020", "#1030C0"]
+    );
+  });
+});
+
+describe("lib/color-match — parseMatchImageRequest (#105 options)", () => {
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const image = dataUrl("image/png", png);
+
+  it("defaults to the owned scope, no filters and no palette options", () => {
+    const parsed = parseMatchImageRequest({ image });
+    assert.equal(parsed.scope, "owned");
+    assert.deepEqual(parsed.finishes, []);
+    assert.deepEqual(parsed.families, []);
+    assert.equal(parsed.perColorLimit, MATCH_IMAGE_LIMITS.defaultPerColorLimit);
+    assert.equal(parsed.excludeSkinTones, false);
+    assert.equal(parsed.excludeBackground, false);
+    assert.equal(parsed.preferVibrant, false);
+  });
+
+  it("accepts scope, finishes, families and palette options", () => {
+    const parsed = parseMatchImageRequest({
+      image,
+      scope: "catalog",
+      finishes: [" Holo ", "holo", "", "Cream"],
+      families: ["Gray", "red", "red"],
+      perColorLimit: 10,
+      excludeSkinTones: true,
+      excludeBackground: true,
+      preferVibrant: true,
+    });
+    assert.equal(parsed.scope, "catalog");
+    assert.deepEqual(parsed.finishes, ["holo", "cream"]);
+    assert.deepEqual(parsed.families, ["grey", "red"]);
+    assert.equal(parsed.perColorLimit, 10);
+    assert.equal(parsed.excludeSkinTones, true);
+    assert.equal(parsed.excludeBackground, true);
+    assert.equal(parsed.preferVibrant, true);
+  });
+
+  for (const [label, extra, pattern] of [
+    ["an unknown scope", { scope: "everyone" }, /scope must be one of/],
+    ["a non-array finishes", { finishes: "holo" }, /finishes must be an array/],
+    ["a non-string finish", { finishes: [1] }, /finishes must be an array/],
+    ["too many finishes", { finishes: Array.from({ length: 21 }, (_, i) => `f${i}`) }, /at most 20/],
+    ["an over-long finish", { finishes: ["x".repeat(65)] }, /64 characters/],
+    ["an unknown family", { families: ["plaid"] }, /Invalid color family: plaid/],
+    ["a non-boolean option", { excludeSkinTones: "yes" }, /excludeSkinTones must be a boolean/],
+    ["perColorLimit out of range", { perColorLimit: 21 }, /perColorLimit must be between/],
+  ]) {
+    it(`rejects ${label}`, () => {
+      assert.throws(
+        () => parseMatchImageRequest({ image, ...extra }),
+        (err) => err instanceof MatchImageInputError && pattern.test(err.message)
+      );
+    });
+  }
 });
