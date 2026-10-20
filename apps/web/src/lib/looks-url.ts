@@ -52,3 +52,12 @@ export function buildLooksQueryString(state: LooksState): string {
   if (state.seed !== DEFAULT_LOOKS_SEED) params.set("seed", String(state.seed));
   return params.toString();
 }
+
+/**
+ * The shareable link for a vibe: the page URL with the vibe and seed (nothing personal). The
+ * recipient sees the same vibe built from their own collection, not this person's polishes.
+ */
+export function lookShareUrl(origin: string, pathname: string, state: LooksState): string {
+  const qs = buildLooksQueryString(state);
+  return `${origin}${pathname}${qs ? `?${qs}` : ""}`;
+}
