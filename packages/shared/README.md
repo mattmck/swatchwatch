@@ -16,7 +16,7 @@ The package is automatically linked via npm workspaces — no publishing require
 
 | Type | Description |
 |------|-------------|
-| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, reserved `nailImageUrl` (not populated; see `NailPhoto`), legacy `finish`, multi-finish `finishes`, tags, timestamps, etc.). Detected-hex provenance (migration 20261017024958000_shade-detected-hex-provenance): `detectedHexConfidence` (0–1), `detectedHexMethod` (`vision-direct`, `palette-pick`, `region-crop`, `ensemble`, `client-supplied`, …), `detectedHexModel` (deployment), `detectedHexPromptVersion`, `detectedHexAt`, and `hexAgreement` (OKLAB distance vendorHex ↔ detectedHex, null unless both exist). Inventory status (#261, migration 20261017061336791_inventory-status): `status` (`PolishStatus`, null for catalog-only rows), derived `isUntried` (owned and `triedAt` null), `triedAt`, `lastWornAt`, `wearCount`, `purchasePrice`, `purchaseCurrency`. `colorFamily` (`ColorFamily \| null`, the generated `shade.color_family`; see `color/color-family.ts`). Optional `buyUrl` (#267): the brand's product page from the stored source product URL, validated server-side (absolute http/https, no credentials), absent when none is stored |
+| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, reserved `nailImageUrl` (not populated; see `NailPhoto`), legacy `finish`, multi-finish `finishes`, tags, timestamps, etc.). Detected-hex provenance (migration 20261017024958000_shade-detected-hex-provenance): `detectedHexConfidence` (0–1), `detectedHexMethod` (`vision-direct`, `palette-pick`, `region-crop`, `ensemble`, `client-supplied`, …), `detectedHexModel` (deployment), `detectedHexPromptVersion`, `detectedHexAt`, and `hexAgreement` (OKLAB distance vendorHex ↔ detectedHex, null unless both exist). Inventory status (#261, migration 20261017061336791_inventory-status): `status` (`PolishStatus`, null for catalog-only rows), derived `isUntried` (owned and `triedAt` null), `triedAt`, `lastWornAt`, `wearCount`, `purchasePrice`, `purchaseCurrency`. `colorFamily` (`ColorFamily \| null`, the generated `shade.color_family`; see `color/color-family.ts`). Optional `buyUrl` (#267): the brand's product page from the stored source product URL, validated server-side (absolute http/https, no credentials), absent when none is stored. `productCategory` (#349, `ProductCategory`; missing = `color`). `PolishFilters.categories`, `CatalogSearchResult.productCategory` and `CatalogShadeDetail.productCategory` carry the category too |
 | `resolveDisplayHex(polish)` | Display hex with the blind precedence vendor > detected > name (unchanged; used by the web app) |
 | `HexReviewItem` / `HexReviewResponse` / `HexReviewSort` | Admin hex-review queue payload (`GET /api/polishes-admin/hex-review`): hexes, provenance, agreement, display hex/source, `flagged`; sorted by `agreement` or `confidence` |
 | `PolishFinish` | Built-in finish name, derived as `(typeof CANONICAL_FINISHES)[number]` |
@@ -120,7 +120,7 @@ Collection export (#264), `GET /api/polishes/export`.
 
 | Export | Description |
 |--------|-------------|
-| `POLISH_CSV_COLUMNS` | The CSV column contract shared with the CSV import (#263): `{ key, header, importField }[]` in file order. Round-trip columns first (`Brand`→`brand`, `Shade name`→`name`, `Finishes`→`finish`, `Quantity`→`quantity`, `Status`→`status`, `Date tried`→`tried`, `Purchase price`→`price`, `Currency`→`currency`, `Purchase date`→`purchaseDate`, `Notes`→`notes`; each header is one the importer recognizes as a strong synonym), then export-only extras with `importField: null` (`Display hex`, `Collection`, `Rating`, `Tags`, `Size`, `Expiration date`, `Last worn`, `Wear count`, `Shade ID`, `Item ID`, `Created at`, `Updated at`) |
+| `POLISH_CSV_COLUMNS` | The CSV column contract shared with the CSV import (#263): `{ key, header, importField }[]` in file order. Round-trip columns first (`Brand`→`brand`, `Shade name`→`name`, `Finishes`→`finish`, `Quantity`→`quantity`, `Status`→`status`, `Date tried`→`tried`, `Purchase price`→`price`, `Currency`→`currency`, `Purchase date`→`purchaseDate`, `Notes`→`notes`; each header is one the importer recognizes as a strong synonym), then export-only extras with `importField: null` (`Display hex`, `Collection`, `Rating`, `Tags`, `Size`, `Expiration date`, `Last worn`, `Wear count`, `Shade ID`, `Item ID`, `Created at`, `Updated at`, `Product category` (#349, appended last so earlier columns keep their positions)) |
 | `POLISH_CSV_HEADERS` | Header row (`POLISH_CSV_COLUMNS[].header`) |
 | `PolishCsvColumn` / `PolishCsvColumnKey` / `PolishCsvImportField` | Column shape, column keys, and the importer field names a column can feed |
 | `POLISH_CSV_LIST_SEPARATOR` | `", "` — joins `Finishes` and `Tags` cells |
@@ -172,6 +172,27 @@ Collection stats (#271): the `GET /api/stats/collection` payload behind the dash
 | `IMAGE_VARIANT_QUALITY` | `72` — WebP quality of every variant (the proxy's default `q`) |
 | `snapImageVariantSize(size)` | Smallest ladder size ≥ `size`, or `null` above 512 |
 
+### `constants/product-categories.ts` (#349, decision D23)
+
+| Export | Description |
+|--------|-------------|
+| `PRODUCT_CATEGORIES`, `ProductCategory`, `isProductCategory(value)` | `color`, `topper`, `top_coat`, `base_coat`, `treatment`, `accessory` (`shade.product_category`; a test keeps the migration CHECK equal) |
+| `PRODUCT_CATEGORY_SOURCES`, `ProductCategorySource` | `rule` (classifier) or `admin` (sticky override) |
+| `PRODUCT_CATEGORY_LABELS` | Display labels |
+| `resolveProductCategory(value)` | The category, or `color` for a missing/unknown value (older API responses) |
+| `isCoatOrTreatment(category)` | True for top/base coats and treatments (spend-only in stats) |
+| `areDupeComparableCategories(a, b)` | Dupe rule: color ↔ color and topper ↔ topper only |
+| `manicureRoleForCategory(category)` | Mani-log role prefill: color → `color`, topper/top coat → `topper`, base coat/treatment → `base`, accessory → null |
+
+### `types/product-category.ts`
+
+| Type | Description |
+|------|-------------|
+| `ProductCategoryBackfillRequest`, `ProductCategoryBackfillReport` | `POST /api/shades-admin/product-category/backfill` body and report (counts per category / source / data source, transitions, category changes, admin disagreements, excluded and held accessories, toppers by tag only, suspicious topper hexes, `runId`, `applied`) |
+| `ProductCategoryReportShade`, `ProductCategoryChangeItem`, `HeldAccessoryItem`, `TopperHexCandidate` | Report rows |
+| `ShadeProductCategoryUpdateRequest`, `ShadeProductCategoryUpdateResponse` | `PUT /api/shades-admin/{id}/product-category` |
+| `ShadeProductCategoryItem`, `ShadeProductCategoryListResponse` | `GET /api/shades-admin/product-category` |
+
 ### `color/` (OKLAB math, thresholds, hex reconciliation, color families)
 
 | Export | Description |
@@ -192,7 +213,7 @@ Collection stats (#271): the `GET /api/stats/collection` payload behind the dash
 | `finishCompatibility(targetFinishes, candidateFinishes, families?)` | `same` (same primary), `compatible` (same family or any shared finish), `different` (known, different families), `unknown` (missing/`other`/no family — never penalized); `families` defaults to `DUPE_FINISH_FAMILIES` |
 | `PaletteColorKind`, `PALETTE_COLOR_KINDS`, `PALETTE_QUALITY_THRESHOLDS`, `classifyPaletteColor(hex)`, `isBackgroundPaletteKind(kind)`, `paletteVibrancyWeight(hex)` | Photo-palette quality (#105, `color/palette-quality.ts`): `light` (L ≥ 0.97, or L ≥ 0.90 with C < 0.05), `dark` (L < 0.22, C < 0.06), `skin` (hue 20–80, C 0.025–0.14, L 0.35–0.92) or `color`. Coarse on purpose (nudes read as skin), so the web hides these only by default and the API drops them only on request. `paletteVibrancyWeight` = 1 + min(C / 0.2, 1) for `preferVibrant` |
 | `gradeDupe(distance, compatibility)` | `{ colorGrade, grade }`: `confidenceForDistance` (the match-image thresholds), dropped one step for `different` finishes; `grade` null when LOW |
-| `prepareDupeShade(shade)`, `prepareDupeCandidates(shades)`, `findDupes(target, candidates, { finishFamilies? })`, `summarizeDupes(id, dupes)`, `compareDupes` | Pure dupe finder: resolve each display hex (`resolveDisplayHexDetailed`) and OKLAB once, then O(N) per target; excludes the target's own id; ordered by grade, finish compatibility, distance, brand/name |
+| `prepareDupeShade(shade)`, `prepareDupeCandidates(shades)`, `findDupes(target, candidates, { finishFamilies? })`, `summarizeDupes(id, dupes)`, `compareDupes` | Pure dupe finder: resolve each display hex (`resolveDisplayHexDetailed`) and OKLAB once, then O(N) per target; excludes the target's own id and candidates of another product category (color ↔ color, topper ↔ topper only, #349; `productCategory` on `DupeShade`/`PreparedDupeShade`, missing = color); ordered by grade, finish compatibility, distance, brand/name |
 
 ### `types/user.ts`
 

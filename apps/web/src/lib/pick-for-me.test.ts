@@ -284,3 +284,39 @@ describe("suggestPairings", () => {
     assert.ok(colorDistance("#808080", "#808080") === 0);
   });
 });
+
+describe("pick for me — product categories (#349, D-C)", () => {
+  const collection = [
+    polish("color", { vendorHex: "#C0392B" }),
+    polish("topper", { productCategory: "topper", vendorHex: "#F4F4F2", finishes: ["glitter"] }),
+    polish("top-coat", { productCategory: "top_coat", vendorHex: "#F5F5F5" }),
+    polish("base-coat", { productCategory: "base_coat", vendorHex: "#F6F6F6" }),
+    polish("treatment", { productCategory: "treatment" }),
+    polish("accessory", { productCategory: "accessory" }),
+  ];
+
+  it("only ever picks a color polish as the main pick", () => {
+    assert.deepEqual(
+      scorePickCandidates(collection, NOW).map((candidate) => candidate.polish.id),
+      ["color"]
+    );
+    const random = createSeededRandom(7);
+    for (let draw = 0; draw < 20; draw += 1) {
+      assert.equal(pickForMe(collection, { now: NOW, random })?.polish.id, "color");
+    }
+  });
+
+  it("returns null when the user owns only non-color products", () => {
+    assert.equal(pickForMe(collection.slice(1), { now: NOW, random: createSeededRandom(1) }), null);
+  });
+
+  it("pairs a topper by category (even without a topper finish) and never a coat or accessory", () => {
+    const pairings = suggestPairings(collection[0], collection);
+    const ids = pairings.map((pairing) => pairing.polish.id);
+    assert.ok(ids.includes("topper"), "the topper is suggested");
+    assert.ok(!ids.some((id) => ["top-coat", "base-coat", "treatment", "accessory"].includes(id)));
+    const topper = pairings.find((pairing) => pairing.polish.id === "topper");
+    assert.equal(topper?.role, "topper");
+    assert.equal(topper?.label, "Topper");
+  });
+});

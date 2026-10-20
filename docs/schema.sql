@@ -262,7 +262,12 @@ CREATE TABLE shade (
   detected_finishes TEXT[],                      -- AI-detected finishes (migration 016)
   collection TEXT,
   release_year INT,
-  status TEXT NOT NULL DEFAULT 'unknown',       -- active|user_submitted|...; user_submitted = private to creator/inventory holders until an admin sets 'active' (migration 024)
+  status TEXT NOT NULL DEFAULT 'unknown',       -- active|user_submitted|excluded|...; user_submitted = private to creator/inventory holders until an admin sets 'active' (migration 024); excluded = accessory hidden from discovery, still shown to holders (migration 20261019011858000)
+  -- Product category (migration 20261019011858000_shade-product-category, #349/#347, D23): classifyProductCategory
+  -- in packages/functions/src/lib/product-category.ts. 'admin' categories are never changed by ingestion or the backfill.
+  product_category TEXT NOT NULL DEFAULT 'color'
+    CHECK (product_category IN ('color', 'topper', 'top_coat', 'base_coat', 'treatment', 'accessory')),
+  product_category_source TEXT NOT NULL DEFAULT 'rule' CHECK (product_category_source IN ('rule', 'admin')),
   created_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL, -- creator of a user-API shade; NULL for catalog/ingestion rows (migration 024)
   color_name TEXT,
   vendor_hex TEXT,                               -- hex published by the vendor (e.g. Shopify variant option)
@@ -305,6 +310,24 @@ CREATE INDEX idx_shade_color_family ON shade (color_family);
 -- Shade review queue (admin GET /api/shades-admin/review): unreviewed submissions, oldest first
 CREATE INDEX idx_shade_review_pending ON shade (created_at, shade_id) WHERE status = 'user_submitted' AND review_status IS NULL;
 CREATE INDEX idx_shade_merged_into ON shade (merged_into_shade_id) WHERE merged_into_shade_id IS NOT NULL;
+-- Category filters (dupes, color search, gaps, ?category=)
+CREATE INDEX idx_shade_product_category_status ON shade (product_category, status);
+
+-- Undo log for product-category changes (migration 20261019011858000): one row per category change,
+-- exclusion or cleared topper detected_hex made by the backfill job or an admin, with before/after values.
+CREATE TABLE shade_category_change (
+  shade_category_change_id BIGSERIAL PRIMARY KEY,
+  shade_id BIGINT NOT NULL REFERENCES shade(shade_id) ON DELETE CASCADE,
+  action TEXT NOT NULL CHECK (action IN ('category', 'exclude', 'clear_detected_hex')),
+  before JSONB NOT NULL DEFAULT '{}'::jsonb,
+  after JSONB NOT NULL DEFAULT '{}'::jsonb,
+  source TEXT NOT NULL CHECK (source IN ('backfill', 'admin')),
+  actor_user_id BIGINT,                          -- no FK: history outlives the account
+  backfill_run_id TEXT,                          -- runId of the backfill run that wrote it (in its report)
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_shade_category_change_shade ON shade_category_change (shade_id, created_at DESC);
+CREATE INDEX idx_shade_category_change_run ON shade_category_change (backfill_run_id) WHERE backfill_run_id IS NOT NULL;
 
 CREATE TABLE shade_alias (
   shade_alias_id BIGSERIAL PRIMARY KEY,

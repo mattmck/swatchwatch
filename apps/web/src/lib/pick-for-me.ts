@@ -8,8 +8,9 @@
  *
  * ## Weighting
  *
- * Only `status === "owned"` polishes are candidates (wishlist, destash and archived are never
- * picked). Each candidate's weight is the product of three factors (see `PICK_WEIGHTS`):
+ * Only `status === "owned"` color polishes are candidates (wishlist, destash and archived are never
+ * picked; toppers, coats, treatments and accessories are never the main pick, #349 D-C).
+ * "Pair it" may add an owned topper. Each candidate's weight is the product of three factors (see `PICK_WEIGHTS`):
  *
  * | Factor   | Value |
  * |----------|-------|
@@ -32,7 +33,7 @@
  * returns that polish.
  */
 import type { HueFamily, LightnessBand, ManicurePolishRole, Polish } from "swatchwatch-shared";
-import { resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
+import { resolveDisplayHex, resolvePolishFinishes, resolveProductCategory } from "swatchwatch-shared";
 import { analyzeCollectionGaps, classifyHexToGapCell, colorDistance, hexToOklch } from "./color-utils";
 import { generateHarmonyPalette } from "./color-harmonies";
 import { isOwnedPolish } from "./inventory-status";
@@ -173,12 +174,18 @@ function recencyFactor(daysSinceWorn: number | null, ignoreCooldown = false): nu
   return 1 + ((staleMaxMultiplier - 1) * Math.min(daysSinceWorn, staleFullDays)) / staleFullDays;
 }
 
+/** Owned color polishes: the only main-pick candidates (#349, D-C). */
+function isPickable(polish: Polish): boolean {
+  return isOwnedPolish(polish) && resolveProductCategory(polish.productCategory) === "color";
+}
+
 /**
- * Score every owned polish. Non-owned rows are dropped. Pure: `now` is the reference time.
+ * Score every owned color polish. Non-owned rows and other categories are dropped. Pure: `now`
+ * is the reference time.
  */
 export function scorePickCandidates(polishes: Polish[], now: Date | number): PickCandidate[] {
   const nowMs = typeof now === "number" ? now : now.getTime();
-  const owned = polishes.filter(isOwnedPolish);
+  const owned = polishes.filter(isPickable);
   const hexById = new Map(owned.map((p) => [p.id, displayHex(p)]));
 
   const analysis = analyzeCollectionGaps(
@@ -321,6 +328,8 @@ function finishSet(polish: Polish): Set<string> {
 }
 
 function topperRank(polish: Polish): number {
+  // A topper by category ranks with the `topper` finish (#349).
+  if (resolveProductCategory(polish.productCategory) === "topper") return 0;
   const finishes = finishSet(polish);
   const index = TOPPER_FINISHES.findIndex((f) => finishes.has(f));
   return index < 0 ? Number.POSITIVE_INFINITY : index;
@@ -362,15 +371,21 @@ function nearest(
  *
  * - **complementary** — nearest owned polish to the 180° OKLCH hue rotation of the pick;
  * - **analogous** — nearest owned polish to the ±30° rotations;
- * - **topper** — an owned polish with a topper/flake/glitter finish (`topper` first, then the
- *   least worn), skipped when the pick is itself a topper.
+ * - **topper** — an owned topper (category `topper`, or a topper/flake/glitter finish; `topper`
+ *   first, then the least worn), skipped when the pick is itself a topper.
+ *
+ * Only color polishes and toppers are paired; coats, treatments and accessories never are (#349).
  *
  * Hue harmonies need a non-neutral pick (chroma ≥ `PAIR_NEUTRAL_MAX_CHROMA`) and a match within
  * `PAIR_MAX_DISTANCE` that is closer to the harmony target than to the pick. Order: the closer hue match, then the topper, then the other hue match.
  */
 export function suggestPairings(pick: Polish, polishes: Polish[], max: number = MAX_PAIRINGS): PairSuggestion[] {
   if (max <= 0) return [];
-  const pool = polishes.filter((p) => isOwnedPolish(p) && p.id !== pick.id);
+  const pool = polishes.filter((p) => {
+    if (!isOwnedPolish(p) || p.id === pick.id) return false;
+    const category = resolveProductCategory(p.productCategory);
+    return category === "color" || category === "topper";
+  });
   const toppers = pool.filter((p) => Number.isFinite(topperRank(p)));
   const colorPool = pool.filter((p) => !Number.isFinite(topperRank(p)));
   const hexById = new Map(pool.map((p) => [p.id, displayHex(p)]));
@@ -414,7 +429,8 @@ export function suggestPairings(pick: Polish, polishes: Polish[], max: number = 
     const best = [...toppers].sort(
       (a, b) => topperRank(a) - topperRank(b) || (a.wearCount ?? 0) - (b.wearCount ?? 0) || byName(a, b)
     )[0];
-    const isTopperFinish = finishSet(best).has("topper");
+    const isTopperFinish =
+      resolveProductCategory(best.productCategory) === "topper" || finishSet(best).has("topper");
     topper = {
       polish: best,
       harmony: "topper",

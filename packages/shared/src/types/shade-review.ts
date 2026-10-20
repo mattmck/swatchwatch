@@ -1,4 +1,5 @@
 import type { DisplayHexSource } from "../color/hex-reconciliation";
+import type { ProductCategory } from "../constants/product-categories";
 
 /**
  * Admin review queue for `user_submitted` shades (#45).
@@ -65,6 +66,8 @@ export interface ShadeReviewItem extends ShadeReviewHexes {
   reviewedAt: string | null;
   reviewedByUserId: number | null;
   reviewNote: string | null;
+  /** Product category (#349); set it with `PUT /api/shades-admin/{id}/product-category`. */
+  productCategory?: ProductCategory;
   /** Best fuzzy (pg_trgm) matches among active catalog shades, best first. */
   candidates: ShadeReviewMergeCandidate[];
 }
