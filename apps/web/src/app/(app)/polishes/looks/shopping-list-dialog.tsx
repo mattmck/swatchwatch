@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Check, Copy, Heart, Search } from "lucide-react";
 import { BuyFromBrandLink } from "@/components/buy-from-brand-link";
 import { ColorDot } from "@/components/color-dot";
+import { detailHref } from "@/lib/detail-href";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -22,6 +23,8 @@ function searchHref(hex: string): string {
 
 interface ShoppingListDialogProps {
   look: Look | null;
+  /** `returnTo` for polish detail links (this page with its vibe + seed). */
+  returnTo: string;
   onOpenChange: (open: boolean) => void;
   /** Shade ids already put on the wishlist from this dialog or earlier. */
   wishlisted: ReadonlySet<string>;
@@ -35,7 +38,7 @@ interface ShoppingListDialogProps {
  * "Add missing items": every step of a look the user doesn't own, with the brand's "Buy from
  * brand" link, a one-tap ♡ wishlist (through the add guard, page side) and a copyable text list.
  */
-export function ShoppingListDialog({ look, onOpenChange, wishlisted, isPending, onWishlist, onCopy }: ShoppingListDialogProps) {
+export function ShoppingListDialog({ look, returnTo, onOpenChange, wishlisted, isPending, onWishlist, onCopy }: ShoppingListDialogProps) {
   const items = look ? shoppingItemsForLook(look) : [];
   return (
     <Dialog open={look !== null} onOpenChange={onOpenChange}>
@@ -60,7 +63,7 @@ export function ShoppingListDialog({ look, onOpenChange, wishlisted, isPending, 
                     <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{item.label}</p>
                     {item.polish ? (
                       <>
-                        <Link href={`/polishes/detail?id=${item.polish.id}`} className="block truncate text-sm font-medium hover:underline">
+                        <Link href={detailHref(item.polish.id, returnTo)} className="block truncate text-sm font-medium hover:underline">
                           {item.polish.name}
                         </Link>
                         <p className="truncate text-xs text-muted-foreground">{item.polish.brand}</p>

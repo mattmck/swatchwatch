@@ -31,6 +31,7 @@ import {
   type PickResult,
 } from "@/lib/pick-for-me";
 import { trackEvent } from "@/lib/telemetry";
+import { detailHref } from "@/lib/detail-href";
 
 /** Where the pick UI is shown; sent with every telemetry event. */
 type PickSource = "dashboard" | "polishes";
@@ -140,7 +141,7 @@ export function PickForMePanel({ polishes: initialPolishes, source }: PickForMeP
         <div className="min-w-0 flex-1" aria-live="polite" aria-atomic="true">
           <p className="sr-only">Your pick:</p>
           <Link
-            href={`/polishes/detail?id=${polish.id}`}
+            href={detailHref(polish.id)}
             className="block truncate text-lg font-semibold hover:underline"
           >
             {polish.name}
@@ -173,7 +174,7 @@ export function PickForMePanel({ polishes: initialPolishes, source }: PickForMeP
                   <ColorDot hex={resolveDisplayHex(pairing.polish)} size="md" />
                   <div className="min-w-0 flex-1">
                     <Link
-                      href={`/polishes/detail?id=${pairing.polish.id}`}
+                      href={detailHref(pairing.polish.id)}
                       className="block truncate text-sm font-medium hover:underline"
                     >
                       {pairing.polish.name}

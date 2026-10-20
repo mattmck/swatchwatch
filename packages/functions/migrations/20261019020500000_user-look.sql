@@ -1,6 +1,6 @@
 -- Up Migration
 
--- 20261019013934159_user-look.sql
+-- 20261019020500000_user-look.sql
 -- Saved looks (docs/looks-experience-plan.md §6 Phase 2; docs/schema.sql "Users + inventory").
 --
 -- A look saved from /polishes/looks: which template, the vibe it was generated for, and its

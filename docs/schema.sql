@@ -629,7 +629,7 @@ CREATE TABLE wishlist_share (
   )
 );
 
--- Saved looks (migration 20261019013934159_user-look, docs/looks-experience-plan.md). A look
+-- Saved looks (migration 20261019020500000_user-look, docs/looks-experience-plan.md). A look
 -- saved from /polishes/looks: template, vibe and steps. `steps` is an opaque display snapshot the
 -- client sends (role, label, hex, source, optional shade id/brand/name) returned to its owner
 -- as-is and never joined to shade, so it can't expose another user's private shade. `look_key`

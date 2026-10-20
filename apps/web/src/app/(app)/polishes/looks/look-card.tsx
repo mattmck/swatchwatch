@@ -6,6 +6,7 @@ import { Bookmark, BookmarkCheck, Check, Clock, Info, Link2, Paintbrush, Plus, R
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
 import { BuyFromBrandLink } from "@/components/buy-from-brand-link";
+import { detailHref } from "@/lib/detail-href";
 import { ColorDot } from "@/components/color-dot";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -81,10 +82,12 @@ function searchHrefForHex(hex: string): string {
 
 interface StepRowProps {
   step: LookStep;
+  /** Where the polish detail page's back link returns to (this page with its vibe + seed). */
+  returnTo: string;
   onSwap: (polish: Polish) => void;
 }
 
-function StepRow({ step, onSwap }: StepRowProps) {
+function StepRow({ step, returnTo, onSwap }: StepRowProps) {
   const [swapOpen, setSwapOpen] = useState(false);
   const polish = step.polish;
 
@@ -96,7 +99,7 @@ function StepRow({ step, onSwap }: StepRowProps) {
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{step.label}</p>
           {polish ? (
             <>
-              <Link href={`/polishes/detail?id=${polish.id}`} className="block truncate text-sm font-medium hover:underline">
+              <Link href={detailHref(polish.id, returnTo)} className="block truncate text-sm font-medium hover:underline">
                 {polish.name}
               </Link>
               <p className="truncate text-xs text-muted-foreground">{polish.brand}</p>
@@ -160,6 +163,8 @@ function StepRow({ step, onSwap }: StepRowProps) {
 
 interface LookCardProps {
   look: Look;
+  /** `returnTo` for polish detail links, so Back returns to the same vibe and seed. */
+  returnTo: string;
   saved: boolean;
   onWear: () => void;
   onSave: () => void;
@@ -175,7 +180,7 @@ interface LookCardProps {
 }
 
 /** One look: swatch strip, steps with ownership pills and Swap, difficulty/time, Wear this and Save. */
-export function LookCard({ look, saved, onWear, onSave, onSwap, onShop, onDetails, onShare, backdrop }: LookCardProps) {
+export function LookCard({ look, returnTo, saved, onWear, onSave, onSwap, onShop, onDetails, onShare, backdrop }: LookCardProps) {
   const canWear = look.ownedSteps > 0;
   return (
     <Card className="flex flex-col gap-4">
@@ -193,7 +198,7 @@ export function LookCard({ look, saved, onWear, onSave, onSwap, onShop, onDetail
         <LookSwatchStrip steps={look.steps} backdrop={backdrop} />
         <ul className="divide-y divide-border">
           {look.steps.map((step) => (
-            <StepRow key={step.role} step={step} onSwap={(polish) => onSwap(step.role, polish)} />
+            <StepRow key={step.role} step={step} returnTo={returnTo} onSwap={(polish) => onSwap(step.role, polish)} />
           ))}
         </ul>
         {look.missingSteps > 0 && (
