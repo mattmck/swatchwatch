@@ -14,6 +14,7 @@ import {
   CaptureStartResponse,
   CaptureStatus,
   CaptureStatusResponse,
+  resolveDisplayHex,
 } from "swatchwatch-shared";
 import { query, transaction } from "../lib/db";
 import { withAuth } from "../lib/auth";
@@ -25,6 +26,7 @@ import { invalidatePolishCachesForUser } from "../lib/polish-cache";
 import { extractTextFromImage, OcrResult } from "../lib/ocr";
 import { parseLabelText, ParsedLabelFields } from "../lib/ocr-parser";
 import { loadInventoryOwnership } from "../lib/inventory-relationship";
+import { gtinLookupKeys, gtinSpellings, normalizeGtin, rememberUserShadeBarcode } from "../lib/barcodes";
 
 const GUIDANCE_CONFIG = {
   recommendedFrameTypes: ["barcode", "label", "color"],
@@ -64,6 +66,8 @@ interface CaptureFrameEvidenceRow {
 
 interface CaptureEvidence {
   gtin?: string;
+  /** Decoder format of `gtin` (`ean_13`, `upc_e`, …) when the client reported one. */
+  gtinFormat?: string;
   brand?: string;
   shadeName?: string;
   finish?: string;
@@ -71,6 +75,7 @@ interface CaptureEvidence {
 
 interface FrameExtraction {
   gtin?: string;
+  gtinFormat?: string;
   brand?: string;
   shadeName?: string;
   finish?: string;
@@ -95,8 +100,12 @@ interface CaptureQuestionSpec {
   options?: string[];
 }
 
+/** How a barcode match was found: catalog `barcode` row, the caller's learned barcode, or a connector product's GTIN. */
+type BarcodeMatchVia = "catalog" | "user" | "external_product";
+
 // `candidates` is what the resolver considered, ranked; finalize ignores it, check reports it.
-type ResolverOutcome =
+// `barcodeVia` is set when the scanned GTIN matched; `evidence` is what the resolver matched on.
+type ResolverDecision = (
   | {
       status: "matched";
       confidence: number;
@@ -117,7 +126,10 @@ type ResolverOutcome =
       confidence: number;
       candidates: CaptureMatchCandidate[];
       metadataPatch: Record<string, unknown>;
-    };
+    }
+) & { barcodeVia?: BarcodeMatchVia };
+
+type ResolverOutcome = ResolverDecision & { evidence: CaptureEvidence };
 
 const REMOTE_IMAGE_URL_ERROR =
   "imageBlobUrl must be a base64 data URL or an https URL on the configured storage account";
@@ -435,6 +447,7 @@ function extractFrameEvidence(quality: Record<string, unknown> | null): FrameExt
   const extracted = toRecord(quality.extracted);
   const extractedEvidence = {
     gtin: getStringField(extracted, "gtin", "upc", "ean"),
+    gtinFormat: getStringField(extracted, "gtinFormat", "barcodeFormat"),
     brand: getStringField(extracted, "brand"),
     shadeName: getStringField(extracted, "shadeName", "name"),
     finish: getStringField(extracted, "finish"),
@@ -453,6 +466,7 @@ function extractFrameEvidence(quality: Record<string, unknown> | null): FrameExt
 
   const legacyEvidence = {
     gtin: getStringField(quality, "gtin", "upc", "ean"),
+    gtinFormat: getStringField(quality, "barcodeFormat", "gtinFormat"),
     brand: getStringField(quality, "brand"),
     shadeName: getStringField(quality, "shadeName", "name"),
     finish: getStringField(quality, "finish"),
@@ -659,6 +673,7 @@ function collectCaptureEvidence(
 
   const evidence: CaptureEvidence = {
     gtin: getStringField(metadata, "gtin"),
+    gtinFormat: getStringField(metadata, "barcodeFormat", "gtinFormat"),
     brand: brandFromAnswers || getStringField(metadata, "brand"),
     shadeName: shadeFromAnswers || getStringField(metadata, "shadeName", "name"),
     finish: finishFromAnswers || getStringField(metadata, "finish"),
@@ -672,8 +687,9 @@ function collectCaptureEvidence(
       continue;
     }
 
-    if (!evidence.gtin) {
+    if (!evidence.gtin && extracted.gtin) {
       evidence.gtin = extracted.gtin;
+      evidence.gtinFormat = extracted.gtinFormat;
     }
     if (!evidence.brand) {
       evidence.brand = extracted.brand;
@@ -763,8 +779,33 @@ function normalizeAnswerForQuestion(questionKey: string, answer: unknown): unkno
   return answer;
 }
 
-async function resolveByBarcode(gtin: string): Promise<CaptureMatchCandidate | null> {
-  const result = await query<{
+/**
+ * Barcode lookup for the capture resolver (#21, #325), first hit wins:
+ * 1. catalog `barcode` rows (written by ingestion and the admin backfill) by canonical key, so a
+ *    UPC-A scan finds the EAN-13 form a vendor published; the raw string is also tried for rows
+ *    stored before normalization. Shades the caller cannot see are skipped.
+ * 2. the caller's own learned barcodes (`user_shade_barcode`, scoped by user_id), following an
+ *    admin merge to the surviving shade.
+ * 3. fallback until the backfill has run everywhere: connector products whose raw GTIN equals
+ *    any spelling of the code, through `shade_source_product`, active shades only. Only a GTIN
+ *    that leads to exactly one shade matches; several shades fall through to label matching.
+ * Every hit is exact, so confidence is 1 (as before).
+ */
+async function resolveByBarcode(
+  gtin: string,
+  format: string | undefined,
+  userId: number
+): Promise<{ candidate: CaptureMatchCandidate; via: BarcodeMatchVia } | null> {
+  const keys = gtinLookupKeys(gtin, format);
+  const scanned = normalizeGtin(gtin, format);
+  if (scanned && !scanned.checkDigitValid) {
+    // Looked up anyway: the bottle may still be known under its (mis)printed code.
+    trackEvent("capture.barcode_bad_check_digit", { gtin: scanned.gtin, source: "resolver" });
+  }
+  const raw = gtin.trim();
+  const catalogKeys = Array.from(new Set([...keys, raw])).filter(Boolean);
+
+  const catalog = await query<{
     skuId: string;
     shadeId: string | null;
     brand: string | null;
@@ -781,27 +822,124 @@ async function resolveByBarcode(gtin: string): Promise<CaptureMatchCandidate | n
      JOIN sku s ON bc.sku_id = s.sku_id
      LEFT JOIN brand b ON s.brand_id = b.brand_id
      LEFT JOIN shade sh ON s.shade_id = sh.shade_id
-     WHERE bc.gtin = $1
+     WHERE bc.gtin = ANY($1::text[])
+       AND (
+         sh.shade_id IS NULL
+         OR (sh.merged_into_shade_id IS NULL AND (sh.status <> 'user_submitted' OR sh.created_by_user_id = $2))
+       )
+     ORDER BY array_position($1::text[], bc.gtin)
      LIMIT 1`,
-    [gtin]
+    [catalogKeys, userId]
   );
-
-  if (result.rows.length === 0) {
-    return null;
+  const row = catalog.rows[0];
+  if (row) {
+    const display = [row.brand, row.productName || row.shadeName || `SKU ${row.skuId}`]
+      .filter(Boolean)
+      .join(" — ");
+    return {
+      via: "catalog",
+      candidate: {
+        entityType: "sku",
+        entityId: parseInt(row.skuId, 10),
+        shadeId: row.shadeId ? parseInt(row.shadeId, 10) : null,
+        display,
+        confidence: 1,
+      },
+    };
   }
 
-  const row = result.rows[0];
-  const display = [row.brand, row.productName || row.shadeName || `SKU ${row.skuId}`]
-    .filter(Boolean)
-    .join(" — ");
+  if (keys.length === 0) return null;
 
+  const learned = await query<{ shadeId: string; brand: string; shadeName: string }>(
+    `SELECT sh.shade_id::text AS "shadeId", b.name_canonical AS brand, sh.shade_name_canonical AS "shadeName"
+     FROM user_shade_barcode ub
+     JOIN shade src ON src.shade_id = ub.shade_id
+     JOIN shade sh ON sh.shade_id = COALESCE(src.merged_into_shade_id, src.shade_id)
+     JOIN brand b ON b.brand_id = sh.brand_id
+     WHERE ub.gtin = ANY($1::text[])
+       AND ub.user_id = $2
+       AND (
+         sh.status <> 'user_submitted'
+         OR sh.created_by_user_id = $2
+         OR EXISTS (SELECT 1 FROM user_inventory_item ui WHERE ui.shade_id = sh.shade_id AND ui.user_id = $2)
+       )
+     ORDER BY ub.updated_at DESC
+     LIMIT 1`,
+    [keys, userId]
+  );
+  const learnedRow = learned.rows[0];
+  if (learnedRow) {
+    const shadeId = parseInt(learnedRow.shadeId, 10);
+    return {
+      via: "user",
+      candidate: {
+        entityType: "shade",
+        entityId: shadeId,
+        shadeId,
+        display: `${learnedRow.brand} — ${learnedRow.shadeName}`,
+        confidence: 1,
+      },
+    };
+  }
+
+  const spellings = Array.from(new Set(keys.flatMap((key) => gtinSpellings(key))));
+  const products = await query<{ shadeId: string; brand: string; shadeName: string }>(
+    `SELECT DISTINCT sh.shade_id::text AS "shadeId", b.name_canonical AS brand, sh.shade_name_canonical AS "shadeName"
+     FROM external_product ep
+     JOIN shade_source_product ssp ON ssp.external_product_id = ep.external_product_id
+     JOIN shade sh ON sh.shade_id = ssp.shade_id
+     JOIN brand b ON b.brand_id = sh.brand_id
+     WHERE ep.gtin IS NOT NULL
+       AND regexp_replace(ep.gtin, '[[:space:]-]', '', 'g') = ANY($1::text[])
+       AND sh.status = 'active'
+       AND sh.merged_into_shade_id IS NULL
+     LIMIT 2`,
+    [spellings]
+  );
+  if (products.rows.length !== 1) return null;
+  const product = products.rows[0];
+  const shadeId = parseInt(product.shadeId, 10);
   return {
-    entityType: "sku",
-    entityId: parseInt(row.skuId, 10),
-    shadeId: row.shadeId ? parseInt(row.shadeId, 10) : null,
-    display,
-    confidence: 1,
+    via: "external_product",
+    candidate: {
+      entityType: "shade",
+      entityId: shadeId,
+      shadeId,
+      display: `${product.brand} — ${product.shadeName}`,
+      confidence: 1,
+    },
   };
+}
+
+/**
+ * Teach the caller's next scan (#21): when a session that scanned a valid GTIN ends up matched
+ * by something other than that barcode (label photo, picked candidate, typed name), remember the
+ * GTIN on the matched shade in `user_shade_barcode`, private to the caller. Never touches the
+ * shared catalog. Runs inside the caller's transaction.
+ */
+async function rememberScannedBarcode(
+  client: PoolClient,
+  userId: number,
+  sessionId: number,
+  evidence: CaptureEvidence,
+  entityType: "shade" | "sku",
+  entityId: number,
+  barcodeVia: BarcodeMatchVia | undefined
+): Promise<void> {
+  if (barcodeVia || !evidence.gtin) return;
+  const normalized = normalizeGtin(evidence.gtin, evidence.gtinFormat);
+  if (!normalized) return;
+  let shadeId: number | null = entityType === "shade" ? entityId : null;
+  if (entityType === "sku") {
+    const sku = await client.query<{ shadeId: number | string | null }>(
+      `SELECT shade_id AS "shadeId" FROM sku WHERE sku_id = $1`,
+      [entityId]
+    );
+    const found = sku.rows[0]?.shadeId;
+    shadeId = found === undefined || found === null ? null : Number(found);
+  }
+  if (shadeId === null || !Number.isSafeInteger(shadeId)) return;
+  await rememberUserShadeBarcode(client, { userId, shadeId, gtin: normalized, captureSessionId: sessionId });
 }
 
 async function resolveShadeCandidates(evidence: CaptureEvidence): Promise<CaptureMatchCandidate[]> {
@@ -879,6 +1017,14 @@ async function resolveShadeCandidates(evidence: CaptureEvidence): Promise<Captur
   }));
 }
 
+/**
+ * `capture_question.options_json` parameter. node-pg sends a JS array as a Postgres array
+ * literal (`{"a","b"}`), which `::jsonb` rejects, so serialize it as JSON text.
+ */
+function serializeQuestionOptions(options: string[] | undefined): string | null {
+  return options ? JSON.stringify(options) : null;
+}
+
 function buildNeedsFrameQuestion(): CaptureQuestionSpec {
   return {
     key: "capture_frame",
@@ -909,13 +1055,22 @@ function buildCandidateQuestion(candidates: CaptureMatchCandidate[]): CaptureQue
   };
 }
 
-async function resolveCaptureSession(session: CaptureSessionRow): Promise<ResolverOutcome> {
+async function resolveCaptureSession(session: CaptureSessionRow, userId: number): Promise<ResolverOutcome> {
   const frames = await getCaptureFrameEvidence(session.id);
   const evidence = collectCaptureEvidence(session.metadata, frames);
+  const outcome = await resolveFromEvidence(evidence, frames.length, userId);
+  return { ...outcome, evidence };
+}
+
+async function resolveFromEvidence(
+  evidence: CaptureEvidence,
+  frameCount: number,
+  userId: number
+): Promise<ResolverDecision> {
   const hasTextEvidence = Boolean(evidence.gtin || evidence.shadeName || evidence.brand);
   const resolverAudit = {
     version: "deterministic-v1",
-    frameCount: frames.length,
+    frameCount,
     hasTextEvidence,
     evidence: {
       gtin: evidence.gtin ?? null,
@@ -925,7 +1080,7 @@ async function resolveCaptureSession(session: CaptureSessionRow): Promise<Resolv
     },
   };
 
-  if (frames.length === 0 && !hasTextEvidence) {
+  if (frameCount === 0 && !hasTextEvidence) {
     return {
       status: "needs_question",
       confidence: 0,
@@ -936,10 +1091,12 @@ async function resolveCaptureSession(session: CaptureSessionRow): Promise<Resolv
   }
 
   if (evidence.gtin) {
-    const barcodeMatch = await resolveByBarcode(evidence.gtin);
-    if (barcodeMatch) {
+    const barcodeHit = await resolveByBarcode(evidence.gtin, evidence.gtinFormat, userId);
+    if (barcodeHit) {
+      const barcodeMatch = barcodeHit.candidate;
       return {
         status: "matched",
+        barcodeVia: barcodeHit.via,
         confidence: barcodeMatch.confidence,
         entityType: barcodeMatch.entityType,
         entityId: barcodeMatch.entityId,
@@ -947,6 +1104,7 @@ async function resolveCaptureSession(session: CaptureSessionRow): Promise<Resolv
         metadataPatch: {
           resolver: {
             step: "matched_by_barcode",
+            via: barcodeHit.via,
             gtin: evidence.gtin,
             display: barcodeMatch.display,
             audit: resolverAudit,
@@ -1294,6 +1452,14 @@ async function addCaptureFrame(
       body.imageId = requestedImageId;
     }
 
+    // A barcode the client already decoded on-device (BarcodeDetector / zxing) is trusted
+    // evidence when it is a valid GTIN: no OCR, and the verdict goes back in this response.
+    const frameQuality = toRecord(body.quality);
+    const scannedBarcode =
+      body.frameType === "barcode" ? normalizeGtin(frameQuality.gtin, frameQuality.barcodeFormat) : null;
+    // A wrong check digit is evidence worth looking up but not worth skipping OCR for.
+    const decodedBarcode = scannedBarcode?.checkDigitValid ? scannedBarcode : null;
+
     // Pre-transaction: normalize image and run AI extraction pipeline
     let normalizedImage: PreparedImageInput | null = null;
     let preQualityJson: Record<string, unknown> | null = body.quality ?? null;
@@ -1312,7 +1478,7 @@ async function addCaptureFrame(
     // allowlisted storage-account URLs.
     const imageInputForAi = normalizedImage ? normalizedImage.sanitizedImageInput : null;
     let aiExtraction: FrameAiExtractionResult | null = null;
-    if (imageInputForAi) {
+    if (imageInputForAi && !decodedBarcode) {
       const existingEvidence = collectCaptureEvidence(
         session.metadata,
         await getCaptureFrameEvidence(session.id)
@@ -1393,11 +1559,26 @@ async function addCaptureFrame(
       return frameResult.rows[0];
     });
 
+    let check: CaptureCheckResponse | undefined;
+    if (decodedBarcode) {
+      try {
+        const refreshed = await getCaptureSession(captureId, userId);
+        if (refreshed && refreshed.status !== "cancelled") {
+          check = await computeCaptureCheck(refreshed, userId);
+          trackCaptureChecked(check, "barcode_frame");
+        }
+      } catch (error) {
+        // The frame is saved; the client can still call /check or /finalize.
+        context.warn(`capture frame check failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
     const response: CaptureFrameResponse = {
       received: true,
       captureId: session.captureId,
       frameId: result.frameId,
       status: session.status,
+      ...(check ? { check } : {}),
     };
 
     return { status: 201, jsonBody: response };
@@ -1441,7 +1622,7 @@ async function finalizeCapture(
     }
     const finalizeStartedAt = new Date().toISOString();
     const finalizeRunId = randomUUID();
-    const outcome = await resolveCaptureSession(session);
+    const outcome = await resolveCaptureSession(session, userId);
     const metadataPatch = withFinalizeAuditPatch(
       session.metadata,
       outcome.metadataPatch,
@@ -1464,6 +1645,15 @@ async function finalizeCapture(
           outcome.entityType,
           outcome.entityId
         );
+        await rememberScannedBarcode(
+          client,
+          userId,
+          session.id,
+          outcome.evidence,
+          outcome.entityType,
+          outcome.entityId,
+          outcome.barcodeVia
+        );
 
         await client.query(
           `UPDATE capture_question
@@ -1481,7 +1671,7 @@ async function finalizeCapture(
                accepted_entity_id = $4,
                metadata = COALESCE(metadata, '{}'::jsonb)
                  || $5::jsonb
-                 || jsonb_build_object('inventoryItemId', $6),
+                 || jsonb_build_object('inventoryItemId', $6::bigint),
                updated_at = now()
            WHERE capture_session_id = $1`,
           [
@@ -1543,7 +1733,7 @@ async function finalizeCapture(
             outcome.question.key,
             outcome.question.prompt,
             outcome.question.type,
-            outcome.question.options ?? null,
+            serializeQuestionOptions(outcome.question.options),
           ]
         );
 
@@ -1651,6 +1841,112 @@ function sameEntity(a: CaptureMatchCandidate, b: CaptureMatchCandidate): boolean
   return a.entityType === b.entityType && a.entityId === b.entityId;
 }
 
+/** Display hex (vendor > detected > name) per shade id, for the verdict swatch. */
+async function loadDisplayHexes(shadeIds: Array<number | null>): Promise<Map<string, string>> {
+  const ids = Array.from(new Set(shadeIds.filter((id): id is number => id !== null)));
+  const hexes = new Map<string, string>();
+  if (ids.length === 0) return hexes;
+  const result = await query<{
+    shadeId: string;
+    vendorHex: string | null;
+    detectedHex: string | null;
+    nameHex: string | null;
+  }>(
+    `SELECT shade_id::text AS "shadeId", vendor_hex AS "vendorHex", detected_hex AS "detectedHex", name_hex AS "nameHex"
+     FROM shade
+     WHERE shade_id = ANY($1::bigint[])`,
+    [ids]
+  );
+  for (const row of result.rows) {
+    const hex = resolveDisplayHex({
+      vendorHex: row.vendorHex ?? undefined,
+      detectedHex: row.detectedHex ?? undefined,
+      nameHex: row.nameHex ?? undefined,
+    });
+    if (hex) hexes.set(row.shadeId, hex);
+  }
+  return hexes;
+}
+
+/**
+ * The read-only check verdict for a session (shared by POST /check and the decoded-barcode
+ * frame response): resolver outcome plus the caller's relationship to each candidate.
+ */
+async function computeCaptureCheck(session: CaptureSessionRow, userId: number): Promise<CaptureCheckResponse> {
+  let outcome: CaptureCheckResponse["outcome"];
+  let confidence: number;
+  let match: CaptureMatchCandidate | null = null;
+  let candidates: CaptureMatchCandidate[];
+  let questionKey: string | undefined;
+
+  const acceptedEntityId = session.acceptedEntityId ? parseInt(session.acceptedEntityId, 10) : NaN;
+  if (session.status === "matched" && session.acceptedEntityType && Number.isInteger(acceptedEntityId)) {
+    // Already finalized/answered: report the accepted entity, don't second-guess it.
+    const accepted = await describeCaptureEntity(session.acceptedEntityType, acceptedEntityId);
+    match = { ...accepted, confidence: parseNumeric(session.topConfidence) ?? accepted.confidence };
+    outcome = "matched";
+    confidence = match.confidence;
+    candidates = [match];
+  } else {
+    const resolved = await resolveCaptureSession(session, userId);
+    outcome = resolved.status;
+    confidence = resolved.confidence;
+    candidates = resolved.candidates;
+    if (resolved.status === "matched") {
+      const { entityType, entityId } = resolved;
+      const found = candidates.find((c) => c.entityType === entityType && c.entityId === entityId);
+      match = found ?? (await describeCaptureEntity(entityType, entityId));
+      if (!found) {
+        candidates = [match, ...candidates];
+      }
+    } else if (resolved.status === "needs_question") {
+      questionKey = resolved.question.key;
+    }
+  }
+
+  const ownerships = await loadInventoryOwnership(
+    userId,
+    candidates.map((c) => ({
+      shadeId: c.shadeId === null ? null : String(c.shadeId),
+      skuId: c.entityType === "sku" ? String(c.entityId) : null,
+    }))
+  );
+  const hexes = await loadDisplayHexes(candidates.map((c) => c.shadeId));
+  const checkCandidates: CaptureCheckCandidate[] = candidates.map((c, i) => ({
+    entityType: c.entityType,
+    entityId: String(c.entityId),
+    shadeId: c.shadeId === null ? null : String(c.shadeId),
+    display: c.display,
+    confidence: c.confidence,
+    ownership: ownerships[i],
+    ...(c.shadeId !== null && hexes.has(String(c.shadeId)) ? { hex: hexes.get(String(c.shadeId)) } : {}),
+  }));
+  const matched = match;
+  const matchIndex = matched ? candidates.findIndex((c) => sameEntity(c, matched)) : -1;
+
+  const response: CaptureCheckResponse = {
+    captureId: session.captureId,
+    status: session.status,
+    outcome,
+    confidence,
+    match: matchIndex >= 0 ? checkCandidates[matchIndex] : undefined,
+    candidates: checkCandidates,
+    questionKey,
+  };
+  return response;
+}
+
+function trackCaptureChecked(response: CaptureCheckResponse, trigger: "check" | "barcode_frame"): void {
+  trackEvent("capture.checked", {
+    captureId: response.captureId,
+    outcome: response.outcome,
+    confidence: response.confidence,
+    relationship: response.match?.ownership.relationship ?? "none",
+    candidateCount: response.candidates.length,
+    trigger,
+  });
+}
+
 /**
  * POST /api/capture/{captureId}/check — "do I own this?" without buying it.
  *
@@ -1684,72 +1980,9 @@ async function checkCapture(
       return { status: 409, jsonBody: { error: "Cannot check a cancelled session" } };
     }
 
-    let outcome: CaptureCheckResponse["outcome"];
-    let confidence: number;
-    let match: CaptureMatchCandidate | null = null;
-    let candidates: CaptureMatchCandidate[];
-    let questionKey: string | undefined;
+    const response = await computeCaptureCheck(session, userId);
 
-    const acceptedEntityId = session.acceptedEntityId ? parseInt(session.acceptedEntityId, 10) : NaN;
-    if (session.status === "matched" && session.acceptedEntityType && Number.isInteger(acceptedEntityId)) {
-      // Already finalized/answered: report the accepted entity, don't second-guess it.
-      const accepted = await describeCaptureEntity(session.acceptedEntityType, acceptedEntityId);
-      match = { ...accepted, confidence: parseNumeric(session.topConfidence) ?? accepted.confidence };
-      outcome = "matched";
-      confidence = match.confidence;
-      candidates = [match];
-    } else {
-      const resolved = await resolveCaptureSession(session);
-      outcome = resolved.status;
-      confidence = resolved.confidence;
-      candidates = resolved.candidates;
-      if (resolved.status === "matched") {
-        const { entityType, entityId } = resolved;
-        const found = candidates.find((c) => c.entityType === entityType && c.entityId === entityId);
-        match = found ?? (await describeCaptureEntity(entityType, entityId));
-        if (!found) {
-          candidates = [match, ...candidates];
-        }
-      } else if (resolved.status === "needs_question") {
-        questionKey = resolved.question.key;
-      }
-    }
-
-    const ownerships = await loadInventoryOwnership(
-      userId,
-      candidates.map((c) => ({
-        shadeId: c.shadeId === null ? null : String(c.shadeId),
-        skuId: c.entityType === "sku" ? String(c.entityId) : null,
-      }))
-    );
-    const checkCandidates: CaptureCheckCandidate[] = candidates.map((c, i) => ({
-      entityType: c.entityType,
-      entityId: String(c.entityId),
-      shadeId: c.shadeId === null ? null : String(c.shadeId),
-      display: c.display,
-      confidence: c.confidence,
-      ownership: ownerships[i],
-    }));
-    const matched = match;
-    const matchIndex = matched ? candidates.findIndex((c) => sameEntity(c, matched)) : -1;
-
-    const response: CaptureCheckResponse = {
-      captureId: session.captureId,
-      status: session.status,
-      outcome,
-      confidence,
-      match: matchIndex >= 0 ? checkCandidates[matchIndex] : undefined,
-      candidates: checkCandidates,
-      questionKey,
-    };
-
-    trackEvent("capture.checked", {
-      captureId: session.captureId,
-      outcome,
-      confidence,
-      relationship: response.match?.ownership.relationship ?? "none",
-      candidateCount: checkCandidates.length,
-    });
+    trackCaptureChecked(response, "check");
 
     return { status: 200, jsonBody: response };
   } catch (error: any) {
@@ -1864,6 +2097,11 @@ async function answerCaptureQuestion(
     const answerJson = JSON.stringify(normalizedAnswer);
 
     let updatedStatus: CaptureStatus = "processing";
+    // A picked candidate can teach the scanned GTIN (#21); read the evidence before writing.
+    const answerEvidence =
+      openQuestion.key === "candidate_select"
+        ? collectCaptureEvidence(session.metadata, await getCaptureFrameEvidence(session.id))
+        : null;
 
     await transaction(async (client) => {
       await client.query(
@@ -1892,6 +2130,9 @@ async function answerCaptureQuestion(
           "shade",
           selectedShadeId
         );
+        if (answerEvidence) {
+          await rememberScannedBarcode(client, userId, session.id, answerEvidence, "shade", selectedShadeId, undefined);
+        }
 
         await client.query(
           `UPDATE capture_session
@@ -1905,7 +2146,7 @@ async function answerCaptureQuestion(
                       COALESCE(metadata->'answers', '{}'::jsonb)
                         || jsonb_build_object($3::text, $4::jsonb)
                     )
-                 || jsonb_build_object('inventoryItemId', $5),
+                 || jsonb_build_object('inventoryItemId', $5::bigint),
                updated_at = now()
            WHERE capture_session_id = $1`,
           [session.id, selectedShadeId, openQuestion.key, answerJson, inventoryItemId]
@@ -1946,7 +2187,7 @@ async function answerCaptureQuestion(
       if (refreshedSession && refreshedSession.status === "processing") {
         const reResolveRunId = randomUUID();
         const reResolveStartedAt = new Date().toISOString();
-        const outcome = await resolveCaptureSession(refreshedSession);
+        const outcome = await resolveCaptureSession(refreshedSession, userId);
         const metadataPatch = withFinalizeAuditPatch(
           refreshedSession.metadata,
           outcome.metadataPatch,
@@ -1972,6 +2213,15 @@ async function answerCaptureQuestion(
               outcome.entityType,
               outcome.entityId
             );
+            await rememberScannedBarcode(
+              client,
+              userId,
+              refreshedSession.id,
+              outcome.evidence,
+              outcome.entityType,
+              outcome.entityId,
+              outcome.barcodeVia
+            );
             await client.query(
               `UPDATE capture_question SET status = 'expired' WHERE capture_session_id = $1 AND status = 'open'`,
               [refreshedSession.id]
@@ -1982,7 +2232,7 @@ async function answerCaptureQuestion(
                    top_confidence = $2,
                    accepted_entity_type = $3,
                    accepted_entity_id = $4,
-                   metadata = COALESCE(metadata, '{}'::jsonb) || $5::jsonb || jsonb_build_object('inventoryItemId', $6),
+                   metadata = COALESCE(metadata, '{}'::jsonb) || $5::jsonb || jsonb_build_object('inventoryItemId', $6::bigint),
                    updated_at = now()
                WHERE capture_session_id = $1`,
               [refreshedSession.id, outcome.confidence, outcome.entityType, outcome.entityId, metadataPatch, inventoryItemId]
@@ -2006,7 +2256,7 @@ async function answerCaptureQuestion(
             await client.query(
               `INSERT INTO capture_question (capture_session_id, question_key, prompt, question_type, options_json, status)
                VALUES ($1, $2, $3, $4, $5::jsonb, 'open')`,
-              [refreshedSession.id, outcome.question.key, outcome.question.prompt, outcome.question.type, outcome.question.options ?? null]
+              [refreshedSession.id, outcome.question.key, outcome.question.prompt, outcome.question.type, serializeQuestionOptions(outcome.question.options)]
             );
           });
         } else {

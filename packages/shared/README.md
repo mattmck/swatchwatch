@@ -23,7 +23,7 @@ The package is automatically linked via npm workspaces — no publishing require
 | `FinishName` | `PolishFinish \| (string & {})` — any finish name on API-facing fields (`Polish.finishes`, request `finish`/`finishes`); admits runtime names from admin-managed `finish_type` rows while keeping autocomplete for built-ins |
 | `resolvePolishFinishes(polish)` | Finishes to display: `finishes` when non-empty, else `[finish]` (backward compatible) |
 | `polishHasFinish(polish, finish)` | Case-insensitive membership check over `resolvePolishFinishes` |
-| `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps); accepts `finishes` (replace) and legacy `finish`, plus inventory `status`, `triedAt`, `purchasePrice`, `purchaseCurrency` (`null` clears the last three) |
+| `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps); accepts `finishes` (replace) and legacy `finish`, plus inventory `status`, `triedAt`, `purchasePrice`, `purchaseCurrency` (`null` clears the last three), and create-only `barcode` / `barcodeFormat` (a Rapid Add scan remembered on the shade for the caller, #21) |
 | `PolishUpdateRequest` | Partial create fields + required `id` |
 | `PolishListResponse` | Paginated list: `{ polishes, total, page, pageSize }` |
 | `PolishFilters` | Query params: brand/finish/finishes/color/tags/search plus scope/availability/tone, `status` (`PolishStatus[]`), `untried`, `families` (`?family=`, any-of color families), sort, and pagination |
@@ -326,14 +326,14 @@ Shareable wishlist (#268), behind the server flag `SHAREABLE_WISHLIST_ENABLED` (
 | `CaptureGuidanceConfig` | Capture guidance contract returned by `/api/capture/start` |
 | `CaptureQuestion` | Open question payload used by status/finalize/answer responses |
 | `CaptureStartRequest` / `CaptureStartResponse` | Start capture session payloads |
-| `CaptureFrameRequest` / `CaptureFrameResponse` | Add frame payloads (`imageId` or `imageBlobUrl`) |
+| `CaptureFrameRequest` / `CaptureFrameResponse` | Add frame payloads (`imageId` or `imageBlobUrl`); the response's optional `check` is the read-only verdict for a `barcode` frame with a valid on-device decoded `quality.gtin` (#21) |
 | `CaptureFinalizeResponse` | Finalize response with session status and optional question |
 | `CaptureStatusResponse` | Session status payload with confidence/accepted entity/question |
 | `CaptureAnswerRequest` / `CaptureAnswerResponse` | Answer question payloads for adaptive loop |
 | `CaptureOwnershipRelationship` | Caller's relationship to a matched shade: `owned \| wishlisted \| notOwned` |
 | `CaptureOwnership` | `{ relationship, quantity? }` (`quantity` = total owned, only when `owned`) |
 | `CaptureCheckOutcome` | Resolver outcome reported by check: `matched \| needs_question \| unmatched` |
-| `CaptureCheckCandidate` | Match/candidate with `entityType`, `entityId`, `shadeId`, `display`, `confidence`, `ownership` |
+| `CaptureCheckCandidate` | Match/candidate with `entityType`, `entityId`, `shadeId`, `display`, `confidence`, `ownership`, optional display `hex` (swatch) |
 | `CaptureCheckResponse` | `POST /api/capture/{captureId}/check` payload: outcome, confidence, `match?`, `candidates`, `questionKey?`, unchanged session `status` (read-only, never touches inventory) |
 
 ### `types/palette.ts`

@@ -7,6 +7,7 @@ import type {
   ConnectorProtocol,
   CaptureAnswerRequest,
   CaptureAnswerResponse,
+  CaptureCheckResponse,
   CaptureFinalizeResponse,
   CaptureFrameRequest,
   CaptureFrameResponse,
@@ -754,6 +755,18 @@ export async function finalizeCapture(captureId: string): Promise<CaptureFinaliz
     headers: await getAuthHeaders(),
   });
   return handleResponse<CaptureFinalizeResponse>(response);
+}
+
+/**
+ * Read-only "do I own this?" for a capture session: the resolver's match plus the caller's
+ * relationship to it. Adds nothing to the collection (finalize does).
+ */
+export async function checkCapture(captureId: string): Promise<CaptureCheckResponse> {
+  const response = await fetch(`${API_BASE_URL}/capture/${captureId}/check`, {
+    method: "POST",
+    headers: await getAuthHeaders(),
+  });
+  return handleResponse<CaptureCheckResponse>(response);
 }
 
 export async function getCaptureStatus(captureId: string): Promise<CaptureStatusResponse> {
