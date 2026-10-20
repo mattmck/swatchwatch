@@ -128,15 +128,15 @@ function AppShellLayout({
       </aside>
 
       {/* Mobile header + page content */}
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 items-center gap-4 border-b border-border bg-background px-4 md:px-6">
-          <div className="flex items-center gap-2 md:hidden">
+          <div className="flex shrink-0 items-center gap-2 md:hidden">
             <Link href="/dashboard">
               <SwatchWatchWordmark iconSize={22} textClassName="text-sm" />
             </Link>
           </div>
           <nav
-            className="flex flex-1 items-center gap-1 overflow-x-auto md:hidden"
+            className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto md:hidden"
             aria-label="Mobile navigation"
           >
             {navItems.map((item) => (
@@ -144,6 +144,7 @@ function AppShellLayout({
                 key={item.href}
                 variant={isActive(item.href) ? "secondary" : "ghost"}
                 size="sm"
+                className="shrink-0"
                 asChild
               >
                 <Link
