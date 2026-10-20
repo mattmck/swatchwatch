@@ -28,6 +28,9 @@
 --                base_coat  base coat, ridge filler, primer, bonder
 --                top_coat   top coat, sealer, quick-dry top
 --                treatment  treatment, strengthener, hardener, cuticle oil, growth
+--                           (base_coat/top_coat/treatment: strong text first, in that order,
+--                           then tags in that order, so a "Top Coat" title beats a
+--                           "Top & Base Coat" tag)
 --                color      everything else
 --   The regexes match whole words (\m ... \M), case-insensitively. Section 6 lists sample rows
 --   per category so false positives are easy to spot before trusting the counts.
@@ -121,6 +124,11 @@ SELECT
     WHEN 'topper' = ANY (finishes) OR 'topper' = ANY (COALESCE(detected_finishes, ARRAY[]::text[]))
       OR haystack ~ '\mtoppers?\M'
       THEN 'topper'
+    -- Coat/treatment wording in the strong text beats the tags: Cirque tags every coat
+    -- "Top & Base Coat", so "Looking Glass Top Coat" must not read as a base coat.
+    WHEN regexp_replace(strong_haystack, '[_-]+', ' ', 'g') ~ '\m(base ?coats?|basecoats?|ridge filler|primer|bonder|bond)\M' THEN 'base_coat'
+    WHEN regexp_replace(strong_haystack, '[_-]+', ' ', 'g') ~ '\m(top ?coats?|topcoats?|sealer|sealant|quick ?dry top)\M' THEN 'top_coat'
+    WHEN regexp_replace(strong_haystack, '[_-]+', ' ', 'g') ~ '\m(treatments?|strengthener|hardener|cuticle oil|cuticle|growth serum)\M' THEN 'treatment'
     WHEN haystack ~ '\m(base ?coats?|basecoats?|ridge filler|primer|bonder|bond)\M' THEN 'base_coat'
     WHEN haystack ~ '\m(top ?coats?|topcoats?|sealer|sealant|quick ?dry top)\M' THEN 'top_coat'
     WHEN haystack ~ '\m(treatments?|strengthener|hardener|cuticle oil|cuticle|growth serum)\M' THEN 'treatment'

@@ -46,8 +46,8 @@ and Clionadh came up too but are already sources.
 keeps **328 of 415** products on 2026-10-19 (293 color, 23 topper, 7 treatment, 5 base coat by the
 rule classifier; the generic gate kept 10). Dropped: 85 sets/duos/trios/bundles/nail-art kits,
 tools, charms, stickers, remover, wipes, gift card, free gifts and creator profile pages, plus 2
-collection sets with the bundle tag. Cirque tags its coats "Top & Base Coat", so the rule classifier
-files its top coats as `base_coat` (follow-up).
+collection sets with the bundle tag. Cirque tags its coats "Top & Base Coat"; the classifier and the
+audit query now read coat wording in the title before the tags, so its top coats are `top_coat`.
 
 **Against +10k:** batch 2 adds about 316 Cirque shades (293 color + 23 toppers) and 12 coats/treatments. The indie Shopify route is close to exhausted
 without store agreements; the other routes in `docs/data-sources-research.md` are needed.
@@ -139,9 +139,7 @@ If the owner wants the same paper trail for the two stores that were enabled bef
 ## Follow-ups
 
 - ~~Cirque Colors store filter~~: done 2026-10-19 (`connectors/store-filters/cirque-colors.ts`, batch 2 above).
-- Cirque coats are tagged "Top & Base Coat"; the rule classifier checks base coat wording first, so
-  Looking Glass Top Coat and Haze Glaze Matte Top Coat are stored as `base_coat` (admin override, or
-  let the title win over tags in the classifier and the audit query).
+- ~~Cirque coats tagged "Top & Base Coat" filed as `base_coat`~~: fixed 2026-10-19 (title beats tags).
 - Great Lakes Lacquer lists a multi-shade "The Boat Load Bundle" without a bundle tag; the generic
   gate keeps it (26 of 27 products pass). A title-based bundle check would catch it.
 - Emily de Molly vendor spelling: 3 products say `EmilydeMolly`; check whether ingestion's brand

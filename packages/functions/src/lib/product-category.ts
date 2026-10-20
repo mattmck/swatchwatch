@@ -22,6 +22,8 @@
  *   3. base_coat  base coat, ridge filler, primer, bonder, bond;
  *   4. top_coat   top coat, sealer, sealant, quick dry top;
  *   5. treatment  treatment, strengthener, hardener, cuticle oil, cuticle, growth serum;
+ *                 rules 3–5 run over the strong text first, then over the tags (a "Top Coat"
+ *                 title beats a "Top & Base Coat" tag);
  *   6. color      everything else.
  * Words match whole (`\b`, like Postgres `\m … \M`), case-insensitively.
  */
@@ -121,10 +123,13 @@ export function classifyProductCategory(input: ProductCategoryInput): ProductCat
     ["top_coat", TOP_COAT_REGEX],
     ["treatment", TREATMENT_REGEX],
   ];
+  // Strong text first, then tags: Cirque tags every coat "Top & Base Coat", and its
+  // "Looking Glass Top Coat" title must win over that tag.
   for (const [category, regex] of coatRules) {
-    if (regex.test(allText)) {
-      return { category, evidence: regex.test(strongSpaced) ? "text" : "tag" };
-    }
+    if (regex.test(strongSpaced)) return { category, evidence: "text" };
+  }
+  for (const [category, regex] of coatRules) {
+    if (regex.test(tagText)) return { category, evidence: "tag" };
   }
 
   return { category: "color", evidence: null };

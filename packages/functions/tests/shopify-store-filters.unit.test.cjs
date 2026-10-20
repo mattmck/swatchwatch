@@ -254,13 +254,12 @@ describe("ShopifyGenericConnector applies the store pre-filter", () => {
         }),
     });
     const result = await new ShopifyGenericConnector("CirqueColorsShopify").pullProducts(pull);
-    // Cirque tags every coat "Top & Base Coat", and the rule classifier checks base coat wording
-    // before top coat, so its top coats come out base_coat (an admin override fixes one; see the PR).
+    // Cirque tags every coat "Top & Base Coat"; the title decides which coat it is.
     assert.deepEqual(
       result.records.map((record) => [record.normalized.name, record.normalized.productCategory]).sort(),
       [
         ["Get Ready Base Coat", "base_coat"],
-        ["Looking Glass Top Coat", "base_coat"],
+        ["Looking Glass Top Coat", "top_coat"],
         ["Organza", "color"],
         ["Puddle", "color"],
       ]

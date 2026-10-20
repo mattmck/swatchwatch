@@ -394,13 +394,23 @@ VALUES
   )
 -- A reseed never changes a row that already exists in its enabled flag or its metadata keys
 -- (notes, the store's recorded approval, metadata.ingestion settings): those belong to the
--- environment. Existing keys win; keys the row lacks are filled from this file.
+-- environment. Existing keys win; keys the row lacks are filled from this file. The one
+-- exception is metadata.verification, the survey facts this file owns: its keys are merged
+-- with this file's values winning, so a re-survey (e.g. storeFilterPass) reaches existing rows.
 ON CONFLICT (name) DO UPDATE
 SET
   source_type = EXCLUDED.source_type,
   base_url    = EXCLUDED.base_url,
   license     = EXCLUDED.license,
   terms_url   = EXCLUDED.terms_url,
-  metadata    = EXCLUDED.metadata || COALESCE(data_source.metadata, '{}'::jsonb);
+  metadata    = EXCLUDED.metadata || COALESCE(data_source.metadata, '{}'::jsonb)
+                || CASE
+                     WHEN EXCLUDED.metadata ? 'verification' THEN jsonb_build_object(
+                       'verification',
+                       COALESCE(data_source.metadata -> 'verification', '{}'::jsonb)
+                         || (EXCLUDED.metadata -> 'verification')
+                     )
+                     ELSE '{}'::jsonb
+                   END;
 
 COMMIT;

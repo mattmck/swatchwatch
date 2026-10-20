@@ -128,6 +128,17 @@ describe("lib/product-category — rules and precedence", () => {
     assert.equal(classifyProductCategory(shade("Duo", "Nail Polish", ["top-and-base-coats"])).category, "base_coat");
   });
 
+  it("coat wording in the name, title or type beats coat wording in the tags", () => {
+    // Cirque tags every coat "Top & Base Coat".
+    assert.deepEqual(classifyProductCategory(shade("Looking Glass Top Coat", "Nail Care", ["Top & Base Coat"])), {
+      category: "top_coat",
+      evidence: "text",
+    });
+    assert.equal(classifyProductCategory(shade("Get Ready Base Coat", "Base Coat", ["Top & Base Coat"])).category, "base_coat");
+    assert.equal(classifyProductCategory(shade("Recovery Ritual Nail Strengthener", "Nail Care", ["Top & Base Coat"])).category, "treatment");
+    assert.equal(classifyProductCategory(shade("Clear", "Nail Polish", ["Top & Base Coat"])).category, "base_coat");
+  });
+
   it("recognizes top coats, base coats and treatments", () => {
     assert.equal(classifyProductCategory(shade("Glossy Top Coat", "Top Coat")).category, "top_coat");
     assert.equal(classifyProductCategory(shade("Seal the Deal", "Nail Polish", ["topcoat"])).category, "top_coat");
