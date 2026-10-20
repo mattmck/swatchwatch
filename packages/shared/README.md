@@ -46,12 +46,14 @@ Admin Hex Labeling tool (admin console tab, routes `/api/hex-labels-admin/*`): h
 | `HexLabelSamplePoint` | Where a canvas sample was taken: `x`/`y` normalized 0..1 to the natural image size, `size`, `imageWidth`, `imageHeight` |
 | `HexLabelImage` | A catalog product image of a shade: `imageId`, signed proxy `url`, `swatchType`, vendor `sourceUrl` (from `source_image_url`, null when unknown), `isPrimary` |
 | `HexLabel` | A saved manual label: `trainingSampleId`, `shadeId`, `hex` (null only when `unreliable`), `unreliable`, `imageId`, `note`, `method`, `samplePoint`, `labeledByUserId`, `labeledAt` |
-| `HexLabelQueueItem` | One queued shade: brand/name/finishes, `vendorHex`/`detectedHex`/`nameHex`, `hexAgreement`, detection confidence/method, `flagged` (agreement > MEDIUM), `images`, current `label` |
+| `HexLabelQueueItem` | One queued shade: brand/name/finishes, `vendorHex`/`detectedHex`/`nameHex`, `hexAgreement`, detection confidence/method, `flagged` (agreement > MEDIUM), `images`, current `label`, vendor hex provenance `vendorHexSource` / `promotedLabelId` / `vendorHexPrevious` (#321) |
 | `HexLabelQueueFilters` | `GET /api/hex-labels-admin/queue` query: `brand`, `disagreeOnly`, `showLabeled`, `includeWithoutImages`, `cursor`, `pageSize` |
 | `HexLabelQueueResponse` | `{ items, nextCursor, total, labeled, pageSize, disagreementThreshold }` (`total`/`labeled` drive the progress bar) |
 | `HexLabelRequest` | `POST /api/hex-labels-admin/labels` body: `shadeId`, `hex` (`#RRGGBB`, required unless `unreliable`), `imageId`, `unreliable`, `note`, `method`, `samplePoint` |
 | `HexLabelSaveResponse` | `{ label, previous }`; `previous` is the label the save replaced (the client restores it to undo) |
 | `HexLabelDeleteResponse` | `{ deleted }` from `DELETE /api/hex-labels-admin/labels/{id}` |
+| `VENDOR_HEX_SOURCES` / `VendorHexSource` | `shade.vendor_hex_source` (#321): `vendor` (vendor/catalog data) or `manual_label` (an admin promoted the shade's manual label; ingestion never overwrites it). Admin-only |
+| `HexLabelPromoteResponse` | `{ shadeId, vendorHex, vendorHexSource, promotedLabelId, vendorHexPrevious, changed }` from `POST`/`DELETE /api/hex-labels-admin/labels/{id}/promote` and `DELETE /api/hex-labels-admin/shades/{shadeId}/promotion` |
 
 ### `types/inventory.ts`
 
@@ -253,7 +255,7 @@ Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/b
 | `AdminUserIdentity` | Linked external identity (`externalId`, `email`, `createdAt`, `lastSeenAt`) |
 | `AdminUserDetailResponse` | `GET`/`PATCH /api/users-admin/{id}`: `user`, `identities`, `suspendedReason`, `suspendedByUserId`, newest 20 `auditEvents` |
 | `AdminUserUpdateRequest` | `PATCH /api/users-admin/{id}` body: `handle`, `suspended`, `suspendedReason`, `note` (role is not editable: assigned in Entra) |
-| `AdminAuditEvent` / `AdminAuditAction` | `admin_audit_event` row: actor, target, `user.update \| user.suspend \| user.unsuspend \| user.merge`, `changes`, `note`, `createdAt` |
+| `AdminAuditEvent` / `AdminAuditAction` | `admin_audit_event` row: actor, target, `user.update \| user.suspend \| user.unsuspend \| user.merge \| shade.vendor_hex_promote \| shade.vendor_hex_demote` (the `shade.*` actions, #321, have no target user; the shade id is in `changes`), `changes`, `note`, `createdAt` |
 | `AdminUserMergeRequest` | Admin payload for duplicate-account repair (`sourceUserId`, `targetUserId`) |
 | `AdminUserMergeResponse` | Admin merge result summary (moved row counts incl. `mergedManicureRows` + merge status/message) |
 

@@ -84,6 +84,14 @@ import { detailHref } from "@/lib/detail-href";
 
 /** Idle time after the last keystroke before the search box triggers a fetch. */
 const SEARCH_DEBOUNCE_MS = 350;
+/** Sort choices for the mobile card list (the table's column headers are not shown there). */
+const MOBILE_SORT_OPTIONS: ReadonlyArray<{ key: SortKey; label: string }> = [
+  { key: "brand", label: "Brand" },
+  { key: "name", label: "Name" },
+  { key: "status", label: "Status" },
+  { key: "finish", label: "Finish" },
+  { key: "collection", label: "Collection" },
+];
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
 const HAS_B2C_CONFIG = buildMsalConfig() !== null;
 
@@ -583,10 +591,24 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     return <ErrorState message={error} onRetry={() => window.location.reload()} />;
   }
 
+  // Row actions shared by the desktop table and the mobile cards, so both layouts use the same
+  // handlers (add guard, optimistic updates, mani logging).
+  const renderRowActions = (polish: Polish) => (
+    <>
+      {isOwnedPolish(polish) && <LogManiButton polish={polish} variant="icon" />}
+      <CollectionQuickActions
+        polish={polish}
+        pending={actionPendingById[polish.id] === true || isGuardChecking(shadeGuardKey(polish.id))}
+        onAction={(action, source) => handleCollectionAction(polish.id, action, source)}
+        onQuantityChange={(delta) => handleQuantityChange(polish.id, delta)}
+      />
+    </>
+  );
+
   return (
     <div className="space-y-4">
       {/* Page header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="heading-page">All Polishes</h1>
           <p className="text-muted-foreground">
@@ -695,6 +717,129 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
           aria-hidden
           className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-pink-soft via-brand-lilac to-brand-purple"
         />
+        {/* Phones: one card per polish with its actions inline (below md). */}
+        <div className="md:hidden">
+          <div className="flex items-center gap-2 border-b border-border/60 py-2 pl-4 pr-3">
+            <span className="text-xs font-medium text-muted-foreground">Sort</span>
+            <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
+              <SelectTrigger className="h-8 w-[140px]" aria-label="Sort polishes by">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {MOBILE_SORT_OPTIONS.map((option) => (
+                  <SelectItem key={option.key} value={option.key}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon-sm"
+              aria-label={sortDirection === "asc" ? "Sorted ascending, switch to descending" : "Sorted descending, switch to ascending"}
+              onClick={() => setSortDirection((d) => (d === "asc" ? "desc" : "asc"))}
+            >
+              {sortDirection === "asc" ? <ArrowUp aria-hidden="true" /> : <ArrowDown aria-hidden="true" />}
+            </Button>
+          </div>
+          {pageItems.length === 0 ? null : (
+            <ul className="divide-y divide-border/60" aria-label="Polishes">
+              {pageItems.map((polish) => {
+                const recalcPending = recalcPendingById[polish.id] === true;
+                const dupeHint = isOwnedPolish(polish) ? undefined : dupeHints[polish.id];
+                const dupeLabel = dupeHintLabel(dupeHint);
+                const displayHex = resolveDisplayHex(polish);
+                return (
+                  <li key={polish.id} className="space-y-2 py-3 pl-4 pr-3" data-testid="polish-card">
+                    <div className="flex items-start gap-3">
+                      {polish.swatchImageUrl ? (
+                        <a
+                          href={polish.swatchImageUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label={`Open ${polish.brand} ${polish.name} swatch image in new tab`}
+                          className="shrink-0"
+                        >
+                          <SwatchThumbnail
+                            src={polish.swatchImageUrl}
+                            displaySize={48}
+                            alt={`${polish.brand} ${polish.name} swatch`}
+                            className="h-12 w-12 rounded-md border object-cover"
+                          />
+                        </a>
+                      ) : (
+                        <div className="h-12 w-12 shrink-0 rounded-md border bg-muted/40" />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs text-muted-foreground">{polish.brand}</p>
+                        <Link
+                          href={`/polishes/detail?id=${polish.id}&returnTo=${encodeURIComponent(returnToHref)}`}
+                          className="break-words font-medium text-primary hover:underline"
+                        >
+                          {polish.name}
+                        </Link>
+                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                          <StatusChip status={polish.status} />
+                          {polish.isUntried && <UntriedBadge />}
+                          <FinishBadges polish={polish} finishTypes={finishTypes} max={2} />
+                        </div>
+                        {(polish.buyUrl || (dupeLabel && dupeHint?.best)) && (
+                          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                            <BuyFromBrandLink url={polish.buyUrl} brand={polish.brand} name={polish.name} className="flex w-fit" />
+                            {dupeLabel && dupeHint?.best && (
+                              <Link
+                                href={dupeHref(dupeHint.best, returnToHref)}
+                                title={dupeHintTitle(dupeHint) ?? undefined}
+                                aria-label={dupeHintTitle(dupeHint) ?? dupeLabel}
+                                className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none ${DUPE_GRADE_META[dupeHint.best.grade].badgeClassName}`}
+                              >
+                                <ColorDot hex={dupeHint.best.displayHex} size="sm" className="h-2.5 w-2.5" />
+                                {dupeLabel}
+                              </Link>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <ColorDot
+                        hex={displayHex}
+                        size="md"
+                        className="shrink-0 ring-2 ring-white/80 shadow-[0_0_0_1px_rgba(66,16,126,0.18),0_8px_20px_rgba(66,16,126,0.16)]"
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center justify-end gap-1">
+                      {displayHex && (
+                        <Link
+                          href={`/polishes/search?color=${displayHex.replace("#", "")}`}
+                          className="mr-auto inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground hover:text-primary"
+                          aria-label={`Find colors similar to ${polish.name}`}
+                        >
+                          <span aria-hidden="true">🔍</span> Similar
+                        </Link>
+                      )}
+                      {isAdmin && (
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="outline"
+                          disabled={recalcPending}
+                          onClick={() => handleRecalcHex(polish.id)}
+                        >
+                          {recalcPending ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
+                          {recalcPending ? "Submitting..." : "Recalc"}
+                        </Button>
+                      )}
+                      {renderRowActions(polish)}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
+        {/* md and up: the full sortable table. */}
+        <div className="hidden md:block">
         <Table>
           <TableHeader className="sticky top-0 z-10">
             <TableRow className="glass border-b border-border/60">
@@ -883,15 +1028,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                     )}
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
-                        {owned && <LogManiButton polish={polish} variant="icon" />}
-                        <CollectionQuickActions
-                          polish={polish}
-                          pending={
-                            actionPendingById[polish.id] === true || isGuardChecking(shadeGuardKey(polish.id))
-                          }
-                          onAction={(action, source) => handleCollectionAction(polish.id, action, source)}
-                          onQuantityChange={(delta) => handleQuantityChange(polish.id, delta)}
-                        />
+                        {renderRowActions(polish)}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -900,6 +1037,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
             )}
           </TableBody>
         </Table>
+        </div>
       </div>
 
       <AddGuardDialog guard={activeGuard} onChoice={chooseGuard} returnTo={returnToHref} />

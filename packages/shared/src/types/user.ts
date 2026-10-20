@@ -95,8 +95,17 @@ export interface AdminUserIdentity {
   lastSeenAt: string;
 }
 
-/** Actions recorded in `admin_audit_event` (issue #45). */
-export type AdminAuditAction = "user.update" | "user.suspend" | "user.unsuspend" | "user.merge";
+/**
+ * Actions recorded in `admin_audit_event` (issue #45). The `shade.*` actions (#321, vendor hex
+ * promotion) have no target user; the shade id is in `changes`.
+ */
+export type AdminAuditAction =
+  | "user.update"
+  | "user.suspend"
+  | "user.unsuspend"
+  | "user.merge"
+  | "shade.vendor_hex_promote"
+  | "shade.vendor_hex_demote";
 
 /** One audit row: who (`actorUserId`) did what to which user, and when. */
 export interface AdminAuditEvent {
