@@ -90,9 +90,20 @@ locals {
     for region in var.openai_regions : lower(trimspace(region))
     if trimspace(region) != ""
   ])
-  openai_primary_region_fallback = lower(trimspace(
-    coalesce(var.openai_location, var.location)
-  ))
+  openai_location_trimmed = (
+    var.openai_location != null && trimspace(var.openai_location) != ""
+    ? lower(trimspace(var.openai_location))
+    : null
+  )
+  # True when the OpenAI region was set explicitly (openai_regions or
+  # openai_location). The `location` fallback below only keeps the locals
+  # evaluable; azurerm_cognitive_account.openai refuses to plan without an
+  # explicit region (see its precondition), because a guessed region moves
+  # the account and soft-deletes it with every deployment.
+  openai_region_explicit = (
+    length(local.openai_regions_normalized) > 0 || local.openai_location_trimmed != null
+  )
+  openai_primary_region_fallback = coalesce(local.openai_location_trimmed, lower(trimspace(var.location)))
   openai_target_regions = (
     length(local.openai_regions_normalized) > 0
     ? local.openai_regions_normalized
@@ -1169,6 +1180,15 @@ resource "azurerm_cognitive_account" "openai" {
     # kind is immutable so ignore drift to prevent a destructive replacement.
     # project_management_enabled defaults changed in provider; ignore to prevent forced replacement.
     ignore_changes = [kind, project_management_enabled]
+
+    # Never guess the OpenAI region: `location` is immutable on the account,
+    # so a region that differs from the existing account replaces it, which
+    # soft-deletes the account and all its deployments (2026-10-19 prod
+    # incident). Require an explicit openai_regions / openai_location.
+    precondition {
+      condition     = local.openai_region_explicit
+      error_message = "Azure OpenAI region is not set. Set openai_regions or openai_location to the region the ${var.environment} OpenAI account already lives in (prod: centralus, dev: eastus); it is never derived from `location`. In CI set the OPENAI_LOCATION or OPENAI_REGIONS GitHub environment variable."
+    }
   }
 }
 

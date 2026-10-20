@@ -13,10 +13,19 @@ on:
         default: true
         type: boolean
       openai_location:
-        description: Fallback Azure OpenAI region when OPENAI_REGIONS is not provided
+        description: >-
+          Explicit Azure OpenAI region override. Leave unset to use the
+          environment's OPENAI_REGIONS / OPENAI_LOCATION variables. Must match
+          the region the environment's account already lives in.
         required: false
-        default: eastus
         type: string
+      allow_openai_replace:
+        description: >-
+          Allow a plan that deletes or replaces an Azure OpenAI / Cognitive
+          Services account or deployment to be applied. Default false.
+        required: false
+        default: false
+        type: boolean
   workflow_dispatch:
     inputs:
       environment:
@@ -33,10 +42,21 @@ on:
         default: true
         type: boolean
       openai_location:
-        description: Fallback Azure OpenAI region when OPENAI_REGIONS is not provided
+        description: >-
+          Explicit Azure OpenAI region override. Leave EMPTY to use the
+          environment's OPENAI_REGIONS / OPENAI_LOCATION variables (prod:
+          centralus, dev: eastus). A different region replaces (soft-deletes)
+          the account.
         required: false
-        default: eastus
         type: string
+      allow_openai_replace:
+        description: >-
+          Allow a plan that deletes or replaces an Azure OpenAI / Cognitive
+          Services account or deployment to be applied. Leave false unless
+          you really mean to move or recreate the account.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   id-token: write
@@ -56,8 +76,17 @@ jobs:
       TF_INPUT: "false"
       TF_VAR_environment: ${{ inputs.environment }}
       TF_VAR_github_repository: ${{ github.repository }}
-      TF_VAR_openai_location: ${{ inputs.openai_location }}
+      # Azure OpenAI region: the environment decides, never a workflow default.
+      # OPENAI_REGIONS (JSON list) wins in Terraform; otherwise the explicit
+      # openai_location input, then the OPENAI_LOCATION variable. The "Validate
+      # Azure OpenAI region" step fails when none is set, and the plan guard
+      # below refuses to apply a plan that deletes or replaces an account.
+      # See infrastructure/README.md "Azure OpenAI region and replacement guard".
+      TF_VAR_openai_location: ${{ inputs.openai_location || vars.OPENAI_LOCATION || '' }}
       TF_VAR_openai_regions: ${{ vars.OPENAI_REGIONS || '[]' }}
+      OPENAI_LOCATION_INPUT: ${{ inputs.openai_location || '' }}
+      OPENAI_LOCATION_VAR: ${{ vars.OPENAI_LOCATION || '' }}
+      ALLOW_OPENAI_REPLACE: ${{ inputs.allow_openai_replace && 'true' || 'false' }}
       TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
       TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
       TFSTATE_CONTAINER: ${{ vars.TFSTATE_CONTAINER || 'tfstate' }}
@@ -128,6 +157,45 @@ jobs:
           fi
           if [ "$missing" -ne 0 ]; then
             exit 1
+          fi
+
+      - name: Validate Azure OpenAI region
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          if [ "$TF_VAR_create_openai_resources" != "true" ]; then
+            echo "CREATE_OPENAI_RESOURCES is not true; Terraform does not manage OpenAI accounts here, skipping the region check."
+            exit 0
+          fi
+
+          regions="$(printf '%s' "$TF_VAR_openai_regions" | tr -d '[:space:]')"
+          if [ -n "$regions" ] && [ "$regions" != "[]" ]; then
+            echo "Azure OpenAI regions come from the OPENAI_REGIONS variable: $TF_VAR_openai_regions"
+            if [ -n "$OPENAI_LOCATION_INPUT" ]; then
+              echo "::notice::The openai_location input ('$OPENAI_LOCATION_INPUT') is ignored because OPENAI_REGIONS is set for '$ENVIRONMENT'."
+            fi
+            exit 0
+          fi
+
+          if [ -z "$TF_VAR_openai_location" ]; then
+            echo "::error::No Azure OpenAI region is configured for the '$ENVIRONMENT' environment. Set the OPENAI_LOCATION (or OPENAI_REGIONS) GitHub environment variable (prod: centralus, dev: eastus). The workflow never defaults the region: a wrong region replaces the account and soft-deletes its deployments. See infrastructure/README.md."
+            exit 1
+          fi
+
+          input_lc="$(printf '%s' "$OPENAI_LOCATION_INPUT" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+          var_lc="$(printf '%s' "$OPENAI_LOCATION_VAR" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+          if [ -n "$input_lc" ] && [ -n "$var_lc" ] && [ "$input_lc" != "$var_lc" ]; then
+            if [ "$ALLOW_OPENAI_REPLACE" != "true" ]; then
+              echo "::error::The openai_location input ('$OPENAI_LOCATION_INPUT') differs from the '$ENVIRONMENT' environment's OPENAI_LOCATION variable ('$OPENAI_LOCATION_VAR'). Moving the account to another region destroys it (2026-10-19 incident). Re-run without the input, or set allow_openai_replace=true only if you really mean to move it."
+              exit 1
+            fi
+            echo "::warning::openai_location input ('$OPENAI_LOCATION_INPUT') overrides OPENAI_LOCATION ('$OPENAI_LOCATION_VAR') because allow_openai_replace=true."
+          fi
+
+          if [ -n "$OPENAI_LOCATION_INPUT" ]; then
+            echo "Azure OpenAI region: $TF_VAR_openai_location (from the openai_location input)"
+          else
+            echo "Azure OpenAI region: $TF_VAR_openai_location (from the OPENAI_LOCATION variable)"
           fi
 
       - name: Terraform init
@@ -247,6 +315,40 @@ jobs:
 
       - name: Terraform plan
         run: terraform -chdir=infrastructure plan -out=tfplan -no-color
+
+      # Refuse to apply a plan that deletes or replaces any Cognitive Services
+      # account or deployment (Azure OpenAI, Speech, Document Intelligence).
+      # Deleting an OpenAI account soft-deletes it with every deployment, and
+      # the usual cause is a region change (OPENAI_LOCATION / OPENAI_REGIONS or
+      # the openai_location input). Only allow_openai_replace=true lets it through.
+      - name: Guard against Azure OpenAI account replacement
+        env:
+          PLAN_JSON: ${{ runner.temp }}/tfplan.json
+        run: |
+          terraform -chdir=infrastructure show -json tfplan > "$PLAN_JSON"
+
+          destructive="$(jq -r '
+            [ .resource_changes[]?
+              | select(.type == "azurerm_cognitive_account" or .type == "azurerm_cognitive_deployment")
+              | select((.change.actions | index("delete")) != null)
+              | "\(.address): \(.change.actions | join(" then "))"
+            ] | .[]' "$PLAN_JSON")"
+
+          if [ -z "$destructive" ]; then
+            echo "Plan guard: no Cognitive Services account or deployment is deleted or replaced."
+            exit 0
+          fi
+
+          echo "Plan guard: the plan deletes or replaces these Cognitive Services resources:"
+          echo "$destructive"
+
+          if [ "$ALLOW_OPENAI_REPLACE" = "true" ]; then
+            echo "::warning::allow_openai_replace=true: applying a plan that deletes or replaces the Cognitive Services resources listed above."
+            exit 0
+          fi
+
+          echo "::error::The plan would delete or replace Azure OpenAI / Cognitive Services resources (listed above), which soft-deletes the account and all its deployments. This is usually a region change: check OPENAI_LOCATION / OPENAI_REGIONS for this environment and do not pass a different openai_location. Re-run with allow_openai_replace=true only if the replacement is intended. See infrastructure/README.md."
+          exit 1
 
       - name: Terraform apply
         if: ${{ inputs.apply }}
