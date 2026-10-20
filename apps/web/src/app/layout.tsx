@@ -77,18 +77,6 @@ export default function RootLayout({
             `,
           }}
         />
-        <link
-          rel="preload"
-          href="/brand/swatchwatch-monogram.svg"
-          as="image"
-          type="image/svg+xml"
-        />
-        <link
-          rel="preload"
-          href="/brand/swatchwatch-lockup.svg"
-          as="image"
-          type="image/svg+xml"
-        />
       </head>
       <body
         className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}
