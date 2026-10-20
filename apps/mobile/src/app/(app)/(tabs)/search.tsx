@@ -1,23 +1,65 @@
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, TextInput, View } from "react-native";
-import { resolvePolishFinishes, type CatalogSearchResult, type Polish, type PolishStatus } from "swatchwatch-shared";
-import { errorMessage, listPolishes, searchCatalog, updatePolish } from "@/api/client";
-import { Swatch } from "@/components/swatch";
+import type { CatalogSearchResult, Polish } from "swatchwatch-shared";
+import { errorMessage, listPolishes, searchCatalog } from "@/api/client";
+import { ColorSearchPanel } from "@/components/color-search-panel";
+import { SearchRow, useSetPolishStatus } from "@/components/search-row";
 import { AppText, Button, CenteredState, Chip, ErrorBanner } from "@/components/ui";
-import { confirmAddWithDupes } from "@/lib/add-guard";
-import { finishLabel } from "@/lib/finishes";
-import { POLISH_STATUS_LABELS, statusChangePatch } from "@/lib/status";
+import { normalizeHexParam } from "@/lib/color-search";
 import { useTheme } from "@/theme/theme";
 
 const PAGE_SIZE = 25;
 
+type SearchMode = "text" | "color";
+
 /**
- * Search tab: catalog text search with one-tap Add / Wishlist. Results come from
- * `GET /api/polishes?search=` (catalog rows with the caller's status, hexes and images); when
- * that finds nothing, the fuzzy `pg_trgm` `GET /api/catalog/search` offers close spellings.
+ * Search tab: a **Text | By color** switch. `hex` (`/search?hex=C0392B`, with or without `#`)
+ * or `mode=color` opens By color, e.g. from the polish detail "Goes with" card.
  */
 export default function SearchScreen() {
+  const theme = useTheme();
+  const params = useLocalSearchParams<{ hex?: string; mode?: string }>();
+  const linkHex = normalizeHexParam(params.hex);
+  const wantsColor = Boolean(linkHex) || params.mode === "color";
+  const [mode, setMode] = useState<SearchMode>(wantsColor ? "color" : "text");
+
+  // A new deep link (tab already mounted) switches to By color; adjusted during render, not in an effect.
+  const linkKey = `${linkHex ?? ""}|${params.mode ?? ""}`;
+  const [seenLinkKey, setSeenLinkKey] = useState(linkKey);
+  if (linkKey !== seenLinkKey) {
+    setSeenLinkKey(linkKey);
+    if (wantsColor) setMode("color");
+  }
+
+  return (
+    <View style={{ flex: 1 }}>
+      <View
+        style={{ flexDirection: "row", gap: theme.spacing(2), paddingHorizontal: theme.spacing(4), paddingTop: theme.spacing(3) }}
+        accessibilityRole="tablist"
+      >
+        <Chip label="Text" selected={mode === "text"} onPress={() => setMode("text")} />
+        <Chip label="By color" selected={mode === "color"} onPress={() => setMode("color")} />
+      </View>
+      {/* Text search stays mounted (query + results survive switching modes). */}
+      <View style={{ flex: 1, display: mode === "text" ? "flex" : "none" }}>
+        <TextSearch />
+      </View>
+      {mode === "color" && (
+        <View style={{ flex: 1, paddingTop: theme.spacing(3) }}>
+          <ColorSearchPanel initialHex={linkHex} />
+        </View>
+      )}
+    </View>
+  );
+}
+
+/**
+ * Catalog text search with one-tap Add / Wishlist. Results come from `GET /api/polishes?search=`
+ * (catalog rows with the caller's status, hexes and images); when that finds nothing, the fuzzy
+ * `pg_trgm` `GET /api/catalog/search` offers close spellings.
+ */
+function TextSearch() {
   const theme = useTheme();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Polish[]>([]);
@@ -25,7 +67,6 @@ export default function SearchScreen() {
   const [suggestions, setSuggestions] = useState<CatalogSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState<Record<string, boolean>>({});
   const [searched, setSearched] = useState("");
   const generation = useRef(0);
 
@@ -64,23 +105,10 @@ export default function SearchScreen() {
     return () => clearTimeout(timer);
   }, [query, run]);
 
-  async function setStatus(polish: Polish, status: PolishStatus) {
-    const choice = polish.status === "owned" ? "add" : await confirmAddWithDupes(polish.id, status === "owned" ? "owned" : "wishlist");
-    if (choice === "cancel") return;
-    const target: PolishStatus = choice === "wishlist" ? "wishlist" : status;
-    setPending((p) => ({ ...p, [polish.id]: true }));
-    // Optimistic: show the new status right away, roll back on failure.
-    setResults((rows) => rows.map((r) => (r.id === polish.id ? { ...r, status: target } : r)));
-    try {
-      const updated = await updatePolish(polish.id, statusChangePatch(polish, target));
-      setResults((rows) => rows.map((r) => (r.id === polish.id ? updated : r)));
-    } catch (err) {
-      setResults((rows) => rows.map((r) => (r.id === polish.id ? polish : r)));
-      setError(errorMessage(err, "Couldn't update that polish."));
-    } finally {
-      setPending((p) => ({ ...p, [polish.id]: false }));
-    }
-  }
+  const replace = useCallback((id: string, next: Polish) => {
+    setResults((rows) => rows.map((r) => (r.id === id ? next : r)));
+  }, []);
+  const { pending, setStatus } = useSetPolishStatus(replace, setError);
 
   return (
     <View style={{ flex: 1 }}>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, SectionList, StyleSheet, View } from "react-native";
 import { COLOR_FAMILIES, COLOR_FAMILY_LABELS, type ColorFamily, type Polish } from "swatchwatch-shared";
 import { errorMessage, listColorPolishes, listOwnedColorPolishes } from "@/api/client";
@@ -49,14 +49,19 @@ export function ColorSearchPanel({ initialHex }: { initialHex: string | null }) 
   const [scope, setScope] = useState<Scope>("collection");
   const [owned, setOwned] = useState<Polish[] | null>(null);
   const [catalog, setCatalog] = useState<Polish[] | null>(null);
-  const [loadingOwned, setLoadingOwned] = useState(false);
-  const [loadingCatalog, setLoadingCatalog] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  /** Request keys whose fetch has settled; loading = the current key has not settled yet. */
+  const [ownedSettledKey, setOwnedSettledKey] = useState<string | null>(null);
+  const [catalogSettledKey, setCatalogSettledKey] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
 
-  useEffect(() => {
+  // A new deep-link hex replaces the picker color (adjusting state during render, not in an effect).
+  const [seenInitialHex, setSeenInitialHex] = useState(initialHex);
+  if (initialHex !== seenInitialHex) {
+    setSeenInitialHex(initialHex);
     if (initialHex) setSeedHex(initialHex);
-  }, [initialHex]);
+  }
 
   const pickedHex = useMemo(
     () => seedHex ?? pickerHex(hue === "neutral" ? null : HUE_STOPS[hue], lightness),
@@ -65,54 +70,61 @@ export function ColorSearchPanel({ initialHex }: { initialHex: string | null }) 
 
   // Owned color polishes (refetched when the family chips change).
   const familyKey = families.join(",");
+  const ownedRequestKey = `${familyKey}#${reloadToken}`;
   useEffect(() => {
     let cancelled = false;
-    setLoadingOwned(true);
-    listOwnedColorPolishes(families)
+    const fams = familyKey ? (familyKey.split(",") as ColorFamily[]) : [];
+    listOwnedColorPolishes(fams)
       .then((rows) => {
         if (cancelled) return;
         setOwned(rows);
-        setError(null);
+        setLoadError(null);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(errorMessage(err, "Couldn't load your collection."));
+        if (!cancelled) setLoadError(errorMessage(err, "Couldn't load your collection."));
       })
       .finally(() => {
-        if (!cancelled) setLoadingOwned(false);
+        if (!cancelled) setOwnedSettledKey(ownedRequestKey);
       });
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- familyKey stands for families
-  }, [familyKey, reloadToken]);
+  }, [familyKey, ownedRequestKey]);
 
   const ownedFallback = owned !== null && owned.length < COLLECTION_FALLBACK_MIN;
   const wantCatalog = scope === "catalog" || ownedFallback;
   const catalogFamilyKey = catalogFamiliesFor(pickedHex, families).join(",");
+  const catalogRequestKey = `${catalogFamilyKey}#${reloadToken}`;
 
-  // Catalog color polishes in the selected families, or else the picked color's family.
-  const catalogGen = useRef(0);
+  // Catalog color polishes in the selected families, or else the picked color's family
+  // (debounced: tapping through hues should not fire a query per tap).
   useEffect(() => {
     if (!wantCatalog) return;
-    const gen = ++catalogGen.current;
-    setLoadingCatalog(true);
+    let cancelled = false;
     const timer = setTimeout(() => {
       const fams = catalogFamilyKey ? (catalogFamilyKey.split(",") as ColorFamily[]) : [];
       listColorPolishes({ families: fams, pageSize: CATALOG_FETCH_SIZE })
         .then((res) => {
-          if (gen !== catalogGen.current) return;
+          if (cancelled) return;
           setCatalog(res.polishes);
-          setError(null);
+          setLoadError(null);
         })
         .catch((err: unknown) => {
-          if (gen === catalogGen.current) setError(errorMessage(err, "Couldn't load catalog shades."));
+          if (!cancelled) setLoadError(errorMessage(err, "Couldn't load catalog shades."));
         })
         .finally(() => {
-          if (gen === catalogGen.current) setLoadingCatalog(false);
+          if (!cancelled) setCatalogSettledKey(catalogRequestKey);
         });
     }, 250);
-    return () => clearTimeout(timer);
-  }, [wantCatalog, catalogFamilyKey, reloadToken]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [wantCatalog, catalogFamilyKey, catalogRequestKey]);
+
+  const loadingOwned = ownedSettledKey !== ownedRequestKey;
+  const loadingCatalog = catalogSettledKey !== catalogRequestKey;
+  const error = actionError ?? loadError;
 
   const replace = useCallback((id: string, next: Polish) => {
     setCatalog((rows) => rows?.map((r) => (r.id === id ? next : r)) ?? rows);
@@ -122,7 +134,7 @@ export function ColorSearchPanel({ initialHex }: { initialHex: string | null }) 
       return next.status === "owned" ? [...without, next] : without;
     });
   }, []);
-  const { pending, setStatus } = useSetPolishStatus(replace, setError);
+  const { pending, setStatus } = useSetPolishStatus(replace, setActionError);
 
   const sections = useMemo<Section[]>(() => {
     const ownedMatches = owned ? rankByColor(owned, pickedHex) : [];
@@ -244,7 +256,15 @@ export function ColorSearchPanel({ initialHex }: { initialHex: string | null }) 
             : `Only ${owned?.length ?? 0} of your color polishes match, so catalog shades are shown too.`}
         </AppText>
       )}
-      {error && <ErrorBanner message={error} onRetry={() => setReloadToken((t) => t + 1)} />}
+      {error && (
+        <ErrorBanner
+          message={error}
+          onRetry={() => {
+            setActionError(null);
+            setReloadToken((t) => t + 1);
+          }}
+        />
+      )}
       {loading && <ActivityIndicator color={theme.colors.primary} />}
     </View>
   );
@@ -275,7 +295,7 @@ export function ColorSearchPanel({ initialHex }: { initialHex: string | null }) 
       ListEmptyComponent={
         loading ? null : (
           <AppText muted style={{ padding: theme.spacing(4) }}>
-            {families.length > 0 ?"Nothing in these color families yet." : "No color polishes to match yet."}
+            {families.length > 0 ? "Nothing in these color families yet." : "No color polishes to match yet."}
           </AppText>
         )
       }
