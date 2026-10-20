@@ -58,21 +58,25 @@ function ChipRow<T extends string>({ label, options, labels, value, onChange, an
 interface VibeSelectorProps {
   vibe: Vibe;
   onChange: (vibe: Vibe) => void;
+  /** Include toppers (#386; URL `toppers=0` when off). Not part of `Vibe`: saved looks store the vibe. */
+  toppers: boolean;
+  onToppersChange: (toppers: boolean) => void;
   className?: string;
 }
 
 /**
- * Occasion, mood and finish chips plus the Owned only switch. Below `lg` the controls collapse
+ * Occasion, mood and finish chips plus the Owned only and Include toppers switches. Below `lg` the controls collapse
  * into a one-line summary of the current vibe (tap to change), so the looks sit above the fold
  * on a phone; on `lg` they are always open in the left rail.
  */
-export function VibeSelector({ vibe, onChange, className }: VibeSelectorProps) {
+export function VibeSelector({ vibe, onChange, toppers, onToppersChange, className }: VibeSelectorProps) {
   const [open, setOpen] = useState(false);
   const summary = [
     LOOK_OCCASION_LABELS[vibe.occasion],
     LOOK_MOOD_LABELS[vibe.mood],
     vibe.finish ? LOOK_FINISH_LABELS[vibe.finish] : "Any finish",
     ...(vibe.ownedOnly ? ["Owned only"] : []),
+    ...(toppers ? [] : ["No toppers"]),
   ];
   return (
     <div className={className}>
@@ -95,12 +99,19 @@ export function VibeSelector({ vibe, onChange, className }: VibeSelectorProps) {
         <span className="shrink-0 text-xs text-muted-foreground">{open ? "Done" : "Change"}</span>
         <ChevronDown className={cn("size-4 shrink-0 transition-transform", open && "rotate-180")} aria-hidden />
       </button>
-      <VibeControls id="looks-vibe-controls" vibe={vibe} onChange={onChange} className={cn("mt-4 lg:mt-0 lg:block", !open && "hidden")} />
+      <VibeControls
+        id="looks-vibe-controls"
+        vibe={vibe}
+        onChange={onChange}
+        toppers={toppers}
+        onToppersChange={onToppersChange}
+        className={cn("mt-4 lg:mt-0 lg:block", !open && "hidden")}
+      />
     </div>
   );
 }
 
-function VibeControls({ id, vibe, onChange, className }: VibeSelectorProps & { id: string }) {
+function VibeControls({ id, vibe, onChange, toppers, onToppersChange, className }: VibeSelectorProps & { id: string }) {
   return (
     <div id={id} className={cn("space-y-4", className)} role="group" aria-label="Your vibe">
       <ChipRow
@@ -132,6 +143,13 @@ function VibeControls({ id, vibe, onChange, className }: VibeSelectorProps & { i
           <span className="block text-xs text-muted-foreground">Only looks you can do right now</span>
         </span>
         <Switch checked={vibe.ownedOnly} onCheckedChange={(ownedOnly) => onChange({ ...vibe, ownedOnly })} />
+      </label>
+      <label className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-sm">
+        <span>
+          <span className="font-medium">Include toppers</span>
+          <span className="block text-xs text-muted-foreground">Glitter, flake and chrome layers on top</span>
+        </span>
+        <Switch checked={toppers} onCheckedChange={onToppersChange} />
       </label>
     </div>
   );

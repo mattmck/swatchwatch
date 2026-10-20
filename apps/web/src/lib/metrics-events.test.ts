@@ -10,6 +10,7 @@ import {
   importCompletedEvent,
   looksGeneratedEvent,
   looksWearClickedEvent,
+  looksColorLabOpenedEvent,
   maniLoggedEvent,
   trackLooksWearClicked,
   onboardingStepClickedEvent,
@@ -204,6 +205,7 @@ describe("looks events", () => {
       mood: "soft",
       finish: "any",
       ownedOnly: false,
+      includeToppers: true,
       trigger: "shuffle",
       lookCount: 1,
       ownedSteps: 1,
@@ -221,10 +223,30 @@ describe("looks events", () => {
     assert.deepEqual(calls, [
       [
         "looks.wear_clicked",
-        { template: "french-modern", position: 2, ownedSteps: 1, missingSteps: 1, swapped: true },
+        { template: "french-modern", position: 2, ownedSteps: 1, missingSteps: 1, swapped: true, surface: "card" },
       ],
     ]);
     assert.equal(looksWearClickedEvent({ look, swapped: false, position: 0 }).properties.swapped, false);
+    assert.equal(looksWearClickedEvent({ look, swapped: false, position: 1, surface: "saved" }).properties.surface, "saved");
+  });
+
+  it("looks.generated reports the Include toppers toggle (#386)", () => {
+    const event = looksGeneratedEvent({
+      vibe: { occasion: "work", mood: "soft", finish: null, ownedOnly: false },
+      looks: [look],
+      shortfall: false,
+      ownedCount: 4,
+      trigger: "vibe",
+      includeToppers: false,
+    });
+    assert.equal(event.properties.includeToppers, false);
+  });
+
+  it("looks.color_lab_opened carries the template, surface and step counts (#386)", () => {
+    assert.deepEqual(looksColorLabOpenedEvent({ look, surface: "drawer", position: 1 }), {
+      name: "looks.color_lab_opened",
+      properties: { template: "french-modern", surface: "drawer", position: 1, ownedSteps: 1, missingSteps: 1 },
+    });
   });
 });
 

@@ -9,20 +9,25 @@ import {
   type Vibe,
 } from "./looks";
 import { parsePositiveInt, type ReadableParams } from "./polish-list-url";
+import { DEFAULT_COLOR_SEARCH_STATE, MAX_PALETTE_ANCHORS, colorSearchHref, parseHexParam } from "./color-search-url";
+import type { LookStep } from "./looks";
 
 /**
- * URL state for `/polishes/looks`: `occasion`, `mood`, `finish` (omitted = any), `owned=1` and
- * `seed` (Shuffle). Defaults are omitted so the bare route is the default vibe; back/forward and
- * shared links reproduce the same looks because the recommender is seeded.
+ * URL state for `/polishes/looks`: `occasion`, `mood`, `finish` (omitted = any), `owned=1`,
+ * `toppers=0` (Include toppers off, #386) and `seed` (Shuffle). Defaults are omitted so the bare
+ * route is the default vibe and links made before a field existed keep their meaning; back/forward
+ * and shared links reproduce the same looks because the recommender is seeded.
  */
 export interface LooksState {
   vibe: Vibe;
   seed: number;
+  /** Include toppers (default on). Kept out of `Vibe` because saved looks store the vibe. */
+  toppers: boolean;
 }
 
 export const DEFAULT_LOOKS_SEED = 1;
 
-export const DEFAULT_LOOKS_STATE: LooksState = { vibe: DEFAULT_VIBE, seed: DEFAULT_LOOKS_SEED };
+export const DEFAULT_LOOKS_STATE: LooksState = { vibe: DEFAULT_VIBE, seed: DEFAULT_LOOKS_SEED, toppers: true };
 
 function pick<T extends string>(values: readonly T[], raw: string | null): T | null {
   const value = raw?.trim().toLowerCase();
@@ -31,6 +36,7 @@ function pick<T extends string>(values: readonly T[], raw: string | null): T | n
 
 export function parseLooksState(params: ReadableParams): LooksState {
   const owned = params.get("owned")?.trim().toLowerCase();
+  const toppers = params.get("toppers")?.trim().toLowerCase();
   return {
     vibe: {
       occasion: pick<LookOccasion>(LOOK_OCCASIONS, params.get("occasion")) ?? DEFAULT_VIBE.occasion,
@@ -39,6 +45,7 @@ export function parseLooksState(params: ReadableParams): LooksState {
       ownedOnly: owned === "1" || owned === "true",
     },
     seed: parsePositiveInt(params.get("seed"), DEFAULT_LOOKS_SEED),
+    toppers: !(toppers === "0" || toppers === "false"),
   };
 }
 
@@ -49,6 +56,7 @@ export function buildLooksQueryString(state: LooksState): string {
   if (state.vibe.mood !== DEFAULT_VIBE.mood) params.set("mood", state.vibe.mood);
   if (state.vibe.finish) params.set("finish", state.vibe.finish);
   if (state.vibe.ownedOnly) params.set("owned", "1");
+  if (!state.toppers) params.set("toppers", "0");
   if (state.seed !== DEFAULT_LOOKS_SEED) params.set("seed", String(state.seed));
   return params.toString();
 }
@@ -60,4 +68,25 @@ export function buildLooksQueryString(state: LooksState): string {
 export function lookShareUrl(origin: string, pathname: string, state: LooksState): string {
   const qs = buildLooksQueryString(state);
   return `${origin}${pathname}${qs ? `?${qs}` : ""}`;
+}
+
+/**
+ * "Open in Color Lab" (#386): `/polishes/search` seeded with a look's palette. The wheel starts on
+ * the base color, every step's hex (base, accent, topper; deduplicated, in step order) becomes a
+ * focused color, and `returnTo` (this page with its vibe + seed + toppers) gives the search page a
+ * "Back to Looks" link.
+ */
+export function lookColorLabHref(steps: readonly Pick<LookStep, "role" | "hex">[], returnTo: string | null): string {
+  const palette: string[] = [];
+  for (const step of steps) {
+    const hex = parseHexParam(step.hex);
+    if (hex && !palette.includes(hex)) palette.push(hex);
+  }
+  const base = steps.find((s) => s.role === "base");
+  return colorSearchHref({
+    ...DEFAULT_COLOR_SEARCH_STATE,
+    color: parseHexParam(base?.hex) ?? palette[0] ?? null,
+    paletteAnchors: palette.slice(0, MAX_PALETTE_ANCHORS),
+    returnTo,
+  });
 }
