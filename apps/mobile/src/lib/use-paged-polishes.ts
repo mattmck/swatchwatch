@@ -116,7 +116,9 @@ export function usePagedPolishes(filters: PolishFilters, cacheScope?: string): P
     const requestGeneration = generation.current;
     setLoadingMoreKey(key);
     void fetchPage(key, current.page + 1, requestGeneration).finally(() => {
-      if (requestGeneration === generation.current) setLoadingMoreKey(null);
+      // Clear the flag whenever it is still ours, even if a filter change made this request
+      // stale: otherwise going A → B → A while it was in flight leaves A's pagination blocked.
+      setLoadingMoreKey((loadingKey) => (loadingKey === key ? null : loadingKey));
     });
   }, [current, fetchPage, hasMore, key, loadingMore, refreshing]);
 
