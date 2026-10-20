@@ -261,8 +261,11 @@ export function deriveVerdict(check: CaptureCheckResponse, gtin?: string): Rapid
   if (check.outcome === "matched" && check.match) {
     return verdictForCandidate(check.match);
   }
-  if (check.outcome === "needs_question" && check.candidates.length > 0) {
-    return { kind: "pick", candidates: check.candidates.slice(0, 5) };
+  if (check.outcome === "needs_question") {
+    // Only candidates with a catalog shade can be added exactly: finalizing a SKU candidate
+    // re-runs the resolver, which may not pick the one the shopper chose.
+    const pickable = check.candidates.filter((c) => c.shadeId !== null).slice(0, 5);
+    if (pickable.length > 0) return { kind: "pick", candidates: pickable };
   }
   return { kind: "not-found", gtin };
 }

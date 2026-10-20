@@ -80,9 +80,12 @@ export async function refreshTokens(): Promise<StoredTokens | null> {
       { tokenEndpoint: config.tokenEndpoint },
     )
       .then(async (response) => {
+        // The session was signed out or replaced while the request ran: don't bring it back.
+        if (tokens !== current) return null;
         const next = tokensFromResponse(response, current);
         tokens = next;
-        await saveStoredAuth({ mode: "entra", tokens: next });
+        // Persisting is best effort: the refreshed tokens work for this run either way.
+        await saveStoredAuth({ mode: "entra", tokens: next }).catch(() => undefined);
         return next;
       })
       .catch((error: unknown) => {

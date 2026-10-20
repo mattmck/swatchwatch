@@ -126,6 +126,10 @@ describe("verdicts", () => {
     const many = [candidate("notOwned"), candidate("owned", { entityId: "7", shadeId: "7" })];
     assert.deepEqual(deriveVerdict(check({ outcome: "needs_question", candidates: many })), { kind: "pick", candidates: many });
     assert.deepEqual(deriveVerdict(check({ outcome: "unmatched" }), "123"), { kind: "not-found", gtin: "123" });
+    // SKU candidates without a catalog shade can't be added exactly, so they aren't offered.
+    const sku = candidate("notOwned", { entityType: "sku", entityId: "9", shadeId: null });
+    assert.deepEqual(deriveVerdict(check({ outcome: "needs_question", candidates: [sku, many[0]] })), { kind: "pick", candidates: [many[0]] });
+    assert.deepEqual(deriveVerdict(check({ outcome: "needs_question", candidates: [sku] }), "5"), { kind: "not-found", gtin: "5" });
     assert.equal(deriveVerdict(check({ outcome: "matched", match: candidate("owned") })).kind, "owned");
   });
 

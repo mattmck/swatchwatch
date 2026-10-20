@@ -139,7 +139,7 @@ function DevBypassAuthProvider({ children }: { children: ReactNode }) {
     setBusy(true);
     try {
       if (await validate()) {
-        await saveStoredAuth({ mode: "dev-bypass" });
+        await saveStoredAuth({ mode: "dev-bypass" }).catch(() => undefined);
         setStatus("signedIn");
       }
     } catch (err) {
@@ -212,7 +212,11 @@ function EntraAuthProvider({ settings, children }: { settings: EntraSettings; ch
         setError(next);
         return false;
       }
-      await saveStoredAuth({ mode: "entra", tokens });
+      // Persisting can fail on a device (e.g. a rejected oversized value); the session still
+      // works for this run, the next launch just asks to sign in again.
+      await saveStoredAuth({ mode: "entra", tokens }).catch((err: unknown) => {
+        console.warn("[Auth] Couldn't save the session", err);
+      });
       setUser(next);
       setError(null);
       setStatus("signedIn");

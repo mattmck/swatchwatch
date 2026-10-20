@@ -1,4 +1,4 @@
-import { Alert } from "react-native";
+import { Alert, Platform } from "react-native";
 import type { PolishDupesResponse } from "swatchwatch-shared";
 import { getPolishDupes } from "@/api/client";
 
@@ -24,6 +24,15 @@ export async function confirmAddWithDupes(
   if (!dupes || dupes.dupeCount === 0) return "add";
   const best = dupes.dupes[0];
   const names = dupes.dupes.map((d) => `• ${d.brand} — ${d.name}`).join("\n");
+  if (Platform.OS === "web") {
+    // react-native-web's Alert.alert does nothing, so ask with two browser confirms that keep all
+    // three outcomes: add anyway, wishlist instead (when adding), cancel.
+    const message = `You own ${dupes.dupeCount === 1 ? "a close dupe" : `${dupes.dupeCount} close dupes`}:\n${names}`;
+    const verb = target === "owned" ? "Add anyway" : "Wishlist anyway";
+    if (globalThis.confirm?.(`${message}\n\n${verb}?`)) return "add";
+    if (target === "owned" && globalThis.confirm?.("Add it to your wishlist instead?")) return "wishlist";
+    return "cancel";
+  }
   return new Promise((resolve) => {
     const buttons: Parameters<typeof Alert.alert>[2] = [
       { text: "Cancel", style: "cancel", onPress: () => resolve("cancel") },

@@ -89,6 +89,8 @@ export default function RapidAddScreen() {
   const barcodeLock = useRef(false);
   /** Bumped by "Scan next": async work from an earlier scan must not touch the new one. */
   const scanGeneration = useRef(0);
+  /** Frames queued for this scan, counted when a photo starts so quick taps can't pass the cap. */
+  const frameCount = useRef(0);
   const hintsRef = useRef({ brand: "", shadeName: "" });
 
   useFocusEffect(
@@ -158,7 +160,18 @@ export default function RapidAddScreen() {
 
   const addFrame = useCallback(
     async (input: { uri: string; width: number; height: number; type: CaptureFrameType; source: "mobile-camera" | "mobile-library"; scanned: ScannedBarcode | null }) => {
-      const prepared = await prepareJpeg(input.uri, input, { maxEdge: 1600, compress: 0.7 });
+      if (frameCount.current >= MAX_CAPTURE_FRAMES) {
+        setError(`That's the most photos for one scan (${MAX_CAPTURE_FRAMES}). Tap Check, or remove a failed one.`);
+        return { upload: Promise.resolve() };
+      }
+      frameCount.current += 1;
+      let prepared: Awaited<ReturnType<typeof prepareJpeg>>;
+      try {
+        prepared = await prepareJpeg(input.uri, input, { maxEdge: 1600, compress: 0.7 });
+      } catch (err) {
+        frameCount.current -= 1;
+        throw err;
+      }
       const frame = {
         localId: newLocalId(),
         frameType: input.type,
@@ -265,6 +278,14 @@ export default function RapidAddScreen() {
     }
   }
 
+  /** Only a failed frame can be removed (the reducer keeps uploaded ones); it frees its slot. */
+  function removeFrame(localId: string) {
+    if (frames.some((f) => f.localId === localId && f.status === "failed")) {
+      frameCount.current = Math.max(0, frameCount.current - 1);
+    }
+    dispatchFrames({ type: "removed", localId });
+  }
+
   function retryFrame(localId: string) {
     const frame = frames.find((f) => f.localId === localId);
     if (!frame) return;
@@ -273,41 +294,59 @@ export default function RapidAddScreen() {
     void uploadFrame(frame, barcode);
   }
 
+  // The handlers below capture the scan they started in: if the shopper taps "Scan next" before
+  // the response arrives, the late result must not appear on the next scan.
   async function addCandidate(candidate: CaptureCheckCandidate, status: "owned" | "wishlist") {
+    const generation = scanGeneration.current;
+    const current = () => generation === scanGeneration.current;
     setVerdictBusy(status);
     setError(null);
     try {
       if (candidate.shadeId) {
         const updated = await updatePolish(candidate.shadeId, status === "owned" ? { status, quantity: 1 } : { status });
+        if (!current()) return;
         setVerdict({ kind: "added", candidate, status, quantity: updated.quantity });
       } else if (status === "owned" && captureIdRef.current) {
-        // A barcode (SKU) match without a catalog shade: finalize adds it server-side.
-        await finalizeCapture(captureIdRef.current);
+        // A barcode (SKU) match without a catalog shade (only reached for the resolver's own
+        // match, never a picked candidate): finalize adds what the resolver matched. Report
+        // success only when it confirms a match.
+        const finalized = await finalizeCapture(captureIdRef.current);
+        if (!current()) return;
+        if (finalized.status !== "matched") {
+          setError("Couldn't add that one automatically. Try searching for it by name.");
+          return;
+        }
         setVerdict({ kind: "added", candidate, status });
+      } else {
+        return;
       }
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
     } catch (err) {
-      setError(errorMessage(err, "Couldn't add it. Try again."));
+      if (current()) setError(errorMessage(err, "Couldn't add it. Try again."));
     } finally {
-      setVerdictBusy(null);
+      if (current()) setVerdictBusy(null);
     }
   }
 
   async function addBottle(candidate: CaptureCheckCandidate, quantity: number) {
     if (!candidate.shadeId) return;
+    const generation = scanGeneration.current;
+    const current = () => generation === scanGeneration.current;
     setVerdictBusy("bottle");
     try {
       const updated = await updatePolish(candidate.shadeId, { status: "owned", quantity });
-      setVerdict({ kind: "added", candidate, status: "owned", quantity: updated.quantity ?? quantity });
+      if (current()) setVerdict({ kind: "added", candidate, status: "owned", quantity: updated.quantity ?? quantity });
     } catch (err) {
-      setError(errorMessage(err, "Couldn't update the bottle count."));
+      if (current()) setError(errorMessage(err, "Couldn't update the bottle count."));
     } finally {
-      setVerdictBusy(null);
+      if (current()) setVerdictBusy(null);
     }
   }
 
   async function pickCandidate(candidate: CaptureCheckCandidate) {
-    setVerdict(await enrich(verdictForCandidate(candidate)));
+    const generation = scanGeneration.current;
+    const next = await enrich(verdictForCandidate(candidate));
+    if (generation === scanGeneration.current) setVerdict(next);
   }
 
   function scanLabel() {
@@ -317,6 +356,8 @@ export default function RapidAddScreen() {
 
   function scanNext() {
     scanGeneration.current += 1;
+    frameCount.current = 0;
+    setVerdictBusy(null);
     sessionPromise.current = null;
     captureIdRef.current = null;
     barcodeLock.current = false;
@@ -426,7 +467,7 @@ export default function RapidAddScreen() {
             </Card>
           )}
 
-          <FrameStrip frames={frames} onRetry={retryFrame} onRemove={(localId) => dispatchFrames({ type: "removed", localId })} />
+          <FrameStrip frames={frames} onRetry={retryFrame} onRemove={removeFrame} />
 
           <View style={{ gap: theme.spacing(2) }}>
             <Button
