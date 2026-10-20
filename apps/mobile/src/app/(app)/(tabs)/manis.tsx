@@ -6,6 +6,7 @@ import { useAuth } from "@/auth/auth-provider";
 import { readCache, writeCache } from "@/lib/api-cache";
 import { deleteManicure, errorMessage, getPolish, listManicures } from "@/api/client";
 import { LogManiSheet } from "@/components/log-mani-sheet";
+import { PrivateImage } from "@/components/private-image";
 import { ColorDot } from "@/components/swatch";
 import { AppText, Button, Card, CenteredState, Chip, ErrorBanner } from "@/components/ui";
 import { entryFromManicurePolish, formatWornOn, ROLE_LABELS } from "@/lib/mani";
@@ -41,7 +42,7 @@ export default function ManisScreen() {
       return [...prev, ...res.manicures.filter((m) => !seen.has(m.id))];
     });
     setError(null);
-    if (nextPage === 1 && scope) void writeCache(scope, "manis", { items: res.manicures, total: res.total });
+    if (nextPage === 1 && scope) void writeCache(scope, "manis", { items: withoutPhotoUrls(res.manicures), total: res.total });
   }, [scope]);
 
   /**
@@ -201,9 +202,10 @@ export default function ManisScreen() {
         visible={sheetOpen}
         initialPolish={preselected}
         onClose={() => setSheetOpen(false)}
-        onLogged={(mani) => {
+        onLogged={(mani, photoError) => {
           setSheetOpen(false);
           setNotice(`Logged ${formatWornOn(mani.wornOn).toLowerCase()}'s mani.`);
+          if (photoError) setError(`The mani was saved, but its photo wasn't: ${photoError}`);
           void load(1);
         }}
       />
@@ -219,6 +221,9 @@ function ManiCard({ mani, onDelete }: { mani: Manicure; onDelete: () => void }) 
         <AppText variant="heading">{formatWornOn(mani.wornOn)}</AppText>
         <Button title="Delete" variant="ghost" compact onPress={onDelete} accessibilityLabel={`Delete mani from ${mani.wornOn}`} />
       </View>
+      {mani.photoUrl ? (
+        <PrivateImage url={mani.photoUrl} compact style={{ width: 96, height: 96 }} accessibilityLabel={`Your mani photo from ${mani.wornOn}`} />
+      ) : null}
       {mani.polishes.map((polish) => (
         <View key={`${polish.shadeId}:${polish.role}`} style={{ flexDirection: "row", alignItems: "center", gap: theme.spacing(2) }}>
           <ColorDot hex={entryFromManicurePolish(polish).hex} size={20} />
@@ -235,4 +240,12 @@ function ManiCard({ mani, onDelete }: { mani: Manicure; onDelete: () => void }) 
       ) : null}
     </Card>
   );
+}
+
+/**
+ * The saved copy (AsyncStorage) never keeps photo capability URLs: they expire within hours and
+ * private media references stay out of on-disk storage. Fresh responses bring them back.
+ */
+function withoutPhotoUrls(items: Manicure[]): Manicure[] {
+  return items.map((m) => (m.photoUrl ? { ...m, photoUrl: null } : m));
 }
