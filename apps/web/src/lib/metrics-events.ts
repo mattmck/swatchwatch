@@ -2,7 +2,7 @@
  * M2 success-metric events (decision D19, #323; roadmap `docs/roadmap-2026-10-to-12.md` §4).
  *
  * The dupe-warning funnel only exists in the browser, so it is measured with App Insights
- * custom events; status adoption, manis per week and time to 20 polishes come from the weekly
+ * custom events (as are the Looks page events `looks.generated` / `looks.wear_clicked`); status adoption, manis per week and time to 20 polishes come from the weekly
  * Postgres query in `docs/queries/m2-metrics.sql`. `mani.logged` and `import.completed` are
  * browser-side cross-checks for those numbers. `onboarding.step_clicked` shows which way in
  * (import, scan, catalog search) new users pick on the way to 20 polishes.
@@ -18,6 +18,7 @@ import type {
   PolishImportCommitResult,
   PolishStatus,
 } from "swatchwatch-shared";
+import type { Look, Vibe } from "./looks";
 import type { GettingStartedStepId } from "./onboarding";
 import { trackEvent } from "./telemetry";
 
@@ -26,6 +27,8 @@ export const METRIC_EVENTS = {
   dupeWarningOutcome: "dupe.warning_outcome",
   maniLogged: "mani.logged",
   importCompleted: "import.completed",
+  looksGenerated: "looks.generated",
+  looksWearClicked: "looks.wear_clicked",
   onboardingStepClicked: "onboarding.step_clicked",
   matchImageProcessed: "match.image_processed",
   matchResultAction: "match.result_action",
@@ -264,6 +267,72 @@ export function trackImportCompleted(
 ): void {
   if (response.alreadyCommitted) return;
   emit(importCompletedEvent(response.result), tracker);
+}
+
+// ── Looks (`/polishes/looks`) ────────────────────────────────
+
+/** What produced a set of looks: first render or a vibe change (`vibe`), or Shuffle. */
+export type LooksTrigger = "vibe" | "shuffle";
+
+type LookCounts = Pick<Look, "templateId" | "ownedSteps" | "missingSteps">;
+
+export interface LooksGeneratedInput {
+  vibe: Vibe;
+  looks: readonly LookCounts[];
+  shortfall: boolean;
+  /** Owned polishes the recommender considered. */
+  ownedCount: number;
+  trigger: LooksTrigger;
+}
+
+export function looksGeneratedEvent(input: LooksGeneratedInput): MetricEvent {
+  const sum = (key: "ownedSteps" | "missingSteps") => input.looks.reduce((total, look) => total + look[key], 0);
+  return {
+    name: METRIC_EVENTS.looksGenerated,
+    properties: {
+      occasion: input.vibe.occasion,
+      mood: input.vibe.mood,
+      finish: input.vibe.finish ?? "any",
+      ownedOnly: input.vibe.ownedOnly,
+      trigger: input.trigger,
+      lookCount: input.looks.length,
+      ownedSteps: sum("ownedSteps"),
+      missingSteps: sum("missingSteps"),
+      fullyOwnedLooks: input.looks.filter((look) => look.missingSteps === 0).length,
+      ownedCount: input.ownedCount,
+      shortfall: input.shortfall,
+      templates: input.looks.map((look) => look.templateId).join(","),
+    },
+  };
+}
+
+export interface LooksWearClickedInput {
+  look: LookCounts;
+  /** Whether the user swapped any step before wearing. */
+  swapped: boolean;
+  /** 0-based card position. */
+  position: number;
+}
+
+export function looksWearClickedEvent(input: LooksWearClickedInput): MetricEvent {
+  return {
+    name: METRIC_EVENTS.looksWearClicked,
+    properties: {
+      template: input.look.templateId,
+      position: input.position,
+      ownedSteps: input.look.ownedSteps,
+      missingSteps: input.look.missingSteps,
+      swapped: input.swapped,
+    },
+  };
+}
+
+export function trackLooksGenerated(input: LooksGeneratedInput, tracker: MetricTracker = defaultTracker): void {
+  emit(looksGeneratedEvent(input), tracker);
+}
+
+export function trackLooksWearClicked(input: LooksWearClickedInput, tracker: MetricTracker = defaultTracker): void {
+  emit(looksWearClickedEvent(input), tracker);
 }
 
 export function trackOnboardingStepClicked(

@@ -107,6 +107,7 @@ describe("returnToLabel", () => {
     assert.equal(returnToLabel("/polishes/gaps/?cell=1-2"), "Gap Map");
     assert.equal(returnToLabel("/polishes/search?hex=ff0000"), "Color search");
     assert.equal(returnToLabel("/polishes/match"), "Photo Match");
+    assert.equal(returnToLabel("/polishes/looks/?occasion=party&seed=4"), "Looks");
     assert.equal(returnToLabel("/polishes/detail/?id=4&returnTo=%2Fpolishes"), "Previous polish");
     assert.equal(returnToLabel("/dashboard"), "Dashboard");
     assert.equal(returnToLabel("/manis"), "Mani Log");

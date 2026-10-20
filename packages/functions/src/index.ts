@@ -28,3 +28,4 @@ export * from './functions/reference';
 export * from './functions/stats';
 export * from './functions/voice';
 export * from './functions/wishlist-share';
+export * from './functions/looks';

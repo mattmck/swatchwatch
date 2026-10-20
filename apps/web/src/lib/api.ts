@@ -1,4 +1,7 @@
 import type {
+  SavedLook,
+  SavedLookInput,
+  SavedLookListResponse,
   BulkIngestionRequest,
   BulkIngestionResponse,
   ConnectorProtocol,
@@ -360,6 +363,31 @@ export async function deleteManicurePhoto(manicureId: string | number): Promise<
   if (!response.ok) {
     await handleResponse<unknown>(response);
   }
+}
+
+/** The caller's saved looks, newest first (`GET /api/looks`). */
+export async function listSavedLooks(): Promise<SavedLook[]> {
+  const response = await fetch(`${API_BASE_URL}/looks`, { headers: await getAuthHeaders() });
+  return (await handleResponse<SavedLookListResponse>(response)).looks;
+}
+
+/** Save (or re-save) a look (`POST /api/looks`); the server keeps the newest 30. */
+export async function saveLookToServer(look: SavedLookInput): Promise<SavedLook> {
+  const response = await fetch(`${API_BASE_URL}/looks`, {
+    method: "POST",
+    headers: { ...(await getAuthHeaders()), "Content-Type": "application/json" },
+    body: JSON.stringify({ id: look.id, templateId: look.templateId, name: look.name, vibe: look.vibe, steps: look.steps }),
+  });
+  return handleResponse<SavedLook>(response);
+}
+
+/** Delete a saved look by its look key (`DELETE /api/looks?key=`). A 404 (already gone) resolves. */
+export async function deleteSavedLook(key: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/looks?${new URLSearchParams({ key })}`, {
+    method: "DELETE",
+    headers: await getAuthHeaders(),
+  });
+  if (!response.ok && response.status !== 404) await handleResponse<unknown>(response);
 }
 
 /** The caller's dashboard aggregates (`GET /api/stats/collection`, cached server-side ≤60s). */

@@ -49,6 +49,9 @@ npm run test:e2e --workspace=swatchwatch-functions  # E2E tests against the runn
   real sharp: EXIF/GPS stripped from what reaches storage, replace/remove/manicure-delete cleanup that
   only deletes photos the route created and nothing else references, and another user getting 404 on
   `PUT`/`DELETE /api/manicures/{id}/photo` before the body is read or storage is touched.
+  `tests/looks.unit.test.cjs` covers saved looks: auth on every verb, validation (400/413, including
+  multibyte text over the DB byte budget), upsert by look key, the 30-per-user cap trimming only the
+  caller's oldest rows, and cross-user isolation of list and delete.
   `tests/wishlist-share.unit.test.cjs` covers the shareable wishlist (#268): token derivation,
   hashing and canonical parsing, the flag (404 `feature_disabled` on every route, before auth and SQL),
   rotate/revoke making old links 404, the public payload allowlist (no PII, no private fields, only
@@ -172,6 +175,9 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `GET` | `/api/inventory/{inventoryItemId}/nail-photo` | `getNailPhoto` | `nail-photos.ts` | ✅ Working (owner only; `{ photo: NailPhoto \| null }`) |
 | `PUT` | `/api/inventory/{inventoryItemId}/nail-photo` | `putNailPhoto` | `nail-photos.ts` | ✅ Working (owner only; upload/replace, EXIF stripped) |
 | `DELETE` | `/api/inventory/{inventoryItemId}/nail-photo` | `deleteNailPhoto` | `nail-photos.ts` | ✅ Working (owner only; 204, idempotent) |
+| `GET` | `/api/looks` | `handleLooks` | `looks.ts` | ✅ Caller's saved looks (`user_look`), newest first, max 30 (`SavedLookListResponse`; auth required) |
+| `POST` | `/api/looks` | `handleLooks` | `looks.ts` | ✅ Save or re-save a look (`SavedLookInput`, validated by `validateSavedLookInput`; upsert on the look key; body ≤ 8 KB, else 413; keeps the newest 30 per user; 201 + `SavedLook`; telemetry `looks.saved`; auth required) |
+| `DELETE` | `/api/looks?key=<lookKey>` | `handleLooks` | `looks.ts` | ✅ Remove one of the caller's saved looks (204; 404 when the caller has no such look; auth required) |
 | `GET` | `/api/wishlist-share` | `getWishlistShare` | `wishlist-share.ts` | 🚩 Behind `SHAREABLE_WISHLIST_ENABLED` (auth required) |
 | `POST` | `/api/wishlist-share` | `enableWishlistShare` | `wishlist-share.ts` | 🚩 Behind `SHAREABLE_WISHLIST_ENABLED` (auth required) |
 | `DELETE` | `/api/wishlist-share` | `revokeWishlistShare` | `wishlist-share.ts` | 🚩 Behind `SHAREABLE_WISHLIST_ENABLED` (auth required) |

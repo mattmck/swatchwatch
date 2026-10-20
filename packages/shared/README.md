@@ -250,6 +250,25 @@ Admin review queue for `user_submitted` shades (`/api/shades-admin/review*`).
 | `ShadeReviewMergeRequest` / `ShadeReviewRejectRequest` | `{ targetShadeId, keepNameAsAlias?, note? }` / `{ note? }` |
 | `ShadeReviewActionResponse` / `ShadeReviewMergeResponse` | Action result (`status`, `reviewStatus`, `reviewedAt`, `reviewedByUserId`, `message`); merge adds `targetShadeId` and moved/combined inventory, alias, SKU and swatch counts |
 
+### `types/looks.ts`
+
+Looks (`/polishes/looks`) vocabulary and saved looks (`GET/POST/DELETE /api/looks`, table `user_look`). The recommender itself lives in the web app (`apps/web/src/lib/looks.ts`).
+
+| Type | Description |
+|------|-------------|
+| `LOOK_OCCASIONS` / `LookOccasion` | `work`, `date`, `party`, `everyday`, `formal` |
+| `LOOK_MOODS` / `LookMood` | `soft`, `bold`, `edgy`, `playful` |
+| `LOOK_FINISHES` / `LookFinish` | Finish preferences: `gloss`, `matte`, `chrome`, `holo`, `flake`, `sheer` |
+| `LOOK_STEP_ROLES` / `LookStepRole` | `base`, `accent`, `topper` |
+| `LOOK_STEP_SOURCES` / `LookStepSource` | `owned`, `catalog` (to buy), `template` (color only) |
+| `LookVibe` | `{ occasion, mood, finish \| null, ownedOnly }` |
+| `SavedLookStep` | `{ role, label, hex, source, shadeId?, brand?, name? }` — display snapshot, never joined to shades server-side |
+| `SavedLookInput` / `SavedLook` | `{ id (look key), templateId, name, vibe, steps }`; `SavedLook` adds `savedAt` |
+| `SavedLookListResponse` | `GET /api/looks`: `{ looks }`, newest first |
+| `savedLookKey(templateId, steps)` | `<templateId>:<shadeId or "-" per step>` — saving the same combo twice is one look |
+| `validateSavedLookInput(input)` | The one validation rule (API body and web localStorage): enums, `#RRGGBB` hexes, trimmed/capped text, 1–4 steps, ≤ `MAX_LOOK_STEPS_BYTES` of JSON, `id` = look key; drops unknown fields |
+| `MAX_SAVED_LOOKS` / `MAX_LOOK_STEPS` / `MAX_LOOK_STEPS_BYTES` | `30` / `4` / `3500` |
+
 ### `types/wishlist-share.ts`
 
 Shareable wishlist (#268), behind the server flag `SHAREABLE_WISHLIST_ENABLED` (off by default).
