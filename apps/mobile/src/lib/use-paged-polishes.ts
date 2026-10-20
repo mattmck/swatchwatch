@@ -40,7 +40,9 @@ export function usePagedPolishes(filters: PolishFilters, cacheScope?: string): P
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [failed, setFailed] = useState<{ key: string; message: string } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
+  /** Filter set (key) with a "load more" in flight; derived, so a filter change clears it. */
+  const [loadingMoreKey, setLoadingMoreKey] = useState<string | null>(null);
+  const loadingMore = loadingMoreKey === key;
   /**
    * Request generation: bumped on every filter change and refresh. A response from an older
    * generation is dropped, so a slow "load more" can never land on a newer list (skipping
@@ -105,16 +107,16 @@ export function usePagedPolishes(filters: PolishFilters, cacheScope?: string): P
     // A new generation also cancels an in-flight "load more".
     generation.current += 1;
     setRefreshing(true);
-    setLoadingMore(false);
+    setLoadingMoreKey(null);
     void fetchPage(key, 1, generation.current).finally(() => setRefreshing(false));
   }, [fetchPage, key]);
 
   const loadMore = useCallback(() => {
     if (!current || loadingMore || refreshing || !hasMore) return;
     const requestGeneration = generation.current;
-    setLoadingMore(true);
+    setLoadingMoreKey(key);
     void fetchPage(key, current.page + 1, requestGeneration).finally(() => {
-      if (requestGeneration === generation.current) setLoadingMore(false);
+      if (requestGeneration === generation.current) setLoadingMoreKey(null);
     });
   }, [current, fetchPage, hasMore, key, loadingMore, refreshing]);
 

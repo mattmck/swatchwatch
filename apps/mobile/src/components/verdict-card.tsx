@@ -66,13 +66,16 @@ export function VerdictCard(props: VerdictCardProps) {
       );
       actions = (
         <>
-          <Button title="View polish" variant="outline" compact onPress={() => openPolish(verdict.candidate.shadeId)} />
+          {Boolean(verdict.candidate.shadeId) && (
+            <Button title="View polish" variant="outline" compact onPress={() => openPolish(verdict.candidate.shadeId)} />
+          )}
           {Boolean(verdict.candidate.shadeId) && (
             <Button
               title="I bought another"
               variant="outline"
               compact
               loading={busy === "bottle"}
+              disabled={busy !== null}
               onPress={() => props.onAddBottle(verdict.candidate, verdict.quantity + 1)}
             />
           )}
@@ -87,8 +90,9 @@ export function VerdictCard(props: VerdictCardProps) {
       body = <AppText variant="small" muted>Buying it? Move it into your collection.</AppText>;
       actions = (
         <>
-          <Button title="I bought it" compact loading={busy === "owned"} onPress={() => props.onAdd(verdict.candidate, "owned")} />
-          <Button title="View polish" variant="outline" compact onPress={() => openPolish(verdict.candidate.shadeId)} />
+          <Button title="I bought it" compact loading={busy === "owned"}
+              disabled={busy !== null} onPress={() => props.onAdd(verdict.candidate, "owned")} />
+          {Boolean(verdict.candidate.shadeId) && <Button title="View polish" variant="outline" compact onPress={() => openPolish(verdict.candidate.shadeId)} />}
         </>
       );
       break;
@@ -112,9 +116,11 @@ export function VerdictCard(props: VerdictCardProps) {
       );
       actions = (
         <>
-          <Button title="Add anyway" compact loading={busy === "owned"} onPress={() => props.onAdd(verdict.candidate, "owned")} />
+          <Button title="Add anyway" compact loading={busy === "owned"}
+              disabled={busy !== null} onPress={() => props.onAdd(verdict.candidate, "owned")} />
           {Boolean(verdict.candidate.shadeId) && (
-            <Button title="Wishlist" variant="outline" compact loading={busy === "wishlist"} onPress={() => props.onAdd(verdict.candidate, "wishlist")} />
+            <Button title="Wishlist" variant="outline" compact loading={busy === "wishlist"}
+              disabled={busy !== null} onPress={() => props.onAdd(verdict.candidate, "wishlist")} />
           )}
         </>
       );
@@ -127,9 +133,11 @@ export function VerdictCard(props: VerdictCardProps) {
       title = "You don't own this yet";
       actions = (
         <>
-          <Button title="Add to collection" compact loading={busy === "owned"} onPress={() => props.onAdd(verdict.candidate, "owned")} />
+          <Button title="Add to collection" compact loading={busy === "owned"}
+              disabled={busy !== null} onPress={() => props.onAdd(verdict.candidate, "owned")} />
           {Boolean(verdict.candidate.shadeId) && (
-            <Button title="Wishlist" variant="outline" compact loading={busy === "wishlist"} onPress={() => props.onAdd(verdict.candidate, "wishlist")} />
+            <Button title="Wishlist" variant="outline" compact loading={busy === "wishlist"}
+              disabled={busy !== null} onPress={() => props.onAdd(verdict.candidate, "wishlist")} />
           )}
         </>
       );
@@ -147,6 +155,7 @@ export function VerdictCard(props: VerdictCardProps) {
               title={`${c.display} · ${confidenceLabel(c.confidence)}${c.ownership.relationship === "owned" ? " · owned" : c.ownership.relationship === "wishlisted" ? " · wishlist" : ""}`}
               variant="outline"
               compact
+              disabled={busy !== null}
               onPress={() => props.onPick(c)}
               style={{ justifyContent: "flex-start" }}
             />
@@ -184,7 +193,7 @@ export function VerdictCard(props: VerdictCardProps) {
             You now have {verdict.quantity} bottles.
           </AppText>
         ) : null;
-      actions = <Button title="View polish" variant="outline" compact onPress={() => openPolish(verdict.candidate.shadeId)} />;
+      actions = Boolean(verdict.candidate.shadeId) ? <Button title="View polish" variant="outline" compact onPress={() => openPolish(verdict.candidate.shadeId)} /> : null;
       break;
   }
 

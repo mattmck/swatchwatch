@@ -94,7 +94,8 @@ export async function refreshTokens(): Promise<StoredTokens | null> {
         tokens = next;
         // Keep the saved user and token endpoint (an offline launch needs them). They come from
         // memory, not a storage read, so a failed read can never drop them.
-        await saveStoredAuth({ ...sessionExtras, mode: "entra", tokens: next });
+        // Persisting is best effort: the refreshed tokens work for this run either way.
+        await saveStoredAuth({ ...sessionExtras, mode: "entra", tokens: next }).catch(() => undefined);
         return next;
       })
       .catch((error: unknown) => {
