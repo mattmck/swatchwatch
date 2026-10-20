@@ -57,6 +57,13 @@ import {
   type ImageFingerprint,
 } from "./gallery-dedupe";
 import { trackEvent } from "./telemetry";
+import {
+  ingestedVendorHexParams,
+  ingestedVendorHexSetSql,
+  planIngestedVendorHex,
+  SHADE_VENDOR_HEX_COLUMNS,
+  type ShadeVendorHexState,
+} from "./vendor-hex";
 
 export interface DataSourceRecord {
   dataSourceId: number;
@@ -2362,22 +2369,26 @@ export async function materializeMakeupApiRecords(
 
         const collection = makeup.name;
 
-        const existingShade = await client.query<{ shadeId: number; finishes: string[] | null }>(
-          `SELECT shade_id AS "shadeId", finishes
+        const existingShade = await client.query<{ shadeId: number; finishes: string[] | null } & ShadeVendorHexState>(
+          `SELECT shade_id AS "shadeId", finishes,
+                  ${SHADE_VENDOR_HEX_COLUMNS}
            FROM shade
            WHERE brand_id = $1
              AND product_line_id IS NULL
              AND lower(shade_name_canonical) = lower($2)
              AND coalesce(collection, '') = coalesce($3, '')
-           LIMIT 1`,
+           LIMIT 1
+           FOR UPDATE`,
           [brandId, shadeName, collection]
         );
 
         let shadeId: number;
         let currentFinishes: string[] = [];
+        let currentVendorHex: ShadeVendorHexState | null = null;
         if (existingShade.rows.length > 0) {
           shadeId = existingShade.rows[0].shadeId;
           currentFinishes = existingShade.rows[0].finishes ?? [];
+          currentVendorHex = existingShade.rows[0];
         } else {
           const insertedShade = await client.query<{ shadeId: number }>(
             `INSERT INTO shade (brand_id, shade_name_canonical, collection, status)
@@ -2395,7 +2406,8 @@ export async function materializeMakeupApiRecords(
 
         // Write color data to shade (product-level)
         const resolvedColorName = variant.name || makeup.name;
-        const resolvedVendorHex = variant.hex;
+        // A vendor hex replaces the stored one, except an admin-promoted manual label (#321, D12).
+        const vendorHexPlan = planIngestedVendorHex(currentVendorHex, variant.hex || null, true);
         // Merge (never remove) tag finishes in TypeScript, like the Holo Taco path, so aliases
         // and legacy values are canonicalized and deduped; descriptor/description finishes only
         // fill a shade with none (#352); null leaves finishes untouched.
@@ -2403,14 +2415,14 @@ export async function materializeMakeupApiRecords(
         await client.query(
           `UPDATE shade SET
              color_name = COALESCE($2, color_name),
-             vendor_hex = COALESCE($3, vendor_hex),
+             ${ingestedVendorHexSetSql("$3", 5)},
              finishes = COALESCE($4::text[], finishes),
              -- Catalog data confirms a user-submitted shade: promote it to the shared catalog
              -- (never one an admin retired by merging it into another shade).
              status = CASE WHEN status = 'user_submitted' AND merged_into_shade_id IS NULL THEN 'active' ELSE status END,
              updated_at = now()
            WHERE shade_id = $1`,
-          [shadeId, resolvedColorName, resolvedVendorHex, mergedFinishes]
+          [shadeId, resolvedColorName, vendorHexPlan.vendorHex, mergedFinishes, ...ingestedVendorHexParams(vendorHexPlan)]
         );
         const { category: productCategory } = classifyProductCategory({
           shadeName,
@@ -2613,20 +2625,20 @@ async function materializePreparedHoloTacoRecord(
   );
 
   // Read current shade color data for overwrite comparison
-  const currentShade = await client.query<{
-    vendorHex: string | null;
+  const currentShade = await client.query<ShadeVendorHexState & {
     detectedHex: string | null;
     detectedFinishes: string[] | null;
     nameHex: string | null;
     finishes: string[] | null;
   }>(
     `SELECT
-       vendor_hex AS "vendorHex",
+       ${SHADE_VENDOR_HEX_COLUMNS},
        detected_hex AS "detectedHex",
        detected_finishes AS "detectedFinishes",
        name_hex AS "nameHex",
        finishes
-     FROM shade WHERE shade_id = $1`,
+     FROM shade WHERE shade_id = $1
+     FOR UPDATE`,
     [shadeId]
   );
   // Vendor tag finishes are merged (never removed) so manual edits survive re-imports;
@@ -2636,10 +2648,14 @@ async function materializePreparedHoloTacoRecord(
     applyIngestedFinishes(currentFinishes, finishResolution, finishCatalog) ??
     mergeFinishLists([currentFinishes], finishCatalog);
 
+  // A vendor hex follows the overwrite rule, except an admin-promoted manual label, which
+  // ingestion never replaces (#321, D12): the vendor value is kept in vendor_hex_previous.
+  const vendorHexPlan = planIngestedVendorHex(currentShade.rows[0] ?? null, vendorHex || null, overwriteDetectedHex);
+
   const shouldOverwrite = overwriteDetectedHex;
   if (
     shouldOverwrite && currentShade.rows.length > 0 &&
-    ((vendorHex && vendorHex !== currentShade.rows[0].vendorHex) ||
+    (vendorHexPlan.vendorHexChanged ||
       (detectedHex && detectedHex !== currentShade.rows[0].detectedHex) ||
       (detectedFinishes &&
         JSON.stringify(detectedFinishes) !==
@@ -2653,10 +2669,7 @@ async function materializePreparedHoloTacoRecord(
   await client.query(
     `UPDATE shade
      SET color_name = COALESCE(color_name, $2),
-         vendor_hex = CASE
-           WHEN $6::boolean AND $3::text IS NOT NULL THEN $3::text
-           ELSE COALESCE(vendor_hex, $3::text)
-         END,
+         ${ingestedVendorHexSetSql("$3", 13)},
          detected_hex = CASE
            WHEN $6::boolean AND $4::text IS NOT NULL THEN $4::text
            ELSE COALESCE(detected_hex, $4::text)
@@ -2692,13 +2705,14 @@ async function materializePreparedHoloTacoRecord(
     [
       shadeId,
       holo.name,
-      vendorHex,
+      vendorHexPlan.vendorHex,
       detectedHex,
       detectedFinishes,
       overwriteDetectedHex,
       nameHex,
       mergedFinishes,
       ...provenanceParams(detectedHexProvenance),
+      ...ingestedVendorHexParams(vendorHexPlan),
     ]
   );
 

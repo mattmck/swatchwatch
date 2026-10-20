@@ -270,7 +270,16 @@ CREATE TABLE shade (
   product_category_source TEXT NOT NULL DEFAULT 'rule' CHECK (product_category_source IN ('rule', 'admin')),
   created_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL, -- creator of a user-API shade; NULL for catalog/ingestion rows (migration 024)
   color_name TEXT,
-  vendor_hex TEXT,                               -- hex published by the vendor (e.g. Shopify variant option)
+  vendor_hex TEXT,                               -- hex published by the vendor (e.g. Shopify variant option), or an admin-promoted manual label
+  -- vendor_hex provenance (migration 20261020024540860_shade-vendor-hex-provenance, #321/D12). 'manual_label' =
+  -- promoted from a color_training_sample manual label; ingestion never overwrites it (it records the vendor's
+  -- latest value in vendor_hex_previous instead). NULL = unknown / no hex.
+  vendor_hex_source TEXT CONSTRAINT shade_vendor_hex_source_check
+    CHECK (vendor_hex_source IS NULL OR vendor_hex_source IN ('vendor', 'manual_label')),
+  vendor_hex_label_id BIGINT,                    -- promoted label (FK added after color_training_sample, ON DELETE SET NULL keeps the hex)
+  vendor_hex_set_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL, -- admin who promoted it
+  vendor_hex_set_at TIMESTAMPTZ,                 -- last promotion / ingestion write of vendor_hex
+  vendor_hex_previous TEXT,                      -- vendor hex a promotion replaced; Undo restores it
   detected_hex TEXT,                             -- hex detected from the product image (AI vision)
   name_hex TEXT,                                 -- hex inferred from the color name
   -- detected_hex provenance (migration 20261017024958000_shade-detected-hex-provenance): who/what produced detected_hex and how sure it was
@@ -509,7 +518,11 @@ CREATE TABLE admin_audit_event (
   note TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT admin_audit_event_action_check
-    CHECK (action IN ('user.update', 'user.suspend', 'user.unsuspend', 'user.merge'))
+    CHECK (action IN (
+      'user.update', 'user.suspend', 'user.unsuspend', 'user.merge',
+      -- #321 vendor-hex promotions: target_user_id NULL, shade id in changes
+      'shade.vendor_hex_promote', 'shade.vendor_hex_demote'
+    ))
 );
 
 CREATE INDEX idx_admin_audit_event_target ON admin_audit_event(target_user_id, created_at DESC);
@@ -1105,6 +1118,11 @@ CREATE UNIQUE INDEX idx_color_training_external_product_source
 CREATE UNIQUE INDEX idx_color_training_manual_shade
   ON color_training_sample(shade_id)
   WHERE source_type = 'manual' AND shade_id IS NOT NULL;
+
+-- Promoted manual label behind shade.vendor_hex (#321, D12). Deleting the label keeps the promoted hex.
+ALTER TABLE shade ADD CONSTRAINT shade_vendor_hex_label_id_fkey
+  FOREIGN KEY (vendor_hex_label_id) REFERENCES color_training_sample(training_sample_id) ON DELETE SET NULL;
+CREATE INDEX idx_shade_vendor_hex_label ON shade (vendor_hex_label_id) WHERE vendor_hex_label_id IS NOT NULL;
 
 -- Track which samples have been used for model training
 CREATE TABLE color_model_version (
