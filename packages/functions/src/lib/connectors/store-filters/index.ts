@@ -1,3 +1,4 @@
+import { isCirqueColorsPolish } from "./cirque-colors.js";
 import { isPahlishPolish } from "./pahlish.js";
 import type { StoreFilterProduct, StoreProductFilter } from "./types.js";
 
@@ -5,12 +6,13 @@ export type { StoreFilterProduct, StoreProductFilter } from "./types.js";
 
 /**
  * Per-source product filters for stores whose products.json the generic
- * Shopify polish filter cannot classify (#328). The generic connector asks
+ * Shopify polish filter cannot classify (#328, #273). The generic connector asks
  * this map first; a source without an entry, or a filter that returns null,
  * falls through to the generic filter. Bundle exclusion still applies after.
  */
 export const SHOPIFY_STORE_PRODUCT_FILTERS: Readonly<Record<string, StoreProductFilter>> = {
   PahlishShopify: isPahlishPolish,
+  CirqueColorsShopify: isCirqueColorsPolish,
 };
 
 /** The store filter's verdict for `product`, or null when `source` has none. */

@@ -6,8 +6,19 @@
  *
  * Routes (admin-only): `GET /api/hex-labels-admin/queue`, `GET /api/hex-labels-admin/shades/{shadeId}`
  * (one `HexLabelQueueItem`, for the polish detail page),
- * `POST /api/hex-labels-admin/labels`, `DELETE /api/hex-labels-admin/labels/{trainingSampleId}`.
+ * `POST /api/hex-labels-admin/labels`, `DELETE /api/hex-labels-admin/labels/{trainingSampleId}`,
+ * `POST|DELETE /api/hex-labels-admin/labels/{trainingSampleId}/promote` and
+ * `DELETE /api/hex-labels-admin/shades/{shadeId}/promotion` (promote a label to `shade.vendor_hex`
+ * and undo it, #321 / decision D12).
  */
+
+/**
+ * Where `shade.vendor_hex` came from (`shade.vendor_hex_source`, #321): `vendor` = vendor/catalog
+ * data, `manual_label` = an admin promoted the shade's manual label. Ingestion never overwrites a
+ * `manual_label` hex. Admin-only: not part of user-facing polish responses.
+ */
+export const VENDOR_HEX_SOURCES = ["vendor", "manual_label"] as const;
+export type VendorHexSource = (typeof VENDOR_HEX_SOURCES)[number];
 
 /** How the labelled hex was picked. */
 export type HexLabelSampleMethod = "canvas" | "eyedropper" | "manual";
@@ -80,6 +91,15 @@ export interface HexLabelQueueItem {
   images: HexLabelImage[];
   /** The shade's current manual label, if any. */
   label: HexLabel | null;
+  /** Provenance of `vendorHex`; null = unknown / no vendor hex. */
+  vendorHexSource: VendorHexSource | null;
+  /**
+   * The label promoted to `vendorHex` when `vendorHexSource` is `manual_label`; null when none, or
+   * when the promoted label was deleted afterwards (the promoted hex is kept).
+   */
+  promotedLabelId: string | null;
+  /** Vendor hex a promotion replaced (restored by Undo); null when not promoted or there was none. */
+  vendorHexPrevious: string | null;
 }
 
 export interface HexLabelQueueFilters {
@@ -133,4 +153,18 @@ export interface HexLabelSaveResponse {
 
 export interface HexLabelDeleteResponse {
   deleted: string;
+}
+
+/**
+ * Response of `POST /api/hex-labels-admin/labels/{id}/promote` and of the two undo routes
+ * (`DELETE .../labels/{id}/promote`, `DELETE .../shades/{shadeId}/promotion`).
+ */
+export interface HexLabelPromoteResponse {
+  shadeId: string;
+  vendorHex: string | null;
+  vendorHexSource: VendorHexSource | null;
+  promotedLabelId: string | null;
+  vendorHexPrevious: string | null;
+  /** False when the request changed nothing (repeat promote, or undo with nothing promoted). */
+  changed: boolean;
 }

@@ -434,3 +434,68 @@ describe("shopCandidatesForStep — base parity with the recommender", () => {
     assert.equal(picks.length, 0, `${base.targetHex} vs clash`);
   });
 });
+
+describe("recommendLooks — includeToppers (#386)", () => {
+  const catalogToppers = () => [
+    polish("#F8D7E8", { status: "wishlist", finishes: ["glitter"] }),
+    polish("#F3C6D3", { status: "wishlist", finishes: ["flake"] }),
+    polish("#E3E3EC", { status: "wishlist", finishes: ["topper"] }),
+  ];
+  const isTopOnly = (p: Polish) => resolvePolishFinishes(p).some((f) => f === "topper" || f === "flake");
+
+  it("defaults to today's behaviour: omitting it equals includeToppers: true", () => {
+    const owned = collection();
+    const catalog = catalogToppers();
+    for (const seed of [1, 2, 3]) {
+      const input = { polishes: owned, catalog, vibe: vibe({ finish: "flake" }), seed };
+      assert.deepEqual(recommendLooks(input), recommendLooks({ ...input, includeToppers: true }));
+    }
+  });
+
+  it("has no topper step and uses or offers no topper when off, even for the Flake vibe", () => {
+    const owned = collection();
+    const catalog = catalogToppers();
+    for (const seed of [1, 2, 3, 4, 5]) {
+      for (const v of [vibe({ finish: "flake" }), vibe({ occasion: "party", mood: "bold" }), vibe({ ownedOnly: true })]) {
+        const off = recommendLooks({ polishes: owned, catalog, vibe: v, seed, includeToppers: false });
+        assert.ok(off.looks.length > 0, `seed ${seed}`);
+        for (const look of off.looks) {
+          assert.ok(!look.steps.some((s) => s.role === "topper"), look.templateId);
+          for (const step of look.steps) {
+            assert.ok(!step.polish || !isTopOnly(step.polish), `${look.templateId}/${step.role}`);
+            assert.ok(!step.alternatives.some(isTopOnly), `${look.templateId}/${step.role} swap`);
+          }
+        }
+      }
+    }
+  });
+
+  it("changes the looks when the vibe would add a topper", () => {
+    const owned = collection();
+    const on = recommendLooks({ polishes: owned, vibe: vibe({ finish: "flake" }), seed: 2 });
+    const off = recommendLooks({ polishes: owned, vibe: vibe({ finish: "flake" }), seed: 2, includeToppers: false });
+    assert.ok(on.looks.some((l) => l.steps.some((s) => s.role === "topper")), "expected a topper with toppers on");
+    assert.notDeepEqual(on.looks, off.looks);
+  });
+
+  it("is deterministic per seed when off", () => {
+    const owned = collection();
+    const a = recommendLooks({ polishes: owned, vibe: vibe(), seed: 7, includeToppers: false });
+    const b = recommendLooks({ polishes: owned, vibe: vibe(), seed: 7, includeToppers: false });
+    assert.deepEqual(a, b);
+  });
+
+  it("asks the catalog for no toppers and offers none as a substitute when off", () => {
+    const off = recommendLooks({ polishes: [], vibe: vibe({ finish: "flake" }), seed: 1, includeToppers: false });
+    assert.equal(catalogQueriesForLooks(off.looks).toppers, false);
+    assert.equal(catalogQueriesForLooks(off.looks, { includeOwned: true }).toppers, false);
+    const look = recommendLooks({ polishes: collection(), vibe: vibe(), seed: 1, includeToppers: false }).looks[0];
+    assert.deepEqual(shopCandidatesForStep(look, "topper", catalogToppers(), vibe()), []);
+  });
+
+  it("lets a full-coverage glitter be a base when toppers are off (no glitter-on-glitter to avoid)", () => {
+    const glitter = polish("#F4C2C2", { finishes: ["glitter"] });
+    const { looks } = recommendLooks({ polishes: [glitter], vibe: vibe({ finish: "flake" }), seed: 1, includeToppers: false });
+    assert.ok(looks.some((l) => l.steps.find((s) => s.role === "base")?.polish?.id === glitter.id));
+  });
+});

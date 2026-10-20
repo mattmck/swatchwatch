@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Bookmark, BookmarkCheck, Check, Clock, Info, Link2, Paintbrush, Plus, Repeat, Search, ShoppingBag } from "lucide-react";
+import { Bookmark, BookmarkCheck, Check, Clock, Info, Link2, Paintbrush, Palette, Plus, Repeat, Search, ShoppingBag } from "lucide-react";
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
 import { BuyFromBrandLink } from "@/components/buy-from-brand-link";
@@ -73,6 +73,31 @@ function OwnershipPill({ step }: { step: LookStep }) {
       <Plus aria-hidden />
       Add
     </Badge>
+  );
+}
+
+/**
+ * "Color Lab" (#386): opens color search seeded with a look's palette (the plan's
+ * "Advanced / Color Lab"); the search page's "Back to Looks" link returns to the same vibe.
+ */
+export function ColorLabLink({
+  href,
+  onClick,
+  lookName,
+  className,
+}: {
+  href: string;
+  onClick?: () => void;
+  lookName: string;
+  className?: string;
+}) {
+  return (
+    <Button asChild variant="ghost" size="sm" className={className}>
+      <Link href={href} onClick={onClick} aria-label={`Open ${lookName} in Color Lab`} title="Explore this palette in color search">
+        <Palette className="size-4" aria-hidden />
+        Color Lab
+      </Link>
+    </Button>
   );
 }
 
@@ -175,12 +200,29 @@ interface LookCardProps {
   onDetails: () => void;
   /** Copy the look as text + link. */
   onShare: () => void;
+  /** `/polishes/search` seeded with this look's palette (`lookColorLabHref`, #386). */
+  colorLabHref: string;
+  /** Called when the Color Lab link is followed (telemetry). */
+  onColorLab: () => void;
   /** Skin-tone preview mat color behind the swatch strip (cosmetic). */
   backdrop?: string;
 }
 
 /** One look: swatch strip, steps with ownership pills and Swap, difficulty/time, Wear this and Save. */
-export function LookCard({ look, returnTo, saved, onWear, onSave, onSwap, onShop, onDetails, onShare, backdrop }: LookCardProps) {
+export function LookCard({
+  look,
+  returnTo,
+  saved,
+  onWear,
+  onSave,
+  onSwap,
+  onShop,
+  onDetails,
+  onShare,
+  colorLabHref,
+  onColorLab,
+  backdrop,
+}: LookCardProps) {
   const canWear = look.ownedSteps > 0;
   return (
     <Card className="flex flex-col gap-4">
@@ -238,6 +280,7 @@ export function LookCard({ look, returnTo, saved, onWear, onSave, onSwap, onShop
           <Link2 className="size-4" aria-hidden />
           Copy look
         </Button>
+        <ColorLabLink href={colorLabHref} onClick={onColorLab} lookName={look.name} className="flex-1" />
       </CardFooter>
     </Card>
   );
