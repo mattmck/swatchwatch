@@ -51,7 +51,7 @@ function resetState() {
         { ...mk(CATALOG_SHADE, 1, "Catalog Red", "creme", ["creme"], "active", null), vendorHex: "#aa0000" },
         mk(EMPTY_FINISH_SHADE, 1, "Blank Blue", "creme", [], "active", null),
         { ...mk(A_PRIVATE_SHADE, 1, "A Secret", "creme", ["creme"], "user_submitted", USER_A), vendorHex: "#111111" },
-        mk(B_PRIVATE_SHADE, 1, "B Secret", "creme", ["glitter"], "user_submitted", USER_B),
+        { ...mk(B_PRIVATE_SHADE, 1, "B Secret", "creme", ["glitter"], "user_submitted", USER_B), vendorHex: "#ab0101" },
         {
           ...mk(A_MERGED_SHADE, 1, "Catalog Redd", "creme", ["creme"], "user_submitted", USER_A),
           reviewStatus: "merged",
@@ -111,6 +111,7 @@ function polishRow(shade, userId) {
     finish: shade.finish || "",
     finishes: [...shade.finishes],
     collection: "",
+    vendorHex: shade.vendorHex ?? null,
     swatchImageUrl: null,
     quantity: inInv ? 1 : null,
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -298,6 +299,17 @@ registerMock("../lib/blob-storage", {
 registerMock("sharp", () => { throw new Error("sharp not expected"); });
 for (const [id, exports] of Object.entries(mockModules)) {
   require.cache[id] = { id, filename: id, loaded: true, exports };
+}
+// match-image (#105): real parsing and ranking, but a fixed palette instead of decoding pixels
+// (registered after the cache loop so the real module loads against the mocked sharp).
+{
+  const realColorMatch = require(path.resolve(__dirname, "../dist/lib/color-match.js"));
+  const colorMatchMock = {
+    ...realColorMatch,
+    extractImagePalette: async () => [{ hex: "#AA0000", fraction: 1, kind: "color" }],
+  };
+  registerMock("../lib/color-match", colorMatchMock);
+  require.cache["../lib/color-match"] = { id: "../lib/color-match", filename: "../lib/color-match", loaded: true, exports: colorMatchMock };
 }
 
 require("../dist/functions/polishes");
@@ -678,5 +690,48 @@ describe("admin review queue — rejected and merged submissions stay private", 
     assert.equal(res.status, 201);
     assert.ok(!state.inventory.has(`${USER_B}:${A_MERGED_SHADE}`));
     assert.ok(!state.inventory.has(`${USER_B}:${CATALOG_SHADE}`), "must not learn the private submission's merge target");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Photo match (#105): the catalog / wishlist scopes never reach other users' private shades
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("match-image scopes respect shade visibility", () => {
+  // The palette is stubbed (one red color); the bytes only need to pass request validation.
+  const redPngDataUrl = async () => `data:image/png;base64,${Buffer.from("not decoded").toString("base64")}`;
+  const matchImage = async (userId, body) =>
+    invoke("polishes-match-image", {
+      method: "POST",
+      userId,
+      url: "http://localhost:7071/api/polishes/match-image",
+      body: { image: await redPngDataUrl(), ...body },
+    });
+  const ids = (res) =>
+    new Set([...res.jsonBody.matches, ...res.jsonBody.colorMatches.flatMap((g) => g.matches)].map((m) => m.polish.id));
+
+  it("catalog scope: another user's private red shade never matches, the caller's own one may", async () => {
+    const res = await matchImage(USER_A, { scope: "catalog", limit: 50, perColorLimit: 20 });
+    assert.equal(res.status, 200);
+    const seen = ids(res);
+    assert.ok(seen.has(String(CATALOG_SHADE)), "the shared red shade should match");
+    assert.ok(!seen.has(String(B_PRIVATE_SHADE)), "B's private shade leaked into A's catalog matches");
+    assert.ok(!seen.has(String(A_MERGED_SHADE)), "merged submissions must stay hidden");
+
+    const resB = await matchImage(USER_B, { scope: "catalog", limit: 50, perColorLimit: 20 });
+    assert.ok(ids(resB).has(String(B_PRIVATE_SHADE)), "B still sees their own private shade");
+    assert.ok(!ids(resB).has(String(A_PRIVATE_SHADE)), "A's private shade leaked into B's catalog matches");
+  });
+
+  it("every match-image query binds $1 to the caller and carries the visibility predicate", async () => {
+    await matchImage(USER_B, { scope: "wishlist" });
+    await matchImage(USER_B, { scope: "catalog" });
+    const polishQueries = calls().filter((c) => /LEFT\s+JOIN\s+user_inventory_item/i.test(c.sql));
+    assert.ok(polishQueries.length >= 2);
+    for (const q of polishQueries) {
+      assert.match(q.sql, /ui\.user_id\s*=\s*\$1/i);
+      assert.match(q.sql, /s\.created_by_user_id\s*=\s*\$1/i);
+      assert.equal(q.params[0], USER_B, "$1 must be the caller");
+    }
   });
 });

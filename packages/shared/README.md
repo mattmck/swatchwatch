@@ -211,6 +211,7 @@ Collection stats (#271): the `GET /api/stats/collection` payload behind the dash
 | `DUPE_FINISH_FAMILIES`, `finishFamily(finish, families?)` | Built-in finish families for dupe compatibility (the fallback when no catalog is passed; seeded into `finish_type.family`): solid (creme/crelly/jelly/sheer), shimmer (shimmer/metallic/magnetic/duochrome/multichrome), holo, glitter (glitter/flake/topper), matte, thermal, glow; `other` has no family |
 | `FinishFamilyMap`, `FinishFamilySource`, `buildFinishFamilyMap(finishTypes)` | Catalog-driven families (#320): finish name → `FinishFamily \| null` from `finish_type.family` rows layered over `DUPE_FINISH_FAMILIES` (a row with a `family` key wins, `null` = no family; rows without the key and names the catalog omits keep the built-in family; no catalog → the built-in map) |
 | `finishCompatibility(targetFinishes, candidateFinishes, families?)` | `same` (same primary), `compatible` (same family or any shared finish), `different` (known, different families), `unknown` (missing/`other`/no family — never penalized); `families` defaults to `DUPE_FINISH_FAMILIES` |
+| `PaletteColorKind`, `PALETTE_COLOR_KINDS`, `PALETTE_QUALITY_THRESHOLDS`, `classifyPaletteColor(hex)`, `isBackgroundPaletteKind(kind)`, `paletteVibrancyWeight(hex)` | Photo-palette quality (#105, `color/palette-quality.ts`): `light` (L ≥ 0.97, or L ≥ 0.90 with C < 0.05), `dark` (L < 0.22, C < 0.06), `skin` (hue 20–80, C 0.025–0.14, L 0.35–0.92) or `color`. Coarse on purpose (nudes read as skin), so the web hides these only by default and the API drops them only on request. `paletteVibrancyWeight` = 1 + min(C / 0.2, 1) for `preferVibrant` |
 | `gradeDupe(distance, compatibility)` | `{ colorGrade, grade }`: `confidenceForDistance` (the match-image thresholds), dropped one step for `different` finishes; `grade` null when LOW |
 | `prepareDupeShade(shade)`, `prepareDupeCandidates(shades)`, `findDupes(target, candidates, { finishFamilies? })`, `summarizeDupes(id, dupes)`, `compareDupes` | Pure dupe finder: resolve each display hex (`resolveDisplayHexDetailed`) and OKLAB once, then O(N) per target; excludes the target's own id and candidates of another product category (color ↔ color, topper ↔ topper only, #349; `productCategory` on `DupeShade`/`PreparedDupeShade`, missing = color); ordered by grade, finish compatibility, distance, brand/name |
 
@@ -310,10 +311,12 @@ Shareable wishlist (#268), behind the server flag `SHAREABLE_WISHLIST_ENABLED` (
 | Type | Description |
 |------|-------------|
 | `MatchConfidence` | `"high" \| "medium" \| "low"` — bucketed OKLAB distance (thresholds in Functions `lib/color-match.ts`) |
-| `ExtractedColor` | Dominant image color: uppercase `hex` + pixel `fraction` (0–1) |
-| `PolishImageMatchRequest` | Body for `POST /api/polishes/match-image`: `image` (base64 data URL), optional `maxColors` (1–10), `limit` (1–50) |
-| `PolishMatch` | `{ polish, matchedColor, distance, confidence }` — one owned polish matched to its closest extracted color |
-| `PolishImageMatchResponse` | `{ extractedColors, matches, candidateCount }` |
+| `MatchScope`, `MATCH_SCOPES`, `isMatchScope(value)` | `"owned" \| "wishlist" \| "catalog"` — which shades match-image ranks (#105; default `owned`) |
+| `ExtractedColor` | Dominant image color: uppercase `hex` + pixel `fraction` (0–1) + `kind` (`PaletteColorKind`, always set by the API) |
+| `PolishImageMatchRequest` | Body for `POST /api/polishes/match-image`: `image` (base64 data URL), optional `maxColors` (1–10), `limit` (1–50), `perColorLimit` (1–20), `scope`, `finishes`, `families`, `excludeSkinTones`, `excludeBackground`, `preferVibrant` |
+| `PolishMatch` | `{ polish, matchedColor, distance, confidence }` — one polish matched to an extracted color |
+| `ColorMatchGroup` | `{ hex, matches }` — one extracted color's own top matches |
+| `PolishImageMatchResponse` | `{ extractedColors, matches, colorMatches, candidateCount, scope }` |
 
 ### `types/dupes.ts` (dupe finder, #265)
 
