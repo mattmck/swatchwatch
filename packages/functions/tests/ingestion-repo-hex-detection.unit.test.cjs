@@ -28,6 +28,8 @@ let transactionCount;
 let failTransactionAt;
 let shadeColorUpdates = [];
 let categoryWrites = [];
+let adminLookups = [];
+let adminCategoryRows = [];
 
 const transactionClient = {
   async query(sql, params) {
@@ -52,6 +54,10 @@ const transactionClient = {
 
 mockDistModule("db.js", {
   query: async (sql, params) => {
+    if (sql.includes("product_category_source = 'admin'")) {
+      adminLookups.push(params);
+      return { rows: adminCategoryRows };
+    }
     if (sql.includes("WITH input AS")) {
       lookupCalls.push(params);
       return { rows: await lookupHandler(params) };
@@ -170,6 +176,8 @@ describe("materializeHoloTacoRecords hex detection", () => {
     loadedImageUrls = [];
     shadeColorUpdates = [];
     categoryWrites = [];
+    adminLookups = [];
+    adminCategoryRows = [];
     delete process.env.HEX_DETECTION_SNAP_ENABLED;
     process.env.HEX_DETECTION_CONCURRENCY = "3";
   });
@@ -211,6 +219,27 @@ describe("materializeHoloTacoRecords hex detection", () => {
     );
     // The unchanged-image lookup is only asked about color polishes.
     assert.deepEqual(lookupCalls[0][1], ["p0"]);
+  });
+
+  it("gates detection on an admin-set category, not the connector's rule category (CodeRabbit, #349)", async () => {
+    // The connector sees two plain color polishes; an admin made p1 a topper and p2 an accessory.
+    adminCategoryRows = [
+      { externalId: "p1", productCategory: "topper" },
+      { externalId: "p2", productCategory: "accessory" },
+    ];
+    const metrics = await materializeHoloTacoRecords(1, 7, records(3), { detectHexFromImage: true });
+
+    assert.deepEqual(detectCalls, ["Shade 0"], "no vision call for admin-categorized shades");
+    assert.equal(metrics.hexDetected, 1);
+    assert.equal(metrics.hexDetectionSkippedCategory, 2);
+    assert.equal(adminLookups.length, 1);
+    assert.deepEqual(adminLookups[0][0], ["p0", "p1", "p2"]);
+    assert.deepEqual(lookupCalls[0][1], ["p0"], "unchanged-image lookup only asks about detectable shades");
+  });
+
+  it("skips the admin lookup when hex detection is off", async () => {
+    await materializeHoloTacoRecords(1, 7, records(2), { detectHexFromImage: false });
+    assert.equal(adminLookups.length, 0);
   });
 
   it("falls back to the default concurrency for invalid values", async () => {

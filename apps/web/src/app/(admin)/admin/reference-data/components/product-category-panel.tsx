@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   PRODUCT_CATEGORIES,
   PRODUCT_CATEGORY_LABELS,
@@ -123,7 +123,10 @@ export function ProductCategoryPanel() {
   const [loading, setLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
 
+  // Sequence guard: a slow earlier request must not overwrite a newer search's results.
+  const requestSeq = useRef(0);
   const loadList = useCallback(async () => {
+    const seq = ++requestSeq.current;
     setLoading(true);
     setListError(null);
     try {
@@ -133,12 +136,14 @@ export function ProductCategoryPanel() {
         page,
         pageSize: PAGE_SIZE,
       });
+      if (seq !== requestSeq.current) return;
       setItems(response.items);
       setTotal(response.total);
     } catch (err) {
+      if (seq !== requestSeq.current) return;
       setListError(err instanceof Error ? err.message : "Failed to load shades");
     } finally {
-      setLoading(false);
+      if (seq === requestSeq.current) setLoading(false);
     }
   }, [filter, search, page]);
 
@@ -190,7 +195,14 @@ export function ProductCategoryPanel() {
             Apply
           </Button>
           <label className="flex items-center gap-2 text-sm">
-            <Switch checked={clearTopperHex} onCheckedChange={setClearTopperHex} />
+            <Switch
+              checked={clearTopperHex}
+              onCheckedChange={(next) => {
+                setClearTopperHex(next);
+                // Apply must always follow a dry run made with the same options.
+                if (report?.dryRun) setReport(null);
+              }}
+            />
             Also clear suspicious topper hexes
           </label>
           {report && (
@@ -326,6 +338,7 @@ export function ProductCategoryPanel() {
                 <TableCell>
                   <div className="flex items-center gap-2">
                     <ProductCategorySelect
+                      key={`${item.shadeId}:${item.productCategory}`}
                       shadeId={item.shadeId}
                       value={item.productCategory}
                       onChanged={(productCategory, status) =>

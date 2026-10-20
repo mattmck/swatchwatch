@@ -82,6 +82,33 @@ describe("lib/product-category — #347 false positives", () => {
   });
 });
 
+describe("lib/product-category — ambiguous accessory words (CodeRabbit, #347)", () => {
+  it("keeps polishes named like accessories as color polishes when the product type names a polish", () => {
+    for (const name of ["Crown Jewels", "Foil Finish", "Stud Muffin", "Tape Deck Teal", "Magic Wand", "Rhinestone Cowboy"]) {
+      assert.equal(classifyProductCategory(shade(name, "Nail Polish", ["nail-polish"])).category, "color", name);
+      assert.equal(classifyIngestedProduct({ title: name, productType: "Nail Polishes", tags: [] }).accept, true, name);
+    }
+  });
+
+  it("keeps a shade with no product type or no source product a color polish", () => {
+    assert.equal(classifyProductCategory({ shadeName: "Crown Jewels" }).category, "color");
+    assert.equal(classifyProductCategory(shade("Crown Jewels", null)).category, "color");
+    assert.equal(classifyIngestedProduct({ title: "Crown Jewels", tags: [] }).accept, false, "no polish signal at all");
+  });
+
+  it("still treats them as accessories under a non-polish product type", () => {
+    assert.equal(classifyProductCategory(shade("Crown Jewels", "Nail Art")).category, "accessory");
+    assert.equal(classifyProductCategory(shade("Rhinestone Pack", "Nail Art")).category, "accessory");
+    assert.equal(classifyProductCategory(shade("Foil Sheets", "Nail Care")).category, "accessory");
+    assert.equal(classifyProductCategory(shade("Magnetic Wand", "Nail Tools")).category, "accessory");
+  });
+
+  it("keeps clear accessory words authoritative even under a polish product type", () => {
+    assert.equal(classifyProductCategory(shade("Nail Charm Set", "Nail Polish")).category, "accessory");
+    assert.equal(classifyProductCategory(shade("Cat Eye Magnet", "Nail Polish")).category, "accessory");
+  });
+});
+
 describe("lib/product-category — rules and precedence", () => {
   it("accessory wins over everything", () => {
     assert.equal(classifyProductCategory(shade("Topper Brush Kit", "Nail Tools", ["toppers"], ["topper"])).category, "accessory");

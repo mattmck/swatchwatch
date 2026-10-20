@@ -254,12 +254,13 @@ const LOAD_SQL = `
     COALESCE((
       SELECT json_agg(json_build_object(
         'dataSource', ds.name,
-        'title', e.raw_json ->> 'title',
-        -- Same text as the audit query: raw and normalized product types.
-        'productType', concat_ws(' ', e.raw_json ->> 'product_type', e.normalized_json ->> 'productType'),
-        'tags', CASE jsonb_typeof(e.raw_json -> 'tags')
-                  WHEN 'array' THEN e.raw_json -> 'tags'
-                  WHEN 'string' THEN to_jsonb(string_to_array(e.raw_json ->> 'tags', ','))
+        -- Same text as the audit query. MakeupAPI payloads have a name (not a title), a
+        -- category, and tag_list (kept as normalized tags), which ingestion classifies on.
+        'title', COALESCE(e.raw_json ->> 'title', e.normalized_json ->> 'name'),
+        'productType', concat_ws(' ', e.raw_json ->> 'product_type', e.normalized_json ->> 'productType', e.normalized_json ->> 'category'),
+        'tags', CASE jsonb_typeof(COALESCE(e.raw_json -> 'tags', e.normalized_json -> 'tags'))
+                  WHEN 'array' THEN COALESCE(e.raw_json -> 'tags', e.normalized_json -> 'tags')
+                  WHEN 'string' THEN to_jsonb(string_to_array((COALESCE(e.raw_json -> 'tags', e.normalized_json -> 'tags')) #>> '{}', ','))
                   ELSE '[]'::jsonb
                 END
       ) ORDER BY e.external_product_id)

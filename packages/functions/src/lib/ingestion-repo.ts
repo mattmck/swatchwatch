@@ -40,7 +40,7 @@ import {
 } from "./finish-text";
 import { readProductText } from "./product-text";
 import { classifyProductCategory } from "./product-category";
-import type { ProductCategory } from "swatchwatch-shared";
+import { resolveProductCategory, type ProductCategory } from "swatchwatch-shared";
 import { PoolClient } from "pg";
 import { recordShadeSourceProduct } from "./buy-link";
 import {
@@ -538,7 +538,8 @@ function estimateBatchCandidateCount(
   records: ConnectorProductRecord[],
   detectHexFromImage: boolean,
   detectHexOnSuspiciousOnly: boolean,
-  suspiciousContext: SuspiciousHexContext
+  suspiciousContext: SuspiciousHexContext,
+  adminCategories: ReadonlyMap<string, ProductCategory> = new Map()
 ): number {
   if (!detectHexFromImage) {
     return 0;
@@ -555,6 +556,7 @@ function estimateBatchCandidateCount(
     }
 
     const holo = parseHoloTacoNormalized(normalized);
+    holo.productCategory = adminCategories.get(record.externalId) ?? holo.productCategory;
     if (!holo.name || !isHttpUrl(holo.primaryImageUrl) || !detectsHex(holo)) {
       continue;
     }
@@ -585,6 +587,69 @@ export interface UnchangedImageCandidate {
   finish: string | null;
   collection: string | null;
   checksumSha256: string;
+}
+
+/**
+ * Admin-set product categories (#349) of the shades these records materialize into, by external
+ * id. Detection is gated on the category the shade will have after this run: an admin `topper` or
+ * `accessory` must not get a vision call because the connector's rule category says `color`.
+ * Shades are matched the same way `materializePreparedHoloTacoRecord` resolves them. A lookup
+ * failure returns an empty map (the rule category applies): it must never fail the job.
+ */
+export async function findAdminProductCategories(
+  candidates: Array<{
+    externalId: string;
+    brandName: string;
+    shadeName: string;
+    finish: string | null;
+    collection: string | null;
+  }>
+): Promise<Map<string, ProductCategory>> {
+  const out = new Map<string, ProductCategory>();
+  if (candidates.length === 0) return out;
+  try {
+    const result = await query<{ externalId: string; productCategory: ProductCategory }>(
+      `WITH input AS (
+         SELECT *
+         FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[])
+           AS t(external_id, brand_name, shade_name, finish, collection)
+       )
+       SELECT DISTINCT ON (input.external_id)
+              input.external_id AS "externalId",
+              sh.product_category AS "productCategory"
+       FROM input
+       JOIN LATERAL (
+         SELECT brand_id
+         FROM brand
+         WHERE lower(name_canonical) = lower(input.brand_name)
+         ORDER BY brand_id
+         LIMIT 1
+       ) b ON true
+       JOIN shade sh
+         ON sh.brand_id = b.brand_id
+        AND sh.product_line_id IS NULL
+        AND lower(sh.shade_name_canonical) = lower(input.shade_name)
+        AND coalesce(sh.finish, '') = coalesce(input.finish, '')
+        AND coalesce(sh.collection, '') = coalesce(input.collection, '')
+       WHERE sh.product_category_source = 'admin'
+       ORDER BY input.external_id, sh.shade_id`,
+      [
+        candidates.map((c) => c.externalId),
+        candidates.map((c) => c.brandName),
+        candidates.map((c) => c.shadeName),
+        candidates.map((c) => c.finish),
+        candidates.map((c) => c.collection),
+      ]
+    );
+    for (const row of result.rows) out.set(row.externalId, resolveProductCategory(row.productCategory));
+  } catch (error) {
+    console.warn(
+      `[ingestion-repo] Admin category lookup failed; using rule categories for hex detection: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+  return out;
 }
 
 /**
@@ -764,11 +829,35 @@ async function prepareHoloTacoImageData(
   const detectHexOnSuspiciousOnly = options?.detectHexOnSuspiciousOnly === true;
   const batchMinImages = Math.max(1, options?.batchMinImages ?? DEFAULT_HEX_BATCH_MIN_IMAGES);
   const suspiciousContext = buildVendorHexContext(records);
+  // Admin-set categories win over the connector's rule category for every hex-detection gate below.
+  const adminCategories = detectHexFromImage
+    ? await findAdminProductCategories(
+        records.flatMap((record) => {
+          const normalized =
+            record.normalized && typeof record.normalized === "object"
+              ? (record.normalized as Record<string, unknown>)
+              : null;
+          const holo = normalized ? parseHoloTacoNormalized(normalized) : null;
+          return holo?.name
+            ? [
+                {
+                  externalId: record.externalId,
+                  brandName: resolveHoloTacoBrandName(holo),
+                  shadeName: holo.name,
+                  finish: holo.finish,
+                  collection: holo.collection,
+                },
+              ]
+            : [];
+        })
+      )
+    : new Map<string, ProductCategory>();
   const estimatedBatchCandidates = estimateBatchCandidateCount(
     records,
     detectHexFromImage,
     detectHexOnSuspiciousOnly,
-    suspiciousContext
+    suspiciousContext,
+    adminCategories
   );
   const useBatchForHexDetection =
     options?.useBatchForHexDetection === true &&
@@ -881,7 +970,9 @@ async function prepareHoloTacoImageData(
       record.normalized && typeof record.normalized === "object"
         ? (record.normalized as Record<string, unknown>)
         : null;
-    return { record, holo: normalized ? parseHoloTacoNormalized(normalized) : null };
+    const holo = normalized ? parseHoloTacoNormalized(normalized) : null;
+    if (holo) holo.productCategory = adminCategories.get(record.externalId) ?? holo.productCategory;
+    return { record, holo };
   });
 
   // Images whose connector URL was already ingested are reused instead of downloaded: the

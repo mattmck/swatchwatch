@@ -403,8 +403,16 @@ export default function PolishDetailClient({
                   className="flex items-center gap-3 rounded-lg border px-3 py-2 transition-colors hover:bg-brand-pink-light/15"
                 >
                   <span className="flex shrink-0 items-center" aria-hidden>
-                    <ColorDot hex={displayHex} size="md" className="ring-2 ring-white/80" />
-                    <ColorDot hex={dupe.displayHex} size="md" className="-ml-2 ring-2 ring-white/80" />
+                    {isTopper ? (
+                      <TopperSwatch size="md" className="ring-2 ring-white/80" />
+                    ) : (
+                      <ColorDot hex={displayHex} size="md" className="ring-2 ring-white/80" />
+                    )}
+                    {isTopper ? (
+                      <TopperSwatch size="md" className="-ml-2 ring-2 ring-white/80" />
+                    ) : (
+                      <ColorDot hex={dupe.displayHex} size="md" className="-ml-2 ring-2 ring-white/80" />
+                    )}
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-medium">{dupe.name}</p>

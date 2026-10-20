@@ -13,7 +13,8 @@
  *
  * Rules, first match wins:
  *   1. accessory  a tool/accessory word in the STRONG text (never free-form tags: Holo Taco tags a
- *                 magnetic polish `magnetic-wand`), or an explicit accessory type tag
+ *                 magnetic polish `magnetic-wand`; ambiguous words such as jewels/foils/studs only when
+ *                 the product has a product type that names no polish), or an explicit accessory type tag
  *                 (`nail-tool`, `type:nail-tool`, `type:accessories`, ...);
  *   2. topper     `topper` among the finishes or detected finishes, or the word topper(s) anywhere
  *                 (tags included), so it beats coat wording (Holo Taco files flakie toppers under
@@ -49,8 +50,15 @@ export interface ProductCategoryInput {
   products?: readonly ProductCategorySourceProduct[] | null;
 }
 
+/** Accessory words that are unambiguous in a shade name, title or product type. */
 const ACCESSORY_REGEX =
-  /\b(?:stamp(?:ing|er|ers)?|plates?|buffers?|files?|brush(?:es)?|tools?|charms?|decals?|stickers?|kits?|jewels?|jewelry|studs?|rhinestones?|foils?|tapes?|stencils?|lamps?|magnets?|wands?|pushers?|clippers?|removers?|wipes?|dehydrators?|racks?|displays?|totes?|gift ?cards?|samplers?|mystery box)\b/;
+  /\b(?:stamp(?:ing|er|ers)?|plates?|buffers?|files?|brush(?:es)?|tools?|charms?|decals?|stickers?|kits?|stencils?|lamps?|magnets?|pushers?|clippers?|removers?|wipes?|dehydrators?|gift ?cards?|mystery box)\b/;
+/**
+ * Accessory words that also name polishes ("Crown Jewels", "Foil Finish", "Stud Muffin"). They count
+ * only for a product that has a product type none of whose types names a polish.
+ */
+const AMBIGUOUS_ACCESSORY_REGEX =
+  /\b(?:jewels?|jewelry|studs?|rhinestones?|foils?|tapes?|wands?|racks?|displays?|totes?|samplers?)\b/;
 /** Whole tags (after lower-casing) that declare the product type as a tool/accessory. */
 const ACCESSORY_TYPE_TAG_REGEX = /^(?:type:)?(?:nail[-_ ]?)?(?:tools?|accessor(?:y|ies))$/;
 const TOPPER_REGEX = /\btoppers?\b/;
@@ -90,7 +98,13 @@ export function classifyProductCategory(input: ProductCategoryInput): ProductCat
   const strongSpaced = strongText.replace(/[_-]+/g, " ");
   const allText = joinText([strongSpaced, tagText]);
 
+  const typeText = joinText(products.map((product) => product.productType)).toLowerCase().replace(/[_-]+/g, " ");
+  const typedNonPolish = typeText !== "" && !POLISH_SIGNAL_REGEX.test(typeText);
+
   if (ACCESSORY_REGEX.test(strongText)) return { category: "accessory", evidence: "text" };
+  if (typedNonPolish && AMBIGUOUS_ACCESSORY_REGEX.test(strongText)) {
+    return { category: "accessory", evidence: "text" };
+  }
   if (tags.some((tag) => ACCESSORY_TYPE_TAG_REGEX.test(tag.trim().toLowerCase()))) {
     return { category: "accessory", evidence: "type-tag" };
   }
