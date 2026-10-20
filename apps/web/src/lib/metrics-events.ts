@@ -4,7 +4,8 @@
  * The dupe-warning funnel only exists in the browser, so it is measured with App Insights
  * custom events (as are the Looks page events `looks.generated` / `looks.wear_clicked`); status adoption, manis per week and time to 20 polishes come from the weekly
  * Postgres query in `docs/queries/m2-metrics.sql`. `mani.logged` and `import.completed` are
- * browser-side cross-checks for those numbers.
+ * browser-side cross-checks for those numbers. `onboarding.step_clicked` shows which way in
+ * (import, scan, catalog search) new users pick on the way to 20 polishes.
  *
  * Every helper goes through `trackEvent` (a no-op without a connection string) and sends counts
  * and enum values only: never an email, a name or free text. The signed-in user is attached by
@@ -18,6 +19,7 @@ import type {
   PolishStatus,
 } from "swatchwatch-shared";
 import type { Look, Vibe } from "./looks";
+import type { GettingStartedStepId } from "./onboarding";
 import { trackEvent } from "./telemetry";
 
 export const METRIC_EVENTS = {
@@ -27,6 +29,7 @@ export const METRIC_EVENTS = {
   importCompleted: "import.completed",
   looksGenerated: "looks.generated",
   looksWearClicked: "looks.wear_clicked",
+  onboardingStepClicked: "onboarding.step_clicked",
   matchImageProcessed: "match.image_processed",
   matchResultAction: "match.result_action",
 } as const;
@@ -128,6 +131,33 @@ export function importCompletedEvent(result: PolishImportCommitResult): MetricEv
       failed: result.failed,
       shadesCreated: result.shadesCreated,
     },
+  };
+}
+
+/**
+ * Where an onboarding step was tapped: the dashboard checklist (`GettingStarted`) or the empty
+ * state of a page that needs a collection first.
+ */
+export type OnboardingSurface =
+  | "dashboard_checklist"
+  | "dashboard_stats_empty"
+  | "polishes_empty"
+  | "manis_empty"
+  | "gaps_empty"
+  | "match_empty";
+
+export interface OnboardingStepInput {
+  step: GettingStartedStepId;
+  surface: OnboardingSurface;
+  /** Owned polishes when the step was tapped (where the user was on the way to 20). */
+  ownedCount: number;
+}
+
+export function onboardingStepClickedEvent(input: OnboardingStepInput): MetricEvent {
+  const ownedCount = Number.isFinite(input.ownedCount) ? Math.max(0, Math.floor(input.ownedCount)) : 0;
+  return {
+    name: METRIC_EVENTS.onboardingStepClicked,
+    properties: { step: input.step, surface: input.surface, ownedCount },
   };
 }
 
@@ -303,4 +333,11 @@ export function trackLooksGenerated(input: LooksGeneratedInput, tracker: MetricT
 
 export function trackLooksWearClicked(input: LooksWearClickedInput, tracker: MetricTracker = defaultTracker): void {
   emit(looksWearClickedEvent(input), tracker);
+}
+
+export function trackOnboardingStepClicked(
+  input: OnboardingStepInput,
+  tracker: MetricTracker = defaultTracker
+): void {
+  emit(onboardingStepClickedEvent(input), tracker);
 }
