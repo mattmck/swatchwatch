@@ -36,7 +36,7 @@ import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { NailPhotoPanel } from "@/components/nail-photo-panel";
 import { LogManiButton } from "@/components/log-mani-button";
-import { AdminHexSipSection } from "@/components/admin-hex-sip-panel";
+import { AdminHexSipSection, AdminVendorHexSourceHint } from "@/components/admin-hex-sip-panel";
 import { canLogPolish, formatWornOn, toLocalIsoDate } from "@/lib/mani-log";
 import { detailHref, returnToLabel, safeReturnTo } from "@/lib/detail-href";
 import { toast } from "sonner";
@@ -301,6 +301,7 @@ export default function PolishDetailClient({
                     <div className="flex items-center gap-1.5">
                       <ColorDot hex={polish.vendorHex} size="sm" />
                       <span className="text-[10px] text-muted-foreground">Vendor {polish.vendorHex}</span>
+                      <AdminVendorHexSourceHint shadeId={polish.id} />
                     </div>
                   )}
                   {polish.detectedHex && (

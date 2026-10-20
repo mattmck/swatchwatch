@@ -23,7 +23,7 @@ The package is automatically linked via npm workspaces — no publishing require
 | `FinishName` | `PolishFinish \| (string & {})` — any finish name on API-facing fields (`Polish.finishes`, request `finish`/`finishes`); admits runtime names from admin-managed `finish_type` rows while keeping autocomplete for built-ins |
 | `resolvePolishFinishes(polish)` | Finishes to display: `finishes` when non-empty, else `[finish]` (backward compatible) |
 | `polishHasFinish(polish, finish)` | Case-insensitive membership check over `resolvePolishFinishes` |
-| `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps); accepts `finishes` (replace) and legacy `finish`, plus inventory `status`, `triedAt`, `purchasePrice`, `purchaseCurrency` (`null` clears the last three) |
+| `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps); accepts `finishes` (replace) and legacy `finish`, plus inventory `status`, `triedAt`, `purchasePrice`, `purchaseCurrency` (`null` clears the last three), and create-only `barcode` / `barcodeFormat` (a Rapid Add scan remembered on the shade for the caller, #21) |
 | `PolishUpdateRequest` | Partial create fields + required `id` |
 | `PolishListResponse` | Paginated list: `{ polishes, total, page, pageSize }` |
 | `PolishFilters` | Query params: brand/finish/finishes/color/tags/search plus scope/availability/tone, `status` (`PolishStatus[]`), `untried`, `families` (`?family=`, any-of color families), sort, and pagination |
@@ -46,12 +46,14 @@ Admin Hex Labeling tool (admin console tab, routes `/api/hex-labels-admin/*`): h
 | `HexLabelSamplePoint` | Where a canvas sample was taken: `x`/`y` normalized 0..1 to the natural image size, `size`, `imageWidth`, `imageHeight` |
 | `HexLabelImage` | A catalog product image of a shade: `imageId`, signed proxy `url`, `swatchType`, vendor `sourceUrl` (from `source_image_url`, null when unknown), `isPrimary` |
 | `HexLabel` | A saved manual label: `trainingSampleId`, `shadeId`, `hex` (null only when `unreliable`), `unreliable`, `imageId`, `note`, `method`, `samplePoint`, `labeledByUserId`, `labeledAt` |
-| `HexLabelQueueItem` | One queued shade: brand/name/finishes, `vendorHex`/`detectedHex`/`nameHex`, `hexAgreement`, detection confidence/method, `flagged` (agreement > MEDIUM), `images`, current `label` |
+| `HexLabelQueueItem` | One queued shade: brand/name/finishes, `vendorHex`/`detectedHex`/`nameHex`, `hexAgreement`, detection confidence/method, `flagged` (agreement > MEDIUM), `images`, current `label`, vendor hex provenance `vendorHexSource` / `promotedLabelId` / `vendorHexPrevious` (#321) |
 | `HexLabelQueueFilters` | `GET /api/hex-labels-admin/queue` query: `brand`, `disagreeOnly`, `showLabeled`, `includeWithoutImages`, `cursor`, `pageSize` |
 | `HexLabelQueueResponse` | `{ items, nextCursor, total, labeled, pageSize, disagreementThreshold }` (`total`/`labeled` drive the progress bar) |
 | `HexLabelRequest` | `POST /api/hex-labels-admin/labels` body: `shadeId`, `hex` (`#RRGGBB`, required unless `unreliable`), `imageId`, `unreliable`, `note`, `method`, `samplePoint` |
 | `HexLabelSaveResponse` | `{ label, previous }`; `previous` is the label the save replaced (the client restores it to undo) |
 | `HexLabelDeleteResponse` | `{ deleted }` from `DELETE /api/hex-labels-admin/labels/{id}` |
+| `VENDOR_HEX_SOURCES` / `VendorHexSource` | `shade.vendor_hex_source` (#321): `vendor` (vendor/catalog data) or `manual_label` (an admin promoted the shade's manual label; ingestion never overwrites it). Admin-only |
+| `HexLabelPromoteResponse` | `{ shadeId, vendorHex, vendorHexSource, promotedLabelId, vendorHexPrevious, changed }` from `POST`/`DELETE /api/hex-labels-admin/labels/{id}/promote` and `DELETE /api/hex-labels-admin/shades/{shadeId}/promotion` |
 
 ### `types/inventory.ts`
 
@@ -172,6 +174,29 @@ Collection stats (#271): the `GET /api/stats/collection` payload behind the dash
 | `IMAGE_VARIANT_QUALITY` | `72` — WebP quality of every variant (the proxy's default `q`) |
 | `snapImageVariantSize(size)` | Smallest ladder size ≥ `size`, or `null` above 512 |
 
+### `constants/design-tokens.ts` (generated)
+
+Generated from `apps/web/src/app/globals.css` by `npm run sync:design-tokens` (don't edit; CI checks it with `--check`). Hex values for clients that can't use the web's `oklch()` CSS variables (the Expo app).
+
+| Export | Description |
+|--------|-------------|
+| `ThemeColorTokens` | Semantic colors with the shadcn/ui names: `background`, `foreground`, `card`, `primary`, `secondary`, `muted`, `accent` (+ `*Foreground`), `destructive`, `border`, `input`, `ring` |
+| `LIGHT_THEME_COLORS` / `DARK_THEME_COLORS` | The `:root` / `.dark` palettes (`#rrggbb`, or `#rrggbbaa` where the CSS has alpha) |
+| `THEME_COLORS` | `{ light, dark }` keyed by `ThemeColorScheme` |
+| `BRAND_COLOR_TOKENS` | The `--brand-*` palette (equal to `swatchWatchBrandPalette`) |
+
+### `barcode/gtin.ts`
+
+Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/barcode-scan.ts`, used by the mobile app). The capture API looks GTINs up exactly as printed.
+
+| Export | Description |
+|--------|-------------|
+| `RetailBarcodeFormat`, `RETAIL_BARCODE_FORMATS` | `ean_13`, `upc_a`, `ean_8`, `upc_e` (preference order) |
+| `normalizeBarcodeFormat(format)` | Decoder spellings (`ean13`, `EAN_13`, `EAN13`) → ours, or `null` |
+| `hasValidGtinCheckDigit(digits)` | GS1 mod-10 check for GTIN-8/12/13/14 |
+| `expandUpcE(upcE)` | 8-digit UPC-E → 12-digit UPC-A, or `null` |
+| `normalizeScannedBarcode({ rawValue, format })` | Validated `{ gtin, format }` (digits as printed) or `null` |
+
 ### `constants/product-categories.ts` (#349, decision D23)
 
 | Export | Description |
@@ -230,7 +255,7 @@ Collection stats (#271): the `GET /api/stats/collection` payload behind the dash
 | `AdminUserIdentity` | Linked external identity (`externalId`, `email`, `createdAt`, `lastSeenAt`) |
 | `AdminUserDetailResponse` | `GET`/`PATCH /api/users-admin/{id}`: `user`, `identities`, `suspendedReason`, `suspendedByUserId`, newest 20 `auditEvents` |
 | `AdminUserUpdateRequest` | `PATCH /api/users-admin/{id}` body: `handle`, `suspended`, `suspendedReason`, `note` (role is not editable: assigned in Entra) |
-| `AdminAuditEvent` / `AdminAuditAction` | `admin_audit_event` row: actor, target, `user.update \| user.suspend \| user.unsuspend \| user.merge`, `changes`, `note`, `createdAt` |
+| `AdminAuditEvent` / `AdminAuditAction` | `admin_audit_event` row: actor, target, `user.update \| user.suspend \| user.unsuspend \| user.merge \| shade.vendor_hex_promote \| shade.vendor_hex_demote` (the `shade.*` actions, #321, have no target user; the shade id is in `changes`), `changes`, `note`, `createdAt` |
 | `AdminUserMergeRequest` | Admin payload for duplicate-account repair (`sourceUserId`, `targetUserId`) |
 | `AdminUserMergeResponse` | Admin merge result summary (moved row counts incl. `mergedManicureRows` + merge status/message) |
 
@@ -303,14 +328,14 @@ Shareable wishlist (#268), behind the server flag `SHAREABLE_WISHLIST_ENABLED` (
 | `CaptureGuidanceConfig` | Capture guidance contract returned by `/api/capture/start` |
 | `CaptureQuestion` | Open question payload used by status/finalize/answer responses |
 | `CaptureStartRequest` / `CaptureStartResponse` | Start capture session payloads |
-| `CaptureFrameRequest` / `CaptureFrameResponse` | Add frame payloads (`imageId` or `imageBlobUrl`) |
+| `CaptureFrameRequest` / `CaptureFrameResponse` | Add frame payloads (`imageId` or `imageBlobUrl`); the response's optional `check` is the read-only verdict for a `barcode` frame with a valid on-device decoded `quality.gtin` (#21) |
 | `CaptureFinalizeResponse` | Finalize response with session status and optional question |
 | `CaptureStatusResponse` | Session status payload with confidence/accepted entity/question |
 | `CaptureAnswerRequest` / `CaptureAnswerResponse` | Answer question payloads for adaptive loop |
 | `CaptureOwnershipRelationship` | Caller's relationship to a matched shade: `owned \| wishlisted \| notOwned` |
 | `CaptureOwnership` | `{ relationship, quantity? }` (`quantity` = total owned, only when `owned`) |
 | `CaptureCheckOutcome` | Resolver outcome reported by check: `matched \| needs_question \| unmatched` |
-| `CaptureCheckCandidate` | Match/candidate with `entityType`, `entityId`, `shadeId`, `display`, `confidence`, `ownership` |
+| `CaptureCheckCandidate` | Match/candidate with `entityType`, `entityId`, `shadeId`, `display`, `confidence`, `ownership`, optional display `hex` (swatch) |
 | `CaptureCheckResponse` | `POST /api/capture/{captureId}/check` payload: outcome, confidence, `match?`, `candidates`, `questionKey?`, unchanged session `status` (read-only, never touches inventory) |
 
 ### `types/palette.ts`

@@ -120,7 +120,7 @@ Roadmap §4 (`docs/roadmap-2026-10-to-12.md`) metrics are measured two ways (dec
 
 | Event | When | Properties |
 |---|---|---|
-| `dupe.warning_shown` | the add guard dialog opens with owned near-dupes | `surface` (`add_form` = adding to the collection, `wishlist` = adding to the wishlist, `rapid_add` = Rapid Add verdict card), `dupeCount`, `bestGrade` (`HIGH` / `MEDIUM`); add-guard extras: `page` (`polishes-list` / `color-search` / `photo-match` / `polish-form-create` / `polish-form-edit`), `intent`, `shade` (catalog id or `new`), `verdict`, `highCount`, `bestFinishCompatibility`, `bestDistance` |
+| `dupe.warning_shown` | the add guard dialog opens with owned near-dupes | `surface` (`add_form` = adding to the collection, `wishlist` = adding to the wishlist, `rapid_add` = Rapid Add verdict card), `dupeCount`, `bestGrade` (`HIGH` / `MEDIUM`); add-guard extras: `page` (`polishes-list` / `color-search` / `photo-match` / `polish-form-create` / `polish-form-edit` / `looks` = ♡ on a Looks shopping-list step), `intent`, `shade` (catalog id or `new`), `verdict`, `highCount`, `bestFinishCompatibility`, `bestDistance` |
 | `dupe.warning_outcome` | the user answers the dialog | the same, plus `outcome` = `cancel` / `wishlist_instead` / `add_anyway`, `via` (`button` / `dismiss` / `dupe_link`), `suppressed` |
 | `mani.logged` | a new mani is saved (not edits) | `polishCount`, `via` (`quick` = one-tap button, `form`) |
 | `import.completed` | a CSV import commits (a retried commit of the same session is not counted again) | `rowsCommitted` (= `created` + `updated`), `created`, `updated`, `skipped`, `failed`, `shadesCreated` |

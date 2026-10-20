@@ -270,7 +270,16 @@ CREATE TABLE shade (
   product_category_source TEXT NOT NULL DEFAULT 'rule' CHECK (product_category_source IN ('rule', 'admin')),
   created_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL, -- creator of a user-API shade; NULL for catalog/ingestion rows (migration 024)
   color_name TEXT,
-  vendor_hex TEXT,                               -- hex published by the vendor (e.g. Shopify variant option)
+  vendor_hex TEXT,                               -- hex published by the vendor (e.g. Shopify variant option), or an admin-promoted manual label
+  -- vendor_hex provenance (migration 20261020024540860_shade-vendor-hex-provenance, #321/D12). 'manual_label' =
+  -- promoted from a color_training_sample manual label; ingestion never overwrites it (it records the vendor's
+  -- latest value in vendor_hex_previous instead). NULL = unknown / no hex.
+  vendor_hex_source TEXT CONSTRAINT shade_vendor_hex_source_check
+    CHECK (vendor_hex_source IS NULL OR vendor_hex_source IN ('vendor', 'manual_label')),
+  vendor_hex_label_id BIGINT,                    -- promoted label (FK added after color_training_sample, ON DELETE SET NULL keeps the hex)
+  vendor_hex_set_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL, -- admin who promoted it
+  vendor_hex_set_at TIMESTAMPTZ,                 -- last promotion / ingestion write of vendor_hex
+  vendor_hex_previous TEXT,                      -- vendor hex a promotion replaced; Undo restores it
   detected_hex TEXT,                             -- hex detected from the product image (AI vision)
   name_hex TEXT,                                 -- hex inferred from the color name
   -- detected_hex provenance (migration 20261017024958000_shade-detected-hex-provenance): who/what produced detected_hex and how sure it was
@@ -349,13 +358,24 @@ CREATE TABLE sku (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Catalog GTINs (#21, #325; migration 20261019030000000_barcode-provenance-and-user-barcodes).
+-- gtin is the canonical key from lib/barcodes.ts normalizeGtin (UPC-A/UPC-E/GTIN-14 → 13-digit
+-- EAN form, EAN-8 as is). One GTIN → one SKU → one shade: the first shade to claim a GTIN keeps
+-- it; a later claim from another shade is logged as a conflict and skipped.
 CREATE TABLE barcode (
   barcode_id BIGSERIAL PRIMARY KEY,
   sku_id BIGINT NOT NULL REFERENCES sku(sku_id) ON DELETE CASCADE,
   gtin TEXT NOT NULL UNIQUE,
-  barcode_type TEXT,
-  is_primary BOOLEAN NOT NULL DEFAULT TRUE
+  barcode_type TEXT,                           -- EAN_13|UPC_A|UPC_E|EAN_8|GTIN_14
+  is_primary BOOLEAN NOT NULL DEFAULT TRUE,
+  source TEXT NOT NULL DEFAULT 'unknown'        -- who wrote the row
+    CONSTRAINT barcode_source_check CHECK (source IN ('ingestion', 'backfill', 'admin', 'unknown')),
+  external_product_id BIGINT,                  -- connector product it came from (FK added after external_product below)
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE INDEX idx_barcode_sku ON barcode(sku_id);
+
 
 -- Labels (versioned)
 CREATE TABLE label_document (
@@ -509,7 +529,11 @@ CREATE TABLE admin_audit_event (
   note TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT admin_audit_event_action_check
-    CHECK (action IN ('user.update', 'user.suspend', 'user.unsuspend', 'user.merge'))
+    CHECK (action IN (
+      'user.update', 'user.suspend', 'user.unsuspend', 'user.merge',
+      -- #321 vendor-hex promotions: target_user_id NULL, shade id in changes
+      'shade.vendor_hex_promote', 'shade.vendor_hex_demote'
+    ))
 );
 
 CREATE INDEX idx_admin_audit_event_target ON admin_audit_event(target_user_id, created_at DESC);
@@ -813,6 +837,21 @@ CREATE TABLE capture_answer (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- GTINs a user taught Rapid Add (unknown barcode → label photo / manual add). Private to the
+-- user: always queried with user_id; catalog barcode rows win over these.
+CREATE TABLE user_shade_barcode (
+  user_id BIGINT NOT NULL REFERENCES app_user(user_id) ON DELETE CASCADE,
+  gtin TEXT NOT NULL,                          -- canonical key, as barcode.gtin
+  shade_id BIGINT NOT NULL REFERENCES shade(shade_id) ON DELETE CASCADE,
+  barcode_type TEXT,
+  capture_session_id BIGINT REFERENCES capture_session(capture_session_id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, gtin)
+);
+
+CREATE INDEX idx_user_shade_barcode_shade ON user_shade_barcode(shade_id);
+
 CREATE INDEX idx_capture_session_user_status ON capture_session(user_id, status, created_at DESC);
 CREATE INDEX idx_capture_frame_session_type ON capture_frame(capture_session_id, frame_type);
 CREATE INDEX idx_capture_question_session_status ON capture_question(capture_session_id, status);
@@ -957,6 +996,12 @@ CREATE TABLE external_product (
 );
 
 CREATE INDEX idx_external_product_gtin ON external_product(gtin);
+ALTER TABLE barcode ADD CONSTRAINT barcode_external_product_id_fkey
+  FOREIGN KEY (external_product_id) REFERENCES external_product(external_product_id) ON DELETE SET NULL;
+-- Capture resolver fallback: scanned code vs. the raw connector GTIN (spaces/hyphens removed)
+CREATE INDEX idx_external_product_gtin_compact
+  ON external_product ((regexp_replace(gtin, '[[:space:]-]', '', 'g')))
+  WHERE gtin IS NOT NULL;
 CREATE INDEX idx_external_product_source_time ON external_product(data_source_id, fetched_at DESC);
 
 -- Which connector product(s) each shade was materialized from (migration
@@ -1105,6 +1150,11 @@ CREATE UNIQUE INDEX idx_color_training_external_product_source
 CREATE UNIQUE INDEX idx_color_training_manual_shade
   ON color_training_sample(shade_id)
   WHERE source_type = 'manual' AND shade_id IS NOT NULL;
+
+-- Promoted manual label behind shade.vendor_hex (#321, D12). Deleting the label keeps the promoted hex.
+ALTER TABLE shade ADD CONSTRAINT shade_vendor_hex_label_id_fkey
+  FOREIGN KEY (vendor_hex_label_id) REFERENCES color_training_sample(training_sample_id) ON DELETE SET NULL;
+CREATE INDEX idx_shade_vendor_hex_label ON shade (vendor_hex_label_id) WHERE vendor_hex_label_id IS NOT NULL;
 
 -- Track which samples have been used for model training
 CREATE TABLE color_model_version (

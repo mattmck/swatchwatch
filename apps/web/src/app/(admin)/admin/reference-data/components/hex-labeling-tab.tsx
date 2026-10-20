@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type {
+  HexLabelPromoteResponse,
   HexLabelQueueFilters,
   HexLabelQueueItem,
   HexLabelRequest,
@@ -11,6 +12,7 @@ import type {
 import { deleteHexLabel, getHexLabelQueue, saveHexLabel } from "@/lib/api";
 import { labelProgress, undoHexLabelSave } from "@/lib/hex-sampling";
 import { ShadeLabeler } from "@/components/shade-hex-labeler";
+import { applyPromotionResponse } from "@/lib/vendor-hex-promotion";
 import { ToggleChip } from "@/components/toggle-chip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,7 +48,8 @@ function filtersKey(filters: FilterState): string {
 /**
  * Admin "Hex Labeling" tab: walk a queue of shades and pick each one's true colour from its
  * product images with a canvas eyedropper. Saves ground-truth labels for the hex-detection eval
- * (`color_training_sample`, source_type `manual`); never changes the shade's vendor/detected hex.
+ * (`color_training_sample`, source_type `manual`); never changes the shade's vendor/detected hex,
+ * except through the explicit, confirmed "Promote to vendor hex" action on a saved label (#321).
  */
 export function HexLabelingTab() {
   const [filters, setFilters] = useState<FilterState>({
@@ -172,6 +175,10 @@ export function HexLabelingTab() {
     });
   }, []);
 
+  const handlePromotionChange = useCallback((response: HexLabelPromoteResponse) => {
+    setQueue((prev) => (prev ? { ...prev, items: prev.items.map((item) => applyPromotionResponse(item, response)) } : prev));
+  }, []);
+
   const handleSave = useCallback(
     async (request: HexLabelRequest) => {
       setSaving(true);
@@ -226,7 +233,7 @@ export function HexLabelingTab() {
         <p className="text-sm text-muted-foreground">
           Pick each polish&apos;s true colour from its product images to build ground truth for the hex-detection
           eval (<code className="text-xs">npm run eval:hex:populate -- --source-type manual</code>). Labels never change a
-          shade&apos;s vendor or detected hex.
+          shade&apos;s vendor or detected hex unless you promote a saved label to the vendor hex.
         </p>
       </div>
 
@@ -303,6 +310,7 @@ export function HexLabelingTab() {
           onNext={handleNext}
           onPrev={handlePrev}
           onUndo={handleUndo}
+          onPromotionChange={handlePromotionChange}
         />
       ) : (
         <p className="py-12 text-center text-sm text-muted-foreground">

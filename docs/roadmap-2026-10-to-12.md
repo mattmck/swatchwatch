@@ -196,7 +196,7 @@ Goal: more indie coverage, and the ops to absorb user-created data.
 | Dupe warnings shown → user cancels or wishlists instead | tracked; > 20% |
 | Share of owned polishes with a status other than default | > 60% of active users |
 | Manis logged per active user per week | ≥ 1 |
-| Catalog shades (active) | +10k via indie sources |
+| Catalog shades (active) | +10k via indie sources (2026-10-19 dry runs: Cirque Colors 328 of 415 products with its new store filter, was 10; no new store added in batch 2: every remaining Shopify candidate's terms forbid automated access, see [indie-sources-2026-10.md](indie-sources-2026-10.md)) |
 | Detected-hex HIGH-confidence share | frozen at Week 0 baseline or better |
 
 How each number is read (decision D19, #323): the dupe-warning funnel from the browser events
