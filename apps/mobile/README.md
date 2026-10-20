@@ -119,7 +119,7 @@ src/
   auth/                   auth provider, token holder, Entra config, secure storage
   components/             UI primitives, swatch, polish row, verdict card, frame strip
   config/env.ts           EXPO_PUBLIC_* config and auth-mode resolution
-  lib/                    pure logic (+ *.test.ts): status rules, Rapid Add state, add guard
+  lib/                    pure logic (+ *.test.ts): status rules, Rapid Add state, add guard, color search, Goes with
   theme/theme.tsx         light/dark theme from the shared design tokens
 ```
 
@@ -128,8 +128,8 @@ src/
 | `/sign-in` | Sign-in (per auth mode) | `POST /auth/validate` |
 | `/` (tab) | Collection: Home panel (owned / wishlist / untried counts, Pick for me, one-tap Log today's mani), status presets (owned, untried, wishlist, destash, archived, all), filter, infinite scroll, pull to refresh | `GET /polishes?status=&untried=&search=`, `GET /polishes` (all owned, for the pick), `POST/DELETE /manicures` |
 | `/manis` (tab) | Mani log newest first, Log a mani sheet (owned polishes with roles, date, notes), delete; `?log=<shadeId>` opens the sheet with that polish | `GET/POST/DELETE /manicures` |
-| `/polishes/[id]` | Detail: swatches, finishes, hexes, status actions, Mark tried, Log today's mani (undo), owned-dupe callout, buy link | `GET/PUT/DELETE /polishes/{id}`, `GET /polishes/{id}/dupes`, `POST/DELETE /manicures` |
-| `/search` (tab) | Catalog search with Add / ♡ Wishlist behind the add guard (#266); fuzzy suggestions when nothing matches | `GET /polishes?search=`, `GET /catalog/search` |
+| `/polishes/[id]` | Detail: swatches, finishes, hexes, status actions, Mark tried, Log today's mani (undo), owned-dupe callout, **Goes with** (`components/goes-with.tsx`: complementary / analogous / triadic targets from the shared harmony rules, each with the closest owned color polish within `PAIR_MAX_DISTANCE`, else the target swatch + "Find in catalog" → `/search?hex=`), buy link | `GET/PUT/DELETE /polishes/{id}`, `GET /polishes/{id}/dupes`, `GET /polishes?status=owned&category=color`, `POST/DELETE /manicures` |
+| `/search` (tab) | **Text \| By color** switch. Text: catalog search with Add / ♡ Wishlist behind the add guard (#266); fuzzy suggestions when nothing matches. By color (`components/color-search-panel.tsx`, `src/lib/color-search.ts`): 12-stop OKLCH hue strip + neutral and five lightness steps (no `react-native-svg`), color family chips, owned color polishes (D23) ranked by OKLAB `colorDistance` with HIGH / MEDIUM grade chips (dupe thresholds); "Catalog" ranks the family query's rows client-side with Add / ♡; with fewer than 10 owned matches the catalog is listed too, with a hint. `?hex=C0392B` (with or without `#`) or `?mode=color` opens By color | `GET /polishes?search=`, `GET /catalog/search`, `GET /polishes?category=color&family=&status=owned` |
 | `/add` (tab) | Rapid Add (below) | `/capture/*` |
 | `/match` | Match a photo to owned polishes | `POST /polishes/match-image` |
 | `/profile` (tab) | Signed-in user, API URL, sign-in mode, sign out | — |
@@ -159,7 +159,7 @@ src/
 
 ## Home, mani log and offline
 
-- **Pick for me** mirrors the web's weighting (`src/lib/pick-for-me.ts`: untried ×3, wear recency with a 2-day cooldown, thin hue × lightness cells ×2, never repeating the last three picks); the pick card logs today's mani in one tap with undo. The web's "Pair it" suggestions are not ported yet.
+- **Pick for me** mirrors the web's weighting (`src/lib/pick-for-me.ts`: untried ×3, wear recency with a 2-day cooldown, thin hue × lightness cells ×2, never repeating the last three picks); the pick card logs today's mani in one tap with undo. **Pair it** uses the web's rule from `swatchwatch-shared` (`suggestPairings`, `color/pair-it.ts`): up to two owned pairings (complementary / analogous accent within `PAIR_MAX_DISTANCE`, or a topper) with swatches and a reason label; tap one to leave it out, and Log today's mani logs the pick (main) plus the selected pairings (accent / topper) as one manicure.
 - **Log a mani** (`src/lib/mani.ts`, `components/log-mani-sheet.tsx`) builds the same `POST /api/manicures` body as the web form; roles cycle on tap. The polish detail shows worn count, last worn and tried/untried.
 - **Stale-while-revalidate** (`src/lib/api-cache.ts`): the first page of each Collection filter set, the Home counts and the first page of the mani log are saved in AsyncStorage per user (7-day expiry, wiped on sign-out) and shown immediately while the fresh response loads. If the request fails the saved copy stays on screen with a banner. The signed-in user and token endpoint are stored with the session, so launching without a connection opens the saved data instead of the sign-in screen; the session is validated again as soon as a request reaches the API (a 401 or a rejected refresh token returns to sign-in).
 
