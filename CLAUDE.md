@@ -68,6 +68,7 @@ npm run generate:pwa-icons  # Regenerate PWA/apple-touch PNG icons in apps/web/p
 npm run lint --workspace=apps/mobile                 # Mobile ESLint (eslint-config-expo); typecheck: npm run typecheck --workspace=apps/mobile
 npm run test --workspace=apps/mobile                 # Mobile unit tests (node:test via tsx: Rapid Add state, status rules)
 npm run test --workspace=swatchwatch-functions      # Functions unit tests (no DB; includes access-control isolation tests)
+npm run test --workspace=swatchwatch-shared         # Shared unit tests (color harmonies, Pair it; node:test via tsx)
 npm run test:e2e --workspace=swatchwatch-functions  # E2E API + cross-user access-control tests against a running local host (skips if unreachable)
 npm run eval:hex --workspace=swatchwatch-functions -- --strategy pixel            # Hex-detection ground-truth eval (strategies: azure-current, azure-blind, pixel, region-crop, palette-pick, image-select, image-select-ai, blind-snap, image-select-ai-snap, ensemble; `--list-strategies` for all; Azure ones skip without config; region-crop knobs: HEX_EVAL_REGION_CROP_MODE/CELLS/DETAIL)
 npm run backfill:image-variants --workspace=swatchwatch-functions -- --after 0  # Generate missing catalog thumbnail variants in batches via POST /api/images-admin/variants/backfill (API_BASE_URL, ADMIN_BEARER_TOKEN; idempotent, resumable)
@@ -103,7 +104,7 @@ npm run build:shared
 - **Shared types** live in `packages/shared/src/types/` and are re-exported from `packages/shared/src/index.ts`. The canonical domain types are `Polish`, `PolishFinish`, `User`, `AuthProvider`, `VoiceProcessRequest`, `VoiceProcessResponse`, etc. When adding new domain types, add them here and re-export.
 - **Web app** uses `@/*` path alias pointing to `apps/web/src/*`. Styling uses Tailwind v4 via `@tailwindcss/postcss`.
 - **UI components:** shadcn/ui primitives in `apps/web/src/components/ui/`. Custom components in `apps/web/src/components/`. Add new shadcn components with `cd apps/web && npx shadcn@latest add <name>`.
-- **Color utilities:** `apps/web/src/lib/color-utils.ts` provides Hex↔HSL↔RGB↔OKLAB conversions and perceptual `colorDistance()`. Use OKLAB for any color matching/sorting logic.
+- **Color utilities:** `apps/web/src/lib/color-utils.ts` provides Hex↔HSL↔RGB↔OKLAB conversions and perceptual `colorDistance()`. Use OKLAB for any color matching/sorting logic. Pure color rules shared by web and mobile live in `packages/shared/src/color/` (OKLAB, color families, dupes, `harmonies.ts` harmony palettes, `pair-it.ts` "Pair it"); `apps/web/src/lib/color-harmonies.ts` is a re-export shim, so add new harmony logic to shared, not the web.
 - **Mock data:** All pages now use the live API. The old `mock-data.ts` is no longer used. Dev DB is seeded with realistic data via migration 003.
 - **Infrastructure as Code:** All Azure resources defined in `infrastructure/main.tf`. Resource naming follows `${base_name}-${environment}-{resource}-${random_suffix}` convention.
 

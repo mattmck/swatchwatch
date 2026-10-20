@@ -96,6 +96,7 @@ npm run dev:mobile       # → mobile via Expo (see apps/mobile/README.md)
 | `npm run build:functions` | Build shared types + TypeScript compile for functions |
 | `npm run lint` | ESLint across all workspaces |
 | `npm run test` | Run workspace tests where present (includes Functions unit tests; builds shared + functions first) |
+| `npm run test --workspace=swatchwatch-shared` | Shared unit tests (color harmonies, Pair it; node:test via tsx; CI's "Shared unit tests" step) |
 | `npm run test:e2e --workspace=swatchwatch-functions` | E2E API + cross-user access-control tests against a running local Functions host (`AUTH_DEV_BYPASS=true`); skips when the host is unreachable |
 | `npm run backfill:product-category --workspace=swatchwatch-functions` | Re-classify every shade's product category (#349, #347) via `POST /api/shades-admin/product-category/backfill` and save the JSON report (`--out`); dry run unless `--write`; `--clear-topper-hex` also clears suspicious topper detected hexes (logged for undo); `API_BASE_URL`, `ADMIN_BEARER_TOKEN` |
 | `npm run backfill:product-text --workspace=swatchwatch-functions` | Recompute product `descriptionText`/`descriptors` from `raw_json` and report empty-finish coverage (#352); dry run unless `--write` (`--fill-finishes` also fills empty shade finishes) |

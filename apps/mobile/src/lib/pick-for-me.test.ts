@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Polish } from "swatchwatch-shared";
-import { createSeededRandom, pickForMe, PICK_WEIGHTS, pushPickHistory, scorePickCandidates, thinGapCells } from "./pick-for-me";
+import { generateHarmonyPalette } from "swatchwatch-shared";
+import {
+  buildPickManicure,
+  createSeededRandom,
+  pickForMe,
+  PICK_WEIGHTS,
+  pushPickHistory,
+  scorePickCandidates,
+  suggestPairings,
+  thinGapCells,
+} from "./pick-for-me";
 
 const NOW = Date.parse("2026-10-18T12:00:00Z");
 const daysAgo = (n: number) => new Date(NOW - n * 86_400_000).toISOString();
@@ -80,5 +90,45 @@ describe("history and gaps", () => {
     const thin = thinGapCells(hexes);
     assert.equal(thin.size, 1);
     assert.ok([...thin][0].startsWith("purples-violets") || [...thin][0].startsWith("blues-teals"));
+  });
+});
+
+describe("main pick — product categories (#349, D-C)", () => {
+  it("only color polishes are main-pick candidates", () => {
+    const rows = [
+      polish("color"),
+      polish("topper", { productCategory: "topper", finishes: ["glitter"] }),
+      polish("coat", { productCategory: "top_coat" }),
+    ];
+    assert.deepEqual(scorePickCandidates(rows, NOW).map((c) => c.polish.id), ["color"]);
+  });
+});
+
+describe("Pair it", () => {
+  const pick = polish("pick", { vendorHex: "#1F4E9C" });
+  const complement = polish("complement", { vendorHex: generateHarmonyPalette("#1F4E9C", "complementary")[1] });
+  const topper = polish("topper", { productCategory: "topper", vendorHex: "#EEEEEE", finishes: ["topper"] });
+
+  it("suggests owned pairings with the shared rule", () => {
+    const pairs = suggestPairings(pick, [pick, complement, topper]);
+    assert.deepEqual(
+      pairs.map((p) => [p.polish.id, p.role]),
+      [
+        ["complement", "accent"],
+        ["topper", "topper"],
+      ],
+    );
+  });
+
+  it("logs the pick as main color plus only the selected pairings", () => {
+    const pairs = suggestPairings(pick, [pick, complement, topper]);
+    assert.deepEqual(buildPickManicure(pick, pairs, new Set(["topper"]), "2026-10-18"), {
+      wornOn: "2026-10-18",
+      polishes: [
+        { shadeId: "pick", role: "color" },
+        { shadeId: "topper", role: "topper" },
+      ],
+    });
+    assert.deepEqual(buildPickManicure(pick, pairs, new Set(), "2026-10-18").polishes, [{ shadeId: "pick", role: "color" }]);
   });
 });

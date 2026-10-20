@@ -1,16 +1,28 @@
 /**
  * "Pick for me" (#272), mirrored from `apps/web/src/lib/pick-for-me.ts` (weighting, no-repeat
- * history and reasons; the web's "Pair it" suggestions are not mirrored yet). Pure: the clock
- * and random source are inputs, so a seeded source reproduces a pick.
+ * history and reasons). "Pair it" uses the shared rule (`suggestPairings` from swatchwatch-shared
+ * `color/pair-it.ts`, the same one the web uses). Pure: the clock and random source are inputs,
+ * so a seeded source reproduces a pick.
  *
- * Only `status === "owned"` polishes are candidates. Weight = tried × recency × gap:
+ * Only owned (`status === "owned"`) color polishes are candidates: toppers, coats, treatments and
+ * accessories are never the main pick (#349 D-C); Pair it may add an owned topper. Weight = tried × recency × gap:
  * untried ×3; recency 0 when worn in the last 2 days, ×2 when never worn, otherwise ramping
  * 1 → 2 over 90 days; ×2 when the polish sits in a thin hue × lightness cell of the
  * collection's gap heatmap (`analyzeCollectionGaps` on the web, mirrored below). A weight of 0
  * (cooldown) is only ignored when every remaining candidate is in cooldown.
  */
-import { hexToOklab, resolveDisplayHex, type Polish } from "swatchwatch-shared";
-import { isOwnedPolish } from "./status";
+import {
+  hexToOklab,
+  resolveDisplayHex,
+  resolvePolishFinishes,
+  resolveProductCategory,
+  type ManicureCreateRequest,
+  type PairSuggestion,
+  type Polish,
+} from "swatchwatch-shared";
+import { isOwnedPolish, quickLogRole } from "./status";
+
+export { MAX_PAIRINGS, PAIR_MAX_DISTANCE, suggestPairings, type PairSuggestion } from "swatchwatch-shared";
 
 /** Same constants as the web's `PICK_WEIGHTS`; change them together. */
 export const PICK_WEIGHTS = {
@@ -119,7 +131,7 @@ export function formatRestPeriod(days: number): string {
 
 export function scorePickCandidates(polishes: readonly Polish[], now: Date | number): PickCandidate[] {
   const nowMs = typeof now === "number" ? now : now.getTime();
-  const owned = polishes.filter(isOwnedPolish);
+  const owned = polishes.filter((p) => isOwnedPolish(p) && resolveProductCategory(p.productCategory) === "color");
   const hexOf = (p: Polish) => {
     const hex = resolveDisplayHex(p);
     return hex && HEX_RE.test(hex) ? hex : undefined;
@@ -191,4 +203,26 @@ export function pickForMe(
 
 export function pushPickHistory(history: readonly string[], id: string): string[] {
   return [...history.filter((h) => h !== id), id].slice(-PICK_HISTORY_SIZE);
+}
+
+/**
+ * The `POST /api/manicures` body for "Log today's mani" on the pick card: the pick as the main
+ * polish (`color`, or `topper` for a topper finish) followed by the selected pairings with their
+ * suggested roles (accent / topper), like the web's `ManiLogForm` prefill.
+ */
+export function buildPickManicure(
+  pick: Polish,
+  pairings: readonly PairSuggestion<Polish>[],
+  selectedIds: ReadonlySet<string>,
+  wornOn: string,
+): ManicureCreateRequest {
+  return {
+    wornOn,
+    polishes: [
+      { shadeId: pick.id, role: quickLogRole(resolvePolishFinishes(pick)) },
+      ...pairings
+        .filter((p) => selectedIds.has(p.polish.id) && p.polish.id !== pick.id)
+        .map((p) => ({ shadeId: p.polish.id, role: p.role })),
+    ],
+  };
 }
