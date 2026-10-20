@@ -346,6 +346,7 @@ function EntraAuthProvider({ settings, children }: { settings: EntraSettings; ch
     setSessionExpiredHandler(() => {
       setTokens(null);
       setUser(null);
+      clearPrivateImages();
       setError("Your session expired. Sign in again.");
       setStatus("signedOut");
       void clearStoredAuth();

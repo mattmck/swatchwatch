@@ -31,24 +31,31 @@ export function clearPrivateImages(): void {
 }
 
 async function fetchPrivateImage(absoluteUrl: string): Promise<string> {
+  // Captured before any await, so a sign-out during the token read also discards the result.
+  const started = generation;
   const authorization = await getAuthorizationHeader().catch(() => null);
   // A v3 id is useless without the owner's token: never send the request unauthenticated.
-  if (!authorization) throw new PrivateImageError("denied");
-  const started = generation;
+  if (!authorization || started !== generation) throw new PrivateImageError("denied");
   const controller = new AbortController();
+  // The timeout covers the body read too, not just the headers.
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  let response: Response;
+  let dataUri: string;
   try {
-    response = await fetch(absoluteUrl, { headers: { Authorization: authorization }, signal: controller.signal });
-  } catch {
-    throw new PrivateImageError("offline");
+    let response: Response;
+    try {
+      response = await fetch(absoluteUrl, { headers: { Authorization: authorization }, signal: controller.signal });
+    } catch {
+      throw new PrivateImageError("offline");
+    }
+    const outcome = classifyPrivateImageStatus(response.status);
+    if (outcome !== "ready") throw new PrivateImageError(outcome);
+    const buffer = await response.arrayBuffer().catch(() => {
+      throw new PrivateImageError("offline");
+    });
+    dataUri = imageDataUri(response.headers.get("content-type"), new Uint8Array(buffer));
   } finally {
     clearTimeout(timer);
   }
-  const outcome = classifyPrivateImageStatus(response.status);
-  if (outcome !== "ready") throw new PrivateImageError(outcome);
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  const dataUri = imageDataUri(response.headers.get("content-type"), bytes);
   // Signed out (or switched user) while this ran: don't put the bytes back in memory.
   if (started === generation) cache.set(absoluteUrl, dataUri);
   return dataUri;

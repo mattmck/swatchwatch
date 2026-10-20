@@ -121,7 +121,8 @@ src/
                           private image, nail photo section, log-a-mani sheet
   config/env.ts           EXPO_PUBLIC_* config and auth-mode resolution
   lib/                    pure logic (+ *.test.ts): status rules, Rapid Add state, add guard,
-                          photo match palette rules, private image URLs and memory cache
+                          photo match palette rules, private image URLs and memory cache,
+                          photo picking (`pick-photo.ts`, camera/library → `prepareJpeg`)
   theme/theme.tsx         light/dark theme from the shared design tokens
 ```
 
