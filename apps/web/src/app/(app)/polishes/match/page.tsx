@@ -10,7 +10,7 @@ import type {
   PolishImageMatchResponse,
   PolishMatch,
 } from "swatchwatch-shared";
-import { X } from "lucide-react";
+import { ImageUp, X } from "lucide-react";
 import { toast } from "sonner";
 import { deletePolish, getPolishDupes, matchPolishesToImage, updatePolish } from "@/lib/api";
 import { downscaleImageFile, type DownscaledImage } from "@/lib/image-downscale";
@@ -60,6 +60,7 @@ import { buildFinishOptions } from "@/lib/finish-options";
 import {
   trackMatchImageProcessed,
   trackMatchResultAction,
+  trackOnboardingStepClicked,
   type MatchImageTrigger,
   type MatchResultAction,
 } from "@/lib/metrics-events";
@@ -72,7 +73,10 @@ import { BrandSpinner } from "@/components/brand-spinner";
 import { ColorDot } from "@/components/color-dot";
 import { ColorFamilyChips } from "@/components/color-family-chips";
 import { CollectionQuickActions, type QuickActionSource } from "@/components/collection-quick-actions";
+import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
+import { useOwnedCount } from "@/hooks/use-owned-count";
+import { CATALOG_SEARCH_HREF } from "@/lib/onboarding";
 import { ToggleChip } from "@/components/toggle-chip";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -193,6 +197,8 @@ function PolishImageMatchContent() {
   );
   const [error, setError] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(false);
+  // "My collection" matching needs owned polishes: with none, say so before the user uploads a photo.
+  const ownedCount = useOwnedCount();
   const requestIdRef = useRef(0);
   const triggerRef = useRef<MatchImageTrigger>("filters");
 
@@ -542,6 +548,17 @@ function PolishImageMatchContent() {
           <Link href="/polishes/search">Open Color Search</Link>
         </Button>
       </div>
+
+      {ownedCount === 0 && urlState.scope === "owned" && !image && !preparing && (
+        <EmptyState
+          icon={ImageUp}
+          title="Your collection is empty"
+          description="Matching against My collection finds the polishes you own in a photo's colors, so add a few first. You can still upload a photo and switch to Whole catalog."
+          actionLabel="Search the catalog"
+          actionHref={CATALOG_SEARCH_HREF}
+          onAction={() => trackOnboardingStepClicked({ step: "search", surface: "match_empty", ownedCount: 0 })}
+        />
+      )}
 
       {!image && !preparing && (
         <>

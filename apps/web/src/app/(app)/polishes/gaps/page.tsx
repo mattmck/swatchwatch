@@ -15,6 +15,9 @@ import {
 import { BrandSpinner } from "@/components/brand-spinner";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
+import { trackOnboardingStepClicked } from "@/lib/metrics-events";
+import { CATALOG_SEARCH_HREF } from "@/lib/onboarding";
+import { LayoutGrid } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -221,13 +224,18 @@ function PolishCollectionGapsContent() {
 
   if (ownedPolishes.length === 0) {
     return (
-      <EmptyState
-        title="No collection yet"
-        description="Add polishes to your collection to unlock the gap map and see what to buy next."
-        actionLabel="+ Add Polish"
-        actionHref="/polishes/new"
-        className="min-h-[420px]"
-      />
+      <div className="space-y-2">
+        <h1 className="heading-page">Collection Gap Map</h1>
+        <EmptyState
+          icon={LayoutGrid}
+          title="Your gap map needs a collection"
+          description="Once you own a few polishes, this map shows the colors you have plenty of and the ones you're missing."
+          actionLabel="Search the catalog"
+          actionHref={CATALOG_SEARCH_HREF}
+          onAction={() => trackOnboardingStepClicked({ step: "search", surface: "gaps_empty", ownedCount: 0 })}
+          className="min-h-[420px]"
+        />
+      </div>
     );
   }
 

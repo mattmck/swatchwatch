@@ -65,7 +65,8 @@ import { shadeGuardKey, wishlistInsteadUpdate, type AddGuardIntent } from "@/lib
 import { Pagination } from "@/components/pagination";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
-import { EmptyState } from "@/components/empty-state";
+import { PolishesEmptyState } from "@/components/polishes-empty-state";
+import { polishesEmptyStateKind, shouldFocusSearch } from "@/lib/onboarding";
 import { buildFinishOptions, knownFinishNames } from "@/lib/finish-options";
 import { FinishBadges } from "@/components/finish-badges";
 import { BuyFromBrandLink } from "@/components/buy-from-brand-link";
@@ -162,6 +163,9 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   // Filters (URL state: see lib/polish-list-url.ts; legacy scope/availability links are mapped
   // to `status` once and the canonical URL is written back).
   const [initialState] = useState(() => parsePolishesListState(searchParams));
+  // `?focus=search` (getting-started checklist, empty states) opens with the search box focused.
+  const [focusSearchOnLoad] = useState(() => shouldFocusSearch(searchParams));
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState(initialState.search);
   const [statuses, setStatuses] = useState<PolishStatus[]>(initialState.statuses);
   const [untried, setUntried] = useState(initialState.untried);
@@ -378,7 +382,6 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const dupeHints = useDupeHints(pageItems);
   // Add guard (#266): adding a not-owned shade shows its owned near-dupes first.
   const { guardAdd, active: activeGuard, choose: chooseGuard, isChecking: isGuardChecking } = useAddGuard();
-  const columnCount = 9 + (isAdmin ? 1 : 0);
 
   // Clamp a page past the end only once real data is in (#348): on mount `total` is still 0, and
   // clamping then rewrote a restored `?page=N` to page 1. A failed load keeps the page too.
@@ -551,6 +554,25 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     });
   }, [knownFinishes]);
 
+  const clearAllFilters = () => {
+    setSearch("");
+    setStatuses([]);
+    setUntried(false);
+    setToneFilter("all");
+    setFinishFilter("all");
+    setFamilyFilter("");
+    setCategoryFilter("");
+  };
+
+  // Empty collection/wishlist → every polish, with the search box ready to type in.
+  const browseCatalog = () => {
+    setStatuses([]);
+    setUntried(false);
+    requestAnimationFrame(() => searchInputRef.current?.focus());
+  };
+
+  const showEmptyState = hasLoaded && pageItems.length === 0;
+
   // Full-page spinner only before the first result: unmounting the page on every refetch
   // would drop the search input (and its focus) mid-typing.
   if (loading && !hasLoaded) {
@@ -589,6 +611,9 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
         <Input
+          ref={searchInputRef}
+          autoFocus={focusSearchOnLoad}
+          aria-label="Search polishes"
           placeholder="Search by name, brand, or color..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -636,15 +661,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
             variant="ghost"
             size="sm"
             className="text-brand-purple hover:bg-brand-pink-light/30"
-            onClick={() => {
-              setSearch("");
-              setStatuses([]);
-              setUntried(false);
-              setToneFilter("all");
-              setFinishFilter("all");
-              setFamilyFilter("");
-              setCategoryFilter("");
-            }}
+            onClick={clearAllFilters}
           >
             Clear filters
           </Button>
@@ -659,11 +676,19 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       {/* Opt-in public wishlist link (#268); hidden unless the server flag is on. */}
       {statusPresetFor(statuses) === "wishlist" && <WishlistShareCard />}
 
-      {/* Table */}
+      {showEmptyState && (
+        <PolishesEmptyState
+          kind={polishesEmptyStateKind({ search, statuses, untried, toneFilter, finishFilter, familyFilter })}
+          onBrowseCatalog={browseCatalog}
+          onClearFilters={clearAllFilters}
+        />
+      )}
+
+      {/* Table (replaced by the empty state above: a full-width table cell clips it on phones) */}
       <div
         className={`relative overflow-hidden rounded-lg border transition-opacity ${
           loading ? "opacity-60" : ""
-        }`}
+        } ${showEmptyState ? "hidden" : ""}`}
         aria-busy={loading}
       >
         <span
@@ -738,18 +763,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {pageItems.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={columnCount} className="p-0">
-                  <EmptyState
-                    title={hasActiveFilters ? "No matches" : "No polishes yet"}
-                    description={hasActiveFilters ? "Try adjusting your filters." : "Add your first polish to get started."}
-                    actionLabel={hasActiveFilters ? undefined : "+ Add Polish"}
-                    actionHref={hasActiveFilters ? undefined : "/polishes/new"}
-                  />
-                </TableCell>
-              </TableRow>
-            ) : (
+            {pageItems.length === 0 ? null : (
               pageItems.map((polish) => {
                 const recalcPending = recalcPendingById[polish.id] === true;
                 const owned = isOwnedPolish(polish);
