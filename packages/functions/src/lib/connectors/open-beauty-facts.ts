@@ -5,6 +5,7 @@ import {
   ProductConnector,
 } from "./types";
 import { openBeautyFactsProductText } from "../product-text";
+import { classifyIngestedProduct } from "../product-category";
 
 const DEFAULT_BASE_URL = "https://world.openbeautyfacts.org";
 const REQUEST_TIMEOUT_MS = 15000;
@@ -50,6 +51,14 @@ function normalizeProduct(product: Record<string, unknown>): ConnectorProductRec
   const lastModifiedEpoch =
     typeof product.last_modified_t === "number" ? product.last_modified_t : null;
 
+  // Accessories are never ingested (#347). OpenBeautyFacts has no product type: the name and the
+  // category tags (`en:nail-polishes`, ...) decide; no polish signal is required, since the search
+  // itself is the polish filter here.
+  const { category: productCategory } = classifyIngestedProduct({ title: name, tags: categoriesTags });
+  if (productCategory === "accessory") {
+    return null;
+  }
+
   // Description + descriptors for finish detection (#352); never shown to users.
   const { descriptionText, descriptors } = openBeautyFactsProductText(product);
 
@@ -64,6 +73,7 @@ function normalizeProduct(product: Record<string, unknown>): ConnectorProductRec
       brand,
       ingredientsText,
       categoriesTags,
+      productCategory,
       descriptionText,
       descriptors,
       imageUrl,

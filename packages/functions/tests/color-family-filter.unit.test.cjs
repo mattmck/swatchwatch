@@ -133,6 +133,39 @@ describe("GET /api/polishes?family=", () => {
     assert.equal(params[Number(limit[2]) - 1], 0);
   });
 
+  it("filters on ?category= and shows accessories/excluded shades only to holders (#349, #347)", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    const calls = recordListQueries([
+      { id: "6", brand: "Holo Taco", name: "Sticky Base", color: "", finish: "", productCategory: "base_coat", swatchImageUrl: null, totalCount: "1" },
+    ]);
+    const res = await registeredRoutes["polishes-list"].handler(
+      fakeRequest("http://localhost:7071/api/polishes?category=base_coat,top-coat", AUTH),
+      fakeContext()
+    );
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.polishes[0].productCategory, "base_coat");
+    const { text, params } = calls[0];
+    assert.match(text, /s\.product_category\s+AS "productCategory"/);
+    const placeholder = text.match(/s\.product_category = ANY\(\$(\d+)::text\[\]\)/);
+    assert.ok(placeholder, "category filter should be in the WHERE clause");
+    assert.deepEqual(params[Number(placeholder[1]) - 1], ["top_coat", "base_coat"]);
+    assert.match(
+      text,
+      /\(s\.product_category <> 'accessory' AND s\.status <> 'excluded'\) OR ui\.inventory_item_id IS NOT NULL/,
+      "accessories and excluded shades are visible to holders only"
+    );
+  });
+
+  it("answers 400 for an unknown category on the list", async () => {
+    process.env.AUTH_DEV_BYPASS = "true";
+    recordListQueries([]);
+    const res = await registeredRoutes["polishes-list"].handler(
+      fakeRequest("http://localhost:7071/api/polishes?category=nope", AUTH),
+      fakeContext()
+    );
+    assert.equal(res.status, 400);
+  });
+
   it("applies the family filter to the fallback count for a page past the end", async () => {
     process.env.AUTH_DEV_BYPASS = "true";
     const calls = recordListQueries([]);
@@ -209,7 +242,7 @@ describe("GET /api/catalog/search?family=", () => {
     );
     assert.equal(res.status, 200);
     assert.match(calls[0].text, /\(\$2::text\[\] IS NULL OR s\.color_family = ANY\(\$2::text\[\]\)\)/);
-    assert.deepEqual(calls[0].params, ["red", null]);
+    assert.deepEqual(calls[0].params, ["red", null, null]);
   });
 
   it("filters by family and returns colorFamily on results", async () => {
@@ -227,10 +260,35 @@ describe("GET /api/catalog/search?family=", () => {
       fakeContext()
     );
     assert.equal(res.status, 200);
-    assert.deepEqual(calls[0].params, ["apple", ["red", "coral"]]);
+    assert.deepEqual(calls[0].params, ["apple", ["red", "coral"], null]);
     assert.match(calls[0].text, /s\.color_family\s+AS "colorFamily"/);
     assert.equal(res.jsonBody.results[0].colorFamily, "red");
     assert.equal(res.jsonBody.total, 1);
+  });
+
+  it("never returns accessories and filters by ?category= (#349)", async () => {
+    const calls = [];
+    queryMock = async (text, params) => {
+      calls.push({ text, params });
+      return { rows: [{ shadeId: "2", brand: "Holo Taco", name: "Gold Flakie", finish: "flake", finishes: ["flake"], collection: null, colorFamily: "yellow", productCategory: "topper", similarity: 0.6 }] };
+    };
+    const res = await registeredRoutes["catalog-search"].handler(
+      fakeRequest("http://localhost:7071/api/catalog/search?q=flakie&category=topper,top-coat"),
+      fakeContext()
+    );
+    assert.equal(res.status, 200);
+    assert.match(calls[0].text, /s\.product_category <> 'accessory'/);
+    assert.deepEqual(calls[0].params, ["flakie", null, ["topper", "top_coat"]]);
+    assert.equal(res.jsonBody.results[0].productCategory, "topper");
+  });
+
+  it("answers 400 for an unknown category", async () => {
+    const res = await registeredRoutes["catalog-search"].handler(
+      fakeRequest("http://localhost:7071/api/catalog/search?q=apple&category=glitterbomb"),
+      fakeContext()
+    );
+    assert.equal(res.status, 400);
+    assert.match(res.jsonBody.error, /glitterbomb/);
   });
 
   it("answers 400 for an unknown family", async () => {

@@ -18,6 +18,7 @@ import {
 } from "@/lib/dupes";
 import { useReferenceData } from "@/hooks/use-reference-data";
 import { FinishBadges } from "@/components/finish-badges";
+import { ProductCategoryPill, TopperSwatch, showsTopperSwatch } from "@/components/product-category";
 import { BuyFromBrandLink } from "@/components/buy-from-brand-link";
 import { SwatchThumbnail } from "@/components/swatch-thumbnail";
 import { Badge } from "@/components/ui/badge";
@@ -127,7 +128,9 @@ export default function PolishDetailClient({
     router.replace(`${window.location.pathname}?${params.toString()}`);
   }, [justArchived, polish, router]);
 
-  const displayHex = polish ? resolveDisplayHex(polish) : undefined;
+  // A topper has no single color (#349, D-D): no hex-driven hero, color profile or related shades.
+  const isTopper = showsTopperSwatch(polish?.productCategory);
+  const displayHex = polish && !isTopper ? resolveDisplayHex(polish) : undefined;
   const dupeCallout = dupeCalloutText(dupes);
 
   const colorProfile = useMemo(() => {
@@ -269,13 +272,25 @@ export default function PolishDetailClient({
         />
         <div className="relative flex items-start justify-between">
           <div className="flex items-center gap-4">
-            <div
-              className="size-16 shrink-0 rounded-xl shadow-lg ring-2 ring-white/50"
-              style={{ backgroundColor: displayHex || "#ccc" }}
-            />
+            {isTopper ? (
+              <TopperSwatch size="lg" className="size-16 rounded-xl shadow-lg ring-2 ring-white/50" />
+            ) : (
+              <div
+                className="size-16 shrink-0 rounded-xl shadow-lg ring-2 ring-white/50"
+                style={{ backgroundColor: displayHex || "#ccc" }}
+              />
+            )}
             <div>
-              <h1 className="heading-page">{polish.name}</h1>
+              <h1 className="heading-page">
+                {polish.name}
+                <ProductCategoryPill category={polish.productCategory} className="ml-2 align-middle" />
+              </h1>
               <p className="text-muted-foreground">{polish.brand}</p>
+              {isTopper && (
+                <div className="mt-1">
+                  <FinishBadges polish={polish} finishTypes={finishTypes} empty={<span className="text-xs text-muted-foreground">Topper</span>} />
+                </div>
+              )}
               {displayHex && (
                 <p className="mt-1 font-mono text-xs text-muted-foreground">{displayHex}</p>
               )}
@@ -376,8 +391,16 @@ export default function PolishDetailClient({
                   className="flex items-center gap-3 rounded-lg border px-3 py-2 transition-colors hover:bg-brand-pink-light/15"
                 >
                   <span className="flex shrink-0 items-center" aria-hidden>
-                    <ColorDot hex={displayHex} size="md" className="ring-2 ring-white/80" />
-                    <ColorDot hex={dupe.displayHex} size="md" className="-ml-2 ring-2 ring-white/80" />
+                    {isTopper ? (
+                      <TopperSwatch size="md" className="ring-2 ring-white/80" />
+                    ) : (
+                      <ColorDot hex={displayHex} size="md" className="ring-2 ring-white/80" />
+                    )}
+                    {isTopper ? (
+                      <TopperSwatch size="md" className="-ml-2 ring-2 ring-white/80" />
+                    ) : (
+                      <ColorDot hex={dupe.displayHex} size="md" className="-ml-2 ring-2 ring-white/80" />
+                    )}
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-medium">{dupe.name}</p>
@@ -424,12 +447,16 @@ export default function PolishDetailClient({
             <div>
               <p className="text-muted-foreground">Color</p>
               <p className="font-medium flex items-center gap-2">
-                <ColorDot
-                  hex={displayHex}
-                  size="md"
-                  className="ring-2 ring-white/80 shadow-[0_0_0_1px_rgba(66,16,126,0.18),0_8px_20px_rgba(66,16,126,0.16)]"
-                />
-                {polish.color}
+                {isTopper ? (
+                  <TopperSwatch size="md" />
+                ) : (
+                  <ColorDot
+                    hex={displayHex}
+                    size="md"
+                    className="ring-2 ring-white/80 shadow-[0_0_0_1px_rgba(66,16,126,0.18),0_8px_20px_rgba(66,16,126,0.16)]"
+                  />
+                )}
+                {isTopper ? "Topper (worn over another polish)" : polish.color}
                 {displayHex && (
                   <span className="font-mono text-xs text-muted-foreground">
                     {displayHex}

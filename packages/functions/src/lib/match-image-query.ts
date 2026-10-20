@@ -33,10 +33,16 @@ export const MATCH_SCOPE_SQL: Record<MatchScope, string | null> = {
 };
 
 /** A shade with no hex at all can never be scored; skip it in SQL (the ranker re-checks validity). */
+/**
+ * Photo match compares colors: only color polishes are candidates, in every scope (#349, D-C;
+ * toppers, coats and treatments have no meaningful single hex and accessories are not polishes).
+ */
+export const MATCH_COLOR_ONLY_SQL = `s.product_category = 'color'`;
+
 export const MATCH_HAS_HEX_SQL = `COALESCE(NULLIF(s.vendor_hex, ''), NULLIF(s.detected_hex, ''), NULLIF(s.name_hex, '')) IS NOT NULL`;
 
 export function buildMatchCandidateWhere(filters: MatchCandidateFilters, visibleSql: string): MatchCandidateWhere {
-  const conditions: string[] = [visibleSql, MATCH_HAS_HEX_SQL];
+  const conditions: string[] = [visibleSql, MATCH_COLOR_ONLY_SQL, MATCH_HAS_HEX_SQL];
   const params: unknown[] = [];
   const next = () => `$${params.length + 2}`;
 
