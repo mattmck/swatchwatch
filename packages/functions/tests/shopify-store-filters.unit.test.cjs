@@ -171,8 +171,16 @@ describe("ShopifyGenericConnector applies the store pre-filter", () => {
     assert.ok(result.records.every((record) => record.normalized.brand === "Pahlish"));
   });
 
-  it("the same products through a source without a store filter still get the generic filter (0 pass)", async () => {
+  it("the same products through a source without a store filter still get the generic filter (no color polish passes)", async () => {
     const result = await new ShopifyGenericConnector("NightOwlLacquerShopify").pullProducts(pull);
-    assert.equal(result.records.length, 0);
+    // No fixture product has a polish signal, so no color polish gets through. Its two coats are
+    // ingested with their category (D-E, #349): coats do not need a polish word.
+    assert.deepEqual(
+      result.records.map((record) => [record.normalized.name, record.normalized.productCategory]).sort(),
+      [
+        ["Beauty and the Base Smoothing Base Coat", "base_coat"],
+        ["Magic Mirror Quick Dry Topcoat", "top_coat"],
+      ]
+    );
   });
 });

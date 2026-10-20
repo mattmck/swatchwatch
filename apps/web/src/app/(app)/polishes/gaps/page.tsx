@@ -66,8 +66,10 @@ function PolishCollectionGapsContent() {
         setLoading(true);
         setError(null);
         // Phase 1: the heatmap only needs owned shades, which is a small fast query.
+        // Color polishes only: toppers and coats have no meaningful hex (#349).
         const ownedRows = await listAllPolishes({
           availability: "owned",
+          categories: ["color"],
           sortBy: "createdAt",
           sortOrder: "desc",
         });
@@ -85,7 +87,7 @@ function PolishCollectionGapsContent() {
         // Phase 2: the shared catalog feeds "Available To Add" suggestions. It is much
         // larger, so it loads in the background after the map is already interactive.
         try {
-          const allRows = await listAllPolishes({ sortBy: "createdAt", sortOrder: "desc" });
+          const allRows = await listAllPolishes({ categories: ["color"], sortBy: "createdAt", sortOrder: "desc" });
           if (cancelled) return;
           const merged = new Map(allRows.map((polish) => [polish.id, polish]));
           for (const owned of ownedRows) merged.set(owned.id, owned);

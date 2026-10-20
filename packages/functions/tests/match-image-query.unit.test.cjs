@@ -5,6 +5,7 @@ const {
   buildMatchCandidateWhere,
   MATCH_SCOPE_SQL,
   MATCH_HAS_HEX_SQL,
+  MATCH_COLOR_ONLY_SQL,
 } = require("../dist/lib/match-image-query");
 
 const VISIBLE = "(visible)";
@@ -13,7 +14,7 @@ const none = { canonicalFinishes: [], legacyFinishes: [], families: [] };
 describe("lib/match-image-query — buildMatchCandidateWhere", () => {
   it("defaults (owned scope) to the caller's owned inventory rows only, as before #105", () => {
     const { where, params } = buildMatchCandidateWhere({ scope: "owned", ...none }, VISIBLE);
-    assert.equal(where, `${VISIBLE} AND ${MATCH_HAS_HEX_SQL} AND ui.inventory_item_id IS NOT NULL AND ui.status = 'owned'`);
+    assert.equal(where, `${VISIBLE} AND ${MATCH_COLOR_ONLY_SQL} AND ${MATCH_HAS_HEX_SQL} AND ui.inventory_item_id IS NOT NULL AND ui.status = 'owned'`);
     assert.deepEqual(params, []);
   });
 
@@ -28,6 +29,13 @@ describe("lib/match-image-query — buildMatchCandidateWhere", () => {
     assert.equal(MATCH_SCOPE_SQL.catalog, null);
     assert.ok(where.startsWith(VISIBLE));
     assert.doesNotMatch(where, /ui\.status/);
+  });
+
+  it("matches color polishes only, in every scope (#349)", () => {
+    assert.equal(MATCH_COLOR_ONLY_SQL, "s.product_category = 'color'");
+    for (const scope of ["owned", "wishlist", "catalog"]) {
+      assert.ok(buildMatchCandidateWhere({ scope, ...none }, VISIBLE).where.includes(MATCH_COLOR_ONLY_SQL), scope);
+    }
   });
 
   it("every scope keeps the visibility clause first", () => {

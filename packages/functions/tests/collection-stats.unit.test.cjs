@@ -481,6 +481,15 @@ describe("collection stats SQL", () => {
     for (const sql of statements) assert.match(sql.trim(), /^SELECT\b/);
   });
 
+  it("applies the product-category rules (#349): spend skips accessories, wear stats are color + topper", () => {
+    for (const sql of [lib.STATS_SPEND_BY_BRAND_SQL, lib.STATS_SPEND_BY_MONTH_SQL]) {
+      assert.match(sqlOf(sql), /COALESCE\(s\.product_category, 'color'\) <> 'accessory'/);
+    }
+    for (const sql of [lib.STATS_COUNTS_SQL, lib.STATS_MOST_WORN_SQL, lib.STATS_COST_PER_WEAR_SQL]) {
+      assert.match(sqlOf(sql), /COALESCE\(s\.product_category, 'color'\) IN \('color', 'topper'\)/);
+    }
+  });
+
   it("buckets null purchase dates by the UTC created_at date", () => {
     assert.match(sqlOf(lib.STATS_SPEND_BY_MONTH_SQL), /COALESCE\(ui\.purchase_date, \(ui\.created_at AT TIME ZONE 'UTC'\)::date\)/);
   });

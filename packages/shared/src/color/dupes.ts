@@ -1,4 +1,9 @@
 import { isFinishFamily, type FinishFamily } from "../constants/finishes";
+import {
+  areDupeComparableCategories,
+  resolveProductCategory,
+  type ProductCategory,
+} from "../constants/product-categories";
 import type { MatchConfidence } from "../types/color-match";
 import type {
   DupeGrade,
@@ -32,7 +37,10 @@ import { confidenceForDistance } from "./thresholds";
  *      not hide a likely dupe;
  *    - `different` (known finishes in different families, e.g. holo vs creme) drops the grade
  *      one step: HIGH → MEDIUM, MEDIUM → LOW.
- * 4. Only final grades HIGH and MEDIUM are dupes. They are ordered by grade, then finish
+ * 4. Product categories (#349, D-C): a color polish is only compared with color polishes and a
+ *    topper only with toppers (`areDupeComparableCategories`); top coats, base coats, treatments
+ *    and accessories are never dupes. A shade without a category counts as `color`.
+ * 5. Only final grades HIGH and MEDIUM are dupes. They are ordered by grade, then finish
  *    compatibility (same < compatible < unknown < different), then distance, then brand/name,
  *    so a same-finish dupe ranks above an equally graded one with a different finish.
  *
@@ -249,6 +257,8 @@ export interface DupeShade {
   hexAgreement?: number | null;
   finish?: string | null;
   finishes?: readonly string[] | null;
+  /** `shade.product_category`; missing = `color`. */
+  productCategory?: string | null;
 }
 
 /** A shade with its display hex resolved and converted to OKLAB once. */
@@ -256,6 +266,7 @@ export interface PreparedDupeShade {
   shadeId: string;
   brand: string;
   name: string;
+  productCategory: ProductCategory;
   finishes: string[];
   displayHex: string;
   displayHexSource: DisplayHexSource;
@@ -276,6 +287,7 @@ export function prepareDupeShade(shade: DupeShade): PreparedDupeShade | null {
     shadeId: String(shade.shadeId),
     brand: shade.brand ?? "",
     name: shade.name ?? "",
+    productCategory: resolveProductCategory(shade.productCategory),
     finishes: resolvePolishFinishes(shade),
     displayHex,
     displayHexSource: resolution.source,
@@ -296,7 +308,7 @@ export function prepareDupeCandidates(shades: readonly DupeShade[]): PreparedDup
 export interface FindDupesResult {
   /** All HIGH/MEDIUM dupes, best first (not limited). */
   dupes: PolishDupe[];
-  /** Candidates compared (the pool minus the target itself). */
+  /** Candidates compared (the pool minus the target itself and other product categories). */
   candidateCount: number;
 }
 
@@ -316,6 +328,7 @@ export function findDupes(
   let candidateCount = 0;
   for (const candidate of candidates) {
     if (candidate.shadeId === target.shadeId) continue;
+    if (!areDupeComparableCategories(target.productCategory, candidate.productCategory)) continue;
     candidateCount += 1;
     const distance = oklabDistance(target.lab, candidate.lab);
     const compatibility = finishCompatibility(target.finishes, candidate.finishes, families);
