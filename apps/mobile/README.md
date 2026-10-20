@@ -12,7 +12,13 @@ token, the same `swatchwatch-shared` types and the same color palette.
 |---|---|---|---|---|
 | ![Home](docs/screenshots/home-pick.jpg) | ![Mani log](docs/screenshots/mani-log.jpg) | ![Sheet](docs/screenshots/log-mani-sheet.jpg) | ![Near-dupe](docs/screenshots/verdict-near-dupe.jpg) | ![Offline](docs/screenshots/collection-offline.jpg) |
 
-(Screenshots from the Expo web preview against a local Functions host in dev-bypass mode; the
+Native iOS 27 simulator (Xcode 27, iPhone 18 Pro, dev bypass against the local API): sign-in → Collection with Home panel; the camera permission prompt with the Info.plist text; a shutter photo uploaded as a `barcode` frame; and the check's "not in the catalog" verdict (the simulator's virtual camera sees a black frame, so a real scan needs a device).
+
+| Collection | Camera permission | Frame sent | Check result |
+|---|---|---|---|
+| ![iOS collection](docs/screenshots/ios-collection.jpg) | ![Permission](docs/screenshots/ios-camera-permission.jpg) | ![Frame sent](docs/screenshots/ios-rapid-add-frame-sent.jpg) | ![Not found](docs/screenshots/ios-rapid-add-not-found.jpg) |
+
+(The other screenshots are from the Expo web preview against a local Functions host in dev-bypass mode; the
 camera itself only runs on a device.)
 
 ## Run it
@@ -23,6 +29,8 @@ cp apps/mobile/.env.example apps/mobile/.env.local
 npm run dev:functions         # API on http://localhost:7071/api (AUTH_DEV_BYPASS=true locally)
 npm run dev:mobile            # builds shared types, then `expo start`
 ```
+
+Native iOS builds need full Xcode (`xcode-select -s /Applications/Xcode.app/Contents/Developer`) and CocoaPods (`brew install cocoapods`). The Xcode 27 SDK requires the UIKit scene lifecycle, which Expo SDK 57 adopts through the `expo-build-properties` plugin's `ios.enableSceneSupport` (set in `app.json`; SDK 58 includes it, then remove the plugin). Without it the app is killed at launch with "UIScene life cycle is required".
 
 Then press `i` (iOS simulator), `a` (Android emulator) or `w` (web preview), or scan the QR
 code with a development build. Useful variants, run from `apps/mobile`:
