@@ -43,7 +43,7 @@ Great Lakes Lacquer (custom terms, no automated-access clause), Bee's Knees, Kat
 and Clionadh came up too but are already sources.
 
 **Cirque Colors store filter (follow-up below, done):** `connectors/store-filters/cirque-colors.ts`
-keeps **328 of 415** products on 2026-10-19 (293 color, 23 topper, 7 treatment, 5 base coat by the
+keeps **328 of 415** products on 2026-10-19 (293 color, 23 topper, 7 treatment, 4 base coat, 1 top coat by the
 rule classifier; the generic gate kept 10). Dropped: 85 sets/duos/trios/bundles/nail-art kits,
 tools, charms, stickers, remover, wipes, gift card, free gifts and creator profile pages, plus 2
 collection sets with the bundle tag. Cirque tags its coats "Top & Base Coat"; the classifier and the
