@@ -15,6 +15,9 @@
  *   `estimatedDateCount`.
  * - Untried / worn-vs-waiting / cost per wear look at `owned` rows only; most-worn looks at
  *   every row with `wear_count > 0`, whatever its status.
+ * - Product categories (#349, D-C): spend counts every category except accessories (coats and
+ *   treatments are bought too); counts, untried, worn vs waiting, most-worn and cost per wear
+ *   look at color polishes and toppers only. A row without a shade counts as `color`.
  * - Queries are plain `SELECT`s (no leading `WITH`) so `lib/db` may retry them on connection
  *   timeouts.
  */
@@ -59,6 +62,12 @@ const CATALOG_JOINS = `
   LEFT JOIN shade s ON s.shade_id = COALESCE(ui.shade_id, k.shade_id)
   LEFT JOIN brand b ON b.brand_id = COALESCE(s.brand_id, k.brand_id)`;
 
+/** Rows that count toward spend: everything but accessories (#349, D-C). */
+const SPEND_CATEGORY_SQL = `COALESCE(s.product_category, 'color') <> 'accessory'`;
+
+/** Rows that count toward counts, untried, wear and cost per wear: color polishes and toppers. */
+const WEAR_CATEGORY_SQL = `COALESCE(s.product_category, 'color') IN ('color', 'topper')`;
+
 const SHADE_COLUMNS = `
   ui.inventory_item_id::text                          AS "inventoryItemId",
   COALESCE(ui.shade_id, k.shade_id)::text             AS "shadeId",
@@ -79,7 +88,9 @@ SELECT ui.status,
        COUNT(*) FILTER (WHERE ui.purchase_price IS NOT NULL AND ui.wear_count > 0)::int AS "pricedWorn",
        COUNT(*) FILTER (WHERE ui.purchase_price IS NOT NULL AND ui.wear_count = 0)::int AS "pricedUnworn"
 FROM user_inventory_item ui
+${CATALOG_JOINS}
 WHERE ui.user_id = $1
+  AND ${WEAR_CATEGORY_SQL}
 GROUP BY ui.status, ui.purchase_currency`;
 
 /**
@@ -107,6 +118,7 @@ FROM (
     WHERE ui.user_id = $1
       AND ui.status = ANY($2::text[])
       AND ui.purchase_price IS NOT NULL
+      AND ${SPEND_CATEGORY_SQL}
     GROUP BY 1, 2
   ) spend
 ) ranked
@@ -126,9 +138,11 @@ SELECT ui.purchase_currency                                     AS currency,
        COUNT(*)::int                                            AS "itemCount",
        COUNT(*) FILTER (WHERE ui.purchase_date IS NULL)::int    AS "estimatedDateCount"
 FROM user_inventory_item ui
+${CATALOG_JOINS}
 WHERE ui.user_id = $1
   AND ui.status = ANY($2::text[])
   AND ui.purchase_price IS NOT NULL
+  AND ${SPEND_CATEGORY_SQL}
   AND ${MONTH_BUCKET_SQL} >= $3::date
   AND ${MONTH_BUCKET_SQL} < $4::date
 GROUP BY 1, 2
@@ -144,6 +158,7 @@ FROM user_inventory_item ui
 ${CATALOG_JOINS}
 WHERE ui.user_id = $1
   AND ui.wear_count > 0
+  AND ${WEAR_CATEGORY_SQL}
 ORDER BY ui.wear_count DESC, ui.last_worn_at DESC NULLS LAST, ui.inventory_item_id
 LIMIT $2`;
 
@@ -180,6 +195,7 @@ FROM (
       AND ui.status = 'owned'
       AND ui.purchase_price IS NOT NULL
       AND ui.wear_count > 0
+      AND ${WEAR_CATEGORY_SQL}
   ) worn
 ) ranked
 WHERE ranked.best_rank <= $2 OR ranked.best_rank > ranked.n - $2

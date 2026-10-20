@@ -8,6 +8,7 @@ import type { ConnectorProtocol } from "swatchwatch-shared";
 export type SupportedConnectorSource =
   | "BeesKneesLacquerShopify"
   | "ChinaGlazeShopify"
+  | "CirqueColorsShopify"
   | "ClionadhShopify"
   | "ColorClubShopify"
   | "CosIng"
@@ -15,6 +16,7 @@ export type SupportedConnectorSource =
   | "CupcakePolishShopify"
   | "DamNailPolishShopify"
   | "DrunkFairyPolishShopify"
+  | "EmilyDeMollyShopify"
   | "GS1Lookup"
   | "GardenPathLacquersShopify"
   | "GreatLakesLacquerShopify"
@@ -49,6 +51,7 @@ export type SupportedConnectorSource =
 export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProtocol> = {
   BeesKneesLacquerShopify: "Shopify",
   ChinaGlazeShopify: "Shopify",
+  CirqueColorsShopify: "Shopify",
   ClionadhShopify: "Shopify",
   ColorClubShopify: "Shopify",
   CosIng: "GS1",
@@ -56,6 +59,7 @@ export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProt
   CupcakePolishShopify: "Shopify",
   DamNailPolishShopify: "Shopify",
   DrunkFairyPolishShopify: "Shopify",
+  EmilyDeMollyShopify: "Shopify",
   GS1Lookup: "GS1",
   GardenPathLacquersShopify: "Shopify",
   GreatLakesLacquerShopify: "Shopify",
@@ -91,6 +95,7 @@ export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProt
 export const SUPPORTED_SOURCES: SupportedConnectorSource[] = [
   "BeesKneesLacquerShopify",
   "ChinaGlazeShopify",
+  "CirqueColorsShopify",
   "ClionadhShopify",
   "ColorClubShopify",
   "CosIng",
@@ -98,6 +103,7 @@ export const SUPPORTED_SOURCES: SupportedConnectorSource[] = [
   "CupcakePolishShopify",
   "DamNailPolishShopify",
   "DrunkFairyPolishShopify",
+  "EmilyDeMollyShopify",
   "GS1Lookup",
   "GardenPathLacquersShopify",
   "GreatLakesLacquerShopify",

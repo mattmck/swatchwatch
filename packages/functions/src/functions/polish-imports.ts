@@ -72,8 +72,11 @@ const CLEANUP_SCHEDULE = "0 23 * * * *";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Visibility of a shade to `$1` (same rule as POLISH_VISIBLE_SQL in polishes.ts). */
-const SHADE_VISIBLE_SQL = `(s.status <> 'user_submitted' OR s.created_by_user_id = $1 OR ui.inventory_item_id IS NOT NULL)`;
+/**
+ * Visibility of a shade to `$1` (same rule as POLISH_VISIBLE_SQL in polishes.ts): accessories and
+ * `excluded` shades only match for users who already hold them (#347).
+ */
+const SHADE_VISIBLE_SQL = `((s.status <> 'user_submitted' OR s.created_by_user_id = $1 OR ui.inventory_item_id IS NOT NULL) AND ((s.product_category <> 'accessory' AND s.status <> 'excluded') OR ui.inventory_item_id IS NOT NULL))`;
 
 interface StoredPayload {
   delimiter: CsvDelimiter;

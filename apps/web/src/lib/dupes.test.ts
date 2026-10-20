@@ -34,6 +34,19 @@ function hint(best: PolishDupe | null, dupeCount = best ? 1 : 0, highCount = bes
 }
 
 describe("dupeHintShadeIds", () => {
+  it("skips coats, treatments and accessories, which never have dupes (#349)", () => {
+    assert.deepEqual(
+      dupeHintShadeIds([
+        { id: "1", status: null, productCategory: "color" },
+        { id: "2", status: null, productCategory: "topper" },
+        { id: "3", status: null, productCategory: "top_coat" },
+        { id: "4", status: "wishlist", productCategory: "accessory" },
+        { id: "5", status: null },
+      ]),
+      ["1", "2", "5"]
+    );
+  });
+
   it("selects catalog and wishlist rows, never owned rows", () => {
     const ids = dupeHintShadeIds([
       { id: "1", status: "owned" },
@@ -131,8 +144,10 @@ describe("dupeVerdict", () => {
 });
 
 describe("dupeHref", () => {
-  it("links to the detail page with an optional returnTo", () => {
+  it("links to the detail page with a returnTo (#348)", () => {
+    // No window (prerender) and no returnTo: plain link.
     assert.equal(dupeHref({ shadeId: "7" }), "/polishes/detail?id=7");
+    assert.equal(dupeHref({ shadeId: "7" }, null), "/polishes/detail?id=7");
     assert.equal(dupeHref({ shadeId: "7" }, "/polishes?scope=all"), "/polishes/detail?id=7&returnTo=%2Fpolishes%3Fscope%3Dall");
   });
 });

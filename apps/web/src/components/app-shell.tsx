@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Sparkles, Search, PlusCircle, ShieldCheck, Grid2x2, ImageUp, CalendarHeart, ScanBarcode } from "lucide-react";
+import { LayoutDashboard, Sparkles, Search, PlusCircle, ShieldCheck, Grid2x2, ImageUp, CalendarHeart, ScanBarcode, WandSparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { SwatchWatchWordmark } from "@/components/brand/swatchwatch-brand";
@@ -21,6 +21,7 @@ interface NavItem {
 const baseNavItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/polishes", label: "Polishes", icon: Sparkles },
+  { href: "/polishes/looks", label: "Looks", icon: WandSparkles },
   { href: "/polishes/search", label: "Search", icon: Search },
   { href: "/polishes/match", label: "Photo Match", icon: ImageUp },
   { href: "/polishes/gaps", label: "Gap Map", icon: Grid2x2 },
@@ -128,7 +129,7 @@ function AppShellLayout({
       </aside>
 
       {/* Mobile header + page content */}
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 items-center gap-4 border-b border-border bg-background px-4 md:px-6">
           <div className="flex items-center gap-2 md:hidden">
             <Link href="/dashboard">
@@ -136,7 +137,7 @@ function AppShellLayout({
             </Link>
           </div>
           <nav
-            className="flex flex-1 items-center gap-1 overflow-x-auto md:hidden"
+            className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto md:hidden"
             aria-label="Mobile navigation"
           >
             {navItems.map((item) => (

@@ -108,8 +108,8 @@ describe("lib/connectors/shopify-generic — isNailPolish", () => {
       assert.equal(isNailPolish("Nail Care", ["remover", "wipe"]), false);
     });
 
-    it("rejects cuticle oils and treatments", () => {
-      assert.equal(isNailPolish("Nail Care", ["cuticle-oil"]), false);
+    it("accepts cuticle oils and treatments now that they have a category (D-E, #349)", () => {
+      assert.equal(isNailPolish("Nail Care", ["cuticle-oil"]), true);
     });
 
     it("rejects nail kits", () => {
@@ -142,8 +142,8 @@ describe("lib/connectors/shopify-generic — isNailPolish", () => {
       assert.equal(isNailPolish("Nail Polish Removers", []), false);
     });
 
-    it("rejects cuticle oils listed under 'Nail Polishes'", () => {
-      assert.equal(isNailPolish("Nail Polishes", ["cuticle-oil"]), false);
+    it("accepts cuticle oils listed under 'Nail Polishes' as treatments (D-E, #349)", () => {
+      assert.equal(isNailPolish("Nail Polishes", ["cuticle-oil"]), true);
     });
 
     it("rejects tools listed under 'Nail Polishes'", () => {
@@ -167,6 +167,25 @@ describe("lib/connectors/shopify-generic — isNailPolish", () => {
       assert.equal(isNailPolish("Decorative Stickers", []), false);
       assert.equal(isNailPolish("Baggu Bag", []), false);
       assert.equal(isNailPolish("Free Gift", ["product-bundle"]), false);
+    });
+  });
+
+  describe("titles and categories (#347, #349)", () => {
+    it("rejects accessories named only in the title", () => {
+      assert.equal(isNailPolish("Nail Art", ["nail-polish"], "Nail Charm Set"), false);
+      assert.equal(isNailPolish("Nail Care", ["nail-polish"], "Glass Nail File"), false);
+      assert.equal(isNailPolish("Nail Polish", ["nail-polish"], "Cat Eye Magnet"), false);
+      assert.equal(isNailPolish("Nail Care", [], "Cuticle Pusher"), false);
+      assert.equal(isNailPolish("Nail Polish", [], "Witchy Stamping Plate"), false);
+    });
+
+    it("accepts base and top coats without a polish word (D-E)", () => {
+      assert.equal(isNailPolish("Base Coat", ["base-coat"], "Quick-Dry Base"), true);
+      assert.equal(isNailPolish("Top Coat", [], "Glossy Top Coat"), true);
+    });
+
+    it("keeps Holo Taco's magnetic polishes tagged magnetic-wand", () => {
+      assert.equal(isNailPolish("Nail Polish", ["magnetic-wand", "nail-polish"], "Holo Magnetic Taco"), true);
     });
   });
 

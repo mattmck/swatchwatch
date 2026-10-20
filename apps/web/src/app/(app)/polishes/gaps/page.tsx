@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { resolveDisplayHex, type Polish } from "swatchwatch-shared";
 import { listAllPolishes } from "@/lib/api";
 import { isOwnedPolish } from "@/lib/inventory-status";
@@ -14,16 +15,21 @@ import {
 import { BrandSpinner } from "@/components/brand-spinner";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
+import { trackOnboardingStepClicked } from "@/lib/metrics-events";
+import { CATALOG_SEARCH_HREF } from "@/lib/onboarding";
+import { LayoutGrid } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CellMatchesList, type CellBoundPolish, Row } from "./gaps-components";
 import {
   cellKey,
+  gapsHref,
   getGapSearchHref,
   getSeverity,
   HUE_META,
   LIGHTNESS_META,
+  parseGapCellParam,
   SEVERITY_META,
   sortCellsByGridOrder,
 } from "./gaps-utils";
@@ -32,15 +38,26 @@ import {
  * Render the collection gap heatmap and selected-cell recommendations.
  *
  * Handles loading/error/empty states and derives cell severity + candidate
- * matches from the current polish catalog.
+ * matches from the current polish catalog. The selected cell lives in the URL (`?cell=`, #348),
+ * so browser back from a polish detail page restores it.
  */
 export default function PolishCollectionGapsPage() {
+  return (
+    <Suspense fallback={<BrandSpinner label="Analyzing collection gaps…" />}>
+      <PolishCollectionGapsContent />
+    </Suspense>
+  );
+}
+
+function PolishCollectionGapsContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlCellKey = parseGapCellParam(searchParams.get("cell"));
   const [polishes, setPolishes] = useState<Polish[]>([]);
   const [loading, setLoading] = useState(true);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedCellKey, setSelectedCellKey] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,8 +66,10 @@ export default function PolishCollectionGapsPage() {
         setLoading(true);
         setError(null);
         // Phase 1: the heatmap only needs owned shades, which is a small fast query.
+        // Color polishes only: toppers and coats have no meaningful hex (#349).
         const ownedRows = await listAllPolishes({
           availability: "owned",
+          categories: ["color"],
           sortBy: "createdAt",
           sortOrder: "desc",
         });
@@ -68,7 +87,7 @@ export default function PolishCollectionGapsPage() {
         // Phase 2: the shared catalog feeds "Available To Add" suggestions. It is much
         // larger, so it loads in the background after the map is already interactive.
         try {
-          const allRows = await listAllPolishes({ sortBy: "createdAt", sortOrder: "desc" });
+          const allRows = await listAllPolishes({ categories: ["color"], sortBy: "createdAt", sortOrder: "desc" });
           if (cancelled) return;
           const merged = new Map(allRows.map((polish) => [polish.id, polish]));
           for (const owned of ownedRows) merged.set(owned.id, owned);
@@ -165,6 +184,15 @@ export default function PolishCollectionGapsPage() {
     return prioritized.slice(0, 6);
   }, [analysis.missing, analysis.underrepresented, missingKeys]);
 
+  // URL selection when valid, else the first recommended cell (the previous default).
+  const defaultCell = recommendedCells[0] ?? analysis.cells[0] ?? null;
+  const selectedCellKey =
+    urlCellKey && cellsByKey.has(urlCellKey) ? urlCellKey : defaultCell ? cellKey(defaultCell) : null;
+  const setSelectedCellKey = useCallback(
+    (key: string) => router.replace(gapsHref(key), { scroll: false }),
+    [router]
+  );
+  const returnToHref = gapsHref(selectedCellKey);
   const selectedCell = selectedCellKey ? cellsByKey.get(selectedCellKey) ?? null : null;
   const selectedSeverity = selectedCell
     ? getSeverity(selectedCell, missingKeys, thinKeys)
@@ -188,13 +216,6 @@ export default function PolishCollectionGapsPage() {
     [selectedCellBoundPolishes],
   );
 
-  useEffect(() => {
-    if (selectedCellKey && cellsByKey.has(selectedCellKey)) return;
-    const fallback =
-      recommendedCells[0] ?? analysis.cells[0] ?? null;
-    setSelectedCellKey(fallback ? cellKey(fallback) : null);
-  }, [analysis.cells, recommendedCells, cellsByKey, selectedCellKey]);
-
   if (loading) return <BrandSpinner label="Analyzing collection gaps…" />;
 
   if (error) {
@@ -203,13 +224,18 @@ export default function PolishCollectionGapsPage() {
 
   if (ownedPolishes.length === 0) {
     return (
-      <EmptyState
-        title="No collection yet"
-        description="Add polishes to your collection to unlock the gap map and see what to buy next."
-        actionLabel="+ Add Polish"
-        actionHref="/polishes/new"
-        className="min-h-[420px]"
-      />
+      <div className="space-y-2">
+        <h1 className="heading-page">Collection Gap Map</h1>
+        <EmptyState
+          icon={LayoutGrid}
+          title="Your gap map needs a collection"
+          description="Once you own a few polishes, this map shows the colors you have plenty of and the ones you're missing."
+          actionLabel="Search the catalog"
+          actionHref={CATALOG_SEARCH_HREF}
+          onAction={() => trackOnboardingStepClicked({ step: "search", surface: "gaps_empty", ownedCount: 0 })}
+          className="min-h-[420px]"
+        />
+      </div>
     );
   }
 
@@ -356,10 +382,12 @@ export default function PolishCollectionGapsPage() {
                     title="In Your Collection"
                     items={selectedOwnedMatches}
                     emptyLabel="No owned shades in this cell yet."
+                    returnTo={returnToHref}
                   />
                   <CellMatchesList
                     title="Available To Add"
                     items={selectedCatalogMatches}
+                    returnTo={returnToHref}
                     emptyLabel={
                       catalogLoading
                         ? "Loading catalog suggestions…"
