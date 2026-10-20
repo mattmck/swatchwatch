@@ -25,7 +25,7 @@ deleted on merge.
 | [#377](https://github.com/mattmck/swatchwatch/pull/377) | #349 + #347: `shade.product_category`, classifier, dry-run backfill, accessory exclusion, category-aware dupes / search / gaps / stats / Pick for me, decision D23 |
 | [#372](https://github.com/mattmck/swatchwatch/pull/372) | Getting-started checklist on the dashboard and honest empty states |
 | [#376](https://github.com/mattmck/swatchwatch/pull/376) + [#379](https://github.com/mattmck/swatchwatch/pull/379) | Expo app: auth, API client, Collection / Detail / Search / Profile, native barcode Rapid Add (check-first), Match, home panel with Pick for me, mani log, offline cache, Mobile CI job |
-| [#371](https://github.com/mattmck/swatchwatch/pull/371) | #328: Pahlish store filter; Pahlish, Emily de Molly and Cirque Colors enabled (sign-offs in `data_source.notes`); survey in `docs/indie-sources-2026-10.md` |
+| [#371](https://github.com/mattmck/swatchwatch/pull/371) | #328: Pahlish store filter; Pahlish, Emily de Molly and Cirque Colors enabled (sign-offs noted in `data_source.metadata.notes`; who and how were not recorded); survey in `docs/indie-sources-2026-10.md` |
 
 Five migrations ship with it and run in the deploy pipeline (`npm run migrate` step):
 `20261019011858000_shade-product-category`, `20261019012116681_barcode-provenance-and-user-barcodes`,
@@ -54,8 +54,15 @@ barcode rows exist until the backfills in §3 run, so the deploy itself changes 
 
 1. Open the release PR the usual way (`chore: release dev → main`, base `main`, head `dev`), listing
    the ten PRs above; merge it with a **merge commit**.
-2. The push to `main` triggers **Deploy Prod** (`deploy-prod.yml`). No infrastructure files changed
-   in this batch, so its infra job is a no-op; watch:
+2. The push to `main` triggers **Deploy Prod** (`deploy-prod.yml`). Unlike the ten PRs, the
+   `dev → main` diff **does** include infrastructure files: #380 (already on `dev`) changed
+   `infrastructure/main.tf`, `variables.tf`, `.github/workflows/deploy-infra.yml` and
+   `infrastructure/README.md` (Azure OpenAI region guard). So the infra job runs a real Terraform
+   plan. Before releasing, confirm the `prod` GitHub environment has `OPENAI_LOCATION=centralus`
+   (the committed callers already pass `centralus`). While it runs, check the **Validate Azure OpenAI
+   region** and **Guard against Azure OpenAI account replacement** steps pass, and that the plan
+   shows no `azurerm_cognitive_account` / `azurerm_cognitive_deployment` delete or replace. If the
+   guard fails, stop and do not set `allow_openai_replace`. Watch:
 
    ```bash
    gh run list --workflow=deploy-prod.yml --limit 1
@@ -67,7 +74,16 @@ barcode rows exist until the backfills in §3 run, so the deploy itself changes 
 ## 3. Backfills (dev first, then prod)
 
 Both are admin jobs with a dry run that writes a report and changes nothing. Get an admin bearer
-token from the web app (DevTools → Network → any `/api` request → `Authorization`).
+token from the web app (DevTools → Network → any `/api` request → `Authorization`), then load it
+into your shell without typing it on a command line, so it stays out of shell history and `ps`:
+
+```bash
+read -rs ADMIN_BEARER_TOKEN && export ADMIN_BEARER_TOKEN   # paste the token, press Enter
+export API_BASE_URL=https://<dev-function-app>.azurewebsites.net/api
+```
+
+(For prod, set `API_BASE_URL` to the prod Function App in a fresh shell.) The commands below read
+both from the environment.
 
 ### 3a. Product categories (#377, plan Phase 6)
 
@@ -75,7 +91,7 @@ token from the web app (DevTools → Network → any `/api` request → `Authori
 2. Dry run:
 
    ```bash
-   API_BASE_URL=https://<dev-function-app>.azurewebsites.net/api ADMIN_BEARER_TOKEN=<token> npm run backfill:product-category --workspace=swatchwatch-functions -- --out dev-dry-run.json
+   npm run backfill:product-category --workspace=swatchwatch-functions -- --out dev-dry-run.json
    ```
 
    (or Admin → Review Queue → Product categories → "Dry run backfill").
@@ -92,7 +108,7 @@ token from the web app (DevTools → Network → any `/api` request → `Authori
 1. Dry run on dev:
 
    ```bash
-   API_BASE_URL=https://<dev-function-app>.azurewebsites.net/api ADMIN_BEARER_TOKEN=<token> npm run backfill:barcodes --workspace=swatchwatch-functions
+   npm run backfill:barcodes --workspace=swatchwatch-functions
    ```
 
    Read totals, conflicts (a GTIN two shades claim: first wins, nothing overwritten) and ambiguous
