@@ -7,6 +7,7 @@ import {
   buildQuestionView,
   buildStartMetadata,
   canAddFrame,
+  canCheckBarcodeFromMetadata,
   canFinalize,
   framesReducer,
   INITIAL_SESSION_STATE,
@@ -294,5 +295,24 @@ describe("barcode check flow", () => {
   it("a reset clears the label request", () => {
     const next = sessionReducer({ ...started, labelRequested: true }, { type: "reset" });
     assert.equal(next.labelRequested, false);
+  });
+});
+
+describe("canCheckBarcodeFromMetadata", () => {
+  it("only a session this read starts carries the GTIN in its metadata", () => {
+    assert.equal(canCheckBarcodeFromMetadata(INITIAL_SESSION_STATE, barcode), true);
+  });
+
+  it("an already started session (label photo first) never learns it from a frameless read", () => {
+    assert.equal(canCheckBarcodeFromMetadata({ ...INITIAL_SESSION_STATE, captureId: "c1" }, barcode), false);
+  });
+
+  it("not while photographing the label for an unknown barcode, after a verdict, or without a barcode", () => {
+    assert.equal(canCheckBarcodeFromMetadata({ ...INITIAL_SESSION_STATE, labelRequested: true }, barcode), false);
+    assert.equal(
+      canCheckBarcodeFromMetadata({ ...INITIAL_SESSION_STATE, verdict: { kind: "unknown_barcode", gtin: barcode.gtin } }, barcode),
+      false,
+    );
+    assert.equal(canCheckBarcodeFromMetadata(INITIAL_SESSION_STATE, null), false);
   });
 });

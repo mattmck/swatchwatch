@@ -246,6 +246,18 @@ export function rapidAddPhase(state: RapidAddSessionState): RapidAddPhase {
 }
 
 /**
+ * A live barcode read with no snapshot can only be checked from the session metadata, and only a
+ * session that read starts carries the GTIN there (`buildStartMetadata`). For an existing session
+ * (e.g. a label photo came first) the check would report a false "unknown barcode", so skip it.
+ */
+export function canCheckBarcodeFromMetadata(
+  session: Pick<RapidAddSessionState, "captureId" | "labelRequested" | "verdict">,
+  barcode: ScannedBarcode | null,
+): barcode is ScannedBarcode {
+  return Boolean(barcode) && session.captureId === null && !session.labelRequested && !session.verdict;
+}
+
+/**
  * The "scanned ✓" pill: the barcode was read on the device, and whether the server is still
  * checking it. Null until a barcode is read.
  */

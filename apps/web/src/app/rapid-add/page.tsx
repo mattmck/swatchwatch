@@ -31,6 +31,7 @@ import {
   buildFrameQuality,
   buildStartMetadata,
   canAddFrame,
+  canCheckBarcodeFromMetadata,
   canFinalize,
   framesReducer,
   INITIAL_SESSION_STATE,
@@ -211,7 +212,7 @@ export default function RapidAddPage() {
       if (!event.frame) {
         // Read live but no snapshot: check the barcode from the session metadata alone.
         const barcode = event.barcode;
-        if (shouldCheckBarcode(sessionRef.current, barcode)) {
+        if (canCheckBarcodeFromMetadata(sessionRef.current, barcode)) {
           dispatch({ type: "busy", busy: "checking" });
           void ensureSession(barcode).then(
             (captureId) => checkBarcode(captureId, barcode),
