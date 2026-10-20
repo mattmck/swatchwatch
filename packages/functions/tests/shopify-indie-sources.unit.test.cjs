@@ -90,6 +90,46 @@ describe("indie Shopify sources (#273, #328)", () => {
       "down must only revert rows this migration enabled"
     );
   });
+
+  it("rolling back the second indie migration deletes only the rows it inserted (#375)", () => {
+    const files = readdirSync(MIGRATIONS_DIR).sort();
+    const addMore = files.find((file) => file.endsWith("_add-more-indie-shopify-sources.sql"));
+    const guard = files.find((file) => file.endsWith("_guard-more-indie-shopify-sources-rollback.sql"));
+    assert.ok(addMore && guard, "migrations missing");
+    assert.ok(guard > addMore, "the guard must be rolled back before the migration it protects");
+    const split = (file) => {
+      const sql = readFileSync(resolve(MIGRATIONS_DIR, file), "utf8");
+      const at = sql.search(/^\s*--[\s-]*down\s+migration/im);
+      return { up: sql.slice(0, at), down: sql.slice(at) };
+    };
+    const addMoreDown = split(addMore).down;
+    const deleted = addMoreDown.match(/DELETE FROM data_source AS ds\s+WHERE ds\.name IN \(([^)]*)\)/);
+    assert.ok(deleted, "the original rollback DELETE changed; re-check the guard");
+    const deletedNames = deleted[1].match(/'[^']+'/g);
+
+    const { up, down } = split(guard);
+    const marker = `'{"insertedByMigration": "${addMore.split("_")[0]}"}'`;
+    // Up marks only rows the original migration inserted: found by its own pgmigrations row,
+    // created in the seconds before it was recorded, and never an auto-provisioned row.
+    assert.ok(up.includes(marker), "up must stamp the marker");
+    assert.ok(up.includes(`m.name = '${addMore.replace(/\.sql$/, "")}'`), "up must read the original's run_on");
+    assert.match(up, /NOT COALESCE\(ds\.metadata \? 'autoProvisioned', false\)/);
+    assert.match(up, /ds\.created_at <= m\.run_on\s+AND ds\.created_at > m\.run_on - interval '10 seconds'/);
+    for (const name of deletedNames) assert.ok(up.includes(name), `${name} not marked`);
+
+    // Down leaves a guard that skips the delete of every unmarked row the original DELETE targets.
+    assert.match(down, /CREATE TRIGGER data_source_keep_preexisting_indie_shopify_rows\s+BEFORE DELETE ON data_source\s+FOR EACH ROW/);
+    const when = down.match(/WHEN \(([\s\S]*?)\)\s+EXECUTE FUNCTION/);
+    assert.ok(when, "guard needs a WHEN clause");
+    for (const name of deletedNames) assert.ok(when[1].includes(name), `${name} not guarded`);
+    assert.match(
+      when[1],
+      new RegExp(`\\(OLD\\.metadata->>'insertedByMigration'\\) IS DISTINCT FROM '${addMore.split("_")[0]}'`),
+      "only unmarked rows may be kept"
+    );
+    assert.match(down, /RETURN NULL;/, "the guard must skip the delete, not fail the rollback");
+    assert.doesNotMatch(down, /DROP FUNCTION|- 'insertedByMigration'/, "down must keep the guard and the marker");
+  });
 });
 
 describe("resolveShopifyVendor", () => {
