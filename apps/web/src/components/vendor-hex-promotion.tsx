@@ -121,7 +121,7 @@ export function VendorHexPromotion({
             <DialogHeader>
               <DialogTitle>Promote to vendor hex?</DialogTitle>
               <DialogDescription>
-                {item.brand} {item.name}: the vendor hex changes from <Hex hex={previous} /> to <Hex hex={promotable.hex} />.
+                {item.brand} {item.name}: the vendor hex changes from <Hex hex={item.vendorHex} /> to <Hex hex={promotable.hex} />.
                 Every user sees it as this shade&apos;s colour, and future ingests will not overwrite it. You can undo
                 this later; the change is recorded in the admin audit log.
               </DialogDescription>
