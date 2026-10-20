@@ -78,6 +78,8 @@ function LooksPageContent() {
   const state = useMemo(() => parseLooksState(new URLSearchParams(queryString)), [queryString]);
   const stateKey = buildLooksQueryString(state);
   const { vibe, seed } = state;
+  // The page's own URL (path + canonical query) for detail links' `returnTo`; derived from state, not `window`, so SSR and hydration agree.
+  const looksReturnTo = stateKey ? `/polishes/looks?${stateKey}` : "/polishes/looks";
 
   const [owned, setOwned] = useState<Polish[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -379,6 +381,7 @@ function LooksPageContent() {
                   <LookCard
                     key={look.templateId}
                     look={look}
+                    returnTo={looksReturnTo}
                     saved={savedIds.has(toSavedLook(look, vibe, new Date(0)).id)}
                     onWear={() => wearLook(look, index)}
                     onSave={() => void toggleSave(look)}
