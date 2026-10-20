@@ -121,7 +121,7 @@ function StepRow({ step, returnTo, onSwap }: StepRowProps) {
               type="button"
               variant="ghost"
               size="sm"
-              className="h-7 px-2 text-xs"
+              className="h-7 px-2 text-xs pointer-coarse:h-9"
               aria-expanded={swapOpen}
               onClick={() => setSwapOpen((open) => !open)}
             >
