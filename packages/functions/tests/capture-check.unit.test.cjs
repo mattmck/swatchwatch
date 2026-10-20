@@ -130,7 +130,9 @@ async function fakeQuery(via, sql, params = []) {
   }
 
   if (/FROM barcode bc/i.test(norm)) {
-    const row = state.barcodes.get(params[0]);
+    // The resolver looks a scan up by every key it may be stored under (bc.gtin = ANY($1)).
+    const keys = Array.isArray(params[0]) ? params[0] : [params[0]];
+    const row = keys.map((key) => state.barcodes.get(key)).find(Boolean);
     return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
   }
 

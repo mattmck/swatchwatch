@@ -306,6 +306,11 @@ VALUES
   --   (Cloudflare challenge, 403). products.json 404/400/401: Blush Lacquers, Dimension Nails,
   --   Femme Fatale, Picture Polish, Polished for Days, Wildflower Lacquer, Leesha's Lacquer,
   --   Baroness X. MooncatShopify and CupcakePolishShopify (above) carry the same ToS clause.
+  --   Batch 2, checked 2026-10-19 (docs/indie-sources-2026-10.md), NOT added: Shopify default
+  --   scraping clause: Stella Chroma, Lemming Lacquer, Sweet & Sour Lacquer, Maniology,
+  --   What's Up Nails. Copy/commercial-use clause: Nails.INC, Ninja Polish (also a multi-brand
+  --   reseller). Not Shopify or unreachable: Tonic Polish, Bluebird Lacquer (401), Colores de
+  --   Carol, Glisten & Glow, Masura, Killer Colors, and twenty more without a storefront answer.
   (
     'NightOwlLacquerShopify',
     'api',
@@ -340,7 +345,7 @@ VALUES
     'Storefront terms apply (verify metadata/image usage obligations)',
     'https://www.cirquecolors.com/policies/terms-of-service',
     true,
-    '{"priority": "medium", "mvp": "no", "notes": "Cirque Colors Shopify store (indie, US). Verified 2026-10-18: /products.json returns 200 with Shopify products (415 over 2 pages). product_type holds finish or line names (Retired Colors 70, Jelly 59, Magnetic 48, Sets 35, Crème 21, Nail Care 13, ...), so the generic connector polish filter accepts only 10 of 415; it needs a store-specific filter (connectors/store-filters/) or the #349 product classifier before ingestion is useful. robots.txt is the Shopify default (products.json not disallowed). /policies/terms-of-service is the Shopify default template, whose prohibited uses include: spider, crawl, or scrape. Update 2026-10-19: acceptable use confirmed: the owner reports the store signed off on 2026-10-19 (who and how not recorded here). Enabled 2026-10-19.", "verification": {"checkedAt": "2026-10-18", "productsJson": true, "products": 415, "polishFilterPass": 10, "robotsTxt": "shopify-default-allows-products-json", "termsScrapingClause": true}}'::jsonb
+    '{"priority": "medium", "mvp": "no", "notes": "Cirque Colors Shopify store (indie, US). Verified 2026-10-18: /products.json returns 200 with Shopify products (415 over 2 pages). product_type holds finish or line names (Retired Colors 70, Jelly 59, Magnetic 48, Sets 35, Crème 21, Nail Care 13, ...), so the generic connector polish filter accepts only 10 of 415; the store-specific filter connectors/store-filters/cirque-colors.ts (#273) accepts 328 of 415 on 2026-10-19 (single shades plus coats and cuticle oils; sets, duos, tools, charms, stickers, gift card, free gifts and creator pages dropped). robots.txt is the Shopify default (products.json not disallowed). /policies/terms-of-service is the Shopify default template, whose prohibited uses include: spider, crawl, or scrape. Update 2026-10-19: acceptable use confirmed: the owner reports the store signed off on 2026-10-19 (who and how not recorded here). Enabled 2026-10-19.", "verification": {"checkedAt": "2026-10-18", "productsJson": true, "products": 415, "polishFilterPass": 10, "storeFilterPass": 328, "storeFilterCheckedAt": "2026-10-19", "robotsTxt": "shopify-default-allows-products-json", "termsScrapingClause": true}}'::jsonb
   ),
   (
     'CosIng',
@@ -387,13 +392,25 @@ VALUES
     false,
     '{"priority":"low","mvp":"no","notes":"Optional later: adverse event signals, not ingredients. Use careful UX and disclaimers."}'::jsonb
   )
+-- A reseed never changes a row that already exists in its enabled flag or its metadata keys
+-- (notes, the store's recorded approval, metadata.ingestion settings): those belong to the
+-- environment. Existing keys win; keys the row lacks are filled from this file. The one
+-- exception is metadata.verification, the survey facts this file owns: its keys are merged
+-- with this file's values winning, so a re-survey (e.g. storeFilterPass) reaches existing rows.
 ON CONFLICT (name) DO UPDATE
 SET
   source_type = EXCLUDED.source_type,
   base_url    = EXCLUDED.base_url,
   license     = EXCLUDED.license,
   terms_url   = EXCLUDED.terms_url,
-  enabled     = EXCLUDED.enabled,
-  metadata    = EXCLUDED.metadata;
+  metadata    = EXCLUDED.metadata || COALESCE(data_source.metadata, '{}'::jsonb)
+                || CASE
+                     WHEN EXCLUDED.metadata ? 'verification' THEN jsonb_build_object(
+                       'verification',
+                       COALESCE(data_source.metadata -> 'verification', '{}'::jsonb)
+                         || (EXCLUDED.metadata -> 'verification')
+                     )
+                     ELSE '{}'::jsonb
+                   END;
 
 COMMIT;

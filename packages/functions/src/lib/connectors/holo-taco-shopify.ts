@@ -7,6 +7,7 @@ import {
 } from "./types";
 import { normalizeShopifyImages, type ShopifyProductImage } from "./shopify-images";
 import { shopifyProductText } from "../product-text";
+import { classifyIngestedProduct } from "../product-category";
 
 const DEFAULT_BASE_URL = "https://www.holotaco.com";
 const REQUEST_TIMEOUT_MS = parseIntEnv(
@@ -206,13 +207,6 @@ function extractTaggedValues(tags: string[], prefix: string): string[] {
     .filter(Boolean);
 }
 
-function isNailPolish(productType: string | null, tags: string[]): boolean {
-  if (productType && productType.toLowerCase() === "nail polish") {
-    return true;
-  }
-  return tags.some((tag) => tag.toLowerCase() === "nail-polish");
-}
-
 function isBundle(tags: string[]): boolean {
   const normalized = tags.map((tag) => tag.toLowerCase());
   return normalized.includes("bundle:product") || normalized.includes("product-bundle");
@@ -268,7 +262,9 @@ function toNormalizedRecord(
 
   const tags = normalizeTags(product.tags);
   const productType = asNonEmptyString(product.product_type);
-  if (!isNailPolish(productType, tags) || isBundle(tags)) {
+  // Same gate as every Shopify connector (#347): accessories skipped, coats/toppers kept.
+  const gate = classifyIngestedProduct({ title: asNonEmptyString(product.title), productType, tags });
+  if (!gate.accept || isBundle(tags)) {
     return null;
   }
 
@@ -305,6 +301,8 @@ function toNormalizedRecord(
       name,
       handle,
       productType,
+      // Connector-gate category (#349); materialization re-classifies with the shade's finishes.
+      productCategory: gate.category,
       collections,
       finishes,
       tags,

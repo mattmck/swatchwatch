@@ -439,6 +439,47 @@ describe("findDupes", () => {
 // Request parsing
 // ═══════════════════════════════════════════════════════════════════════════
 
+describe("findDupes — product categories (#349, D-C)", () => {
+  // A near-white creme, a clear-based near-white topper, another near-white topper, a near-white
+  // top coat and base coat, all within the HIGH threshold of each other.
+  const shades = [
+    { shadeId: 1, brand: "A", name: "White Creme", vendorHex: "#F4F4F2", finishes: ["creme"], productCategory: "color" },
+    { shadeId: 2, brand: "A", name: "White Creme Twin", vendorHex: "#F3F4F2", finishes: ["creme"] }, // no category = color
+    { shadeId: 3, brand: "B", name: "Iridescent Topper", vendorHex: "#F2F3F4", finishes: ["glitter"], productCategory: "topper" },
+    { shadeId: 4, brand: "B", name: "Flakie Topper", vendorHex: "#F3F3F3", finishes: ["flake"], productCategory: "topper" },
+    { shadeId: 5, brand: "C", name: "Glossy Top Coat", vendorHex: "#F4F3F3", productCategory: "top_coat" },
+    { shadeId: 6, brand: "C", name: "Sticky Base", vendorHex: "#F3F3F4", productCategory: "base_coat" },
+    { shadeId: 7, brand: "C", name: "Magnetic Wand", vendorHex: "#F4F4F4", productCategory: "accessory" },
+  ];
+  const pool = prepareDupeCandidates(shades);
+  const dupeIds = (shadeId) => findDupes(pool.find((s) => s.shadeId === String(shadeId)), pool).dupes.map((d) => d.shadeId).sort();
+
+  it("a color polish only matches color polishes (no toppers, coats or accessories)", () => {
+    assert.deepEqual(dupeIds(1), ["2"]);
+    assert.deepEqual(dupeIds(2), ["1"], "a missing category counts as color");
+  });
+
+  it("a topper only matches other toppers", () => {
+    assert.deepEqual(dupeIds(3), ["4"]);
+  });
+
+  it("coats, treatments and accessories have no dupes", () => {
+    assert.deepEqual(dupeIds(5), []);
+    assert.deepEqual(dupeIds(6), []);
+    assert.deepEqual(dupeIds(7), []);
+  });
+
+  it("counts only comparable candidates", () => {
+    const { candidateCount } = findDupes(pool[0], pool);
+    assert.equal(candidateCount, 1);
+  });
+
+  it("prepareDupeShade keeps the category", () => {
+    assert.equal(prepareDupeShade(shades[2]).productCategory, "topper");
+    assert.equal(prepareDupeShade(shades[1]).productCategory, "color");
+  });
+});
+
 describe("dupes request parsing", () => {
   it("parseShadeId accepts positive integers and numeric strings only", () => {
     assert.equal(parseShadeId(12), 12);

@@ -16,14 +16,14 @@ The package is automatically linked via npm workspaces — no publishing require
 
 | Type | Description |
 |------|-------------|
-| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, reserved `nailImageUrl` (not populated; see `NailPhoto`), legacy `finish`, multi-finish `finishes`, tags, timestamps, etc.). Detected-hex provenance (migration 20261017024958000_shade-detected-hex-provenance): `detectedHexConfidence` (0–1), `detectedHexMethod` (`vision-direct`, `palette-pick`, `region-crop`, `ensemble`, `client-supplied`, …), `detectedHexModel` (deployment), `detectedHexPromptVersion`, `detectedHexAt`, and `hexAgreement` (OKLAB distance vendorHex ↔ detectedHex, null unless both exist). Inventory status (#261, migration 20261017061336791_inventory-status): `status` (`PolishStatus`, null for catalog-only rows), derived `isUntried` (owned and `triedAt` null), `triedAt`, `lastWornAt`, `wearCount`, `purchasePrice`, `purchaseCurrency`. `colorFamily` (`ColorFamily \| null`, the generated `shade.color_family`; see `color/color-family.ts`). Optional `buyUrl` (#267): the brand's product page from the stored source product URL, validated server-side (absolute http/https, no credentials), absent when none is stored |
+| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, reserved `nailImageUrl` (not populated; see `NailPhoto`), legacy `finish`, multi-finish `finishes`, tags, timestamps, etc.). Detected-hex provenance (migration 20261017024958000_shade-detected-hex-provenance): `detectedHexConfidence` (0–1), `detectedHexMethod` (`vision-direct`, `palette-pick`, `region-crop`, `ensemble`, `client-supplied`, …), `detectedHexModel` (deployment), `detectedHexPromptVersion`, `detectedHexAt`, and `hexAgreement` (OKLAB distance vendorHex ↔ detectedHex, null unless both exist). Inventory status (#261, migration 20261017061336791_inventory-status): `status` (`PolishStatus`, null for catalog-only rows), derived `isUntried` (owned and `triedAt` null), `triedAt`, `lastWornAt`, `wearCount`, `purchasePrice`, `purchaseCurrency`. `colorFamily` (`ColorFamily \| null`, the generated `shade.color_family`; see `color/color-family.ts`). Optional `buyUrl` (#267): the brand's product page from the stored source product URL, validated server-side (absolute http/https, no credentials), absent when none is stored. `productCategory` (#349, `ProductCategory`; missing = `color`). `PolishFilters.categories`, `CatalogSearchResult.productCategory` and `CatalogShadeDetail.productCategory` carry the category too |
 | `resolveDisplayHex(polish)` | Display hex with the blind precedence vendor > detected > name (unchanged; used by the web app) |
 | `HexReviewItem` / `HexReviewResponse` / `HexReviewSort` | Admin hex-review queue payload (`GET /api/polishes-admin/hex-review`): hexes, provenance, agreement, display hex/source, `flagged`; sorted by `agreement` or `confidence` |
 | `PolishFinish` | Built-in finish name, derived as `(typeof CANONICAL_FINISHES)[number]` |
 | `FinishName` | `PolishFinish \| (string & {})` — any finish name on API-facing fields (`Polish.finishes`, request `finish`/`finishes`); admits runtime names from admin-managed `finish_type` rows while keeping autocomplete for built-ins |
 | `resolvePolishFinishes(polish)` | Finishes to display: `finishes` when non-empty, else `[finish]` (backward compatible) |
 | `polishHasFinish(polish, finish)` | Case-insensitive membership check over `resolvePolishFinishes` |
-| `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps); accepts `finishes` (replace) and legacy `finish`, plus inventory `status`, `triedAt`, `purchasePrice`, `purchaseCurrency` (`null` clears the last three) |
+| `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps); accepts `finishes` (replace) and legacy `finish`, plus inventory `status`, `triedAt`, `purchasePrice`, `purchaseCurrency` (`null` clears the last three), and create-only `barcode` / `barcodeFormat` (a Rapid Add scan remembered on the shade for the caller, #21) |
 | `PolishUpdateRequest` | Partial create fields + required `id` |
 | `PolishListResponse` | Paginated list: `{ polishes, total, page, pageSize }` |
 | `PolishFilters` | Query params: brand/finish/finishes/color/tags/search plus scope/availability/tone, `status` (`PolishStatus[]`), `untried`, `families` (`?family=`, any-of color families), sort, and pagination |
@@ -120,7 +120,7 @@ Collection export (#264), `GET /api/polishes/export`.
 
 | Export | Description |
 |--------|-------------|
-| `POLISH_CSV_COLUMNS` | The CSV column contract shared with the CSV import (#263): `{ key, header, importField }[]` in file order. Round-trip columns first (`Brand`→`brand`, `Shade name`→`name`, `Finishes`→`finish`, `Quantity`→`quantity`, `Status`→`status`, `Date tried`→`tried`, `Purchase price`→`price`, `Currency`→`currency`, `Purchase date`→`purchaseDate`, `Notes`→`notes`; each header is one the importer recognizes as a strong synonym), then export-only extras with `importField: null` (`Display hex`, `Collection`, `Rating`, `Tags`, `Size`, `Expiration date`, `Last worn`, `Wear count`, `Shade ID`, `Item ID`, `Created at`, `Updated at`) |
+| `POLISH_CSV_COLUMNS` | The CSV column contract shared with the CSV import (#263): `{ key, header, importField }[]` in file order. Round-trip columns first (`Brand`→`brand`, `Shade name`→`name`, `Finishes`→`finish`, `Quantity`→`quantity`, `Status`→`status`, `Date tried`→`tried`, `Purchase price`→`price`, `Currency`→`currency`, `Purchase date`→`purchaseDate`, `Notes`→`notes`; each header is one the importer recognizes as a strong synonym), then export-only extras with `importField: null` (`Display hex`, `Collection`, `Rating`, `Tags`, `Size`, `Expiration date`, `Last worn`, `Wear count`, `Shade ID`, `Item ID`, `Created at`, `Updated at`, `Product category` (#349, appended last so earlier columns keep their positions)) |
 | `POLISH_CSV_HEADERS` | Header row (`POLISH_CSV_COLUMNS[].header`) |
 | `PolishCsvColumn` / `PolishCsvColumnKey` / `PolishCsvImportField` | Column shape, column keys, and the importer field names a column can feed |
 | `POLISH_CSV_LIST_SEPARATOR` | `", "` — joins `Finishes` and `Tags` cells |
@@ -172,6 +172,50 @@ Collection stats (#271): the `GET /api/stats/collection` payload behind the dash
 | `IMAGE_VARIANT_QUALITY` | `72` — WebP quality of every variant (the proxy's default `q`) |
 | `snapImageVariantSize(size)` | Smallest ladder size ≥ `size`, or `null` above 512 |
 
+### `constants/design-tokens.ts` (generated)
+
+Generated from `apps/web/src/app/globals.css` by `npm run sync:design-tokens` (don't edit; CI checks it with `--check`). Hex values for clients that can't use the web's `oklch()` CSS variables (the Expo app).
+
+| Export | Description |
+|--------|-------------|
+| `ThemeColorTokens` | Semantic colors with the shadcn/ui names: `background`, `foreground`, `card`, `primary`, `secondary`, `muted`, `accent` (+ `*Foreground`), `destructive`, `border`, `input`, `ring` |
+| `LIGHT_THEME_COLORS` / `DARK_THEME_COLORS` | The `:root` / `.dark` palettes (`#rrggbb`, or `#rrggbbaa` where the CSS has alpha) |
+| `THEME_COLORS` | `{ light, dark }` keyed by `ThemeColorScheme` |
+| `BRAND_COLOR_TOKENS` | The `--brand-*` palette (equal to `swatchWatchBrandPalette`) |
+
+### `barcode/gtin.ts`
+
+Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/barcode-scan.ts`, used by the mobile app). The capture API looks GTINs up exactly as printed.
+
+| Export | Description |
+|--------|-------------|
+| `RetailBarcodeFormat`, `RETAIL_BARCODE_FORMATS` | `ean_13`, `upc_a`, `ean_8`, `upc_e` (preference order) |
+| `normalizeBarcodeFormat(format)` | Decoder spellings (`ean13`, `EAN_13`, `EAN13`) → ours, or `null` |
+| `hasValidGtinCheckDigit(digits)` | GS1 mod-10 check for GTIN-8/12/13/14 |
+| `expandUpcE(upcE)` | 8-digit UPC-E → 12-digit UPC-A, or `null` |
+| `normalizeScannedBarcode({ rawValue, format })` | Validated `{ gtin, format }` (digits as printed) or `null` |
+
+### `constants/product-categories.ts` (#349, decision D23)
+
+| Export | Description |
+|--------|-------------|
+| `PRODUCT_CATEGORIES`, `ProductCategory`, `isProductCategory(value)` | `color`, `topper`, `top_coat`, `base_coat`, `treatment`, `accessory` (`shade.product_category`; a test keeps the migration CHECK equal) |
+| `PRODUCT_CATEGORY_SOURCES`, `ProductCategorySource` | `rule` (classifier) or `admin` (sticky override) |
+| `PRODUCT_CATEGORY_LABELS` | Display labels |
+| `resolveProductCategory(value)` | The category, or `color` for a missing/unknown value (older API responses) |
+| `isCoatOrTreatment(category)` | True for top/base coats and treatments (spend-only in stats) |
+| `areDupeComparableCategories(a, b)` | Dupe rule: color ↔ color and topper ↔ topper only |
+| `manicureRoleForCategory(category)` | Mani-log role prefill: color → `color`, topper/top coat → `topper`, base coat/treatment → `base`, accessory → null |
+
+### `types/product-category.ts`
+
+| Type | Description |
+|------|-------------|
+| `ProductCategoryBackfillRequest`, `ProductCategoryBackfillReport` | `POST /api/shades-admin/product-category/backfill` body and report (counts per category / source / data source, transitions, category changes, admin disagreements, excluded and held accessories, toppers by tag only, suspicious topper hexes, `runId`, `applied`) |
+| `ProductCategoryReportShade`, `ProductCategoryChangeItem`, `HeldAccessoryItem`, `TopperHexCandidate` | Report rows |
+| `ShadeProductCategoryUpdateRequest`, `ShadeProductCategoryUpdateResponse` | `PUT /api/shades-admin/{id}/product-category` |
+| `ShadeProductCategoryItem`, `ShadeProductCategoryListResponse` | `GET /api/shades-admin/product-category` |
+
 ### `color/` (OKLAB math, thresholds, hex reconciliation, color families)
 
 | Export | Description |
@@ -190,8 +234,9 @@ Collection stats (#271): the `GET /api/stats/collection` payload behind the dash
 | `DUPE_FINISH_FAMILIES`, `finishFamily(finish, families?)` | Built-in finish families for dupe compatibility (the fallback when no catalog is passed; seeded into `finish_type.family`): solid (creme/crelly/jelly/sheer), shimmer (shimmer/metallic/magnetic/duochrome/multichrome), holo, glitter (glitter/flake/topper), matte, thermal, glow; `other` has no family |
 | `FinishFamilyMap`, `FinishFamilySource`, `buildFinishFamilyMap(finishTypes)` | Catalog-driven families (#320): finish name → `FinishFamily \| null` from `finish_type.family` rows layered over `DUPE_FINISH_FAMILIES` (a row with a `family` key wins, `null` = no family; rows without the key and names the catalog omits keep the built-in family; no catalog → the built-in map) |
 | `finishCompatibility(targetFinishes, candidateFinishes, families?)` | `same` (same primary), `compatible` (same family or any shared finish), `different` (known, different families), `unknown` (missing/`other`/no family — never penalized); `families` defaults to `DUPE_FINISH_FAMILIES` |
+| `PaletteColorKind`, `PALETTE_COLOR_KINDS`, `PALETTE_QUALITY_THRESHOLDS`, `classifyPaletteColor(hex)`, `isBackgroundPaletteKind(kind)`, `paletteVibrancyWeight(hex)` | Photo-palette quality (#105, `color/palette-quality.ts`): `light` (L ≥ 0.97, or L ≥ 0.90 with C < 0.05), `dark` (L < 0.22, C < 0.06), `skin` (hue 20–80, C 0.025–0.14, L 0.35–0.92) or `color`. Coarse on purpose (nudes read as skin), so the web hides these only by default and the API drops them only on request. `paletteVibrancyWeight` = 1 + min(C / 0.2, 1) for `preferVibrant` |
 | `gradeDupe(distance, compatibility)` | `{ colorGrade, grade }`: `confidenceForDistance` (the match-image thresholds), dropped one step for `different` finishes; `grade` null when LOW |
-| `prepareDupeShade(shade)`, `prepareDupeCandidates(shades)`, `findDupes(target, candidates, { finishFamilies? })`, `summarizeDupes(id, dupes)`, `compareDupes` | Pure dupe finder: resolve each display hex (`resolveDisplayHexDetailed`) and OKLAB once, then O(N) per target; excludes the target's own id; ordered by grade, finish compatibility, distance, brand/name |
+| `prepareDupeShade(shade)`, `prepareDupeCandidates(shades)`, `findDupes(target, candidates, { finishFamilies? })`, `summarizeDupes(id, dupes)`, `compareDupes` | Pure dupe finder: resolve each display hex (`resolveDisplayHexDetailed`) and OKLAB once, then O(N) per target; excludes the target's own id and candidates of another product category (color ↔ color, topper ↔ topper only, #349; `productCategory` on `DupeShade`/`PreparedDupeShade`, missing = color); ordered by grade, finish compatibility, distance, brand/name |
 
 ### `types/user.ts`
 
@@ -228,6 +273,25 @@ Admin review queue for `user_submitted` shades (`/api/shades-admin/review*`).
 | `ShadeReviewMergeRequest` / `ShadeReviewRejectRequest` | `{ targetShadeId, keepNameAsAlias?, note? }` / `{ note? }` |
 | `ShadeReviewActionResponse` / `ShadeReviewMergeResponse` | Action result (`status`, `reviewStatus`, `reviewedAt`, `reviewedByUserId`, `message`); merge adds `targetShadeId` and moved/combined inventory, alias, SKU and swatch counts |
 
+### `types/looks.ts`
+
+Looks (`/polishes/looks`) vocabulary and saved looks (`GET/POST/DELETE /api/looks`, table `user_look`). The recommender itself lives in the web app (`apps/web/src/lib/looks.ts`).
+
+| Type | Description |
+|------|-------------|
+| `LOOK_OCCASIONS` / `LookOccasion` | `work`, `date`, `party`, `everyday`, `formal` |
+| `LOOK_MOODS` / `LookMood` | `soft`, `bold`, `edgy`, `playful` |
+| `LOOK_FINISHES` / `LookFinish` | Finish preferences: `gloss`, `matte`, `chrome`, `holo`, `flake`, `sheer` |
+| `LOOK_STEP_ROLES` / `LookStepRole` | `base`, `accent`, `topper` |
+| `LOOK_STEP_SOURCES` / `LookStepSource` | `owned`, `catalog` (to buy), `template` (color only) |
+| `LookVibe` | `{ occasion, mood, finish \| null, ownedOnly }` |
+| `SavedLookStep` | `{ role, label, hex, source, shadeId?, brand?, name? }` — display snapshot, never joined to shades server-side |
+| `SavedLookInput` / `SavedLook` | `{ id (look key), templateId, name, vibe, steps }`; `SavedLook` adds `savedAt` |
+| `SavedLookListResponse` | `GET /api/looks`: `{ looks }`, newest first |
+| `savedLookKey(templateId, steps)` | `<templateId>:<shadeId or "-" per step>` — saving the same combo twice is one look |
+| `validateSavedLookInput(input)` | The one validation rule (API body and web localStorage): enums, `#RRGGBB` hexes, trimmed/capped text, 1–4 steps, ≤ `MAX_LOOK_STEPS_BYTES` of JSON, `id` = look key; drops unknown fields |
+| `MAX_SAVED_LOOKS` / `MAX_LOOK_STEPS` / `MAX_LOOK_STEPS_BYTES` | `30` / `4` / `3500` |
+
 ### `types/wishlist-share.ts`
 
 Shareable wishlist (#268), behind the server flag `SHAREABLE_WISHLIST_ENABLED` (off by default).
@@ -262,14 +326,14 @@ Shareable wishlist (#268), behind the server flag `SHAREABLE_WISHLIST_ENABLED` (
 | `CaptureGuidanceConfig` | Capture guidance contract returned by `/api/capture/start` |
 | `CaptureQuestion` | Open question payload used by status/finalize/answer responses |
 | `CaptureStartRequest` / `CaptureStartResponse` | Start capture session payloads |
-| `CaptureFrameRequest` / `CaptureFrameResponse` | Add frame payloads (`imageId` or `imageBlobUrl`) |
+| `CaptureFrameRequest` / `CaptureFrameResponse` | Add frame payloads (`imageId` or `imageBlobUrl`); the response's optional `check` is the read-only verdict for a `barcode` frame with a valid on-device decoded `quality.gtin` (#21) |
 | `CaptureFinalizeResponse` | Finalize response with session status and optional question |
 | `CaptureStatusResponse` | Session status payload with confidence/accepted entity/question |
 | `CaptureAnswerRequest` / `CaptureAnswerResponse` | Answer question payloads for adaptive loop |
 | `CaptureOwnershipRelationship` | Caller's relationship to a matched shade: `owned \| wishlisted \| notOwned` |
 | `CaptureOwnership` | `{ relationship, quantity? }` (`quantity` = total owned, only when `owned`) |
 | `CaptureCheckOutcome` | Resolver outcome reported by check: `matched \| needs_question \| unmatched` |
-| `CaptureCheckCandidate` | Match/candidate with `entityType`, `entityId`, `shadeId`, `display`, `confidence`, `ownership` |
+| `CaptureCheckCandidate` | Match/candidate with `entityType`, `entityId`, `shadeId`, `display`, `confidence`, `ownership`, optional display `hex` (swatch) |
 | `CaptureCheckResponse` | `POST /api/capture/{captureId}/check` payload: outcome, confidence, `match?`, `candidates`, `questionKey?`, unchanged session `status` (read-only, never touches inventory) |
 
 ### `types/palette.ts`
@@ -289,10 +353,12 @@ Shareable wishlist (#268), behind the server flag `SHAREABLE_WISHLIST_ENABLED` (
 | Type | Description |
 |------|-------------|
 | `MatchConfidence` | `"high" \| "medium" \| "low"` — bucketed OKLAB distance (thresholds in Functions `lib/color-match.ts`) |
-| `ExtractedColor` | Dominant image color: uppercase `hex` + pixel `fraction` (0–1) |
-| `PolishImageMatchRequest` | Body for `POST /api/polishes/match-image`: `image` (base64 data URL), optional `maxColors` (1–10), `limit` (1–50) |
-| `PolishMatch` | `{ polish, matchedColor, distance, confidence }` — one owned polish matched to its closest extracted color |
-| `PolishImageMatchResponse` | `{ extractedColors, matches, candidateCount }` |
+| `MatchScope`, `MATCH_SCOPES`, `isMatchScope(value)` | `"owned" \| "wishlist" \| "catalog"` — which shades match-image ranks (#105; default `owned`) |
+| `ExtractedColor` | Dominant image color: uppercase `hex` + pixel `fraction` (0–1) + `kind` (`PaletteColorKind`, always set by the API) |
+| `PolishImageMatchRequest` | Body for `POST /api/polishes/match-image`: `image` (base64 data URL), optional `maxColors` (1–10), `limit` (1–50), `perColorLimit` (1–20), `scope`, `finishes`, `families`, `excludeSkinTones`, `excludeBackground`, `preferVibrant` |
+| `PolishMatch` | `{ polish, matchedColor, distance, confidence }` — one polish matched to an extracted color |
+| `ColorMatchGroup` | `{ hex, matches }` — one extracted color's own top matches |
+| `PolishImageMatchResponse` | `{ extractedColors, matches, colorMatches, candidateCount, scope }` |
 
 ### `types/dupes.ts` (dupe finder, #265)
 

@@ -16,6 +16,7 @@ import {
   rejectShadeReview,
 } from "@/lib/api";
 import { FinishBadges } from "@/components/finish-badges";
+import { ProductCategorySelect } from "./product-category-panel";
 import { SwatchThumbnail } from "@/components/swatch-thumbnail";
 import { ToggleChip } from "@/components/toggle-chip";
 import { Badge } from "@/components/ui/badge";
@@ -553,6 +554,11 @@ export function ReviewQueueTab() {
                 <p className="text-xs font-semibold uppercase text-muted-foreground">Submission</p>
                 <Swatch hex={selected.displayHex} size="lg" />
                 <FinishBadges polish={selected} finishTypes={finishTypes} empty={<span className="text-xs text-muted-foreground">No finish</span>} />
+                <ProductCategorySelect
+                  key={selected.shadeId}
+                  shadeId={selected.shadeId}
+                  value={selected.productCategory ?? "color"}
+                />
               </div>
               <div className="space-y-2 rounded-md border bg-muted/20 p-3">
                 <p className="text-xs font-semibold uppercase text-muted-foreground">
