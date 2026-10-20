@@ -70,6 +70,7 @@ import type {
   HarmonyTypeListResponse,
   IngestionJob,
   HexLabelDeleteResponse,
+  HexLabelPromoteResponse,
   HexLabelQueueFilters,
   HexLabelQueueItem,
   HexLabelQueueResponse,
@@ -1074,6 +1075,27 @@ export async function deleteHexLabel(trainingSampleId: string): Promise<HexLabel
     }
   );
   return handleResponse<HexLabelDeleteResponse>(response);
+}
+
+/** Promote a saved manual label's hex to the shade's vendor hex (`POST /api/hex-labels-admin/labels/{id}/promote`, #321). */
+export async function promoteHexLabel(trainingSampleId: string): Promise<HexLabelPromoteResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/hex-labels-admin/labels/${encodeURIComponent(trainingSampleId)}/promote`,
+    { method: "POST", headers: await getAuthHeaders({ admin: true }) }
+  );
+  return handleResponse<HexLabelPromoteResponse>(response);
+}
+
+/**
+ * Undo a shade's vendor hex promotion (`DELETE /api/hex-labels-admin/shades/{shadeId}/promotion`, #321).
+ * Keyed by shade so it also works after the promoted label was deleted.
+ */
+export async function undoVendorHexPromotion(shadeId: string): Promise<HexLabelPromoteResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/hex-labels-admin/shades/${encodeURIComponent(shadeId)}/promotion`,
+    { method: "DELETE", headers: await getAuthHeaders({ admin: true }) }
+  );
+  return handleResponse<HexLabelPromoteResponse>(response);
 }
 
 // ── Private nail photos (#270) ──────────────────────────────────────────────
