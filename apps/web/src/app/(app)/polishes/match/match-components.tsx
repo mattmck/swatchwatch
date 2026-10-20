@@ -13,6 +13,7 @@ import { finishBadgeClassName, finishLabel } from "@/lib/constants";
 import { SwatchThumbnail } from "@/components/swatch-thumbnail";
 import { cn } from "@/lib/utils";
 import { CONFIDENCE_META, formatFraction, matchPercent } from "./match-utils";
+import { detailHref } from "@/lib/detail-href";
 
 // ── Upload ───────────────────────────────────────────────────────────────────
 
@@ -217,7 +218,7 @@ export function MatchResultsList({ matches }: { matches: PolishMatch[] }) {
         return (
           <li key={polish.id}>
             <Link
-              href={`/polishes/detail?id=${polish.id}`}
+              href={detailHref(polish.id)}
               className="flex items-center gap-3 rounded-md p-2 transition-colors hover:bg-muted"
             >
               {polish.swatchImageUrl ? (

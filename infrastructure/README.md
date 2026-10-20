@@ -75,7 +75,8 @@ Required GitHub Actions configuration (per GitHub environment):
 - Secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`
 - Variables: `TFSTATE_RESOURCE_GROUP`, `TFSTATE_STORAGE_ACCOUNT`, `TFSTATE_CONTAINER` (recommended: `tfstate`), `TFSTATE_BLOB_NAME` (recommended: `<environment>.terraform.tfstate`)
 - OpenAI mode variable: `CREATE_OPENAI_RESOURCES` (`true` to let Terraform manage OpenAI account/deployment; default in workflow is `true`)
-- OpenAI deployment variables (exported as `TF_VAR_*`): `OPENAI_REGIONS` (JSON list; single-region default e.g. `["centralus"]`, multi-region opt-in e.g. `["centralus","southcentralus","eastus","eastus2"]`), `OPENAI_DEPLOYMENT_NAME` (default `hex-detector`), `OPENAI_BATCH_DEPLOYMENT_NAME` (default `hex-detector-batch`), optional `OPENAI_BATCH_MODEL_NAME`, `OPENAI_BATCH_MODEL_VERSION`, `OPENAI_BATCH_DEPLOYMENT_SKU_NAME`, `OPENAI_BATCH_DEPLOYMENT_CAPACITY`
+- **OpenAI region (required when `CREATE_OPENAI_RESOURCES` is true):** `OPENAI_LOCATION` (single region the environment's account already lives in: **prod `centralus`, dev `eastus`**; exported as `TF_VAR_openai_location`) or `OPENAI_REGIONS` (JSON list, takes precedence; single-region e.g. `["centralus"]`, multi-region opt-in e.g. `["centralus","southcentralus","eastus","eastus2"]`). The workflow has **no default region** and fails before `terraform init` when neither is set. See [Azure OpenAI region and replacement guard](#azure-openai-region-and-replacement-guard)
+- OpenAI deployment variables (exported as `TF_VAR_*`): `OPENAI_DEPLOYMENT_NAME` (default `hex-detector`), `OPENAI_BATCH_DEPLOYMENT_NAME` (default `hex-detector-batch`), optional `OPENAI_BATCH_MODEL_NAME`, `OPENAI_BATCH_MODEL_VERSION`, `OPENAI_BATCH_DEPLOYMENT_SKU_NAME`, `OPENAI_BATCH_DEPLOYMENT_CAPACITY`
 - Optional variables for shared/external OpenAI accounts (used when `CREATE_OPENAI_RESOURCES=false`): `OPENAI_ENDPOINT`, `OPENAI_ACCOUNT_NAME`
 Recommended auth config (propagated to Terraform `TF_VAR_*` inputs):
 - Secrets: `AZURE_AD_B2C_CLIENT_ID`
@@ -86,6 +87,16 @@ Recommended auth config (propagated to Terraform `TF_VAR_*` inputs):
 The workflow creates the state container automatically if it does not exist.
 The workflow reads the `pg-password` secret from Key Vault and exports it as `TF_VAR_pg_admin_password` for Terraform.
 In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves the OpenAI account name from `OPENAI_ACCOUNT_NAME`, Terraform output, or endpoint hostname and loads that account key into `TF_VAR_openai_api_key` before Terraform runs.
+
+### Azure OpenAI region and replacement guard
+
+An Azure OpenAI account's `location` is immutable, so a plan with a different region **destroys the account** (soft-delete, with every model deployment) and creates a new one. On 2026-10-19 a manual `deploy-infra.yml` dispatch for prod did exactly that: the `openai_location` input defaulted to `eastus` (dev's region) while prod's account lives in `centralus`, so Terraform soft-deleted `swatchwatch-prod-openai-*` and its `hex-detector` / `hex-detector-batch` deployments (recovered with `az cognitiveservices account recover`). Three rules now prevent a repeat:
+
+1. **The environment owns the region.** Each GitHub environment sets `OPENAI_LOCATION` (prod: `centralus`, dev: `eastus`) or `OPENAI_REGIONS`. The reusable workflow has no default; when `CREATE_OPENAI_RESOURCES` is true and neither variable nor the input is set, the **Validate Azure OpenAI region** step fails with `::error::` before `terraform init`. Terraform itself refuses to plan `azurerm_cognitive_account.openai` without an explicit `openai_regions` / `openai_location` (precondition in `main.tf`); it never falls back to `location`.
+2. **Manual dispatches must not pass a different region.** The `openai_location` input on `Deploy Infrastructure` (manual dispatch and `workflow_call`) is an explicit override with **no default**. Leave it empty. If it is set and differs from the environment's `OPENAI_LOCATION`, the run fails unless `allow_openai_replace` is true (and `OPENAI_REGIONS`, when set, wins over the input anyway). The committed callers (`deploy-prod.yml`, `deploy-infra-prod.yml`: `centralus`; `deploy-infra-dev.yml`: `eastus`) pass the region their environment already uses, which is why they keep working before the variables are set.
+3. **Plan guard.** Between `terraform plan` and `terraform apply` the **Guard against Azure OpenAI account replacement** step runs `terraform show -json tfplan` and fails with `::error::` (listing the addresses) if any `azurerm_cognitive_account` or `azurerm_cognitive_deployment` has a `delete` or replace (`delete`+`create`) action. This covers every Cognitive Services account (OpenAI, Speech, Document Intelligence). Only the boolean input `allow_openai_replace=true` lets such a plan apply (with a `::warning::`); it defaults to `false` and the committed callers never set it, so a push to `main` cannot replace an account either.
+
+To move or recreate an account on purpose: change the environment's `OPENAI_LOCATION` / `OPENAI_REGIONS` first, **and** update the hardcoded `openai_location` in the committed callers (`deploy-prod.yml` and `deploy-infra-prod.yml` for prod, `deploy-infra-dev.yml` for dev). Those callers pass their old region as the input on every push, and rule 2 fails a run whose input differs from the variable, so a push-triggered deploy would break after the move (or, with `allow_openai_replace`, move it back). Then dispatch `Deploy Infrastructure` with `allow_openai_replace: true`, and update the Function App's `AZURE_OPENAI_*` settings (Terraform rewires them from the new primary account).
 
 ## Resources Provisioned
 
@@ -140,8 +151,8 @@ In external OpenAI mode (`CREATE_OPENAI_RESOURCES=false`), the workflow resolves
 |----------|---------|-------------|
 | `subscription_id` | *(required)* | Azure subscription ID (required by azurerm provider v4+) |
 | `location` | `centralus` | Azure region |
-| `openai_location` | `null` | Fallback OpenAI region when `openai_regions` is empty (defaults to `location`) |
-| `openai_regions` | `[]` | OpenAI regions to provision when `create_openai_resources=true`; first region is primary for `AZURE_OPENAI_ENDPOINT`/`AZURE_OPENAI_KEY` outputs and Function settings |
+| `openai_location` | `null` | OpenAI region when `openai_regions` is empty; must be the region the environment's account already lives in (prod `centralus`, dev `eastus`) since a change replaces the account. Required (or `openai_regions`) when `create_openai_resources=true`; never derived from `location` |
+| `openai_regions` | `[]` | OpenAI regions to provision when `create_openai_resources=true` (takes precedence over `openai_location`); first region is primary for `AZURE_OPENAI_ENDPOINT`/`AZURE_OPENAI_KEY` outputs and Function settings |
 | `environment` | `dev` | Environment name (dev, staging, prod) |
 | `base_name` | `swatchwatch` | Base name prefix for resources |
 | `pg_admin_username` | `pgadmin` | PostgreSQL admin username |
@@ -406,7 +417,7 @@ az functionapp config appsettings set \
 ```
 
 OpenAI settings are optional:
-- If `create_openai_resources=true`, Terraform provisions OpenAI account/deployment resources across `openai_regions` (or `openai_location`/`location` fallback when `openai_regions` is empty), wires `AZURE_OPENAI_ENDPOINT` and `AZURE_OPENAI_KEY` from the first region in that list, and sets `AZURE_OPENAI_DEPLOYMENT_HEX`/`AZURE_OPENAI_DEPLOYMENT_HEX_BATCH`. If `openai_batch_deployment_name` is set and differs from `openai_deployment_name`, Terraform also provisions `azurerm_cognitive_deployment.openai_hex_batch` in each managed region; otherwise batch detection reuses the sync deployment. Diagnostics flow to Log Analytics/Application Insights.
+- If `create_openai_resources=true`, Terraform provisions OpenAI account/deployment resources across `openai_regions` (or `openai_location` when `openai_regions` is empty; one of them is required, there is no `location` fallback, see [Azure OpenAI region and replacement guard](#azure-openai-region-and-replacement-guard)), wires `AZURE_OPENAI_ENDPOINT` and `AZURE_OPENAI_KEY` from the first region in that list, and sets `AZURE_OPENAI_DEPLOYMENT_HEX`/`AZURE_OPENAI_DEPLOYMENT_HEX_BATCH`. If `openai_batch_deployment_name` is set and differs from `openai_deployment_name`, Terraform also provisions `azurerm_cognitive_deployment.openai_hex_batch` in each managed region; otherwise batch detection reuses the sync deployment. Diagnostics flow to Log Analytics/Application Insights.
 - If `create_openai_resources=false`, either:
   - set `openai_endpoint` + `openai_api_key`, or
   - set `openai_endpoint` + `openai_key_vault_secret_uri` (preferred).

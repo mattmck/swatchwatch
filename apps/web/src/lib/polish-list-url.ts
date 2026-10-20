@@ -165,6 +165,27 @@ export function sameFilters(a: PolishesListState, b: PolishesListState): boolean
   );
 }
 
+/**
+ * The page the table should move to after a load, or `null` to keep the current one (#348).
+ *
+ * Nothing is clamped before the first load has finished or while a fetch is in flight: on mount
+ * `total` is still 0, and clamping then would rewrite a URL-restored `?page=5` to page 1 before
+ * the data arrives (the regression of #87). Once a real total is known, a page past the end
+ * moves to the last page, and an empty result goes back to page 1.
+ */
+export function clampPageAfterLoad(input: {
+  page: number;
+  total: number;
+  pageSize: number;
+  hasLoaded: boolean;
+  loading: boolean;
+}): number | null {
+  if (!input.hasLoaded || input.loading) return null;
+  const totalPages = input.pageSize > 0 ? Math.ceil(input.total / input.pageSize) : 0;
+  if (totalPages === 0) return input.page !== 1 ? 1 : null;
+  return input.page > totalPages ? totalPages : null;
+}
+
 /** Which preset (if any) the status list corresponds to. */
 export function statusPresetFor(statuses: readonly PolishStatus[]): StatusPreset {
   if (statuses.length === 0) return "all";
