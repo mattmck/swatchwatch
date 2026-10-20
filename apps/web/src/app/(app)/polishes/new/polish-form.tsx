@@ -40,6 +40,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { BrandSpinner } from "@/components/brand-spinner";
+import { scanPrefillFromParams } from "@/lib/capture-verdict";
 
 const PRESET_SWATCHES = [
   "#F8D3E2",
@@ -80,9 +81,11 @@ export default function PolishForm() {
   const returnTo = searchParams.get("returnTo");
   const listHref = resolveReturnTo(returnTo);
   const isEditing = Boolean(editId);
+  // Rapid Add's unknown-barcode path: the scanned code (remembered on save) and any names it read.
+  const [scanPrefill] = useState(() => (editId ? {} : scanPrefillFromParams(new URLSearchParams(searchParams.toString()))));
   const [form, setForm] = useState({
-    brand: "",
-    name: "",
+    brand: scanPrefill.brand ?? "",
+    name: scanPrefill.name ?? "",
     color: "",
     colorHex: "#000000",
     /** Selected finishes in selection order; the first is the primary finish. */
@@ -216,6 +219,9 @@ export default function PolishForm() {
       tags: form.tags
         ? form.tags.split(",").map((t) => t.trim()).filter(Boolean)
         : undefined,
+      ...(!isEditing && scanPrefill.barcode
+        ? { barcode: scanPrefill.barcode, barcodeFormat: scanPrefill.barcodeFormat }
+        : {}),
     };
     // `status`, not `form.status`: an owned polish saved with 0 bottles is archived, not an add.
     const intent: AddGuardIntent | null =
@@ -315,6 +321,12 @@ export default function PolishForm() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            {!isEditing && scanPrefill.barcode && (
+              <p className="rounded-lg bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+                Scanned barcode <span className="font-mono font-semibold text-foreground">{scanPrefill.barcode}</span>{" "}
+                is saved with this polish, so your next scan of the bottle finds it.
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label htmlFor="brand" className="text-sm font-medium">

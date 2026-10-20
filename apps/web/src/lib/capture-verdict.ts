@@ -15,7 +15,12 @@
  *   3. render it in `components/rapid-add/verdict-card.tsx` (its switch is exhaustive, so
  *      TypeScript points at the missing branch).
  */
-import type { CaptureStatus, Polish } from "swatchwatch-shared";
+import type {
+  CaptureCheckResponse,
+  CaptureOwnershipRelationship,
+  CaptureStatus,
+  Polish,
+} from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
 import { isOwnedPolish } from "./inventory-status";
 
@@ -109,8 +114,35 @@ export interface AddVerdict {
   evidence: CaptureEvidenceSummary;
 }
 
+/**
+ * A scanned barcode matched (read-only `check`, nothing added yet): the caller's relationship
+ * to it decides the offer — own it (+1 bottle), on the wishlist (own it now), or add / wishlist.
+ */
+export interface CheckedVerdict {
+  kind: "checked";
+  relationship: CaptureOwnershipRelationship;
+  display: string;
+  /** Shade id for the detail link and the wishlist add; null for a SKU without a shade. */
+  shadeId?: string;
+  /** Bottles owned, when `relationship === "owned"`. */
+  quantity?: number;
+  hex?: string;
+  gtin: string;
+  /** Set right after Rapid Add put it on the wishlist. */
+  wishlistedNow?: boolean;
+}
+
+/** The scanned barcode matches nothing yet: photograph the label, or add it by hand. */
+export interface UnknownBarcodeVerdict {
+  kind: "unknown_barcode";
+  /** Nothing to name yet (kept so every verdict has the field). */
+  display?: undefined;
+  gtin: string;
+  format?: string;
+}
+
 // Extension point: NearDupeVerdict (#265) and WishlistVerdict (#261) join this union.
-export type CaptureVerdict = OwnedVerdict | AddedVerdict | AddVerdict;
+export type CaptureVerdict = OwnedVerdict | AddedVerdict | AddVerdict | CheckedVerdict | UnknownBarcodeVerdict;
 export type CaptureVerdictKind = CaptureVerdict["kind"];
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -273,4 +305,72 @@ export function ownedEntryAfterVerdict(verdict: CaptureVerdict): OwnedPolishEntr
     };
   }
   return null;
+}
+
+/**
+ * The verdict for a scanned barcode from the read-only check (the barcode frame's response
+ * or `POST /check`). Any non-match of a scanned barcode is an unknown barcode; without a
+ * barcode there is no verdict yet (the label/hint flow continues).
+ */
+export function verdictFromCheck(
+  check: CaptureCheckResponse,
+  barcode: { gtin: string; format?: string } | null,
+): CaptureVerdict | null {
+  const match = check.outcome === "matched" ? check.match : undefined;
+  if (match) {
+    const verdict: CheckedVerdict = {
+      kind: "checked",
+      relationship: match.ownership.relationship,
+      display: match.display,
+      gtin: barcode?.gtin ?? "",
+    };
+    if (match.shadeId) verdict.shadeId = match.shadeId;
+    if (match.ownership.relationship === "owned" && typeof match.ownership.quantity === "number") {
+      verdict.quantity = match.ownership.quantity;
+    }
+    if (match.hex) verdict.hex = match.hex;
+    return verdict;
+  }
+  if (!barcode) return null;
+  return { kind: "unknown_barcode", gtin: barcode.gtin, ...(barcode.format ? { format: barcode.format } : {}) };
+}
+
+/**
+ * The manual add form, prefilled with what the scan learned. `barcode` is sent with the new
+ * polish so the next scan of the bottle matches (remembered for this user only).
+ */
+export function manualAddHref(evidence: {
+  gtin?: string;
+  format?: string;
+  brand?: string;
+  shadeName?: string;
+}): string {
+  const params = new URLSearchParams();
+  if (evidence.gtin) params.set("barcode", evidence.gtin);
+  if (evidence.gtin && evidence.format) params.set("barcodeFormat", evidence.format);
+  if (evidence.brand) params.set("brand", evidence.brand);
+  if (evidence.shadeName) params.set("name", evidence.shadeName);
+  const query = params.toString();
+  return query ? `/polishes/new?${query}` : "/polishes/new";
+}
+
+/** What the add form prefills from a Rapid Add link (`manualAddHref`). */
+export function scanPrefillFromParams(params: URLSearchParams): {
+  barcode?: string;
+  barcodeFormat?: string;
+  brand?: string;
+  name?: string;
+} {
+  const prefill: { barcode?: string; barcodeFormat?: string; brand?: string; name?: string } = {};
+  const barcode = params.get("barcode")?.trim();
+  if (barcode && /^\d{8,14}$/.test(barcode)) {
+    prefill.barcode = barcode;
+    const format = params.get("barcodeFormat")?.trim();
+    if (format && /^[a-z0-9_]{1,16}$/i.test(format)) prefill.barcodeFormat = format;
+  }
+  const brand = params.get("brand")?.trim();
+  if (brand) prefill.brand = brand.slice(0, 200);
+  const name = params.get("name")?.trim();
+  if (name) prefill.name = name.slice(0, 200);
+  return prefill;
 }

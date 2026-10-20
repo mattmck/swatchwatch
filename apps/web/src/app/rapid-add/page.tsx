@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { CaptureFrameType, FinishName } from "swatchwatch-shared";
-import { AlertCircle, Loader2, Search } from "lucide-react";
+import type { CaptureCheckResponse } from "swatchwatch-shared";
+import { AlertCircle, CircleCheck, Loader2, Search } from "lucide-react";
 import {
   addCaptureFrame,
   answerCaptureQuestion,
+  checkCapture,
   finalizeCapture,
   getCaptureStatus,
   listAllPolishes,
@@ -20,7 +22,9 @@ import {
   buildOwnershipSnapshot,
   ownedEntryAfterVerdict,
   resolveCaptureVerdict,
+  verdictFromCheck,
   withOwnedEntry,
+  type CaptureVerdict,
   type OwnershipSnapshot,
 } from "@/lib/capture-verdict";
 import {
@@ -32,6 +36,7 @@ import {
   INITIAL_SESSION_STATE,
   MAX_CAPTURE_FRAMES,
   rapidAddPhase,
+  scanBadge,
   sessionReducer,
   summarizeFrames,
   type CaptureFrameEntry,
@@ -57,6 +62,18 @@ import {
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
+}
+
+/**
+ * A freshly decoded barcode is checked right away (its frame's upload response carries the
+ * verdict, no OCR; without a frame, one `check` call). Not once a verdict is showing or the
+ * user is photographing the label for an unknown barcode.
+ */
+function shouldCheckBarcode(
+  session: { labelRequested: boolean; verdict: unknown },
+  barcode: ScannedBarcode | null,
+): barcode is ScannedBarcode {
+  return Boolean(barcode) && !session.labelRequested && !session.verdict;
 }
 
 function newLocalId(): string {
@@ -129,16 +146,48 @@ export default function RapidAddPage() {
     return sessionPromiseRef.current;
   }, []);
 
+  /** Show the verdict for a scanned barcode from a check response (nothing is added yet). */
+  const showCheckVerdict = useCallback((check: CaptureCheckResponse, barcode: ScannedBarcode) => {
+    const verdict = verdictFromCheck(check, barcode);
+    dispatch({ type: "verdict_resolved", verdict });
+    if (verdict) {
+      trackEvent("rapid_add.verdict", {
+        kind: verdict.kind,
+        relationship: verdict.kind === "checked" ? verdict.relationship : null,
+        barcodeEngine: barcode.engine,
+        frames: framesRef.current.length,
+      });
+    }
+  }, []);
+
+  const checkBarcode = useCallback(
+    async (captureId: string, barcode: ScannedBarcode, check?: CaptureCheckResponse) => {
+      try {
+        dispatch({ type: "busy", busy: "checking" });
+        showCheckVerdict(check ?? (await checkCapture(captureId)), barcode);
+      } catch (error) {
+        dispatch({
+          type: "failed",
+          error: `Couldn't check that barcode: ${errorMessage(error, "network error")}. Tap Find match.`,
+        });
+      }
+    },
+    [showCheckVerdict],
+  );
+
   const uploadFrame = useCallback(
     async (frame: Pick<CaptureFrameEntry, "localId" | "frameType" | "dataUrl" | "quality">, barcode: ScannedBarcode | null) => {
       try {
         const captureId = await ensureSession(barcode);
+        const checking = frame.frameType === "barcode" && shouldCheckBarcode(sessionRef.current, barcode);
+        if (checking) dispatch({ type: "busy", busy: "checking" });
         const res = await addCaptureFrame(captureId, {
           frameType: frame.frameType,
           imageBlobUrl: frame.dataUrl,
           quality: frame.quality,
         });
         dispatchFrames({ type: "upload_succeeded", localId: frame.localId, frameId: res.frameId });
+        if (checking && barcode) await checkBarcode(captureId, barcode, res.check);
       } catch (error) {
         dispatchFrames({
           type: "upload_failed",
@@ -148,7 +197,7 @@ export default function RapidAddPage() {
         dispatch({ type: "failed", error: `Couldn't upload a frame: ${errorMessage(error, "network error")}. Tap Retry on it.` });
       }
     },
-    [ensureSession],
+    [ensureSession, checkBarcode],
   );
 
   const handleCapture = useCallback(
@@ -159,7 +208,18 @@ export default function RapidAddPage() {
         dispatch({ type: "barcode_detected", barcode: event.barcode });
         sessionRef.current = { ...sessionRef.current, barcode: event.barcode };
       }
-      if (!event.frame) return;
+      if (!event.frame) {
+        // Read live but no snapshot: check the barcode from the session metadata alone.
+        const barcode = event.barcode;
+        if (shouldCheckBarcode(sessionRef.current, barcode)) {
+          dispatch({ type: "busy", busy: "checking" });
+          void ensureSession(barcode).then(
+            (captureId) => checkBarcode(captureId, barcode),
+            (error: unknown) => dispatch({ type: "failed", error: errorMessage(error, "Couldn't start the scan.") }),
+          );
+        }
+        return;
+      }
       if (!canAddFrame(framesRef.current)) {
         dispatch({ type: "failed", error: `That's the most frames for one scan (${MAX_CAPTURE_FRAMES}). Tap Find match.` });
         return;
@@ -188,7 +248,7 @@ export default function RapidAddPage() {
       dispatchFrames({ type: "added", frame });
       void uploadFrame(frame, event.barcode ?? sessionRef.current.barcode);
     },
-    [uploadFrame],
+    [uploadFrame, ensureSession, checkBarcode],
   );
 
   function handleRetryFrame(localId: string) {
@@ -272,6 +332,24 @@ export default function RapidAddPage() {
     }
   }
 
+  /** Unknown barcode → label photo, in the same session so the barcode is learned on the match. */
+  function handlePhotographLabel() {
+    dispatch({ type: "label_requested" });
+    setFrameType("label");
+    cameraSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  async function handleAddToWishlist(verdict: CaptureVerdict) {
+    if (verdict.kind !== "checked" || !verdict.shadeId) return;
+    dispatch({ type: "busy", busy: "wishlisting" });
+    try {
+      await updatePolish(verdict.shadeId, { status: "wishlist" });
+      dispatch({ type: "verdict_resolved", verdict: { ...verdict, relationship: "wishlisted", wishlistedNow: true } });
+    } catch (error) {
+      dispatch({ type: "failed", error: errorMessage(error, "Couldn't add it to your wishlist.") });
+    }
+  }
+
   function handleQuestionAction(action: QuestionAction) {
     setFrameType(action === "scan_barcode" ? "barcode" : "label");
     cameraSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -313,6 +391,7 @@ export default function RapidAddPage() {
   }
 
   const finalizeEnabled = canFinalize({ frames, session, hasHints });
+  const badge = phase === "verdict" ? null : scanBadge(session);
   const scanning = phase !== "verdict" && phase !== "resolving" && !session.barcode;
   const busy = session.busy !== null;
   const hintsLocked = session.captureId !== null;
@@ -338,7 +417,11 @@ export default function RapidAddPage() {
           verdict={session.verdict}
           quantityRestored={session.quantityRestored}
           undoing={session.busy === "undoing"}
+          busy={session.busy}
           onUndoQuantity={() => void handleUndoQuantity()}
+          onAddToCollection={() => void handleFinalize()}
+          onAddToWishlist={(verdict) => void handleAddToWishlist(verdict)}
+          onPhotographLabel={handlePhotographLabel}
           onScanNext={handleScanNext}
         />
       )}
@@ -354,9 +437,25 @@ export default function RapidAddPage() {
             onCameraError={(kind) => trackEvent("rapid_add.camera_error", { kind })}
           />
 
-          {session.barcode && (
-            <p className="rounded-lg bg-muted/50 px-3 py-2 text-sm">
-              Barcode <span className="font-mono font-semibold">{session.barcode.gtin}</span> scanned.
+          {badge && (
+            <p
+              role="status"
+              className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100"
+            >
+              <CircleCheck className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
+              <span>
+                Scanned <span className="font-mono font-semibold">{badge.gtin}</span>
+              </span>
+              {badge.checking && (
+                <span className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
+                  <Loader2 className="size-3 animate-spin" aria-hidden /> Checking…
+                </span>
+              )}
+            </p>
+          )}
+          {session.labelRequested && phase === "collecting" && (
+            <p className="text-sm text-muted-foreground">
+              Now snap the front label, then tap Find match. We&apos;ll remember this barcode for next time.
             </p>
           )}
           {qualityHint && phase === "collecting" && (

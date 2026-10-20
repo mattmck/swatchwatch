@@ -237,10 +237,12 @@ async function fakeQuery(via, sql, params = []) {
   }
   if (/FROM\s+capture_frame/i.test(text)) return { rows: [], rowCount: 0 };
   if (/FROM\s+barcode/i.test(text)) {
-    if (params[0] === GTIN) {
+    // The resolver looks a scan up by every key it may be stored under (bc.gtin = ANY($1)).
+    const keys = Array.isArray(params[0]) ? params[0] : [params[0]];
+    if (keys.includes(GTIN)) {
       return { rows: [{ skuId: String(SKU_ID), shadeId: String(SHADE_ID), brand: "Brand", productName: "Polish", shadeName: "Shade" }], rowCount: 1 };
     }
-    if (params[0] === SHADELESS_GTIN) {
+    if (keys.includes(SHADELESS_GTIN)) {
       return { rows: [{ skuId: String(SHADELESS_SKU_ID), shadeId: null, brand: "Brand", productName: "Kit", shadeName: null }], rowCount: 1 };
     }
     return { rows: [], rowCount: 0 };
