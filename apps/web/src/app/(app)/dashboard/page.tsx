@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
-import { listAllPolishes, listPolishes } from "@/lib/api";
+import { getCurrentUserId, listAllPolishes, listPolishes } from "@/lib/api";
 import { isOwnedPolish, summarizeCollection } from "@/lib/inventory-status";
 import { trackEvent } from "@/lib/telemetry";
 import {
@@ -22,6 +22,7 @@ import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
 import { PickForMeCard } from "@/components/pick-for-me";
+import { GettingStarted } from "@/components/getting-started";
 import { CollectionStatsSection } from "@/components/stats/collection-stats-section";
 import type { LucideIcon } from "lucide-react";
 import { Building2, Droplets, FlaskConical, Heart, Sparkles, Star } from "lucide-react";
@@ -46,6 +47,8 @@ export default function DashboardPage() {
   const { finishTypes } = useReferenceData();
   const [polishes, setPolishes] = useState<Polish[]>([]);
   const [wishlistTotal, setWishlistTotal] = useState(0);
+  // Keys the getting-started dismissal per user; null (lookup failed) falls back to one shared key.
+  const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,14 +60,16 @@ export default function DashboardPage() {
         // Owned rows only: the dashboard never needs the shared catalog, and the
         // catalog is orders of magnitude larger than any user's collection.
         // The wishlist count is the list `total` of a one-row page: no client-side over-fetch.
-        const [response, wishlistPage] = await Promise.all([
+        const [response, wishlistPage, currentUserId] = await Promise.all([
           listAllPolishes({
             status: ["owned"],
             sortBy: "createdAt",
             sortOrder: "desc",
           }),
           listPolishes({ status: ["wishlist"], page: 1, pageSize: 1 }),
+          getCurrentUserId().catch(() => null),
         ]);
+        setUserId(currentUserId === null ? null : String(currentUserId));
         const owned = response.filter(isOwnedPolish);
         setPolishes(owned);
         setWishlistTotal(wishlistPage.total);
@@ -92,6 +97,8 @@ export default function DashboardPage() {
   }
 
   const totalPolishes = polishes.length;
+  // A brand-new user gets the getting-started checklist instead of a wall of zeros and empty cards.
+  const hasNothing = totalPolishes === 0 && wishlistTotal === 0;
   const summary = summarizeCollection(polishes, wishlistTotal);
   const uniqueBrands = new Set(polishes.map((p) => p.brand)).size;
   const avgRating =
@@ -183,7 +190,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="heading-page">Dashboard</h1>
           <p className="text-muted-foreground">
@@ -195,7 +202,10 @@ export default function DashboardPage() {
         </Button>
       </div>
 
+      <GettingStarted ownedPolishes={polishes} userId={userId} />
+
       {/* Stats row */}
+      {!hasNothing && (
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {statCards.map((card) => {
           const tile = (
@@ -254,7 +264,10 @@ export default function DashboardPage() {
           );
         })}
       </div>
+      )}
 
+      {totalPolishes > 0 && (
+        <>
       <PickForMeCard polishes={polishes} />
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -316,6 +329,11 @@ export default function DashboardPage() {
             <CardDescription>Distribution of finish types</CardDescription>
           </CardHeader>
           <CardContent>
+            {topFinishes.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                Finishes show up here once your polishes have one, like creme, shimmer or holo.
+              </p>
+            )}
             <div className="space-y-3">
               {topFinishes.map(([finish, count]) => (
                 <div key={finish} className="flex items-center gap-3">
@@ -335,6 +353,8 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+        </>
+      )}
 
       {/* Spend, wear and cost-per-wear panels (#271); loads its own data. */}
       <CollectionStatsSection />
