@@ -17,6 +17,7 @@ import {
   getPolishDupes,
   updatePolish,
 } from "@/api/client";
+import { GoesWith } from "@/components/goes-with";
 import { ColorDot, Swatch } from "@/components/swatch";
 import { AppText, Button, Card, CenteredState, Chip, ErrorBanner } from "@/components/ui";
 import { finishLabel } from "@/lib/finishes";
@@ -257,6 +258,8 @@ export default function PolishDetailScreen() {
             ))}
           </Card>
         )}
+
+        <GoesWith polish={polish} />
 
         <Card>
           <AppText variant="label" muted>
