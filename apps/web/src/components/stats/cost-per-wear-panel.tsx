@@ -3,6 +3,7 @@ import type { CollectionStatsResponse, CostPerWearEntry } from "swatchwatch-shar
 import { ColorDot } from "@/components/color-dot";
 import { currencyLabel, findCostPerWear, formatMoney, statsDisplayHex } from "@/lib/collection-stats";
 import { StatsEmpty, StatsPanel } from "./stats-panel";
+import { detailHref } from "@/lib/detail-href";
 
 function CostList({
   title,
@@ -38,7 +39,7 @@ function CostList({
             <li key={entry.inventoryItemId}>
               {entry.shadeId ? (
                 <Link
-                  href={`/polishes/detail?id=${entry.shadeId}`}
+                  href={detailHref(entry.shadeId)}
                   className="flex items-center gap-2 rounded-md p-1.5 transition-colors hover:bg-muted"
                 >
                   {body}

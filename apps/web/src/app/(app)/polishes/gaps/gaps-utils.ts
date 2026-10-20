@@ -58,6 +58,29 @@ export function cellKey(cell: Pick<CollectionGapCell, "hueFamily" | "lightnessBa
 }
 
 /**
+ * Read the selected cell from the `?cell=` URL param (#348).
+ * @param value Raw param value.
+ * @returns A valid `hueFamily:lightnessBand` key, or `null` for missing/unknown values.
+ */
+export function parseGapCellParam(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const [hueFamily, lightnessBand, ...rest] = value.split(":");
+  if (rest.length > 0) return null;
+  if (!(HUE_FAMILY_ORDER as string[]).includes(hueFamily)) return null;
+  if (!(LIGHTNESS_BAND_ORDER as string[]).includes(lightnessBand)) return null;
+  return value;
+}
+
+/**
+ * Gap map URL for a selected cell, so browser back from a detail page restores it (#348).
+ * @param selectedCellKey Cell key, or `null` for the default selection.
+ */
+export function gapsHref(selectedCellKey: string | null): string {
+  if (!selectedCellKey) return "/polishes/gaps";
+  return `/polishes/gaps?${new URLSearchParams({ cell: selectedCellKey }).toString()}`;
+}
+
+/**
  * Sort cells by fixed grid order: lightness row first, then hue column.
  * @param cells Cells to sort.
  * @returns New sorted array; input is not mutated. Unknown hue/band values are treated as index `0`.
