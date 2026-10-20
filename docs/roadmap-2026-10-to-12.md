@@ -22,8 +22,8 @@ M2; drafted against 17 open issues and 2 milestones):
 |---|---|---|
 | Land now | #256, #258, #237 (release #276); #245 closed (fixed by #246, hardened in #237); #227 owner-scoped image ids | ✅ All shipped; #227 closed |
 | Decide + do | #224 multi-finish follow-ups (3 decisions) | ✅ Shipped in #288 + #306 (decision D11), closed |
-| Fold into this roadmap | #21 camera capture (web half), #103 color taxonomy, #104 LacquerTracker research, #45 admin users (remaining bits), #226 ingestion logs | ✅ #21 web half (#294; mobile remainder moved to #109), #103 (#293), #104 (closed, site dead), #226 (#290) closed. #45 stays open: the review-queue half shipped in #298, user management remains |
-| Defer to 2027 | #109 Expo scaffold, #2 ESM migration, #117 Redis, #158/#228 APIM gateway, #102 (superseded by `finish_type` admin) | Still deferred, see §5 and [retro-m2.md](retro-m2.md) Q1 candidates |
+| Fold into this roadmap | #21 camera capture (web half), #103 color taxonomy, #104 LacquerTracker research, #45 admin users (remaining bits), #226 ingestion logs | ✅ #21 web half (#294; mobile remainder moved to #109), #103 (#293), #104 (closed, site dead), #226 (#290) closed. #45: the review-queue half shipped in #298, user management in #356; closed by release #365 |
+| Defer to 2027 | #109 Expo scaffold, #2 ESM migration, #117 Redis, #158/#228 APIM gateway, #102 (superseded by `finish_type` admin) | #109 started early on 2026-10-19 ([D24](decisions-2026-10.md#d24--expo-app-and-looks-started-early-overnight-merge-to-dev-rule-2026-10-19)); the rest still deferred, see §5 and [retro-m2.md](retro-m2.md) Q1 candidates |
 
 Hygiene: M0 and M1 are closed; **M2 — Collector's companion** holds the batch. Release #340
 (2026-10-17) promoted every Sprint 1–4 item below to `main` as one squash commit. Deploy Prod run
@@ -32,19 +32,27 @@ minutes. Several PRs in it
 targeted `dev`, so their closing keywords only fired on the release; the housekeeping pass on
 2026-10-17 closed the rest by hand with a comment citing the PR.
 
-**Remaining for M2** (open after release #340):
+Release [#365](https://github.com/mattmck/swatchwatch/pull/365) (2026-10-19) promoted the
+post-release follow-ups #344–#368 to `main` and closed #45, #319 and #320. Two overnight batches
+then merged into `dev` (2026-10-20, 03:00Z): the 10-18 batch #370–#383 (runbook:
+[overnight-2026-10-18-release-runbook.md](overnight-2026-10-18-release-runbook.md)) and the
+10-19 batch #388–#396 (runbook: `overnight-2026-10-19-release-runbook.md`, being written by the
+lead session). Closing keywords only fire on `main`, so these issues stay open until the next
+`dev → main` release and are then closed by hand, as after #340: #328, #105 (web half; the mobile
+half is in #109), #348, #349, #347, #321, #386 and #385.
 
-- #45 admin user management: list users, state, password reset, editable settings, audit (review queue half shipped in #298)
-- #105 image-to-polish matching, web/API gaps only (filters, add-to-wishlist, per-color matches, Phase 5); mobile items moved to #109
-- #273 indie Shopify sources: Night Owl Lacquer approved (#333); more stores still to add, Pahlish waits on #328
-- #328 store-specific product filter for Pahlish
-- #319 sweep orphaned `image_asset` rows and blobs
-- #320 optional family on finish types for dupe grading
-- #321 opt-in promote a hand-labeled hex to `vendor_hex`, with provenance
+> **Status (2026-10-20):** the Expo app (#109) and the Looks page started early instead of in
+> Q1, and overnight sessions now merge their own PRs into `dev`. See
+> [D24](decisions-2026-10.md#d24--expo-app-and-looks-started-early-overnight-merge-to-dev-rule-2026-10-19).
+
+**Remaining for M2** (updated 2026-10-20; shipped items removed):
+
+- #273 indie Shopify sources: Night Owl, Pahlish, Emily de Molly and Cirque Colors are in; batch 2 (#388) added no store, since every remaining Shopify candidate's terms forbid automated access, so more stores wait on written approval
 - #322 label ground truth with the color sip tool, then run the hex detection gate (D4)
 - #325 verify camera Rapid Add on real iOS and Android devices
 - #326 nail-photo upload/delete end-to-end against a live host
 - #313 decide the feature-flag mechanism (env vars vs. Azure App Configuration); not in the M2 milestone but raised by #305
+- #387 phone layout sweep across every app route (PR #397 in flight on 2026-10-20)
 - #274 release, docs sweep and retro (skeleton in [retro-m2.md](retro-m2.md))
 
 ## 2. What nail polish nerds want (research)
@@ -196,7 +204,7 @@ Goal: more indie coverage, and the ops to absorb user-created data.
 | Dupe warnings shown → user cancels or wishlists instead | tracked; > 20% |
 | Share of owned polishes with a status other than default | > 60% of active users |
 | Manis logged per active user per week | ≥ 1 |
-| Catalog shades (active) | +10k via indie sources (2026-10-19 dry runs: Cirque Colors 328 of 415 products with its new store filter, was 10; no new store added in batch 2: every remaining Shopify candidate's terms forbid automated access, see [indie-sources-2026-10.md](indie-sources-2026-10.md)) |
+| Catalog shades (active) | +10k via indie sources (2026-10-19 dry runs: Cirque Colors 328 of 415 products with its new store filter, was 10; no new store added in batch 2: every remaining Shopify candidate's terms forbid automated access, see [indie-sources-2026-10.md](indie-sources-2026-10.md) and [PR #388](https://github.com/mattmck/swatchwatch/pull/388), whose "Decisions needed" asks whether to seek store approvals or a non-Shopify route for the +10k) |
 | Detected-hex HIGH-confidence share | frozen at Week 0 baseline or better |
 
 How each number is read (decision D19, #323): the dupe-warning funnel from the browser events
@@ -207,12 +215,15 @@ eval harness (`npm run eval:hex`).
 
 ## 5. Deferred, and why
 
-- **Native Expo app (#109)** — the biggest single item on the list and the blank
-  template it is today needs a full sprint just to reach parity. For the holiday
-  window a mobile-web PWA with real camera capture gets 80% of the in-store value.
-  Recommend starting it in January as the Q1 headline.
-- **Looks experience** — keep the plan; ship "Pick for me" in Sprint 3 as the
-  wedge and decide on the full page in Q1 with usage data.
+- ~~**Native Expo app (#109)**~~ — **no longer deferred.** Started on 2026-10-19
+  (#376, #379, #396; #384 in flight as PR #399), superseding D3's January start. See
+  [D24](decisions-2026-10.md#d24--expo-app-and-looks-started-early-overnight-merge-to-dev-rule-2026-10-19).
+  _Original note: the blank template needed a full sprint to reach parity, and a
+  mobile-web PWA with real camera capture gets 80% of the in-store value._
+- ~~**Looks experience**~~ — **no longer deferred.** The page shipped client-side
+  (#370, #378, #392) without a recommendation endpoint, instead of waiting for Q1
+  usage data. See [D24](decisions-2026-10.md#d24--expo-app-and-looks-started-early-overnight-merge-to-dev-rule-2026-10-19)
+  and [looks-experience-plan.md](looks-experience-plan.md).
 - **Ingredients / clean-beauty flags (Epic 5)**, **retail/affiliate (Epic 6)** — real
   asks, but behind the collector basics. The "Buy from brand" link is the cheap hook.
 - **Redis (#117)** — no concrete need yet; revisit if share-page rate limiting or
@@ -228,6 +239,7 @@ eval harness (`npm run eval:hex`).
 All four are decided. Full context is in [decisions-2026-10.md](decisions-2026-10.md).
 
 1. **Mobile** (D3): ✅ PWA-first through December. The Expo scaffold (#109) starts in January.
+   _Superseded 2026-10-19 by D24: the Expo app started early._
 2. **Sharing** (D1): ✅ Opt-in public wishlist pages (#305), switched on once #305 and the inventory status rules
    (#314) are in prod. Everything else stays private by default.
 3. **Hex detection freeze** (D4): ✅ Tuning is frozen now. The gate runs after the color sip tool (#311) has been

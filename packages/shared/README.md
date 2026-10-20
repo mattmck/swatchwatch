@@ -195,7 +195,7 @@ Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/b
 | `normalizeBarcodeFormat(format)` | Decoder spellings (`ean13`, `EAN_13`, `EAN13`) → ours, or `null` |
 | `hasValidGtinCheckDigit(digits)` | GS1 mod-10 check for GTIN-8/12/13/14 |
 | `expandUpcE(upcE)` | 8-digit UPC-E → 12-digit UPC-A, or `null` |
-| `normalizeScannedBarcode({ rawValue, format })` | Validated `{ gtin, format }` (digits as printed) or `null` |
+| `normalizeScannedBarcode({ rawValue, format })` | Validated `NormalizedBarcode` (`{ gtin, format }`, digits as printed) or `null` |
 
 ### `constants/product-categories.ts` (#349, decision D23)
 
@@ -291,7 +291,7 @@ Looks (`/polishes/looks`) vocabulary and saved looks (`GET/POST/DELETE /api/look
 | `SavedLookInput` / `SavedLook` | `{ id (look key), templateId, name, vibe, steps }`; `SavedLook` adds `savedAt` |
 | `SavedLookListResponse` | `GET /api/looks`: `{ looks }`, newest first |
 | `savedLookKey(templateId, steps)` | `<templateId>:<shadeId or "-" per step>` — saving the same combo twice is one look |
-| `validateSavedLookInput(input)` | The one validation rule (API body and web localStorage): enums, `#RRGGBB` hexes, trimmed/capped text, 1–4 steps, ≤ `MAX_LOOK_STEPS_BYTES` of JSON, `id` = look key; drops unknown fields |
+| `validateSavedLookInput(input)` | Returns a `SavedLookValidation`. The one validation rule (API body and web localStorage): enums, `#RRGGBB` hexes, trimmed/capped text, 1–4 steps, ≤ `MAX_LOOK_STEPS_BYTES` of JSON, `id` = look key; drops unknown fields |
 | `MAX_SAVED_LOOKS` / `MAX_LOOK_STEPS` / `MAX_LOOK_STEPS_BYTES` | `30` / `4` / `3500` |
 
 ### `types/wishlist-share.ts`
