@@ -407,3 +407,30 @@ describe("catalogQueriesForLooks — includeOwned", () => {
     assert.ok(all.families.length > 0);
   });
 });
+
+describe("shopCandidatesForStep — base parity with the recommender", () => {
+  const catalogRow = (hex: string, finishes: string[]) => polish(hex, { status: undefined, brand: "Cat", finishes });
+
+  it("never offers a glitter base under a look that has a topper step", () => {
+    const { looks } = recommendLooks({ polishes: collection(), vibe: vibe({ finish: "flake" }), seed: 2 });
+    const look = looks.find((l) => l.steps.some((s) => s.role === "topper"));
+    assert.ok(look, "setup: a look with a topper step");
+    const base = look.steps.find((s) => s.role === "base")!;
+    const glitter = catalogRow(base.targetHex, ["glitter"]);
+    const plain = catalogRow(base.targetHex, ["creme"]);
+    const picks = shopCandidatesForStep(look, "base", [glitter, plain], vibe({ finish: "flake" }));
+    assert.ok(!picks.some((p) => p.id === glitter.id), "glitter base under a topper");
+  });
+
+  it("counts the finish clash against the distance limit, like the recommender", () => {
+    // Close in color to Office Neutral's base target but the wrong finish family: distance fits, score doesn't.
+    const look = recommendLooks({ polishes: collection(), vibe: vibe({ occasion: "work", mood: "soft" }), seed: 1 }).looks.find(
+      (l) => l.templateId === "office-neutral"
+    );
+    assert.ok(look, "setup: office-neutral look");
+    const base = look.steps.find((s) => s.role === "base")!;
+    const clash = catalogRow("#F0E6FF", ["holographic"]); // ~0.136 from #D8BFAA: fits the distance limit, not once the 0.08 finish penalty is added
+    const picks = shopCandidatesForStep({ ...look, steps: look.steps }, "base", [clash], vibe({ occasion: "work", mood: "soft" }));
+    assert.equal(picks.length, 0, `${base.targetHex} vs clash`);
+  });
+});

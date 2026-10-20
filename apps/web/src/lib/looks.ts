@@ -930,6 +930,7 @@ export function shopCandidatesForStep(
   if (!current || !templateStep) return [];
   const used = new Set(look.steps.flatMap((s) => (s.polish ? [s.polish.id] : [])));
   const baseHex = look.steps.find((s) => s.role === "base")?.hex ?? templateStep.hex;
+  const hasTopper = look.steps.some((s) => s.role === "topper");
 
   const scored: Scored[] = [];
   for (const row of pool) {
@@ -937,11 +938,17 @@ export function shopCandidatesForStep(
     const c = toCandidate(row);
     if (!c) continue;
     let s: Scored | null;
+    // Same limit `buildLook` applies to catalog picks: the score (distance + finish penalty) for
+    // bases, the plain distance for the other steps.
+    let within: (scored: Scored) => boolean = (scored) => scored.distance <= CATALOG_MAX_DISTANCE;
     if (role === "topper") s = scoreTopper(c, templateStep);
     else if (isTopOnly(c)) s = null;
-    else if (role === "base") s = scoreBase(c, templateStep, vibe);
-    else s = scoreAccent(c, templateStep, [templateStep.hex], baseHex);
-    if (s && s.distance <= CATALOG_MAX_DISTANCE) scored.push(s);
+    else if (role === "base") {
+      // No glitter-on-glitter: a look with a topper step never gets a glitter base.
+      s = hasTopper && c.family === "glitter" ? null : scoreBase(c, templateStep, vibe);
+      within = (scored) => scored.score <= CATALOG_MAX_DISTANCE;
+    } else s = scoreAccent(c, templateStep, [templateStep.hex], baseHex);
+    if (s && within(s)) scored.push(s);
   }
   return sortScored(scored)
     .slice(0, MAX_STEP_ALTERNATIVES)
