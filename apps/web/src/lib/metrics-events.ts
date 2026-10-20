@@ -10,7 +10,13 @@
  * and enum values only: never an email, a name or free text. The signed-in user is attached by
  * `setUser` (internal user id) in `TelemetryProvider`.
  */
-import type { PolishDupesResponse, PolishImportCommitResult } from "swatchwatch-shared";
+import type {
+  MatchConfidence,
+  MatchScope,
+  PolishDupesResponse,
+  PolishImportCommitResult,
+  PolishStatus,
+} from "swatchwatch-shared";
 import { trackEvent } from "./telemetry";
 
 export const METRIC_EVENTS = {
@@ -18,6 +24,8 @@ export const METRIC_EVENTS = {
   dupeWarningOutcome: "dupe.warning_outcome",
   maniLogged: "mani.logged",
   importCompleted: "import.completed",
+  matchImageProcessed: "match.image_processed",
+  matchResultAction: "match.result_action",
 } as const;
 
 export type MetricEventName = (typeof METRIC_EVENTS)[keyof typeof METRIC_EVENTS];
@@ -118,6 +126,87 @@ export function importCompletedEvent(result: PolishImportCommitResult): MetricEv
       shadesCreated: result.shadesCreated,
     },
   };
+}
+
+// ── Photo match (#105) ───────────────────────────────────────────────────────
+
+/** What started a match: a new photo (`upload` covers drag-and-drop), a focused area, or a filter change. */
+export type MatchImageTrigger = "upload" | "camera" | "region" | "filters";
+
+export interface MatchImageProcessedInput {
+  trigger: MatchImageTrigger;
+  scope: MatchScope;
+  finishFiltered: boolean;
+  familyFilterCount: number;
+  /** Palette size returned by the API. */
+  extractedColorCount: number;
+  /** Background / skin colors hidden by default. */
+  hiddenColorCount: number;
+  candidateCount: number;
+  /** Flat matches over the active colors, and how many of them are close / similar. */
+  matchCount: number;
+  highCount: number;
+  mediumCount: number;
+  /** Request round trip in ms (rounded); omitted for a cached response. */
+  durationMs?: number;
+  cached: boolean;
+}
+
+export function matchImageProcessedEvent(input: MatchImageProcessedInput): MetricEvent {
+  const properties: MetricProperties = {
+    trigger: input.trigger,
+    scope: input.scope,
+    finishFiltered: input.finishFiltered,
+    familyFilterCount: input.familyFilterCount,
+    extractedColorCount: input.extractedColorCount,
+    hiddenColorCount: input.hiddenColorCount,
+    candidateCount: input.candidateCount,
+    matchCount: input.matchCount,
+    highCount: input.highCount,
+    mediumCount: input.mediumCount,
+    cached: input.cached,
+  };
+  if (input.durationMs !== undefined) properties.durationMs = Math.round(input.durationMs);
+  return { name: METRIC_EVENTS.matchImageProcessed, properties };
+}
+
+/** What the user did with a match row. */
+export type MatchResultAction = "open" | "wishlist" | "remove_wishlist" | "own" | "status" | "tried" | "quantity";
+
+export interface MatchResultActionInput {
+  action: MatchResultAction;
+  scope: MatchScope;
+  view: "colors" | "list";
+  confidence: MatchConfidence;
+  /** 1-based position of the row in its list. */
+  rank: number;
+  /** Inventory status before the action (`none` for a catalog-only shade). */
+  fromStatus: PolishStatus | null | undefined;
+}
+
+export function matchResultActionEvent(input: MatchResultActionInput): MetricEvent {
+  return {
+    name: METRIC_EVENTS.matchResultAction,
+    properties: {
+      action: input.action,
+      scope: input.scope,
+      view: input.view,
+      confidence: input.confidence,
+      rank: input.rank,
+      fromStatus: input.fromStatus ?? "none",
+    },
+  };
+}
+
+export function trackMatchImageProcessed(
+  input: MatchImageProcessedInput,
+  tracker: MetricTracker = defaultTracker
+): void {
+  emit(matchImageProcessedEvent(input), tracker);
+}
+
+export function trackMatchResultAction(input: MatchResultActionInput, tracker: MetricTracker = defaultTracker): void {
+  emit(matchResultActionEvent(input), tracker);
 }
 
 export function trackDupeWarningShown(input: DupeWarningInput, tracker: MetricTracker = defaultTracker): void {
