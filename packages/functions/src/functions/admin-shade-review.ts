@@ -2,6 +2,7 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/fu
 import {
   colorDistance,
   resolveDisplayHexDetailed,
+  resolveProductCategory,
   type ShadeReviewActionResponse,
   type ShadeReviewCandidatesResponse,
   type ShadeReviewHexes,
@@ -261,6 +262,7 @@ interface QueueRow extends HexRow {
   reviewedAt: string | Date | null;
   reviewedByUserId: string | null;
   reviewNote: string | null;
+  productCategory: string | null;
 }
 
 const QUEUE_STATE_SQL: Record<ShadeReviewQueueState, string> = {
@@ -326,7 +328,8 @@ async function listReviewQueue(request: HttpRequest, context: InvocationContext)
          s.review_status                         AS "reviewStatus",
          s.reviewed_at                           AS "reviewedAt",
          s.reviewed_by_user_id::text             AS "reviewedByUserId",
-         s.review_note                           AS "reviewNote"
+         s.review_note                           AS "reviewNote",
+         s.product_category                      AS "productCategory"
        FROM shade s
        JOIN brand b ON b.brand_id = s.brand_id
        WHERE ${where}
@@ -352,6 +355,7 @@ async function listReviewQueue(request: HttpRequest, context: InvocationContext)
       reviewedAt: toIso(row.reviewedAt),
       reviewedByUserId: toNumberOrNull(row.reviewedByUserId),
       reviewNote: row.reviewNote ?? null,
+      productCategory: resolveProductCategory(row.productCategory),
       candidates: [],
     }));
 

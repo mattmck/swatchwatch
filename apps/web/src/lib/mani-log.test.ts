@@ -156,6 +156,13 @@ describe("form helpers", () => {
   it("toppers default to the topper role, everything else to color", () => {
     assert.equal(defaultRoleFor({ finishes: ["glitter", "topper"] }), "topper");
     assert.equal(defaultRoleFor({ finish: "creme" }), "color");
+    // Product category wins (#349): coats go under/over, a topper is a topper even without the finish.
+    assert.equal(defaultRoleFor({ finishes: ["glitter"], productCategory: "topper" }), "topper");
+    assert.equal(defaultRoleFor({ productCategory: "base_coat" }), "base");
+    assert.equal(defaultRoleFor({ productCategory: "treatment" }), "base");
+    assert.equal(defaultRoleFor({ productCategory: "top_coat" }), "topper");
+    assert.equal(defaultRoleFor({ productCategory: "accessory" }), "other");
+    assert.equal(defaultRoleFor({ finishes: ["creme"], productCategory: "color" }), "color");
     assert.deepEqual(quickLogRequest({ id: "9", finishes: ["topper"] }, "2026-10-17"), {
       wornOn: "2026-10-17",
       polishes: [{ shadeId: "9", role: "topper" }],
@@ -192,6 +199,15 @@ describe("form helpers", () => {
     assert.deepEqual(pickable.map((p) => p.id), ["1", "3"]);
     assert.deepEqual(filterPickable(pickable, "holo bridge").map((p) => p.id), ["1"]);
     assert.deepEqual(filterPickable(pickable, "  ").map((p) => p.id), ["1", "3"]);
+  });
+
+  it("never offers an accessory in the picker (#349)", () => {
+    const rows = [
+      { id: "1", brand: "A", name: "Red", status: "owned" },
+      { id: "2", brand: "A", name: "Wand", status: "owned", productCategory: "accessory" },
+      { id: "3", brand: "A", name: "Base", status: "owned", productCategory: "base_coat" },
+    ] as Polish[];
+    assert.deepEqual(pickablePolishes(rows).map((p) => p.id), ["3", "1"]);
   });
 
   it("only polishes with an inventory row can be logged", () => {

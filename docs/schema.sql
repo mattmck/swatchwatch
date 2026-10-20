@@ -262,7 +262,12 @@ CREATE TABLE shade (
   detected_finishes TEXT[],                      -- AI-detected finishes (migration 016)
   collection TEXT,
   release_year INT,
-  status TEXT NOT NULL DEFAULT 'unknown',       -- active|user_submitted|...; user_submitted = private to creator/inventory holders until an admin sets 'active' (migration 024)
+  status TEXT NOT NULL DEFAULT 'unknown',       -- active|user_submitted|excluded|...; user_submitted = private to creator/inventory holders until an admin sets 'active' (migration 024); excluded = accessory hidden from discovery, still shown to holders (migration 20261019011858000)
+  -- Product category (migration 20261019011858000_shade-product-category, #349/#347, D23): classifyProductCategory
+  -- in packages/functions/src/lib/product-category.ts. 'admin' categories are never changed by ingestion or the backfill.
+  product_category TEXT NOT NULL DEFAULT 'color'
+    CHECK (product_category IN ('color', 'topper', 'top_coat', 'base_coat', 'treatment', 'accessory')),
+  product_category_source TEXT NOT NULL DEFAULT 'rule' CHECK (product_category_source IN ('rule', 'admin')),
   created_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL, -- creator of a user-API shade; NULL for catalog/ingestion rows (migration 024)
   color_name TEXT,
   vendor_hex TEXT,                               -- hex published by the vendor (e.g. Shopify variant option)
@@ -305,6 +310,24 @@ CREATE INDEX idx_shade_color_family ON shade (color_family);
 -- Shade review queue (admin GET /api/shades-admin/review): unreviewed submissions, oldest first
 CREATE INDEX idx_shade_review_pending ON shade (created_at, shade_id) WHERE status = 'user_submitted' AND review_status IS NULL;
 CREATE INDEX idx_shade_merged_into ON shade (merged_into_shade_id) WHERE merged_into_shade_id IS NOT NULL;
+-- Category filters (dupes, color search, gaps, ?category=)
+CREATE INDEX idx_shade_product_category_status ON shade (product_category, status);
+
+-- Undo log for product-category changes (migration 20261019011858000): one row per category change,
+-- exclusion or cleared topper detected_hex made by the backfill job or an admin, with before/after values.
+CREATE TABLE shade_category_change (
+  shade_category_change_id BIGSERIAL PRIMARY KEY,
+  shade_id BIGINT NOT NULL REFERENCES shade(shade_id) ON DELETE CASCADE,
+  action TEXT NOT NULL CHECK (action IN ('category', 'exclude', 'clear_detected_hex')),
+  before JSONB NOT NULL DEFAULT '{}'::jsonb,
+  after JSONB NOT NULL DEFAULT '{}'::jsonb,
+  source TEXT NOT NULL CHECK (source IN ('backfill', 'admin')),
+  actor_user_id BIGINT,                          -- no FK: history outlives the account
+  backfill_run_id TEXT,                          -- runId of the backfill run that wrote it (in its report)
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_shade_category_change_shade ON shade_category_change (shade_id, created_at DESC);
+CREATE INDEX idx_shade_category_change_run ON shade_category_change (backfill_run_id) WHERE backfill_run_id IS NOT NULL;
 
 CREATE TABLE shade_alias (
   shade_alias_id BIGSERIAL PRIMARY KEY,
@@ -639,6 +662,35 @@ CREATE TABLE wishlist_share (
     display_name IS NULL OR char_length(display_name) BETWEEN 1 AND 60
   )
 );
+
+-- Saved looks (migration 20261019020500000_user-look, docs/looks-experience-plan.md). A look
+-- saved from /polishes/looks: template, vibe and steps. `steps` is an opaque display snapshot the
+-- client sends (role, label, hex, source, optional shade id/brand/name) returned to its owner
+-- as-is and never joined to shade, so it can't expose another user's private shade. `look_key`
+-- (`<templateId>:<shadeIds>`) makes re-saving the same combo an upsert; the API keeps ≤ 30 per user.
+CREATE TABLE user_look (
+  user_look_id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES app_user(user_id) ON DELETE CASCADE,
+  look_key TEXT NOT NULL,
+  template_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  vibe JSONB NOT NULL,
+  steps JSONB NOT NULL,
+  saved_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT uq_user_look_key UNIQUE (user_id, look_key),
+  CONSTRAINT chk_user_look_key CHECK (char_length(look_key) BETWEEN 3 AND 160),
+  CONSTRAINT chk_user_look_template CHECK (template_id ~ '^[a-z0-9-]{1,40}$'),
+  CONSTRAINT chk_user_look_name CHECK (char_length(name) BETWEEN 1 AND 80),
+  CONSTRAINT chk_user_look_vibe CHECK (jsonb_typeof(vibe) = 'object'),
+  CONSTRAINT chk_user_look_steps CHECK (
+    jsonb_typeof(steps) = 'array'
+    AND jsonb_array_length(steps) BETWEEN 1 AND 4
+    AND octet_length(steps::text) <= 4000
+  )
+);
+
+CREATE INDEX idx_user_look_user_saved
+  ON user_look(user_id, saved_at DESC);
 
 -- Keyed by (user_id, shade_id) like the mani log, so history survives deleting the polish from
 -- the collection (D8, #317; migration 20261017232537776_inventory-event-keep-wear-history):

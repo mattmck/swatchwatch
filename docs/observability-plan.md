@@ -124,8 +124,13 @@ Roadmap §4 (`docs/roadmap-2026-10-to-12.md`) metrics are measured two ways (dec
 | `dupe.warning_outcome` | the user answers the dialog | the same, plus `outcome` = `cancel` / `wishlist_instead` / `add_anyway`, `via` (`button` / `dismiss` / `dupe_link`), `suppressed` |
 | `mani.logged` | a new mani is saved (not edits) | `polishCount`, `via` (`quick` = one-tap button, `form`) |
 | `import.completed` | a CSV import commits (a retried commit of the same session is not counted again) | `rowsCommitted` (= `created` + `updated`), `created`, `updated`, `skipped`, `failed`, `shadesCreated` |
+| `looks.generated` | `/polishes/looks` shows a set of looks: first render, a vibe change, or Shuffle (once per URL state, after any catalog gap fill) | `occasion`, `mood`, `finish` (`any` when unset), `ownedOnly`, `trigger` (`shuffle` = the Shuffle button; `vibe` = first render, a vibe change, or Back/Forward), `lookCount`, `ownedSteps`, `missingSteps`, `fullyOwnedLooks`, `ownedCount` (owned polishes considered), `shortfall` (fewer than 3 looks fit), `templates` (comma list of look template ids, e.g. `french-modern`) |
+| `looks.wear_clicked` | "Wear this" on a look card (opens the mani-log dialog prefilled with its owned polishes and roles; a saved mani still emits `mani.logged`) | `template`, `position` (0-based card), `ownedSteps`, `missingSteps`, `swapped` (any step swapped first) |
+| `onboarding.step_clicked` | a new user taps a way in: a row of the dashboard getting-started checklist, or the action of an empty state that needs a collection first | `step` (`import` / `scan` / `search`), `surface` (`dashboard_checklist`, `dashboard_stats_empty`, `polishes_empty` (empty My Collection), `manis_empty`, `gaps_empty`, `match_empty`), `ownedCount` (owned polishes at the time; 0 for every empty-state surface) |
 | `match.image_processed` | `/polishes/match` shows results for a photo (#105): a new photo, a focused area, or a scope/finish/family change (also when served from the in-memory cache) | `trigger` (`upload` incl. drag-and-drop / `camera` / `region` / `filters`), `scope` (`owned` / `wishlist` / `catalog`), `finishFiltered`, `familyFilterCount`, `extractedColorCount`, `hiddenColorCount` (background/skin hidden by default), `candidateCount`, `matchCount` / `highCount` / `mediumCount` (flat list over the active colors), `cached`, `durationMs` (request round trip; absent when cached) |
 | `match.result_action` | the user acts on a match row | `action` (`open` = detail link, `wishlist`, `remove_wishlist`, `own`, `status` (other menu status), `tried`, `quantity`), `scope`, `view` (`colors` / `list`), `confidence` of the row, `rank` (1-based in its list), `fromStatus` (`none` for a catalog-only shade). Wishlist/own from a row also goes through the add guard, so it can produce `dupe.warning_*` with `page = photo-match` |
+
+The two `looks.*` events back the Looks plan's success metrics (`docs/looks-experience-plan.md` §1): owned-only completion (`fullyOwnedLooks` / `lookCount`), drop-off after a vibe (generated without a later `wear_clicked`), and repeat use. Time-to-first-look is not measured yet.
 
 These replace the add guard's earlier `add_guard.shown` / `add_guard.choice` events; `add_guard.check_failed` stays. Rapid Add has no near-dupe verdict yet (the #265 extension point in `lib/capture-verdict.ts`), so `surface = rapid_add` is reserved: the verdict card should call `trackDupeWarningShown` / `trackDupeWarningOutcome` when it gains one.
 
@@ -174,6 +179,16 @@ customEvents
 ```
 
 `mani.logged` and `import.completed` in App Insights are a cross-check for the DB numbers (and show the one-tap vs. form split, which the DB doesn't record).
+
+`onboarding.step_clicked` explains the time-to-20 number: which way in new users pick, and from where. Pair it with `median_minutes_to_20` from the weekly query.
+
+```kusto
+customEvents
+| where timestamp > ago(7d) and name == "onboarding.step_clicked"
+| extend step = tostring(customDimensions.step), surface = tostring(customDimensions.surface)
+| summarize clicks = sum(itemCount), users = dcount(user_AuthenticatedId) by step, surface
+| order by clicks desc
+```
 
 ## Docs to update (per CLAUDE.md)
 

@@ -17,6 +17,7 @@ import { UsersTab } from "@/app/(admin)/admin/reference-data/components/users-ta
 import { ConfigTab } from "./reference-data/components/config-tab";
 import { HexLabelingTab } from "./reference-data/components/hex-labeling-tab";
 import { JobsTab } from "./reference-data/components/jobs-tab";
+import { ProductCategoryPanel } from "./reference-data/components/product-category-panel";
 import { ReviewQueueTab } from "./reference-data/components/review-queue-tab";
 
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
@@ -184,8 +185,9 @@ function AdminTabs() {
         <UsersTab />
       </TabsPrimitive.Content>
 
-      <TabsPrimitive.Content value="review-queue" className="outline-none">
+      <TabsPrimitive.Content value="review-queue" className="space-y-8 outline-none">
         <ReviewQueueTab />
+        <ProductCategoryPanel />
       </TabsPrimitive.Content>
 
       <TabsPrimitive.Content value="hex-labeling" className="outline-none">

@@ -52,6 +52,7 @@ const RETURN_TO_LABELS: ReadonlyArray<readonly [string, string]> = [
   ["/polishes/gaps", "Gap Map"],
   ["/polishes/search", "Color search"],
   ["/polishes/match", "Photo Match"],
+  ["/polishes/looks", "Looks"],
   ["/polishes/detail", "Previous polish"],
   ["/polishes", "Collection"],
   ["/dashboard", "Dashboard"],

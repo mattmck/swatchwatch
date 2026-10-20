@@ -29,8 +29,9 @@ deleted on merge.
 
 Five migrations ship with it and run in the deploy pipeline (`npm run migrate` step):
 `20261019011858000_shade-product-category`,
-`20261019013349049_add-more-indie-shopify-sources`, `20261019013934159_user-look`,
-`20261019020000000_enable-signed-off-indie-sources`, `20261019030000000_barcode-provenance-and-user-barcodes`. Every shade starts as `color` and no
+`20261019013349049_add-more-indie-shopify-sources`,
+`20261019020000000_enable-signed-off-indie-sources`, `20261019020500000_user-look`,
+`20261019030000000_barcode-provenance-and-user-barcodes`. Every shade starts as `color` and no
 barcode rows exist until the backfills in §3 run, so the deploy itself changes no catalog data.
 
 ## 1. Merge to `dev` and verify the dev deploy
