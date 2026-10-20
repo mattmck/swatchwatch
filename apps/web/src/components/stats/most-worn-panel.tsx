@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { formatWornDate, statsDisplayHex } from "@/lib/collection-stats";
 import { POLISH_STATUS_LABELS } from "@/lib/inventory-status";
 import { StatsEmpty, StatsPanel } from "./stats-panel";
+import { detailHref } from "@/lib/detail-href";
 
 /** Top 10 polishes by wear count, with swatches and last-worn dates. */
 export function MostWornPanel({ stats }: { stats: CollectionStatsResponse | null }) {
@@ -47,7 +48,7 @@ export function MostWornPanel({ stats }: { stats: CollectionStatsResponse | null
               <li key={entry.inventoryItemId}>
                 {entry.shadeId ? (
                   <Link
-                    href={`/polishes/detail?id=${entry.shadeId}`}
+                    href={detailHref(entry.shadeId)}
                     className="flex items-center gap-3 rounded-md p-2 transition-colors hover:bg-muted"
                   >
                     {body}

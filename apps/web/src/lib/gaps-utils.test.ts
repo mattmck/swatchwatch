@@ -4,11 +4,13 @@ import type { CollectionGapCell } from "swatchwatch-shared";
 import {
   cellKey,
   getCellClasses,
+  gapsHref,
   getGapSearchHref,
   getHealthyCellStyle,
   getRowCellPresentation,
   getSeverity,
   getVisibleItems,
+  parseGapCellParam,
   shouldShowTruncationSummary,
   sortCellsByGridOrder,
 } from "../app/(app)/polishes/gaps/gaps-utils";
@@ -125,5 +127,25 @@ describe("component helper extraction", () => {
       }),
       null,
     );
+  });
+});
+
+describe("gap map URL state (#348)", () => {
+  it("parses a valid cell key", () => {
+    assert.equal(parseGapCellParam("greens:dark-medium"), "greens:dark-medium");
+    assert.equal(parseGapCellParam("oranges-corals:light"), "oranges-corals:light");
+  });
+
+  it("rejects missing, unknown or malformed values", () => {
+    for (const value of [null, "", "greens", "greens:", ":light", "teal:light", "greens:bright", "greens:light:x"]) {
+      assert.equal(parseGapCellParam(value), null, String(value));
+    }
+  });
+
+  it("builds the page URL with the selected cell", () => {
+    assert.equal(gapsHref(null), "/polishes/gaps");
+    assert.equal(gapsHref("greens:dark-medium"), "/polishes/gaps?cell=greens%3Adark-medium");
+    const query = new URLSearchParams(gapsHref("blues-teals:light").split("?")[1]);
+    assert.equal(parseGapCellParam(query.get("cell")), "blues-teals:light");
   });
 });

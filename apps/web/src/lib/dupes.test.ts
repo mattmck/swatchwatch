@@ -144,8 +144,10 @@ describe("dupeVerdict", () => {
 });
 
 describe("dupeHref", () => {
-  it("links to the detail page with an optional returnTo", () => {
+  it("links to the detail page with a returnTo (#348)", () => {
+    // No window (prerender) and no returnTo: plain link.
     assert.equal(dupeHref({ shadeId: "7" }), "/polishes/detail?id=7");
+    assert.equal(dupeHref({ shadeId: "7" }, null), "/polishes/detail?id=7");
     assert.equal(dupeHref({ shadeId: "7" }, "/polishes?scope=all"), "/polishes/detail?id=7&returnTo=%2Fpolishes%3Fscope%3Dall");
   });
 });

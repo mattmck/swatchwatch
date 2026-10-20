@@ -38,21 +38,8 @@ import { NailPhotoPanel } from "@/components/nail-photo-panel";
 import { LogManiButton } from "@/components/log-mani-button";
 import { AdminHexSipSection } from "@/components/admin-hex-sip-panel";
 import { canLogPolish, formatWornOn, toLocalIsoDate } from "@/lib/mani-log";
+import { detailHref, returnToLabel, safeReturnTo } from "@/lib/detail-href";
 import { toast } from "sonner";
-
-function resolveReturnTo(returnTo: string | null): string {
-  if (!returnTo) return "/polishes";
-  try {
-    const decoded = decodeURIComponent(returnTo);
-    // Restrict redirects to app-internal paths to avoid open redirect behavior.
-    if (decoded.startsWith("/") && !decoded.startsWith("//")) {
-      return decoded;
-    }
-  } catch {
-    // Ignore malformed values and fall back.
-  }
-  return "/polishes";
-}
 
 /**
  * Render a detailed polish view including color swatch, metadata, images, color profile, and related shades.
@@ -72,7 +59,8 @@ export default function PolishDetailClient({
 }) {
   const router = useRouter();
   const { finishTypes } = useReferenceData();
-  const listHref = resolveReturnTo(returnTo ?? null);
+  // Back link: the page the user came from (#348); same-origin relative paths only.
+  const listHref = safeReturnTo(returnTo);
   const [polish, setPolish] = useState<Polish | null>(null);
   const [allPolishes, setAllPolishes] = useState<Polish[]>([]);
   const [loading, setLoading] = useState(true);
@@ -261,7 +249,7 @@ export default function PolishDetailClient({
     <div className="mx-auto max-w-2xl space-y-6">
       <nav className="flex items-center gap-2 text-sm text-muted-foreground">
         <Link href={listHref} className="hover:text-foreground">
-          Collection
+          {returnToLabel(listHref)}
         </Link>
         <span>/</span>
         <span className="text-foreground">
@@ -399,7 +387,7 @@ export default function PolishDetailClient({
               {dupes.dupes.map((dupe) => (
                 <Link
                   key={dupe.shadeId}
-                  href={dupeHref(dupe, listHref)}
+                  href={dupeHref(dupe)}
                   className="flex items-center gap-3 rounded-lg border px-3 py-2 transition-colors hover:bg-brand-pink-light/15"
                 >
                   <span className="flex shrink-0 items-center" aria-hidden>
@@ -661,7 +649,7 @@ export default function PolishDetailClient({
               {relatedShades.map(({ polish: related, distance }) => (
                 <Link
                   key={related.id}
-                  href={`/polishes/detail?id=${related.id}`}
+                  href={detailHref(related.id)}
                   className="flex items-center gap-3 rounded-lg border px-3 py-2 transition-colors hover:bg-brand-pink-light/15"
                 >
                   <ColorDot
