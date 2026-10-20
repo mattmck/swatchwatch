@@ -206,6 +206,9 @@ recommendation in place for the record.
 - **Decision:** Opt-in promote. Add a "promote to vendor hex" admin action (off by default), plus provenance columns on `vendor_hex` so promoted values can be told apart from vendor data.
 - **Date:** 2026-10-17
 - **Ticket:** [#321](https://github.com/mattmck/swatchwatch/issues/321)
+- **Implemented:** `POST /api/hex-labels-admin/labels/{id}/promote` + Undo, `shade.vendor_hex_source` and friends
+  (migration 20261020024540860_shade-vendor-hex-provenance); ingestion never overwrites a `manual_label` vendor hex
+  (the vendor's value is kept in `vendor_hex_previous` for Undo).
 
 ### D13 — Buy link when there's no URL, and http links
 - **Context:** #289 leaves out `buyUrl` when there's no valid URL, and keeps `http` URLs as they are.
