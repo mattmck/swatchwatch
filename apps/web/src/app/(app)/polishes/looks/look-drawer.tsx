@@ -16,7 +16,7 @@ import {
 import type { Look, LookStepRole, Vibe } from "@/lib/looks";
 import { shopCandidatesForStep } from "@/lib/looks";
 import { applicationOrder, finishNotes } from "@/lib/looks-detail";
-import { LookSwatchStrip } from "./look-card";
+import { ColorLabLink, LookSwatchStrip } from "./look-card";
 
 interface LookDrawerProps {
   look: Look | null;
@@ -27,6 +27,9 @@ interface LookDrawerProps {
   catalogLoading: boolean;
   onOpenChange: (open: boolean) => void;
   onSwap: (role: LookStepRole, polish: Polish) => void;
+  /** `/polishes/search` seeded with the look's palette (#386). */
+  colorLabHref: string | null;
+  onColorLab: () => void;
 }
 
 function Candidate({ polish, action }: { polish: Polish; action?: React.ReactNode }) {
@@ -45,7 +48,7 @@ function Candidate({ polish, action }: { polish: Polish; action?: React.ReactNod
  * A look in detail: application order, finish notes and, per step, substitutions (the next owned
  * polishes to swap in, and catalog shades to buy). Opens from a look card's Details button.
  */
-export function LookDrawer({ look, vibe, catalogPool, catalogLoading, onOpenChange, onSwap }: LookDrawerProps) {
+export function LookDrawer({ look, vibe, catalogPool, catalogLoading, onOpenChange, onSwap, colorLabHref, onColorLab }: LookDrawerProps) {
   const order = look ? applicationOrder(look) : [];
   const notes = look ? finishNotes(look) : [];
   return (
@@ -57,7 +60,14 @@ export function LookDrawer({ look, vibe, catalogPool, catalogLoading, onOpenChan
         </DialogHeader>
         {look && (
           <div className="space-y-6">
-            <LookSwatchStrip steps={look.steps} className="h-10" />
+            <div className="space-y-1">
+              <LookSwatchStrip steps={look.steps} className="h-10" />
+              {colorLabHref && (
+                <div className="flex justify-end">
+                  <ColorLabLink href={colorLabHref} onClick={onColorLab} lookName={look.name} />
+                </div>
+              )}
+            </div>
 
             <section aria-labelledby="look-order">
               <h3 id="look-order" className="mb-2 text-sm font-semibold">
