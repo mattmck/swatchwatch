@@ -1,8 +1,16 @@
+import { Image } from "expo-image";
 import { useEffect, useState } from "react";
 import { Modal, Pressable, ScrollView, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { MAX_MANICURE_NOTES_LENGTH, MAX_MANICURE_POLISHES, type Manicure, type Polish } from "swatchwatch-shared";
-import { createManicure, errorMessage, listPolishes } from "@/api/client";
+import {
+  MAX_MANICURE_NOTES_LENGTH,
+  MAX_MANICURE_POLISHES,
+  NAIL_PHOTO_MAX_EDGE,
+  type Manicure,
+  type Polish,
+} from "swatchwatch-shared";
+import { createManicure, errorMessage, listPolishes, uploadManicurePhoto } from "@/api/client";
+import { pickPreparedPhoto, type PhotoSource } from "@/lib/pick-photo";
 import {
   addEntry,
   buildManiRequest,
@@ -28,7 +36,8 @@ export function LogManiSheet(props: {
   visible: boolean;
   initialPolish?: Polish | null;
   onClose: () => void;
-  onLogged: (mani: Manicure) => void;
+  /** `photoError` is set when the mani was saved but its photo upload failed. */
+  onLogged: (mani: Manicure, photoError?: string) => void;
 }) {
   return (
     <Modal visible={props.visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={props.onClose}>
@@ -45,7 +54,7 @@ function SheetBody({
 }: {
   initialPolish?: Polish | null;
   onClose: () => void;
-  onLogged: (mani: Manicure) => void;
+  onLogged: (mani: Manicure, photoError?: string) => void;
 }) {
   const theme = useTheme();
   const [entries, setEntries] = useState<ManiEntry[]>(() => (initialPolish ? [entryFromPolish(initialPolish)] : []));
@@ -55,6 +64,9 @@ function SheetBody({
   const [results, setResults] = useState<Polish[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Optional photo (#327): a prepared JPEG data URL, uploaded once the mani is saved. */
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [preparingPhoto, setPreparingPhoto] = useState(false);
 
   // Owned-polish search while typing.
   useEffect(() => {
@@ -81,11 +93,36 @@ function SheetBody({
     setSaving(true);
     setError(null);
     try {
-      onLogged(await createManicure(buildManiRequest({ entries, wornOn, notes })));
+      const saved = await createManicure(buildManiRequest({ entries, wornOn, notes }));
+      if (!photo) {
+        onLogged(saved);
+        return;
+      }
+      // The photo route needs the manicure id, so it is uploaded after the mani is written
+      // (same order as the web form). A failed upload keeps the mani and reports the photo.
+      try {
+        const uploaded = await uploadManicurePhoto(saved.id, photo);
+        onLogged({ ...saved, photoImageId: uploaded.photoImageId, photoUrl: uploaded.photoUrl });
+      } catch (err) {
+        onLogged(saved, errorMessage(err, "The photo couldn't be uploaded."));
+      }
     } catch (err) {
       setError(errorMessage(err, "Couldn't log the mani."));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function choosePhoto(from: PhotoSource) {
+    setError(null);
+    setPreparingPhoto(true);
+    try {
+      const prepared = await pickPreparedPhoto(from, { maxEdge: NAIL_PHOTO_MAX_EDGE, compress: 0.85 });
+      if (prepared) setPhoto(prepared.dataUrl);
+    } catch (err) {
+      setError(errorMessage(err, "Couldn't use that photo."));
+    } finally {
+      setPreparingPhoto(false);
     }
   }
 
@@ -205,8 +242,28 @@ function SheetBody({
             />
           </View>
 
+          <View style={{ gap: theme.spacing(2) }}>
+            <AppText variant="label" muted>
+              Photo (optional)
+            </AppText>
+            {photo && (
+              <Image
+                source={{ uri: photo }}
+                cachePolicy="none"
+                contentFit="cover"
+                accessibilityLabel="New mani photo"
+                style={{ width: 120, height: 120, borderRadius: theme.radius.lg }}
+              />
+            )}
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.spacing(2) }}>
+              <Button title={photo ? "Retake" : "Take a photo"} variant="outline" compact disabled={saving || preparingPhoto} onPress={() => void choosePhoto("camera")} />
+              <Button title={photo ? "Replace" : "Choose photo"} variant="outline" compact disabled={saving || preparingPhoto} onPress={() => void choosePhoto("library")} />
+              {photo && <Button title="Remove photo" variant="ghost" compact disabled={saving} onPress={() => setPhoto(null)} />}
+            </View>
+          </View>
+
           {error && <ErrorBanner message={error} />}
-          <Button title="Log mani" variant="brand" loading={saving} onPress={() => void save()} testID="log-mani-save" />
+          <Button title="Log mani" variant="brand" loading={saving} disabled={preparingPhoto} onPress={() => void save()} testID="log-mani-save" />
         </ScrollView>
       </SafeAreaView>
     </>
