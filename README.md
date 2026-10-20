@@ -16,7 +16,7 @@ Smart nail polish collection manager with voice input, color-based search, and c
 swatchwatch/
 ├── apps/
 │   ├── web/              → Next.js 16 (App Router) + Tailwind v4 + shadcn/ui
-│   └── mobile/           → Expo / React Native (SDK 54)
+│   └── mobile/           → Expo / React Native (SDK 57, Expo Router)
 ├── packages/
 │   ├── functions/        → Azure Functions v4 (Node 22, TypeScript)
 │   └── shared/           → Shared TypeScript types (polish, user, voice)
@@ -75,7 +75,7 @@ npm run dev              # → web on http://localhost:3000, API on http://local
 # Or run pieces individually
 npm run dev:web          # → web only
 npm run dev:functions    # → functions only (builds on change via TypeScript watch)
-npm run dev:mobile       # → mobile via Expo
+npm run dev:mobile       # → mobile via Expo (see apps/mobile/README.md)
 ```
 
 ## All Commands
@@ -86,7 +86,9 @@ npm run dev:mobile       # → mobile via Expo
 | `npm run dev:infra` | Start local Postgres + Azurite containers in Docker |
 | `npm run dev` | Run shared type watcher, Functions host, and web dev server together (CTRL+C stops all) |
 | `npm run dev:web` | Next.js dev server (port 3000) |
-| `npm run dev:mobile` | Expo start |
+| `npm run dev:mobile` | Build shared types, then Expo start for `apps/mobile` (copy `apps/mobile/.env.example` to `.env.local` first) |
+| `npm run lint\|typecheck\|test --workspace=apps/mobile` | Mobile ESLint, `tsc --noEmit` and unit tests (what CI's Mobile job runs) |
+| `npm run sync:design-tokens` | Regenerate the shared light/dark color tokens (used by mobile) from the web theme; `-- --check` fails on drift |
 | `npm run dev:functions` | Functions TypeScript watch + Azure Functions Core Tools (`func start`) |
 | `npm run build` | Build all workspaces (shared → web → functions) |
 | `npm run build:shared` | Build shared types only |
@@ -99,6 +101,7 @@ npm run dev:mobile       # → mobile via Expo
 | `npm run backfill:product-text --workspace=swatchwatch-functions` | Recompute product `descriptionText`/`descriptors` from `raw_json` and report empty-finish coverage (#352); dry run unless `--write` (`--fill-finishes` also fills empty shade finishes) |
 | `npm run typecheck` | `tsc --noEmit` across all workspaces |
 | `npm run dedupe:gallery-images --workspace=swatchwatch-functions` | Unlink catalog gallery images that duplicate another image of the same shade (the same vendor picture stored twice), matched perceptually, in batches via `POST /api/images-admin/gallery-dedupe` (`API_BASE_URL`, `ADMIN_BEARER_TOKEN`; dry run unless `--write`, `--shade <ids>`, `--after <shadeId>` resumes); also backfills `image_asset` perceptual fingerprints, even in a dry run, unless `--no-store-fingerprints` |
+| `npm run backfill:barcodes --workspace=swatchwatch-functions` | Build catalog `barcode` rows from stored connector products (GTIN + variant barcodes → shade via `shade_source_product`) in batches via `POST /api/barcodes-admin/backfill` (`API_BASE_URL`, `ADMIN_BEARER_TOKEN`; dry run unless `--write`, `--after <externalProductId>` resumes; first shade to claim a GTIN keeps it, conflicts are listed) |
 | `npm run backfill:image-variants --workspace=swatchwatch-functions` | Generate missing pre-generated catalog thumbnails for images stored before variants existed, in batches via `POST /api/images-admin/variants/backfill` (`API_BASE_URL`, `ADMIN_BEARER_TOKEN`; idempotent, `--after <imageId>` resumes) |
 
 `dev`, `dev:web`, `dev:functions`, and `dev:shared` run a dependency preflight and print a clear

@@ -146,7 +146,14 @@ export function buildFrameQuality(input: FrameQualityInput): Record<string, unkn
 // Capture session
 // ---------------------------------------------------------------------------
 
-export type RapidAddBusy = "starting" | "finalizing" | "answering" | "resolving" | "undoing";
+export type RapidAddBusy =
+  | "starting"
+  | "checking"
+  | "finalizing"
+  | "answering"
+  | "resolving"
+  | "undoing"
+  | "wishlisting";
 
 export interface RapidAddSessionState {
   captureId: string | null;
@@ -157,6 +164,8 @@ export interface RapidAddSessionState {
   verdict: CaptureVerdict | null;
   /** Set once the "I didn't buy another" quantity undo has been applied. */
   quantityRestored: boolean;
+  /** The barcode was unknown and the user chose to photograph the label (same session). */
+  labelRequested: boolean;
   busy: RapidAddBusy | null;
   error: string | null;
 }
@@ -169,6 +178,7 @@ export const INITIAL_SESSION_STATE: RapidAddSessionState = {
   outcome: null,
   verdict: null,
   quantityRestored: false,
+  labelRequested: false,
   busy: null,
   error: null,
 };
@@ -181,6 +191,7 @@ export type SessionAction =
   | { type: "outcome_received"; outcome: CaptureOutcome }
   | { type: "verdict_resolved"; verdict: CaptureVerdict | null }
   | { type: "quantity_restored" }
+  | { type: "label_requested" }
   | { type: "failed"; error: string }
   | { type: "error_dismissed" }
   | { type: "reset" };
@@ -213,6 +224,9 @@ export function sessionReducer(state: RapidAddSessionState, action: SessionActio
       return { ...state, verdict: action.verdict, busy: null };
     case "quantity_restored":
       return { ...state, quantityRestored: true, busy: null };
+    case "label_requested":
+      // Unknown barcode → label photo: same session, so the GTIN is learned on the match.
+      return { ...state, verdict: null, labelRequested: true, busy: null, error: null };
     case "failed":
       return { ...state, busy: null, error: action.error };
     case "error_dismissed":
@@ -229,6 +243,27 @@ export function rapidAddPhase(state: RapidAddSessionState): RapidAddPhase {
   if (isFinished(state.status)) return "resolving";
   if (state.status === "needs_question" && state.question) return "question";
   return "collecting";
+}
+
+/**
+ * A live barcode read with no snapshot can only be checked from the session metadata, and only a
+ * session that read starts carries the GTIN there (`buildStartMetadata`). For an existing session
+ * (e.g. a label photo came first) the check would report a false "unknown barcode", so skip it.
+ */
+export function canCheckBarcodeFromMetadata(
+  session: Pick<RapidAddSessionState, "captureId" | "labelRequested" | "verdict">,
+  barcode: ScannedBarcode | null,
+): barcode is ScannedBarcode {
+  return Boolean(barcode) && session.captureId === null && !session.labelRequested && !session.verdict;
+}
+
+/**
+ * The "scanned ✓" pill: the barcode was read on the device, and whether the server is still
+ * checking it. Null until a barcode is read.
+ */
+export function scanBadge(state: RapidAddSessionState): { gtin: string; checking: boolean } | null {
+  if (!state.barcode) return null;
+  return { gtin: state.barcode.gtin, checking: state.busy === "checking" || state.busy === "starting" };
 }
 
 /**

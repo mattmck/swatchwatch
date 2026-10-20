@@ -49,6 +49,12 @@ export interface CaptureFrameResponse {
   captureId: string;
   frameId: string;
   status: CaptureStatus;
+  /**
+   * Present when the frame is a `barcode` frame whose `quality.gtin` is a valid on-device
+   * decoded barcode: the same read-only verdict as `POST /api/capture/{captureId}/check`, so a
+   * scan resolves in one round trip without OCR. Absent otherwise (and if the check failed).
+   */
+  check?: CaptureCheckResponse;
 }
 
 export interface CaptureFinalizeResponse {
@@ -104,6 +110,8 @@ export interface CaptureCheckCandidate {
   /** 0–1 resolver confidence. */
   confidence: number;
   ownership: CaptureOwnership;
+  /** Display hex of the shade (vendor > detected > name) for a swatch; absent when unknown. */
+  hex?: string;
 }
 
 /**

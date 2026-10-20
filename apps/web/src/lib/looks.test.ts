@@ -14,6 +14,7 @@ import {
   maniEntriesForLook,
   rankTemplatesForVibe,
   recommendLooks,
+  shopCandidatesForStep,
   type Vibe,
 } from "./looks";
 import { colorDistance } from "./color-utils";
@@ -361,5 +362,75 @@ describe("recommendLooks — finish fit", () => {
     const { looks } = recommendLooks({ polishes: [glitter], vibe: vibe({ occasion: "work", mood: "soft" }), seed: 1 });
     assert.ok(looks.length > 0);
     for (const look of looks) assert.notEqual(look.steps[0].polish?.id, glitter.id, look.templateId);
+  });
+});
+
+describe("shopCandidatesForStep", () => {
+  it("returns up to three non-owned catalog shades near the step, never ones the look already uses, owned or top-only for a color step", () => {
+    const owned = [polish("#E8D5C4"), polish("#B22222")];
+    const { looks } = recommendLooks({ polishes: owned, vibe: vibe(), seed: 1 });
+    const look = looks[0];
+    const base = look.steps.find((s) => s.role === "base")!;
+    const pool = [
+      polish("#E9D6C5", { status: undefined, brand: "Cat" }),
+      polish("#E7D3C1", { status: undefined, brand: "Cat" }),
+      polish("#EAD8C8", { status: undefined, brand: "Cat" }),
+      polish("#E6D2C0", { status: undefined, brand: "Cat" }),
+      polish("#E8D5C4", { status: undefined, finishes: ["topper"] }),
+      owned[0],
+      ...(base.polish ? [{ ...base.polish, status: undefined } as Polish] : []),
+    ];
+    const picks = shopCandidatesForStep(look, "base", pool, vibe());
+    assert.ok(picks.length > 0 && picks.length <= 3);
+    for (const p of picks) {
+      assert.notEqual(p.status, "owned");
+      assert.ok(!resolvePolishFinishes(p).includes("topper"));
+      assert.ok(!look.steps.some((s) => s.polish?.id === p.id));
+    }
+  });
+
+  it("returns nothing for a role the look doesn't have", () => {
+    const look = recommendLooks({ polishes: collection(), vibe: vibe(), seed: 1 }).looks[0];
+    const missing = look.steps.some((s) => s.role === "topper") ? "accent" : "topper";
+    if (!look.steps.some((s) => s.role === missing)) {
+      assert.deepEqual(shopCandidatesForStep(look, missing, collection(), vibe()), []);
+    }
+  });
+});
+
+describe("catalogQueriesForLooks — includeOwned", () => {
+  it("asks for every step's family when includeOwned is set (detail drawer substitutions)", () => {
+    const { looks } = recommendLooks({ polishes: collection(), vibe: vibe(), seed: 1 });
+    assert.ok(looks.every((l) => l.missingSteps === 0), "setup: all steps owned");
+    assert.deepEqual(catalogQueriesForLooks(looks), { families: [], toppers: false });
+    const all = catalogQueriesForLooks(looks.slice(0, 1), { includeOwned: true });
+    assert.ok(all.families.length > 0);
+  });
+});
+
+describe("shopCandidatesForStep — base parity with the recommender", () => {
+  const catalogRow = (hex: string, finishes: string[]) => polish(hex, { status: undefined, brand: "Cat", finishes });
+
+  it("never offers a glitter base under a look that has a topper step", () => {
+    const { looks } = recommendLooks({ polishes: collection(), vibe: vibe({ finish: "flake" }), seed: 2 });
+    const look = looks.find((l) => l.steps.some((s) => s.role === "topper"));
+    assert.ok(look, "setup: a look with a topper step");
+    const base = look.steps.find((s) => s.role === "base")!;
+    const glitter = catalogRow(base.targetHex, ["glitter"]);
+    const plain = catalogRow(base.targetHex, ["creme"]);
+    const picks = shopCandidatesForStep(look, "base", [glitter, plain], vibe({ finish: "flake" }));
+    assert.ok(!picks.some((p) => p.id === glitter.id), "glitter base under a topper");
+  });
+
+  it("counts the finish clash against the distance limit, like the recommender", () => {
+    // Close in color to Office Neutral's base target but the wrong finish family: distance fits, score doesn't.
+    const look = recommendLooks({ polishes: collection(), vibe: vibe({ occasion: "work", mood: "soft" }), seed: 1 }).looks.find(
+      (l) => l.templateId === "office-neutral"
+    );
+    assert.ok(look, "setup: office-neutral look");
+    const base = look.steps.find((s) => s.role === "base")!;
+    const clash = catalogRow("#F0E6FF", ["holographic"]); // ~0.136 from #D8BFAA: fits the distance limit, not once the 0.08 finish penalty is added
+    const picks = shopCandidatesForStep({ ...look, steps: look.steps }, "base", [clash], vibe({ occasion: "work", mood: "soft" }));
+    assert.equal(picks.length, 0, `${base.targetHex} vs clash`);
   });
 });
