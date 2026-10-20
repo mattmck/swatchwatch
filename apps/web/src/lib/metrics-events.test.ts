@@ -12,6 +12,9 @@ import {
   looksWearClickedEvent,
   maniLoggedEvent,
   trackLooksWearClicked,
+  matchImageProcessedEvent,
+  matchResultActionEvent,
+  trackMatchResultAction,
   trackDupeWarningOutcome,
   trackDupeWarningShown,
   trackImportCompleted,
@@ -220,5 +223,61 @@ describe("looks events", () => {
       ],
     ]);
     assert.equal(looksWearClickedEvent({ look, swapped: false, position: 0 }).properties.swapped, false);
+  });
+});
+
+describe("metrics events: photo match (#105)", () => {
+  it("builds match.image_processed with counts only", () => {
+    const event = matchImageProcessedEvent({
+      trigger: "upload",
+      scope: "catalog",
+      finishFiltered: true,
+      familyFilterCount: 2,
+      extractedColorCount: 6,
+      hiddenColorCount: 2,
+      candidateCount: 120,
+      matchCount: 20,
+      highCount: 3,
+      mediumCount: 8,
+      durationMs: 412.6,
+      cached: false,
+    });
+    assert.equal(event.name, "match.image_processed");
+    assert.equal(event.name, METRIC_EVENTS.matchImageProcessed);
+    assert.equal(event.properties.durationMs, 413);
+    assert.equal(event.properties.scope, "catalog");
+    assert.equal(event.properties.hiddenColorCount, 2);
+  });
+
+  it("omits the duration for a cached response", () => {
+    const event = matchImageProcessedEvent({
+      trigger: "filters",
+      scope: "owned",
+      finishFiltered: false,
+      familyFilterCount: 0,
+      extractedColorCount: 4,
+      hiddenColorCount: 0,
+      candidateCount: 10,
+      matchCount: 10,
+      highCount: 0,
+      mediumCount: 1,
+      cached: true,
+    });
+    assert.equal("durationMs" in event.properties, false);
+  });
+
+  it("builds match.result_action and tracks through the injected tracker", () => {
+    const calls: Array<[string, unknown]> = [];
+    trackMatchResultAction(
+      { action: "wishlist", scope: "catalog", view: "colors", confidence: "high", rank: 2, fromStatus: null },
+      (name, properties) => calls.push([name, properties])
+    );
+    assert.deepEqual(calls, [
+      [
+        "match.result_action",
+        { action: "wishlist", scope: "catalog", view: "colors", confidence: "high", rank: 2, fromStatus: "none" },
+      ],
+    ]);
+    assert.equal(matchResultActionEvent({ action: "own", scope: "wishlist", view: "list", confidence: "medium", rank: 1, fromStatus: "wishlist" }).properties.fromStatus, "wishlist");
   });
 });
