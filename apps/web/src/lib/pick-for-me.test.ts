@@ -237,51 +237,14 @@ describe("pushPickHistory", () => {
   });
 });
 
-describe("suggestPairings", () => {
-  const pick = polish("pick", { vendorHex: "#1F4E9C" }); // blue
-  const complementHex = generateHarmonyPalette("#1F4E9C", "complementary")[1];
-  const analogousHex = generateHarmonyPalette("#1F4E9C", "analogous")[2];
-
-  it("suggests the complementary and analogous owned polishes plus a topper, at most 2", () => {
-    const collection = [
-      pick,
-      polish("complement", { vendorHex: complementHex }),
-      polish("analogous", { vendorHex: analogousHex }),
-      polish("glitter", { vendorHex: "#DDDDDD", finishes: ["glitter"], wearCount: 1 }),
-      polish("topper", { vendorHex: "#EEEEEE", finishes: ["topper"], wearCount: 4 }),
-      polish("far", { vendorHex: "#1F4E9D", status: "wishlist" }),
-    ];
-    const pairs = suggestPairings(pick, collection);
-    assert.equal(pairs.length, 2);
-    assert.ok(["complement", "analogous"].includes(pairs[0].polish.id));
-    assert.equal(pairs[1].polish.id, "topper", "a `topper` finish beats glitter");
-    assert.equal(pairs[1].role, "topper");
-    assert.equal(pairs[0].role, "accent");
-
-    const three = suggestPairings(pick, collection, 3);
-    assert.deepEqual(new Set(three.map((p) => p.harmony)), new Set(["complementary", "analogous", "topper"]));
-    const complement = three.find((p) => p.harmony === "complementary")!;
-    assert.equal(complement.polish.id, "complement");
-    assert.ok((complement.distance ?? 1) < 0.02);
-  });
-
-  it("returns nothing when no owned polish is close enough and there are no toppers", () => {
-    const collection = [pick, polish("nearly-same", { vendorHex: "#1F4E9D" })];
-    assert.deepEqual(suggestPairings(pick, collection), []);
-    assert.deepEqual(suggestPairings(pick, [pick]), []);
-  });
-
-  it("skips hue harmonies for neutral picks and topper suggestions for topper picks", () => {
-    const gray = polish("gray", { vendorHex: "#808080" });
-    const red = polish("red", { vendorHex: "#C0392B" });
-    const topper = polish("topper", { vendorHex: "#EEEEEE", finishes: ["topper"] });
-    assert.deepEqual(
-      suggestPairings(gray, [gray, red, topper]).map((p) => p.harmony),
-      ["topper"]
-    );
-    const topperPick = polish("tp", { vendorHex: "#C0392B", finishes: ["topper"] });
-    assert.ok(suggestPairings(topperPick, [topperPick, topper]).every((p) => p.harmony !== "topper"));
-    assert.ok(colorDistance("#808080", "#808080") === 0);
+describe("suggestPairings (re-exported from swatchwatch-shared)", () => {
+  // The rule and its full tests live in packages/shared/src/color/pair-it.test.ts.
+  it("pairs the pick with its owned complement", () => {
+    const pick = polish("pick", { vendorHex: "#1F4E9C" });
+    const complementHex = generateHarmonyPalette("#1F4E9C", "complementary")[1];
+    const pairs = suggestPairings(pick, [pick, polish("complement", { vendorHex: complementHex })]);
+    assert.deepEqual(pairs.map((p) => [p.polish.id, p.harmony]), [["complement", "complementary"]]);
+    assert.ok(colorDistance(complementHex, "#1F4E9C") > 0.12);
   });
 });
 
@@ -308,15 +271,5 @@ describe("pick for me — product categories (#349, D-C)", () => {
 
   it("returns null when the user owns only non-color products", () => {
     assert.equal(pickForMe(collection.slice(1), { now: NOW, random: createSeededRandom(1) }), null);
-  });
-
-  it("pairs a topper by category (even without a topper finish) and never a coat or accessory", () => {
-    const pairings = suggestPairings(collection[0], collection);
-    const ids = pairings.map((pairing) => pairing.polish.id);
-    assert.ok(ids.includes("topper"), "the topper is suggested");
-    assert.ok(!ids.some((id) => ["top-coat", "base-coat", "treatment", "accessory"].includes(id)));
-    const topper = pairings.find((pairing) => pairing.polish.id === "topper");
-    assert.equal(topper?.role, "topper");
-    assert.equal(topper?.label, "Topper");
   });
 });
