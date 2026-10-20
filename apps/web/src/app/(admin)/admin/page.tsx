@@ -112,11 +112,11 @@ function AdminTabs() {
 
   return (
     <TabsPrimitive.Root value={activeTab} onValueChange={(value) => selectTab(value as AdminTab)} className="space-y-4">
-      <TabsPrimitive.List className="inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground">
+      <TabsPrimitive.List className="flex h-10 max-w-full items-center justify-start overflow-x-auto rounded-md bg-muted p-1 text-muted-foreground sm:inline-flex sm:justify-center">
         <TabsPrimitive.Trigger
           value="configuration"
           className={cn(
-            "inline-flex items-center justify-center rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
+            "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
             "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
           )}
         >
@@ -125,7 +125,7 @@ function AdminTabs() {
         <TabsPrimitive.Trigger
           value="job-runs"
           className={cn(
-            "inline-flex items-center justify-center rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
+            "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
             "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
           )}
         >
@@ -134,7 +134,7 @@ function AdminTabs() {
         <TabsPrimitive.Trigger
           value="admin-jobs"
           className={cn(
-            "inline-flex items-center justify-center rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
+            "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
             "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
           )}
         >
@@ -143,7 +143,7 @@ function AdminTabs() {
         <TabsPrimitive.Trigger
           value="users"
           className={cn(
-            "inline-flex items-center justify-center rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
+            "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
             "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
           )}
         >
@@ -152,7 +152,7 @@ function AdminTabs() {
         <TabsPrimitive.Trigger
           value="review-queue"
           className={cn(
-            "inline-flex items-center justify-center rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
+            "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
             "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
           )}
         >
@@ -161,7 +161,7 @@ function AdminTabs() {
         <TabsPrimitive.Trigger
           value="hex-labeling"
           className={cn(
-            "inline-flex items-center justify-center rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
+            "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
             "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
           )}
         >
