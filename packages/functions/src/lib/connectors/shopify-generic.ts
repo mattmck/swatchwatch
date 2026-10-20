@@ -17,6 +17,7 @@ import {
 } from "./types.js";
 import { detectHexFromColorName, stripHtmlToText } from "./color-name-detection.js";
 import { shopifyProductText } from "../product-text.js";
+import { shopifyStoreProductVerdict } from "./store-filters/index.js";
 
 const REQUEST_TIMEOUT_MS = parseIntEnv(
   process.env.SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS,
@@ -536,7 +537,9 @@ export class ShopifyGenericConnector implements ProductConnector {
       this.fetchAllProducts()
     );
     const normalizedRecords = await Promise.all(
-      allProducts.map((product) => toNormalizedRecord(product, this.baseUrl, this.brandName))
+      allProducts.map((product) =>
+        toNormalizedRecord(product, this.baseUrl, this.brandName, this.source)
+      )
     );
     const filteredRecords = normalizedRecords.filter(
       (record): record is ConnectorProductRecord => Boolean(record)
@@ -746,6 +749,8 @@ export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
   DrunkFairyPolishShopify: "https://drunkfairypolish.com",
   NightOwlLacquerShopify: "https://nightowllacquer.com",
   PahlishShopify: "https://pahlish.com",
+  EmilyDeMollyShopify: "https://emilydemolly.com",
+  CirqueColorsShopify: "https://cirquecolors.com",
   HoloTacoShopify: "https://www.holotaco.com",
 };
 
@@ -759,7 +764,9 @@ export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
  */
 export const SHOPIFY_SOURCES_PENDING_APPROVAL: ReadonlySet<string> = new Set([
   // NightOwlLacquerShopify approved 2026-10-17 (docs/decisions-2026-10.md D2).
-  "PahlishShopify",
+  // PahlishShopify, EmilyDeMollyShopify and CirqueColorsShopify: the owner reported the
+  // stores' sign-off on 2026-10-19 (docs/indie-sources-2026-10.md). Add a new store here
+  // until its OK is recorded in data_source.metadata.notes.
 ]);
 
 /** Whether a newly auto-provisioned data_source row for `source` starts enabled. */
@@ -795,7 +802,8 @@ export function defaultShopifyBaseUrl(source: string): string {
 async function toNormalizedRecord(
   product: ShopifyProduct,
   baseUrl: string,
-  brandName: string
+  brandName: string,
+  source: string
 ): Promise<ConnectorProductRecord | null> {
   const externalId = asNonEmptyString(product.id);
   if (!externalId) {
@@ -805,8 +813,11 @@ async function toNormalizedRecord(
   const tags = normalizeTags(product.tags);
   const productType = asNonEmptyString(product.product_type);
 
-  // Skip non-nail products
-  if (!isNailPolish(productType, tags) || isBundle(tags)) {
+  // Skip non-nail products. A store-specific filter (store-filters/, #328) decides
+  // first for stores the generic check cannot classify; null defers to it.
+  const isPolish =
+    shopifyStoreProductVerdict(source, product) ?? isNailPolish(productType, tags);
+  if (!isPolish || isBundle(tags)) {
     return null;
   }
 
