@@ -36,6 +36,10 @@
  *    differ.
  * 7. **Owned only.** Every required step must be owned (optional toppers are dropped instead);
  *    templates that can't be built are skipped, and `shortfall` says fewer than three fit.
+ * 8. **Include toppers** (`includeToppers`, default on, #386). Off drops every topper step before
+ *    anything is picked (including the Flake vibe's added topper), so no look has a topper, no
+ *    topper is fetched from the catalog or offered as a substitute, and the glitter-on-glitter
+ *    rule no longer applies (a full-coverage glitter may be a base).
  */
 import type {
   ColorFamily,
@@ -479,6 +483,8 @@ export interface RecommendLooksInput {
   seed: number;
   /** Looks wanted (default `LOOK_COUNT`). */
   count?: number;
+  /** Topper steps on (default `true`, today's behaviour); off drops them from every look (#386). */
+  includeToppers?: boolean;
 }
 
 // ── Internals ────────────────────────────────────────────────
@@ -579,7 +585,8 @@ function stepFinishes(step: LookTemplateStep, vibe: Vibe): readonly string[] | u
   return step.finishes;
 }
 
-function templateSteps(template: LookTemplate, vibe: Vibe): readonly LookTemplateStep[] {
+function templateSteps(template: LookTemplate, vibe: Vibe, includeToppers = true): readonly LookTemplateStep[] {
+  if (!includeToppers) return template.steps.filter((s) => s.role !== "topper");
   if (vibe.finish === "flake" && !template.steps.some((s) => s.role === "topper")) {
     return [...template.steps, FLAKE_TOPPER_STEP];
   }
@@ -653,6 +660,7 @@ interface BuildContext {
   /** Polishes used by earlier looks (any step); never a later look's base. */
   usedIds: Set<string>;
   seed: number;
+  includeToppers: boolean;
 }
 
 function emptyStep(step: LookTemplateStep, alternatives: Polish[]): LookStep {
@@ -684,7 +692,7 @@ function filledStep(step: LookTemplateStep, scored: Scored, source: LookStepSour
 /** Build one look from a template, or null when it can't be built (owned-only, or no diverse base). */
 function buildLook(template: LookTemplate, ctx: BuildContext): Look | null {
   const { vibe } = ctx;
-  const steps = templateSteps(template, vibe);
+  const steps = templateSteps(template, vibe, ctx.includeToppers);
   const baseStep = steps.find((s) => s.role === "base");
   if (!baseStep) return null;
   // No glitter-on-glitter: a look with a topper step never gets a glitter base.
@@ -817,6 +825,7 @@ export function recommendLooks(input: RecommendLooksInput): LooksResult {
     chosenBases: [],
     usedIds: new Set(),
     seed: input.seed,
+    includeToppers: input.includeToppers ?? true,
   };
   const remaining = [...LOOK_TEMPLATES];
   const looks: Look[] = [];

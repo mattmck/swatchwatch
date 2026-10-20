@@ -43,11 +43,17 @@ import {
   writeLookList,
   type SavedLook,
 } from "@/lib/looks-saved";
-import { buildLooksQueryString, lookShareUrl, parseLooksState, type LooksState } from "@/lib/looks-url";
+import { buildLooksQueryString, lookColorLabHref, lookShareUrl, parseLooksState, type LooksState } from "@/lib/looks-url";
 import { toLocalIsoDate } from "@/lib/mani-log";
-import { trackLooksGenerated, trackLooksWearClicked, type LooksTrigger } from "@/lib/metrics-events";
+import {
+  trackLooksColorLabOpened,
+  trackLooksGenerated,
+  trackLooksWearClicked,
+  type LooksSurface,
+  type LooksTrigger,
+} from "@/lib/metrics-events";
 import { TOPPER_FINISHES } from "@/lib/pick-for-me";
-import { LookCard, LookSwatchStrip } from "./look-card";
+import { ColorLabLink, LookCard, LookSwatchStrip } from "./look-card";
 import { LookDrawer } from "./look-drawer";
 import { ShoppingListDialog } from "./shopping-list-dialog";
 import { VibeSelector } from "./vibe-selector";
@@ -100,7 +106,7 @@ function LooksPageContent() {
   const queryString = searchParams.toString();
   const state = useMemo(() => parseLooksState(new URLSearchParams(queryString)), [queryString]);
   const stateKey = buildLooksQueryString(state);
-  const { vibe, seed } = state;
+  const { vibe, seed, toppers } = state;
   // The page's own URL (path + canonical query) for detail links' `returnTo`; derived from state, not `window`, so SSR and hydration agree.
   const looksReturnTo = stateKey ? `/polishes/looks?${stateKey}` : "/polishes/looks";
 
@@ -182,8 +188,8 @@ function LooksPageContent() {
 
   // Pass 1: owned polishes only. Its gaps decide which catalog rows to fetch.
   const ownedResult = useMemo(
-    () => (owned ? recommendLooks({ polishes: owned, vibe, seed }) : null),
-    [owned, vibe, seed]
+    () => (owned ? recommendLooks({ polishes: owned, vibe, seed, includeToppers: toppers }) : null),
+    [owned, vibe, seed, toppers]
   );
 
   const catalogKeys = useMemo(() => {
@@ -217,8 +223,8 @@ function LooksPageContent() {
   const result = useMemo(() => {
     if (!owned || !ownedResult) return null;
     if (catalogPool.length === 0) return ownedResult;
-    return recommendLooks({ polishes: owned, catalog: catalogPool, vibe, seed });
-  }, [owned, ownedResult, catalogPool, vibe, seed]);
+    return recommendLooks({ polishes: owned, catalog: catalogPool, vibe, seed, includeToppers: toppers });
+  }, [owned, ownedResult, catalogPool, vibe, seed, toppers]);
 
   const resultKey = `${stateKey}|${catalogReady}|${owned?.length ?? -1}`;
   const looks = useMemo(() => {
@@ -267,17 +273,26 @@ function LooksPageContent() {
       shortfall: result.shortfall,
       ownedCount: result.ownedCount,
       trigger: explicit?.trigger ?? "vibe",
+      includeToppers: toppers,
     });
-  }, [result, catalogReady, stateKey, vibe]);
+  }, [result, catalogReady, stateKey, vibe, toppers]);
 
   function changeVibe(next: Vibe) {
-    setState({ vibe: next, seed }, "vibe");
+    setState({ vibe: next, seed, toppers }, "vibe");
+  }
+
+  function changeToppers(next: boolean) {
+    setState({ vibe, seed, toppers: next }, "vibe");
+  }
+
+  function colorLabOpened(look: Pick<Look, "templateId" | "ownedSteps" | "missingSteps">, surface: LooksSurface, position: number) {
+    trackLooksColorLabOpened({ look, surface, position });
   }
 
   function shuffle() {
     // A fresh seed per click; 1 is the default (omitted from the URL), so stay above it.
     const next = 2 + Math.floor(Math.random() * 1_000_000);
-    setState({ vibe, seed: next === seed ? next + 1 : next }, "shuffle");
+    setState({ vibe, seed: next === seed ? next + 1 : next, toppers }, "shuffle");
   }
 
   function swap(look: Look, role: LookStepRole, polish: Polish) {
@@ -323,7 +338,7 @@ function LooksPageContent() {
 
   async function copyLook(look: Look) {
     // The link carries the vibe + seed only: the recipient sees the same vibe built from their own collection.
-    const url = lookShareUrl(window.location.origin, window.location.pathname, { vibe, seed });
+    const url = lookShareUrl(window.location.origin, window.location.pathname, { vibe, seed, toppers });
     const ok = await copyText(lookShareText(look, vibe, url));
     if (ok) toast.success("Look copied", { description: "Paste it into a message to share it." });
     else toast.error("Couldn't copy", { description: "Your browser blocked clipboard access." });
@@ -374,7 +389,7 @@ function LooksPageContent() {
     writeLookList(SAVED_LOOKS_PENDING_KEY, removeSavedLook(readLookList(SAVED_LOOKS_PENDING_KEY), id));
   }
 
-  function wearSaved(look: SavedLook) {
+  function wearSaved(look: SavedLook, position: number) {
     const ownedIds = new Set((owned ?? []).map((p) => p.id));
     const entries = look.steps
       .filter((s) => s.source === "owned" && s.shadeId && ownedIds.has(s.shadeId))
@@ -383,6 +398,7 @@ function LooksPageContent() {
       toast.error("You don't own any polish in this look anymore");
       return;
     }
+    trackLooksWearClicked({ look: savedLookCounts(look), position, swapped: false, surface: "saved" });
     setWear({ entries });
   }
 
@@ -421,7 +437,7 @@ function LooksPageContent() {
       {tab === "looks" ? (
         <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
           <aside className="min-w-0 lg:sticky lg:top-6 lg:self-start">
-            <VibeSelector vibe={vibe} onChange={changeVibe} />
+            <VibeSelector vibe={vibe} onChange={changeVibe} toppers={toppers} onToppersChange={changeToppers} />
           </aside>
 
           <section aria-label={`Looks for ${vibeSummary}`} aria-busy={!result} className="@container min-w-0 space-y-4">
@@ -505,6 +521,8 @@ function LooksPageContent() {
                   onShop={() => setShoppingId(look.templateId)}
                   onDetails={() => setDrawerId(look.templateId)}
                     onShare={() => void copyLook(look)}
+                    colorLabHref={lookColorLabHref(look.steps, looksReturnTo)}
+                    onColorLab={() => colorLabOpened(look, "card", index)}
                     backdrop={skinTone === null ? undefined : skinToneBackdrop(skinTone)}
                     onSwap={(role, polish) => swap(look, role, polish)}
                   />
@@ -523,7 +541,7 @@ function LooksPageContent() {
         </p>
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label="Saved looks">
-          {saved.map((look) => (
+          {saved.map((look, index) => (
             <li key={look.id} className="space-y-2 rounded-lg border border-border p-3">
               <div className="flex items-center justify-between gap-2">
                 <p className="truncate font-medium">{look.name}</p>
@@ -536,10 +554,15 @@ function LooksPageContent() {
                 {look.steps.map((s) => s.name ?? s.label).join(" · ")}
               </p>
               <div className="flex gap-2">
-                <Button type="button" size="sm" variant="outline" className="flex-1" onClick={() => wearSaved(look)}>
+                <Button type="button" size="sm" variant="outline" className="flex-1" onClick={() => wearSaved(look, index)}>
                   <Paintbrush className="size-4" aria-hidden />
                   Wear
                 </Button>
+                <ColorLabLink
+                  href={lookColorLabHref(look.steps, looksReturnTo)}
+                  onClick={() => colorLabOpened(savedLookCounts(look), "saved", index)}
+                  lookName={look.name}
+                />
                 <Button
                   type="button"
                   size="sm"
@@ -564,6 +587,10 @@ function LooksPageContent() {
           if (!open) setDrawerId(null);
         }}
         onSwap={(role, polish) => drawerLook && swap(drawerLook, role, polish)}
+        colorLabHref={drawerLook ? lookColorLabHref(drawerLook.steps, looksReturnTo) : null}
+        onColorLab={() => {
+          if (drawerLook) colorLabOpened(drawerLook, "drawer", looks.indexOf(drawerLook));
+        }}
       />
       <ShoppingListDialog
         returnTo={looksReturnTo}
@@ -591,6 +618,12 @@ function LooksPageContent() {
       />
     </div>
   );
+}
+
+/** Telemetry counts for a saved look (its snapshot's step sources). */
+function savedLookCounts(look: SavedLook): Pick<Look, "templateId" | "ownedSteps" | "missingSteps"> {
+  const ownedSteps = look.steps.filter((s) => s.source === "owned").length;
+  return { templateId: look.templateId, ownedSteps, missingSteps: look.steps.length - ownedSteps };
 }
 
 function Notice({ children }: { children: React.ReactNode }) {
