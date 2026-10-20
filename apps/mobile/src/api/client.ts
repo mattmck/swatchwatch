@@ -21,6 +21,9 @@ import type {
   ManicureFilters,
   ManicureListResponse,
   ManicureMutationResponse,
+  ManicurePhotoResponse,
+  NailPhotoResponse,
+  NailPhotoUploadRequest,
   Polish,
   PolishDupesResponse,
   PolishFilters,
@@ -308,4 +311,40 @@ export function answerCaptureQuestion(captureId: string, data: CaptureAnswerRequ
 export function errorMessage(error: unknown, fallback = "Something went wrong."): string {
   if (error instanceof Error && error.message) return error.message;
   return fallback;
+}
+
+// ── Private photos (#270 nail photo, #327 mani photo) ───────────────────────
+// Responses carry owner-scoped `v3` image URLs; render them with `PrivateImage` (fetched with
+// the bearer token, kept in memory only).
+
+function nailPhotoPath(inventoryItemId: string | number): string {
+  return `/inventory/${encodeURIComponent(String(inventoryItemId))}/nail-photo`;
+}
+
+/** `{ photo: null }` when the item has no photo; 404 (ApiError) when it isn't the caller's item. */
+export function getNailPhoto(inventoryItemId: string | number): Promise<NailPhotoResponse> {
+  return apiRequest<NailPhotoResponse>(nailPhotoPath(inventoryItemId));
+}
+
+/** Upload or replace the nail photo. `image` is a base64 JPEG data URL (`prepareJpeg`). */
+export function uploadNailPhoto(inventoryItemId: string | number, image: string): Promise<NailPhotoResponse> {
+  return apiRequest<NailPhotoResponse>(nailPhotoPath(inventoryItemId), {
+    method: "PUT",
+    body: { image } satisfies NailPhotoUploadRequest,
+    timeoutMs: UPLOAD_TIMEOUT_MS,
+  });
+}
+
+/** Delete the nail photo (idempotent; 204). */
+export function deleteNailPhoto(inventoryItemId: string | number): Promise<void> {
+  return apiRequest<void>(nailPhotoPath(inventoryItemId), { method: "DELETE" });
+}
+
+/** Attach a photo to a saved manicure (`PUT /api/manicures/{id}/photo`; the manicure must exist first). */
+export function uploadManicurePhoto(manicureId: string | number, image: string): Promise<ManicurePhotoResponse> {
+  return apiRequest<ManicurePhotoResponse>(`/manicures/${encodeURIComponent(String(manicureId))}/photo`, {
+    method: "PUT",
+    body: { image } satisfies NailPhotoUploadRequest,
+    timeoutMs: UPLOAD_TIMEOUT_MS,
+  });
 }
