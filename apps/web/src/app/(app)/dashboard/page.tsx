@@ -206,12 +206,12 @@ export default function DashboardPage() {
 
       {/* Stats row */}
       {!hasNothing && (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
         {statCards.map((card) => {
           const tile = (
           <Card
             key={card.key}
-            className={`relative h-full overflow-hidden border border-brand-purple/20 bg-card/95 shadow-[0_20px_45px_rgba(66,16,126,0.12)] backdrop-blur-xl ${
+            className={`relative h-full overflow-hidden border border-brand-purple/20 py-0 sm:py-6 bg-card/95 shadow-[0_20px_45px_rgba(66,16,126,0.12)] backdrop-blur-xl ${
               card.href ? "transition-shadow group-hover:shadow-[0_24px_50px_rgba(66,16,126,0.2)]" : ""
             }`}
           >
@@ -223,14 +223,14 @@ export default function DashboardPage() {
               aria-hidden
               className="pointer-events-none absolute inset-0 opacity-70 [background:radial-gradient(circle_at_top_right,rgba(249,227,255,0.65),transparent_55%)] dark:opacity-30"
             />
-            <CardContent className="relative z-10 flex items-center justify-between gap-4 px-6 py-6">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-brand-purple-deep/80 dark:text-brand-lilac/95">
+            <CardContent className="relative z-10 flex h-full items-center justify-between gap-4 px-4 py-4 sm:px-6 sm:py-6">
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] sm:tracking-[0.35em] text-brand-purple-deep/80 dark:text-brand-lilac/95">
                   {card.label}
                 </p>
                 <div className="mt-1 flex items-baseline gap-1">
                   <p
-                    className={`text-3xl font-black leading-tight text-gradient-brand ${card.valueClassName ?? ""}`}
+                    className={`break-words text-2xl font-black leading-tight text-gradient-brand sm:text-3xl ${card.valueClassName ?? ""}`}
                   >
                     {card.value}
                   </p>
@@ -240,11 +240,11 @@ export default function DashboardPage() {
                     </span>
                   )}
                 </div>
-                <p className="mt-1 text-sm text-muted-foreground dark:text-brand-pink-soft/90">
+                <p className="mt-1 text-xs text-muted-foreground sm:text-sm dark:text-brand-pink-soft/90">
                   {card.subText}
                 </p>
               </div>
-              <div className="flex size-12 items-center justify-center rounded-xl bg-gradient-brand-soft text-white shadow-glow-brand">
+              <div className="hidden size-12 shrink-0 items-center justify-center rounded-xl bg-gradient-brand-soft text-white shadow-glow-brand sm:flex">
                 <card.icon className="size-5" aria-hidden="true" />
               </div>
             </CardContent>
