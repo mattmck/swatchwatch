@@ -13,6 +13,45 @@ Everything else below is the survey as it stood on 2026-10-18, before that. Enab
 owner's call (decision D2 in `docs/decisions-2026-10.md`), after the store's OK is recorded in
 `data_source.metadata.notes`.
 
+## Batch 2 — 2026-10-19
+
+Second pass for #273, same method (one request each for `/products.json?limit=1` and
+`/policies/terms-of-service`, 1 s apart, same User-Agent; full `products.json` only for stores whose
+terms allow it or that have already signed off).
+
+**The five named candidates:** no change from the table below. Mooncat and Cupcake Polish are already
+enabled sources; ILNP is WooCommerce (products.json 404), KBShimmer is behind a Cloudflare challenge,
+Painted Polish is Big Cartel. None can become a `shopify-generic` source.
+
+**Other indie stores checked:** none added. Every store that answers with Shopify `products.json`
+and is not in the repo yet has terms that forbid automated access:
+
+| Store | products.json | Terms | Verdict |
+|---|---|---|---|
+| Stella Chroma (stellachroma.com) | ✅ 200 | Shopify default "spider, crawl, or scrape" | Not added: needs written OK |
+| Lemming Lacquer (lemminglacquer.com) | ✅ 200 | Shopify default clause | Not added: needs written OK |
+| Sweet & Sour Lacquer (sweetandsourlacquer.com) | ✅ 200 | Shopify default clause | Not added: needs written OK |
+| Maniology (maniology.com), What's Up Nails (whatsupnails.com) | ✅ 200 | "scrape" clause (stamping brands) | Not added |
+| Nails.INC (nailsinc.com) | ✅ 200 | `/pages/terms-conditions`: no copying, reproducing or republishing content without written permission; no commercial use | Not added (also not indie) |
+| Ninja Polish (ninjapolish.com) | ✅ 200 | Content may not be reproduced without written consent; multi-brand reseller (`vendor: Various`) | Not added |
+| F.U.N Lacquer, Glam Polish, Moon Shine Mani, Dreamland Lacquer | ✅ 200 | Scraping clause (re-checked) | Not added (as on 2026-10-17) |
+| Tonic Polish, Bluebird Lacquer | ❌ 401 (password page) | – | Skip |
+| Colores de Carol, Glisten & Glow, Masura, Killer Colors | ❌ not Shopify products.json | – | Skip |
+| Ethereal Lacquer, Elevation, Cadillacquer, Lollipop Posse, Literary Lacquers, Danglefoot, Different Dimension, Garden Path (old domain), Ever After, Fan Brush, Quixotic, Turtle Tootsie, JReine, Paint Box, Contrary, Moonflower, Harlow & Co, Ellagee, Pipe Dream, Pepper Pot, Grace-full, Black Cat, Jior Couture, Smokey Mountain, Glitter Gal, Chamaeleon, Lily Pad, Polished Gamers, McKF, Rainbow Connection, Oxxi, Tipsy | ❌ no answer at the guessed domain | – | Skip (domains guessed, not verified) |
+
+Great Lakes Lacquer (custom terms, no automated-access clause), Bee's Knees, Kathleen & Co, Sassy Sauce
+and Clionadh came up too but are already sources.
+
+**Cirque Colors store filter (follow-up below, done):** `connectors/store-filters/cirque-colors.ts`
+keeps **328 of 415** products on 2026-10-19 (293 color, 23 topper, 7 treatment, 5 base coat by the
+rule classifier; the generic gate kept 10). Dropped: 85 sets/duos/trios/bundles/nail-art kits,
+tools, charms, stickers, remover, wipes, gift card, free gifts and creator profile pages, plus 2
+collection sets with the bundle tag. Cirque tags its coats "Top & Base Coat", so the rule classifier
+files its top coats as `base_coat` (follow-up).
+
+**Against +10k:** batch 2 adds about 316 Cirque shades (293 color + 23 toppers) and 12 coats/treatments. The indie Shopify route is close to exhausted
+without store agreements; the other routes in `docs/data-sources-research.md` are needed.
+
 ## How each store was checked
 
 Per store, one request each, with the User-Agent
@@ -99,8 +138,12 @@ If the owner wants the same paper trail for the two stores that were enabled bef
 
 ## Follow-ups
 
-- Cirque Colors store filter (`connectors/store-filters/cirque.ts`): keep finish/line `product_type`s,
-  drop Sets, Nail Care, Nail Art, Tools, Base Coat, Duo, Collection Set. Or fold into the #349 classifier.
+- ~~Cirque Colors store filter~~: done 2026-10-19 (`connectors/store-filters/cirque-colors.ts`, batch 2 above).
+- Cirque coats are tagged "Top & Base Coat"; the rule classifier checks base coat wording first, so
+  Looking Glass Top Coat and Haze Glaze Matte Top Coat are stored as `base_coat` (admin override, or
+  let the title win over tags in the classifier and the audit query).
+- Great Lakes Lacquer lists a multi-shade "The Boat Load Bundle" without a bundle tag; the generic
+  gate keeps it (26 of 27 products pass). A title-based bundle check would catch it.
 - Emily de Molly vendor spelling: 3 products say `EmilydeMolly`; check whether ingestion's brand
   matching merges it with `Emily de Molly` before enabling.
 - Big Cartel connector, if Painted Polish is wanted.

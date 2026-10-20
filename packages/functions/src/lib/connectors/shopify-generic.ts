@@ -17,7 +17,7 @@ import {
 } from "./types.js";
 import { detectHexFromColorName, stripHtmlToText } from "./color-name-detection.js";
 import { shopifyProductText } from "../product-text.js";
-import { classifyIngestedProduct } from "../product-category.js";
+import { classifyIngestedProduct, classifyProductCategory } from "../product-category.js";
 import { shopifyStoreProductVerdict } from "./store-filters/index.js";
 
 const REQUEST_TIMEOUT_MS = parseIntEnv(
@@ -783,10 +783,21 @@ async function toNormalizedRecord(
   // A store-specific filter (store-filters/, #328) decides first for stores the generic gate
   // cannot classify; null defers to the classifier.
   const gate = classifyIngestedProduct({ title: asNonEmptyString(product.title), productType, tags });
-  const isPolish = shopifyStoreProductVerdict(source, product) ?? gate.accept;
+  const storeVerdict = shopifyStoreProductVerdict(source, product);
+  const isPolish = storeVerdict ?? gate.accept;
   if (!isPolish || isBundle(tags)) {
     return null;
   }
+  // A store filter that keeps a product the June tag blocklist rejected (Cirque tags shades and
+  // coats with nail-art tutorial names such as "Abstract Dry Brush") gets the rule category, the
+  // one materialization stores, instead of the gate's "accessory".
+  const productCategory =
+    storeVerdict === true && gate.evidence === "legacy-tag"
+      ? classifyProductCategory({
+          shadeName: asNonEmptyString(product.title),
+          products: [{ productType, tags }],
+        }).category
+      : gate.category;
 
   const name = asNonEmptyString(product.title);
   if (!name) {
@@ -854,7 +865,7 @@ async function toNormalizedRecord(
       handle,
       productType,
       // Connector-gate category (#349); materialization re-classifies with the shade's finishes.
-      productCategory: gate.category,
+      productCategory,
       collections,
       finishes,
       tags,

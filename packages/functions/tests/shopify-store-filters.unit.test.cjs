@@ -2,6 +2,7 @@ const { describe, it, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 
 const { isPahlishPolish } = require("../dist/lib/connectors/store-filters/pahlish");
+const { isCirqueColorsPolish } = require("../dist/lib/connectors/store-filters/cirque-colors");
 const {
   SHOPIFY_STORE_PRODUCT_FILTERS,
   shopifyStoreProductVerdict,
@@ -10,6 +11,8 @@ const { ShopifyGenericConnector } = require("../dist/lib/connectors/shopify-gene
 
 // pahlish.com/products.json, fetched 2026-10-18 (all 36 products, one page), trimmed.
 const PAHLISH = require("./fixtures/pahlish-products.json").products;
+// cirquecolors.com/products.json, fetched 2026-10-19 (all 415 products, two pages), trimmed.
+const CIRQUE = require("./fixtures/cirque-colors-products.json").products;
 
 // The 28 single-shade listings in the fixture; everything else is a set, a mystery
 // listing, a base/top coat, empty boxes or a gift card.
@@ -125,9 +128,85 @@ describe("store-filters/pahlish — isPahlishPolish", () => {
   });
 });
 
+function cirque(title) {
+  const product = CIRQUE.find((entry) => entry.title === title);
+  assert.ok(product, `Cirque fixture has no product titled ${title}`);
+  return product;
+}
+
+describe("store-filters/cirque-colors — isCirqueColorsPolish", () => {
+  it("keeps 328 of the 415 fixture products", () => {
+    assert.equal(CIRQUE.length, 415);
+    assert.equal(CIRQUE.filter(isCirqueColorsPolish).length, 328);
+  });
+
+  it("keeps single shades whose product_type is a finish or line", () => {
+    for (const title of ["Coffee Talk", "Puddle", "Phantom Glow", "Red Hook", "Hint Tint: Blush", "We Trippy"]) {
+      assert.equal(isCirqueColorsPolish(cirque(title)), true, title);
+    }
+  });
+
+  it("keeps a shade with an empty product_type when a tag names its finish", () => {
+    assert.equal(isCirqueColorsPolish(cirque("Red Hot Jelly")), true);
+  });
+
+  it("keeps coats, strengtheners and cuticle oils (the June tag blocklist would drop them)", () => {
+    for (const title of [
+      "Looking Glass Top Coat",
+      "Get Ready Base Coat",
+      "Haze Glaze Matte Top Coat",
+      "Recovery Ritual Nail Strengthener",
+      "Nail & Cuticle Oil - Fig",
+    ]) {
+      assert.equal(isCirqueColorsPolish(cirque(title)), true, title);
+    }
+  });
+
+  it("drops sets, duos, trios, bundles and collection sets, whatever their product_type", () => {
+    for (const title of [
+      "Chocolatte Set",
+      "Delusion Collection Set",
+      "Fatal Attraction Duo",
+      "Dark Matter Trio",
+      "Best Sellers Bundle",
+      "Go-To Mani Quad - Fig",
+      "Hocus Pocus Duo",
+      "Fig Nail Art Set",
+    ]) {
+      assert.equal(isCirqueColorsPolish(cirque(title)), false, title);
+    }
+  });
+
+  it("drops tools, charms, stickers, remover, wipes, the gift card and free gifts", () => {
+    for (const title of [
+      "Fatal Attraction Magnetic Wand",
+      "Gold Coquille Charms",
+      "Romance Me Ready-to-Wear Nail Art Stickers",
+      "Au Revoir Nail Polish Remover",
+      "Clean Sweep Lint Free Wipes",
+      "Shape Up Emery Nail Files",
+      "Cirque Colors Gift Card",
+      "🎁 Superfreak (100% off)",
+    ]) {
+      assert.equal(isCirqueColorsPolish(cirque(title)), false, title);
+    }
+  });
+
+  it("drops the creator profile pages (empty product_type, no finish tag)", () => {
+    for (const title of ["Elizabeth", "Tyler", "Polish with Rae"]) {
+      assert.equal(isCirqueColorsPolish(cirque(title)), false, title);
+    }
+  });
+
+  it("does not drop a shade whose name only contains a filter word inside another word", () => {
+    assert.equal(isCirqueColorsPolish({ title: "Sunset Park", product_type: "Retired Colors", tags: [] }), true);
+    assert.equal(isCirqueColorsPolish({ title: "Profiled", product_type: "Jelly", tags: "Jelly, Reds" }), true);
+  });
+});
+
 describe("store-filters — shopifyStoreProductVerdict", () => {
-  it("registers a filter for PahlishShopify only", () => {
-    assert.deepEqual(Object.keys(SHOPIFY_STORE_PRODUCT_FILTERS), ["PahlishShopify"]);
+  it("registers filters for PahlishShopify and CirqueColorsShopify only", () => {
+    assert.deepEqual(Object.keys(SHOPIFY_STORE_PRODUCT_FILTERS).sort(), ["CirqueColorsShopify", "PahlishShopify"]);
   });
 
   it("returns the store filter's verdict for a source that has one", () => {
@@ -162,6 +241,31 @@ describe("ShopifyGenericConnector applies the store pre-filter", () => {
   });
 
   const pull = { searchTerm: "", page: 1, pageSize: 100, maxRecords: 100 };
+
+  it("CirqueColorsShopify keeps coats with their rule category, not the tag-blocklist accessory", async () => {
+    globalThis.fetch = async () => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: { get: () => null },
+      text: async () =>
+        JSON.stringify({
+          products: ["Looking Glass Top Coat", "Get Ready Base Coat", "Organza", "Puddle", "Chocolatte Set"].map(cirque),
+        }),
+    });
+    const result = await new ShopifyGenericConnector("CirqueColorsShopify").pullProducts(pull);
+    // Cirque tags every coat "Top & Base Coat", and the rule classifier checks base coat wording
+    // before top coat, so its top coats come out base_coat (an admin override fixes one; see the PR).
+    assert.deepEqual(
+      result.records.map((record) => [record.normalized.name, record.normalized.productCategory]).sort(),
+      [
+        ["Get Ready Base Coat", "base_coat"],
+        ["Looking Glass Top Coat", "base_coat"],
+        ["Organza", "color"],
+        ["Puddle", "color"],
+      ]
+    );
+  });
 
   it("PahlishShopify ingests the 28 polishes from the fixture", async () => {
     const result = await new ShopifyGenericConnector("PahlishShopify").pullProducts(pull);
