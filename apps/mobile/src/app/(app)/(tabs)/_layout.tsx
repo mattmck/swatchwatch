@@ -36,6 +36,10 @@ export default function TabsLayout() {
         name="add"
         options={{ title: "Rapid Add", tabBarLabel: "Add", tabBarIcon: tabIcon("scan-outline", "scan") }}
       />
+      <Tabs.Screen
+        name="manis"
+        options={{ title: "Mani log", tabBarLabel: "Manis", tabBarIcon: tabIcon("calendar-outline", "calendar") }}
+      />
       <Tabs.Screen name="profile" options={{ title: "Profile", tabBarIcon: tabIcon("person-outline", "person") }} />
     </Tabs>
   );

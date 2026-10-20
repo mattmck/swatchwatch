@@ -16,9 +16,20 @@ export interface StoredTokens {
   idToken?: string;
 }
 
+/** Who signed in, kept so a launch without a connection can still open the saved data. */
+export interface StoredUser {
+  userId: number;
+  name: string;
+  email?: string;
+  role: "admin" | "user";
+}
+
 export interface StoredAuth {
   mode: "dev-bypass" | "entra";
   tokens?: StoredTokens;
+  user?: StoredUser;
+  /** OIDC token endpoint, so refreshing needs no discovery request. */
+  tokenEndpoint?: string;
 }
 
 export async function loadStoredAuth(): Promise<StoredAuth | null> {

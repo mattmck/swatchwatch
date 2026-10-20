@@ -26,11 +26,13 @@ import {
   refreshTokens,
   setDevSignedIn,
   setSessionExpiredHandler,
+  setSessionExtras,
   setTokens,
   tokensFromResponse,
 } from "./auth-token";
-import { clearStoredAuth, loadStoredAuth, saveStoredAuth, type StoredTokens } from "./token-store";
+import { clearStoredAuth, loadStoredAuth, saveStoredAuth, type StoredAuth, type StoredTokens } from "./token-store";
 import { entraApiScopes, entraExtraParams, entraIssuer, entraLoginScopes, entraRedirectUri } from "./entra-config";
+import { clearApiCache } from "@/lib/api-cache";
 import { claimString, decodeJwtPayload } from "./jwt";
 
 // Completes a pending auth popup when the web preview reloads on the redirect URI.
@@ -101,17 +103,17 @@ function DevBypassAuthProvider({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(false);
 
   /** Validate `Bearer dev:<id>` against the API; only then count as signed in. */
-  const validate = useCallback(async (): Promise<boolean> => {
+  const validate = useCallback(async (): Promise<AuthUser | null> => {
     const result = await validateAuth(devBearer());
     const next = userFromValidation(result, { name: `Dev user ${DEV_USER_ID}` });
     if (typeof next === "string") {
       setError(`${next} Is the local Functions host running with AUTH_DEV_BYPASS=true?`);
-      return false;
+      return null;
     }
     setDevSignedIn(true);
     setUser(next);
     setError(null);
-    return true;
+    return next;
   }, []);
 
   useEffect(() => {
@@ -125,6 +127,15 @@ function DevBypassAuthProvider({ children }: { children: ReactNode }) {
             return;
           }
         } catch (err) {
+          if (stored.user) {
+            // API unreachable: open the saved data; requests work again once it is back.
+            setDevSignedIn(true);
+            if (!cancelled) {
+              setUser(stored.user);
+              setStatus("signedIn");
+            }
+            return;
+          }
           if (!cancelled) setError(errorMessage(err));
         }
       }
@@ -138,8 +149,9 @@ function DevBypassAuthProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(async () => {
     setBusy(true);
     try {
-      if (await validate()) {
-        await saveStoredAuth({ mode: "dev-bypass" }).catch(() => undefined);
+      const signedIn = await validate();
+      if (signedIn) {
+        await saveStoredAuth({ mode: "dev-bypass", user: signedIn }).catch(() => undefined);
         setStatus("signedIn");
       }
     } catch (err) {
@@ -153,6 +165,7 @@ function DevBypassAuthProvider({ children }: { children: ReactNode }) {
     setDevSignedIn(false);
     setUser(null);
     await clearStoredAuth();
+    await clearApiCache();
     setStatus("signedOut");
   }, []);
 
@@ -193,11 +206,11 @@ function EntraAuthProvider({ settings, children }: { settings: EntraSettings; ch
 
   /** Adopt a token set: validate it with the API, then persist it and mark signed in. */
   const adopt = useCallback(
-    async (tokens: StoredTokens): Promise<boolean> => {
-      const discovery = await loadDiscovery();
+    async (tokens: StoredTokens, knownTokenEndpoint?: string): Promise<boolean> => {
+      const tokenEndpoint = knownTokenEndpoint ?? (await loadDiscovery()).tokenEndpoint ?? "";
       setTokens(tokens, {
         clientId: settings.clientId,
-        tokenEndpoint: discovery.tokenEndpoint ?? "",
+        tokenEndpoint,
         scopes: entraApiScopes(settings),
         extraParams,
       });
@@ -212,9 +225,10 @@ function EntraAuthProvider({ settings, children }: { settings: EntraSettings; ch
         setError(next);
         return false;
       }
+      setSessionExtras({ user: next, tokenEndpoint });
       // Persisting can fail on a device (e.g. a rejected oversized value); the session still
       // works for this run, the next launch just asks to sign in again.
-      await saveStoredAuth({ mode: "entra", tokens }).catch((err: unknown) => {
+      await saveStoredAuth({ mode: "entra", tokens, user: next, tokenEndpoint }).catch((err: unknown) => {
         console.warn("[Auth] Couldn't save the session", err);
       });
       setUser(next);
@@ -229,21 +243,34 @@ function EntraAuthProvider({ settings, children }: { settings: EntraSettings; ch
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      let stored: StoredAuth | null = null;
       try {
-        const stored = await loadStoredAuth();
+        stored = await loadStoredAuth();
         if (stored?.mode === "entra" && stored.tokens) {
-          const discovery = await loadDiscovery();
+          const tokenEndpoint = stored.tokenEndpoint ?? (await loadDiscovery()).tokenEndpoint ?? "";
           setTokens(stored.tokens, {
             clientId: settings.clientId,
-            tokenEndpoint: discovery.tokenEndpoint ?? "",
+            tokenEndpoint,
             scopes: entraApiScopes(settings),
             extraParams,
           });
+          // Before any refresh: it re-saves the session and must keep the saved identity.
+          setSessionExtras({ user: stored.user, tokenEndpoint });
           const fresh = isExpired(stored.tokens) ? await refreshTokens() : stored.tokens;
-          if (fresh && (await adopt(fresh))) return;
+          if (fresh && (await adopt(fresh, tokenEndpoint))) return;
           await clearStoredAuth();
         }
       } catch (err) {
+        if (stored?.mode === "entra" && stored.tokens && stored.user) {
+          // Offline or the identity service is unreachable: keep the session and open the
+          // saved data. Requests refresh the token themselves once the connection is back.
+          setSessionExtras({ user: stored.user, tokenEndpoint: stored.tokenEndpoint });
+          if (!cancelled) {
+            setUser(stored.user);
+            setStatus("signedIn");
+          }
+          return;
+        }
         if (!cancelled) setError(errorMessage(err));
       }
       if (!cancelled) setStatus((current) => (current === "signedIn" ? current : "signedOut"));
@@ -300,6 +327,7 @@ function EntraAuthProvider({ settings, children }: { settings: EntraSettings; ch
     setTokens(null);
     setUser(null);
     await clearStoredAuth();
+    await clearApiCache();
     setStatus("signedOut");
     // Best effort: end the Entra browser session too, so the next sign-in can pick an account.
     const endSession = discoveryRef.current?.endSessionEndpoint;
@@ -318,6 +346,7 @@ function EntraAuthProvider({ settings, children }: { settings: EntraSettings; ch
       setError("Your session expired. Sign in again.");
       setStatus("signedOut");
       void clearStoredAuth();
+      void clearApiCache();
     });
     return () => setSessionExpiredHandler(null);
   }, []);
