@@ -117,9 +117,11 @@ src/
     (app)/match.tsx       Match to Collection (web /polishes/match)
   api/client.ts           typed API client (mirrors apps/web/src/lib/api.ts)
   auth/                   auth provider, token holder, Entra config, secure storage
-  components/             UI primitives, swatch, polish row, verdict card, frame strip
+  components/             UI primitives, swatch, polish row, verdict card, frame strip,
+                          private image, nail photo section, log-a-mani sheet
   config/env.ts           EXPO_PUBLIC_* config and auth-mode resolution
-  lib/                    pure logic (+ *.test.ts): status rules, Rapid Add state, add guard
+  lib/                    pure logic (+ *.test.ts): status rules, Rapid Add state, add guard,
+                          photo match palette rules, private image URLs and memory cache
   theme/theme.tsx         light/dark theme from the shared design tokens
 ```
 
@@ -127,11 +129,11 @@ src/
 |---|---|---|
 | `/sign-in` | Sign-in (per auth mode) | `POST /auth/validate` |
 | `/` (tab) | Collection: Home panel (owned / wishlist / untried counts, Pick for me, one-tap Log today's mani), status presets (owned, untried, wishlist, destash, archived, all), filter, infinite scroll, pull to refresh | `GET /polishes?status=&untried=&search=`, `GET /polishes` (all owned, for the pick), `POST/DELETE /manicures` |
-| `/manis` (tab) | Mani log newest first, Log a mani sheet (owned polishes with roles, date, notes), delete; `?log=<shadeId>` opens the sheet with that polish | `GET/POST/DELETE /manicures` |
-| `/polishes/[id]` | Detail: swatches, finishes, hexes, status actions, Mark tried, Log today's mani (undo), owned-dupe callout, buy link | `GET/PUT/DELETE /polishes/{id}`, `GET /polishes/{id}/dupes`, `POST/DELETE /manicures` |
+| `/manis` (tab) | Mani log newest first with private photo thumbnails, Log a mani sheet (owned polishes with roles, date, notes, optional photo), delete; `?log=<shadeId>` opens the sheet with that polish | `GET/POST/DELETE /manicures`, `PUT /manicures/{id}/photo` |
+| `/polishes/[id]` | Detail: swatches, finishes, hexes, status actions, Mark tried, Log today's mani (undo), private nail photo (owned only), owned-dupe callout, buy link | `GET/PUT/DELETE /polishes/{id}`, `GET /polishes/{id}/dupes`, `POST/DELETE /manicures`, `GET/PUT/DELETE /inventory/{id}/nail-photo` |
 | `/search` (tab) | Catalog search with Add / ♡ Wishlist behind the add guard (#266); fuzzy suggestions when nothing matches | `GET /polishes?search=`, `GET /catalog/search` |
 | `/add` (tab) | Rapid Add (below) | `/capture/*` |
-| `/match` | Match a photo to owned polishes | `POST /polishes/match-image` |
+| `/match` | Match a photo to your collection, wishlist or the catalog; Add / ♡ Wishlist on matches | `POST /polishes/match-image`, `PUT /polishes/{id}` |
 | `/profile` (tab) | Signed-in user, API URL, sign-in mode, sign out | — |
 
 ## Rapid Add (Add tab)
@@ -160,15 +162,46 @@ src/
 ## Home, mani log and offline
 
 - **Pick for me** mirrors the web's weighting (`src/lib/pick-for-me.ts`: untried ×3, wear recency with a 2-day cooldown, thin hue × lightness cells ×2, never repeating the last three picks); the pick card logs today's mani in one tap with undo. The web's "Pair it" suggestions are not ported yet.
-- **Log a mani** (`src/lib/mani.ts`, `components/log-mani-sheet.tsx`) builds the same `POST /api/manicures` body as the web form; roles cycle on tap. The polish detail shows worn count, last worn and tried/untried.
-- **Stale-while-revalidate** (`src/lib/api-cache.ts`): the first page of each Collection filter set, the Home counts and the first page of the mani log are saved in AsyncStorage per user (7-day expiry, wiped on sign-out) and shown immediately while the fresh response loads. If the request fails the saved copy stays on screen with a banner. The signed-in user and token endpoint are stored with the session, so launching without a connection opens the saved data instead of the sign-in screen; the session is validated again as soon as a request reaches the API (a 401 or a rejected refresh token returns to sign-in).
+- **Log a mani** (`src/lib/mani.ts`, `components/log-mani-sheet.tsx`) builds the same `POST /api/manicures` body as the web form; roles cycle on tap. An optional photo (camera or library, re-encoded to JPEG ≤ 2048 px) is uploaded with `PUT /api/manicures/{id}/photo` right after the mani is created, the same order as the web form; if only the upload fails, the mani stays logged and the Manis tab says the photo wasn't saved. The Manis list shows each mani's photo as a private thumbnail. The polish detail shows worn count, last worn and tried/untried.
+- **Stale-while-revalidate** (`src/lib/api-cache.ts`): the first page of each Collection filter set, the Home counts and the first page of the mani log (without photo URLs) are saved in AsyncStorage per user (7-day expiry, wiped on sign-out) and shown immediately while the fresh response loads. If the request fails the saved copy stays on screen with a banner. The signed-in user and token endpoint are stored with the session, so launching without a connection opens the saved data instead of the sign-in screen; the session is validated again as soon as a request reaches the API (a 401 or a rejected refresh token returns to sign-in).
 
 ## Match to Collection
 
 `/match` (from Search or Rapid Add) takes a camera or library photo, downsizes it to a 512 px
 JPEG and calls `POST /api/polishes/match-image` (server-side palette extraction; the API never
-stores the image). Extracted colors filter the owned matches. On-device extraction (native
-Accelerate / Palette modules, #105) is still open in #109.
+stores the image) with the same request as the web page (#373: up to 8 colors, 8 matches each).
+It matches like the web (`src/lib/photo-match.ts`):
+
+- **Scope** chips: My collection (default), Wishlist or Whole catalog; changing it re-runs the
+  match on the photo already in memory.
+- **Palette chips** choose which colors take part, on the device (no re-upload): background
+  (light / shadow) and skin-tone colors are hidden by default unless the photo has nothing
+  else, "Show all colors" brings them back, and tapping a chip drops or restores it.
+- Matches are **grouped by photo color** (share of the photo, percent match and a Close match /
+  Similar / Loose chip). Not-owned matches get **Add** (or "I bought it" on the wishlist) and
+  **♡ Wishlist**, through the add guard (`src/lib/add-guard.ts`).
+- **Match another photo** clears the photo and results.
+
+On-device extraction (native Accelerate / Palette modules, #105) is still open in #109.
+
+## Nail photo
+
+The polish detail shows "On my nails" (`components/nail-photo-section.tsx`, web:
+`NailPhotoPanel`) only for a polish the caller owns that has an `inventoryItemId`, and never
+in Collection rows. It loads with `GET /api/inventory/{inventoryItemId}/nail-photo`
+(`{ photo: null }` = no photo yet; a 404 hides the card), takes a camera or library photo
+through `prepareJpeg` (≤ 2048 px JPEG) and saves it with `PUT`, and deletes after a confirm
+with `DELETE`. Loading, error and offline states use the shared `ErrorBanner` with Retry.
+
+Private media rules (shared with mani photos, `src/lib/private-image*.ts`,
+`components/private-image.tsx`):
+
+- Photos come back as owner-scoped `v3` image URLs. They are fetched only with the caller's
+  bearer token and only from the API origin; with no token the request is not sent.
+- The bytes become an in-memory data URI (small LRU) shown by `expo-image` with
+  `cachePolicy="none"`, so nothing is written to a disk cache; sign-out clears the memory.
+- Image bytes and capability URLs are never logged, and the offline mani-log copy in
+  AsyncStorage drops photo URLs.
 
 ## Design tokens
 
