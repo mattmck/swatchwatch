@@ -21,6 +21,7 @@ import {
 import { SwatchThumbnail } from "@/components/swatch-thumbnail";
 import { cn } from "@/lib/utils";
 import { CONFIDENCE_META, formatFraction, matchPercent } from "./match-utils";
+import { detailHref } from "@/lib/detail-href";
 
 // ── Upload ───────────────────────────────────────────────────────────────────
 
@@ -336,7 +337,7 @@ export function MatchResultsList({ matches, renderActions, onOpen, hideMatchedCo
         return (
           <li key={polish.id} className="flex flex-wrap items-center gap-x-2 rounded-md transition-colors hover:bg-muted">
             <Link
-              href={`/polishes/detail?id=${polish.id}`}
+              href={detailHref(polish.id)}
               onClick={() => onOpen?.(match, rank)}
               className="flex min-w-[14rem] flex-1 items-center gap-3 overflow-hidden p-2"
             >

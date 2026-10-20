@@ -25,6 +25,7 @@ import { PickForMeCard } from "@/components/pick-for-me";
 import { CollectionStatsSection } from "@/components/stats/collection-stats-section";
 import type { LucideIcon } from "lucide-react";
 import { Building2, Droplets, FlaskConical, Heart, Sparkles, Star } from "lucide-react";
+import { detailHref } from "@/lib/detail-href";
 
 type StatCard = {
   key: string;
@@ -282,7 +283,7 @@ export default function DashboardPage() {
                   {recentPolishes.map((polish) => (
                     <Link
                       key={polish.id}
-                      href={`/polishes/detail?id=${polish.id}`}
+                      href={detailHref(polish.id)}
                       className="flex items-center gap-3 rounded-md p-2 transition-colors hover:bg-muted"
                     >
                       <ColorDot hex={resolveDisplayHex(polish)} size="md" />
