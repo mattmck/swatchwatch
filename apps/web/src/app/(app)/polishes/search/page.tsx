@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useMemo, useCallback, useEffect, useRef, Suspense } from "react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { Polish, PolishUpdateRequest } from "swatchwatch-shared";
 import { polishHasFinish, resolveDisplayHex } from "swatchwatch-shared";
 import type { IconType } from "react-icons";
 import { BsCurrencyDollar, BsPlusLg, BsQuestionCircleFill, BsTrash3Fill } from "react-icons/bs";
 import { GiPerfumeBottle } from "react-icons/gi";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronUp } from "lucide-react";
 import { getPolishDupes, listPolishes, updatePolish } from "@/lib/api";
 import { buildBrandOptions, matchesBrandFilter } from "@/lib/polish-filters";
 import { isArchivingChange, isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
@@ -54,6 +55,7 @@ import {
   parseColorSearchState,
   type ColorSearchUrlState,
 } from "@/lib/color-search-url";
+import { returnToLabel } from "@/lib/detail-href";
 import { toast } from "sonner";
 
 type ResultsScope = "all" | "collection";
@@ -211,6 +213,8 @@ function ColorSearchPageContent() {
   const [lightness, setLightness] = useState(initialHsl?.l ?? 0.5);
   const [selectedHsl, setSelectedHsl] = useState<HSL | null>(initialHsl);
   const [paletteAnchors, setPaletteAnchors] = useState<string[]>(initialUrlState.paletteAnchors);
+  // Page that opened this search (e.g. a look's "Color Lab" link, #386); kept in the URL.
+  const [openedFrom, setOpenedFrom] = useState<string | null>(initialUrlState.returnTo);
   const [anchorFeedback, setAnchorFeedback] = useState<string | null>(null);
   const [previewHex, setPreviewHex] = useState<string | null>(null);
   const [externalHoverHex, setExternalHoverHex] = useState<string | null>(null);
@@ -257,10 +261,12 @@ function ColorSearchPageContent() {
       paletteAnchors,
       target: lockedTarget,
       paletteId: activeRecommendedPaletteId,
+      returnTo: openedFrom,
     }),
     [
       selectedHex, includeAllHarmonies, harmonyType, wheelMode, harmonyColorSet, resultsScope, toneFilter,
       brandFilter, finishFilter, availabilityFilter, paletteAnchors, lockedTarget, activeRecommendedPaletteId,
+      openedFrom,
     ]
   );
   const queryString = useMemo(() => buildColorSearchQueryString(urlState), [urlState]);
@@ -288,6 +294,7 @@ function ColorSearchPageContent() {
     setLockedTarget(next.target);
     setFocusedTargetHex(next.target);
     setActiveRecommendedPaletteId(next.paletteId);
+    setOpenedFrom(next.returnTo);
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [searchParamsString, setLockedTarget]);
 
@@ -793,6 +800,15 @@ function ColorSearchPageContent() {
   return (
     <div className="space-y-6">
       <div>
+        {openedFrom ? (
+          <Link
+            href={openedFrom}
+            className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="size-4" aria-hidden="true" />
+            Back to {returnToLabel(openedFrom)}
+          </Link>
+        ) : null}
         <h1 className="heading-page">Color Search</h1>
         <p className="text-muted-foreground">
           Explore your collection by color. Hover to preview, click to select.

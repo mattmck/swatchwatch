@@ -29,6 +29,7 @@ export const METRIC_EVENTS = {
   importCompleted: "import.completed",
   looksGenerated: "looks.generated",
   looksWearClicked: "looks.wear_clicked",
+  looksColorLabOpened: "looks.color_lab_opened",
   onboardingStepClicked: "onboarding.step_clicked",
   matchImageProcessed: "match.image_processed",
   matchResultAction: "match.result_action",
@@ -283,6 +284,8 @@ export interface LooksGeneratedInput {
   /** Owned polishes the recommender considered. */
   ownedCount: number;
   trigger: LooksTrigger;
+  /** The "Include toppers" toggle (#386; default on). */
+  includeToppers?: boolean;
 }
 
 export function looksGeneratedEvent(input: LooksGeneratedInput): MetricEvent {
@@ -294,6 +297,7 @@ export function looksGeneratedEvent(input: LooksGeneratedInput): MetricEvent {
       mood: input.vibe.mood,
       finish: input.vibe.finish ?? "any",
       ownedOnly: input.vibe.ownedOnly,
+      includeToppers: input.includeToppers ?? true,
       trigger: input.trigger,
       lookCount: input.looks.length,
       ownedSteps: sum("ownedSteps"),
@@ -306,12 +310,17 @@ export function looksGeneratedEvent(input: LooksGeneratedInput): MetricEvent {
   };
 }
 
+/** Where a Looks action was taken: a live look card, its details drawer, or the Saved tab. */
+export type LooksSurface = "card" | "drawer" | "saved";
+
 export interface LooksWearClickedInput {
   look: LookCounts;
   /** Whether the user swapped any step before wearing. */
   swapped: boolean;
-  /** 0-based card position. */
+  /** 0-based card position (in the Saved list for `surface: "saved"`). */
   position: number;
+  /** Default `card`. */
+  surface?: Exclude<LooksSurface, "drawer">;
 }
 
 export function looksWearClickedEvent(input: LooksWearClickedInput): MetricEvent {
@@ -323,6 +332,28 @@ export function looksWearClickedEvent(input: LooksWearClickedInput): MetricEvent
       ownedSteps: input.look.ownedSteps,
       missingSteps: input.look.missingSteps,
       swapped: input.swapped,
+      surface: input.surface ?? "card",
+    },
+  };
+}
+
+export interface LooksColorLabOpenedInput {
+  look: LookCounts;
+  surface: LooksSurface;
+  /** 0-based card position (in the Saved list for `surface: "saved"`). */
+  position: number;
+}
+
+/** "Open in Color Lab" (#386): the look's palette handed to `/polishes/search`. */
+export function looksColorLabOpenedEvent(input: LooksColorLabOpenedInput): MetricEvent {
+  return {
+    name: METRIC_EVENTS.looksColorLabOpened,
+    properties: {
+      template: input.look.templateId,
+      surface: input.surface,
+      position: input.position,
+      ownedSteps: input.look.ownedSteps,
+      missingSteps: input.look.missingSteps,
     },
   };
 }
@@ -333,6 +364,10 @@ export function trackLooksGenerated(input: LooksGeneratedInput, tracker: MetricT
 
 export function trackLooksWearClicked(input: LooksWearClickedInput, tracker: MetricTracker = defaultTracker): void {
   emit(looksWearClickedEvent(input), tracker);
+}
+
+export function trackLooksColorLabOpened(input: LooksColorLabOpenedInput, tracker: MetricTracker = defaultTracker): void {
+  emit(looksColorLabOpenedEvent(input), tracker);
 }
 
 export function trackOnboardingStepClicked(

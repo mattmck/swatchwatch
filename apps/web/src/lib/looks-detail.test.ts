@@ -91,7 +91,7 @@ describe("lookShareText", () => {
 
 describe("lookShareUrl", () => {
   it("is the page URL with the vibe and seed, nothing personal", () => {
-    const state = { vibe: { occasion: "party", mood: "edgy", finish: "chrome", ownedOnly: true }, seed: 9 } as const;
+    const state = { vibe: { occasion: "party", mood: "edgy", finish: "chrome", ownedOnly: true }, seed: 9, toppers: false } as const;
     assert.equal(
       lookShareUrl("https://app.example", "/polishes/looks/", state),
       `https://app.example/polishes/looks/?${buildLooksQueryString(state)}`
