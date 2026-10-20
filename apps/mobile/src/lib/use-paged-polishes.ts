@@ -40,9 +40,13 @@ export function usePagedPolishes(filters: PolishFilters, cacheScope?: string): P
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [failed, setFailed] = useState<{ key: string; message: string } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  /** Filter set (key) with a "load more" in flight; derived, so a filter change clears it. */
-  const [loadingMoreKey, setLoadingMoreKey] = useState<string | null>(null);
-  const loadingMore = loadingMoreKey === key;
+  /**
+   * The "load more" in flight: its filter set (key), so a filter change clears `loadingMore`
+   * without touching state, and a per-request id, so only that request clears it.
+   */
+  const [loadingMoreRequest, setLoadingMoreRequest] = useState<{ key: string; id: number } | null>(null);
+  const loadingMore = loadingMoreRequest?.key === key;
+  const loadMoreId = useRef(0);
   /**
    * Request generation: bumped on every filter change and refresh. A response from an older
    * generation is dropped, so a slow "load more" can never land on a newer list (skipping
@@ -107,18 +111,21 @@ export function usePagedPolishes(filters: PolishFilters, cacheScope?: string): P
     // A new generation also cancels an in-flight "load more".
     generation.current += 1;
     setRefreshing(true);
-    setLoadingMoreKey(null);
+    setLoadingMoreRequest(null);
     void fetchPage(key, 1, generation.current).finally(() => setRefreshing(false));
   }, [fetchPage, key]);
 
   const loadMore = useCallback(() => {
     if (!current || loadingMore || refreshing || !hasMore) return;
     const requestGeneration = generation.current;
-    setLoadingMoreKey(key);
+    loadMoreId.current += 1;
+    const id = loadMoreId.current;
+    setLoadingMoreRequest({ key, id });
     void fetchPage(key, current.page + 1, requestGeneration).finally(() => {
-      // Clear the flag whenever it is still ours, even if a filter change made this request
-      // stale: otherwise going A → B → A while it was in flight leaves A's pagination blocked.
-      setLoadingMoreKey((loadingKey) => (loadingKey === key ? null : loadingKey));
+      // Clear the flag whenever it is still this request's, even if a filter change made the
+      // request stale (otherwise A → B → A while it was in flight leaves A's pagination
+      // blocked), but never a newer request's, such as a "load more" started after a refresh.
+      setLoadingMoreRequest((active) => (active?.id === id ? null : active));
     });
   }, [current, fetchPage, hasMore, key, loadingMore, refreshing]);
 
