@@ -6,7 +6,7 @@ Smart nail polish collection manager. **npm workspaces monorepo** with three dep
 
 ```
 apps/web          → Next.js 16 (App Router) + Tailwind v4 + shadcn/ui → Azure Static Web App
-apps/mobile       → Expo / React Native (SDK 54, RN 0.81)
+apps/mobile       → Expo / React Native (SDK 57, RN 0.86) + Expo Router
 packages/functions → Azure Functions v4 (Node 22, TS)    → Azure Linux Function App
 packages/shared    → Shared TypeScript types (polish, user, voice)
 infrastructure/    → Terraform (azurerm ~4.50) for all Azure resources
@@ -15,6 +15,8 @@ infrastructure/    → Terraform (azurerm ~4.50) for all Azure resources
 **Data flow:** Clients → Azure Functions REST API (`/api/polishes`, `/api/polish-imports`, `/api/auth/*`, `/api/voice`) → Azure Database for PostgreSQL Flexible Server (schema in `docs/schema.sql`). Voice input goes through Azure Speech Services → Azure OpenAI for parsing polish details from transcriptions. Full canonical schema uses `pg_trgm` for fuzzy shade matching and `pgvector` for swatch similarity/dupe search.
 
 **Finishes:** shades carry `shade.finishes text[]` (canonical, primary first) plus the legacy `shade.finish` (identity key, kept for backward compat). At runtime the admin-managed `finish_type` table is the source of truth for which finishes are valid, and `finish_normalization` holds the alias spellings; both are loaded together (one cached query) by `loadFinishCatalog()` in `packages/functions/src/lib/finishes.ts`, so a finish type created only in the admin UI is fully usable (parsing, validation, filtering, form options). `CANONICAL_FINISHES` in `packages/shared` holds the built-in seeded defaults, used for typing (`PolishFinish`) and as the fallback when the DB/reference API is unavailable; a test keeps it equal to the migration seeds. Request `tags` on polish create/update never modify catalog finishes (shades are shared); only ingestion connectors parse finishes from product tags. **Catalog write rule (#224):** user-supplied `finishes`/`finish` and color fields (`color`, `vendorHex`, `detectedHex`, `nameHex`) are written to a shade only when the request creates it; adopting, matching or updating an existing shared shade never changes them (not even to fill an empty value), except that a user may keep correcting their own private `user_submitted` shade. A `finish_type` still used by any shade (`shade.finishes` or legacy `shade.finish`) or `finish_normalization` alias cannot be deleted: `DELETE /api/reference-admin/finishes/{id}` returns 409 with the usage counts (`FinishTypeInUseResponse`). Renaming one (`PUT` with a new `name`) cascades in one transaction: `finish_type.name` and the `finish_normalization` rows pointing at it change in a single statement (non-deferrable FK), `shade.finishes`/`detected_finishes` entries are rewritten, and an alias old → new name is added; the legacy `shade.finish` is never rewritten because it is the raw vendor dedup key. A name another type already has (any case) returns 409 `FinishTypeNameTakenResponse`. AI prompts (vision hex/finish detection, sync and batch, and label OCR) list the finishes from `finishNamesForPrompt(loadFinishCatalog())`, falling back to `CANONICAL_FINISHES`. **Finish families (#320, D10):** each `finish_type` has an optional `family` (`FINISH_FAMILIES` in `packages/shared`: solid, shimmer, holo, glitter, matte, thermal, glow; CHECK-constrained, migration 20261018175839000_finish-type-family seeds the built-ins), editable in the admin Configuration tab. `loadFinishCatalog()` returns it as `families` (`buildFinishFamilyMap`, catalog rows over the static `DUPE_FINISH_FAMILIES` fallback, which a test keeps equal to the seeds), and the dupe endpoints and the web's client-side add-guard check grade with it; a finish without a family still grades `unknown` and is never penalized. The API always sends `family` (`null` = none); a payload without the key keeps the built-in family. **Product text (#352):** every connector also stores `descriptionText` and `descriptors` in `external_product.normalized_json` (`lib/product-text.ts`; no shade column, reached via `shade_source_product`, never in user-facing responses). Ingestion resolves finishes by precedence in `lib/finish-text.ts`: tags win, then descriptors, then description text (catalog names + aliases with negation/cross-sell/brand guards); text-derived finishes only fill a shade that has none. The vision prompt gets the text as a labeled vendor hint (`PROMPT_VERSION` `vision-direct/2026-10-v3`).
+
+**Mobile app (#109):** `apps/mobile` is an Expo Router app whose route groups mirror the web (`src/app/(app)/(tabs)` = Collection / Search / Add / Profile behind `Stack.Protected`, `sign-in` outside), with the web's three auth modes (dev bypass `Bearer dev:<id>`, Entra External ID via `expo-auth-session` authorization code + PKCE with tokens in `expo-secure-store`, not configured), every session checked with `POST /api/auth/validate`, and a typed client mirroring `apps/web/src/lib/api.ts` (`src/api/client.ts`). Native Rapid Add (Add tab) scans GTINs on device with `expo-camera` (validated by the shared `barcode/gtin.ts`; iOS's 0-prefixed EAN-13 is sent as the printed UPC-A because `barcode.gtin` lookups are exact), uploads tagged frames with retry, and answers from the read-only `POST /api/capture/{id}/check` (own it / on wishlist / near-dupe / new / pick / not found); it never adds until the user taps Add (`PUT /api/polishes/{shadeId}`, or `finalize` for a shade-less SKU). Colors come from `packages/shared/src/constants/design-tokens.ts`, generated from the web's `globals.css` by `npm run sync:design-tokens` (CI `--check`). The root `package.json` `overrides` pins `react`/`react-dom` to one version (React Native's renderer must match React exactly). See `apps/mobile/README.md`.
 
 **Inventory status:** each `user_inventory_item` has `status` (`owned | wishlist | destash | archived`, CHECK-constrained; `PolishStatus` / `POLISH_STATUSES` in `packages/shared`), `tried_at`, `last_worn_at` and `wear_count` (migration 20261017061336791_inventory-status). Ownership is only ever `status = 'owned'` (web: `isOwnedPolish` in `apps/web/src/lib/inventory-status.ts`); never infer ownership or wishlist from `quantity`. "Untried" is derived (`owned AND tried_at IS NULL`, `Polish.isUntried`), not a status. `GET /api/polishes` filters with `status=` (comma list) and `untried=true`; create/update validation lives in `packages/functions/src/lib/inventory.ts`. Status rules (decision D5): a new row without `status` is `owned` (only an explicit `quantity: 0` gives `wishlist`); running out archives (`status: "archived"`, reason `used_up`/`decluttered` stored as an `inventory_event`, see `planArchiveEvent`), never wishlists; only an explicit Rebuy / ♡ moves an archived polish to the wishlist; CSV-import rows with quantity 0 and no status wait for the user's wishlist/archived choice. The `/polishes` ownership filters are a single `status=` URL list (`apps/web/src/lib/polish-list-url.ts`).
 
@@ -49,7 +51,7 @@ npm run setup            # Install workspace dependencies (npm ci)
 npm run dev              # Shared types + Functions + web (parallel)
 npm run dev:infra        # Start local Postgres + Azurite containers
 npm run dev:web          # Next.js dev server (port 3000)
-npm run dev:mobile       # Expo start
+npm run dev:mobile       # Build shared types, then Expo start (apps/mobile; copy .env.example → .env.local)
 npm run dev:functions    # Functions TypeScript watch + func host
 npm run build            # Build all workspaces (shared → web → functions)
 npm run build:shared     # Build shared types only
@@ -59,7 +61,10 @@ npm run lint             # ESLint across all workspaces
 npm run typecheck        # tsc --noEmit across all workspaces
 npm run migrate          # Run Postgres migrations (needs DATABASE_URL)
 npm run migrate:down     # Roll back last migration
+npm run sync:design-tokens  # Regenerate packages/shared/src/constants/design-tokens.ts (hex light/dark palettes for mobile) from apps/web/src/app/globals.css; `-- --check` fails on drift (CI)
 npm run generate:pwa-icons  # Regenerate PWA/apple-touch PNG icons in apps/web/public from the brand SVG (sharp; commit the PNGs)
+npm run lint --workspace=apps/mobile                 # Mobile ESLint (eslint-config-expo); typecheck: npm run typecheck --workspace=apps/mobile
+npm run test --workspace=apps/mobile                 # Mobile unit tests (node:test via tsx: Rapid Add state, status rules)
 npm run test --workspace=swatchwatch-functions      # Functions unit tests (no DB; includes access-control isolation tests)
 npm run test:e2e --workspace=swatchwatch-functions  # E2E API + cross-user access-control tests against a running local host (skips if unreachable)
 npm run eval:hex --workspace=swatchwatch-functions -- --strategy pixel            # Hex-detection ground-truth eval (strategies: azure-current, azure-blind, pixel, region-crop, palette-pick, image-select, image-select-ai, blind-snap, image-select-ai-snap, ensemble; `--list-strategies` for all; Azure ones skip without config; region-crop knobs: HEX_EVAL_REGION_CROP_MODE/CELLS/DETAIL)
@@ -233,6 +238,11 @@ Web (build-time `NEXT_PUBLIC_*`, inlined into the static export; set in `.github
 - `NEXT_PUBLIC_APPLICATIONINSIGHTS_CONNECTION_STRING` — enables browser telemetry (`apps/web/src/lib/telemetry.ts`: page views, exceptions, fetch dependencies correlated with Functions requests via W3C `traceparent`). Unset = telemetry off (local dev default). The deploy workflow reads it from the Terraform output `application_insights_connection_string`; a missing output leaves telemetry off without failing the deploy
 - `NEXT_PUBLIC_APPINSIGHTS_SAMPLING` — browser telemetry sampling percentage, `(0, 100]` (default `100`); deploy reads the `NEXT_PUBLIC_APPINSIGHTS_SAMPLING` GitHub environment variable
 
+Mobile (`apps/mobile/.env.local`, from `.env.example`; `EXPO_PUBLIC_*` are inlined at bundle time, never secrets; details in `apps/mobile/README.md`):
+- `EXPO_PUBLIC_API_URL` — Functions API base URL (default `http://localhost:7071/api`; `localhost` becomes `10.0.2.2` on the Android emulator)
+- `EXPO_PUBLIC_AUTH_DEV_BYPASS` / `EXPO_PUBLIC_AUTH_DEV_USER_ID` — dev bypass (`Bearer dev:<id>`, default user `1`); unset = on in development builds without Entra settings, `false` = off
+- `EXPO_PUBLIC_B2C_TENANT`, `EXPO_PUBLIC_B2C_TENANT_ID`, `EXPO_PUBLIC_B2C_CLIENT_ID`, `EXPO_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY`, `EXPO_PUBLIC_B2C_API_SCOPE` — same tenant/app registration as the web's `NEXT_PUBLIC_B2C_*`; native sign-in needs the redirect URI `swatchwatch://auth` registered on the app registration's "Mobile and desktop applications" platform
+
 Infra (GitHub environment settings read by `.github/workflows/deploy-infra.yml`, exported as `TF_VAR_*`; see `infrastructure/README.md`):
 - `ALERT_EMAIL` — address the prod alert action group emails (`TF_VAR_alert_email`). Set it as an environment **secret** so it is masked in logs (a variable also works); never commit it to tfvars
 - `MANAGE_CIAM_SERVICE_PRINCIPAL` — `true` lets Terraform import and manage the web sign-in app's service principal in the External ID tenant (`app_role_assignment_required = false`); default `false`. Needs `CIAM_TENANT_ID` and `CIAM_TERRAFORM_CLIENT_ID` (deployer app in the CIAM tenant with a GitHub OIDC federated credential + Cloud Application Administrator; one-time bootstrap in `infrastructure/README.md`)
@@ -263,7 +273,7 @@ When you add, remove, or modify functionality, update the relevant docs as part 
 
 | What changed | Update these |
 |---|---|
-| New route or page | Web App Routes table above + `apps/web/README.md` |
+| New route or page | Web App Routes table above + `apps/web/README.md` (mobile: `apps/mobile/README.md` routes table) |
 | New/changed API endpoint | `packages/functions/README.md` route table |
 | New shared type | `packages/shared/README.md` type catalog |
 | New component | `apps/web/README.md` components section |
@@ -287,6 +297,7 @@ Documentation files in this project:
 - `docs/retro-m2.md` — M2 retro (#274): what shipped in release #340, decisions, §4 metric readings, open issues, Q1 candidates
 - `docs/azure-iac-bom.md` — per-environment Azure resource bill of materials
 - `apps/web/README.md` — web app routes, components, conventions
+- `apps/mobile/README.md` — mobile (Expo) app: run, env, auth + redirect URI, routes, Rapid Add, design tokens
 - `packages/functions/README.md` — API routes, handler patterns
 - `packages/functions/local.settings.json.example` — canonical template for all Functions env vars (copy → `local.settings.json`, gitignored)
 - `packages/shared/README.md` — shared type catalog
