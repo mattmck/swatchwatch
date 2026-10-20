@@ -273,7 +273,7 @@ export function CameraCapture({
               aria-checked={frameType === option.value}
               onClick={() => onFrameTypeChange(option.value)}
               className={cn(
-                "rounded-md px-3 py-1 text-xs font-medium transition-colors",
+                "rounded-md px-3 py-1 text-xs font-medium transition-colors pointer-coarse:py-2.5",
                 frameType === option.value
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:text-foreground",
