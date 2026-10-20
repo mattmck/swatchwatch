@@ -40,7 +40,9 @@ import {
   extractImagePalette,
   MatchImageInputError,
   parseMatchImageRequest,
+  rankColorMatches,
   rankPolishMatches,
+  type ParsedMatchImageRequest,
 } from "../lib/color-match";
 import {
   canonicalizeFinish,
@@ -52,6 +54,7 @@ import {
 } from "../lib/finishes";
 import { withBuyUrls } from "../lib/buy-link";
 import { parseColorFamilyFilter } from "../lib/color-family-filter";
+import { buildMatchCandidateWhere } from "../lib/match-image-query";
 import {
   ARCHIVE_EVENT_EDIT_WINDOW_HOURS,
   ARCHIVE_EVENT_TYPES,
@@ -1553,7 +1556,9 @@ const MATCH_IMAGE_MAX_BODY_BYTES = Math.ceil((5 * 1024 * 1024 * 4) / 3) + 16 * 1
 
 /**
  * POST /api/polishes/match-image — extract the dominant colors of an uploaded
- * photo and rank the caller's owned polishes by OKLAB distance to them.
+ * photo and rank the caller's shades by OKLAB distance to them: the owned
+ * collection by default, or the wishlist / whole visible catalog (`scope`),
+ * optionally narrowed by `finishes` and `families` (#105).
  *
  * Privacy: the image is decoded in memory only. It is never written to blob
  * storage, the database, the cache, or logs.
@@ -1582,11 +1587,10 @@ async function matchImage(
   }
 
   let extractedColors: PolishImageMatchResponse["extractedColors"];
-  let limit: number;
+  let parsed: ParsedMatchImageRequest;
   try {
-    const parsed = parseMatchImageRequest(body);
-    limit = parsed.limit;
-    extractedColors = await extractImagePalette(parsed.bytes, parsed.maxColors);
+    parsed = parseMatchImageRequest(body);
+    extractedColors = await extractImagePalette(parsed.bytes, parsed.maxColors, parsed);
   } catch (error) {
     if (error instanceof MatchImageInputError) {
       return { status: 400, jsonBody: { error: error.message } };
@@ -1596,35 +1600,104 @@ async function matchImage(
     return { status: 500, jsonBody: { error: "Failed to process image" } };
   }
 
+  const { scope } = parsed;
   if (extractedColors.length === 0) {
-    const emptyBody: PolishImageMatchResponse = { extractedColors: [], matches: [], candidateCount: 0 };
+    const emptyBody: PolishImageMatchResponse = {
+      extractedColors: [],
+      matches: [],
+      colorMatches: [],
+      candidateCount: 0,
+      scope,
+    };
     return { status: 200, jsonBody: emptyBody };
   }
 
   try {
-    // Owned polishes only: POLISH_SELECT's inventory LEFT JOIN is scoped to $1,
-    // so requiring an inventory row with status 'owned' limits this to the
-    // caller's own collection.
-    const result = await query<Polish>(
-      `${POLISH_SELECT}
-       WHERE ui.inventory_item_id IS NOT NULL
-         AND ui.status = 'owned'
-         AND ${POLISH_VISIBLE_SQL}`,
-      [userId]
+    let canonicalFinishes: string[] = [];
+    let legacyFinishes: string[] = [];
+    if (parsed.finishes.length > 0) {
+      canonicalFinishes = canonicalizeFinishes(parsed.finishes, await loadFinishCatalog());
+      legacyFinishes = Array.from(
+        new Set([
+          ...parsed.finishes,
+          ...canonicalFinishes,
+          ...(canonicalFinishes.includes("creme") ? ["cream"] : []),
+        ])
+      );
+    }
+
+    // Stage 1: score lightweight rows (ids + hexes) so the whole catalog stays cheap to rank.
+    // The inventory LEFT JOIN is scoped to the caller ($1), so the owned/wishlist scopes only
+    // ever see the caller's own rows, and POLISH_VISIBLE_SQL hides other users' private shades.
+    const candidateWhere = buildMatchCandidateWhere(
+      { scope, canonicalFinishes, legacyFinishes, families: parsed.families },
+      POLISH_VISIBLE_SQL
+    );
+    const candidates = await query<Polish>(
+      `SELECT s.shade_id::text                       AS id,
+              COALESCE(b.name_canonical, '')         AS brand,
+              COALESCE(s.shade_name_canonical, '')   AS name,
+              s.vendor_hex                           AS "vendorHex",
+              s.detected_hex                         AS "detectedHex",
+              s.name_hex                             AS "nameHex"
+       FROM shade s
+       JOIN brand b ON s.brand_id = b.brand_id
+       LEFT JOIN user_inventory_item ui
+         ON ui.shade_id = s.shade_id
+        AND ui.user_id = $1
+       WHERE ${candidateWhere.where}`,
+      [userId, ...candidateWhere.params]
     );
 
-    const polishes = mapReadableSwatchUrls(result.rows, request.url);
-    const { matches, candidateCount } = rankPolishMatches(polishes, extractedColors, limit);
+    const { matches: flatMatches, candidateCount } = rankPolishMatches(candidates.rows, extractedColors, parsed.limit);
+    const groups = rankColorMatches(candidates.rows, extractedColors, parsed.perColorLimit);
+
+    // Stage 2: full polish rows (caller's inventory fields, swatch image) for the winners only.
+    const winnerIds = Array.from(
+      new Set([...flatMatches, ...groups.flatMap((group) => group.matches)].map((match) => match.polish.id))
+    );
+    const fullById = new Map<string, Polish>();
+    if (winnerIds.length > 0) {
+      const full = await query<Polish>(
+        `${POLISH_SELECT}
+         WHERE s.shade_id = ANY($2::bigint[])
+           AND ${POLISH_VISIBLE_SQL}`,
+        [userId, winnerIds]
+      );
+      for (const polish of mapReadableSwatchUrls(full.rows, request.url)) {
+        fullById.set(polish.id, polish);
+      }
+    }
+    const hydrate = (list: PolishImageMatchResponse["matches"]) =>
+      list.flatMap((match) => {
+        const polish = fullById.get(match.polish.id);
+        return polish ? [{ ...match, polish }] : [];
+      });
+
+    const matches = hydrate(flatMatches);
+    const colorMatches = groups.map((group) => ({ hex: group.hex, matches: hydrate(group.matches) }));
 
     trackEvent("polish.match_image", {
       userId,
+      scope,
+      finishFilterCount: parsed.finishes.length,
+      familyFilterCount: parsed.families.length,
+      excludeSkinTones: parsed.excludeSkinTones,
+      excludeBackground: parsed.excludeBackground,
+      preferVibrant: parsed.preferVibrant,
       extractedColorCount: extractedColors.length,
       candidateCount,
       matchCount: matches.length,
       highConfidenceCount: matches.filter((m) => m.confidence === "high").length,
     });
 
-    const responseBody: PolishImageMatchResponse = { extractedColors, matches, candidateCount };
+    const responseBody: PolishImageMatchResponse = {
+      extractedColors,
+      matches,
+      colorMatches,
+      candidateCount,
+      scope,
+    };
     return { status: 200, jsonBody: responseBody };
   } catch (error: any) {
     context.error("Error matching polishes to image:", error);

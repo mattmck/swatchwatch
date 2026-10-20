@@ -120,12 +120,14 @@ Roadmap §4 (`docs/roadmap-2026-10-to-12.md`) metrics are measured two ways (dec
 
 | Event | When | Properties |
 |---|---|---|
-| `dupe.warning_shown` | the add guard dialog opens with owned near-dupes | `surface` (`add_form` = adding to the collection, `wishlist` = adding to the wishlist, `rapid_add` = Rapid Add verdict card), `dupeCount`, `bestGrade` (`HIGH` / `MEDIUM`); add-guard extras: `page` (`polishes-list` / `color-search` / `polish-form-create` / `polish-form-edit`), `intent`, `shade` (catalog id or `new`), `verdict`, `highCount`, `bestFinishCompatibility`, `bestDistance` |
+| `dupe.warning_shown` | the add guard dialog opens with owned near-dupes | `surface` (`add_form` = adding to the collection, `wishlist` = adding to the wishlist, `rapid_add` = Rapid Add verdict card), `dupeCount`, `bestGrade` (`HIGH` / `MEDIUM`); add-guard extras: `page` (`polishes-list` / `color-search` / `photo-match` / `polish-form-create` / `polish-form-edit`), `intent`, `shade` (catalog id or `new`), `verdict`, `highCount`, `bestFinishCompatibility`, `bestDistance` |
 | `dupe.warning_outcome` | the user answers the dialog | the same, plus `outcome` = `cancel` / `wishlist_instead` / `add_anyway`, `via` (`button` / `dismiss` / `dupe_link`), `suppressed` |
 | `mani.logged` | a new mani is saved (not edits) | `polishCount`, `via` (`quick` = one-tap button, `form`) |
 | `import.completed` | a CSV import commits (a retried commit of the same session is not counted again) | `rowsCommitted` (= `created` + `updated`), `created`, `updated`, `skipped`, `failed`, `shadesCreated` |
 | `looks.generated` | `/polishes/looks` shows a set of looks: first render, a vibe change, or Shuffle (once per URL state, after any catalog gap fill) | `occasion`, `mood`, `finish` (`any` when unset), `ownedOnly`, `trigger` (`shuffle` = the Shuffle button; `vibe` = first render, a vibe change, or Back/Forward), `lookCount`, `ownedSteps`, `missingSteps`, `fullyOwnedLooks`, `ownedCount` (owned polishes considered), `shortfall` (fewer than 3 looks fit), `templates` (comma list of look template ids, e.g. `french-modern`) |
 | `looks.wear_clicked` | "Wear this" on a look card (opens the mani-log dialog prefilled with its owned polishes and roles; a saved mani still emits `mani.logged`) | `template`, `position` (0-based card), `ownedSteps`, `missingSteps`, `swapped` (any step swapped first) |
+| `match.image_processed` | `/polishes/match` shows results for a photo (#105): a new photo, a focused area, or a scope/finish/family change (also when served from the in-memory cache) | `trigger` (`upload` incl. drag-and-drop / `camera` / `region` / `filters`), `scope` (`owned` / `wishlist` / `catalog`), `finishFiltered`, `familyFilterCount`, `extractedColorCount`, `hiddenColorCount` (background/skin hidden by default), `candidateCount`, `matchCount` / `highCount` / `mediumCount` (flat list over the active colors), `cached`, `durationMs` (request round trip; absent when cached) |
+| `match.result_action` | the user acts on a match row | `action` (`open` = detail link, `wishlist`, `remove_wishlist`, `own`, `status` (other menu status), `tried`, `quantity`), `scope`, `view` (`colors` / `list`), `confidence` of the row, `rank` (1-based in its list), `fromStatus` (`none` for a catalog-only shade). Wishlist/own from a row also goes through the add guard, so it can produce `dupe.warning_*` with `page = photo-match` |
 
 The two `looks.*` events back the Looks plan's success metrics (`docs/looks-experience-plan.md` §1): owned-only completion (`fullyOwnedLooks` / `lookCount`), drop-off after a vibe (generated without a later `wear_clicked`), and repeat use. Time-to-first-look is not measured yet.
 
@@ -157,6 +159,23 @@ Use `bin(timestamp, 1d)` in the `by` clause for a daily trend, or `tostring(cust
 | `manis_per_active_user` (`manis_logged` / `active_users`) | manis created in the window (by `created_at`, whatever their `worn_on`) per active user; `users_logging_manis` counts the users behind them | ≥ 1 |
 | `median_minutes_to_20`, `median_minutes_to_20_via_import` | for users who signed up in the last 28 days (`cohort_signups`), the time from `app_user.created_at` to their 20th non-wishlist inventory row (rows, not bottles); `cohort_reached_20` users got there. "Via import" = a committed CSV import by then | < 5 min (import path) |
 | `active_shades`, `active_shades_added` | catalog shades with `status = 'active'` that aren't merged, and how many were created this week | +10k by 19 Dec |
+
+Photo match (#105): result rate and what people do with matches.
+
+```kusto
+customEvents
+| where timestamp > ago(7d)
+| where name in ("match.image_processed", "match.result_action")
+| extend scope = tostring(customDimensions.scope), action = tostring(customDimensions.action)
+| summarize
+    photos = sumif(itemCount, name == "match.image_processed" and tostring(customDimensions.trigger) in ("upload", "camera")),
+    with_close_match = sumif(itemCount, name == "match.image_processed" and toint(customDimensions.highCount) > 0),
+    opened = sumif(itemCount, action == "open"),
+    wishlisted = sumif(itemCount, action == "wishlist"),
+    owned = sumif(itemCount, action == "own"),
+    p50_ms = percentile(todouble(customDimensions.durationMs), 50)
+    by scope
+```
 
 `mani.logged` and `import.completed` in App Insights are a cross-check for the DB numbers (and show the one-tap vs. form split, which the DB doesn't record).
 
