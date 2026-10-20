@@ -52,3 +52,5 @@ export * from "./color/hex-reconciliation";
 export * from "./color/color-family";
 export * from "./color/dupes";
 export * from "./color/palette-quality";
+export * from "./color/harmonies";
+export * from "./color/pair-it";

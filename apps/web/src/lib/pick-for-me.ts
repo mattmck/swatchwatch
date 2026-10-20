@@ -1,6 +1,6 @@
 /**
  * "Pick for me" (issue #272): a weighted random pick from the user's owned polishes, plus an
- * optional "pair it" suggestion built from the harmony definitions in `color-harmonies.ts`.
+ * optional "pair it" suggestion (`suggestPairings`, re-exported from swatchwatch-shared `color/pair-it.ts`).
  *
  * Everything here is pure: the clock (`now`) and the random source (`random`) are inputs, so a
  * fixed seed (`createSeededRandom`) reproduces the same picks. It runs client-side on the owned
@@ -32,10 +32,9 @@
  * it relaxes to "not the immediately previous pick", and a single-polish collection always
  * returns that polish.
  */
-import type { HueFamily, LightnessBand, ManicurePolishRole, Polish } from "swatchwatch-shared";
-import { resolveDisplayHex, resolvePolishFinishes, resolveProductCategory } from "swatchwatch-shared";
-import { analyzeCollectionGaps, classifyHexToGapCell, colorDistance, hexToOklch } from "./color-utils";
-import { generateHarmonyPalette } from "./color-harmonies";
+import type { HueFamily, LightnessBand, Polish } from "swatchwatch-shared";
+import { resolveDisplayHex, resolveProductCategory } from "swatchwatch-shared";
+import { analyzeCollectionGaps, classifyHexToGapCell, hexToOklch } from "./color-utils";
 import { isOwnedPolish } from "./inventory-status";
 
 /** Weighting constants. Change these (and the table above) together. */
@@ -298,148 +297,14 @@ export function pushPickHistory(history: readonly string[], id: string): string[
 }
 
 // ── Pair it ──────────────────────────────────────────────────
+// The pairing rule lives in swatchwatch-shared (`color/pair-it.ts`) so mobile pairs the same way.
 
-/** Largest OKLAB distance between a harmony target and an owned polish to count as a pairing. */
-export const PAIR_MAX_DISTANCE = 0.12;
-
-/** Below this OKLCH chroma the pick reads as neutral and has no meaningful hue harmony. */
-export const PAIR_NEUTRAL_MAX_CHROMA = 0.04;
-
-/** Finishes that make a polish an accent topper candidate (`topper` preferred). */
-export const TOPPER_FINISHES = ["topper", "flake", "glitter"] as const;
-
-/** Most pairings suggested for one pick. */
-export const MAX_PAIRINGS = 2;
-
-export type PairHarmony = "complementary" | "analogous" | "topper";
-
-export interface PairSuggestion {
-  polish: Polish;
-  harmony: PairHarmony;
-  /** Role to log it with in a manicure. */
-  role: ManicurePolishRole;
-  label: string;
-  /** OKLAB distance to the harmony target (null for toppers, which are chosen by finish). */
-  distance: number | null;
-}
-
-function finishSet(polish: Polish): Set<string> {
-  return new Set(resolvePolishFinishes(polish).map((f) => f.toLowerCase()));
-}
-
-function topperRank(polish: Polish): number {
-  // A topper by category ranks with the `topper` finish (#349).
-  if (resolveProductCategory(polish.productCategory) === "topper") return 0;
-  const finishes = finishSet(polish);
-  const index = TOPPER_FINISHES.findIndex((f) => finishes.has(f));
-  return index < 0 ? Number.POSITIVE_INFINITY : index;
-}
-
-function byName(a: Polish, b: Polish): number {
-  return a.brand.localeCompare(b.brand) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
-}
-
-/**
- * Owned polish nearest to any harmony target, within `PAIR_MAX_DISTANCE`. A candidate must be
- * closer to the target than to the pick itself, so near-duplicates of the pick never count as a
- * (small-rotation) analogous pairing.
- */
-function nearest(
-  pool: Polish[],
-  targets: string[],
-  pickHex: string,
-  hexById: Map<string, string | undefined>
-): { polish: Polish; distance: number } | null {
-  let best: { polish: Polish; distance: number } | null = null;
-  for (const polish of pool) {
-    const hex = hexById.get(polish.id);
-    if (!hex) continue;
-    const toPick = colorDistance(hex, pickHex);
-    for (const target of targets) {
-      const distance = colorDistance(hex, target);
-      if (distance >= toPick) continue;
-      if (!best || distance < best.distance || (distance === best.distance && byName(polish, best.polish) < 0)) {
-        best = { polish, distance };
-      }
-    }
-  }
-  return best && best.distance <= PAIR_MAX_DISTANCE ? best : null;
-}
-
-/**
- * Suggest up to `MAX_PAIRINGS` owned polishes to wear with `pick`, deterministically:
- *
- * - **complementary** — nearest owned polish to the 180° OKLCH hue rotation of the pick;
- * - **analogous** — nearest owned polish to the ±30° rotations;
- * - **topper** — an owned topper (category `topper`, or a topper/flake/glitter finish; `topper`
- *   first, then the least worn), skipped when the pick is itself a topper.
- *
- * Only color polishes and toppers are paired; coats, treatments and accessories never are (#349).
- *
- * Hue harmonies need a non-neutral pick (chroma ≥ `PAIR_NEUTRAL_MAX_CHROMA`) and a match within
- * `PAIR_MAX_DISTANCE` that is closer to the harmony target than to the pick. Order: the closer hue match, then the topper, then the other hue match.
- */
-export function suggestPairings(pick: Polish, polishes: Polish[], max: number = MAX_PAIRINGS): PairSuggestion[] {
-  if (max <= 0) return [];
-  const pool = polishes.filter((p) => {
-    if (!isOwnedPolish(p) || p.id === pick.id) return false;
-    const category = resolveProductCategory(p.productCategory);
-    return category === "color" || category === "topper";
-  });
-  const toppers = pool.filter((p) => Number.isFinite(topperRank(p)));
-  const colorPool = pool.filter((p) => !Number.isFinite(topperRank(p)));
-  const hexById = new Map(pool.map((p) => [p.id, displayHex(p)]));
-
-  const hueMatches: PairSuggestion[] = [];
-  const pickHex = displayHex(pick);
-  if (pickHex) {
-    const oklch = hexToOklch(pickHex);
-    if (oklch.C >= PAIR_NEUTRAL_MAX_CHROMA && Number.isFinite(oklch.h)) {
-      const complement = nearest(colorPool, generateHarmonyPalette(pickHex, "complementary").slice(1), pickHex, hexById);
-      if (complement) {
-        hueMatches.push({
-          polish: complement.polish,
-          harmony: "complementary",
-          role: "accent",
-          label: "Complementary accent",
-          distance: complement.distance,
-        });
-      }
-      const analogous = nearest(
-        colorPool.filter((p) => p.id !== complement?.polish.id),
-        generateHarmonyPalette(pickHex, "analogous").slice(1),
-        pickHex,
-        hexById
-      );
-      if (analogous) {
-        hueMatches.push({
-          polish: analogous.polish,
-          harmony: "analogous",
-          role: "accent",
-          label: "Analogous accent",
-          distance: analogous.distance,
-        });
-      }
-      hueMatches.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
-    }
-  }
-
-  let topper: PairSuggestion | null = null;
-  if (!Number.isFinite(topperRank(pick)) && toppers.length > 0) {
-    const best = [...toppers].sort(
-      (a, b) => topperRank(a) - topperRank(b) || (a.wearCount ?? 0) - (b.wearCount ?? 0) || byName(a, b)
-    )[0];
-    const isTopperFinish =
-      resolveProductCategory(best.productCategory) === "topper" || finishSet(best).has("topper");
-    topper = {
-      polish: best,
-      harmony: "topper",
-      role: isTopperFinish ? "topper" : "accent",
-      label: isTopperFinish ? "Topper" : "Sparkle accent",
-      distance: null,
-    };
-  }
-
-  const ordered = [hueMatches[0], topper, hueMatches[1]].filter((s): s is PairSuggestion => Boolean(s));
-  return ordered.slice(0, max);
-}
+export {
+  MAX_PAIRINGS,
+  PAIR_MAX_DISTANCE,
+  PAIR_NEUTRAL_MAX_CHROMA,
+  TOPPER_FINISHES,
+  suggestPairings,
+  type PairHarmony,
+  type PairSuggestion,
+} from "swatchwatch-shared";
