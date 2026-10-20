@@ -8,6 +8,7 @@ import {
   type PolishDupesBatchResponse,
   type PolishDupesResponse,
 } from "swatchwatch-shared";
+import { detailHref } from "./detail-href";
 
 /**
  * Client helpers for the dupe finder (#265). Pure (the API calls are injected), so the
@@ -136,8 +137,7 @@ export function dupeVerdict(
   return { kind: best.grade === "high" ? "dupe-owned" : "near-dupe-owned", best };
 }
 
-/** Detail-page link for a dupe. */
-export function dupeHref(dupe: Pick<PolishDupe, "shadeId">, returnTo?: string): string {
-  const base = `/polishes/detail?id=${encodeURIComponent(dupe.shadeId)}`;
-  return returnTo ? `${base}&returnTo=${encodeURIComponent(returnTo)}` : base;
+/** Detail-page link for a dupe; `returnTo` defaults to the current page (see `detailHref`, #348). */
+export function dupeHref(dupe: Pick<PolishDupe, "shadeId">, returnTo?: string | null): string {
+  return detailHref(dupe.shadeId, returnTo);
 }

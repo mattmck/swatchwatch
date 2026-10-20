@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ColorDot } from "@/components/color-dot";
 import type { CaptureVerdict } from "@/lib/capture-verdict";
 import { cn } from "@/lib/utils";
+import { detailHref } from "@/lib/detail-href";
 
 export interface VerdictCardProps {
   verdict: CaptureVerdict;
@@ -21,8 +22,8 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled verdict: ${JSON.stringify(value)}`);
 }
 
-function detailHref(shadeId: string | undefined): string {
-  return shadeId ? `/polishes/detail?id=${encodeURIComponent(shadeId)}` : "/polishes";
+function verdictDetailHref(shadeId: string | undefined): string {
+  return shadeId ? detailHref(shadeId) : "/polishes";
 }
 
 interface VerdictLayout {
@@ -68,7 +69,7 @@ function layoutFor(props: VerdictCardProps): VerdictLayout {
               </Button>
             )}
             <Button asChild variant="outline">
-              <Link href={detailHref(verdict.shadeId)}>View polish</Link>
+              <Link href={verdictDetailHref(verdict.shadeId)}>View polish</Link>
             </Button>
           </>
         ),
@@ -87,7 +88,7 @@ function layoutFor(props: VerdictCardProps): VerdictLayout {
           ),
         actions: (
           <Button asChild variant="outline">
-            <Link href={detailHref(verdict.shadeId)}>View polish</Link>
+            <Link href={verdictDetailHref(verdict.shadeId)}>View polish</Link>
           </Button>
         ),
       };
