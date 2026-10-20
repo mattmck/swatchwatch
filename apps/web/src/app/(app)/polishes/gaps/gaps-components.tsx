@@ -122,7 +122,7 @@ export function Row({
 }) {
   return (
     <>
-      <div className="flex items-center rounded-md border border-brand-lilac/45 bg-muted/40 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+      <div className="flex items-center rounded-md border border-brand-lilac/45 bg-muted/40 px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground sm:px-3 sm:text-xs sm:tracking-[0.12em]">
         {LIGHTNESS_META[lightnessBand].label}
       </div>
       {HUE_FAMILY_ORDER.map((hueFamily) => {
