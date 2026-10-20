@@ -326,7 +326,7 @@ CREATE TABLE sku (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Catalog GTINs (#21, #325; migration 20261019012116681_barcode-provenance-and-user-barcodes).
+-- Catalog GTINs (#21, #325; migration 20261019030000000_barcode-provenance-and-user-barcodes).
 -- gtin is the canonical key from lib/barcodes.ts normalizeGtin (UPC-A/UPC-E/GTIN-14 → 13-digit
 -- EAN form, EAN-8 as is). One GTIN → one SKU → one shade: the first shade to claim a GTIN keeps
 -- it; a later claim from another shade is logged as a conflict and skipped.

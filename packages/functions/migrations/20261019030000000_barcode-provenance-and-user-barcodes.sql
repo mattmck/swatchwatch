@@ -1,6 +1,6 @@
 -- Up Migration
 
--- 20261019012116681_barcode-provenance-and-user-barcodes.sql
+-- 20261019030000000_barcode-provenance-and-user-barcodes.sql
 -- Barcode scans match the catalog end to end (#21, #325).
 --
 -- * barcode: catalog GTINs, written by ingestion materialization and the admin backfill

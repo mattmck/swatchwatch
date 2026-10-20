@@ -9,6 +9,7 @@ import { isOwnedPolish } from "@/lib/inventory-status";
 import { FinishBadges } from "@/components/finish-badges";
 import { SwatchThumbnail } from "@/components/swatch-thumbnail";
 import type { FinishTypeLike } from "@/lib/finish-options";
+import { detailHref } from "@/lib/detail-href";
 
 interface ColorSearchResultsProps {
   polishes: (Polish & {
@@ -33,6 +34,8 @@ interface ColorSearchResultsProps {
   /** Row color dot hover — affects wheel marker only */
   onColorHover?: (hex: string) => void;
   onColorLeave?: () => void;
+  /** `returnTo` for the detail links (#348); defaults to the current page. */
+  returnTo?: string;
 }
 
 /**
@@ -70,6 +73,7 @@ export function ColorSearchResults({
   onColorSelect,
   onColorHover,
   onColorLeave,
+  returnTo,
 }: ColorSearchResultsProps) {
   if (polishes.length === 0) {
     return (
@@ -117,7 +121,7 @@ export function ColorSearchResults({
             </span>
 
             <Link
-              href={`/polishes/detail?id=${polish.id}`}
+              href={detailHref(polish.id, returnTo)}
               className="flex min-w-0 flex-1 items-center gap-3"
             >
               {polish.swatchImageUrl ? (
