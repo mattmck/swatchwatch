@@ -2,18 +2,28 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { CircleCheck, CirclePlus, PackageCheck, ScanBarcode } from "lucide-react";
+import { Camera, CircleCheck, CirclePlus, Heart, PackageCheck, ScanBarcode } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ColorDot } from "@/components/color-dot";
-import type { CaptureVerdict } from "@/lib/capture-verdict";
+import { manualAddHref, type CaptureVerdict } from "@/lib/capture-verdict";
+import type { RapidAddBusy } from "@/lib/rapid-add-flow";
 import { cn } from "@/lib/utils";
+import { detailHref } from "@/lib/detail-href";
 
 export interface VerdictCardProps {
   verdict: CaptureVerdict;
   /** The owned-verdict quantity bump has been undone. */
   quantityRestored: boolean;
   undoing: boolean;
+  /** Current page activity, to disable the buttons it affects. */
+  busy?: RapidAddBusy | null;
   onUndoQuantity: () => void;
+  /** Checked match: add it to the collection (finalize). */
+  onAddToCollection?: () => void;
+  /** Checked match not owned: put it on the wishlist. */
+  onAddToWishlist?: (verdict: CaptureVerdict) => void;
+  /** Unknown barcode: continue the same scan with a label photo. */
+  onPhotographLabel?: () => void;
   onScanNext: () => void;
 }
 
@@ -21,12 +31,12 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled verdict: ${JSON.stringify(value)}`);
 }
 
-function detailHref(shadeId: string | undefined): string {
-  return shadeId ? `/polishes/detail?id=${encodeURIComponent(shadeId)}` : "/polishes";
+function verdictDetailHref(shadeId: string | undefined): string {
+  return shadeId ? detailHref(shadeId) : "/polishes";
 }
 
 interface VerdictLayout {
-  tone: "owned" | "added" | "add";
+  tone: "owned" | "added" | "add" | "wishlist";
   icon: ReactNode;
   eyebrow: string;
   title: string;
@@ -38,6 +48,7 @@ const TONE_CLASSES: Record<VerdictLayout["tone"], string> = {
   owned: "border-amber-400/70 bg-amber-50 dark:bg-amber-950/30",
   added: "border-emerald-400/70 bg-emerald-50 dark:bg-emerald-950/30",
   add: "border-brand-purple/40 bg-brand-pink-light/15 dark:bg-brand-purple/15",
+  wishlist: "border-rose-300/70 bg-rose-50 dark:bg-rose-950/30",
 };
 
 /**
@@ -45,7 +56,8 @@ const TONE_CLASSES: Record<VerdictLayout["tone"], string> = {
  * kind (near-dupe #265, wishlist #261) fails type-checking until it gets a layout here.
  */
 function layoutFor(props: VerdictCardProps): VerdictLayout {
-  const { verdict, quantityRestored, undoing, onUndoQuantity } = props;
+  const { verdict, quantityRestored, undoing, onUndoQuantity, busy } = props;
+  const adding = busy === "finalizing" || busy === "resolving";
   switch (verdict.kind) {
     case "owned":
       return {
@@ -68,7 +80,7 @@ function layoutFor(props: VerdictCardProps): VerdictLayout {
               </Button>
             )}
             <Button asChild variant="outline">
-              <Link href={detailHref(verdict.shadeId)}>View polish</Link>
+              <Link href={verdictDetailHref(verdict.shadeId)}>View polish</Link>
             </Button>
           </>
         ),
@@ -87,7 +99,7 @@ function layoutFor(props: VerdictCardProps): VerdictLayout {
           ),
         actions: (
           <Button asChild variant="outline">
-            <Link href={detailHref(verdict.shadeId)}>View polish</Link>
+            <Link href={verdictDetailHref(verdict.shadeId)}>View polish</Link>
           </Button>
         ),
       };
@@ -106,8 +118,104 @@ function layoutFor(props: VerdictCardProps): VerdictLayout {
         ),
         actions: (
           <Button asChild variant="outline">
-            <Link href="/polishes/new">Add manually</Link>
+            <Link href={manualAddHref(verdict.evidence)}>Add manually</Link>
           </Button>
+        ),
+      };
+    case "checked": {
+      const viewLink = verdict.shadeId ? (
+        <Button asChild variant="outline">
+          <Link href={detailHref(verdict.shadeId)}>View polish</Link>
+        </Button>
+      ) : null;
+      const addButton = (label: string) => (
+        <Button type="button" variant="outline" onClick={props.onAddToCollection} disabled={adding}>
+          {adding ? "Adding…" : label}
+        </Button>
+      );
+      if (verdict.relationship === "owned") {
+        const count = verdict.quantity;
+        return {
+          tone: "owned",
+          icon: <PackageCheck className="size-7 text-amber-600 dark:text-amber-400" aria-hidden />,
+          eyebrow: "Already in your collection",
+          title: "You own this",
+          body: (
+            <p>
+              {typeof count === "number" && count > 0
+                ? `You have ${count} ${count === 1 ? "bottle" : "bottles"}.`
+                : "It's in your collection."}{" "}
+              Bought another? Add it to count the extra bottle.
+            </p>
+          ),
+          actions: (
+            <>
+              {addButton("Add another bottle")}
+              {viewLink}
+            </>
+          ),
+        };
+      }
+      if (verdict.relationship === "wishlisted") {
+        return {
+          tone: "wishlist",
+          icon: <Heart className="size-7 text-rose-500" aria-hidden />,
+          eyebrow: verdict.wishlistedNow ? "Saved" : "On your wishlist",
+          title: verdict.wishlistedNow ? "Added to your wishlist" : "It's on your wishlist",
+          body: <p>Buying it? Add it to your collection and it leaves the wishlist.</p>,
+          actions: (
+            <>
+              {addButton("I bought it")}
+              {viewLink}
+            </>
+          ),
+        };
+      }
+      return {
+        tone: "added",
+        icon: <CircleCheck className="size-7 text-emerald-600 dark:text-emerald-400" aria-hidden />,
+        eyebrow: "Found it",
+        title: "You don't own this yet",
+        body: <p>Add it to your collection, or save it to your wishlist for later.</p>,
+        actions: (
+          <>
+            {addButton("Add to collection")}
+            {verdict.shadeId && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => props.onAddToWishlist?.(verdict)}
+                disabled={busy === "wishlisting"}
+              >
+                <Heart aria-hidden /> {busy === "wishlisting" ? "Saving…" : "Add to wishlist"}
+              </Button>
+            )}
+            {viewLink}
+          </>
+        ),
+      };
+    }
+    case "unknown_barcode":
+      return {
+        tone: "add",
+        icon: <ScanBarcode className="size-7 text-brand-purple" aria-hidden />,
+        eyebrow: "Barcode not recognized",
+        title: "We don't know this barcode yet",
+        body: (
+          <p>
+            Barcode <span className="font-mono">{verdict.gtin}</span> isn&apos;t in the catalog. Photograph the
+            label and we&apos;ll match it by name — then remember this barcode for your next scan.
+          </p>
+        ),
+        actions: (
+          <>
+            <Button type="button" variant="outline" onClick={props.onPhotographLabel}>
+              <Camera aria-hidden /> Photograph the label
+            </Button>
+            <Button asChild variant="outline">
+              <Link href={manualAddHref({ gtin: verdict.gtin, format: verdict.format })}>Add manually</Link>
+            </Button>
+          </>
         ),
       };
     default:
@@ -118,7 +226,8 @@ function layoutFor(props: VerdictCardProps): VerdictLayout {
 export function VerdictCard(props: VerdictCardProps) {
   const layout = layoutFor(props);
   const display = props.verdict.display;
-  const hex = props.verdict.kind === "owned" ? props.verdict.hex : undefined;
+  const hex =
+    props.verdict.kind === "owned" || props.verdict.kind === "checked" ? props.verdict.hex : undefined;
 
   return (
     <section

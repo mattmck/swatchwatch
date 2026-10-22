@@ -296,16 +296,21 @@ VALUES
   ),
   -- Indie Shopify sources added for #273. Registered disabled: nothing ingests until the
   -- owner approves them (roadmap 2026-10-to-12 decision 4). Verification in metadata.notes.
-  -- Candidates checked 2026-10-17 and NOT added:
+  -- Re-surveyed 2026-10-18 (docs/indie-sources-2026-10.md): Emily de Molly and Cirque Colors are
+  -- registered below and enabled 2026-10-19 after the stores signed off (their ToS carry the clause below). Candidates checked 2026-10-17 and NOT added:
   --   Shopify default ToS "Prohibited uses ... spider, crawl, or scrape" (products.json exposed,
-  --   robots.txt allows it): Cirque Colors (cirquecolors.com), Emily de Molly (emilydemolly.com),
-  --   F.U.N Lacquer (funlacquer.com), Glam Polish (glampolish.com.au), Moon Shine Mani
+  --   robots.txt allows it): F.U.N Lacquer (funlacquer.com), Glam Polish (glampolish.com.au), Moon Shine Mani
   --   (moonshinemani.com). Newer template "use any robot, spider, scraping ... AI tools":
   --   Dreamland Lacquer, Ethereal Lacquer. Add only with the store's written permission.
   --   Not Shopify: ILNP (WooCommerce), Painted Polish (Big Cartel). Blocked: KBShimmer
   --   (Cloudflare challenge, 403). products.json 404/400/401: Blush Lacquers, Dimension Nails,
   --   Femme Fatale, Picture Polish, Polished for Days, Wildflower Lacquer, Leesha's Lacquer,
   --   Baroness X. MooncatShopify and CupcakePolishShopify (above) carry the same ToS clause.
+  --   Batch 2, checked 2026-10-19 (docs/indie-sources-2026-10.md), NOT added: Shopify default
+  --   scraping clause: Stella Chroma, Lemming Lacquer, Sweet & Sour Lacquer, Maniology,
+  --   What's Up Nails. Copy/commercial-use clause: Nails.INC, Ninja Polish (also a multi-brand
+  --   reseller). Not Shopify or unreachable: Tonic Polish, Bluebird Lacquer (401), Colores de
+  --   Carol, Glisten & Glow, Masura, Killer Colors, and twenty more without a storefront answer.
   (
     'NightOwlLacquerShopify',
     'api',
@@ -321,8 +326,26 @@ VALUES
     'https://pahlish.com',
     'Storefront terms apply (verify metadata/image usage obligations)',
     'https://www.pahlish.com/policies/terms-of-service',
-    false,
-    '{"priority": "medium", "mvp": "no", "notes": "Pahlish Shopify store (indie, US). Verified 2026-10-17: /products.json?limit=1 returns 200 with Shopify products (36 listed: current releases only); robots.txt is the Shopify default (products.json not disallowed); /policies/terms-of-service has no terms text, no automated-access clause found. The generic connector polish filter accepts 0 of the 36 products (empty product_type, tags are collection names only), so ingestion yields nothing until a per-source product filter exists. Disabled pending owner approval (roadmap 2026-10-to-12 decision 4); acceptable use not yet confirmed with the store.", "pendingApproval": true, "verification": {"checkedAt": "2026-10-17", "productsJson": true, "firstPageProducts": 36, "firstPagePolishFilterPass": 0, "robotsTxt": "shopify-default-allows-products-json", "termsScrapingClause": false}}'::jsonb
+    true,
+    '{"priority": "medium", "mvp": "no", "notes": "Pahlish Shopify store (indie, US). Verified 2026-10-17: /products.json?limit=1 returns 200 with Shopify products (36 listed: current releases only); robots.txt is the Shopify default (products.json not disallowed); /policies/terms-of-service has no terms text, no automated-access clause found. The generic connector polish filter accepts 0 of the 36 products (empty product_type, tags are collection names only); the store-specific filter connectors/store-filters/pahlish.ts (#328) accepts 28 of 36 on 2026-10-18 (single shades; gift card, collection sets, mystery batches, base/top coats and empty boxes dropped). Update 2026-10-19: acceptable use confirmed: the owner reports the store signed off on 2026-10-19 (who and how not recorded here). Enabled 2026-10-19.", "verification": {"checkedAt": "2026-10-17", "productsJson": true, "firstPageProducts": 36, "firstPagePolishFilterPass": 0, "storeFilterPass": 28, "storeFilterCheckedAt": "2026-10-18", "robotsTxt": "shopify-default-allows-products-json", "termsScrapingClause": false}}'::jsonb
+  ),
+  (
+    'EmilyDeMollyShopify',
+    'api',
+    'https://emilydemolly.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://emilydemolly.com/policies/terms-of-service',
+    true,
+    '{"priority": "medium", "mvp": "no", "notes": "Emily de Molly Shopify store (indie, Australia). Verified 2026-10-18: /products.json returns 200 with Shopify products (317 over 2 pages: product_type Nail Polish 234, Stamping Plates 70, Stamping Polish 12, Gift Card 1); the generic connector polish filter accepts 246 (nail and stamping polishes; plates and the gift card dropped). Vendor is Emily de Molly on 313 products and EmilydeMolly on 3. robots.txt is the Shopify default (products.json not disallowed). /policies/terms-of-service is the Shopify default template, whose prohibited uses include: spider, crawl, or scrape. Update 2026-10-19: acceptable use confirmed: the owner reports the store signed off on 2026-10-19 (who and how not recorded here). Enabled 2026-10-19.", "verification": {"checkedAt": "2026-10-18", "productsJson": true, "products": 317, "polishFilterPass": 246, "robotsTxt": "shopify-default-allows-products-json", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
+    'CirqueColorsShopify',
+    'api',
+    'https://cirquecolors.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://www.cirquecolors.com/policies/terms-of-service',
+    true,
+    '{"priority": "medium", "mvp": "no", "notes": "Cirque Colors Shopify store (indie, US). Verified 2026-10-18: /products.json returns 200 with Shopify products (415 over 2 pages). product_type holds finish or line names (Retired Colors 70, Jelly 59, Magnetic 48, Sets 35, Crème 21, Nail Care 13, ...), so the generic connector polish filter accepts only 10 of 415; the store-specific filter connectors/store-filters/cirque-colors.ts (#273) accepts 328 of 415 on 2026-10-19 (single shades plus coats and cuticle oils; sets, duos, tools, charms, stickers, gift card, free gifts and creator pages dropped). robots.txt is the Shopify default (products.json not disallowed). /policies/terms-of-service is the Shopify default template, whose prohibited uses include: spider, crawl, or scrape. Update 2026-10-19: acceptable use confirmed: the owner reports the store signed off on 2026-10-19 (who and how not recorded here). Enabled 2026-10-19.", "verification": {"checkedAt": "2026-10-18", "productsJson": true, "products": 415, "polishFilterPass": 10, "storeFilterPass": 328, "storeFilterCheckedAt": "2026-10-19", "robotsTxt": "shopify-default-allows-products-json", "termsScrapingClause": true}}'::jsonb
   ),
   (
     'CosIng',
@@ -369,13 +392,25 @@ VALUES
     false,
     '{"priority":"low","mvp":"no","notes":"Optional later: adverse event signals, not ingredients. Use careful UX and disclaimers."}'::jsonb
   )
+-- A reseed never changes a row that already exists in its enabled flag or its metadata keys
+-- (notes, the store's recorded approval, metadata.ingestion settings): those belong to the
+-- environment. Existing keys win; keys the row lacks are filled from this file. The one
+-- exception is metadata.verification, the survey facts this file owns: its keys are merged
+-- with this file's values winning, so a re-survey (e.g. storeFilterPass) reaches existing rows.
 ON CONFLICT (name) DO UPDATE
 SET
   source_type = EXCLUDED.source_type,
   base_url    = EXCLUDED.base_url,
   license     = EXCLUDED.license,
   terms_url   = EXCLUDED.terms_url,
-  enabled     = EXCLUDED.enabled,
-  metadata    = EXCLUDED.metadata;
+  metadata    = EXCLUDED.metadata || COALESCE(data_source.metadata, '{}'::jsonb)
+                || CASE
+                     WHEN EXCLUDED.metadata ? 'verification' THEN jsonb_build_object(
+                       'verification',
+                       COALESCE(data_source.metadata -> 'verification', '{}'::jsonb)
+                         || (EXCLUDED.metadata -> 'verification')
+                     )
+                     ELSE '{}'::jsonb
+                   END;
 
 COMMIT;

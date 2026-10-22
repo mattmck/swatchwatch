@@ -16,6 +16,7 @@ import {
 import { toast } from "sonner";
 import type {
   HexLabelImage,
+  HexLabelPromoteResponse,
   HexLabelQueueItem,
   HexLabelRequest,
   HexLabelSampleMethod,
@@ -37,6 +38,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { HexSwatch, ImageSampler, formatDistance, getEyeDropperCtor, isTextField } from "@/components/hex-sampler";
+import { VendorHexPromotion } from "@/components/vendor-hex-promotion";
 
 /** A pick awaiting save: where the colour came from. */
 export interface PickedColor {
@@ -65,6 +67,11 @@ export interface ShadeLabelerProps {
   onUndo?: () => void;
   /** Delete the saved label; the button shows only while the shade has one. */
   onRemove?: () => void;
+  /**
+   * Shows the "Promote to vendor hex" control for the saved label (#321) and receives each
+   * promote/undo response so the host can update its item. Hidden without a handler.
+   */
+  onPromotionChange?: (response: HexLabelPromoteResponse) => void;
   /** `split`: images beside the label panel from `lg` up (tab). `stacked`: one column (narrow hosts). */
   layout?: "split" | "stacked";
   /**
@@ -101,6 +108,7 @@ export function ShadeLabeler({
   onPrev,
   onUndo,
   onRemove,
+  onPromotionChange,
   layout = "split",
   shortcutScope = "window",
 }: ShadeLabelerProps) {
@@ -304,7 +312,7 @@ export function ShadeLabeler({
         </div>
 
         <div className="grid grid-cols-3 gap-2">
-          <HexSwatch label="Vendor" hex={item.vendorHex} />
+          <HexSwatch label="Vendor" hex={item.vendorHex} detail={item.vendorHexSource === "manual_label" ? "manual" : null} />
           <HexSwatch
             label="Detected"
             hex={item.detectedHex}
@@ -323,6 +331,7 @@ export function ShadeLabeler({
             "n/a"
           )}
         </p>
+        {onPromotionChange ? <VendorHexPromotion item={item} disabled={saving} onChange={onPromotionChange} /> : null}
 
         <div className="space-y-2 rounded-lg border border-border p-3">
           <div className="grid grid-cols-2 gap-2">

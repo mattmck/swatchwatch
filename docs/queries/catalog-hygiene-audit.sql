@@ -9,7 +9,8 @@
 --
 --   psql "$DATABASE_URL" -f docs/queries/catalog-hygiene-audit.sql
 --
--- How shades are classified (a heuristic for sizing, not the final classifier):
+-- How shades are classified. classifyProductCategory in packages/functions/src/lib/product-category.ts
+-- applies the same rules in the same order; change this query first, then mirror it there:
 --   text       lower-cased shade name + color name + every linked source product's title and
 --              product_type ("strong" text), plus its tags ("all" text). Shopify payloads keep
 --              these in raw_json; other connectors fall back to the shade name alone.
@@ -17,12 +18,19 @@
 --              magnetic polish "magnetic-wand" because a wand ships with it).
 --   category   first match wins, in this order:
 --                accessory  stamping plates, buffers, files, tools, brushes, charms, magnets, pushers,
---                           kits, ... in the strong text
+--                           kits, ... in the strong text; ambiguous words (jewels, studs, foils, tape,
+--                           wands, racks, displays, totes, samplers, rhinestones) only when the product has a
+--                           product type that names no polish; or an explicit accessory type tag
+--                           (nail-tool, type:nail-tool, type:accessories: Mooncat's "Nail Elixir"
+--                           is typed "Nail Polishes" but tagged type:nail-tool)
 --                topper     'topper' in finishes/detected_finishes, or the word topper(s) anywhere
 --                           (beats coat wording)
 --                base_coat  base coat, ridge filler, primer, bonder
 --                top_coat   top coat, sealer, quick-dry top
 --                treatment  treatment, strengthener, hardener, cuticle oil, growth
+--                           (base_coat/top_coat/treatment: strong text first, in that order,
+--                           then tags in that order, so a "Top Coat" title beats a
+--                           "Top & Base Coat" tag)
 --                color      everything else
 --   The regexes match whole words (\m ... \M), case-insensitively. Section 6 lists sample rows
 --   per category so false positives are easy to spot before trusting the counts.
@@ -40,15 +48,32 @@ WITH source_text AS (
     ssp.shade_id,
     string_agg(DISTINCT ds.name, ', ') AS sources,
     string_agg(
-      concat_ws(' ', e.raw_json ->> 'title', e.raw_json ->> 'product_type', e.normalized_json ->> 'productType'),
+      -- title falls back to the normalized name (MakeupAPI payloads have `name`, not `title`).
+      concat_ws(' ', COALESCE(e.raw_json ->> 'title', e.normalized_json ->> 'name'), e.raw_json ->> 'product_type', e.normalized_json ->> 'productType', e.normalized_json ->> 'category'),
       ' '
     ) AS strong_text,
+    -- Product types alone, for the polish-type check on ambiguous accessory words.
     string_agg(
-      CASE WHEN jsonb_typeof(e.raw_json -> 'tags') = 'array'
-           THEN (SELECT string_agg(t, ' ') FROM jsonb_array_elements_text(e.raw_json -> 'tags') AS t)
-           ELSE e.raw_json ->> 'tags' END,
+      concat_ws(' ', e.raw_json ->> 'product_type', e.normalized_json ->> 'productType', e.normalized_json ->> 'category'),
+      ' '
+    ) AS type_text,
+    string_agg(
+      CASE WHEN jsonb_typeof(COALESCE(e.raw_json -> 'tags', e.normalized_json -> 'tags')) = 'array'
+           THEN (SELECT string_agg(t, ' ') FROM jsonb_array_elements_text(COALESCE(e.raw_json -> 'tags', e.normalized_json -> 'tags')) AS t)
+           ELSE (COALESCE(e.raw_json -> 'tags', e.normalized_json -> 'tags')) #>> '{}' END,
       ' '
     ) AS tag_text,
+    -- An explicit accessory type tag (nail-tool, type:nail-tool, type:accessories, ...): a whole
+    -- tag that declares the product type, unlike free-form tags such as magnetic-wand.
+    bool_or(EXISTS (
+      SELECT 1
+      FROM (
+        SELECT t FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(COALESCE(e.raw_json -> 'tags', e.normalized_json -> 'tags')) = 'array' THEN COALESCE(e.raw_json -> 'tags', e.normalized_json -> 'tags') ELSE '[]'::jsonb END) AS t
+        UNION ALL
+        SELECT t FROM regexp_split_to_table(CASE WHEN jsonb_typeof(COALESCE(e.raw_json -> 'tags', e.normalized_json -> 'tags')) = 'string' THEN (COALESCE(e.raw_json -> 'tags', e.normalized_json -> 'tags')) #>> '{}' ELSE '' END, ',') AS t
+      ) tag
+      WHERE lower(trim(tag.t)) ~ '^(type:)?(nail[-_ ]?)?(tools?|accessor(y|ies))$'
+    )) AS has_accessory_type_tag,
     string_agg(DISTINCT e.raw_json ->> 'product_type', ', ') AS product_types,
     min(e.raw_json ->> 'title') AS sample_title
   FROM shade_source_product ssp
@@ -73,6 +98,12 @@ base AS (
     COALESCE(st.sources, '(no source product)') AS sources,
     st.sample_title,
     st.product_types,
+    COALESCE(st.has_accessory_type_tag, false) AS has_accessory_type_tag,
+    -- Ambiguous accessory words (jewels, studs, foils, ...) only count for a product that has a
+    -- product type and none of its types names a polish ("Crown Jewels", type Nail Polish, is a polish).
+    (COALESCE(btrim(st.type_text), '') <> ''
+      AND NOT (lower(regexp_replace(st.type_text, '[_-]+', ' ', 'g')) ~ '\m(nail ?)?(polish(es)?|lacquers?|varnish(es)?|enamels?)\M')
+    ) AS typed_non_polish,
     -- strong: name, title and product type. all: strong plus tags (hyphens/underscores as spaces).
     lower(concat_ws(' ', s.shade_name_canonical, s.color_name, st.strong_text)) AS strong_haystack,
     lower(regexp_replace(concat_ws(' ', s.shade_name_canonical, s.color_name, st.strong_text, st.tag_text), '[_-]+', ' ', 'g')) AS haystack
@@ -84,13 +115,20 @@ base AS (
 SELECT
   base.*,
   CASE
-    WHEN strong_haystack ~ '\m(stamp(ing|er|ers)?|plates?|buffers?|files?|brush(es)?|tools?|charms?|decals?|stickers?|kits?|jewels?|jewelry|studs?|rhinestones?|foils?|tapes?|stencils?|lamps?|magnets?|wands?|pushers?|clippers?|remover|wipes?|dehydrator|rack|display|tote|gift ?cards?|samplers?|mystery box)\M'
+    WHEN strong_haystack ~ '\m(stamp(ing|er|ers)?|plates?|buffers?|files?|brush(es)?|tools?|charms?|decals?|stickers?|kits?|stencils?|lamps?|magnets?|pushers?|clippers?|removers?|wipes?|dehydrators?|gift ?cards?|mystery box)\M'
+      OR (typed_non_polish AND strong_haystack ~ '\m(jewels?|jewelry|studs?|rhinestones?|foils?|tapes?|wands?|racks?|displays?|totes?|samplers?)\M')
+      OR has_accessory_type_tag
       THEN 'accessory'
     -- Topper beats coat wording: Holo Taco files its flakie toppers under product type "Top Coat"
     -- with a "toppers" tag.
     WHEN 'topper' = ANY (finishes) OR 'topper' = ANY (COALESCE(detected_finishes, ARRAY[]::text[]))
       OR haystack ~ '\mtoppers?\M'
       THEN 'topper'
+    -- Coat/treatment wording in the strong text beats the tags: Cirque tags every coat
+    -- "Top & Base Coat", so "Looking Glass Top Coat" must not read as a base coat.
+    WHEN regexp_replace(strong_haystack, '[_-]+', ' ', 'g') ~ '\m(base ?coats?|basecoats?|ridge filler|primer|bonder|bond)\M' THEN 'base_coat'
+    WHEN regexp_replace(strong_haystack, '[_-]+', ' ', 'g') ~ '\m(top ?coats?|topcoats?|sealer|sealant|quick ?dry top)\M' THEN 'top_coat'
+    WHEN regexp_replace(strong_haystack, '[_-]+', ' ', 'g') ~ '\m(treatments?|strengthener|hardener|cuticle oil|cuticle|growth serum)\M' THEN 'treatment'
     WHEN haystack ~ '\m(base ?coats?|basecoats?|ridge filler|primer|bonder|bond)\M' THEN 'base_coat'
     WHEN haystack ~ '\m(top ?coats?|topcoats?|sealer|sealant|quick ?dry top)\M' THEN 'top_coat'
     WHEN haystack ~ '\m(treatments?|strengthener|hardener|cuticle oil|cuticle|growth serum)\M' THEN 'treatment'

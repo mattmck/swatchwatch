@@ -2,7 +2,7 @@
 
 _Drafted 2026-10-18. Covers [#347](https://github.com/mattmck/swatchwatch/issues/347),
 [#348](https://github.com/mattmck/swatchwatch/issues/348) and
-[#349](https://github.com/mattmck/swatchwatch/issues/349). Status: **proposed**, decisions in §3 need the owner._
+[#349](https://github.com/mattmck/swatchwatch/issues/349). Status: **decided (D23), implementation in progress**._
 
 ## 1. The problems
 

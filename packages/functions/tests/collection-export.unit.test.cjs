@@ -182,6 +182,7 @@ describe("CSV columns (round-trip contract with the import, #263)", () => {
       "Item ID",
       "Created at",
       "Updated at",
+      "Product category",
     ]);
   });
 
@@ -256,6 +257,7 @@ describe("CSV columns (round-trip contract with the import, #263)", () => {
       "Item ID": "11",
       "Created at": "2026-01-02T03:04:05.000Z",
       "Updated at": "2026-02-03T04:05:06.000Z",
+      "Product category": "color",
     });
   });
 

@@ -10,6 +10,7 @@ import {
   MAX_MANICURE_NOTES_LENGTH,
   MAX_MANICURE_POLISHES,
   resolveDisplayHex,
+  manicureRoleForCategory,
   resolvePolishFinishes,
 } from "swatchwatch-shared";
 
@@ -137,8 +138,15 @@ export interface ManiFormEntry {
   hex?: string;
 }
 
-/** Role a polish gets when first picked: toppers as `topper`, everything else as `color`. */
-export function defaultRoleFor(polish: Pick<Polish, "finish" | "finishes">): ManicurePolishRole {
+/**
+ * Role a polish gets when first picked, from its product category (#349,
+ * `manicureRoleForCategory`): base coats and treatments as `base`, toppers and top coats as
+ * `topper`, accessories as `other`. A color polish with a `topper` finish is a `topper` too
+ * (catalogs not yet re-classified); every other color polish is `color`.
+ */
+export function defaultRoleFor(polish: Pick<Polish, "finish" | "finishes" | "productCategory">): ManicurePolishRole {
+  const byCategory = manicureRoleForCategory(polish.productCategory) ?? "other";
+  if (byCategory !== "color") return byCategory;
   return resolvePolishFinishes(polish).some((finish) => finish.toLowerCase() === "topper") ? "topper" : "color";
 }
 
@@ -156,10 +164,14 @@ export function entryFromManicurePolish(polish: ManicurePolish): ManiFormEntry {
   };
 }
 
-/** Polishes offered by the picker: the collection (owned + destash), brand then name. */
+/**
+ * Polishes offered by the picker: the collection (owned + destash) without accessories (a tool is
+ * never worn, #349), brand then name.
+ */
 export function pickablePolishes(polishes: Polish[]): Polish[] {
   return polishes
     .filter((polish) => polish.status === "owned" || polish.status === "destash")
+    .filter((polish) => polish.productCategory !== "accessory")
     .sort((a, b) => a.brand.localeCompare(b.brand) || a.name.localeCompare(b.name));
 }
 

@@ -17,6 +17,8 @@ import {
 } from "./types.js";
 import { detectHexFromColorName, stripHtmlToText } from "./color-name-detection.js";
 import { shopifyProductText } from "../product-text.js";
+import { classifyIngestedProduct, classifyProductCategory } from "../product-category.js";
+import { shopifyStoreProductVerdict } from "./store-filters/index.js";
 
 const REQUEST_TIMEOUT_MS = parseIntEnv(
   process.env.SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS,
@@ -377,52 +379,17 @@ function extractTaggedValues(tags: string[], prefix: string): string[] {
     .filter(Boolean);
 }
 
-const NON_POLISH_KEYWORDS = [
-  "stamp",
-  "plate",
-  "brush",
-  "tool",
-  "file",
-  "buffer",
-  "lamp",
-  "decal",
-  "sticker",
-  "kit",
-  "remover",
-  "wipe",
-  "cuticle",
-  "treatment",
-  "primer",
-  "dehydrator",
-  "bond",
-];
-
-const POLISH_SIGNAL_REGEX = /\b(?:nail\s*)?(?:polish(?:es)?|lacquers?|varnish(?:es)?|enamels?)\b/;
-const NON_POLISH_REGEX = new RegExp(`\\b(?:${NON_POLISH_KEYWORDS.join("|")})(?:s|es)?\\b`);
-
 /**
- * Classifies whether a Shopify product is a nail polish based on its
- * `product_type` and tags. Returns true only when at least one polish signal
- * (`nail polish`, `polish`, `lacquer`, `varnish`, `enamel`, or their plurals
- * such as `Nail Polishes`/`lacquers`) is present AND no
- * non-polish keyword (stamp, plate, brush, tool, file, buffer, lamp, decal,
- * sticker, kit, remover, wipe, cuticle, treatment, primer, dehydrator, bond)
- * appears.
- *
- * Inputs are matched case-insensitively. Tag separators `_` and `-` are
- * normalized to spaces so `nail-polish`/`nail_polish` are recognized; the
- * polish-signal regex also matches the concatenated form `nailpolish` via
- * `\s*`. Only plural forms are accepted as inflections (`polishes`, not
- * `polished`). All matching uses word boundaries to avoid substring false positives
- * (e.g., `kit` won't match inside an unrelated word).
+ * Whether a Shopify product is ingested: the shared connector gate (`classifyIngestedProduct` in
+ * lib/product-category.ts, #347/#349). Accessories (tools, stamping plates, charms, magnets, ... in
+ * the title or product type, explicit tool type tags, or the June tag blocklist) are rejected;
+ * color polishes need a polish signal (`nail polish`, `polish`, `lacquer`, `varnish`, `enamel` and
+ * plurals) in the product type or tags; toppers, top/base coats and treatments are accepted with
+ * their category even without one (D-E). Matching is case-insensitive, `_`/`-` count as spaces,
+ * and words match whole (`polished` is not a polish signal).
  */
-export function isNailPolish(productType: string | null, tags: string[]): boolean {
-  const haystack = [productType ?? "", ...tags].join(" ").toLowerCase();
-  const normalizedHaystack = haystack.replace(/[_-]+/g, " ");
-  if (NON_POLISH_REGEX.test(normalizedHaystack)) {
-    return false;
-  }
-  return POLISH_SIGNAL_REGEX.test(normalizedHaystack);
+export function isNailPolish(productType: string | null, tags: string[], title?: string | null): boolean {
+  return classifyIngestedProduct({ title, productType, tags }).accept;
 }
 
 /**
@@ -536,7 +503,9 @@ export class ShopifyGenericConnector implements ProductConnector {
       this.fetchAllProducts()
     );
     const normalizedRecords = await Promise.all(
-      allProducts.map((product) => toNormalizedRecord(product, this.baseUrl, this.brandName))
+      allProducts.map((product) =>
+        toNormalizedRecord(product, this.baseUrl, this.brandName, this.source)
+      )
     );
     const filteredRecords = normalizedRecords.filter(
       (record): record is ConnectorProductRecord => Boolean(record)
@@ -746,6 +715,8 @@ export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
   DrunkFairyPolishShopify: "https://drunkfairypolish.com",
   NightOwlLacquerShopify: "https://nightowllacquer.com",
   PahlishShopify: "https://pahlish.com",
+  EmilyDeMollyShopify: "https://emilydemolly.com",
+  CirqueColorsShopify: "https://cirquecolors.com",
   HoloTacoShopify: "https://www.holotaco.com",
 };
 
@@ -759,7 +730,9 @@ export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
  */
 export const SHOPIFY_SOURCES_PENDING_APPROVAL: ReadonlySet<string> = new Set([
   // NightOwlLacquerShopify approved 2026-10-17 (docs/decisions-2026-10.md D2).
-  "PahlishShopify",
+  // PahlishShopify, EmilyDeMollyShopify and CirqueColorsShopify: the owner reported the
+  // stores' sign-off on 2026-10-19 (docs/indie-sources-2026-10.md). Add a new store here
+  // until its OK is recorded in data_source.metadata.notes.
 ]);
 
 /** Whether a newly auto-provisioned data_source row for `source` starts enabled. */
@@ -795,7 +768,8 @@ export function defaultShopifyBaseUrl(source: string): string {
 async function toNormalizedRecord(
   product: ShopifyProduct,
   baseUrl: string,
-  brandName: string
+  brandName: string,
+  source: string
 ): Promise<ConnectorProductRecord | null> {
   const externalId = asNonEmptyString(product.id);
   if (!externalId) {
@@ -805,10 +779,25 @@ async function toNormalizedRecord(
   const tags = normalizeTags(product.tags);
   const productType = asNonEmptyString(product.product_type);
 
-  // Skip non-nail products
-  if (!isNailPolish(productType, tags) || isBundle(tags)) {
+  // Skip accessories, non-nail products and bundles; keep coats/toppers with their category (#347).
+  // A store-specific filter (store-filters/, #328) decides first for stores the generic gate
+  // cannot classify; null defers to the classifier.
+  const gate = classifyIngestedProduct({ title: asNonEmptyString(product.title), productType, tags });
+  const storeVerdict = shopifyStoreProductVerdict(source, product);
+  const isPolish = storeVerdict ?? gate.accept;
+  if (!isPolish || isBundle(tags)) {
     return null;
   }
+  // A store filter that keeps a product the June tag blocklist rejected (Cirque tags shades and
+  // coats with nail-art tutorial names such as "Abstract Dry Brush") gets the rule category, the
+  // one materialization stores, instead of the gate's "accessory".
+  const productCategory =
+    storeVerdict === true && gate.evidence === "legacy-tag"
+      ? classifyProductCategory({
+          shadeName: asNonEmptyString(product.title),
+          products: [{ productType, tags }],
+        }).category
+      : gate.category;
 
   const name = asNonEmptyString(product.title);
   if (!name) {
@@ -875,6 +864,8 @@ async function toNormalizedRecord(
       name,
       handle,
       productType,
+      // Connector-gate category (#349); materialization re-classifies with the shade's finishes.
+      productCategory,
       collections,
       finishes,
       tags,

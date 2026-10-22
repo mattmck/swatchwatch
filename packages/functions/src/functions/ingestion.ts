@@ -207,6 +207,7 @@ const ADDITIVE_METRIC_KEYS = new Set([
   "hexDetectionFailures",
   "hexDetectionSkipped",
   "hexDetectionSkippedUnchanged",
+  "hexDetectionSkippedCategory",
   "hexSnapped",
   "hexDetectionPromptTokens",
   "hexDetectionCompletionTokens",

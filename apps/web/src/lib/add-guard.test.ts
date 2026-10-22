@@ -350,6 +350,17 @@ describe("dupesForNewShade", () => {
     assert.equal(result.candidateCount, 2);
   });
 
+  it("never warns about owned toppers or coats for a new color polish (#349)", () => {
+    const result = dupesForNewShade({ brand: "New", name: "Snow", hex: "#F4F4F2", finishes: ["creme"] }, [
+      owned({ id: "20", vendorHex: "#F4F4F3", name: "Clear Topper", productCategory: "topper", finishes: ["glitter"] }),
+      owned({ id: "21", vendorHex: "#F5F4F2", name: "Top Coat", productCategory: "top_coat" }),
+      owned({ id: "22", vendorHex: "#F3F4F2", name: "White Creme", productCategory: "color" }),
+    ]);
+    assert.ok(result);
+    assert.deepEqual(result.dupes.map((d) => d.shadeId), ["22"]);
+    assert.equal(result.candidateCount, 1);
+  });
+
   it("grades admin-created finishes with the reference finish families", () => {
     const shade = { brand: "New", name: "One", hex: "#B0303A", finishes: ["creme"] };
     const pool = [owned({ id: "10", vendorHex: "#B1313B", name: "Velvet Twin", finishes: ["velvet"] })];

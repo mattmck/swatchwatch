@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useMemo, useCallback, useEffect, useRef, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { Polish, PolishUpdateRequest } from "swatchwatch-shared";
 import { polishHasFinish, resolveDisplayHex } from "swatchwatch-shared";
 import type { IconType } from "react-icons";
 import { BsCurrencyDollar, BsPlusLg, BsQuestionCircleFill, BsTrash3Fill } from "react-icons/bs";
 import { GiPerfumeBottle } from "react-icons/gi";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronUp } from "lucide-react";
 import { getPolishDupes, listPolishes, updatePolish } from "@/lib/api";
 import { buildBrandOptions, matchesBrandFilter } from "@/lib/polish-filters";
 import { isArchivingChange, isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
@@ -49,6 +50,12 @@ import { useReferenceData } from "@/hooks/use-reference-data";
 import { useAddGuard } from "@/hooks/use-add-guard";
 import { AddGuardDialog } from "@/components/add-guard-dialog";
 import { shadeGuardKey, wishlistInsteadUpdate } from "@/lib/add-guard";
+import {
+  buildColorSearchQueryString,
+  parseColorSearchState,
+  type ColorSearchUrlState,
+} from "@/lib/color-search-url";
+import { returnToLabel } from "@/lib/detail-href";
 import { toast } from "sonner";
 
 type ResultsScope = "all" | "collection";
@@ -102,6 +109,7 @@ const HARMONY_SYMBOLS: Record<HarmonyType, string> = {
   monochromatic: "\u25D2",
 };
 const ALL_HARMONY_SYMBOL = "\u2726";
+const URL_WRITE_DEBOUNCE_MS = 200;
 
 function uniqueHexes(hexes: string[]): string[] {
   const seen = new Set<string>();
@@ -138,7 +146,9 @@ function findClosestPolish(
 function useWheelSize(defaultSize = 280, mobileSize = 240) {
   const [size, setSize] = useState(defaultSize);
   useEffect(() => {
-    const update = () => setSize(window.innerWidth < 640 ? mobileSize : defaultSize);
+    // Phones: shrink the wheel so it and the lightness slider fit beside each other (375px → 215).
+    const update = () =>
+      setSize(window.innerWidth < 640 ? Math.max(180, Math.min(mobileSize, window.innerWidth - 160)) : defaultSize);
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
@@ -156,7 +166,13 @@ function useWheelSize(defaultSize = 280, mobileSize = 240) {
  * @returns The rendered Color Search page content as a React element
  */
 function ColorSearchPageContent() {
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
+  const searchParamsString = searchParams.toString();
+  // URL state (#348): filters, selection and focus survive back navigation from a detail page.
+  const [initialUrlState] = useState(() => parseColorSearchState(searchParams));
+  const [initialHsl] = useState(() => (initialUrlState.color ? hexToHsl(initialUrlState.color) : null));
   const { finishTypes, harmonyTypes } = useReferenceData();
   const finishOptions = useMemo(
     () =>
@@ -183,27 +199,40 @@ function ColorSearchPageContent() {
   const [allPolishes, setAllPolishes] = useState<Polish[]>([]);
   const [loading, setLoading] = useState(true);
   const wheelSize = useWheelSize();
-  const [harmonyType, setHarmonyType] = useState<HarmonyType>("complementary");
-  const [includeAllHarmonies, setIncludeAllHarmonies] = useState(true);
-  const [wheelMode, setWheelMode] = useState<WheelMode>("free");
-  const [harmonyColorSet, setHarmonyColorSet] = useState<HarmonyColorSet>("any");
-  const [resultsScope, setResultsScope] = useState<ResultsScope>("all");
-  const [toneFilter, setToneFilter] = useState<Undertone | "all">("all");
-  const [brandFilter, setBrandFilter] = useState<string>("all");
-  const [finishFilter, setFinishFilter] = useState<string>("all");
-  const [availabilityFilter, setAvailabilityFilter] = useState<"all" | "owned" | "wishlist">("all");
-  const [lightness, setLightness] = useState(0.5);
-  const [selectedHsl, setSelectedHsl] = useState<HSL | null>(null);
-  const [paletteAnchors, setPaletteAnchors] = useState<string[]>([]);
+  const [harmonyType, setHarmonyType] = useState<HarmonyType>(
+    initialUrlState.harmony === "all" ? "complementary" : initialUrlState.harmony
+  );
+  const [includeAllHarmonies, setIncludeAllHarmonies] = useState(initialUrlState.harmony === "all");
+  const [wheelMode, setWheelMode] = useState<WheelMode>(initialUrlState.wheelMode);
+  const [harmonyColorSet, setHarmonyColorSet] = useState<HarmonyColorSet>(initialUrlState.harmonyColorSet);
+  const [resultsScope, setResultsScope] = useState<ResultsScope>(initialUrlState.resultsScope);
+  const [toneFilter, setToneFilter] = useState<Undertone | "all">(initialUrlState.toneFilter);
+  const [brandFilter, setBrandFilter] = useState<string>(initialUrlState.brandFilter);
+  const [finishFilter, setFinishFilter] = useState<string>(initialUrlState.finishFilter);
+  const [availabilityFilter, setAvailabilityFilter] = useState<"all" | "owned" | "wishlist">(
+    initialUrlState.availabilityFilter
+  );
+  const [lightness, setLightness] = useState(initialHsl?.l ?? 0.5);
+  const [selectedHsl, setSelectedHsl] = useState<HSL | null>(initialHsl);
+  const [paletteAnchors, setPaletteAnchors] = useState<string[]>(initialUrlState.paletteAnchors);
+  // Page that opened this search (e.g. a look's "Color Lab" link, #386); kept in the URL.
+  const [openedFrom, setOpenedFrom] = useState<string | null>(initialUrlState.returnTo);
   const [anchorFeedback, setAnchorFeedback] = useState<string | null>(null);
   const [previewHex, setPreviewHex] = useState<string | null>(null);
   const [externalHoverHex, setExternalHoverHex] = useState<string | null>(null);
-  const [focusedTargetHex, setFocusedTargetHex] = useState<string | null>(null);
+  const [focusedTargetHex, setFocusedTargetHex] = useState<string | null>(initialUrlState.target);
   const [wheelPanelCollapsed, setWheelPanelCollapsed] = useState(false);
   const [harmoniesPanelCollapsed, setHarmoniesPanelCollapsed] = useState(false);
-  const [activeRecommendedPaletteId, setActiveRecommendedPaletteId] = useState<string | null>(null);
-  const lockedTargetRef = useRef<string | null>(null);
-  const skipNextHarmonyResetRef = useRef(false);
+  const [activeRecommendedPaletteId, setActiveRecommendedPaletteId] = useState<string | null>(
+    initialUrlState.paletteId
+  );
+  // The clicked (locked) target is URL state; the ref serves callbacks, the state the URL.
+  const lockedTargetRef = useRef<string | null>(initialUrlState.target);
+  const [lockedTarget, setLockedTargetState] = useState<string | null>(initialUrlState.target);
+  const setLockedTarget = useCallback((hex: string | null) => {
+    lockedTargetRef.current = hex;
+    setLockedTargetState(hex);
+  }, []);
 
   // Derive selectedHex from selectedHsl so lightness slider updates it
   const selectedHex = useMemo(
@@ -219,40 +248,73 @@ function ColorSearchPageContent() {
     });
   }, [lightness]);
 
-  // Clear focus/lock when harmony type changes
-  useEffect(() => {
-    if (skipNextHarmonyResetRef.current) {
-      skipNextHarmonyResetRef.current = false;
-      return;
-    }
-    lockedTargetRef.current = null;
-    setFocusedTargetHex(null); // eslint-disable-line react-hooks/set-state-in-effect
-  }, [harmonyType, includeAllHarmonies]);
+  // Canonical URL for the current state (hover, panels and toasts stay in memory).
+  const urlState = useMemo<ColorSearchUrlState>(
+    () => ({
+      color: selectedHex,
+      harmony: includeAllHarmonies ? "all" : harmonyType,
+      wheelMode,
+      harmonyColorSet,
+      resultsScope,
+      toneFilter,
+      brandFilter,
+      finishFilter,
+      availabilityFilter,
+      paletteAnchors,
+      target: lockedTarget,
+      paletteId: activeRecommendedPaletteId,
+      returnTo: openedFrom,
+    }),
+    [
+      selectedHex, includeAllHarmonies, harmonyType, wheelMode, harmonyColorSet, resultsScope, toneFilter,
+      brandFilter, finishFilter, availabilityFilter, paletteAnchors, lockedTarget, activeRecommendedPaletteId,
+      openedFrom,
+    ]
+  );
+  const queryString = useMemo(() => buildColorSearchQueryString(urlState), [urlState]);
+  const returnToHref = queryString ? `${pathname}?${queryString}` : pathname;
+  const lastWrittenQueryRef = useRef<string | null>(null);
 
-  // Initialize from URL params
+  // Apply URL changes we did not write ourselves (back/forward, a link while mounted).
   useEffect(() => {
-    const colorParam = searchParams.get("color");
-    if (colorParam) {
-      const hex = colorParam.startsWith("#") ? colorParam : `#${colorParam}`;
-      if (/^#[0-9A-Fa-f]{6}$/.test(hex)) {
-        const hsl = hexToHsl(hex);
-        setSelectedHsl(hsl); // eslint-disable-line react-hooks/set-state-in-effect
-        setLightness(hsl.l);
-      }
-    }
-    const harmonyParam = searchParams.get("harmony");
-    if (harmonyParam === "all") {
-      setIncludeAllHarmonies(true);
-    } else if (harmonyParam && selectableHarmonyTypeOptions.some((h) => h.value === harmonyParam)) {
-      setIncludeAllHarmonies(false);
-      setHarmonyType(harmonyParam as HarmonyType);
-    }
-  }, [searchParams, selectableHarmonyTypeOptions]);
+    if (searchParamsString === lastWrittenQueryRef.current) return;
+    const next = parseColorSearchState(new URLSearchParams(searchParamsString));
+    const nextHsl = next.color ? hexToHsl(next.color) : null;
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setSelectedHsl(nextHsl);
+    if (nextHsl) setLightness(nextHsl.l);
+    setIncludeAllHarmonies(next.harmony === "all");
+    if (next.harmony !== "all") setHarmonyType(next.harmony);
+    setWheelMode(next.wheelMode);
+    setHarmonyColorSet(next.harmonyColorSet);
+    setResultsScope(next.resultsScope);
+    setToneFilter(next.toneFilter);
+    setBrandFilter(next.brandFilter);
+    setFinishFilter(next.finishFilter);
+    setAvailabilityFilter(next.availabilityFilter);
+    setPaletteAnchors(next.paletteAnchors);
+    setLockedTarget(next.target);
+    setFocusedTargetHex(next.target);
+    setActiveRecommendedPaletteId(next.paletteId);
+    setOpenedFrom(next.returnTo);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [searchParamsString, setLockedTarget]);
+
+  // Write the state back (debounced: the lightness slider changes it on every tick).
+  useEffect(() => {
+    if (queryString === searchParamsString) return;
+    const timeoutId = window.setTimeout(() => {
+      lastWrittenQueryRef.current = queryString;
+      router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+    }, URL_WRITE_DEBOUNCE_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [pathname, queryString, router, searchParamsString]);
 
   useEffect(() => {
     let cancelled = false;
 
-    listPolishes()
+    // Color search compares hexes: color polishes only (#349).
+    listPolishes({ categories: ["color"] })
       .then((res) => {
         if (!cancelled) {
           setAllPolishes(res.polishes);
@@ -547,9 +609,9 @@ function ColorSearchPageContent() {
     setLightness(hsl.l);
     setActiveRecommendedPaletteId(null);
     // Clear focus/lock on new wheel selection
-    lockedTargetRef.current = null;
+    setLockedTarget(null);
     setFocusedTargetHex(null);
-  }, []);
+  }, [setLockedTarget]);
 
   const handleExternalColorSelect = useCallback((hex: string) => {
     const hsl = hexToHsl(hex);
@@ -623,13 +685,13 @@ function ColorSearchPageContent() {
 
   const handleSwatchClick = useCallback((hex: string) => {
     if (lockedTargetRef.current === hex) {
-      lockedTargetRef.current = null;
+      setLockedTarget(null);
       setFocusedTargetHex(null);
     } else {
-      lockedTargetRef.current = hex;
+      setLockedTarget(hex);
       setFocusedTargetHex(hex);
     }
-  }, []);
+  }, [setLockedTarget]);
 
   // Row color dot hover — affects wheel marker only, not table filter
   const handleColorHover = useCallback((hex: string) => {
@@ -719,10 +781,7 @@ function ColorSearchPageContent() {
     const harmonyLabel = harmonyLabelByValue.get(candidate.harmony) ?? candidate.harmony;
     const normalizedFocusHex = focusedHex?.toUpperCase() ?? null;
 
-    if (normalizedFocusHex) {
-      skipNextHarmonyResetRef.current = true;
-    }
-    lockedTargetRef.current = normalizedFocusHex;
+    setLockedTarget(normalizedFocusHex);
     setFocusedTargetHex(normalizedFocusHex);
     setExternalHoverHex(null);
     setPreviewHex(null);
@@ -732,7 +791,7 @@ function ColorSearchPageContent() {
     setSelectedHsl(sourceHsl);
     setLightness(sourceHsl.l);
     setAnchorFeedback(`Applied ${harmonyLabel} palette to search results`);
-  }, [harmonyLabelByValue]);
+  }, [harmonyLabelByValue, setLockedTarget]);
 
   const layoutCols = "xl:grid-cols-[minmax(360px,_460px)_minmax(0,_1fr)]";
 
@@ -743,6 +802,15 @@ function ColorSearchPageContent() {
   return (
     <div className="space-y-6">
       <div>
+        {openedFrom ? (
+          <Link
+            href={openedFrom}
+            className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="size-4" aria-hidden="true" />
+            Back to {returnToLabel(openedFrom)}
+          </Link>
+        ) : null}
         <h1 className="heading-page">Color Search</h1>
         <p className="text-muted-foreground">
           Explore your collection by color. Hover to preview, click to select.
@@ -784,10 +852,10 @@ function ColorSearchPageContent() {
                 </p>
               </CardContent>
             ) : (
-              <CardContent className="space-y-4">
-                <div className="mx-auto flex w-fit items-center gap-4" onMouseLeave={handleMouseLeaveWheel}>
+              <CardContent className="space-y-4 px-4 sm:px-6">
+                <div className="mx-auto flex w-fit items-center gap-2 sm:gap-4" onMouseLeave={handleMouseLeaveWheel}>
                   <div className="rounded-[2rem] bg-gradient-brand p-[2px] shadow-glow-brand">
-                    <div className="glass rounded-[calc(2rem-2px)] p-3">
+                    <div className="glass rounded-[calc(2rem-2px)] p-1.5 sm:p-3">
                       <div className="rounded-full border border-white/60 bg-background/65 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
                         <ColorWheel
                           lightness={lightness}
@@ -836,7 +904,7 @@ function ColorSearchPageContent() {
                     <Button
                       type="button"
                       size="sm"
-                      className="h-7 rounded-full px-2.5 text-[11px] font-medium"
+                      className="h-7 rounded-full px-2.5 text-[11px] font-medium pointer-coarse:h-9"
                       variant={wheelMode === "snap" ? "default" : "outline"}
                       onClick={() => setWheelMode((prev) => (prev === "snap" ? "free" : "snap"))}
                       title={wheelMode === "snap" ? "Mine mode is on. Click to turn off." : "Mine mode is off. Click to turn on."}
@@ -865,7 +933,7 @@ function ColorSearchPageContent() {
                         type="button"
                         size="icon-xs"
                         variant="secondary"
-                        className="h-6 w-6 rounded-full"
+                        className="h-6 w-6 rounded-full pointer-coarse:size-9"
                         onClick={() => addPaletteAnchorHex(selectedHex)}
                         disabled={!selectedHex}
                         aria-label="Add focused color"
@@ -919,13 +987,13 @@ function ColorSearchPageContent() {
                     type="button"
                     size="sm"
                     variant={includeAllHarmonies ? "default" : "ghost"}
-                    className="h-7 w-full rounded-md px-0"
+                    className="h-7 w-full rounded-md px-0 pointer-coarse:h-9"
                     title="All harmony types"
                     aria-label="Set harmony type to all"
                     onClick={() => {
                       setIncludeAllHarmonies(true);
                       setActiveRecommendedPaletteId(null);
-                      lockedTargetRef.current = null;
+                      setLockedTarget(null);
                       setFocusedTargetHex(null);
                     }}
                   >
@@ -937,14 +1005,14 @@ function ColorSearchPageContent() {
                       type="button"
                       size="sm"
                       variant={!includeAllHarmonies && harmonyType === h.value ? "default" : "ghost"}
-                      className="h-7 w-full rounded-md px-0"
+                      className="h-7 w-full rounded-md px-0 pointer-coarse:h-9"
                       title={h.label}
                       aria-label={`Set harmony type to ${h.label}`}
                       onClick={() => {
                         setIncludeAllHarmonies(false);
                         setHarmonyType(h.value);
                         setActiveRecommendedPaletteId(null);
-                        lockedTargetRef.current = null;
+                        setLockedTarget(null);
                         setFocusedTargetHex(null);
                       }}
                     >
@@ -1293,6 +1361,7 @@ function ColorSearchPageContent() {
                 onColorSelect={handleExternalColorSelect}
                 onColorHover={handleColorHover}
                 onColorLeave={handleColorLeave}
+                returnTo={returnToHref}
               />
             ) : (
               <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -1306,7 +1375,7 @@ function ColorSearchPageContent() {
         </Card>
 
       </div>
-      <AddGuardDialog guard={activeGuard} onChoice={chooseGuard} returnTo="/polishes/search" />
+      <AddGuardDialog guard={activeGuard} onChoice={chooseGuard} returnTo={returnToHref} />
     </div>
   );
 }

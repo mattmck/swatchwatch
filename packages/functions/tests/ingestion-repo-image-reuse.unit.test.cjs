@@ -40,6 +40,7 @@ mockDistModule("db.js", {
       storedImageCalls.push(params);
       return { rows: await storedImageHandler(params) };
     }
+    if (sql.includes("product_category_source = 'admin'")) return { rows: [] };
     if (sql.includes("WITH input AS")) {
       unchangedLookupCalls.push(params);
       return { rows: [] };

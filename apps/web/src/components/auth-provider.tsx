@@ -77,6 +77,17 @@ function MsalAuthProvider({
         setAccessToken(response.accessToken);
       }
 
+      // MSAL's silent renew loads the redirect URI (the app root) in a hidden
+      // iframe. Running the rest of the app there would call acquireTokenSilent
+      // while the response hash is present, which MSAL rejects with
+      // block_iframe_reload, and would mount the dashboard, telemetry and API
+      // calls inside the iframe. The parent window reads the hash itself, so
+      // stop here.
+      if (window.self !== window.top) {
+        setIsInitialized(true);
+        return;
+      }
+
       // Set active account if one exists
       const accounts = msalInstance.getAllAccounts();
       if (accounts.length > 0 && !msalInstance.getActiveAccount()) {
@@ -145,7 +156,9 @@ function MsalAuthProvider({
     });
   }, [msalInstance]);
 
-  if (!isInitialized) {
+  // Inside MSAL's silent-renew iframe, render nothing (see init above).
+  const inSilentRenewFrame = typeof window !== "undefined" && window.self !== window.top;
+  if (!isInitialized || inSilentRenewFrame) {
     return null;
   }
 

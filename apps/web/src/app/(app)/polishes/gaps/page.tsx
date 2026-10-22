@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { resolveDisplayHex, type Polish } from "swatchwatch-shared";
 import { listAllPolishes } from "@/lib/api";
 import { isOwnedPolish } from "@/lib/inventory-status";
@@ -14,16 +15,21 @@ import {
 import { BrandSpinner } from "@/components/brand-spinner";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
+import { trackOnboardingStepClicked } from "@/lib/metrics-events";
+import { CATALOG_SEARCH_HREF } from "@/lib/onboarding";
+import { LayoutGrid } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CellMatchesList, type CellBoundPolish, Row } from "./gaps-components";
 import {
   cellKey,
+  gapsHref,
   getGapSearchHref,
   getSeverity,
   HUE_META,
   LIGHTNESS_META,
+  parseGapCellParam,
   SEVERITY_META,
   sortCellsByGridOrder,
 } from "./gaps-utils";
@@ -32,15 +38,26 @@ import {
  * Render the collection gap heatmap and selected-cell recommendations.
  *
  * Handles loading/error/empty states and derives cell severity + candidate
- * matches from the current polish catalog.
+ * matches from the current polish catalog. The selected cell lives in the URL (`?cell=`, #348),
+ * so browser back from a polish detail page restores it.
  */
 export default function PolishCollectionGapsPage() {
+  return (
+    <Suspense fallback={<BrandSpinner label="Analyzing collection gaps…" />}>
+      <PolishCollectionGapsContent />
+    </Suspense>
+  );
+}
+
+function PolishCollectionGapsContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlCellKey = parseGapCellParam(searchParams.get("cell"));
   const [polishes, setPolishes] = useState<Polish[]>([]);
   const [loading, setLoading] = useState(true);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedCellKey, setSelectedCellKey] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,8 +66,10 @@ export default function PolishCollectionGapsPage() {
         setLoading(true);
         setError(null);
         // Phase 1: the heatmap only needs owned shades, which is a small fast query.
+        // Color polishes only: toppers and coats have no meaningful hex (#349).
         const ownedRows = await listAllPolishes({
           availability: "owned",
+          categories: ["color"],
           sortBy: "createdAt",
           sortOrder: "desc",
         });
@@ -68,7 +87,7 @@ export default function PolishCollectionGapsPage() {
         // Phase 2: the shared catalog feeds "Available To Add" suggestions. It is much
         // larger, so it loads in the background after the map is already interactive.
         try {
-          const allRows = await listAllPolishes({ sortBy: "createdAt", sortOrder: "desc" });
+          const allRows = await listAllPolishes({ categories: ["color"], sortBy: "createdAt", sortOrder: "desc" });
           if (cancelled) return;
           const merged = new Map(allRows.map((polish) => [polish.id, polish]));
           for (const owned of ownedRows) merged.set(owned.id, owned);
@@ -165,6 +184,15 @@ export default function PolishCollectionGapsPage() {
     return prioritized.slice(0, 6);
   }, [analysis.missing, analysis.underrepresented, missingKeys]);
 
+  // URL selection when valid, else the first recommended cell (the previous default).
+  const defaultCell = recommendedCells[0] ?? analysis.cells[0] ?? null;
+  const selectedCellKey =
+    urlCellKey && cellsByKey.has(urlCellKey) ? urlCellKey : defaultCell ? cellKey(defaultCell) : null;
+  const setSelectedCellKey = useCallback(
+    (key: string) => router.replace(gapsHref(key), { scroll: false }),
+    [router]
+  );
+  const returnToHref = gapsHref(selectedCellKey);
   const selectedCell = selectedCellKey ? cellsByKey.get(selectedCellKey) ?? null : null;
   const selectedSeverity = selectedCell
     ? getSeverity(selectedCell, missingKeys, thinKeys)
@@ -188,13 +216,6 @@ export default function PolishCollectionGapsPage() {
     [selectedCellBoundPolishes],
   );
 
-  useEffect(() => {
-    if (selectedCellKey && cellsByKey.has(selectedCellKey)) return;
-    const fallback =
-      recommendedCells[0] ?? analysis.cells[0] ?? null;
-    setSelectedCellKey(fallback ? cellKey(fallback) : null);
-  }, [analysis.cells, recommendedCells, cellsByKey, selectedCellKey]);
-
   if (loading) return <BrandSpinner label="Analyzing collection gaps…" />;
 
   if (error) {
@@ -203,13 +224,18 @@ export default function PolishCollectionGapsPage() {
 
   if (ownedPolishes.length === 0) {
     return (
-      <EmptyState
-        title="No collection yet"
-        description="Add polishes to your collection to unlock the gap map and see what to buy next."
-        actionLabel="+ Add Polish"
-        actionHref="/polishes/new"
-        className="min-h-[420px]"
-      />
+      <div className="space-y-2">
+        <h1 className="heading-page">Collection Gap Map</h1>
+        <EmptyState
+          icon={LayoutGrid}
+          title="Your gap map needs a collection"
+          description="Once you own a few polishes, this map shows the colors you have plenty of and the ones you're missing."
+          actionLabel="Search the catalog"
+          actionHref={CATALOG_SEARCH_HREF}
+          onAction={() => trackOnboardingStepClicked({ step: "search", surface: "gaps_empty", ownedCount: 0 })}
+          className="min-h-[420px]"
+        />
+      </div>
     );
   }
 
@@ -239,29 +265,29 @@ export default function PolishCollectionGapsPage() {
         </Button>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Card className="relative overflow-hidden border border-brand-purple/20">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        <Card className="relative overflow-hidden border border-brand-purple/20 py-0 sm:py-6">
           <span className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-pink-soft via-brand-lilac to-brand-purple" />
-          <CardContent className="p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Owned Shades</p>
+          <CardContent className="p-3 sm:p-4">
+            <p className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground sm:text-xs sm:tracking-[0.18em]">Owned Shades</p>
             <p className="mt-1 text-2xl font-black text-gradient-brand">{ownedHexes.length}</p>
-            <p className="text-xs text-muted-foreground">Unique display colors in your collection</p>
+            <p className="hidden text-xs text-muted-foreground sm:block">Unique display colors in your collection</p>
           </CardContent>
         </Card>
-        <Card className="relative overflow-hidden border border-rose-300/40">
+        <Card className="relative overflow-hidden border border-rose-300/40 py-0 sm:py-6">
           <span className="absolute inset-y-0 left-0 w-1 bg-rose-500/70" />
-          <CardContent className="p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Missing Cells</p>
+          <CardContent className="p-3 sm:p-4">
+            <p className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground sm:text-xs sm:tracking-[0.18em]">Missing Cells</p>
             <p className="mt-1 text-2xl font-black text-rose-600 dark:text-rose-300">{analysis.missing.length}</p>
-            <p className="text-xs text-muted-foreground">No owned shades in that bucket</p>
+            <p className="hidden text-xs text-muted-foreground sm:block">No owned shades in that bucket</p>
           </CardContent>
         </Card>
-        <Card className="relative overflow-hidden border border-amber-300/40">
+        <Card className="relative overflow-hidden border border-amber-300/40 py-0 sm:py-6">
           <span className="absolute inset-y-0 left-0 w-1 bg-amber-500/70" />
-          <CardContent className="p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Thin Cells</p>
+          <CardContent className="p-3 sm:p-4">
+            <p className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground sm:text-xs sm:tracking-[0.18em]">Thin Cells</p>
             <p className="mt-1 text-2xl font-black text-amber-600 dark:text-amber-300">{analysis.underrepresented.length}</p>
-            <p className="text-xs text-muted-foreground">Represented, but below healthy coverage</p>
+            <p className="hidden text-xs text-muted-foreground sm:block">Represented, but below healthy coverage</p>
           </CardContent>
         </Card>
       </div>
@@ -291,15 +317,16 @@ export default function PolishCollectionGapsPage() {
           </div>
 
           <div className="overflow-x-auto pb-2">
-            <div className="min-w-[920px]">
-              <div className="grid grid-cols-[140px_repeat(8,minmax(88px,1fr))] gap-2">
+            <div className="min-w-[640px] sm:min-w-[920px]">
+              <div className="grid grid-cols-[76px_repeat(8,minmax(64px,1fr))] gap-1.5 sm:grid-cols-[140px_repeat(8,minmax(88px,1fr))] sm:gap-2">
                 <div />
                 {HUE_FAMILY_ORDER.map((hueFamily) => (
                   <div
                     key={hueFamily}
-                    className="rounded-md border border-brand-lilac/45 bg-muted/40 px-2 py-2 text-center text-[11px] font-semibold leading-tight"
+                    className="rounded-md border border-brand-lilac/45 bg-muted/40 px-1 py-2 text-center text-[11px] font-semibold leading-tight sm:px-2"
                   >
-                    {HUE_META[hueFamily].label}
+                    {/* Break after the slash ("Oranges/Corals") rather than mid-word on phones. */}
+                    {HUE_META[hueFamily].label.replace("/", "/\u200B")}
                   </div>
                 ))}
 
@@ -356,10 +383,12 @@ export default function PolishCollectionGapsPage() {
                     title="In Your Collection"
                     items={selectedOwnedMatches}
                     emptyLabel="No owned shades in this cell yet."
+                    returnTo={returnToHref}
                   />
                   <CellMatchesList
                     title="Available To Add"
                     items={selectedCatalogMatches}
+                    returnTo={returnToHref}
                     emptyLabel={
                       catalogLoading
                         ? "Loading catalog suggestions…"
@@ -401,7 +430,7 @@ export default function PolishCollectionGapsPage() {
                       key={key}
                       type="button"
                       onClick={() => setSelectedCellKey(key)}
-                      className={`rounded-full border px-3 py-1 text-xs transition ${
+                      className={`rounded-full border px-3 py-2 text-xs transition sm:py-1 ${
                         severity === "missing"
                           ? "border-rose-400/65 bg-rose-100/80 text-rose-800 hover:bg-rose-200/80 dark:bg-rose-950/40 dark:text-rose-100"
                           : "border-amber-400/65 bg-amber-100/80 text-amber-800 hover:bg-amber-200/80 dark:bg-amber-950/40 dark:text-amber-100"

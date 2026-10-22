@@ -16,7 +16,7 @@ recommendation in place for the record.
 |----|-------|--------|--------|
 | D1 | Public wishlist pages | Decided | Turning on #305 |
 | D2 | Which indie stores to enable first | Decided | Turning on #292 sources |
-| D3 | Mobile: PWA or Expo | Decided | Q4 scope |
+| D3 | Mobile: PWA or Expo | Decided (January start superseded by D24) | Q4 scope |
 | D4 | Hex detection gate and freeze | Decided | The hex baseline metric |
 | D5 | Inventory status rules: defaults, zero, running out (D5a–c) | Decided | #304 vs #291 consistency, the − button |
 | D6 | What counts as spend | Decided | #309 stats |
@@ -33,9 +33,11 @@ recommendation in place for the record.
 | D17 | Observability issue numbering | Decided | Phase 3 branch name |
 | D18 | How to release this batch | Decided (revised: one release) | Promoting `dev` to `main` |
 | D19 | Tracking the success metrics | Decided | Roadmap §4 metrics |
-| D20 | Milestones | Decided | Housekeeping |
+| D20 | Milestones (M3 proposal pending) | Decided; M3 proposal pending (owner) | Housekeeping |
 | D21 | Owners for follow-ups | Decided | Follow-up work |
 | D22 | How feature flags work | Deferred ([#313](https://github.com/mattmck/swatchwatch/issues/313)) | Nothing yet |
+| D23 | Product categories and non-polish cleanup | Decided | #349, #347 |
+| D24 | Expo app and Looks started early; overnight merge-to-dev rule | Decided | #109, #384, #385, Looks follow-ups |
 
 ---
 
@@ -68,6 +70,8 @@ recommendation in place for the record.
 - **Recommendation:** (a).
 - **Decision:** PWA-first through December; Expo (#109) starts in January.
 - **Date:** 2026-10-17
+- **Superseded 2026-10-19 by [D24](#d24--expo-app-and-looks-started-early-overnight-merge-to-dev-rule-2026-10-19):** the Expo app
+  started on 2026-10-19, alongside the PWA, instead of in January.
 
 ### D4 — Hex detection gate and freeze
 - **Context:** roadmap §6.3. The two-day gate hasn't run yet. #311 adds hand-labeled ground truth; the last
@@ -205,6 +209,9 @@ recommendation in place for the record.
 - **Decision:** Opt-in promote. Add a "promote to vendor hex" admin action (off by default), plus provenance columns on `vendor_hex` so promoted values can be told apart from vendor data.
 - **Date:** 2026-10-17
 - **Ticket:** [#321](https://github.com/mattmck/swatchwatch/issues/321)
+- **Implemented:** `POST /api/hex-labels-admin/labels/{id}/promote` + Undo, `shade.vendor_hex_source` and friends
+  (migration 20261020024540860_shade-vendor-hex-provenance); ingestion never overwrites a `manual_label` vendor hex
+  (the vendor's value is kept in `vendor_hex_previous` for Undo).
 
 ### D13 — Buy link when there's no URL, and http links
 - **Context:** #289 leaves out `buyUrl` when there's no valid URL, and keeps `http` URLs as they are.
@@ -272,6 +279,11 @@ recommendation in place for the record.
 - **Recommendation:** close M0 and M1, open **M2 — Collector's companion**, and move the Sprint 1–4 issues into it.
 - **Decision:** Yes. Already done: M0 and M1 are closed, and M2 — Collector's companion holds the Sprint 1–4 issues and these follow-ups.
 - **Date:** 2026-10-17
+- **Proposal (2026-10-19, not decided):** open a milestone **M3 — On the go** for Q1 2027 holding #109 (Expo app),
+  #384 (mobile color search, harmonies, Pair it) if still open, #2 (ESM), #117 (Redis), #313 (feature flags) and the Looks
+  follow-ups (skin-tone model, prices on the shopping list, server-side share). M2 keeps its 2026-12-19 due date.
+  Until the owner names the milestone, new issues outside M2 carry the `plan-me` label instead of a milestone.
+  - **Decision:** pending (owner)
 
 ### D21 — Owners for follow-ups
 Open follow-ups taken from the PR descriptions. Give each one an owner and a ticket, or mark it "won't do".
@@ -311,3 +323,49 @@ Open follow-ups taken from the PR descriptions. Give each one an owner and a tic
 ### D22 — How feature flags work
 - **Status:** Deferred, see [#313](https://github.com/mattmck/swatchwatch/issues/313). Env vars for now; revisit
   at the third or fourth flag, or when per-user targeting is needed.
+
+## E. Catalog hygiene
+
+### D23 — Product categories and non-polish cleanup
+- **Status:** Decided
+- **Context:** owner accepted the plan's recommendations for the overnight build; revisit on PR review.
+  Plan: [plan-catalog-hygiene.md](plan-catalog-hygiene.md) §3. Issues [#349](https://github.com/mattmck/swatchwatch/issues/349), [#347](https://github.com/mattmck/swatchwatch/issues/347).
+- **Decision:**
+  - **D-A (model):** option (a), a column on `shade`: `product_category` (`color | topper | top_coat | base_coat | treatment | accessory`, default `color`) plus `product_category_source` (`rule | admin`). Topper is a category; its finishes describe the particles, and the `topper` finish keeps setting the category at ingestion.
+  - **D-B (accessories):** option (a), classify as `accessory` and set the new shade status `excluded` when nobody holds the shade. Held ones are listed for admin review and stay visible to their holders. Nothing is hard-deleted.
+  - **D-C (surfaces):** the plan's recommended table as written (collection table all categories with accessories for holders only; catalog search everything but accessories; color search, gaps and photo match color only; dupes color vs color and topper vs topper; Pick for me color main picks with an optional topper pairing; stats with coats/treatments in spend only and accessories out; mani log role prefill from the category).
+  - **D-D (topper hexes):** recommended option, no vision hex detection on toppers (or any non-color category); toppers show a neutral swatch with finish chips; `vendor_hex` is kept; `detected_hex` is cleared on toppers only by the backfill's explicit flag, with the old value and provenance recorded so it can be undone.
+  - **D-E (coats and treatments at ingestion):** stop dropping treatment, primer and bond products; ingest them as `base_coat` / `top_coat` / `treatment`. True accessories are still skipped.
+- **Date:** 2026-10-18
+
+## F. Plan changes
+
+### D24 — Expo app and Looks started early; overnight merge-to-dev rule (2026-10-19)
+- **Status:** Decided
+- **Context:** the 10-18 overnight batch built the Expo app foundation (#376) and its second wave (#379) under #109, and
+  the Looks page (#370, #378), while D3 said Expo starts in January and roadmap §5 deferred the full Looks page to Q1
+  "with usage data". The batch also raised process and toolchain questions in the PR bodies: who merges overnight PRs,
+  how mobile Rapid Add should add (PR #376 decision 1), and which React and Expo versions to pin (PR #376 decisions 2–3).
+  The 10-19 batch continued both tracks (#392 Looks toggles, #396 mobile photos, #399 mobile color search).
+- **Options:** (a) keep D3 and the §5 deferral: park the mobile and Looks PRs until Q1 · (b) accept the early start and
+  record the rules the PRs chose
+- **Recommendation:** (b). The work is built, reviewed and green, and parking it would only let it rot against `dev`.
+- **Decision:** (b), agreed by the owner in chat with the lead session on 2026-10-19:
+  - **(a) Overnight merge rule:** overnight sessions merge their own PRs into `dev` once CI is green and review threads
+    are handled. They never merge `dev → main`; releases stay with the owner.
+  - **(b) Expo started early:** the Expo app (#109) started on 2026-10-19 instead of January. This supersedes D3's
+    January start; the PWA stays the in-store path on the web. Sub-items: #384 (color search, harmonies, Pair it) and
+    #385 (nail photo, photo-match parity, mani photos).
+  - **(c) Looks ships client-side:** the Looks page shipped as a client-side recommender (`apps/web/src/lib/looks.ts`,
+    seeded like "Pick for me") with no `GET /api/looks` recommendation endpoint (that route lists saved looks), instead
+    of waiting for Q1 usage data. This supersedes the Looks deferral in roadmap §5.
+  - **(d) Mobile Rapid Add is check-first:** the Expo app answers a scan from the read-only
+    `POST /api/capture/{id}/check` and only adds when the user taps Add, rather than the web's finalize-and-undo
+    (PR #376 decision 1).
+  - **(e) Toolchain pins:** the root `package.json` `overrides` pins React 19.2.3 (`react`, `react-dom`) for every
+    workspace, because React Native's renderer must match React exactly, and the mobile app is on Expo SDK 57
+    (React Native 0.86) (PR #376 decisions 2–3).
+- **Date:** 2026-10-19
+- **Ticket:** [#109](https://github.com/mattmck/swatchwatch/issues/109) (sub-items [#384](https://github.com/mattmck/swatchwatch/issues/384),
+  [#385](https://github.com/mattmck/swatchwatch/issues/385)); Looks follow-ups [#386](https://github.com/mattmck/swatchwatch/issues/386)
+- **Open:** where this work lives in the milestones (the M3 proposal under D20).

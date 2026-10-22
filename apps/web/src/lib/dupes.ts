@@ -7,7 +7,9 @@ import {
   type PolishDupeHint,
   type PolishDupesBatchResponse,
   type PolishDupesResponse,
+  resolveProductCategory,
 } from "swatchwatch-shared";
+import { detailHref } from "./detail-href";
 
 /**
  * Client helpers for the dupe finder (#265). Pure (the API calls are injected), so the
@@ -39,11 +41,18 @@ export const FINISH_COMPATIBILITY_LABELS: Record<FinishCompatibility, string> = 
   unknown: "Finish unknown",
 };
 
-/** Ids of the rows that should show a dupe hint: anything the user does not own yet. */
-export function dupeHintShadeIds(polishes: readonly Pick<Polish, "id" | "status">[]): string[] {
+/**
+ * Ids of the rows that should show a dupe hint: anything the user does not own yet that can have
+ * dupes at all (color polishes and toppers; coats, treatments and accessories never do, #349).
+ */
+export function dupeHintShadeIds(
+  polishes: readonly (Pick<Polish, "id" | "status"> & Partial<Pick<Polish, "productCategory">>)[]
+): string[] {
   const ids: string[] = [];
   for (const polish of polishes) {
     if (polish.status === "owned") continue;
+    const category = resolveProductCategory(polish.productCategory);
+    if (category !== "color" && category !== "topper") continue;
     if (!ids.includes(polish.id)) ids.push(polish.id);
   }
   return ids;
@@ -136,8 +145,7 @@ export function dupeVerdict(
   return { kind: best.grade === "high" ? "dupe-owned" : "near-dupe-owned", best };
 }
 
-/** Detail-page link for a dupe. */
-export function dupeHref(dupe: Pick<PolishDupe, "shadeId">, returnTo?: string): string {
-  const base = `/polishes/detail?id=${encodeURIComponent(dupe.shadeId)}`;
-  return returnTo ? `${base}&returnTo=${encodeURIComponent(returnTo)}` : base;
+/** Detail-page link for a dupe; `returnTo` defaults to the current page (see `detailHref`, #348). */
+export function dupeHref(dupe: Pick<PolishDupe, "shadeId">, returnTo?: string | null): string {
+  return detailHref(dupe.shadeId, returnTo);
 }
