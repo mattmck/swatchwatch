@@ -68,10 +68,16 @@ function MsalAuthProvider({
       },
       acquireInteractive: async () => {
         redirecting = true;
-        await msalInstance.acquireTokenRedirect({
-          scopes: buildLoginRequestScopes(),
-          extraQueryParameters: buildPolicyQueryParameters(),
-        });
+        try {
+          await msalInstance.acquireTokenRedirect({
+            scopes: buildLoginRequestScopes(),
+            extraQueryParameters: buildPolicyQueryParameters(),
+          });
+        } catch (error) {
+          // No navigation happened (e.g. interaction_in_progress): let init finish rendering.
+          redirecting = false;
+          throw error;
+        }
       },
       claimRedirect: () => {
         try {
