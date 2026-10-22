@@ -262,8 +262,8 @@ CREATE TABLE shade (
   detected_finishes TEXT[],                      -- AI-detected finishes (migration 016)
   collection TEXT,
   release_year INT,
-  status TEXT NOT NULL DEFAULT 'unknown',       -- active|user_submitted|excluded|...; user_submitted = private to creator/inventory holders until an admin sets 'active' (migration 024); excluded = accessory hidden from discovery, still shown to holders (migration 20261019011858000)
-  -- Product category (migration 20261019011858000_shade-product-category, #349/#347, D23): classifyProductCategory
+  status TEXT NOT NULL DEFAULT 'unknown',       -- active|user_submitted|excluded|...; user_submitted = private to creator/inventory holders until an admin sets 'active' (migration 024); excluded = accessory hidden from discovery, still shown to holders (migration 20261022190729000)
+  -- Product category (migration 20261022190729000_shade-product-category, #349/#347, D23): classifyProductCategory
   -- in packages/functions/src/lib/product-category.ts. 'admin' categories are never changed by ingestion or the backfill.
   product_category TEXT NOT NULL DEFAULT 'color'
     CHECK (product_category IN ('color', 'topper', 'top_coat', 'base_coat', 'treatment', 'accessory')),
@@ -322,7 +322,7 @@ CREATE INDEX idx_shade_merged_into ON shade (merged_into_shade_id) WHERE merged_
 -- Category filters (dupes, color search, gaps, ?category=)
 CREATE INDEX idx_shade_product_category_status ON shade (product_category, status);
 
--- Undo log for product-category changes (migration 20261019011858000): one row per category change,
+-- Undo log for product-category changes (migration 20261022190729000): one row per category change,
 -- exclusion or cleared topper detected_hex made by the backfill job or an admin, with before/after values.
 CREATE TABLE shade_category_change (
   shade_category_change_id BIGSERIAL PRIMARY KEY,
