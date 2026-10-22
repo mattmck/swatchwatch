@@ -322,9 +322,9 @@ Documentation files in this project:
 
 **GitHub Flow** with **Conventional Commits**. See `CONTRIBUTING.md` for full details.
 
-- **Branches:** `<type>/<issue#>-<description>` off `main` (e.g., `feat/12-catalog-search`, `fix/34-color-wheel-safari`)
+- **Branches:** `<type>/<issue#>-<description>` off `dev` (e.g., `feat/12-catalog-search`, `fix/34-color-wheel-safari`); `scripts/agent-worktree.sh` branches from `dev` by default
 - **Commits:** `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:` prefixes
-- **PRs:** Squash merge into `main`. PR title = conventional commit message. Reference issues with `Closes #N`.
+- **PRs:** Squash merge into `dev`. PR title = conventional commit message. Reference issues with `Closes #N`.
 - **Integration branch (`dev`, decision D24):** feature PRs target `dev`. An unattended (overnight) session may squash-merge its own PR into `dev` once CI is green and every review thread is fixed or answered; only the owner merges `dev → main` (a release PR with a merge commit). Closing keywords fire only on `main`, so issues shipped to `dev` are closed by hand after the release (see the overnight runbooks in `docs/`).
 - **Issues:** Use GitHub Issue templates (Feature, Bug, Chore). Add scope labels (`web`, `mobile`, `functions`, `infra`).
 

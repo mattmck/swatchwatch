@@ -43,10 +43,10 @@ Reference issues when relevant: `feat: add Cosmos DB client (#12)`
 
 ### Pull Requests
 
-1. Create a branch from `main`
+1. Create a branch from `dev`
 2. Make your changes with conventional commits
-3. Open a PR — the template will guide you through the checklist
-4. PRs are **squash merged** into `main` (one clean commit per feature)
+3. Open a PR against `dev` — the template will guide you through the checklist
+4. PRs are **squash merged** into `dev` (one clean commit per feature)
 5. Branches are auto-deleted after merge
 
 Feature PRs currently target the `dev` integration branch and are promoted to `main` in a release PR
