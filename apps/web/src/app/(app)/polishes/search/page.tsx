@@ -146,7 +146,9 @@ function findClosestPolish(
 function useWheelSize(defaultSize = 280, mobileSize = 240) {
   const [size, setSize] = useState(defaultSize);
   useEffect(() => {
-    const update = () => setSize(window.innerWidth < 640 ? mobileSize : defaultSize);
+    // Phones: shrink the wheel so it and the lightness slider fit beside each other (375px → 215).
+    const update = () =>
+      setSize(window.innerWidth < 640 ? Math.max(180, Math.min(mobileSize, window.innerWidth - 160)) : defaultSize);
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
@@ -850,10 +852,10 @@ function ColorSearchPageContent() {
                 </p>
               </CardContent>
             ) : (
-              <CardContent className="space-y-4">
-                <div className="mx-auto flex w-fit items-center gap-4" onMouseLeave={handleMouseLeaveWheel}>
+              <CardContent className="space-y-4 px-4 sm:px-6">
+                <div className="mx-auto flex w-fit items-center gap-2 sm:gap-4" onMouseLeave={handleMouseLeaveWheel}>
                   <div className="rounded-[2rem] bg-gradient-brand p-[2px] shadow-glow-brand">
-                    <div className="glass rounded-[calc(2rem-2px)] p-3">
+                    <div className="glass rounded-[calc(2rem-2px)] p-1.5 sm:p-3">
                       <div className="rounded-full border border-white/60 bg-background/65 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
                         <ColorWheel
                           lightness={lightness}
@@ -902,7 +904,7 @@ function ColorSearchPageContent() {
                     <Button
                       type="button"
                       size="sm"
-                      className="h-7 rounded-full px-2.5 text-[11px] font-medium"
+                      className="h-7 rounded-full px-2.5 text-[11px] font-medium pointer-coarse:h-9"
                       variant={wheelMode === "snap" ? "default" : "outline"}
                       onClick={() => setWheelMode((prev) => (prev === "snap" ? "free" : "snap"))}
                       title={wheelMode === "snap" ? "Mine mode is on. Click to turn off." : "Mine mode is off. Click to turn on."}
@@ -931,7 +933,7 @@ function ColorSearchPageContent() {
                         type="button"
                         size="icon-xs"
                         variant="secondary"
-                        className="h-6 w-6 rounded-full"
+                        className="h-6 w-6 rounded-full pointer-coarse:size-9"
                         onClick={() => addPaletteAnchorHex(selectedHex)}
                         disabled={!selectedHex}
                         aria-label="Add focused color"
@@ -985,7 +987,7 @@ function ColorSearchPageContent() {
                     type="button"
                     size="sm"
                     variant={includeAllHarmonies ? "default" : "ghost"}
-                    className="h-7 w-full rounded-md px-0"
+                    className="h-7 w-full rounded-md px-0 pointer-coarse:h-9"
                     title="All harmony types"
                     aria-label="Set harmony type to all"
                     onClick={() => {
@@ -1003,7 +1005,7 @@ function ColorSearchPageContent() {
                       type="button"
                       size="sm"
                       variant={!includeAllHarmonies && harmonyType === h.value ? "default" : "ghost"}
-                      className="h-7 w-full rounded-md px-0"
+                      className="h-7 w-full rounded-md px-0 pointer-coarse:h-9"
                       title={h.label}
                       aria-label={`Set harmony type to ${h.label}`}
                       onClick={() => {

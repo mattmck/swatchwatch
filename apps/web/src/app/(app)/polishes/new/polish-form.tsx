@@ -330,7 +330,7 @@ export default function PolishForm() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <label htmlFor="color" className="text-sm font-medium">
                   Color <span className="text-destructive">*</span>
@@ -418,7 +418,7 @@ export default function PolishForm() {
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <label htmlFor="collection" className="text-sm font-medium">
                   Collection
@@ -432,7 +432,7 @@ export default function PolishForm() {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
               <div className="space-y-2">
                 <label htmlFor="quantity" className="text-sm font-medium">
                   Quantity
@@ -465,7 +465,7 @@ export default function PolishForm() {
                   onChange={(e) => update("size", e.target.value)}
                 />
               </div>
-              <div className="space-y-2">
+              <div className="col-span-2 space-y-2 sm:col-span-1">
                 <label className="text-sm font-medium">Rating</label>
                 <div className="relative flex items-center gap-3 overflow-hidden rounded-xl border border-brand-lilac/40 bg-card px-3 py-2 shadow-sm">
                   <span
@@ -500,8 +500,8 @@ export default function PolishForm() {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <div className="col-span-2 space-y-2 sm:col-span-1">
                 <label htmlFor="status" className="text-sm font-medium">
                   Status
                 </label>
