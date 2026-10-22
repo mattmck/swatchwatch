@@ -39,7 +39,7 @@ then merged into `dev` (2026-10-20, 03:00Z): the 10-18 batch #370–#383 (runboo
 10-19 batch #388–#399 (runbook:
 [overnight-2026-10-19-release-runbook.md](overnight-2026-10-19-release-runbook.md)). Closing keywords only fire on `main`, so these issues stay open until the next
 `dev → main` release and are then closed by hand, as after #340: #328, #105 (web half; the mobile
-half is in #109), #348, #349, #347, #321, #386, #385 and #384.
+half is in #109), #348, #349, #347, #321, #386, #385, #384 and #387.
 
 > **Status (2026-10-20):** the Expo app (#109) and the Looks page started early instead of in
 > Q1, and overnight sessions now merge their own PRs into `dev`. See
@@ -52,7 +52,6 @@ half is in #109), #348, #349, #347, #321, #386, #385 and #384.
 - #325 verify camera Rapid Add on real iOS and Android devices
 - #326 nail-photo upload/delete end-to-end against a live host
 - #313 decide the feature-flag mechanism (env vars vs. Azure App Configuration); not in the M2 milestone but raised by #305
-- #387 phone layout sweep across every app route (PR #397 green and waiting for the owner's merge on 2026-10-22)
 - #274 release, docs sweep and retro (skeleton in [retro-m2.md](retro-m2.md))
 
 ## 2. What nail polish nerds want (research)

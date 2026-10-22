@@ -34,7 +34,7 @@ After #340, work kept landing on `dev`:
 The two overnight batches are on `dev` only until the next `dev → main` release. Their issues
 (#328, #105 web half, #348, #349, #347, #321, #386, #385) stay open until then and need closing
 by hand, as after #340. #399 (mobile color search, harmonies and Pair it, #384) merged on 2026-10-20
-too, so #384 is in that list; #397 (phone layout sweep, #387) was still open, green, on 2026-10-22.
+and #397 (phone layout sweep, #387) on 2026-10-22, so #384 and #387 are in that list too.
 
 ## What we decided
 

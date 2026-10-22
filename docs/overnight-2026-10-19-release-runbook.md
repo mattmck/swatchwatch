@@ -6,8 +6,7 @@ _Written 2026-10-22 by the overnight lead session. Everything below is for the o
 
 Six pieces, built in parallel off `dev` after the 10-18 batch had merged, each on its own
 worktree. Unlike the 10-18 batch, each session **merged its own PR into `dev` as a squash** once
-CI was green and review threads were handled (decision D24 (a)). Five are in `dev`; one is green
-and waiting for you (§1).
+CI was green and review threads were handled (decision D24 (a)). All six are in `dev`.
 
 | PR | Issue | What a user gets |
 |---|---|---|
@@ -16,7 +15,7 @@ and waiting for you (§1).
 | [#392](https://github.com/mattmck/swatchwatch/pull/392) | #386 | Looks: `Include toppers` switch (`toppers=0` in the URL only when off), Color Lab link from cards, drawer and saved looks into `/polishes/search` with a back link, `looks.color_lab_opened` telemetry |
 | [#396](https://github.com/mattmck/swatchwatch/pull/396) | #385 | Expo app: private nail photo on polish detail (camera or library, replace, delete), photo match parity with the web (scope and palette chips, per-color groups, add / wishlist through the add guard), optional mani photo; private `v3` media held in memory only |
 | [#399](https://github.com/mattmck/swatchwatch/pull/399) | #384 | Expo app: Search tab "By color" (hue strip + lightness, family chips, owned-first ranking, catalog toggle, `?hex=` deep link), "Pair it" on the Home pick card, "Goes with" on polish detail; harmony and Pair it rules moved to `packages/shared/src/color/` with the web re-exporting them |
-| [#397](https://github.com/mattmck/swatchwatch/pull/397) | #387 | Phone layout sweep: 14 per-route fixes at 375 and 390 px, light and dark (touch targets via `pointer-coarse:`, dialog height cap, gaps heatmap columns). **Open, green, not merged** |
+| [#397](https://github.com/mattmck/swatchwatch/pull/397) | #387 | Phone layout sweep: 14 per-route fixes at 375 and 390 px, light and dark (touch targets via `pointer-coarse:`, dialog height cap, gaps heatmap columns); merged 2026-10-22 as `4bc3d13` |
 
 One migration ships with it: `20261020024540860_shade-vendor-hex-provenance` (#391). It adds
 nullable provenance columns and backfills `vendor_hex_source = 'vendor'` for rows that already
@@ -34,9 +33,8 @@ and [#395](https://github.com/mattmck/swatchwatch/pull/395) (console errors on r
 
 ## 1. Finish merging to `dev`
 
-1. Merge #397 (`gh pr merge 397 --squash --delete-branch`): its session's permission mode would not
-   let it merge. Then #390, #394, #398 (re-run CI on the second), #389 after reading the CodeRabbit
-   thread, and decide where #395 goes.
+1. Merge #390, #394, #398 (re-run CI on the second), #389 after reading the CodeRabbit thread,
+   and decide where #395 goes.
 2. Each merge triggers **Deploy Dev**. Watch the last one:
 
    ```bash
@@ -58,7 +56,7 @@ backfills (product categories, barcodes; its runbook §3) still apply and have n
 
 After the release, close by hand with a comment naming the PR (closing keywords only fire on
 `main`): #328, #105 (web half; the mobile half is in #109), #348, #349, #347, #321, #386, #385,
-#384, and #387 once #397 is in.
+#384 and #387.
 
 ## 3. One-time owner actions
 
