@@ -27,11 +27,11 @@ export function QuantityControls({
 }: QuantityControlsProps) {
   if (!owned) {
     return (
-      <div className="w-[88px] flex justify-end">
+      <div className="w-[88px] flex justify-end pointer-coarse:w-auto">
         <Button
           variant="outline"
           size="xs"
-          className="w-[88px]"
+          className="w-[88px] pointer-coarse:h-9"
           onClick={onAdd}
           disabled={disabled || addPending}
           aria-busy={addPending || undefined}
@@ -43,10 +43,11 @@ export function QuantityControls({
   }
 
   return (
-    <div className="inline-flex w-[88px] items-center justify-between gap-1">
+    <div className="inline-flex w-[88px] items-center justify-between gap-1 pointer-coarse:w-auto pointer-coarse:gap-2">
       <Button
         variant="outline"
         size="icon-xs"
+        className="pointer-coarse:size-9"
         onClick={onDecrement}
         disabled={disabled}
         aria-label={quantity <= 1 ? "Remove last bottle (moves to Archived)" : "Decrease quantity"}
@@ -68,6 +69,7 @@ export function QuantityControls({
       <Button
         variant="outline"
         size="icon-xs"
+        className="pointer-coarse:size-9"
         onClick={onIncrement}
         disabled={disabled}
         aria-label="Increase quantity"

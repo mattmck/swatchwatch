@@ -117,7 +117,7 @@ export function LookDrawer({ look, vibe, catalogPool, catalogLoading, onOpenChan
                             key={`own-${alt.id}`}
                             polish={alt}
                             action={
-                              <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => onSwap(step.role, alt)}>
+                              <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs pointer-coarse:h-9" onClick={() => onSwap(step.role, alt)}>
                                 <Repeat className="size-3.5" aria-hidden />
                                 Use (owned)
                               </Button>

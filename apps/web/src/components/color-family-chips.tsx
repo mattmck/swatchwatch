@@ -33,7 +33,7 @@ export function ColorFamilyChips({ value, onChange, className }: ColorFamilyChip
       <ToggleChip
         pressed={selected.size === 0}
         onPressedChange={() => onChange([])}
-        className="h-7 px-2.5 text-xs"
+        className="h-7 px-2.5 text-xs pointer-coarse:h-9"
       >
         Any color
       </ToggleChip>
@@ -44,7 +44,7 @@ export function ColorFamilyChips({ value, onChange, className }: ColorFamilyChip
             key={family}
             pressed={pressed}
             onPressedChange={() => onChange(toggleColorFamily(value, family))}
-            className="h-7 gap-1.5 px-2.5 text-xs"
+            className="h-7 gap-1.5 px-2.5 text-xs pointer-coarse:h-9"
             title={`${COLOR_FAMILY_LABELS[family]} polishes`}
           >
             <span

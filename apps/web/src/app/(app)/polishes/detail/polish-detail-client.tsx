@@ -270,8 +270,8 @@ export default function PolishDetailClient({
           className="pointer-events-none absolute -right-10 -top-10 size-40 rounded-full opacity-30 blur-3xl"
           style={{ background: displayHex || "transparent" }}
         />
-        <div className="relative flex items-start justify-between">
-          <div className="flex items-center gap-4">
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 items-center gap-4">
             {isTopper ? (
               <TopperSwatch size="lg" className="size-16 rounded-xl shadow-lg ring-2 ring-white/50" />
             ) : (
@@ -280,8 +280,8 @@ export default function PolishDetailClient({
                 style={{ backgroundColor: displayHex || "#ccc" }}
               />
             )}
-            <div>
-              <h1 className="heading-page">
+            <div className="min-w-0">
+              <h1 className="heading-page break-words">
                 {polish.name}
                 <ProductCategoryPill category={polish.productCategory} className="ml-2 align-middle" />
               </h1>
@@ -320,7 +320,7 @@ export default function PolishDetailClient({
               )}
             </div>
           </div>
-          <div className="flex flex-wrap justify-end gap-2">
+          <div className="flex flex-wrap gap-2 sm:justify-end">
             <BuyFromBrandLink
               url={polish.buyUrl}
               brand={polish.brand}

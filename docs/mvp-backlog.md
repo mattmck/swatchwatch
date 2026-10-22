@@ -222,6 +222,13 @@ This backlog is organized as **Epics → Capabilities → Stories/Tasks**, optim
 - **M3 (Week 6):** Retail links + in-store scan mode + disclosure
 - **M4 (Week 7+):** Ingredient OCR + basic normalization + admin tools
 
+> **Note (2026-10-20):** the M0–M4 names above are the original 2026-02 fast-path plan and no
+> longer match the live milestones. The live milestones are the GitHub ones: M0 and M1 are closed,
+> **M2 — Collector's companion** is open and due 2026-12-19, and an **M3 — On the go** milestone for
+> Q1 2027 is proposed but not decided. See [roadmap-2026-10-to-12.md](roadmap-2026-10-to-12.md) for
+> the current plan and [decisions-2026-10.md](decisions-2026-10.md) (D20, D24) for the milestone
+> decisions.
+
 ### Security and Deprecation Fixes (2026-02)
 
 - JWT validation in `auth.ts` is implemented via JWKS/JOSE; keep `AUTH_DEV_BYPASS=false` outside isolated local dev.

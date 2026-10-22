@@ -80,7 +80,7 @@ export function ProductCategoryChips({ value, onChange, className }: ProductCate
   const selected = new Set(value);
   return (
     <div role="group" aria-label="Filter by category" className={cn("flex flex-wrap items-center gap-1.5", className)}>
-      <ToggleChip pressed={selected.size === 0} onPressedChange={() => onChange([])} className="h-7 px-2.5 text-xs">
+      <ToggleChip pressed={selected.size === 0} onPressedChange={() => onChange([])} className="h-7 px-2.5 text-xs pointer-coarse:h-9">
         Any category
       </ToggleChip>
       {PRODUCT_CATEGORIES.map((category) => (
@@ -88,7 +88,7 @@ export function ProductCategoryChips({ value, onChange, className }: ProductCate
           key={category}
           pressed={selected.has(category)}
           onPressedChange={() => onChange(toggleProductCategory(value, category))}
-          className="h-7 px-2.5 text-xs"
+          className="h-7 px-2.5 text-xs pointer-coarse:h-9"
         >
           {PRODUCT_CATEGORY_LABELS[category]}
         </ToggleChip>

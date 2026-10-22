@@ -1,14 +1,22 @@
 import { router } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
 import type { Polish } from "swatchwatch-shared";
 import { useAuth } from "@/auth/auth-provider";
 import { readCache, writeCache } from "@/lib/api-cache";
 import { createManicure, deleteManicure, errorMessage, listAllPolishes, listPolishes } from "@/api/client";
 import { summarizeCollection, type CollectionSummary } from "@/lib/collection-summary";
-import { createSeededRandom, pickForMe, pushPickHistory, type PickResult, type RandomSource } from "@/lib/pick-for-me";
-import { localIsoDate, quickLogRole } from "@/lib/status";
-import { resolvePolishFinishes } from "swatchwatch-shared";
+import {
+  buildPickManicure,
+  createSeededRandom,
+  pickForMe,
+  pushPickHistory,
+  suggestPairings,
+  type PairSuggestion,
+  type PickResult,
+  type RandomSource,
+} from "@/lib/pick-for-me";
+import { localIsoDate } from "@/lib/status";
 import { useTheme } from "@/theme/theme";
 import { Swatch } from "./swatch";
 import { AppText, Button, Card, Chip, ErrorBanner } from "./ui";
@@ -35,7 +43,10 @@ export function HomePanel({ refreshToken }: { refreshToken: number }) {
   const [pick, setPick] = useState<PickResult | null>(null);
   const [noPick, setNoPick] = useState(false);
   const [logging, setLogging] = useState(false);
-  const [logged, setLogged] = useState<{ id: string; label: string; before: Polish } | null>(null);
+  const [logged, setLogged] = useState<{ id: string; label: string; before: Polish[] } | null>(null);
+  /** "Pair it": owned pairings for the current pick, and which of them to log with it. */
+  const [pairings, setPairings] = useState<PairSuggestion<Polish>[]>([]);
+  const [selectedPairs, setSelectedPairs] = useState<Set<string>>(new Set());
   const history = useRef<string[]>([]);
   const random = useRef<RandomSource | null>(null);
 
@@ -75,32 +86,45 @@ export function HomePanel({ refreshToken }: { refreshToken: number }) {
     setLogged(null);
     setNoPick(result === null);
     setPick(result);
+    const pairs = result ? suggestPairings(result.polish, data.owned) : [];
+    setPairings(pairs);
+    setSelectedPairs(new Set(pairs.map((p) => p.polish.id)));
     if (result) history.current = pushPickHistory(history.current, result.polish.id);
   }, [data]);
 
+  function togglePair(id: string) {
+    setSelectedPairs((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   async function logPick() {
-    if (!pick) return;
+    if (!pick || !data) return;
     setLogging(true);
     setActionError(null);
     try {
-      const finishes = resolvePolishFinishes(pick.polish);
-      const entry = await createManicure({
-        wornOn: localIsoDate(),
-        polishes: [{ shadeId: pick.polish.id, role: quickLogRole(finishes) }],
-      });
+      const request = buildPickManicure(pick.polish, pairings, selectedPairs, localIsoDate());
+      const entry = await createManicure(request);
       const stat = entry.wearStats.find((s) => s.shadeId === pick.polish.id);
+      const loggedIds = new Set(request.polishes.map((p) => p.shadeId));
+      const extra = request.polishes.length - 1;
       setLogged({
         id: entry.id,
-        label: `Logged today's mani${stat ? ` · worn ${stat.wearCount}×` : ""}`,
-        before: pick.polish,
+        label: `Logged today's mani${extra > 0 ? ` with ${extra} more` : ""}${stat ? ` · worn ${stat.wearCount}×` : ""}`,
+        before: data.owned.filter((p) => loggedIds.has(p.id)),
       });
       // Reflect the new wear stats so the next pick respects the cooldown.
+      const stats = new Map(entry.wearStats.map((s) => [s.shadeId, s]));
       setData((prev) =>
-        prev && stat
+        prev
           ? {
-              owned: prev.owned.map((p) =>
-                p.id === pick.polish.id ? { ...p, wearCount: stat.wearCount, lastWornAt: stat.lastWornAt, triedAt: stat.triedAt, isUntried: !stat.triedAt } : p,
-              ),
+              owned: prev.owned.map((p) => {
+                const s = stats.get(p.id);
+                return s ? { ...p, wearCount: s.wearCount, lastWornAt: s.lastWornAt, triedAt: s.triedAt, isUntried: !s.triedAt } : p;
+              }),
               summary: prev.summary,
             }
           : prev,
@@ -117,8 +141,8 @@ export function HomePanel({ refreshToken }: { refreshToken: number }) {
     try {
       await deleteManicure(logged.id);
       // Put the pre-log row back so the cooldown and tried state match the server again.
-      const { before } = logged;
-      setData((prev) => (prev ? { ...prev, owned: prev.owned.map((p) => (p.id === before.id ? before : p)) } : prev));
+      const before = new Map(logged.before.map((p) => [p.id, p]));
+      setData((prev) => (prev ? { ...prev, owned: prev.owned.map((p) => before.get(p.id) ?? p) } : prev));
       setLogged(null);
     } catch (err) {
       setActionError(errorMessage(err, "Couldn't undo the log."));
@@ -159,6 +183,22 @@ export function HomePanel({ refreshToken }: { refreshToken: number }) {
               <Chip key={reason.kind} label={reason.label} tone={reason.kind === "untried" ? "brand" : "default"} />
             ))}
           </View>
+          {pairings.length > 0 && (
+            <View style={{ gap: theme.spacing(1.5) }} testID="pair-it">
+              <AppText variant="label" muted>
+                Pair it
+              </AppText>
+              {pairings.map((pairing) => (
+                <PairRow
+                  key={pairing.polish.id}
+                  pairing={pairing}
+                  selected={selectedPairs.has(pairing.polish.id)}
+                  disabled={Boolean(logged)}
+                  onToggle={() => togglePair(pairing.polish.id)}
+                />
+              ))}
+            </View>
+          )}
           {logged ? (
             <View style={{ flexDirection: "row", alignItems: "center", gap: theme.spacing(2) }}>
               <AppText variant="small" style={{ color: theme.colors.success, flex: 1 }}>
@@ -190,6 +230,56 @@ export function HomePanel({ refreshToken }: { refreshToken: number }) {
         />
       )}
     </View>
+  );
+}
+
+/** One "Pair it" suggestion: tap to include / leave it out of the logged mani. */
+function PairRow({
+  pairing,
+  selected,
+  disabled,
+  onToggle,
+}: {
+  pairing: PairSuggestion<Polish>;
+  selected: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+}) {
+  const theme = useTheme();
+  const { polish } = pairing;
+  return (
+    <Pressable
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: selected, disabled }}
+      accessibilityLabel={`${pairing.label}: ${polish.brand} ${polish.name}`}
+      accessibilityHint="Include it in today's mani"
+      disabled={disabled}
+      onPress={onToggle}
+      onLongPress={() => router.push({ pathname: "/polishes/[id]", params: { id: polish.id } })}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: theme.spacing(2.5),
+        padding: theme.spacing(2),
+        borderRadius: theme.radius.lg,
+        borderWidth: 1,
+        borderColor: selected ? theme.colors.primary : theme.colors.border,
+        opacity: pressed ? 0.7 : selected ? 1 : 0.65,
+      })}
+    >
+      <Swatch polish={polish} size={36} />
+      <View style={{ flex: 1, gap: 1 }}>
+        <AppText variant="small" style={{ fontWeight: "600" }} numberOfLines={1}>
+          {polish.name}
+        </AppText>
+        <AppText variant="tiny" muted numberOfLines={1}>
+          {polish.brand} · {pairing.label}
+        </AppText>
+      </View>
+      <AppText style={{ color: selected ? theme.colors.primary : theme.colors.mutedForeground, fontWeight: "700" }}>
+        {selected ? "✓" : "+"}
+      </AppText>
+    </Pressable>
   );
 }
 

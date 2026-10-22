@@ -603,7 +603,7 @@ function LooksPageContent() {
         onWishlist={wishlistItem}
         onCopy={(look) => void copyShoppingList(look)}
       />
-      <AddGuardDialog guard={activeGuard} onChoice={chooseGuard} returnTo="/polishes/looks" />
+      <AddGuardDialog guard={activeGuard} onChoice={chooseGuard} returnTo={looksReturnTo} />
 
       <ManiLogForm
         open={wear !== null}

@@ -195,7 +195,7 @@ Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/b
 | `normalizeBarcodeFormat(format)` | Decoder spellings (`ean13`, `EAN_13`, `EAN13`) → ours, or `null` |
 | `hasValidGtinCheckDigit(digits)` | GS1 mod-10 check for GTIN-8/12/13/14 |
 | `expandUpcE(upcE)` | 8-digit UPC-E → 12-digit UPC-A, or `null` |
-| `normalizeScannedBarcode({ rawValue, format })` | Validated `{ gtin, format }` (digits as printed) or `null` |
+| `normalizeScannedBarcode({ rawValue, format })` | Validated `NormalizedBarcode` (`{ gtin, format }`, digits as printed) or `null` |
 
 ### `constants/product-categories.ts` (#349, decision D23)
 
@@ -218,7 +218,7 @@ Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/b
 | `ShadeProductCategoryUpdateRequest`, `ShadeProductCategoryUpdateResponse` | `PUT /api/shades-admin/{id}/product-category` |
 | `ShadeProductCategoryItem`, `ShadeProductCategoryListResponse` | `GET /api/shades-admin/product-category` |
 
-### `color/` (OKLAB math, thresholds, hex reconciliation, color families)
+### `color/` (OKLAB math, thresholds, hex reconciliation, color families, harmonies, Pair it)
 
 | Export | Description |
 |--------|-------------|
@@ -238,6 +238,8 @@ Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/b
 | `finishCompatibility(targetFinishes, candidateFinishes, families?)` | `same` (same primary), `compatible` (same family or any shared finish), `different` (known, different families), `unknown` (missing/`other`/no family — never penalized); `families` defaults to `DUPE_FINISH_FAMILIES` |
 | `PaletteColorKind`, `PALETTE_COLOR_KINDS`, `PALETTE_QUALITY_THRESHOLDS`, `classifyPaletteColor(hex)`, `isBackgroundPaletteKind(kind)`, `paletteVibrancyWeight(hex)` | Photo-palette quality (#105, `color/palette-quality.ts`): `light` (L ≥ 0.97, or L ≥ 0.90 with C < 0.05), `dark` (L < 0.22, C < 0.06), `skin` (hue 20–80, C 0.025–0.14, L 0.35–0.92) or `color`. Coarse on purpose (nudes read as skin), so the web hides these only by default and the API drops them only on request. `paletteVibrancyWeight` = 1 + min(C / 0.2, 1) for `preferVibrant` |
 | `gradeDupe(distance, compatibility)` | `{ colorGrade, grade }`: `confidenceForDistance` (the match-image thresholds), dropped one step for `different` finishes; `grade` null when LOW |
+| `HARMONY_TYPES`, `getHarmonyTypeOptions(harmonyTypes?)`, `generateHarmonyPalette(sourceHex, harmony)`, `generateHarmonyColors(sourceHex, harmony)`, `suggestPaletteCompletion(anchorHexes)` | Color harmony rules (#384, `color/harmonies.ts`, moved from the web): hue rotations in OKLCH (gamut-mapped by reducing chroma, so lightness is kept; grays never rotate). Palette index 0 is the source (monochromatic: five steps dark → light). Used by the web search page / Pick for me and mobile By color / Goes with; `apps/web/src/lib/color-harmonies.ts` is a re-export shim |
+| `suggestPairings(pick, polishes, max = MAX_PAIRINGS)`, `PairSuggestion`, `PairHarmony`, `PairablePolish`, `pairableDisplayHex(polish)`, `PAIR_MAX_DISTANCE` (0.12), `PAIR_NEUTRAL_MAX_CHROMA` (0.04), `TOPPER_FINISHES`, `MAX_PAIRINGS` (2) | "Pair it" rule (#272/#384, `color/pair-it.ts`): up to two owned companions for a pick, the complementary / analogous owned color polish nearest each harmony target within `PAIR_MAX_DISTANCE` (and closer to the target than to the pick; skipped for near-neutral picks) plus a topper / flake / glitter accent; `role` `accent` or `topper` for the mani log. Web `pick-for-me.ts` re-exports it; mobile Home uses it directly |
 | `prepareDupeShade(shade)`, `prepareDupeCandidates(shades)`, `findDupes(target, candidates, { finishFamilies? })`, `summarizeDupes(id, dupes)`, `compareDupes` | Pure dupe finder: resolve each display hex (`resolveDisplayHexDetailed`) and OKLAB once, then O(N) per target; excludes the target's own id and candidates of another product category (color ↔ color, topper ↔ topper only, #349; `productCategory` on `DupeShade`/`PreparedDupeShade`, missing = color); ordered by grade, finish compatibility, distance, brand/name |
 
 ### `types/user.ts`
@@ -291,7 +293,7 @@ Looks (`/polishes/looks`) vocabulary and saved looks (`GET/POST/DELETE /api/look
 | `SavedLookInput` / `SavedLook` | `{ id (look key), templateId, name, vibe, steps }`; `SavedLook` adds `savedAt` |
 | `SavedLookListResponse` | `GET /api/looks`: `{ looks }`, newest first |
 | `savedLookKey(templateId, steps)` | `<templateId>:<shadeId or "-" per step>` — saving the same combo twice is one look |
-| `validateSavedLookInput(input)` | The one validation rule (API body and web localStorage): enums, `#RRGGBB` hexes, trimmed/capped text, 1–4 steps, ≤ `MAX_LOOK_STEPS_BYTES` of JSON, `id` = look key; drops unknown fields |
+| `validateSavedLookInput(input)` | Returns a `SavedLookValidation`. The one validation rule (API body and web localStorage): enums, `#RRGGBB` hexes, trimmed/capped text, 1–4 steps, ≤ `MAX_LOOK_STEPS_BYTES` of JSON, `id` = look key; drops unknown fields |
 | `MAX_SAVED_LOOKS` / `MAX_LOOK_STEPS` / `MAX_LOOK_STEPS_BYTES` | `30` / `4` / `3500` |
 
 ### `types/wishlist-share.ts`
@@ -461,6 +463,7 @@ Pinned-distance tests in `packages/functions/tests/color-match.unit.test.cjs` an
 ```bash
 npm run build --workspace=packages/shared    # tsc → dist/
 npm run typecheck --workspace=packages/shared # tsc --noEmit
+npm run test --workspace=swatchwatch-shared    # node:test unit tests (src/**/*.test.ts via tsx; harmonies, Pair it)
 ```
 
 **Important:** You must build this package before other packages can resolve its types. The `main` and `types` fields in `package.json` point to `dist/`.

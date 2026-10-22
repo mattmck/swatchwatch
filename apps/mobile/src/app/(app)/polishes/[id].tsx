@@ -17,6 +17,8 @@ import {
   getPolishDupes,
   updatePolish,
 } from "@/api/client";
+import { GoesWith } from "@/components/goes-with";
+import { NailPhotoSection } from "@/components/nail-photo-section";
 import { ColorDot, Swatch } from "@/components/swatch";
 import { AppText, Button, Card, CenteredState, Chip, ErrorBanner } from "@/components/ui";
 import { finishLabel } from "@/lib/finishes";
@@ -222,6 +224,8 @@ export default function PolishDetailScreen() {
           </Card>
         )}
 
+        <NailPhotoSection polish={polish} />
+
         <Card>
           <AppText variant="label" muted>
             {polish.status ? "Status" : "Add it"}
@@ -257,6 +261,8 @@ export default function PolishDetailScreen() {
             ))}
           </Card>
         )}
+
+        <GoesWith polish={polish} />
 
         <Card>
           <AppText variant="label" muted>

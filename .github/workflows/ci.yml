@@ -147,3 +147,6 @@ jobs:
 
       - name: Web unit tests
         run: npm run test --workspace=swatchwatch-web
+
+      - name: Shared unit tests
+        run: npm run test --workspace=swatchwatch-shared

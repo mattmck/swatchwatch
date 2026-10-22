@@ -23,13 +23,30 @@ which is not the merge commit that the #340 description asked for. So PRs that t
 show up on `main` as one commit, and the housekeeping pass after the release had to close their
 issues by hand.
 
+After #340, work kept landing on `dev`:
+
+| Area | PRs |
+|---|---|
+| Post-release follow-ups (10-18), released to `main` in [#365](https://github.com/mattmck/swatchwatch/pull/365) on 2026-10-19 with a merge commit: hex snap (flagged), orphan media sweep, finish families, admin user management, product text for finishes, catalog thumbnails, gallery dedupe, CIAM service principal, backups, CodeQL fix | #344, #345, #346, #353, #354, #355, #356, #357, #358, #359, #360, #362, #363, #364, #366, #367, #368, #369 |
+| Overnight batch 10-18 (merged 2026-10-20; [runbook](overnight-2026-10-18-release-runbook.md)): Pahlish store filter, barcode scan matching, back-navigation state, photo-match filters and wishlist, getting-started checklist, Looks page and its shopping list / share / drawer, product categories and non-polish cleanup (D23), Expo app foundation and wave 2, OpenAI region guard, phone card layout for `/polishes`, app-shell header overflow | #371, #375, #374, #373, #372, #370, #378, #377, #376, #379, #380, #382, #383 |
+| Overnight batch 10-19 (merged 2026-10-20; [runbook](overnight-2026-10-19-release-runbook.md)): Cirque Colors store filter and indie batch 2 survey, promote manual hex labels to `vendor_hex` (D12), Looks toppers toggle and Color Lab links, mobile nail photo / photo match parity / mani photos, mobile By color search / Pair it / Goes with | #388, #391, #392, #396, #399 |
+
+The two overnight batches are on `dev` only until the next `dev → main` release. Their issues
+(#328, #105 web half, #348, #349, #347, #321, #386, #385) stay open until then and need closing
+by hand, as after #340. #399 (mobile color search, harmonies and Pair it, #384) merged on 2026-10-20
+and #397 (phone layout sweep, #387) on 2026-10-22, so #384 and #387 are in that list too.
+
 ## What we decided
 
-The 22 decisions for this batch (D1–D22) are in [decisions-2026-10.md](decisions-2026-10.md):
+The decisions for this batch (D1–D24) are in [decisions-2026-10.md](decisions-2026-10.md):
 product rules (inventory status D5, spend D6, merges D7, wear data D8, nail photos D9, dupes D10,
 #224 outcomes D11, hex labels D12, buy links D13), feature enablement (public wishlist D1, indie
 stores D2, PWA before Expo D3, hex freeze D4), observability (D14–D17) and process (one release
-D18, metrics D19, milestones D20, owners D21, feature flags D22).
+D18, metrics D19, milestones D20, owners D21, feature flags D22). Two came later: product
+categories D23 (2026-10-18), and D24 (2026-10-19), which started the Expo app and the Looks page
+early (superseding D3's January start and the roadmap §5 Looks deferral), set the overnight
+merge-to-`dev` rule, and recorded mobile Rapid Add as check-first and the React 19.2.3 / Expo SDK
+57 pins. An **M3 — On the go** milestone is proposed under D20, not decided.
 
 ## Metrics
 
@@ -59,7 +76,9 @@ TODO (owner)
 ## What's left
 
 These issues were still open after release #340. The roadmap §1 "Remaining for M2" list has
-the same set.
+the current set (updated 2026-10-20): since then #45, #319 and #320 closed with release #365, and
+#105 (web half), #321 and #328 merged to `dev` and close with the next release. The list below is
+the post-#340 snapshot.
 
 - #45 admin user management (the review-queue half shipped in #298)
 - #105 image-to-polish matching, web/API gaps only (the mobile items moved to #109)
@@ -75,11 +94,22 @@ the same set.
 
 ## Q1 candidates
 
-- **Expo app** — #109, the Q1 headline (D3). It now also holds the native remainders of #21 and #105.
-- **Looks** — [looks-experience-plan.md](looks-experience-plan.md). "Pick for me" (#308) is the wedge; decide on the full page with usage data.
+- **Expo app** — #109, the Q1 headline (D3). It now also holds the native remainders of #21 and #105. _Started early on 2026-10-19 (D24): #376, #379, #396 merged; the remaining waves are the Q1 work._
+- **Looks** — [looks-experience-plan.md](looks-experience-plan.md). "Pick for me" (#308) is the wedge; decide on the full page with usage data. _The page shipped client-side in #370, #378 and #392 (D24); the plan's status section lists what is not built yet._
 - **ESM migration** — #2, pair it with the Expo toolchain work.
 - **Redis** — #117, only if share-page rate limiting or catalog-search caching becomes measurable.
 - **APIM OpenAI gateway** — #158 / #228: finish it infra-only or remove the `AZURE_OPENAI_USE_GATEWAY` path.
 - **Feature flags** — #313: env vars until the third or fourth flag, or until per-user targeting is needed (D22).
 
 TODO (owner): rank these for the Q1 plan.
+
+**Proposal (docs sweep, 2026-10-20; not decided):** an ordering given what has shipped since:
+
+1. **Mobile waves**: the remaining #109 items, native color extraction for photo match (#105's
+   mobile half) and verification on real iOS / Android devices.
+2. **Looks follow-ups**: a skin-tone model that changes the recommendations, prices on the
+   shopping list, a server-side share link.
+3. **Catalog growth**: #273 store approvals (PR #388 lists the stores to ask), more stores, or a
+   non-Shopify route for the +10k target.
+4. **ESM**: #2, together with the Expo toolchain work.
+5. **Redis #117 and APIM #158 / #228**: only if a need becomes measurable.
