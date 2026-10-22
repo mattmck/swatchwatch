@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# copied from @azure/msal-browser by scripts/copy-msal-redirect-bridge.mjs
+/public/msal-redirect-bridge.min.js

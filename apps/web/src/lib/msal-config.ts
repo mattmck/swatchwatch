@@ -60,6 +60,20 @@ export function buildMsalConfig(): Configuration | null {
   };
 }
 
+/**
+ * Page MSAL loads in its hidden iframe for silent token renewal (`acquireTokenSilent`).
+ * `public/blank.html` only runs MSAL's redirect bridge (`broadcastResponseToMainFrame`), which
+ * msal-browser v5 needs to hand the response back to the app. It must be registered as an SPA
+ * redirect URI on the Entra app registration for every web origin.
+ */
+export const SILENT_REDIRECT_PATH = "/blank.html";
+
+export function buildSilentRedirectUri(): string {
+  return typeof window !== "undefined"
+    ? window.location.origin + SILENT_REDIRECT_PATH
+    : SILENT_REDIRECT_PATH;
+}
+
 function isLegacyB2CPolicyName(policy: string): boolean {
   return /^B2C_1/i.test(policy);
 }
