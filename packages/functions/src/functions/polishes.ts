@@ -268,7 +268,7 @@ const POLISH_COLUMNS = `
     s.detected_hex_at                            AS "detectedHexAt",
     s.hex_agreement::float8                      AS "hexAgreement",
     s.color_family                               AS "colorFamily",
-    -- Product category (migration 20261019011858000_shade-product-category, #349).
+    -- Product category (migration 20261022190729000_shade-product-category, #349).
     s.product_category                           AS "productCategory",
     -- Legacy single finish; falls back to the primary multi-finish value when unset.
     COALESCE(NULLIF(s.finish, ''), s.finishes[1], '') AS finish,

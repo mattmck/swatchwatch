@@ -227,7 +227,7 @@ describe("lib/product-category — classifyIngestedProduct (connector gate)", ()
 describe("lib/product-category — migration CHECK list", () => {
   it("matches PRODUCT_CATEGORIES in packages/shared", () => {
     const sql = fs.readFileSync(
-      path.join(__dirname, "..", "migrations", "20261019011858000_shade-product-category.sql"),
+      path.join(__dirname, "..", "migrations", "20261022190729000_shade-product-category.sql"),
       "utf8"
     );
     const match = sql.match(/CHECK \(product_category IN \(([^)]*)\)\)/);
