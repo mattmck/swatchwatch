@@ -49,6 +49,11 @@ Reference issues when relevant: `feat: add Cosmos DB client (#12)`
 4. PRs are **squash merged** into `main` (one clean commit per feature)
 5. Branches are auto-deleted after merge
 
+Feature PRs currently target the `dev` integration branch and are promoted to `main` in a release PR
+(`chore: release dev → main`, merge commit) by the owner. An unattended agent session may squash-merge
+its own PR into `dev` once CI is green and every review thread is handled; it never merges `dev → main`
+(decision D24 in `docs/decisions-2026-10.md`).
+
 **PR title must be a conventional commit** — it becomes the squash commit message.
 
 ### Issues
