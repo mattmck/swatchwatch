@@ -64,9 +64,13 @@ export function usePagedPolishes(filters: PolishFilters, cacheScope?: string): P
             void writeCache(cacheScope, `polishes:${forKey}`, { items: res.polishes, total: res.total });
           }
           setLoaded((prev) => {
-            if (page === 1 || !prev || prev.key !== forKey) {
+            if (page === 1) {
               return { key: forKey, items: res.polishes, total: res.total, page };
             }
+            // Append page N only onto pages 1..N-1 of the same filter set. A page asked for from
+            // rows that page 1 has since replaced (A → B → A while A's old rows were on screen)
+            // would leave a gap, so it's dropped and the next "load more" asks for the right page.
+            if (!prev || prev.key !== forKey || prev.page !== page - 1) return prev;
             const seen = new Set(prev.items.map((p) => p.id));
             return {
               key: forKey,
