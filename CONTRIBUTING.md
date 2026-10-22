@@ -2,12 +2,16 @@
 
 ## Git Workflow
 
-We use **GitHub Flow** — a simple branch-based workflow:
+We use **GitHub Flow** with a `dev` integration branch:
 
 ```
-main (always deployable)
-  └── feat/42-catalog-search   ← your working branch
+main (production; only release PRs land here)
+  └── dev (integration; deploys to the dev environment)
+        └── feat/42-catalog-search   ← your working branch
 ```
+
+Feature PRs target `dev`. The owner promotes `dev → main` with a release PR (`chore: release dev → main`,
+merge commit), which deploys prod.
 
 ### Branch Naming
 
@@ -121,14 +125,16 @@ Only edit `CLAUDE.md` — the symlinks keep everything in sync automatically.
 
 ## Future: GitFlow Migration
 
-When the project grows to need parallel release tracks, we'll migrate to GitFlow:
+The `dev` integration branch is the first half of GitFlow. If the project grows to need parallel release
+tracks, the rest follows:
 
 ```
 main        ← production releases (tagged)
-develop     ← integration branch
+dev         ← integration branch (already in use)
   ├── feature/*
   ├── release/*
   └── hotfix/*
 ```
 
-Until then, GitHub Flow keeps things simple. The branch naming conventions above are already compatible — we'll just add `develop` as the default branch and gate `main` behind release merges.
+Until then, feature branches off `dev` plus owner-controlled release PRs keep things simple. The branch
+naming conventions above are already compatible.
