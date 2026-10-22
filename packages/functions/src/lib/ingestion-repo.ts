@@ -39,8 +39,11 @@ import {
   type IngestedFinishResolution,
 } from "./finish-text";
 import { readProductText } from "./product-text";
+import { classifyProductCategory } from "./product-category";
+import { resolveProductCategory, type ProductCategory } from "swatchwatch-shared";
 import { PoolClient } from "pg";
 import { recordShadeSourceProduct } from "./buy-link";
+import { materializeProductBarcodes, type BarcodeConflict } from "./barcodes";
 import {
   fingerprintColumnsSql,
   fingerprintFromColumns,
@@ -55,6 +58,13 @@ import {
   type ImageFingerprint,
 } from "./gallery-dedupe";
 import { trackEvent } from "./telemetry";
+import {
+  ingestedVendorHexParams,
+  ingestedVendorHexSetSql,
+  planIngestedVendorHex,
+  SHADE_VENDOR_HEX_COLUMNS,
+  type ShadeVendorHexState,
+} from "./vendor-hex";
 
 export interface DataSourceRecord {
   dataSourceId: number;
@@ -115,6 +125,10 @@ export interface HoloTacoMaterializationMetrics {
   galleryNearDuplicatesSkipped: number;
   /** Additional images not linked because the product reached `GALLERY_MAX_IMAGES_PER_SHADE`. */
   galleryOverCapSkipped: number;
+  /** Catalog `barcode` rows newly linked (product GTIN + variant barcodes, #21). */
+  barcodesLinked: number;
+  /** GTINs skipped because another shade already owns them (each one is in the job log). */
+  barcodeConflicts: number;
   hexDetected: number;
   hexDetectionFailures: number;
   hexDetectionSkipped: number;
@@ -178,6 +192,11 @@ interface HoloTacoProductNormalized {
   /** Vendor description / descriptors (#352), forwarded to the vision prompt as a finish hint. */
   descriptionText: string | null;
   descriptors: string[];
+  /**
+   * Rule category of the product (#349): name, color name, product type, tags and raw finishes
+   * through `classifyProductCategory`. Hex detection runs only for `color`.
+   */
+  productCategory: ProductCategory;
 }
 
 /** A source image stored in blob storage, keyed by the connector URL it was downloaded from. */
@@ -229,6 +248,8 @@ interface HoloTacoImagePreparationMetrics {
   hexDetectionSkipped: number;
   /** Subset of hexDetectionSkipped: same image as last run and the shade already has a hex. */
   hexDetectionSkippedUnchanged: number;
+  /** Subset of hexDetectionSkipped: not a color polish (topper, coat, treatment; #349, D-D). */
+  hexDetectionSkippedCategory: number;
   /** Subset of hexDetected whose hex was replaced by a measured palette chip (`HEX_DETECTION_SNAP_ENABLED`). */
   hexSnapped: number;
   batchRequestsQueued: number;
@@ -315,6 +336,15 @@ function parseHoloTacoNormalized(
 ): HoloTacoProductNormalized {
   const collections = asStringArray(normalized.collections);
   const finishes = asStringArray(normalized.finishes);
+  const name = asString(normalized.name);
+  const colorName = asString(normalized.colorName);
+  const tags = asStringArray(normalized.tags);
+  const { category: productCategory } = classifyProductCategory({
+    shadeName: name,
+    colorName,
+    finishes,
+    products: [{ title: name, productType: asString(normalized.productType), tags }],
+  });
   return {
     brand: asString(normalized.brand),
     name: asString(normalized.name),
@@ -328,6 +358,7 @@ function parseHoloTacoNormalized(
     nameHex: asString(normalized.nameHex),
     colorName: asString(normalized.colorName),
     ...readProductText(normalized),
+    productCategory,
   };
 }
 
@@ -345,6 +376,11 @@ function holoTacoVendorContext(holo: HoloTacoProductNormalized): HexDetectionOpt
     descriptionText: holo.descriptionText,
     descriptors: holo.descriptors,
   };
+}
+
+/** Vision hex detection runs on color polishes only (#349, D-D). */
+function detectsHex(holo: HoloTacoProductNormalized): boolean {
+  return holo.productCategory === "color";
 }
 
 /**
@@ -365,6 +401,25 @@ export function resolveIngestedShadeFinishes(
   catalog?: FinishCatalog
 ): string[] {
   return resolveIngestedShadeFinishResolution(normalized, catalog).finishes;
+}
+
+/**
+ * Write the classifier's category to an ingested shade (#349). Never touches a category an admin
+ * set (`product_category_source = 'admin'`); a no-op when it is already right.
+ */
+export async function applyRuleProductCategory(
+  client: Pick<PoolClient, "query">,
+  shadeId: number,
+  category: ProductCategory
+): Promise<void> {
+  await client.query(
+    `UPDATE shade
+     SET product_category = $2
+     WHERE shade_id = $1
+       AND product_category_source <> 'admin'
+       AND product_category IS DISTINCT FROM $2`,
+    [shadeId, category]
+  );
 }
 
 function isHttpUrl(value: string | null): value is string {
@@ -495,7 +550,8 @@ function estimateBatchCandidateCount(
   records: ConnectorProductRecord[],
   detectHexFromImage: boolean,
   detectHexOnSuspiciousOnly: boolean,
-  suspiciousContext: SuspiciousHexContext
+  suspiciousContext: SuspiciousHexContext,
+  adminCategories: ReadonlyMap<string, ProductCategory> = new Map()
 ): number {
   if (!detectHexFromImage) {
     return 0;
@@ -512,7 +568,8 @@ function estimateBatchCandidateCount(
     }
 
     const holo = parseHoloTacoNormalized(normalized);
-    if (!holo.name || !isHttpUrl(holo.primaryImageUrl)) {
+    holo.productCategory = adminCategories.get(record.externalId) ?? holo.productCategory;
+    if (!holo.name || !isHttpUrl(holo.primaryImageUrl) || !detectsHex(holo)) {
       continue;
     }
 
@@ -542,6 +599,69 @@ export interface UnchangedImageCandidate {
   finish: string | null;
   collection: string | null;
   checksumSha256: string;
+}
+
+/**
+ * Admin-set product categories (#349) of the shades these records materialize into, by external
+ * id. Detection is gated on the category the shade will have after this run: an admin `topper` or
+ * `accessory` must not get a vision call because the connector's rule category says `color`.
+ * Shades are matched the same way `materializePreparedHoloTacoRecord` resolves them. A lookup
+ * failure returns an empty map (the rule category applies): it must never fail the job.
+ */
+export async function findAdminProductCategories(
+  candidates: Array<{
+    externalId: string;
+    brandName: string;
+    shadeName: string;
+    finish: string | null;
+    collection: string | null;
+  }>
+): Promise<Map<string, ProductCategory>> {
+  const out = new Map<string, ProductCategory>();
+  if (candidates.length === 0) return out;
+  try {
+    const result = await query<{ externalId: string; productCategory: ProductCategory }>(
+      `WITH input AS (
+         SELECT *
+         FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[])
+           AS t(external_id, brand_name, shade_name, finish, collection)
+       )
+       SELECT DISTINCT ON (input.external_id)
+              input.external_id AS "externalId",
+              sh.product_category AS "productCategory"
+       FROM input
+       JOIN LATERAL (
+         SELECT brand_id
+         FROM brand
+         WHERE lower(name_canonical) = lower(input.brand_name)
+         ORDER BY brand_id
+         LIMIT 1
+       ) b ON true
+       JOIN shade sh
+         ON sh.brand_id = b.brand_id
+        AND sh.product_line_id IS NULL
+        AND lower(sh.shade_name_canonical) = lower(input.shade_name)
+        AND coalesce(sh.finish, '') = coalesce(input.finish, '')
+        AND coalesce(sh.collection, '') = coalesce(input.collection, '')
+       WHERE sh.product_category_source = 'admin'
+       ORDER BY input.external_id, sh.shade_id`,
+      [
+        candidates.map((c) => c.externalId),
+        candidates.map((c) => c.brandName),
+        candidates.map((c) => c.shadeName),
+        candidates.map((c) => c.finish),
+        candidates.map((c) => c.collection),
+      ]
+    );
+    for (const row of result.rows) out.set(row.externalId, resolveProductCategory(row.productCategory));
+  } catch (error) {
+    console.warn(
+      `[ingestion-repo] Admin category lookup failed; using rule categories for hex detection: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+  return out;
 }
 
 /**
@@ -721,11 +841,35 @@ async function prepareHoloTacoImageData(
   const detectHexOnSuspiciousOnly = options?.detectHexOnSuspiciousOnly === true;
   const batchMinImages = Math.max(1, options?.batchMinImages ?? DEFAULT_HEX_BATCH_MIN_IMAGES);
   const suspiciousContext = buildVendorHexContext(records);
+  // Admin-set categories win over the connector's rule category for every hex-detection gate below.
+  const adminCategories = detectHexFromImage
+    ? await findAdminProductCategories(
+        records.flatMap((record) => {
+          const normalized =
+            record.normalized && typeof record.normalized === "object"
+              ? (record.normalized as Record<string, unknown>)
+              : null;
+          const holo = normalized ? parseHoloTacoNormalized(normalized) : null;
+          return holo?.name
+            ? [
+                {
+                  externalId: record.externalId,
+                  brandName: resolveHoloTacoBrandName(holo),
+                  shadeName: holo.name,
+                  finish: holo.finish,
+                  collection: holo.collection,
+                },
+              ]
+            : [];
+        })
+      )
+    : new Map<string, ProductCategory>();
   const estimatedBatchCandidates = estimateBatchCandidateCount(
     records,
     detectHexFromImage,
     detectHexOnSuspiciousOnly,
-    suspiciousContext
+    suspiciousContext,
+    adminCategories
   );
   const useBatchForHexDetection =
     options?.useBatchForHexDetection === true &&
@@ -760,6 +904,7 @@ async function prepareHoloTacoImageData(
     hexDetectionFailures: 0,
     hexDetectionSkipped: 0,
     hexDetectionSkippedUnchanged: 0,
+    hexDetectionSkippedCategory: 0,
     hexSnapped: 0,
     batchRequestsQueued: 0,
     batchFallbacks: 0,
@@ -837,7 +982,9 @@ async function prepareHoloTacoImageData(
       record.normalized && typeof record.normalized === "object"
         ? (record.normalized as Record<string, unknown>)
         : null;
-    return { record, holo: normalized ? parseHoloTacoNormalized(normalized) : null };
+    const holo = normalized ? parseHoloTacoNormalized(normalized) : null;
+    if (holo) holo.productCategory = adminCategories.get(record.externalId) ?? holo.productCategory;
+    return { record, holo };
   });
 
   // Images whose connector URL was already ingested are reused instead of downloaded: the
@@ -1033,7 +1180,7 @@ async function prepareHoloTacoImageData(
             const { holo } = result;
             // Compare against the image detection would run on, not always the primary.
             const checksumSha256 = detectionImages.get(result)?.checksumSha256 ?? result.checksumSha256;
-            if (!result.isCandidate || !holo?.name || !checksumSha256) {
+            if (!result.isCandidate || !holo?.name || !checksumSha256 || !detectsHex(holo)) {
               return [];
             }
             if (
@@ -1113,7 +1260,7 @@ async function prepareHoloTacoImageData(
         })
       : null;
     const shouldRunAiDetection = detectHexFromImage &&
-      holo && (!detectHexOnSuspiciousOnly || vendorHexVerdict!.suspicious);
+      holo && detectsHex(holo) && (!detectHexOnSuspiciousOnly || vendorHexVerdict!.suspicious);
 
     const detectionImage = detectionImages.get(result) ?? null;
     const imageForAi = resolveAiImageUrl(detectionImage?.storageUrl ?? storageUrl);
@@ -1269,7 +1416,10 @@ async function prepareHoloTacoImageData(
       }
     } else {
       metrics.hexDetectionSkipped += 1;
-      if (holo && detectHexOnSuspiciousOnly && holo.vendorHex && vendorHexVerdict && !vendorHexVerdict.suspicious) {
+      if (holo && detectHexFromImage && !detectsHex(holo)) {
+        metrics.hexDetectionSkippedCategory += 1;
+        console.log(`${sourceLogPrefix} Skipping AI for ${record.externalId}: not a color polish (${holo.productCategory})`);
+      } else if (holo && detectHexOnSuspiciousOnly && holo.vendorHex && vendorHexVerdict && !vendorHexVerdict.suspicious) {
         const trustedMessage = `${sourceLogPrefix} Skipping AI for ${record.externalId}: vendor hex ${holo.vendorHex} not suspicious`;
         console.log(trustedMessage);
       } else {
@@ -1351,6 +1501,7 @@ async function prepareHoloTacoImageData(
       hexDetectionFailures: metrics.hexDetectionFailures,
       hexDetectionSkipped: metrics.hexDetectionSkipped,
       hexDetectionSkippedUnchanged: metrics.hexDetectionSkippedUnchanged,
+      hexDetectionSkippedCategory: metrics.hexDetectionSkippedCategory,
       hexSnapped: metrics.hexSnapped,
       batchRequestsQueued: metrics.batchRequestsQueued,
       hexDetectionTotalTokens: metrics.hexDetectionTotalTokens,
@@ -2223,22 +2374,26 @@ export async function materializeMakeupApiRecords(
 
         const collection = makeup.name;
 
-        const existingShade = await client.query<{ shadeId: number; finishes: string[] | null }>(
-          `SELECT shade_id AS "shadeId", finishes
+        const existingShade = await client.query<{ shadeId: number; finishes: string[] | null } & ShadeVendorHexState>(
+          `SELECT shade_id AS "shadeId", finishes,
+                  ${SHADE_VENDOR_HEX_COLUMNS}
            FROM shade
            WHERE brand_id = $1
              AND product_line_id IS NULL
              AND lower(shade_name_canonical) = lower($2)
              AND coalesce(collection, '') = coalesce($3, '')
-           LIMIT 1`,
+           LIMIT 1
+           FOR UPDATE`,
           [brandId, shadeName, collection]
         );
 
         let shadeId: number;
         let currentFinishes: string[] = [];
+        let currentVendorHex: ShadeVendorHexState | null = null;
         if (existingShade.rows.length > 0) {
           shadeId = existingShade.rows[0].shadeId;
           currentFinishes = existingShade.rows[0].finishes ?? [];
+          currentVendorHex = existingShade.rows[0];
         } else {
           const insertedShade = await client.query<{ shadeId: number }>(
             `INSERT INTO shade (brand_id, shade_name_canonical, collection, status)
@@ -2256,7 +2411,8 @@ export async function materializeMakeupApiRecords(
 
         // Write color data to shade (product-level)
         const resolvedColorName = variant.name || makeup.name;
-        const resolvedVendorHex = variant.hex;
+        // A vendor hex replaces the stored one, except an admin-promoted manual label (#321, D12).
+        const vendorHexPlan = planIngestedVendorHex(currentVendorHex, variant.hex || null, true);
         // Merge (never remove) tag finishes in TypeScript, like the Holo Taco path, so aliases
         // and legacy values are canonicalized and deduped; descriptor/description finishes only
         // fill a shade with none (#352); null leaves finishes untouched.
@@ -2264,15 +2420,22 @@ export async function materializeMakeupApiRecords(
         await client.query(
           `UPDATE shade SET
              color_name = COALESCE($2, color_name),
-             vendor_hex = COALESCE($3, vendor_hex),
+             ${ingestedVendorHexSetSql("$3", 5)},
              finishes = COALESCE($4::text[], finishes),
              -- Catalog data confirms a user-submitted shade: promote it to the shared catalog
              -- (never one an admin retired by merging it into another shade).
              status = CASE WHEN status = 'user_submitted' AND merged_into_shade_id IS NULL THEN 'active' ELSE status END,
              updated_at = now()
            WHERE shade_id = $1`,
-          [shadeId, resolvedColorName, resolvedVendorHex, mergedFinishes]
+          [shadeId, resolvedColorName, vendorHexPlan.vendorHex, mergedFinishes, ...ingestedVendorHexParams(vendorHexPlan)]
         );
+        const { category: productCategory } = classifyProductCategory({
+          shadeName,
+          colorName: resolvedColorName,
+          finishes: mergedFinishes ?? currentFinishes,
+          products: [{ title: makeup.name, productType: asString(normalized.category), tags: makeup.tags }],
+        });
+        await applyRuleProductCategory(client, shadeId, productCategory);
 
         const inventory = await client.query<{
           inventoryItemId: number;
@@ -2338,6 +2501,14 @@ interface HoloTacoRecordMaterializationDelta {
   gallerySwatchesPruned: number;
   galleryNearDuplicatesSkipped: number;
   galleryOverCapSkipped: number;
+  /** The materialized shade (unset when the record was skipped). */
+  shadeId?: number;
+  /** Catalog barcodes newly linked to the shade (#21). */
+  barcodesLinked: number;
+  /** GTINs another shade already owns (kept by that shade; logged by the caller). */
+  barcodeConflicts: BarcodeConflict[];
+  /** GTINs stored although their check digit is wrong (logged by the caller). */
+  barcodeInvalidCheckDigits: string[];
   skipped: number;
 }
 
@@ -2363,6 +2534,9 @@ async function materializePreparedHoloTacoRecord(
     gallerySwatchesPruned: 0,
     galleryNearDuplicatesSkipped: 0,
     galleryOverCapSkipped: 0,
+    barcodesLinked: 0,
+    barcodeConflicts: [],
+    barcodeInvalidCheckDigits: [],
     skipped: 0,
   };
 
@@ -2447,6 +2621,12 @@ async function materializePreparedHoloTacoRecord(
 
   // Remember which product this shade came from (drives the "Buy from brand" link, #267).
   await recordShadeSourceProduct(client, shadeId, dataSourceId, record.externalId);
+  delta.shadeId = shadeId;
+  // Catalog barcodes (#21): the product GTIN and variant barcodes resolve scans to this shade.
+  const barcodeResult = await materializeProductBarcodes(client, { shadeId, dataSourceId, record });
+  delta.barcodesLinked += barcodeResult.inserted;
+  delta.barcodeConflicts.push(...barcodeResult.conflicts);
+  delta.barcodeInvalidCheckDigits.push(...barcodeResult.invalidCheckDigit);
 
   const importNote = `Imported from ${sourceLogPrefix.replace(/[\[\]]/g, "")} external_id=${record.externalId}`;
   const vendorHex = holo.vendorHex;
@@ -2467,20 +2647,20 @@ async function materializePreparedHoloTacoRecord(
   );
 
   // Read current shade color data for overwrite comparison
-  const currentShade = await client.query<{
-    vendorHex: string | null;
+  const currentShade = await client.query<ShadeVendorHexState & {
     detectedHex: string | null;
     detectedFinishes: string[] | null;
     nameHex: string | null;
     finishes: string[] | null;
   }>(
     `SELECT
-       vendor_hex AS "vendorHex",
+       ${SHADE_VENDOR_HEX_COLUMNS},
        detected_hex AS "detectedHex",
        detected_finishes AS "detectedFinishes",
        name_hex AS "nameHex",
        finishes
-     FROM shade WHERE shade_id = $1`,
+     FROM shade WHERE shade_id = $1
+     FOR UPDATE`,
     [shadeId]
   );
   // Vendor tag finishes are merged (never removed) so manual edits survive re-imports;
@@ -2490,10 +2670,14 @@ async function materializePreparedHoloTacoRecord(
     applyIngestedFinishes(currentFinishes, finishResolution, finishCatalog) ??
     mergeFinishLists([currentFinishes], finishCatalog);
 
+  // A vendor hex follows the overwrite rule, except an admin-promoted manual label, which
+  // ingestion never replaces (#321, D12): the vendor value is kept in vendor_hex_previous.
+  const vendorHexPlan = planIngestedVendorHex(currentShade.rows[0] ?? null, vendorHex || null, overwriteDetectedHex);
+
   const shouldOverwrite = overwriteDetectedHex;
   if (
     shouldOverwrite && currentShade.rows.length > 0 &&
-    ((vendorHex && vendorHex !== currentShade.rows[0].vendorHex) ||
+    (vendorHexPlan.vendorHexChanged ||
       (detectedHex && detectedHex !== currentShade.rows[0].detectedHex) ||
       (detectedFinishes &&
         JSON.stringify(detectedFinishes) !==
@@ -2507,10 +2691,7 @@ async function materializePreparedHoloTacoRecord(
   await client.query(
     `UPDATE shade
      SET color_name = COALESCE(color_name, $2),
-         vendor_hex = CASE
-           WHEN $6::boolean AND $3::text IS NOT NULL THEN $3::text
-           ELSE COALESCE(vendor_hex, $3::text)
-         END,
+         ${ingestedVendorHexSetSql("$3", 13)},
          detected_hex = CASE
            WHEN $6::boolean AND $4::text IS NOT NULL THEN $4::text
            ELSE COALESCE(detected_hex, $4::text)
@@ -2546,15 +2727,26 @@ async function materializePreparedHoloTacoRecord(
     [
       shadeId,
       holo.name,
-      vendorHex,
+      vendorHexPlan.vendorHex,
       detectedHex,
       detectedFinishes,
       overwriteDetectedHex,
       nameHex,
       mergedFinishes,
       ...provenanceParams(detectedHexProvenance),
+      ...ingestedVendorHexParams(vendorHexPlan),
     ]
   );
+
+  // Product category (#349): the connector's rule category, re-checked with the merged finishes
+  // (a `topper` finish makes a topper). An admin-set category is never changed.
+  const { category: productCategory } = classifyProductCategory({
+    shadeName: holo.name,
+    colorName: holo.colorName,
+    finishes: [...asStringArray(normalized.finishes), ...(mergedFinishes ?? [])],
+    products: [{ title: holo.name, productType: asString(normalized.productType), tags: holo.tags }],
+  });
+  await applyRuleProductCategory(client, shadeId, productCategory);
 
   const inventory = await client.query<{
     inventoryItemId: number;
@@ -2871,6 +3063,8 @@ export async function materializeHoloTacoRecords(
   let gallerySwatchesPruned = 0;
   let galleryNearDuplicatesSkipped = 0;
   let galleryOverCapSkipped = 0;
+  let barcodesLinked = 0;
+  let barcodeConflicts = 0;
   let skipped = 0;
 
   const brandCache = new Map<string, number>();
@@ -2913,6 +3107,27 @@ export async function materializeHoloTacoRecords(
       gallerySwatchesPruned += delta.gallerySwatchesPruned;
       galleryNearDuplicatesSkipped += delta.galleryNearDuplicatesSkipped;
       galleryOverCapSkipped += delta.galleryOverCapSkipped;
+      barcodesLinked += delta.barcodesLinked;
+      barcodeConflicts += delta.barcodeConflicts.length;
+      for (const gtin of delta.barcodeInvalidCheckDigits) {
+        // Kept (a vendor typo still names the bottle), but worth a look.
+        options?.progressLogger?.warn(
+          `${sourceLogPrefix} Barcode ${gtin} of ${record.externalId} has a wrong check digit; stored anyway`,
+          { externalId: record.externalId, gtin, shadeId: delta.shadeId }
+        );
+      }
+      for (const conflict of delta.barcodeConflicts) {
+        // First shade wins: the GTIN stays where it is; an admin can move it if it is wrong.
+        options?.progressLogger?.warn(
+          `${sourceLogPrefix} Barcode ${conflict.gtin} of ${record.externalId} already belongs to shade ${conflict.existingShadeId}; kept there`,
+          {
+            externalId: record.externalId,
+            gtin: conflict.gtin,
+            shadeId: delta.shadeId,
+            existingShadeId: conflict.existingShadeId,
+          }
+        );
+      }
       skipped += delta.skipped;
       if (delta.skipped > 0) {
         options?.progressLogger?.warn(
@@ -2936,6 +3151,8 @@ export async function materializeHoloTacoRecords(
     gallerySwatchesPruned,
     galleryNearDuplicatesSkipped,
     galleryOverCapSkipped,
+    barcodesLinked,
+    barcodeConflicts,
     skipped,
   };
 

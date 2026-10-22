@@ -5,6 +5,7 @@ import {
   ProductConnector,
 } from "./types";
 import { makeupApiProductText } from "../product-text";
+import { classifyIngestedProduct } from "../product-category";
 
 const DEFAULT_BASE_URL = "https://makeup-api.herokuapp.com";
 const REQUEST_TIMEOUT_MS = 15000;
@@ -84,6 +85,18 @@ function toNormalizedRecord(product: MakeupApiProduct): ConnectorProductRecord |
         ? Number.parseFloat(product.rating)
         : null;
 
+  // Accessories are never ingested (#347). The request already asks for product_type=nail_polish,
+  // so no polish signal is required; the name, category and tags decide the category.
+  const tags = normalizeTagList(product.tag_list);
+  const { category: productCategory } = classifyIngestedProduct({
+    title: asNonEmptyString(product.name),
+    productType: asNonEmptyString(product.category),
+    tags,
+  });
+  if (productCategory === "accessory") {
+    return null;
+  }
+
   // Description + descriptors for finish detection (#352); never shown to users.
   const { descriptionText, descriptors } = makeupApiProductText(product);
 
@@ -107,7 +120,8 @@ function toNormalizedRecord(product: MakeupApiProduct): ConnectorProductRecord |
       websiteUrl: asNonEmptyString(product.website_link),
       productApiUrl: asNonEmptyString(product.product_api_url),
       rating: Number.isFinite(rating) ? rating : null,
-      tags: normalizeTagList(product.tag_list),
+      tags,
+      productCategory,
       descriptionText,
       descriptors,
       createdAt: asNonEmptyString(product.created_at),

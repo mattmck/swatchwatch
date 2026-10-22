@@ -28,7 +28,7 @@ export function Pagination({
 }: PaginationProps) {
   if (totalPages <= 1) {
     return (
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-sm text-muted-foreground">
           {totalItems} {totalItems === 1 ? "polish" : "polishes"}
         </span>
@@ -44,11 +44,11 @@ export function Pagination({
   const end = Math.min(currentPage * pageSize, totalItems);
 
   return (
-    <div className="flex items-center justify-between gap-4">
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
       <span className="text-sm text-muted-foreground">
         {start}&ndash;{end} of {totalItems}
       </span>
-      <div className="flex items-center gap-1">
+      <div className="flex flex-wrap items-center gap-1">
         <Button
           variant="outline"
           size="sm"

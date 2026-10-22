@@ -89,7 +89,7 @@ export function CollectionQuickActions({
   }
 
   return (
-    <div className="inline-flex items-center justify-end gap-1">
+    <div className="inline-flex items-center justify-end gap-1 pointer-coarse:gap-2">
       {owned ? (
         <QuantityControls
           owned
@@ -100,7 +100,7 @@ export function CollectionQuickActions({
           disabled={pending}
         />
       ) : (
-        <div className="inline-flex w-[88px] items-center justify-end gap-1">
+        <div className="inline-flex w-[88px] items-center justify-end gap-1 pointer-coarse:w-auto pointer-coarse:gap-2">
           {showWishlistToggle ? (
             <Button
               type="button"
@@ -116,7 +116,7 @@ export function CollectionQuickActions({
                   "quick-action"
                 )
               }
-              className={cn(wishlisted && "border-brand-pink/50 text-brand-pink")}
+              className={cn("pointer-coarse:size-9", wishlisted && "border-brand-pink/50 text-brand-pink")}
             >
               <Heart className={cn("size-3", wishlisted && "fill-current")} aria-hidden="true" />
             </Button>
@@ -125,6 +125,7 @@ export function CollectionQuickActions({
             type="button"
             variant="outline"
             size="xs"
+            className="pointer-coarse:h-9 pointer-coarse:px-3"
             aria-label={`Mark ${label} as owned`}
             title="I own this"
             disabled={pending}
@@ -143,6 +144,7 @@ export function CollectionQuickActions({
             type="button"
             variant="ghost"
             size="icon-xs"
+            className="pointer-coarse:size-9"
             aria-label={`More actions for ${label}`}
             disabled={pending}
           >

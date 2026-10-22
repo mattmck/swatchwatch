@@ -237,50 +237,39 @@ describe("pushPickHistory", () => {
   });
 });
 
-describe("suggestPairings", () => {
-  const pick = polish("pick", { vendorHex: "#1F4E9C" }); // blue
-  const complementHex = generateHarmonyPalette("#1F4E9C", "complementary")[1];
-  const analogousHex = generateHarmonyPalette("#1F4E9C", "analogous")[2];
-
-  it("suggests the complementary and analogous owned polishes plus a topper, at most 2", () => {
-    const collection = [
-      pick,
-      polish("complement", { vendorHex: complementHex }),
-      polish("analogous", { vendorHex: analogousHex }),
-      polish("glitter", { vendorHex: "#DDDDDD", finishes: ["glitter"], wearCount: 1 }),
-      polish("topper", { vendorHex: "#EEEEEE", finishes: ["topper"], wearCount: 4 }),
-      polish("far", { vendorHex: "#1F4E9D", status: "wishlist" }),
-    ];
-    const pairs = suggestPairings(pick, collection);
-    assert.equal(pairs.length, 2);
-    assert.ok(["complement", "analogous"].includes(pairs[0].polish.id));
-    assert.equal(pairs[1].polish.id, "topper", "a `topper` finish beats glitter");
-    assert.equal(pairs[1].role, "topper");
-    assert.equal(pairs[0].role, "accent");
-
-    const three = suggestPairings(pick, collection, 3);
-    assert.deepEqual(new Set(three.map((p) => p.harmony)), new Set(["complementary", "analogous", "topper"]));
-    const complement = three.find((p) => p.harmony === "complementary")!;
-    assert.equal(complement.polish.id, "complement");
-    assert.ok((complement.distance ?? 1) < 0.02);
+describe("suggestPairings (re-exported from swatchwatch-shared)", () => {
+  // The rule and its full tests live in packages/shared/src/color/pair-it.test.ts.
+  it("pairs the pick with its owned complement", () => {
+    const pick = polish("pick", { vendorHex: "#1F4E9C" });
+    const complementHex = generateHarmonyPalette("#1F4E9C", "complementary")[1];
+    const pairs = suggestPairings(pick, [pick, polish("complement", { vendorHex: complementHex })]);
+    assert.deepEqual(pairs.map((p) => [p.polish.id, p.harmony]), [["complement", "complementary"]]);
+    assert.ok(colorDistance(complementHex, "#1F4E9C") > 0.12);
   });
+});
 
-  it("returns nothing when no owned polish is close enough and there are no toppers", () => {
-    const collection = [pick, polish("nearly-same", { vendorHex: "#1F4E9D" })];
-    assert.deepEqual(suggestPairings(pick, collection), []);
-    assert.deepEqual(suggestPairings(pick, [pick]), []);
-  });
+describe("pick for me — product categories (#349, D-C)", () => {
+  const collection = [
+    polish("color", { vendorHex: "#C0392B" }),
+    polish("topper", { productCategory: "topper", vendorHex: "#F4F4F2", finishes: ["glitter"] }),
+    polish("top-coat", { productCategory: "top_coat", vendorHex: "#F5F5F5" }),
+    polish("base-coat", { productCategory: "base_coat", vendorHex: "#F6F6F6" }),
+    polish("treatment", { productCategory: "treatment" }),
+    polish("accessory", { productCategory: "accessory" }),
+  ];
 
-  it("skips hue harmonies for neutral picks and topper suggestions for topper picks", () => {
-    const gray = polish("gray", { vendorHex: "#808080" });
-    const red = polish("red", { vendorHex: "#C0392B" });
-    const topper = polish("topper", { vendorHex: "#EEEEEE", finishes: ["topper"] });
+  it("only ever picks a color polish as the main pick", () => {
     assert.deepEqual(
-      suggestPairings(gray, [gray, red, topper]).map((p) => p.harmony),
-      ["topper"]
+      scorePickCandidates(collection, NOW).map((candidate) => candidate.polish.id),
+      ["color"]
     );
-    const topperPick = polish("tp", { vendorHex: "#C0392B", finishes: ["topper"] });
-    assert.ok(suggestPairings(topperPick, [topperPick, topper]).every((p) => p.harmony !== "topper"));
-    assert.ok(colorDistance("#808080", "#808080") === 0);
+    const random = createSeededRandom(7);
+    for (let draw = 0; draw < 20; draw += 1) {
+      assert.equal(pickForMe(collection, { now: NOW, random })?.polish.id, "color");
+    }
+  });
+
+  it("returns null when the user owns only non-color products", () => {
+    assert.equal(pickForMe(collection.slice(1), { now: NOW, random: createSeededRandom(1) }), null);
   });
 });

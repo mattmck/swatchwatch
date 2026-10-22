@@ -5,11 +5,13 @@ import {
   type HexLabel,
   type HexLabelDeleteResponse,
   type HexLabelImage,
+  type HexLabelPromoteResponse,
   type HexLabelQueueItem,
   type HexLabelQueueResponse,
   type HexLabelSampleMethod,
   type HexLabelSamplePoint,
   type HexLabelSaveResponse,
+  type VendorHexSource,
 } from "swatchwatch-shared";
 import { query, transaction } from "../lib/db";
 import { withAdmin } from "../lib/auth";
@@ -18,6 +20,13 @@ import { internalServerError } from "../lib/errors";
 import { isCatalogStorageUrl } from "../lib/blob-storage";
 import { toImageProxyUrl } from "../lib/image-proxy";
 import { trackEvent } from "../lib/telemetry";
+import {
+  demoteManualLabel,
+  demoteShadeVendorHex,
+  promoteManualLabel,
+  type PromotionResult,
+  VENDOR_HEX_SOURCE_MANUAL_LABEL,
+} from "../lib/vendor-hex";
 
 /**
  * Admin Hex Labeling tool: hand-picked ground-truth hexes for the hex-detection eval.
@@ -26,7 +35,10 @@ import { trackEvent } from "../lib/telemetry";
  * eyedropper in the web admin console). Labels are `color_training_sample` rows with
  * `source_type = 'manual'` (one per shade, migration 20261017170047543_hex-ground-truth-labels)
  * and are exported by `npm run eval:hex:populate` as `manual` ground-truth cases.
- * `shade.vendor_hex` / `shade.detected_hex` are never written here.
+ * Saving or deleting a label never writes `shade.vendor_hex` / `shade.detected_hex`; only the
+ * explicit, per-label promote action does (#321, decision D12, `lib/vendor-hex.ts`): it copies an
+ * approved label's hex to `vendor_hex` with `vendor_hex_source = 'manual_label'`, which ingestion
+ * never overwrites. Deleting a promoted label keeps the promoted hex (the FK is ON DELETE SET NULL).
  *
  * All routes are admin-only (`withAdmin`); every statement is parameterized.
  */
@@ -238,6 +250,9 @@ const QUEUE_COLUMNS = `
       s.hex_agreement::float8                       AS "hexAgreement",
       s.detected_hex_confidence::float8             AS "detectedHexConfidence",
       s.detected_hex_method                         AS "detectedHexMethod",
+      s.vendor_hex_source                           AS "vendorHexSource",
+      s.vendor_hex_label_id::text                   AS "vendorHexLabelId",
+      s.vendor_hex_previous                         AS "vendorHexPrevious",
       lbl.training_sample_id::text                  AS "labelId",
       lbl.hex                                       AS "labelHex",
       lbl.training_status                           AS "labelStatus",
@@ -271,6 +286,8 @@ export function buildQueueQueries(options: HexLabelQueueQueryOptions): {
   if (options.brand) base.push(`b.name_canonical ILIKE ${add(`%${options.brand}%`)}`);
   if (options.disagreeOnly) base.push(`s.hex_agreement > ${add(MEDIUM_CONFIDENCE_MAX_DISTANCE)}`);
   if (!options.includeWithoutImages) base.push("img.image_count > 0");
+  // Ground truth is for color polishes: toppers, coats and accessories have no single hex (#349).
+  base.push("s.product_category = 'color'");
 
   const countSql = `SELECT count(*)::int AS total,
          count(lbl.training_sample_id)::int AS labeled
@@ -477,6 +494,10 @@ interface QueueRow extends LabelColumns {
   hexAgreement: number | null;
   detectedHexConfidence: number | null;
   detectedHexMethod: string | null;
+  /** CHECK-constrained to 'vendor' | 'manual_label' (migration 20261020024540860). */
+  vendorHexSource: VendorHexSource | null;
+  vendorHexLabelId: string | null;
+  vendorHexPrevious: string | null;
   labeledRank: number;
   imageRank: number;
   agreementRank: string;
@@ -484,6 +505,7 @@ interface QueueRow extends LabelColumns {
 
 function toQueueItem(row: QueueRow, imageRows: ShadeImageRow[], requestUrl: string): HexLabelQueueItem {
   const finishes = row.finishes?.length ? row.finishes : row.legacyFinish ? [row.legacyFinish] : [];
+  const promoted = row.vendorHexSource === VENDOR_HEX_SOURCE_MANUAL_LABEL;
   return {
     shadeId: row.shadeId,
     brand: row.brand,
@@ -498,6 +520,9 @@ function toQueueItem(row: QueueRow, imageRows: ShadeImageRow[], requestUrl: stri
     flagged: row.hexAgreement !== null && row.hexAgreement > MEDIUM_CONFIDENCE_MAX_DISTANCE,
     images: toLabelImages(imageRows, requestUrl),
     label: toHexLabel(row.shadeId, row),
+    vendorHexSource: row.vendorHexSource,
+    promotedLabelId: promoted ? row.vendorHexLabelId : null,
+    vendorHexPrevious: promoted ? row.vendorHexPrevious : null,
   };
 }
 
@@ -766,6 +791,10 @@ export async function saveHexLabel(
 
 // ── DELETE /api/hex-labels-admin/labels/{id} ────────────────────────────────
 
+// Deleting a promoted label keeps the promoted vendor_hex and vendor_hex_source = 'manual_label':
+// the shade FK is ON DELETE SET NULL, so only the link to the label is lost. Undo it with
+// DELETE /api/hex-labels-admin/shades/{shadeId}/promotion.
+
 export async function deleteHexLabel(
   request: HttpRequest,
   context: InvocationContext,
@@ -788,6 +817,74 @@ export async function deleteHexLabel(
     return { status: 200, jsonBody: responseBody };
   } catch (error) {
     return internalServerError(context, error, "Failed to delete hex label", "hex-labels.delete");
+  }
+}
+
+// ── Promote a label to shade.vendor_hex (#321, D12) ─────────────────────────
+
+function promotionResponse(result: PromotionResult, event: string, adminUserId: number): HttpResponseInit {
+  if (!result.ok) return { status: result.status, jsonBody: { error: result.error } };
+  const body: HexLabelPromoteResponse = result.body;
+  if (body.changed) {
+    trackEvent(event, { shadeId: body.shadeId, adminUserId, promotedLabelId: body.promotedLabelId ?? "none" });
+  }
+  return { status: 200, jsonBody: body };
+}
+
+/**
+ * POST /api/hex-labels-admin/labels/{id}/promote (admin-only)
+ *
+ * Copy an approved manual label's hex to its shade's `vendor_hex` (previous value kept for Undo,
+ * audit row in the same transaction). 404 unknown / non-manual label; 409 unreliable label, no hex
+ * or a private `user_submitted` shade. Idempotent.
+ */
+export async function promoteHexLabel(
+  request: HttpRequest,
+  context: InvocationContext,
+  adminUserId: number
+): Promise<HttpResponseInit> {
+  const id = parseId(request.params.id);
+  if (id === null) return { status: 400, jsonBody: { error: "Invalid label id" } };
+  try {
+    const result = await transaction((client) => promoteManualLabel(client, id, adminUserId));
+    return promotionResponse(result, "hex_label.promoted", adminUserId);
+  } catch (error) {
+    return internalServerError(context, error, "Failed to promote hex label", "hex-labels.promote");
+  }
+}
+
+/** DELETE /api/hex-labels-admin/labels/{id}/promote (admin-only): undo the label's promotion. */
+export async function demoteHexLabel(
+  request: HttpRequest,
+  context: InvocationContext,
+  adminUserId: number
+): Promise<HttpResponseInit> {
+  const id = parseId(request.params.id);
+  if (id === null) return { status: 400, jsonBody: { error: "Invalid label id" } };
+  try {
+    const result = await transaction((client) => demoteManualLabel(client, id, adminUserId));
+    return promotionResponse(result, "hex_label.demoted", adminUserId);
+  } catch (error) {
+    return internalServerError(context, error, "Failed to undo hex label promotion", "hex-labels.demote");
+  }
+}
+
+/**
+ * DELETE /api/hex-labels-admin/shades/{shadeId}/promotion (admin-only): undo a shade's promotion,
+ * also when the promoted label has since been deleted.
+ */
+export async function demoteHexLabelShade(
+  request: HttpRequest,
+  context: InvocationContext,
+  adminUserId: number
+): Promise<HttpResponseInit> {
+  const shadeId = parseId(request.params.shadeId);
+  if (shadeId === null) return { status: 400, jsonBody: { error: "Invalid shade id" } };
+  try {
+    const result = await transaction((client) => demoteShadeVendorHex(client, shadeId, adminUserId));
+    return promotionResponse(result, "hex_label.demoted", adminUserId);
+  } catch (error) {
+    return internalServerError(context, error, "Failed to undo hex label promotion", "hex-labels.demote");
   }
 }
 
@@ -817,4 +914,24 @@ app.http("admin-hex-labels-item", {
   authLevel: "anonymous",
   route: "hex-labels-admin/labels/{id}",
   handler: withCors(withAdmin(deleteHexLabel)),
+});
+
+app.http("admin-hex-labels-promote", {
+  methods: ["POST", "DELETE", "OPTIONS"],
+  authLevel: "anonymous",
+  route: "hex-labels-admin/labels/{id}/promote",
+  handler: withCors(
+    withAdmin((request, context, adminUserId) =>
+      request.method === "DELETE"
+        ? demoteHexLabel(request, context, adminUserId)
+        : promoteHexLabel(request, context, adminUserId)
+    )
+  ),
+});
+
+app.http("admin-hex-labels-shade-promotion", {
+  methods: ["DELETE", "OPTIONS"],
+  authLevel: "anonymous",
+  route: "hex-labels-admin/shades/{shadeId}/promotion",
+  handler: withCors(withAdmin(demoteHexLabelShade)),
 });

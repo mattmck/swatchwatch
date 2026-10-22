@@ -25,6 +25,7 @@ Argument: `$ARGUMENTS` — a short kebab-case description (e.g. `add-shade-notes
 2. Write the file in the house style (see `20261017024958000_shade-detected-hex-provenance.sql`):
    - Starts with `-- Up Migration`, wraps statements in `BEGIN; … COMMIT;`.
    - Prefer idempotent statements (`IF NOT EXISTS`, `DROP … IF EXISTS`).
+   - A data migration that upserts rows which may already exist must let its Down tell them apart: mark the rows the Up inserts (e.g. `metadata.insertedByMigration`, kept out of the `ON CONFLICT` update) and delete only marked rows, restoring or disabling the others (see `20261020032543929_guard-more-indie-shopify-sources-rollback.sql`).
    - Has a `-- Down Migration` section that fully reverses the Up section, also in `BEGIN; … COMMIT;`.
    - Leading comment explaining *why* (and any related `docs/schema.sql` section).
    - New user-owned tables carry a `user_id` and are always queried with it (per-user isolation, issue #47).

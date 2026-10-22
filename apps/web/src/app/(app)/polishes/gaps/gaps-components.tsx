@@ -3,6 +3,7 @@ import type { CollectionGapCell, HueFamily, LightnessBand, Polish } from "swatch
 import { HUE_FAMILY_ORDER } from "@/lib/color-utils";
 import { ColorDot } from "@/components/color-dot";
 import { Badge } from "@/components/ui/badge";
+import { detailHref } from "@/lib/detail-href";
 import {
   getVisibleItems,
   LIGHTNESS_META,
@@ -25,6 +26,7 @@ export type CellBoundPolish = {
  * @param items Matched polishes.
  * @param emptyLabel Message shown when `items` is empty.
  * @param resolveVisibleItems Optional override for computing visible rows (used by tests).
+ * @param returnTo `returnTo` for the detail links (#348); defaults to the current page.
  * @returns A card-like list with count badge, up to six links, and optional truncation summary.
  */
 export function CellMatchesList({
@@ -32,11 +34,13 @@ export function CellMatchesList({
   items,
   emptyLabel,
   resolveVisibleItems = getVisibleItems,
+  returnTo,
 }: {
   title: string;
   items: CellBoundPolish[];
   emptyLabel: string;
   resolveVisibleItems?: (items: CellBoundPolish[], maxVisible?: number) => CellBoundPolish[];
+  returnTo?: string;
 }) {
   const visible = resolveVisibleItems(items, 6);
 
@@ -57,7 +61,7 @@ export function CellMatchesList({
           {visible.map((item) => (
             <Link
               key={item.polish.id}
-              href={`/polishes/detail?id=${item.polish.id}`}
+              href={detailHref(item.polish.id, returnTo)}
               className="flex items-center gap-2 rounded-md border bg-background/85 px-2 py-1.5 text-xs transition hover:bg-background"
             >
               <ColorDot hex={item.colorHex} size="sm" />
@@ -118,7 +122,7 @@ export function Row({
 }) {
   return (
     <>
-      <div className="flex items-center rounded-md border border-brand-lilac/45 bg-muted/40 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+      <div className="flex items-center rounded-md border border-brand-lilac/45 bg-muted/40 px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground sm:px-3 sm:text-xs sm:tracking-[0.12em]">
         {LIGHTNESS_META[lightnessBand].label}
       </div>
       {HUE_FAMILY_ORDER.map((hueFamily) => {

@@ -1,9 +1,13 @@
 import type {
+  SavedLook,
+  SavedLookInput,
+  SavedLookListResponse,
   BulkIngestionRequest,
   BulkIngestionResponse,
   ConnectorProtocol,
   CaptureAnswerRequest,
   CaptureAnswerResponse,
+  CaptureCheckResponse,
   CaptureFinalizeResponse,
   CaptureFrameRequest,
   CaptureFrameResponse,
@@ -29,6 +33,11 @@ import type {
   ShadeReviewMergeResponse,
   ShadeReviewQueueState,
   ShadeReviewRejectRequest,
+  ProductCategory,
+  ProductCategoryBackfillReport,
+  ProductCategoryBackfillRequest,
+  ShadeProductCategoryListResponse,
+  ShadeProductCategoryUpdateResponse,
   Polish,
   PolishCreateRequest,
   PolishUpdateRequest,
@@ -62,6 +71,7 @@ import type {
   HarmonyTypeListResponse,
   IngestionJob,
   HexLabelDeleteResponse,
+  HexLabelPromoteResponse,
   HexLabelQueueFilters,
   HexLabelQueueItem,
   HexLabelQueueResponse,
@@ -164,6 +174,7 @@ export async function listPolishes(filters?: PolishFilters): Promise<PolishListR
   if (filters?.untried) params.set("untried", "true");
   if (filters?.tone) params.set("tone", filters.tone);
   if (filters?.families?.length) params.set("family", filters.families.join(","));
+  if (filters?.categories?.length) params.set("category", filters.categories.join(","));
   if (filters?.tags?.length) params.set("tags", filters.tags.join(","));
   if (filters?.sortBy) params.set("sortBy", filters.sortBy);
   if (filters?.sortOrder) params.set("sortOrder", filters.sortOrder);
@@ -356,6 +367,31 @@ export async function deleteManicurePhoto(manicureId: string | number): Promise<
   }
 }
 
+/** The caller's saved looks, newest first (`GET /api/looks`). */
+export async function listSavedLooks(): Promise<SavedLook[]> {
+  const response = await fetch(`${API_BASE_URL}/looks`, { headers: await getAuthHeaders() });
+  return (await handleResponse<SavedLookListResponse>(response)).looks;
+}
+
+/** Save (or re-save) a look (`POST /api/looks`); the server keeps the newest 30. */
+export async function saveLookToServer(look: SavedLookInput): Promise<SavedLook> {
+  const response = await fetch(`${API_BASE_URL}/looks`, {
+    method: "POST",
+    headers: { ...(await getAuthHeaders()), "Content-Type": "application/json" },
+    body: JSON.stringify({ id: look.id, templateId: look.templateId, name: look.name, vibe: look.vibe, steps: look.steps }),
+  });
+  return handleResponse<SavedLook>(response);
+}
+
+/** Delete a saved look by its look key (`DELETE /api/looks?key=`). A 404 (already gone) resolves. */
+export async function deleteSavedLook(key: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/looks?${new URLSearchParams({ key })}`, {
+    method: "DELETE",
+    headers: await getAuthHeaders(),
+  });
+  if (!response.ok && response.status !== 404) await handleResponse<unknown>(response);
+}
+
 /** The caller's dashboard aggregates (`GET /api/stats/collection`, cached server-side ≤60s). */
 export async function getCollectionStats(): Promise<CollectionStatsResponse> {
   const response = await fetch(`${API_BASE_URL}/stats/collection`, { headers: await getAuthHeaders() });
@@ -515,11 +551,12 @@ export async function deletePolishImport(id: string): Promise<void> {
 export async function searchCatalog(
   q: string,
   limit?: number,
-  options?: { families?: ColorFamily[] }
+  options?: { families?: ColorFamily[]; categories?: ProductCategory[] }
 ): Promise<CatalogSearchResponse> {
   const params = new URLSearchParams({ q });
   if (limit) params.set("limit", String(limit));
   if (options?.families?.length) params.set("family", options.families.join(","));
+  if (options?.categories?.length) params.set("category", options.categories.join(","));
 
   const response = await fetch(`${API_BASE_URL}/catalog/search?${params}`);
   return handleResponse<CatalogSearchResponse>(response);
@@ -719,6 +756,18 @@ export async function finalizeCapture(captureId: string): Promise<CaptureFinaliz
     headers: await getAuthHeaders(),
   });
   return handleResponse<CaptureFinalizeResponse>(response);
+}
+
+/**
+ * Read-only "do I own this?" for a capture session: the resolver's match plus the caller's
+ * relationship to it. Adds nothing to the collection (finalize does).
+ */
+export async function checkCapture(captureId: string): Promise<CaptureCheckResponse> {
+  const response = await fetch(`${API_BASE_URL}/capture/${captureId}/check`, {
+    method: "POST",
+    headers: await getAuthHeaders(),
+  });
+  return handleResponse<CaptureCheckResponse>(response);
 }
 
 export async function getCaptureStatus(captureId: string): Promise<CaptureStatusResponse> {
@@ -1041,6 +1090,27 @@ export async function deleteHexLabel(trainingSampleId: string): Promise<HexLabel
   return handleResponse<HexLabelDeleteResponse>(response);
 }
 
+/** Promote a saved manual label's hex to the shade's vendor hex (`POST /api/hex-labels-admin/labels/{id}/promote`, #321). */
+export async function promoteHexLabel(trainingSampleId: string): Promise<HexLabelPromoteResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/hex-labels-admin/labels/${encodeURIComponent(trainingSampleId)}/promote`,
+    { method: "POST", headers: await getAuthHeaders({ admin: true }) }
+  );
+  return handleResponse<HexLabelPromoteResponse>(response);
+}
+
+/**
+ * Undo a shade's vendor hex promotion (`DELETE /api/hex-labels-admin/shades/{shadeId}/promotion`, #321).
+ * Keyed by shade so it also works after the promoted label was deleted.
+ */
+export async function undoVendorHexPromotion(shadeId: string): Promise<HexLabelPromoteResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/hex-labels-admin/shades/${encodeURIComponent(shadeId)}/promotion`,
+    { method: "DELETE", headers: await getAuthHeaders({ admin: true }) }
+  );
+  return handleResponse<HexLabelPromoteResponse>(response);
+}
+
 // ── Private nail photos (#270) ──────────────────────────────────────────────
 
 function nailPhotoUrl(inventoryItemId: string | number): string {
@@ -1154,6 +1224,58 @@ export async function rejectShadeReview(
   data: ShadeReviewRejectRequest = {}
 ): Promise<ShadeReviewActionResponse> {
   return postShadeReviewAction<ShadeReviewActionResponse>(shadeId, "reject", data);
+}
+
+// ── Product categories (#349, #347) ─────────────────────────────────────────
+
+/**
+ * Re-classify every catalog shade (`POST /api/shades-admin/product-category/backfill`). Dry run
+ * unless `dryRun: false`; returns the report either way.
+ */
+export async function runProductCategoryBackfill(
+  data: ProductCategoryBackfillRequest = {}
+): Promise<ProductCategoryBackfillReport> {
+  const response = await fetch(`${API_BASE_URL}/shades-admin/product-category/backfill`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<ProductCategoryBackfillReport>(response);
+}
+
+/** Browse shades by product category (`GET /api/shades-admin/product-category`). */
+export async function listShadesByProductCategory(params?: {
+  categories?: ProductCategory[];
+  q?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<ShadeProductCategoryListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.categories && params.categories.length > 0) searchParams.set("category", params.categories.join(","));
+  if (params?.q?.trim()) searchParams.set("q", params.q.trim());
+  if (typeof params?.page === "number") searchParams.set("page", String(params.page));
+  if (typeof params?.pageSize === "number") searchParams.set("pageSize", String(params.pageSize));
+  const qs = searchParams.toString();
+  const response = await fetch(`${API_BASE_URL}/shades-admin/product-category${qs ? `?${qs}` : ""}`, {
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<ShadeProductCategoryListResponse>(response);
+}
+
+/** Admin override of a shade's category (`PUT /api/shades-admin/{id}/product-category`); sticky. */
+export async function setShadeProductCategory(
+  shadeId: string | number,
+  productCategory: ProductCategory
+): Promise<ShadeProductCategoryUpdateResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/shades-admin/${encodeURIComponent(String(shadeId))}/product-category`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+      body: JSON.stringify({ productCategory }),
+    }
+  );
+  return handleResponse<ShadeProductCategoryUpdateResponse>(response);
 }
 
 // ── Shareable wishlist (#268) ───────────────────────────────────────────────

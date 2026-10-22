@@ -69,6 +69,9 @@ const ACTION_LABELS: Record<AdminAuditEvent["action"], string> = {
   "user.suspend": "Suspended",
   "user.unsuspend": "Reactivated",
   "user.merge": "Merged account into this one",
+  // Shade actions (#321) have no target user, so they never appear in a user's history.
+  "shade.vendor_hex_promote": "Promoted a hex label to a vendor hex",
+  "shade.vendor_hex_demote": "Undid a vendor hex promotion",
 };
 
 function formatValue(value: unknown): string {

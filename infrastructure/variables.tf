@@ -10,14 +10,14 @@ variable "location" {
 }
 
 variable "openai_location" {
-  description = "Optional fallback region for Azure OpenAI resources when `openai_regions` is empty (defaults to `location` when null)"
+  description = "Azure OpenAI region used when `openai_regions` is empty. Must be the region the environment's OpenAI account already lives in (prod: centralus, dev: eastus): a different value replaces the account, which soft-deletes it and every deployment. In CI it comes from the environment's OPENAI_LOCATION GitHub variable. When `create_openai_resources` is true, either this or `openai_regions` must be set; the region is never guessed from `location`."
   type        = string
   default     = null
   nullable    = true
 }
 
 variable "openai_regions" {
-  description = "Azure OpenAI regions to provision when create_openai_resources=true. First region is treated as primary for function settings and backwards-compatible outputs."
+  description = "Azure OpenAI regions to provision when create_openai_resources=true (takes precedence over openai_location). First region is treated as primary for function settings and backwards-compatible outputs. Removing a region from this list destroys that region's account and deployments."
   type        = list(string)
   default     = []
 }

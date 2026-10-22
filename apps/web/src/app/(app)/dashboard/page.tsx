@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
-import { listAllPolishes, listPolishes } from "@/lib/api";
+import { getCurrentUserId, listAllPolishes, listPolishes } from "@/lib/api";
 import { isOwnedPolish, summarizeCollection } from "@/lib/inventory-status";
 import { trackEvent } from "@/lib/telemetry";
 import {
@@ -22,9 +22,11 @@ import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
 import { PickForMeCard } from "@/components/pick-for-me";
+import { GettingStarted } from "@/components/getting-started";
 import { CollectionStatsSection } from "@/components/stats/collection-stats-section";
 import type { LucideIcon } from "lucide-react";
 import { Building2, Droplets, FlaskConical, Heart, Sparkles, Star } from "lucide-react";
+import { detailHref } from "@/lib/detail-href";
 
 type StatCard = {
   key: string;
@@ -45,6 +47,8 @@ export default function DashboardPage() {
   const { finishTypes } = useReferenceData();
   const [polishes, setPolishes] = useState<Polish[]>([]);
   const [wishlistTotal, setWishlistTotal] = useState(0);
+  // Keys the getting-started dismissal per user; null (lookup failed) falls back to one shared key.
+  const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,14 +60,16 @@ export default function DashboardPage() {
         // Owned rows only: the dashboard never needs the shared catalog, and the
         // catalog is orders of magnitude larger than any user's collection.
         // The wishlist count is the list `total` of a one-row page: no client-side over-fetch.
-        const [response, wishlistPage] = await Promise.all([
+        const [response, wishlistPage, currentUserId] = await Promise.all([
           listAllPolishes({
             status: ["owned"],
             sortBy: "createdAt",
             sortOrder: "desc",
           }),
           listPolishes({ status: ["wishlist"], page: 1, pageSize: 1 }),
+          getCurrentUserId().catch(() => null),
         ]);
+        setUserId(currentUserId === null ? null : String(currentUserId));
         const owned = response.filter(isOwnedPolish);
         setPolishes(owned);
         setWishlistTotal(wishlistPage.total);
@@ -91,6 +97,8 @@ export default function DashboardPage() {
   }
 
   const totalPolishes = polishes.length;
+  // A brand-new user gets the getting-started checklist instead of a wall of zeros and empty cards.
+  const hasNothing = totalPolishes === 0 && wishlistTotal === 0;
   const summary = summarizeCollection(polishes, wishlistTotal);
   const uniqueBrands = new Set(polishes.map((p) => p.brand)).size;
   const avgRating =
@@ -182,7 +190,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="heading-page">Dashboard</h1>
           <p className="text-muted-foreground">
@@ -194,13 +202,16 @@ export default function DashboardPage() {
         </Button>
       </div>
 
+      <GettingStarted ownedPolishes={polishes} userId={userId} />
+
       {/* Stats row */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {!hasNothing && (
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
         {statCards.map((card) => {
           const tile = (
           <Card
             key={card.key}
-            className={`relative h-full overflow-hidden border border-brand-purple/20 bg-card/95 shadow-[0_20px_45px_rgba(66,16,126,0.12)] backdrop-blur-xl ${
+            className={`relative h-full overflow-hidden border border-brand-purple/20 py-0 sm:py-6 bg-card/95 shadow-[0_20px_45px_rgba(66,16,126,0.12)] backdrop-blur-xl ${
               card.href ? "transition-shadow group-hover:shadow-[0_24px_50px_rgba(66,16,126,0.2)]" : ""
             }`}
           >
@@ -212,14 +223,14 @@ export default function DashboardPage() {
               aria-hidden
               className="pointer-events-none absolute inset-0 opacity-70 [background:radial-gradient(circle_at_top_right,rgba(249,227,255,0.65),transparent_55%)] dark:opacity-30"
             />
-            <CardContent className="relative z-10 flex items-center justify-between gap-4 px-6 py-6">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-brand-purple-deep/80 dark:text-brand-lilac/95">
+            <CardContent className="relative z-10 flex h-full items-center justify-between gap-4 px-4 py-4 sm:px-6 sm:py-6">
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] sm:tracking-[0.35em] text-brand-purple-deep/80 dark:text-brand-lilac/95">
                   {card.label}
                 </p>
                 <div className="mt-1 flex items-baseline gap-1">
                   <p
-                    className={`text-3xl font-black leading-tight text-gradient-brand ${card.valueClassName ?? ""}`}
+                    className={`break-words text-2xl font-black leading-tight text-gradient-brand sm:text-3xl ${card.valueClassName ?? ""}`}
                   >
                     {card.value}
                   </p>
@@ -229,11 +240,11 @@ export default function DashboardPage() {
                     </span>
                   )}
                 </div>
-                <p className="mt-1 text-sm text-muted-foreground dark:text-brand-pink-soft/90">
+                <p className="mt-1 text-xs text-muted-foreground sm:text-sm dark:text-brand-pink-soft/90">
                   {card.subText}
                 </p>
               </div>
-              <div className="flex size-12 items-center justify-center rounded-xl bg-gradient-brand-soft text-white shadow-glow-brand">
+              <div className="hidden size-12 shrink-0 items-center justify-center rounded-xl bg-gradient-brand-soft text-white shadow-glow-brand sm:flex">
                 <card.icon className="size-5" aria-hidden="true" />
               </div>
             </CardContent>
@@ -253,7 +264,10 @@ export default function DashboardPage() {
           );
         })}
       </div>
+      )}
 
+      {totalPolishes > 0 && (
+        <>
       <PickForMeCard polishes={polishes} />
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -282,7 +296,7 @@ export default function DashboardPage() {
                   {recentPolishes.map((polish) => (
                     <Link
                       key={polish.id}
-                      href={`/polishes/detail?id=${polish.id}`}
+                      href={detailHref(polish.id)}
                       className="flex items-center gap-3 rounded-md p-2 transition-colors hover:bg-muted"
                     >
                       <ColorDot hex={resolveDisplayHex(polish)} size="md" />
@@ -315,6 +329,11 @@ export default function DashboardPage() {
             <CardDescription>Distribution of finish types</CardDescription>
           </CardHeader>
           <CardContent>
+            {topFinishes.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                Finishes show up here once your polishes have one, like creme, shimmer or holo.
+              </p>
+            )}
             <div className="space-y-3">
               {topFinishes.map(([finish, count]) => (
                 <div key={finish} className="flex items-center gap-3">
@@ -334,6 +353,8 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+        </>
+      )}
 
       {/* Spend, wear and cost-per-wear panels (#271); loads its own data. */}
       <CollectionStatsSection />

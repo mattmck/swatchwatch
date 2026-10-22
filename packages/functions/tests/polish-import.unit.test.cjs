@@ -190,7 +190,7 @@ describe("detectPolishImportHeader", () => {
       "Purchase date", "Notes",
       // export-only columns
       "Display hex", "Collection", "Rating", "Tags", "Size", "Expiration date", "Last worn", "Wear count",
-      "Shade ID", "Item ID", "Created at", "Updated at",
+      "Shade ID", "Item ID", "Created at", "Updated at", "Product category",
     ];
     for (const header of headers.slice(10)) {
       assert.equal(shared.matchImportHeader(header), null, `${header} must not map to an import field`);

@@ -20,6 +20,7 @@ import {
   type CollectionExportItem,
   type PolishCsvColumnKey,
   type PolishStatus,
+  resolveProductCategory,
 } from "swatchwatch-shared";
 import { CSV_UTF8_BOM, encodeCsvRecord } from "./csv";
 
@@ -84,6 +85,7 @@ export const COLLECTION_EXPORT_SQL = `
     s.vendor_hex                                                      AS "vendorHex",
     s.detected_hex                                                    AS "detectedHex",
     s.name_hex                                                        AS "nameHex",
+    s.product_category                                                AS "productCategory",
     to_char(ui.created_at AT TIME ZONE 'UTC', ${UTC_TIMESTAMP})       AS "createdAt",
     to_char(ui.updated_at AT TIME ZONE 'UTC', ${UTC_TIMESTAMP})       AS "updatedAt"
   FROM user_inventory_item ui
@@ -127,6 +129,7 @@ export interface CollectionExportDbRow {
   vendorHex: string | null;
   detectedHex: string | null;
   nameHex: string | null;
+  productCategory: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -163,6 +166,7 @@ export function toCollectionExportItem(row: CollectionExportDbRow): CollectionEx
     vendorHex: row.vendorHex ?? undefined,
     detectedHex: row.detectedHex ?? undefined,
     nameHex: row.nameHex ?? undefined,
+    productCategory: resolveProductCategory(row.productCategory),
     displayHex:
       resolveDisplayHex({
         vendorHex: row.vendorHex ?? undefined,
@@ -210,6 +214,7 @@ const CSV_CELL: Readonly<Record<PolishCsvColumnKey, (item: CollectionExportItem)
   inventoryItemId: (item) => item.inventoryItemId,
   createdAt: (item) => item.createdAt,
   updatedAt: (item) => item.updatedAt,
+  productCategory: (item) => item.productCategory,
 };
 
 /** The item's cells in `POLISH_CSV_COLUMNS` order (unescaped). */

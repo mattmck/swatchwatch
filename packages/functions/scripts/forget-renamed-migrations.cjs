@@ -13,6 +13,9 @@ const RENAMED_MIGRATIONS = {
   "025_add_color_training_sample": "20261017033500000_add-color-training-sample",
   // Interim name carried by the hex-eval PRs before dev gained later dated migrations.
   "20261016040629000_add-color-training-sample": "20261017033500000_add-color-training-sample",
+  // Merged to dev after later-dated migrations had run there, so it could never run in order
+  // (Deploy Dev failed from 2026-10-20). Idempotent; forgets it on any local DB that ran the old name.
+  "20261019011858000_shade-product-category": "20261022190729000_shade-product-category",
 };
 
 async function main() {

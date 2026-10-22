@@ -8,6 +8,7 @@
  */
 import type { FinishName, Polish } from "./polish";
 import type { PolishStatus } from "./inventory";
+import type { ProductCategory } from "../constants/product-categories";
 
 /** Version of the JSON envelope. Bump when a field is removed or changes meaning. */
 export const COLLECTION_EXPORT_VERSION = 1 as const;
@@ -44,6 +45,8 @@ export interface CollectionExportItem
     | "createdAt"
     | "updatedAt"
   > {
+  /** Product category (#349); `color` for rows without a shade. */
+  productCategory: ProductCategory;
   /** `user_inventory_item` id. Always present in an export (every item is an inventory row). */
   inventoryItemId: string;
   /** Color name/description from the catalog (`Polish.color`); null when unknown. */
@@ -133,6 +136,8 @@ export const POLISH_CSV_COLUMNS = [
   { key: "inventoryItemId", header: "Item ID", importField: null },
   { key: "createdAt", header: "Created at", importField: null },
   { key: "updatedAt", header: "Updated at", importField: null },
+  // Appended (#349) so existing column positions stay the same.
+  { key: "productCategory", header: "Product category", importField: null },
 ] as const satisfies readonly PolishCsvColumn[];
 
 export type PolishCsvColumnKey = (typeof POLISH_CSV_COLUMNS)[number]["key"];

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_LIST_STATE,
   buildPolishesListQueryString,
+  clampPageAfterLoad,
   hasActiveFilters,
   normalizeStatuses,
   parsePolishesListState,
@@ -58,7 +59,7 @@ describe("parsePolishesListState / buildPolishesListQueryString", () => {
   });
 
   it("round-trips every field", () => {
-    const query = "q=red&status=owned%2Cdestash&untried=1&tone=warm&finish=shimmer&family=red%2Cpink&sort=status&dir=desc&page=3&pageSize=25";
+    const query = "q=red&status=owned%2Cdestash&untried=1&tone=warm&finish=shimmer&family=red%2Cpink&category=color%2Ctopper&sort=status&dir=desc&page=3&pageSize=25";
     const state = parsePolishesListState(qs(query));
     assert.deepEqual(state, {
       search: "red",
@@ -67,6 +68,7 @@ describe("parsePolishesListState / buildPolishesListQueryString", () => {
       toneFilter: "warm",
       finishFilter: "shimmer",
       familyFilter: "red,pink",
+      categoryFilter: "color,topper",
       sortKey: "status",
       sortDirection: "desc",
       page: 3,
@@ -168,6 +170,14 @@ describe("toApiFilters", () => {
     assert.equal("families" in filters, false);
   });
 
+  it("sends the product category filter (#349) as categories, canonical and deduped", () => {
+    const state = parsePolishesListState(qs("category=topper,bogus,color,topper"));
+    assert.equal(state.categoryFilter, "color,topper");
+    assert.deepEqual(toApiFilters(state).categories, ["color", "topper"]);
+    assert.equal(hasActiveFilters(state), true);
+    assert.equal("categories" in toApiFilters(DEFAULT_LIST_STATE), false);
+  });
+
   it("sends the color family filter (#103) as families", () => {
     const state = { ...DEFAULT_LIST_STATE, familyFilter: "pink,red" };
     assert.deepEqual(toApiFilters(state).families, ["red", "pink"]);
@@ -180,5 +190,41 @@ describe("statusFilterSummary", () => {
     assert.equal(statusFilterSummary([], POLISH_STATUS_LABELS), "Any status");
     assert.equal(statusFilterSummary(["destash"], POLISH_STATUS_LABELS), "Destash");
     assert.equal(statusFilterSummary(["owned", "destash", "archived"], POLISH_STATUS_LABELS), "Owned +2");
+  });
+});
+
+describe("clampPageAfterLoad (#348)", () => {
+  const restored = parsePolishesListState(qs("page=5"));
+
+  it("keeps a URL-restored page on mount, before any data has arrived", () => {
+    // Fresh mount: total is still 0 and the first fetch is in flight.
+    assert.equal(restored.page, 5);
+    assert.equal(
+      clampPageAfterLoad({ page: restored.page, total: 0, pageSize: 10, hasLoaded: false, loading: true }),
+      null
+    );
+    // Even if loading were not flagged yet, nothing is known before the first load finishes.
+    assert.equal(
+      clampPageAfterLoad({ page: restored.page, total: 0, pageSize: 10, hasLoaded: false, loading: false }),
+      null
+    );
+  });
+
+  it("keeps the page while a later fetch is in flight (the total may be stale)", () => {
+    assert.equal(clampPageAfterLoad({ page: 5, total: 12, pageSize: 10, hasLoaded: true, loading: true }), null);
+  });
+
+  it("keeps the page when it exists once data arrives", () => {
+    assert.equal(clampPageAfterLoad({ page: 5, total: 267, pageSize: 10, hasLoaded: true, loading: false }), null);
+    assert.equal(clampPageAfterLoad({ page: 3, total: 30, pageSize: 10, hasLoaded: true, loading: false }), null);
+  });
+
+  it("clamps to the last page once a real total is known", () => {
+    assert.equal(clampPageAfterLoad({ page: 5, total: 25, pageSize: 10, hasLoaded: true, loading: false }), 3);
+  });
+
+  it("goes back to page 1 when the loaded result is empty", () => {
+    assert.equal(clampPageAfterLoad({ page: 5, total: 0, pageSize: 10, hasLoaded: true, loading: false }), 1);
+    assert.equal(clampPageAfterLoad({ page: 1, total: 0, pageSize: 10, hasLoaded: true, loading: false }), null);
   });
 });
