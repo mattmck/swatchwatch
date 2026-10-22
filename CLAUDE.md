@@ -304,7 +304,7 @@ Documentation files in this project:
 - `docs/indie-sources-2026-10.md` — #273/#328 indie Shopify store survey: per-store products.json, polish-filter counts, terms/robots findings, recommended order and the `data_source.metadata.notes` text for each
 - `docs/decisions-2026-10.md` — decision log (D1–D24) for the M2 batch: product rules, observability, release, follow-up tickets, catalog categories (D23), Expo/Looks early start and the overnight merge-to-`dev` rule (D24)
 - `docs/overnight-2026-10-18-release-runbook.md` — release runbook for the 2026-10-18 overnight batch (#370–#383): merge order, migrations, post-deploy steps
-- `docs/overnight-2026-10-19-release-runbook.md` — release runbook for the 2026-10-19 overnight batch (#388–#396)
+- `docs/overnight-2026-10-19-release-runbook.md` — release runbook for the 2026-10-19 overnight batch (#388–#399): release steps, open PRs, decisions taken, issues to close by hand
 - `docs/looks-experience-plan.md` — Looks plan (2026-02) with a status section on what shipped client-side and what is not built yet
 - `docs/plan-catalog-hygiene.md` — #347/#348/#349 catalog hygiene plan behind D23 (product categories, non-polish cleanup)
 - `docs/retro-m2.md` — M2 retro (#274): what shipped in release #340 and the batches after it, decisions, §4 metric readings, open issues, Q1 candidates

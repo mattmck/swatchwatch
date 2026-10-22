@@ -29,12 +29,12 @@ After #340, work kept landing on `dev`:
 |---|---|
 | Post-release follow-ups (10-18), released to `main` in [#365](https://github.com/mattmck/swatchwatch/pull/365) on 2026-10-19 with a merge commit: hex snap (flagged), orphan media sweep, finish families, admin user management, product text for finishes, catalog thumbnails, gallery dedupe, CIAM service principal, backups, CodeQL fix | #344, #345, #346, #353, #354, #355, #356, #357, #358, #359, #360, #362, #363, #364, #366, #367, #368, #369 |
 | Overnight batch 10-18 (merged 2026-10-20; [runbook](overnight-2026-10-18-release-runbook.md)): Pahlish store filter, barcode scan matching, back-navigation state, photo-match filters and wishlist, getting-started checklist, Looks page and its shopping list / share / drawer, product categories and non-polish cleanup (D23), Expo app foundation and wave 2, OpenAI region guard, phone card layout for `/polishes`, app-shell header overflow | #371, #375, #374, #373, #372, #370, #378, #377, #376, #379, #380, #382, #383 |
-| Overnight batch 10-19 (merged 2026-10-20; runbook `overnight-2026-10-19-release-runbook.md`, being written by the lead session): Cirque Colors store filter and indie batch 2 survey, promote manual hex labels to `vendor_hex` (D12), Looks toppers toggle and Color Lab links, mobile nail photo / photo match parity / mani photos | #388, #391, #392, #396 |
+| Overnight batch 10-19 (merged 2026-10-20; [runbook](overnight-2026-10-19-release-runbook.md)): Cirque Colors store filter and indie batch 2 survey, promote manual hex labels to `vendor_hex` (D12), Looks toppers toggle and Color Lab links, mobile nail photo / photo match parity / mani photos, mobile By color search / Pair it / Goes with | #388, #391, #392, #396, #399 |
 
 The two overnight batches are on `dev` only until the next `dev → main` release. Their issues
 (#328, #105 web half, #348, #349, #347, #321, #386, #385) stay open until then and need closing
-by hand, as after #340. In flight on 2026-10-20: #397 (phone layout sweep, #387) and #399 (mobile
-color search, harmonies and Pair it, #384).
+by hand, as after #340. #399 (mobile color search, harmonies and Pair it, #384) merged on 2026-10-20
+too, so #384 is in that list; #397 (phone layout sweep, #387) was still open, green, on 2026-10-22.
 
 ## What we decided
 

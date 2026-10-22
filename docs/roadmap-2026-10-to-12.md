@@ -36,10 +36,10 @@ Release [#365](https://github.com/mattmck/swatchwatch/pull/365) (2026-10-19) pro
 post-release follow-ups #344–#368 to `main` and closed #45, #319 and #320. Two overnight batches
 then merged into `dev` (2026-10-20, 03:00Z): the 10-18 batch #370–#383 (runbook:
 [overnight-2026-10-18-release-runbook.md](overnight-2026-10-18-release-runbook.md)) and the
-10-19 batch #388–#396 (runbook: `overnight-2026-10-19-release-runbook.md`, being written by the
-lead session). Closing keywords only fire on `main`, so these issues stay open until the next
+10-19 batch #388–#399 (runbook:
+[overnight-2026-10-19-release-runbook.md](overnight-2026-10-19-release-runbook.md)). Closing keywords only fire on `main`, so these issues stay open until the next
 `dev → main` release and are then closed by hand, as after #340: #328, #105 (web half; the mobile
-half is in #109), #348, #349, #347, #321, #386 and #385.
+half is in #109), #348, #349, #347, #321, #386, #385 and #384.
 
 > **Status (2026-10-20):** the Expo app (#109) and the Looks page started early instead of in
 > Q1, and overnight sessions now merge their own PRs into `dev`. See
@@ -52,7 +52,7 @@ half is in #109), #348, #349, #347, #321, #386 and #385.
 - #325 verify camera Rapid Add on real iOS and Android devices
 - #326 nail-photo upload/delete end-to-end against a live host
 - #313 decide the feature-flag mechanism (env vars vs. Azure App Configuration); not in the M2 milestone but raised by #305
-- #387 phone layout sweep across every app route (PR #397 in flight on 2026-10-20)
+- #387 phone layout sweep across every app route (PR #397 green and waiting for the owner's merge on 2026-10-22)
 - #274 release, docs sweep and retro (skeleton in [retro-m2.md](retro-m2.md))
 
 ## 2. What nail polish nerds want (research)
@@ -216,7 +216,7 @@ eval harness (`npm run eval:hex`).
 ## 5. Deferred, and why
 
 - ~~**Native Expo app (#109)**~~ — **no longer deferred.** Started on 2026-10-19
-  (#376, #379, #396; #384 in flight as PR #399), superseding D3's January start. See
+  (#376, #379, #396, #399), superseding D3's January start. See
   [D24](decisions-2026-10.md#d24--expo-app-and-looks-started-early-overnight-merge-to-dev-rule-2026-10-19).
   _Original note: the blank template needed a full sprint to reach parity, and a
   mobile-web PWA with real camera capture gets 80% of the in-store value._

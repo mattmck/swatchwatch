@@ -346,7 +346,7 @@ Open follow-ups taken from the PR descriptions. Give each one an owner and a tic
   the Looks page (#370, #378), while D3 said Expo starts in January and roadmap §5 deferred the full Looks page to Q1
   "with usage data". The batch also raised process and toolchain questions in the PR bodies: who merges overnight PRs,
   how mobile Rapid Add should add (PR #376 decision 1), and which React and Expo versions to pin (PR #376 decisions 2–3).
-  The 10-19 batch continued both tracks (#392 Looks toggles, #396 mobile photos; #384 in flight).
+  The 10-19 batch continued both tracks (#392 Looks toggles, #396 mobile photos, #399 mobile color search).
 - **Options:** (a) keep D3 and the §5 deferral: park the mobile and Looks PRs until Q1 · (b) accept the early start and
   record the rules the PRs chose
 - **Recommendation:** (b). The work is built, reviewed and green, and parking it would only let it rot against `dev`.
