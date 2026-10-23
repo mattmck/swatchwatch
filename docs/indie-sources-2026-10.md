@@ -13,12 +13,15 @@ Everything else below is the survey as it stood on 2026-10-18, before that. Enab
 owner's call (decision D2 in `docs/decisions-2026-10.md`), after the store's OK is recorded in
 `data_source.metadata.notes`.
 
-**Update 2026-10-22 (batch 3, #273 closed):** the owner received written permission by email from Stella
+**Update 2026-10-22 (batch 3):** the owner received written permission by email from Stella
 Chroma, Lemming Lacquer and Sweet & Sour Lacquer, the three stores batch 2 named. They are registered
 enabled by migration `20261023021845964_add-approved-indie-shopify-sources`, each with a store filter; the
 same migration enables Night Owl Lacquer's row where it was still pending. Seven indie stores are enabled
 (Night Owl, Pahlish, Emily de Molly, Cirque Colors, Stella Chroma, Lemming Lacquer, Sweet & Sour), which
-meets the #273 target of 6–10. Details in [Batch 3](#batch-3--2026-10-22) below.
+meets #273's 6–10 store criterion. #273 stays open until its other criteria are met in production: the
+first prod ingestion of the new stores (owner, Admin → Admin Jobs), hex detection on their shades, and the
+measured increase in active shades (the 247 shades below came from a local run, not prod). Details in
+[Batch 3](#batch-3--2026-10-22) below.
 
 ## Batch 3 — 2026-10-22
 
