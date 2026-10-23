@@ -11,6 +11,7 @@ export * from "./constants/outbound-links";
 export * from "./constants/image-variants";
 export * from "./constants/design-tokens";
 export * from "./barcode/gtin";
+export * from "./capture/frame-quality";
 export * from "./constants/product-categories";
 export * from "./types/user";
 export * from "./types/voice";

@@ -96,6 +96,7 @@ jobs:
       TF_VAR_auth_dev_bypass: 'false'
       TF_VAR_shareable_wishlist_enabled: ${{ vars.SHAREABLE_WISHLIST_ENABLED || 'false' }}
       TF_VAR_shareable_looks_enabled: ${{ vars.SHAREABLE_LOOKS_ENABLED || 'false' }}
+      TF_VAR_bottle_capture_enabled: ${{ vars.BOTTLE_CAPTURE_ENABLED || 'false' }}
       TF_VAR_azure_ad_b2c_tenant: ${{ vars.AZURE_AD_B2C_TENANT || vars.NEXT_PUBLIC_B2C_TENANT || 'to-be-added' }}
       TF_VAR_azure_ad_b2c_client_id: ${{ secrets.AZURE_AD_B2C_CLIENT_ID || 'to-be-added' }}
       # External ID (CIAM) web service principal, opt-in per environment. The

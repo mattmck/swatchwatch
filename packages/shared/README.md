@@ -333,7 +333,7 @@ Looks (`/polishes/looks`) vocabulary and saved looks (`GET/POST/DELETE /api/look
 
 | Type | Description |
 |---|---|
-| `FEATURE_FLAG_NAMES` | `["shareableWishlist", "shareableLooks"]` — the flags `GET /api/config/flags` reports (internal flags never appear) |
+| `FEATURE_FLAG_NAMES` | `["shareableWishlist", "shareableLooks", "bottleCapture"]` — the flags `GET /api/config/flags` reports (internal flags never appear) |
 | `PublicFeatureFlagName` | Union of `FEATURE_FLAG_NAMES` |
 | `FeatureFlagsResponse` | `{ flags: Record<PublicFeatureFlagName, boolean> }` |
 
@@ -376,6 +376,17 @@ Shareable looks: a public, read-only link for one saved look, behind the server 
 | `VoiceProcessResponse` | Parsed result + optional alternative suggestions |
 | `VoiceCommand` | Discriminated union: `add \| update \| delete \| search` actions |
 
+### `capture/frame-quality.ts`
+
+Frame exposure/focus thresholds, moved from the web's `lib/camera.ts` (which re-exports them) so the capture API can judge stored frames too. Pure.
+
+| Export | Description |
+|--------|-------------|
+| `FRAME_QUALITY_THRESHOLDS` | `{ minBrightness: 0.15, maxBrightness: 0.92, minSharpness: 0.012 }` |
+| `FrameQualityMetrics` / `FrameQualityWarning` | `{ brightness, contrast, sharpness }` and `"too-dark" \| "too-bright" \| "blurry"` |
+| `assessFrameQuality(metrics)` | The warnings for measured metrics |
+| `frameQualityWarningsFromQuality(quality)` | The same from a frame's `quality` object (numeric `brightness` and `sharpness`); `[]` when either is missing, e.g. mobile frames |
+
 ### `types/capture.ts`
 
 | Type | Description |
@@ -396,6 +407,13 @@ Shareable looks: a public, read-only link for one saved look, behind the server 
 | `CaptureCheckOutcome` | Resolver outcome reported by check: `matched \| needs_question \| unmatched` |
 | `CaptureCheckCandidate` | Match/candidate with `entityType`, `entityId`, `shadeId`, `display`, `confidence`, `ownership`, optional display `hex` (swatch) |
 | `CaptureCheckResponse` | `POST /api/capture/{captureId}/check` payload: outcome, confidence, `match?`, `candidates`, `questionKey?`, unchanged session `status` (read-only, never touches inventory) |
+| `BOTTLE_SURFACES` / `BottleSurface` | Photographed surfaces: `front`, `bottom`, `glass`, `box` |
+| `BOTTLE_SURFACE_FRAME_TYPE` / `parseBottleSurface(value)` | Capture frame type per surface (`glass` → `color`, the others → `label`) and the exact-lowercase surface parser (`null` otherwise) |
+| `CaptureFrameRequestSpec` / `CaptureFrameRequestReason` | The next photo the server asks for: `surface`, `frameType`, `prompt`, optional `hint`, `reason` (`need_brand \| need_name \| need_color \| tie_break \| retry_quality`), `optional`. Carried as `nextFrame` (`null` = nothing more to ask) on the start, frame, status, answer and check responses; present only while `BOTTLE_CAPTURE_ENABLED` is on |
+| `CaptureBrandSource` / `CaptureBrandRef` / `CaptureBrandConflict` | A brand on a session (`brandId` or `null`, `name`, `source` `hint \| barcode \| read`, optional `confidence`); `brandConflict` on check when the typed and read brands disagree |
+| `CaptureBrandHintEcho` | `CaptureStartResponse.brandHint`: the user's raw brand text, the matched `brandId` and the canonical (else raw) `name` |
+| `CaptureSuggestedShade` | `CaptureCheckResponse.suggestedShade`: best-effort `brandId`/`brandName`/`brandSource`/`shadeName`/`hex`/`finish`/`gtin` (each nullable) to prefill the add form for an unmatched bottle |
+| `CaptureCheckCandidate` extras | Optional `brandId` and `colorDistance` (OKLAB, glass photo hex ↔ display hex, when a glass hex exists); `CaptureAnswerRequest.answer` is optional, `skipSurface` skips an optional photo
 
 ### `types/palette.ts`
 
@@ -468,8 +486,7 @@ Admin bottle eval samples (`/api/bottle-eval-admin/*`): a labeled bottle (catalo
 
 | Export | Description |
 |--------|-------------|
-| `BOTTLE_SURFACES` / `BottleSurface` | Photographed surfaces: `front`, `bottom`, `glass`, `box` |
-| `BOTTLE_SURFACE_FRAME_TYPE` | Capture frame type per surface: `glass` → `color`, the others → `label` |
+| `BOTTLE_SURFACES` / `BottleSurface` / `BOTTLE_SURFACE_FRAME_TYPE` / `parseBottleSurface` | Moved to `types/capture.ts` (still exported from the package root) |
 | `BOTTLE_EVAL_MAX_FRAMES` / `BOTTLE_EVAL_MAX_TEXT_LENGTH` / `BOTTLE_EVAL_MAX_NOTES_LENGTH` | Limits: 12 frames per sample, 200 chars for `brandText`/`shadeText`, 1000 for `notes` |
 | `BottleEvalSampleRequest` | `POST /api/bottle-eval-admin/samples` body: `shadeId`, or both `brandText` and `shadeText`; optional `notes` |
 | `BottleEvalFrameRequest` | `POST /api/bottle-eval-admin/samples/{id}/frames` body: `{ surface, image }` (base64 data URL) |

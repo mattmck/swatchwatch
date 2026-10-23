@@ -50,7 +50,15 @@ describe("lib/feature-flags", () => {
     assert.deepEqual(listPublicFeatureFlags({ SHAREABLE_LOOKS_ENABLED: "true" }), {
       shareableWishlist: false,
       shareableLooks: true,
+      bottleCapture: false,
     });
+  });
+
+  it("bottleCapture is on only for BOTTLE_CAPTURE_ENABLED=true and defaults off", () => {
+    assert.equal(listPublicFeatureFlags({ BOTTLE_CAPTURE_ENABLED: "true" }).bottleCapture, true);
+    assert.equal(listPublicFeatureFlags({ BOTTLE_CAPTURE_ENABLED: "1" }).bottleCapture, false);
+    assert.equal(listPublicFeatureFlags({}).bottleCapture, false);
+    assert.equal(isFeatureEnabled("bottleCapture", { SHAREABLE_LOOKS_ENABLED: "true" }), false);
   });
 });
 
@@ -68,7 +76,7 @@ describe("GET /api/config/flags", () => {
       const res = await route.handler({ method: "GET", headers: { get: () => null }, url: "http://x/api/config/flags" }, { log() {}, error() {} });
       assert.equal(res.status, 200);
       assert.equal(res.headers["Cache-Control"], "public, max-age=60");
-      assert.deepEqual(res.jsonBody, { flags: { shareableWishlist: true, shareableLooks: false } });
+      assert.deepEqual(res.jsonBody, { flags: { shareableWishlist: true, shareableLooks: false, bottleCapture: false } });
       assert.doesNotMatch(JSON.stringify(res.jsonBody), /hex|ENABLED/i);
     } finally {
       process.env = saved;

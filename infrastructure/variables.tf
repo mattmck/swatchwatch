@@ -200,6 +200,12 @@ variable "shareable_looks_enabled" {
   default     = false
 }
 
+variable "bottle_capture_enabled" {
+  description = "Enable the guided bottle recognition flow (BOTTLE_CAPTURE_ENABLED): brand hint, next-photo prompts and add-form prefill on the capture API. Off by default."
+  type        = bool
+  default     = false
+}
+
 variable "ingestion_job_queue_name" {
   description = "Azure Storage Queue name for ingestion jobs"
   type        = string

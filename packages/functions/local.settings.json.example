@@ -37,6 +37,7 @@
 
     "SHAREABLE_WISHLIST_ENABLED": "false",
     "SHAREABLE_LOOKS_ENABLED": "false",
+    "BOTTLE_CAPTURE_ENABLED": "false",
     "HEX_DETECTION_BATCH_ENABLED": "false",
     "HEX_DETECTION_SNAP_ENABLED": "false",
 

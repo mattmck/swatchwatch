@@ -1,22 +1,10 @@
-import type { CaptureFrameType } from "./capture";
+import type { BottleSurface, CaptureFrameType } from "./capture";
 
 /**
  * Bottle eval samples (admin console, `/api/bottle-eval-admin/*`): the owner labels a bottle
  * (a catalog shade, or brand + shade text when it is not in the catalog) and photographs its
  * surfaces as ground truth for bottle recognition.
  */
-
-/** Photographed surfaces of one bottle. */
-export const BOTTLE_SURFACES = ["front", "bottom", "glass", "box"] as const;
-export type BottleSurface = (typeof BOTTLE_SURFACES)[number];
-
-/** Frame type the capture API gets for each surface (front/bottom/box → label, glass → color). */
-export const BOTTLE_SURFACE_FRAME_TYPE: Record<BottleSurface, CaptureFrameType> = {
-  front: "label",
-  bottom: "label",
-  glass: "color",
-  box: "label",
-};
 
 /** Most frames one sample may hold. */
 export const BOTTLE_EVAL_MAX_FRAMES = 12;
@@ -143,11 +131,4 @@ export function validateBottleEvalSampleInput(body: unknown): BottleEvalSampleIn
     throw new BottleEvalValidationError("Send shadeId, or both brandText and shadeText");
   }
   return { kind: "external", brandText, shadeText, notes };
-}
-
-/** The surface named by `value` (exact, lowercase), or `null`. */
-export function parseBottleSurface(value: unknown): BottleSurface | null {
-  return typeof value === "string" && (BOTTLE_SURFACES as readonly string[]).includes(value)
-    ? (value as BottleSurface)
-    : null;
 }

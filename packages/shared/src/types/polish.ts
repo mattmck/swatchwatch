@@ -206,6 +206,8 @@ export interface Shade {
 }
 
 export interface PolishCreateRequest {
+  /** Capture session this add came from (bottle recognition); it must be the caller's own. */
+  captureId?: string;
   /**
    * Optional shade id when attaching an existing catalog entry to a user's collection.
    * When omitted, a new shade (brand/name) will be created or matched by name.

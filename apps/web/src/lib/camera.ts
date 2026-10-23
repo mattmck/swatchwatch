@@ -1,3 +1,13 @@
+import {
+  assessFrameQuality,
+  FRAME_QUALITY_THRESHOLDS,
+  type FrameQualityMetrics,
+  type FrameQualityWarning,
+} from "swatchwatch-shared";
+
+export { assessFrameQuality, FRAME_QUALITY_THRESHOLDS };
+export type { FrameQualityMetrics, FrameQualityWarning };
+
 /**
  * Camera availability, constraints, error classification and frame-quality metrics for
  * the Rapid Add live camera. DOM-free so it can be unit tested in Node; the browser glue
@@ -136,23 +146,6 @@ export function rgbaToLuminance(
   return out;
 }
 
-export interface FrameQualityMetrics {
-  /** Mean luminance, 0 (black) – 1 (white). */
-  brightness: number;
-  /** Luminance standard deviation, 0 – ~0.5. */
-  contrast: number;
-  /** Mean absolute Laplacian response, 0 – 1; low values mean a soft/blurry frame. */
-  sharpness: number;
-}
-
-export type FrameQualityWarning = "too-dark" | "too-bright" | "blurry";
-
-export const FRAME_QUALITY_THRESHOLDS = {
-  minBrightness: 0.15,
-  maxBrightness: 0.92,
-  minSharpness: 0.012,
-} as const;
-
 /**
  * Cheap focus/exposure metrics over a small luminance buffer (0–255 per pixel). Meant for
  * a ~160px-wide thumbnail; it is advisory (sent as frame quality, shown as a hint), never
@@ -199,14 +192,6 @@ export function computeFrameQuality(
     contrast: round4(Math.sqrt(variance)),
     sharpness: round4(samples > 0 ? laplacianSum / samples : 0),
   };
-}
-
-export function assessFrameQuality(metrics: FrameQualityMetrics): FrameQualityWarning[] {
-  const warnings: FrameQualityWarning[] = [];
-  if (metrics.brightness < FRAME_QUALITY_THRESHOLDS.minBrightness) warnings.push("too-dark");
-  if (metrics.brightness > FRAME_QUALITY_THRESHOLDS.maxBrightness) warnings.push("too-bright");
-  if (metrics.sharpness < FRAME_QUALITY_THRESHOLDS.minSharpness) warnings.push("blurry");
-  return warnings;
 }
 
 export const FRAME_QUALITY_WARNING_COPY: Record<FrameQualityWarning, string> = {
