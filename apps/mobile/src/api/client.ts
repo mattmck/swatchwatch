@@ -15,6 +15,8 @@ import type {
   CaptureStatusResponse,
   CatalogSearchResponse,
   CatalogShadeDetail,
+  CollectionExportFormat,
+  CollectionStatsResponse,
   ColorFamily,
   ManicureCreateRequest,
   ManicureDeleteResponse,
@@ -30,10 +32,12 @@ import type {
   PolishImageMatchRequest,
   PolishImageMatchResponse,
   PolishListResponse,
+  PolishStatus,
   PolishUpdateRequest,
 } from "swatchwatch-shared";
 import { API_BASE_URL } from "@/config/env";
 import { getAuthorizationHeader, notifySessionExpired } from "@/auth/auth-token";
+import { collectionExportPath } from "@/lib/collection-export";
 
 export { API_BASE_URL };
 
@@ -383,4 +387,59 @@ export async function listOwnedColorPolishes(families: ColorFamily[] = []): Prom
     ),
   );
   return [...first.polishes, ...rest.flatMap((page) => page.polishes)];
+}
+
+// ── Insights and export (#271, #264) ────────────────────────────────────────
+
+/** The caller's collection stats (`GET /api/stats/collection`, cached server-side ≤ 60s). */
+export function getCollectionStats(): Promise<CollectionStatsResponse> {
+  return apiRequest<CollectionStatsResponse>("/stats/collection");
+}
+
+/** A downloaded collection export: the file body and the server's `Content-Disposition`. */
+export interface DownloadedCollectionExport {
+  text: string;
+  contentDisposition: string | null;
+}
+
+/**
+ * `GET /api/polishes/export` as text, with the same bearer handling and errors as `apiRequest`
+ * (the body is CSV or JSON, not an API JSON payload). Never log `text`: it is the user's data.
+ */
+export async function downloadCollectionExport(
+  format: CollectionExportFormat,
+  status: readonly PolishStatus[] = [],
+): Promise<DownloadedCollectionExport> {
+  let authorization: string | null;
+  try {
+    authorization = await getAuthorizationHeader();
+  } catch {
+    throw new ApiError(0, "Couldn't renew your sign-in. Check your connection and try again.");
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${collectionExportPath(format, status)}`, {
+      headers: { Accept: format === "csv" ? "text/csv" : "application/json", ...(authorization ? { Authorization: authorization } : {}) },
+      signal: controller.signal,
+    });
+  } catch (error) {
+    clearTimeout(timer);
+    const aborted = error instanceof Error && error.name === "AbortError";
+    throw new ApiError(
+      0,
+      aborted ? "The export timed out. Check your connection and try again." : `Can't reach SwatchWatch at ${API_BASE_URL}.`,
+    );
+  }
+  try {
+    if (response.status === 401) notifySessionExpired();
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+      throw new ApiError(response.status, body?.error || body?.message || `Export failed (${response.status})`, body);
+    }
+    return { text: await response.text(), contentDisposition: response.headers.get("Content-Disposition") };
+  } finally {
+    clearTimeout(timer);
+  }
 }

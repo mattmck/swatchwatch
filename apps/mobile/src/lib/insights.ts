@@ -40,9 +40,9 @@ export function formatMoney(amount: number, currency: string | null, locale?: st
  * Currency groups across the spend and cost-per-wear sections, in API order (spend first),
  * without duplicates. Every money panel shows the one selected currency.
  */
-export function currencyOptions(stats: CollectionStatsResponse): Array<string | null> {
+export function currencyOptions(stats: CollectionStatsResponse): (string | null)[] {
   const seen = new Set<string>();
-  const out: Array<string | null> = [];
+  const out: (string | null)[] = [];
   for (const currency of [
     ...stats.spend.currencies.map((group) => group.currency),
     ...stats.costPerWear.currencies.map((group) => group.currency),
@@ -56,7 +56,7 @@ export function currencyOptions(stats: CollectionStatsResponse): Array<string | 
 }
 
 /** The selected currency key when it still exists, else the first group's (or `""`). */
-export function resolveCurrencyKey(options: Array<string | null>, selected: string | null): string {
+export function resolveCurrencyKey(options: (string | null)[], selected: string | null): string {
   if (selected !== null && options.some((c) => currencyKey(c) === selected)) return selected;
   return currencyKey(options[0] ?? null);
 }

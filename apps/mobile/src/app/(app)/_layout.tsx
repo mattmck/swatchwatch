@@ -17,6 +17,7 @@ export default function AppLayout() {
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="polishes/[id]" options={{ title: "Polish" }} />
       <Stack.Screen name="match" options={{ title: "Match to collection" }} />
+      <Stack.Screen name="insights" options={{ title: "Insights" }} />
     </Stack>
   );
 }

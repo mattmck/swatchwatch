@@ -34,7 +34,6 @@ export function filenameFromContentDisposition(header: string | null | undefined
     name = quoted ? quoted[1].replace(/\\(.)/g, "$1") : bare ? bare[1].trim() : null;
   }
   if (!name) return null;
-  // eslint-disable-next-line no-control-regex
   const safe = name.replace(/[\\/]/g, "_").replace(/[\u0000-\u001f]/g, "").trim();
   return safe && safe !== "." && safe !== ".." ? safe : null;
 }
