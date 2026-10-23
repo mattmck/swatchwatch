@@ -1066,7 +1066,7 @@ are all kept there; the daily cap (`appinsights_daily_cap_gb`) bounds the cost.
 
 ## Environment Variables
 
-Set locally in `local.settings.json` (git-ignored; copy `local.settings.json.example`, which lists every setting in the same groups as below). In Azure the Function App settings are Terraform-managed (`infrastructure/main.tf`) and secrets are Key Vault references, so a portal-only change is reverted by the next infra apply. Variables are grouped by the module that reads them; anything without a default below is unset by default. The example's `NEXT_PUBLIC_*` entries are a convenience copy for the web app; the Functions host ignores them.
+Set locally in `local.settings.json` (git-ignored; copy `local.settings.json.example`, which lists every setting in the same groups as below). In Azure the Function App settings are Terraform-managed (`infrastructure/main.tf`) and secrets are Key Vault references, so a portal-only change is reverted by the next infra apply; every runtime setting below (not the eval/admin-script ones) has a Terraform variable of the same name in lowercase, set by Deploy Infra from the GitHub environment variable of the same name (`infrastructure/README.md`). Variables are grouped by the module that reads them; anything without a default below is unset by default. The example's `NEXT_PUBLIC_*` entries are a convenience copy for the web app; the Functions host ignores them.
 
 ### Runtime and hosting
 

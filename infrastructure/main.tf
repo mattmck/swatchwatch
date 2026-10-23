@@ -982,6 +982,44 @@ resource "azurerm_linux_function_app" "main" {
     # caching layer (lib/cache.ts) no-ops gracefully when these are unset.
     REDIS_URL = var.create_redis ? "rediss://${azurerm_managed_redis.main[0].hostname}:10000" : ""
     REDIS_KEY = var.create_redis ? "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.redis_key[0].versionless_id})" : ""
+    # Runtime tuning (variables.tf "Function App runtime settings"); each defaults
+    # to the code default and is set from the matching GitHub environment variable.
+    AZURE_OPENAI_DEPLOYMENT               = local.openai_deployment_name_value
+    CAPTURE_FRAME_SWEEP_SCHEDULE          = var.capture_frame_sweep_schedule
+    CAPTURE_FRAME_RETENTION_SECONDS       = tostring(var.capture_frame_retention_seconds)
+    CORS_ALLOWED_METHODS                  = var.cors_allowed_methods
+    CORS_ALLOWED_HEADERS                  = var.cors_allowed_headers
+    CORS_SUPPORT_CREDENTIALS              = var.cors_support_credentials ? "true" : "false"
+    GALLERY_MAX_IMAGES_PER_SHADE          = tostring(var.gallery_max_images_per_shade)
+    HEX_DETECTION_BATCH_MAX_IN_FLIGHT     = tostring(var.hex_detection_batch_max_in_flight)
+    HEX_DETECTION_CONCURRENCY             = tostring(var.hex_detection_concurrency)
+    HEX_DETECTION_DELAY_MS                = tostring(var.hex_detection_delay_ms)
+    HEX_SNAP_MAX_DISTANCE                 = tostring(var.hex_snap_max_distance)
+    IMAGE_PROXY_ID_TTL_SECONDS            = tostring(var.image_proxy_id_ttl_seconds)
+    IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS    = tostring(var.image_proxy_private_id_ttl_seconds)
+    IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL    = var.image_proxy_legacy_id_accept_until
+    INGESTION_AI_IMAGE_PROXY_ORIGIN       = var.ingestion_ai_image_proxy_origin
+    INGESTION_JOB_LOG_MAX_ENTRIES         = tostring(var.ingestion_job_log_max_entries)
+    INGESTION_LOG_FLUSH_INTERVAL_MS       = tostring(var.ingestion_log_flush_interval_ms)
+    INGESTION_WORKER_TIME_BUDGET_MS       = tostring(var.ingestion_worker_time_budget_ms)
+    ORPHAN_MEDIA_SWEEP_SCHEDULE           = var.orphan_media_sweep_schedule
+    ORPHAN_MEDIA_SWEEP_GRACE_SECONDS      = tostring(var.orphan_media_sweep_grace_seconds)
+    ORPHAN_MEDIA_SWEEP_BATCH_SIZE         = tostring(var.orphan_media_sweep_batch_size)
+    ORPHAN_MEDIA_SWEEP_MAX_PER_RUN        = tostring(var.orphan_media_sweep_max_per_run)
+    PG_POOL_MAX                           = tostring(var.pg_pool_max)
+    PG_IDLE_TIMEOUT_MS                    = tostring(var.pg_idle_timeout_ms)
+    PG_CONNECTION_TIMEOUT_MS              = tostring(var.pg_connection_timeout_ms)
+    PG_QUERY_MAX_RETRIES                  = tostring(var.pg_query_max_retries)
+    PG_QUERY_RETRY_BASE_MS                = tostring(var.pg_query_retry_base_ms)
+    SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS  = tostring(var.shopify_connector_request_timeout_ms)
+    SHOPIFY_CONNECTOR_MAX_RETRIES         = tostring(var.shopify_connector_max_retries)
+    SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS = tostring(var.shopify_connector_retry_base_delay_ms)
+    SOURCE_IMAGE_CONTAINER                = var.source_image_container
+    SOURCE_IMAGE_MAX_EDGE_PX              = tostring(var.source_image_max_edge_px)
+    SOURCE_IMAGE_MAX_DOWNLOAD_BYTES       = tostring(var.source_image_max_download_bytes)
+    SUSPICIOUS_HEX_REPEAT_MIN_RECORDS     = tostring(var.suspicious_hex_repeat_min_records)
+    SUSPICIOUS_HEX_REPEAT_MIN_SHARE       = tostring(var.suspicious_hex_repeat_min_share)
+    SUSPICIOUS_HEX_GRAYSCALE_MAX_CHROMA   = tostring(var.suspicious_hex_grayscale_max_chroma)
   }
 
   lifecycle {
