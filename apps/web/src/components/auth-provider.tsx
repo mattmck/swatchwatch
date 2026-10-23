@@ -10,7 +10,9 @@ import {
   buildPolicyQueryParameters,
   buildSilentRedirectUri,
 } from "@/lib/msal-config";
-import { setAccessToken, setAccessTokenProvider } from "@/lib/auth-token";
+import { setAccessToken, setAccessTokenProvider, setAuthOffline } from "@/lib/auth-token";
+import { clearApiCache, setApiCacheUser } from "@/lib/api-cache";
+import { isOfflineRenewalFailure } from "@/lib/offline";
 import { claimTokenRedirect, createAccessTokenProvider } from "@/lib/token-renewal";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -87,7 +89,16 @@ function MsalAuthProvider({
         }
       },
       onError: (error) => console.warn("[Auth] token acquisition failed", error),
+      // A network failure is not a bad session: stay on the page (saved copies, read-only).
+      isOfflineFailure: (error) => isOfflineRenewalFailure(error),
+      onOffline: setAuthOffline,
     });
+
+    // Back online: renew now so the app is usable again without a reload.
+    const handleOnline = () => {
+      void getToken();
+    };
+    window.addEventListener("online", handleOnline);
 
     const init = async () => {
       await msalInstance.initialize();
@@ -113,6 +124,11 @@ function MsalAuthProvider({
       if (accounts.length > 0 && !msalInstance.getActiveAccount()) {
         msalInstance.setActiveAccount(accounts[0]);
       }
+      // Saved copies of the collection belong to this account (opaque id, never the email).
+      const activeAccount = msalInstance.getActiveAccount();
+      if (activeAccount) {
+        setApiCacheUser(activeAccount.homeAccountId);
+      }
 
       setAccessTokenProvider(getToken);
       await getToken();
@@ -134,15 +150,16 @@ function MsalAuthProvider({
             setAccessToken(payload.accessToken);
           }
           if (payload?.account) {
-            msalInstance.setActiveAccount(
-              payload.account as Parameters<
-                typeof msalInstance.setActiveAccount
-              >[0],
-            );
+            const signedIn = payload.account as Parameters<typeof msalInstance.setActiveAccount>[0];
+            msalInstance.setActiveAccount(signedIn);
+            if (signedIn?.homeAccountId) {
+              setApiCacheUser(signedIn.homeAccountId);
+            }
           }
         }
         if (event.eventType === EventType.LOGOUT_SUCCESS) {
           setAccessToken(null);
+          clearApiCache();
         }
       });
 
@@ -153,6 +170,7 @@ function MsalAuthProvider({
       console.error("MSAL initialization failed:", err);
       setIsInitialized(true); // Unblock rendering even on error
     });
+    return () => window.removeEventListener("online", handleOnline);
   }, [msalInstance]);
 
   // Inside MSAL's silent-renew iframe, render nothing (see init above).

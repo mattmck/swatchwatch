@@ -8,7 +8,7 @@ import {
   buildMsalConfig,
   buildPolicyQueryParameters,
 } from "@/lib/msal-config";
-import { getAccessToken } from "@/lib/auth-token";
+import { getAccessToken, isAuthOffline } from "@/lib/auth-token";
 import { Button } from "@/components/ui/button";
 
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
@@ -58,7 +58,9 @@ function B2CGuard({ children }: { children: ReactNode }) {
   // renew iframe timed out). Without a token every API call 401s, so ask the
   // user to sign in instead of rendering the app.
   const needsApiToken = buildApiTokenScopes().length > 0;
-  const hasApiToken = !needsApiToken || getAccessToken() !== null;
+  // Offline with a cached account: no token can be renewed, but the session is fine. Open the
+  // app so saved copies show read-only; renewal resumes on the next API call once online.
+  const hasApiToken = !needsApiToken || getAccessToken() !== null || isAuthOffline();
 
   if (isAuthenticated && hasApiToken) {
     return <>{children}</>;

@@ -8,7 +8,7 @@ import { isUntriedInventory, resolveDisplayHex, resolvePolishFinishes } from "sw
 import { getPolish, getPolishDupes, deletePolish, listPolishes, updatePolish } from "@/lib/api";
 import { hexToOklch, oklchToHex } from "@/lib/color-utils";
 import { resolveFinishLabel } from "@/lib/finish-options";
-import { POLISH_STATUS_LABELS, canRebuy, formatPurchasePrice, rebuyUpdate } from "@/lib/inventory-status";
+import { POLISH_STATUS_LABELS, canRebuy, isOwnedPolish, formatPurchasePrice, rebuyUpdate } from "@/lib/inventory-status";
 import { showArchivedToast } from "@/components/archived-toast";
 import {
   DUPE_GRADE_META,
@@ -41,6 +41,11 @@ import { AdminHexSipSection, AdminVendorHexSourceHint } from "@/components/admin
 import { canLogPolish, formatWornOn, toLocalIsoDate } from "@/lib/mani-log";
 import { detailHref, returnToLabel, safeReturnTo } from "@/lib/detail-href";
 import { toast } from "sonner";
+import { currentCacheContext, readPolishDetail, writePolishDetail } from "@/lib/api-cache";
+import { isApiUnreachable, savedCopyAgeBucket } from "@/lib/offline";
+import { trackCollectionOfflineShown } from "@/lib/metrics-events";
+import { useOnlineRetry } from "@/hooks/use-online-retry";
+import { SavedCopyBanner } from "@/components/saved-copy-banner";
 
 /**
  * Render a detailed polish view including color swatch, metadata, images, color profile, and related shades.
@@ -68,6 +73,10 @@ export default function PolishDetailClient({
   const [nearbyState, setNearbyState] = useState<{ hex: string; polishes: Polish[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Offline: the API is unreachable and an owned polish's saved copy is shown read-only.
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const offline = savedAt !== null;
+  const { tick: retryTick, retry: retryNow } = useOnlineRetry();
   const [deleting, setDeleting] = useState(false);
   const [rebuying, setRebuying] = useState(false);
   const archivedToastShown = useRef(false);
@@ -79,14 +88,38 @@ export default function PolishDetailClient({
     let cancelled = false;
 
     async function fetchPolish() {
+      const ctx = currentCacheContext();
+      const readSaved = () => (ctx ? readPolishDetail(ctx, id) : null);
       try {
         setLoading(true);
+        // Stale-while-revalidate: an owned polish visited before opens from its saved copy at once.
+        const warm = readSaved();
+        if (warm) {
+          setPolish(warm.data);
+          setLoading(false);
+        }
         const data = await getPolish(id);
         if (cancelled) return;
         setPolish(data);
+        setError(null);
+        setSavedAt(null);
+        const writeCtx = currentCacheContext();
+        if (writeCtx && isOwnedPolish(data)) writePolishDetail(writeCtx, data);
       } catch (err: unknown) {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Failed to load polish");
+        const saved = isApiUnreachable(err) ? readSaved() : null;
+        if (saved) {
+          setPolish(saved.data);
+          setError(null);
+          setSavedAt(saved.savedAt);
+        } else {
+          setSavedAt(null);
+          setError(
+            isApiUnreachable(err)
+              ? "You're offline, and this polish hasn't been saved on this device."
+              : err instanceof Error ? err.message : "Failed to load polish"
+          );
+        }
       } finally {
         if (cancelled) return;
         setLoading(false);
@@ -108,7 +141,14 @@ export default function PolishDetailClient({
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, retryTick]);
+
+  // Once per saved copy shown (a retry that fails again keeps the same copy).
+  useEffect(() => {
+    if (savedAt !== null) {
+      trackCollectionOfflineShown({ surface: "detail", age: savedCopyAgeBucket(savedAt, Date.now()) });
+    }
+  }, [savedAt]);
 
   // Once per visit: the archive toast for a polish the edit form just archived. The query flag
   // is dropped so a reload doesn't offer it again.
@@ -248,6 +288,9 @@ export default function PolishDetailClient({
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
+      {savedAt !== null && (
+        <SavedCopyBanner savedAt={savedAt} subject="polish" retrying={loading} onRetry={retryNow} />
+      )}
       <nav className="flex items-center gap-2 text-sm text-muted-foreground">
         <Link href={listHref} className="hover:text-foreground">
           {returnToLabel(listHref)}
@@ -329,15 +372,16 @@ export default function PolishDetailClient({
               price={polish}
               variant="button"
             />
-            <LogManiButton polish={polish} onWearStatsChange={applyWearStats} />
+            <LogManiButton polish={polish} onWearStatsChange={applyWearStats} disabled={offline} />
             {canRebuy(polish) && (
-              <Button variant="outline" size="sm" onClick={handleRebuy} disabled={rebuying}>
+              <Button variant="outline" size="sm" onClick={handleRebuy} disabled={rebuying || offline}>
                 {rebuying ? "Adding…" : "Rebuy"}
               </Button>
             )}
             <Button
               variant="outline"
               size="sm"
+              disabled={offline}
               onClick={() =>
                 router.push(
                   `/polishes/new?id=${polish.id}&returnTo=${encodeURIComponent(listHref)}`
@@ -350,7 +394,7 @@ export default function PolishDetailClient({
               variant="destructive"
               size="sm"
               onClick={handleDelete}
-              disabled={deleting}
+              disabled={deleting || offline}
             >
               {deleting ? "Deleting…" : "Delete"}
             </Button>
@@ -361,7 +405,18 @@ export default function PolishDetailClient({
       {/* Admins only: sip a ground-truth hex from the catalog images (#351). Not mounted for others. */}
       <AdminHexSipSection key={polish.id} shadeId={polish.id} />
 
-      {polish.inventoryItemId && (
+      {polish.inventoryItemId && offline && (
+        <Card data-testid="nail-photo-offline">
+          <CardHeader>
+            <CardTitle>Nail photo</CardTitle>
+            <CardDescription>
+              Your private nail photo isn&apos;t saved offline. It shows again when you&apos;re back online.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
+
+      {polish.inventoryItemId && !offline && (
         <NailPhotoPanel
           key={polish.inventoryItemId}
           inventoryItemId={polish.inventoryItemId}
@@ -377,7 +432,7 @@ export default function PolishDetailClient({
           key={polish.id}
           shadeId={polish.id}
           wearCount={polish.wearCount ?? 0}
-          logButton={<LogManiButton polish={polish} onWearStatsChange={applyWearStats} />}
+          logButton={<LogManiButton polish={polish} onWearStatsChange={applyWearStats} disabled={offline} />}
         />
       )}
 

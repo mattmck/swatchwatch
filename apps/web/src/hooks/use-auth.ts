@@ -5,6 +5,7 @@ import {
   buildLoginRequestScopes,
   buildPolicyQueryParameters,
 } from "@/lib/msal-config";
+import { clearApiCache } from "@/lib/api-cache";
 
 export interface AuthUser {
   name: string;
@@ -54,6 +55,8 @@ export function useAuth(): UseAuthReturn {
   };
 
   const logout = () => {
+    // Saved copies of the collection must not outlive the session (shared browsers).
+    clearApiCache();
     // Target the active SwatchWatch account explicitly so sign-out is
     // deterministic in multi-account browser sessions, and redirect back to
     // the app root. `logoutHint` (sourced from the `login_hint` optional
