@@ -99,7 +99,7 @@ import { WISHLIST_SHARE_FEATURE_DISABLED_CODE } from "swatchwatch-shared";
 
 import type { NailPhotoResponse } from "swatchwatch-shared";
 
-import { getAccessToken } from "./auth-token";
+import { getFreshAccessToken } from "./auth-token";
 import {
   fetchCollectionExport,
   type CollectionExportOptions,
@@ -131,7 +131,7 @@ export async function getAuthHeaders(options?: { admin?: boolean }): Promise<Rec
     return { Authorization: `Bearer dev:${devUserId}` };
   }
 
-  const token = getAccessToken();
+  const token = await getFreshAccessToken();
   if (token) {
     return { Authorization: `Bearer ${token}` };
   }

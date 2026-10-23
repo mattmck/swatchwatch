@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="robots" content="noindex" />
+    <title>SwatchWatch</title>
+  </head>
+  <body>
+    <!--
+      Silent token renewal redirect page (SILENT_REDIRECT_PATH in src/lib/msal-config.ts).
+      MSAL loads it in a hidden iframe; the bridge posts the auth response back to the app
+      over BroadcastChannel. The bundle is copied from @azure/msal-browser before dev/build.
+    -->
+    <script src="/msal-redirect-bridge.min.js"></script>
+    <script>
+      window.msalRedirectBridge.broadcastResponseToMainFrame().catch(function () {});
+    </script>
+  </body>
+</html>

@@ -2,21 +2,16 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { MsalProvider } from "@azure/msal-react";
-import {
-  PublicClientApplication,
-  EventType,
-  InteractionRequiredAuthError,
-} from "@azure/msal-browser";
+import { PublicClientApplication, EventType } from "@azure/msal-browser";
 import {
   buildApiTokenScopes,
   buildLoginRequestScopes,
   buildMsalConfig,
   buildPolicyQueryParameters,
+  buildSilentRedirectUri,
 } from "@/lib/msal-config";
-import { setAccessToken } from "@/lib/auth-token";
-
-const TOKEN_REDIRECT_GUARD_KEY = "swatchwatch:token-redirect-at";
-const TOKEN_REDIRECT_GUARD_WINDOW_MS = 30_000;
+import { setAccessToken, setAccessTokenProvider } from "@/lib/auth-token";
+import { claimTokenRedirect, createAccessTokenProvider } from "@/lib/token-renewal";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const msalConfig = useMemo(() => buildMsalConfig(), []);
@@ -50,23 +45,49 @@ function MsalAuthProvider({
   const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
-    const maybeAcquireTokenInteractively = async () => {
-      if (typeof window === "undefined") {
-        return;
-      }
-      const now = Date.now();
-      const lastAttemptRaw = window.sessionStorage.getItem(TOKEN_REDIRECT_GUARD_KEY);
-      const lastAttempt = lastAttemptRaw ? Number(lastAttemptRaw) : 0;
-      if (Number.isFinite(lastAttempt) && now - lastAttempt < TOKEN_REDIRECT_GUARD_WINDOW_MS) {
-        return;
-      }
+    let redirecting = false;
 
-      window.sessionStorage.setItem(TOKEN_REDIRECT_GUARD_KEY, String(now));
-      await msalInstance.acquireTokenRedirect({
-        scopes: buildLoginRequestScopes(),
-        extraQueryParameters: buildPolicyQueryParameters(),
-      });
-    };
+    // Every API call gets its token here (see getAuthHeaders in api.ts). acquireTokenSilent
+    // returns the cached token, or renews it when it is within 5 minutes of expiry. A failed
+    // renewal of any kind sends the user to sign-in rather than leaving the app on 401s.
+    const getToken = createAccessTokenProvider({
+      acquireSilent: async () => {
+        const account = msalInstance.getActiveAccount();
+        const scopes = buildApiTokenScopes();
+        if (!account || scopes.length === 0) {
+          return null;
+        }
+        const result = await msalInstance.acquireTokenSilent({
+          scopes,
+          account,
+          // A bridge page, not the app root, so the hidden renewal iframe never mounts the app.
+          redirectUri: buildSilentRedirectUri(),
+          extraQueryParameters: buildPolicyQueryParameters(),
+        });
+        return result.accessToken || null;
+      },
+      acquireInteractive: async () => {
+        redirecting = true;
+        try {
+          await msalInstance.acquireTokenRedirect({
+            scopes: buildLoginRequestScopes(),
+            extraQueryParameters: buildPolicyQueryParameters(),
+          });
+        } catch (error) {
+          // No navigation happened (e.g. interaction_in_progress): let init finish rendering.
+          redirecting = false;
+          throw error;
+        }
+      },
+      claimRedirect: () => {
+        try {
+          return claimTokenRedirect(window.sessionStorage, Date.now());
+        } catch {
+          return true;
+        }
+      },
+      onError: (error) => console.warn("[Auth] token acquisition failed", error),
+    });
 
     const init = async () => {
       await msalInstance.initialize();
@@ -77,12 +98,11 @@ function MsalAuthProvider({
         setAccessToken(response.accessToken);
       }
 
-      // MSAL's silent renew loads the redirect URI (the app root) in a hidden
-      // iframe. Running the rest of the app there would call acquireTokenSilent
-      // while the response hash is present, which MSAL rejects with
-      // block_iframe_reload, and would mount the dashboard, telemetry and API
-      // calls inside the iframe. The parent window reads the hash itself, so
-      // stop here.
+      // MSAL's silent renew loads its redirect URI in a hidden iframe. That is the bridge page
+      // (buildSilentRedirectUri), but if the app root is ever loaded there, running the rest of
+      // the app would call acquireTokenSilent while the response hash is present, which MSAL
+      // rejects with block_iframe_reload, and would mount the dashboard, telemetry and API
+      // calls inside the iframe. Stop here.
       if (window.self !== window.top) {
         setIsInitialized(true);
         return;
@@ -94,31 +114,10 @@ function MsalAuthProvider({
         msalInstance.setActiveAccount(accounts[0]);
       }
 
-      // Acquire token silently for the active account
-      const activeAccount = msalInstance.getActiveAccount();
-      const apiTokenScopes = buildApiTokenScopes();
-      if (activeAccount) {
-        if (apiTokenScopes.length === 0) {
-          setAccessToken(null);
-        } else {
-          try {
-            const result = await msalInstance.acquireTokenSilent({
-              scopes: apiTokenScopes,
-              account: activeAccount,
-              extraQueryParameters: buildPolicyQueryParameters(),
-            });
-            setAccessToken(result.accessToken);
-          } catch (error) {
-            // Silent token acquisition commonly fails when an interaction is required.
-            // Do not continue with null tokens forever (causes repeating 401s).
-            setAccessToken(null);
-            console.warn("[Auth] acquireTokenSilent failed", error);
-            if (error instanceof InteractionRequiredAuthError) {
-              await maybeAcquireTokenInteractively();
-              return;
-            }
-          }
-        }
+      setAccessTokenProvider(getToken);
+      await getToken();
+      if (redirecting) {
+        return;
       }
 
       // Listen for future token events
