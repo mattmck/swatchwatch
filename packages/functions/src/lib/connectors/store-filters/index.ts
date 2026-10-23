@@ -1,5 +1,8 @@
 import { isCirqueColorsPolish } from "./cirque-colors.js";
+import { isLemmingLacquerPolish } from "./lemming-lacquer.js";
 import { isPahlishPolish } from "./pahlish.js";
+import { isStellaChromaPolish } from "./stella-chroma.js";
+import { isSweetAndSourPolish } from "./sweet-and-sour.js";
 import type { StoreFilterProduct, StoreProductFilter } from "./types.js";
 
 export type { StoreFilterProduct, StoreProductFilter } from "./types.js";
@@ -13,6 +16,9 @@ export type { StoreFilterProduct, StoreProductFilter } from "./types.js";
 export const SHOPIFY_STORE_PRODUCT_FILTERS: Readonly<Record<string, StoreProductFilter>> = {
   PahlishShopify: isPahlishPolish,
   CirqueColorsShopify: isCirqueColorsPolish,
+  StellaChromaShopify: isStellaChromaPolish,
+  LemmingLacquerShopify: isLemmingLacquerPolish,
+  SweetAndSourLacquerShopify: isSweetAndSourPolish,
 };
 
 /** The store filter's verdict for `product`, or null when `source` has none. */

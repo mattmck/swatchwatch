@@ -47,7 +47,7 @@ half is in #109), #348, #349, #347, #321, #386, #385, #384 and #387.
 
 **Remaining for M2** (updated 2026-10-20; shipped items removed):
 
-- #273 indie Shopify sources: Night Owl, Pahlish, Emily de Molly and Cirque Colors are in; batch 2 (#388) added no store, since every remaining Shopify candidate's terms forbid automated access, so more stores wait on written approval
+- #273 indie Shopify sources: Night Owl, Pahlish, Emily de Molly and Cirque Colors are in; batch 2 (#388) added no store, since every remaining Shopify candidate's terms forbid automated access; batch 3 (2026-10-22) added Stella Chroma, Lemming Lacquer and Sweet & Sour Lacquer after the owner received each store's written permission by email (seven enabled indie stores, the #273 target met)
 - #322 label ground truth with the color sip tool, then run the hex detection gate (D4)
 - #325 verify camera Rapid Add on real iOS and Android devices
 - #326 nail-photo upload/delete end-to-end against a live host
@@ -243,7 +243,7 @@ All four are decided. Full context is in [decisions-2026-10.md](decisions-2026-1
    (#314) are in prod. Everything else stays private by default.
 3. **Hex detection freeze** (D4): ✅ Tuning is frozen now. The gate runs after the color sip tool (#311) has been
    used to hand-label ground truth (#322).
-4. **Indie source list** (D2): ✅ Night Owl Lacquer first. Pahlish waits for a store-specific filter (#328).
+4. **Indie source list** (D2): ✅ Night Owl Lacquer first; Pahlish, Emily de Molly and Cirque Colors followed on 2026-10-19 (#328, #388), and Stella Chroma, Lemming Lacquer and Sweet & Sour on 2026-10-22 with written permission (#273 closed, seven stores).
 
 ## 7. Sources
 
