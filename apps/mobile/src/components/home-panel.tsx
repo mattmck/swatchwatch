@@ -158,6 +158,14 @@ export function HomePanel({ refreshToken }: { refreshToken: number }) {
         <Stat label="Untried" value={summary?.untried} hint={summary?.untriedPercent != null ? `${summary.untriedPercent}%` : undefined} />
       </View>
 
+      <Button
+        title="Insights: spend, most worn, cost per wear"
+        variant="outline"
+        compact
+        onPress={() => router.push("/insights")}
+        testID="home-insights"
+      />
+
       {/* A failed refresh with saved counts on screen is already explained by the list's banner. */}
       {error && !summary && <ErrorBanner message={error} />}
       {actionError && <ErrorBanner message={actionError} />}

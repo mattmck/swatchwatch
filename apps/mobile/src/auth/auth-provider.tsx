@@ -33,6 +33,7 @@ import {
 import { clearStoredAuth, loadStoredAuth, saveStoredAuth, type StoredAuth, type StoredTokens } from "./token-store";
 import { entraApiScopes, entraExtraParams, entraIssuer, entraLoginScopes, entraRedirectUri } from "./entra-config";
 import { clearApiCache } from "@/lib/api-cache";
+import { clearExportFiles } from "@/lib/share-export";
 import { clearPrivateImages } from "@/lib/private-image-loader";
 import { claimString, decodeJwtPayload } from "./jwt";
 
@@ -167,6 +168,7 @@ function DevBypassAuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     await clearStoredAuth();
     clearPrivateImages();
+    clearExportFiles();
     await clearApiCache();
     setStatus("signedOut");
   }, []);
@@ -329,6 +331,7 @@ function EntraAuthProvider({ settings, children }: { settings: EntraSettings; ch
     setTokens(null);
     setUser(null);
     clearPrivateImages();
+    clearExportFiles();
     await clearStoredAuth();
     await clearApiCache();
     setStatus("signedOut");
@@ -347,6 +350,7 @@ function EntraAuthProvider({ settings, children }: { settings: EntraSettings; ch
       setTokens(null);
       setUser(null);
       clearPrivateImages();
+      clearExportFiles();
       setError("Your session expired. Sign in again.");
       setStatus("signedOut");
       void clearStoredAuth();
