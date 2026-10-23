@@ -218,6 +218,16 @@ Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/b
 | `ShadeProductCategoryUpdateRequest`, `ShadeProductCategoryUpdateResponse` | `PUT /api/shades-admin/{id}/product-category` |
 | `ShadeProductCategoryItem`, `ShadeProductCategoryListResponse` | `GET /api/shades-admin/product-category` |
 
+### `looks/` (Looks recommender)
+
+| Export | Description |
+|---|---|
+| `recommendLooks({ polishes, catalog?, vibe, seed, count?, includeToppers? })`, `LOOK_TEMPLATES` (18 named looks), `rankTemplatesForVibe`, `vibeScore`, `DEFAULT_VIBE`, `LOOK_*_LABELS`, tuning constants (`BASE_MAX_DISTANCE`, `CATALOG_MAX_DISTANCE`, …) | The Looks rule (`looks/recommend.ts`, moved from the web's `lib/looks.ts`): pure and seeded, three diverse looks (base / accent / topper) for a vibe from owned polishes (`status === "owned"`), gaps filled from `catalog` rows. The module header documents every rule. Types `Look`, `LookStep`, `LooksResult`, `Vibe`, `LookTemplate`, … |
+| `applyStepSwap`, `maniEntriesForLook`, `maniRoleForStep`, `catalogQueriesForLooks(looks, { includeOwned? })`, `shopCandidatesForStep` | Helpers around a look: swap a step's polish, owned steps as mani-log entries (`base` → `color`), the color-family / topper queries that fetch the catalog rows for the gaps, catalog shades to buy per step |
+| `createSeededRandom(seed)`, `RandomSource` | mulberry32 PRNG used by Looks (web `pick-for-me.ts` re-exports it) |
+
+`apps/web/src/lib/looks.ts` is a re-export shim; the vibe vocabulary and saved-look shape stay in `types/looks.ts`.
+
 ### `color/` (OKLAB math, thresholds, hex reconciliation, color families, harmonies, Pair it)
 
 | Export | Description |
@@ -295,6 +305,14 @@ Looks (`/polishes/looks`) vocabulary and saved looks (`GET/POST/DELETE /api/look
 | `savedLookKey(templateId, steps)` | `<templateId>:<shadeId or "-" per step>` — saving the same combo twice is one look |
 | `validateSavedLookInput(input)` | Returns a `SavedLookValidation`. The one validation rule (API body and web localStorage): enums, `#RRGGBB` hexes, trimmed/capped text, 1–4 steps, ≤ `MAX_LOOK_STEPS_BYTES` of JSON, `id` = look key; drops unknown fields |
 | `MAX_SAVED_LOOKS` / `MAX_LOOK_STEPS` / `MAX_LOOK_STEPS_BYTES` | `30` / `4` / `3500` |
+
+### `types/feature-flags.ts`
+
+| Type | Description |
+|---|---|
+| `FEATURE_FLAG_NAMES` | `["shareableWishlist", "shareableLooks"]` — the flags `GET /api/config/flags` reports (internal flags never appear) |
+| `PublicFeatureFlagName` | Union of `FEATURE_FLAG_NAMES` |
+| `FeatureFlagsResponse` | `{ flags: Record<PublicFeatureFlagName, boolean> }` |
 
 ### `types/wishlist-share.ts`
 
@@ -479,7 +497,7 @@ Pinned-distance tests in `packages/functions/tests/color-match.unit.test.cjs` an
 ```bash
 npm run build --workspace=packages/shared    # tsc → dist/
 npm run typecheck --workspace=packages/shared # tsc --noEmit
-npm run test --workspace=swatchwatch-shared    # node:test unit tests (src/**/*.test.ts via tsx; harmonies, Pair it)
+npm run test --workspace=swatchwatch-shared    # node:test unit tests (src/**/*.test.ts via tsx; harmonies, Pair it, Looks)
 ```
 
 **Important:** You must build this package before other packages can resolve its types. The `main` and `types` fields in `package.json` point to `dist/`.

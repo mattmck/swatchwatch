@@ -62,6 +62,7 @@ import { OpenBeautyFactsConnector } from "../lib/connectors/open-beauty-facts";
 import { MakeupApiConnector } from "../lib/connectors/makeup-api";
 import { HoloTacoShopifyConnector } from "../lib/connectors/holo-taco-shopify";
 import { ShopifyGenericConnector } from "../lib/connectors/shopify-generic";
+import { isFeatureEnabled } from "../lib/feature-flags";
 import {
   ProductConnector,
   SOURCE_PROTOCOL_MAP,
@@ -100,12 +101,6 @@ const CONTINUATION_ENQUEUE_STAGE = "continuation_enqueue";
 const NON_CARRIED_METRIC_KEYS = new Set(["logs", "pipeline", RESUME_MESSAGE_METRICS_KEY]);
 
 
-function envFlagTrue(value: string | undefined): boolean {
-  if (!value) return false;
-  const normalized = value.trim().toLowerCase();
-  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
-}
-
 interface HexBatchRuntimeConfig {
   enabled: boolean;
   minImages: number;
@@ -137,7 +132,7 @@ function clampInt(
 
 function getHexBatchRuntimeConfig(): HexBatchRuntimeConfig {
   return {
-    enabled: envFlagTrue(process.env.HEX_DETECTION_BATCH_ENABLED),
+    enabled: isFeatureEnabled("hexDetectionBatch"),
     minImages: clampInt(
       process.env.HEX_DETECTION_BATCH_MIN_IMAGES,
       DEFAULT_HEX_BATCH_MIN_IMAGES,

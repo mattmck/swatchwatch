@@ -1,5 +1,6 @@
 import { hexToOklab, MEDIUM_CONFIDENCE_MAX_DISTANCE, oklabDistance } from "swatchwatch-shared";
 import type { HexDetectionResult } from "./ai-color-detection";
+import { isFeatureEnabled, parseFlagValue } from "./feature-flags";
 import { extractPaletteCandidates } from "./palette-pick-detection";
 
 /**
@@ -58,8 +59,8 @@ export function resolveHexSnapMaxDistance(raw: string | undefined = process.env.
  * (any case, trimmed) turns the production snap step on. Read at call time, like the
  * other hex-detection knobs, so a setting change applies to the next detection.
  */
-export function isHexSnapEnabled(raw: string | undefined = process.env.HEX_DETECTION_SNAP_ENABLED): boolean {
-  return raw?.trim().toLowerCase() === "true";
+export function isHexSnapEnabled(raw?: string): boolean {
+  return raw === undefined ? isFeatureEnabled("hexDetectionSnap") : parseFlagValue(raw);
 }
 
 const HEX_PATTERN = /^#?[0-9a-f]{6}$/i;

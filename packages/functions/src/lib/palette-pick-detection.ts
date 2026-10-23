@@ -3,11 +3,13 @@ import {
   parseConfidence,
   parseDetectedFinishes,
   requestAzureOpenAIChatCompletion,
+  loadDetectionFinishCatalog,
   type HexDetectionOptions,
   type HexDetectionTokenUsage,
   type VisionImageDetail,
 } from "./ai-color-detection";
 import { resolveAzureOpenAiConfig } from "./azure-openai-config";
+import { finishNamesForPrompt, type FinishCatalog } from "./finishes";
 import { mergeSimilarColors } from "./color-match";
 import { extractDominantColors, type DominantColor } from "./dominant-color";
 
@@ -132,7 +134,7 @@ export interface PalettePickResult {
   reason?: PalettePickReason;
 }
 
-export interface PalettePickOptions extends Pick<HexDetectionOptions, "onLog"> {
+export interface PalettePickOptions extends Pick<HexDetectionOptions, "onLog" | "finishCatalog"> {
   candidates?: BuildPaletteCandidatesOptions;
   /** Longest edge the photo is scaled to inside the composite. Default 512. */
   photoMaxSize?: number;
@@ -357,9 +359,6 @@ export async function renderPaletteComposite(
 
 // ── Prompt ───────────────────────────────────────────────────────────────────
 
-const FINISH_LIST =
-  "creme, shimmer, glitter, metallic, matte, jelly, holographic, duochrome, multichrome, flake, topper, sheer, magnetic, thermal, crelly, velvet";
-
 function resolveImageDetail(override?: VisionImageDetail): VisionImageDetail {
   if (override) return override;
   const raw = process.env.AZURE_OPENAI_VISION_DETAIL?.trim().toLowerCase();
@@ -370,8 +369,11 @@ export function buildPalettePickPayload(
   compositeDataUri: string,
   candidates: readonly PaletteCandidate[],
   safePrompt = false,
-  imageDetail?: VisionImageDetail
+  imageDetail?: VisionImageDetail,
+  finishCatalog?: FinishCatalog
 ): Record<string, unknown> {
+  // Same source as the main vision prompt; the built-in finishes when no catalog is given.
+  const finishList = finishNamesForPrompt(finishCatalog).join(", ");
   const letters = candidates.map((candidate) => candidate.label).join(", ");
   const image = { type: "image_url", image_url: { url: compositeDataUri, detail: resolveImageDetail(imageDetail) } };
 
@@ -381,7 +383,7 @@ export function buildPalettePickPayload(
 
   const userPrompt = safePrompt
     ? `Which chip (${letters}) best matches the polish color? Return JSON with choice, confidence and finishes.`
-    : `Which labeled chip (${letters}) best represents this polish's base color? Also list the finishes visible or implied (${FINISH_LIST}). If no chip is a good match, still pick the closest one and lower the confidence. Return JSON only.`;
+    : `Which labeled chip (${letters}) best represents this polish's base color? Also list the finishes visible or implied (${finishList}). If no chip is a good match, still pick the closest one and lower the confidence. Return JSON only.`;
 
   return {
     temperature: 0,
@@ -505,9 +507,11 @@ export async function detectHexByPalettePick(image: Buffer, options?: PalettePic
     ...(options?.includeCompositeBytes ? { compositeBytes: composite.bytes } : {}),
   };
 
+  const finishCatalog = await loadDetectionFinishCatalog(options);
   const response = await requestAzureOpenAIChatCompletion(
     {
-      buildPayload: (safePrompt) => buildPalettePickPayload(composite.dataUri, candidates, safePrompt, options?.imageDetail),
+      buildPayload: (safePrompt) =>
+        buildPalettePickPayload(composite.dataUri, candidates, safePrompt, options?.imageDetail, finishCatalog),
       deploymentEnvKeys,
       usageMetricPrefix: "hex_detection.palette_pick",
       logLabel: `palette-pick composite ${composite.layout.width}x${composite.layout.height} (${candidates.length} chips)`,

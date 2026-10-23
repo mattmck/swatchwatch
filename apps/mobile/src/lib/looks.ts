@@ -1,0 +1,102 @@
+/**
+ * Mobile glue for Looks (web: `lib/looks-saved.ts`, the page's catalog-gap queries). The
+ * recommender itself is `recommendLooks` in `swatchwatch-shared`; this file builds what the screen
+ * sends to the API (gap queries, saved-look snapshots) and what it hands to the mani sheet.
+ */
+import {
+  MAX_SAVED_LOOKS,
+  TOPPER_FINISHES,
+  catalogQueriesForLooks,
+  maniRoleForStep,
+  savedLookKey,
+  type ColorFamily,
+  type Look,
+  type LookCatalogQueries,
+  type PolishFilters,
+  type SavedLook,
+  type SavedLookStep,
+  type Vibe,
+} from "swatchwatch-shared";
+import { entryFromPolish, type ManiEntry } from "./mani";
+
+/** Catalog rows fetched per gap query (one color family, or toppers). */
+export const CATALOG_PAGE_SIZE = 60;
+/** The API's `?nearHex=` cap: more gap targets in one family than this only rank on the first ones. */
+export const MAX_NEAR_HEX_TARGETS = 24;
+/** Most color-family queries per render, so a fully-empty collection doesn't fan out too far. */
+export const MAX_CATALOG_FAMILY_QUERIES = 6;
+export const TOPPER_QUERY_KEY = "toppers";
+
+/** A catalog gap query: a stable key (cache + dedupe) and the list filters it sends. */
+export interface CatalogGapQuery {
+  key: string;
+  filters: PolishFilters;
+}
+
+/** Query key for one color family's gaps: `family:<family>|<target hexes>`. */
+function familyQueryKey(queries: LookCatalogQueries, family: ColorFamily): string {
+  const targets = (queries.targetsByFamily[family] ?? []).slice(0, MAX_NEAR_HEX_TARGETS);
+  return `family:${family}|${targets.join(",")}`;
+}
+
+/** The catalog fetches that fill the gaps of these looks (the web page's `catalogKeys`). */
+export function catalogGapQueries(looks: readonly Pick<Look, "steps">[]): CatalogGapQuery[] {
+  const queries = catalogQueriesForLooks(looks);
+  const out: CatalogGapQuery[] = queries.families.slice(0, MAX_CATALOG_FAMILY_QUERIES).map((family) => {
+    const targets = (queries.targetsByFamily[family] ?? []).slice(0, MAX_NEAR_HEX_TARGETS);
+    return {
+      key: familyQueryKey(queries, family),
+      filters: { families: [family], nearHex: targets.length ? targets : undefined, pageSize: CATALOG_PAGE_SIZE },
+    };
+  });
+  if (queries.toppers) {
+    out.push({ key: TOPPER_QUERY_KEY, filters: { finishes: [...TOPPER_FINISHES], pageSize: CATALOG_PAGE_SIZE } });
+  }
+  return out;
+}
+
+/** The snapshot `POST /api/looks` stores (web: `toSavedLook`); `id` is the look key. */
+export function toSavedLook(look: Look, vibe: Vibe, now: Date): SavedLook {
+  const steps: SavedLookStep[] = look.steps.map((step) => ({
+    role: step.role,
+    label: step.label,
+    hex: step.hex,
+    source: step.source,
+    ...(step.polish ? { shadeId: step.polish.id, brand: step.polish.brand, name: step.polish.name } : {}),
+  }));
+  return {
+    id: savedLookKey(look.templateId, steps),
+    templateId: look.templateId,
+    name: look.name,
+    savedAt: now.toISOString(),
+    vibe,
+    steps,
+  };
+}
+
+/** Newest first, deduped by id, capped at `MAX_SAVED_LOOKS`. */
+export function addSavedLook(list: readonly SavedLook[], look: SavedLook): SavedLook[] {
+  return [look, ...list.filter((l) => l.id !== look.id)].slice(0, MAX_SAVED_LOOKS);
+}
+
+/** Owned steps of a look as mani-sheet entries ("Wear this"); steps still to add are skipped. */
+export function maniEntriesFromLook(look: Pick<Look, "steps">): ManiEntry[] {
+  return look.steps.flatMap((step) =>
+    step.source === "owned" && step.polish ? [entryFromPolish(step.polish, maniRoleForStep(step.role))] : [],
+  );
+}
+
+/** Owned steps of a saved look (shade ids, no polish rows) as mani-sheet entries. */
+export function maniEntriesFromSavedLook(look: Pick<SavedLook, "steps">): ManiEntry[] {
+  return look.steps.flatMap((step) =>
+    step.source === "owned" && step.shadeId
+      ? [{ shadeId: step.shadeId, role: maniRoleForStep(step.role), brand: step.brand ?? "", name: step.name ?? step.label, hex: step.hex }]
+      : [],
+  );
+}
+
+/** Next Shuffle seed: always a different positive integer than the current one. */
+export function nextSeed(current: number, random: () => number = Math.random): number {
+  const next = 1 + Math.floor(random() * 1_000_000);
+  return next === current ? next + 1 : next;
+}
