@@ -115,12 +115,14 @@ To move or recreate an account on purpose: change the environment's `OPENAI_LOCA
 
 ### Function App CORS
 
-The Functions code is the only CORS layer: `withCors` in `packages/functions/src/lib/http.ts` answers preflights and sets the CORS headers from the `CORS_*` app settings (`CORS_ALLOWED_ORIGINS` = `local.function_cors_allowed_origins`: the environment's web origins, `http://localhost:3000` outside prod, and `https://*.azurestaticapps.net`). `azurerm_linux_function_app.main` has no `site_config.cors` block on purpose: App Service platform CORS takes precedence over the app, echoes whatever method and headers a preflight asks for and drops the app's headers (`Access-Control-Expose-Headers: Request-Context`). With the platform layer gone the Functions host answers `OPTIONS` only on routes that list it, so every HTTP route registers `"OPTIONS"` and wraps its handler in `withCors` (`tests/http-routes.unit.test.cjs` enforces both).
+`azurerm_linux_function_app.main` keeps a `site_config.cors` block (`local.function_cors_allowed_origins`: the environment's web origins, `http://localhost:3000` outside prod, and `https://*.azurestaticapps.net`). **Do not remove it** while the app reads `CORS_ALLOWED_ORIGINS`: the Azure Functions host reserves that setting name and JSON-parses it as its own origin list. With platform CORS configured Azure supplies a value the host can parse; without it the host reads the app's comma-separated list and throws `JsonReaderException` in `HostCorsOptionsSetup` on every request, so every route answers 500 and code deploys fail with "Failed to perform sync trigger" (dev, 2026-10-23, after #449 removed the block; restored the same day).
+
+The app's `withCors` (`packages/functions/src/lib/http.ts`, driven by the `CORS_*` app settings) still sets CORS headers on every response, and every HTTP route registers `"OPTIONS"` (`tests/http-routes.unit.test.cjs`). With the platform layer in front, App Service answers preflights itself (echoing the requested method and headers) and the app's `Access-Control-Expose-Headers: Request-Context` does not reach the browser. Making the app the only CORS layer needs the app settings renamed to names the host does not read first; then the block can go.
 
 After an apply that changes CORS, check the live app before relying on it:
 
 ```bash
-az functionapp cors show -g <resource-group> -n <function-app>   # expect no allowedOrigins
+az functionapp cors show -g <resource-group> -n <function-app>   # expect the web origins in allowedOrigins
 curl -si -X OPTIONS -H 'Origin: https://dev.swatchwatch.app' -H 'Access-Control-Request-Method: PATCH' -H 'Access-Control-Request-Headers: authorization,content-type' https://<function-app>.azurewebsites.net/api/polishes
 ```
 
@@ -156,7 +158,7 @@ The preflight should return 204 with the app's fixed `Access-Control-Allow-Metho
 | Availability tests *(alerts)* | `azurerm_application_insights_standard_web_test.availability["web"\|"api"]` | Standard tests every `availability_test_frequency_seconds` from `availability_test_locations`: web home page (custom domain) and `GET /api/reference/finishes`; expect 200 and an SSL cert valid for 7+ days. Billed per execution |
 | Availability alerts *(alerts)* | `azurerm_monitor_metric_alert.availability["web"\|"api"]` | Fires when 2+ test locations fail (sev 1) |
 | App Service Plan | `azurerm_service_plan.main` | Linux Consumption plan (Y1) |
-| Function App | `azurerm_linux_function_app.main` | Node 22 function host (Managed Identity enabled); no platform CORS, the app's `withCors` owns CORS (see [Function App CORS](#function-app-cors)) |
+| Function App | `azurerm_linux_function_app.main` | Node 22 function host (Managed Identity enabled); platform CORS (`site_config.cors`) must stay while the app uses the host-reserved `CORS_ALLOWED_ORIGINS` name (see [Function App CORS](#function-app-cors)) |
 | Static Web App | `azurerm_static_web_app.main` | Next.js frontend (Standard tier) |
 | Document Intelligence *(optional)* | `azurerm_cognitive_account.document_intelligence` | Server-side OCR for capture pipeline label/barcode extraction (`enable_document_intelligence=true`) |
 | Speech Services | `azurerm_cognitive_account.speech` | Speech-to-text for voice input |
