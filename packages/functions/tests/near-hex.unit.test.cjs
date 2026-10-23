@@ -162,6 +162,8 @@ describe("GET /api/polishes?nearHex=", () => {
     assert.doesNotMatch(text, /ORDER BY s\.shade_name_canonical/, "nearHex replaces sortBy");
     // Visibility and every filter stay in the WHERE clause: nearHex only changes the order.
     assert.match(text, /s\.merged_into_shade_id IS NULL AND \(s\.status <> 'user_submitted'/);
+    assert.match(text, /AND ui\.user_id = \$1/);
+    assert.equal(params[0], 1, "$1 is the authenticated caller");
     assert.match(text, /s\.color_family = ANY/);
     assert.match(text, /s\.product_category = ANY/);
     assert.match(text, /ui\.status = ANY/);
