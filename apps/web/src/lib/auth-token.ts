@@ -42,3 +42,15 @@ export async function getFreshAccessToken(): Promise<string | null> {
   _accessToken = token;
   return _accessToken;
 }
+
+// True while the last silent renewal failed only because the network is unreachable. The auth
+// guard then keeps the app open (saved copies, read-only) instead of asking for a sign-in.
+let _authOffline = false;
+
+export function setAuthOffline(offline: boolean): void {
+  _authOffline = offline;
+}
+
+export function isAuthOffline(): boolean {
+  return _authOffline;
+}

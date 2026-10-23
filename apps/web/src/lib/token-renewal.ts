@@ -36,6 +36,14 @@ export interface AccessTokenProviderDeps {
   /** Redirect loop guard, see `claimTokenRedirect`. */
   claimRedirect: () => boolean;
   onError?: (error: unknown) => void;
+  /**
+   * True when a renewal failure is a network problem (offline, flaky signal) rather than a bad
+   * session: no sign-in redirect then, the provider resolves null and `onOffline` runs, so the
+   * app keeps showing saved copies read-only. The next call after the connection returns renews
+   * normally. Default: every failure redirects.
+   */
+  isOfflineFailure?: (error: unknown) => boolean;
+  onOffline?: (offline: boolean) => void;
 }
 
 /**
@@ -47,9 +55,15 @@ export function createAccessTokenProvider(deps: AccessTokenProviderDeps): () => 
 
   const acquire = async (): Promise<string | null> => {
     try {
-      return await deps.acquireSilent();
+      const token = await deps.acquireSilent();
+      deps.onOffline?.(false);
+      return token;
     } catch (error) {
       deps.onError?.(error);
+      if (deps.isOfflineFailure?.(error)) {
+        deps.onOffline?.(true);
+        return null;
+      }
       if (deps.claimRedirect()) {
         try {
           await deps.acquireInteractive();

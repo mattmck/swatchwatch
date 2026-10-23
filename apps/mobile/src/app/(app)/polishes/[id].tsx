@@ -152,6 +152,8 @@ export default function PolishDetailScreen() {
       .then(async (updated) => {
         setPolish(updated);
         setNotice("Details saved.");
+        // Renaming a private shade resolves it by its new identity, which can be another shade.
+        if (updated.id !== before.id) router.replace({ pathname: "/polishes/[id]", params: { id: updated.id } });
         if (patch.purchaseCurrency && scope) void writeCache(scope, LAST_CURRENCY_KEY, patch.purchaseCurrency);
         if (scope) await invalidateInventoryCaches(scope);
         notifyCollectionChanged();

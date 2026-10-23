@@ -20,6 +20,7 @@ import type {
 } from "swatchwatch-shared";
 import type { Look, Vibe } from "./looks";
 import type { GettingStartedStepId } from "./onboarding";
+import type { SavedCopyAge } from "./offline";
 import { trackEvent } from "./telemetry";
 
 export const METRIC_EVENTS = {
@@ -33,6 +34,7 @@ export const METRIC_EVENTS = {
   onboardingStepClicked: "onboarding.step_clicked",
   matchImageProcessed: "match.image_processed",
   matchResultAction: "match.result_action",
+  collectionOfflineShown: "collection.offline_shown",
 } as const;
 
 export type MetricEventName = (typeof METRIC_EVENTS)[keyof typeof METRIC_EVENTS];
@@ -377,4 +379,22 @@ export function trackOnboardingStepClicked(
   tracker: MetricTracker = defaultTracker
 ): void {
   emit(onboardingStepClickedEvent(input), tracker);
+}
+
+/** Which page showed the saved copy: the owned list or an owned polish's detail page. */
+export type OfflineSurface = "list" | "detail";
+
+/** The API was unreachable and a saved copy of the collection was shown instead (age bucketed). */
+export function collectionOfflineShownEvent(input: { surface: OfflineSurface; age: SavedCopyAge }): MetricEvent {
+  return {
+    name: METRIC_EVENTS.collectionOfflineShown,
+    properties: { surface: input.surface, age: input.age },
+  };
+}
+
+export function trackCollectionOfflineShown(
+  input: { surface: OfflineSurface; age: SavedCopyAge },
+  tracker: MetricTracker = defaultTracker
+): void {
+  emit(collectionOfflineShownEvent(input), tracker);
 }

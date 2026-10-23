@@ -130,3 +130,62 @@ describe("createAccessTokenProvider", () => {
     assert.equal(await getToken(), "token-2");
   });
 });
+
+describe("createAccessTokenProvider offline handling", () => {
+  it("does not redirect to sign-in when the failure is a network problem", async () => {
+    const offlineStates: boolean[] = [];
+    const { deps: d, calls } = deps({
+      acquireSilent: async () => {
+        throw new TypeError("Failed to fetch");
+      },
+      isOfflineFailure: () => true,
+      onOffline: (offline) => offlineStates.push(offline),
+    });
+    assert.equal(await createAccessTokenProvider(d)(), null);
+    assert.equal(calls.interactive, 0);
+    assert.deepEqual(offlineStates, [true]);
+  });
+
+  it("still redirects for a non-network failure and reports it as online", async () => {
+    const offlineStates: boolean[] = [];
+    const { deps: d, calls } = deps({
+      acquireSilent: async () => {
+        throw new Error("interaction_required");
+      },
+      isOfflineFailure: () => false,
+      onOffline: (offline) => offlineStates.push(offline),
+    });
+    assert.equal(await createAccessTokenProvider(d)(), null);
+    assert.equal(calls.interactive, 1);
+    assert.deepEqual(offlineStates, []);
+  });
+
+  it("renews normally once the connection is back", async () => {
+    let online = false;
+    const offlineStates: boolean[] = [];
+    const getToken = createAccessTokenProvider(
+      deps({
+        acquireSilent: async () => {
+          if (!online) throw new TypeError("Failed to fetch");
+          return "fresh";
+        },
+        isOfflineFailure: () => true,
+        onOffline: (offline) => offlineStates.push(offline),
+      }).deps,
+    );
+    assert.equal(await getToken(), null);
+    online = true;
+    assert.equal(await getToken(), "fresh");
+    assert.deepEqual(offlineStates, [true, false]);
+  });
+
+  it("keeps the old behaviour without an offline predicate", async () => {
+    const { deps: d, calls } = deps({
+      acquireSilent: async () => {
+        throw new TypeError("Failed to fetch");
+      },
+    });
+    await createAccessTokenProvider(d)();
+    assert.equal(calls.interactive, 1);
+  });
+});
