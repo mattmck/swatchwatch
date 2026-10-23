@@ -239,10 +239,26 @@ function normalizeName(value: string | null | undefined): string {
 }
 
 /**
+ * The caller's owned polish with the same brand and shade name (case and spacing ignored), or
+ * null. Saving the form then would match that shade and overwrite its inventory row (status,
+ * bottle count) through the create upsert, so the form asks first instead.
+ */
+export function findOwnedSameShade(shade: { brand: string; name: string }, owned: readonly Polish[]): Polish | null {
+  const brand = normalizeName(shade.brand);
+  const name = normalizeName(shade.name);
+  if (!brand || !name) return null;
+  return (
+    owned.find(
+      (polish) => polish.status === "owned" && normalizeName(polish.brand) === brand && normalizeName(polish.name) === name,
+    ) ?? null
+  );
+}
+
+/**
  * Owned near-dupes of a shade that has no id yet (web: `dupesForNewShade` in
  * `lib/add-guard.ts`): the entered hex against the caller's owned polishes with the shared dupe
  * rule. Null when there is nothing to compare (no valid hex) or the caller already owns a polish
- * with the same brand and name (the API then adds to that row instead).
+ * with the same brand and name (`findOwnedSameShade`, which the form asks about separately).
  */
 export function dupesForNewShade(
   shade: { brand: string; name: string; hex: string; finishes: readonly string[] },
@@ -250,16 +266,9 @@ export function dupesForNewShade(
   options: { limit?: number; finishTypes?: readonly FinishFamilySource[] | null } = {},
 ): PolishDupesResponse | null {
   const limit = options.limit ?? DUPE_LIMITS.defaultLimit;
-  const brand = normalizeName(shade.brand);
-  const name = normalizeName(shade.name);
   const ownedPool = owned.filter((polish) => polish.status === "owned");
-  if (
-    brand &&
-    name &&
-    ownedPool.some((polish) => normalizeName(polish.brand) === brand && normalizeName(polish.name) === name)
-  ) {
-    return null;
-  }
+  // The same shade is not its own dupe; callers check `findOwnedSameShade` first.
+  if (findOwnedSameShade(shade, ownedPool)) return null;
   const hex = normalizeHexParam(shade.hex);
   if (!hex) return null;
 

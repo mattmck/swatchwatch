@@ -6,7 +6,7 @@ import { COLOR_FAMILY_LABELS, classifyColorFamily, type FinishType, type Polish 
 import { createPolish, errorMessage, listAllPolishes, listReferenceFinishTypes } from "@/api/client";
 import { ColorDot } from "@/components/swatch";
 import { AppText, Button, Card, Chip, ErrorBanner } from "@/components/ui";
-import { confirmDupes } from "@/lib/add-guard";
+import { confirmAlreadyOwned, confirmDupes } from "@/lib/add-guard";
 import { notifyCollectionChanged } from "@/lib/collection-events";
 import { DEFAULT_LIGHTNESS_INDEX, HUE_STOPS, LIGHTNESS_STEPS, normalizeHexParam, pickerHex } from "@/lib/color-search";
 import {
@@ -16,6 +16,7 @@ import {
   buildFinishOptions,
   clampQuantity,
   dupesForNewShade,
+  findOwnedSameShade,
   hasErrors,
   initialManualAddForm,
   manualAddPrefillFromParams,
@@ -44,7 +45,8 @@ function loadOwnedForGuard(): Promise<Polish[] | null> {
  * shade) and from Search's empty result (with the query as the name). The barcode is sent with
  * the new polish so the API remembers it for this user (`user_shade_barcode`) and the next scan
  * matches. Before saving, owned near-dupes of the entered color are shown (add guard, computed
- * on device like the web form). Nothing is saved until the user taps Add.
+ * on device like the web form), and a polish already owned under the same brand + name is
+ * opened instead of saved over. Nothing is saved until the user taps Add.
  */
 export default function NewPolishScreen() {
   const theme = useTheme();
@@ -95,10 +97,19 @@ export default function NewPolishScreen() {
     setSubmitting(true);
     try {
       let request = buildCreateRequest(form, prefill);
+      const owned = await loadOwnedForGuard();
+      // Already owned under this brand + name: saving would overwrite that row's status and
+      // bottle count through the create upsert, so open it instead.
+      const existing = owned ? findOwnedSameShade(form, owned) : null;
+      if (existing) {
+        if ((await confirmAlreadyOwned(`${existing.brand} ${existing.name}`)) === "view") {
+          router.replace({ pathname: "/polishes/[id]", params: { id: existing.id } });
+        }
+        return;
+      }
       // Add guard (#266): a brand-new shade has no id, so compare the entered color against
       // the owned collection with the shared dupe rule (skipped without a color).
       if (request.vendorHex) {
-        const owned = await loadOwnedForGuard();
         const dupes = owned
           ? dupesForNewShade({ brand: form.brand, name: form.name, hex: request.vendorHex, finishes: form.finishes }, owned, {
               finishTypes,

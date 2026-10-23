@@ -57,3 +57,27 @@ export async function confirmDupes(
     );
   });
 }
+
+export type AlreadyOwnedChoice = "view" | "cancel";
+
+/**
+ * The manual add form found an owned polish with the same brand and shade name: saving would
+ * update that row, so offer to open it instead (nothing is saved either way).
+ */
+export function confirmAlreadyOwned(label: string): Promise<AlreadyOwnedChoice> {
+  const message = `${label} is already in your collection. Open it to change its bottles or status.`;
+  if (Platform.OS === "web") {
+    return Promise.resolve(globalThis.confirm?.(`${message}\n\nOpen it?`) ? "view" : "cancel");
+  }
+  return new Promise((resolve) => {
+    Alert.alert(
+      "You own this",
+      message,
+      [
+        { text: "Cancel", style: "cancel", onPress: () => resolve("cancel") },
+        { text: "View polish", onPress: () => resolve("view") },
+      ],
+      { cancelable: true, onDismiss: () => resolve("cancel") },
+    );
+  });
+}

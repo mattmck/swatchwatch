@@ -9,6 +9,7 @@ import {
   clampQuantity,
   colorNameFor,
   dupesForNewShade,
+  findOwnedSameShade,
   hasErrors,
   initialManualAddForm,
   manualAddPrefillFromParams,
@@ -207,5 +208,22 @@ describe("dupesForNewShade", () => {
   it("reports no dupes when nothing is close", () => {
     const result = dupesForNewShade({ brand: "New", name: "Navy", hex: "#101060", finishes: [] }, collection);
     assert.equal(result?.dupeCount, 0);
+  });
+});
+
+describe("findOwnedSameShade", () => {
+  const collection = [
+    owned({ id: "10", brand: "Essie", name: "Red Hot" }),
+    owned({ id: "12", brand: "Essie", name: "Wished", status: "wishlist" }),
+  ];
+
+  it("finds an owned polish by brand + name, ignoring case and spacing", () => {
+    assert.equal(findOwnedSameShade({ brand: " essie ", name: "red  hot" }, collection)?.id, "10");
+  });
+
+  it("ignores wishlist rows, other names and empty fields", () => {
+    assert.equal(findOwnedSameShade({ brand: "Essie", name: "Wished" }, collection), null);
+    assert.equal(findOwnedSameShade({ brand: "Essie", name: "Mint" }, collection), null);
+    assert.equal(findOwnedSameShade({ brand: "", name: "Red Hot" }, collection), null);
   });
 });
