@@ -11,6 +11,8 @@ import {
   checkCapture,
   finalizeCapture,
   getCaptureStatus,
+  getCurrentUserId,
+  getPolishDupeHints,
   listAllPolishes,
   startCapture,
   updatePolish,
@@ -44,11 +46,28 @@ import {
   type QuestionAction,
 } from "@/lib/rapid-add-flow";
 import { assessFrameQuality, FRAME_QUALITY_WARNING_COPY } from "@/lib/camera";
+import {
+  EMPTY_SHELF,
+  readShelf,
+  safeShelfStorage,
+  shelfActionEvent,
+  shelfDupeFromHint,
+  shelfEntryFromVerdict,
+  shelfNeedsDupeCheck,
+  shelfReducer,
+  shelfStartsEntry,
+  shelfStorageKey,
+  writeShelf,
+  type ShelfEntry,
+  type ShelfQuickAction,
+  type ShelfTelemetryAction,
+} from "@/lib/rapid-add-shelf";
 import type { ScannedBarcode } from "@/lib/barcode-scan";
 import { CameraCapture, type CameraCaptureEvent } from "@/components/rapid-add/camera-capture";
 import { FrameStrip } from "@/components/rapid-add/frame-strip";
 import { CaptureQuestionPanel } from "@/components/rapid-add/capture-question-panel";
 import { VerdictCard } from "@/components/rapid-add/verdict-card";
+import { ShelfList } from "@/components/rapid-add/shelf-list";
 import { InstallPrompt } from "@/components/install-prompt";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -100,6 +119,16 @@ export default function RapidAddPage() {
   const frameSummary = summarizeFrames(frames);
   const hasHints = Boolean(brandHint.trim() || shadeHint.trim());
 
+  // Shelf mode: this session's verdicts across scans, in sessionStorage per user.
+  const [shelf, dispatchShelf] = useReducer(shelfReducer, EMPTY_SHELF);
+  const [shelfKey, setShelfKey] = useState<string | null>(null);
+  const [shelfPendingKey, setShelfPendingKey] = useState<string | null>(null);
+  const [shelfError, setShelfError] = useState<string | null>(null);
+  const shelfRef = useRef(shelf);
+  useEffect(() => {
+    shelfRef.current = shelf;
+  });
+
   // Latest values for async callbacks that outlive a render.
   const sessionRef = useRef(session);
   const framesRef = useRef(frames);
@@ -125,6 +154,64 @@ export default function RapidAddPage() {
   useEffect(() => {
     void loadSnapshot();
   }, [loadSnapshot]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getCurrentUserId()
+      .catch(() => null)
+      .then((userId) => {
+        if (cancelled) return;
+        const key = shelfStorageKey(userId === null ? null : String(userId));
+        dispatchShelf({ type: "hydrated", entries: readShelf(safeShelfStorage(), key) });
+        setShelfKey(key);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  useEffect(() => {
+    if (shelfKey) writeShelf(safeShelfStorage(), shelfKey, shelf.entries);
+  }, [shelf.entries, shelfKey]);
+
+  const trackShelf = useCallback((action: ShelfTelemetryAction, entry?: ShelfEntry) => {
+    const event = shelfActionEvent(action, shelfRef.current.entries.length, entry?.verdict);
+    trackEvent(event.name, event.properties);
+  }, []);
+
+  /** Near-dupe check for a new catalog shade; failures leave it "New". */
+  const checkShelfDupe = useCallback((entry: ShelfEntry) => {
+    if (!entry.shadeId || !shelfNeedsDupeCheck(entry)) return;
+    const shadeId = entry.shadeId;
+    void getPolishDupeHints([shadeId]).then(
+      (res) => {
+        const dupe = shelfDupeFromHint(res.results[shadeId]);
+        if (dupe) dispatchShelf({ type: "dupe_resolved", key: entry.key, dupe });
+      },
+      () => undefined,
+    );
+  }, []);
+
+  // Every verdict lands on the shelf: the first of a scan adds (or re-flags) an entry, later
+  // ones (Add / ♡ / undo on the card, a label photo after an unknown barcode) update it.
+  useEffect(() => {
+    if (!session.verdict || !shelfKey) return;
+    const entry = shelfEntryFromVerdict(session.verdict, {
+      captureId: session.captureId,
+      now: Date.now(),
+      quantityRestored: session.quantityRestored,
+    });
+    if (!entry) return;
+    const current = shelfRef.current;
+    const starts = shelfStartsEntry(current);
+    const repeat = starts && current.entries.some((e) => e.key === entry.key);
+    dispatchShelf({
+      type: "verdict",
+      entry,
+      clearActed: session.verdict.kind === "owned" && session.quantityRestored,
+    });
+    if (repeat) trackShelf("repeat_scan", entry);
+    else if (starts) checkShelfDupe(entry);
+  }, [session.verdict, session.quantityRestored, session.captureId, shelfKey, trackShelf, checkShelfDupe]);
 
   const ensureSession = useCallback(async (barcode: ScannedBarcode | null): Promise<string> => {
     if (sessionRef.current.captureId) return sessionRef.current.captureId;
@@ -381,7 +468,44 @@ export default function RapidAddPage() {
     }
   }
 
+  async function handleShelfAction(entry: ShelfEntry, action: Exclude<ShelfQuickAction, "manual">) {
+    setShelfPendingKey(entry.key);
+    setShelfError(null);
+    trackShelf(action, entry);
+    try {
+      if (action === "wishlist" && entry.shadeId) {
+        await updatePolish(entry.shadeId, { status: "wishlist" });
+        dispatchShelf({ type: "acted", key: entry.key, acted: "wishlisted" });
+      } else if (action === "bought_another" && entry.shadeId) {
+        const quantity = (entry.quantity ?? 1) + 1;
+        const updated = await updatePolish(entry.shadeId, { status: "owned", quantity });
+        dispatchShelf({ type: "acted", key: entry.key, acted: "bought_another", quantity: updated.quantity ?? quantity });
+      } else if (action === "add" && entry.shadeId) {
+        const updated = await updatePolish(entry.shadeId, { status: "owned", quantity: 1 });
+        dispatchShelf({ type: "acted", key: entry.key, acted: "added", quantity: updated.quantity ?? 1 });
+      } else if (action === "add" && entry.captureId) {
+        // A barcode SKU without a shade: only its capture session can add it.
+        const res = await finalizeCapture(entry.captureId);
+        if (res.status !== "matched") throw new Error("That scan needs another look. Scan it again.");
+        dispatchShelf({ type: "acted", key: entry.key, acted: "added" });
+      }
+      // Keep the ownership snapshot right for the next label scan.
+      void loadSnapshot();
+    } catch (error) {
+      setShelfError(errorMessage(error, "Couldn't save that. Try again."));
+    } finally {
+      setShelfPendingKey(null);
+    }
+  }
+
+  function handleClearShelf() {
+    trackShelf("clear");
+    dispatchShelf({ type: "cleared" });
+    setShelfError(null);
+  }
+
   function handleScanNext() {
+    dispatchShelf({ type: "scan_ended" });
     sessionPromiseRef.current = null;
     dispatch({ type: "reset" });
     dispatchFrames({ type: "reset" });
@@ -517,6 +641,22 @@ export default function RapidAddPage() {
             </Button>
           )}
         </div>
+      )}
+
+      <ShelfList
+        entries={shelf.entries}
+        repeatKey={shelf.repeatKey}
+        pendingKey={shelfPendingKey}
+        currentKey={session.verdict ? shelf.currentKey : null}
+        onAction={(entry, action) => void handleShelfAction(entry, action)}
+        onManualAdd={(entry) => trackShelf("manual", entry)}
+        onClear={handleClearShelf}
+      />
+      {shelfError && (
+        <p role="alert" className="flex items-start gap-2 text-sm text-destructive">
+          <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <span className="min-w-0 flex-1">{shelfError}</span>
+        </p>
       )}
 
       {phase !== "verdict" && (

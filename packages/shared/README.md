@@ -297,6 +297,14 @@ Looks (`/polishes/looks`) vocabulary and saved looks (`GET/POST/DELETE /api/look
 | `validateSavedLookInput(input)` | Returns a `SavedLookValidation`. The one validation rule (API body and web localStorage): enums, `#RRGGBB` hexes, trimmed/capped text, 1–4 steps, ≤ `MAX_LOOK_STEPS_BYTES` of JSON, `id` = look key; drops unknown fields |
 | `MAX_SAVED_LOOKS` / `MAX_LOOK_STEPS` / `MAX_LOOK_STEPS_BYTES` | `30` / `4` / `3500` |
 
+### `types/feature-flags.ts`
+
+| Type | Description |
+|---|---|
+| `FEATURE_FLAG_NAMES` | `["shareableWishlist", "shareableLooks"]` — the flags `GET /api/config/flags` reports (internal flags never appear) |
+| `PublicFeatureFlagName` | Union of `FEATURE_FLAG_NAMES` |
+| `FeatureFlagsResponse` | `{ flags: Record<PublicFeatureFlagName, boolean> }` |
+
 ### `types/wishlist-share.ts`
 
 Shareable wishlist (#268), behind the server flag `SHAREABLE_WISHLIST_ENABLED` (off by default).
