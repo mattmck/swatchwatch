@@ -27,6 +27,8 @@ import {
 } from "../lib/blob-storage";
 import { inlineCaptureFrameUrl, releaseCaptureFrames, storeCaptureFrameBytes } from "../lib/capture-frame-store";
 import { isFeatureEnabled } from "../lib/feature-flags";
+import { decodeDataUri } from "../lib/detection-image";
+import { measureGlassHex, type GlassHexAudit } from "../lib/glass-color";
 import { withCors } from "../lib/http";
 import { internalServerError } from "../lib/errors";
 import { trackEvent, trackException } from "../lib/telemetry";
@@ -171,6 +173,35 @@ interface FrameAiExtractionResult {
   ocrConfidence?: number;
   ocrBarcodeCount?: number;
   llmConfidence?: number;
+  /** Color frames only: how the lacquer hex was measured (stored as `quality_json.ai.glass`). */
+  glass?: GlassHexAudit;
+}
+
+/** The audit stored when a color frame yields no hex. */
+function glassMissAudit(reason: "no_candidates" | "remote_url"): GlassHexAudit {
+  return { candidates: [], choice: null, modelCalls: 0, reason };
+}
+
+/**
+ * Bottle capture: measure the lacquer hex from a color (glass) frame. Only a data-URL frame is
+ * measured; `extracted` stays empty when nothing could be, so no hex evidence is claimed.
+ */
+async function runGlassExtraction(imageInput: string): Promise<FrameAiExtractionResult> {
+  const bytes = decodeDataUri(imageInput);
+  const glass = bytes ? await measureGlassHex(bytes) : null;
+  if (!glass) {
+    return { extracted: {}, glass: glassMissAudit(bytes ? "no_candidates" : "remote_url") };
+  }
+  return {
+    extracted: {
+      hex: glass.hex,
+      hexConfidence: glass.confidence,
+      hexMethod: glass.method,
+      hexPromptVersion: glass.promptVersion,
+      source: "glass",
+    },
+    glass: glass.audit,
+  };
 }
 
 /**
@@ -186,6 +217,9 @@ async function runFrameAiExtraction(
   frameType: string,
   hints?: { brand?: string; shadeName?: string; finish?: string }
 ): Promise<FrameAiExtractionResult | null> {
+  if (frameType === "color") {
+    return isFeatureEnabled("bottleCapture") ? runGlassExtraction(imageInput) : null;
+  }
   if (frameType !== "label" && frameType !== "barcode") {
     return null;
   }
@@ -1298,6 +1332,11 @@ async function addCaptureFrame(
 
     // A barcode the client already decoded on-device (BarcodeDetector / zxing) is trusted
     // evidence when it is a valid GTIN: no OCR, and the verdict goes back in this response.
+    // `extracted.source: "glass"` marks server-measured lacquer evidence; a client never sets it.
+    if (toRecord(toRecord(body.quality).extracted).source === "glass") {
+      const { source: _clientSource, ...extracted } = toRecord(toRecord(body.quality).extracted);
+      body.quality = { ...body.quality, extracted };
+    }
     const frameQuality = toRecord(body.quality);
     const scannedBarcode =
       body.frameType === "barcode" ? normalizeGtin(frameQuality.gtin, frameQuality.barcodeFormat) : null;
@@ -1369,8 +1408,10 @@ async function addCaptureFrame(
     const result = await transaction(async (client) => {
       let imageId = body.imageId ?? null;
       let qualityJson = preQualityJson;
+      const hasAiExtracted = Boolean(aiExtraction && Object.keys(aiExtraction.extracted).length > 0);
 
-      // Merge AI extraction results into quality_json.extracted
+      // Merge AI extraction results into quality_json.extracted. A color frame that measured
+      // nothing has an empty `extracted` and leaves the request's evidence alone.
       if (aiExtraction) {
         const ocrRawTextRaw = aiExtraction.ocrRawText;
         const ocrRawText = ocrRawTextRaw
@@ -1379,19 +1420,20 @@ async function addCaptureFrame(
             : ocrRawTextRaw
           : undefined;
         qualityJson = mergeQualityJson(qualityJson ?? undefined, {
-          extracted: aiExtraction.extracted,
+          ...(hasAiExtracted ? { extracted: aiExtraction.extracted } : {}),
           ai: {
             ocrRawText,
             ocrConfidence: aiExtraction.ocrConfidence,
             ocrBarcodeCount: aiExtraction.ocrBarcodeCount,
             llmConfidence: aiExtraction.llmConfidence,
+            glass: aiExtraction.glass,
             processedAt: new Date().toISOString(),
           },
         });
       }
 
       const normalizedExtraction = extractFrameEvidence(qualityJson);
-      if (normalizedExtraction && !aiExtraction) {
+      if (normalizedExtraction && !hasAiExtracted) {
         // Only set extracted from request quality if AI didn't already populate it
         qualityJson = mergeQualityJson(qualityJson ?? undefined, {
           extracted: normalizedExtraction,
@@ -1400,8 +1442,8 @@ async function addCaptureFrame(
       const ingestMetadataPatch = buildIngestMetadataPatch(
         session.metadata,
         body.frameType,
-        Boolean(normalizedExtraction || aiExtraction),
-        aiExtraction ? "pipeline" : (normalizedExtraction?.source ?? "none")
+        Boolean(normalizedExtraction || hasAiExtracted),
+        hasAiExtracted ? "pipeline" : (normalizedExtraction?.source ?? "none")
       );
 
       if (!imageId && body.imageBlobUrl) {

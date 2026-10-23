@@ -10,7 +10,7 @@
  * particular none on user_inventory_item or inventory_event) and that its queries are
  * scoped to the caller, and that finalize still adds to inventory afterwards.
  */
-const { describe, it, beforeEach, afterEach } = require("node:test");
+const { describe, it, before, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const Module = require("node:module");
@@ -804,5 +804,124 @@ describe("functions/capture — frame retention", () => {
     } finally {
       blobStorageMock.deleteBlobFromStorageUrl = original;
     }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Glass color evidence (Bottle Flow slice A): the lacquer hex measured from a color frame
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("functions/capture — glass color frames", () => {
+  const sharp = require("sharp");
+  const aiColorDetection = require("../dist/lib/ai-color-detection");
+  const realRequest = aiColorDetection.requestAzureOpenAIChatCompletion;
+  const AI_ENV = ["AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_KEY", "AZURE_OPENAI_DEPLOYMENT_HEX"];
+  let dataUrl;
+  let chatCalls;
+  let chatContent;
+
+  const insertedFrame = () => {
+    const inserts = handlerCalls().filter((c) => /INSERT\s+INTO\s+capture_frame/i.test(c.sql));
+    assert.equal(inserts.length, 1);
+    return inserts[0].params[3];
+  };
+
+  before(async () => {
+    // Half skin, half magenta: the deterministic fallback must pick the magenta.
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64">' +
+      '<rect width="32" height="64" fill="#F0C8A0"/><rect x="32" width="32" height="64" fill="#B4004E"/></svg>';
+    const png = await sharp(Buffer.from(svg)).png().toBuffer();
+    dataUrl = `data:image/png;base64,${png.toString("base64")}`;
+  });
+
+  beforeEach(() => {
+    chatCalls = 0;
+    chatContent = null;
+    aiColorDetection.requestAzureOpenAIChatCompletion = async () => {
+      chatCalls += 1;
+      return chatContent === null
+        ? { provider: "none", content: null, usage: null, deployment: null, reason: "missing_config" }
+        : { provider: "azure-openai", content: chatContent, usage: null, deployment: "d" };
+    };
+  });
+  afterEach(() => {
+    aiColorDetection.requestAzureOpenAIChatCompletion = realRequest;
+    delete process.env.BOTTLE_CAPTURE_ENABLED;
+    for (const key of AI_ENV) delete process.env[key];
+  });
+
+  it("flag on: stores glass evidence with a 7-char uppercase hex and the audit", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    const res = await addFrame({ frameType: "color", imageBlobUrl: dataUrl });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    const quality = insertedFrame();
+    assert.equal(quality.extracted.source, "glass");
+    assert.match(quality.extracted.hex, /^#[0-9A-F]{6}$/);
+    assert.equal(quality.extracted.hexMethod, "palette-top");
+    assert.equal(quality.extracted.hexConfidence, 0.3);
+    assert.equal(quality.extracted.hexPromptVersion, "glass-palette-pick/2026-10-v1");
+    assert.equal(quality.ai.glass.modelCalls, 0);
+    assert.ok(quality.ai.glass.candidates.length >= 2);
+    assert.ok(typeof quality.ai.processedAt === "string");
+    assert.equal(chatCalls, 0, "an unconfigured model is never called");
+  });
+
+  it("flag on with the model configured: the model's chip becomes the hex", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    process.env.AZURE_OPENAI_ENDPOINT = "https://unit.openai.azure.com/";
+    process.env.AZURE_OPENAI_KEY = "unit-test-key";
+    process.env.AZURE_OPENAI_DEPLOYMENT_HEX = "gpt-vision";
+    chatContent = '{"choice":"A","confidence":0.8}';
+    const res = await addFrame({ frameType: "color", imageBlobUrl: dataUrl });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    const quality = insertedFrame();
+    assert.equal(chatCalls, 1);
+    assert.equal(quality.extracted.source, "glass");
+    assert.equal(quality.extracted.hexMethod, "palette-pick-bottle");
+    assert.equal(quality.extracted.hexConfidence, 0.8);
+    assert.equal(quality.extracted.hex, quality.ai.glass.candidates.find((c) => c.label === "A").hex);
+  });
+
+  it("flag off: no extracted evidence and no model call, exactly as before", async () => {
+    process.env.AZURE_OPENAI_ENDPOINT = "https://unit.openai.azure.com/";
+    process.env.AZURE_OPENAI_KEY = "unit-test-key";
+    process.env.AZURE_OPENAI_DEPLOYMENT_HEX = "gpt-vision";
+    chatContent = '{"choice":"A","confidence":0.8}';
+    const res = await addFrame({ frameType: "color", imageBlobUrl: dataUrl });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    const quality = insertedFrame();
+    assert.equal(quality.extracted, undefined);
+    assert.equal(quality.ai, undefined);
+    assert.equal(chatCalls, 0);
+  });
+
+  it("a client-supplied glass source is never trusted", async () => {
+    const res = await addFrame({
+      frameType: "color",
+      imageBlobUrl: dataUrl,
+      quality: { extracted: { hex: "#112233", source: "glass", brand: "OPI" } },
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    const quality = insertedFrame();
+    assert.notEqual(quality.extracted.source, "glass");
+    assert.equal(quality.extracted.brand, "OPI");
+  });
+
+  it("flag on: an image that yields no chips records the reason and no hex", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    const tiny = await sharp({ create: { width: 1, height: 1, channels: 3, background: "#B4004E" } }).png().toBuffer();
+    const res = await addFrame({ frameType: "color", imageBlobUrl: `data:image/png;base64,${tiny.toString("base64")}` });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    const quality = insertedFrame();
+    assert.equal(quality.ai.glass.reason, "no_candidates");
+    assert.equal(quality.extracted, undefined);
+  });
+
+  it("flag on: a non-color frame is not measured", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    const res = await addFrame({ frameType: "other", imageBlobUrl: dataUrl });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    assert.equal(insertedFrame().extracted, undefined);
   });
 });
