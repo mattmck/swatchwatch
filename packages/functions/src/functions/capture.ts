@@ -27,6 +27,26 @@ import { extractTextFromImage, OcrResult } from "../lib/ocr";
 import { parseLabelText, ParsedLabelFields } from "../lib/ocr-parser";
 import { loadInventoryOwnership } from "../lib/inventory-relationship";
 import { gtinLookupKeys, gtinSpellings, normalizeGtin, rememberUserShadeBarcode } from "../lib/barcodes";
+import {
+  BarcodeMatchVia,
+  CaptureEvidence,
+  CaptureFrameEvidenceRow,
+  CaptureMatchCandidate,
+  CaptureQuestionSpec,
+  FrameExtractionSource,
+  ResolverDecision,
+  ResolverOutcome,
+  collectCaptureEvidence,
+  extractFrameEvidence,
+  getStringField,
+  toRecord,
+} from "../lib/capture-evidence";
+import {
+  buildBrandShadeQuestion,
+  buildCandidateQuestion,
+  buildNeedsFrameQuestion,
+  serializeQuestionOptions,
+} from "../lib/capture-questions";
 
 const GUIDANCE_CONFIG = {
   recommendedFrameTypes: ["barcode", "label", "color"],
@@ -58,78 +78,6 @@ interface CaptureQuestionRow {
   status: CaptureQuestion["status"];
   createdAt: string;
 }
-
-interface CaptureFrameEvidenceRow {
-  frameType: "barcode" | "label" | "color" | "other";
-  quality: Record<string, unknown> | null;
-}
-
-interface CaptureEvidence {
-  gtin?: string;
-  /** Decoder format of `gtin` (`ean_13`, `upc_e`, …) when the client reported one. */
-  gtinFormat?: string;
-  brand?: string;
-  shadeName?: string;
-  finish?: string;
-}
-
-interface FrameExtraction {
-  gtin?: string;
-  gtinFormat?: string;
-  brand?: string;
-  shadeName?: string;
-  finish?: string;
-  source: "pipeline" | "request_quality";
-}
-
-type FrameExtractionSource = FrameExtraction["source"] | "none";
-
-interface CaptureMatchCandidate {
-  entityType: "shade" | "sku";
-  entityId: number;
-  /** Shade the entity resolves to (the shade itself, or a SKU's shade_id). */
-  shadeId: number | null;
-  display: string;
-  confidence: number;
-}
-
-interface CaptureQuestionSpec {
-  key: string;
-  prompt: string;
-  type: CaptureQuestion["type"];
-  options?: string[];
-}
-
-/** How a barcode match was found: catalog `barcode` row, the caller's learned barcode, or a connector product's GTIN. */
-type BarcodeMatchVia = "catalog" | "user" | "external_product";
-
-// `candidates` is what the resolver considered, ranked; finalize ignores it, check reports it.
-// `barcodeVia` is set when the scanned GTIN matched; `evidence` is what the resolver matched on.
-type ResolverDecision = (
-  | {
-      status: "matched";
-      confidence: number;
-      entityType: "shade" | "sku";
-      entityId: number;
-      candidates: CaptureMatchCandidate[];
-      metadataPatch: Record<string, unknown>;
-    }
-  | {
-      status: "needs_question";
-      confidence: number;
-      question: CaptureQuestionSpec;
-      candidates: CaptureMatchCandidate[];
-      metadataPatch: Record<string, unknown>;
-    }
-  | {
-      status: "unmatched";
-      confidence: number;
-      candidates: CaptureMatchCandidate[];
-      metadataPatch: Record<string, unknown>;
-    }
-) & { barcodeVia?: BarcodeMatchVia };
-
-type ResolverOutcome = ResolverDecision & { evidence: CaptureEvidence };
 
 const REMOTE_IMAGE_URL_ERROR =
   "imageBlobUrl must be a base64 data URL or an https URL on the configured storage account";
@@ -432,60 +380,6 @@ function mergeQualityJson(
   };
 }
 
-function toRecord(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {};
-  }
-  return value as Record<string, unknown>;
-}
-
-function extractFrameEvidence(quality: Record<string, unknown> | null): FrameExtraction | null {
-  if (!quality) {
-    return null;
-  }
-
-  const extracted = toRecord(quality.extracted);
-  const extractedEvidence = {
-    gtin: getStringField(extracted, "gtin", "upc", "ean"),
-    gtinFormat: getStringField(extracted, "gtinFormat", "barcodeFormat"),
-    brand: getStringField(extracted, "brand"),
-    shadeName: getStringField(extracted, "shadeName", "name"),
-    finish: getStringField(extracted, "finish"),
-  };
-  if (
-    extractedEvidence.gtin
-    || extractedEvidence.brand
-    || extractedEvidence.shadeName
-    || extractedEvidence.finish
-  ) {
-    return {
-      ...extractedEvidence,
-      source: "pipeline",
-    };
-  }
-
-  const legacyEvidence = {
-    gtin: getStringField(quality, "gtin", "upc", "ean"),
-    gtinFormat: getStringField(quality, "barcodeFormat", "gtinFormat"),
-    brand: getStringField(quality, "brand"),
-    shadeName: getStringField(quality, "shadeName", "name"),
-    finish: getStringField(quality, "finish"),
-  };
-  if (
-    legacyEvidence.gtin
-    || legacyEvidence.brand
-    || legacyEvidence.shadeName
-    || legacyEvidence.finish
-  ) {
-    return {
-      ...legacyEvidence,
-      source: "request_quality",
-    };
-  }
-
-  return null;
-}
-
 function toNumber(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -626,22 +520,6 @@ function toCaptureQuestion(row: CaptureQuestionRow | undefined): CaptureQuestion
   };
 }
 
-function getStringField(
-  source: Record<string, unknown> | null | undefined,
-  ...keys: string[]
-): string | undefined {
-  if (!source) return undefined;
-
-  for (const key of keys) {
-    const value = source[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      return value.trim();
-    }
-  }
-
-  return undefined;
-}
-
 async function getCaptureFrameEvidence(sessionId: number): Promise<CaptureFrameEvidenceRow[]> {
   const result = await query<CaptureFrameEvidenceRow>(
     `SELECT
@@ -654,55 +532,6 @@ async function getCaptureFrameEvidence(sessionId: number): Promise<CaptureFrameE
   );
 
   return result.rows;
-}
-
-function collectCaptureEvidence(
-  metadata: Record<string, unknown> | null,
-  frames: CaptureFrameEvidenceRow[]
-): CaptureEvidence {
-  const answers = (metadata?.answers as Record<string, unknown> | undefined) ?? {};
-  const brandFromAnswers =
-    getStringField(answers.brand_shade as Record<string, unknown>, "brand")
-    || getStringField(answers, "brand");
-  const shadeFromAnswers =
-    getStringField(answers.brand_shade as Record<string, unknown>, "shadeName", "name")
-    || getStringField(answers, "shadeName", "name");
-  const finishFromAnswers =
-    getStringField(answers.brand_shade as Record<string, unknown>, "finish")
-    || getStringField(answers, "finish");
-
-  const evidence: CaptureEvidence = {
-    gtin: getStringField(metadata, "gtin"),
-    gtinFormat: getStringField(metadata, "barcodeFormat", "gtinFormat"),
-    brand: brandFromAnswers || getStringField(metadata, "brand"),
-    shadeName: shadeFromAnswers || getStringField(metadata, "shadeName", "name"),
-    finish: finishFromAnswers || getStringField(metadata, "finish"),
-  };
-
-  for (const frame of frames) {
-    const quality = frame.quality;
-    if (!quality) continue;
-    const extracted = extractFrameEvidence(quality);
-    if (!extracted) {
-      continue;
-    }
-
-    if (!evidence.gtin && extracted.gtin) {
-      evidence.gtin = extracted.gtin;
-      evidence.gtinFormat = extracted.gtinFormat;
-    }
-    if (!evidence.brand) {
-      evidence.brand = extracted.brand;
-    }
-    if (!evidence.shadeName) {
-      evidence.shadeName = extracted.shadeName;
-    }
-    if (!evidence.finish) {
-      evidence.finish = extracted.finish;
-    }
-  }
-
-  return evidence;
 }
 
 function extractSelectedEntityId(answer: unknown): number | null {
@@ -1015,44 +844,6 @@ async function resolveShadeCandidates(evidence: CaptureEvidence): Promise<Captur
     display: `${row.brand} — ${row.shadeName}`,
     confidence: Math.max(0, Math.min(1, row.score)),
   }));
-}
-
-/**
- * `capture_question.options_json` parameter. node-pg sends a JS array as a Postgres array
- * literal (`{"a","b"}`), which `::jsonb` rejects, so serialize it as JSON text.
- */
-function serializeQuestionOptions(options: string[] | undefined): string | null {
-  return options ? JSON.stringify(options) : null;
-}
-
-function buildNeedsFrameQuestion(): CaptureQuestionSpec {
-  return {
-    key: "capture_frame",
-    prompt: "Upload at least one barcode or label frame so we can continue matching.",
-    type: "single_select",
-    options: ["scan_barcode", "upload_label_photo", "skip"],
-  };
-}
-
-function buildBrandShadeQuestion(): CaptureQuestionSpec {
-  return {
-    key: "brand_shade",
-    prompt: "Tell us the brand and shade name (or upload a clearer label frame) to improve matching.",
-    type: "free_text",
-    options: ["brand + shade", "upload_label_photo", "skip"],
-  };
-}
-
-function buildCandidateQuestion(candidates: CaptureMatchCandidate[]): CaptureQuestionSpec {
-  return {
-    key: "candidate_select",
-    prompt: "We found close shade matches. Reply with a shade ID from the options below, or skip.",
-    type: "single_select",
-    options: [
-      ...candidates.map((candidate) => `${candidate.entityId}: ${candidate.display}`),
-      "skip",
-    ],
-  };
 }
 
 async function resolveCaptureSession(session: CaptureSessionRow, userId: number): Promise<ResolverOutcome> {
