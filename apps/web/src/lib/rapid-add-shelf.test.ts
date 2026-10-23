@@ -78,6 +78,44 @@ describe("shelfEntryFromVerdict", () => {
     assert.equal(fresh?.acted, "wishlisted");
   });
 
+  it("maps a near-dupe verdict to a near_dupe entry that needs no second dupe lookup", () => {
+    const entry = shelfEntryFromVerdict(
+      {
+        kind: "near_dupe",
+        display: "Zoya Pixie",
+        shadeId: "5",
+        gtin: "111",
+        hex: "#C0101E",
+        dupeKind: "dupe-owned",
+        dupes: {
+          target: { shadeId: "5", displayHex: "#C0101E", displayHexSource: "vendor", finishes: [] },
+          dupes: [
+            {
+              shadeId: "7",
+              brand: "OPI",
+              name: "Big Apple Red",
+              finishes: [],
+              displayHex: "#C1121F",
+              displayHexSource: "vendor",
+              distance: 0.02,
+              colorGrade: "high",
+              grade: "high",
+              finishCompatibility: "same",
+            },
+          ],
+          dupeCount: 1,
+          highCount: 1,
+          candidateCount: 3,
+        },
+      },
+      ctx,
+    );
+    assert.equal(entry?.key, "gtin:111");
+    assert.equal(entry?.verdict, "near_dupe");
+    assert.deepEqual(entry?.dupe, { grade: "high", name: "OPI Big Apple Red" });
+    assert.equal(entry && shelfNeedsDupeCheck(entry), false);
+  });
+
   it("maps an unknown barcode to not found", () => {
     const e = shelfEntryFromVerdict({ kind: "unknown_barcode", gtin: "999", format: "ean_13" }, ctx);
     assert.deepEqual(

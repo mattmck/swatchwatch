@@ -120,7 +120,7 @@ Roadmap §4 (`docs/roadmap-2026-10-to-12.md`) metrics are measured two ways (dec
 
 | Event | When | Properties |
 |---|---|---|
-| `dupe.warning_shown` | the add guard dialog opens with owned near-dupes | `surface` (`add_form` = adding to the collection, `wishlist` = adding to the wishlist, `rapid_add` = Rapid Add verdict card), `dupeCount`, `bestGrade` (`HIGH` / `MEDIUM`); add-guard extras: `page` (`polishes-list` / `color-search` / `photo-match` / `polish-form-create` / `polish-form-edit` / `looks` = ♡ on a Looks shopping-list step), `intent`, `shade` (catalog id or `new`), `verdict`, `highCount`, `bestFinishCompatibility`, `bestDistance` |
+| `dupe.warning_shown` | the add guard dialog opens with owned near-dupes, or the Rapid Add verdict card turns into "New to you — but close" | `surface` (`add_form` = adding to the collection, `wishlist` = adding to the wishlist, `rapid_add` = Rapid Add verdict card), `dupeCount`, `bestGrade` (`HIGH` / `MEDIUM`); add-guard extras: `page` (`polishes-list` / `color-search` / `photo-match` / `polish-form-create` / `polish-form-edit` / `looks` = ♡ on a Looks shopping-list step, `rapid-add` = the verdict card; the card sends `intent = own`, `via` = `button` / `scan_next` (Cancel) / `dupe_link`), `intent`, `shade` (catalog id or `new`), `verdict`, `highCount`, `bestFinishCompatibility`, `bestDistance` |
 | `dupe.warning_outcome` | the user answers the dialog | the same, plus `outcome` = `cancel` / `wishlist_instead` / `add_anyway`, `via` (`button` / `dismiss` / `dupe_link`), `suppressed` |
 | `mani.logged` | a new mani is saved (not edits) | `polishCount`, `via` (`quick` = one-tap button, `form`) |
 | `import.completed` | a CSV import commits (a retried commit of the same session is not counted again) | `rowsCommitted` (= `created` + `updated`), `created`, `updated`, `skipped`, `failed`, `shadesCreated` |
@@ -137,7 +137,7 @@ Roadmap §4 (`docs/roadmap-2026-10-to-12.md`) metrics are measured two ways (dec
 
 The `looks.*` events back the Looks plan's success metrics (`docs/looks-experience-plan.md` §1): owned-only completion (`fullyOwnedLooks` / `lookCount`), drop-off after a vibe (generated without a later `wear_clicked`), and repeat use. Time-to-first-look is not measured yet.
 
-These replace the add guard's earlier `add_guard.shown` / `add_guard.choice` events; `add_guard.check_failed` stays. Rapid Add has no near-dupe verdict yet (the #265 extension point in `lib/capture-verdict.ts`), so `surface = rapid_add` is reserved: the verdict card should call `trackDupeWarningShown` / `trackDupeWarningOutcome` when it gains one.
+These replace the add guard's earlier `add_guard.shown` / `add_guard.choice` events; `add_guard.check_failed` stays. Rapid Add's verdict card emits the same two events with `surface = rapid_add` when a scanned barcode matches a shade the user doesn't own but owns HIGH/MEDIUM near-dupes of (`withNearDupes` in `lib/capture-verdict.ts`): `warning_shown` when the card appears, `warning_outcome` once per verdict (Add anyway = `add_anyway`, Wishlist instead = `wishlist_instead`, Cancel or a dupe link = `cancel`). The dupe lookup also honours the add guard's "don't warn again this session" flag and reports a failed or slow lookup as `add_guard.check_failed` (`page = rapid-add`).
 
 Dupe funnel (target: > 20% of warnings end in `cancel` or `wishlist_instead`). `itemCount` keeps the numbers right under sampling. A warning closed by leaving the page has no outcome, so `answered` can be lower than `shown`.
 
