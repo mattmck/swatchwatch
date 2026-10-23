@@ -5,6 +5,7 @@
  * re-exports the analysis pieces. Pure; depends only on shared OKLAB.
  */
 import type { CollectionGapAnalysis, CollectionGapCell, HueFamily, LightnessBand } from "../types/palette";
+import { clampOklchToSrgb } from "./gamut";
 import { hexToOklab, oklabToHex } from "./oklab";
 
 export const HUE_FAMILY_ORDER: HueFamily[] = [
@@ -95,13 +96,19 @@ export function classifyHexToGapCell(hex: string): { hueFamily: HueFamily; light
   return { hueFamily: classifyHueFamily(C, h), lightnessBand: classifyLightnessBand(L) };
 }
 
-/** Representative `#RRGGBB` for a cell (OKLCH seeds, so it classifies back into the same cell). */
+/** Target seed chroma before the sRGB gamut clamp. */
+const GAP_SEED_CHROMA = 0.09;
+
+/**
+ * Representative `#RRGGBB` for a cell: the band's L and the family's hue at `GAP_SEED_CHROMA`,
+ * with chroma lowered into the sRGB gamut (L and h kept; plain channel clipping used to shift
+ * dark yellows toward orange) so it classifies back into the same cell.
+ */
 export function gapCellToSeedHex(hueFamily: HueFamily, lightnessBand: LightnessBand): string {
   const hue = GAP_HUE_META[hueFamily].hue;
   const L = GAP_LIGHTNESS_SEED[lightnessBand];
-  const C = hue === null ? 0 : 0.09;
-  const hRad = ((hue ?? 220) * Math.PI) / 180;
-  return oklabToHex({ L, a: C * Math.cos(hRad), b: C * Math.sin(hRad) });
+  if (hue === null) return oklabToHex({ L, a: 0, b: 0 });
+  return oklabToHex(clampOklchToSrgb(L, GAP_SEED_CHROMA, hue));
 }
 
 /** Hue/lightness coverage of the given hexes: all cells (grid order), missing and thin ones. */
