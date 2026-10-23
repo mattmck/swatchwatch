@@ -7,8 +7,8 @@
  * alone. The page loads an ownership snapshot of the collection before finalizing and the
  * verdict compares the matched inventory row against it.
  *
- * Extension point: more verdict kinds come from other features — a near-dupe check (#265)
- * and the wishlist (#261). To add one:
+ * Extension point: more verdict kinds come from other features — the wishlist (#261). The
+ * near-dupe check (#265) is the first: `withNearDupes` upgrades a `checked` verdict. To add one:
  *   1. add its variant to `CaptureVerdict` below,
  *   2. write a `VerdictResolver` that upgrades a base verdict to it and register it in
  *      `DEFAULT_VERDICT_RESOLVERS` (or pass it to `resolveCaptureVerdict`),
@@ -20,9 +20,13 @@ import type {
   CaptureOwnershipRelationship,
   CaptureStatus,
   Polish,
+  PolishDupesResponse,
 } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
+import { resolveAddGuard, shadeGuardKey, type AddGuardOutcome } from "./add-guard";
+import { dupeVerdict, type DupeVerdictKind } from "./dupes";
 import { isOwnedPolish } from "./inventory-status";
+import type { DupeWarningOutcome } from "./metrics-events";
 
 export interface OwnedPolishEntry {
   inventoryItemId: string;
@@ -141,8 +145,32 @@ export interface UnknownBarcodeVerdict {
   format?: string;
 }
 
-// Extension point: NearDupeVerdict (#265) and WishlistVerdict (#261) join this union.
-export type CaptureVerdict = OwnedVerdict | AddedVerdict | AddVerdict | CheckedVerdict | UnknownBarcodeVerdict;
+/**
+ * A scanned barcode matched a shade the caller does not own, but they own HIGH/MEDIUM
+ * near-dupes of it (#265): "New to you — but close". Nothing is added yet; the card offers
+ * Add anyway / Wishlist instead / Cancel. Built from a `checked` verdict by `withNearDupes`.
+ */
+export interface NearDupeVerdict {
+  kind: "near_dupe";
+  display: string;
+  /** The shade the dupes were graded for (always a catalog shade). */
+  shadeId: string;
+  hex?: string;
+  gtin: string;
+  /** The full `GET /api/polishes/{id}/dupes` response (dupes best first). */
+  dupes: PolishDupesResponse;
+  /** `dupe-owned` when the best dupe grades HIGH, `near-dupe-owned` for MEDIUM. */
+  dupeKind: Exclude<DupeVerdictKind, "none">;
+}
+
+// Extension point: WishlistVerdict (#261) joins this union.
+export type CaptureVerdict =
+  | OwnedVerdict
+  | AddedVerdict
+  | AddVerdict
+  | CheckedVerdict
+  | NearDupeVerdict
+  | UnknownBarcodeVerdict;
 export type CaptureVerdictKind = CaptureVerdict["kind"];
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -262,7 +290,7 @@ export type VerdictResolver = (
   context: VerdictContext,
 ) => CaptureVerdict | null | Promise<CaptureVerdict | null>;
 
-/** Registered resolvers. Empty until #265 (near-dupe) and #261 (wishlist) land. */
+/** Registered resolvers (finalize-based verdicts). The near-dupe step (#265) is `resolveNearDupeVerdict`; wishlist (#261) is not built. */
 export const DEFAULT_VERDICT_RESOLVERS: readonly VerdictResolver[] = [];
 
 export async function resolveCaptureVerdict(
@@ -373,4 +401,93 @@ export function scanPrefillFromParams(params: URLSearchParams): {
   const name = params.get("name")?.trim();
   if (name) prefill.name = name.slice(0, 200);
   return prefill;
+}
+
+/** The most dupes the Rapid Add card lists (the API response is already best first). */
+export const NEAR_DUPE_CARD_MAX = 3;
+
+/**
+ * Upgrade a read-only check verdict with the owned near-dupes of the scanned shade (#265): only
+ * a `checked` verdict of a shade the caller neither owns nor wishlists, with a catalog shade id
+ * and at least one HIGH/MEDIUM owned dupe, becomes `near_dupe`. Anything else (including a
+ * missing response, i.e. a failed or skipped check) returns the verdict unchanged.
+ */
+export function withNearDupes(
+  verdict: CaptureVerdict,
+  response: PolishDupesResponse | null | undefined,
+): CaptureVerdict {
+  if (verdict.kind !== "checked" || verdict.relationship !== "notOwned" || !verdict.shadeId) return verdict;
+  const graded = dupeVerdict(response);
+  if (!response || graded.kind === "none") return verdict;
+  const near: NearDupeVerdict = {
+    kind: "near_dupe",
+    display: verdict.display,
+    shadeId: verdict.shadeId,
+    gtin: verdict.gtin,
+    dupes: response,
+    dupeKind: graded.kind,
+  };
+  if (verdict.hex) near.hex = verdict.hex;
+  return near;
+}
+
+/** The plain "you don't own this" verdict behind a near-dupe one (used after Wishlist instead). */
+export function checkedFromNearDupe(verdict: NearDupeVerdict): CheckedVerdict {
+  const checked: CheckedVerdict = {
+    kind: "checked",
+    relationship: "notOwned",
+    display: verdict.display,
+    shadeId: verdict.shadeId,
+    gtin: verdict.gtin,
+  };
+  if (verdict.hex) checked.hex = verdict.hex;
+  return checked;
+}
+
+/** The card's choice → the `dupe.warning_outcome` value (shared with the add guard). */
+export type NearDupeChoice = "cancel" | "wishlist" | "add_anyway";
+
+export const NEAR_DUPE_OUTCOMES: Record<NearDupeChoice, DupeWarningOutcome> = {
+  cancel: "cancel",
+  wishlist: "wishlist_instead",
+  add_anyway: "add_anyway",
+};
+
+export interface NearDupeCheckResult {
+  verdict: CaptureVerdict;
+  /** The dupe lookup answered (with or without dupes), so nobody needs to ask again. */
+  answered: boolean;
+  /** Set when the lookup failed or timed out; the plain verdict is shown. */
+  failure?: Extract<AddGuardOutcome, { kind: "proceed-unchecked" }>;
+}
+
+/**
+ * The near-dupe step of a scan: for a `checked` shade the caller neither owns nor wishlists, ask
+ * for its owned dupes (one call, `ADD_GUARD_TIMEOUT_MS`, never throws) and upgrade the verdict.
+ * Honours the add guard's "don't warn me again this session" flag. Every other verdict passes
+ * through untouched with no call.
+ */
+export async function resolveNearDupeVerdict(
+  verdict: CaptureVerdict,
+  input: {
+    suppressed: ReadonlySet<string>;
+    loadDupes: (shadeId: string) => Promise<PolishDupesResponse>;
+    timeoutMs?: number;
+  },
+): Promise<NearDupeCheckResult> {
+  if (verdict.kind !== "checked" || verdict.relationship !== "notOwned" || !verdict.shadeId) {
+    return { verdict, answered: false };
+  }
+  const shadeId = verdict.shadeId;
+  const outcome = await resolveAddGuard({
+    status: null,
+    intent: "own",
+    guardKey: shadeGuardKey(shadeId),
+    suppressed: input.suppressed,
+    loadDupes: () => input.loadDupes(shadeId),
+    timeoutMs: input.timeoutMs,
+  });
+  if (outcome.kind === "warn") return { verdict: withNearDupes(verdict, outcome.response), answered: true };
+  if (outcome.kind === "proceed-unchecked") return { verdict, answered: false, failure: outcome };
+  return { verdict, answered: outcome.reason === "no-dupes" };
 }

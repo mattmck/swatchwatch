@@ -103,6 +103,27 @@ export function shelfEntryFromVerdict(
       if (verdict.wishlistedNow) entry.acted = "wishlisted";
       return entry;
     }
+    case "near_dupe": {
+      const key = shelfEntryKey({ gtin: verdict.gtin || undefined, captureId: context.captureId });
+      if (!key) return null;
+      const entry: ShelfEntry = {
+        ...base,
+        key,
+        verdict: "near_dupe",
+        display: verdict.display,
+        shadeId: verdict.shadeId,
+      };
+      if (verdict.gtin) entry.gtin = verdict.gtin;
+      if (verdict.hex) entry.hex = verdict.hex;
+      const dupe = shelfDupeFromHint({
+        shadeId: verdict.shadeId,
+        best: verdict.dupes.dupes[0] ?? null,
+        dupeCount: verdict.dupes.dupeCount,
+        highCount: verdict.dupes.highCount,
+      });
+      if (dupe) entry.dupe = dupe;
+      return entry;
+    }
     case "unknown_barcode": {
       const entry: ShelfEntry = { ...base, key: `gtin:${verdict.gtin}`, gtin: verdict.gtin, verdict: "not_found" };
       if (verdict.format) entry.format = verdict.format;
