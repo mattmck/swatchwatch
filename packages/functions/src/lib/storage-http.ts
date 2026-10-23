@@ -9,11 +9,11 @@
  * sockets per origin; extra requests wait in the Agent's queue instead of opening new sockets.
  * Source image downloads (vendor CDNs) keep using the global dispatcher.
  *
- * The Agent is passed to the global fetch as `dispatcher`, so the `undici` dependency must stay on
- * the same major version as the undici bundled with the Node runtime (Node 22 → undici 6; a unit
- * test checks this).
+ * Requests use the `undici` package's own `fetch` with its own Agent rather than Node's global
+ * fetch: an Agent from the npm package only works as the global fetch's `dispatcher` when both are
+ * the same undici major, and Node 22 (prod) bundles undici 6 while Node 24 (CI) bundles undici 7.
  */
-import { Agent } from "undici";
+import { Agent, fetch as undiciFetch } from "undici";
 
 export const BLOB_STORAGE_HTTP_DEFAULTS = {
   maxConnections: 16,
@@ -42,6 +42,17 @@ export function resolveBlobStorageMaxConnections(env: NodeJS.ProcessEnv = proces
 export const blobStorageRetry: { attempts: number; baseDelayMs: number } = {
   attempts: 3,
   baseDelayMs: 500,
+};
+
+/**
+ * How storage requests are sent: `fetch(url, init)` with `init.dispatcher` set to the pooled Agent.
+ * Defaults to undici's fetch; unit tests point it at their `global.fetch` stub (no network).
+ */
+export const blobStorageTransport: {
+  fetch: (url: string, init: RequestInit & { dispatcher: Agent }) => Promise<Response>;
+} = {
+  fetch: (url, init) =>
+    undiciFetch(url, init as unknown as Parameters<typeof undiciFetch>[1]) as unknown as Promise<Response>,
 };
 
 let dispatcher: Agent | null = null;

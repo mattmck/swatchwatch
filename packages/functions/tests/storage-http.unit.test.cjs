@@ -3,14 +3,14 @@
  *
  * Covers:
  * - BLOB_STORAGE_MAX_CONNECTIONS parsing and clamping
- * - the `undici` dependency matches the Node runtime's bundled undici major (dispatcher compatibility)
+ * - the default transport (undici's fetch + pooled Agent) works on this Node, against a loopback server
  * - every storage request goes through the shared pooled Agent; source downloads do not
  * - blob PUT and HEAD are retried on connect timeouts / refused connections, DELETE is not
  * - non-GET response bodies are consumed so sockets return to the pool
  * - variants are written one at a time
  * - uploadSourceImageToBlob failures name the failed step and host (SourceImageUploadError)
  *
- * No network: global.fetch is stubbed.
+ * No network: global.fetch is stubbed (and the storage transport pointed at it); one test uses loopback.
  */
 const { describe, it, afterEach, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
@@ -21,6 +21,7 @@ const {
   getBlobStorageDispatcher,
   resetBlobStorageDispatcherForTests,
   blobStorageRetry,
+  blobStorageTransport,
   BLOB_STORAGE_HTTP_DEFAULTS,
 } = require("../dist/lib/storage-http");
 const {
@@ -33,6 +34,9 @@ const {
 const { describeImageStoreFailure } = require("../dist/lib/image-store-error");
 
 blobStorageRetry.baseDelayMs = 0;
+const defaultTransportFetch = blobStorageTransport.fetch;
+// Storage requests go to the stubbed global.fetch below (lib/storage-http's test seam).
+blobStorageTransport.fetch = (url, init) => global.fetch(url, init);
 
 const CONNECTION = `DefaultEndpointsProtocol=https;AccountName=testacct;AccountKey=${Buffer.from(
   "test-key"
@@ -78,13 +82,37 @@ describe("lib/storage-http — resolveBlobStorageMaxConnections", () => {
 describe("lib/storage-http — dispatcher", () => {
   afterEach(() => resetBlobStorageDispatcherForTests());
 
-  it("uses the same undici major as the Node runtime's fetch", () => {
-    const installed = require("undici/package.json").version;
-    assert.equal(
-      installed.split(".")[0],
-      process.versions.undici.split(".")[0],
-      `undici ${installed} vs Node's bundled undici ${process.versions.undici}`
-    );
+  it("sends real requests through undici's fetch and the pooled Agent, not global.fetch", async () => {
+    // Loopback only: proves undici's fetch + Agent work on this Node version (Node 22 and 24
+    // bundle different undici majors) without going through the stubbed global fetch.
+    const http = require("node:http");
+    const server = http.createServer((req, res) => {
+      res.writeHead(201, { "x-method": req.method });
+      res.end("created");
+    });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const stubbedFetch = global.fetch;
+    let globalCalls = 0;
+    global.fetch = async () => {
+      globalCalls += 1;
+      throw new Error("global fetch must not be used");
+    };
+    try {
+      const { port } = server.address();
+      const response = await defaultTransportFetch(`http://127.0.0.1:${port}/c/b`, {
+        method: "PUT",
+        body: new Uint8Array([1, 2, 3]),
+        dispatcher: getBlobStorageDispatcher(20000),
+      });
+      assert.equal(response.status, 201);
+      assert.equal(response.headers.get("x-method"), "PUT");
+      assert.equal(await response.text(), "created");
+      assert.equal(globalCalls, 0);
+    } finally {
+      global.fetch = stubbedFetch;
+      await resetBlobStorageDispatcherForTests();
+      await new Promise((resolve) => server.close(resolve));
+    }
   });
 
   it("is one shared Agent until reset", async () => {

@@ -31,6 +31,8 @@ const {
   UPLOAD_LIMITS,
 } = require("../dist/lib/blob-storage");
 
+// Blob Storage requests use lib/storage-http's transport; send them to the stubbed global.fetch.
+require("../dist/lib/storage-http").blobStorageTransport.fetch = (url, init) => global.fetch(url, init);
 // Storage PUT/HEAD retries (lib/storage-http) without the backoff, so failure cases stay fast.
 require("../dist/lib/storage-http").blobStorageRetry.baseDelayMs = 0;
 

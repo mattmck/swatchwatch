@@ -10,7 +10,7 @@ import {
   planImageVariantCrop,
   renderImageVariant,
 } from "./image-variants";
-import { blobStorageRetry, getBlobStorageDispatcher } from "./storage-http";
+import { blobStorageRetry, blobStorageTransport, getBlobStorageDispatcher } from "./storage-http";
 import { SourceImageUploadError, type SourceImageUploadStep } from "./image-store-error";
 
 const AZURE_STORAGE_API_VERSION = "2023-11-03";
@@ -424,12 +424,12 @@ async function sendStorageRequest(
         requestHeaders
       );
     }
-    const response = await fetch(finalizedUrl.toString(), {
+    const response = await blobStorageTransport.fetch(finalizedUrl.toString(), {
       method,
       headers: requestHeaders,
       body: requestBody,
       dispatcher: getBlobStorageDispatcher(REQUEST_TIMEOUT_MS),
-    } as RequestInit);
+    });
     return method === "GET" ? response : bufferBody(response);
   };
 
