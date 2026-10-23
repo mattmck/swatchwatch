@@ -1250,6 +1250,22 @@ export async function runProductCategoryBackfill(
   return handleResponse<ProductCategoryBackfillReport>(response);
 }
 
+/**
+ * One batch of a keyset-paginated admin backfill (`POST /api/<path>`, e.g.
+ * `images-admin/variants/backfill`); the admin console's Backfills tab loops over the reports.
+ */
+export async function runAdminBackfillBatch(
+  path: string,
+  body: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const response = await fetch(`${API_BASE_URL}/${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(body),
+  });
+  return handleResponse<Record<string, unknown>>(response);
+}
+
 /** Browse shades by product category (`GET /api/shades-admin/product-category`). */
 export async function listShadesByProductCategory(params?: {
   categories?: ProductCategory[];

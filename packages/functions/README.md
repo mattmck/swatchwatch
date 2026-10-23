@@ -184,6 +184,9 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `POST` | `/api/images-admin/variants/backfill` | `backfillImageVariants` | `image-variants-admin.ts` | ✅ Working (admin-only; one keyset batch of catalog thumbnail backfill) |
 | `POST` | `/api/images-admin/gallery-dedupe` | `dedupeGalleryImages` | `gallery-dedupe-admin.ts` | ✅ Working (admin-only; one keyset batch of the duplicate gallery image cleanup, dry run by default; also backfills `image_asset` perceptual fingerprints) |
 | `POST` | `/api/barcodes-admin/backfill` | `backfillBarcodes` | `barcodes-admin.ts` | ✅ Working (admin-only; one keyset batch building catalog `barcode` rows from stored connector products, dry run by default, #21) |
+| `POST` | `/api/products-admin/text/backfill` | `backfillProductText` | `product-data-admin.ts` | ✅ Working (admin-only; one keyset batch of the product text backfill, dry run by default, #352) |
+| `POST` | `/api/shades-admin/finishes/backfill` | `backfillShadeFinishes` | `product-data-admin.ts` | ✅ Working (admin-only; one keyset batch filling empty `shade.finishes` from the linked product, dry run by default, #352) |
+| `POST` | `/api/products-admin/price/backfill` | `backfillProductPrice` | `product-data-admin.ts` | ✅ Working (admin-only; one keyset batch of the product price backfill, dry run by default) |
 | `GET` | `/api/inventory/{inventoryItemId}/nail-photo` | `getNailPhoto` | `nail-photos.ts` | ✅ Working (owner only; `{ photo: NailPhoto \| null }`) |
 | `PUT` | `/api/inventory/{inventoryItemId}/nail-photo` | `putNailPhoto` | `nail-photos.ts` | ✅ Working (owner only; upload/replace, EXIF stripped) |
 | `DELETE` | `/api/inventory/{inventoryItemId}/nail-photo` | `deleteNailPhoto` | `nail-photos.ts` | ✅ Working (owner only; 204, idempotent) |
@@ -390,6 +393,14 @@ npm run backfill:product-price --workspace=swatchwatch-functions -- --source Moo
 npm run backfill:product-price --workspace=swatchwatch-functions -- --no-fetch-currency           # never call /meta.json
 npm run backfill:product-price --workspace=swatchwatch-functions -- --write
 ```
+
+**From the admin console.** Both scripts above are loops over one-page steps (`lib/product-text-backfill.ts`, `lib/product-price-backfill.ts`) that the admin console's Backfills tab (`/admin?tab=backfills`) also runs, one page per request, through `product-data-admin.ts` (admin-only, dry run unless `"dryRun": false`):
+
+- `POST /api/products-admin/text/backfill`: body `{ afterExternalProductId?: 0, limit?: 500 (1–1000), dryRun?: true, sources?: string[] }` → `{ dryRun, scanned, changed, written, bySource, nextAfterExternalProductId }`.
+- `POST /api/shades-admin/finishes/backfill`: body `{ afterShadeId?: 0, limit?, dryRun?, sources? }` → `{ dryRun, scanned, fillable, filled, fillableBySource, coverage? (first batch only: totalShades, emptyFinishes, emptyFinishesLinked), nextAfterShadeId }`; writes drop the catalog-wide caches (`invalidateCatalogWideCaches` in `lib/polish-cache.ts`).
+- `POST /api/products-admin/price/backfill`: body as product text plus `fetchCurrency?: true` → `{ dryRun, scanned, changed, written, pricedWithCurrency, pricedWithoutCurrency, bySource, currencies, nextAfterExternalProductId }`; store currencies are resolved once per request (so a `/meta.json` lookup can repeat per batch); writes drop the catalog-wide caches.
+
+The caller repeats with `nextAfter…Id` until it is null. The tab also runs the existing batch endpoints for image variants, barcodes and gallery dedupe.
 
 `src/scripts/backfill-product-price.ts` reads `external_product` in keyset pages (`--batch-size`, default 500; `--limit`) and merges `{ price, currency }` into `normalized_json` (`fetched_at` untouched) only where the stored values differ. Per Shopify source the currency is `data_source.metadata.currency`, else the currency newer ingestion runs already stored on that source's products, else the shop's `/meta.json` (skipped with `--no-fetch-currency`); a currency already stored on a row is never cleared. The summary counts rows that end up priced with and without a currency. It needs Postgres (loads `local.settings.json` like the eval scripts).
 

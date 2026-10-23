@@ -2,7 +2,9 @@
 /**
  * Backfill `price` / `currency` into `external_product.normalized_json` from `raw_json`, using
  * the same helpers the connectors use (lib/product-price.ts), so the buy link can show the
- * brand's list price for products ingested before prices were stored.
+ * brand's list price for products ingested before prices were stored. The rules and the
+ * per-page step live in lib/product-price-backfill.ts (shared with the admin console's Backfills
+ * tab); this script loops over every page in one process.
  *
  *   npm run backfill:product-price --workspace=swatchwatch-functions                  # dry run (default)
  *   npm run backfill:product-price --workspace=swatchwatch-functions -- --source HoloTacoShopify,MakeupAPI
@@ -19,12 +21,12 @@
  */
 import { closePool, query } from "../lib/db";
 import {
-  fetchShopifyStoreCurrency,
-  normalizeCurrencyCode,
-  normalizePriceAmount,
-  productPriceFromRaw,
-  type ProductPrice,
-} from "../lib/product-price";
+  createStoreCurrencyResolver,
+  runProductPriceBatch,
+  type FetchStoreCurrency,
+  type StoreCurrencyResolver,
+} from "../lib/product-price-backfill";
+import type { BackfillQueryFn } from "../lib/product-text-backfill";
 import { loadLocalSettings } from "../eval/hex/env";
 
 export const USAGE = `Usage: backfill:product-price -- [options]
@@ -112,86 +114,7 @@ export function parseBackfillArgs(argv: readonly string[]): BackfillArgs {
   return args;
 }
 
-// ── Pure planning ───────────────────────────────────────────────────────────
-
-function asObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-}
-
-/**
- * The `{price, currency}` patch for one product row, or `null` when the stored values already
- * match (or the source has no prices). A valid stored currency is kept when the store currency
- * is unknown now, so a backfill never undoes what ingestion learned.
- */
-export function planProductPricePatch(
-  sourceName: string,
-  raw: unknown,
-  normalized: unknown,
-  storeCurrency: string | null
-): ProductPrice | null {
-  const derived = productPriceFromRaw(sourceName, raw, storeCurrency);
-  if (!derived) return null;
-  const stored = asObject(normalized);
-  const next: ProductPrice = {
-    price: derived.price,
-    currency: derived.price === null ? null : derived.currency ?? normalizeCurrencyCode(stored.currency),
-  };
-  // Exact match only: an unnormalized stored value ("10.0", "cad") gets rewritten.
-  const same = "price" in stored && "currency" in stored && stored.price === next.price && stored.currency === next.currency;
-  return same ? null : next;
-}
-
-// ── DB ──────────────────────────────────────────────────────────────────────
-
-type QueryFn = <T = Record<string, unknown>>(text: string, params?: unknown[]) => Promise<{ rows: T[] }>;
-type FetchCurrency = (baseUrl: string) => Promise<string | null>;
-
-interface ProductRow {
-  externalProductId: string;
-  sourceName: string;
-  rawJson: unknown;
-  normalizedJson: unknown;
-}
-
-interface SourceRow {
-  name: string;
-  baseUrl: string | null;
-  configuredCurrency: string | null;
-  /** Most common currency newer ingestion runs stored on this source's products. */
-  storedCurrency: string | null;
-}
-
-const READ_PRODUCTS_SQL = `SELECT ep.external_product_id::text AS "externalProductId",
-       ds.name AS "sourceName",
-       ep.raw_json AS "rawJson",
-       ep.normalized_json AS "normalizedJson"
-     FROM external_product ep
-     JOIN data_source ds ON ds.data_source_id = ep.data_source_id
-     WHERE ep.external_product_id > $1::bigint
-       AND ($2::text[] IS NULL OR ds.name = ANY($2::text[]))
-     ORDER BY ep.external_product_id
-     LIMIT $3`;
-
-const READ_SOURCE_SQL = `SELECT ds.name,
-       ds.base_url AS "baseUrl",
-       ds.metadata ->> 'currency' AS "configuredCurrency",
-       (SELECT ep.normalized_json ->> 'currency'
-          FROM external_product ep
-         WHERE ep.data_source_id = ds.data_source_id
-           AND NULLIF(ep.normalized_json ->> 'currency', '') IS NOT NULL
-         GROUP BY 1
-         ORDER BY count(*) DESC, 1
-         LIMIT 1) AS "storedCurrency"
-     FROM data_source ds
-     WHERE ds.name = $1
-     LIMIT 1`;
-
-const WRITE_PRODUCT_PRICE_SQL = `UPDATE external_product ep
-     SET normalized_json = COALESCE(ep.normalized_json, '{}'::jsonb) || v.patch
-     FROM (SELECT unnest($1::bigint[]) AS id, unnest($2::jsonb[]) AS patch) v
-     WHERE ep.external_product_id = v.id`;
-
-export type CurrencyOrigin = "source_metadata" | "stored" | "shop_meta" | "unknown" | "not_needed";
+export { planProductPricePatch, type CurrencyOrigin } from "../lib/product-price-backfill";
 
 export interface BackfillSummary {
   mode: "dry-run" | "write";
@@ -205,86 +128,45 @@ export interface BackfillSummary {
     pricedWithoutCurrency: number;
     bySource: Record<string, number>;
   };
-  currencies: Record<string, { currency: string | null; origin: CurrencyOrigin }>;
-}
-
-function bump(counter: Record<string, number>, key: string): void {
-  counter[key] = (counter[key] ?? 0) + 1;
+  currencies: StoreCurrencyResolver["currencies"];
 }
 
 export async function runBackfill(
   args: BackfillArgs,
-  deps: { query: QueryFn; log?: (line: string) => void; fetchCurrency?: FetchCurrency }
+  deps: { query: BackfillQueryFn; log?: (line: string) => void; fetchCurrency?: FetchStoreCurrency }
 ): Promise<BackfillSummary> {
   const log = deps.log ?? ((line: string) => console.log(line));
-  const fetchCurrency = deps.fetchCurrency ?? ((baseUrl: string) => fetchShopifyStoreCurrency(baseUrl));
+  const resolver = createStoreCurrencyResolver(deps.query, {
+    fetchCurrency: args.fetchCurrency,
+    fetchStoreCurrency: deps.fetchCurrency,
+  });
   const summary: BackfillSummary = {
     mode: args.write ? "write" : "dry-run",
     products: { scanned: 0, changed: 0, written: 0, pricedWithCurrency: 0, pricedWithoutCurrency: 0, bySource: {} },
-    currencies: {},
-  };
-
-  const currencyBySource = new Map<string, Promise<string | null>>();
-  const storeCurrencyFor = (sourceName: string): Promise<string | null> => {
-    let pending = currencyBySource.get(sourceName);
-    if (!pending) {
-      pending = (async () => {
-        if (!sourceName.endsWith("Shopify")) {
-          summary.currencies[sourceName] = { currency: null, origin: "not_needed" };
-          return null;
-        }
-        const source = (await deps.query<SourceRow>(READ_SOURCE_SQL, [sourceName])).rows[0];
-        const configured = normalizeCurrencyCode(source?.configuredCurrency);
-        const stored = normalizeCurrencyCode(source?.storedCurrency);
-        let origin: CurrencyOrigin = "unknown";
-        let currency: string | null = null;
-        if (configured) [currency, origin] = [configured, "source_metadata"];
-        else if (stored) [currency, origin] = [stored, "stored"];
-        else if (args.fetchCurrency && source?.baseUrl) {
-          currency = normalizeCurrencyCode(await fetchCurrency(source.baseUrl));
-          if (currency) origin = "shop_meta";
-        }
-        summary.currencies[sourceName] = { currency, origin };
-        return currency;
-      })();
-      currencyBySource.set(sourceName, pending);
-    }
-    return pending;
+    currencies: resolver.currencies,
   };
 
   let cursor = "0";
   for (;;) {
     const remaining = args.limit === null ? args.batchSize : Math.min(args.batchSize, args.limit - summary.products.scanned);
     if (remaining <= 0) break;
-    const { rows } = await deps.query<ProductRow>(READ_PRODUCTS_SQL, [cursor, args.sources, remaining]);
-    if (rows.length === 0) break;
-    const ids: string[] = [];
-    const patches: string[] = [];
-    for (const row of rows) {
-      summary.products.scanned += 1;
-      const storeCurrency = await storeCurrencyFor(row.sourceName);
-      const patch = planProductPricePatch(row.sourceName, row.rawJson, row.normalizedJson, storeCurrency);
-      // What the row holds after this run (the patch, or the stored values it already matches).
-      const final = patch ?? asObject(row.normalizedJson);
-      if (normalizePriceAmount(final.price)) {
-        if (normalizeCurrencyCode(final.currency)) summary.products.pricedWithCurrency += 1;
-        else summary.products.pricedWithoutCurrency += 1;
-      }
-      if (!patch) continue;
-      summary.products.changed += 1;
-      bump(summary.products.bySource, row.sourceName);
-      ids.push(row.externalProductId);
-      patches.push(JSON.stringify(patch));
-      if (args.verbose) {
-        log(`  product ${row.externalProductId} (${row.sourceName}): ${patch.price ?? "no price"} ${patch.currency ?? ""}`.trimEnd());
-      }
+    const batch = await runProductPriceBatch(deps.query, resolver, {
+      afterExternalProductId: cursor,
+      limit: remaining,
+      sources: args.sources,
+      write: args.write,
+      onChange: args.verbose ? log : undefined,
+    });
+    summary.products.scanned += batch.scanned;
+    summary.products.changed += batch.changed;
+    summary.products.written += batch.written;
+    summary.products.pricedWithCurrency += batch.pricedWithCurrency;
+    summary.products.pricedWithoutCurrency += batch.pricedWithoutCurrency;
+    for (const [source, count] of Object.entries(batch.bySource)) {
+      summary.products.bySource[source] = (summary.products.bySource[source] ?? 0) + count;
     }
-    if (args.write && ids.length > 0) {
-      await deps.query(WRITE_PRODUCT_PRICE_SQL, [ids, patches]);
-      summary.products.written += ids.length;
-    }
-    cursor = rows[rows.length - 1].externalProductId;
-    if (rows.length < remaining) break;
+    if (batch.nextAfterExternalProductId === null) break;
+    cursor = batch.nextAfterExternalProductId;
   }
 
   const verb = args.write ? "updated" : "would update";
@@ -318,7 +200,7 @@ export async function main(argv: string[]): Promise<number> {
   }
 
   try {
-    const summary = await runBackfill(args, { query: query as unknown as QueryFn });
+    const summary = await runBackfill(args, { query: query as unknown as BackfillQueryFn });
     console.log(JSON.stringify(summary));
     return 0;
   } finally {
