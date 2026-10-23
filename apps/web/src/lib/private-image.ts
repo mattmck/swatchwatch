@@ -90,7 +90,8 @@ export function classifyPrivateImageResponse(status: number): PrivateImageOutcom
 
 export interface PrivateImageLoaderDeps {
   fetch: (input: string, init: RequestInit) => Promise<Response>;
-  getHeaders: () => Promise<Record<string, string>>;
+  /** Auth headers for the fetch; `admin` asks for the admin token, as admin API calls do. */
+  getHeaders: (options: { admin: boolean }) => Promise<Record<string, string>>;
   createObjectURL: (blob: Blob) => string;
   revokeObjectURL: (objectUrl: string) => void;
 }
@@ -98,10 +99,19 @@ export interface PrivateImageLoaderDeps {
 function defaultLoaderDeps(): PrivateImageLoaderDeps {
   return {
     fetch: (input, init) => fetch(input, init),
-    getHeaders: () => getAuthHeaders(),
+    getHeaders: (options) => getAuthHeaders(options),
     createObjectURL: (blob) => URL.createObjectURL(blob),
     revokeObjectURL: (objectUrl) => URL.revokeObjectURL(objectUrl),
   };
+}
+
+export interface PrivateImageLoadOptions {
+  /**
+   * Fetch with the admin token (`getAuthHeaders({ admin: true })`) for media an admin uploaded
+   * through an admin API, such as Bottle Eval frames. It only differs from the default under dev
+   * bypass, where admin calls use `NEXT_PUBLIC_AUTH_DEV_ADMIN_USER_ID`; a real session has one token.
+   */
+  admin?: boolean;
 }
 
 export interface PrivateImageLoad {
@@ -120,7 +130,8 @@ export interface PrivateImageLoad {
 export function loadPrivateImage(
   url: string,
   onSettled: (state: PrivateImageState) => void,
-  deps: PrivateImageLoaderDeps = defaultLoaderDeps()
+  deps: PrivateImageLoaderDeps = defaultLoaderDeps(),
+  options: PrivateImageLoadOptions = {}
 ): PrivateImageLoad {
   const controller = new AbortController();
   let disposed = false;
@@ -128,7 +139,7 @@ export function loadPrivateImage(
 
   const done = (async () => {
     try {
-      const headers = await deps.getHeaders();
+      const headers = await deps.getHeaders({ admin: options.admin === true });
       if (disposed) return;
       const response = await deps.fetch(url, { headers, signal: controller.signal });
       if (disposed) return;
@@ -172,20 +183,29 @@ export function loadPrivateImage(
  * URL is revoked when `url` changes or the component unmounts, and responses
  * for a previous `url` are ignored.
  */
-export function usePrivateImage(url: string | null | undefined): PrivateImageState {
+export function usePrivateImage(
+  url: string | null | undefined,
+  options: PrivateImageLoadOptions = {}
+): PrivateImageState {
   const privateUrl = url && isPrivateImageUrl(url) ? url : null;
+  const admin = options.admin === true;
   const [settled, setSettled] = useState<{ url: string; state: PrivateImageState } | null>(null);
 
   useEffect(() => {
     if (!privateUrl) return;
-    const load = loadPrivateImage(privateUrl, (state) => setSettled({ url: privateUrl, state }));
+    const load = loadPrivateImage(
+      privateUrl,
+      (state) => setSettled({ url: privateUrl, state }),
+      undefined,
+      { admin }
+    );
     return () => {
       load.dispose();
       // Drop the (now revoked) object URL so a later return to this url
       // shows `loading` instead of a dead blob reference.
       setSettled((current) => (current?.url === privateUrl ? null : current));
     };
-  }, [privateUrl]);
+  }, [privateUrl, admin]);
 
   if (!privateUrl) return IDLE_STATE;
   if (!settled || settled.url !== privateUrl) return LOADING_STATE;

@@ -10,6 +10,8 @@ interface PrivateImageProps {
   className?: string;
   /** Rendered when a private image is denied (401/403) or fails to load. */
   fallback?: ReactNode;
+  /** Fetch with the admin token (admin-uploaded media, e.g. Bottle Eval frames); default false. */
+  admin?: boolean;
 }
 
 /**
@@ -17,9 +19,9 @@ interface PrivateImageProps {
  * Public URLs render as a plain `<img>`; private ones are fetched with the
  * bearer token and shown through an object URL. See `usePrivateImage`.
  */
-export function PrivateImage({ src, alt, className, fallback }: PrivateImageProps) {
+export function PrivateImage({ src, alt, className, fallback, admin = false }: PrivateImageProps) {
   const isPrivate = isPrivateImageUrl(src);
-  const { status, objectUrl } = usePrivateImage(isPrivate ? src : null);
+  const { status, objectUrl } = usePrivateImage(isPrivate ? src : null, { admin });
 
   if (!isPrivate) {
     // Plain <img>, matching the app's `unoptimized` image usage.

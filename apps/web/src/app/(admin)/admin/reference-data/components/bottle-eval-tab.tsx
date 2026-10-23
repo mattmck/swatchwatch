@@ -632,6 +632,7 @@ function RecentSamples({
                         <li key={frame.frameId} className="relative size-16 overflow-hidden rounded-md border">
                           {frame.imageUrl ? (
                             <PrivateImage
+                              admin
                               src={frame.imageUrl}
                               alt={`${SURFACE_LABEL[frame.surface]} photo`}
                               className="size-full object-cover"
