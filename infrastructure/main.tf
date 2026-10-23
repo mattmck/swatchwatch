@@ -930,10 +930,9 @@ resource "azurerm_linux_function_app" "main" {
       node_version = "22"
     }
 
-    cors {
-      allowed_origins     = local.function_cors_allowed_origins
-      support_credentials = false
-    }
+    # No cors block: the app's withCors (packages/functions/src/lib/http.ts, driven by the
+    # CORS_* settings below) is the only CORS layer. Platform CORS would answer preflights itself,
+    # echo any requested method/headers and drop the app's headers (Request-Context exposure).
   }
 
   app_settings = {

@@ -47,7 +47,7 @@ export async function getCollectionStats(
 }
 
 app.http("stats-collection", {
-  methods: ["GET"],
+  methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   route: "stats/collection",
   handler: withCors(withAuth(getCollectionStats)),

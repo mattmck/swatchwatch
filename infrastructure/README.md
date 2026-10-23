@@ -113,6 +113,19 @@ An Azure OpenAI account's `location` is immutable, so a plan with a different re
 
 To move or recreate an account on purpose: change the environment's `OPENAI_LOCATION` / `OPENAI_REGIONS` first, **and** update the hardcoded `openai_location` in the committed callers (`deploy-prod.yml` and `deploy-infra-prod.yml` for prod, `deploy-infra-dev.yml` for dev). Those callers pass their old region as the input on every push, and rule 2 fails a run whose input differs from the variable, so a push-triggered deploy would break after the move (or, with `allow_openai_replace`, move it back). Then dispatch `Deploy Infrastructure` with `allow_openai_replace: true`, and update the Function App's `AZURE_OPENAI_*` settings (Terraform rewires them from the new primary account).
 
+### Function App CORS
+
+The Functions code is the only CORS layer: `withCors` in `packages/functions/src/lib/http.ts` answers preflights and sets the CORS headers from the `CORS_*` app settings (`CORS_ALLOWED_ORIGINS` = `local.function_cors_allowed_origins`: the environment's web origins, `http://localhost:3000` outside prod, and `https://*.azurestaticapps.net`). `azurerm_linux_function_app.main` has no `site_config.cors` block on purpose: App Service platform CORS takes precedence over the app, echoes whatever method and headers a preflight asks for and drops the app's headers (`Access-Control-Expose-Headers: Request-Context`). With the platform layer gone the Functions host answers `OPTIONS` only on routes that list it, so every HTTP route registers `"OPTIONS"` and wraps its handler in `withCors` (`tests/http-routes.unit.test.cjs` enforces both).
+
+After an apply that changes CORS, check the live app before relying on it:
+
+```bash
+az functionapp cors show -g <resource-group> -n <function-app>   # expect no allowedOrigins
+curl -si -X OPTIONS -H 'Origin: https://dev.swatchwatch.app' -H 'Access-Control-Request-Method: PATCH' -H 'Access-Control-Request-Headers: authorization,content-type' https://<function-app>.azurewebsites.net/api/polishes
+```
+
+The preflight should return 204 with the app's fixed `Access-Control-Allow-Methods` (`GET,POST,PUT,PATCH,DELETE,OPTIONS`), `Access-Control-Allow-Headers`, `Access-Control-Expose-Headers: Request-Context` and `Vary: Origin`; an origin outside the list gets a 204 without `Access-Control-Allow-Origin`. If `cors show` still lists origins after the apply, clear them with `az functionapp cors remove -g <resource-group> -n <function-app> --allowed-origins <each origin>` (the next plan would otherwise keep proposing the removal).
+
 ## Resources Provisioned
 
 | Resource | Terraform Resource | Purpose |
@@ -143,7 +156,7 @@ To move or recreate an account on purpose: change the environment's `OPENAI_LOCA
 | Availability tests *(alerts)* | `azurerm_application_insights_standard_web_test.availability["web"\|"api"]` | Standard tests every `availability_test_frequency_seconds` from `availability_test_locations`: web home page (custom domain) and `GET /api/reference/finishes`; expect 200 and an SSL cert valid for 7+ days. Billed per execution |
 | Availability alerts *(alerts)* | `azurerm_monitor_metric_alert.availability["web"\|"api"]` | Fires when 2+ test locations fail (sev 1) |
 | App Service Plan | `azurerm_service_plan.main` | Linux Consumption plan (Y1) |
-| Function App | `azurerm_linux_function_app.main` | Node 22 function host (Managed Identity enabled) |
+| Function App | `azurerm_linux_function_app.main` | Node 22 function host (Managed Identity enabled); no platform CORS, the app's `withCors` owns CORS (see [Function App CORS](#function-app-cors)) |
 | Static Web App | `azurerm_static_web_app.main` | Next.js frontend (Standard tier) |
 | Document Intelligence *(optional)* | `azurerm_cognitive_account.document_intelligence` | Server-side OCR for capture pipeline label/barcode extraction (`enable_document_intelligence=true`) |
 | Speech Services | `azurerm_cognitive_account.speech` | Speech-to-text for voice input |
@@ -209,9 +222,9 @@ To move or recreate an account on purpose: change the environment's `OPENAI_LOCA
 | `ingestion_ai_batch_max_poll_jobs` | `10` | Function App setting `INGESTION_AI_BATCH_MAX_POLL_JOBS` per poll run |
 | `capture_frame_sweep_schedule` | `0 0 * * * *` | Function App setting `CAPTURE_FRAME_SWEEP_SCHEDULE` — NCRONTAB schedule of the capture-frame-sweep timer that deletes Rapid Add frame blobs past their retention |
 | `capture_frame_retention_seconds` | `86400` | Function App setting `CAPTURE_FRAME_RETENTION_SECONDS` — Age (seconds since image_asset.captured_at) after which the capture-frame sweep deletes a frame's blob, 3600-604800 |
-| `cors_allowed_methods` | `GET,POST,PUT,PATCH,DELETE,OPTIONS` | Function App setting `CORS_ALLOWED_METHODS` — Access-Control-Allow-Methods sent by the API (lib/http.ts) (only effective locally: while the Function App's `site_config.cors` block is set, App Service CORS answers preflights and sets the CORS headers, and the app's own CORS headers are dropped) |
-| `cors_allowed_headers` | `Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context` | Function App setting `CORS_ALLOWED_HEADERS` — Access-Control-Allow-Headers sent by the API; keep the trace headers so browser telemetry can correlate (only effective locally: while the Function App's `site_config.cors` block is set, App Service CORS answers preflights and sets the CORS headers, and the app's own CORS headers are dropped) |
-| `cors_support_credentials` | `false` | Function App setting `CORS_SUPPORT_CREDENTIALS` — Add Access-Control-Allow-Credentials for matched origins (only effective locally: while the Function App's `site_config.cors` block is set, App Service CORS answers preflights and sets the CORS headers, and the app's own CORS headers are dropped) |
+| `cors_allowed_methods` | `GET,POST,PUT,PATCH,DELETE,OPTIONS` | Function App setting `CORS_ALLOWED_METHODS` — Access-Control-Allow-Methods sent by the API (lib/http.ts). The app is the only CORS layer (the Function App has no platform `site_config.cors` block), so this is what browsers see |
+| `cors_allowed_headers` | `Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context` | Function App setting `CORS_ALLOWED_HEADERS` — Access-Control-Allow-Headers sent by the API; keep the trace headers so browser telemetry can correlate. Any other request header fails the preflight |
+| `cors_support_credentials` | `false` | Function App setting `CORS_SUPPORT_CREDENTIALS` — Add Access-Control-Allow-Credentials for matched origins. The API uses bearer tokens, so this stays off |
 | `gallery_max_images_per_shade` | `0` | Function App setting `GALLERY_MAX_IMAGES_PER_SHADE` — Max source_gallery images one product links per ingest (0 = unlimited) |
 | `hex_detection_batch_max_in_flight` | `20` | Function App setting `HEX_DETECTION_BATCH_MAX_IN_FLIGHT` — Pending Azure OpenAI batches per ingestion job before it pauses for awaiting_ai, 1-100 |
 | `hex_detection_concurrency` | `4` | Function App setting `HEX_DETECTION_CONCURRENCY` — Parallel sync vision hex detection calls, 1-32; capped by the deployment's TPM quota |

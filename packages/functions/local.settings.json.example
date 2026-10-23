@@ -103,9 +103,5 @@
     "NEXT_PUBLIC_B2C_TENANT_ID": "<YOUR_B2C_TENANT_ID>",
     "NEXT_PUBLIC_B2C_CLIENT_ID": "<YOUR_B2C_CLIENT_ID>",
     "NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY": "B2C_1_signupsignin"
-  },
-  "Host": {
-    "CORS": "http://localhost:3000",
-    "CORSCredentials": true
   }
 }
