@@ -116,10 +116,10 @@ npm run dev:mobile       # → mobile via Expo (see apps/mobile/README.md)
 | Workflow | Purpose | Trigger |
 |----------|---------|---------|
 | `.github/workflows/deploy.yml` | Reusable app deploy workflow (web + functions + smoke tests) | Called by env-specific workflows, manual dispatch |
-| `.github/workflows/deploy-dev.yml` | Deploy app stack to dev | Push to `dev`, manual dispatch |
+| `.github/workflows/deploy-dev.yml` | Deploy app stack to dev (runs infra first when infra files changed) | Push to `dev`, manual dispatch |
 | `.github/workflows/deploy-prod.yml` | Deploy app stack to prod (runs infra first when `infrastructure/**` changed) | Push to `main`, manual dispatch |
 | `.github/workflows/deploy-infra.yml` | Reusable Terraform deploy workflow | Called by env-specific workflows, manual dispatch |
-| `.github/workflows/deploy-infra-dev.yml` | Deploy Terraform infrastructure to dev | Push to `dev` when `infrastructure/**` changes, manual dispatch |
+| `.github/workflows/deploy-infra-dev.yml` | Deploy Terraform infrastructure to dev (infra-only; never while Deploy Dev runs, see `infrastructure/README.md` → Deploy ordering) | Manual dispatch |
 | `.github/workflows/deploy-infra-prod.yml` | Deploy Terraform infrastructure to prod (infra-only) | Manual dispatch |
 
 Claude assistant workflows (`.github/workflows/claude.yml`, `.github/workflows/claude-code-review.yml`) are advisory and configured as non-blocking, so quota/credit failures emit warnings without failing the overall run.

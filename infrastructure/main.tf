@@ -1046,6 +1046,9 @@ resource "azurerm_linux_function_app" "main" {
     SHAREABLE_LOOKS_ENABLED               = var.shareable_looks_enabled ? "true" : "false"    # saved-look share links; off until the owner turns them on
     IMAGE_PROXY_SIGNING_KEY               = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.image_proxy_signing_key.versionless_id})"
     CORS_ALLOWED_ORIGINS                  = join(",", local.function_cors_allowed_origins)
+    # Entrypoint/import failures hard-fail host startup instead of surfacing as
+    # route-level 404s. Was set by deploy.yml, which Terraform kept removing.
+    FUNCTIONS_NODE_BLOCK_ON_ENTRY_POINT_ERROR = "true"
     # Optional Redis read-through cache. Empty when create_redis = false; the app
     # caching layer (lib/cache.ts) no-ops gracefully when these are unset.
     REDIS_URL = var.create_redis ? "rediss://${azurerm_managed_redis.main[0].hostname}:10000" : ""
@@ -1056,6 +1059,8 @@ resource "azurerm_linux_function_app" "main" {
     ignore_changes = [
       app_settings["WEBSITE_RUN_FROM_PACKAGE"],
       app_settings["WEBSITE_MOUNT_ENABLED"],
+      # Written by Azure/functions-action on every code deploy.
+      app_settings["WEBSITE_ENABLE_SYNC_UPDATE_SITE"],
       tags["hidden-link: /app-insights-resource-id"],
       tags["hidden-link: /app-insights-instrumentation-key"],
       tags["hidden-link: /app-insights-conn-string"],

@@ -65,9 +65,22 @@ After migration, run `terraform plan` — it should show no destructive changes 
 
 Terraform infrastructure deploys in CI via:
 - `.github/workflows/deploy-infra.yml` (reusable)
-- `.github/workflows/deploy-infra-dev.yml` (caller, `dev`)
+- `.github/workflows/deploy-dev.yml` (on `dev`, runs infra first when `infrastructure/**` or the infra workflow changed, then app deploy)
+- `.github/workflows/deploy-infra-dev.yml` (caller, `dev`, manual infra-only)
 - `.github/workflows/deploy-infra-prod.yml` (caller, `prod`, manual infra-only)
-- `.github/workflows/deploy-prod.yml` (on `main`, runs infra first when `infrastructure/**` changed, then app deploy)
+- `.github/workflows/deploy-prod.yml` (on `main`, runs infra first when `infrastructure/**` or the infra workflow changed, then app deploy)
+
+### Deploy ordering
+
+Function App app settings are Terraform-managed (`azurerm_linux_function_app.main`), but the code deploy writes them too: `Azure/functions-action` reads the full settings when it starts and, on Linux Consumption, PUTs that whole set back with the new `WEBSITE_RUN_FROM_PACKAGE` (and `WEBSITE_ENABLE_SYNC_UPDATE_SITE`) about a minute later. A Terraform apply that lands in between is silently reverted. On 2026-10-23 the #408 merge started Deploy Infrastructure Dev and Deploy Dev in the same second; the action read the settings at 00:57:19Z, Terraform wrote `SHAREABLE_LOOKS_ENABLED` at 00:57:20–49Z, and the action's write after 00:57:40Z dropped it again.
+
+Rules:
+
+1. **Infra runs before the code deploy, in one workflow.** `deploy-dev.yml` and `deploy-prod.yml` run `deploy-infra.yml` first when infra files changed and start `deploy.yml` only after it succeeds. The `Deploy Infrastructure Dev` / `Prod` workflows are manual-only. Don't dispatch one while a Deploy Dev / Deploy Prod run (or a manual `Deploy Application`) is in progress for the same environment.
+2. **Each key has one owner.** Terraform declares every app setting, including `FUNCTIONS_NODE_BLOCK_ON_ENTRY_POINT_ERROR` (previously set only by `deploy.yml`, so every apply removed it). The keys the deploy action writes (`WEBSITE_RUN_FROM_PACKAGE`, `WEBSITE_ENABLE_SYNC_UPDATE_SITE`) and `WEBSITE_MOUNT_ENABLED` are in `lifecycle.ignore_changes`. `deploy.yml` still sets `AUTH_DEV_BYPASS=false` and the `AZURE_AD_B2C_*` values from the same GitHub settings Terraform reads.
+3. **Both sides check.** `.github/scripts/check-function-app-settings.sh` compares the live app (`az functionapp config appsettings list`) with `azurerm_linux_function_app.main` in the Terraform state and fails when a setting is missing or has another value (names only, never values; ignored keys skipped). Deploy Infrastructure runs it after `terraform apply`; `deploy.yml` runs it in the `Verify Function App Settings` job after the code deploy. If it fails, re-run Deploy Infrastructure for that environment.
+
+GitHub `concurrency` groups are not used to serialize infra and code deploys: a group keeps one pending run and cancels the older pending one, which could silently drop a queued infra apply.
 
 State is stored in Azure Blob Storage using Terraform's native `azurerm` backend (configured in `main.tf` with `backend "azurerm" {}`).
 

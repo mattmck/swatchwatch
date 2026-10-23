@@ -374,8 +374,7 @@ jobs:
             --settings \
               AUTH_DEV_BYPASS="false" \
               AZURE_AD_B2C_TENANT="$AZURE_AD_B2C_TENANT" \
-              AZURE_AD_B2C_CLIENT_ID="$AZURE_AD_B2C_CLIENT_ID" \
-              FUNCTIONS_NODE_BLOCK_ON_ENTRY_POINT_ERROR="true"
+              AZURE_AD_B2C_CLIENT_ID="$AZURE_AD_B2C_CLIENT_ID"
         env:
           AZURE_AD_B2C_TENANT: ${{ vars.AZURE_AD_B2C_TENANT || vars.NEXT_PUBLIC_B2C_TENANT }}
           AZURE_AD_B2C_CLIENT_ID: ${{ secrets.AZURE_AD_B2C_CLIENT_ID }}
@@ -410,3 +409,50 @@ jobs:
           #   exit 1
           # fi
           # echo "✓ Voice endpoint is responding"
+
+  # Azure/functions-action PUTs back the full app settings it read when it
+  # started, so a Terraform apply that lands mid-deploy is silently reverted
+  # (2026-10-23, dev). Compare the live app with the Terraform state once the
+  # code is out. See infrastructure/README.md "Deploy ordering".
+  verify-function-app-settings:
+    name: Verify Function App Settings
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    needs: deploy-functions
+    env:
+      TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
+      TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
+      TFSTATE_CONTAINER: ${{ vars.TFSTATE_CONTAINER || 'tfstate' }}
+      TFSTATE_BLOB_NAME: ${{ vars.TFSTATE_BLOB_NAME || format('{0}.terraform.tfstate', inputs.environment) }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform init
+        run: |
+          TFSTATE_ACCESS_KEY="$(az storage account keys list \
+            --resource-group "$TFSTATE_RESOURCE_GROUP" \
+            --account-name "$TFSTATE_STORAGE_ACCOUNT" \
+            --query '[0].value' -o tsv)"
+
+          terraform -chdir=infrastructure init -reconfigure -no-color \
+            -backend-config="resource_group_name=$TFSTATE_RESOURCE_GROUP" \
+            -backend-config="storage_account_name=$TFSTATE_STORAGE_ACCOUNT" \
+            -backend-config="container_name=$TFSTATE_CONTAINER" \
+            -backend-config="key=$TFSTATE_BLOB_NAME" \
+            -backend-config="access_key=$TFSTATE_ACCESS_KEY"
+
+      - name: Check Function App settings match Terraform
+        run: bash .github/scripts/check-function-app-settings.sh infrastructure

@@ -354,3 +354,11 @@ jobs:
       - name: Terraform apply
         if: ${{ inputs.apply }}
         run: terraform -chdir=infrastructure apply -auto-approve -no-color tfplan
+
+      # Fails when a Terraform-managed Function App setting is missing from the
+      # live app or holds another value, e.g. a code deploy that overlapped
+      # this apply wrote back its stale copy (infrastructure/README.md
+      # "Deploy ordering"). Names only, never values.
+      - name: Check Function App settings match Terraform
+        if: ${{ inputs.apply }}
+        run: bash .github/scripts/check-function-app-settings.sh infrastructure
