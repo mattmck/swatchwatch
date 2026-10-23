@@ -14,9 +14,6 @@ const AZURE_ENV_KEYS = [
   "AZURE_OPENAI_KEY",
   "AZURE_OPENAI_DEPLOYMENT_HEX",
   "AZURE_OPENAI_DEPLOYMENT",
-  "AZURE_OPENAI_USE_GATEWAY",
-  "AZURE_OPENAI_GATEWAY_ENDPOINT",
-  "AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY",
 ];
 
 describe("lib/connectors/color-name-detection — buildColorNamePrompt", () => {

@@ -769,8 +769,8 @@ overriding variables already set), so the same Postgres / Azure OpenAI config th
 | `image-select-ai-snap` | `image-select-ai`'s photo choice (alt-text ranking, or one vision call picking the on-nail photo), then `blind-snap` on that photo. | yes |
 | `ensemble` | `azure-current` sampled several times at a small temperature, optionally across more than one deployment, reduced to one answer by `src/lib/hex-ensemble.ts` (see below). | yes |
 
-When Azure OpenAI is not configured (`AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_KEY` + `AZURE_OPENAI_DEPLOYMENT_HEX`/`AZURE_OPENAI_DEPLOYMENT`,
-or the APIM gateway equivalents), Azure strategies print `Skipping strategy …` and the run still exits 0.
+When Azure OpenAI is not configured (`AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_KEY` + `AZURE_OPENAI_DEPLOYMENT_HEX`/`AZURE_OPENAI_DEPLOYMENT`),
+Azure strategies print `Skipping strategy …` and the run still exits 0.
 
 **Snap strategies** (`src/eval/hex/strategies/snap.ts` + `snapHexToPalette` in `src/lib/hex-snap.ts`, the same module production uses behind `HEX_DETECTION_SNAP_ENABLED`). On
 `sample.json` the measured palette already holds a chip within 0.05 of the ground truth for 78% of cases, but
@@ -1089,9 +1089,6 @@ Key variables:
 | `ORPHAN_MEDIA_SWEEP_MAX_PER_RUN` | Most candidates one sweep run examines (default `2000`, clamped 1–20000); the rest are picked up by the next run (`truncated: true` in the completed event). |
 | `IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS` | Minimum remaining lifetime of newly minted owner-scoped private (`v3`) image ids (default `3600` = 1h, clamped to 300–86400, expiry bucketed to 15 minutes), see #227. |
 | `AZURE_STORAGE_CONNECTION` | Connection string for uploading source images to Azure Blob Storage. When unset (for local dev or bring-up), ingestion falls back to storing the original source image URLs so swatch images still appear. |
-| `AZURE_OPENAI_GATEWAY_ENDPOINT` | Optional APIM gateway base URL used when `AZURE_OPENAI_USE_GATEWAY=true`. |
-| `AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY` | Optional APIM subscription key header value (`Ocp-Apim-Subscription-Key`) used in gateway mode. |
-| `AZURE_OPENAI_USE_GATEWAY` | Feature flag (`true`/`false`) to route Azure OpenAI calls through APIM gateway endpoint. |
 | `AZURE_OPENAI_DEPLOYMENT_LABEL` | Optional Azure OpenAI deployment name for label OCR structured extraction (`src/lib/ocr-parser.ts`). Falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`. |
 | `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name for synchronous image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT` when unset). |
 | `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` | Optional Azure OpenAI deployment name for batch image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`). |

@@ -98,7 +98,7 @@ the post-#340 snapshot.
 - **Looks** — [looks-experience-plan.md](looks-experience-plan.md). "Pick for me" (#308) is the wedge; decide on the full page with usage data. _The page shipped client-side in #370, #378 and #392 (D24); the plan's status section lists what is not built yet._
 - **ESM migration** — #2, pair it with the Expo toolchain work.
 - **Redis** — #117, only if share-page rate limiting or catalog-search caching becomes measurable.
-- **APIM OpenAI gateway** — #158 / #228: finish it infra-only or remove the `AZURE_OPENAI_USE_GATEWAY` path.
+- ~~**APIM OpenAI gateway** — #158 / #228: finish it infra-only or remove the `AZURE_OPENAI_USE_GATEWAY` path.~~ _Removed on 2026-10-23 ([D25](decisions-2026-10.md#d25--azure-openai-apim-gateway-removed-2026-10-23)); both issues closed as won't-do._
 - **Feature flags** — #313: env vars until the third or fourth flag, or until per-user targeting is needed (D22).
 
 TODO (owner): rank these for the Q1 plan.
@@ -112,4 +112,4 @@ TODO (owner): rank these for the Q1 plan.
 3. **Catalog growth**: #273 store approvals (PR #388 lists the stores to ask), more stores, or a
    non-Shopify route for the +10k target.
 4. **ESM**: #2, together with the Expo toolchain work.
-5. **Redis #117 and APIM #158 / #228**: only if a need becomes measurable.
+5. **Redis #117**: only if a need becomes measurable. _(APIM #158 / #228 dropped, D25.)_
