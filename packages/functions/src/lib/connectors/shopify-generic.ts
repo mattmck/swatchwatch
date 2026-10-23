@@ -833,11 +833,11 @@ async function toNormalizedRecord(
 
   // Skip accessories, non-nail products and bundles; keep coats/toppers with their category (#347).
   // A store-specific filter (store-filters/, #328) decides first for stores the generic gate
-  // cannot classify; null defers to the classifier.
+  // cannot classify; null defers to the classifier. Sets and bundles are skipped either way.
   const gate = classifyIngestedProduct({ title: asNonEmptyString(product.title), productType, tags });
   const storeVerdict = shopifyStoreProductVerdict(source, product);
   const isPolish = storeVerdict ?? gate.accept;
-  if (!isPolish || isBundle(tags)) {
+  if (!isPolish || isBundle(tags) || gate.evidence === "set") {
     return null;
   }
   // A store filter that keeps a product the June tag blocklist rejected (Cirque tags shades and
