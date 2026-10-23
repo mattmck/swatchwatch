@@ -63,4 +63,19 @@ describe("createZxingDecoder", () => {
     const { luminance, width, height } = renderEan13("4006381333931");
     assert.equal(decoder.decode(luminance, width, height)?.rawValue, "4006381333931");
   });
+
+  it("decodes a symbol turned 90° (bottle held upright, code printed down the label)", () => {
+    const { luminance, width, height } = renderEan13("4006381333931");
+    // Rotate 90° counter-clockwise: the bars become horizontal rows.
+    const rotated = new Uint8ClampedArray(width * height);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        rotated[(width - 1 - x) * height + y] = luminance[y * width + x];
+      }
+    }
+    for (const tryHarder of [false, true]) {
+      const raw = createZxingDecoder({ tryHarder }).decode(rotated, height, width);
+      assert.equal(raw?.rawValue, "4006381333931", `tryHarder=${tryHarder}`);
+    }
+  });
 });
