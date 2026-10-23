@@ -245,7 +245,7 @@ Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/b
 | Export | Meaning |
 |---|---|
 | `sumListPrices(rows)` | `{ byCurrency: [{ currency, total, count }], unpricedCount, latestSeenAt }` over rows carrying `buyPrice` / `buyCurrency` / `buyPriceSeenAt`: decimal-safe (whole minor units per `Intl` currency digits), never converted or summed across currencies, rows without a usable price are counted in `unpricedCount`, never guessed. Used by the web Looks shopping list, the wishlist value lines and the mobile wishlist views |
-| `listPriceOf`, `formatListAmount`, `formatListPriceAsOf`, `formatListPriceTotals`, `formatWishlistValueLine(count, totals)` | Price validation and text: "12 polishes · $148.00 (9 priced) + €20.00 (2) · 1 without a price" |
+| `listPriceOf`, `formatListAmount`, `formatListPriceAsOf`, `formatListPriceTotals`, `formatListPriceSummary`, `formatWishlistValueLine(count, totals)` | Price validation and text: "12 polishes · $148.00 (9 priced) + €20.00 (2) · 1 without a price" |
 
 ### `color/` (OKLAB math, thresholds, hex reconciliation, color families, harmonies, Pair it)
 

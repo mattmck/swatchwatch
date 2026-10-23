@@ -132,13 +132,23 @@ export function formatListPriceTotals(totals: ListPriceTotals, locale?: string):
 }
 
 /**
+ * "$148.00 (9 priced) + EUR20.00 (2) · 1 without a price": the amounts plus the unpriced count.
+ * Null when there are no priced and no unpriced rows (an empty list).
+ */
+export function formatListPriceSummary(totals: ListPriceTotals, locale?: string): string | null {
+  const parts: string[] = [];
+  const amounts = formatListPriceTotals(totals, locale);
+  if (amounts) parts.push(amounts);
+  if (totals.unpricedCount > 0) parts.push(`${totals.unpricedCount} without a price`);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/**
  * Wishlist header line: "12 polishes · $148.00 (9 priced) + EUR20.00 (2) · 1 without a price".
  * `count` is the number of wishlisted rows (priced or not).
  */
 export function formatWishlistValueLine(count: number, totals: ListPriceTotals, locale?: string): string {
-  const parts = [`${count} ${count === 1 ? "polish" : "polishes"}`];
-  const amounts = formatListPriceTotals(totals, locale);
-  if (amounts) parts.push(amounts);
-  if (totals.unpricedCount > 0) parts.push(`${totals.unpricedCount} without a price`);
-  return parts.join(" · ");
+  const head = `${count} ${count === 1 ? "polish" : "polishes"}`;
+  const summary = formatListPriceSummary(totals, locale);
+  return summary ? `${head} · ${summary}` : head;
 }

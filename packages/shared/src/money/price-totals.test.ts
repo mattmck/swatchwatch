@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   formatListPriceAsOf,
+  formatListPriceSummary,
   formatListPriceTotals,
   formatWishlistValueLine,
   listPriceOf,
@@ -78,6 +79,12 @@ describe("formatting", () => {
     assert.equal(formatWishlistValueLine(4, totals, "en-US"), "4 polishes · $148.00 (2 priced) + €20.00 (1) · 1 without a price");
     assert.equal(formatWishlistValueLine(1, sumListPrices([{}]), "en-US"), "1 polish · 1 without a price");
     assert.equal(formatWishlistValueLine(0, sumListPrices([]), "en-US"), "0 polishes");
+  });
+
+  it("summarizes amounts plus unpriced rows", () => {
+    assert.equal(formatListPriceSummary(totals, "en-US"), "$148.00 (2 priced) + €20.00 (1) · 1 without a price");
+    assert.equal(formatListPriceSummary(sumListPrices([{}]), "en-US"), "1 without a price");
+    assert.equal(formatListPriceSummary(sumListPrices([]), "en-US"), null);
   });
 
   it("formats the as-of date", () => {
