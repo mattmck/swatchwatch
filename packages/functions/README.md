@@ -492,9 +492,9 @@ Current source support:
 - `HoloTacoShopify` (current Shopify storefront pull, bundle-filtered)
 - Additional `*Shopify` sources from the generated connector list are auto-provisioned into `data_source` when missing, so they appear in `/api/ingestion/sources` and can be queued without manual SQL seeding.
 - Sources are registered in `docs/seed_data_sources.sql` (which `npm run generate:types` turns into `src/lib/connectors/generated-types.ts`) plus a migration for the `data_source` row. Per-source verification (products.json exposed, robots.txt, terms of service, date checked) lives in `data_source.metadata.notes`.
-- `data_source.enabled = false` keeps a source out of `/api/ingestion/sources`, which feeds the admin single-job and bulk-run pickers; nothing schedules ingestion on a timer. Sources listed in `SHOPIFY_SOURCES_PENDING_APPROVAL` (`connectors/shopify-generic.ts`) are auto-provisioned disabled as well. Both indie sources from migration `20261017062550000_add-indie-shopify-sources` are inserted disabled. Rolling that migration back deletes only the rows it inserted: its own Down section would delete either row whenever it has no ingestion history, even one auto-provisioned before it, so `20261020033727156_guard-indie-shopify-sources-rollback` marks the rows it inserted (`metadata.insertedByMigration = '20261017062550000'`, recognised by `created_at` within the 10 seconds before its `pgmigrations.run_on` and no `metadata.autoProvisioned`) and its Down installs a `BEFORE DELETE` guard (`data_source_keep_preexisting_nightowl_pahlish_rows`) that skips deleting an unmarked row, which stays in place, disabled, with its `metadata.ingestion` settings. After rolling back past `20261017062550000` the guard stays installed; drop the trigger and function by hand (named in the migration header) to remove it or to delete such a row on purpose. `NightOwlLacquerShopify` was approved on 2026-10-17 (`docs/decisions-2026-10.md` D2): it is out of the pending list and seeded enabled, and migration `20261023021845964_add-approved-indie-shopify-sources` (batch 3, below) enables its row where it is still pending, so no activation `UPDATE` by hand is needed any more. `PahlishShopify`, `EmilyDeMollyShopify` and `CirqueColorsShopify` (surveyed in `docs/indie-sources-2026-10.md`) were registered disabled and pending, then enabled by migration `20261019020000000_enable-signed-off-indie-sources` on 2026-10-19 after the owner reported each store's sign-off (who and how are not recorded in the notes). Rolling back `20261019013349049_add-more-indie-shopify-sources` deletes only the rows it inserted: its own Down section would delete either row whenever it has no ingestion history, even one auto-provisioned before it, so `20261020032543929_guard-more-indie-shopify-sources-rollback` marks the rows that migration inserted (`metadata.insertedByMigration`, recognised by `created_at` just before its `pgmigrations.run_on` and no `metadata.autoProvisioned`) and its Down installs a `BEFORE DELETE` guard (`data_source_keep_preexisting_indie_shopify_rows`) that skips deleting an unmarked row, which stays in place, disabled, with its `metadata.ingestion` settings. A new source migration that upserts should stamp `insertedByMigration` only on rows it inserts (strip it from `EXCLUDED.metadata` in the `ON CONFLICT` branch) and have its Down delete only marked rows, disabling the rest. `SHOPIFY_SOURCES_PENDING_APPROVAL` is empty; add a new store there until its OK is in `data_source.metadata.notes`. **Batch 3 (2026-10-22, #273 closed):** `StellaChromaShopify`, `LemmingLacquerShopify` and `SweetAndSourLacquerShopify` were added by migration `20261023021845964_add-approved-indie-shopify-sources` directly enabled, after the owner received each store's written permission by email on 2026-10-22 (their terms carry the Shopify scraping clause; decision D2); the notes record the permission and the terms URL, and `metadata.verification.writtenPermission` holds `email 2026-10-22`. That migration builds the #394/#398 rollback guard in from the start: rows it inserts carry `metadata.insertedByMigration = '20261023021845964'` (stripped from `EXCLUDED.metadata` on conflict, so an auto-provisioned row is never marked), a pre-existing disabled row it enables carries `metadata.enabledByMigration`, and its Down deletes only marked rows without ingestion history, disables marked rows with history, re-disables rows it enabled and touches nothing else. It also enables `NightOwlLacquerShopify` where the row is still `pendingApproval` (the activation `UPDATE` no environment had run), appending the D2 reference to its notes; the Down restores the pending flag on exactly that row. Seven indie stores are enabled, which meets the #273 target of 6–10. Cirque Colors' `product_type` is the finish name, so it has a store filter (`connectors/store-filters/cirque-colors.ts`, #273): 328 of its 415 products pass on 2026-10-19 (the generic gate passed 10). When a store filter keeps a product the June tag blocklist rejected (Cirque tags shades and coats with tutorial names like "Abstract Dry Brush"), the connector records the rule category instead of `accessory`. Batch 2 of the survey (2026-10-19) added no store: every remaining Shopify candidate's terms forbid automated access (`docs/indie-sources-2026-10.md`). `docs/seed_data_sources.sql` never changes an existing row's `enabled` or existing metadata keys on reseed (only `metadata.verification` takes the seed's values). To activate one: `UPDATE data_source SET enabled = true, metadata = metadata - 'pendingApproval' WHERE name = '<Source>';` (clears the `metadata.pendingApproval` flag both rows carry; also drop the source from `SHOPIFY_SOURCES_PENDING_APPROVAL`).
-- **Store-specific product filters (#328, `src/lib/connectors/store-filters/`).** Some stores' `products.json` has no polish signal the generic filter can read. `SHOPIFY_STORE_PRODUCT_FILTERS` maps a source name to a filter function that the generic connector asks first: `true` keeps the product, `false` drops it, `null` (or no entry) falls through to the generic polish filter; bundle exclusion still applies afterwards. `PahlishShopify` has one (`store-filters/pahlish.ts`): Pahlish products have an empty `product_type` and tags that are only collection names (the generic filter accepted 0 of 36 on 2026-10-17), so it drops gift cards, collection sets, mystery batches, base/top coats, empty boxes and merch by title and keeps a product only when its description names a finish or effect (shimmer, flakes, holographic, jelly, magnetic, …). On the 2026-10-18 catalog (fixture `tests/fixtures/pahlish-products.json`) that is 28 of 36 products, all single shades. `CirqueColorsShopify` has the second (`store-filters/cirque-colors.ts`, #273): Cirque's `product_type` is the finish or line (Jelly, Magnetic, Crème, Retired Colors, …), so it drops set/duo/nail-art/tool product types, multi-item titles (set, duo, trio, quad, bundle, collection, kit), tools, charms, stickers, remover, wipes, the gift card, `(100% off)` free gifts and the creator profile pages, keeps top/base coats, strengtheners and cuticle oils, and keeps any other product whose `product_type` (or, when empty, a tag) names a finish: 328 of 415 on the 2026-10-19 fixture `tests/fixtures/cirque-colors-products.json`. Batch 3 (#273, 2026-10-22) adds three more, each with a trimmed fixture of its full catalog: `StellaChromaShopify` (`store-filters/stella-chroma.ts`): the generic gate reads its "Nail Polish(es)" types well (72 of 81), so the filter only drops the "Complete set" collection listings, the coat duo, the mystery grab bag and the mystery subscription, keeps the cuticle oil whose "brush pen" tag hits the June blocklist, and returns `null` for everything else, giving **68 of 81** (63 shades, 2 top coats, 1 base coat, 2 treatments). `LemmingLacquerShopify` (`store-filters/lemming-lacquer.ts`): a few shades carry their finish as the product type ("Multichrome", "Flakes"), which the gate does not read as a polish signal, and the Polish Pickup mystery grab bag is typed "Flakes"; the filter drops mystery listings by title, keeps a product whose type names a finish, and defers the rest: **24 of 30** (collections, gift card and magnet dropped by the gate). `SweetAndSourLacquerShopify` (`store-filters/sweet-and-sour.ts`): every product has an empty `product_type` and no tags (the gate keeps 8 of 169, coats and coat refills by title), so like Pahlish it works from the title and description: it drops duos, trios, sets, the mystery overpour, coat refills, the gift card, magnet, sticker, coozies, tab opener and the clear watermarbling polish by title, keeps base and top coats, keeps a product whose description names a base, finish, opacity or the word polish, and also keeps a listing with no text beyond the store's screen-colour disclaimer (several shades are listed that way); a description that says something else is dropped: **155 of 169** (150 shades, 4 base coats, 1 top coat). A store filter may return `null` to defer a product to the generic gate (Stella Chroma and Lemming Lacquer do), and the connector's `resolveShopifyVendor` gives an all-caps vendor that spells the source brand (`STELLA CHROMA`) the brand's casing. To add a filter for another store, add a module next to `pahlish.ts`, register it in `store-filters/index.ts`, and cover it with a trimmed `products.json` fixture in `tests/shopify-store-filters.unit.test.cjs`.
-- **Enabling a pending store (owner action).** 1) Get the store's OK and append it to the row's notes: `UPDATE data_source SET metadata = jsonb_set(metadata, '{notes}', to_jsonb((metadata->>'notes') || ' Acceptable use confirmed by <who> on <YYYY-MM-DD> via <channel>.')) WHERE name = '<Source>';` 2) Remove the source from `SHOPIFY_SOURCES_PENDING_APPROVAL` in `connectors/shopify-generic.ts` and flip its seed row in `docs/seed_data_sources.sql` to `enabled = true` without `pendingApproval`. 3) Add a migration like `20261019020000000_enable-signed-off-indie-sources` (or run `UPDATE data_source SET enabled = true, metadata = metadata - 'pendingApproval' WHERE name = '<Source>';` in each environment). 4) Run one ingestion job from the admin console (Admin Jobs tab) and check what it imports. Pahlish should import about 28 shades and no gift cards or sets; batch 3 on 2026-10-22 against local Postgres: Stella Chroma 68 products accepted of 81, Lemming Lacquer 24 of 30, Sweet & Sour Lacquer 155 of 169.
+- `data_source.enabled = false` keeps a source out of `/api/ingestion/sources`, which feeds the admin single-job and bulk-run pickers; nothing schedules ingestion on a timer. Sources listed in `SHOPIFY_SOURCES_PENDING_APPROVAL` (`connectors/shopify-generic.ts`) are auto-provisioned disabled as well. Both indie sources from migration `20261017062550000_add-indie-shopify-sources` are inserted disabled. Rolling that migration back deletes only the rows it inserted: its own Down section would delete either row whenever it has no ingestion history, even one auto-provisioned before it, so `20261020033727156_guard-indie-shopify-sources-rollback` marks the rows it inserted (`metadata.insertedByMigration = '20261017062550000'`, recognised by `created_at` within the 10 seconds before its `pgmigrations.run_on` and no `metadata.autoProvisioned`) and its Down installs a `BEFORE DELETE` guard (`data_source_keep_preexisting_nightowl_pahlish_rows`) that skips deleting an unmarked row, which stays in place, disabled, with its `metadata.ingestion` settings. After rolling back past `20261017062550000` the guard stays installed; drop the trigger and function by hand (named in the migration header) to remove it or to delete such a row on purpose. `NightOwlLacquerShopify` was approved on 2026-10-17 (`docs/decisions-2026-10.md` D2): it is out of the pending list and seeded enabled, but each environment still needs the activation `UPDATE` below once. `PahlishShopify`, `EmilyDeMollyShopify` and `CirqueColorsShopify` (surveyed in `docs/indie-sources-2026-10.md`) were registered disabled and pending, then enabled by migration `20261019020000000_enable-signed-off-indie-sources` on 2026-10-19 after the owner reported each store's sign-off (who and how are not recorded in the notes). Rolling back `20261019013349049_add-more-indie-shopify-sources` deletes only the rows it inserted: its own Down section would delete either row whenever it has no ingestion history, even one auto-provisioned before it, so `20261020032543929_guard-more-indie-shopify-sources-rollback` marks the rows that migration inserted (`metadata.insertedByMigration`, recognised by `created_at` just before its `pgmigrations.run_on` and no `metadata.autoProvisioned`) and its Down installs a `BEFORE DELETE` guard (`data_source_keep_preexisting_indie_shopify_rows`) that skips deleting an unmarked row, which stays in place, disabled, with its `metadata.ingestion` settings. A new source migration that upserts should stamp `insertedByMigration` only on rows it inserts (strip it from `EXCLUDED.metadata` in the `ON CONFLICT` branch) and have its Down delete only marked rows, disabling the rest. `SHOPIFY_SOURCES_PENDING_APPROVAL` is now empty; add a new store there until its OK is in `data_source.metadata.notes`. Cirque Colors' `product_type` is the finish name, so it has a store filter (`connectors/store-filters/cirque-colors.ts`, #273): 328 of its 415 products pass on 2026-10-19 (the generic gate passed 10). When a store filter keeps a product the June tag blocklist rejected (Cirque tags shades and coats with tutorial names like "Abstract Dry Brush"), the connector records the rule category instead of `accessory`. Batch 2 of the survey (2026-10-19) added no store: every remaining Shopify candidate's terms forbid automated access (`docs/indie-sources-2026-10.md`). `docs/seed_data_sources.sql` never changes an existing row's `enabled` or existing metadata keys on reseed (only `metadata.verification` takes the seed's values). To activate one: `UPDATE data_source SET enabled = true, metadata = metadata - 'pendingApproval' WHERE name = '<Source>';` (clears the `metadata.pendingApproval` flag both rows carry; also drop the source from `SHOPIFY_SOURCES_PENDING_APPROVAL`).
+- **Store-specific product filters (#328, `src/lib/connectors/store-filters/`).** Some stores' `products.json` has no polish signal the generic filter can read. `SHOPIFY_STORE_PRODUCT_FILTERS` maps a source name to a filter function that the generic connector asks first: `true` keeps the product, `false` drops it, `null` (or no entry) falls through to the generic polish filter; bundle exclusion still applies afterwards. `PahlishShopify` has one (`store-filters/pahlish.ts`): Pahlish products have an empty `product_type` and tags that are only collection names (the generic filter accepted 0 of 36 on 2026-10-17), so it drops gift cards, collection sets, mystery batches, base/top coats, empty boxes and merch by title and keeps a product only when its description names a finish or effect (shimmer, flakes, holographic, jelly, magnetic, …). On the 2026-10-18 catalog (fixture `tests/fixtures/pahlish-products.json`) that is 28 of 36 products, all single shades. `CirqueColorsShopify` has the second (`store-filters/cirque-colors.ts`, #273): Cirque's `product_type` is the finish or line (Jelly, Magnetic, Crème, Retired Colors, …), so it drops set/duo/nail-art/tool product types, multi-item titles (set, duo, trio, quad, bundle, collection, kit), tools, charms, stickers, remover, wipes, the gift card, `(100% off)` free gifts and the creator profile pages, keeps top/base coats, strengtheners and cuticle oils, and keeps any other product whose `product_type` (or, when empty, a tag) names a finish: 328 of 415 on the 2026-10-19 fixture `tests/fixtures/cirque-colors-products.json`. To add a filter for another store, add a module next to `pahlish.ts`, register it in `store-filters/index.ts`, and cover it with a trimmed `products.json` fixture in `tests/shopify-store-filters.unit.test.cjs`.
+- **Enabling a pending store (owner action).** 1) Get the store's OK and append it to the row's notes: `UPDATE data_source SET metadata = jsonb_set(metadata, '{notes}', to_jsonb((metadata->>'notes') || ' Acceptable use confirmed by <who> on <YYYY-MM-DD> via <channel>.')) WHERE name = '<Source>';` 2) Remove the source from `SHOPIFY_SOURCES_PENDING_APPROVAL` in `connectors/shopify-generic.ts` and flip its seed row in `docs/seed_data_sources.sql` to `enabled = true` without `pendingApproval`. 3) Add a migration like `20261019020000000_enable-signed-off-indie-sources` (or run `UPDATE data_source SET enabled = true, metadata = metadata - 'pendingApproval' WHERE name = '<Source>';` in each environment). 4) Run one ingestion job from the admin console (Admin Jobs tab) and check what it imports. Pahlish should import about 28 shades and no gift cards or sets.
 - The generic Shopify connector replaces Shopify's placeholder vendor (`vendor-unknown`, `Default Vendor`) with the brand derived from the source name (`NightOwlLacquerShopify` → "Night Owl Lacquer").
 
 Generic `*Shopify` product filter (`isNailPolish` / `isBundle` in `src/lib/connectors/shopify-generic.ts`):
@@ -769,8 +769,7 @@ overriding variables already set), so the same Postgres / Azure OpenAI config th
 | `image-select-ai-snap` | `image-select-ai`'s photo choice (alt-text ranking, or one vision call picking the on-nail photo), then `blind-snap` on that photo. | yes |
 | `ensemble` | `azure-current` sampled several times at a small temperature, optionally across more than one deployment, reduced to one answer by `src/lib/hex-ensemble.ts` (see below). | yes |
 
-When Azure OpenAI is not configured (`AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_KEY` + `AZURE_OPENAI_DEPLOYMENT_HEX`/`AZURE_OPENAI_DEPLOYMENT`),
-Azure strategies print `Skipping strategy …` and the run still exits 0.
+When Azure OpenAI is not configured (`AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_KEY` + `AZURE_OPENAI_DEPLOYMENT_HEX`/`AZURE_OPENAI_DEPLOYMENT`), Azure strategies print `Skipping strategy …` and the run still exits 0.
 
 **Snap strategies** (`src/eval/hex/strategies/snap.ts` + `snapHexToPalette` in `src/lib/hex-snap.ts`, the same module production uses behind `HEX_DETECTION_SNAP_ENABLED`). On
 `sample.json` the measured palette already holds a chip within 0.05 of the ground truth for 78% of cases, but
@@ -954,7 +953,7 @@ Timestamp prefixes are monotonic and globally unique, which avoids the prefix co
 > **Existing `001_`–`022_` files are intentionally left as-is.** node-pg-migrate records applied migrations by filename in the `pgmigrations` table — renaming an already-applied migration would make it look unapplied and re-run it. Only new migrations adopt the dated format; the legacy files are migrated forward by convention, not by rename.
 
 ```bash
-# From repo root (requires DATABASE_URL or PG* env vars)
+# From repo root (PG* from local.settings.json, which overrides the shell env; an exported DATABASE_URL wins over PG*)
 npm run migrate          # Apply pending migrations
 npm run migrate:down     # Roll back last migration
 
@@ -1066,72 +1065,190 @@ are all kept there; the daily cap (`appinsights_daily_cap_gb`) bounds the cost.
 
 ## Environment Variables
 
-Defined in `local.settings.json` (git-ignored values). See the root README for the full list. For production, secrets are injected via Key Vault references.
+Set locally in `local.settings.json` (git-ignored; copy `local.settings.json.example`, which lists every setting in the same groups as below). In Azure the Function App settings are Terraform-managed (`infrastructure/main.tf`) and secrets are Key Vault references, so a portal-only change is reverted by the next infra apply. Variables are grouped by the module that reads them; anything without a default below is unset by default. The example's `NEXT_PUBLIC_*` entries are a convenience copy for the web app; the Functions host ignores them.
 
-Key variables:
+### Runtime and hosting
 
-| Variable | Purpose |
-|----------|---------|
-| `AUTH_DEV_BYPASS` | Local-dev-only bypass mode. When `true` **and the host is not running in Azure**, auth accepts `Bearer dev:<userId>` tokens. Ignored (fail closed, logged + `auth.dev_bypass_refused`) on Azure-hosted Function Apps; the deploy workflow always sets it to `false`. |
-| `IMAGE_PROXY_SIGNING_KEY` | Secret (>= 32 chars) used to HMAC-sign `/api/images/{id}` ids. Required outside dev: when unset and dev bypass is not active, image URLs are omitted and the proxy refuses every request. When unset with dev bypass active (local only), an ephemeral per-process key is used (URLs break on restart). Generate with `openssl rand -base64 48`. Terraform stores a generated value in Key Vault (`image-proxy-signing-key`). |
-| `IMAGE_PROXY_ID_TTL_SECONDS` | Minimum remaining lifetime of newly minted public (`v2`, catalog) `/api/images/{id}` ids (default `259200` = 3 days, clamped to 3600–2592000). Keep it above the Azure OpenAI batch completion window. |
-| `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL` | Optional ISO-8601 timestamp until which legacy non-expiring (v1) image ids are still accepted. Unset or in the past means they are rejected (`403`). |
-| `SHAREABLE_LOOKS_ENABLED` | Feature flag for opt-in public share links for saved looks. Default `false` (unset = off; only `true`, any case, enables). While off, `/api/look-share` and `/api/look/{token}` return `404` with `code: "feature_disabled"` and the Looks page shows no Share link controls. In Azure it is a Terraform-managed app setting (`shareable_looks_enabled`, fed from the `SHAREABLE_LOOKS_ENABLED` GitHub variable by Deploy Infra). Tokens are derived from `IMAGE_PROXY_SIGNING_KEY`, so that key must be configured too. |
-| `SHAREABLE_WISHLIST_ENABLED` | Feature flag for opt-in public wishlist links (#268). Default `false` (unset = off; only `true`, any case, enables). While off, `/api/wishlist-share*` and `/api/wishlist/{token}` return `404` with `code: "feature_disabled"` and the web share card stays hidden. In Azure it is a Terraform-managed app setting (`shareable_wishlist_enabled`, fed from the `SHAREABLE_WISHLIST_ENABLED` GitHub variable by Deploy Infra). Tokens are derived from `IMAGE_PROXY_SIGNING_KEY`, so that key must be configured too. |
-| `INGESTION_JOB_QUEUE_NAME` | Optional queue name for async ingestion jobs. Defaults to `ingestion-jobs`. |
-| `SOURCE_IMAGE_CONTAINER` | Optional blob container override for source-ingested images. Defaults to `source-images`. |
-| `SOURCE_IMAGE_MAX_EDGE_PX` | Long edge (px) above which an ingested catalog image is downscaled before storage (default `2048`, clamped `256`–`8192`). 2048 covers Azure OpenAI vision (which downsamples to 2048 px even at `detail: high`, 512 px at `low`) and the image proxy's display transforms (≤ 1024 px). |
-| `SOURCE_IMAGE_MAX_DOWNLOAD_BYTES` | Largest catalog image download accepted before resizing (default `26214400` = 25 MB, clamped 5–100 MB). Larger images are refused (`Image too large to download`). |
-| `USER_MEDIA_CONTAINER` | Optional blob container override for private user media (e.g. nail photos). Defaults to `nail-photos`; Terraform sets it from `azurerm_storage_container.nail_photos`. The only container owner-scoped `v3` image ids may read (and `v2` ids may not), see #227. |
-| `ORPHAN_MEDIA_SWEEP_SCHEDULE` | NCRONTAB schedule for the `orphan-media-sweep` timer (default `0 17 3 * * *`, daily 03:17 UTC), #319. |
-| `ORPHAN_MEDIA_SWEEP_GRACE_SECONDS` | Minimum age (by `image_asset.captured_at`) before an unreferenced owner-scoped asset may be swept (default `86400` = 24h, clamped 3600–2592000). Rows without `captured_at` are never swept. |
-| `ORPHAN_MEDIA_SWEEP_BATCH_SIZE` | Candidates fetched per sweep scan query (default `100`, clamped 1–1000). |
-| `ORPHAN_MEDIA_SWEEP_MAX_PER_RUN` | Most candidates one sweep run examines (default `2000`, clamped 1–20000); the rest are picked up by the next run (`truncated: true` in the completed event). |
-| `IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS` | Minimum remaining lifetime of newly minted owner-scoped private (`v3`) image ids (default `3600` = 1h, clamped to 300–86400, expiry bucketed to 15 minutes), see #227. |
-| `AZURE_STORAGE_CONNECTION` | Connection string for uploading source images to Azure Blob Storage. When unset (for local dev or bring-up), ingestion falls back to storing the original source image URLs so swatch images still appear. |
-| `AZURE_OPENAI_DEPLOYMENT_LABEL` | Optional Azure OpenAI deployment name for label OCR structured extraction (`src/lib/ocr-parser.ts`). Falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`. |
-| `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name for synchronous image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT` when unset). |
-| `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` | Optional Azure OpenAI deployment name for batch image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`). |
-| `HEX_DETECTION_SNAP_ENABLED` | Feature flag (default `false`; only `true` enables) for the production snap step in `src/lib/hex-snap.ts`: after every vision hex detection (ingestion sync and batch-submit fallback, the batch poller apply step, admin `recalc-hex`) the model's hex is replaced by the nearest palette chip measured from the same image when one is within `HEX_SNAP_MAX_DISTANCE`, stored as `detected_hex_method = 'vision-snap'`. Read at call time. |
-| `HEX_SNAP_MAX_DISTANCE` | Largest OKLAB distance at which the snap step (production when `HEX_DETECTION_SNAP_ENABLED` is on, and the eval `blind-snap` / `image-select-ai-snap` strategies) replaces the model's hex with the nearest measured palette chip (default `0.10`, the MEDIUM threshold). Further away, the model hex is kept. |
-| `AZURE_OPENAI_DEPLOYMENT_HEX_ENSEMBLE` | Optional comma-separated Azure OpenAI deployment names the eval `ensemble` strategy samples from (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`). Eval-only. |
-| `HEX_DETECTION_ENSEMBLE_SAMPLES` | Samples per deployment for the eval `ensemble` strategy (default `3`, clamped 1–10). Eval-only. |
-| `HEX_DETECTION_ENSEMBLE_TEMPERATURE` | Sampling temperature for the eval `ensemble` strategy (default `0.3`, clamped 0–2). Eval-only; production detection stays at 0. |
-| `AZURE_OPENAI_BATCH_API_VERSION` | Optional API version used for Azure OpenAI Files/Batch endpoints (default `2025-03-01-preview`). |
-| `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` | Optional completion window sent during batch creation (default `24h`). |
-| `AZURE_OPENAI_VISION_DETAIL` | Optional image detail level for vision hex detection, sync and batch (`low` default — flat ~85 tokens/image; `high`/`auto` for more resolution). Unrecognized values fall back to `low`. |
-| `HEX_DETECTION_BATCH_ENABLED` | Feature flag to enable Azure OpenAI Batch API for Shopify image detection (default `false`). |
-| `HEX_DETECTION_BATCH_MIN_IMAGES` | Minimum record count before switching from synchronous detection to batch submission (default `5`). |
-| `HEX_DETECTION_BATCH_MAX_IN_FLIGHT` | Max hex batches one ingestion job keeps pending before the worker pauses for `awaiting_ai` (default `20`, clamped 1–100); bounds the job's share of the batch deployment's enqueued-token quota. |
-| `HEX_DETECTION_DELAY_MS` | Pause after each synchronous (non-batch) hex detection call, per concurrency slot (default `1000`, max `60000`, `0` disables). The old fixed 6s pacing predates low-detail images; 429s are still retried with `Retry-After`. |
-| `HEX_DETECTION_CONCURRENCY` | Synchronous hex detection calls in flight at once (default `4`, max `32`). Records still commit to Postgres one at a time, in order. The deployment's tokens-per-minute quota is the real ceiling, so raise this together with `openai_deployment_capacity`. |
-| `SUSPICIOUS_HEX_REPEAT_MIN_RECORDS` | Batch-aware suspicious-hex check (`src/lib/suspicious-hex.ts`): a vendor hex shared by at least this many records of one data source is a store template default (default `3`). Used when `detectHexOnSuspiciousOnly` is on. |
-| `SUSPICIOUS_HEX_REPEAT_MIN_SHARE` | ...and shared by at least this fraction (0–1) of the records that carry a vendor hex (default `0.1`). Both repeat thresholds must be met. |
-| `SUSPICIOUS_HEX_GRAYSCALE_MAX_CHROMA` | OKLAB chroma below which a vendor hex is near-grayscale and flagged unless the shade name/tags say gray, silver, black, white, nude or chrome (default `0.02`). |
-| `GALLERY_MAX_IMAGES_PER_SHADE` | Max `source_gallery` images one product links to its shade per ingest, counted in vendor order after near-duplicate skipping (positive integer; unset, empty, `0` or invalid = unlimited, the default). Images past the cap are still stored as `image_asset` rows; the image AI hex detection chose is always linked; lowering the cap unlinks the extra gallery swatches (except hex-labelled / `color_features` ones) on the product's next ingest. Counted in the `galleryOverCapSkipped` job metric. |
-| `INGESTION_AI_BATCH_POLL_SCHEDULE` | NCRONTAB schedule for the timer poller that checks batch completion (default `0 * * * * *`, every minute). |
-| `INGESTION_AI_BATCH_MAX_POLL_JOBS` | Max `awaiting_ai` ingestion jobs the poller processes per run (default `10`). |
-| `INGESTION_AI_IMAGE_PROXY_ORIGIN` | Optional public origin used when building AI image-proxy URLs (for example `https://<func-app>.azurewebsites.net`). Falls back to `https://$WEBSITE_HOSTNAME`. |
-| `INGESTION_WORKER_TIME_BUDGET_MS` | Wall-clock budget per ingestion worker invocation before it checkpoints and enqueues a continuation message (default `240000`, clamped to `30000`–`270000` to stay under the Consumption plan timeout). |
-| `INGESTION_LOG_FLUSH_INTERVAL_MS` | Interval for ingestion worker metric/log flushes while a job runs (default `10000`). Increase to reduce write pressure on Postgres. |
-| `INGESTION_JOB_LOG_MAX_ENTRIES` | Entries kept in a job's `metrics_json.logs` for the whole run, shared by every worker invocation and the AI batch poller (default `500`, clamped `100`–`2000`). The first 20% of the run is kept, then the newest lines, with one marker entry counting the omitted lines by level. See [Ingestion job logs](#ingestion-job-logs). |
-| `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS` | Per-request timeout for Shopify `products.json` downloads (default `45000`). |
-| `SHOPIFY_CONNECTOR_MAX_RETRIES` | Retry count for transient Shopify request errors (default `2`, total attempts = retries + 1). |
-| `SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS` | Linear backoff base delay for Shopify retries (default `1000`). |
-| `PG_POOL_MAX` | Postgres pool max client count for Functions process (default `10`). |
-| `PG_IDLE_TIMEOUT_MS` | Idle timeout for pooled Postgres clients (default `30000`). |
-| `PG_CONNECTION_TIMEOUT_MS` | Connection acquisition timeout for Postgres clients (default `15000`). |
-| `PG_QUERY_MAX_RETRIES` | Retries for retry-safe DB queries (`SELECT` and `UPDATE ingestion_job`) when connection timeouts occur (default `2`). |
-| `PG_QUERY_RETRY_BASE_MS` | Linear backoff base delay in ms for retry-safe DB query retries (default `250`). |
-| `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` | Azure AI Document Intelligence endpoint for server-side OCR (`src/lib/ocr.ts`). Graceful degradation when missing. |
-| `AZURE_DOCUMENT_INTELLIGENCE_KEY` | Azure AI Document Intelligence subscription key for OCR. |
-| `APPLICATIONINSIGHTS_CONNECTION_STRING` | Optional custom telemetry sink for `trackEvent` / `trackMetric` / `trackException` in `src/lib/telemetry.ts`. When unset, telemetry calls are no-ops. `src/index.ts` imports `lib/telemetry` first so `pg`/`http` dependencies are auto-instrumented; the SDK's Functions `preInvocation` hook puts dependencies, custom events and exceptions under the host request's `operation_Id`. |
-| `CORS_ALLOWED_METHODS` | Overrides `Access-Control-Allow-Methods` in `src/lib/http.ts` (default `GET,POST,PUT,PATCH,DELETE,OPTIONS`; PATCH is used by `PATCH /api/users-admin/{id}`). |
-| `CORS_ALLOWED_HEADERS` | Overrides `Access-Control-Allow-Headers` in `src/lib/http.ts` (default `Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context`; the last four let browser telemetry correlate with Functions requests). `Request-Context` is always exposed. |
-| `REDIS_URL` | Redis endpoint URL for API read-through caching (for example `rediss://<host>:10000`). |
-| `REDIS_KEY` | Redis access key paired with `REDIS_URL`. When either Redis var is missing, cache helpers become no-ops and requests fall back to Postgres. |
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `FUNCTIONS_WORKER_RUNTIME` | — | Always `node` (Functions host setting). |
+| `AzureWebJobsStorage` | — | Host storage for triggers, queues and timers. Locally the Azurite connection string (`npm run dev:infra`). |
+| `FUNCTIONS_NODE_BLOCK_ON_ENTRY_POINT_ERROR` | `true` in Azure | Terraform-managed; makes entrypoint/import failures fail host startup instead of surfacing as route-level `404`s. |
+| `WEBSITE_HOSTNAME`, `WEBSITE_INSTANCE_ID` | set by Azure | Not set by us. `src/lib/runtime-env.ts` uses them to detect an Azure-hosted instance (which refuses `AUTH_DEV_BYPASS`); `WEBSITE_HOSTNAME` is also the fallback origin for AI image-proxy URLs. |
 
-Batch runtime note: `HEX_DETECTION_BATCH_ENABLED` and `HEX_DETECTION_BATCH_MIN_IMAGES` are read when each ingestion worker message and batch poller run starts, so logs reflect the effective values used for that execution.
+### Database (`src/lib/db.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` | — | Postgres connection. Locally `localhost:55432` / `swatchwatch` / `postgres` (from `npm run dev:infra`). In Azure `PGPASSWORD` is a Key Vault reference. |
+| `PG_POOL_MAX` | `10` | Pool max client count for the Functions process. |
+| `PG_IDLE_TIMEOUT_MS` | `30000` | Idle timeout for pooled clients. |
+| `PG_CONNECTION_TIMEOUT_MS` | `15000` | Connection acquisition timeout. |
+| `PG_QUERY_MAX_RETRIES` | `2` | Retries for retry-safe queries (`SELECT` and `UPDATE ingestion_job`) on connection timeouts. |
+| `PG_QUERY_RETRY_BASE_MS` | `250` | Linear backoff base delay for those retries. |
+| `DATABASE_URL` | — | Migrations only (`migrate` and `migrate:down`). `npm run migrate` / `migrate:down` first copy every `local.settings.json` value into the environment, overriding exported or inline variables of the same name (`PG*` included); node-pg-migrate then prefers `DATABASE_URL` over `PG*`. An exported `DATABASE_URL` therefore works only while `local.settings.json` does not define one (the example does not; root `.env.example` has the local URL). The DB scripts (`eval:hex:populate`, `backfill:product-text`) read the `PG*` variables. |
+
+### Auth (`src/lib/auth.ts`, `src/lib/runtime-env.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AZURE_AD_B2C_TENANT` | — | Entra External ID / B2C tenant short name. Metadata discovery tries `ciamlogin.com` first, then legacy `b2clogin.com`. |
+| `AZURE_AD_B2C_CLIENT_ID` | — | App registration client id. Accepted audiences are the id and `api://<id>`. |
+| `AUTH_DEV_BYPASS` | `false` | Local-dev-only. When `true` **and the host is not running in Azure**, auth accepts `Bearer dev:<userId>` tokens. Ignored (fail closed, logged + `auth.dev_bypass_refused`) on Azure-hosted Function Apps; the deploy workflow always sets it to `false`. |
+
+### Blob storage (`src/lib/blob-storage.ts`, `src/lib/connector-raw-storage.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AZURE_STORAGE_CONNECTION` | — | Storage account for catalog images, private user media and connector snapshots (locally Azurite). When unset, ingestion stores the original source image URLs so swatches still appear, and the orphan media sweep is skipped. |
+| `SOURCE_IMAGE_CONTAINER` | `source-images` | Container for ingested catalog images and their thumbnail variants. The only container public `v2` image ids may read. |
+| `USER_MEDIA_CONTAINER` | `nail-photos` | Container for private user media (nail and mani photos). The only container owner-scoped `v3` image ids may read (#227). Terraform sets it from `azurerm_storage_container.nail_photos`. |
+| `CONNECTOR_RAW_CONTAINER` | — | Container for raw connector snapshots and the ingestion catalog cache; unset = no-op. Terraform-provisioned. The legacy name `RAW_SNAPSHOT_CONTAINER` is still read but deprecated. |
+
+### Image proxy (`src/lib/image-proxy.ts`, `src/functions/images.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `IMAGE_PROXY_SIGNING_KEY` | — | Secret (>= 32 chars) that HMAC-signs `/api/images/{id}` ids; also the root of shareable wishlist and look tokens. Required outside dev: when unset and dev bypass is not active, image URLs are omitted and the proxy refuses every request. With dev bypass active (local only), an ephemeral per-process key is used (URLs break on restart). Generate with `openssl rand -base64 48`. Terraform stores a generated value in Key Vault (`image-proxy-signing-key`). |
+| `IMAGE_PROXY_ID_TTL_SECONDS` | `259200` (3 days) | Minimum remaining lifetime of newly minted public (`v2`, catalog) ids, clamped 3600–2592000. Keep it above the AI batch completion window plus poller lag: the batch poller re-reads the same ids for the snap step, and an expired id just keeps the raw `vision-direct` hex. |
+| `IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS` | `3600` (1h) | Minimum remaining lifetime of owner-scoped private (`v3`) ids, clamped 300–86400, expiry bucketed to 15 minutes (#227). |
+| `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL` | — | ISO-8601 timestamp until which legacy non-expiring (`v1`) ids are still accepted. Unset or in the past = rejected (`403`). |
+
+### Orphan media sweep (`src/lib/orphan-media-sweep.ts`, #319)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `ORPHAN_MEDIA_SWEEP_SCHEDULE` | `0 17 3 * * *` | NCRONTAB schedule for the `orphan-media-sweep` timer (daily 03:17 UTC). |
+| `ORPHAN_MEDIA_SWEEP_GRACE_SECONDS` | `86400` (24h) | Minimum age (by `image_asset.captured_at`) before an unreferenced owner-scoped asset may be swept, clamped 3600–2592000. Rows without `captured_at` are never swept. |
+| `ORPHAN_MEDIA_SWEEP_BATCH_SIZE` | `100` | Candidates fetched per scan query, clamped 1–1000. |
+| `ORPHAN_MEDIA_SWEEP_MAX_PER_RUN` | `2000` | Most candidates one run examines, clamped 1–20000; the rest wait for the next run (`truncated: true` in the completed event). |
+
+### Feature flags
+
+Only the exact value `true` (any case) enables a flag; anything else is off.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `SHAREABLE_WISHLIST_ENABLED` | `false` | Opt-in public wishlist links (#268). While off, `/api/wishlist-share*` and `/api/wishlist/{token}` return `404` with `code: "feature_disabled"` and the web share card stays hidden. Terraform-managed (`shareable_wishlist_enabled`, fed from the `SHAREABLE_WISHLIST_ENABLED` GitHub variable by Deploy Infra). Needs `IMAGE_PROXY_SIGNING_KEY`. |
+| `SHAREABLE_LOOKS_ENABLED` | `false` | Opt-in public share links for saved looks. While off, `/api/look-share` and `/api/look/{token}` return `404` with `code: "feature_disabled"` and the Looks page shows no Share link controls. Terraform-managed (`shareable_looks_enabled`, fed from the `SHAREABLE_LOOKS_ENABLED` GitHub variable by Deploy Infra). Needs `IMAGE_PROXY_SIGNING_KEY`. |
+| `HEX_DETECTION_BATCH_ENABLED` | `false` | Azure OpenAI Batch API for Shopify vision hex detection plus the `ingestion-ai-batch-poller` timer. See Batch hex detection below. |
+| `HEX_DETECTION_SNAP_ENABLED` | `false` | Snap step in `src/lib/hex-snap.ts`: after every vision hex detection (ingestion sync and batch-submit fallback, the batch poller apply step, admin `recalc-hex`) the model's hex is replaced by the nearest palette chip measured from the same image when one is within `HEX_SNAP_MAX_DISTANCE`, stored as `detected_hex_method = 'vision-snap'`. Read at call time. Terraform-managed (`hex_detection_snap_enabled`). |
+
+### Azure OpenAI client (`src/lib/azure-openai-config.ts`)
+
+Shared by vision hex detection (sync and batch), label OCR parsing and the hex eval.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AZURE_OPENAI_ENDPOINT` | — | Azure OpenAI endpoint. |
+| `AZURE_OPENAI_KEY` | — | Endpoint key (`api-key` header). Key Vault reference in Azure. Functions always call the Azure OpenAI resource directly (the APIM gateway path was removed, D25). |
+| `AZURE_OPENAI_DEPLOYMENT` | — | Fallback deployment name for every role below. |
+| `AZURE_OPENAI_DEPLOYMENT_HEX` | → `AZURE_OPENAI_DEPLOYMENT` | Deployment for synchronous vision hex detection. |
+| `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` | → `_HEX` → `AZURE_OPENAI_DEPLOYMENT` | Deployment for batch hex detection. |
+| `AZURE_OPENAI_DEPLOYMENT_LABEL` | → `_HEX` → `AZURE_OPENAI_DEPLOYMENT` | Deployment for label OCR structured extraction (`src/lib/ocr-parser.ts`). |
+| `AZURE_OPENAI_VISION_DETAIL` | `low` | Image detail for vision hex detection, sync and batch: `low` (flat ~85 tokens/image), `high` or `auto`. Unrecognized values fall back to `low`. |
+
+### Hex detection (`src/lib/ai-color-detection.ts`, `src/lib/hex-snap.ts`, `src/lib/suspicious-hex.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `HEX_DETECTION_CONCURRENCY` | `4` | Synchronous detection calls in flight at once (max `32`). Records still commit to Postgres one at a time, in order. The deployment's tokens-per-minute quota is the real ceiling, so raise this together with `openai_deployment_capacity`. |
+| `HEX_DETECTION_DELAY_MS` | `1000` | Pause after each synchronous call, per concurrency slot (max `60000`, `0` disables). 429s are still retried with `Retry-After`. |
+| `HEX_SNAP_MAX_DISTANCE` | `0.10` | Largest OKLAB distance at which the snap step (production when `HEX_DETECTION_SNAP_ENABLED` is on, and the eval `blind-snap` / `image-select-ai-snap` strategies) replaces the model's hex with the nearest measured palette chip (the MEDIUM threshold). Further away, the model hex is kept. |
+| `SUSPICIOUS_HEX_REPEAT_MIN_RECORDS` | `3` | A vendor hex shared by at least this many records of one data source's batch is a store template default and goes to AI detection when `detectHexOnSuspiciousOnly` is on. |
+| `SUSPICIOUS_HEX_REPEAT_MIN_SHARE` | `0.1` | ...and by at least this fraction (0–1) of the records that carry a vendor hex. Both repeat thresholds must be met. |
+| `SUSPICIOUS_HEX_GRAYSCALE_MAX_CHROMA` | `0.02` | OKLAB chroma below which a vendor hex is near-grayscale and flagged unless the shade name/tags say gray, silver, black, white, nude or chrome (pure grays are `0`, a nude ≈ `0.08`). |
+
+### Batch hex detection (`src/lib/azure-openai-batch.ts`, `src/functions/ingestion-ai-batch-poller.ts`)
+
+`HEX_DETECTION_BATCH_ENABLED` and `HEX_DETECTION_BATCH_MIN_IMAGES` are read when each ingestion worker message and batch poller run starts, so logs reflect the effective values for that execution.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `HEX_DETECTION_BATCH_MIN_IMAGES` | `5` | Minimum record count before ingestion switches from synchronous detection to batch submission. |
+| `HEX_DETECTION_BATCH_MAX_IN_FLIGHT` | `20` | Max batches one job keeps pending before the worker pauses for `awaiting_ai`, clamped 1–100; bounds the job's share of the deployment's enqueued-token quota. |
+| `AZURE_OPENAI_BATCH_API_VERSION` | `2025-03-01-preview` | API version for the Files/Batch endpoints. |
+| `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` | `24h` | Completion window sent on batch creation. |
+| `INGESTION_AI_BATCH_POLL_SCHEDULE` | `0 * * * * *` | NCRONTAB schedule for the batch completion poller (every minute). |
+| `INGESTION_AI_BATCH_MAX_POLL_JOBS` | `10` | Max `awaiting_ai` jobs the poller processes per run. |
+| `INGESTION_AI_IMAGE_PROXY_ORIGIN` | `https://$WEBSITE_HOSTNAME` | Public origin used to build `/api/images/{id}` URLs for Azure OpenAI vision calls (for example `https://<func-app>.azurewebsites.net`). Must be reachable from Azure OpenAI. |
+
+### Ingestion worker and connectors (`src/functions/ingestion-worker.ts`, `src/lib/connectors/`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `INGESTION_JOB_QUEUE_NAME` | `ingestion-jobs` | Storage queue for async ingestion jobs and continuation messages. |
+| `INGESTION_WORKER_TIME_BUDGET_MS` | `240000` | Wall-clock budget per worker invocation, clamped 30000–270000 (under the Consumption plan timeout). When spent, the worker saves `metrics.checkpoint`, sets stage `continuation_queued` and enqueues a continuation message. |
+| `INGESTION_LOG_FLUSH_INTERVAL_MS` | `10000` | Interval for worker metric/log flushes while a job runs. Increase to reduce write pressure on Postgres. |
+| `INGESTION_JOB_LOG_MAX_ENTRIES` | `500` | Entries kept in a job's `metrics_json.logs` across every worker invocation and poller run, clamped 100–2000. The first 20% of the run is kept, then the newest lines, with one marker entry counting the omitted lines by level. See [Ingestion job logs](#ingestion-job-logs). |
+| `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS` | `45000` | Per-request timeout for Shopify `products.json` downloads. |
+| `SHOPIFY_CONNECTOR_MAX_RETRIES` | `2` | Retries for transient Shopify request errors (total attempts = retries + 1). |
+| `SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS` | `1000` | Linear backoff base delay for Shopify retries. |
+
+### Catalog images (`src/lib/blob-storage.ts`, `src/lib/gallery-dedupe.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `SOURCE_IMAGE_MAX_EDGE_PX` | `2048` | Long edge above which an ingested image is downscaled before storage, clamped 256–8192. Covers Azure OpenAI vision (2048 px at `detail: high`, 512 px at `low`) and the proxy's display transforms (≤ 1024 px); thumbnail variants are rendered from the stored image. Images still over 5 MB after resizing are re-encoded as WebP. |
+| `SOURCE_IMAGE_MAX_DOWNLOAD_BYTES` | `26214400` (25 MB) | Largest download accepted before resizing, clamped 5–100 MB. Larger images are refused (`Image too large to download`). |
+| `GALLERY_MAX_IMAGES_PER_SHADE` | unlimited | Max `source_gallery` images one product links to its shade per ingest, in vendor order after near-duplicate skipping (positive integer; unset, empty, `0` or invalid = unlimited). Images past the cap are still stored; the image AI hex detection chose is always linked; lowering the cap unlinks the extras (except hex-labelled / `color_features` ones) on the product's next ingest. Counted in the `galleryOverCapSkipped` job metric. |
+
+### OCR and voice (`src/lib/ocr.ts`, `src/functions/voice.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` | — | Azure AI Document Intelligence endpoint for label OCR on capture frames. When it or the key is missing, OCR is skipped (graceful degradation). |
+| `AZURE_DOCUMENT_INTELLIGENCE_KEY` | — | Document Intelligence key. |
+| `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` | — | Reserved for Speech-to-text in `POST /api/voice`. Not read yet: the voice handler is a stub (Terraform sets a placeholder key). |
+
+### Cache (`src/lib/cache.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `REDIS_URL` | — | Redis endpoint for API read-through caching (for example `rediss://<host>:10000`; locally `redis://localhost:6379`). |
+| `REDIS_KEY` | — | Access key paired with `REDIS_URL`. When either is missing, cache helpers are no-ops and requests fall back to Postgres. |
+
+### HTTP / CORS (`src/lib/http.ts`)
+
+The local `func` host also applies `Host.CORS` from `local.settings.json` (pinned to `http://localhost:3000`); for a web dev server on another port start it with `func start --cors <origin>`.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000,https://*.azurestaticapps.net` | Comma-separated origins (`*` wildcards allowed). Terraform sets it to the web app origins. |
+| `CORS_ALLOWED_METHODS` | `GET,POST,PUT,PATCH,DELETE,OPTIONS` | `Access-Control-Allow-Methods` (PATCH is used by `PATCH /api/users-admin/{id}`). |
+| `CORS_ALLOWED_HEADERS` | `Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context` | `Access-Control-Allow-Headers`; the last four let browser telemetry correlate with Functions requests. `Request-Context` is always exposed. |
+| `CORS_SUPPORT_CREDENTIALS` | `false` | `true` adds `Access-Control-Allow-Credentials: true` for matched (non-`*`) origins. The API uses bearer tokens, so this is normally off. |
+
+### Telemetry (`src/lib/telemetry.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | — | Sink for `trackEvent` / `trackMetric` / `trackException`; unset = no-ops. `src/index.ts` imports `lib/telemetry` first (keep it first) so `pg`/`http` dependencies are auto-instrumented; the SDK's Functions `preInvocation` hook puts dependencies, custom events and exceptions under the host request's `operation_Id`. |
+
+### Hex eval only (`src/eval/hex/`)
+
+Read by `npm run eval:hex` strategies, never by the Function App.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AZURE_OPENAI_DEPLOYMENT_HEX_ENSEMBLE` | → `_HEX` → `AZURE_OPENAI_DEPLOYMENT` | Comma-separated deployments the `ensemble` strategy samples from. |
+| `HEX_DETECTION_ENSEMBLE_SAMPLES` | `3` | Samples per deployment for `ensemble`, clamped 1–10. |
+| `HEX_DETECTION_ENSEMBLE_TEMPERATURE` | `0.3` | Sampling temperature for `ensemble`, clamped 0–2 (production detection stays at 0). |
+| `HEX_EVAL_REGION_CROP_MODE` | `cells` | `region-crop` localization: `cells` (labeled grid) or `bbox` (normalized box). |
+| `HEX_EVAL_REGION_CROP_CELLS` | `6` | Grid size per axis in `cells` mode, clamped 2–10. |
+| `HEX_EVAL_REGION_CROP_GRID` | `false` | `true` draws a 4×4 grid on the image in `bbox` mode. |
+| `HEX_EVAL_REGION_CROP_DETAIL` | `AZURE_OPENAI_VISION_DETAIL`, then `low` | `low` / `high` / `auto` vision detail for the `region-crop` locator call. |
+
+### Admin scripts (`scripts/*.cjs`)
+
+`backfill:image-variants`, `backfill:barcodes`, `backfill:product-category` and `dedupe:gallery-images` call the Functions API at `API_BASE_URL` (local host by default, or a deployed app), not the database (`backfill:product-text` and `eval:hex:populate` connect to Postgres with the `PG*` variables instead):
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `API_BASE_URL` | `http://localhost:7071/api` | Functions API base URL (for example `https://<func-app>.azurewebsites.net/api` or `http://localhost:7071/api`). |
+| `ADMIN_BEARER_TOKEN` | — | Bearer token of an admin user (`dev:<adminId>` against a local dev-bypass host). |
+
+### Auth and deploy notes
 
 JWT validation note:
 - In production mode (`AUTH_DEV_BYPASS=false`), auth discovery first tries Entra External ID (`ciamlogin.com`) metadata for `AZURE_AD_B2C_TENANT`, then falls back to legacy Azure AD B2C (`b2clogin.com`) metadata.

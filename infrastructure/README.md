@@ -94,7 +94,7 @@ Required GitHub Actions configuration (per GitHub environment):
 Recommended auth config (propagated to Terraform `TF_VAR_*` inputs):
 - Secrets: `AZURE_AD_B2C_CLIENT_ID`
 - Variables: `AUTH_DEV_BYPASS`, `AZURE_AD_B2C_TENANT` (falls back to `NEXT_PUBLIC_B2C_TENANT` if unset)
-- Feature flags: `SHAREABLE_WISHLIST_ENABLED` (default `false`; exported as `TF_VAR_shareable_wishlist_enabled`), `SHAREABLE_LOOKS_ENABLED` (default `false`; exported as `TF_VAR_shareable_looks_enabled`)
+- Feature flags (default `false`): `SHAREABLE_WISHLIST_ENABLED`, `SHAREABLE_LOOKS_ENABLED`, `HEX_DETECTION_BATCH_ENABLED`, `HEX_DETECTION_SNAP_ENABLED` (exported as `TF_VAR_shareable_wishlist_enabled`, `TF_VAR_shareable_looks_enabled`, `TF_VAR_hex_detection_batch_enabled`, `TF_VAR_hex_detection_snap_enabled`)
 - External ID service principal (opt-in, see [External ID service principal](#external-id-service-principal-opt-in)): variables `MANAGE_CIAM_SERVICE_PRINCIPAL` (default `false`), `CIAM_TENANT_ID`, `CIAM_TERRAFORM_CLIENT_ID` (exported as `TF_VAR_manage_ciam_service_principal`, `TF_VAR_ciam_tenant_id`, `TF_VAR_ciam_terraform_client_id`)
 - Alerts (observability Phase 3, #281): `ALERT_EMAIL` (**secret** recommended so the address is masked in logs; a variable also works; exported as `TF_VAR_alert_email`, never committed to tfvars) and optional variable `ALERTS_ENABLED` (default `true` for `prod`, `false` otherwise; exported as `TF_VAR_alerts_enabled`)
 The workflow creates the state container automatically if it does not exist.

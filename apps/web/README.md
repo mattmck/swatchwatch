@@ -319,13 +319,16 @@ This works for both `ciamlogin.com` (External ID) and `b2clogin.com` (legacy B2C
 
 ## Environment Variables
 
+All web settings are build-time `NEXT_PUBLIC_*` variables, inlined into the static export: set them in `apps/web/.env.local` for `next dev` / `next build` (Next.js reads env files from `apps/web`, not the repo root; restart after changing), and in `.github/workflows/deploy.yml` (GitHub environment variables/secrets) for deploys, not in Static Web App app settings. They are public, so never put secrets in them.
+
 | Variable | Purpose |
 |----------|---------|
-| `NEXT_PUBLIC_API_URL` | API base URL used by `src/lib/api.ts` |
+| `NEXT_PUBLIC_API_URL` | API base URL used by `src/lib/api.ts` (default `http://localhost:7071/api`). Also the only host that receives telemetry correlation headers |
+| `NEXT_PUBLIC_SITE_URL` | Absolute site origin for `metadataBase` in `src/app/layout.tsx` (Open Graph / canonical URLs); default `https://swatchwatch.app` |
 | `NEXT_PUBLIC_APPLICATIONINSIGHTS_CONNECTION_STRING` | Enables browser telemetry (`src/lib/telemetry.ts`). Unset = no-op (local dev default). Set at build time by `deploy.yml` from the Terraform output `application_insights_connection_string` |
 | `NEXT_PUBLIC_APPINSIGHTS_SAMPLING` | Browser telemetry sampling percentage, `(0, 100]`; default `100` |
 | `NEXT_PUBLIC_AUTH_DEV_BYPASS` | Dev-only bypass toggle. When `true`, the UI sends `Authorization: Bearer dev:1` on authenticated API calls. Set to `false` for production or to test B2C auth locally |
-| `NEXT_PUBLIC_AUTH_DEV_ADMIN_USER_ID` | Optional admin dev bypass user id for admin-only API calls (`/admin/reference-data` and `/admin/jobs` flows; defaults to `2`). Ignored when `NEXT_PUBLIC_AUTH_DEV_BYPASS=false` |
+| `NEXT_PUBLIC_AUTH_DEV_ADMIN_USER_ID` | Optional dev bypass user id used for admin-only API calls (the `/admin` console; defaults to `2`). Ignored when `NEXT_PUBLIC_AUTH_DEV_BYPASS=false` |
 | `NEXT_PUBLIC_B2C_TENANT` | Entra tenant short name (e.g., `myorgdev`). Empty or missing → auth skipped, unconfigured fallback mode. When set with `NEXT_PUBLIC_B2C_CLIENT_ID` → MSAL initialized |
 | `NEXT_PUBLIC_B2C_TENANT_ID` | Entra External ID (CIAM) tenant GUID. Required for CIAM tenants: the MSAL authority becomes `https://<tenant>.ciamlogin.com/<tenant-id>` so the metadata issuer (`https://<tenant-id>.ciamlogin.com/<tenant-id>/v2.0`) passes msal-browser 5.x issuer validation. When omitted for a CIAM policy, MSAL is not initialized and the app uses unconfigured-auth mode. Unused for legacy `B2C_1*` policies |
 | `NEXT_PUBLIC_B2C_CLIENT_ID` | Entra app registration client ID. Must be set alongside `NEXT_PUBLIC_B2C_TENANT` to enable auth |

@@ -56,16 +56,18 @@ npm run dev:infra        # Start local Postgres + Azurite containers
 npm run dev:web          # Next.js dev server (port 3000)
 npm run dev:mobile       # Build shared types, then Expo start (apps/mobile; copy .env.example → .env.local)
 npm run dev:functions    # Functions TypeScript watch + func host
+npm run dev:shared       # Watch-build packages/shared only
 npm run build            # Build all workspaces (shared → web → functions)
 npm run build:shared     # Build shared types only
 npm run build:web        # Build shared types + Next.js production build
 npm run build:functions  # Build shared types + TypeScript compile for functions
 npm run lint             # ESLint across all workspaces
 npm run typecheck        # tsc --noEmit across all workspaces
-npm run migrate          # Run Postgres migrations (needs DATABASE_URL)
+npm run migrate          # Run Postgres migrations (local.settings.json values override the shell env; then DATABASE_URL if set, else PG*)
 npm run migrate:down     # Roll back last migration
 npm run sync:design-tokens  # Regenerate packages/shared/src/constants/design-tokens.ts (hex light/dark palettes for mobile) from apps/web/src/app/globals.css; `-- --check` fails on drift (CI)
 npm run generate:pwa-icons  # Regenerate PWA/apple-touch PNG icons in apps/web/public from the brand SVG (sharp; commit the PNGs)
+npm run generate:types   # Regenerate the SupportedConnectorSource type from docs/seed_data_sources.sql
 npm run lint --workspace=apps/mobile                 # Mobile ESLint (eslint-config-expo); typecheck: npm run typecheck --workspace=apps/mobile
 npm run test --workspace=apps/mobile                 # Mobile unit tests (node:test via tsx: Rapid Add state, status rules)
 npm run test --workspace=swatchwatch-functions      # Functions unit tests (no DB; includes access-control isolation tests)
@@ -177,91 +179,88 @@ This project is in early development. The web UI is now fully API-driven. Backen
 - ✅ Promote hex labels to vendor hex (#321, #391; decision D12) — `POST/DELETE /api/hex-labels-admin/labels/{id}/promote` (`lib/vendor-hex.ts`) copies an approved manual label to `vendor_hex` with provenance (`vendor_hex_source` and friends, migration 20261020024540860_shade-vendor-hex-provenance) and an `admin_audit_event`; ingestion never replaces a `manual_label` vendor hex (`planIngestedVendorHex`)
 - ✅ Add guard (#266) — adding a not-owned shade to the collection or wishlist first shows its owned near-dupes in `AddGuardDialog` (swatch pairs, grade, finish compatibility, links; cancel / wishlist instead / add anyway, "don't warn again this session" in sessionStorage) on `/polishes` and `/polishes/search` row Add buttons and the `/polishes/new` form (create + edit status changes). One `GET /api/polishes/{id}/dupes` call (skipped when a loaded batch hint says "no dupe"), 2s timeout, failures never block; brand-new shades are checked client-side against `GET /api/polishes?status=owned` with the shared dupe rule. Logic in `apps/web/src/lib/add-guard.ts`; telemetry `dupe.warning_shown` / `dupe.warning_outcome` (M2 funnel) / `add_guard.check_failed`
 
-## Environment Variables (Functions)
+## Environment Variables
 
-**Canonical reference:** `packages/functions/local.settings.json.example` — this is the single source of truth for all settings. Copy it to `local.settings.json` (gitignored) and fill in the `<YOUR_*>` placeholders.
+Where each set lives: Functions → `packages/functions/local.settings.json` (copy `local.settings.json.example`, which lists every setting in the groups below; Terraform-managed app settings + Key Vault references in Azure). Web → build-time `NEXT_PUBLIC_*` (`apps/web/.env.local` locally, since Next.js reads env files from `apps/web` only; `.github/workflows/deploy.yml` in CI). Mobile → `apps/mobile/.env.local` (from `.env.example`). Migrations → `npm run migrate` / `migrate:down` copy every `local.settings.json` value into the environment first (overriding exported or inline variables of the same name, `PG*` included), then use `DATABASE_URL` if set, else `PG*`; to target another database export `DATABASE_URL` (the example defines none). Infra → GitHub environment variables/secrets read by `deploy-infra.yml`. Full tables with defaults: `packages/functions/README.md` → Environment Variables, `apps/web/README.md`, `apps/mobile/README.md`, `infrastructure/README.md`. The `NEXT_PUBLIC_*` entries in `local.settings.json.example` are a convenience copy; the Functions host ignores them. When adding a variable, put it in the matching group here, in the Functions README table and in `local.settings.json.example`. Flags are on only for the exact value `true`.
 
-Required:
-`AzureWebJobsStorage`, `FUNCTIONS_WORKER_RUNTIME`, `AZURE_STORAGE_CONNECTION`, `INGESTION_JOB_QUEUE_NAME`, `SOURCE_IMAGE_CONTAINER`, `BLOB_READ_SAS_TTL_SECONDS`, `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, `AZURE_OPENAI_DEPLOYMENT_HEX`, `AZURE_AD_B2C_TENANT`, `AZURE_AD_B2C_CLIENT_ID`, `REDIS_URL`, `REDIS_KEY`, `IMAGE_PROXY_SIGNING_KEY`
+### Functions: runtime, database, auth
 
-- `IMAGE_PROXY_SIGNING_KEY` — secret (>= 32 chars) that HMAC-signs `/api/images/{id}` capability ids (`src/lib/image-proxy.ts`). Fails closed when unset (image URLs omitted, proxy refuses requests) unless dev bypass is active (`AUTH_DEV_BYPASS=true` and not hosted in Azure), which uses an ephemeral per-process dev key. Terraform generates it into Key Vault (`image-proxy-signing-key`).
+- `FUNCTIONS_WORKER_RUNTIME` (`node`), `AzureWebJobsStorage` (host storage; Azurite locally). `FUNCTIONS_NODE_BLOCK_ON_ENTRY_POINT_ERROR=true` (Terraform-managed) makes import failures fail startup instead of route 404s. `WEBSITE_HOSTNAME` / `WEBSITE_INSTANCE_ID` are set by Azure, never by us: `src/lib/runtime-env.ts` uses them to detect a hosted instance.
+- `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` — Postgres (local `localhost:55432`). Pool: `PG_POOL_MAX` (10), `PG_IDLE_TIMEOUT_MS` (30000), `PG_CONNECTION_TIMEOUT_MS` (15000), `PG_QUERY_MAX_RETRIES` (2, retry-safe `SELECT` / `UPDATE ingestion_job` on connection timeouts), `PG_QUERY_RETRY_BASE_MS` (250). `DATABASE_URL` is read only by `npm run migrate` and `migrate:down`, ahead of `PG*` (an exported value works because `local.settings.json` normally has none); the DB scripts (`eval:hex:populate`, `backfill:product-text`) read `PG*`.
+- `AZURE_AD_B2C_TENANT`, `AZURE_AD_B2C_CLIENT_ID` — token validation (`src/lib/auth.ts`).
+- `AUTH_DEV_BYPASS` — enables `Bearer dev:<userId>` tokens for local dev only. Fails closed when hosted in Azure (`WEBSITE_INSTANCE_ID` or a non-loopback `WEBSITE_HOSTNAME`); the deploy workflow always sets it to `false`.
 
-Optional / dev-only:
-- `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` — Azure AI Document Intelligence endpoint for server-side OCR (graceful degradation when missing)
-- `AZURE_DOCUMENT_INTELLIGENCE_KEY` — Azure AI Document Intelligence subscription key
-- `AUTH_DEV_BYPASS` — enables `Bearer dev:<userId>` tokens for local dev only. Fails closed when hosted in Azure (`WEBSITE_INSTANCE_ID` or a non-loopback `WEBSITE_HOSTNAME`, see `src/lib/runtime-env.ts`); the deploy workflow always sets it to `false`
-- `IMAGE_PROXY_ID_TTL_SECONDS` — minimum lifetime of newly minted signed image ids (default `259200` = 3 days, clamped 1h–30d; keep above the AI batch completion window plus poller lag, since the batch poller re-reads the same proxy ids for the `HEX_DETECTION_SNAP_ENABLED` snap step and an expired id just keeps the raw `vision-direct` hex)
-- `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL` — optional ISO-8601 cutoff for accepting legacy non-expiring v1 image ids during rollout (unset = rejected)
-- `SHAREABLE_WISHLIST_ENABLED` — feature flag for opt-in public wishlist links (#268); default `false` (only `true` enables). Off → every wishlist-share route returns 404 `feature_disabled` and the web share card is hidden. Terraform-managed in Azure (`shareable_wishlist_enabled`, default `false`, fed by the `SHAREABLE_WISHLIST_ENABLED` GitHub variable in Deploy Infra); needs `IMAGE_PROXY_SIGNING_KEY`
-- `SHAREABLE_LOOKS_ENABLED` — feature flag for opt-in public share links for saved looks; default `false` (only `true` enables). Off → `/api/look-share` and `/api/look/{token}` return 404 `feature_disabled` and the Looks page shows no Share link controls. Terraform-managed in Azure (`shareable_looks_enabled`, default `false`, fed by the `SHAREABLE_LOOKS_ENABLED` GitHub variable in Deploy Infra); needs `IMAGE_PROXY_SIGNING_KEY`
-- `USER_MEDIA_CONTAINER` — blob container for private user media such as nail photos (default `nail-photos`, Terraform-provisioned); readable only through owner-scoped `v3` image ids (#227)
-- `IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS` — minimum lifetime of owner-scoped `v3` private-media image ids (default `3600`, clamped 300–86400, bucketed to 15 minutes; #227)
-- `ORPHAN_MEDIA_SWEEP_SCHEDULE` — NCRONTAB schedule for the `orphan-media-sweep` timer that deletes unreferenced owner-scoped `image_asset` rows and their `USER_MEDIA_CONTAINER` blobs (#319; default `0 17 3 * * *`, daily 03:17 UTC)
-- `ORPHAN_MEDIA_SWEEP_GRACE_SECONDS` — minimum age (by `image_asset.captured_at`) before an unreferenced user asset may be swept (default `86400` = 24h, clamped 3600–2592000)
-- `ORPHAN_MEDIA_SWEEP_BATCH_SIZE` — candidates fetched per sweep scan query (default `100`, clamped 1–1000)
-- `ORPHAN_MEDIA_SWEEP_MAX_PER_RUN` — most candidates one sweep run examines (default `2000`, clamped 1–20000); the rest wait for the next run
-- `AZURE_OPENAI_DEPLOYMENT_LABEL` — Azure OpenAI deployment name for label OCR structured extraction (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`)
-- `AZURE_OPENAI_DEPLOYMENT` — fallback deployment name when `AZURE_OPENAI_DEPLOYMENT_HEX` is unset
-- `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` — optional Azure OpenAI deployment name dedicated to batch hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`)
-- `HEX_DETECTION_SNAP_ENABLED` — feature flag (default `false`; only `true` enables) for the production snap step: after every vision hex detection (ingestion sync and batch-submit fallback, the batch poller apply step, admin `recalc-hex`) the model's hex is replaced by the nearest palette chip measured from the same image when one is within `HEX_SNAP_MAX_DISTANCE`, and stored as `detected_hex_method = 'vision-snap'`. Read at call time. Terraform-managed in Azure (`hex_detection_snap_enabled`, fed by the `HEX_DETECTION_SNAP_ENABLED` GitHub variable in Deploy Infra)
-- `HEX_SNAP_MAX_DISTANCE` — largest OKLAB distance at which the snap step (production, when `HEX_DETECTION_SNAP_ENABLED` is on) and the hex-eval `blind-snap` / `image-select-ai-snap` strategies replace the model's hex with the nearest measured palette chip (default `0.10`, the MEDIUM threshold); further away, the model hex is kept
-- `AZURE_OPENAI_DEPLOYMENT_HEX_ENSEMBLE` — optional comma-separated deployment names the hex-eval `ensemble` strategy samples from (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`); eval-only, not used by ingestion
-- `HEX_DETECTION_ENSEMBLE_SAMPLES` — samples per deployment for the hex-eval `ensemble` strategy (default `3`, clamped 1–10); eval-only
-- `HEX_DETECTION_ENSEMBLE_TEMPERATURE` — sampling temperature for the hex-eval `ensemble` strategy (default `0.3`, clamped 0–2); eval-only, production detection stays at temperature 0
-- `HEX_EVAL_REGION_CROP_MODE` — eval-only: localization mode for the hex-eval `region-crop` strategy, `cells` (default, labeled grid) or `bbox` (normalized box)
-- `HEX_EVAL_REGION_CROP_CELLS` — eval-only: grid size per axis for `region-crop` `cells` mode (default `6`, clamped 2–10)
-- `HEX_EVAL_REGION_CROP_GRID` — eval-only: `true` draws a 4×4 grid on the image in `region-crop` `bbox` mode (default `false`)
-- `HEX_EVAL_REGION_CROP_DETAIL` — eval-only: `low`/`high`/`auto` vision detail for the `region-crop` locator call (default: `AZURE_OPENAI_VISION_DETAIL`, then `low`)
-- `AZURE_OPENAI_BATCH_API_VERSION` — Azure OpenAI API version used for files/batches operations (default: `2025-03-01-preview`)
-- `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` — Batch completion window passed to Azure OpenAI (default: `24h`)
-- `AZURE_OPENAI_VISION_DETAIL` — image detail level for vision hex detection, sync and batch: `low` (default, flat ~85 tokens/image), `high`, or `auto`; raise if finish detection needs more resolution
-- `HEX_DETECTION_BATCH_ENABLED` — enables batch mode for Shopify vision hex detection and the `ingestion-ai-batch-poller` timer workflow
-- `HEX_DETECTION_BATCH_MIN_IMAGES` — minimum record count required before ingestion switches to batch mode (default: `5`)
-- `HEX_DETECTION_BATCH_MAX_IN_FLIGHT` — max hex batches one ingestion job keeps pending (default: `20`, clamped 1–100); the worker submits a batch per chunk and keeps ingesting, pausing for `awaiting_ai` only at this cap
-- `HEX_DETECTION_DELAY_MS` — pause after each synchronous (non-batch) hex detection call, per concurrency slot (default: `1000`, max `60000`; `0` disables); 429s are still retried with `Retry-After`
-- `HEX_DETECTION_CONCURRENCY` — synchronous hex detection calls in flight at once (default: `4`, max `32`); DB writes stay sequential. Throughput is capped by the Azure OpenAI deployment's tokens-per-minute quota, so raise this together with deployment capacity
-- `SUSPICIOUS_HEX_REPEAT_MIN_RECORDS` — a vendor hex shared by at least this many records in one data source's batch is treated as a store template default and sent to AI detection when `detectHexOnSuspiciousOnly` is on (default: `3`; see `src/lib/suspicious-hex.ts`)
-- `SUSPICIOUS_HEX_REPEAT_MIN_SHARE` — ...and by at least this share (0–1) of the records that carry a vendor hex (default: `0.1`); both repeat thresholds must be met
-- `SUSPICIOUS_HEX_GRAYSCALE_MAX_CHROMA` — OKLAB chroma below which a vendor hex counts as near-grayscale and is flagged unless the shade name or tags suggest a gray/silver/black/white/nude/chrome polish (default: `0.02`; pure grays are `0`, a nude ≈ `0.08`)
-- `GALLERY_MAX_IMAGES_PER_SHADE` — max `source_gallery` images one product links to its shade per ingest, after near-duplicate skipping, in vendor order (positive integer; unset/empty/`0`/invalid = unlimited, the default). Images past the cap are still stored; the AI detection image is always linked; lowering it unlinks the extras on the next ingest of the product (see `src/lib/gallery-dedupe.ts`)
-- `INGESTION_AI_BATCH_POLL_SCHEDULE` — NCRONTAB schedule for the batch completion poller (default: `0 * * * * *`, every minute)
-- `INGESTION_AI_BATCH_MAX_POLL_JOBS` — maximum awaiting jobs processed per poller run (default: `10`)
-- `INGESTION_AI_IMAGE_PROXY_ORIGIN` — optional public origin used to build `/api/images/{id}` URLs for Azure OpenAI vision calls (defaults to `https://$WEBSITE_HOSTNAME`)
-- `INGESTION_WORKER_TIME_BUDGET_MS` — wall-clock budget per ingestion worker invocation (default: `240000`, clamped to `30000`–`270000`); when spent, the worker saves `metrics.checkpoint`, sets stage `continuation_queued`, and enqueues a continuation message so long jobs survive the Consumption plan timeout
-- `INGESTION_LOG_FLUSH_INTERVAL_MS` — interval for ingestion worker log/metrics flushes while jobs run (default: `10000`)
-- `INGESTION_JOB_LOG_MAX_ENTRIES` — entries kept in a job's `metrics_json.logs` across all its invocations and poller runs (default: `500`, clamped 100–2000); the first 20% of the run is kept, then the newest lines, with one marker entry counting the omitted lines by level (`src/lib/job-log.ts`)
-- `SOURCE_IMAGE_MAX_EDGE_PX` — long edge (px) above which ingested catalog images are downscaled before storage (default `2048`, clamped 256–8192; covers AI vision at `detail: high` and the ≤ 1024 px proxy transforms; thumbnail variants are rendered from the stored image). Images still over 5 MB after resizing are re-encoded as WebP; the 5 MB limit applies to stored bytes, not downloads
-- `SOURCE_IMAGE_MAX_DOWNLOAD_BYTES` — largest catalog image download accepted before resizing (default `26214400` = 25 MB, clamped 5–100 MB)
-- `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS` — per-request timeout for Shopify `products.json` downloads (default: `45000`)
-- `SHOPIFY_CONNECTOR_MAX_RETRIES` — retry count for transient Shopify request errors (default: `2`)
-- `SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS` — linear backoff base delay for Shopify retries in milliseconds (default: `1000`)
-- `PG_POOL_MAX` — Postgres pool max client count (default: `10`)
-- `PG_IDLE_TIMEOUT_MS` — Postgres pool idle timeout in milliseconds (default: `30000`)
-- `PG_CONNECTION_TIMEOUT_MS` — Postgres connection acquisition timeout in milliseconds (default: `15000`)
-- `PG_QUERY_MAX_RETRIES` — retries for retry-safe DB queries (`SELECT` and `UPDATE ingestion_job`) when connection timeouts occur (default: `2`)
-- `PG_QUERY_RETRY_BASE_MS` — linear backoff base delay for retry-safe DB query retries in milliseconds (default: `250`)
-- `APPLICATIONINSIGHTS_CONNECTION_STRING` — custom telemetry sink for `trackEvent`/`trackMetric`/`trackException`; `src/index.ts` imports `lib/telemetry` first so dependencies are auto-instrumented and correlated with the host request (keep it first)
-- `CORS_ALLOWED_METHODS` — overrides the Functions CORS wrapper's allowed methods (default `GET,POST,PUT,PATCH,DELETE,OPTIONS`)
-- `CORS_ALLOWED_HEADERS` — overrides the Functions CORS wrapper's allowed headers (default `Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context`, so browser telemetry can correlate with API requests)
-- `CORS_ALLOWED_ORIGINS` — comma-separated origins allowed by the Functions CORS wrapper (`src/lib/http.ts`; default `http://localhost:3000,https://*.azurestaticapps.net`); Terraform sets it to the web app origins
-- `CONNECTOR_RAW_CONTAINER` — blob container for raw connector snapshots and the ingestion catalog cache (Terraform-provisioned; the legacy name `RAW_SNAPSHOT_CONTAINER` is still read but deprecated)
-- `NEXT_PUBLIC_*` — web client vars included in example for convenience; not used by the Functions host itself
+### Functions: storage, image proxy, private media
 
-Web (build-time `NEXT_PUBLIC_*`, inlined into the static export; set in `.github/workflows/deploy.yml`, not SWA app settings):
-- `NEXT_PUBLIC_APPLICATIONINSIGHTS_CONNECTION_STRING` — enables browser telemetry (`apps/web/src/lib/telemetry.ts`: page views, exceptions, fetch dependencies correlated with Functions requests via W3C `traceparent`). Unset = telemetry off (local dev default). The deploy workflow reads it from the Terraform output `application_insights_connection_string`; a missing output leaves telemetry off without failing the deploy
-- `NEXT_PUBLIC_APPINSIGHTS_SAMPLING` — browser telemetry sampling percentage, `(0, 100]` (default `100`); deploy reads the `NEXT_PUBLIC_APPINSIGHTS_SAMPLING` GitHub environment variable
+- `AZURE_STORAGE_CONNECTION` — storage account (Azurite locally). Unset: ingestion keeps source image URLs, the orphan sweep is skipped.
+- `SOURCE_IMAGE_CONTAINER` (`source-images`, catalog images + variants; the only container `v2` ids read), `USER_MEDIA_CONTAINER` (`nail-photos`, private user media; the only container `v3` ids read, #227), `CONNECTOR_RAW_CONTAINER` (raw connector snapshots + ingestion catalog cache; unset = no-op; legacy name `RAW_SNAPSHOT_CONTAINER` still read but deprecated).
+- `IMAGE_PROXY_SIGNING_KEY` — secret (>= 32 chars) that HMAC-signs `/api/images/{id}` capability ids (`src/lib/image-proxy.ts`) and roots shareable wishlist and look tokens. Fails closed when unset (image URLs omitted, proxy refuses requests) unless dev bypass is active, which uses an ephemeral per-process dev key. Terraform generates it into Key Vault (`image-proxy-signing-key`).
+- `IMAGE_PROXY_ID_TTL_SECONDS` — minimum lifetime of public `v2` ids (default `259200` = 3 days, clamped 1h–30d; keep above the AI batch completion window plus poller lag, since the poller re-reads the same ids for the snap step and an expired id just keeps the raw `vision-direct` hex).
+- `IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS` — minimum lifetime of owner-scoped `v3` ids (default `3600`, clamped 300–86400, bucketed to 15 minutes).
+- `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL` — optional ISO-8601 cutoff for accepting legacy non-expiring `v1` ids (unset = rejected).
+- Orphan media sweep (#319, `src/lib/orphan-media-sweep.ts`): `ORPHAN_MEDIA_SWEEP_SCHEDULE` (NCRONTAB, default `0 17 3 * * *`), `ORPHAN_MEDIA_SWEEP_GRACE_SECONDS` (minimum `captured_at` age, default `86400`, clamped 3600–2592000), `ORPHAN_MEDIA_SWEEP_BATCH_SIZE` (per scan query, default `100`, clamped 1–1000), `ORPHAN_MEDIA_SWEEP_MAX_PER_RUN` (default `2000`, clamped 1–20000; the rest wait for the next run).
 
-Mobile (`apps/mobile/.env.local`, from `.env.example`; `EXPO_PUBLIC_*` are inlined at bundle time, never secrets; details in `apps/mobile/README.md`):
-- `EXPO_PUBLIC_API_URL` — Functions API base URL (default `http://localhost:7071/api`; `localhost` becomes `10.0.2.2` on the Android emulator)
-- `EXPO_PUBLIC_AUTH_DEV_BYPASS` / `EXPO_PUBLIC_AUTH_DEV_USER_ID` — dev bypass (`Bearer dev:<id>`, default user `1`); unset = on in development builds without Entra settings, `false` = off
-- `EXPO_PUBLIC_B2C_TENANT`, `EXPO_PUBLIC_B2C_TENANT_ID`, `EXPO_PUBLIC_B2C_CLIENT_ID`, `EXPO_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY`, `EXPO_PUBLIC_B2C_API_SCOPE` — same tenant/app registration as the web's `NEXT_PUBLIC_B2C_*`; native sign-in needs the redirect URI `swatchwatch://auth` registered on the app registration's "Mobile and desktop applications" platform
+### Functions: feature flags
 
-Function App app settings are Terraform-managed. Pushes to `dev` / `main` apply infra first (when infra files changed) and then deploy code from one workflow (`deploy-dev.yml` / `deploy-prod.yml`); `Deploy Infrastructure Dev/Prod` are manual-only and must not run while a code deploy for that environment is in progress, because `Azure/functions-action` writes back the settings it read at its start. Both deploys fail if a Terraform-managed setting is missing or differs on the live app (`.github/scripts/check-function-app-settings.sh`; `infrastructure/README.md` → Deploy ordering).
+- `SHAREABLE_WISHLIST_ENABLED` (#268, default `false`) — off → every wishlist-share route returns 404 `feature_disabled` and the web share card is hidden. Needs `IMAGE_PROXY_SIGNING_KEY`. Terraform-managed (`shareable_wishlist_enabled`, from the `SHAREABLE_WISHLIST_ENABLED` GitHub variable in Deploy Infra).
+- `SHAREABLE_LOOKS_ENABLED` (default `false`) — off → `/api/look-share` and `/api/look/{token}` return 404 `feature_disabled` and the Looks page shows no Share link controls. Needs `IMAGE_PROXY_SIGNING_KEY`. Terraform-managed (`shareable_looks_enabled`, from the `SHAREABLE_LOOKS_ENABLED` GitHub variable in Deploy Infra).
+- `HEX_DETECTION_BATCH_ENABLED` (default `false`) — batch mode for Shopify vision hex detection and the `ingestion-ai-batch-poller` timer.
+- `HEX_DETECTION_SNAP_ENABLED` (default `false`) — the snap step (see Shade hexes above); read at call time. Terraform-managed (`hex_detection_snap_enabled`, from the `HEX_DETECTION_SNAP_ENABLED` GitHub variable).
 
-Infra (GitHub environment settings read by `.github/workflows/deploy-infra.yml`, exported as `TF_VAR_*`; see `infrastructure/README.md`):
-- `ALERT_EMAIL` — address the prod alert action group emails (`TF_VAR_alert_email`). Set it as an environment **secret** so it is masked in logs (a variable also works); never commit it to tfvars
-- `MANAGE_CIAM_SERVICE_PRINCIPAL` — `true` lets Terraform import and manage the web sign-in app's service principal in the External ID tenant (`app_role_assignment_required = false`); default `false`. Needs `CIAM_TENANT_ID` and `CIAM_TERRAFORM_CLIENT_ID` (deployer app in the CIAM tenant with a GitHub OIDC federated credential + Cloud Application Administrator; one-time bootstrap in `infrastructure/README.md`)
-- `ALERTS_ENABLED` — optional override for `TF_VAR_alerts_enabled` (default `true` for `prod`, `false` otherwise)
+### Functions: Azure OpenAI and hex detection
+
+- Client (`src/lib/azure-openai-config.ts`): `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_KEY` (`api-key` header); always the Azure OpenAI resource directly (APIM gateway removed, D25).
+- Deployments: `AZURE_OPENAI_DEPLOYMENT` (fallback for all), `AZURE_OPENAI_DEPLOYMENT_HEX` (sync vision detection), `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` (batch; → `_HEX` → `AZURE_OPENAI_DEPLOYMENT`), `AZURE_OPENAI_DEPLOYMENT_LABEL` (label OCR extraction; → `_HEX` → `AZURE_OPENAI_DEPLOYMENT`).
+- `AZURE_OPENAI_VISION_DETAIL` — `low` (default, flat ~85 tokens/image), `high` or `auto`, sync and batch.
+- Sync pacing: `HEX_DETECTION_CONCURRENCY` (default `4`, max `32`; DB writes stay sequential; capped by the deployment's TPM quota, so raise together with capacity), `HEX_DETECTION_DELAY_MS` (pause after each call per slot, default `1000`, max `60000`, `0` disables; 429s are still retried with `Retry-After`).
+- `HEX_SNAP_MAX_DISTANCE` — largest OKLAB distance at which the snap step (production and the eval `blind-snap` / `image-select-ai-snap` strategies) replaces the model's hex with the nearest measured palette chip (default `0.10`, the MEDIUM threshold).
+- Suspicious vendor hexes (`src/lib/suspicious-hex.ts`, used when `detectHexOnSuspiciousOnly` is on): `SUSPICIOUS_HEX_REPEAT_MIN_RECORDS` (default `3`) and `SUSPICIOUS_HEX_REPEAT_MIN_SHARE` (0–1, default `0.1`) — a vendor hex repeated at least that often in one source's batch is a store template default (both must be met); `SUSPICIOUS_HEX_GRAYSCALE_MAX_CHROMA` (default `0.02`) — near-grayscale vendor hexes are flagged unless the name/tags suggest gray/silver/black/white/nude/chrome.
+- Batch pipeline: `HEX_DETECTION_BATCH_MIN_IMAGES` (records before switching to batch, default `5`), `HEX_DETECTION_BATCH_MAX_IN_FLIGHT` (pending batches per job before pausing for `awaiting_ai`, default `20`, clamped 1–100), `AZURE_OPENAI_BATCH_API_VERSION` (default `2025-03-01-preview`), `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` (default `24h`), `INGESTION_AI_BATCH_POLL_SCHEDULE` (NCRONTAB, default `0 * * * * *`), `INGESTION_AI_BATCH_MAX_POLL_JOBS` (default `10`), `INGESTION_AI_IMAGE_PROXY_ORIGIN` (public origin for the `/api/images/{id}` URLs sent to Azure OpenAI; defaults to `https://$WEBSITE_HOSTNAME`).
+
+### Functions: ingestion and catalog images
+
+- `INGESTION_JOB_QUEUE_NAME` (default `ingestion-jobs`).
+- `INGESTION_WORKER_TIME_BUDGET_MS` — wall-clock budget per worker invocation (default `240000`, clamped 30000–270000); when spent, the worker saves `metrics.checkpoint`, sets stage `continuation_queued` and enqueues a continuation so long jobs survive the Consumption plan timeout.
+- `INGESTION_LOG_FLUSH_INTERVAL_MS` (default `10000`); `INGESTION_JOB_LOG_MAX_ENTRIES` (entries kept in `metrics_json.logs` across all invocations and poller runs, default `500`, clamped 100–2000; first 20% kept, then the newest, with one marker counting the omitted lines by level, `src/lib/job-log.ts`).
+- Shopify: `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS` (default `45000`), `SHOPIFY_CONNECTOR_MAX_RETRIES` (default `2`), `SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS` (linear backoff base, default `1000`).
+- `SOURCE_IMAGE_MAX_EDGE_PX` — long edge above which catalog images are downscaled before storage (default `2048`, clamped 256–8192); images still over 5 MB after resizing are re-encoded as WebP. `SOURCE_IMAGE_MAX_DOWNLOAD_BYTES` — largest download accepted before resizing (default 25 MB, clamped 5–100 MB).
+- `GALLERY_MAX_IMAGES_PER_SHADE` — max `source_gallery` images one product links per ingest, after near-duplicate skipping, in vendor order (unset/empty/`0`/invalid = unlimited, the default). Images past the cap are still stored; the AI detection image is always linked; lowering it unlinks the extras on the next ingest (`src/lib/gallery-dedupe.ts`).
+
+### Functions: OCR, voice, cache, HTTP, telemetry
+
+- `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT`, `AZURE_DOCUMENT_INTELLIGENCE_KEY` — label OCR (`src/lib/ocr.ts`); skipped when either is missing.
+- `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` — reserved for the voice stub; not read yet.
+- `REDIS_URL`, `REDIS_KEY` — read-through cache (`src/lib/cache.ts`); either missing → no-ops, Postgres only.
+- CORS (`src/lib/http.ts`): `CORS_ALLOWED_ORIGINS` (comma-separated, default `http://localhost:3000,https://*.azurestaticapps.net`; Terraform sets the web origins), `CORS_ALLOWED_METHODS` (default `GET,POST,PUT,PATCH,DELETE,OPTIONS`), `CORS_ALLOWED_HEADERS` (default `Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context`, so browser telemetry can correlate), `CORS_SUPPORT_CREDENTIALS` (`true` adds `Access-Control-Allow-Credentials` for matched origins; default off). The local `func` host's `Host.CORS` pins `:3000`; use `func start --cors` for other ports.
+- `APPLICATIONINSIGHTS_CONNECTION_STRING` — telemetry sink for `trackEvent`/`trackMetric`/`trackException`; `src/index.ts` imports `lib/telemetry` first so dependencies are auto-instrumented and correlated with the host request (keep it first).
+
+### Hex eval and admin scripts (never read by the Function App)
+
+- Eval (`src/eval/hex/`): `AZURE_OPENAI_DEPLOYMENT_HEX_ENSEMBLE` (comma-separated deployments for `ensemble`; → `_HEX` → `AZURE_OPENAI_DEPLOYMENT`), `HEX_DETECTION_ENSEMBLE_SAMPLES` (per deployment, default `3`, clamped 1–10), `HEX_DETECTION_ENSEMBLE_TEMPERATURE` (default `0.3`, clamped 0–2; production stays at 0), `HEX_EVAL_REGION_CROP_MODE` (`cells` default, or `bbox`), `HEX_EVAL_REGION_CROP_CELLS` (grid per axis, default `6`, clamped 2–10), `HEX_EVAL_REGION_CROP_GRID` (`true` draws a 4×4 grid in `bbox` mode), `HEX_EVAL_REGION_CROP_DETAIL` (`low`/`high`/`auto`; default `AZURE_OPENAI_VISION_DETAIL`, then `low`).
+- Admin scripts (`backfill:*`, `dedupe:gallery-images`): `API_BASE_URL` (default `http://localhost:7071/api`), `ADMIN_BEARER_TOKEN` (an admin token, or `dev:<adminId>` locally).
+
+### Web (build-time `NEXT_PUBLIC_*`, inlined into the static export; see `apps/web/README.md`)
+
+- `NEXT_PUBLIC_API_URL` — Functions API base URL (default `http://localhost:7071/api`); also the only host that gets W3C `traceparent`.
+- `NEXT_PUBLIC_SITE_URL` — absolute site origin for metadata (`metadataBase` in `app/layout.tsx`).
+- `NEXT_PUBLIC_AUTH_DEV_BYPASS` (`true` sends `Bearer dev:1`), `NEXT_PUBLIC_AUTH_DEV_ADMIN_USER_ID` (admin calls in dev bypass, default `2`).
+- `NEXT_PUBLIC_B2C_TENANT`, `NEXT_PUBLIC_B2C_TENANT_ID` (required for External ID tenants), `NEXT_PUBLIC_B2C_CLIENT_ID`, `NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY` (`B2C_1…` = legacy B2C, else sent as `p=`), `NEXT_PUBLIC_B2C_API_SCOPE` (default `api://<client-id>/access_as_user`). Tenant + client id empty → unconfigured-auth mode.
+- `NEXT_PUBLIC_APPLICATIONINSIGHTS_CONNECTION_STRING` — enables browser telemetry (`apps/web/src/lib/telemetry.ts`); unset = off (local default). The deploy workflow reads it from the Terraform output `application_insights_connection_string`; a missing output leaves telemetry off without failing the deploy.
+- `NEXT_PUBLIC_APPINSIGHTS_SAMPLING` — browser sampling percentage, `(0, 100]` (default `100`); deploy reads the GitHub environment variable of the same name.
+
+### Mobile (`apps/mobile/.env.local`; `EXPO_PUBLIC_*` are inlined at bundle time, never secrets; see `apps/mobile/README.md`)
+
+- `EXPO_PUBLIC_API_URL` — Functions API base URL (default `http://localhost:7071/api`; `localhost` becomes `10.0.2.2` on the Android emulator).
+- `EXPO_PUBLIC_AUTH_DEV_BYPASS` / `EXPO_PUBLIC_AUTH_DEV_USER_ID` — dev bypass (`Bearer dev:<id>`, default user `1`); unset = on in development builds without Entra settings, `false` = off.
+- `EXPO_PUBLIC_B2C_TENANT`, `EXPO_PUBLIC_B2C_TENANT_ID`, `EXPO_PUBLIC_B2C_CLIENT_ID`, `EXPO_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY`, `EXPO_PUBLIC_B2C_API_SCOPE` — same tenant/app registration as the web's `NEXT_PUBLIC_B2C_*`; native sign-in needs the redirect URI `swatchwatch://auth` registered on the app registration's "Mobile and desktop applications" platform.
+
+### Infra (GitHub environment settings read by `.github/workflows/deploy-infra.yml`, exported as `TF_VAR_*`; see `infrastructure/README.md`)
+
+- `ALERT_EMAIL` — address the prod alert action group emails (`TF_VAR_alert_email`). Set it as an environment **secret** so it is masked in logs (a variable also works); never commit it to tfvars.
+- `ALERTS_ENABLED` — optional override for `TF_VAR_alerts_enabled` (default `true` for `prod`, `false` otherwise).
+- `SHAREABLE_WISHLIST_ENABLED`, `SHAREABLE_LOOKS_ENABLED`, `HEX_DETECTION_BATCH_ENABLED`, `HEX_DETECTION_SNAP_ENABLED` — feature flags exported to the matching Terraform variables (default `false`).
+- Also required per environment: secrets `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_AD_B2C_CLIENT_ID`; variables `TFSTATE_*`, `AZURE_AD_B2C_TENANT`, `AUTH_DEV_BYPASS` (Terraform only; the app deploy forces `false`), `CREATE_OPENAI_RESOURCES`, `OPENAI_DEPLOYMENT_NAME` and the `OPENAI_BATCH_*` deployment settings (list in `infrastructure/README.md`).
+- `MANAGE_CIAM_SERVICE_PRINCIPAL` — `true` lets Terraform import and manage the web sign-in app's service principal in the External ID tenant (`app_role_assignment_required = false`); default `false`. Needs `CIAM_TENANT_ID` and `CIAM_TERRAFORM_CLIENT_ID` (deployer app in the CIAM tenant with a GitHub OIDC federated credential + Cloud Application Administrator; one-time bootstrap in `infrastructure/README.md`).
 - `OPENAI_LOCATION` / `OPENAI_REGIONS` — the environment's Azure OpenAI region (prod: `centralus`; dev: `eastus`; `OPENAI_REGIONS` JSON list takes precedence), exported as `TF_VAR_openai_location` / `TF_VAR_openai_regions`. Required when `CREATE_OPENAI_RESOURCES` is true: the workflow has no default region (an OpenAI account's region is immutable, so a different region replaces and soft-deletes the account; 2026-10-19 prod incident). Manual `Deploy Infrastructure` dispatches leave the `openai_location` input empty, and a plan that deletes or replaces any `azurerm_cognitive_account` / `azurerm_cognitive_deployment` is refused between plan and apply unless the `allow_openai_replace` input is true (see `infrastructure/README.md` → Azure OpenAI region and replacement guard)
 
 ## Adding a New Azure Function
@@ -292,7 +291,7 @@ When you add, remove, or modify functionality, update the relevant docs as part 
 | New/changed API endpoint | `packages/functions/README.md` route table |
 | New shared type | `packages/shared/README.md` type catalog |
 | New component | `apps/web/README.md` components section |
-| New env variable | Environment Variables section above + `packages/functions/README.md` |
+| New env variable | Environment Variables section above (matching group) + `packages/functions/README.md` table + `packages/functions/local.settings.json.example` (web: `apps/web/README.md`; mobile: `apps/mobile/README.md` + `.env.example`; infra: `infrastructure/README.md`) |
 | Infrastructure change | `infrastructure/README.md` resource table |
 | New dev command or workflow | Dev Commands section above + root `README.md` |
 | Architectural decision | This file's Architecture Overview |
@@ -318,7 +317,7 @@ Documentation files in this project:
 - `apps/web/README.md` — web app routes, components, conventions
 - `apps/mobile/README.md` — mobile (Expo) app: run, env, auth + redirect URI, routes, Rapid Add, design tokens
 - `packages/functions/README.md` — API routes, handler patterns
-- `packages/functions/local.settings.json.example` — canonical template for all Functions env vars (copy → `local.settings.json`, gitignored)
+- `packages/functions/local.settings.json.example` — template for every Functions env var, in the same groups as the docs (copy → `local.settings.json`, gitignored)
 - `packages/shared/README.md` — shared type catalog
 - `infrastructure/README.md` — Terraform resources and variables
 
