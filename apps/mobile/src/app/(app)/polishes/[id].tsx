@@ -5,6 +5,7 @@ import {
   resolveDisplayHex,
   resolvePolishFinishes,
   type Polish,
+  type PolishUpdateRequest,
   type PolishDupesResponse,
   type PolishStatus,
 } from "swatchwatch-shared";
@@ -17,14 +18,19 @@ import {
   getPolishDupes,
   updatePolish,
 } from "@/api/client";
+import { useAuth } from "@/auth/auth-provider";
+import { EditDetailsSheet } from "@/components/edit-details-sheet";
 import { GoesWith } from "@/components/goes-with";
 import { NailPhotoSection } from "@/components/nail-photo-section";
 import { WearHistory } from "@/components/wear-history";
 import { ColorDot, Swatch } from "@/components/swatch";
 import { AppText, Button, Card, CenteredState, Chip, ErrorBanner } from "@/components/ui";
+import { invalidateInventoryCaches, readCache, writeCache } from "@/lib/api-cache";
 import { formatBuyPriceLine } from "@/lib/buy-price";
+import { notifyCollectionChanged } from "@/lib/collection-events";
 import { finishLabel } from "@/lib/finishes";
 import { formatWornOn } from "@/lib/mani";
+import { applyEditPatch, defaultCurrency, formatPurchaseLine, initialEditForm, type PolishEditForm } from "@/lib/polish-edit";
 import {
   isOwnedPolish,
   localIsoDate,
@@ -38,6 +44,9 @@ import { useTheme } from "@/theme/theme";
 
 type Busy = "status" | "tried" | "mani" | null;
 
+/** api-cache key (per user) of the currency last saved with a purchase price. */
+const LAST_CURRENCY_KEY = "last-purchase-currency";
+
 /** Polish detail (web: `/polishes/detail?id=`): swatches, finishes, status actions, mani log. */
 export default function PolishDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -48,6 +57,9 @@ export default function PolishDetailScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
   const [dupes, setDupes] = useState<PolishDupesResponse | null>(null);
+  const { user } = useAuth();
+  const scope = user ? String(user.userId) : null;
+  const [editForm, setEditForm] = useState<PolishEditForm | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -91,6 +103,7 @@ export default function PolishDetailScreen() {
 
   const finishes = resolvePolishFinishes(polish);
   const buyPriceLine = formatBuyPriceLine(polish);
+  const purchaseLine = formatPurchaseLine(polish);
   const displayHex = resolveDisplayHex(polish);
   const images = [polish.swatchImageUrl, ...(polish.sourceImageUrls ?? [])].filter(
     (url, index, all): url is string => Boolean(url) && all.indexOf(url) === index,
@@ -116,6 +129,37 @@ export default function PolishDetailScreen() {
     } finally {
       setBusy(null);
     }
+  }
+
+  /** Open the Edit details sheet, with the last-used currency as the default for a first price. */
+  async function openEdit() {
+    if (!polish) return;
+    const lastUsed = scope ? (await readCache<string>(scope, LAST_CURRENCY_KEY))?.data : null;
+    const locale = Intl.DateTimeFormat().resolvedOptions().locale;
+    setEditForm(initialEditForm(polish, defaultCurrency({ existing: polish.purchaseCurrency, lastUsed, locale })));
+  }
+
+  /** Optimistic save: show the edit at once, roll back (and reopen the sheet with the draft) on failure. */
+  function saveEdit(patch: PolishUpdateRequest, form: PolishEditForm) {
+    if (!polish) return;
+    const before = polish;
+    setEditForm(null);
+    setPolish(applyEditPatch(before, patch));
+    setActionError(null);
+    setNotice(null);
+    updatePolish(before.id, patch)
+      .then(async (updated) => {
+        setPolish(updated);
+        setNotice("Details saved.");
+        if (patch.purchaseCurrency && scope) void writeCache(scope, LAST_CURRENCY_KEY, patch.purchaseCurrency);
+        if (scope) await invalidateInventoryCaches(scope);
+        notifyCollectionChanged();
+      })
+      .catch((err: unknown) => {
+        setPolish(before);
+        setActionError(errorMessage(err, "Couldn't save your changes."));
+        setEditForm(form);
+      });
   }
 
   async function markTriedToday() {
@@ -250,6 +294,28 @@ export default function PolishDetailScreen() {
           </View>
         </Card>
 
+        {polish.status && (
+          <Card testID="my-details">
+            <AppText variant="label" muted>
+              My details
+            </AppText>
+            {polish.rating ? (
+              <AppText accessibilityLabel={`Rated ${polish.rating} out of 5`}>
+                {"★".repeat(polish.rating)}
+                {"☆".repeat(Math.max(0, 5 - polish.rating))}
+              </AppText>
+            ) : null}
+            {purchaseLine ? <AppText variant="small">{purchaseLine}</AppText> : null}
+            {polish.notes ? <AppText variant="small">{polish.notes}</AppText> : null}
+            {!polish.rating && !purchaseLine && !polish.notes && (
+              <AppText variant="small" muted>
+                No rating, notes or purchase details yet.
+              </AppText>
+            )}
+            <Button title="Edit details" variant="outline" compact disabled={busy !== null} onPress={() => void openEdit()} testID="edit-details" />
+          </Card>
+        )}
+
         {dupes && dupes.dupeCount > 0 && !isOwnedPolish(polish) && (
           <Card style={{ borderColor: theme.colors.warning }}>
             <AppText style={{ fontWeight: "600" }}>
@@ -303,6 +369,7 @@ export default function PolishDetailScreen() {
           </View>
         )}
       </ScrollView>
+      {editForm && <EditDetailsSheet visible polish={polish} initialForm={editForm} onClose={() => setEditForm(null)} onSave={saveEdit} />}
     </>
   );
 }
