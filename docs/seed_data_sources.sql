@@ -307,8 +307,10 @@ VALUES
   --   Femme Fatale, Picture Polish, Polished for Days, Wildflower Lacquer, Leesha's Lacquer,
   --   Baroness X. MooncatShopify and CupcakePolishShopify (above) carry the same ToS clause.
   --   Batch 2, checked 2026-10-19 (docs/indie-sources-2026-10.md), NOT added: Shopify default
-  --   scraping clause: Stella Chroma, Lemming Lacquer, Sweet & Sour Lacquer, Maniology,
-  --   What's Up Nails. Copy/commercial-use clause: Nails.INC, Ninja Polish (also a multi-brand
+  --   scraping clause: Maniology, What's Up Nails. Stella Chroma, Lemming Lacquer and Sweet & Sour
+  --   Lacquer carry the same clause and were added below on 2026-10-22 (batch 3, migration
+  --   20261023021845964_add-approved-indie-shopify-sources) after the owner received each
+  --   store's written permission by email. Copy/commercial-use clause: Nails.INC, Ninja Polish (also a multi-brand
   --   reseller). Not Shopify or unreachable: Tonic Polish, Bluebird Lacquer (401), Colores de
   --   Carol, Glisten & Glow, Masura, Killer Colors, and twenty more without a storefront answer.
   (
@@ -346,6 +348,33 @@ VALUES
     'https://www.cirquecolors.com/policies/terms-of-service',
     true,
     '{"priority": "medium", "mvp": "no", "notes": "Cirque Colors Shopify store (indie, US). Verified 2026-10-18: /products.json returns 200 with Shopify products (415 over 2 pages). product_type holds finish or line names (Retired Colors 70, Jelly 59, Magnetic 48, Sets 35, Crème 21, Nail Care 13, ...), so the generic connector polish filter accepts only 10 of 415; the store-specific filter connectors/store-filters/cirque-colors.ts (#273) accepts 328 of 415 on 2026-10-19 (single shades plus coats and cuticle oils; sets, duos, tools, charms, stickers, gift card, free gifts and creator pages dropped). robots.txt is the Shopify default (products.json not disallowed). /policies/terms-of-service is the Shopify default template, whose prohibited uses include: spider, crawl, or scrape. Update 2026-10-19: acceptable use confirmed: the owner reports the store signed off on 2026-10-19 (who and how not recorded here). Enabled 2026-10-19.", "verification": {"checkedAt": "2026-10-18", "productsJson": true, "products": 415, "polishFilterPass": 10, "storeFilterPass": 328, "storeFilterCheckedAt": "2026-10-19", "robotsTxt": "shopify-default-allows-products-json", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
+    'StellaChromaShopify',
+    'api',
+    'https://stellachroma.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://www.stellachroma.com/policies/terms-of-service',
+    true,
+    '{"priority": "medium", "mvp": "no", "notes": "Stella Chroma Shopify store (indie, US). Verified 2026-10-22: /products.json returns 200 with Shopify products (81, one page; product_type Nail Polishes 38, Nail Polish 31, Nail Care 5, Shirts 1, Gift Card 1, empty or processing 5; vendor STELLA CHROMA). The generic connector polish filter accepts 72 of 81 but keeps two collection sets, the coat duo, the mystery grab bag and the mystery subscription and drops the cuticle oil; the store-specific filter connectors/store-filters/stella-chroma.ts fixes those and accepts 68 (63 single shades, 2 top coats, 1 base coat, 2 treatments). robots.txt is the Shopify default (products.json not disallowed). /policies/terms-of-service is the Shopify default template, whose prohibited uses include: spider, crawl, or scrape. Acceptable use confirmed: written permission received by the owner by email on 2026-10-22 (recorded in docs/indie-sources-2026-10.md). Enabled 2026-10-22.", "verification": {"checkedAt": "2026-10-22", "productsJson": true, "products": 81, "polishFilterPass": 72, "storeFilterPass": 68, "storeFilterCheckedAt": "2026-10-22", "robotsTxt": "shopify-default-allows-products-json", "termsScrapingClause": true, "writtenPermission": "email 2026-10-22"}}'::jsonb
+  ),
+  (
+    'LemmingLacquerShopify',
+    'api',
+    'https://lemminglacquer.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://lemminglacquer.com/policies/terms-of-service',
+    true,
+    '{"priority": "medium", "mvp": "no", "notes": "Lemming Lacquer Shopify store (indie, US). Verified 2026-10-22: /products.json returns 200 with Shopify products (30, one page; product_type Nail Polishes 23, Collection 3, Multichrome 1, Flakes 1, Acessories 1, empty 1). The generic connector polish filter accepts 24 of 30 but drops the Multichrome-typed shade and keeps the Polish Pickup mystery grab bag; the store-specific filter connectors/store-filters/lemming-lacquer.ts fixes both and accepts 24 single shades (collection listings, gift card, magnet and mysteries dropped). robots.txt is the Shopify default (products.json not disallowed). /policies/terms-of-service is the Shopify default template, whose prohibited uses include: spider, crawl, or scrape. Acceptable use confirmed: written permission received by the owner by email on 2026-10-22 (recorded in docs/indie-sources-2026-10.md). Enabled 2026-10-22.", "verification": {"checkedAt": "2026-10-22", "productsJson": true, "products": 30, "polishFilterPass": 24, "storeFilterPass": 24, "storeFilterCheckedAt": "2026-10-22", "robotsTxt": "shopify-default-allows-products-json", "termsScrapingClause": true, "writtenPermission": "email 2026-10-22"}}'::jsonb
+  ),
+  (
+    'SweetAndSourLacquerShopify',
+    'api',
+    'https://sweetandsourlacquer.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://sweetandsourlacquer.com/policies/terms-of-service',
+    true,
+    '{"priority": "medium", "mvp": "no", "notes": "Sweet & Sour Lacquer Shopify store (indie, US). Verified 2026-10-22: /products.json returns 200 with Shopify products (169, one page; product_type and tags are empty on every product). The generic connector polish filter accepts 8 of 169 (coats and coat refills by title); the store-specific filter connectors/store-filters/sweet-and-sour.ts accepts 155 (150 single shades, 4 base coats, 1 top coat) by title and description, dropping the trio, duo, mystery overpour, 4 coat refills, gift card, magnet, sticker, coozies, tab opener, the clear watermarbling polish and one listing with no description beyond a restock note. robots.txt is the Shopify default (products.json not disallowed). /policies/terms-of-service is the Shopify default template, whose prohibited uses include: spider, crawl, or scrape. Acceptable use confirmed: written permission received by the owner by email on 2026-10-22 (recorded in docs/indie-sources-2026-10.md). Enabled 2026-10-22.", "verification": {"checkedAt": "2026-10-22", "productsJson": true, "products": 169, "polishFilterPass": 8, "storeFilterPass": 155, "storeFilterCheckedAt": "2026-10-22", "robotsTxt": "shopify-default-allows-products-json", "termsScrapingClause": true, "writtenPermission": "email 2026-10-22"}}'::jsonb
   ),
   (
     'CosIng',

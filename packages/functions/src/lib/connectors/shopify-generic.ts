@@ -752,6 +752,9 @@ export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
   PahlishShopify: "https://pahlish.com",
   EmilyDeMollyShopify: "https://emilydemolly.com",
   CirqueColorsShopify: "https://cirquecolors.com",
+  StellaChromaShopify: "https://stellachroma.com",
+  LemmingLacquerShopify: "https://lemminglacquer.com",
+  SweetAndSourLacquerShopify: "https://sweetandsourlacquer.com",
   HoloTacoShopify: "https://www.holotaco.com",
 };
 
@@ -766,8 +769,10 @@ export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
 export const SHOPIFY_SOURCES_PENDING_APPROVAL: ReadonlySet<string> = new Set([
   // NightOwlLacquerShopify approved 2026-10-17 (docs/decisions-2026-10.md D2).
   // PahlishShopify, EmilyDeMollyShopify and CirqueColorsShopify: the owner reported the
-  // stores' sign-off on 2026-10-19 (docs/indie-sources-2026-10.md). Add a new store here
-  // until its OK is recorded in data_source.metadata.notes.
+  // stores' sign-off on 2026-10-19. StellaChromaShopify, LemmingLacquerShopify and
+  // SweetAndSourLacquerShopify: written permission received by the owner by email on
+  // 2026-10-22 (docs/indie-sources-2026-10.md). Add a new store here until its OK is
+  // recorded in data_source.metadata.notes.
 ]);
 
 /** Whether a newly auto-provisioned data_source row for `source` starts enabled. */
@@ -784,10 +789,21 @@ const PLACEHOLDER_VENDORS: ReadonlySet<string> = new Set([
   "default vendor",
 ]);
 
-/** The product's vendor, or the source's brand when the vendor is missing or a placeholder. */
+/**
+ * The product's vendor, or the source's brand when the vendor is missing or a placeholder.
+ * A vendor shouted in capitals that spells the source's brand (Stella Chroma lists every
+ * product as "STELLA CHROMA") takes the brand's casing; any other spelling is the store's.
+ */
 export function resolveShopifyVendor(vendor: unknown, brandName: string): string {
   const normalized = asNonEmptyString(vendor);
   if (!normalized || PLACEHOLDER_VENDORS.has(normalized.toLowerCase())) {
+    return brandName;
+  }
+  if (
+    normalized === normalized.toUpperCase() &&
+    normalized !== normalized.toLowerCase() &&
+    normalized.toLowerCase() === brandName.toLowerCase()
+  ) {
     return brandName;
   }
   return normalized;

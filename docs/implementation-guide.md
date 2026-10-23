@@ -800,7 +800,7 @@ Example RG structure (per environment):
 
 ```
 
-rg-np-{env}-core      # Functions, APIM, Durable, monitoring, Key Vault
+rg-np-{env}-core      # Functions, Durable, monitoring, Key Vault
 rg-np-{env}-data      # Postgres/SQL, private endpoints, backups
 rg-np-{env}-media     # Storage accounts (Blob), CDN config if used
 rg-np-{env}-edge      # Front Door, WAF policies, DNS
@@ -826,7 +826,6 @@ Durable:   func-np-{env}-{region}-worker
 Postgres:  pg-np-{env}-{region}01
 KeyVault:  kv-np-{env}-{region}01
 FrontDoor: afd-np-{env}
-APIM:      apim-np-{env}
 AI Search: srch-np-{env}-{region}
 ```
 
