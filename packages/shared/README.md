@@ -82,6 +82,7 @@ Mani log (#269): `/api/manicures` payloads. Logging, editing or deleting a manic
 | `ManicurePolish` | One polish in a manicure: `shadeId`, the caller's current `inventoryItemId` (null after removal), `role`, `position`, `brand`, `name`, `vendorHex` / `detectedHex` / `nameHex` |
 | `ManicurePolishInput` | Request polish reference: `shadeId` or `inventoryItemId` (caller's inventory only) + optional `role` |
 | `ManicureCreateRequest` / `ManicureUpdateRequest` | Create (`polishes` required, `wornOn` defaults to today UTC) / partial update (`polishes` replaces the list; `null` clears `notes` / `photoImageId`) |
+| `buildWearHistory()` / `wearHistoryTitle()` / `WEAR_HISTORY_PREVIEW_COUNT` | pure helpers for the polish detail "Worn N times" panel (web and mobile): `WearHistoryEntry[]` newest first from `GET /api/manicures?shadeId=` rows |
 | `ManicureWearStat` | `{ shadeId, inventoryItemId, wearCount, lastWornAt, triedAt }` after a write |
 | `ManicurePhotoResponse` | `PUT /api/manicures/{id}/photo` response (#327): `{ manicureId, photoImageId (the new image_asset id), photoUrl (owner-scoped v3 or null) }`; the request body is a `NailPhotoUploadRequest` |
 | `ManicureMutationResponse` / `ManicureDeleteResponse` | Create/update response (`Manicure` + `wearStats`) / delete response (`{ message, id, wearStats }`) |
@@ -218,6 +219,16 @@ Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/b
 | `ShadeProductCategoryUpdateRequest`, `ShadeProductCategoryUpdateResponse` | `PUT /api/shades-admin/{id}/product-category` |
 | `ShadeProductCategoryItem`, `ShadeProductCategoryListResponse` | `GET /api/shades-admin/product-category` |
 
+### `looks/` (Looks recommender)
+
+| Export | Description |
+|---|---|
+| `recommendLooks({ polishes, catalog?, vibe, seed, count?, includeToppers? })`, `LOOK_TEMPLATES` (18 named looks), `rankTemplatesForVibe`, `vibeScore`, `DEFAULT_VIBE`, `LOOK_*_LABELS`, tuning constants (`BASE_MAX_DISTANCE`, `CATALOG_MAX_DISTANCE`, …) | The Looks rule (`looks/recommend.ts`, moved from the web's `lib/looks.ts`): pure and seeded, three diverse looks (base / accent / topper) for a vibe from owned polishes (`status === "owned"`), gaps filled from `catalog` rows. The module header documents every rule. Types `Look`, `LookStep`, `LooksResult`, `Vibe`, `LookTemplate`, … |
+| `applyStepSwap`, `maniEntriesForLook`, `maniRoleForStep`, `catalogQueriesForLooks(looks, { includeOwned? })`, `shopCandidatesForStep` | Helpers around a look: swap a step's polish, owned steps as mani-log entries (`base` → `color`), the color-family / topper queries that fetch the catalog rows for the gaps, catalog shades to buy per step |
+| `createSeededRandom(seed)`, `RandomSource` | mulberry32 PRNG used by Looks (web `pick-for-me.ts` re-exports it) |
+
+`apps/web/src/lib/looks.ts` is a re-export shim; the vibe vocabulary and saved-look shape stay in `types/looks.ts`.
+
 ### `color/` (OKLAB math, thresholds, hex reconciliation, color families, harmonies, Pair it)
 
 | Export | Description |
@@ -239,6 +250,7 @@ Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/b
 | `PaletteColorKind`, `PALETTE_COLOR_KINDS`, `PALETTE_QUALITY_THRESHOLDS`, `classifyPaletteColor(hex)`, `isBackgroundPaletteKind(kind)`, `paletteVibrancyWeight(hex)` | Photo-palette quality (#105, `color/palette-quality.ts`): `light` (L ≥ 0.97, or L ≥ 0.90 with C < 0.05), `dark` (L < 0.22, C < 0.06), `skin` (hue 20–80, C 0.025–0.14, L 0.35–0.92) or `color`. Coarse on purpose (nudes read as skin), so the web hides these only by default and the API drops them only on request. `paletteVibrancyWeight` = 1 + min(C / 0.2, 1) for `preferVibrant` |
 | `gradeDupe(distance, compatibility)` | `{ colorGrade, grade }`: `confidenceForDistance` (the match-image thresholds), dropped one step for `different` finishes; `grade` null when LOW |
 | `HARMONY_TYPES`, `getHarmonyTypeOptions(harmonyTypes?)`, `generateHarmonyPalette(sourceHex, harmony)`, `generateHarmonyColors(sourceHex, harmony)`, `suggestPaletteCompletion(anchorHexes)` | Color harmony rules (#384, `color/harmonies.ts`, moved from the web): hue rotations in OKLCH (gamut-mapped by reducing chroma, so lightness is kept; grays never rotate). Palette index 0 is the source (monochromatic: five steps dark → light). Used by the web search page / Pick for me and mobile By color / Goes with; `apps/web/src/lib/color-harmonies.ts` is a re-export shim |
+| `analyzeCollectionGaps(hexes)`, `classifyHexToGapCell(hex)`, `gapCellToSeedHex(hue, lightness)`, `recommendGapCells(analysis, limit = 6)`, `gapCellKey`, `parseGapCellKey`, `sortGapCellsByGridOrder`, `HUE_FAMILY_ORDER`, `LIGHTNESS_BAND_ORDER`, `GAP_HUE_META`, `GAP_LIGHTNESS_META` | Collection gap heatmap rules (#109, `color/gaps.ts`, moved from the web's `color-utils.ts`): 8 hue families × 5 OKLCH lightness bands, missing cells (0) and thin cells (`count <= max(1, floor(avg × 0.5))`), the "What to add next" order (missing in grid order, then thin emptiest first) and a representative seed hex per cell. `apps/web/src/lib/color-utils.ts` re-exports the analysis functions; mobile `/gaps` and Pick for me use them directly |
 | `suggestPairings(pick, polishes, max = MAX_PAIRINGS)`, `PairSuggestion`, `PairHarmony`, `PairablePolish`, `pairableDisplayHex(polish)`, `PAIR_MAX_DISTANCE` (0.12), `PAIR_NEUTRAL_MAX_CHROMA` (0.04), `TOPPER_FINISHES`, `MAX_PAIRINGS` (2) | "Pair it" rule (#272/#384, `color/pair-it.ts`): up to two owned companions for a pick, the complementary / analogous owned color polish nearest each harmony target within `PAIR_MAX_DISTANCE` (and closer to the target than to the pick; skipped for near-neutral picks) plus a topper / flake / glitter accent; `role` `accent` or `topper` for the mani log. Web `pick-for-me.ts` re-exports it; mobile Home uses it directly |
 | `prepareDupeShade(shade)`, `prepareDupeCandidates(shades)`, `findDupes(target, candidates, { finishFamilies? })`, `summarizeDupes(id, dupes)`, `compareDupes` | Pure dupe finder: resolve each display hex (`resolveDisplayHexDetailed`) and OKLAB once, then O(N) per target; excludes the target's own id and candidates of another product category (color ↔ color, topper ↔ topper only, #349; `productCategory` on `DupeShade`/`PreparedDupeShade`, missing = color); ordered by grade, finish compatibility, distance, brand/name |
 
@@ -487,7 +499,7 @@ Pinned-distance tests in `packages/functions/tests/color-match.unit.test.cjs` an
 ```bash
 npm run build --workspace=packages/shared    # tsc → dist/
 npm run typecheck --workspace=packages/shared # tsc --noEmit
-npm run test --workspace=swatchwatch-shared    # node:test unit tests (src/**/*.test.ts via tsx; harmonies, Pair it)
+npm run test --workspace=swatchwatch-shared    # node:test unit tests (src/**/*.test.ts via tsx; harmonies, Pair it, Looks, gaps)
 ```
 
 **Important:** You must build this package before other packages can resolve its types. The `main` and `types` fields in `package.json` point to `dist/`.

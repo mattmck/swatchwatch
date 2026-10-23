@@ -31,6 +31,9 @@ import type {
   PolishImageMatchResponse,
   PolishListResponse,
   PolishUpdateRequest,
+  SavedLook,
+  SavedLookInput,
+  SavedLookListResponse,
 } from "swatchwatch-shared";
 import { API_BASE_URL } from "@/config/env";
 import { getAuthorizationHeader, notifySessionExpired } from "@/auth/auth-token";
@@ -160,6 +163,7 @@ export function listPolishes(filters: PolishFilters = {}): Promise<PolishListRes
       untried: filters.untried ? "true" : undefined,
       family: filters.families?.length ? filters.families.join(",") : undefined,
       category: filters.categories?.length ? filters.categories.join(",") : undefined,
+      nearHex: filters.nearHex?.length ? filters.nearHex.map((hex) => hex.replace(/^#/, "").toUpperCase()).join(",") : undefined,
       sortBy: filters.sortBy,
       sortOrder: filters.sortOrder,
       page: filters.page,
@@ -241,6 +245,30 @@ export function createManicure(data: ManicureCreateRequest): Promise<ManicureMut
 
 export function deleteManicure(id: string | number): Promise<ManicureDeleteResponse> {
   return apiRequest<ManicureDeleteResponse>(`/manicures/${encodeURIComponent(String(id))}`, { method: "DELETE" });
+}
+
+// ── Saved looks ─────────────────────────────────────────────────────────────
+
+/** The caller's saved looks, newest first (`GET /api/looks`). */
+export async function listSavedLooks(): Promise<SavedLook[]> {
+  return (await apiRequest<SavedLookListResponse>("/looks")).looks;
+}
+
+/** Save (or re-save) a look (`POST /api/looks`); the server keeps the newest 30. */
+export function saveLook(look: SavedLookInput): Promise<SavedLook> {
+  return apiRequest<SavedLook>("/looks", {
+    method: "POST",
+    body: { id: look.id, templateId: look.templateId, name: look.name, vibe: look.vibe, steps: look.steps },
+  });
+}
+
+/** Delete a saved look by its look key (`DELETE /api/looks?key=`). A 404 (already gone) resolves. */
+export async function deleteSavedLook(key: string): Promise<void> {
+  try {
+    await apiRequest<void>(`/looks${query({ key })}`, { method: "DELETE" });
+  } catch (error) {
+    if (!(error instanceof ApiError && error.status === 404)) throw error;
+  }
 }
 
 // ── Catalog (anonymous) ─────────────────────────────────────────────────────

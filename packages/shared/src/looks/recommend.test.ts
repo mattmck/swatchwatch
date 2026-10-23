@@ -1,7 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type { Polish } from "swatchwatch-shared";
-import { classifyHexColorFamily, finishFamily, resolvePolishFinishes } from "swatchwatch-shared";
+import { classifyHexColorFamily } from "../color/color-family";
+import { finishFamily } from "../color/dupes";
+import { resolvePolishFinishes, type Polish } from "../types/polish";
 import {
   ACCENT_MIN_CONTRAST,
   DEFAULT_VIBE,
@@ -16,8 +17,8 @@ import {
   recommendLooks,
   shopCandidatesForStep,
   type Vibe,
-} from "./looks";
-import { colorDistance } from "./color-utils";
+} from "./recommend";
+import { colorDistance } from "../color/oklab";
 
 let nextId = 1;
 function polish(hex: string, extra: Partial<Polish> = {}): Polish {
