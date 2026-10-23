@@ -111,9 +111,10 @@ src/
   app/                    Expo Router routes (mirror the web's route groups)
     _layout.tsx           providers + Stack.Protected: (app) when signed in, sign-in otherwise
     sign-in.tsx
-    (app)/_layout.tsx     stack over the tabs (detail, match)
+    (app)/_layout.tsx     stack over the tabs (detail, add a polish, match)
     (app)/(tabs)/         Collection (index), Search, Add (Rapid Add), Profile
     (app)/polishes/[id].tsx   polish detail (web /polishes/detail?id=)
+    (app)/polishes/new.tsx    manual Add a polish (web /polishes/new)
     (app)/match.tsx       Match to Collection (web /polishes/match)
   api/client.ts           typed API client (mirrors apps/web/src/lib/api.ts)
   auth/                   auth provider, token holder, Entra config, secure storage
@@ -136,6 +137,7 @@ src/
 | `/polishes/[id]` | Detail: swatches, finishes, hexes, status actions, Mark tried, Log today's mani (undo), private nail photo (owned only), owned-dupe callout, **Goes with** (`components/goes-with.tsx`: complementary / analogous / triadic targets from the shared harmony rules, each with the closest owned color polish within `PAIR_MAX_DISTANCE`, else the target swatch + "Find in catalog" → `/search?hex=`), buy link with the brand list price under it ("Brand price $14.00 · as of …" from `buyPrice` / `buyCurrency` / `buyPriceSeenAt`, `src/lib/buy-price.ts`; hidden without both price and currency) | `GET/PUT/DELETE /polishes/{id}`, `GET /polishes/{id}/dupes`, `GET /polishes?status=owned&category=color`, `POST/DELETE /manicures`, `GET/PUT/DELETE /inventory/{id}/nail-photo` |
 | `/search` (tab) | **Text \| By color** switch. Text: catalog search with Add / ♡ Wishlist behind the add guard (#266); fuzzy suggestions when nothing matches. By color (`components/color-search-panel.tsx`, `src/lib/color-search.ts`): 12-stop OKLCH hue strip + neutral and five lightness steps (no `react-native-svg`), color family chips, owned color polishes (D23) ranked by OKLAB `colorDistance` with HIGH / MEDIUM grade chips (dupe thresholds); "Catalog" asks the server for the nearest color polishes in the whole catalog (`?nearHex=`, narrowed only by selected family chips) with Add / ♡; with fewer than 10 owned matches the catalog is listed too, with a hint. `?hex=C0392B` (with or without `#`) or `?mode=color` opens By color | `GET /polishes?search=`, `GET /catalog/search`, `GET /polishes?category=color&family=&status=owned`, `GET /polishes?category=color&nearHex=&family=` |
 | `/add` (tab) | Rapid Add (below) | `/capture/*` |
+| `/polishes/new` | Manual **Add a polish** for a bottle the catalog doesn't know (`src/lib/manual-add.ts`): brand, shade name, finish chips from the finish catalog (selection order, first = main; built-in finishes when `/reference/finishes` is unreachable), color (hue chips + neutral and five lightness steps from the By color palette, or a typed hex; optional color name, defaulting to the hex's color family), I own it / Wishlist (status always sent, D5), bottles (owned only), rating, notes. Params `barcode`, `barcodeFormat`, `brand`, `name` prefill it; a scanned barcode is shown read-only and sent so the API remembers it for this user (`user_shade_barcode`). Before saving, owned near-dupes of the entered color (shared dupe rule, computed on device) ask Add anyway / Wishlist instead / Cancel; then it opens the new polish and refreshes the Collection (`src/lib/collection-events.ts`). Reached from Rapid Add's *Not in the catalog* ("Add manually", with the GTIN and typed hints) and Search's empty result ("Can't find it? Add it manually", with the query as the name) | `POST /polishes`, `GET /reference/finishes`, `GET /polishes?status=owned` |
 | `/match` | Match a photo to your collection, wishlist or the catalog; Add / ♡ Wishlist on matches | `POST /polishes/match-image`, `PUT /polishes/{id}` |
 | `/profile` (tab) | Signed-in user, API URL, sign-in mode, sign out | — |
 
@@ -156,7 +158,9 @@ src/
   - *New to you — but close* (owned near-dupes from `/polishes/{id}/dupes`; Add anyway / Wishlist),
   - *New to you* (Add / Wishlist),
   - *Which one is it?* (resolver candidates with ownership; pick one),
-  - *Not in the catalog* (photograph the label / search by name).
+  - *Not in the catalog* (photograph the label / search by name / **Add manually**: opens
+    `/polishes/new` with the GTIN, its format and any typed brand/shade hints; the barcode is
+    sent with `POST /api/polishes` so the next scan of the bottle matches, for this user only).
   Adding uses `PUT /api/polishes/{shadeId}`; a barcode (SKU) match with no catalog shade is
   added through `POST /api/capture/{id}/finalize`.
 - No camera (simulator, denied permission, web preview): "Choose a photo" sends a library
