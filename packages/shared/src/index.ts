@@ -56,3 +56,4 @@ export * from "./color/palette-quality";
 export * from "./color/harmonies";
 export * from "./color/pair-it";
 export * from "./looks";
+export * from "./types/feature-flags";

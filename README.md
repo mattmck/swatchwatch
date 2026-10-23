@@ -8,7 +8,7 @@
 ![PRs](https://img.shields.io/github/issues-pr/mattmck/swatchwatch)
 ![License](https://img.shields.io/github/license/mattmck/swatchwatch)
 
-Smart nail polish collection manager with voice input, color-based search, and cross-platform support.
+Smart nail polish collection manager with color-based search, barcode and camera Rapid Add, a mani log, Looks, and web and Expo mobile apps (public wishlist and look share links ship behind server flags, off by default).
 
 ## Architecture
 

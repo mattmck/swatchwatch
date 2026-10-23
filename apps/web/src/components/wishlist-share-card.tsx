@@ -15,6 +15,7 @@ import {
   rotateWishlistShare,
 } from "@/lib/api";
 import { buildWishlistShareUrl, wishlistSharePrivacyNote } from "@/lib/wishlist-share";
+import { useFeatureFlags } from "@/lib/use-feature-flags";
 
 type Busy = "enable" | "rename" | "rotate" | "revoke" | null;
 
@@ -29,6 +30,7 @@ function errorMessage(error: unknown, fallback: string): string {
  * when the status cannot be loaded.
  */
 export function WishlistShareCard() {
+  const { shareableWishlist } = useFeatureFlags();
   const [status, setStatus] = useState<WishlistShareStatus | null | undefined>(undefined);
   const [displayName, setDisplayName] = useState("");
   const [busy, setBusy] = useState<Busy>(null);
@@ -39,6 +41,7 @@ export function WishlistShareCard() {
   }, []);
 
   useEffect(() => {
+    if (!shareableWishlist) return;
     let cancelled = false;
     getWishlistShare()
       .then((next) => {
@@ -54,9 +57,9 @@ export function WishlistShareCard() {
     return () => {
       cancelled = true;
     };
-  }, [apply]);
+  }, [apply, shareableWishlist]);
 
-  if (!status) return null;
+  if (!shareableWishlist || !status) return null;
 
   const shareUrl =
     status.path && typeof window !== "undefined"
