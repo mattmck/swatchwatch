@@ -613,8 +613,8 @@ function LooksPageContent() {
               <p className="truncate text-xs text-muted-foreground">
                 {look.steps.map((s) => s.name ?? s.label).join(" · ")}
               </p>
-              <div className="flex gap-2">
-                <Button type="button" size="sm" variant="outline" className="flex-1" onClick={() => wearSaved(look, index)}>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" size="sm" variant="outline" className="min-w-fit flex-1" onClick={() => wearSaved(look, index)}>
                   <Paintbrush className="size-4" aria-hidden />
                   Wear
                 </Button>

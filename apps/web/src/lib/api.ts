@@ -1384,6 +1384,8 @@ export async function getPublicLook(token: string): Promise<PublicLookResponse> 
   const response = await fetch(`${API_BASE_URL}/look/${encodeURIComponent(token)}`, {
     credentials: "omit",
     referrerPolicy: "no-referrer",
+    // Skip the browser cache so a reload shows a link the owner just turned off.
+    cache: "no-store",
   });
   return handleResponse<PublicLookResponse>(response);
 }

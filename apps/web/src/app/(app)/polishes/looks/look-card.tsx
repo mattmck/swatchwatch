@@ -278,21 +278,21 @@ export function LookCard({
             Add missing items ({look.missingSteps})
           </Button>
         )}
-        <Button type="button" variant="ghost" size="sm" className="flex-1" onClick={onDetails}>
+        <Button type="button" variant="ghost" size="sm" className="min-w-fit flex-1" onClick={onDetails}>
           <Info className="size-4" aria-hidden />
           Details
         </Button>
-        <Button type="button" variant="ghost" size="sm" className="flex-1" onClick={onShare}>
+        <Button type="button" variant="ghost" size="sm" className="min-w-fit flex-1" onClick={onShare}>
           <Link2 className="size-4" aria-hidden />
           Copy look
         </Button>
         {onShareLink && (
-          <Button type="button" variant="ghost" size="sm" className="flex-1" onClick={onShareLink}>
+          <Button type="button" variant="ghost" size="sm" className="min-w-fit flex-1" onClick={onShareLink}>
             <Share2 className={cn("size-4", shared && "text-brand-purple")} aria-hidden />
             {shared ? "Shared" : "Share link"}
           </Button>
         )}
-        <ColorLabLink href={colorLabHref} onClick={onColorLab} lookName={look.name} className="flex-1" />
+        <ColorLabLink href={colorLabHref} onClick={onColorLab} lookName={look.name} className="min-w-fit flex-1" />
       </CardFooter>
     </Card>
   );
