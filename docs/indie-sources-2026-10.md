@@ -13,6 +13,54 @@ Everything else below is the survey as it stood on 2026-10-18, before that. Enab
 owner's call (decision D2 in `docs/decisions-2026-10.md`), after the store's OK is recorded in
 `data_source.metadata.notes`.
 
+**Update 2026-10-22 (batch 3, #273 closed):** the owner received written permission by email from Stella
+Chroma, Lemming Lacquer and Sweet & Sour Lacquer, the three stores batch 2 named. They are registered
+enabled by migration `20261023021845964_add-approved-indie-shopify-sources`, each with a store filter; the
+same migration enables Night Owl Lacquer's row where it was still pending. Seven indie stores are enabled
+(Night Owl, Pahlish, Emily de Molly, Cirque Colors, Stella Chroma, Lemming Lacquer, Sweet & Sour), which
+meets the #273 target of 6–10. Details in [Batch 3](#batch-3--2026-10-22) below.
+
+## Batch 3 — 2026-10-22
+
+Same method as batch 2 (`/robots.txt`, `/policies/terms-of-service`, then `/products.json?limit=250&page=N`
+until a short page, 1 s apart, same User-Agent). Each catalog fits one page. The filter counts run the
+connector's own gate from this branch (`classifyIngestedProduct` + store filter + `isBundle`) over the
+downloaded products, and the local ingestion (Functions host with dev bypass against the `npm run dev:infra`
+Postgres, `exhaustive`, `materializeToInventory` on, `detectHexFromImage` off) confirmed the same accepted
+counts end to end.
+
+| Store | Source | Products | Generic gate | Store filter | Approval basis | Terms |
+|---|---|---|---|---|---|---|
+| Stella Chroma (stellachroma.com) | `StellaChromaShopify` | 81 | 72 (keeps 2 "Complete set" listings, the coat duo, "Mysteries!" and the mystery subscription; drops the cuticle oil, tagged "brush pen") | **68** (`store-filters/stella-chroma.ts`): 63 shades, 2 top coats, 1 base coat, 2 treatments; drops the t-shirt, magnets, gift card, "Rush Processing", "Shipping Protection", the butter balm and a doorbuster-plus-sticker listing | Written permission received by the owner by email, 2026-10-22 | Shopify default template (spider, crawl, or scrape clause); robots.txt Shopify default. www.stellachroma.com/policies/terms-of-service |
+| Lemming Lacquer (lemminglacquer.com) | `LemmingLacquerShopify` | 30 | 24 (drops the Multichrome-typed shade, keeps the Polish Pickup mystery grab bag typed "Flakes") | **24** (`store-filters/lemming-lacquer.ts`): 24 shades; drops the 3 collection listings, gift card, magnet and the mystery grab bag | Written permission received by the owner by email, 2026-10-22 | Shopify default template; robots.txt Shopify default. lemminglacquer.com/policies/terms-of-service |
+| Sweet & Sour Lacquer (sweetandsourlacquer.com) | `SweetAndSourLacquerShopify` | 169 | 8 (empty `product_type` and no tags on every product: only coats and coat refills by title) | **155** (`store-filters/sweet-and-sour.ts`): 150 shades, 4 base coats, 1 top coat; drops the trio, duo, mystery overpour, 4 coat refills, gift card, magnet, sticker, coozies, tab opener, the clear watermarbling polish and "Supercluster" (no text beyond a restock note) | Written permission received by the owner by email, 2026-10-22 | Shopify default template; robots.txt Shopify default. sweetandsourlacquer.com/policies/terms-of-service |
+
+**Filter notes.** Stella Chroma and Lemming Lacquer filters return `null` for anything they do not
+recognise, so the generic gate keeps doing the work it already does well; they only correct its known
+misses. Sweet & Sour follows the Pahlish pattern (title blocklist, then the description), with one
+addition: a listing with no text beyond the store's screen-colour disclaimer is kept, because the store
+lists several shades that way ("Budget Babe", "My Wallet is Crying", …). Stella Chroma's vendor is
+"STELLA CHROMA" on every product; `resolveShopifyVendor` now gives an all-caps vendor that spells the
+source brand the brand's casing, so the brand is "Stella Chroma". Known losses: Stella Chroma's
+"PBE Doorbuster & exclusive sticker - Beach Cruiser" (a shade sold with a sticker; the title would make a
+bad shade name) and Sweet & Sour's "Supercluster". Toppers at Sweet & Sour are only named in the
+description ("glitter topper"); the #352 text-derived finishes carry `topper` through, so materialization
+filed 18 Sweet & Sour and 2 Stella Chroma products as `topper`.
+
+**Night Owl Lacquer.** Decision D2 (2026-10-17) enabled it, and `docs/seed_data_sources.sql` seeds it
+enabled, but the row migration `20261017062550000_add-indie-shopify-sources` inserted is disabled with
+`pendingApproval`, and no later migration or activation `UPDATE` changed that in the dev database (the
+README asked each environment to run it by hand). The batch 3 migration enables that row where it is
+still pending and appends the D2 reference to its notes; its Down restores the pending flag on exactly
+that row.
+
+**Local ingestion (2026-10-22, dev Postgres).** Dry run (`materializeToInventory: false`): Stella Chroma
+68 of 81 accepted, Lemming Lacquer 24 of 30, Sweet & Sour 155 of 169, all 247 stored as
+`external_product` rows. Materializing run: **247 new shades** (Stella Chroma 68, Lemming Lacquer 24,
+Sweet & Sour 155), 3 new brands, 247 product images and 1,692 additional gallery images stored, no upload
+failures, AI hex detection off. Nothing was run against an Azure database; the owner runs the first prod
+jobs from Admin → Admin Jobs (with hex detection on, the Week 0 production strategy).
+
 ## Batch 2 — 2026-10-19
 
 Second pass for #273, same method (one request each for `/products.json?limit=1` and
@@ -28,9 +76,9 @@ and is not in the repo yet has terms that forbid automated access:
 
 | Store | products.json | Terms | Verdict |
 |---|---|---|---|
-| Stella Chroma (stellachroma.com) | ✅ 200 | Shopify default "spider, crawl, or scrape" | Not added: needs written OK |
-| Lemming Lacquer (lemminglacquer.com) | ✅ 200 | Shopify default clause | Not added: needs written OK |
-| Sweet & Sour Lacquer (sweetandsourlacquer.com) | ✅ 200 | Shopify default clause | Not added: needs written OK |
+| Stella Chroma (stellachroma.com) | ✅ 200 | Shopify default "spider, crawl, or scrape" | Not added in batch 2: needed written OK (added in batch 3, 2026-10-22) |
+| Lemming Lacquer (lemminglacquer.com) | ✅ 200 | Shopify default clause | Not added in batch 2: needed written OK (added in batch 3) |
+| Sweet & Sour Lacquer (sweetandsourlacquer.com) | ✅ 200 | Shopify default clause | Not added in batch 2: needed written OK (added in batch 3) |
 | Maniology (maniology.com), What's Up Nails (whatsupnails.com) | ✅ 200 | "scrape" clause (stamping brands) | Not added |
 | Nails.INC (nailsinc.com) | ✅ 200 | `/pages/terms-conditions`: no copying, reproducing or republishing content without written permission; no commercial use | Not added (also not indie) |
 | Ninja Polish (ninjapolish.com) | ✅ 200 | Content may not be reproduced without written consent; multi-brand reseller (`vendor: Various`) | Not added |
@@ -50,7 +98,9 @@ collection sets with the bundle tag. Cirque tags its coats "Top & Base Coat"; th
 audit query now read coat wording in the title before the tags, so its top coats are `top_coat`.
 
 **Against +10k:** batch 2 adds about 316 Cirque shades (293 color + 23 toppers) and 12 coats/treatments. The indie Shopify route is close to exhausted
-without store agreements; the other routes in `docs/data-sources-research.md` are needed.
+without store agreements; the other routes in `docs/data-sources-research.md` are needed. Batch 3 (below the
+2026-10-22 update at the top) adds about 237 shades and 10 coats/treatments from the three stores that gave
+written permission.
 
 ## How each store was checked
 
@@ -145,3 +195,4 @@ If the owner wants the same paper trail for the two stores that were enabled bef
 - Emily de Molly vendor spelling: 3 products say `EmilydeMolly`; check whether ingestion's brand
   matching merges it with `Emily de Molly` before enabling.
 - Big Cartel connector, if Painted Polish is wanted.
+- ~~Ask Stella Chroma, Lemming Lacquer and Sweet & Sour for written OK~~: received 2026-10-22, added in batch 3.

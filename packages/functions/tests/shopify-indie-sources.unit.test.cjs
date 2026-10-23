@@ -63,6 +63,50 @@ describe("indie Shopify sources (#273, #328)", () => {
     }
   });
 
+  const BATCH_3 = {
+    StellaChromaShopify: "https://stellachroma.com",
+    LemmingLacquerShopify: "https://lemminglacquer.com",
+    SweetAndSourLacquerShopify: "https://sweetandsourlacquer.com",
+  };
+
+  it("enables the three stores whose written permission arrived on 2026-10-22 (batch 3)", () => {
+    for (const [source, baseUrl] of Object.entries(BATCH_3)) {
+      assert.ok(SUPPORTED_SOURCES.includes(source), source);
+      assert.equal(SHOPIFY_SOURCE_BASE_URLS[source], baseUrl, source);
+      assert.equal(SHOPIFY_SOURCES_PENDING_APPROVAL.has(source), false, source);
+      assert.equal(isShopifySourceEnabledByDefault(source), true, source);
+      const tuple = seedTuple(SEED_SQL, source);
+      assert.match(tuple, /,\s*true,\s*'\{/, `${source} must be seeded enabled`);
+      assert.doesNotMatch(tuple, /"pendingApproval"/, source);
+      assert.match(tuple, /written permission received by the owner by email on 2026-10-22/, source);
+      assert.match(tuple, /policies\/terms-of-service/, `${source} notes must name the terms page`);
+      assert.doesNotMatch(tuple, /Disabled pending|not yet confirmed/, source);
+    }
+  });
+
+  it("the batch 3 migration inserts the stores enabled, marks its rows, and its Down reverts only those (#394 pattern)", () => {
+    const files = readdirSync(MIGRATIONS_DIR).sort();
+    const file = files.find((entry) => entry.endsWith("_add-approved-indie-shopify-sources.sql"));
+    assert.ok(file, "batch 3 migration missing");
+    const id = file.split("_")[0];
+    const sql = readFileSync(resolve(MIGRATIONS_DIR, file), "utf8");
+    const at = sql.search(/^\s*--[\s-]*down\s+migration/im);
+    const up = sql.slice(0, at);
+    const down = sql.slice(at);
+    for (const source of Object.keys(BATCH_3)) {
+      assert.ok(up.includes(`'${source}'`), `${source} not inserted`);
+      assert.ok(down.includes(`'${source}'`), `${source} not reverted`);
+    }
+    assert.equal((up.match(new RegExp(`"insertedByMigration": "${id}"`, "g")) || []).length, 3, "each inserted row is marked");
+    assert.match(up, /EXCLUDED\.metadata - 'insertedByMigration'/, "a pre-existing row must never be marked as inserted");
+    assert.match(up, /enabled\s+=\s+true/);
+    assert.ok(up.includes(`"enabledByMigration": "${id}"`), "a pre-existing disabled row is marked as enabled here");
+    assert.match(up, /WHERE name = 'NightOwlLacquerShopify'\s+AND metadata->>'pendingApproval' = 'true'/, "Night Owl is enabled only while pending");
+    assert.match(down, new RegExp(`metadata->>'insertedByMigration' = '${id}'\\s+AND NOT EXISTS`), "down deletes only marked rows without history");
+    assert.ok(down.includes(`metadata->>'enabledByMigration' = '${id}'`), "down re-disables only rows this migration enabled");
+    assert.doesNotMatch(down, /DELETE FROM data_source[^;]*NightOwl/, "Night Owl is never deleted");
+  });
+
   it("a migration inserts the indie sources disabled and another enables the signed-off ones", () => {
     const read = (suffix) =>
       readdirSync(MIGRATIONS_DIR)
@@ -175,6 +219,12 @@ describe("indie Shopify sources (#273, #328)", () => {
 describe("resolveShopifyVendor", () => {
   it("keeps a real vendor", () => {
     assert.equal(resolveShopifyVendor("Night Owl Lacquer", "Fallback"), "Night Owl Lacquer");
+  });
+
+  it("uses the brand's casing for an all-caps vendor that spells it (Stella Chroma)", () => {
+    assert.equal(resolveShopifyVendor("STELLA CHROMA", "Stella Chroma"), "Stella Chroma");
+    assert.equal(resolveShopifyVendor("Emily de Molly", "Emily De Molly"), "Emily de Molly");
+    assert.equal(resolveShopifyVendor("ILNP", "Stella Chroma"), "ILNP");
   });
 
   it("falls back to the source brand for missing or placeholder vendors", () => {
