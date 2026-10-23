@@ -487,27 +487,35 @@ function ColorSearchPageContent() {
         .join(","),
     [activeHex, focusedTargetHex, paletteAnchors, rawHarmonyColors]
   );
+  // A focused target ranks the results against that one color, so it gets its own page too:
+  // the shared page spreads its rows over every target and could leave the focused list thin.
   useEffect(() => {
     if (!nearbyTargetsKey) return;
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      listPolishes({
-        categories: ["color"],
-        nearHex: nearbyTargetsKey.split(","),
-        brand: brandFilter !== "all" ? brandFilter : undefined,
-        finish: finishFilter !== "all" ? finishFilter : undefined,
-        pageSize: NEARBY_CATALOG_PAGE_SIZE,
-      })
-        .then((res) => {
-          if (!cancelled) setNearbyPolishes(res.polishes);
-        })
-        .catch(() => {});
+      const query = (nearHex: string[]) =>
+        listPolishes({
+          categories: ["color"],
+          nearHex,
+          brand: brandFilter !== "all" ? brandFilter : undefined,
+          finish: finishFilter !== "all" ? finishFilter : undefined,
+          pageSize: NEARBY_CATALOG_PAGE_SIZE,
+        });
+      const focusedHex = focusedTargetHex?.toUpperCase() ?? null;
+      Promise.allSettled([
+        query(nearbyTargetsKey.split(",")),
+        focusedHex && focusedHex !== nearbyTargetsKey ? query([focusedHex]) : Promise.resolve(null),
+      ]).then(([all, focused]) => {
+        if (cancelled || all.status !== "fulfilled") return;
+        const focusedRows = focused.status === "fulfilled" ? focused.value?.polishes ?? [] : [];
+        setNearbyPolishes(mergePolishes(focusedRows, all.value.polishes));
+      });
     }, NEARBY_FETCH_DEBOUNCE_MS);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [nearbyTargetsKey, brandFilter, finishFilter]);
+  }, [nearbyTargetsKey, focusedTargetHex, brandFilter, finishFilter]);
 
   // Harmony target dots for the color wheel (diamonds)
   const harmonyDots: HarmonyDot[] = useMemo(() => {
