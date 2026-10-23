@@ -37,6 +37,7 @@ import {
   type RapidAddVerdict,
   type ScannedBarcode,
 } from "@/lib/rapid-add";
+import { manualAddRoute } from "@/lib/manual-add";
 import { useTheme } from "@/theme/theme";
 
 const FRAME_TYPES: { type: CaptureFrameType; label: string }[] = [
@@ -389,6 +390,9 @@ export default function RapidAddScreen() {
           onPick={(c) => void pickCandidate(c)}
           onNoneOfThese={() => setVerdict({ kind: "not-found", gtin: barcode?.gtin })}
           onScanLabel={scanLabel}
+          onAddManually={() =>
+            router.push(manualAddRoute({ gtin: barcode?.gtin, format: barcode?.format, brand: brandHint, name: shadeHint }))
+          }
           onScanNext={scanNext}
         />
       ) : (

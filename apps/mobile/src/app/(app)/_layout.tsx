@@ -1,7 +1,7 @@
 import { Stack } from "expo-router";
 import { useTheme } from "@/theme/theme";
 
-/** Signed-in area: the tab bar plus screens pushed over it (polish detail, Match). */
+/** Signed-in area: the tab bar plus screens pushed over it (polish detail, Add a polish, Match). */
 export default function AppLayout() {
   const theme = useTheme();
   return (
@@ -16,6 +16,7 @@ export default function AppLayout() {
     >
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="polishes/[id]" options={{ title: "Polish" }} />
+      <Stack.Screen name="polishes/new" options={{ title: "Add a polish" }} />
       <Stack.Screen name="match" options={{ title: "Match to collection" }} />
     </Stack>
   );

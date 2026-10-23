@@ -6,6 +6,7 @@ import { useAuth } from "@/auth/auth-provider";
 import { HomePanel } from "@/components/home-panel";
 import { PolishRow } from "@/components/polish-row";
 import { AppText, Button, CenteredState, Chip, ErrorBanner } from "@/components/ui";
+import { onCollectionChanged } from "@/lib/collection-events";
 import { COLLECTION_PRESETS, type CollectionPreset } from "@/lib/status";
 import { usePagedPolishes } from "@/lib/use-paged-polishes";
 import { useTheme } from "@/theme/theme";
@@ -34,6 +35,16 @@ export default function CollectionScreen() {
     setHomeToken((n) => n + 1);
     list.refresh();
   };
+  // A polish added elsewhere (the manual add form) shows up without a pull-to-refresh.
+  const { refresh: refreshList } = list;
+  useEffect(
+    () =>
+      onCollectionChanged(() => {
+        setHomeToken((n) => n + 1);
+        refreshList();
+      }),
+    [refreshList],
+  );
 
   const header = (
     <View>

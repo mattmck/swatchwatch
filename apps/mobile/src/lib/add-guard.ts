@@ -20,7 +20,17 @@ export async function confirmAddWithDupes(
   shadeId: string,
   target: "owned" | "wishlist",
 ): Promise<AddGuardChoice> {
-  const dupes = await fetchOwnedDupes(shadeId);
+  return confirmDupes(await fetchOwnedDupes(shadeId), target);
+}
+
+/**
+ * Ask about already-loaded owned dupes (the manual add form computes them on device for a
+ * shade with no id yet); resolves "add" when there are none.
+ */
+export async function confirmDupes(
+  dupes: PolishDupesResponse | null,
+  target: "owned" | "wishlist",
+): Promise<AddGuardChoice> {
   if (!dupes || dupes.dupeCount === 0) return "add";
   const best = dupes.dupes[0];
   const names = dupes.dupes.map((d) => `• ${d.brand} — ${d.name}`).join("\n");
