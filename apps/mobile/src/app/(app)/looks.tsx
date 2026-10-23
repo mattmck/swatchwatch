@@ -10,7 +10,10 @@ import {
   LOOK_OCCASIONS,
   LOOK_OCCASION_LABELS,
   MAX_SAVED_LOOKS,
+  SKIN_DEPTHS,
+  SKIN_UNDERTONES,
   recommendLooks,
+  skinToneFrom,
   type Look,
   type LookStep,
   type Polish,
@@ -19,16 +22,20 @@ import {
   type Vibe,
 } from "swatchwatch-shared";
 import { deleteSavedLook, errorMessage, listAllPolishes, listPolishes, listSavedLooks, saveLook, updatePolish } from "@/api/client";
+import { useAuth } from "@/auth/auth-provider";
 import { LogManiSheet } from "@/components/log-mani-sheet";
 import { Swatch } from "@/components/swatch";
 import { AppText, Button, Card, CenteredState, Chip, ErrorBanner } from "@/components/ui";
 import { confirmAddWithDupes } from "@/lib/add-guard";
+import { readCache, writeCache } from "@/lib/api-cache";
 import {
   addSavedLook,
   catalogGapQueries,
   maniEntriesFromLook,
   maniEntriesFromSavedLook,
   nextSeed,
+  parseCachedSkinTone,
+  SKIN_TONE_CACHE_KEY,
   toSavedLook,
 } from "@/lib/looks";
 import type { ManiEntry } from "@/lib/mani";
@@ -43,6 +50,8 @@ import { useTheme } from "@/theme/theme";
  */
 export default function LooksScreen() {
   const theme = useTheme();
+  const { user } = useAuth();
+  const scope = user ? String(user.userId) : null;
   const [vibe, setVibe] = useState<Vibe>(DEFAULT_VIBE);
   const [toppers, setToppers] = useState(true);
   const [seed, setSeed] = useState(() => nextSeed(0));
@@ -76,6 +85,30 @@ export default function LooksScreen() {
       cancelled = true;
     };
   }, []);
+
+  // The remembered skin tone (per user, `api-cache`): restored once, rewritten so it doesn't lapse.
+  useEffect(() => {
+    if (!scope) return;
+    let cancelled = false;
+    void readCache<unknown>(scope, SKIN_TONE_CACHE_KEY).then((entry) => {
+      const skinTone = entry ? parseCachedSkinTone(entry.data) : null;
+      if (cancelled || !skinTone) return;
+      setVibe((current) => (current.skinTone ? current : { ...current, skinTone }));
+      void writeCache(scope, SKIN_TONE_CACHE_KEY, skinTone);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [scope]);
+
+  const changeVibe = useCallback(
+    (next: Vibe) => {
+      setVibe(next);
+      // A cleared choice is stored as an empty object, which reads back as "none".
+      if (scope && next.skinTone !== vibe.skinTone) void writeCache(scope, SKIN_TONE_CACHE_KEY, next.skinTone ?? {});
+    },
+    [scope, vibe.skinTone],
+  );
 
   // Pass 1: owned polishes only. Its gaps decide which catalog rows to fetch.
   const ownedResult = useMemo(
@@ -192,7 +225,7 @@ export default function LooksScreen() {
 
         {tab === "looks" ? (
           <>
-            <VibePicker vibe={vibe} toppers={toppers} onVibe={setVibe} onToppers={setToppers} />
+            <VibePicker vibe={vibe} toppers={toppers} onVibe={changeVibe} onToppers={setToppers} />
             <View style={{ flexDirection: "row", alignItems: "center", gap: theme.spacing(2) }}>
               <Button title="Shuffle" variant="outline" compact onPress={() => setSeed((s) => nextSeed(s))} testID="looks-shuffle" />
               <AppText variant="tiny" muted style={{ flex: 1 }}>
@@ -290,6 +323,9 @@ export default function LooksScreen() {
   );
 }
 
+const UNDERTONE_LABELS = { cool: "Cool", neutral: "Neutral", warm: "Warm" } as const;
+const DEPTH_LABELS = { fair: "Fair", light: "Light", medium: "Medium", tan: "Tan", deep: "Deep" } as const;
+
 function VibePicker({
   vibe,
   toppers,
@@ -335,6 +371,34 @@ function VibePicker({
             <Chip key={f} label={LOOK_FINISH_LABELS[f]} selected={vibe.finish === f} onPress={() => onVibe({ ...vibe, finish: vibe.finish === f ? null : f })} />
           ))}
         </View>
+      </View>
+      <View style={{ gap: theme.spacing(1.5) }}>
+        <AppText variant="label" muted>
+          Skin tone (optional)
+        </AppText>
+        <View style={row}>
+          <Chip label="Any" selected={!vibe.skinTone} onPress={() => onVibe({ ...vibe, skinTone: null })} />
+          {SKIN_UNDERTONES.map((u) => (
+            <Chip
+              key={u}
+              label={UNDERTONE_LABELS[u]}
+              selected={vibe.skinTone?.undertone === u}
+              onPress={() => onVibe({ ...vibe, skinTone: skinToneFrom(u, vibe.skinTone?.depth ?? null) })}
+            />
+          ))}
+        </View>
+        {vibe.skinTone && (
+          <View style={row}>
+            {SKIN_DEPTHS.map((d) => (
+              <Chip
+                key={d}
+                label={DEPTH_LABELS[d]}
+                selected={vibe.skinTone?.depth === d}
+                onPress={() => onVibe({ ...vibe, skinTone: skinToneFrom(vibe.skinTone?.undertone ?? null, d) })}
+              />
+            ))}
+          </View>
+        )}
       </View>
       <View style={row}>
         <Chip label="Owned only" selected={vibe.ownedOnly} onPress={() => onVibe({ ...vibe, ownedOnly: !vibe.ownedOnly })} />
