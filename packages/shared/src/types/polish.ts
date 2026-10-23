@@ -280,6 +280,17 @@ export interface PolishCreateRequest {
 
 export type PolishUpdateRequest = Partial<PolishCreateRequest>;
 
+/**
+ * `409` body of `PUT /api/polishes/{id}` when renaming the caller's own private `user_submitted`
+ * shade (`Polish.ownSubmitted`) to a brand + name another shade the caller can see already has.
+ * Nothing was changed. `existingShadeId` is that shade's id (string, like `Polish.id`).
+ */
+export interface ShadeIdentityTakenResponse {
+  error: string;
+  code: "shade_identity_taken";
+  existingShadeId: string;
+}
+
 export interface PolishListResponse {
   polishes: Polish[];
   total: number;

@@ -181,6 +181,37 @@ async function fakeQuery(via, sql, params = []) {
     };
   }
 
+  // renameOwnShade: own-shade lock read [shadeId, userId]
+  if (/^\s*SELECT\s+finish\s+FROM\s+shade/i.test(text) && /FOR\s+UPDATE/i.test(text)) {
+    const shade = state.shades.get(Number(params[0]));
+    const ok =
+      shade && shade.status === "user_submitted" && shade.createdBy === Number(params[1]) && !isRetired(shade);
+    return ok ? { rows: [{ finish: shade.finish ?? null }], rowCount: 1 } : { rows: [], rowCount: 0 };
+  }
+  // renameOwnShade: identity collision lookup [brandId, name, finish, userId, ownShadeId]
+  if (/s\.shade_id\s*<>\s*\$5/i.test(text)) {
+    const [brandId, name, finish, userId, selfId] = params;
+    const hit = [...state.shades.values()]
+      .filter(
+        (s) =>
+          s.brandId === brandId && s.name === name && (s.finish || "") === (finish || "") &&
+          s.id !== selfId && !isRetired(s) && (s.status !== "user_submitted" || s.createdBy === Number(userId))
+      )
+      .sort((a, b) => Number(a.status === "user_submitted") - Number(b.status === "user_submitted") || a.id - b.id)[0];
+    return hit ? { rows: [{ shade_id: hit.id }], rowCount: 1 } : { rows: [], rowCount: 0 };
+  }
+  // renameOwnShade write [shadeId, brandId, name, userId]; only the creator's user_submitted row
+  if (/^\s*UPDATE\s+shade\s+SET\s+brand_id\s*=\s*\$2/i.test(text)) {
+    const shade = state.shades.get(Number(params[0]));
+    const guarded = /status\s*=\s*'user_submitted'\s+AND\s+created_by_user_id\s*=\s*\$4/i.test(text);
+    if (!shade || (guarded && !(shade.status === "user_submitted" && shade.createdBy === Number(params[3])))) {
+      return { rows: [], rowCount: 0 };
+    }
+    shade.brandId = params[1];
+    shade.name = params[2];
+    return { rows: [], rowCount: 1 };
+  }
+
   if (/^\s*INSERT\s+INTO\s+shade\b/i.test(text)) {
     const cols = text.match(/INSERT\s+INTO\s+shade\s*\(([^)]*)\)/i)[1].split(",").map((c) => c.trim());
     const valuesText = text.match(/VALUES\s*\(([^)]*)\)/i)[1].split(",").map((v) => v.trim());
@@ -676,6 +707,99 @@ describe("edits to the caller's own submitted shade", () => {
     assert.equal(shadeInserts().length, 0, "no new shade may be created");
     assert.equal(state.shades.size, before);
     assert.deepEqual(state.shades.get(A_PRIVATE_SHADE).finishes, ["glitter"]);
+  });
+});
+
+describe("in-place rename of the caller's own private shade", () => {
+  beforeEach(resetState);
+
+  it("a new brand + name updates the same shade row: id, inventory and shade count are unchanged", async () => {
+    state.inventory.add(`${USER_A}:${A_PRIVATE_SHADE}`);
+    const before = state.shades.size;
+    const res = await put(USER_A, A_PRIVATE_SHADE, { brand: "Other", name: "A Renamed", quantity: 1 });
+    assert.equal(res.status, 200, JSON.stringify(res.jsonBody));
+    assert.equal(shadeInserts().length, 0, "no new shade may be created");
+    assert.equal(state.shades.size, before);
+    const shade = state.shades.get(A_PRIVATE_SHADE);
+    assert.equal(shade.name, "A Renamed");
+    assert.equal(shade.brandId, state.brands.get("Other"));
+    assert.equal(shade.status, "user_submitted", "still private");
+    assert.equal(res.jsonBody.id, String(A_PRIVATE_SHADE), "the response follows the same id");
+    assert.ok(state.inventory.has(`${USER_A}:${A_PRIVATE_SHADE}`), "the inventory row stays attached");
+    assert.equal([...state.inventory].filter((k) => k.startsWith(`${USER_A}:`)).length, 1, "no second inventory row");
+  });
+
+  it("a rename can carry finish and color corrections in the same request", async () => {
+    const res = await put(USER_A, A_PRIVATE_SHADE, { brand: "Acme", name: "A Secret 2", finishes: ["glitter"], vendorHex: "#445566" });
+    assert.equal(res.status, 200, JSON.stringify(res.jsonBody));
+    const shade = state.shades.get(A_PRIVATE_SHADE);
+    assert.equal(shade.name, "A Secret 2");
+    assert.deepEqual(shade.finishes, ["glitter"]);
+    assert.equal(shade.vendorHex, "#445566");
+    assert.equal(shadeInserts().length, 0);
+  });
+
+  it("a brand + name another active shade already has answers 409 shade_identity_taken and changes nothing", async () => {
+    const res = await put(USER_A, A_PRIVATE_SHADE, { brand: "Acme", name: "Catalog Red", finishes: ["glitter"], vendorHex: "#445566" });
+    assert.equal(res.status, 409);
+    assert.equal(res.jsonBody.code, "shade_identity_taken");
+    assert.equal(res.jsonBody.existingShadeId, String(CATALOG_SHADE));
+    assert.equal(shadeInserts().length, 0);
+    const shade = state.shades.get(A_PRIVATE_SHADE);
+    assert.equal(shade.name, "A Secret");
+    assert.equal(shade.vendorHex, "#111111", "color corrections of a refused rename are not applied");
+    assert.deepEqual(shade.finishes, ["creme"]);
+    assert.equal(state.shades.get(CATALOG_SHADE).name, "Catalog Red");
+  });
+
+  it("a collision with the caller's other private shade is also a 409", async () => {
+    state.shades.set(202, { id: 202, brandId: 1, name: "A Other", finish: "creme", finishes: ["creme"], status: "user_submitted", createdBy: USER_A });
+    const res = await put(USER_A, A_PRIVATE_SHADE, { brand: "Acme", name: "A Other" });
+    assert.equal(res.status, 409);
+    assert.equal(res.jsonBody.existingShadeId, "202");
+    assert.equal(state.shades.get(A_PRIVATE_SHADE).name, "A Secret");
+  });
+
+  it("another user's private shade with the same identity is not a collision (and is never touched)", async () => {
+    const res = await put(USER_A, A_PRIVATE_SHADE, { brand: "Acme", name: "B Secret" });
+    assert.equal(res.status, 200, JSON.stringify(res.jsonBody));
+    assert.equal(state.shades.get(A_PRIVATE_SHADE).name, "B Secret");
+    assert.equal(state.shades.get(B_PRIVATE_SHADE).name, "B Secret");
+    assert.equal(state.shades.get(B_PRIVATE_SHADE).createdBy, USER_B);
+  });
+
+  it("another user can never rename someone else's private shade: PUT by id is 404, with or without brand + name", async () => {
+    const res = await put(USER_A, B_PRIVATE_SHADE, { brand: "Acme", name: "Hijacked" });
+    assert.equal(res.status, 200, "resolves by identity into A's own new shade, as before");
+    assert.equal(state.shades.get(B_PRIVATE_SHADE).name, "B Secret", "B's shade keeps its name");
+    assert.equal(state.shades.get(B_PRIVATE_SHADE).createdBy, USER_B);
+    assert.ok(!calls().some((c) => /SET\s+brand_id\s*=/i.test(c.sql)), "no rename statement ran");
+    const bare = await put(USER_A, B_PRIVATE_SHADE, { name: "Hijacked" });
+    assert.equal(bare.status, 404);
+    assert.equal(state.shades.get(B_PRIVATE_SHADE).name, "B Secret");
+  });
+
+  it("a holder of someone else's private shade (visible, not ownSubmitted) cannot rename it", async () => {
+    state.inventory.add(`${USER_A}:${B_PRIVATE_SHADE}`);
+    const res = await put(USER_A, B_PRIVATE_SHADE, { brand: "Acme", name: "Hijacked" });
+    assert.ok(res.status < 500);
+    assert.equal(state.shades.get(B_PRIVATE_SHADE).name, "B Secret");
+    assert.ok(!calls().some((c) => /SET\s+brand_id\s*=/i.test(c.sql)), "no rename statement ran");
+  });
+
+  it("a shared active shade is never renamed by a user: a changed name resolves by identity as before", async () => {
+    const res = await put(USER_B, CATALOG_SHADE, { brand: "Acme", name: "Brand New Name", quantity: 1 });
+    assert.equal(res.status, 200, JSON.stringify(res.jsonBody));
+    assert.equal(state.shades.get(CATALOG_SHADE).name, "Catalog Red");
+    assert.equal(shadeInserts().length, 1, "a new private shade is created for the caller instead");
+    assert.ok(!calls().some((c) => /SET\s+brand_id\s*=/i.test(c.sql)), "no rename statement ran");
+  });
+
+  it("a creator's merged (retired) submission is not renamed", async () => {
+    const res = await put(USER_A, A_MERGED_SHADE, { brand: "Acme", name: "Zombie" });
+    assert.ok(res.status < 500);
+    assert.equal(state.shades.get(A_MERGED_SHADE).name, "Catalog Redd");
+    assert.ok(!calls().some((c) => /SET\s+brand_id\s*=/i.test(c.sql)), "no rename statement ran");
   });
 });
 

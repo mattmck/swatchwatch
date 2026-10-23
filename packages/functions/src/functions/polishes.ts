@@ -11,6 +11,7 @@ import {
   type HexReviewResponse,
   type HexReviewSort,
   type PolishStatus,
+  type ShadeIdentityTakenResponse,
   type CollectionExportFormat,
   resolveProductCategory,
 } from "swatchwatch-shared";
@@ -156,6 +157,78 @@ async function applyShadeFinishUpdate(
  * users who hold them (an inventory row), the same way: they never appear in discovery.
  */
 const POLISH_VISIBLE_SQL = `(s.merged_into_shade_id IS NULL AND (s.status <> 'user_submitted' OR s.created_by_user_id = $1 OR ui.inventory_item_id IS NOT NULL) AND ((s.product_category <> 'accessory' AND s.status <> 'excluded') OR ui.inventory_item_id IS NOT NULL))`;
+
+/** Thrown inside the rename transaction (rolling it back) when the new identity is taken. */
+class ShadeIdentityTakenError extends Error {
+  constructor(readonly existingShadeId: number) {
+    super("Another shade already has that brand and name");
+  }
+}
+
+/**
+ * Rename the caller's own private `user_submitted` shade in place (brand and/or name), keeping
+ * its `shade_id` so every inventory, mani and event row stays attached. Throws
+ * `ShadeIdentityTakenError` (rolling the transaction back) when another shade the caller can see
+ * already has the new brand + name (+ the shade's own legacy `finish`, the dedup key, which a
+ * rename never changes). Never touches a shade that is not the caller's own unmerged submission.
+ */
+async function renameOwnShade(
+  client: PoolClient,
+  userId: number,
+  shadeId: number,
+  brandName: string,
+  shadeName: string
+): Promise<void> {
+  await client.query(
+    `INSERT INTO brand (name_canonical) VALUES ($1) ON CONFLICT (name_canonical) DO NOTHING`,
+    [brandName]
+  );
+  const brandResult = await client.query<{ brand_id: number }>(
+    `SELECT brand_id FROM brand WHERE name_canonical = $1`,
+    [brandName]
+  );
+  const brandId = brandResult.rows[0].brand_id;
+
+  const own = await client.query<{ finish: string | null }>(
+    `SELECT finish FROM shade
+     WHERE shade_id = $1
+       AND status = 'user_submitted'
+       AND created_by_user_id = $2
+       AND merged_into_shade_id IS NULL
+     FOR UPDATE`,
+    [shadeId, userId]
+  );
+  if (own.rows.length === 0) {
+    throw new Error("Own shade not found for rename");
+  }
+
+  const taken = await client.query<{ shade_id: number }>(
+    `SELECT s.shade_id
+     FROM shade s
+     WHERE s.brand_id = $1
+       AND s.shade_name_canonical = $2
+       AND s.product_line_id IS NULL
+       AND COALESCE(s.finish, '') = COALESCE($3, '')
+       AND s.shade_id <> $5
+       AND s.merged_into_shade_id IS NULL
+       AND s.status <> 'excluded'
+       AND s.product_category <> 'accessory'
+       AND (s.status <> 'user_submitted' OR s.created_by_user_id = $4)
+     ORDER BY (s.status = 'user_submitted') ASC, s.shade_id ASC
+     LIMIT 1`,
+    [brandId, shadeName, own.rows[0].finish, userId, shadeId]
+  );
+  if (taken.rows.length > 0) {
+    throw new ShadeIdentityTakenError(Number(taken.rows[0].shade_id));
+  }
+
+  await client.query(
+    `UPDATE shade
+     SET brand_id = $2, shade_name_canonical = $3, updated_at = now()
+     WHERE shade_id = $1 AND status = 'user_submitted' AND created_by_user_id = $4`,
+    [shadeId, brandId, shadeName, userId]
+  );
+}
 
 /**
  * Look up a shade by id if the caller may see it. Returns null when it is missing, another
@@ -1276,6 +1349,7 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
 
     // Updating by id (no brand + name): the target must be visible to the caller.
     let targetShade: { ownSubmitted: boolean } | null = null;
+    let renameOwnShadeTo: { brand: string; name: string } | null = null;
     if (!(body.brand && body.name)) {
       targetShade = await getVisibleShade(shadeId, userId);
       if (!targetShade) {
@@ -1288,12 +1362,23 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
       const visible = await getVisibleShade(shadeId, userId);
       if (visible && visible.brand === body.brand && visible.shadeName === body.name) {
         targetShade = visible;
+      } else if (visible?.ownSubmitted) {
+        // A changed brand or name on the caller's own private shade renames that row in place
+        // (the id and every row hanging off it stay); a collision answers 409 below.
+        targetShade = visible;
+        renameOwnShadeTo = { brand: body.brand, name: body.name };
       }
     }
     const resolveByIdentity = targetShade === null;
 
-    const updatedShadeId = await transaction(async (client) => {
+    let updatedShadeId: number;
+    try {
+      updatedShadeId = await transaction(async (client) => {
       let targetShadeId = shadeId;
+
+      if (renameOwnShadeTo) {
+        await renameOwnShade(client, userId, shadeId, renameOwnShadeTo.brand, renameOwnShadeTo.name);
+      }
 
       if (resolveByIdentity && body.brand && body.name) {
         targetShadeId = await findOrCreateShade(
@@ -1326,7 +1411,18 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
       await recomputeWearStats(client, userId, [targetShadeId], { fillTriedAt: false });
 
       return targetShadeId;
-    });
+      });
+    } catch (error) {
+      if (error instanceof ShadeIdentityTakenError) {
+        const taken: ShadeIdentityTakenResponse = {
+          error: "Another shade already has that name",
+          code: "shade_identity_taken",
+          existingShadeId: String(error.existingShadeId),
+        };
+        return { status: 409, jsonBody: taken };
+      }
+      throw error;
+    }
 
     const fullResult = await query<Polish>(
       `${POLISH_SELECT}

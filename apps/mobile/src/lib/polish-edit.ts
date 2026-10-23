@@ -195,6 +195,21 @@ export function validateEditForm(form: PolishEditForm, polish: Polish, today: st
   return errors;
 }
 
+/** Shown under the shade name when a rename collides with another shade (API `409`). */
+export const SHADE_IDENTITY_TAKEN_MESSAGE = "Another shade already has that name";
+
+/**
+ * True for the `409 shade_identity_taken` answer of `PUT /api/polishes/{id}` (the new brand +
+ * name belongs to another shade; nothing was changed). Duck-typed so this module stays free of
+ * the API client.
+ */
+export function isShadeIdentityTaken(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const { status, body } = err as { status?: unknown; body?: unknown };
+  if (status !== 409 || typeof body !== "object" || body === null) return false;
+  return (body as { code?: unknown }).code === "shade_identity_taken";
+}
+
 export function hasEditErrors(errors: PolishEditErrors): boolean {
   return Object.keys(errors).length > 0;
 }
@@ -205,9 +220,9 @@ export function hasEditErrors(errors: PolishEditErrors): boolean {
  * go along (brand + name unchanged keeps the edit on this shade, and the API never writes
  * catalog data for it). For the caller's own private shade (`ownSubmitted`) the edited
  * brand / name / color name / hex / finishes go in the same shape the add form sends
- * (`vendorHex`, `finish` = primary, `finishes`). Changing brand or name makes the API resolve
- * the shade by that identity, so the response may carry another shade id. Returns null when
- * nothing changed.
+ * (`vendorHex`, `finish` = primary, `finishes`). Changing brand or name renames the shade
+ * in place on the server (same id), or answers `409 shade_identity_taken` when another shade
+ * already has that name (`isShadeIdentityTaken`). Returns null when nothing changed.
  */
 export function buildEditPatch(form: PolishEditForm, polish: Polish): PolishUpdateRequest | null {
   const patch: PolishUpdateRequest = {};

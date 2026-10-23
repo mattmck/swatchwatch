@@ -8,6 +8,7 @@ import {
   defaultCurrency,
   formatPurchaseLine,
   initialEditForm,
+  isShadeIdentityTaken,
   isValidPurchaseDate,
   nextEditRating,
   parsePriceInput,
@@ -236,6 +237,18 @@ describe("buildEditPatch", () => {
     assert.equal(next.notes, "new");
     assert.equal(next.rating, 2);
     assert.equal(p.notes, "old");
+  });
+});
+
+describe("isShadeIdentityTaken", () => {
+  it("recognises the 409 shade_identity_taken body only", () => {
+    const err = (status: number, body: unknown) => Object.assign(new Error("x"), { status, body });
+    assert.equal(isShadeIdentityTaken(err(409, { code: "shade_identity_taken", existingShadeId: "3" })), true);
+    assert.equal(isShadeIdentityTaken(err(409, { code: "other" })), false);
+    assert.equal(isShadeIdentityTaken(err(400, { code: "shade_identity_taken" })), false);
+    assert.equal(isShadeIdentityTaken(err(409, undefined)), false);
+    assert.equal(isShadeIdentityTaken(null), false);
+    assert.equal(isShadeIdentityTaken(new Error("boom")), false);
   });
 });
 
