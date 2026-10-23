@@ -63,7 +63,11 @@ export function isRetryableStatus(status: number): boolean {
   return status === 429 || (status >= 500 && status <= 599);
 }
 
-/** Retry-After as milliseconds (delta-seconds or HTTP date), or null when absent/invalid. */
+/**
+ * Retry-After as milliseconds (delta-seconds or HTTP date), or null when absent/invalid. A date
+ * that is not in the future (clock skew) is null too, so the caller keeps its normal backoff
+ * instead of retrying a 429 at once.
+ */
 export function parseRetryAfterMs(value: string | null, now: number = Date.now()): number | null {
   if (!value) return null;
   const trimmed = value.trim();
@@ -71,7 +75,7 @@ export function parseRetryAfterMs(value: string | null, now: number = Date.now()
     return Number(trimmed) * 1000;
   }
   const date = Date.parse(trimmed);
-  return Number.isNaN(date) ? null : Math.max(0, date - now);
+  return Number.isNaN(date) || date <= now ? null : date - now;
 }
 
 /**

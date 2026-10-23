@@ -109,6 +109,8 @@ describe("lib/fetch-retry — helpers", () => {
   it("parses Retry-After seconds and HTTP dates", () => {
     assert.equal(parseRetryAfterMs("3"), 3000);
     assert.equal(parseRetryAfterMs(new Date(10_000).toUTCString(), 4000), 6000);
+    assert.equal(parseRetryAfterMs(new Date(1_000).toUTCString(), 4000), null);
+    assert.equal(parseRetryAfterMs("0"), 0);
     assert.equal(parseRetryAfterMs("soon"), null);
     assert.equal(parseRetryAfterMs(null), null);
   });
