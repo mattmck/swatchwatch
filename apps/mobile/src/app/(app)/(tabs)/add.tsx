@@ -2,7 +2,7 @@ import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "ex
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Linking, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
 import type { CaptureCheckCandidate, CaptureFrameType } from "swatchwatch-shared";
 import {
@@ -14,10 +14,13 @@ import {
   startCapture,
   updatePolish,
 } from "@/api/client";
+import { useAuth } from "@/auth/auth-provider";
 import { FrameStrip } from "@/components/frame-strip";
 import { AppText, Button, Card, Chip, ErrorBanner } from "@/components/ui";
+import { ShelfList } from "@/components/shelf-list";
 import { VerdictCard, type VerdictBusy } from "@/components/verdict-card";
 import { fetchOwnedDupes } from "@/lib/add-guard";
+import { readCache, writeCache } from "@/lib/api-cache";
 import { prepareJpeg } from "@/lib/image-prep";
 import {
   buildFrameQuality,
@@ -38,6 +41,17 @@ import {
   type ScannedBarcode,
 } from "@/lib/rapid-add";
 import { manualAddRoute } from "@/lib/manual-add";
+import {
+  EMPTY_SHELF,
+  parseShelfEntries,
+  SHELF_CACHE_KEY,
+  shelfEntryFromVerdict,
+  shelfReducer,
+  shelfToStored,
+  type ShelfActed,
+  type ShelfEntry,
+  type ShelfQuickAction,
+} from "@/lib/shelf";
 import { useTheme } from "@/theme/theme";
 
 const FRAME_TYPES: { type: CaptureFrameType; label: string }[] = [
@@ -68,6 +82,8 @@ async function enrich(verdict: RapidAddVerdict): Promise<RapidAddVerdict> {
  */
 export default function RapidAddScreen() {
   const theme = useTheme();
+  const { user } = useAuth();
+  const scope = user ? String(user.userId) : null;
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
   const [focused, setFocused] = useState(false);
@@ -83,6 +99,13 @@ export default function RapidAddScreen() {
   const [brandHint, setBrandHint] = useState("");
   const [shadeHint, setShadeHint] = useState("");
   const [sessionStarted, setSessionStarted] = useState(false);
+  const [shelf, dispatchShelf] = useReducer(shelfReducer, EMPTY_SHELF);
+  /** User whose saved shelf has been loaded; nothing is written back before that. */
+  const [shelfLoadedFor, setShelfLoadedFor] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const [shelfBusyKey, setShelfBusyKey] = useState<string | null>(null);
+  /** Shelf entry the scan in progress made, so its later Add / ♡ taps update that entry. */
+  const shelfKeyRef = useRef<string | null>(null);
 
   // Values async callbacks need without re-creating them each render.
   const sessionPromise = useRef<Promise<string> | null>(null);
@@ -100,6 +123,39 @@ export default function RapidAddScreen() {
       return () => setFocused(false);
     }, []),
   );
+
+  // The shelf is restored per user on launch and saved after every change (ids, names, hexes,
+  // verdicts, GTINs and times only); sign-out wipes it with the rest of the API cache.
+  useEffect(() => {
+    if (!scope) return;
+    let cancelled = false;
+    void readCache<unknown>(scope, SHELF_CACHE_KEY).then((entry) => {
+      if (cancelled) return;
+      dispatchShelf({ type: "hydrated", entries: entry ? parseShelfEntries(entry.data) : [] });
+      setShelfLoadedFor(scope);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [scope]);
+
+  // Ages on the shelf ("2 min ago") refresh while the tab is open.
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (scope && shelfLoadedFor === scope) void writeCache(scope, SHELF_CACHE_KEY, shelfToStored(shelf.entries));
+  }, [scope, shelfLoadedFor, shelf.entries]);
+
+  /** Record a final verdict on the shelf (a pick waits for the choice). */
+  const recordVerdict = useCallback((verdict: RapidAddVerdict, gtin: string | undefined) => {
+    const entry = shelfEntryFromVerdict(verdict, { gtin, captureId: captureIdRef.current, now: Date.now() });
+    if (!entry) return;
+    shelfKeyRef.current = entry.key;
+    dispatchShelf({ type: "verdict", entry });
+  }, []);
 
   const ensureSession = useCallback((scanned: ScannedBarcode | null): Promise<string> => {
     if (!sessionPromise.current) {
@@ -204,6 +260,7 @@ export default function RapidAddScreen() {
         const next = await enrich(deriveVerdict(res, scanned?.gtin));
         if (generation !== scanGeneration.current) return;
         setVerdict(next);
+        recordVerdict(next, scanned?.gtin);
         void Haptics.notificationAsync(
           next.kind === "owned" || next.kind === "near-dupe"
             ? Haptics.NotificationFeedbackType.Warning
@@ -215,7 +272,7 @@ export default function RapidAddScreen() {
         if (generation === scanGeneration.current) setBusy(null);
       }
     },
-    [ensureSession],
+    [ensureSession, recordVerdict],
   );
 
   const takeFrame = useCallback(
@@ -295,6 +352,35 @@ export default function RapidAddScreen() {
     void uploadFrame(frame, barcode);
   }
 
+  function markActed(acted: ShelfActed, quantity?: number) {
+    if (shelfKeyRef.current) dispatchShelf({ type: "acted", key: shelfKeyRef.current, acted, quantity });
+  }
+
+  /** A shelf entry's quick action: the same calls as the verdict card, nothing without a tap. */
+  async function shelfAction(entry: ShelfEntry, action: ShelfQuickAction) {
+    if (!entry.shadeId) return;
+    setShelfBusyKey(entry.key);
+    setError(null);
+    try {
+      if (action === "bought_another") {
+        const target = (entry.quantity ?? 1) + 1;
+        const updated = await updatePolish(entry.shadeId, { status: "owned", quantity: target });
+        dispatchShelf({ type: "acted", key: entry.key, acted: "bought_another", quantity: updated.quantity ?? target });
+      } else if (action === "add") {
+        const updated = await updatePolish(entry.shadeId, { status: "owned", quantity: 1 });
+        dispatchShelf({ type: "acted", key: entry.key, acted: "added", quantity: updated.quantity ?? 1 });
+      } else {
+        await updatePolish(entry.shadeId, { status: "wishlist" });
+        dispatchShelf({ type: "acted", key: entry.key, acted: "wishlisted" });
+      }
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+    } catch (err) {
+      setError(errorMessage(err, "Couldn't update that polish. Try again."));
+    } finally {
+      setShelfBusyKey(null);
+    }
+  }
+
   // The handlers below capture the scan they started in: if the shopper taps "Scan next" before
   // the response arrives, the late result must not appear on the next scan.
   async function addCandidate(candidate: CaptureCheckCandidate, status: "owned" | "wishlist") {
@@ -307,6 +393,7 @@ export default function RapidAddScreen() {
         const updated = await updatePolish(candidate.shadeId, status === "owned" ? { status, quantity: 1 } : { status });
         if (!current()) return;
         setVerdict({ kind: "added", candidate, status, quantity: updated.quantity });
+        markActed(status === "owned" ? "added" : "wishlisted", updated.quantity);
       } else if (status === "owned" && captureIdRef.current) {
         // A barcode (SKU) match without a catalog shade (only reached for the resolver's own
         // match, never a picked candidate): finalize adds what the resolver matched. Report
@@ -318,6 +405,7 @@ export default function RapidAddScreen() {
           return;
         }
         setVerdict({ kind: "added", candidate, status });
+        markActed("added");
       } else {
         return;
       }
@@ -336,7 +424,10 @@ export default function RapidAddScreen() {
     setVerdictBusy("bottle");
     try {
       const updated = await updatePolish(candidate.shadeId, { status: "owned", quantity });
-      if (current()) setVerdict({ kind: "added", candidate, status: "owned", quantity: updated.quantity ?? quantity });
+      if (current()) {
+        setVerdict({ kind: "added", candidate, status: "owned", quantity: updated.quantity ?? quantity });
+        markActed("bought_another", updated.quantity ?? quantity);
+      }
     } catch (err) {
       if (current()) setError(errorMessage(err, "Couldn't update the bottle count."));
     } finally {
@@ -347,7 +438,10 @@ export default function RapidAddScreen() {
   async function pickCandidate(candidate: CaptureCheckCandidate) {
     const generation = scanGeneration.current;
     const next = await enrich(verdictForCandidate(candidate));
-    if (generation === scanGeneration.current) setVerdict(next);
+    if (generation === scanGeneration.current) {
+      setVerdict(next);
+      recordVerdict(next, barcode?.gtin);
+    }
   }
 
   function scanLabel() {
@@ -357,6 +451,8 @@ export default function RapidAddScreen() {
 
   function scanNext() {
     scanGeneration.current += 1;
+    shelfKeyRef.current = null;
+    dispatchShelf({ type: "scan_ended" });
     frameCount.current = 0;
     setVerdictBusy(null);
     sessionPromise.current = null;
@@ -388,7 +484,11 @@ export default function RapidAddScreen() {
           onAdd={(c, s) => void addCandidate(c, s)}
           onAddBottle={(c, q) => void addBottle(c, q)}
           onPick={(c) => void pickCandidate(c)}
-          onNoneOfThese={() => setVerdict({ kind: "not-found", gtin: barcode?.gtin })}
+          onNoneOfThese={() => {
+            const notFound: RapidAddVerdict = { kind: "not-found", gtin: barcode?.gtin };
+            setVerdict(notFound);
+            recordVerdict(notFound, barcode?.gtin);
+          }}
           onScanLabel={scanLabel}
           onAddManually={() =>
             router.push(manualAddRoute({ gtin: barcode?.gtin, format: barcode?.format, brand: brandHint, name: shadeHint }))
@@ -527,6 +627,21 @@ export default function RapidAddScreen() {
             )}
           </Card>
         </>
+      )}
+
+      {shelf.entries.length > 0 && (
+        <ShelfList
+          entries={shelf.entries}
+          repeatKey={shelf.repeatKey}
+          busyKey={shelfBusyKey}
+          now={now}
+          onAction={(entry, action) => void shelfAction(entry, action)}
+          onOpen={(entry) => entry.shadeId && router.push({ pathname: "/polishes/[id]", params: { id: entry.shadeId } })}
+          onClear={() => {
+            shelfKeyRef.current = null;
+            dispatchShelf({ type: "cleared" });
+          }}
+        />
       )}
 
       {error && <ErrorBanner message={error} onRetry={verdict ? undefined : () => setError(null)} />}
