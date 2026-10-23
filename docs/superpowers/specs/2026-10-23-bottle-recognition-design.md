@@ -540,8 +540,10 @@ this bottle"); the README copy on both clients says frames are kept up to 24 hou
 - Batch-mode hint stored on the device only.
 - The `nextFrame` request shape and the resolver's asking order in §4.1; prompts repeat
   at most twice; prompt copy lives server-side.
-- Eval samples in their own container and table (`bottle_eval_sample`), not in
-  `color_training_sample`, since a sample has several frames and may be "not in catalog".
+- Eval samples in their own tables (`bottle_eval_sample`, `bottle_eval_frame`), not in
+  `color_training_sample`, since a sample has several frames and may be "not in catalog";
+  the frames live in `USER_MEDIA_CONTAINER` under `{adminUserId}/bottle-eval/` (§8.1), not
+  in a container of their own.
 
 ## 13. Left to the builder
 
