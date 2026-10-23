@@ -37,17 +37,38 @@ export function buyPriceAsOf(seenAt: string | null | undefined, locale?: string)
 }
 
 /**
- * Whole cents for a major-unit amount, rounded half away from zero like `Intl.NumberFormat`
- * (`1.005` → 101, although `1.005 * 100` is 100.49999…). `toPrecision(12)` drops the binary
- * representation error before rounding.
+ * Minor units per major unit (100 for USD, 1000 for KWD, 1 for JPY), taken from
+ * `Intl.NumberFormat`'s fraction digits so subtotals round the same way the prices display.
+ * A well-formed code Intl doesn't know gets its default of two digits.
  */
-function toCents(amount: number): number {
-  return Math.round(Number((amount * 100).toPrecision(12)));
+const minorUnitScales = new Map<string, number>();
+function minorUnitScale(currency: string): number {
+  let scale = minorUnitScales.get(currency);
+  if (scale === undefined) {
+    let digits = 2;
+    try {
+      digits = new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions().maximumFractionDigits ?? 2;
+    } catch {
+      // Not a currency code Intl accepts: keep the two-digit default.
+    }
+    scale = 10 ** digits;
+    minorUnitScales.set(currency, scale);
+  }
+  return scale;
+}
+
+/**
+ * Whole minor units (cents, fils, yen) for a major-unit amount, rounded half away from zero like
+ * `Intl.NumberFormat` (`1.005` USD → 101, although `1.005 * 100` is 100.49999…). `toPrecision(12)`
+ * drops the binary representation error before rounding.
+ */
+function toMinorUnits(amount: number, scale: number): number {
+  return Math.round(Number((amount * scale).toPrecision(12)));
 }
 
 export interface BuyPriceSubtotal {
   currency: string;
-  /** Sum of the priced items in this currency, rounded to cents. */
+  /** Sum of the priced items in this currency, rounded to the currency's minor unit. */
   total: number;
   /** Number of priced items in this currency. */
   count: number;
@@ -70,8 +91,9 @@ export function buyPriceSubtotals(items: ReadonlyArray<BuyPriceFields | null | u
       continue;
     }
     const group = groups.get(price.currency) ?? { currency: price.currency, total: 0, count: 0 };
-    // Sum in whole cents so 0.1 + 0.2 style float noise never shows up in a subtotal.
-    group.total = (toCents(group.total) + toCents(price.amount)) / 100;
+    // Sum in whole minor units so 0.1 + 0.2 style float noise never shows up in a subtotal.
+    const scale = minorUnitScale(price.currency);
+    group.total = (toMinorUnits(group.total, scale) + toMinorUnits(price.amount, scale)) / scale;
     group.count += 1;
     groups.set(price.currency, group);
   }

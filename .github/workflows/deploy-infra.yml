@@ -91,7 +91,9 @@ jobs:
       TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
       TFSTATE_CONTAINER: ${{ vars.TFSTATE_CONTAINER || 'tfstate' }}
       TFSTATE_BLOB_NAME: ${{ vars.TFSTATE_BLOB_NAME || format('{0}.terraform.tfstate', inputs.environment) }}
-      TF_VAR_auth_dev_bypass: ${{ vars.AUTH_DEV_BYPASS || 'false' }}
+      # Fixed to false; an AUTH_DEV_BYPASS GitHub variable is ignored. deploy.yml writes the same
+      # value, so the post-deploy settings check (live app vs Terraform state) always agrees.
+      TF_VAR_auth_dev_bypass: 'false'
       TF_VAR_shareable_wishlist_enabled: ${{ vars.SHAREABLE_WISHLIST_ENABLED || 'false' }}
       TF_VAR_shareable_looks_enabled: ${{ vars.SHAREABLE_LOOKS_ENABLED || 'false' }}
       TF_VAR_azure_ad_b2c_tenant: ${{ vars.AZURE_AD_B2C_TENANT || vars.NEXT_PUBLIC_B2C_TENANT || 'to-be-added' }}

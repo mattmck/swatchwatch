@@ -29,19 +29,30 @@ jobs:
           CURRENT_SHA: ${{ github.sha }}
         run: |
           if [ "$EVENT_NAME" = "push" ] && [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
-            RANGE="$BEFORE_SHA..$CURRENT_SHA"
+            if git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
+              RANGE="$BEFORE_SHA..$CURRENT_SHA"
+            else
+              # The push base is gone (force-push or history rewrite), so we can't tell what
+              # changed. Run the infra deploy rather than skip it; an unchanged plan applies nothing.
+              echo "Push base $BEFORE_SHA is not in this checkout; treating infrastructure as changed."
+              echo "infra_changed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
             RANGE="HEAD^..HEAD"
           else
             RANGE=""
           fi
 
+          # The git call is kept out of the grep pipeline so a failure stops the job instead of
+          # reading as "no changes".
           PATTERN='^(infrastructure/|\.github/workflows/deploy-infra\.yml$|\.github/scripts/check-function-app-settings\.sh$)'
           if [ -n "$RANGE" ]; then
-            CHANGED="$(git diff --name-only "$RANGE" | grep -E "$PATTERN" || true)"
+            FILES="$(git diff --name-only "$RANGE")"
           else
-            CHANGED="$(git show --name-only --pretty='' HEAD | grep -E "$PATTERN" || true)"
+            FILES="$(git show --name-only --pretty='' HEAD)"
           fi
+          CHANGED="$(printf '%s\n' "$FILES" | grep -E "$PATTERN" || true)"
 
           if [ -n "$CHANGED" ]; then
             echo "infra_changed=true" >> "$GITHUB_OUTPUT"
