@@ -31,7 +31,7 @@ function candidate(relationship: "owned" | "wishlisted" | "notOwned", extra: Par
 }
 
 const ctx = { gtin: "036000291452", captureId: "c1", now: 1000 };
-const entryFor = (v: RapidAddVerdict, c = ctx) => shelfEntryFromVerdict(v, c) as ShelfEntry;
+const entryFor = (v: RapidAddVerdict, c: { gtin?: string; captureId: string | null; now: number } = ctx) => shelfEntryFromVerdict(v, c) as ShelfEntry;
 
 describe("shelfEntryFromVerdict", () => {
   it("maps each final verdict to a chip and keeps ids, names and hex only", () => {
