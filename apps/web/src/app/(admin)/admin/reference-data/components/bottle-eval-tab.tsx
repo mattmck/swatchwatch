@@ -16,6 +16,7 @@ import {
 import {
   addBottleEvalFrame,
   createBottleEvalSample,
+  deleteBottleEvalFrame,
   deleteBottleEvalSample,
   listBottleEvalSamples,
   searchCatalog,
@@ -113,8 +114,9 @@ export function BottleEvalTab() {
   const [creating, setCreating] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const [listReloadToken, setListReloadToken] = useState(0);
-  // Server frame ids already matched to a local shot, so concurrent uploads don't share one.
-  const claimedFrameIdsRef = useRef<Set<string>>(new Set());
+  // Uploaded shots whose server frame is being deleted (state for the UI, ref against double submits).
+  const [removingLocalIds, setRemovingLocalIds] = useState<ReadonlySet<string>>(() => new Set());
+  const removingRef = useRef<Set<string>>(new Set());
 
   const guided = nextShot(state, skipped);
   const currentSurface: BottleSurface | null = manualSurface ?? guided?.surface ?? null;
@@ -126,7 +128,8 @@ export function BottleEvalTab() {
     dispatch({ type: "reset" });
     setSkipped(new Set());
     setManualSurface(null);
-    claimedFrameIdsRef.current = new Set();
+    removingRef.current = new Set();
+    setRemovingLocalIds(new Set());
   }, []);
 
   const refreshList = useCallback(() => setListReloadToken((token) => token + 1), []);
@@ -138,7 +141,7 @@ export function BottleEvalTab() {
     try {
       const response = await createBottleEvalSample(sampleRequest(label, state.notes));
       dispatch({ type: "sample_created", sampleId: response.sample.sampleId });
-      trackEvent("bottle_eval.sample_created", { inCatalog: label.kind === "catalog" });
+      trackEvent("bottle_eval_ui.sample_created", { inCatalog: label.kind === "catalog" });
     } catch (error) {
       toast.error(errorMessage(error, "Couldn't create the sample"));
     } finally {
@@ -148,15 +151,9 @@ export function BottleEvalTab() {
 
   const uploadShot = useCallback(async (sampleId: string, localId: string, surface: BottleSurface, dataUrl: string) => {
     try {
-      const response = await addBottleEvalFrame(sampleId, { surface, image: dataUrl });
-      const claimed = claimedFrameIdsRef.current;
-      const frame = response.sample.frames
-        .filter((candidate) => candidate.surface === surface && !claimed.has(candidate.frameId))
-        .sort((a, b) => Number(b.frameId) - Number(a.frameId))[0];
-      const frameId = frame?.frameId ?? "";
-      if (frameId) claimed.add(frameId);
+      const { frameId } = await addBottleEvalFrame(sampleId, { surface, image: dataUrl });
       dispatch({ type: "shot_uploaded", localId, frameId });
-      trackEvent("bottle_eval.frame_added", { surface });
+      trackEvent("bottle_eval_ui.frame_added", { surface });
     } catch (error) {
       dispatch({ type: "shot_failed", localId, error: errorMessage(error, "Upload failed") });
     }
@@ -183,6 +180,37 @@ export function BottleEvalTab() {
     void uploadShot(state.sampleId, retryId, shot.surface, shot.dataUrl);
   }
 
+  function setRemoving(localId: string, removing: boolean) {
+    if (removing) removingRef.current.add(localId);
+    else removingRef.current.delete(localId);
+    setRemovingLocalIds(new Set(removingRef.current));
+  }
+
+  // A failed shot is local only; an uploaded one deletes its server frame first and stays on failure.
+  async function handleRemove(localId: string) {
+    const shot = state.shots.find((entry) => entry.localId === localId);
+    if (!shot) return;
+    if (shot.status === "failed") {
+      dispatch({ type: "shot_removed", localId });
+      return;
+    }
+    if (shot.status !== "uploaded" || !state.sampleId || removingRef.current.has(localId)) return;
+    if (!shot.frameId) {
+      toast.error("Couldn't remove the photo");
+      return;
+    }
+    setRemoving(localId, true);
+    try {
+      await deleteBottleEvalFrame(state.sampleId, shot.frameId);
+      dispatch({ type: "frame_deleted", localId });
+      trackEvent("bottle_eval_ui.frame_deleted", { surface: shot.surface });
+    } catch (error) {
+      toast.error(errorMessage(error, "Couldn't remove the photo"));
+    } finally {
+      setRemoving(localId, false);
+    }
+  }
+
   function handleSkip() {
     if (!guided) return;
     setSkipped((prev) => new Set(prev).add(guided.surface));
@@ -202,7 +230,7 @@ export function BottleEvalTab() {
     setDiscarding(true);
     try {
       await deleteBottleEvalSample(state.sampleId);
-      trackEvent("bottle_eval.sample_deleted");
+      trackEvent("bottle_eval_ui.sample_deleted");
       resetSession();
     } catch (error) {
       toast.error(errorMessage(error, "Couldn't discard the sample"));
@@ -323,7 +351,9 @@ export function BottleEvalTab() {
               <FrameStrip
                 frames={frameEntries}
                 onRetry={handleRetry}
-                onRemove={(localId) => dispatch({ type: "shot_removed", localId })}
+                onRemove={(localId) => void handleRemove(localId)}
+                allowRemoveUploaded
+                removingLocalIds={removingLocalIds}
               />
             </div>
           )}
@@ -581,7 +611,7 @@ function RecentSamples({
     setDeletingId(sample.sampleId);
     try {
       await deleteBottleEvalSample(sample.sampleId);
-      trackEvent("bottle_eval.sample_deleted");
+      trackEvent("bottle_eval_ui.sample_deleted");
       toast.success(`Deleted ${name}`);
       onDeleted();
     } catch (error) {

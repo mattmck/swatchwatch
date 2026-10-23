@@ -70,6 +70,11 @@ export interface BottleEvalSampleResponse {
   sample: BottleEvalSample;
 }
 
+/** `POST /api/bottle-eval-admin/samples/{id}/frames` response: the sample plus the new frame's id. */
+export interface BottleEvalFrameAddResponse extends BottleEvalSampleResponse {
+  frameId: string;
+}
+
 export interface BottleEvalSampleListResponse {
   samples: BottleEvalSample[];
   total: number;

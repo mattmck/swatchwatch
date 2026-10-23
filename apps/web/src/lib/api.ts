@@ -12,6 +12,7 @@ import type {
   CaptureFrameRequest,
   CaptureFrameResponse,
   CaptureFrameType,
+  BottleEvalFrameAddResponse,
   BottleEvalFrameRequest,
   BottleEvalSampleListResponse,
   BottleEvalSampleRequest,
@@ -1153,7 +1154,7 @@ export async function createBottleEvalSample(body: BottleEvalSampleRequest): Pro
 export async function addBottleEvalFrame(
   sampleId: string,
   body: BottleEvalFrameRequest
-): Promise<BottleEvalSampleResponse> {
+): Promise<BottleEvalFrameAddResponse> {
   const response = await fetch(
     `${API_BASE_URL}/bottle-eval-admin/samples/${encodeURIComponent(sampleId)}/frames`,
     {
@@ -1162,7 +1163,7 @@ export async function addBottleEvalFrame(
       body: JSON.stringify(body),
     }
   );
-  return handleResponse<BottleEvalSampleResponse>(response);
+  return handleResponse<BottleEvalFrameAddResponse>(response);
 }
 
 /** Delete a sample and its frames (`DELETE /api/bottle-eval-admin/samples/{id}`, 204). */

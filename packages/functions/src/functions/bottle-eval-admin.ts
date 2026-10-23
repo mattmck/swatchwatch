@@ -5,6 +5,7 @@ import {
   BOTTLE_SURFACE_FRAME_TYPE,
   BottleEvalValidationError,
   validateBottleEvalSampleInput,
+  type BottleEvalFrameAddResponse,
   type BottleEvalSample,
   type BottleEvalSampleInput,
   type BottleEvalSampleListResponse,
@@ -52,7 +53,7 @@ import { trackEvent, trackException } from "../lib/telemetry";
  *   GET    /api/bottle-eval-admin/samples?after=&limit=           → BottleEvalSampleListResponse
  *   POST   /api/bottle-eval-admin/samples                         → 201 { sample }
  *   DELETE /api/bottle-eval-admin/samples/{id}                    → 204 (idempotent)
- *   POST   /api/bottle-eval-admin/samples/{id}/frames             → 201 { sample }
+ *   POST   /api/bottle-eval-admin/samples/{id}/frames             → 201 { sample, frameId }
  *   DELETE /api/bottle-eval-admin/samples/{id}/frames/{frameId}   → 204 (idempotent)
  *
  * All admin-only (`withAdmin`). Samples are shared ground truth: any admin may list, create and
@@ -334,7 +335,7 @@ async function addBottleEvalFrame(
     const storageUrl = uploadedStorageUrl;
     const frameType = BOTTLE_SURFACE_FRAME_TYPE[body.surface];
 
-    const sample = await transaction(async (client) => {
+    const added = await transaction(async (client) => {
       // Lock the sample: concurrent uploads get distinct positions and the cap holds.
       const locked = await client.query(LOCK_SAMPLE_SQL, [sampleId]);
       if (locked.rows.length === 0) throw new SampleNotFoundError();
@@ -350,7 +351,7 @@ async function addBottleEvalFrame(
         storageUrl,
         photo.checksumSha256,
       ]);
-      await client.query(INSERT_FRAME_SQL, [
+      const inserted = await client.query<{ frameId: string }>(INSERT_FRAME_SQL, [
         sampleId,
         asset.rows[0].imageId,
         body.surface,
@@ -361,10 +362,11 @@ async function addBottleEvalFrame(
         photo.height,
         photo.bytes.length,
       ]);
-      return loadSample(client, sampleId, frameUrlMinter(request.url, adminUserId, context));
+      const loaded = await loadSample(client, sampleId, frameUrlMinter(request.url, adminUserId, context));
+      return loaded ? { sample: loaded, frameId: inserted.rows[0].frameId } : null;
     });
     uploadedStorageUrl = null; // committed: the blob is now referenced
-    if (!sample) return sampleNotFound();
+    if (!added) return sampleNotFound();
 
     trackEvent("bottle_eval.frame_added", {
       surface: body.surface,
@@ -373,7 +375,8 @@ async function addBottleEvalFrame(
       width: photo.width,
       height: photo.height,
     });
-    return sampleResponse(201, sample);
+    const responseBody: BottleEvalFrameAddResponse = added;
+    return { status: 201, headers: NO_STORE_HEADERS, jsonBody: responseBody };
   } catch (error) {
     if (uploadedStorageUrl) {
       // Not linked to anything: remove it so a failed upload leaves no private media behind.

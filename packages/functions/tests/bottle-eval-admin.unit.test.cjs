@@ -573,9 +573,11 @@ describe("bottle-eval-admin routes", () => {
     assert.equal(frame.params[3], "color");
     assert.equal(frame.params[4], 1);
 
-    const { sample } = res.jsonBody;
+    const { sample, frameId } = res.jsonBody;
     assert.equal(sample.sampleId, "7");
     assert.equal(sample.frames.length, 1);
+    assert.equal(typeof frameId, "string");
+    assert.equal(frameId, sample.frames[0].frameId, "frameId is the inserted frame's id");
     assert.equal(sample.frames[0].surface, "glass");
     assert.equal(sample.frames[0].frameType, "color");
     assert.ok(new URL(sample.frames[0].imageUrl).pathname.startsWith("/api/images/v3."), sample.frames[0].imageUrl);
@@ -593,6 +595,7 @@ describe("bottle-eval-admin routes", () => {
     assert.equal(frame.params[4], 3);
     assert.equal(frame.params[3], "label");
     assert.deepEqual(res.jsonBody.sample.frames.map((f) => f.surface), ["front", "bottom", "box"]);
+    assert.equal(res.jsonBody.frameId, res.jsonBody.sample.frames[2].frameId);
   });
 
   it("POST frames with a HEIC body answers 415 and stores nothing", async () => {

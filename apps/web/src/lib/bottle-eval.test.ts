@@ -151,6 +151,35 @@ describe("bottleEvalReducer", () => {
     );
   });
 
+  it("frame_deleted removes an uploaded shot", () => {
+    const state = shooting([shot("a", "front", "uploaded"), shot("b", "bottom", "uploaded")]);
+    const after = bottleEvalReducer(state, { type: "frame_deleted", localId: "a" });
+    assert.deepEqual(
+      after.shots.map((s) => s.localId),
+      ["b"]
+    );
+  });
+
+  it("frame_deleted ignores uploading and failed shots", () => {
+    const state = shooting([shot("a", "front", "uploading"), shot("b", "bottom", "failed")]);
+    const afterUploading = bottleEvalReducer(state, { type: "frame_deleted", localId: "a" });
+    const afterFailed = bottleEvalReducer(afterUploading, { type: "frame_deleted", localId: "b" });
+    assert.deepEqual(
+      afterFailed.shots.map((s) => [s.localId, s.status]),
+      [
+        ["a", "uploading"],
+        ["b", "failed"],
+      ]
+    );
+  });
+
+  it("nextShot re-offers the surface of a deleted frame", () => {
+    const state = shooting([shot("a", "front", "uploaded"), shot("b", "bottom", "uploaded")]);
+    assert.equal(nextShot(state, NONE)?.surface, "glass");
+    const after = bottleEvalReducer(state, { type: "frame_deleted", localId: "a" });
+    assert.equal(nextShot(after, NONE)?.surface, "front");
+  });
+
   it("keeps notes", () => {
     const state = bottleEvalReducer(shooting(), { type: "notes_changed", notes: "glare on cap" });
     assert.equal(state.notes, "glare on cap");

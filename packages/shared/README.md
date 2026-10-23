@@ -434,6 +434,7 @@ Admin bottle eval samples (`/api/bottle-eval-admin/*`): a labeled bottle (catalo
 | `BottleEvalFrameRequest` | `POST /api/bottle-eval-admin/samples/{id}/frames` body: `{ surface, image }` (base64 data URL) |
 | `BottleEvalFrame` / `BottleEvalSample` | Stored frame (`surface`, `frameType`, owner-scoped `v3` `imageUrl` or `null`, size) and sample (`shadeId`, `brand`, `shadeName`, `inCatalog`, `notes`, `frames`, creator, `createdAt`) |
 | `BottleEvalSampleResponse` / `BottleEvalSampleListResponse` | `{ sample }` and `{ samples, total, nextCursor }` |
+| `BottleEvalFrameAddResponse` | `POST /api/bottle-eval-admin/samples/{id}/frames` response: `BottleEvalSampleResponse` plus the new frame's `frameId` |
 | `validateBottleEvalSampleInput(body)` / `BottleEvalSampleInput` | Pure request validator: trims, enforces the lengths and the shadeId-xor-text rule (`shadeId` a digits-only string or positive integer), blank `notes` → `null`; returns `{ kind: "catalog", … }` or `{ kind: "external", … }`, throws `BottleEvalValidationError` |
 | `parseBottleSurface(value)` | Exact surface name, else `null` |
 

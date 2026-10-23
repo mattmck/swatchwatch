@@ -54,6 +54,7 @@ export type BottleEvalAction =
   | { type: "shot_uploaded"; localId: string; frameId: string }
   | { type: "shot_failed"; localId: string; error: string }
   | { type: "shot_removed"; localId: string }
+  | { type: "frame_deleted"; localId: string }
   | { type: "notes_changed"; notes: string }
   | { type: "finished" }
   | { type: "reset" };
@@ -90,6 +91,12 @@ export function bottleEvalReducer(state: BottleEvalSessionState, action: BottleE
       return {
         ...state,
         shots: state.shots.filter((shot) => shot.localId !== action.localId || shot.status !== "failed"),
+      };
+    case "frame_deleted":
+      // Its server frame was deleted: drop the uploaded shot (uploading/failed ones are untouched).
+      return {
+        ...state,
+        shots: state.shots.filter((shot) => shot.localId !== action.localId || shot.status !== "uploaded"),
       };
     case "notes_changed":
       return { ...state, notes: action.notes };
