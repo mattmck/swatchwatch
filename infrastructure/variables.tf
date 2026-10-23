@@ -243,6 +243,12 @@ variable "shareable_wishlist_enabled" {
   default     = false
 }
 
+variable "shareable_looks_enabled" {
+  description = "Enable opt-in public share links for saved looks (SHAREABLE_LOOKS_ENABLED). Off by default."
+  type        = bool
+  default     = false
+}
+
 variable "ingestion_job_queue_name" {
   description = "Azure Storage Queue name for ingestion jobs"
   type        = string

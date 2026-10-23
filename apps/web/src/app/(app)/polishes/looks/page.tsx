@@ -3,14 +3,23 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Info, Paintbrush, Shuffle, Trash2, WandSparkles } from "lucide-react";
-import type { ManicurePolishRole, Polish } from "swatchwatch-shared";
+import { Info, Paintbrush, Share2, Shuffle, Trash2, WandSparkles } from "lucide-react";
+import type { LookShareStatus, ManicurePolishRole, Polish } from "swatchwatch-shared";
 import { toast } from "sonner";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ManiLogForm } from "@/components/mani-log-form";
 import { Button } from "@/components/ui/button";
 import { ToggleChip } from "@/components/toggle-chip";
-import { deleteSavedLook, getPolishDupes, listAllPolishes, listPolishes, listSavedLooks, saveLookToServer, updatePolish } from "@/lib/api";
+import {
+  deleteSavedLook,
+  getPolishDupes,
+  listAllPolishes,
+  listLookShares,
+  listPolishes,
+  listSavedLooks,
+  saveLookToServer,
+  updatePolish,
+} from "@/lib/api";
 import { AddGuardDialog } from "@/components/add-guard-dialog";
 import { useAddGuard } from "@/hooks/use-add-guard";
 import { shadeGuardKey, wishlistInsteadUpdate } from "@/lib/add-guard";
@@ -55,6 +64,7 @@ import {
 import { TOPPER_FINISHES } from "@/lib/pick-for-me";
 import { ColorLabLink, LookCard, LookSwatchStrip } from "./look-card";
 import { LookDrawer } from "./look-drawer";
+import { LookShareDialog, type LookShareTarget } from "./look-share-dialog";
 import { ShoppingListDialog } from "./shopping-list-dialog";
 import { VibeSelector } from "./vibe-selector";
 
@@ -117,6 +127,10 @@ function LooksPageContent() {
   // Read once on the client (empty during SSR); only rendered once `result` exists, so hydration matches.
   const [saved, setSaved] = useState<SavedLook[]>(readSavedLooksForDisplay);
   const [tab, setTab] = useState<"looks" | "saved">("looks");
+  // Live share links by saved-look key; null while loading or when SHAREABLE_LOOKS_ENABLED is off
+  // (then no Share link control is shown).
+  const [shares, setShares] = useState<ReadonlyMap<string, LookShareStatus> | null>(null);
+  const [shareTarget, setShareTarget] = useState<LookShareTarget | null>(null);
   const [shoppingId, setShoppingId] = useState<string | null>(null);
   const [drawerId, setDrawerId] = useState<string | null>(null);
   // Skin-tone preview: null = off, else 0 (cool) to 100 (warm). Cosmetic: only the swatch mat changes.
@@ -172,6 +186,20 @@ function LooksPageContent() {
         // Offline or an API without /api/looks: keep showing the local lists.
       }
     })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    listLookShares()
+      .then((list) => {
+        if (!cancelled && list) setShares(new Map(list.shares.map((s) => [s.lookKey, s])));
+      })
+      .catch(() => {
+        // Sharing stays hidden when the status can't be loaded.
+      });
     return () => {
       cancelled = true;
     };
@@ -375,6 +403,34 @@ function LooksPageContent() {
     }
   }
 
+  /** Share link on a recommended look: save it to the account first (a link needs the saved copy). */
+  async function shareLook(look: Look) {
+    const entry = toSavedLook(look, vibe, new Date());
+    const existing = saved.find((s) => s.id === entry.id);
+    if (existing && readLookList(SAVED_LOOKS_PENDING_KEY).every((p) => p.id !== entry.id)) {
+      setShareTarget({ lookKey: existing.id, name: existing.name });
+      return;
+    }
+    try {
+      const stored = await saveLookToServer(entry);
+      setSaved((current) => addSavedLook(current, stored));
+      writeLookList(SAVED_LOOKS_CACHE_KEY, addSavedLook(readLookList(SAVED_LOOKS_CACHE_KEY), stored));
+      writeLookList(SAVED_LOOKS_PENDING_KEY, removeSavedLook(readLookList(SAVED_LOOKS_PENDING_KEY), stored.id));
+      setShareTarget({ lookKey: stored.id, name: stored.name });
+    } catch {
+      toast.error("Couldn't save this look to your account", { description: "A look needs to be saved before it can be shared." });
+    }
+  }
+
+  function shareChanged(status: LookShareStatus) {
+    setShares((current) => {
+      const next = new Map(current ?? []);
+      if (status.enabled) next.set(status.lookKey, status);
+      else next.delete(status.lookKey);
+      return next;
+    });
+  }
+
   async function removeSaved(id: string) {
     const previous = saved;
     setSaved((current) => removeSavedLook(current, id));
@@ -387,6 +443,8 @@ function LooksPageContent() {
     }
     writeLookList(SAVED_LOOKS_CACHE_KEY, removeSavedLook(readLookList(SAVED_LOOKS_CACHE_KEY), id));
     writeLookList(SAVED_LOOKS_PENDING_KEY, removeSavedLook(readLookList(SAVED_LOOKS_PENDING_KEY), id));
+    // Deleting the saved look deletes its share link on the server.
+    if (shares?.has(id)) shareChanged({ lookKey: id, enabled: false, token: null, path: null, displayName: null, createdAt: null, revokedAt: null });
   }
 
   function wearSaved(look: SavedLook, position: number) {
@@ -521,6 +579,8 @@ function LooksPageContent() {
                   onShop={() => setShoppingId(look.templateId)}
                   onDetails={() => setDrawerId(look.templateId)}
                     onShare={() => void copyLook(look)}
+                    onShareLink={shares ? () => void shareLook(look) : undefined}
+                    shared={Boolean(shares?.has(toSavedLook(look, vibe, new Date(0)).id))}
                     colorLabHref={lookColorLabHref(look.steps, looksReturnTo)}
                     onColorLab={() => colorLabOpened(look, "card", index)}
                     backdrop={skinTone === null ? undefined : skinToneBackdrop(skinTone)}
@@ -563,6 +623,18 @@ function LooksPageContent() {
                   onClick={() => colorLabOpened(savedLookCounts(look), "saved", index)}
                   lookName={look.name}
                 />
+                {shares && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    aria-label={shares.has(look.id) ? `${look.name} is shared: manage its link` : `Share a link to ${look.name}`}
+                    title={shares.has(look.id) ? "Shared: manage link" : "Share link"}
+                    onClick={() => setShareTarget({ lookKey: look.id, name: look.name })}
+                  >
+                    <Share2 className={shares.has(look.id) ? "size-4 text-brand-purple" : "size-4"} aria-hidden />
+                  </Button>
+                )}
                 <Button
                   type="button"
                   size="sm"
@@ -591,6 +663,15 @@ function LooksPageContent() {
         onColorLab={() => {
           if (drawerLook) colorLabOpened(drawerLook, "drawer", looks.indexOf(drawerLook));
         }}
+      />
+      <LookShareDialog
+        key={shareTarget?.lookKey ?? "none"}
+        target={shareTarget}
+        status={shareTarget ? shares?.get(shareTarget.lookKey) ?? null : null}
+        onOpenChange={(open) => {
+          if (!open) setShareTarget(null);
+        }}
+        onChange={shareChanged}
       />
       <ShoppingListDialog
         returnTo={looksReturnTo}

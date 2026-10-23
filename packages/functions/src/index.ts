@@ -30,3 +30,4 @@ export * from './functions/stats';
 export * from './functions/voice';
 export * from './functions/wishlist-share';
 export * from './functions/looks';
+export * from './functions/look-share';
