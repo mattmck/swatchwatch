@@ -34,6 +34,10 @@ export interface InventoryFieldsUpdate {
   triedAt: string | null | undefined;
   purchasePrice: number | null | undefined;
   purchaseCurrency: string | null | undefined;
+  /** Star rating 1-5; `null` clears it (the DB CHECK forbids 0). */
+  rating: number | null | undefined;
+  /** Purchase date as sent (`YYYY-MM-DD`); `null` clears it. */
+  purchaseDate: string | null | undefined;
   /** Why the row is archived (only with `status: "archived"`); see `planArchiveEvent`. */
   archiveReason: ArchiveReason | undefined;
   /** The request undoes the current archive (toast Undo). */
@@ -41,7 +45,7 @@ export interface InventoryFieldsUpdate {
 }
 
 /** Names of the clearable fields the request actually sent (drives the upsert's CASE guards). */
-export type ProvidedInventoryField = "triedAt" | "purchasePrice" | "purchaseCurrency";
+export type ProvidedInventoryField = "triedAt" | "purchasePrice" | "purchaseCurrency" | "rating" | "purchaseDate";
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const ISO_DATE_TIME_RE =
@@ -100,6 +104,22 @@ function parsePurchaseCurrency(value: unknown): string | null | undefined {
   return value.trim().toUpperCase();
 }
 
+function parseRating(value: unknown): number | null | undefined {
+  if (value === undefined || value === null) return value;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 5) {
+    throw new InventoryValidationError("rating must be a whole number from 1 to 5, or null to clear it");
+  }
+  return value;
+}
+
+function parsePurchaseDate(value: unknown): string | null | undefined {
+  if (value === undefined || value === null) return value;
+  if (typeof value !== "string") {
+    throw new InventoryValidationError("purchaseDate must be a date string, or null to clear it");
+  }
+  return value;
+}
+
 function parseArchiveReason(value: unknown, status: PolishStatus | undefined): ArchiveReason | undefined {
   if (value === undefined) return undefined;
   if (!isArchiveReason(value)) {
@@ -133,6 +153,8 @@ export function parseInventoryFields(body: unknown): InventoryFieldsUpdate {
     triedAt: parseTriedAt(source.triedAt),
     purchasePrice: parsePurchasePrice(source.purchasePrice),
     purchaseCurrency: parsePurchaseCurrency(source.purchaseCurrency),
+    rating: parseRating(source.rating),
+    purchaseDate: parsePurchaseDate(source.purchaseDate),
     archiveReason,
     undoArchive: parseUndoArchive(source.undoArchive, status, archiveReason),
   };
@@ -144,6 +166,8 @@ export function providedInventoryFields(fields: InventoryFieldsUpdate): Provided
   if (fields.triedAt !== undefined) provided.push("triedAt");
   if (fields.purchasePrice !== undefined) provided.push("purchasePrice");
   if (fields.purchaseCurrency !== undefined) provided.push("purchaseCurrency");
+  if (fields.rating !== undefined) provided.push("rating");
+  if (fields.purchaseDate !== undefined) provided.push("purchaseDate");
   return provided;
 }
 

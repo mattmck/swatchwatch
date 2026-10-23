@@ -246,11 +246,11 @@ export function PickForMeCard({ polishes }: { polishes: Polish[] }) {
 }
 
 /** "Pick for me" button for `/polishes`: opens a dialog that loads the owned list on open. */
-export function PickForMeButton({ className }: { className?: string }) {
+export function PickForMeButton({ className, disabled = false }: { className?: string; disabled?: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <Button type="button" variant="outline" className={className} onClick={() => setOpen(true)}>
+      <Button type="button" variant="outline" className={className} onClick={() => setOpen(true)} disabled={disabled}>
         <Dices className="size-4" aria-hidden />
         Pick for me
       </Button>
