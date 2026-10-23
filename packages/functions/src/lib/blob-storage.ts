@@ -1,4 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
+import { fetchWithRetry } from "./fetch-retry";
 import { computeImageFingerprintSafely, type ImageFingerprint } from "./gallery-dedupe";
 import { ImageProxyConfigError } from "./image-proxy-errors";
 import {
@@ -384,7 +385,8 @@ async function sendStorageRequest(
   method: "PUT" | "GET" | "HEAD" | "DELETE",
   url: URL,
   headers: Record<string, string>,
-  body?: Buffer
+  body?: Buffer,
+  options: { retry?: boolean } = {}
 ): Promise<Response> {
   const finalizedUrl = mergeSas(url, config.sasToken);
   const requestHeaders: Record<string, string> = {
@@ -408,17 +410,36 @@ async function sendStorageRequest(
 
   const requestBody = body ? new Uint8Array(body) : undefined;
 
-  const response = await runWithTimeout(
-    fetch(finalizedUrl.toString(), {
-      method,
-      headers: requestHeaders,
-      body: requestBody,
-    }),
-    REQUEST_TIMEOUT_MS,
-    "Azure Blob Storage request"
-  );
+  const send = () =>
+    runWithTimeout(
+      fetch(finalizedUrl.toString(), {
+        method,
+        headers: requestHeaders,
+        body: requestBody,
+      }),
+      REQUEST_TIMEOUT_MS,
+      "Azure Blob Storage request"
+    );
 
-  return response;
+  // Only idempotent reads may opt into retries (transient network errors and 429/5xx). A
+  // successful body is buffered inside the attempt so a connection reset mid-body is retried too.
+  if (options.retry && (method === "GET" || method === "HEAD")) {
+    return fetchWithRetry(async () => bufferSuccessfulBody(await send()), {
+      label: `Azure Blob Storage ${method}`,
+    });
+  }
+  return send();
+}
+
+/** Read an OK response's body now and return an equivalent, already-buffered Response. */
+async function bufferSuccessfulBody(response: Response): Promise<Response> {
+  if (!response.ok || response.body === null) return response;
+  const body = await response.arrayBuffer();
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
 }
 
 function normalizeContainerName(
@@ -621,6 +642,12 @@ export interface ReadBlobOptions {
    * (`SOURCE_IMAGE_CONTAINER`, default `source-images`).
    */
   allowedContainers?: readonly string[];
+  /**
+   * Retry transient network errors and 429/5xx (`fetchWithRetry`). Off by default so latency-
+   * sensitive reads such as the image proxy fall back at once; batch jobs (the variants backfill)
+   * turn it on.
+   */
+  retry?: boolean;
 }
 
 export function defaultReadableContainers(): string[] {
@@ -725,7 +752,9 @@ export async function readBlobFromStorageUrl(
     options.allowedContainers ?? defaultReadableContainers()
   );
 
-  const response = await sendStorageRequest(config, "GET", parsedStorageUrl, {});
+  const response = await sendStorageRequest(config, "GET", parsedStorageUrl, {}, undefined, {
+    retry: options.retry,
+  });
   if (!response.ok) {
     const details = await response.text().catch(() => "");
     throw new BlobReadError(
@@ -833,13 +862,32 @@ export async function uploadSourceImageToBlob(
   params: UploadSourceImageOptions & { skipContainerEnsure?: boolean }
 ): Promise<UploadedBlobImage> {
   console.log(`[blob-storage] Downloading image from ${params.sourceImageUrl}`);
-  const sourceResponse = await runWithTimeout(
-    fetch(params.sourceImageUrl, {
-      method: "GET",
-      headers: { "User-Agent": "SwatchWatch/source-image-ingestion" },
-    }),
-    REQUEST_TIMEOUT_MS,
-    "Source image download"
+  const limits = resolveSourceImageLimits();
+  let sourceType = "";
+  let bytes: Buffer = Buffer.alloc(0);
+  // Each attempt gets its own REQUEST_TIMEOUT_MS; transient network errors (also while reading the
+  // body, which is why the capped read happens inside the attempt) and 429/5xx are retried.
+  const sourceResponse = await fetchWithRetry(
+    async () => {
+      const response = await runWithTimeout(
+        fetch(params.sourceImageUrl, {
+          method: "GET",
+          headers: { "User-Agent": "SwatchWatch/source-image-ingestion" },
+        }),
+        REQUEST_TIMEOUT_MS,
+        "Source image download"
+      );
+      if (!response.ok) return response;
+      try {
+        sourceType = assertAllowedImageType(response.headers.get("content-type") || "image/jpeg");
+      } catch (error) {
+        await response.body?.cancel().catch(() => undefined);
+        throw error;
+      }
+      bytes = await readResponseCapped(response, limits.maxDownloadBytes);
+      return response;
+    },
+    { label: "Source image download" }
   );
 
   if (!sourceResponse.ok) {
@@ -847,17 +895,6 @@ export async function uploadSourceImageToBlob(
       `Failed to download source image: ${sourceResponse.status} ${sourceResponse.statusText}`
     );
   }
-
-  const sourceContentType = sourceResponse.headers.get("content-type") || "image/jpeg";
-  const limits = resolveSourceImageLimits();
-  let sourceType: string;
-  try {
-    sourceType = assertAllowedImageType(sourceContentType);
-  } catch (error) {
-    await sourceResponse.body?.cancel().catch(() => undefined);
-    throw error;
-  }
-  const bytes = await readResponseCapped(sourceResponse, limits.maxDownloadBytes);
   if (bytes.length === 0) {
     throw new Error("Image payload is empty");
   }
