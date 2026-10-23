@@ -95,7 +95,6 @@ Recommended auth config (propagated to Terraform `TF_VAR_*` inputs):
 - Secrets: `AZURE_AD_B2C_CLIENT_ID`
 - Variables: `AUTH_DEV_BYPASS`, `AZURE_AD_B2C_TENANT` (falls back to `NEXT_PUBLIC_B2C_TENANT` if unset)
 - Feature flags (default `false`): `SHAREABLE_WISHLIST_ENABLED`, `SHAREABLE_LOOKS_ENABLED`, `HEX_DETECTION_BATCH_ENABLED`, `HEX_DETECTION_SNAP_ENABLED` (exported as `TF_VAR_shareable_wishlist_enabled`, `TF_VAR_shareable_looks_enabled`, `TF_VAR_hex_detection_batch_enabled`, `TF_VAR_hex_detection_snap_enabled`)
-- APIM gateway for Azure OpenAI (opt-in): variables `APIM_ENABLED` (default `false`), `APIM_SKU_NAME` (default `Consumption_0`), `OPENAI_GATEWAY_ENABLED` (default `false`, becomes the Function App's `AZURE_OPENAI_USE_GATEWAY`) and `APIM_OPENAI_SUBSCRIPTION_KEY_URI` (secret or variable; exported as `TF_VAR_apim_enabled`, `TF_VAR_apim_sku_name`, `TF_VAR_openai_gateway_enabled`, `TF_VAR_apim_openai_subscription_key_uri`)
 - External ID service principal (opt-in, see [External ID service principal](#external-id-service-principal-opt-in)): variables `MANAGE_CIAM_SERVICE_PRINCIPAL` (default `false`), `CIAM_TENANT_ID`, `CIAM_TERRAFORM_CLIENT_ID` (exported as `TF_VAR_manage_ciam_service_principal`, `TF_VAR_ciam_tenant_id`, `TF_VAR_ciam_terraform_client_id`)
 - Alerts (observability Phase 3, #281): `ALERT_EMAIL` (**secret** recommended so the address is masked in logs; a variable also works; exported as `TF_VAR_alert_email`, never committed to tfvars) and optional variable `ALERTS_ENABLED` (default `true` for `prod`, `false` otherwise; exported as `TF_VAR_alerts_enabled`)
 The workflow creates the state container automatically if it does not exist.
@@ -141,7 +140,6 @@ To move or recreate an account on purpose: change the environment's `OPENAI_LOCA
 | Daily cap alert *(alerts)* | `azurerm_monitor_scheduled_query_rules_alert_v2.daily_cap` | `_LogOperation` reports `OverQuota`: the workspace daily cap stopped ingestion (sev 2) |
 | Availability tests *(alerts)* | `azurerm_application_insights_standard_web_test.availability["web"\|"api"]` | Standard tests every `availability_test_frequency_seconds` from `availability_test_locations`: web home page (custom domain) and `GET /api/reference/finishes`; expect 200 and an SSL cert valid for 7+ days. Billed per execution |
 | Availability alerts *(alerts)* | `azurerm_monitor_metric_alert.availability["web"\|"api"]` | Fires when 2+ test locations fail (sev 1) |
-| API Management *(optional)* | `azurerm_api_management.main` | Azure API Management Consumption gateway for Azure OpenAI traffic (`apim_enabled=true`) |
 | App Service Plan | `azurerm_service_plan.main` | Linux Consumption plan (Y1) |
 | Function App | `azurerm_linux_function_app.main` | Node 22 function host (Managed Identity enabled) |
 | Static Web App | `azurerm_static_web_app.main` | Next.js frontend (Standard tier) |
@@ -172,14 +170,6 @@ To move or recreate an account on purpose: change the environment's `OPENAI_LOCA
 | `pg_admin_username` | `pgadmin` | PostgreSQL admin username |
 | `pg_admin_password` | *(required)* | PostgreSQL admin password (stored in Key Vault) |
 | `github_repository` | `your-github-username/swatchwatch` | GitHub repo for OIDC federation |
-| `apim_enabled` | `false` | Provision an Azure API Management instance for Azure OpenAI gateway routing (opt-in) |
-| `apim_sku_name` | `Consumption_0` | APIM SKU (Consumption tier default for cost control) |
-| `apim_publisher_name` | `SwatchWatch` | APIM publisher display name |
-| `apim_publisher_email` | `platform@swatchwatch.app` | APIM publisher contact email |
-| `apim_openai_api_suffix` | `openai-gateway` | APIM API path suffix for Azure OpenAI proxy calls |
-| `apim_openai_subscription_key` | `""` | Optional APIM subscription key stored in Key Vault and exposed to Functions as `AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY` |
-| `apim_openai_subscription_key_uri` | `""` | Optional existing Key Vault secret URI for APIM subscription key. When set, Terraform reuses it and does not create `apim-openai-subscription-key`. |
-| `openai_gateway_enabled` | `false` | Function App setting `AZURE_OPENAI_USE_GATEWAY`; keep false until APIM API routes/policies are configured |
 | `openai_custom_subdomain_name` | `null` | Optional custom subdomain override for the primary Azure OpenAI account. Additional regions always use generated per-region subdomains. |
 | `create_openai_resources` | `false` | Provision Azure OpenAI account/deployment in this stack (disable when quota is unavailable) |
 | `openai_endpoint` | `""` | Existing Azure OpenAI endpoint when reusing an external account (`create_openai_resources=false`) |
@@ -317,9 +307,6 @@ Key outputs after `terraform apply`:
 | `openai_diagnostic_setting_name` | Primary region Azure OpenAI diagnostic setting attached to Log Analytics |
 | `openai_regions_provisioned` | List of regions where OpenAI accounts were provisioned/retained |
 | `openai_resources_provisioned` | Whether this stack provisioned Azure OpenAI resources |
-| `apim_name` | APIM service name (empty when `apim_enabled=false`) |
-| `apim_gateway_url` | APIM gateway URL (empty when `apim_enabled=false`) |
-| `openai_gateway_endpoint` | APIM OpenAI gateway base URL exposed to Functions via `AZURE_OPENAI_GATEWAY_ENDPOINT` |
 | `application_insights_name` | Application Insights resource name |
 | `application_insights_connection_string` | *(sensitive)* App Insights connection string, for the web build's `NEXT_PUBLIC_APPLICATIONINSIGHTS_CONNECTION_STRING` |
 | `log_analytics_workspace_name` | Log Analytics workspace name |
@@ -436,10 +423,10 @@ OpenAI settings are optional:
 - If `create_openai_resources=false`, either:
   - set `openai_endpoint` + `openai_api_key`, or
   - set `openai_endpoint` + `openai_key_vault_secret_uri` (preferred).
-- When `apim_enabled=true`, Terraform also provisions APIM (Consumption by default) and sets Function App gateway settings:
-  - `AZURE_OPENAI_GATEWAY_ENDPOINT`
-  - `AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY` (from `apim_openai_subscription_key_uri` when provided, otherwise from a Terraform-managed Key Vault secret created from `apim_openai_subscription_key`)
-  - `AZURE_OPENAI_USE_GATEWAY` (controlled by `openai_gateway_enabled`, with Terraform validation to fail fast if gateway endpoint/secret wiring is incomplete)
+- Functions always call the Azure OpenAI resource directly with `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_KEY`. The APIM
+  gateway path (`apim_enabled`, `openai_gateway_enabled`, the `AZURE_OPENAI_GATEWAY_*` / `AZURE_OPENAI_USE_GATEWAY`
+  settings and `azurerm_api_management.main`) was removed on 2026-10-23 ([D25](../docs/decisions-2026-10.md#d25--azure-openai-apim-gateway-removed-2026-10-23));
+  removing the resources from the configuration destroys an environment's APIM instance on its next Deploy Infra run.
 
 ## External ID service principal (opt-in)
 

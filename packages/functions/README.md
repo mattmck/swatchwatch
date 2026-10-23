@@ -769,8 +769,7 @@ overriding variables already set), so the same Postgres / Azure OpenAI config th
 | `image-select-ai-snap` | `image-select-ai`'s photo choice (alt-text ranking, or one vision call picking the on-nail photo), then `blind-snap` on that photo. | yes |
 | `ensemble` | `azure-current` sampled several times at a small temperature, optionally across more than one deployment, reduced to one answer by `src/lib/hex-ensemble.ts` (see below). | yes |
 
-When Azure OpenAI is not configured (`AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_KEY` + `AZURE_OPENAI_DEPLOYMENT_HEX`/`AZURE_OPENAI_DEPLOYMENT`,
-or the APIM gateway equivalents), Azure strategies print `Skipping strategy …` and the run still exits 0.
+When Azure OpenAI is not configured (`AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_KEY` + `AZURE_OPENAI_DEPLOYMENT_HEX`/`AZURE_OPENAI_DEPLOYMENT`), Azure strategies print `Skipping strategy …` and the run still exits 0.
 
 **Snap strategies** (`src/eval/hex/strategies/snap.ts` + `snapHexToPalette` in `src/lib/hex-snap.ts`, the same module production uses behind `HEX_DETECTION_SNAP_ENABLED`). On
 `sample.json` the measured palette already holds a chip within 0.05 of the ground truth for 78% of cases, but
@@ -1134,7 +1133,6 @@ Only the exact value `true` (any case) enables a flag; anything else is off.
 | `SHAREABLE_LOOKS_ENABLED` | `false` | Opt-in public share links for saved looks. While off, `/api/look-share` and `/api/look/{token}` return `404` with `code: "feature_disabled"` and the Looks page shows no Share link controls. Terraform-managed (`shareable_looks_enabled`, fed from the `SHAREABLE_LOOKS_ENABLED` GitHub variable by Deploy Infra). Needs `IMAGE_PROXY_SIGNING_KEY`. |
 | `HEX_DETECTION_BATCH_ENABLED` | `false` | Azure OpenAI Batch API for Shopify vision hex detection plus the `ingestion-ai-batch-poller` timer. See Batch hex detection below. |
 | `HEX_DETECTION_SNAP_ENABLED` | `false` | Snap step in `src/lib/hex-snap.ts`: after every vision hex detection (ingestion sync and batch-submit fallback, the batch poller apply step, admin `recalc-hex`) the model's hex is replaced by the nearest palette chip measured from the same image when one is within `HEX_SNAP_MAX_DISTANCE`, stored as `detected_hex_method = 'vision-snap'`. Read at call time. Terraform-managed (`hex_detection_snap_enabled`). |
-| `AZURE_OPENAI_USE_GATEWAY` | `false` | Route Azure OpenAI calls through the APIM gateway. See Azure OpenAI client below. |
 
 ### Azure OpenAI client (`src/lib/azure-openai-config.ts`)
 
@@ -1142,11 +1140,8 @@ Shared by vision hex detection (sync and batch), label OCR parsing and the hex e
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `AZURE_OPENAI_ENDPOINT` | — | Direct Azure OpenAI endpoint. |
-| `AZURE_OPENAI_KEY` | — | Direct endpoint key (`api-key` header). Key Vault reference in Azure. |
-| `AZURE_OPENAI_USE_GATEWAY` | `false` | `true` routes calls through the APIM gateway when both gateway settings below are present; if either is missing it logs a warning and falls back to the direct endpoint. |
-| `AZURE_OPENAI_GATEWAY_ENDPOINT` | — | APIM gateway base URL used in gateway mode (Terraform: `local.apim_openai_gateway_base_url`). |
-| `AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY` | — | APIM subscription key, sent as `Ocp-Apim-Subscription-Key` in gateway mode. |
+| `AZURE_OPENAI_ENDPOINT` | — | Azure OpenAI endpoint. |
+| `AZURE_OPENAI_KEY` | — | Endpoint key (`api-key` header). Key Vault reference in Azure. Functions always call the Azure OpenAI resource directly (the APIM gateway path was removed, D25). |
 | `AZURE_OPENAI_DEPLOYMENT` | — | Fallback deployment name for every role below. |
 | `AZURE_OPENAI_DEPLOYMENT_HEX` | → `AZURE_OPENAI_DEPLOYMENT` | Deployment for synchronous vision hex detection. |
 | `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` | → `_HEX` → `AZURE_OPENAI_DEPLOYMENT` | Deployment for batch hex detection. |
