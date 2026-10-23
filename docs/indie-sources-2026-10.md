@@ -113,7 +113,7 @@ requests: `/robots.txt`, `/policies/terms-of-service`, and `/products.json?limit
 page had fewer than 250 products. No other pages were fetched. The polish-filter count runs the
 connector's generic gate, `isNailPolish` + `isBundle` (the build from this branch), over the downloaded
 products. For a store without its own filter that is what ingestion keeps; for a store with a
-store-specific filter (Pahlish, Cirque Colors, and the batch 3 stores) the final count differs, and the
+store-specific filter (Pahlish, Cirque Colors, and the batch 3 stores) the final count may differ, and the
 batch 3 table reports both (for example Stella Chroma 72 generic vs 68 final, Sweet & Sour 8 vs 155).
 Images were not downloaded.
 
