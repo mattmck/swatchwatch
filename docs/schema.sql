@@ -965,7 +965,7 @@ CREATE TABLE data_source (
   license TEXT,                               -- license identifier/name (if applicable)
   terms_url TEXT,
   enabled BOOLEAN NOT NULL DEFAULT true,       -- false: hidden from /api/ingestion/sources (admin pickers)
-  metadata JSONB,                              -- priority, mvp, notes (incl. per-source access verification), ingestion settings
+  metadata JSONB,                              -- priority, mvp, notes (incl. per-source access verification), ingestion settings, optional store `currency` (ISO 4217, Shopify prices)
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

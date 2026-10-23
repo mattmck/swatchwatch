@@ -11,7 +11,7 @@ import { withCors } from "../lib/http";
 import { internalServerError } from "../lib/errors";
 import { cacheGetJson, cacheSetJson, hashCacheKey } from "../lib/cache";
 import { trackEvent } from "../lib/telemetry";
-import { loadBuyUrlsForShades } from "../lib/buy-link";
+import { buyLinkFields, loadBuyLinksForShades } from "../lib/buy-link";
 import { parseColorFamilyFilter } from "../lib/color-family-filter";
 import { parseProductCategoryFilter } from "../lib/product-category-filter";
 
@@ -118,7 +118,7 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
       .slice(0, limit);
 
     // "Buy from brand" links (#267) for the returned page only.
-    const buyUrls = await loadBuyUrlsForShades(sorted.map((r) => r.shadeId));
+    const buyLinks = await loadBuyLinksForShades(sorted.map((r) => r.shadeId));
 
     const response: CatalogSearchResponse = {
       results: sorted.map((r) => ({
@@ -131,7 +131,7 @@ async function searchCatalog(request: HttpRequest, context: InvocationContext): 
         colorFamily: r.colorFamily ?? null,
         productCategory: resolveProductCategory(r.productCategory),
         similarity: Math.round(r.similarity * 1000) / 1000,
-        buyUrl: buyUrls.get(r.shadeId),
+        ...buyLinkFields(buyLinks.get(r.shadeId)),
       })),
       query: q,
       total: sorted.length,
@@ -220,7 +220,7 @@ async function getShade(request: HttpRequest, context: InvocationContext): Promi
       [shadeId]
     );
 
-    const buyUrls = await loadBuyUrlsForShades([shade.shadeId]);
+    const buyLinks = await loadBuyLinksForShades([shade.shadeId]);
 
     const response: CatalogShadeDetail = {
       shadeId: shade.shadeId,
@@ -234,7 +234,7 @@ async function getShade(request: HttpRequest, context: InvocationContext): Promi
       status: shade.status,
       productCategory: resolveProductCategory(shade.productCategory),
       aliases: aliasResult.rows.map((r) => r.alias),
-      buyUrl: buyUrls.get(shade.shadeId),
+      ...buyLinkFields(buyLinks.get(shade.shadeId)),
     };
 
     await cacheSetJson(shadeCacheKey, response, CATALOG_SHADE_CACHE_TTL_SECONDS);

@@ -310,6 +310,7 @@ Polish list rows and detail (`GET /api/polishes`, `GET /api/polishes/{id}`, so c
 - **Validation (server-side, `sanitizeBuyUrl`)**: only absolute `http://`/`https://` URLs with a host reach the client. Any other scheme (`javascript:`, `data:`, `vbscript:`, `file:`, `ftp:`, `mailto:` …), relative or protocol-relative URLs, URLs with embedded credentials (`https://user:pass@…`), URLs containing whitespace/control characters, and URLs over 2048 characters are dropped. The returned value is the normalized `URL.href`.
 - **Selection when a shade has several source products (`selectBuyFromBrandUrl`)**: ignore candidates whose URL fails validation; prefer a product whose `data_source.enabled` is true; then the most recent `shade_source_product.last_seen_at`; then the most recent `external_product.fetched_at`; then the highest `external_product_id`. The result does not depend on row order.
 - **No affiliate parameters.** `applyAffiliateParams(url)` is the single (currently no-op) hook where they would be added; its output is re-validated.
+- **Brand list price.** The same responses carry optional `buyPrice` (number, major units), `buyCurrency` (ISO 4217) and `buyPriceSeenAt` (ISO, the product's `external_product.fetched_at`) next to `buyUrl`. They come from the **same chosen product** as the URL (`selectBuyFromBrandLink` returns `{ url, price?, currency?, priceSeenAt? }`; a runner-up's price is never used), read from `normalized_json ->> 'price'` / `'currency'`, and appear only when both a valid amount and a valid currency are stored. They are what the brand's store listed, never the user's `purchasePrice`, and are never converted or summed across currencies. See "Product prices" below for how connectors store them.
 - Lookups run as one extra query for the shades on the returned page only (`ANY($1::bigint[])`), after the main query, so the list SQL itself is unchanged. A lookup failure (for example before the migration has run) is logged as a warning and the response simply has no `buyUrl` values.
 - Clients must render the link with `target="_blank" rel="noopener noreferrer nofollow"` (`OUTBOUND_LINK_TARGET` / `OUTBOUND_LINK_REL` in swatchwatch-shared).
 
@@ -354,7 +355,24 @@ npm run backfill:product-text --workspace=swatchwatch-functions -- --write      
 npm run backfill:product-text --workspace=swatchwatch-functions -- --write --fill-finishes        # also fill empty shade finishes
 ```
 
-The backfill (`src/scripts/backfill-product-text.ts`) reads `external_product` in keyset pages (`--batch-size`, default 500; `--limit`), recomputes the two fields from `raw_json` with the connectors' own extractors, and merges them into `normalized_json` (`fetched_at` untouched). It then reports finish coverage: non-merged shades with empty `finishes` now, and how many ingestion would fill from their most recently seen linked product, split by source (`tags`/`descriptors`/`description`). With `--write --fill-finishes` it writes those, only where `finishes` is still empty. It loads `local.settings.json` like the eval scripts.
+**Product prices (buy link prices).** Connectors whose data has a price write `price` (decimal string in major units, e.g. `"12.50"`) and `currency` (ISO 4217 or `null`) into `external_product.normalized_json`, using the helpers in `src/lib/product-price.ts`:
+
+- **Shopify-style stores** (`HoloTacoShopify` and every generic `*Shopify` source): `products.json` lists `variants[].price` as a string with no currency. The product price is the lowest price among variants with `available: true`, or the lowest of all variants when every one is sold out; zero, negative, non-numeric and absurd (> 100000) prices are ignored. The store currency comes from `data_source.metadata.currency` when set (e.g. `UPDATE data_source SET metadata = metadata || '{"currency":"CAD"}' WHERE name = 'XShopify'`), otherwise from one `GET <store>/meta.json` per connector run (asked only when some product has a price; 10 s timeout, no retries, never fails the job). When neither answers, `currency` stays `null` and the API shows no price; USD is never assumed. Job metrics record `storeCurrency` and `storeCurrencySource` (`source_metadata` / `shop_meta` / `unknown`). Per-variant `price` / `compareAtPrice` / `available` stay in `normalized_json.variants`.
+- **MakeupAPI**: `price` (normalized, `"10.0"` → `"10.00"`; `"0.0"` → `null`) and `currency` when the API gives an ISO code. `priceSign` (`"$"`) is kept but never turned into a currency.
+- **OpenBeautyFacts**: no price data; nothing is written.
+
+Rows ingested before this get prices from the backfill, which re-derives them from `raw_json` with the same helpers:
+
+```bash
+npm run backfill:product-price --workspace=swatchwatch-functions                                  # dry run (default): counts per source + store currencies
+npm run backfill:product-price --workspace=swatchwatch-functions -- --source MooncatShopify --verbose
+npm run backfill:product-price --workspace=swatchwatch-functions -- --no-fetch-currency           # never call /meta.json
+npm run backfill:product-price --workspace=swatchwatch-functions -- --write
+```
+
+`src/scripts/backfill-product-price.ts` reads `external_product` in keyset pages (`--batch-size`, default 500; `--limit`) and merges `{ price, currency }` into `normalized_json` (`fetched_at` untouched) only where the stored values differ. Per Shopify source the currency is `data_source.metadata.currency`, else the currency newer ingestion runs already stored on that source's products, else the shop's `/meta.json` (skipped with `--no-fetch-currency`); a currency already stored on a row is never cleared. The summary counts rows that end up priced with and without a currency. It needs Postgres (loads `local.settings.json` like the eval scripts).
+
+The product-text backfill (`src/scripts/backfill-product-text.ts`) reads `external_product` in keyset pages (`--batch-size`, default 500; `--limit`), recomputes the two fields from `raw_json` with the connectors' own extractors, and merges them into `normalized_json` (`fetched_at` untouched). It then reports finish coverage: non-merged shades with empty `finishes` now, and how many ingestion would fill from their most recently seen linked product, split by source (`tags`/`descriptors`/`description`). With `--write --fill-finishes` it writes those, only where `finishes` is still empty. It loads `local.settings.json` like the eval scripts.
 - `GET /api/reference-admin/jobs` lists recent ingestion jobs with pagination (`page`, `pageSize`) and optional `status` filter (`queued|running|succeeded|failed|cancelled`), joined with `data_source` for source metadata.
 ### User management (`admin-users.ts`, `src/lib/admin-users.ts`, issue #45)
 
@@ -478,7 +496,7 @@ rows and user inventory rows (`quantity=0`, `status='wishlist'`) by default. Set
 
 Both materializers (MakeupAPI and every `*Shopify` source) also record a `shade_source_product`
 row linking each materialized shade to its `external_product`, which is where the shade's
-"Buy from brand" `buyUrl` comes from (see "Buy from brand" links above). The `*Shopify`
+"Buy from brand" `buyUrl` and its `buyPrice` / `buyCurrency` come from (see "Buy from brand" links above). The `*Shopify`
 materializer also links the product's GTIN and variant barcodes to the shade as catalog `barcode`
 rows (first shade to claim a GTIN keeps it; conflicts go to the job log; see "Barcode scans").
 

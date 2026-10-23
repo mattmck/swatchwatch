@@ -17,11 +17,18 @@
  *   4. then the most recently fetched product (`external_product.fetched_at`);
  *   5. then the highest `external_product_id`, so ties are still deterministic.
  *
+ * Price: the chosen product's vendor list price (`normalized_json` `price` + `currency`,
+ * written by the connectors, see `product-price.ts`) travels with the URL as one `BuyLink`.
+ * It always comes from the same product as the URL (no separate choice), only when both a
+ * valid amount and an ISO 4217 currency are stored, with `priceSeenAt` = that product's
+ * `external_product.fetched_at`.
+ *
  * No affiliate parameters are added today; `applyAffiliateParams` is the single place
  * where they would be.
  */
 import type { PoolClient } from "pg";
 import { query as defaultQuery } from "./db";
+import { normalizeCurrencyCode, normalizePriceAmount } from "./product-price";
 
 /** Longest URL we pass through; longer values are treated as junk rather than truncated. */
 export const MAX_BUY_URL_LENGTH = 2048;
@@ -37,6 +44,20 @@ export interface BuyLinkCandidate {
   /** `external_product.fetched_at`. */
   fetchedAt?: Date | string | null | undefined;
   externalProductId: string | number | null | undefined;
+  /** `normalized_json ->> 'price'` (decimal string, major units). */
+  price?: string | number | null;
+  /** `normalized_json ->> 'currency'` (ISO 4217). */
+  currency?: string | null;
+}
+
+/** The selected buy link for a shade: URL plus the same product's list price, when known. */
+export interface BuyLink {
+  url: string;
+  /** Major units, e.g. 12.5. Present only together with `currency`. */
+  price?: number;
+  currency?: string;
+  /** ISO timestamp of the product fetch the price came from. */
+  priceSeenAt?: string;
 }
 
 // C0 controls, DEL and whitespace: browsers strip or reinterpret these, so a URL
@@ -118,11 +139,26 @@ export function compareBuyLinkCandidates(a: BuyLinkCandidate, b: BuyLinkCandidat
   return urlA < urlB ? -1 : urlA > urlB ? 1 : 0;
 }
 
+function toIsoTimestamp(value: Date | string | null | undefined): string | undefined {
+  const ms = toMillis(value);
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : undefined;
+}
+
+/** The candidate's price fields, or `{}` unless both amount and currency are valid. */
+function buyLinkPrice(candidate: BuyLinkCandidate): Omit<BuyLink, "url"> {
+  const amount = normalizePriceAmount(candidate.price);
+  const currency = normalizeCurrencyCode(candidate.currency);
+  if (amount === null || currency === null) return {};
+  const priceSeenAt = toIsoTimestamp(candidate.fetchedAt);
+  return { price: Number(amount), currency, ...(priceSeenAt ? { priceSeenAt } : {}) };
+}
+
 /**
- * Picks one buy URL from a shade's candidates (see the selection rule at the top of this
- * file), or null when none has a valid URL. Input order does not matter.
+ * Picks one buy link from a shade's candidates (see the selection rule at the top of this
+ * file), or null when none has a valid URL. Input order does not matter. The price, when
+ * present, belongs to the chosen product; a better-priced runner-up is never mixed in.
  */
-export function selectBuyFromBrandUrl(candidates: readonly BuyLinkCandidate[]): string | null {
+export function selectBuyFromBrandLink(candidates: readonly BuyLinkCandidate[]): BuyLink | null {
   const valid: Array<{ candidate: BuyLinkCandidate; url: string }> = [];
   for (const candidate of candidates) {
     const url = sanitizeBuyUrl(candidate.url);
@@ -132,11 +168,17 @@ export function selectBuyFromBrandUrl(candidates: readonly BuyLinkCandidate[]): 
   valid.sort((a, b) => compareBuyLinkCandidates(a.candidate, b.candidate));
   const best = valid[0];
   // Re-validate after the hook so an affiliate change can never emit an unsafe URL.
-  return sanitizeBuyUrl(applyAffiliateParams(best.url, best.candidate));
+  const url = sanitizeBuyUrl(applyAffiliateParams(best.url, best.candidate));
+  return url ? { url, ...buyLinkPrice(best.candidate) } : null;
 }
 
-/** Groups candidates per shade and selects one URL each. Shades without a valid URL are omitted. */
-export function selectBuyUrlsByShade(candidates: readonly BuyLinkCandidate[]): Map<string, string> {
+/** URL-only form of `selectBuyFromBrandLink`. */
+export function selectBuyFromBrandUrl(candidates: readonly BuyLinkCandidate[]): string | null {
+  return selectBuyFromBrandLink(candidates)?.url ?? null;
+}
+
+/** Groups candidates per shade and selects one link each. Shades without a valid URL are omitted. */
+export function selectBuyLinksByShade(candidates: readonly BuyLinkCandidate[]): Map<string, BuyLink> {
   const byShade = new Map<string, BuyLinkCandidate[]>();
   for (const candidate of candidates) {
     if (candidate?.shadeId === undefined || candidate.shadeId === null) continue;
@@ -145,12 +187,17 @@ export function selectBuyUrlsByShade(candidates: readonly BuyLinkCandidate[]): M
     if (list) list.push(candidate);
     else byShade.set(key, [candidate]);
   }
-  const result = new Map<string, string>();
+  const result = new Map<string, BuyLink>();
   for (const [shadeId, list] of byShade) {
-    const url = selectBuyFromBrandUrl(list);
-    if (url) result.set(shadeId, url);
+    const link = selectBuyFromBrandLink(list);
+    if (link) result.set(shadeId, link);
   }
   return result;
+}
+
+/** URL-only form of `selectBuyLinksByShade`. */
+export function selectBuyUrlsByShade(candidates: readonly BuyLinkCandidate[]): Map<string, string> {
+  return new Map(Array.from(selectBuyLinksByShade(candidates), ([shadeId, link]) => [shadeId, link.url]));
 }
 
 /** Candidate rows for a set of shades; every linked product that carries a product URL. */
@@ -160,7 +207,9 @@ export const BUY_LINK_CANDIDATES_SQL = `SELECT
        ds.enabled                              AS "sourceEnabled",
        ssp.last_seen_at                        AS "lastSeenAt",
        ep.fetched_at                           AS "fetchedAt",
-       ep.external_product_id::text            AS "externalProductId"
+       ep.external_product_id::text            AS "externalProductId",
+       ep.normalized_json ->> 'price'          AS price,
+       ep.normalized_json ->> 'currency'       AS currency
      FROM shade_source_product ssp
      JOIN external_product ep ON ep.external_product_id = ssp.external_product_id
      JOIN data_source ds ON ds.data_source_id = ep.data_source_id
@@ -175,40 +224,69 @@ function toShadeIdParam(value: unknown): string | null {
 }
 
 /**
- * Loads the selected buy URL for each shade id. Never throws: buy links are optional
- * decoration, so a lookup failure (e.g. the migration has not run yet) logs a warning and
- * returns an empty map instead of failing the caller's request.
+ * Loads the selected buy link (URL + price) for each shade id. Never throws: buy links are
+ * optional decoration, so a lookup failure (e.g. the migration has not run yet) logs a
+ * warning and returns an empty map instead of failing the caller's request.
  */
-export async function loadBuyUrlsForShades(
+export async function loadBuyLinksForShades(
   shadeIds: readonly unknown[],
   queryFn: QueryFn = defaultQuery as unknown as QueryFn
-): Promise<Map<string, string>> {
+): Promise<Map<string, BuyLink>> {
   const ids = Array.from(new Set(shadeIds.map(toShadeIdParam).filter((id): id is string => id !== null)));
   if (ids.length === 0) return new Map();
   try {
     const result = await queryFn<BuyLinkCandidate>(BUY_LINK_CANDIDATES_SQL, [ids]);
-    return selectBuyUrlsByShade(Array.isArray(result?.rows) ? result.rows : []);
+    return selectBuyLinksByShade(Array.isArray(result?.rows) ? result.rows : []);
   } catch (error) {
     console.warn("[buy-link] Failed to load buy-from-brand links:", (error as Error)?.message ?? error);
     return new Map();
   }
 }
 
+/** URL-only form of `loadBuyLinksForShades`. */
+export async function loadBuyUrlsForShades(
+  shadeIds: readonly unknown[],
+  queryFn?: QueryFn
+): Promise<Map<string, string>> {
+  const links = await loadBuyLinksForShades(shadeIds, queryFn);
+  return new Map(Array.from(links, ([shadeId, link]) => [shadeId, link.url]));
+}
+
+/** API response fields for a buy link (`Polish.buyUrl`, `buyPrice`, `buyCurrency`, `buyPriceSeenAt`). */
+export interface BuyLinkFields {
+  buyUrl?: string;
+  buyPrice?: number;
+  buyCurrency?: string;
+  buyPriceSeenAt?: string;
+}
+
+/** Response fields for a link; `{}` when there is none, so no keys appear. */
+export function buyLinkFields(link: BuyLink | null | undefined): BuyLinkFields {
+  if (!link) return {};
+  const fields: BuyLinkFields = { buyUrl: link.url };
+  if (link.price !== undefined && link.currency) {
+    fields.buyPrice = link.price;
+    fields.buyCurrency = link.currency;
+    if (link.priceSeenAt) fields.buyPriceSeenAt = link.priceSeenAt;
+  }
+  return fields;
+}
+
 /**
- * Returns `rows` with `buyUrl` set on every row whose shade has a valid buy link.
- * Rows without one are returned unchanged (no `buyUrl` key), so clients render no link.
+ * Returns `rows` with `buyUrl` (and `buyPrice` / `buyCurrency` / `buyPriceSeenAt` when the
+ * chosen product has a price) set on every row whose shade has a valid buy link. Rows
+ * without one are returned unchanged (no `buyUrl` key), so clients render no link.
  */
 export async function withBuyUrls<T extends object>(
   rows: readonly T[],
   getShadeId: (row: T) => unknown,
   queryFn?: QueryFn
-): Promise<Array<T & { buyUrl?: string }>> {
+): Promise<Array<T & BuyLinkFields>> {
   if (rows.length === 0) return [];
-  const urls = await loadBuyUrlsForShades(rows.map(getShadeId), queryFn);
+  const links = await loadBuyLinksForShades(rows.map(getShadeId), queryFn);
   return rows.map((row) => {
     const shadeId = toShadeIdParam(getShadeId(row));
-    const buyUrl = shadeId ? urls.get(shadeId) : undefined;
-    return buyUrl ? { ...row, buyUrl } : { ...row };
+    return { ...row, ...buyLinkFields(shadeId ? links.get(shadeId) : undefined) };
   });
 }
 
