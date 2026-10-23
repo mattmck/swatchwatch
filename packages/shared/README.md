@@ -387,6 +387,42 @@ Frame exposure/focus thresholds, moved from the web's `lib/camera.ts` (which re-
 | `assessFrameQuality(metrics)` | The warnings for measured metrics |
 | `frameQualityWarningsFromQuality(quality)` | The same from a frame's `quality` object (numeric `brightness` and `sharpness`); `[]` when either is missing, e.g. mobile frames |
 
+### `capture/bottle-flow.ts`
+
+Client-side state for the bottle photo flow (front, bottom, glass, optional box), shared by the web and mobile camera screens. Pure: the apps wrap it in their own reducer hook.
+
+| Export | Description |
+|--------|-------------|
+| `BOTTLE_DEFAULT_SURFACE_ORDER` / `DEFAULT_SURFACE_PROMPTS` | Local surface order (`front, bottom, glass`) and the prompt copy used before the server has spoken (the server's copy is canonical and a test keeps them equal) |
+| `surfaceFromQuality(quality)` | The `BottleSurface` named by a frame's `quality.surface`, or `null` |
+| `BottleFlowClientState` / `INITIAL_BOTTLE_FLOW_STATE` | Session started, the server's `nextFrame`, captured and skipped surfaces, brand echo and brand conflict |
+| `bottleFlowReducer(state, action)` | Handles `session_started`, `frame_uploaded`, `surface_skipped`, `check_received` and `reset`; an absent `nextFrame` means the server asked for nothing more |
+| `deriveBottleCameraView(state, { brandKnown })` | What the camera shows (`BottleCameraView`: surface, prompt, hint, reason, optional, step of total); `null` = nothing left to ask, call check |
+| `shouldAutoCheck(state, uploadedFrames)` | True right after an upload when the server asked for nothing more and at least one frame is uploaded |
+
+### `capture/sticky-hints.ts`
+
+Rapid Add's remembered brand/finish/collection hints ("Going through: Loud Lacquer"). Pure: the apps own the storage (`stickyHintsStorageKey` is the per-user key).
+
+| Export | Description |
+|--------|-------------|
+| `StickyHints` / `EMPTY_STICKY_HINTS` | `brand`, `brandCanonical`, `brandId`, `finish`, `collection` (all nullable) |
+| `STICKY_HINTS_STORAGE_PREFIX` / `STICKY_HINT_MAX_LENGTH` / `stickyHintsStorageKey(userId)` | Storage key prefix, the 200-character cap per field and the per-user key (`anon` when signed out) |
+| `parseStickyHints(raw)` / `serializeStickyHints(hints)` | Tolerant parse of stored JSON (trims, drops blanks and over-long values, anything else gives the empty hints) and the matching serializer |
+| `isBatchMode(hints)` / `batchHeaderLabel(hints)` | Batch mode is on while a brand is set; the header label, `null` when off |
+| `hintsToStartMetadata(hints)` | `metadata` for `POST /api/capture/start` (canonical brand preferred, no undefined keys) |
+| `withBrandEcho(hints, echo)` / `switchBrand(hints, read)` | Remember the catalog brand the server matched; switch the batch to the brand read from a bottle |
+
+### `capture/create-card.ts`
+
+The "add it as new" card for a bottle the catalog could not match. Pure.
+
+| Export | Description |
+|--------|-------------|
+| `CreateCardModel` / `deriveCreateCard(check, { afterNoneOfThese })` | The prefilled card from a check's `suggestedShade`; `null` when matched, while candidates are on screen, or without a suggestion. `brandNeedsConfirm` is true when the brand was only read from the bottle |
+| `CreateCardEdits` / `canSubmitCreateCard(card, edits)` | The user's edits; submit needs a brand and shade name, and a read brand confirmed or edited |
+| `createPolishRequestFromCard(card, edits, status)` | The `PolishCreateRequest` (color family from the hex, `detectedHex`, `finishes`, `barcode`, `captureId`; quantity 1 owned, 0 wishlist) |
+
 ### `types/capture.ts`
 
 | Type | Description |
