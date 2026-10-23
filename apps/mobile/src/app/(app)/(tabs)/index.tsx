@@ -20,6 +20,7 @@ import {
 } from "@/lib/collection-filters";
 import { COLLECTION_PRESETS } from "@/lib/status";
 import { usePagedPolishes } from "@/lib/use-paged-polishes";
+import { useWishlistValue } from "@/lib/use-wishlist-value";
 import { useTheme } from "@/theme/theme";
 
 /** Collection tab (web: `/polishes`): status presets, text filter, infinite scroll. */
@@ -48,6 +49,8 @@ export default function CollectionScreen() {
   const { user } = useAuth();
   const list = usePagedPolishes(filters, user ? String(user.userId) : undefined);
   const [homeToken, setHomeToken] = useState(0);
+  // Wishlist preset: what the wishlist adds up to in brand list prices (all wishlist rows).
+  const wishlistValue = useWishlistValue(user ? String(user.userId) : undefined, preset === "wishlist", homeToken);
   const refreshAll = () => {
     setHomeToken((n) => n + 1);
     list.refresh();
@@ -117,6 +120,18 @@ export default function CollectionScreen() {
         {!list.loading && !list.error && (
           <AppText variant="tiny" muted style={{ paddingHorizontal: theme.spacing(4) }} testID="collection-total">
             {list.total} {list.total === 1 ? "polish" : "polishes"}
+          </AppText>
+        )}
+        {preset === "wishlist" && wishlistValue && wishlistValue.summary && (
+          <AppText
+            variant="tiny"
+            muted
+            style={{ paddingHorizontal: theme.spacing(4) }}
+            accessibilityLabel={`Wishlist value, brand list prices: ${wishlistValue.summary}`}
+            testID="wishlist-value"
+          >
+            {wishlistValue.summary}
+            {wishlistValue.hasPrices && wishlistValue.asOf ? ` · ${wishlistValue.asOf}` : ""}
           </AppText>
         )}
         {list.error && (

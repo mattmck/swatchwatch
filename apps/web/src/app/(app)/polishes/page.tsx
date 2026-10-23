@@ -28,6 +28,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Loader2, Sparkles, Upload } from "luci
 import { ColorDot } from "@/components/color-dot";
 import { LogManiButton } from "@/components/log-mani-button";
 import { WishlistShareCard } from "@/components/wishlist-share-card";
+import { WishlistValue } from "@/components/wishlist-value";
 import { CollectionQuickActions, type QuickActionSource } from "@/components/collection-quick-actions";
 import { StatusChip, UntriedBadge } from "@/components/status-chip";
 import { StatusFilter } from "@/components/status-filter";
@@ -765,6 +766,8 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       <ProductCategoryChips value={selectedCategories} onChange={(next) => setCategoryFilter(next.join(","))} />
       {/* Opt-in public wishlist link (#268); hidden unless the server flag is on. */}
       {statusPresetFor(statuses) === "wishlist" && <WishlistShareCard />}
+      {/* What the wishlist adds up to (brand list prices, per currency; all wishlist rows, not the page). */}
+      {statusPresetFor(statuses) === "wishlist" && <WishlistValue refreshKey={total} />}
 
       {showEmptyState && (
         <PolishesEmptyState

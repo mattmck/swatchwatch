@@ -94,7 +94,7 @@ export const clearApiCache = apiCache.clear;
 
 /** Cache entries that depend on the inventory (Collection pages, Home counts, Insights, gaps). */
 export function isInventoryCacheKey(key: string): boolean {
-  return key.startsWith("polishes:") || key === "home-summary" || key === "collection-stats" || key === "gaps-hexes";
+  return key.startsWith("polishes:") || key === "home-summary" || key === "collection-stats" || key === "wishlist-value" || key === "gaps-hexes";
 }
 
 /** Drop the inventory-derived caches after a bulk write such as a CSV import. */
