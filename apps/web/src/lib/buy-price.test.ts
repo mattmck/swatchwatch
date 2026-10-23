@@ -55,6 +55,19 @@ describe("buyPriceSubtotals", () => {
     assert.equal(formatBuyPrice({ buyPrice: 1.005, buyCurrency: "USD" })?.includes("1.01"), true);
   });
 
+  it("rounds to each currency's own minor unit (KWD has three decimals, JPY none)", () => {
+    const { subtotals } = buyPriceSubtotals([
+      { buyPrice: 1.001, buyCurrency: "KWD" },
+      { buyPrice: 1.001, buyCurrency: "KWD" },
+      { buyPrice: 100, buyCurrency: "JPY" },
+      { buyPrice: 200.4, buyCurrency: "JPY" },
+    ]);
+    assert.deepEqual(subtotals, [
+      { currency: "JPY", total: 300, count: 2 },
+      { currency: "KWD", total: 2.002, count: 2 },
+    ]);
+  });
+
   it("is empty for no items", () => {
     assert.deepEqual(buyPriceSubtotals([]), { subtotals: [], unpricedCount: 0 });
   });

@@ -427,6 +427,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Nothing here runs git with credentials; keep the token out of the checkout.
+          persist-credentials: false
 
       - name: Azure login (OIDC)
         uses: azure/login@v3
