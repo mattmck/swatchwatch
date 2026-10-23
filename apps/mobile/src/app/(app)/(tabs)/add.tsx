@@ -40,6 +40,7 @@ import {
   type RapidAddVerdict,
   type ScannedBarcode,
 } from "@/lib/rapid-add";
+import { manualAddRoute } from "@/lib/manual-add";
 import {
   EMPTY_SHELF,
   parseShelfEntries,
@@ -489,6 +490,9 @@ export default function RapidAddScreen() {
             recordVerdict(notFound, barcode?.gtin);
           }}
           onScanLabel={scanLabel}
+          onAddManually={() =>
+            router.push(manualAddRoute({ gtin: barcode?.gtin, format: barcode?.format, brand: brandHint, name: shadeHint }))
+          }
           onScanNext={scanNext}
         />
       ) : (
