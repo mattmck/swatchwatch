@@ -406,9 +406,17 @@ function LooksPageContent() {
   /** Share link on a recommended look: save it to the account first (a link needs the saved copy). */
   async function shareLook(look: Look) {
     const entry = toSavedLook(look, vibe, new Date());
-    const existing = saved.find((s) => s.id === entry.id);
-    if (existing && readLookList(SAVED_LOOKS_PENDING_KEY).every((p) => p.id !== entry.id)) {
-      setShareTarget({ lookKey: existing.id, name: existing.name });
+    await shareSavedLook(saved.find((s) => s.id === entry.id) ?? entry);
+  }
+
+  /**
+   * Open the Share link dialog for a saved look. A look that is only saved on this device (pending
+   * upload) or not saved at all is uploaded first, since the link needs the account's copy.
+   */
+  async function shareSavedLook(entry: SavedLook) {
+    const onServer = saved.some((s) => s.id === entry.id) && readLookList(SAVED_LOOKS_PENDING_KEY).every((p) => p.id !== entry.id);
+    if (onServer) {
+      setShareTarget({ lookKey: entry.id, name: entry.name });
       return;
     }
     try {
@@ -630,7 +638,7 @@ function LooksPageContent() {
                     variant="ghost"
                     aria-label={shares.has(look.id) ? `${look.name} is shared: manage its link` : `Share a link to ${look.name}`}
                     title={shares.has(look.id) ? "Shared: manage link" : "Share link"}
-                    onClick={() => setShareTarget({ lookKey: look.id, name: look.name })}
+                    onClick={() => void shareSavedLook(look)}
                   >
                     <Share2 className={shares.has(look.id) ? "size-4 text-brand-purple" : "size-4"} aria-hidden />
                   </Button>
