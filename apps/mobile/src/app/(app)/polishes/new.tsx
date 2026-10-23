@@ -1,10 +1,11 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View, type TextInputProps } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from "react-native";
 import { COLOR_FAMILY_LABELS, classifyColorFamily, type FinishType, type Polish } from "swatchwatch-shared";
 import { createPolish, errorMessage, listAllPolishes, listReferenceFinishTypes } from "@/api/client";
 import { ColorDot } from "@/components/swatch";
+import { Field, FormInput, QuantityStepper, StarRating } from "@/components/polish-form-fields";
 import { AppText, Button, Card, Chip, ErrorBanner } from "@/components/ui";
 import { confirmAlreadyOwned, confirmDupes } from "@/lib/add-guard";
 import { notifyCollectionChanged } from "@/lib/collection-events";
@@ -272,52 +273,12 @@ export default function NewPolishScreen() {
 
         {form.status === "owned" && (
           <Field label="Bottles" error={errors.quantity}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: theme.spacing(3) }}>
-              <Button
-                title="−"
-                variant="outline"
-                compact
-                accessibilityLabel="One bottle fewer"
-                disabled={form.quantity <= 1}
-                onPress={() => update("quantity", clampQuantity(form.quantity - 1))}
-              />
-              <AppText variant="heading" accessibilityLiveRegion="polite" style={{ minWidth: 32, textAlign: "center" }}>
-                {form.quantity}
-              </AppText>
-              <Button
-                title="+"
-                variant="outline"
-                compact
-                accessibilityLabel="One more bottle"
-                disabled={form.quantity >= MAX_QUANTITY}
-                onPress={() => update("quantity", clampQuantity(form.quantity + 1))}
-              />
-            </View>
+            <QuantityStepper value={form.quantity} max={MAX_QUANTITY} onChange={(next) => update("quantity", clampQuantity(next))} />
           </Field>
         )}
 
         <Field label="Rating" error={errors.rating}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: theme.spacing(1) }}>
-            {[1, 2, 3, 4, 5].map((star) => (
-              <Pressable
-                key={star}
-                accessibilityRole="button"
-                accessibilityLabel={`${star} ${star === 1 ? "star" : "stars"}`}
-                accessibilityState={{ selected: star <= form.rating }}
-                hitSlop={4}
-                onPress={() => update("rating", nextRating(form.rating, star))}
-              >
-                <Ionicons
-                  name={star <= form.rating ? "star" : "star-outline"}
-                  size={30}
-                  color={star <= form.rating ? theme.colors.brand.pink : theme.colors.mutedForeground}
-                />
-              </Pressable>
-            ))}
-            <AppText variant="small" muted style={{ marginLeft: theme.spacing(2) }}>
-              {form.rating ? `${form.rating} / 5` : "Tap a star to rate"}
-            </AppText>
-          </View>
+          <StarRating value={form.rating} onChange={(star) => update("rating", nextRating(form.rating, star))} />
         </Field>
 
         <Field label="Notes" error={errors.notes}>
@@ -349,65 +310,6 @@ export default function NewPolishScreen() {
         <Button title="Cancel" variant="ghost" disabled={submitting} onPress={() => router.back()} />
       </ScrollView>
     </KeyboardAvoidingView>
-  );
-}
-
-function Field({
-  label,
-  required,
-  hint,
-  error,
-  children,
-}: {
-  label: string;
-  required?: boolean;
-  hint?: string;
-  error?: string;
-  children: ReactNode;
-}) {
-  const theme = useTheme();
-  return (
-    <View style={{ gap: theme.spacing(2) }}>
-      <AppText variant="label" muted>
-        {label}
-        {required ? " *" : ""}
-      </AppText>
-      {children}
-      {error ? (
-        <AppText variant="small" style={{ color: theme.colors.destructive }} accessibilityLiveRegion="polite">
-          {error}
-        </AppText>
-      ) : hint ? (
-        <AppText variant="tiny" muted>
-          {hint}
-        </AppText>
-      ) : null}
-    </View>
-  );
-}
-
-function FormInput({ invalid, style, ...props }: TextInputProps & { invalid?: boolean }) {
-  const theme = useTheme();
-  return (
-    <TextInput
-      accessibilityLabel={props.accessibilityLabel ?? props.placeholder}
-      placeholderTextColor={theme.colors.mutedForeground}
-      autoCorrect={false}
-      {...props}
-      style={[
-        {
-          borderWidth: 1,
-          borderColor: invalid ? theme.colors.destructive : theme.colors.input,
-          borderRadius: theme.radius.lg,
-          paddingHorizontal: theme.spacing(3),
-          paddingVertical: theme.spacing(2.5),
-          color: theme.colors.foreground,
-          backgroundColor: theme.colors.card,
-          fontSize: theme.font.body,
-        },
-        style,
-      ]}
-    />
   );
 }
 

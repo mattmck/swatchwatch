@@ -403,7 +403,7 @@ export default function PolishDetailClient({
       </div>
 
       {/* Admins only: sip a ground-truth hex from the catalog images (#351). Not mounted for others. */}
-      <AdminHexSipSection key={polish.id} shadeId={polish.id} />
+      <AdminHexSipSection key={`hex-sip-${polish.id}`} shadeId={polish.id} />
 
       {polish.inventoryItemId && offline && (
         <Card data-testid="nail-photo-offline">
@@ -418,7 +418,7 @@ export default function PolishDetailClient({
 
       {polish.inventoryItemId && !offline && (
         <NailPhotoPanel
-          key={polish.inventoryItemId}
+          key={`nail-photo-${polish.inventoryItemId}`}
           inventoryItemId={polish.inventoryItemId}
           polishLabel={`${polish.brand} ${polish.name}`}
           vendorHex={polish.vendorHex}
@@ -429,7 +429,7 @@ export default function PolishDetailClient({
 
       {canLogPolish(polish) && (
         <WearHistoryPanel
-          key={polish.id}
+          key={`wear-history-${polish.id}`}
           shadeId={polish.id}
           wearCount={polish.wearCount ?? 0}
           logButton={<LogManiButton polish={polish} onWearStatsChange={applyWearStats} disabled={offline} />}
