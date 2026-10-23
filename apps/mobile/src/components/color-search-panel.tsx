@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, SectionList, StyleSheet, View
 import { COLOR_FAMILIES, COLOR_FAMILY_LABELS, type ColorFamily, type Polish } from "swatchwatch-shared";
 import { errorMessage, listColorPolishes, listOwnedColorPolishes } from "@/api/client";
 import {
-  catalogFamiliesFor,
+  catalogColorQuery,
   COLLECTION_FALLBACK_MIN,
   DEFAULT_LIGHTNESS_INDEX,
   gradeLabel,
@@ -18,9 +18,6 @@ import { useTheme } from "@/theme/theme";
 import { SearchRow, useSetPolishStatus } from "./search-row";
 import { AppText, Chip, ErrorBanner } from "./ui";
 
-/** Catalog rows fetched per query before client-side ranking (the API's page cap). */
-const CATALOG_FETCH_SIZE = 250;
-
 type Scope = "collection" | "catalog";
 /** A hue stop index into `HUE_STOPS`, or `"neutral"`. */
 type HueChoice = number | "neutral";
@@ -34,8 +31,8 @@ interface Section {
 /**
  * Search tab "By color" (#384): a 12-stop hue strip (+ neutral) and five lightness steps, color
  * family chips (`?family=`), and owned color polishes ranked by OKLAB distance to the picked
- * color with the dupe rule's HIGH / MEDIUM grade. "Catalog" switches to catalog rows (same
- * ranking, Add / ♡ through the add guard). With fewer than `COLLECTION_FALLBACK_MIN` owned
+ * color with the dupe rule's HIGH / MEDIUM grade. "Catalog" switches to catalog rows, ranked
+ * over the whole catalog on the server (`?nearHex=`; Add / ♡ through the add guard). With fewer than `COLLECTION_FALLBACK_MIN` owned
  * matches the catalog is listed under the collection, with a hint. `initialHex` seeds the
  * target (deep link `/search?hex=C0392B`).
  */
@@ -93,17 +90,16 @@ export function ColorSearchPanel({ initialHex }: { initialHex: string | null }) 
 
   const ownedFallback = owned !== null && owned.length < COLLECTION_FALLBACK_MIN;
   const wantCatalog = scope === "catalog" || ownedFallback;
-  const catalogFamilyKey = catalogFamiliesFor(pickedHex, families).join(",");
-  const catalogRequestKey = `${catalogFamilyKey}#${reloadToken}`;
+  const catalogRequestKey = `${pickedHex}|${familyKey}#${reloadToken}`;
 
-  // Catalog color polishes in the selected families, or else the picked color's family
+  // The catalog color polishes nearest the picked color, in the selected families if any
   // (debounced: tapping through hues should not fire a query per tap).
   useEffect(() => {
     if (!wantCatalog) return;
     let cancelled = false;
     const timer = setTimeout(() => {
-      const fams = catalogFamilyKey ? (catalogFamilyKey.split(",") as ColorFamily[]) : [];
-      listColorPolishes({ families: fams, pageSize: CATALOG_FETCH_SIZE })
+      const fams = familyKey ? (familyKey.split(",") as ColorFamily[]) : [];
+      listColorPolishes(catalogColorQuery(pickedHex, fams))
         .then((res) => {
           if (cancelled) return;
           setCatalog(res.polishes);
@@ -120,7 +116,7 @@ export function ColorSearchPanel({ initialHex }: { initialHex: string | null }) 
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [wantCatalog, catalogFamilyKey, catalogRequestKey]);
+  }, [wantCatalog, pickedHex, familyKey, catalogRequestKey]);
 
   const loadingOwned = ownedSettledKey !== ownedRequestKey;
   const loadingCatalog = catalogSettledKey !== catalogRequestKey;
