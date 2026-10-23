@@ -203,6 +203,8 @@ Where each set lives: Functions → `packages/functions/local.settings.json` (co
 
 ### Functions: feature flags
 
+Every flag below is read through `isFeatureEnabled()` in `src/lib/feature-flags.ts` (#313, D22): one registry mapping flag name → env var and public/internal, fail closed (only `true`, trimmed, any case; `HEX_DETECTION_BATCH_ENABLED` also keeps its older `1`/`yes`/`on`). Public flags (the two share flags) are reported by anonymous `GET /api/config/flags` (`{ flags: { shareableWishlist, shareableLooks } }`, cached 60 s) and the web reads them once through `useFeatureFlags()` (`apps/web/src/lib/use-feature-flags.ts`); the hex flags are never exposed. Adding a flag = one registry entry (plus `FEATURE_FLAG_NAMES` in `packages/shared` if clients need it). A move to Azure App Configuration (when per-user targeting is needed) changes `isFeatureEnabled` only.
+
 - `SHAREABLE_WISHLIST_ENABLED` (#268, default `false`) — off → every wishlist-share route returns 404 `feature_disabled` and the web share card is hidden. Needs `IMAGE_PROXY_SIGNING_KEY`. Terraform-managed (`shareable_wishlist_enabled`, from the `SHAREABLE_WISHLIST_ENABLED` GitHub variable in Deploy Infra).
 - `SHAREABLE_LOOKS_ENABLED` (default `false`) — off → `/api/look-share` and `/api/look/{token}` return 404 `feature_disabled` and the Looks page shows no Share link controls. Needs `IMAGE_PROXY_SIGNING_KEY`. Terraform-managed (`shareable_looks_enabled`, from the `SHAREABLE_LOOKS_ENABLED` GitHub variable in Deploy Infra).
 - `HEX_DETECTION_BATCH_ENABLED` (default `false`) — batch mode for Shopify vision hex detection and the `ingestion-ai-batch-poller` timer.
