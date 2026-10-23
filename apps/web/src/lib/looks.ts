@@ -18,6 +18,9 @@ export type {
   LookOccasion,
   LookStepRole,
   LookStepSource,
+  SkinTone,
+  SkinUndertone,
+  SkinDepth,
 } from "swatchwatch-shared";
 export {
   LOOK_OCCASION_LABELS,
@@ -50,4 +53,7 @@ export {
   LOOK_FINISHES,
   LOOK_MOODS,
   LOOK_OCCASIONS,
+  SKIN_UNDERTONES,
+  SKIN_DEPTHS,
+  skinToneFrom,
 } from "swatchwatch-shared";

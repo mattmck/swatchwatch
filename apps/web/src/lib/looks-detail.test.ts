@@ -12,6 +12,7 @@ import {
   shoppingItemsForLook,
   shoppingListText,
   skinToneBackdrop,
+  skinToneBackdropFor,
   SKIN_TONE_COOL,
   SKIN_TONE_WARM,
 } from "./looks-detail";
@@ -179,5 +180,17 @@ describe("skinToneBackdrop", () => {
     assert.equal(skinToneBackdrop(500), SKIN_TONE_WARM);
     assert.match(skinToneBackdrop(50), /^#[0-9A-F]{6}$/);
     assert.notEqual(skinToneBackdrop(50), SKIN_TONE_COOL);
+  });
+});
+
+describe("skinToneBackdropFor", () => {
+  it("follows the undertone and shifts lighter or deeper with the depth", () => {
+    assert.equal(skinToneBackdropFor({ undertone: "cool", depth: "medium" }), SKIN_TONE_COOL);
+    assert.equal(skinToneBackdropFor({ undertone: "warm", depth: "medium" }), SKIN_TONE_WARM);
+    const lum = (hex: string) => [1, 3, 5].reduce((sum, i) => sum + Number.parseInt(hex.slice(i, i + 2), 16), 0);
+    const fair = lum(skinToneBackdropFor({ undertone: "neutral", depth: "fair" }));
+    const medium = lum(skinToneBackdropFor({ undertone: "neutral", depth: "medium" }));
+    const deep = lum(skinToneBackdropFor({ undertone: "neutral", depth: "deep" }));
+    assert.ok(fair > medium && medium > deep);
   });
 });
