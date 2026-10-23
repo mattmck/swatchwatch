@@ -907,6 +907,7 @@ require("../dist/functions/nail-photos");
 require("../dist/functions/manicures");
 require("../dist/functions/manicure-photos");
 require("../dist/functions/stats");
+require("../dist/functions/product-data-admin");
 const imageProxy = require("../dist/lib/image-proxy");
 
 // lib/nail-photos (like lib/image-proxy) imports the REAL dist/lib/blob-storage via "./blob-storage";
@@ -1156,6 +1157,9 @@ describe("access control — admin routes reject non-admin users", () => {
       "admin-hex-labels-shade",
       "admin-hex-labels-save",
       "admin-hex-labels-item",
+      "admin-product-text-backfill",
+      "admin-finish-fill-backfill",
+      "admin-product-price-backfill",
     ]) {
       assert.ok(adminRouteNames.includes(expected), `expected admin route ${expected} to be registered`);
     }

@@ -9,11 +9,10 @@ import {
   type ShadeProductCategoryUpdateResponse,
 } from "swatchwatch-shared";
 import { withAdmin } from "../lib/auth";
-import { cacheDelete, cacheDeleteByPrefix } from "../lib/cache";
 import { query, transaction } from "../lib/db";
 import { internalServerError } from "../lib/errors";
 import { withCors } from "../lib/http";
-import { invalidateAllCollectionStats } from "../lib/polish-cache";
+import { invalidateCatalogWideCaches } from "../lib/polish-cache";
 import { runProductCategoryBackfill } from "../lib/product-category-backfill";
 import { trackEvent } from "../lib/telemetry";
 
@@ -59,17 +58,6 @@ function migrationMissing(error: unknown): boolean {
   return code === "42703" || code === "42P01";
 }
 
-/** Catalog-wide caches that show categories or category-filtered results. */
-async function invalidateCategoryCaches(shadeIds: number[]): Promise<void> {
-  await Promise.all([
-    cacheDeleteByPrefix("catalog:search:"),
-    cacheDeleteByPrefix("polishes:list:u:"),
-    cacheDeleteByPrefix("polishes:detail:u:"),
-    invalidateAllCollectionStats(),
-    ...shadeIds.map((shadeId) => cacheDelete(`catalog:shade:id:${shadeId}`)),
-  ]);
-}
-
 /** Parse the backfill body; returns an error message for a bad body. */
 export function parseBackfillBody(body: Record<string, unknown>): { dryRun: boolean; clearTopperDetectedHex: boolean } | string {
   const dryRun = body.dryRun ?? true;
@@ -96,7 +84,7 @@ async function backfill(request: HttpRequest, context: InvocationContext, adminU
   }
 
   if (!report.dryRun) {
-    await invalidateCategoryCaches([]);
+    await invalidateCatalogWideCaches([]);
   }
   context.log(
     `[product-category-backfill] dryRun=${report.dryRun} scanned=${report.scannedShades} changes=${report.categoryChanges.length} exclude=${report.excluded.length} held=${report.heldAccessories.length} hexCandidates=${report.topperHexCandidates.length} applied=${JSON.stringify(report.applied)} runId=${report.runId ?? "-"}`
@@ -239,7 +227,7 @@ async function setCategory(request: HttpRequest, context: InvocationContext, adm
     });
     if (!outcome) return { status: 404, jsonBody: { error: "Shade not found" } };
 
-    await invalidateCategoryCaches([shadeId]);
+    await invalidateCatalogWideCaches([shadeId]);
     trackEvent("product_category.admin_set", { productCategory });
     const response: ShadeProductCategoryUpdateResponse = {
       shadeId: String(shadeId),
