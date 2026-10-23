@@ -34,6 +34,8 @@ export interface CameraCaptureProps {
   onFrameTypeChange: (frameType: CaptureFrameType) => void;
   onCapture: (event: CameraCaptureEvent) => void;
   onCameraError?: (kind: CameraErrorKind) => void;
+  /** Hide the Label/Barcode/Color chips when the caller sets the frame type itself (default false). */
+  hideFrameTypeOptions?: boolean;
 }
 
 const FRAME_TYPE_OPTIONS: { value: CaptureFrameType; label: string }[] = [
@@ -61,6 +63,7 @@ export function CameraCapture({
   onFrameTypeChange,
   onCapture,
   onCameraError,
+  hideFrameTypeOptions = false,
 }: CameraCaptureProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -264,25 +267,27 @@ export function CameraCapture({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div role="radiogroup" aria-label="Frame type" className="inline-flex rounded-lg border border-border/70 p-0.5">
-          {FRAME_TYPE_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              role="radio"
-              aria-checked={frameType === option.value}
-              onClick={() => onFrameTypeChange(option.value)}
-              className={cn(
-                "rounded-md px-3 py-1 text-xs font-medium transition-colors pointer-coarse:py-2.5",
-                frameType === option.value
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+        {!hideFrameTypeOptions && (
+          <div role="radiogroup" aria-label="Frame type" className="inline-flex rounded-lg border border-border/70 p-0.5">
+            {FRAME_TYPE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={frameType === option.value}
+                onClick={() => onFrameTypeChange(option.value)}
+                className={cn(
+                  "rounded-md px-3 py-1 text-xs font-medium transition-colors pointer-coarse:py-2.5",
+                  frameType === option.value
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="ml-auto flex flex-wrap gap-2">
           {isLive && (

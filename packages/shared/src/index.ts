@@ -21,6 +21,7 @@ export * from "./types/dupes";
 export * from "./types/ingestion";
 export * from "./types/hex-label";
 export * from "./types/nail-photo";
+export * from "./types/bottle-eval";
 export * from "./types/shade-review";
 export * from "./types/product-category";
 export * from "./types/wishlist-share";

@@ -717,4 +717,42 @@ describe("functions/admin-users — merge is audited", () => {
     const deleteIndex = statements.findIndex((s) => /DELETE FROM app_user/.test(s.sql));
     assert.ok(statements.indexOf(audit) > deleteIndex, "audit row is written after the merge statements");
   });
+
+  it("moves the source's bottle eval samples to the target before deleting the source", async () => {
+    queryMock = adminQueryMock(async () => ({ rows: [] }));
+    const statements = [];
+    transactionMock = async (cb) =>
+      cb({
+        query: async (sql, params) => {
+          statements.push({ sql, params });
+          if (/WHERE user_id = ANY/.test(sql)) {
+            return {
+              rows: [
+                { userId: "10", role: "admin", email: "source@test.dev", externalId: "oid-source" },
+                { userId: "20", role: "admin", email: "target@test.dev", externalId: "oid-target" },
+              ],
+            };
+          }
+          if (/UPDATE bottle_eval_sample/.test(sql)) return { rows: [], rowCount: 4 };
+          return { rows: [], rowCount: 1 };
+        },
+      });
+    const res = await registeredRoutes["admin-users-merge"].handler(
+      fakeRequest({
+        method: "POST",
+        url: "http://x",
+        headers: { authorization: `Bearer dev:${ADMIN}` },
+        body: { sourceUserId: 10, targetUserId: 20 },
+      }),
+      fakeContext()
+    );
+    assert.equal(res.status, 200);
+    const moveIndex = statements.findIndex((s) => /UPDATE bottle_eval_sample\s+SET created_by_user_id = \$1\s+WHERE created_by_user_id = \$2/.test(s.sql));
+    assert.ok(moveIndex >= 0, "eval samples are re-owned inside the merge transaction");
+    assert.deepEqual(statements[moveIndex].params, [20, 10]);
+    const deleteIndex = statements.findIndex((s) => /DELETE FROM app_user/.test(s.sql));
+    assert.ok(moveIndex < deleteIndex, "samples move before the source user is deleted");
+    const audit = statements.find((s) => /INSERT INTO admin_audit_event/.test(s.sql));
+    assert.equal(JSON.parse(audit.params[3]).bottleEvalSamplesMoved, 4);
+  });
 });

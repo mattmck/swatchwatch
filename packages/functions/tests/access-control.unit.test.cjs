@@ -907,6 +907,7 @@ require("../dist/functions/nail-photos");
 require("../dist/functions/manicures");
 require("../dist/functions/manicure-photos");
 require("../dist/functions/stats");
+require("../dist/functions/bottle-eval-admin");
 require("../dist/functions/product-data-admin");
 const imageProxy = require("../dist/lib/image-proxy");
 
@@ -1124,7 +1125,7 @@ describe("access control — unauthenticated requests are rejected with 401", ()
 
 describe("access control — admin routes reject non-admin users", () => {
   const adminRouteNames = Object.keys(registeredRoutes)
-    .filter((name) => /^(ingestion-|admin-)/.test(name) || name === "polishes-recalc-hex")
+    .filter((name) => /^(ingestion-|admin-|bottle-eval-admin-)/.test(name) || name === "polishes-recalc-hex")
     .sort();
 
   it("registers each route template once (the Functions host refuses duplicates)", () => {
@@ -1157,6 +1158,10 @@ describe("access control — admin routes reject non-admin users", () => {
       "admin-hex-labels-shade",
       "admin-hex-labels-save",
       "admin-hex-labels-item",
+      "bottle-eval-admin-samples",
+      "bottle-eval-admin-sample",
+      "bottle-eval-admin-frames",
+      "bottle-eval-admin-frame",
       "admin-product-text-backfill",
       "admin-finish-fill-backfill",
       "admin-product-price-backfill",

@@ -9,10 +9,14 @@ export interface FrameStripProps {
   frames: readonly CaptureFrameEntry[];
   onRetry: (localId: string) => void;
   onRemove: (localId: string) => void;
+  /** Also offer Remove on uploaded frames (Bottle Eval); off by default, so Rapid Add only removes failed ones. */
+  allowRemoveUploaded?: boolean;
+  /** Frames whose removal is in flight: their Remove button is disabled. */
+  removingLocalIds?: ReadonlySet<string>;
 }
 
 /** Thumbnails of this scan's frames with per-frame upload state and retry. */
-export function FrameStrip({ frames, onRetry, onRemove }: FrameStripProps) {
+export function FrameStrip({ frames, onRetry, onRemove, allowRemoveUploaded = false, removingLocalIds }: FrameStripProps) {
   if (frames.length === 0) return null;
   return (
     <ul className="grid grid-cols-3 gap-2 sm:grid-cols-6" aria-label="Captured frames">
@@ -60,6 +64,19 @@ export function FrameStrip({ frames, onRetry, onRemove }: FrameStripProps) {
                 <X aria-hidden />
               </Button>
             </div>
+          )}
+          {allowRemoveUploaded && frame.status === "uploaded" && (
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="secondary"
+              className="absolute bottom-1 right-1"
+              onClick={() => onRemove(frame.localId)}
+              disabled={removingLocalIds?.has(frame.localId) ?? false}
+              aria-label="Remove frame"
+            >
+              {removingLocalIds?.has(frame.localId) ? <Loader2 className="animate-spin" aria-hidden /> : <X aria-hidden />}
+            </Button>
           )}
         </li>
       ))}

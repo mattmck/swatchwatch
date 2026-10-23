@@ -1,4 +1,4 @@
-export const ADMIN_TABS = ["configuration", "job-runs", "admin-jobs", "users", "review-queue", "hex-labeling", "backfills"] as const;
+export const ADMIN_TABS = ["configuration", "job-runs", "admin-jobs", "users", "review-queue", "hex-labeling", "bottle-eval", "backfills"] as const;
 
 export type AdminTab = (typeof ADMIN_TABS)[number];
 
