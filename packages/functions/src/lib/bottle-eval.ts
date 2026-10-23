@@ -187,11 +187,13 @@ export const INSERT_SAMPLE_SQL = `
 
 /**
  * Catalog names win for catalog samples (the text columns are a snapshot); typed text otherwise.
+ * `shadeId` follows an admin merge (`shade.merged_into_shade_id`) so a sample labeled before its
+ * shade was merged still scores against the surviving shade the live resolver returns.
  * Also read by the eval runner (`eval/bottle/samples.ts`).
  */
 export const SAMPLE_COLUMNS_SQL = `
   SELECT s.sample_id::text AS "sampleId",
-         s.shade_id::text AS "shadeId",
+         COALESCE(sh.merged_into_shade_id, s.shade_id)::text AS "shadeId",
          COALESCE(b.name_canonical, s.brand_text, '') AS brand,
          COALESCE(sh.shade_name_canonical, s.shade_text, '') AS "shadeName",
          s.notes,

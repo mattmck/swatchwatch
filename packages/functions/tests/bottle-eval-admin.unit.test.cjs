@@ -776,3 +776,11 @@ describe("bottle-eval-admin routes", () => {
     }
   });
 });
+
+describe("bottle eval sample SQL", () => {
+  it("resolves a merged shade to the surviving shade id", () => {
+    const { SAMPLE_COLUMNS_SQL } = require("../dist/lib/bottle-eval");
+    assert.match(SAMPLE_COLUMNS_SQL, /COALESCE\(sh\.merged_into_shade_id, s\.shade_id\)::text AS "shadeId"/);
+    assert.match(SAMPLE_COLUMNS_SQL, /LEFT JOIN shade sh ON sh\.shade_id = s\.shade_id/);
+  });
+});

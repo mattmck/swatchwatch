@@ -122,7 +122,8 @@ export function BottleEvalTab() {
   const currentSurface: BottleSurface | null = manualSurface ?? guided?.surface ?? null;
   const uploadedCount = state.shots.filter((shot) => shot.status === "uploaded").length;
   const frameLimitReached = state.shots.length >= BOTTLE_EVAL_MAX_FRAMES;
-  const finishEnabled = canFinish(state);
+  // Finish waits for in-flight frame removals so the saved count and the list never show a frame being deleted.
+  const finishEnabled = canFinish(state) && removingLocalIds.size === 0;
 
   const resetSession = useCallback(() => {
     dispatch({ type: "reset" });
