@@ -310,6 +310,22 @@ Shareable wishlist (#268), behind the server flag `SHAREABLE_WISHLIST_ENABLED` (
 | `WISHLIST_SHARE_FEATURE_DISABLED_CODE` | `"feature_disabled"` — `code` of the 404 every wishlist-share route returns while the flag is off |
 | `WISHLIST_SHARE_DISPLAY_NAME_MAX_LENGTH` | `60` |
 
+### `types/look-share.ts`
+
+Shareable looks: a public, read-only link for one saved look, behind the server flag `SHAREABLE_LOOKS_ENABLED` (off by default).
+
+| Type | Description |
+|------|-------------|
+| `LookShareStatus` | Owner view of one look's link (`GET/POST/DELETE /api/look-share`): `lookKey`, `enabled`, `token` (re-derived; null when off or no longer derivable), `path` (`/l/?token=…`), `displayName`, `createdAt`, `revokedAt` |
+| `LookShareListResponse` | `GET /api/look-share`: `{ shares }`, the caller's live links |
+| `LookShareCreateRequest` | `{ lookKey, displayName? }`: share a saved look and/or set its public name (≤ 60 chars, no email addresses; omit to keep) |
+| `PublicLookStep` | Public allowlist step: `role`, `brand`/`name` (null for a color chip), `finishes`, `hex`, `imageUrl` (public catalog image or null) |
+| `PublicLookVibe` | `{ occasion, mood, finish }` (no "owned only") |
+| `PublicLookResponse` | `GET /api/look/{token}`: `{ displayName, templateId, vibe, steps }`. No ids, email, ownership, notes, prices or saved free text |
+| `lookSharePath(token)` | Web path of the public page, `/l/?token=<token>` (static export → query param) |
+| `LOOK_SHARE_FEATURE_DISABLED_CODE` | `"feature_disabled"`: `code` of the 404 every look-share route returns while the flag is off |
+| `LOOK_SHARE_REVOKED_CODE` | `"share_revoked"`: `code` of the public 410 for a link its owner turned off |
+
 ### `types/voice.ts`
 
 | Type | Description |

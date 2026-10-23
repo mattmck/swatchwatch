@@ -81,7 +81,7 @@ Required GitHub Actions configuration (per GitHub environment):
 Recommended auth config (propagated to Terraform `TF_VAR_*` inputs):
 - Secrets: `AZURE_AD_B2C_CLIENT_ID`
 - Variables: `AUTH_DEV_BYPASS`, `AZURE_AD_B2C_TENANT` (falls back to `NEXT_PUBLIC_B2C_TENANT` if unset)
-- Feature flags: `SHAREABLE_WISHLIST_ENABLED` (default `false`; exported as `TF_VAR_shareable_wishlist_enabled`)
+- Feature flags: `SHAREABLE_WISHLIST_ENABLED` (default `false`; exported as `TF_VAR_shareable_wishlist_enabled`), `SHAREABLE_LOOKS_ENABLED` (default `false`; exported as `TF_VAR_shareable_looks_enabled`)
 - External ID service principal (opt-in, see [External ID service principal](#external-id-service-principal-opt-in)): variables `MANAGE_CIAM_SERVICE_PRINCIPAL` (default `false`), `CIAM_TENANT_ID`, `CIAM_TERRAFORM_CLIENT_ID` (exported as `TF_VAR_manage_ciam_service_principal`, `TF_VAR_ciam_tenant_id`, `TF_VAR_ciam_terraform_client_id`)
 - Alerts (observability Phase 3, #281): `ALERT_EMAIL` (**secret** recommended so the address is masked in logs; a variable also works; exported as `TF_VAR_alert_email`, never committed to tfvars) and optional variable `ALERTS_ENABLED` (default `true` for `prod`, `false` otherwise; exported as `TF_VAR_alerts_enabled`)
 The workflow creates the state container automatically if it does not exist.
@@ -190,6 +190,7 @@ To move or recreate an account on purpose: change the environment's `OPENAI_LOCA
 | `ciam_terraform_client_id` | `""` | Client ID of the deployer app in the CIAM tenant; Deploy Infra signs in to it with GitHub OIDC. Empty = Azure CLI credentials (local runs) |
 | `auth_dev_bypass` | `false` | Controls Function App setting `AUTH_DEV_BYPASS`; keep `false` to require JWT validation |
 | `shareable_wishlist_enabled` | `false` | Controls Function App setting `SHAREABLE_WISHLIST_ENABLED` (opt-in public wishlist links, #268). Set the `SHAREABLE_WISHLIST_ENABLED` repository/environment variable to `true` and run Deploy Infra to ship it; app settings are Terraform-managed, so a portal-only change is reverted by the next infra apply |
+| `shareable_looks_enabled` | `false` | Controls Function App setting `SHAREABLE_LOOKS_ENABLED` (opt-in public share links for saved looks). Set the `SHAREABLE_LOOKS_ENABLED` repository/environment variable to `true` and run Deploy Infra to ship it; app settings are Terraform-managed, so a portal-only change is reverted by the next infra apply |
 | `ingestion_job_queue_name` | `ingestion-jobs` | Function App queue name for ingestion worker (`INGESTION_JOB_QUEUE_NAME`) |
 | `azure_openai_batch_api_version` | `2025-03-01-preview` | Function App setting `AZURE_OPENAI_BATCH_API_VERSION` for Files/Batch endpoints |
 | `azure_openai_batch_completion_window` | `24h` | Function App setting `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` sent during batch creation |

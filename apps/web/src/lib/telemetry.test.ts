@@ -176,4 +176,18 @@ describe("wishlist share token redaction", () => {
     const url = "https://api.example.com/api/wishlist-share/rotate";
     assert.equal(redactWishlistTokens(url), url);
   });
+
+  it("redacts shared-look tokens too, but not the owner look routes", () => {
+    assert.equal(
+      redactWishlistTokens(`https://api.example.com/api/look/${token}`),
+      "https://api.example.com/api/look/[redacted]",
+    );
+    assert.equal(
+      redactWishlistTokens(`https://app.example.com/l/?token=${token}`),
+      "https://app.example.com/l/?token=[redacted]",
+    );
+    for (const url of ["https://api.example.com/api/looks", "https://api.example.com/api/look-share?key=glazed-donut:1,-"]) {
+      assert.equal(redactWishlistTokens(url), url);
+    }
+  });
 });

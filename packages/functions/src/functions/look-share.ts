@@ -274,9 +274,10 @@ interface PublicShareRow {
 }
 
 /**
- * The step shades the public page may name: shared-catalog shades only. The owner's private
- * `user_submitted` shades (and anyone else's), excluded/accessory shades and shades retired by an
- * admin merge are not returned, so those steps fall back to plain color chips. The image is the
+ * The step shades the public page may name: active shared-catalog shades only (an allowlist, like
+ * catalog search, so a status added later stays private). The owner's private `user_submitted`
+ * shades (and anyone else's), excluded/accessory shades and shades retired by an admin merge are
+ * not returned, so those steps fall back to plain color chips. The image is the
  * shade's catalog product swatch, exposed only as a public v2 proxy id (`publicCatalogImageUrl`).
  */
 const PUBLIC_SHADES_SQL = `
@@ -301,8 +302,7 @@ const PUBLIC_SHADES_SQL = `
     LIMIT 1
   ) AS swatch_img ON true
   WHERE s.shade_id = ANY($1::bigint[])
-    AND s.status <> 'user_submitted'
-    AND s.status <> 'excluded'
+    AND s.status = 'active'
     AND s.product_category <> 'accessory'
     AND s.merged_into_shade_id IS NULL`;
 

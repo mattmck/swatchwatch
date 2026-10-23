@@ -3,7 +3,7 @@
  * #268). No database: handler modules load from dist/ with `@azure/functions`, `jose` and
  * `../lib/db` swapped via require interception (same approach as wishlist-share.unit.test.cjs).
  * The fake DB honours the SQL predicates the handlers send (`user_id = $n`, `revoked_at IS NULL`,
- * the public-shade status/category/merge filters, the suspended-owner check), so a handler that
+ * the public-shade `status = 'active'`/category/merge filters, the suspended-owner check), so a handler that
  * dropped one would visibly leak rows and fail here.
  *
  * Users: OWNER = 1, ATTACKER = 2 (dev-bypass tokens `Bearer dev:<id>`).
@@ -197,8 +197,7 @@ function shadeQuery(text, params) {
   const ids = (params[0] ?? []).map(Number);
   const rows = ids
     .filter((id) => SHADES[id])
-    .filter((id) => !/s\.status\s*<>\s*'user_submitted'/i.test(text) || SHADES[id].status !== "user_submitted")
-    .filter((id) => !/s\.status\s*<>\s*'excluded'/i.test(text) || SHADES[id].status !== "excluded")
+    .filter((id) => !/s\.status\s*=\s*'active'/i.test(text) || SHADES[id].status === "active")
     .filter((id) => !/s\.product_category\s*<>\s*'accessory'/i.test(text) || SHADES[id].category !== "accessory")
     .filter((id) => !/s\.merged_into_shade_id\s+IS\s+NULL/i.test(text) || SHADES[id].mergedInto === null)
     .map((id) => ({ ...SHADES[id], shadeId: String(id), createdByUserId: "1" }));

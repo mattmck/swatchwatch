@@ -91,9 +91,9 @@ export function redactImageProxyIds(value: string): string {
   return value.replace(IMAGE_PROXY_ID, "$1[redacted]");
 }
 
-// Shareable-wishlist tokens (#268) are read capabilities too: the API path
-// `/api/wishlist/{token}` and the public page's `?token=` query parameter.
-const WISHLIST_API_TOKEN = /(\/api\/wishlist\/)[^/?#\s"']+/g;
+// Shareable-wishlist (#268) and shared-look tokens are read capabilities too: the API paths
+// `/api/wishlist/{token}` and `/api/look/{token}`, and the public pages' `?token=` query parameter.
+const WISHLIST_API_TOKEN = /(\/api\/(?:wishlist|look)\/)[^/?#\s"']+/g;
 const TOKEN_QUERY_PARAM = /([?&]token=)[^&#\s"']+/g;
 
 export function redactWishlistTokens(value: string): string {
