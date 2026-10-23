@@ -67,6 +67,8 @@ function resetState() {
     frames: [{ frameType: "label", quality: { brand: "OPI", shadeName: "Big Apple Red" } }],
     /** Rows returned by the trigram shade-candidate query. */
     shadeCandidates: [{ shadeId: String(SHADE_ID), brand: "OPI", shadeName: "Big Apple Red", score: 0.95 }],
+    /** Row returned by the brand-hint lookup (`FROM brand b`); null = no catalog brand. */
+    brandRow: null,
     /** image_asset rows written by the frame endpoint: { imageId, ownerId, storageUrl, checksum }. */
     assets: [],
     /** When set, INSERT INTO capture_frame throws (frame transaction failure). */
@@ -121,6 +123,11 @@ async function fakeQuery(via, sql, params = []) {
     return { rows: user ? [user] : [], rowCount: user ? 1 : 0 };
   }
 
+  // Start: the new session row.
+  if (kind === "INSERT" && /INTO capture_session/i.test(norm)) {
+    return { rows: [{ captureId: params[0], status: "processing" }], rowCount: 1 };
+  }
+
   if (/FROM capture_session/i.test(norm) && kind === "SELECT") {
     const session = state.sessions.get(params[0]);
     if (session && Number(params[1]) === session.userId) {
@@ -167,6 +174,10 @@ async function fakeQuery(via, sql, params = []) {
     const keys = Array.isArray(params[0]) ? params[0] : [params[0]];
     const row = keys.map((key) => state.barcodes.get(key)).find(Boolean);
     return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
+  }
+
+  if (/FROM brand b/i.test(norm) && /brand_alias/i.test(norm)) {
+    return { rows: state.brandRow ? [state.brandRow] : [], rowCount: state.brandRow ? 1 : 0 };
   }
 
   if (/similarity\(/i.test(norm) && /FROM shade s/i.test(norm)) {
@@ -923,5 +934,100 @@ describe("functions/capture — glass color frames", () => {
     const res = await addFrame({ frameType: "other", imageBlobUrl: dataUrl });
     assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
     assert.equal(insertedFrame().extracted, undefined);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Brand hint at session start (Bottle Flow slice A)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("functions/capture — start with a brand hint", () => {
+  const start = (body) => {
+    const route = registeredRoutes["capture-start"];
+    assert.ok(route, "capture-start should be registered");
+    return route.handler(
+      fakeRequest({
+        url: "http://localhost:7071/api/capture/start",
+        headers: { authorization: `Bearer dev:${OWNER}` },
+        body,
+      }),
+      fakeContext()
+    );
+  };
+  const brandQueries = () => handlerCalls().filter((c) => /FROM brand b/i.test(c.sql));
+  const sessionInsert = () => handlerCalls().find((c) => /INSERT INTO capture_session/i.test(c.sql));
+
+  afterEach(() => {
+    delete process.env.BOTTLE_CAPTURE_ENABLED;
+  });
+
+  it("flag on: a matching hint is echoed with the canonical name and stored as the session brand", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    state.brandRow = { brandId: "3", name: "Loud Lacquer", score: 0.8 };
+    const res = await start({ metadata: { brand: "loud" } });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    assert.deepEqual(res.jsonBody.brandHint, { raw: "loud", brandId: "3", name: "Loud Lacquer" });
+    assert.equal(res.jsonBody.nextFrame, null);
+    const metadata = sessionInsert().params[2];
+    assert.equal(metadata.brand, "loud", "the raw hint stays for the legacy resolver");
+    assert.deepEqual(metadata.bottle, {
+      brand: { brandId: "3", name: "Loud Lacquer", source: "hint", raw: "loud" },
+      prompts: {},
+      skipped: [],
+    });
+  });
+
+  it("flag on: a hint with no catalog brand echoes the raw text", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    state.brandRow = null;
+    const res = await start({ metadata: { brand: "loud" } });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    assert.deepEqual(res.jsonBody.brandHint, { raw: "loud", brandId: null, name: "loud" });
+    assert.deepEqual(sessionInsert().params[2].bottle.brand, { brandId: null, name: "loud", source: "hint", raw: "loud" });
+  });
+
+  it("flag on: no hint means no brand query and no brandHint", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    const res = await start({ metadata: {} });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    assert.equal("brandHint" in res.jsonBody, false);
+    assert.equal(brandQueries().length, 0);
+    assert.equal(sessionInsert().params[2].bottle, undefined);
+  });
+
+  it("flag on: a blank or non-string hint is ignored", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    for (const brand of ["   ", 5, null]) {
+      sqlCalls = [];
+      const res = await start({ metadata: { brand } });
+      assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+      assert.equal("brandHint" in res.jsonBody, false);
+      assert.equal(brandQueries().length, 0);
+    }
+  });
+
+  it("flag on: a client-sent metadata.bottle is dropped", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    const res = await start({ metadata: { bottle: { skipped: ["back"] } } });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    assert.equal(sessionInsert().params[2].bottle, undefined);
+  });
+
+  it("flag on: a below-threshold brand row is no match and the capture still starts", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    state.brandRow = { brandId: "x", name: "Loud Lacquer", score: 0.1 };
+    const res = await start({ metadata: { brand: "loud" } });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    assert.deepEqual(res.jsonBody.brandHint, { raw: "loud", brandId: null, name: "loud" });
+  });
+
+  it("flag off: today's start (no brandHint key, no nextFrame key, no brand query, no bottle metadata)", async () => {
+    state.brandRow = { brandId: "3", name: "Loud Lacquer", score: 0.8 };
+    const res = await start({ metadata: { brand: "loud" } });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    assert.equal("brandHint" in res.jsonBody, false);
+    assert.equal("nextFrame" in res.jsonBody, false);
+    assert.equal(brandQueries().length, 0);
+    assert.equal(sessionInsert().params[2].bottle, undefined);
   });
 });

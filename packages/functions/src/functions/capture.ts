@@ -4,6 +4,7 @@ import { PoolClient } from "pg";
 import {
   CaptureAnswerRequest,
   CaptureAnswerResponse,
+  CaptureBrandHintEcho,
   CaptureCheckCandidate,
   CaptureCheckResponse,
   CaptureFinalizeResponse,
@@ -27,6 +28,7 @@ import {
 } from "../lib/blob-storage";
 import { inlineCaptureFrameUrl, releaseCaptureFrames, storeCaptureFrameBytes } from "../lib/capture-frame-store";
 import { isFeatureEnabled } from "../lib/feature-flags";
+import { resolveBrandFromText, toBrandHintEcho, toBrandRef } from "../lib/brand-resolve";
 import { decodeDataUri } from "../lib/detection-image";
 import { measureGlassHex, type GlassHexAudit } from "../lib/glass-color";
 import { withCors } from "../lib/http";
@@ -1210,6 +1212,30 @@ async function startCapture(
 
     const metadata = buildStartCaptureMetadata(body.metadata);
 
+    // Bottle flow: resolve the typed brand hint against the catalog and keep it as the session
+    // brand. The raw `metadata.brand` stays for the legacy resolver. Flag off: untouched.
+    let brandHint: CaptureBrandHintEcho | undefined;
+    const bottleCapture = isFeatureEnabled("bottleCapture");
+    // `metadata.bottle` is server-owned while the flag is on; a client-sent one is never kept.
+    if (bottleCapture) delete metadata.bottle;
+    const rawBrand = typeof metadata.brand === "string" ? metadata.brand.trim() : "";
+    if (bottleCapture && rawBrand) {
+      let resolved = null;
+      try {
+        resolved = await resolveBrandFromText(rawBrand);
+      } catch (error) {
+        // A failed lookup must not block the capture: the hint is kept as typed.
+        context.warn(`capture brand hint lookup failed: ${error instanceof Error ? error.message : String(error)}`);
+        trackException(error, { area: "capture", stage: "brand-hint" });
+      }
+      metadata.bottle = {
+        brand: { ...toBrandRef(resolved, rawBrand, "hint"), raw: rawBrand },
+        prompts: {},
+        skipped: [],
+      };
+      brandHint = toBrandHintEcho(resolved, rawBrand);
+    }
+
     const result = await query<{ captureId: string; status: CaptureStatus }>(
       `INSERT INTO capture_session (capture_uuid, user_id, status, metadata)
        VALUES ($1::uuid, $2, 'processing', $3::jsonb)
@@ -1226,6 +1252,10 @@ async function startCapture(
         maxFrames: GUIDANCE_CONFIG.maxFrames,
       },
     };
+    if (bottleCapture) {
+      if (brandHint) response.brandHint = brandHint;
+      response.nextFrame = null;
+    }
 
     return { status: 201, jsonBody: response };
   } catch (error: any) {
