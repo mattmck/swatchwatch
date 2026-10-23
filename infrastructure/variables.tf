@@ -241,6 +241,17 @@ variable "hex_detection_snap_enabled" {
   default     = false
 }
 
+variable "blob_storage_max_connections" {
+  description = "Sockets per storage origin in the Function App's pooled Blob Storage HTTP agent (BLOB_STORAGE_MAX_CONNECTIONS); bounds outbound SNAT use on the Consumption plan"
+  type        = number
+  default     = 16
+
+  validation {
+    condition     = var.blob_storage_max_connections >= 1 && var.blob_storage_max_connections <= 128 && floor(var.blob_storage_max_connections) == var.blob_storage_max_connections
+    error_message = "blob_storage_max_connections must be a whole number between 1 and 128."
+  }
+}
+
 variable "hex_detection_batch_min_images" {
   description = "Minimum candidate image count before switching ingestion to batch mode"
   type        = number
