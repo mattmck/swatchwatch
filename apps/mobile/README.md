@@ -123,23 +123,27 @@ src/
   app/                    Expo Router routes (mirror the web's route groups)
     _layout.tsx           providers + Stack.Protected: (app) when signed in, sign-in otherwise
     sign-in.tsx
-    (app)/_layout.tsx     stack over the tabs (detail, add a polish, match)
+    (app)/_layout.tsx     stack over the tabs (detail, add a polish, match, looks, gaps, insights, import)
     (app)/(tabs)/         Collection (index), Search, Add (Rapid Add), Profile
     (app)/polishes/[id].tsx   polish detail (web /polishes/detail?id=); owned polishes show `WearHistory` (newest 5 manis, "See all" → Manis tab with `?shade=<id>`; thumbnails via the in-memory private image loader only); "My details" card (rating, notes, "Paid $12.00 · 2026-03-04") with an **Edit details** sheet (`components/edit-details-sheet.tsx`, `lib/polish-edit.ts`: rating, notes, bottles for owned, price with locale-safe parsing + currency chips defaulting to the last used or device locale, validated `YYYY-MM-DD` date; optimistic `PUT /polishes/{id}` with rollback, brand/shade/finishes/color read-only because the catalog is shared, except for the caller's own private shade (`ownSubmitted` on the polish response, #224), where they are editable (a rename keeps the shade id on the server; a name another shade already has answers `409 shade_identity_taken`, shown under the name field with the draft kept) with the add form's finish chips and color picker (`FinishField`/`ColorField` in `components/polish-form-fields.tsx`); a saved rating or purchase date is cleared with a Clear button, sent as `null`)
     (app)/polishes/new.tsx    manual Add a polish (web /polishes/new)
     (app)/match.tsx       Match to Collection (web /polishes/match)
     (app)/looks.tsx       Looks (web /polishes/looks)
     (app)/gaps.tsx        Collection gaps heatmap (web /polishes/gaps)
+    (app)/insights.tsx    Insights: collection stats + export (web /dashboard panels, /polishes Export)
+    (app)/import.tsx      CSV import wizard (web /polishes/import)
   api/client.ts           typed API client (mirrors apps/web/src/lib/api.ts)
   auth/                   auth provider, token holder, Entra config, secure storage
   components/             UI primitives, swatch, polish row, verdict card, frame strip,
-                          private image, nail photo section, log-a-mani sheet
+                          private image, nail photo section, log-a-mani sheet,
+                          collection filter bar, export sheet, edit-details sheet, look sheets
   config/env.ts           EXPO_PUBLIC_* config and auth-mode resolution
   lib/                    pure logic (+ *.test.ts): status rules, Rapid Add state, add guard,
                           photo match palette rules, private image URLs and memory cache,
                           photo picking (`pick-photo.ts`, camera/library → `prepareJpeg`),
                           color search (By color), Goes with, brand list price line
-                          for the buy link (`buy-price.ts`)
+                          for the buy link (`buy-price.ts`), import file reading (`read-import-file.ts`),
+                          wishlist value (`use-wishlist-value.ts`), polish edit (`polish-edit.ts`)
   theme/theme.tsx         light/dark theme from the shared design tokens
 ```
 
