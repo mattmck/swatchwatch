@@ -43,6 +43,13 @@ export interface Polish {
    */
   colorFamily?: ColorFamily | null;
   /**
+   * OKLAB distance from the display hex to the nearest `nearHex` target (`GET /api/polishes?nearHex=`),
+   * equal to `colorDistance(resolveDisplayHex(polish), target)`; grade it with the shared dupe
+   * thresholds. Null when the shade has no usable display hex; absent when the request had no
+   * `nearHex`.
+   */
+  colorDistance?: number | null;
+  /**
    * What kind of product the shade is (`shade.product_category`, #349): `color`, `topper`,
    * `top_coat`, `base_coat`, `treatment` or `accessory`. Missing from older responses; treat
    * that as `color` (`resolveProductCategory`).
@@ -293,6 +300,12 @@ export interface PolishFilters {
   families?: ColorFamily[];
   /** Matches shades in ANY of these product categories (`?category=color,topper`). */
   categories?: ProductCategory[];
+  /**
+   * Rank by OKLAB distance from the display hex to the nearest of these colors (`#RRGGBB` or
+   * `RRGGBB`, at most 24), nearest first; replaces `sortBy`/`sortOrder` and fills
+   * `Polish.colorDistance`. Combines with every other filter and paging.
+   */
+  nearHex?: string[];
   sortBy?:
     | "name"
     | "brand"

@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { Polish } from "swatchwatch-shared";
-import { finishFamily, resolvePolishFinishes } from "swatchwatch-shared";
+import { classifyHexColorFamily, finishFamily, resolvePolishFinishes } from "swatchwatch-shared";
 import {
   ACCENT_MIN_CONTRAST,
   DEFAULT_VIBE,
@@ -270,10 +270,18 @@ describe("catalogQueriesForLooks", () => {
     assert.ok(queries.families.length > 0);
     assert.equal(new Set(queries.families).size, queries.families.length);
     assert.equal(queries.toppers, result.looks.some((l) => l.steps.some((s) => s.role === "topper")));
+    // Each family carries the gap targets it was derived from, for `?nearHex=`.
+    assert.deepEqual(Object.keys(queries.targetsByFamily).sort(), [...queries.families].sort());
+    for (const family of queries.families) {
+      const targets = queries.targetsByFamily[family]!;
+      assert.ok(targets.length > 0);
+      assert.deepEqual(targets, [...new Set(targets)].sort());
+      for (const hex of targets) assert.equal(classifyHexColorFamily(hex), family);
+    }
   });
 
   it("asks for nothing when every step is owned", () => {
-    assert.deepEqual(catalogQueriesForLooks([]), { families: [], toppers: false });
+    assert.deepEqual(catalogQueriesForLooks([]), { families: [], targetsByFamily: {}, toppers: false });
   });
 });
 
@@ -402,7 +410,7 @@ describe("catalogQueriesForLooks — includeOwned", () => {
   it("asks for every step's family when includeOwned is set (detail drawer substitutions)", () => {
     const { looks } = recommendLooks({ polishes: collection(), vibe: vibe(), seed: 1 });
     assert.ok(looks.every((l) => l.missingSteps === 0), "setup: all steps owned");
-    assert.deepEqual(catalogQueriesForLooks(looks), { families: [], toppers: false });
+    assert.deepEqual(catalogQueriesForLooks(looks), { families: [], targetsByFamily: {}, toppers: false });
     const all = catalogQueriesForLooks(looks.slice(0, 1), { includeOwned: true });
     assert.ok(all.families.length > 0);
   });

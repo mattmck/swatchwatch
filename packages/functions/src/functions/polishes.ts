@@ -57,6 +57,7 @@ import {
 import { withBuyUrls } from "../lib/buy-link";
 import { parseColorFamilyFilter } from "../lib/color-family-filter";
 import { parseProductCategoryFilter } from "../lib/product-category-filter";
+import { buildNearHexDistanceSql, parseNearHexFilter } from "../lib/near-hex";
 import { buildMatchCandidateWhere } from "../lib/match-image-query";
 import {
   ARCHIVE_EVENT_EDIT_WINDOW_HOURS,
@@ -924,6 +925,10 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
     if (!categoryFilter.ok) {
       return { status: 400, jsonBody: { error: categoryFilter.error } };
     }
+    const nearHexFilter = parseNearHexFilter(url.searchParams);
+    if (!nearHexFilter.ok) {
+      return { status: 400, jsonBody: { error: nearHexFilter.error } };
+    }
     const listCacheKey = buildPolishListCacheKey(userId, requestOrigin, {
       search: normalizedSearch,
       brand: normalizedBrandFilter,
@@ -937,6 +942,7 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
       // Only present when filtering so existing cache keys are unchanged.
       ...(familyFilter.families.length > 0 ? { family: familyFilter.families.join(",") } : {}),
       ...(categoryFilter.categories.length > 0 ? { category: categoryFilter.categories.join(",") } : {}),
+      ...(nearHexFilter.targets.length > 0 ? { nearHex: nearHexFilter.targets.join(",") } : {}),
       sortBy,
       sortOrder,
       page,
@@ -1048,12 +1054,30 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
     const sortColumn = SORT_COLUMNS[sortBy] || SORT_COLUMNS.createdAt;
     const whereClause = conditions.length > 0 ? conditions.join(" AND ") : "TRUE";
 
+    // `nearHex` replaces sortBy/sortOrder: nearest display hex first (OKLAB, shades without a
+    // usable hex last), shade id as the stable tiebreak, distance returned as colorDistance.
+    let listSelect = POLISH_LIST_SELECT;
+    let orderBy = `${sortColumn} ${sortOrder} NULLS LAST`;
+    const distanceParams: number[] = [];
+    if (nearHexFilter.targets.length > 0) {
+      const distance = buildNearHexDistanceSql(nearHexFilter.targets, paramIndex);
+      listSelect = `
+  SELECT
+${POLISH_COLUMNS},
+    COUNT(*) OVER()                              AS "totalCount",
+    ${distance.sql} AS "colorDistance"
+${POLISH_FROM}`;
+      orderBy = `"colorDistance" ASC NULLS LAST, s.shade_id ASC`;
+      distanceParams.push(...distance.params);
+      paramIndex += distance.params.length;
+    }
+
     const result = await query<Polish & { totalCount: string }>(
-      `${POLISH_LIST_SELECT}
+      `${listSelect}
        WHERE ${whereClause}
-       ORDER BY ${sortColumn} ${sortOrder} NULLS LAST
+       ORDER BY ${orderBy}
        LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
-      [...params, pageSize, offset]
+      [...params, ...distanceParams, pageSize, offset]
     );
 
     let total: number;

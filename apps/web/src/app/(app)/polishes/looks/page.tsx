@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Info, Paintbrush, Share2, Shuffle, Trash2, WandSparkles } from "lucide-react";
-import type { LookShareStatus, ManicurePolishRole, Polish } from "swatchwatch-shared";
+import type { ColorFamily, LookShareStatus, ManicurePolishRole, Polish } from "swatchwatch-shared";
 import { toast } from "sonner";
 import { BrandSpinner } from "@/components/brand-spinner";
 import { ManiLogForm } from "@/components/mani-log-form";
@@ -36,6 +36,7 @@ import {
   maniRoleForStep,
   recommendLooks,
   type Look,
+  type LookCatalogQueries,
   type LookStepRole,
   type Vibe,
 } from "@/lib/looks";
@@ -70,18 +71,31 @@ import { VibeSelector } from "./vibe-selector";
 
 /** Catalog rows fetched per gap query (one color family, or toppers). */
 const CATALOG_PAGE_SIZE = 60;
+/** The API's `?nearHex=` cap: more gap targets in one family than this only rank on the first ones. */
+const MAX_NEAR_HEX_TARGETS = 24;
 /** Most color-family queries per render, so a fully-empty collection doesn't fan out too far. */
 const MAX_CATALOG_FAMILY_QUERIES = 6;
 const TOPPER_QUERY_KEY = "toppers";
 
-/** One catalog gap query (a color family or the topper finishes). A failure just yields no rows. */
+/** Query key for one color family's gaps: `family:<family>|<target hexes>`. */
+function familyQueryKey(queries: LookCatalogQueries, family: ColorFamily): string {
+  const targets = (queries.targetsByFamily[family] ?? []).slice(0, MAX_NEAR_HEX_TARGETS);
+  return `family:${family}|${targets.join(",")}`;
+}
+
+/**
+ * One catalog gap query: the catalog shades of a color family nearest its gap targets (ranked by
+ * the API over the whole family, `?nearHex=`), or the topper finishes. A failure just yields no rows.
+ */
 async function fetchCatalogKey(key: string): Promise<readonly [string, Polish[]]> {
   try {
+    const [familyPart, targets = ""] = key.slice("family:".length).split("|");
     const response =
       key === TOPPER_QUERY_KEY
         ? await listPolishes({ finishes: [...TOPPER_FINISHES], pageSize: CATALOG_PAGE_SIZE })
         : await listPolishes({
-            families: [key.slice("family:".length) as NonNullable<Polish["colorFamily"]>],
+            families: [familyPart as ColorFamily],
+            nearHex: targets ? targets.split(",") : undefined,
             pageSize: CATALOG_PAGE_SIZE,
           });
     return [key, response.polishes] as const;
@@ -223,7 +237,7 @@ function LooksPageContent() {
   const catalogKeys = useMemo(() => {
     if (!ownedResult || vibe.ownedOnly) return [];
     const queries = catalogQueriesForLooks(ownedResult.looks);
-    const keys = queries.families.slice(0, MAX_CATALOG_FAMILY_QUERIES).map((family) => `family:${family}`);
+    const keys = queries.families.slice(0, MAX_CATALOG_FAMILY_QUERIES).map((family) => familyQueryKey(queries, family));
     if (queries.toppers) keys.push(TOPPER_QUERY_KEY);
     return keys;
   }, [ownedResult, vibe.ownedOnly]);
@@ -267,7 +281,7 @@ function LooksPageContent() {
   const drawerKeys = useMemo(() => {
     if (!drawerLook || vibe.ownedOnly) return [];
     const queries = catalogQueriesForLooks([drawerLook], { includeOwned: true });
-    const keys = queries.families.slice(0, MAX_CATALOG_FAMILY_QUERIES).map((family) => `family:${family}`);
+    const keys = queries.families.slice(0, MAX_CATALOG_FAMILY_QUERIES).map((family) => familyQueryKey(queries, family));
     if (queries.toppers) keys.push(TOPPER_QUERY_KEY);
     return keys;
   }, [drawerLook, vibe.ownedOnly]);
