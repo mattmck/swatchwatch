@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { recommendLooks, DEFAULT_VIBE, type Polish } from "swatchwatch-shared";
-import { addSavedLook, catalogGapQueries, maniEntriesFromLook, maniEntriesFromSavedLook, nextSeed, parseCachedSkinTone, toSavedLook, TOPPER_QUERY_KEY } from "./looks";
+import { addSavedLook, applySwaps, catalogGapQueries, maniEntriesFromLook, NO_SWAPS, shoppingItemPriceLine, withSwap, maniEntriesFromSavedLook, nextSeed, parseCachedSkinTone, toSavedLook, TOPPER_QUERY_KEY } from "./looks";
 
 let id = 1;
 function polish(hex: string, extra: Partial<Polish> = {}): Polish {
@@ -76,5 +76,49 @@ describe("parseCachedSkinTone", () => {
     assert.equal(parseCachedSkinTone(null), null);
     assert.equal(parseCachedSkinTone("warm"), null);
     assert.equal(parseCachedSkinTone({ undertone: "x", depth: "y" }), null);
+  });
+});
+
+describe("swaps", () => {
+  const owned = [polish("#D8BFAA"), polish("#D2B8A3"), polish("#A8846A"), polish("#F3E6E8", { finishes: ["sheer"] })];
+  const { looks } = recommendLooks({ polishes: owned, vibe: { ...DEFAULT_VIBE, ownedOnly: true }, seed: 1 });
+  const look = looks[0];
+  const step = look.steps.find((s) => s.alternatives.length > 0);
+
+  it("swaps an owned alternative in and keeps the old polish as an alternative", () => {
+    assert.ok(step, "fixture has a step with alternatives");
+    const alt = step.alternatives[0];
+    const next = withSwap(NO_SWAPS, "k1", look, step.role, alt);
+    const [swapped] = applySwaps([look], next, "k1");
+    const after = swapped.steps.find((s) => s.role === step.role);
+    assert.equal(after?.polish?.id, alt.id);
+    assert.ok(after?.alternatives.some((a) => a.id === step.polish?.id));
+  });
+
+  it("drops swaps made for another recommendation (Shuffle, vibe change)", () => {
+    assert.ok(step);
+    const next = withSwap(NO_SWAPS, "k1", look, step.role, step.alternatives[0]);
+    assert.equal(applySwaps([look], next, "k2")[0], look);
+    // A swap under a new key starts from scratch instead of merging the stale ones.
+    const other = looks[1];
+    const again = withSwap(next, "k2", other, other.steps[0].role, other.steps[0].alternatives[0] ?? other.steps[0].polish!);
+    assert.deepEqual(Object.keys(again.looks), [other.templateId]);
+  });
+});
+
+describe("shoppingItemPriceLine", () => {
+  it("formats the brand price with the as-of date, and is null without a price", () => {
+    const line = shoppingItemPriceLine({ price: { amount: 14, currency: "USD" }, priceSeenAt: "2026-10-21T12:00:00.000Z" }, "en-US");
+    assert.equal(line, "$14.00 · as of Oct 21, 2026");
+    assert.equal(shoppingItemPriceLine({ price: null, priceSeenAt: null }), null);
+  });
+});
+
+describe("catalogGapQueries includeOwned", () => {
+  it("also queries the owned steps' colors for the substitutes sheets", () => {
+    const owned = [polish("#D8BFAA"), polish("#A8846A"), polish("#F3E6E8", { finishes: ["sheer"] })];
+    const { looks } = recommendLooks({ polishes: owned, vibe: { ...DEFAULT_VIBE, ownedOnly: true }, seed: 1 });
+    assert.deepEqual(catalogGapQueries(looks), []);
+    assert.ok(catalogGapQueries(looks, { includeOwned: true }).length > 0);
   });
 });
