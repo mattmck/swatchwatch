@@ -1,6 +1,8 @@
 import { resolvePolishFinishes } from "swatchwatch-shared";
 import type { Look, LookStep, LookStepRole, Vibe } from "./looks";
 import { LOOK_MOOD_LABELS, LOOK_OCCASION_LABELS } from "./looks";
+import { buyPriceOf, buyPriceSubtotals, formatBuyPrice, type BuyPriceSubtotal } from "./buy-price";
+import { formatPurchasePrice } from "./inventory-status";
 import { safeOutboundUrl } from "./outbound-link";
 
 /**
@@ -23,6 +25,10 @@ export interface ShoppingItem {
   shadeId: string | null;
   /** Validated "Buy from brand" link (http/https only), or null. */
   buyUrl: string | null;
+  /** The brand's list price for that link (same product), or null when unknown. */
+  price: { amount: number; currency: string } | null;
+  /** When the price was last seen (ISO), or null. */
+  priceSeenAt: string | null;
   /** A specific catalog shade exists, so it can be wishlisted. */
   canWishlist: boolean;
 }
@@ -39,8 +45,35 @@ export function shoppingItemsForLook(look: Pick<Look, "steps">): ShoppingItem[] 
       polish: step.polish,
       shadeId: step.polish?.id ?? null,
       buyUrl: safeOutboundUrl(step.polish?.buyUrl),
+      price: safeOutboundUrl(step.polish?.buyUrl) ? buyPriceOf(step.polish) : null,
+      priceSeenAt: step.polish?.buyPriceSeenAt ?? null,
       canWishlist: Boolean(step.polish),
     }));
+}
+
+/** API-shaped price fields of a shopping item, for `formatBuyPrice` / `BuyFromBrandLink`. */
+export function shoppingItemPriceFields(item: Pick<ShoppingItem, "price" | "priceSeenAt">) {
+  return item.price
+    ? { buyPrice: item.price.amount, buyCurrency: item.price.currency, buyPriceSeenAt: item.priceSeenAt }
+    : null;
+}
+
+export interface ShoppingSubtotals {
+  /** One subtotal per currency, never summed across currencies. */
+  subtotals: BuyPriceSubtotal[];
+  /** Items with no known price (no polish, no buy link, or no price/currency). */
+  unpricedCount: number;
+}
+
+/** Per-currency subtotal of a shopping list's priced items. */
+export function shoppingSubtotals(items: ReadonlyArray<Pick<ShoppingItem, "price" | "priceSeenAt">>): ShoppingSubtotals {
+  return buyPriceSubtotals(items.map(shoppingItemPriceFields));
+}
+
+/** "$28.00 · €12.00" style text for the subtotals, or null when nothing is priced. */
+export function formatShoppingSubtotals(subtotals: readonly BuyPriceSubtotal[]): string | null {
+  if (subtotals.length === 0) return null;
+  return subtotals.map((group) => formatPurchasePrice(group.total, group.currency)).join(" · ");
 }
 
 function polishLabel(step: { polish: { brand: string; name: string } | null }): string | null {
@@ -50,12 +83,16 @@ function polishLabel(step: { polish: { brand: string; name: string } | null }): 
 /** Copyable plain-text shopping list for a look's missing steps. */
 export function shoppingListText(look: Pick<Look, "name" | "steps">): string {
   const lines = [`Shopping list for ${look.name}`];
-  for (const item of shoppingItemsForLook(look)) {
+  const items = shoppingItemsForLook(look);
+  for (const item of items) {
+    const price = formatBuyPrice(shoppingItemPriceFields(item));
     const what = item.polish
-      ? `${item.polish.name} — ${item.polish.brand}${item.buyUrl ? ` (${item.buyUrl})` : ""}`
+      ? `${item.polish.name} — ${item.polish.brand}${price ? `, ${price}` : ""}${item.buyUrl ? ` (${item.buyUrl})` : ""}`
       : `any shade close to ${item.targetHex}`;
     lines.push(`${item.label}: ${what}`);
   }
+  const subtotal = formatShoppingSubtotals(shoppingSubtotals(items).subtotals);
+  if (subtotal) lines.push(`Subtotal (brand list prices): ${subtotal}`);
   return lines.join("\n");
 }
 

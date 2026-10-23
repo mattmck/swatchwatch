@@ -8,6 +8,13 @@ import {
 import { normalizeShopifyImages, type ShopifyProductImage } from "./shopify-images";
 import { shopifyProductText } from "../product-text";
 import { classifyIngestedProduct } from "../product-category";
+import {
+  normalizeCurrencyCode,
+  pickShopifyVariantPrice,
+  resolveShopifyStoreCurrency,
+  shopifyProductPrice,
+  type StoreCurrency,
+} from "../product-price";
 
 const DEFAULT_BASE_URL = "https://www.holotaco.com";
 const REQUEST_TIMEOUT_MS = parseIntEnv(
@@ -253,7 +260,8 @@ function recordTimestamp(record: ConnectorProductRecord): number {
 
 function toNormalizedRecord(
   product: ShopifyProduct,
-  baseUrl: string
+  baseUrl: string,
+  storeCurrency: string | null = null
 ): ConnectorProductRecord | null {
   const externalId = asNonEmptyString(product.id);
   if (!externalId) {
@@ -289,6 +297,8 @@ function toNormalizedRecord(
       .find((barcode): barcode is string => Boolean(barcode)) || null;
   // Description + descriptors for finish detection (#352); never shown to users.
   const { descriptionText, descriptors } = shopifyProductText(product);
+  // Brand list price: lowest available variant (else lowest variant), in the store currency.
+  const { price, currency } = shopifyProductPrice(product.variants, storeCurrency);
 
   return {
     externalId,
@@ -314,6 +324,8 @@ function toNormalizedRecord(
       images,
       primaryImageUrl: imageUrls[0] || null,
       productUrl: handle ? `${baseUrl}/products/${handle}` : null,
+      price,
+      currency,
       variants,
       vendorHex: null,
       nameHex: null,
@@ -328,17 +340,39 @@ export class HoloTacoShopifyConnector implements ProductConnector {
   readonly source = "HoloTacoShopify" as const;
 
   private readonly baseUrl: string;
+  private readonly configuredCurrency: string | null;
+  private storeCurrency: Promise<StoreCurrency> | null = null;
 
-  constructor(baseUrl?: string | null) {
+  constructor(baseUrl?: string | null, options: { currency?: string | null } = {}) {
     this.baseUrl = (baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, "");
+    this.configuredCurrency = options.currency ?? null;
+  }
+
+  /**
+   * The store currency for this run's prices: the source's `data_source.metadata.currency`,
+   * else the shop's `/meta.json` (asked once, only when some product has a variant price).
+   */
+  private async resolveStoreCurrency(products: readonly ShopifyProduct[]): Promise<StoreCurrency> {
+    if (!this.storeCurrency) {
+      const configured = normalizeCurrencyCode(this.configuredCurrency);
+      const needsCurrency = products.some((product) => pickShopifyVariantPrice(product.variants) !== null);
+      this.storeCurrency =
+        configured || !needsCurrency
+          ? Promise.resolve<StoreCurrency>(
+              configured ? { currency: configured, source: "source_metadata" } : { currency: null, source: "unknown" }
+            )
+          : resolveShopifyStoreCurrency(null, this.baseUrl);
+    }
+    return this.storeCurrency;
   }
 
   async pullProducts(options: ConnectorPullOptions): Promise<ConnectorPullResult> {
     const allProducts = await loadCatalogWithCache<ShopifyProduct>(options.catalogCache, () =>
       this.fetchAllProducts()
     );
+    const storeCurrency = await this.resolveStoreCurrency(allProducts);
     const normalizedRecords = allProducts
-      .map((product) => toNormalizedRecord(product, this.baseUrl))
+      .map((product) => toNormalizedRecord(product, this.baseUrl, storeCurrency.currency))
       .filter((record): record is ConnectorProductRecord => Boolean(record));
 
     const textFilter = shouldApplyTextFilter(options.searchTerm)
@@ -388,6 +422,8 @@ export class HoloTacoShopifyConnector implements ProductConnector {
         fetchedProductCount: allProducts.length,
         recentDays: recentDays || null,
         textFilter: textFilter || null,
+        storeCurrency: storeCurrency.currency,
+        storeCurrencySource: storeCurrency.source,
       },
     };
   }
