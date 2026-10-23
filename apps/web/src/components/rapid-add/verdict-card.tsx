@@ -2,14 +2,24 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Camera, CircleCheck, CirclePlus, Copy, Heart, PackageCheck, ScanBarcode, X } from "lucide-react";
+import { Camera, CircleCheck, CirclePlus, Copy, Heart, ListChecks, PackageCheck, ScanBarcode, X } from "lucide-react";
+import type { CaptureBrandRef, CaptureCheckCandidate, CreateCardEdits } from "swatchwatch-shared";
 import { Button } from "@/components/ui/button";
 import { ColorDot } from "@/components/color-dot";
 import { Badge } from "@/components/ui/badge";
 import { useReferenceData } from "@/hooks/use-reference-data";
 import { resolveFinishLabel } from "@/lib/finish-options";
 import { DUPE_GRADE_META, FINISH_COMPATIBILITY_LABELS, dupeCalloutText, dupeHref } from "@/lib/dupes";
-import { NEAR_DUPE_CARD_MAX, manualAddHref, type CaptureVerdict, type NearDupeVerdict } from "@/lib/capture-verdict";
+import {
+  NEAR_DUPE_CARD_MAX,
+  manualAddHref,
+  type CaptureVerdict,
+  type CreateCardVerdict,
+  type NearDupeVerdict,
+  type PickVerdict,
+} from "@/lib/capture-verdict";
+import { pickRowView } from "@/lib/bottle-rapid-add";
+import { CreateShadeCard } from "@/components/rapid-add/create-shade-card";
 import type { RapidAddBusy } from "@/lib/rapid-add-flow";
 import { cn } from "@/lib/utils";
 import { detailHref } from "@/lib/detail-href";
@@ -30,6 +40,16 @@ export interface VerdictCardProps {
   onNearDupeLink?: (verdict: NearDupeVerdict) => void;
   /** Unknown barcode: continue the same scan with a label photo. */
   onPhotographLabel?: () => void;
+  /** Pick verdict: the user chose one of the candidates. */
+  onPick?: (verdict: PickVerdict, candidate: CaptureCheckCandidate) => void;
+  /** Pick verdict: none of the candidates is the bottle. */
+  onNoneOfThese?: (verdict: PickVerdict) => void;
+  /** Create card: add the new shade (or wishlist it). */
+  onCreate?: (verdict: CreateCardVerdict, edits: CreateCardEdits, status: "owned" | "wishlist") => void;
+  /** The brand read from the bottle replaces the batch brand. */
+  onSwitchBrand?: (read: CaptureBrandRef) => void;
+  /** Thumbnails of the scan's photos, shown with the "not found" card (guided bottle sequence). */
+  frameStrip?: ReactNode;
   onScanNext: () => void;
 }
 
@@ -50,6 +70,8 @@ interface VerdictLayout {
   title: string;
   body: ReactNode;
   actions: ReactNode;
+  /** The body carries its own buttons (the create card), so the shared footer is left out. */
+  hideFooter?: boolean;
 }
 
 const TONE_CLASSES: Record<VerdictLayout["tone"], string> = {
@@ -173,11 +195,14 @@ function layoutFor(props: VerdictCardProps): VerdictLayout {
         eyebrow: "No match yet",
         title: "Not found — add it",
         body: (
-          <p>
-            We couldn&apos;t match this to the catalog
-            {verdict.evidence.gtin ? ` (barcode ${verdict.evidence.gtin})` : ""}. Add it by hand, or
-            scan again with a clear photo of the label.
-          </p>
+          <div className="space-y-3">
+            <p>
+              We couldn&apos;t match this to the catalog
+              {verdict.evidence.gtin ? ` (barcode ${verdict.evidence.gtin})` : ""}. Add it by hand, or
+              scan again with a clear photo of the label.
+            </p>
+            {props.frameStrip}
+          </div>
         ),
         actions: (
           <Button asChild variant="outline">
@@ -308,15 +333,78 @@ function layoutFor(props: VerdictCardProps): VerdictLayout {
           </>
         ),
       };
-    case "pick":
-    case "create_card":
-      // Placeholder until the bottle-flow cards land (Task 12).
+    case "pick": {
+      const conflict = verdict.brandConflict;
       return {
         tone: "add",
-        icon: <ScanBarcode className="size-7 text-brand-purple" aria-hidden />,
-        eyebrow: "Bottle",
-        title: "Coming in a later task",
-        body: <p>This card is not built yet.</p>,
+        icon: <ListChecks className="size-7 text-brand-purple" aria-hidden />,
+        eyebrow: "Could be a few shades",
+        title: "Which one is it?",
+        body: (
+          <div className="space-y-3">
+            {conflict && (
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span>
+                  You said {conflict.hinted.name}, but this bottle reads {conflict.read.name}.
+                </span>
+                <Button type="button" variant="outline" size="xs" onClick={() => props.onSwitchBrand?.(conflict.read)}>
+                  Switch to {conflict.read.name}
+                </Button>
+              </div>
+            )}
+            <ul className="space-y-2" aria-label="Possible shades">
+              {verdict.candidates.map((candidate) => {
+                const row = pickRowView(candidate, conflict);
+                const details = [row.brandName, row.confidenceLabel, row.colorDeltaLabel].filter(Boolean).join(" · ");
+                return (
+                  <li key={`${candidate.entityType}-${candidate.entityId}`}>
+                    <button
+                      type="button"
+                      onClick={() => props.onPick?.(verdict, candidate)}
+                      className="flex w-full items-center gap-3 rounded-lg border bg-background/60 px-3 py-2 text-left text-foreground transition-colors hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 pointer-coarse:py-3"
+                    >
+                      <ColorDot hex={row.hex} size="lg" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">{row.display}</span>
+                        <span className="block truncate text-xs text-muted-foreground">{details}</span>
+                      </span>
+                      {row.ownershipLabel && (
+                        <Badge variant="outline" className="shrink-0">
+                          {row.ownershipLabel}
+                        </Badge>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ),
+        actions: (
+          <Button type="button" variant="outline" onClick={() => props.onNoneOfThese?.(verdict)}>
+            None of these
+          </Button>
+        ),
+      };
+    }
+    case "create_card":
+      return {
+        tone: "add",
+        hideFooter: true,
+        icon: <CirclePlus className="size-7 text-brand-purple" aria-hidden />,
+        eyebrow: "Not in the catalog yet",
+        title: "Add it as new",
+        body: (
+          <CreateShadeCard
+            key={verdict.card.captureId}
+            card={verdict.card}
+            brandConflict={verdict.brandConflict}
+            creating={busy === "creating"}
+            onCreate={(edits, status) => props.onCreate?.(verdict, edits, status)}
+            onNext={props.onScanNext}
+            onSwitchBrand={(read) => props.onSwitchBrand?.(read)}
+          />
+        ),
         actions: null,
       };
     default:
@@ -355,13 +443,15 @@ export function VerdictCard(props: VerdictCardProps) {
         </div>
       </div>
       <div className="text-sm text-muted-foreground">{layout.body}</div>
-      <div className="flex flex-wrap gap-2">
-        <Button type="button" variant="brand" onClick={props.onScanNext}>
-          {layout.scanNextLabel ? <X aria-hidden /> : <ScanBarcode aria-hidden />}{" "}
-          {layout.scanNextLabel ?? "Scan next"}
-        </Button>
-        {layout.actions}
-      </div>
+      {!layout.hideFooter && (
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="brand" onClick={props.onScanNext}>
+            {layout.scanNextLabel ? <X aria-hidden /> : <ScanBarcode aria-hidden />}{" "}
+            {layout.scanNextLabel ?? "Scan next"}
+          </Button>
+          {layout.actions}
+        </div>
+      )}
     </section>
   );
 }

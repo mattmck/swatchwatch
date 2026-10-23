@@ -443,8 +443,9 @@ export default function RapidAddScreen() {
     setError(null);
     try {
       const created = await createPolish(createPolishRequestFromCard(card, edits, status));
-      if (!current()) return;
+      // The polish exists now, so the Collection refreshes even if the shopper tapped Scan next meanwhile.
       notifyCollectionChanged();
+      if (!current()) return;
       const quantity = status === "owned" ? (created.quantity ?? 1) : undefined;
       setVerdict({ kind: "added", candidate: createdCandidate(created, status, edits.hex), status, quantity });
       markActed(status === "owned" ? "added" : "wishlisted", quantity);
