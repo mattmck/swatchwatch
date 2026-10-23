@@ -1,11 +1,12 @@
 import {
+  loadDetectionFinishCatalog,
   parseConfidence,
   requestAzureOpenAiChatCompletion,
   resolveVisionImageDetail,
   type HexDetectionRequestPayload,
   type VisionImageDetail,
 } from "../../../lib/ai-color-detection";
-import { canonicalizeFinishes } from "../../../lib/finishes";
+import { canonicalizeFinishes, finishNamesForPrompt, type FinishCatalog } from "../../../lib/finishes";
 import {
   clampBox,
   drawLabeledGrid,
@@ -59,13 +60,13 @@ export interface RegionLocatorPayloadOptions {
   gridCells: number;
   detail: VisionImageDetail;
   safePrompt?: boolean;
+  /** Finish names for the prompt come from this catalog (the built-in finishes when omitted). */
+  finishCatalog?: FinishCatalog;
 }
 
 const REGION_FIELD = '"region":"nail"|"bottle"|"swatch"|"other"';
 const BBOX_JSON_SHAPE = `{"x":0..1,"y":0..1,"w":0..1,"h":0..1,${REGION_FIELD},"finishes":["creme","shimmer",...],"confidence":0..1}`;
 const CELLS_JSON_SHAPE = `{"cells":["C3","C4",...],${REGION_FIELD},"finishes":["creme","shimmer",...],"confidence":0..1}`;
-const FINISH_LIST =
-  "creme, shimmer, glitter, metallic, matte, jelly, holographic, duochrome, multichrome, flake, topper, sheer, magnetic, thermal, crelly, velvet, ...";
 
 function gridDescription(cells: number): string {
   return `${cells}x${cells} grid (rows A–${String.fromCharCode(64 + cells)} top to bottom, columns 1–${cells} left to right; A1 is top-left, ${gridCellLabel(cells - 1, cells - 1)} bottom-right)`;
@@ -73,6 +74,7 @@ function gridDescription(cells: number): string {
 
 function buildPrompts(options: RegionLocatorPayloadOptions): { system: string; user: string } {
   const { mode, gridCells, safePrompt } = options;
+  const finishList = finishNamesForPrompt(options.finishCatalog).join(", ");
   if (mode === "cells") {
     const grid = gridDescription(gridCells);
     if (safePrompt) {
@@ -83,7 +85,7 @@ function buildPrompts(options: RegionLocatorPayloadOptions): { system: string; u
     }
     return {
       system: `You locate where a nail polish's true color is visible in a product photo. A labeled ${grid} is drawn over the image. Prefer, in this order: painted nails or a painted swatch; otherwise the lacquer visible through the glass bottle. Never choose cells showing the cap, label, logo, text, brush, box/packaging, skin, shadows, glare or background. Respond with valid JSON only: ${CELLS_JSON_SHAPE}.`,
-      user: `List up to ${MAX_CELLS} grid cells that are filled edge to edge with the polish color and nothing else. If no cell is completely filled, list the cells whose center is polish. Read the labels printed in the cells. region: "nail" for painted nails, "swatch" for a painted swatch stick or card, "bottle" for lacquer in the bottle, "other" otherwise. finishes: every visible finish (${FINISH_LIST}). confidence: 0..1, how sure you are the cells show only polish of the marketed shade.`,
+      user: `List up to ${MAX_CELLS} grid cells that are filled edge to edge with the polish color and nothing else. If no cell is completely filled, list the cells whose center is polish. Read the labels printed in the cells. region: "nail" for painted nails, "swatch" for a painted swatch stick or card, "bottle" for lacquer in the bottle, "other" otherwise. finishes: every visible finish (${finishList}). confidence: 0..1, how sure you are the cells show only polish of the marketed shade.`,
     };
   }
 
@@ -99,7 +101,7 @@ function buildPrompts(options: RegionLocatorPayloadOptions): { system: string; u
   }
   return {
     system: `You locate the area of a nail polish product photo that best shows the polish's true color. Prefer, in this order: a painted nail or painted nail swatch; otherwise the lacquer visible inside the glass bottle. Never choose the cap, label, text, brush, box, shadows, reflections or background. Respond with valid JSON only: ${BBOX_JSON_SHAPE}.`,
-    user: `Return one tight bounding box in normalized image coordinates with the origin at the top-left: x,y is the box's top-left corner and w,h its width and height, all as fractions (0..1) of the image width and height. Keep the box inside a single evenly colored area of polish — shrink it rather than include nail edges, skin, the cap, glass highlights or background. region: "nail" for a painted nail, "swatch" for a painted swatch stick or card, "bottle" for lacquer inside the bottle, "other" otherwise. finishes: every visible finish (${FINISH_LIST}). confidence: 0..1, how sure you are the box covers only polish of the marketed shade.${gridNote}`,
+    user: `Return one tight bounding box in normalized image coordinates with the origin at the top-left: x,y is the box's top-left corner and w,h its width and height, all as fractions (0..1) of the image width and height. Keep the box inside a single evenly colored area of polish — shrink it rather than include nail edges, skin, the cap, glass highlights or background. region: "nail" for a painted nail, "swatch" for a painted swatch stick or card, "bottle" for lacquer inside the bottle, "other" otherwise. finishes: every visible finish (${finishList}). confidence: 0..1, how sure you are the box covers only polish of the marketed shade.${gridNote}`,
   };
 }
 
@@ -229,8 +231,9 @@ export async function runRegionCrop(input: StrategyInput): Promise<StrategyOutpu
     locatorDataUri = `data:image/jpeg;base64,${overlaid.toString("base64")}`;
   }
 
+  const finishCatalog = await loadDetectionFinishCatalog({ onLog: quietLog });
   const response = await requestAzureOpenAiChatCompletion(
-    (safePrompt) => buildRegionLocatorPayload(locatorDataUri, { mode, gridCells, detail, safePrompt }),
+    (safePrompt) => buildRegionLocatorPayload(locatorDataUri, { mode, gridCells, detail, safePrompt, finishCatalog }),
     { onLog: quietLog, label: "region locator" }
   );
   if (response.provider === "none") {
