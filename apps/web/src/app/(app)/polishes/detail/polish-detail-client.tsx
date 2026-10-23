@@ -36,6 +36,7 @@ import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { NailPhotoPanel } from "@/components/nail-photo-panel";
 import { LogManiButton } from "@/components/log-mani-button";
+import { WearHistoryPanel } from "@/components/wear-history-panel";
 import { AdminHexSipSection, AdminVendorHexSourceHint } from "@/components/admin-hex-sip-panel";
 import { canLogPolish, formatWornOn, toLocalIsoDate } from "@/lib/mani-log";
 import { detailHref, returnToLabel, safeReturnTo } from "@/lib/detail-href";
@@ -368,6 +369,15 @@ export default function PolishDetailClient({
           vendorHex={polish.vendorHex}
           detectedHex={polish.detectedHex}
           nameHex={polish.nameHex}
+        />
+      )}
+
+      {canLogPolish(polish) && (
+        <WearHistoryPanel
+          key={polish.id}
+          shadeId={polish.id}
+          wearCount={polish.wearCount ?? 0}
+          logButton={<LogManiButton polish={polish} onWearStatsChange={applyWearStats} />}
         />
       )}
 

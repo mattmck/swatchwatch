@@ -1,10 +1,4 @@
-import type {
-  CollectionGapAnalysis,
-  CollectionGapCell,
-  HueFamily,
-  LightnessBand,
-  OKLab,
-} from "swatchwatch-shared";
+import type { OKLab } from "swatchwatch-shared";
 import { hexToOklab } from "swatchwatch-shared";
 
 // OKLAB conversion + distance live in swatchwatch-shared so the web app and
@@ -244,136 +238,15 @@ export function undertoneBreakdown(hexColors: string[]): {
   return { ...counts, dominant };
 }
 
-export const HUE_FAMILY_ORDER: HueFamily[] = [
-  "reds",
-  "oranges-corals",
-  "yellows-golds",
-  "greens",
-  "blues-teals",
-  "purples-violets",
-  "pinks-magentas",
-  "neutrals",
-];
-
-export const LIGHTNESS_BAND_ORDER: LightnessBand[] = [
-  "dark",
-  "dark-medium",
-  "medium",
-  "medium-light",
-  "light",
-];
-
-const GAP_HUE_SEED: Record<HueFamily, number> = {
-  reds: 8,
-  "oranges-corals": 26,
-  "yellows-golds": 52,
-  greens: 130,
-  "blues-teals": 205,
-  "purples-violets": 275,
-  "pinks-magentas": 328,
-  neutrals: 220,
-};
-
-const GAP_LIGHTNESS_SEED: Record<LightnessBand, number> = {
-  dark: 0.24,
-  "dark-medium": 0.38,
-  medium: 0.52,
-  "medium-light": 0.7,
-  light: 0.86,
-};
-
-function classifyHueFamily(oklch: OKLCH): HueFamily {
-  if (oklch.C < 0.04 || Number.isNaN(oklch.h)) return "neutrals";
-
-  const hue = oklch.h;
-  if (hue >= 350 || hue < 10) return "reds";
-  if (hue >= 10 && hue < 40) return "oranges-corals";
-  if (hue >= 40 && hue < 80) return "yellows-golds";
-  if (hue >= 80 && hue < 170) return "greens";
-  if (hue >= 170 && hue < 260) return "blues-teals";
-  if (hue >= 260 && hue < 310) return "purples-violets";
-  return "pinks-magentas";
-}
-
-function classifyLightnessBand(L: number): LightnessBand {
-  if (L < 0.3) return "dark";
-  if (L < 0.44) return "dark-medium";
-  if (L < 0.6) return "medium";
-  if (L < 0.76) return "medium-light";
-  return "light";
-}
-
-export function classifyHexToGapCell(
-  hex: string,
-): { hueFamily: HueFamily; lightnessBand: LightnessBand } | null {
-  if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) return null;
-  const oklch = hexToOklch(hex);
-  return {
-    hueFamily: classifyHueFamily(oklch),
-    lightnessBand: classifyLightnessBand(oklch.L),
-  };
-}
-
-/**
- * Build a representative seed hex color for a hue/lightness gap cell.
- *
- * Uses OKLCH seeds so converting the result back to OKLCH aligns with
- * `classifyLightnessBand` thresholds. Neutral seeds use zero chroma.
- *
- * @param hueFamily Target hue family.
- * @param lightnessBand Target lightness band.
- * @returns Hex string in `#RRGGBB` format.
- */
-export function gapCellToSeedHex(
-  hueFamily: HueFamily,
-  lightnessBand: LightnessBand,
-): string {
-  const hue = GAP_HUE_SEED[hueFamily];
-  const lightness = GAP_LIGHTNESS_SEED[lightnessBand];
-  const chroma = hueFamily === "neutrals" ? 0 : 0.09;
-  return oklchToHex({ L: lightness, C: chroma, h: hue });
-}
-
-/**
- * Analyze hue/lightness coverage for owned colors and surface gaps.
- */
-export function analyzeCollectionGaps(hexColors: string[]): CollectionGapAnalysis {
-  const counts = new Map<string, number>();
-  for (const hueFamily of HUE_FAMILY_ORDER) {
-    for (const lightnessBand of LIGHTNESS_BAND_ORDER) {
-      counts.set(`${hueFamily}:${lightnessBand}`, 0);
-    }
-  }
-
-  for (const hex of hexColors) {
-    if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) continue;
-    const oklch = hexToOklch(hex);
-    const hueFamily = classifyHueFamily(oklch);
-    const lightnessBand = classifyLightnessBand(oklch.L);
-    const key = `${hueFamily}:${lightnessBand}`;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-
-  const cells: CollectionGapCell[] = [];
-  for (const hueFamily of HUE_FAMILY_ORDER) {
-    for (const lightnessBand of LIGHTNESS_BAND_ORDER) {
-      cells.push({
-        hueFamily,
-        lightnessBand,
-        count: counts.get(`${hueFamily}:${lightnessBand}`) ?? 0,
-      });
-    }
-  }
-
-  const missing = cells.filter((cell) => cell.count === 0);
-  const avgPerCell = hexColors.length / Math.max(cells.length, 1);
-  const lowThreshold = Math.max(1, Math.floor(avgPerCell * 0.5));
-  const underrepresented = cells.filter(
-    (cell) => cell.count > 0 && cell.count <= lowThreshold,
-  );
-
-  return { cells, missing, underrepresented };
-}
+// Gap heatmap rules (hue × lightness cells) live in swatchwatch-shared (`color/gaps.ts`) so the
+// mobile app uses the same cells; re-exported to keep call sites stable.
+export {
+  analyzeCollectionGaps,
+  classifyHexToGapCell,
+  gapCellToSeedHex,
+  HUE_FAMILY_ORDER,
+  LIGHTNESS_BAND_ORDER,
+} from "swatchwatch-shared";
 
 // ── Complementary color ──────────────────────────────────────
 

@@ -19,6 +19,7 @@ import {
 } from "@/api/client";
 import { GoesWith } from "@/components/goes-with";
 import { NailPhotoSection } from "@/components/nail-photo-section";
+import { WearHistory } from "@/components/wear-history";
 import { ColorDot, Swatch } from "@/components/swatch";
 import { AppText, Button, Card, CenteredState, Chip, ErrorBanner } from "@/components/ui";
 import { formatBuyPriceLine } from "@/lib/buy-price";
@@ -225,6 +226,8 @@ export default function PolishDetailScreen() {
             />
           </Card>
         )}
+
+        {isOwnedPolish(polish) && <WearHistory shadeId={polish.id} wearCount={polish.wearCount ?? 0} />}
 
         <NailPhotoSection polish={polish} />
 

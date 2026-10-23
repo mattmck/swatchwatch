@@ -229,6 +229,8 @@ export function HomePanel({ refreshToken }: { refreshToken: number }) {
           testID="pick-for-me"
         />
       )}
+      <Button title="Looks for today" variant="outline" onPress={() => router.push("/looks")} testID="open-looks" />
+      <Button title="Collection gaps" variant="outline" onPress={() => router.push("/gaps")} testID="home-gaps" />
     </View>
   );
 }
