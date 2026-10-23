@@ -4,6 +4,10 @@
  * Only the endpoints the app uses are here; add more by copying the web function.
  */
 import type {
+  PolishImportCommitResponse,
+  PolishImportCreateRequest,
+  PolishImportDecision,
+  PolishImportSession,
   CaptureAnswerRequest,
   CaptureAnswerResponse,
   CaptureCheckResponse,
@@ -471,4 +475,34 @@ export async function downloadCollectionExport(
   } finally {
     clearTimeout(timer);
   }
+}
+
+// ── CSV import (#263, #109) ─────────────────────────────────────────────────
+
+/** Large sheets are matched in one request; give it room (matching is batched server side). */
+const IMPORT_TIMEOUT_MS = 120_000;
+
+export function createPolishImport(data: PolishImportCreateRequest): Promise<PolishImportSession> {
+  return apiRequest<PolishImportSession>("/polish-imports", { method: "POST", body: data, timeoutMs: IMPORT_TIMEOUT_MS });
+}
+
+/** Save review decisions without committing. */
+export function savePolishImportDecisions(id: string, decisions: PolishImportDecision[]): Promise<PolishImportSession> {
+  return apiRequest<PolishImportSession>(`/polish-imports/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: { decisions },
+    timeoutMs: IMPORT_TIMEOUT_MS,
+  });
+}
+
+export function commitPolishImport(id: string, decisions: PolishImportDecision[]): Promise<PolishImportCommitResponse> {
+  return apiRequest<PolishImportCommitResponse>(`/polish-imports/${encodeURIComponent(id)}/commit`, {
+    method: "POST",
+    body: { decisions },
+    timeoutMs: IMPORT_TIMEOUT_MS,
+  });
+}
+
+export function deletePolishImport(id: string): Promise<void> {
+  return apiRequest<void>(`/polish-imports/${encodeURIComponent(id)}`, { method: "DELETE" });
 }

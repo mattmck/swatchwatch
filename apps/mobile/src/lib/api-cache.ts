@@ -58,6 +58,17 @@ export function createApiCache(store: KeyValueStore, clock: () => number = Date.
       }
     },
 
+    /** Remove one user's entries whose key (after the scope) matches `shouldDrop`. */
+    async invalidate(scope: string, shouldDrop: (key: string) => boolean): Promise<void> {
+      try {
+        const prefix = cacheStorageKey(scope, "");
+        const keys = (await store.getAllKeys()).filter((k) => k.startsWith(prefix) && shouldDrop(k.slice(prefix.length)));
+        await Promise.all(keys.map((k) => store.removeItem(k)));
+      } catch {
+        // A stale copy is replaced by the next fresh response anyway.
+      }
+    },
+
     /** Remove every cached entry (all users), e.g. on sign-out. */
     async clear(): Promise<void> {
       try {
@@ -80,3 +91,11 @@ const apiCache = createApiCache({
 export const readCache = apiCache.read;
 export const writeCache = apiCache.write;
 export const clearApiCache = apiCache.clear;
+
+/** Cache entries that depend on the inventory (Collection pages, Home counts, Insights, gaps). */
+export function isInventoryCacheKey(key: string): boolean {
+  return key.startsWith("polishes:") || key === "home-summary" || key === "collection-stats" || key === "gaps-hexes";
+}
+
+/** Drop the inventory-derived caches after a bulk write such as a CSV import. */
+export const invalidateInventoryCaches = (scope: string): Promise<void> => apiCache.invalidate(scope, isInventoryCacheKey);
