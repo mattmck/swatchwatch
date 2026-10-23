@@ -95,7 +95,7 @@ import type {
   CollectionExportFormat,
   CollectionStatsResponse,
 } from "swatchwatch-shared";
-import { WISHLIST_SHARE_FEATURE_DISABLED_CODE } from "swatchwatch-shared";
+import { WISHLIST_SHARE_FEATURE_DISABLED_CODE, type FeatureFlagsResponse } from "swatchwatch-shared";
 
 import type { NailPhotoResponse } from "swatchwatch-shared";
 
@@ -1391,4 +1391,12 @@ export async function getPublicLook(token: string): Promise<PublicLookResponse> 
     cache: "no-store",
   });
   return handleResponse<PublicLookResponse>(response);
+}
+
+// ── Feature flags (#313) ────────────────────────────────────────────────────
+
+/** Public feature flags (anonymous, cached 60s by the API). */
+export async function getFeatureFlags(): Promise<FeatureFlagsResponse> {
+  const response = await fetch(`${API_BASE_URL}/config/flags`);
+  return handleResponse<FeatureFlagsResponse>(response);
 }

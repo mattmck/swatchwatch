@@ -65,6 +65,7 @@ import {
 import { TOPPER_FINISHES } from "@/lib/pick-for-me";
 import { ColorLabLink, LookCard, LookSwatchStrip } from "./look-card";
 import { LookDrawer } from "./look-drawer";
+import { useFeatureFlags } from "@/lib/use-feature-flags";
 import { LookShareDialog, type LookShareTarget } from "./look-share-dialog";
 import { ShoppingListDialog } from "./shopping-list-dialog";
 import { VibeSelector } from "./vibe-selector";
@@ -145,6 +146,7 @@ function LooksPageContent() {
   // (then no Share link control is shown).
   const [shares, setShares] = useState<ReadonlyMap<string, LookShareStatus> | null>(null);
   const [shareTarget, setShareTarget] = useState<LookShareTarget | null>(null);
+  const { shareableLooks } = useFeatureFlags();
   const [shoppingId, setShoppingId] = useState<string | null>(null);
   const [drawerId, setDrawerId] = useState<string | null>(null);
   // Skin-tone preview: null = off, else 0 (cool) to 100 (warm). Cosmetic: only the swatch mat changes.
@@ -206,6 +208,7 @@ function LooksPageContent() {
   }, []);
 
   useEffect(() => {
+    if (!shareableLooks) return;
     let cancelled = false;
     listLookShares()
       .then((list) => {
@@ -217,7 +220,7 @@ function LooksPageContent() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [shareableLooks]);
 
   const setState = useCallback(
     (next: LooksState, trigger: LooksTrigger) => {

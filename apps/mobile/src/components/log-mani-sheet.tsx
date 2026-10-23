@@ -35,6 +35,8 @@ import { AppText, Button, Chip, ErrorBanner } from "./ui";
 export function LogManiSheet(props: {
   visible: boolean;
   initialPolish?: Polish | null;
+  /** Entries to start with (Looks' "Wear this"); wins over `initialPolish`. */
+  initialEntries?: readonly ManiEntry[];
   onClose: () => void;
   /** `photoError` is set when the mani was saved but its photo upload failed. */
   onLogged: (mani: Manicure, photoError?: string) => void;
@@ -42,22 +44,26 @@ export function LogManiSheet(props: {
   return (
     <Modal visible={props.visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={props.onClose}>
       {/* Mounted only while open, so every opening starts from a fresh form. */}
-      {props.visible && <SheetBody initialPolish={props.initialPolish} onClose={props.onClose} onLogged={props.onLogged} />}
+      {props.visible && <SheetBody initialPolish={props.initialPolish} initialEntries={props.initialEntries} onClose={props.onClose} onLogged={props.onLogged} />}
     </Modal>
   );
 }
 
 function SheetBody({
   initialPolish,
+  initialEntries,
   onClose,
   onLogged,
 }: {
   initialPolish?: Polish | null;
+  initialEntries?: readonly ManiEntry[];
   onClose: () => void;
   onLogged: (mani: Manicure, photoError?: string) => void;
 }) {
   const theme = useTheme();
-  const [entries, setEntries] = useState<ManiEntry[]>(() => (initialPolish ? [entryFromPolish(initialPolish)] : []));
+  const [entries, setEntries] = useState<ManiEntry[]>(() =>
+    initialEntries ? [...initialEntries] : initialPolish ? [entryFromPolish(initialPolish)] : [],
+  );
   const [wornOn, setWornOn] = useState(localIsoDate());
   const [notes, setNotes] = useState("");
   const [query, setQuery] = useState("");

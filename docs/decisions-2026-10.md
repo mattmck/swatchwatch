@@ -35,7 +35,7 @@ recommendation in place for the record.
 | D19 | Tracking the success metrics | Decided | Roadmap §4 metrics |
 | D20 | Milestones (M3 — On the go created 2026-10-23) | Decided | Housekeeping |
 | D21 | Owners for follow-ups | Decided | Follow-up work |
-| D22 | How feature flags work | Deferred ([#313](https://github.com/mattmck/swatchwatch/issues/313)) | Nothing yet |
+| D22 | How feature flags work | Decided 2026-10-23: option 2, thin env-backed wrapper ([#313](https://github.com/mattmck/swatchwatch/issues/313)) | Shipped: `lib/feature-flags.ts`, `GET /api/config/flags` |
 | D23 | Product categories and non-polish cleanup | Decided | #349, #347 |
 | D24 | Expo app and Looks started early; overnight merge-to-dev rule | Decided | #109, #384, #385, Looks follow-ups |
 
@@ -329,8 +329,13 @@ Open follow-ups taken from the PR descriptions. Give each one an owner and a tic
 - **D18:** cut one `dev → main` release before 27 Nov, following the pre-release checklist on #274.
 
 ### D22 — How feature flags work
-- **Status:** Deferred, see [#313](https://github.com/mattmck/swatchwatch/issues/313). Env vars for now; revisit
-  at the third or fourth flag, or when per-user targeting is needed.
+- **Status:** Decided 2026-10-23 (the fourth flag arrived): **option 2, a thin `isFeatureEnabled(flag)` wrapper backed by
+  env vars; move to Azure App Configuration when per-user targeting is needed.** See [#313](https://github.com/mattmck/swatchwatch/issues/313).
+- **Decision:** `packages/functions/src/lib/feature-flags.ts` is the one registry (flag name → env var, `public` or internal,
+  fail closed: only `true`, trimmed, any case; the batch flag keeps its older `1`/`yes`/`on` spellings). A later move to App
+  Configuration changes `isFeatureEnabled` only. `GET /api/config/flags` (anonymous, `Cache-Control: public, max-age=60`)
+  reports the public flags (`shareableWishlist`, `shareableLooks`) so the web asks once instead of probing feature endpoints;
+  the hex flags stay internal. The routes' `404 feature_disabled` answers stay as the fallback for a stale cache.
 
 ## E. Catalog hygiene
 
