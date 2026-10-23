@@ -60,6 +60,9 @@ storage connections, `BLOB_STORAGE_MAX_CONNECTIONS`). `dev` is 41 commits ahead 
 
 ## 2. Release `dev → main`
 
+> **Superseded in part by §6 (written after the afternoon merges):** this release now carries Terraform changes
+> (#447, #449, #457) and two post-deploy jobs. Read §6 before releasing.
+
 Same as the 10-19 runbook §2: release PR `chore: release dev → main` with a **merge commit**, Deploy Prod,
 `prod` environment has `OPENAI_LOCATION=centralus`, the Terraform plan shows no Azure OpenAI replace, alerts quiet
 for 30 minutes. No migrations, no Terraform changes. One new optional env var from #422, `BLOB_STORAGE_MAX_CONNECTIONS` (documented, default applies when unset).
@@ -175,3 +178,81 @@ Collected verbatim from the PR bodies, grouped. Each was the default the session
   Looks buy link / ♡ (no generated look had a catalog gap), a full light-mode pass, Android.
 - **Docs-sync check** over `main...origin/dev`: eight small gaps, fixed in the docs PR that carries this runbook.
 - **Not verified anywhere:** a real phone (camera scan, share sheet delivery, document picker), Android.
+
+## 6. Addendum: merged after this runbook (2026-10-23 afternoon)
+
+_Written during release prep, after `e095074` (the PR carrying this runbook)._
+
+| PR | What it changes |
+|---|---|
+| [#447](https://github.com/mattmck/swatchwatch/pull/447) | Terraform + Deploy Infra set `BLOB_STORAGE_MAX_CONNECTIONS` (default 16, already the code default) |
+| [#448](https://github.com/mattmck/swatchwatch/pull/448) | Local only: Azurite data in a named volume, compose project pinned |
+| [#449](https://github.com/mattmck/swatchwatch/pull/449) | Every Functions runtime setting managed by Terraform from a GitHub environment variable of the same name (defaults = code defaults); `INGESTION_AI_BATCH_POLL_SCHEDULE` goes from every 2 minutes to every minute; `AZURE_OPENAI_DEPLOYMENT` set to the hex deployment. Also removed the platform CORS block, which caused the dev outage below |
+| [#453](https://github.com/mattmck/swatchwatch/pull/453) | Admin console **Backfills** tab (`/admin?tab=backfills`): thumbnails, barcodes, gallery dedupe, product text, empty finishes and product prices in batches from the browser; three new admin endpoints for product text, finishes and prices |
+| [#451](https://github.com/mattmck/swatchwatch/pull/451) | Looks: three colors per look, accents never repeat across the three looks; steps addressed by index (web, mobile, public `/l/` page) |
+| [#454](https://github.com/mattmck/swatchwatch/pull/454) | Security fixes (`next` 16.4.2, `uuid` via `@expo/config-plugins`) and `.github/dependabot.yml` (weekly version updates on `dev`) |
+| [#452](https://github.com/mattmck/swatchwatch/pull/452) | Polish sets and bundles classified as non-polish (`accessory`, evidence `set`); more accessory rules (nippers, nail art, merch) |
+| [#456](https://github.com/mattmck/swatchwatch/pull/456) | New `ingestion-job-poison` queue trigger: a job whose message lands in the poison queue is failed (and alerts) instead of staying `running` |
+| [#457](https://github.com/mattmck/swatchwatch/pull/457) | Restores the platform CORS block (fix for the dev outage) |
+
+Still no migrations.
+
+### Dev outage, 16:30Z → #457
+
+#449 removed `site_config.cors` from the Function App so the app's `withCors` would be the only CORS layer. The
+Functions host reserves the `CORS_ALLOWED_ORIGINS` setting and JSON-parses it; with platform CORS configured Azure
+supplies that value, without it the host read the app's comma-separated list and threw `JsonReaderException` in
+`HostCorsOptionsSetup` on every request. Every dev route answered 500 and every Deploy Dev Functions step failed with
+"Failed to perform sync trigger" (#449, #453, #451, #454, #452, #456). #457 restores the block. Prod never ran #449's
+Terraform: its last deploy (17:00Z, Dependabot #418 merged straight into `main`) still has the platform CORS origins and
+answers 200, so with #457 the release plan shows **no CORS change** for prod.
+
+### `main` and `dev` histories
+
+Release #411 was **squash-merged**, so git does not know `dev`'s commits are in `main` (merge base is still #395's
+merge) and a `dev → main` PR conflicts in 20+ files. `main`'s content is already all on `dev` (#414 and #416 carry the
+#411 review fixes; #454 makes the same `next` 16.4.2 bump as #418), so a sync PR merges `origin/main` into `dev` with
+`git merge -s ours` (records the history, changes no file). Merge it before opening the release PR, and merge the
+release PR with **Create a merge commit**, not squash, so the next release starts clean.
+
+### Before the release (in addition to §1)
+
+1. #457 merged and **Deploy Dev green on the final `dev` head**, including the Functions step.
+2. `curl -s -o /dev/null -w '%{http_code}' https://<dev function app>/api/reference/finishes` → `200`, and
+   `az functionapp cors show` on dev lists the web origins.
+3. Dev smoke for the afternoon PRs: `/polishes/looks` shows three colors per look with no accent repeated across the
+   three; `/admin?tab=backfills` → Product text **Dry run** finishes with counts; the product category backfill dry
+   run (Review Queue tab) now lists sets/bundles to exclude.
+
+### Release (replaces "No migrations, no Terraform changes" in §2)
+
+- The prod Deploy Infra plan should show **only Function App app-setting additions** from #447/#449 (the new settings at
+  their defaults, values already in the prod GitHub environment per #449) and `INGESTION_AI_BATCH_POLL_SCHEDULE`
+  changing to `0 * * * * *`. **Stop if the plan removes `site_config.cors`**, or replaces any Azure OpenAI resource (the
+  existing guard covers that).
+- After Deploy Prod: `GET /api/reference/finishes` → 200 (the availability test also watches it), the web app loads a
+  signed-in page, and alerts stay quiet for 30 minutes.
+- Don't run Deploy Infra and a code deploy at the same time (#449: the settings check compares live vs Terraform).
+
+### After the release
+
+1. **Product categories on prod (#452, #349):** Admin → Review Queue → Product categories → **Dry run backfill**,
+   review sets/bundles and held accessories, then **Apply** (every change is logged and can be undone). Do the same on
+   dev first: dev's catalog was never reclassified.
+2. **Optional catalog backfills on prod (#453):** Admin → Backfills → **Dry run** Product text, Empty shade finishes and
+   Product prices; apply the ones whose dry run shows changes. Thumbnails, barcodes and gallery dedupe only if their
+   source data changed since the last CLI run.
+3. **Dependabot:** close #418 and #405 (superseded by #454). `dependabot.yml` is live once it is on `main`; the first
+   version-update PRs (against `dev`) should appear within minutes, then weekly. Alerts #348, #341, #338, #279, #257
+   stay open (no patched version, or an upstream bump needed; see #454).
+4. **Close by hand** with a comment naming the release PR: #313 (from §2). Check #347 against #452 and close it if the
+   prod backfill result matches.
+
+### Follow-ups found during release prep
+
+- **Rename the app's CORS settings** to names the Functions host does not read (for example `API_CORS_*`) in
+  `lib/http.ts`, Terraform, Deploy Infra, `local.settings.json.example` and the docs; then the platform CORS block can
+  go and the app is the only CORS layer, as #449 intended.
+- **`deploy-dev.yml` has no `concurrency` group:** three merges within four minutes started three overlapping
+  Functions deploys to the same app. Add `concurrency: { group: deploy-dev, cancel-in-progress: false }`.
+
