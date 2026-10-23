@@ -273,7 +273,7 @@ variable "openai_label_deployment_name" {
 variable "ingestion_ai_batch_poll_schedule" {
   description = "NCRONTAB schedule for ingestion-ai-batch-poller"
   type        = string
-  default     = "0 */2 * * * *"
+  default     = "0 * * * * *"
 }
 
 variable "ingestion_ai_batch_max_poll_jobs" {
@@ -421,4 +421,225 @@ variable "vault_backup_monthly_retention" {
   description = "ISO 8601 retention for the first vault backup of each month, Postgres and nail photos (e.g. P1Y). Changing it replaces the backup policies."
   type        = string
   default     = "P1Y"
+}
+
+# ── Function App runtime settings ─────────────────────────────
+# Every Functions app setting the code reads is Terraform-managed (app_settings
+# replaces the whole set on apply, so a setting edited only in the portal is
+# removed). Defaults equal the code defaults; Deploy Infra sets each one from the
+# GitHub environment variable of the same name as the app setting.
+
+variable "capture_frame_sweep_schedule" {
+  description = "NCRONTAB schedule of the capture-frame-sweep timer that deletes Rapid Add frame blobs past their retention (CAPTURE_FRAME_SWEEP_SCHEDULE)"
+  type        = string
+  default     = "0 0 * * * *"
+}
+
+variable "capture_frame_retention_seconds" {
+  description = "Age (seconds since image_asset.captured_at) after which the capture-frame sweep deletes a frame's blob, 3600-604800 (CAPTURE_FRAME_RETENTION_SECONDS)"
+  type        = number
+  default     = 86400
+
+  validation {
+    condition     = var.capture_frame_retention_seconds >= 3600 && var.capture_frame_retention_seconds <= 604800 && floor(var.capture_frame_retention_seconds) == var.capture_frame_retention_seconds
+    error_message = "capture_frame_retention_seconds must be a whole number between 3600 and 604800."
+  }
+}
+
+variable "cors_allowed_methods" {
+  description = "Access-Control-Allow-Methods sent by the API (lib/http.ts) (CORS_ALLOWED_METHODS). The app is the only CORS layer (the Function App has no platform cors block), so this is what browsers see"
+  type        = string
+  default     = "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+}
+
+variable "cors_allowed_headers" {
+  description = "Access-Control-Allow-Headers sent by the API; keep the trace headers so browser telemetry can correlate (CORS_ALLOWED_HEADERS). Any other request header fails the preflight"
+  type        = string
+  default     = "Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context"
+}
+
+variable "cors_support_credentials" {
+  description = "Add Access-Control-Allow-Credentials for matched origins (CORS_SUPPORT_CREDENTIALS). The API uses bearer tokens, so this stays off"
+  type        = bool
+  default     = false
+}
+
+variable "gallery_max_images_per_shade" {
+  description = "Max source_gallery images one product links per ingest (0 = unlimited) (GALLERY_MAX_IMAGES_PER_SHADE)"
+  type        = number
+  default     = 0
+}
+
+variable "hex_detection_batch_max_in_flight" {
+  description = "Pending Azure OpenAI batches per ingestion job before it pauses for awaiting_ai, 1-100 (HEX_DETECTION_BATCH_MAX_IN_FLIGHT)"
+  type        = number
+  default     = 20
+}
+
+variable "hex_detection_concurrency" {
+  description = "Parallel sync vision hex detection calls, 1-32; capped by the deployment's TPM quota (HEX_DETECTION_CONCURRENCY)"
+  type        = number
+  default     = 4
+}
+
+variable "hex_detection_delay_ms" {
+  description = "Pause after each sync vision call per slot, 0-60000 (0 disables) (HEX_DETECTION_DELAY_MS)"
+  type        = number
+  default     = 1000
+}
+
+variable "hex_snap_max_distance" {
+  description = "Largest OKLAB distance at which the snap step replaces the model hex with the nearest measured palette chip (HEX_SNAP_MAX_DISTANCE)"
+  type        = number
+  default     = 0.1
+}
+
+variable "image_proxy_id_ttl_seconds" {
+  description = "Minimum lifetime of public v2 image proxy ids, 3600-2592000 (IMAGE_PROXY_ID_TTL_SECONDS)"
+  type        = number
+  default     = 259200
+}
+
+variable "image_proxy_private_id_ttl_seconds" {
+  description = "Minimum lifetime of owner-scoped v3 image proxy ids, 300-86400 (IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS)"
+  type        = number
+  default     = 3600
+}
+
+variable "image_proxy_legacy_id_accept_until" {
+  description = "ISO-8601 cutoff for accepting legacy v1 image ids (empty = rejected) (IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL)"
+  type        = string
+  default     = ""
+}
+
+variable "ingestion_ai_image_proxy_origin" {
+  description = "Public origin for image proxy URLs sent to Azure OpenAI (empty = https://$WEBSITE_HOSTNAME) (INGESTION_AI_IMAGE_PROXY_ORIGIN)"
+  type        = string
+  default     = ""
+}
+
+variable "ingestion_job_log_max_entries" {
+  description = "Log entries kept per ingestion job, 100-2000 (INGESTION_JOB_LOG_MAX_ENTRIES)"
+  type        = number
+  default     = 500
+}
+
+variable "ingestion_log_flush_interval_ms" {
+  description = "Ingestion job log flush interval, 1000-120000 (INGESTION_LOG_FLUSH_INTERVAL_MS)"
+  type        = number
+  default     = 10000
+}
+
+variable "ingestion_worker_time_budget_ms" {
+  description = "Wall-clock budget per ingestion worker invocation before it checkpoints, 30000-270000 (INGESTION_WORKER_TIME_BUDGET_MS)"
+  type        = number
+  default     = 240000
+}
+
+variable "orphan_media_sweep_schedule" {
+  description = "NCRONTAB schedule of the orphan-media-sweep timer (ORPHAN_MEDIA_SWEEP_SCHEDULE)"
+  type        = string
+  default     = "0 17 3 * * *"
+}
+
+variable "orphan_media_sweep_grace_seconds" {
+  description = "Minimum captured_at age before an unreferenced user media asset is swept, 3600-2592000 (ORPHAN_MEDIA_SWEEP_GRACE_SECONDS)"
+  type        = number
+  default     = 86400
+}
+
+variable "orphan_media_sweep_batch_size" {
+  description = "Orphan media sweep rows per scan query, 1-1000 (ORPHAN_MEDIA_SWEEP_BATCH_SIZE)"
+  type        = number
+  default     = 100
+}
+
+variable "orphan_media_sweep_max_per_run" {
+  description = "Orphan media assets swept per run, 1-20000 (ORPHAN_MEDIA_SWEEP_MAX_PER_RUN)"
+  type        = number
+  default     = 2000
+}
+
+variable "pg_pool_max" {
+  description = "Postgres pool size per Function instance, 1-100 (PG_POOL_MAX)"
+  type        = number
+  default     = 10
+}
+
+variable "pg_idle_timeout_ms" {
+  description = "Postgres pool idle client timeout (PG_IDLE_TIMEOUT_MS)"
+  type        = number
+  default     = 30000
+}
+
+variable "pg_connection_timeout_ms" {
+  description = "Postgres connection timeout (PG_CONNECTION_TIMEOUT_MS)"
+  type        = number
+  default     = 15000
+}
+
+variable "pg_query_max_retries" {
+  description = "Retries for retry-safe queries on connection timeouts (PG_QUERY_MAX_RETRIES)"
+  type        = number
+  default     = 2
+}
+
+variable "pg_query_retry_base_ms" {
+  description = "Base delay between Postgres query retries (PG_QUERY_RETRY_BASE_MS)"
+  type        = number
+  default     = 250
+}
+
+variable "shopify_connector_request_timeout_ms" {
+  description = "Shopify connector request timeout, 5000-180000 (SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS)"
+  type        = number
+  default     = 45000
+}
+
+variable "shopify_connector_max_retries" {
+  description = "Shopify connector retries per request, 0-6 (SHOPIFY_CONNECTOR_MAX_RETRIES)"
+  type        = number
+  default     = 2
+}
+
+variable "shopify_connector_retry_base_delay_ms" {
+  description = "Shopify connector linear backoff base, 100-30000 (SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS)"
+  type        = number
+  default     = 1000
+}
+
+variable "source_image_container" {
+  description = "Blob container for catalog images and their thumbnail variants (the only container public v2 ids read) (SOURCE_IMAGE_CONTAINER)"
+  type        = string
+  default     = "source-images"
+}
+
+variable "source_image_max_edge_px" {
+  description = "Long edge above which catalog images are downscaled before storage, 256-8192 (SOURCE_IMAGE_MAX_EDGE_PX)"
+  type        = number
+  default     = 2048
+}
+
+variable "source_image_max_download_bytes" {
+  description = "Largest catalog image download accepted before resizing, 5-100 MB (SOURCE_IMAGE_MAX_DOWNLOAD_BYTES)"
+  type        = number
+  default     = 26214400
+}
+
+variable "suspicious_hex_repeat_min_records" {
+  description = "Records sharing one vendor hex in a source batch before it counts as a store template default (SUSPICIOUS_HEX_REPEAT_MIN_RECORDS)"
+  type        = number
+  default     = 3
+}
+
+variable "suspicious_hex_repeat_min_share" {
+  description = "Share (0-1) of a source batch sharing one vendor hex before it counts as a store template default (SUSPICIOUS_HEX_REPEAT_MIN_SHARE)"
+  type        = number
+  default     = 0.1
+}
+
+variable "suspicious_hex_grayscale_max_chroma" {
+  description = "OKLCH chroma below which a vendor hex is flagged as near-grayscale unless the name suggests gray (SUSPICIOUS_HEX_GRAYSCALE_MAX_CHROMA)"
+  type        = number
+  default     = 0.02
 }

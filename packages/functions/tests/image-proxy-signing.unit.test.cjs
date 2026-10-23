@@ -1048,6 +1048,28 @@ describe("functions/images — CORS for canvas reads", () => {
     assert.deepEqual(varyTokens(res), ["authorization", "origin"]);
   });
 
+  it("answers the preflight of a private v3 read (Authorization) without reading the id or the blob", async () => {
+    assert.ok(registeredRoutes.images.methods.includes("OPTIONS"));
+    const calls = mockBlobFetch();
+    const id = imageProxy.encodeImageProxyId(PRIVATE_URL, { ownerUserId: OWNER });
+    const preflight = (origin) =>
+      handler()(
+        { ...fakeRequest(id, undefined, { origin, "access-control-request-headers": "authorization" }), method: "OPTIONS" },
+        fakeContext()
+      );
+
+    const res = await preflight("https://foo-1.azurestaticapps.net");
+    assert.equal(res.status, 204);
+    assert.equal(res.headers.get("Access-Control-Allow-Origin"), "https://foo-1.azurestaticapps.net");
+    assert.match(res.headers.get("Access-Control-Allow-Headers"), /\bAuthorization\b/);
+    assert.deepEqual(varyTokens(res), ["origin"]);
+
+    const evil = await preflight("https://evil.example");
+    assert.equal(evil.status, 204);
+    assert.equal(evil.headers?.get?.("Access-Control-Allow-Origin") ?? null, null);
+    assert.equal(calls.length, 0);
+  });
+
   it("with CORS_ALLOWED_ORIGINS=*, public ids get * but owner-scoped v3 ids get no Access-Control-Allow-Origin", async () => {
     const httpPath = require.resolve("../dist/lib/http");
     const imagesPath = require.resolve("../dist/functions/images");
