@@ -421,6 +421,22 @@ Shareable looks: a public, read-only link for one saved look, behind the server 
 | `NAIL_PHOTO_MAX_UPLOAD_BYTES` | Largest decoded upload the API accepts (8 MB) |
 | `NAIL_PHOTO_MAX_EDGE` | Longest edge (px) the server stores (2048; larger photos are downscaled) |
 
+### `types/bottle-eval.ts`
+
+Admin bottle eval samples (`/api/bottle-eval-admin/*`): a labeled bottle (catalog shade, or brand + shade text when not in the catalog) with photos of its surfaces, kept as ground truth for bottle recognition.
+
+| Export | Description |
+|--------|-------------|
+| `BOTTLE_SURFACES` / `BottleSurface` | Photographed surfaces: `front`, `bottom`, `glass`, `box` |
+| `BOTTLE_SURFACE_FRAME_TYPE` | Capture frame type per surface: `glass` → `color`, the others → `label` |
+| `BOTTLE_EVAL_MAX_FRAMES` / `BOTTLE_EVAL_MAX_TEXT_LENGTH` / `BOTTLE_EVAL_MAX_NOTES_LENGTH` | Limits: 12 frames per sample, 200 chars for `brandText`/`shadeText`, 1000 for `notes` |
+| `BottleEvalSampleRequest` | `POST /api/bottle-eval-admin/samples` body: `shadeId`, or both `brandText` and `shadeText`; optional `notes` |
+| `BottleEvalFrameRequest` | `POST /api/bottle-eval-admin/samples/{id}/frames` body: `{ surface, image }` (base64 data URL) |
+| `BottleEvalFrame` / `BottleEvalSample` | Stored frame (`surface`, `frameType`, owner-scoped `v3` `imageUrl` or `null`, size) and sample (`shadeId`, `brand`, `shadeName`, `inCatalog`, `notes`, `frames`, creator, `createdAt`) |
+| `BottleEvalSampleResponse` / `BottleEvalSampleListResponse` | `{ sample }` and `{ samples, total, nextCursor }` |
+| `validateBottleEvalSampleInput(body)` / `BottleEvalSampleInput` | Pure request validator: trims, enforces the lengths and the shadeId-xor-text rule (`shadeId` a digits-only string or positive integer), blank `notes` → `null`; returns `{ kind: "catalog", … }` or `{ kind: "external", … }`, throws `BottleEvalValidationError` |
+| `parseBottleSurface(value)` | Exact surface name, else `null` |
+
 ### `types/reference.ts`
 
 | Type | Description |
