@@ -115,6 +115,7 @@ src/
     (app)/(tabs)/         Collection (index), Search, Add (Rapid Add), Profile
     (app)/polishes/[id].tsx   polish detail (web /polishes/detail?id=)
     (app)/match.tsx       Match to Collection (web /polishes/match)
+    (app)/looks.tsx       Looks (web /polishes/looks)
   api/client.ts           typed API client (mirrors apps/web/src/lib/api.ts)
   auth/                   auth provider, token holder, Entra config, secure storage
   components/             UI primitives, swatch, polish row, verdict card, frame strip,
@@ -136,6 +137,7 @@ src/
 | `/polishes/[id]` | Detail: swatches, finishes, hexes, status actions, Mark tried, Log today's mani (undo), private nail photo (owned only), owned-dupe callout, **Goes with** (`components/goes-with.tsx`: complementary / analogous / triadic targets from the shared harmony rules, each with the closest owned color polish within `PAIR_MAX_DISTANCE`, else the target swatch + "Find in catalog" → `/search?hex=`), buy link with the brand list price under it ("Brand price $14.00 · as of …" from `buyPrice` / `buyCurrency` / `buyPriceSeenAt`, `src/lib/buy-price.ts`; hidden without both price and currency) | `GET/PUT/DELETE /polishes/{id}`, `GET /polishes/{id}/dupes`, `GET /polishes?status=owned&category=color`, `POST/DELETE /manicures`, `GET/PUT/DELETE /inventory/{id}/nail-photo` |
 | `/search` (tab) | **Text \| By color** switch. Text: catalog search with Add / ♡ Wishlist behind the add guard (#266); fuzzy suggestions when nothing matches. By color (`components/color-search-panel.tsx`, `src/lib/color-search.ts`): 12-stop OKLCH hue strip + neutral and five lightness steps (no `react-native-svg`), color family chips, owned color polishes (D23) ranked by OKLAB `colorDistance` with HIGH / MEDIUM grade chips (dupe thresholds); "Catalog" asks the server for the nearest color polishes in the whole catalog (`?nearHex=`, narrowed only by selected family chips) with Add / ♡; with fewer than 10 owned matches the catalog is listed too, with a hint. `?hex=C0392B` (with or without `#`) or `?mode=color` opens By color | `GET /polishes?search=`, `GET /catalog/search`, `GET /polishes?category=color&family=&status=owned`, `GET /polishes?category=color&nearHex=&family=` |
 | `/add` (tab) | Rapid Add (below) | `/capture/*` |
+| `/looks` | Looks: vibe chips (occasion, mood, finish, Owned only, Include toppers), three looks from your owned polishes (`recommendLooks` from `swatchwatch-shared`, seeded; Shuffle changes the seed), steps marked Owned ✓ or Add with Add / ♡ behind the add guard, Save and a Saved tab, Wear this opens the mani sheet with the owned steps and roles | `GET /polishes?status=owned`, `GET /polishes?family=&nearHex=` (catalog gaps), `GET/POST/DELETE /looks`, `PUT /polishes/{id}`, `POST /manicures` |
 | `/match` | Match a photo to your collection, wishlist or the catalog; Add / ♡ Wishlist on matches | `POST /polishes/match-image`, `PUT /polishes/{id}` |
 | `/profile` (tab) | Signed-in user, API URL, sign-in mode, sign out | — |
 
@@ -163,6 +165,8 @@ src/
   photo as a frame, and hints alone can be checked.
 
 ## Home, mani log and offline
+
+- **Looks** (`/looks`, button on the Home panel) uses the web's recommender, which lives in `swatchwatch-shared` (`looks/recommend.ts`, so both apps recommend the same looks from the same seed). The screen fetches the owned list, runs `recommendLooks`, then asks `GET /polishes?family=&nearHex=` (and the topper finishes) for the catalog shades nearest the gaps and runs it again (`src/lib/looks.ts`, mirroring the web page). Save posts the same `SavedLookInput` snapshot the web saves, so saved looks appear on both. Not on mobile yet: per-step Swap, the details drawer, shopping list, share links, skin-tone preview, Color Lab.
 
 - **Pick for me** mirrors the web's weighting (`src/lib/pick-for-me.ts`: untried ×3, wear recency with a 2-day cooldown, thin hue × lightness cells ×2, never repeating the last three picks); the pick card logs today's mani in one tap with undo. **Pair it** uses the web's rule from `swatchwatch-shared` (`suggestPairings`, `color/pair-it.ts`): up to two owned pairings (complementary / analogous accent within `PAIR_MAX_DISTANCE`, or a topper) with swatches and a reason label; tap one to leave it out, and Log today's mani logs the pick (main) plus the selected pairings (accent / topper) as one manicure.
 - **Log a mani** (`src/lib/mani.ts`, `components/log-mani-sheet.tsx`) builds the same `POST /api/manicures` body as the web form; roles cycle on tap. An optional photo (camera or library, re-encoded to JPEG ≤ 2048 px) is uploaded with `PUT /api/manicures/{id}/photo` right after the mani is created, the same order as the web form; if only the upload fails, the mani stays logged and the Manis tab says the photo wasn't saved. The Manis list shows each mani's photo as a private thumbnail. The polish detail shows worn count, last worn and tried/untried.
