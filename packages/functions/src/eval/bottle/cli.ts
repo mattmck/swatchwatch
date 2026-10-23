@@ -10,14 +10,14 @@
  * `POST capture/{id}/frame` per frame in shooting order (the private blob sent as a data URL,
  * `frameType` from the frame, `quality: { surface }`), then the read-only `POST capture/{id}/check`.
  * `finalize` is never called, so nothing is added to the admin's collection. Prints the summary and
- * writes the JSON report to the (gitignored) results directory. Exit 1 on config or reachability
- * errors (before any sample is loaded or any JSON written) or when any sample errored.
+ * writes the JSON report to the (gitignored) results directory. Exit 1 on config, reachability or
+ * admin-token errors (before any sample is loaded or any JSON written) or when any sample errored.
  */
 import path from "path";
 import { readBlobFromStorageUrl, userMediaContainer } from "../../lib/blob-storage";
 import { closePool } from "../../lib/db";
 import { FUNCTIONS_ROOT, loadLocalSettings } from "../hex/env";
-import { assertApiReachable, createCaptureApi, EvalConfigError, type CaptureApi } from "./api-client";
+import { assertAdminToken, assertApiReachable, createCaptureApi, EvalConfigError, type CaptureApi } from "./api-client";
 import { formatSummary, writeReportJson } from "./report";
 import { loadEvalSamples } from "./samples";
 import { candidateShadeId, classifyOutcome, summarize } from "./scoring";
@@ -176,7 +176,7 @@ export async function main(argv: string[]): Promise<number> {
   const applied = loadLocalSettings();
   if (applied > 0) console.error(`Loaded ${applied} settings from local.settings.json`);
 
-  // Configuration and reachability first: nothing is loaded or written when they fail.
+  // Configuration, reachability and the admin token first: nothing is loaded or written when they fail.
   let api: CaptureApi;
   try {
     api = createCaptureApi(process.env.API_BASE_URL?.trim() || DEFAULT_API_BASE_URL, process.env.ADMIN_BEARER_TOKEN ?? "");
@@ -185,6 +185,7 @@ export async function main(argv: string[]): Promise<number> {
     }
     userMediaContainer();
     await assertApiReachable(api);
+    await assertAdminToken(api);
   } catch (error) {
     console.error(`eval:bottle: ${errorMessage(error)}`);
     return 1;

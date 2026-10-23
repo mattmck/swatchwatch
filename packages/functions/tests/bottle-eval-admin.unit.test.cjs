@@ -54,6 +54,7 @@ function resetState() {
     samples: new Map(), // id -> { shadeId, brandText, shadeText, notes, createdBy, createdAt }
     frames: new Map(), // frameId -> { sampleId, imageId, surface, frameType, position, width, height, sizeBytes, createdAt }
     assets: new Map(), // imageId -> { ownerId, storageUrl }
+    referencedImages: new Set(), // imageIds another table still references (kept by the NOT EXISTS guards)
     nextSampleId: 7,
     nextFrameId: 100,
     nextImageId: 500,
@@ -185,7 +186,7 @@ async function fakeQuery(sql, params = [], inTx = false) {
     const rows = [];
     for (const id of ids) {
       const asset = db.assets.get(id);
-      if (!asset) continue;
+      if (!asset || db.referencedImages.has(id)) continue;
       db.assets.delete(id);
       rows.push({ storageUrl: asset.storageUrl, ownerId: String(asset.ownerId) });
     }
@@ -712,6 +713,34 @@ describe("bottle-eval-admin routes", () => {
 
     const again = await call("bottle-eval-admin-sample", { method: "DELETE", params: { id: "7" } });
     assert.equal(again.status, 204);
+  });
+
+  it("DELETE sample keeps an image row another table references, and its blob", async () => {
+    addSample(7);
+    addFrame(7, ADMIN);
+    addFrame(7, ADMIN, { surface: "bottom", frameType: "barcode" });
+    const [goneImage, keptImage] = [...db.frames.values()].map((f) => f.imageId);
+    db.referencedImages.add(keptImage); // e.g. also linked as a mani-log photo
+    const res = await call("bottle-eval-admin-sample", { method: "DELETE", params: { id: "7" } });
+    assert.equal(res.status, 204);
+
+    const deleteImages = sqlEvents().find((e) => /DELETE\s+FROM\s+image_asset/i.test(e.sql));
+    assert.ok(deleteImages, "the image_asset DELETE ran");
+    const compact = deleteImages.sql.replace(/\s+/g, " ");
+    for (const guard of [
+      "NOT EXISTS (SELECT 1 FROM manicure m WHERE m.photo_image_id = image_asset.image_id)",
+      "NOT EXISTS (SELECT 1 FROM capture_frame cf WHERE cf.image_id = image_asset.image_id)",
+      "NOT EXISTS (SELECT 1 FROM inventory_nail_photo p WHERE p.image_id = image_asset.image_id)",
+    ]) {
+      assert.ok(compact.includes(guard), `the image DELETE guards with ${guard}`);
+    }
+    assert.match(compact, /RETURNING storage_url/);
+
+    assert.equal(db.assets.has(goneImage), false);
+    assert.equal(db.assets.has(keptImage), true, "the referenced image row is kept");
+    const blobDeletes = events.filter((e) => e.kind === "blob-delete");
+    assert.equal(blobDeletes.length, 1, "only the deleted row's blob is deleted");
+    assert.notEqual(blobDeletes[0].storageUrl, db.assets.get(keptImage).storageUrl);
   });
 
   it("DELETE frame answers 204, removes the frame and its image_asset, then the blob", async () => {

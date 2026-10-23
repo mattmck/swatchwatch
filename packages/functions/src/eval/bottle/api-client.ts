@@ -23,6 +23,8 @@ export class CaptureApiError extends Error {
 export interface CaptureApi {
   /** API base URL without a trailing slash (e.g. `http://localhost:7071/api`). */
   readonly baseUrl: string;
+  /** Authenticated `GET {baseUrl}/{path}`; resolves to the HTTP status (the body is discarded). */
+  getStatus(path: string): Promise<number>;
   start(meta: Record<string, unknown>): Promise<string>;
   frame(
     id: string,
@@ -81,6 +83,14 @@ export function createCaptureApi(baseUrl: string, bearer: string): CaptureApi {
 
   return {
     baseUrl: base,
+    async getStatus(path) {
+      const response = await fetch(`${base}/${path}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(REACHABILITY_TIMEOUT_MS),
+      });
+      await response.body?.cancel().catch(() => undefined);
+      return response.status;
+    },
     async start(meta) {
       const response = await post<CaptureStartResponse>("capture/start", { metadata: meta });
       if (typeof response.captureId !== "string" || !response.captureId) {
@@ -110,5 +120,25 @@ export async function assertApiReachable(api: CaptureApi): Promise<void> {
   }
   if (status !== 200) {
     throw new EvalConfigError(`API not reachable at ${url}: HTTP ${status}`);
+  }
+}
+
+/**
+ * One authenticated admin-only request (`GET {baseUrl}/bottle-eval-admin/samples?limit=1`) so a
+ * wrong or non-admin `ADMIN_BEARER_TOKEN` stops the run before any sample is loaded or any report
+ * written: 401 or 403 throws an `EvalConfigError` naming the status.
+ */
+export async function assertAdminToken(api: CaptureApi): Promise<void> {
+  const url = `${api.baseUrl}/bottle-eval-admin/samples?limit=1`;
+  let status: number;
+  try {
+    status = await api.getStatus("bottle-eval-admin/samples?limit=1");
+  } catch (error) {
+    throw new EvalConfigError(`Admin token check failed at ${url}: ${errorMessage(error)}`);
+  }
+  if (status === 401 || status === 403) {
+    throw new EvalConfigError(
+      `Admin token check at ${url} answered HTTP ${status}: ADMIN_BEARER_TOKEN must be an admin token (or dev:<adminId> locally)`
+    );
   }
 }

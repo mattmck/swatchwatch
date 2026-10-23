@@ -270,11 +270,19 @@ export const DELETE_FRAME_SQL = `
     AND frame_id = $2::bigint
   RETURNING image_id::text AS "imageId"`;
 
-/** The frames' private image rows (`$1` bigint[]); returns what the blob cleanup needs. */
+/**
+ * The frames' private image rows (`$1` bigint[]); returns what the blob cleanup needs. A row that
+ * something else still references (a mani-log photo, a capture frame, a nail photo) is kept, and
+ * since only returned rows have their blob deleted, its blob is kept too. The `bottle_eval_frame`
+ * rows are already deleted when this runs.
+ */
 export const DELETE_FRAME_IMAGES_SQL = `
   DELETE FROM image_asset
   WHERE image_id = ANY($1::bigint[])
     AND owner_type = 'user'
+    AND NOT EXISTS (SELECT 1 FROM manicure m WHERE m.photo_image_id = image_asset.image_id)
+    AND NOT EXISTS (SELECT 1 FROM capture_frame cf WHERE cf.image_id = image_asset.image_id)
+    AND NOT EXISTS (SELECT 1 FROM inventory_nail_photo p WHERE p.image_id = image_asset.image_id)
   RETURNING storage_url AS "storageUrl", owner_id::text AS "ownerId"`;
 
 export const DELETE_SAMPLE_SQL = `
