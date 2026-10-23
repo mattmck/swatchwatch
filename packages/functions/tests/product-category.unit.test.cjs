@@ -128,6 +128,11 @@ describe("lib/product-category — sets, bundles and more accessories (#347 foll
     shade("Mystery Packs, 10 bottles of nail polish", "Nail Polishes"),
     shade("Danse Macabre", "Nail Polishes", ["collection-set"]),
     shade("New Year Thermal Duo - Limited Edition", "Polish"),
+    // Hyphenated set and pack forms (CodeRabbit, #452).
+    shade("Nail Polish 3-Pack", "Nail Polish"),
+    shade("Holiday Gift-Set", "Nail Polish"),
+    shade("Fall Favorites 4-Piece", "Nail Polish"),
+    shade("Neon 2-Piece", "Nail Polish"),
   ];
   for (const input of SETS) {
     it(`${input.shadeName} is a set (accessory, evidence set)`, () => {
@@ -153,10 +158,17 @@ describe("lib/product-category — sets, bundles and more accessories (#347 foll
       shade("Ox - Brown Shimmer Nail Polish - Chinese Zodiac Collection", "Nail Polishes"),
       shade("Cheers to 10 Years - Blue Shimmer Nail Polish - 10th Anniversary Trio", "Nail Polish"),
       shade("A Grave Mistake - Purple Shimmer Indie Nail Polish - Halloween Quad 2024", "Nail Polish"),
+      shade("Citrine - Yellow Orange Holographic Polish - Anniversary Trio", "Holographic"),
+      // "2-in-1" is not a piece count.
+      shade("2-in-1 Glow", "Nail Polish"),
     ];
     for (const input of singles) {
       assert.equal(classifyProductCategory(input).category, "color", input.shadeName);
     }
+  });
+
+  it("gives set evidence to a set that also names an accessory, so the connector always skips it", () => {
+    assert.deepEqual(classifyProductCategory(shade("Nail Polish Sticker Gift Set", "Nail Polish")), { category: "accessory", evidence: "set" });
   });
 
   it("classifies the dev catalog examples", () => {

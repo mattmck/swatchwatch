@@ -26,8 +26,8 @@
 --                           Mooncat's "Nail Elixir" is typed "Nail Polishes" but tagged type:nail-tool);
 --                           or a multi-polish set/bundle: set wording in the strong text (bundle, duo,
 --                           trio, quad, gift/box/mani set, advent calendar, countdown box, full
---                           collection, "3 pack", ...; read from set_haystack, which cuts each name and
---                           title at "nail polish - ", where Dam names the release a single shade belongs
+--                           collection, "3-pack", ...; read from set_haystack, which cuts each name and
+--                           title at "... nail/holographic polish - ", where Dam names the release a single shade belongs
 --                           to: "... Blue Shimmer Nail Polish - 10th Anniversary Trio"), a shade name, color name, title or product type
 --                           with no " - " part that ENDS in set(s)/collection (mid-title they name single
 --                           shades, "Set On Fire"; Dam annotates singles "Ox - ... - Chinese Zodiac
@@ -62,9 +62,9 @@ WITH source_text AS (
       concat_ws(' ', COALESCE(e.raw_json ->> 'title', e.normalized_json ->> 'name'), e.raw_json ->> 'product_type', e.normalized_json ->> 'productType', e.normalized_json ->> 'category'),
       ' '
     ) AS strong_text,
-    -- The strong text for the set check, each title cut at "nail polish - " (Dam's release notes).
+    -- The strong text for the set check, each title cut at "... nail/holographic polish - " (Dam's release notes).
     string_agg(
-      concat_ws(' ', regexp_replace(lower(COALESCE(e.raw_json ->> 'title', e.normalized_json ->> 'name')), '(\mnail polish\M[^-–]*) [-–] .*$', '\1'), lower(e.raw_json ->> 'product_type'), lower(e.normalized_json ->> 'productType'), lower(e.normalized_json ->> 'category')),
+      concat_ws(' ', regexp_replace(lower(COALESCE(e.raw_json ->> 'title', e.normalized_json ->> 'name')), '(\m(nail|holographic) polish\M[^-–]*) [-–] .*$', '\1'), lower(e.raw_json ->> 'product_type'), lower(e.normalized_json ->> 'productType'), lower(e.normalized_json ->> 'category')),
       ' '
     ) AS set_text,
     -- Product types alone, for the polish-type check on ambiguous accessory words.
@@ -144,8 +144,8 @@ base AS (
     -- strong: name, title and product type. all: strong plus tags (hyphens/underscores as spaces).
     lower(concat_ws(' ', s.shade_name_canonical, s.color_name, st.strong_text)) AS strong_haystack,
     concat_ws(' ',
-      regexp_replace(lower(s.shade_name_canonical), '(\mnail polish\M[^-–]*) [-–] .*$', '\1'),
-      regexp_replace(lower(s.color_name), '(\mnail polish\M[^-–]*) [-–] .*$', '\1'),
+      regexp_replace(lower(s.shade_name_canonical), '(\m(nail|holographic) polish\M[^-–]*) [-–] .*$', '\1'),
+      regexp_replace(lower(s.color_name), '(\m(nail|holographic) polish\M[^-–]*) [-–] .*$', '\1'),
       st.set_text) AS set_haystack,
     lower(regexp_replace(concat_ws(' ', s.shade_name_canonical, s.color_name, st.strong_text, st.tag_text), '[_-]+', ' ', 'g')) AS haystack
   FROM shade s
@@ -161,7 +161,7 @@ SELECT
       OR (typed_non_polish AND type_haystack ~ '\mnail art\M')
       OR has_accessory_type_tag
       -- Sets and bundles: not a single polish.
-      OR set_haystack ~ '\m(bundles?(?! of\M)|duos?(?![ -]?chrome)|trios?|quads?|(gift|box|mani(cure)?) ?sets?|advent calendars?|countdown box(es)?|full collection|set of \d+|([2-9]|[1-9]\d+) ?(pcs?|pieces?|packs?|bottles))\M'
+      OR set_haystack ~ '\m(bundles?(?! of\M)|duos?(?![ -]?chrome)|trios?|quads?|(gift|box|mani(cure)?)[ -]?sets?|advent calendars?|countdown box(es)?|full collection|set of \d+|([2-9]|[1-9]\d+)[ -]?(pcs?|pieces?|packs?|bottles))\M'
       OR has_set_marker
       THEN 'accessory'
     -- Topper beats coat wording: Holo Taco files its flakie toppers under product type "Top Coat"

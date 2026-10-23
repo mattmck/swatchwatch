@@ -19,7 +19,7 @@
  *                 type tag (`nail-tool`, `type:nail-tool`, `type:accessories`, ...);
  *                 also a multi-polish set or bundle (evidence `set`): set wording in the strong text
  *                 (bundle, duo, trio, quad, gift set, advent calendar, countdown box, full collection,
- *                 "3 pack", ...; ignored after "Nail Polish - ", where Dam names the release a single
+ *                 "3-pack", ...; ignored after "... Nail/Holographic Polish - ", where Dam names the release a single
  *                 shade belongs to: "... Blue Shimmer Nail Polish - 10th Anniversary Trio"), a name, title or product type with no " - " part that ENDS in
  *                 set(s)/collection (Dam names single shades "Ox - ... - Chinese Zodiac Collection"),
  *                 or a whole set tag
@@ -77,9 +77,13 @@ const ACCESSORY_TYPE_TAG_REGEX = /^(?:type:)?(?:nail[-_ ]?)?(?:tools?|accessor(?
  * Box Overpours", "Buffer, 3 Pack"). "Bundle of ..." and "duo chrome" are polish names.
  */
 const SET_REGEX =
-  /\b(?:bundles?(?! of\b)|duos?(?![ -]?chrome)|trios?|quads?|(?:gift|box|mani(?:cure)?) ?sets?|advent calendars?|countdown box(?:es)?|full collection|set of \d+|(?:[2-9]|[1-9]\d+) ?(?:pcs?|pieces?|packs?|bottles))\b/;
-/** Dam's single-shade titles: "<name> - <description> Nail Polish - <release set>". Cut at the dash. */
-const SINGLE_SHADE_RELEASE_NOTE_REGEX = /(\bnail polish\b[^-–]*) [-–] .*$/;
+  /\b(?:bundles?(?! of\b)|duos?(?![ -]?chrome)|trios?|quads?|(?:gift|box|mani(?:cure)?)[ -]?sets?|advent calendars?|countdown box(?:es)?|full collection|set of \d+|(?:[2-9]|[1-9]\d+)[ -]?(?:pcs?|pieces?|packs?|bottles))\b/;
+/**
+ * Dam's single-shade titles: "<name> - <description> Nail Polish - <release set>" (or "Holographic
+ * Polish"). Cut at the dash. Not "Gel Polish": Beyond Polish titles bundles "<brand> - Gel Polish -
+ * ... Bundle".
+ */
+const SINGLE_SHADE_RELEASE_NOTE_REGEX = /(\b(?:nail|holographic) polish\b[^-–]*) [-–] .*$/;
 /**
  * "Set(s)" or "collection" as the LAST word of one name, title or product type, optionally followed
  * by a bracketed note ("Declassified Tacos Set [003]"). Mid-title they name single shades ("Set On
@@ -130,17 +134,12 @@ export function classifyProductCategory(input: ProductCategoryInput): ProductCat
   const typeText = joinText(products.map((product) => product.productType)).toLowerCase().replace(/[_-]+/g, " ");
   const typedNonPolish = typeText !== "" && !POLISH_SIGNAL_REGEX.test(typeText);
 
-  if (ACCESSORY_REGEX.test(strongText)) return { category: "accessory", evidence: "text" };
-  if (typedNonPolish && (AMBIGUOUS_ACCESSORY_REGEX.test(strongText) || NAIL_ART_TYPE_REGEX.test(typeText))) {
-    return { category: "accessory", evidence: "text" };
-  }
-  if (tags.some((tag) => ACCESSORY_TYPE_TAG_REGEX.test(tag.trim().toLowerCase()))) {
-    return { category: "accessory", evidence: "type-tag" };
-  }
   const segments = [input.shadeName, input.colorName, ...products.flatMap((product) => [product.title, product.productType])];
   const setText = joinText(
     segments.map((segment) => segment?.toLowerCase().replace(SINGLE_SHADE_RELEASE_NOTE_REGEX, "$1"))
   );
+  // Sets first, so a set that also names an accessory ("Sticker Gift Set") carries set evidence
+  // and the connector skips it even when a store filter keeps it.
   if (
     SET_REGEX.test(setText) ||
     segments.some((segment) => typeof segment === "string" && SET_SUFFIX_REGEX.test(segment.toLowerCase())) ||
@@ -149,6 +148,13 @@ export function classifyProductCategory(input: ProductCategoryInput): ProductCat
     return { category: "accessory", evidence: "set" };
   }
 
+  if (ACCESSORY_REGEX.test(strongText)) return { category: "accessory", evidence: "text" };
+  if (typedNonPolish && (AMBIGUOUS_ACCESSORY_REGEX.test(strongText) || NAIL_ART_TYPE_REGEX.test(typeText))) {
+    return { category: "accessory", evidence: "text" };
+  }
+  if (tags.some((tag) => ACCESSORY_TYPE_TAG_REGEX.test(tag.trim().toLowerCase()))) {
+    return { category: "accessory", evidence: "type-tag" };
+  }
   if (hasFinish(input.finishes, "topper") || hasFinish(input.detectedFinishes, "topper")) {
     return { category: "topper", evidence: "finish" };
   }
