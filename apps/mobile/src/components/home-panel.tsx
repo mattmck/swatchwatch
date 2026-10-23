@@ -5,6 +5,8 @@ import type { Polish } from "swatchwatch-shared";
 import { useAuth } from "@/auth/auth-provider";
 import { readCache, writeCache } from "@/lib/api-cache";
 import { createManicure, deleteManicure, errorMessage, listAllPolishes, listPolishes } from "@/api/client";
+import { GettingStarted } from "./getting-started";
+import { isBrandNewCollection } from "@/lib/onboarding";
 import { summarizeCollection, type CollectionSummary } from "@/lib/collection-summary";
 import {
   buildPickManicure,
@@ -150,13 +152,34 @@ export function HomePanel({ refreshToken }: { refreshToken: number }) {
   }
 
   const summary = data?.summary ?? savedSummary ?? undefined;
+  const checklist = summary ? <GettingStarted scope={scope} ownedCount={summary.owned} owned={data?.owned ?? []} /> : null;
+  // Nothing owned or wishlisted yet: the checklist and one friendly line, no empty stats or buttons.
+  if (isBrandNewCollection(summary)) {
+    return (
+      <View style={{ padding: theme.spacing(4), gap: theme.spacing(3) }} testID="home-new-user">
+        {checklist}
+        <AppText variant="small" muted style={{ textAlign: "center" }}>
+          Your counts, picks and insights show up here as soon as you add a polish.
+        </AppText>
+      </View>
+    );
+  }
   return (
     <View style={{ padding: theme.spacing(4), gap: theme.spacing(3) }}>
+      {checklist}
       <View style={{ flexDirection: "row", gap: theme.spacing(2) }}>
         <Stat label="Owned" value={summary?.owned} />
         <Stat label="Wishlist" value={summary?.wishlist} />
         <Stat label="Untried" value={summary?.untried} hint={summary?.untriedPercent != null ? `${summary.untriedPercent}%` : undefined} />
       </View>
+
+      <Button
+        title="Insights: spend, most worn, cost per wear"
+        variant="outline"
+        compact
+        onPress={() => router.push("/insights")}
+        testID="home-insights"
+      />
 
       {/* A failed refresh with saved counts on screen is already explained by the list's banner. */}
       {error && !summary && <ErrorBanner message={error} />}
@@ -229,6 +252,8 @@ export function HomePanel({ refreshToken }: { refreshToken: number }) {
           testID="pick-for-me"
         />
       )}
+      <Button title="Looks for today" variant="outline" onPress={() => router.push("/looks")} testID="open-looks" />
+      <Button title="Collection gaps" variant="outline" onPress={() => router.push("/gaps")} testID="home-gaps" />
     </View>
   );
 }

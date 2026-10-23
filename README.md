@@ -8,7 +8,7 @@
 ![PRs](https://img.shields.io/github/issues-pr/mattmck/swatchwatch)
 ![License](https://img.shields.io/github/license/mattmck/swatchwatch)
 
-Smart nail polish collection manager with voice input, color-based search, and cross-platform support.
+Smart nail polish collection manager with color-based search, barcode and camera Rapid Add, a mani log, Looks, and web and Expo mobile apps (public wishlist and look share links ship behind server flags, off by default).
 
 ## Architecture
 
@@ -93,7 +93,7 @@ npm run dev:mobile       # → mobile via Expo (see apps/mobile/README.md)
 | `npm run dev:shared` | Watch-build `packages/shared` only |
 | `npm run build` | Build all workspaces (shared → web → functions) |
 | `npm run build:shared` | Build shared types only |
-| `npm run build:web` | Build shared types + Next.js production build |
+| `npm run build:web` | Build shared types + Next.js production build + `out/sw.js` (PWA service worker precache, `apps/web/scripts/build-sw.mjs`) |
 | `npm run build:functions` | Build shared types + TypeScript compile for functions |
 | `npm run lint` | ESLint across all workspaces |
 | `npm run test` | Run workspace tests where present (includes Functions unit tests; builds shared + functions first) |
@@ -149,7 +149,7 @@ The web app is the most developed part of the project. Key pages:
 |-------|------|-------------|
 | `/` | `apps/web/src/app/(marketing)/page.tsx` | Marketing landing page |
 | `/dashboard` | `apps/web/src/app/(app)/dashboard/page.tsx` | Dashboard — stats cards, recent additions, finish breakdown |
-| `/admin` | `apps/web/src/app/(admin)/admin/page.tsx` | Unified admin console — tabs: Configuration (finish/harmony CRUD), Job Runs (reference-admin jobs), Admin Jobs (ingestion jobs), User Management (search/filter/sort users, detail dialog to edit the handle and suspend/reactivate, audit history, duplicate-account merge), Review Queue (user-submitted shades), Hex Labeling (eyedropper ground-truth hexes for the hex-detection eval) |
+| `/admin` | `apps/web/src/app/(admin)/admin/page.tsx` | Unified admin console — tabs: Configuration (finish/harmony CRUD), Job Runs (reference-admin jobs), Admin Jobs (ingestion jobs), User Management (search/filter/sort users, detail dialog to edit the handle and suspend/reactivate, audit history, duplicate-account merge), Review Queue (user-submitted shades), Hex Labeling (eyedropper ground-truth hexes for the hex-detection eval), Backfills (runs the `backfill:*` / `dedupe:gallery-images` jobs below in batches from the browser, dry run / apply, stop and resume) |
 | `/admin/reference-data` | `apps/web/src/app/(admin)/admin/reference-data/page.tsx` | Legacy redirect → `/admin?tab=configuration` |
 | `/admin/jobs` | `apps/web/src/app/(app)/admin/jobs/page.tsx` | Legacy redirect → `/admin?tab=admin-jobs` |
 | `/polishes` | `apps/web/src/app/(app)/polishes/page.tsx` | Collection table — search/filter/sort with All/My Collection scope toggle and URL-persisted list state |
@@ -195,6 +195,8 @@ For local blob storage (used by the Holo Taco connector and other ingestion jobs
 ```bash
 npm run dev:infra
 ```
+
+The compose project is pinned to `swatchwatch`, so running this from any worktree manages the same containers. Postgres data lives in the `swatchwatch_pgdata` volume and Azurite data in `swatchwatch_azuritedata`, so both survive container recreates. If Azurite exits at startup with `is not valid JSON` (its metadata files were corrupted, e.g. when Docker Desktop was killed mid-write), reset it to empty storage with `docker compose rm -sf azurite && docker volume rm swatchwatch_azuritedata && npm run dev:infra`. That drops local blobs, so re-run ingestion to repopulate catalog images.
 
 Then set the following in `packages/functions/local.settings.json` (the `agent-worktree.sh` script already uses these defaults for new worktrees):
 

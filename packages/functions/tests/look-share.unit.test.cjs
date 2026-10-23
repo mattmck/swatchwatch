@@ -716,6 +716,14 @@ describe("public look payload", () => {
     assert.equal(sqlCalls.length, 0);
   });
 
+  it("never carries a skin tone from the stored vibe into the public payload", () => {
+    const vibe = { occasion: "work", mood: "soft", finish: null, ownedOnly: true, skinTone: { undertone: "warm", depth: "deep" } };
+    const look = lookLib.toPublicLook({ templateId: "x", vibe, steps: [{ role: "base", hex: "#000000" }] }, null, new Map(), "http://h/api");
+    assert.ok(look);
+    assert.deepEqual(look.vibe, { occasion: "work", mood: "soft", finish: null });
+    assert.ok(!/skin|undertone|depth|deep|warm/i.test(JSON.stringify(look)), JSON.stringify(look));
+  });
+
   it("builds nothing from a stored look with an unusable vibe", () => {
     const shades = new Map();
     assert.equal(lookLib.toPublicLook({ templateId: "x", vibe: null, steps: [{ role: "base", hex: "#000000" }] }, null, shades, "http://h/api"), null);

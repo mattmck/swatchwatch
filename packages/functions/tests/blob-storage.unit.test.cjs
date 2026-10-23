@@ -10,6 +10,7 @@
  * - resize-on-ingest: oversize source images are downscaled/re-encoded and stored, downloads are capped
  * - pre-generated thumbnails: uploadSourceImageToBlob() / ensureImageVariants() write the missing
  *   `<blob>.c<n>.w<size>.webp` variants, skip existing ones, and never fail the ingest on a variant error
+ * - storage requests use the pooled Agent, PUT/HEAD retry connect errors, upload failures name their step
  * - userMediaContainer() default/override, and readBlobFromStorageUrl() scoped to it (#227)
  */
 const { describe, it, beforeEach, afterEach } = require("node:test");
@@ -29,6 +30,11 @@ const {
   BlobAccessDeniedError,
   UPLOAD_LIMITS,
 } = require("../dist/lib/blob-storage");
+
+// Blob Storage requests use lib/storage-http's transport; send them to the stubbed global.fetch.
+require("../dist/lib/storage-http").blobStorageTransport.fetch = (url, init) => global.fetch(url, init);
+// Storage PUT/HEAD retries (lib/storage-http) without the backoff, so failure cases stay fast.
+require("../dist/lib/storage-http").blobStorageRetry.baseDelayMs = 0;
 
 describe("lib/blob-storage — validateImageUpload", () => {
   it("normalizes and accepts an allowed image type within limits", () => {
@@ -162,9 +168,9 @@ describe("lib/blob-storage — uploadSourceImageToBlob", () => {
     }
   });
 
-  it("still uploads when the existence check fails", async () => {
+  it("still uploads when the existence check fails (after retrying the HEAD)", async () => {
     const { methods } = await runUpload(500);
-    assert.deepEqual(methods, ["GET", "HEAD", "PUT"]);
+    assert.deepEqual(methods, ["GET", "HEAD", "HEAD", "HEAD", "PUT"]);
   });
 
   it("writes every missing thumbnail variant as square cover WebP next to a new blob", async () => {

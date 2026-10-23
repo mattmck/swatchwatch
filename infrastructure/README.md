@@ -95,6 +95,8 @@ Recommended auth config (propagated to Terraform `TF_VAR_*` inputs):
 - Secrets: `AZURE_AD_B2C_CLIENT_ID`
 - Variables: `AZURE_AD_B2C_TENANT` (falls back to `NEXT_PUBLIC_B2C_TENANT` if unset). An `AUTH_DEV_BYPASS` variable is ignored: the workflow always passes `false`
 - Feature flags (default `false`): `SHAREABLE_WISHLIST_ENABLED`, `SHAREABLE_LOOKS_ENABLED`, `HEX_DETECTION_BATCH_ENABLED`, `HEX_DETECTION_SNAP_ENABLED` (exported as `TF_VAR_shareable_wishlist_enabled`, `TF_VAR_shareable_looks_enabled`, `TF_VAR_hex_detection_batch_enabled`, `TF_VAR_hex_detection_snap_enabled`)
+- `BLOB_STORAGE_MAX_CONNECTIONS` (default `16`): sockets per storage origin in the Function App's pooled Blob Storage HTTP agent (#422), exported as `TF_VAR_blob_storage_max_connections`
+- **Function App runtime settings:** every other app setting the Functions code reads is Terraform-managed from the GitHub environment variable of the same name, exported as `TF_VAR_<lowercase name>` with the code default as fallback: `HEX_DETECTION_BATCH_MIN_IMAGES`, `INGESTION_JOB_QUEUE_NAME`, `INGESTION_AI_BATCH_POLL_SCHEDULE`, `INGESTION_AI_BATCH_MAX_POLL_JOBS`, `AZURE_OPENAI_BATCH_API_VERSION`, `AZURE_OPENAI_BATCH_COMPLETION_WINDOW`, `AZURE_OPENAI_VISION_DETAIL`, `CAPTURE_FRAME_SWEEP_SCHEDULE`, `CAPTURE_FRAME_RETENTION_SECONDS`, `CORS_ALLOWED_METHODS`, `CORS_ALLOWED_HEADERS`, `CORS_SUPPORT_CREDENTIALS`, `GALLERY_MAX_IMAGES_PER_SHADE`, `HEX_DETECTION_BATCH_MAX_IN_FLIGHT`, `HEX_DETECTION_CONCURRENCY`, `HEX_DETECTION_DELAY_MS`, `HEX_SNAP_MAX_DISTANCE`, `IMAGE_PROXY_ID_TTL_SECONDS`, `IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS`, `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL`, `INGESTION_AI_IMAGE_PROXY_ORIGIN`, `INGESTION_JOB_LOG_MAX_ENTRIES`, `INGESTION_LOG_FLUSH_INTERVAL_MS`, `INGESTION_WORKER_TIME_BUDGET_MS`, `ORPHAN_MEDIA_SWEEP_SCHEDULE`, `ORPHAN_MEDIA_SWEEP_GRACE_SECONDS`, `ORPHAN_MEDIA_SWEEP_BATCH_SIZE`, `ORPHAN_MEDIA_SWEEP_MAX_PER_RUN`, `PG_POOL_MAX`, `PG_IDLE_TIMEOUT_MS`, `PG_CONNECTION_TIMEOUT_MS`, `PG_QUERY_MAX_RETRIES`, `PG_QUERY_RETRY_BASE_MS`, `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS`, `SHOPIFY_CONNECTOR_MAX_RETRIES`, `SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS`, `SOURCE_IMAGE_CONTAINER`, `SOURCE_IMAGE_MAX_EDGE_PX`, `SOURCE_IMAGE_MAX_DOWNLOAD_BYTES`, `SUSPICIOUS_HEX_REPEAT_MIN_RECORDS`, `SUSPICIOUS_HEX_REPEAT_MIN_SHARE`, `SUSPICIOUS_HEX_GRAYSCALE_MAX_CHROMA`. `OPENAI_LABEL_DEPLOYMENT_NAME` sets `AZURE_OPENAI_DEPLOYMENT_LABEL` (`TF_VAR_openai_label_deployment_name`). Leave `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL`, `INGESTION_AI_IMAGE_PROXY_ORIGIN` and `OPENAI_LABEL_DEPLOYMENT_NAME` undefined for their empty defaults (GitHub has no empty variables). `CAPTURE_FRAME_SWEEP_SCHEDULE` / `CAPTURE_FRAME_RETENTION_SECONDS` are provisioned ahead of the capture-frame sweep (bottle recognition design §9.1) and are unread until that code ships. Defaults and ranges: the variable table below and `packages/functions/README.md` → Environment Variables
 - External ID service principal (opt-in, see [External ID service principal](#external-id-service-principal-opt-in)): variables `MANAGE_CIAM_SERVICE_PRINCIPAL` (default `false`), `CIAM_TENANT_ID`, `CIAM_TERRAFORM_CLIENT_ID` (exported as `TF_VAR_manage_ciam_service_principal`, `TF_VAR_ciam_tenant_id`, `TF_VAR_ciam_terraform_client_id`)
 - Alerts (observability Phase 3, #281): `ALERT_EMAIL` (**secret** recommended so the address is masked in logs; a variable also works; exported as `TF_VAR_alert_email`, never committed to tfvars) and optional variable `ALERTS_ENABLED` (default `true` for `prod`, `false` otherwise; exported as `TF_VAR_alerts_enabled`)
 The workflow creates the state container automatically if it does not exist.
@@ -110,6 +112,21 @@ An Azure OpenAI account's `location` is immutable, so a plan with a different re
 3. **Plan guard.** Between `terraform plan` and `terraform apply` the **Guard against Azure OpenAI account replacement** step runs `terraform show -json tfplan` and fails with `::error::` (listing the addresses) if any `azurerm_cognitive_account` or `azurerm_cognitive_deployment` has a `delete` or replace (`delete`+`create`) action. This covers every Cognitive Services account (OpenAI, Speech, Document Intelligence). Only the boolean input `allow_openai_replace=true` lets such a plan apply (with a `::warning::`); it defaults to `false` and the committed callers never set it, so a push to `main` cannot replace an account either.
 
 To move or recreate an account on purpose: change the environment's `OPENAI_LOCATION` / `OPENAI_REGIONS` first, **and** update the hardcoded `openai_location` in the committed callers (`deploy-prod.yml` and `deploy-infra-prod.yml` for prod, `deploy-infra-dev.yml` for dev). Those callers pass their old region as the input on every push, and rule 2 fails a run whose input differs from the variable, so a push-triggered deploy would break after the move (or, with `allow_openai_replace`, move it back). Then dispatch `Deploy Infrastructure` with `allow_openai_replace: true`, and update the Function App's `AZURE_OPENAI_*` settings (Terraform rewires them from the new primary account).
+
+### Function App CORS
+
+`azurerm_linux_function_app.main` keeps a `site_config.cors` block (`local.function_cors_allowed_origins`: the environment's web origins, `http://localhost:3000` outside prod, and `https://*.azurestaticapps.net`). **Do not remove it** while the app reads `CORS_ALLOWED_ORIGINS`: the Azure Functions host reserves that setting name and JSON-parses it as its own origin list. With platform CORS configured Azure supplies a value the host can parse; without it the host reads the app's comma-separated list and throws `JsonReaderException` in `HostCorsOptionsSetup` on every request, so every route answers 500 and code deploys fail with "Failed to perform sync trigger" (dev, 2026-10-23, after #449 removed the block; restored the same day).
+
+The app's `withCors` (`packages/functions/src/lib/http.ts`, driven by the `CORS_*` app settings) still sets CORS headers on every response, and every HTTP route registers `"OPTIONS"` (`tests/http-routes.unit.test.cjs`). With the platform layer in front, App Service answers preflights itself (echoing the requested method and headers) and the app's `Access-Control-Expose-Headers: Request-Context` does not reach the browser. Making the app the only CORS layer needs the app settings renamed to names the host does not read first; then the block can go.
+
+After an apply that changes CORS, check the live app before relying on it:
+
+```bash
+az functionapp cors show -g <resource-group> -n <function-app>   # expect the web origins in allowedOrigins
+curl -si -X OPTIONS -H 'Origin: https://dev.swatchwatch.app' -H 'Access-Control-Request-Method: PATCH' -H 'Access-Control-Request-Headers: authorization,content-type' https://<function-app>.azurewebsites.net/api/polishes
+```
+
+The preflight should return 204 with the app's fixed `Access-Control-Allow-Methods` (`GET,POST,PUT,PATCH,DELETE,OPTIONS`), `Access-Control-Allow-Headers`, `Access-Control-Expose-Headers: Request-Context` and `Vary: Origin`; an origin outside the list gets a 204 without `Access-Control-Allow-Origin`. If `cors show` still lists origins after the apply, clear them with `az functionapp cors remove -g <resource-group> -n <function-app> --allowed-origins <each origin>` (the next plan would otherwise keep proposing the removal).
 
 ## Resources Provisioned
 
@@ -141,7 +158,7 @@ To move or recreate an account on purpose: change the environment's `OPENAI_LOCA
 | Availability tests *(alerts)* | `azurerm_application_insights_standard_web_test.availability["web"\|"api"]` | Standard tests every `availability_test_frequency_seconds` from `availability_test_locations`: web home page (custom domain) and `GET /api/reference/finishes`; expect 200 and an SSL cert valid for 7+ days. Billed per execution |
 | Availability alerts *(alerts)* | `azurerm_monitor_metric_alert.availability["web"\|"api"]` | Fires when 2+ test locations fail (sev 1) |
 | App Service Plan | `azurerm_service_plan.main` | Linux Consumption plan (Y1) |
-| Function App | `azurerm_linux_function_app.main` | Node 22 function host (Managed Identity enabled) |
+| Function App | `azurerm_linux_function_app.main` | Node 22 function host (Managed Identity enabled); platform CORS (`site_config.cors`) must stay while the app uses the host-reserved `CORS_ALLOWED_ORIGINS` name (see [Function App CORS](#function-app-cors)) |
 | Static Web App | `azurerm_static_web_app.main` | Next.js frontend (Standard tier) |
 | Document Intelligence *(optional)* | `azurerm_cognitive_account.document_intelligence` | Server-side OCR for capture pipeline label/barcode extraction (`enable_document_intelligence=true`) |
 | Speech Services | `azurerm_cognitive_account.speech` | Speech-to-text for voice input |
@@ -202,8 +219,44 @@ To move or recreate an account on purpose: change the environment's `OPENAI_LOCA
 | `hex_detection_batch_enabled` | `false` | Feature-flag Function App setting `HEX_DETECTION_BATCH_ENABLED` |
 | `hex_detection_batch_min_images` | `5` | Function App setting `HEX_DETECTION_BATCH_MIN_IMAGES` threshold before batch mode |
 | `hex_detection_snap_enabled` | `false` | Feature-flag Function App setting `HEX_DETECTION_SNAP_ENABLED` — snap vision-detected hexes to the nearest palette chip measured from the same image (`detected_hex_method = 'vision-snap'`) |
-| `ingestion_ai_batch_poll_schedule` | `0 */2 * * * *` | Function App setting `INGESTION_AI_BATCH_POLL_SCHEDULE` for timer polling |
+| `blob_storage_max_connections` | `16` | Function App setting `BLOB_STORAGE_MAX_CONNECTIONS` — sockets per storage origin in the pooled keep-alive agent every Blob Storage REST call uses (1–128; #422). Raise together with the plan's outbound SNAT budget |
+| `ingestion_ai_batch_poll_schedule` | `0 * * * * *` | Function App setting `INGESTION_AI_BATCH_POLL_SCHEDULE` for timer polling (every minute, the code default) |
 | `ingestion_ai_batch_max_poll_jobs` | `10` | Function App setting `INGESTION_AI_BATCH_MAX_POLL_JOBS` per poll run |
+| `capture_frame_sweep_schedule` | `0 0 * * * *` | Function App setting `CAPTURE_FRAME_SWEEP_SCHEDULE` — NCRONTAB schedule of the capture-frame-sweep timer that deletes Rapid Add frame blobs past their retention |
+| `capture_frame_retention_seconds` | `86400` | Function App setting `CAPTURE_FRAME_RETENTION_SECONDS` — Age (seconds since image_asset.captured_at) after which the capture-frame sweep deletes a frame's blob, 3600-604800 |
+| `cors_allowed_methods` | `GET,POST,PUT,PATCH,DELETE,OPTIONS` | Function App setting `CORS_ALLOWED_METHODS` — Access-Control-Allow-Methods sent by the API (lib/http.ts). The app is the only CORS layer (the Function App has no platform `site_config.cors` block), so this is what browsers see |
+| `cors_allowed_headers` | `Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context` | Function App setting `CORS_ALLOWED_HEADERS` — Access-Control-Allow-Headers sent by the API; keep the trace headers so browser telemetry can correlate. Any other request header fails the preflight |
+| `cors_support_credentials` | `false` | Function App setting `CORS_SUPPORT_CREDENTIALS` — Add Access-Control-Allow-Credentials for matched origins. The API uses bearer tokens, so this stays off |
+| `gallery_max_images_per_shade` | `0` | Function App setting `GALLERY_MAX_IMAGES_PER_SHADE` — Max source_gallery images one product links per ingest (0 = unlimited) |
+| `hex_detection_batch_max_in_flight` | `20` | Function App setting `HEX_DETECTION_BATCH_MAX_IN_FLIGHT` — Pending Azure OpenAI batches per ingestion job before it pauses for awaiting_ai, 1-100 |
+| `hex_detection_concurrency` | `4` | Function App setting `HEX_DETECTION_CONCURRENCY` — Parallel sync vision hex detection calls, 1-32; capped by the deployment's TPM quota |
+| `hex_detection_delay_ms` | `1000` | Function App setting `HEX_DETECTION_DELAY_MS` — Pause after each sync vision call per slot, 0-60000 (0 disables) |
+| `hex_snap_max_distance` | `0.1` | Function App setting `HEX_SNAP_MAX_DISTANCE` — Largest OKLAB distance at which the snap step replaces the model hex with the nearest measured palette chip |
+| `image_proxy_id_ttl_seconds` | `259200` | Function App setting `IMAGE_PROXY_ID_TTL_SECONDS` — Minimum lifetime of public v2 image proxy ids, 3600-2592000 |
+| `image_proxy_private_id_ttl_seconds` | `3600` | Function App setting `IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS` — Minimum lifetime of owner-scoped v3 image proxy ids, 300-86400 |
+| `image_proxy_legacy_id_accept_until` | `""` | Function App setting `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL` — ISO-8601 cutoff for accepting legacy v1 image ids (empty = rejected) |
+| `ingestion_ai_image_proxy_origin` | `""` | Function App setting `INGESTION_AI_IMAGE_PROXY_ORIGIN` — Public origin for image proxy URLs sent to Azure OpenAI (empty = https://$WEBSITE_HOSTNAME) |
+| `ingestion_job_log_max_entries` | `500` | Function App setting `INGESTION_JOB_LOG_MAX_ENTRIES` — Log entries kept per ingestion job, 100-2000 |
+| `ingestion_log_flush_interval_ms` | `10000` | Function App setting `INGESTION_LOG_FLUSH_INTERVAL_MS` — Ingestion job log flush interval, 1000-120000 |
+| `ingestion_worker_time_budget_ms` | `240000` | Function App setting `INGESTION_WORKER_TIME_BUDGET_MS` — Wall-clock budget per ingestion worker invocation before it checkpoints, 30000-270000 |
+| `orphan_media_sweep_schedule` | `0 17 3 * * *` | Function App setting `ORPHAN_MEDIA_SWEEP_SCHEDULE` — NCRONTAB schedule of the orphan-media-sweep timer |
+| `orphan_media_sweep_grace_seconds` | `86400` | Function App setting `ORPHAN_MEDIA_SWEEP_GRACE_SECONDS` — Minimum captured_at age before an unreferenced user media asset is swept, 3600-2592000 |
+| `orphan_media_sweep_batch_size` | `100` | Function App setting `ORPHAN_MEDIA_SWEEP_BATCH_SIZE` — Orphan media sweep rows per scan query, 1-1000 |
+| `orphan_media_sweep_max_per_run` | `2000` | Function App setting `ORPHAN_MEDIA_SWEEP_MAX_PER_RUN` — Orphan media assets swept per run, 1-20000 |
+| `pg_pool_max` | `10` | Function App setting `PG_POOL_MAX` — Postgres pool size per Function instance, 1-100 |
+| `pg_idle_timeout_ms` | `30000` | Function App setting `PG_IDLE_TIMEOUT_MS` — Postgres pool idle client timeout |
+| `pg_connection_timeout_ms` | `15000` | Function App setting `PG_CONNECTION_TIMEOUT_MS` — Postgres connection timeout |
+| `pg_query_max_retries` | `2` | Function App setting `PG_QUERY_MAX_RETRIES` — Retries for retry-safe queries on connection timeouts |
+| `pg_query_retry_base_ms` | `250` | Function App setting `PG_QUERY_RETRY_BASE_MS` — Base delay between Postgres query retries |
+| `shopify_connector_request_timeout_ms` | `45000` | Function App setting `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS` — Shopify connector request timeout, 5000-180000 |
+| `shopify_connector_max_retries` | `2` | Function App setting `SHOPIFY_CONNECTOR_MAX_RETRIES` — Shopify connector retries per request, 0-6 |
+| `shopify_connector_retry_base_delay_ms` | `1000` | Function App setting `SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS` — Shopify connector linear backoff base, 100-30000 |
+| `source_image_container` | `source-images` | Function App setting `SOURCE_IMAGE_CONTAINER` — Blob container for catalog images and their thumbnail variants (the only container public v2 ids read) |
+| `source_image_max_edge_px` | `2048` | Function App setting `SOURCE_IMAGE_MAX_EDGE_PX` — Long edge above which catalog images are downscaled before storage, 256-8192 |
+| `source_image_max_download_bytes` | `26214400` | Function App setting `SOURCE_IMAGE_MAX_DOWNLOAD_BYTES` — Largest catalog image download accepted before resizing, 5-100 MB |
+| `suspicious_hex_repeat_min_records` | `3` | Function App setting `SUSPICIOUS_HEX_REPEAT_MIN_RECORDS` — Records sharing one vendor hex in a source batch before it counts as a store template default |
+| `suspicious_hex_repeat_min_share` | `0.1` | Function App setting `SUSPICIOUS_HEX_REPEAT_MIN_SHARE` — Share (0-1) of a source batch sharing one vendor hex before it counts as a store template default |
+| `suspicious_hex_grayscale_max_chroma` | `0.02` | Function App setting `SUSPICIOUS_HEX_GRAYSCALE_MAX_CHROMA` — OKLCH chroma below which a vendor hex is flagged as near-grayscale unless the name suggests gray |
 | `appinsights_daily_cap_gb` | `null` (→ `appinsights_daily_cap_gb_defaults`) | Daily ingestion cap (GB) for Application Insights and the Log Analytics workspace; telemetry stops for the rest of the day once hit (the daily cap alert reports it) |
 | `appinsights_daily_cap_gb_defaults` | `{ dev = 0.5, prod = 2 }` | Per-environment default cap when `appinsights_daily_cap_gb` is null; unlisted environments use the `dev` entry (decision D15) |
 | `alerts_enabled` | `null` (→ `true` prod, `false` otherwise) | Create the action group, alert rules and availability tests (decision D16) |

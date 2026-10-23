@@ -23,7 +23,7 @@ M2; drafted against 17 open issues and 2 milestones):
 | Land now | #256, #258, #237 (release #276); #245 closed (fixed by #246, hardened in #237); #227 owner-scoped image ids | ✅ All shipped; #227 closed |
 | Decide + do | #224 multi-finish follow-ups (3 decisions) | ✅ Shipped in #288 + #306 (decision D11), closed |
 | Fold into this roadmap | #21 camera capture (web half), #103 color taxonomy, #104 LacquerTracker research, #45 admin users (remaining bits), #226 ingestion logs | ✅ #21 web half (#294; mobile remainder moved to #109), #103 (#293), #104 (closed, site dead), #226 (#290) closed. #45: the review-queue half shipped in #298, user management in #356; closed by release #365 |
-| Defer to 2027 | #109 Expo scaffold, #2 ESM migration, #117 Redis, #158/#228 APIM gateway, #102 (superseded by `finish_type` admin) | #109 started early on 2026-10-19 ([D24](decisions-2026-10.md#d24--expo-app-and-looks-started-early-overnight-merge-to-dev-rule-2026-10-19)); #158/#228 closed as won't-do on 2026-10-23 ([D25](decisions-2026-10.md#d25--azure-openai-apim-gateway-removed-2026-10-23)); the rest still deferred, see §5 and [retro-m2.md](retro-m2.md) Q1 candidates |
+| Defer to 2027 | #109 Expo scaffold, #2 ESM migration, #117 Redis (closed 2026-10-23), #158/#228 APIM gateway, #102 (superseded by `finish_type` admin) | #109 started early on 2026-10-19 ([D24](decisions-2026-10.md#d24--expo-app-and-looks-started-early-overnight-merge-to-dev-rule-2026-10-19)); #158/#228 closed as won't-do on 2026-10-23 ([D25](decisions-2026-10.md#d25--azure-openai-apim-gateway-removed-2026-10-23)); the rest still deferred, see §5 and [retro-m2.md](retro-m2.md) Q1 candidates |
 
 Hygiene: M0 and M1 are closed; **M2 — Collector's companion** holds the batch. Release #340
 (2026-10-17) promoted every Sprint 1–4 item below to `main` as one squash commit. Deploy Prod run
@@ -37,22 +37,34 @@ post-release follow-ups #344–#368 to `main` and closed #45, #319 and #320. Two
 then merged into `dev` (2026-10-20, 03:00Z): the 10-18 batch #370–#383 (runbook:
 [overnight-2026-10-18-release-runbook.md](overnight-2026-10-18-release-runbook.md)) and the
 10-19 batch #388–#399 (runbook:
-[overnight-2026-10-19-release-runbook.md](overnight-2026-10-19-release-runbook.md)). Closing keywords only fire on `main`, so these issues stay open until the next
-`dev → main` release and are then closed by hand, as after #340: #328, #105 (web half; the mobile
-half is in #109), #348, #349, #347, #321, #386, #385, #384 and #387.
+[overnight-2026-10-19-release-runbook.md](overnight-2026-10-19-release-runbook.md)). Release
+[#411](https://github.com/mattmck/swatchwatch/pull/411) (2026-10-23) promoted both batches to
+`main`; their issues (#328, #348, #349, #347, #321, #386, #385, #384, #387) were then closed by
+hand, as after #340. #105 stays open for its mobile half.
+
+Since #411, `dev` is ahead of `main` again with: brand list prices on buy-from-brand links
+(#406), the server-side `nearHex` color-distance sort (#407), public share links for saved
+looks behind `SHAREABLE_LOOKS_ENABLED` (#408), a retry for transient catalog image download
+failures (#409), CI ordering of dev infra before the code deploy (#410), web token renewal
+(#403), the indie batch 3 stores (#415), removal of the Azure OpenAI APIM gateway (#413, D25),
+the env-var regrouping across the docs (#412) and docs fixes (#414, #416, #417). They reach `main`
+with the next `dev → main` release. The docs sweep for #274 (this update) ran in the 2026-10-23 overnight batch.
 
 > **Status (2026-10-20):** the Expo app (#109) and the Looks page started early instead of in
 > Q1, and overnight sessions now merge their own PRs into `dev`. See
 > [D24](decisions-2026-10.md#d24--expo-app-and-looks-started-early-overnight-merge-to-dev-rule-2026-10-19).
 
-**Remaining for M2** (updated 2026-10-20; shipped items removed):
+**Remaining for M2** (updated 2026-10-23; the M2 milestone holds four open issues):
 
-- #273 indie Shopify sources: Night Owl, Pahlish, Emily de Molly and Cirque Colors are in; batch 2 (#388) added no store, since every remaining Shopify candidate's terms forbid automated access; batch 3 (2026-10-22) added Stella Chroma, Lemming Lacquer and Sweet & Sour Lacquer after the owner received each store's written permission by email (seven enabled indie stores, the #273 target met)
+- #273 indie Shopify sources: closed 2026-10-23. Seven stores are enabled (Night Owl, Pahlish, Emily de Molly and Cirque Colors, then Stella Chroma, Lemming Lacquer and Sweet & Sour Lacquer on 2026-10-22 with written permission); batch 2 (#388) added none, since every remaining Shopify candidate's terms forbid automated access. Measuring the catalog growth on prod is still open (see the retro metrics)
 - #322 label ground truth with the color sip tool, then run the hex detection gate (D4)
 - #325 verify camera Rapid Add on real iOS and Android devices
 - #326 nail-photo upload/delete end-to-end against a live host
-- #313 decide the feature-flag mechanism (env vars vs. Azure App Configuration); not in the M2 milestone but raised by #305
 - #274 release, docs sweep and retro (skeleton in [retro-m2.md](retro-m2.md))
+
+Not in M2: #281 (Application Insights observability, no milestone). **M3 — On the go** (due 2027-03-30,
+[D20](decisions-2026-10.md#d20--milestones)) holds #109 (Expo app), #105 (image-to-polish, mobile half), #313 (decide
+the feature-flag mechanism, raised by #305) and #2 (ESM migration).
 
 ## 2. What nail polish nerds want (research)
 
@@ -225,13 +237,13 @@ eval harness (`npm run eval:hex`).
   and [looks-experience-plan.md](looks-experience-plan.md).
 - **Ingredients / clean-beauty flags (Epic 5)**, **retail/affiliate (Epic 6)** — real
   asks, but behind the collector basics. The "Buy from brand" link is the cheap hook.
-- **Redis (#117)** — no concrete need yet; revisit if share-page rate limiting or
+- ~~**Redis (#117)**~~ — closed 2026-10-23; no concrete need. Reopen if share-page rate limiting or
   catalog-search caching becomes measurable.
 - ~~**APIM OpenAI gateway (#228/#158)**~~ — **deleted on 2026-10-23**
   ([D25](decisions-2026-10.md#d25--azure-openai-apim-gateway-removed-2026-10-23)): the
   `AZURE_OPENAI_USE_GATEWAY` path, the Terraform APIM resources and the Function App
   gateway settings are gone, so the 404 trap can't recur; #158 and #228 closed as won't-do.
-- **ESM migration (#2)** — pure debt; pair it with the Expo work when the toolchain
+- **ESM migration (#2)** — pure debt; now in the M3 milestone, pair it with the Expo work when the toolchain
   gets touched anyway.
 
 ## 6. Decisions (resolved 2026-10-17)

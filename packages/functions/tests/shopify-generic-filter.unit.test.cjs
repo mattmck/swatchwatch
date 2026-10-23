@@ -210,8 +210,9 @@ describe("lib/connectors/shopify-generic — isBundle", () => {
 
   it("treats Mooncat's 'collection-set' tag as a bundle (#292)", () => {
     // Real Mooncat set tagged only collection-set (no bundle:* tag), product_type "Nail Polishes".
+    // The product-category gate rejects it too now (set tag, #347 follow-up).
     const tags = ["collection-set", "lunar-sale"];
-    assert.equal(isNailPolish("Nail Polishes", tags), true);
+    assert.equal(isNailPolish("Nail Polishes", tags), false);
     assert.equal(isBundle(tags), true);
   });
 

@@ -100,7 +100,7 @@ import type {
   CollectionExportFormat,
   CollectionStatsResponse,
 } from "swatchwatch-shared";
-import { WISHLIST_SHARE_FEATURE_DISABLED_CODE } from "swatchwatch-shared";
+import { WISHLIST_SHARE_FEATURE_DISABLED_CODE, type FeatureFlagsResponse } from "swatchwatch-shared";
 
 import type { NailPhotoResponse } from "swatchwatch-shared";
 
@@ -1320,6 +1320,22 @@ export async function runProductCategoryBackfill(
   return handleResponse<ProductCategoryBackfillReport>(response);
 }
 
+/**
+ * One batch of a keyset-paginated admin backfill (`POST /api/<path>`, e.g.
+ * `images-admin/variants/backfill`); the admin console's Backfills tab loops over the reports.
+ */
+export async function runAdminBackfillBatch(
+  path: string,
+  body: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const response = await fetch(`${API_BASE_URL}/${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(body),
+  });
+  return handleResponse<Record<string, unknown>>(response);
+}
+
 /** Browse shades by product category (`GET /api/shades-admin/product-category`). */
 export async function listShadesByProductCategory(params?: {
   categories?: ProductCategory[];
@@ -1461,4 +1477,12 @@ export async function getPublicLook(token: string): Promise<PublicLookResponse> 
     cache: "no-store",
   });
   return handleResponse<PublicLookResponse>(response);
+}
+
+// ── Feature flags (#313) ────────────────────────────────────────────────────
+
+/** Public feature flags (anonymous, cached 60s by the API). */
+export async function getFeatureFlags(): Promise<FeatureFlagsResponse> {
+  const response = await fetch(`${API_BASE_URL}/config/flags`);
+  return handleResponse<FeatureFlagsResponse>(response);
 }

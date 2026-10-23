@@ -19,6 +19,8 @@ export interface VerdictCardProps {
   onPick: (candidate: CaptureCheckCandidate) => void;
   onNoneOfThese: () => void;
   onScanLabel: () => void;
+  /** "Not in the catalog": open the manual add form with the scanned barcode. */
+  onAddManually: () => void;
   onScanNext: () => void;
 }
 
@@ -171,13 +173,14 @@ export function VerdictCard(props: VerdictCardProps) {
       title = "Not in the catalog";
       body = (
         <AppText variant="small" muted>
-          We couldn&apos;t match this{verdict.gtin ? ` (barcode ${verdict.gtin})` : ""}. Photograph the label, or search
-          by name.
+          We couldn&apos;t match this{verdict.gtin ? ` (barcode ${verdict.gtin})` : ""}. Photograph the label, search
+          by name, or add it yourself{verdict.gtin ? " (we'll remember the barcode)" : ""}.
         </AppText>
       );
       actions = (
         <>
           <Button title="Photograph the label" compact onPress={props.onScanLabel} />
+          <Button title="Add manually" variant="outline" compact onPress={props.onAddManually} />
           <Button title="Search by name" variant="outline" compact onPress={() => router.navigate("/search")} />
         </>
       );

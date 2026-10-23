@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { AdminJobsContent } from "@/app/(app)/admin/jobs/page";
 import { UsersTab } from "@/app/(admin)/admin/reference-data/components/users-tab";
 import { BottleEvalTab } from "./reference-data/components/bottle-eval-tab";
+import { BackfillsTab } from "./reference-data/components/backfills-tab";
 import { ConfigTab } from "./reference-data/components/config-tab";
 import { HexLabelingTab } from "./reference-data/components/hex-labeling-tab";
 import { JobsTab } from "./reference-data/components/jobs-tab";
@@ -85,7 +86,7 @@ function AdminContent() {
         <CardHeader>
           <CardTitle>Admin Console</CardTitle>
           <CardDescription>
-            Configuration manages reference data, Job Runs lists recent reference-data jobs, Admin Jobs controls ingestion, User Management searches, edits, suspends and merges user accounts, Review Queue approves, merges, or rejects user-submitted shades, Hex Labeling builds ground-truth colours for the hex-detection eval, and Bottle Eval photographs labeled bottles as private samples for bottle recognition.
+            Configuration manages reference data, Job Runs lists recent reference-data jobs, Admin Jobs controls ingestion, User Management searches, edits, suspends and merges user accounts, Review Queue approves, merges, or rejects user-submitted shades, Hex Labeling builds ground-truth colours for the hex-detection eval, Bottle Eval photographs labeled bottles as private samples for bottle recognition, and Backfills runs the catalog backfills in batches.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -177,6 +178,15 @@ function AdminTabs() {
         >
           Bottle Eval
         </TabsPrimitive.Trigger>
+        <TabsPrimitive.Trigger
+          value="backfills"
+          className={cn(
+            "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
+            "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+          )}
+        >
+          Backfills
+        </TabsPrimitive.Trigger>
       </TabsPrimitive.List>
 
       <TabsPrimitive.Content value="configuration" className="outline-none">
@@ -206,6 +216,11 @@ function AdminTabs() {
 
       <TabsPrimitive.Content value="bottle-eval" className="outline-none">
         <BottleEvalTab />
+      </TabsPrimitive.Content>
+
+      {/* Force-mounted so a running backfill keeps looping while another tab is open. */}
+      <TabsPrimitive.Content forceMount value="backfills" className="outline-none data-[state=inactive]:hidden">
+        <BackfillsTab onOpenProductCategories={() => selectTab("review-queue")} />
       </TabsPrimitive.Content>
     </TabsPrimitive.Root>
   );

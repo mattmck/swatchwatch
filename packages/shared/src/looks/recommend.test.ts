@@ -1,7 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type { Polish } from "swatchwatch-shared";
-import { classifyHexColorFamily, finishFamily, resolvePolishFinishes } from "swatchwatch-shared";
+import { classifyHexColorFamily } from "../color/color-family";
+import { finishFamily } from "../color/dupes";
+import { resolvePolishFinishes, type Polish } from "../types/polish";
+import { MAX_LOOK_STEPS } from "../types/looks";
 import {
   ACCENT_MIN_CONTRAST,
   DEFAULT_VIBE,
@@ -16,8 +18,8 @@ import {
   recommendLooks,
   shopCandidatesForStep,
   type Vibe,
-} from "./looks";
-import { colorDistance } from "./color-utils";
+} from "./recommend";
+import { colorDistance } from "../color/oklab";
 
 let nextId = 1;
 function polish(hex: string, extra: Partial<Polish> = {}): Polish {
@@ -71,6 +73,18 @@ describe("LOOK_TEMPLATES", () => {
     for (const template of LOOK_TEMPLATES) {
       assert.ok(template.steps.some((s) => s.role === "base"), `${template.id} needs a base`);
       for (const step of template.steps) assert.match(step.hex, /^#[0-9A-F]{6}$/, `${template.id}/${step.role}`);
+    }
+  });
+
+  it("gives every template three colors (base + two accents) with unique step labels", () => {
+    for (const template of LOOK_TEMPLATES) {
+      const colors = template.steps.filter((s) => s.role !== "topper");
+      assert.ok(colors.length >= 3, `${template.id} has ${colors.length} color steps`);
+      const keys = template.steps.map((s) => `${s.role}:${s.label}`);
+      assert.equal(new Set(keys).size, keys.length, `${template.id} labels`);
+      // The Flake vibe adds a topper to templates without one; the result must still fit a saved look.
+      const withTopper = template.steps.length + (template.steps.some((s) => s.role === "topper") ? 0 : 1);
+      assert.ok(withTopper <= MAX_LOOK_STEPS, `${template.id} has ${withTopper} steps with a topper`);
     }
   });
 
@@ -147,12 +161,46 @@ describe("recommendLooks", () => {
     }
   });
 
-  it("picks accents that contrast with the base", () => {
-    const { looks } = recommendLooks({ polishes: collection(), vibe: vibe({ mood: "playful" }), seed: 3 });
-    for (const look of looks) {
-      const base = look.steps.find((s) => s.role === "base")!;
-      const accent = look.steps.find((s) => s.role === "accent");
-      if (accent?.polish) assert.ok(colorDistance(base.hex, accent.hex) >= ACCENT_MIN_CONTRAST, look.templateId);
+  it("picks accents that contrast with the base and with each other", () => {
+    for (const seed of [1, 2, 3, 4]) {
+      const { looks } = recommendLooks({ polishes: collection(), vibe: vibe({ mood: "playful" }), seed });
+      for (const look of looks) {
+        const base = look.steps.find((s) => s.role === "base")!;
+        const accents = look.steps.filter((s) => s.role === "accent" && s.polish);
+        for (const accent of accents) assert.ok(colorDistance(base.hex, accent.hex) >= ACCENT_MIN_CONTRAST, look.templateId);
+        if (accents.length === 2) {
+          assert.ok(colorDistance(accents[0].hex, accents[1].hex) >= ACCENT_MIN_CONTRAST, `${look.templateId} accents`);
+        }
+      }
+    }
+  });
+
+  it("builds looks with three colors, not two", () => {
+    for (const v of [vibe(), vibe({ occasion: "party", mood: "bold" }), vibe({ occasion: "work", mood: "edgy" })]) {
+      for (const seed of [1, 2, 3]) {
+        const { looks } = recommendLooks({ polishes: collection(), vibe: v, seed });
+        for (const look of looks) {
+          const colors = look.steps.filter((s) => s.role !== "topper");
+          assert.ok(colors.length >= 3, `${look.templateId}: ${colors.length} colors`);
+        }
+      }
+    }
+  });
+
+  it("never repeats an accent polish across the looks", () => {
+    for (const v of [vibe(), vibe({ occasion: "party", mood: "bold" }), vibe({ occasion: "work", mood: "soft" })]) {
+      for (const seed of [1, 2, 3, 4, 5]) {
+        const { looks } = recommendLooks({ polishes: collection(), vibe: v, seed });
+        const accents = looks.flatMap((l) => l.steps).filter((s) => s.role === "accent" && s.polish);
+        const ids = accents.map((s) => s.polish!.id);
+        assert.equal(new Set(ids).size, ids.length, `seed ${seed}: ${ids.join(",")}`);
+        // Nor reuses an earlier look's polish of any role as an accent.
+        const used = new Set<string>();
+        for (const look of looks) {
+          for (const step of look.steps) if (step.role === "accent" && step.polish) assert.ok(!used.has(step.polish.id), look.templateId);
+          for (const step of look.steps) if (step.polish) used.add(step.polish.id);
+        }
+      }
     }
   });
 
@@ -289,10 +337,11 @@ describe("applyStepSwap", () => {
   it("swaps a step to an alternative, keeps the old owned polish as an alternative and recounts", () => {
     const { looks } = recommendLooks({ polishes: collection(), vibe: vibe(), seed: 1 });
     const look = looks.find((l) => l.steps.some((s) => s.alternatives.length > 0))!;
-    const step = look.steps.find((s) => s.alternatives.length > 0)!;
+    const index = look.steps.findIndex((s) => s.alternatives.length > 0);
+    const step = look.steps[index];
     const alt = step.alternatives[0];
-    const swapped = applyStepSwap(look, step.role, alt);
-    const next = swapped.steps.find((s) => s.role === step.role)!;
+    const swapped = applyStepSwap(look, index, alt);
+    const next = swapped.steps[index];
     assert.equal(next.polish?.id, alt.id);
     assert.equal(next.source, "owned");
     assert.ok(!next.alternatives.some((a) => a.id === alt.id));
@@ -301,10 +350,21 @@ describe("applyStepSwap", () => {
     assert.notEqual(swapped, look);
   });
 
-  it("returns the look unchanged for an unknown role", () => {
+  it("swaps only the addressed accent when a look has two", () => {
+    const { looks } = recommendLooks({ polishes: collection(), vibe: vibe(), seed: 1 });
+    const look = looks.find((l) => l.steps.filter((s) => s.role === "accent").length === 2)!;
+    assert.ok(look, "setup: a look with two accents");
+    const [first, second] = look.steps.flatMap((s, i) => (s.role === "accent" ? [i] : []));
+    const replacement = polish("#123456");
+    const swapped = applyStepSwap(look, second, replacement);
+    assert.equal(swapped.steps[second].polish?.id, replacement.id);
+    assert.deepEqual(swapped.steps[first], look.steps[first]);
+  });
+
+  it("returns the look unchanged for an out-of-range step", () => {
     const look = recommendLooks({ polishes: collection(), vibe: vibe(), seed: 1 }).looks[0];
-    const missing = look.steps.some((s) => s.role === "topper") ? "accent" : "topper";
-    if (!look.steps.some((s) => s.role === missing)) assert.equal(applyStepSwap(look, missing, collection()[0]), look);
+    assert.equal(applyStepSwap(look, look.steps.length, collection()[0]), look);
+    assert.equal(applyStepSwap(look, -1, collection()[0]), look);
   });
 });
 
@@ -388,7 +448,7 @@ describe("shopCandidatesForStep", () => {
       owned[0],
       ...(base.polish ? [{ ...base.polish, status: undefined } as Polish] : []),
     ];
-    const picks = shopCandidatesForStep(look, "base", pool, vibe());
+    const picks = shopCandidatesForStep(look, look.steps.indexOf(base), pool, vibe());
     assert.ok(picks.length > 0 && picks.length <= 3);
     for (const p of picks) {
       assert.notEqual(p.status, "owned");
@@ -397,19 +457,27 @@ describe("shopCandidatesForStep", () => {
     }
   });
 
-  it("returns nothing for a role the look doesn't have", () => {
+  it("returns nothing for a step the look doesn't have", () => {
     const look = recommendLooks({ polishes: collection(), vibe: vibe(), seed: 1 }).looks[0];
-    const missing = look.steps.some((s) => s.role === "topper") ? "accent" : "topper";
-    if (!look.steps.some((s) => s.role === missing)) {
-      assert.deepEqual(shopCandidatesForStep(look, missing, collection(), vibe()), []);
-    }
+    assert.deepEqual(shopCandidatesForStep(look, look.steps.length, collection(), vibe()), []);
+  });
+
+  it("matches each accent of a two-accent look to its own template step", () => {
+    const { looks } = recommendLooks({ polishes: [], vibe: vibe({ occasion: "work", mood: "edgy" }), seed: 1 });
+    const look = looks.find((l) => l.templateId === "monochrome-slick");
+    assert.ok(look, "setup: monochrome-slick look");
+    const [first, second] = look.steps.flatMap((s, i) => (s.role === "accent" ? [i] : []));
+    const near = (hex: string) => polish(hex, { status: undefined, brand: "Cat" });
+    const pool = [near(look.steps[first].targetHex), near(look.steps[second].targetHex)];
+    assert.deepEqual(shopCandidatesForStep(look, first, pool, vibe()).map((p) => p.id), [pool[0].id]);
+    assert.deepEqual(shopCandidatesForStep(look, second, pool, vibe()).map((p) => p.id), [pool[1].id]);
   });
 });
 
 describe("catalogQueriesForLooks — includeOwned", () => {
   it("asks for every step's family when includeOwned is set (detail drawer substitutions)", () => {
-    const { looks } = recommendLooks({ polishes: collection(), vibe: vibe(), seed: 1 });
-    assert.ok(looks.every((l) => l.missingSteps === 0), "setup: all steps owned");
+    const { looks } = recommendLooks({ polishes: collection(), vibe: vibe({ ownedOnly: true }), seed: 1 });
+    assert.ok(looks.length > 0 && looks.every((l) => l.missingSteps === 0), "setup: all steps owned");
     assert.deepEqual(catalogQueriesForLooks(looks), { families: [], targetsByFamily: {}, toppers: false });
     const all = catalogQueriesForLooks(looks.slice(0, 1), { includeOwned: true });
     assert.ok(all.families.length > 0);
@@ -426,7 +494,7 @@ describe("shopCandidatesForStep — base parity with the recommender", () => {
     const base = look.steps.find((s) => s.role === "base")!;
     const glitter = catalogRow(base.targetHex, ["glitter"]);
     const plain = catalogRow(base.targetHex, ["creme"]);
-    const picks = shopCandidatesForStep(look, "base", [glitter, plain], vibe({ finish: "flake" }));
+    const picks = shopCandidatesForStep(look, look.steps.indexOf(base), [glitter, plain], vibe({ finish: "flake" }));
     assert.ok(!picks.some((p) => p.id === glitter.id), "glitter base under a topper");
   });
 
@@ -438,7 +506,7 @@ describe("shopCandidatesForStep — base parity with the recommender", () => {
     assert.ok(look, "setup: office-neutral look");
     const base = look.steps.find((s) => s.role === "base")!;
     const clash = catalogRow("#F0E6FF", ["holographic"]); // ~0.136 from #D8BFAA: fits the distance limit, not once the 0.08 finish penalty is added
-    const picks = shopCandidatesForStep({ ...look, steps: look.steps }, "base", [clash], vibe({ occasion: "work", mood: "soft" }));
+    const picks = shopCandidatesForStep({ ...look, steps: look.steps }, look.steps.indexOf(base), [clash], vibe({ occasion: "work", mood: "soft" }));
     assert.equal(picks.length, 0, `${base.targetHex} vs clash`);
   });
 });
@@ -498,7 +566,9 @@ describe("recommendLooks — includeToppers (#386)", () => {
     assert.equal(catalogQueriesForLooks(off.looks).toppers, false);
     assert.equal(catalogQueriesForLooks(off.looks, { includeOwned: true }).toppers, false);
     const look = recommendLooks({ polishes: collection(), vibe: vibe(), seed: 1, includeToppers: false }).looks[0];
-    assert.deepEqual(shopCandidatesForStep(look, "topper", catalogToppers(), vibe()), []);
+    for (let i = 0; i < look.steps.length; i++) {
+      assert.ok(!shopCandidatesForStep(look, i, catalogToppers(), vibe()).some(isTopOnly), `step ${i}`);
+    }
   });
 
   it("lets a full-coverage glitter be a base when toppers are off (no glitter-on-glitter to avoid)", () => {

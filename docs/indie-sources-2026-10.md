@@ -111,8 +111,11 @@ Per store, one request each, with the User-Agent
 `SwatchWatch/connector-research (+https://github.com/mattmck/swatchwatch)` and a 1 s pause between
 requests: `/robots.txt`, `/policies/terms-of-service`, and `/products.json?limit=250&page=N` until a
 page had fewer than 250 products. No other pages were fetched. The polish-filter count runs the
-connector's own `isNailPolish` + `isBundle` (the build from this branch) over the downloaded products,
-so it is exactly what ingestion would keep. Images were not downloaded.
+connector's generic gate, `isNailPolish` + `isBundle` (the build from this branch), over the downloaded
+products. For a store without its own filter that is what ingestion keeps; for a store with a
+store-specific filter (Pahlish, Cirque Colors, and the batch 3 stores) the final count may differ, and the
+batch 3 table reports both (for example Stella Chroma 72 generic vs 68 final, Sweet & Sour 8 vs 155).
+Images were not downloaded.
 
 "Shopify default ToS" means the store uses Shopify's terms template, whose prohibited uses include
 "to spam, phish, pharm, pretext, spider, crawl, or scrape". robots.txt never disallowed

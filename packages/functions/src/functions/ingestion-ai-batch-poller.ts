@@ -31,6 +31,7 @@ import {
   RESUME_MESSAGE_METRICS_KEY,
 } from "../lib/ingestion-continuation";
 import { appendJobLogEntries, createJobLogEntry } from "../lib/job-log";
+import { isFeatureEnabled } from "../lib/feature-flags";
 
 const DEFAULT_BATCH_POLL_SCHEDULE = "0 * * * * *";
 const DEFAULT_MAX_JOBS_PER_POLL = 10;
@@ -38,12 +39,6 @@ const DEFAULT_MAX_JOBS_PER_POLL = 10;
 interface BatchPollerRuntimeConfig {
   enabled: boolean;
   maxJobsPerPoll: number;
-}
-
-function envFlagTrue(value: string | undefined): boolean {
-  if (!value) return false;
-  const normalized = value.trim().toLowerCase();
-  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
 }
 
 function parseIntEnv(value: string | undefined, fallback: number, min: number, max: number): number {
@@ -59,7 +54,7 @@ const BATCH_POLL_SCHEDULE =
 
 function getBatchPollerRuntimeConfig(): BatchPollerRuntimeConfig {
   return {
-    enabled: envFlagTrue(process.env.HEX_DETECTION_BATCH_ENABLED),
+    enabled: isFeatureEnabled("hexDetectionBatch"),
     maxJobsPerPoll: parseIntEnv(
       process.env.INGESTION_AI_BATCH_MAX_POLL_JOBS,
       DEFAULT_MAX_JOBS_PER_POLL,

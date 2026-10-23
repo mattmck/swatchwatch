@@ -20,7 +20,17 @@ export async function confirmAddWithDupes(
   shadeId: string,
   target: "owned" | "wishlist",
 ): Promise<AddGuardChoice> {
-  const dupes = await fetchOwnedDupes(shadeId);
+  return confirmDupes(await fetchOwnedDupes(shadeId), target);
+}
+
+/**
+ * Ask about already-loaded owned dupes (the manual add form computes them on device for a
+ * shade with no id yet); resolves "add" when there are none.
+ */
+export async function confirmDupes(
+  dupes: PolishDupesResponse | null,
+  target: "owned" | "wishlist",
+): Promise<AddGuardChoice> {
   if (!dupes || dupes.dupeCount === 0) return "add";
   const best = dupes.dupes[0];
   const names = dupes.dupes.map((d) => `• ${d.brand} — ${d.name}`).join("\n");
@@ -43,6 +53,30 @@ export async function confirmAddWithDupes(
       `You own ${dupes.dupeCount === 1 ? "a close dupe" : `${dupes.dupeCount} close dupes`}`,
       `${best?.grade === "high" ? "Near-identical" : "Close"} to what you already have:\n${names}`,
       buttons,
+      { cancelable: true, onDismiss: () => resolve("cancel") },
+    );
+  });
+}
+
+export type AlreadyOwnedChoice = "view" | "cancel";
+
+/**
+ * The manual add form found an owned polish with the same brand and shade name: saving would
+ * update that row, so offer to open it instead (nothing is saved either way).
+ */
+export function confirmAlreadyOwned(label: string): Promise<AlreadyOwnedChoice> {
+  const message = `${label} is already in your collection. Open it to change its bottles or status.`;
+  if (Platform.OS === "web") {
+    return Promise.resolve(globalThis.confirm?.(`${message}\n\nOpen it?`) ? "view" : "cancel");
+  }
+  return new Promise((resolve) => {
+    Alert.alert(
+      "You own this",
+      message,
+      [
+        { text: "Cancel", style: "cancel", onPress: () => resolve("cancel") },
+        { text: "View polish", onPress: () => resolve("view") },
+      ],
       { cancelable: true, onDismiss: () => resolve("cancel") },
     );
   });

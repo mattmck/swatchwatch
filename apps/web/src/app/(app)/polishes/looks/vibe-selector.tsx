@@ -11,8 +11,12 @@ import {
   LOOK_MOOD_LABELS,
   LOOK_OCCASIONS,
   LOOK_OCCASION_LABELS,
+  SKIN_DEPTHS,
+  SKIN_UNDERTONES,
+  skinToneFrom,
   type Vibe,
 } from "@/lib/looks";
+import { SKIN_DEPTH_LABELS, SKIN_UNDERTONE_LABELS } from "@/lib/looks-skin-tone";
 import { cn } from "@/lib/utils";
 
 interface ChipRowProps<T extends string> {
@@ -76,6 +80,7 @@ export function VibeSelector({ vibe, onChange, toppers, onToppersChange, classNa
     LOOK_MOOD_LABELS[vibe.mood],
     vibe.finish ? LOOK_FINISH_LABELS[vibe.finish] : "Any finish",
     ...(vibe.ownedOnly ? ["Owned only"] : []),
+    ...(vibe.skinTone ? [`${SKIN_UNDERTONE_LABELS[vibe.skinTone.undertone]} · ${SKIN_DEPTH_LABELS[vibe.skinTone.depth]} skin`] : []),
     ...(toppers ? [] : ["No toppers"]),
   ];
   return (
@@ -137,6 +142,24 @@ function VibeControls({ id, vibe, onChange, toppers, onToppersChange, className 
         anyLabel="Any"
         onAny={() => onChange({ ...vibe, finish: null })}
       />
+      <ChipRow
+        label="Skin tone (optional)"
+        options={SKIN_UNDERTONES}
+        labels={SKIN_UNDERTONE_LABELS}
+        value={vibe.skinTone?.undertone ?? null}
+        onChange={(undertone) => onChange({ ...vibe, skinTone: skinToneFrom(undertone, vibe.skinTone?.depth ?? null) })}
+        anyLabel="Any"
+        onAny={() => onChange({ ...vibe, skinTone: null })}
+      />
+      {vibe.skinTone && (
+        <ChipRow
+          label="Skin depth"
+          options={SKIN_DEPTHS}
+          labels={SKIN_DEPTH_LABELS}
+          value={vibe.skinTone.depth}
+          onChange={(depth) => onChange({ ...vibe, skinTone: skinToneFrom(vibe.skinTone?.undertone ?? null, depth) })}
+        />
+      )}
       <label className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-sm">
         <span>
           <span className="font-medium">Owned only</span>

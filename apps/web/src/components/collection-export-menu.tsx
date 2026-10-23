@@ -20,7 +20,7 @@ import { saveBlobAsFile } from "@/lib/collection-export";
  * "Export" menu for `/polishes` (issue #264): downloads the caller's whole collection (every
  * inventory status) as CSV or JSON through the authenticated API, then saves the Blob.
  */
-export function CollectionExportMenu() {
+export function CollectionExportMenu({ disabled = false }: { disabled?: boolean }) {
   const [pending, setPending] = useState<CollectionExportFormat | null>(null);
 
   async function handleExport(format: CollectionExportFormat) {
@@ -40,7 +40,7 @@ export function CollectionExportMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" disabled={pending !== null} aria-label="Export collection">
+        <Button variant="outline" disabled={pending !== null || disabled} aria-label="Export collection">
           {pending ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
           Export
         </Button>

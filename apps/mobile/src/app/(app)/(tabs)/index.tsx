@@ -1,19 +1,41 @@
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, FlatList, RefreshControl, ScrollView, TextInput, View } from "react-native";
-import type { PolishFilters } from "swatchwatch-shared";
 import { useAuth } from "@/auth/auth-provider";
 import { HomePanel } from "@/components/home-panel";
+import { CollectionFilterBar } from "@/components/collection-filter-bar";
+import { EmptyState, startCollectionActions, goTo } from "@/components/empty-state";
 import { PolishRow } from "@/components/polish-row";
-import { AppText, Button, CenteredState, Chip, ErrorBanner } from "@/components/ui";
-import { COLLECTION_PRESETS, type CollectionPreset } from "@/lib/status";
+import { AppText, CenteredState, Chip, ErrorBanner } from "@/components/ui";
+import { onCollectionChanged } from "@/lib/collection-events";
+import {
+  activeFilterCount,
+  clearBarFilters,
+  collectionViewKey,
+  parseCollectionParams,
+  setPreset,
+  toPolishFilters,
+  type CollectionView,
+  type StatusPresetKey,
+} from "@/lib/collection-filters";
+import { COLLECTION_PRESETS } from "@/lib/status";
 import { usePagedPolishes } from "@/lib/use-paged-polishes";
+import { useWishlistValue } from "@/lib/use-wishlist-value";
 import { useTheme } from "@/theme/theme";
 
 /** Collection tab (web: `/polishes`): status presets, text filter, infinite scroll. */
 export default function CollectionScreen() {
   const theme = useTheme();
-  const [preset, setPreset] = useState<CollectionPreset["key"]>("owned");
+  const params = useLocalSearchParams<{ status?: string; untried?: string; family?: string; category?: string; sort?: string }>();
+  const [view, setView] = useState<CollectionView>(() => parseCollectionParams(params));
+  // A deep link (`/?family=red&untried=1`) replaces the view when its params change.
+  const linkKey = collectionViewKey(parseCollectionParams(params));
+  const [seenLinkKey, setSeenLinkKey] = useState(linkKey);
+  if (linkKey !== seenLinkKey) {
+    setSeenLinkKey(linkKey);
+    setView(parseCollectionParams(params));
+  }
+  const preset = view.preset;
   const [search, setSearch] = useState("");
   const [debounced, setDebounced] = useState("");
 
@@ -22,18 +44,27 @@ export default function CollectionScreen() {
     return () => clearTimeout(timer);
   }, [search]);
 
-  const filters = useMemo<PolishFilters>(() => {
-    const chosen = COLLECTION_PRESETS.find((p) => p.key === preset) ?? COLLECTION_PRESETS[0];
-    return { ...chosen.filters, search: debounced || undefined, sortBy: "createdAt", sortOrder: "desc" };
-  }, [preset, debounced]);
+  const filters = useMemo(() => toPolishFilters(view, debounced), [view, debounced]);
 
   const { user } = useAuth();
   const list = usePagedPolishes(filters, user ? String(user.userId) : undefined);
   const [homeToken, setHomeToken] = useState(0);
+  // Wishlist preset: what the wishlist adds up to in brand list prices (all wishlist rows).
+  const wishlistValue = useWishlistValue(user ? String(user.userId) : undefined, preset === "wishlist", homeToken);
   const refreshAll = () => {
     setHomeToken((n) => n + 1);
     list.refresh();
   };
+  // A polish added elsewhere (the manual add form) shows up without a pull-to-refresh.
+  const { refresh: refreshList } = list;
+  useEffect(
+    () =>
+      onCollectionChanged(() => {
+        setHomeToken((n) => n + 1);
+        refreshList();
+      }),
+    [refreshList],
+  );
 
   const header = (
     <View>
@@ -66,13 +97,41 @@ export default function CollectionScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ gap: theme.spacing(2), paddingHorizontal: theme.spacing(4) }}
         >
-          {COLLECTION_PRESETS.map((p) => (
-            <Chip key={p.key} label={p.label} selected={p.key === preset} onPress={() => setPreset(p.key)} />
-          ))}
+          {COLLECTION_PRESETS.map((p) => {
+            // "Untried" is owned + the untried flag; "Owned" is owned without it.
+            const selected = p.key === "untried" ? preset === "owned" && view.untried : p.key === preset && !(p.key === "owned" && view.untried);
+            return (
+              <Chip
+                key={p.key}
+                label={p.label}
+                selected={selected}
+                onPress={() =>
+                  setView(
+                    p.key === "untried"
+                      ? { ...view, preset: "owned", untried: true }
+                      : { ...setPreset(view, p.key as StatusPresetKey), untried: false },
+                  )
+                }
+              />
+            );
+          })}
         </ScrollView>
+        <CollectionFilterBar view={view} onChange={setView} />
         {!list.loading && !list.error && (
           <AppText variant="tiny" muted style={{ paddingHorizontal: theme.spacing(4) }} testID="collection-total">
             {list.total} {list.total === 1 ? "polish" : "polishes"}
+          </AppText>
+        )}
+        {preset === "wishlist" && wishlistValue && wishlistValue.summary && (
+          <AppText
+            variant="tiny"
+            muted
+            style={{ paddingHorizontal: theme.spacing(4) }}
+            accessibilityLabel={`Wishlist value, brand list prices: ${wishlistValue.summary}`}
+            testID="wishlist-value"
+          >
+            {wishlistValue.summary}
+            {wishlistValue.hasPrices && wishlistValue.asOf ? ` · ${wishlistValue.asOf}` : ""}
           </AppText>
         )}
         {list.error && (
@@ -106,13 +165,41 @@ export default function CollectionScreen() {
       ListEmptyComponent={
         list.loading ? (
           <CenteredState loading />
-        ) : list.error ? null : (
-          <CenteredState
-            title={debounced ? "No matches" : preset === "wishlist" ? "Your wishlist is empty" : "Nothing here yet"}
-            message={
-              debounced ? `Nothing in this view matches “${debounced}”.` : "Scan a bottle on the Add tab or find shades in Search."
-            }
-            action={<Button title="Scan a bottle" variant="outline" onPress={() => router.navigate("/add")} />}
+        ) : list.error ? null : debounced || activeFilterCount(view) > 0 ? (
+          <EmptyState
+            testID="collection-empty-filtered"
+            title="No polishes match these filters"
+            message={debounced ? `Nothing in this view matches “${debounced}”.` : "Nothing in this view matches these filters."}
+            actions={[
+              {
+                title: "Clear filters",
+                onPress: () => {
+                  setSearch("");
+                  setView(clearBarFilters(view));
+                },
+              },
+            ]}
+          />
+        ) : preset === "wishlist" ? (
+          <EmptyState
+            testID="collection-empty-wishlist"
+            title="Your wishlist is empty"
+            message="Tap ♡ on any shade in the catalog to save it here."
+            actions={[{ title: "Browse the catalog", onPress: () => goTo("/search") }]}
+          />
+        ) : preset === "owned" && !view.untried ? (
+          <EmptyState
+            testID="collection-empty"
+            title="Build your collection"
+            message="Add the polishes you own and they show up here."
+            actions={startCollectionActions()}
+          />
+        ) : (
+          <EmptyState
+            testID="collection-empty-view"
+            title="Nothing here yet"
+            message="No polishes in this view yet. Add some from the catalog or scan a bottle."
+            actions={[{ title: "Scan a bottle", onPress: () => router.navigate("/add") }]}
           />
         )
       }

@@ -14,6 +14,7 @@ import {
   type PublicLookStep,
   type PublicLookVibe,
 } from "swatchwatch-shared";
+import { isFeatureEnabled } from "./feature-flags";
 import { deriveSigningSubkey } from "./image-proxy";
 import { publicCatalogImageUrl } from "./public-catalog-image";
 import { hashShareToken, shareTokenMatchesHash } from "./wishlist-share";
@@ -39,7 +40,7 @@ const SHADE_ID_RE = /^[1-9]\d{0,17}$/;
 
 /** Server-side feature flag. Off unless `SHAREABLE_LOOKS_ENABLED` is exactly "true" (any case). */
 export function isShareableLooksEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.SHAREABLE_LOOKS_ENABLED?.trim().toLowerCase() === "true";
+  return isFeatureEnabled("shareableLooks", env);
 }
 
 /**

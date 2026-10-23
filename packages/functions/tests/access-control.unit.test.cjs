@@ -908,6 +908,7 @@ require("../dist/functions/manicures");
 require("../dist/functions/manicure-photos");
 require("../dist/functions/stats");
 require("../dist/functions/bottle-eval-admin");
+require("../dist/functions/product-data-admin");
 const imageProxy = require("../dist/lib/image-proxy");
 
 // lib/nail-photos (like lib/image-proxy) imports the REAL dist/lib/blob-storage via "./blob-storage";
@@ -1161,6 +1162,9 @@ describe("access control — admin routes reject non-admin users", () => {
       "bottle-eval-admin-sample",
       "bottle-eval-admin-frames",
       "bottle-eval-admin-frame",
+      "admin-product-text-backfill",
+      "admin-finish-fill-backfill",
+      "admin-product-price-backfill",
     ]) {
       assert.ok(adminRouteNames.includes(expected), `expected admin route ${expected} to be registered`);
     }

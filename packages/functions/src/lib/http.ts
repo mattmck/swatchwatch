@@ -1,4 +1,5 @@
 import { HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
+import { internalServerError } from "./errors";
 
 type HttpHandler = (request: HttpRequest, context: InvocationContext) => Promise<HttpResponseInit>;
 
@@ -77,6 +78,11 @@ function applyCorsHeaders(headers: Headers, allowedOrigin: string) {
   }
 }
 
+/**
+ * The API's only CORS layer: the Function App has no App Service platform CORS (it would answer
+ * preflights itself and drop these headers), so every browser-called route must list "OPTIONS"
+ * in `methods` and wrap its handler here (tests/http-routes.unit.test.cjs checks both).
+ */
 export function withCors(handler: HttpHandler): HttpHandler {
   return async (request, context) => {
     const origin = request.headers.get("origin");
@@ -91,7 +97,14 @@ export function withCors(handler: HttpHandler): HttpHandler {
       return { status: 204, headers };
     }
 
-    const response = await handler(request, context);
+    let response: HttpResponseInit;
+    try {
+      response = await handler(request, context);
+    } catch (error) {
+      // A thrown error would become a host 500 without CORS headers, which the browser reports
+      // as a CORS failure instead of the 500.
+      response = internalServerError(context, error, "Internal server error", "withCors");
+    }
     if (!allowedOrigin) return response;
 
     const headers = new Headers(response.headers ?? {});

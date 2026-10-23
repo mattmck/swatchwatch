@@ -49,6 +49,7 @@ export {
 } from "./types/reference";
 export * from "./branding/swatchwatch-brand";
 export * from "./color/oklab";
+export * from "./color/gamut";
 export * from "./color/thresholds";
 export * from "./color/hex-reconciliation";
 export * from "./color/color-family";
@@ -56,3 +57,8 @@ export * from "./color/dupes";
 export * from "./color/palette-quality";
 export * from "./color/harmonies";
 export * from "./color/pair-it";
+export * from "./looks";
+export * from "./types/feature-flags";
+export * from "./color/gaps";
+export * from "./onboarding";
+export * from "./money/price-totals";

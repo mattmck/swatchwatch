@@ -16,15 +16,16 @@ The package is automatically linked via npm workspaces — no publishing require
 
 | Type | Description |
 |------|-------------|
-| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, reserved `nailImageUrl` (not populated; see `NailPhoto`), legacy `finish`, multi-finish `finishes`, tags, timestamps, etc.). Detected-hex provenance (migration 20261017024958000_shade-detected-hex-provenance): `detectedHexConfidence` (0–1), `detectedHexMethod` (`vision-direct`, `palette-pick`, `region-crop`, `ensemble`, `client-supplied`, …), `detectedHexModel` (deployment), `detectedHexPromptVersion`, `detectedHexAt`, and `hexAgreement` (OKLAB distance vendorHex ↔ detectedHex, null unless both exist). Inventory status (#261, migration 20261017061336791_inventory-status): `status` (`PolishStatus`, null for catalog-only rows), derived `isUntried` (owned and `triedAt` null), `triedAt`, `lastWornAt`, `wearCount`, `purchasePrice`, `purchaseCurrency`. `colorFamily` (`ColorFamily \| null`, the generated `shade.color_family`; see `color/color-family.ts`). Optional `buyUrl` (#267): the brand's product page from the stored source product URL, validated server-side (absolute http/https, no credentials), absent when none is stored. Optional `buyPrice` (major units) / `buyCurrency` (ISO 4217) / `buyPriceSeenAt` (ISO): the brand's list price for that same product as last fetched, present only together, never the user's `purchasePrice`. `productCategory` (#349, `ProductCategory`; missing = `color`). `colorDistance` (OKLAB distance to the nearest `nearHex` target, only on `GET /api/polishes?nearHex=` rows; null without a usable display hex). `PolishFilters.categories`, `CatalogSearchResult.productCategory` and `CatalogShadeDetail.productCategory` carry the category too |
+| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, reserved `nailImageUrl` (not populated; see `NailPhoto`), legacy `finish`, multi-finish `finishes`, tags, timestamps, etc.). Detected-hex provenance (migration 20261017024958000_shade-detected-hex-provenance): `detectedHexConfidence` (0–1), `detectedHexMethod` (`vision-direct`, `palette-pick`, `region-crop`, `ensemble`, `client-supplied`, …), `detectedHexModel` (deployment), `detectedHexPromptVersion`, `detectedHexAt`, and `hexAgreement` (OKLAB distance vendorHex ↔ detectedHex, null unless both exist). Inventory status (#261, migration 20261017061336791_inventory-status): `ownSubmitted` (true only for the caller's own private `user_submitted` shade; its creator may still edit brand, name, finishes and color, #224; a rename keeps the shade id, or answers `409` `ShadeIdentityTakenResponse` on a collision), `status` (`PolishStatus`, null for catalog-only rows), derived `isUntried` (owned and `triedAt` null), `triedAt`, `lastWornAt`, `wearCount`, `purchasePrice`, `purchaseCurrency`. `colorFamily` (`ColorFamily \| null`, the generated `shade.color_family`; see `color/color-family.ts`). Optional `buyUrl` (#267): the brand's product page from the stored source product URL, validated server-side (absolute http/https, no credentials), absent when none is stored. Optional `buyPrice` (major units) / `buyCurrency` (ISO 4217) / `buyPriceSeenAt` (ISO): the brand's list price for that same product as last fetched, present only together, never the user's `purchasePrice`. `productCategory` (#349, `ProductCategory`; missing = `color`). `colorDistance` (OKLAB distance to the nearest `nearHex` target, only on `GET /api/polishes?nearHex=` rows; null without a usable display hex). `PolishFilters.categories`, `CatalogSearchResult.productCategory` and `CatalogShadeDetail.productCategory` carry the category too |
 | `resolveDisplayHex(polish)` | Display hex with the blind precedence vendor > detected > name (unchanged; used by the web app) |
 | `HexReviewItem` / `HexReviewResponse` / `HexReviewSort` | Admin hex-review queue payload (`GET /api/polishes-admin/hex-review`): hexes, provenance, agreement, display hex/source, `flagged`; sorted by `agreement` or `confidence` |
 | `PolishFinish` | Built-in finish name, derived as `(typeof CANONICAL_FINISHES)[number]` |
 | `FinishName` | `PolishFinish \| (string & {})` — any finish name on API-facing fields (`Polish.finishes`, request `finish`/`finishes`); admits runtime names from admin-managed `finish_type` rows while keeping autocomplete for built-ins |
 | `resolvePolishFinishes(polish)` | Finishes to display: `finishes` when non-empty, else `[finish]` (backward compatible) |
 | `polishHasFinish(polish, finish)` | Case-insensitive membership check over `resolvePolishFinishes` |
-| `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps); accepts `finishes` (replace) and legacy `finish`, plus inventory `status`, `triedAt`, `purchasePrice`, `purchaseCurrency` (`null` clears the last three), and create-only `barcode` / `barcodeFormat` (a Rapid Add scan remembered on the shade for the caller, #21) |
-| `PolishUpdateRequest` | Partial create fields + required `id` |
+| `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps); accepts `finishes` (replace) and legacy `finish`, plus inventory `status`, `triedAt`, `purchasePrice`, `purchaseCurrency` (`null` clears the last three), `rating` and `purchaseDate` (`null` clears them on update), and create-only `barcode` / `barcodeFormat` (a Rapid Add scan remembered on the shade for the caller, #21) |
+| `PolishUpdateRequest` | `Partial<PolishCreateRequest>` (the id is the route param); `rating` / `purchaseDate` `null` clears the value |
+| `ShadeIdentityTakenResponse` | `409` body of `PUT /api/polishes/{id}` when renaming the caller's own private shade (`Polish.ownSubmitted`) to a brand + name another visible shade already has (`error`, `code: "shade_identity_taken"`, `existingShadeId`); nothing was changed |
 | `PolishListResponse` | Paginated list: `{ polishes, total, page, pageSize }` |
 | `PolishFilters` | Query params: brand/finish/finishes/color/tags/search plus scope/availability/tone, `status` (`PolishStatus[]`), `untried`, `families` (`?family=`, any-of color families), `nearHex` (rank by OKLAB distance to the nearest of up to 24 hexes, replaces sort), sort, and pagination |
 | `Brand` | Canonical brand entity (`brand_id`, `name_canonical`) |
@@ -82,6 +83,7 @@ Mani log (#269): `/api/manicures` payloads. Logging, editing or deleting a manic
 | `ManicurePolish` | One polish in a manicure: `shadeId`, the caller's current `inventoryItemId` (null after removal), `role`, `position`, `brand`, `name`, `vendorHex` / `detectedHex` / `nameHex` |
 | `ManicurePolishInput` | Request polish reference: `shadeId` or `inventoryItemId` (caller's inventory only) + optional `role` |
 | `ManicureCreateRequest` / `ManicureUpdateRequest` | Create (`polishes` required, `wornOn` defaults to today UTC) / partial update (`polishes` replaces the list; `null` clears `notes` / `photoImageId`) |
+| `buildWearHistory()` / `wearHistoryTitle()` / `WEAR_HISTORY_PREVIEW_COUNT` | pure helpers for the polish detail "Worn N times" panel (web and mobile): `WearHistoryEntry[]` newest first from `GET /api/manicures?shadeId=` rows |
 | `ManicureWearStat` | `{ shadeId, inventoryItemId, wearCount, lastWornAt, triedAt }` after a write |
 | `ManicurePhotoResponse` | `PUT /api/manicures/{id}/photo` response (#327): `{ manicureId, photoImageId (the new image_asset id), photoUrl (owner-scoped v3 or null) }`; the request body is a `NailPhotoUploadRequest` |
 | `ManicureMutationResponse` / `ManicureDeleteResponse` | Create/update response (`Manicure` + `wearStats`) / delete response (`{ message, id, wearStats }`) |
@@ -164,6 +166,7 @@ Collection stats (#271): the `GET /api/stats/collection` payload behind the dash
 |--------|-------------|
 | `OUTBOUND_LINK_TARGET` | `"_blank"` — outbound "Buy from brand" links open in a new tab |
 | `OUTBOUND_LINK_REL` | `"noopener noreferrer nofollow"` — required `rel` for every outbound buy link (no `window.opener`, no referrer, no endorsement) |
+| `safeOutboundUrl(value)` | Normalized absolute http/https URL without credentials, or `null`; clients re-check `buyUrl` with it before rendering or opening a link |
 
 ### `constants/image-variants.ts`
 
@@ -218,6 +221,35 @@ Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/b
 | `ShadeProductCategoryUpdateRequest`, `ShadeProductCategoryUpdateResponse` | `PUT /api/shades-admin/{id}/product-category` |
 | `ShadeProductCategoryItem`, `ShadeProductCategoryListResponse` | `GET /api/shades-admin/product-category` |
 
+### `looks/` (Looks recommender)
+
+| Export | Description |
+|---|---|
+| `recommendLooks({ polishes, catalog?, vibe, seed, count?, includeToppers?, skinTone? })`, `LOOK_TEMPLATES` (18 named looks), `rankTemplatesForVibe`, `vibeScore`, `DEFAULT_VIBE`, `LOOK_*_LABELS`, tuning constants (`BASE_MAX_DISTANCE`, `CATALOG_MAX_DISTANCE`, …) | The Looks rule (`looks/recommend.ts`, moved from the web's `lib/looks.ts`): pure and seeded, three diverse looks (base / accent / topper) for a vibe from owned polishes (`status === "owned"`), gaps filled from `catalog` rows. The module header documents every rule. Types `Look`, `LookStep`, `LooksResult`, `Vibe`, `LookTemplate`, … |
+| `SkinTone { undertone, depth }`, `SKIN_UNDERTONES`, `SKIN_DEPTHS`, `skinToneFrom()`, `skinToneAdjustment(hex, skinTone)`, `SKIN_UNDERTONE_WEIGHT`, `SKIN_LIGHTNESS`, `SKIN_TIE_BAND` | Optional skin tone for Looks (`looks/skin-tone.ts`, types in `types/looks.ts`, also on `LookVibe.skinTone`): a soft score adjustment on base and accent candidates applied after the distance cut-offs. Cool favours blue–pink–berry and cool reds, warm favours coral–orange–gold; fair/light avoid pale low-contrast shades, tan/deep avoid dark muted ones. No skin tone changes nothing. Never part of the public share payload. |
+| `applyStepSwap(look, stepIndex, polish)`, `maniEntriesForLook`, `maniRoleForStep`, `catalogQueriesForLooks(looks, { includeOwned? })`, `shopCandidatesForStep(look, stepIndex, pool, vibe)` | Helpers around a look: swap a step's polish (steps are addressed by position, since every template has a base and two accents), owned steps as mani-log entries (`base` → `color`), the color-family / topper queries that fetch the catalog rows for the gaps, catalog shades to buy per step |
+| `shoppingItemsForLook`, `shoppingSubtotals`, `formatShoppingSubtotals`, `shoppingListText`, `lookShareText(look, vibe, url?)`, `applicationOrder`, `finishNotes` | Text and list helpers behind the Looks extras (`looks/detail.ts`, moved from the web's `lib/looks-detail.ts`, which re-exports them and keeps the skin-tone backdrop): the "Add missing items" list (safe buy link, brand list price, per-currency subtotals, never summed across currencies), its copyable text, the share text (link omitted when `url` is empty), and the detail drawer's application order and finish notes. `safeOutboundUrl` (constants/outbound-links) validates the buy link. |
+| `createSeededRandom(seed)`, `RandomSource` | mulberry32 PRNG used by Looks (web `pick-for-me.ts` re-exports it) |
+
+`apps/web/src/lib/looks.ts` is a re-export shim; the vibe vocabulary and saved-look shape stay in `types/looks.ts`.
+
+### `onboarding.ts` (getting-started checklist rules, #372 / #109)
+
+| Export | Meaning |
+|---|---|
+| `ONBOARDING_GOAL` (20), `ONBOARDING_SHOW_BELOW` (5) | Progress goal and the owned count below which the checklist shows |
+| `GETTING_STARTED_STEPS` (`{ id: "import" \| "scan" \| "search", label }`) | The three ways in, fastest first; each app maps ids to its own routes |
+| `onboardingProgress(ownedCount)` | `{ count, goal, percent, label }`, capped at the goal |
+| `GettingStartedState`, `parseGettingStartedState`, `serializeGettingStartedState` | Persisted `{ started, dismissed, visited }`, tolerant of broken storage |
+| `gettingStartedView(ownedCount, state)`, `markGettingStartedStarted`, `dismissGettingStarted`, `markStepVisited`, `gettingStartedStorageKey(userId)` | Visibility (`hidden` / `active` / `complete`) and state transitions. Web: localStorage; mobile: per-user AsyncStorage |
+
+### `money/price-totals.ts` (brand list-price totals)
+
+| Export | Meaning |
+|---|---|
+| `sumListPrices(rows)` | `{ byCurrency: [{ currency, total, count }], unpricedCount, latestSeenAt }` over rows carrying `buyPrice` / `buyCurrency` / `buyPriceSeenAt`: decimal-safe (whole minor units per `Intl` currency digits), never converted or summed across currencies, rows without a usable price are counted in `unpricedCount`, never guessed. Used by the web Looks shopping list, the wishlist value lines and the mobile wishlist views |
+| `listPriceOf`, `formatListAmount`, `formatListPriceAsOf`, `formatListPriceTotals`, `formatListPriceSummary`, `formatWishlistValueLine(count, totals)` | Price validation and text: "12 polishes · $148.00 (9 priced) + €20.00 (2) · 1 without a price" |
+
 ### `color/` (OKLAB math, thresholds, hex reconciliation, color families, harmonies, Pair it)
 
 | Export | Description |
@@ -239,6 +271,7 @@ Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/b
 | `PaletteColorKind`, `PALETTE_COLOR_KINDS`, `PALETTE_QUALITY_THRESHOLDS`, `classifyPaletteColor(hex)`, `isBackgroundPaletteKind(kind)`, `paletteVibrancyWeight(hex)` | Photo-palette quality (#105, `color/palette-quality.ts`): `light` (L ≥ 0.97, or L ≥ 0.90 with C < 0.05), `dark` (L < 0.22, C < 0.06), `skin` (hue 20–80, C 0.025–0.14, L 0.35–0.92) or `color`. Coarse on purpose (nudes read as skin), so the web hides these only by default and the API drops them only on request. `paletteVibrancyWeight` = 1 + min(C / 0.2, 1) for `preferVibrant` |
 | `gradeDupe(distance, compatibility)` | `{ colorGrade, grade }`: `confidenceForDistance` (the match-image thresholds), dropped one step for `different` finishes; `grade` null when LOW |
 | `HARMONY_TYPES`, `getHarmonyTypeOptions(harmonyTypes?)`, `generateHarmonyPalette(sourceHex, harmony)`, `generateHarmonyColors(sourceHex, harmony)`, `suggestPaletteCompletion(anchorHexes)` | Color harmony rules (#384, `color/harmonies.ts`, moved from the web): hue rotations in OKLCH (gamut-mapped by reducing chroma, so lightness is kept; grays never rotate). Palette index 0 is the source (monochromatic: five steps dark → light). Used by the web search page / Pick for me and mobile By color / Goes with; `apps/web/src/lib/color-harmonies.ts` is a re-export shim |
+| `analyzeCollectionGaps(hexes)`, `classifyHexToGapCell(hex)`, `gapCellToSeedHex(hue, lightness)`, `recommendGapCells(analysis, limit = 6)`, `gapCellKey`, `parseGapCellKey`, `sortGapCellsByGridOrder`, `HUE_FAMILY_ORDER`, `LIGHTNESS_BAND_ORDER`, `GAP_HUE_META`, `GAP_LIGHTNESS_META` | Collection gap heatmap rules (#109, `color/gaps.ts`, moved from the web's `color-utils.ts`): 8 hue families × 5 OKLCH lightness bands, missing cells (0) and thin cells (`count <= max(1, floor(avg × 0.5))`), the "What to add next" order (missing in grid order, then thin emptiest first) and a representative in-gamut seed hex per cell (chroma clamped with `clampOklchToSrgb`, so every seed classifies back into its own cell). `apps/web/src/lib/color-utils.ts` re-exports the analysis functions; mobile `/gaps` and Pick for me use them directly |
 | `suggestPairings(pick, polishes, max = MAX_PAIRINGS)`, `PairSuggestion`, `PairHarmony`, `PairablePolish`, `pairableDisplayHex(polish)`, `PAIR_MAX_DISTANCE` (0.12), `PAIR_NEUTRAL_MAX_CHROMA` (0.04), `TOPPER_FINISHES`, `MAX_PAIRINGS` (2) | "Pair it" rule (#272/#384, `color/pair-it.ts`): up to two owned companions for a pick, the complementary / analogous owned color polish nearest each harmony target within `PAIR_MAX_DISTANCE` (and closer to the target than to the pick; skipped for near-neutral picks) plus a topper / flake / glitter accent; `role` `accent` or `topper` for the mani log. Web `pick-for-me.ts` re-exports it; mobile Home uses it directly |
 | `prepareDupeShade(shade)`, `prepareDupeCandidates(shades)`, `findDupes(target, candidates, { finishFamilies? })`, `summarizeDupes(id, dupes)`, `compareDupes` | Pure dupe finder: resolve each display hex (`resolveDisplayHexDetailed`) and OKLAB once, then O(N) per target; excludes the target's own id and candidates of another product category (color ↔ color, topper ↔ topper only, #349; `productCategory` on `DupeShade`/`PreparedDupeShade`, missing = color); ordered by grade, finish compatibility, distance, brand/name |
 
@@ -288,13 +321,21 @@ Looks (`/polishes/looks`) vocabulary and saved looks (`GET/POST/DELETE /api/look
 | `LOOK_FINISHES` / `LookFinish` | Finish preferences: `gloss`, `matte`, `chrome`, `holo`, `flake`, `sheer` |
 | `LOOK_STEP_ROLES` / `LookStepRole` | `base`, `accent`, `topper` |
 | `LOOK_STEP_SOURCES` / `LookStepSource` | `owned`, `catalog` (to buy), `template` (color only) |
-| `LookVibe` | `{ occasion, mood, finish \| null, ownedOnly }` |
+| `LookVibe` | `{ occasion, mood, finish \| null, ownedOnly, skinTone?: SkinTone \| null }` |
 | `SavedLookStep` | `{ role, label, hex, source, shadeId?, brand?, name? }` — display snapshot, never joined to shades server-side |
 | `SavedLookInput` / `SavedLook` | `{ id (look key), templateId, name, vibe, steps }`; `SavedLook` adds `savedAt` |
 | `SavedLookListResponse` | `GET /api/looks`: `{ looks }`, newest first |
 | `savedLookKey(templateId, steps)` | `<templateId>:<shadeId or "-" per step>` — saving the same combo twice is one look |
 | `validateSavedLookInput(input)` | Returns a `SavedLookValidation`. The one validation rule (API body and web localStorage): enums, `#RRGGBB` hexes, trimmed/capped text, 1–4 steps, ≤ `MAX_LOOK_STEPS_BYTES` of JSON, `id` = look key; drops unknown fields |
 | `MAX_SAVED_LOOKS` / `MAX_LOOK_STEPS` / `MAX_LOOK_STEPS_BYTES` | `30` / `4` / `3500` |
+
+### `types/feature-flags.ts`
+
+| Type | Description |
+|---|---|
+| `FEATURE_FLAG_NAMES` | `["shareableWishlist", "shareableLooks"]` — the flags `GET /api/config/flags` reports (internal flags never appear) |
+| `PublicFeatureFlagName` | Union of `FEATURE_FLAG_NAMES` |
+| `FeatureFlagsResponse` | `{ flags: Record<PublicFeatureFlagName, boolean> }` |
 
 ### `types/wishlist-share.ts`
 
@@ -478,6 +519,7 @@ Pure, dependency-free OKLAB color math shared by the web app (`apps/web/src/lib/
 | `oklabToRgb(oklab)` | OKLAB → 0–255 sRGB `{ r, g, b }` (gamut-clipped per channel) |
 | `rgbToHexString(rgb)` | 0–255 sRGB `{ r, g, b }` → uppercase `#RRGGBB` |
 | `oklabToHex(oklab)` | OKLAB → uppercase `#RRGGBB` (gamut-clipped) |
+| `clampOklchToSrgb(L, C, h)`, `clampChromaToSrgb`, `isOklchInSrgb` (`color/gamut.ts`) | Gamut mapping: binary-search chroma down at the same L and h until the color is inside sRGB, returns OKLAB. Use instead of `oklabToHex` clipping when generating hexes from OKLCH (clipping shifts hue, e.g. dark yellows toward orange) |
 
 Pinned-distance tests in `packages/functions/tests/color-match.unit.test.cjs` and `apps/web/src/lib/color-utils.test.ts` guard against numeric drift.
 
@@ -496,7 +538,7 @@ Pinned-distance tests in `packages/functions/tests/color-match.unit.test.cjs` an
 ```bash
 npm run build --workspace=packages/shared    # tsc → dist/
 npm run typecheck --workspace=packages/shared # tsc --noEmit
-npm run test --workspace=swatchwatch-shared    # node:test unit tests (src/**/*.test.ts via tsx; harmonies, Pair it)
+npm run test --workspace=swatchwatch-shared    # node:test unit tests (src/**/*.test.ts via tsx; harmonies, Pair it, Looks, gaps)
 ```
 
 **Important:** You must build this package before other packages can resolve its types. The `main` and `types` fields in `package.json` point to `dist/`.

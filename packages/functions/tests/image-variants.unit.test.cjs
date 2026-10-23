@@ -62,6 +62,8 @@ const variants = require("../dist/lib/image-variants");
 const imageProxy = require("../dist/lib/image-proxy");
 const images = require("../dist/functions/images");
 const variantsAdmin = require("../dist/functions/image-variants-admin");
+// Blob Storage requests use lib/storage-http's transport; send them to the stubbed global.fetch.
+require("../dist/lib/storage-http").blobStorageTransport.fetch = (url, init) => global.fetch(url, init);
 
 after(() => {
   Module._resolveFilename = originalResolve;

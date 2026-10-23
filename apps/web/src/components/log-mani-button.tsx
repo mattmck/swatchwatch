@@ -20,6 +20,8 @@ interface LogManiButtonProps {
   companions?: readonly QuickLogCompanion[];
   /** Called after a successful log (before any undo). */
   onLogged?: (manicureId: string) => void;
+  /** Disabled while offline (a saved copy is shown): the log needs the API. */
+  disabled?: boolean;
 }
 
 /**
@@ -34,6 +36,7 @@ export function LogManiButton({
   onWearStatsChange,
   companions = [],
   onLogged,
+  disabled = false,
 }: LogManiButtonProps) {
   const [pending, setPending] = useState(false);
 
@@ -88,7 +91,7 @@ export function LogManiButton({
         variant="ghost"
         className={className}
         onClick={handleClick}
-        disabled={pending}
+        disabled={pending || disabled}
         aria-label={label}
         title="Log today's mani"
       >
@@ -104,7 +107,7 @@ export function LogManiButton({
       variant="outline"
       className={className}
       onClick={handleClick}
-      disabled={pending}
+      disabled={pending || disabled}
       aria-label={label}
     >
       {pending ? <Loader2 className="size-4 animate-spin" /> : <CalendarHeart className="size-4" />}

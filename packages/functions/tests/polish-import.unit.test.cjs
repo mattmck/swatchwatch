@@ -663,6 +663,8 @@ describe("buildUpsertRequest", () => {
       purchasePrice: undefined,
       purchaseCurrency: undefined,
       archiveReason: undefined,
+      purchaseDate: undefined,
+      rating: undefined,
       undoArchive: false,
     });
   });

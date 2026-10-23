@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { cacheStorageKey, createApiCache, isExpired, MAX_AGE_MS, type KeyValueStore } from "./api-cache";
+import { cacheStorageKey, createApiCache, isExpired, isInventoryCacheKey, MAX_AGE_MS, type KeyValueStore } from "./api-cache";
 
 function memoryStore(): KeyValueStore & { data: Map<string, string> } {
   const data = new Map<string, string>();
@@ -48,5 +48,30 @@ describe("api cache", () => {
   it("treats a far-future timestamp as expired", () => {
     assert.equal(isExpired(10_000_000, 1_000), true);
     assert.equal(isExpired(1_000, 2_000), false);
+  });
+});
+
+describe("inventory invalidation", () => {
+  it("drops one user's inventory-derived entries and nothing else", async () => {
+    const store = memoryStore();
+    const cache = createApiCache(store);
+    for (const key of ["polishes:{}", "home-summary", "collection-stats", "gaps-hexes", "manis", "shelf"]) {
+      await cache.write("1", key, 1);
+    }
+    await cache.write("2", "home-summary", 1);
+    await cache.invalidate("1", isInventoryCacheKey);
+    assert.deepEqual(
+      [...store.data.keys()].sort(),
+      [cacheStorageKey("1", "manis"), cacheStorageKey("1", "shelf"), cacheStorageKey("2", "home-summary")].sort(),
+    );
+  });
+
+  it("does not match another user whose id shares a prefix", async () => {
+    const store = memoryStore();
+    const cache = createApiCache(store);
+    await cache.write("1", "home-summary", 1);
+    await cache.write("12", "home-summary", 1);
+    await cache.invalidate("1", isInventoryCacheKey);
+    assert.deepEqual([...store.data.keys()], [cacheStorageKey("12", "home-summary")]);
   });
 });

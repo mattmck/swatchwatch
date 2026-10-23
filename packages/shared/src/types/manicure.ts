@@ -130,3 +130,49 @@ export interface ManicureFilters {
   /** Default 50, max 200. */
   pageSize?: number;
 }
+
+/** Manis shown in the polish detail "Worn N times" panel before "Show all". */
+export const WEAR_HISTORY_PREVIEW_COUNT = 5;
+
+/** One mani in a polish's wear history, seen from that polish. */
+export interface WearHistoryEntry {
+  manicureId: string;
+  /** `YYYY-MM-DD`. */
+  wornOn: string;
+  /** Role this polish played; null when the polish is not in the mani. */
+  role: ManicurePolishRole | null;
+  /** The other polishes of the mani, in display position order. */
+  others: ManicurePolish[];
+  photoUrl: string | null;
+}
+
+/**
+ * Wear history of one shade from `GET /api/manicures?shadeId=` rows: newest first (date, then id),
+ * at most `limit`. Pure; the panel only reads, wear stats stay derived server-side.
+ */
+export function buildWearHistory(
+  manicures: readonly Manicure[],
+  shadeId: string | number,
+  limit: number = WEAR_HISTORY_PREVIEW_COUNT
+): WearHistoryEntry[] {
+  const id = String(shadeId);
+  return [...manicures]
+    .sort((a, b) => (a.wornOn === b.wornOn ? Number(b.id) - Number(a.id) : a.wornOn < b.wornOn ? 1 : -1))
+    .slice(0, Math.max(0, limit))
+    .map((manicure) => {
+      const mine = manicure.polishes.find((p) => p.shadeId === id);
+      return {
+        manicureId: manicure.id,
+        wornOn: manicure.wornOn,
+        role: mine?.role ?? null,
+        others: manicure.polishes.filter((p) => p.shadeId !== id).sort((a, b) => a.position - b.position),
+        photoUrl: manicure.photoUrl,
+      };
+    });
+}
+
+/** Panel title: "Not worn yet", "Worn 1 time", "Worn 3 times". */
+export function wearHistoryTitle(total: number): string {
+  if (total <= 0) return "Not worn yet";
+  return `Worn ${total} ${total === 1 ? "time" : "times"}`;
+}

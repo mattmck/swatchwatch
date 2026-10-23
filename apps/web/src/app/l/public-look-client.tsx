@@ -18,7 +18,6 @@ import {
   publicLookOwnerLine,
   publicLookVibeLine,
   publicLookView,
-  publicStepLabel,
   readShareToken,
 } from "@/lib/look-share";
 import { applicationOrder, finishNotes } from "@/lib/looks-detail";
@@ -111,7 +110,7 @@ function SharedLook({ look }: { look: PublicLookResponse }) {
               )}
               <div className="min-w-0 flex-1 space-y-1">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  {publicStepLabel(look.templateId, step.role)}
+                  {detailSteps[index].label}
                 </p>
                 {step.brand && step.name ? (
                   <p className="font-medium leading-tight">
