@@ -39,6 +39,11 @@ describe("parsePriceInput", () => {
     assert.equal(value("1,234"), 1234);
     assert.equal(value("1,234,567"), 1234567);
   });
+  it("does not read a leading zero as a thousands group", () => {
+    assert.equal(parsePriceInput("0.125").ok, false);
+    assert.equal(value("0,50"), 0.5);
+    assert.equal(parsePriceInput("0,500").ok, false);
+  });
   it("treats empty as no price", () => {
     assert.equal(value(""), null);
     assert.equal(value("  "), null);

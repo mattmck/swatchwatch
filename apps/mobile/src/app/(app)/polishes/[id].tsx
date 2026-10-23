@@ -42,7 +42,7 @@ import {
 } from "@/lib/status";
 import { useTheme } from "@/theme/theme";
 
-type Busy = "status" | "tried" | "mani" | null;
+type Busy = "status" | "tried" | "mani" | "edit" | null;
 
 /** api-cache key (per user) of the currency last saved with a purchase price. */
 const LAST_CURRENCY_KEY = "last-purchase-currency";
@@ -143,6 +143,7 @@ export default function PolishDetailScreen() {
   function saveEdit(patch: PolishUpdateRequest, form: PolishEditForm) {
     if (!polish) return;
     const before = polish;
+    setBusy("edit");
     setEditForm(null);
     setPolish(applyEditPatch(before, patch));
     setActionError(null);
@@ -159,7 +160,8 @@ export default function PolishDetailScreen() {
         setPolish(before);
         setActionError(errorMessage(err, "Couldn't save your changes."));
         setEditForm(form);
-      });
+      })
+      .finally(() => setBusy(null));
   }
 
   async function markTriedToday() {

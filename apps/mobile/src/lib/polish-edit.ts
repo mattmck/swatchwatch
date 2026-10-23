@@ -81,7 +81,7 @@ export function parsePriceInput(text: string): PriceParse {
     const sep = lastDot >= 0 ? "." : ",";
     const parts = cleaned.split(sep);
     const last = parts[parts.length - 1];
-    const thousands = parts.length > 2 || (parts.length === 2 && last.length === 3 && parts[0].length >= 1 && parts[0].length <= 3);
+    const thousands = parts.length > 2 || (parts.length === 2 && last.length === 3 && /^[1-9]\d{0,2}$/.test(parts[0]));
     if (thousands) {
       if (parts[0].length === 0 || parts[0].length > 3 || parts.slice(1).some((p) => p.length !== 3)) {
         return { ok: false, error: PRICE_FORMAT_ERROR };
