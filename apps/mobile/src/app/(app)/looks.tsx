@@ -1,3 +1,4 @@
+import * as Clipboard from "expo-clipboard";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { ScrollView, View } from "react-native";
@@ -12,11 +13,14 @@ import {
   MAX_SAVED_LOOKS,
   SKIN_DEPTHS,
   SKIN_UNDERTONES,
+  lookShareText,
   recommendLooks,
+  shoppingListText,
   skinToneFrom,
   resolveProductCategory,
   type Look,
   type LookStep,
+  type LookStepRole,
   type Polish,
   type PolishStatus,
   type SavedLook,
@@ -25,6 +29,7 @@ import {
 import { deleteSavedLook, errorMessage, listAllPolishes, listPolishes, listSavedLooks, saveLook, updatePolish } from "@/api/client";
 import { useAuth } from "@/auth/auth-provider";
 import { LogManiSheet } from "@/components/log-mani-sheet";
+import { LookDetailsSheet, ShoppingListSheet, SwapSheet } from "@/components/look-sheets";
 import { Swatch } from "@/components/swatch";
 import { EmptyState, startCollectionActions } from "@/components/empty-state";
 import { AppText, Button, Card, CenteredState, Chip, ErrorBanner } from "@/components/ui";
@@ -32,13 +37,17 @@ import { confirmAddWithDupes } from "@/lib/add-guard";
 import { readCache, writeCache } from "@/lib/api-cache";
 import {
   addSavedLook,
+  applySwaps,
   catalogGapQueries,
   maniEntriesFromLook,
   maniEntriesFromSavedLook,
   nextSeed,
+  NO_SWAPS,
   parseCachedSkinTone,
   SKIN_TONE_CACHE_KEY,
   toSavedLook,
+  withSwap,
+  type SwapOverrides,
 } from "@/lib/looks";
 import type { ManiEntry } from "@/lib/mani";
 import { statusChangePatch } from "@/lib/status";
@@ -48,8 +57,14 @@ import { useTheme } from "@/theme/theme";
  * Looks (web: `/polishes/looks`): pick a vibe, get three complete looks built from the polishes
  * you own (the shared, seeded `recommendLooks`, no endpoint), with catalog gaps to Add or
  * wishlist. Shuffle changes the seed; Save keeps a look in the account (`/api/looks`); "Wear
- * this" opens the mani sheet with the owned steps and their roles.
+ * this" opens the mani sheet with the owned steps and their roles. Per step, Swap trades in
+ * another owned polish; Details (application order, finish notes, substitutions) and "Add
+ * missing items" (buy links with brand list prices, ♡ through the add guard, per-currency
+ * subtotals, copy list) open sheets; Copy look puts the web's share text on the clipboard.
  */
+
+type LookSheet = { kind: "swap" | "details" | "shop"; templateId: string; role?: LookStepRole };
+
 export default function LooksScreen() {
   const theme = useTheme();
   const { user } = useAuth();
@@ -69,6 +84,8 @@ export default function LooksScreen() {
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const [wear, setWear] = useState<ManiEntry[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [overrides, setOverrides] = useState<SwapOverrides>(NO_SWAPS);
+  const [sheet, setSheet] = useState<LookSheet | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -155,6 +172,45 @@ export default function LooksScreen() {
     return recommendLooks({ polishes: owned, catalog: catalogPool, vibe, seed, includeToppers: toppers });
   }, [owned, ownedResult, catalogPool, vibe, seed, toppers]);
 
+  // Swaps belong to one recommendation: Shuffle, a vibe change or new catalog rows start over.
+  const resultKey = `${JSON.stringify(vibe)}|${seed}|${toppers}|${catalogReady}|${owned?.length ?? -1}`;
+  const looks = useMemo(() => (result ? applySwaps(result.looks, overrides, resultKey) : []), [result, overrides, resultKey]);
+
+  // Swap / Details sheets: catalog rows near the open look's colors (owned steps too) for "to buy"
+  // substitutes. They feed only the sheets (`sheetPool`), never `recommendLooks`, so opening one
+  // can't reshuffle the looks.
+  const sheetTemplateId = sheet && sheet.kind !== "shop" ? sheet.templateId : null;
+  const sheetQueries = useMemo(() => {
+    const open = sheetTemplateId ? looks.find((l) => l.templateId === sheetTemplateId) : null;
+    return open && !vibe.ownedOnly ? catalogGapQueries([open], { includeOwned: true }) : [];
+  }, [sheetTemplateId, looks, vibe.ownedOnly]);
+  useEffect(() => {
+    const missing = sheetQueries.filter((q) => !(q.key in catalog));
+    if (missing.length === 0) return;
+    let cancelled = false;
+    Promise.all(
+      missing.map((q) =>
+        listPolishes(q.filters).then(
+          (res) => [q.key, res.polishes] as const,
+          () => [q.key, [] as Polish[]] as const,
+        ),
+      ),
+    ).then((entries) => {
+      if (!cancelled) setCatalog((current) => ({ ...current, ...Object.fromEntries(entries) }));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [sheetQueries, catalog]);
+  const sheetLoading = sheetQueries.some((q) => !(q.key in catalog));
+  const sheetPool = useMemo(() => {
+    if (vibe.ownedOnly) return [];
+    const byId = new Map<string, Polish>();
+    for (const rows of Object.values(catalog)) for (const row of rows) byId.set(row.id, row);
+    return [...byId.values()];
+  }, [catalog, vibe.ownedOnly]);
+  const sheetLook = sheet ? (looks.find((l) => l.templateId === sheet.templateId) ?? null) : null;
+
   const savedIds = useMemo(() => new Set(saved.map((s) => s.id)), [saved]);
 
   const setStatus = useCallback(async (polish: Polish, status: PolishStatus) => {
@@ -188,6 +244,22 @@ export default function LooksScreen() {
     }
   }
 
+  function swap(look: Look, role: LookStepRole, polish: Polish) {
+    setOverrides((current) => withSwap(current, resultKey, look, role, polish));
+  }
+
+  /** Copy text to the clipboard and say so (or that it failed). */
+  async function copy(text: string, done: string) {
+    setActionError(null);
+    try {
+      await Clipboard.setStringAsync(text);
+      setNotice(done);
+    } catch {
+      setNotice(null);
+      setActionError("Couldn't copy to the clipboard.");
+    }
+  }
+
   async function remove(id: string) {
     setActionError(null);
     try {
@@ -209,7 +281,6 @@ export default function LooksScreen() {
 
   if (!owned) return <CenteredState loading title="Mixing your looks…" />;
 
-  const looks = result?.looks ?? [];
   return (
     <>
       <ScrollView contentContainerStyle={{ padding: theme.spacing(4), gap: theme.spacing(4) }} keyboardShouldPersistTaps="handled">
@@ -263,6 +334,29 @@ export default function LooksScreen() {
                   moved={moved}
                   busy={busy}
                   onStatus={(polish, status) => void setStatus(polish, status)}
+                  onSwap={(role) => setSheet({ kind: "swap", templateId: look.templateId, role })}
+                  extras={
+                    <>
+                      {look.missingSteps > 0 && (
+                        <Button
+                          title={`Add missing items (${look.missingSteps})`}
+                          variant="outline"
+                          compact
+                          onPress={() => setSheet({ kind: "shop", templateId: look.templateId })}
+                          testID="looks-shop"
+                        />
+                      )}
+                      <Button title="Details" variant="ghost" compact onPress={() => setSheet({ kind: "details", templateId: look.templateId })} testID="looks-details" />
+                      <Button
+                        title="Copy look"
+                        variant="ghost"
+                        compact
+                        // No web origin on mobile, so unlike the web there is no vibe/seed link at the end.
+                        onPress={() => void copy(lookShareText(look, vibe), "Look copied. Paste it into a message to share it.")}
+                        testID="looks-copy"
+                      />
+                    </>
+                  }
                   actions={
                     <>
                       <Button
@@ -319,6 +413,31 @@ export default function LooksScreen() {
           </>
         )}
       </ScrollView>
+      <SwapSheet
+        look={sheet?.kind === "swap" ? sheetLook : null}
+        role={sheet?.role ?? null}
+        pool={sheetPool}
+        vibe={vibe}
+        loading={sheetLoading}
+        onSwap={(role, polish) => sheetLook && swap(sheetLook, role, polish)}
+        onClose={() => setSheet(null)}
+      />
+      <LookDetailsSheet
+        look={sheet?.kind === "details" ? sheetLook : null}
+        pool={sheetPool}
+        vibe={vibe}
+        loading={sheetLoading}
+        onSwap={(role, polish) => sheetLook && swap(sheetLook, role, polish)}
+        onClose={() => setSheet(null)}
+      />
+      <ShoppingListSheet
+        look={sheet?.kind === "shop" ? sheetLook : null}
+        moved={moved}
+        busy={busy}
+        onWishlist={(polish) => void setStatus(polish, "wishlist")}
+        onCopy={(look) => void copy(shoppingListText(look), "Shopping list copied.")}
+        onClose={() => setSheet(null)}
+      />
       <LogManiSheet
         visible={wear !== null}
         initialEntries={wear ?? undefined}
@@ -418,7 +537,13 @@ function VibePicker({
 }
 
 /** What a card shows per step: a fresh look has the polish row, a saved one only its snapshot text. */
-type StepView = Pick<LookStep, "role" | "label" | "hex" | "source"> & { polish?: Polish | null; brand?: string; name?: string };
+type StepView = Pick<LookStep, "role" | "label" | "hex" | "source"> & {
+  polish?: Polish | null;
+  brand?: string;
+  name?: string;
+  /** Owned polishes that can replace this step (fresh looks only); Swap shows when there are any. */
+  alternatives?: readonly Polish[];
+};
 
 /** A look: swatch strip, steps (Owned ✓ / Add / ♡) and actions. Saved looks pass steps without polishes. */
 function LookCard({
@@ -429,6 +554,8 @@ function LookCard({
   moved,
   busy,
   onStatus,
+  onSwap,
+  extras,
   actions,
 }: {
   name: string;
@@ -438,6 +565,10 @@ function LookCard({
   moved: Record<string, PolishStatus>;
   busy: ReadonlySet<string>;
   onStatus?: (polish: Polish, status: PolishStatus) => void;
+  /** Open the Swap sheet for a step (fresh looks only). */
+  onSwap?: (role: LookStepRole) => void;
+  /** Detail buttons between the steps and the main actions. */
+  extras?: ReactNode;
   actions: ReactNode;
 }) {
   const theme = useTheme();
@@ -476,6 +607,9 @@ function LookCard({
                   {shade ? `${brand ? `${brand} — ` : ""}${shade}` : "No match — look for this color"}
                 </AppText>
               </View>
+              {onSwap && step.alternatives && step.alternatives.length > 0 && (
+                <Button title="Swap" variant="ghost" compact accessibilityLabel={`Swap ${step.label}`} onPress={() => onSwap(step.role)} />
+              )}
               {onStatus && polish && step.source !== "owned" ? (
                 status === "owned" ? (
                   <Chip label="Owned ✓" tone="success" />
@@ -505,6 +639,7 @@ function LookCard({
           );
         })}
       </View>
+      {extras ? <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.spacing(2) }}>{extras}</View> : null}
       <View style={{ flexDirection: "row", gap: theme.spacing(2) }}>{actions}</View>
     </Card>
   );

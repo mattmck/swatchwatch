@@ -1,8 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type { Polish } from "swatchwatch-shared";
+import type { Polish, PolishDupe, PolishDupesResponse } from "swatchwatch-shared";
 import {
+  NEAR_DUPE_OUTCOMES,
   buildOwnershipSnapshot,
+  checkedFromNearDupe,
+  resolveNearDupeVerdict,
+  withNearDupes,
   candidateOptionLabel,
   deriveCaptureVerdict,
   ownedEntryAfterVerdict,
@@ -12,6 +16,7 @@ import {
   withOwnedEntry,
   type CaptureOutcome,
   type CaptureVerdict,
+  type CheckedVerdict,
   type VerdictResolver,
 } from "./capture-verdict";
 
@@ -218,5 +223,120 @@ describe("ownedEntryAfterVerdict", () => {
 
   it("records nothing for an unmatched verdict", () => {
     assert.equal(ownedEntryAfterVerdict({ kind: "add", evidence: {} }), null);
+  });
+});
+
+describe("near-dupe verdict (#265)", () => {
+  const dupe = (grade: "high" | "medium", shadeId = "7"): PolishDupe => ({
+    shadeId,
+    brand: "OPI",
+    name: "Big Apple Red",
+    finishes: ["creme"],
+    displayHex: "#C1121F",
+    displayHexSource: "vendor",
+    distance: grade === "high" ? 0.02 : 0.08,
+    colorGrade: grade,
+    grade,
+    finishCompatibility: "same",
+  });
+  const response = (dupes: PolishDupe[]): PolishDupesResponse => ({
+    target: { shadeId: "5", displayHex: "#C0101E", displayHexSource: "vendor", finishes: ["creme"] },
+    dupes,
+    dupeCount: dupes.length,
+    highCount: dupes.filter((d) => d.grade === "high").length,
+    candidateCount: 10,
+  });
+  const checked = (overrides: Partial<CheckedVerdict> = {}): CheckedVerdict => ({
+    kind: "checked",
+    relationship: "notOwned",
+    display: "Zoya — Pixie",
+    shadeId: "5",
+    gtin: "111",
+    hex: "#C0101E",
+    ...overrides,
+  });
+
+  it("upgrades a not-owned catalog shade with owned dupes", () => {
+    const verdict = withNearDupes(checked(), response([dupe("high"), dupe("medium", "8")]));
+    assert.equal(verdict.kind, "near_dupe");
+    if (verdict.kind !== "near_dupe") return;
+    assert.equal(verdict.dupeKind, "dupe-owned");
+    assert.equal(verdict.shadeId, "5");
+    assert.equal(verdict.hex, "#C0101E");
+    assert.equal(verdict.dupes.dupeCount, 2);
+    assert.equal(checkedFromNearDupe(verdict).relationship, "notOwned");
+  });
+
+  it("grades a MEDIUM-only match as near-dupe-owned", () => {
+    const verdict = withNearDupes(checked(), response([dupe("medium")]));
+    assert.equal(verdict.kind === "near_dupe" && verdict.dupeKind, "near-dupe-owned");
+  });
+
+  it("leaves everything else unchanged", () => {
+    assert.equal(withNearDupes(checked(), response([])).kind, "checked");
+    assert.equal(withNearDupes(checked(), null).kind, "checked");
+    assert.equal(withNearDupes(checked({ relationship: "owned" }), response([dupe("high")])).kind, "checked");
+    assert.equal(withNearDupes(checked({ relationship: "wishlisted" }), response([dupe("high")])).kind, "checked");
+    assert.equal(withNearDupes(checked({ shadeId: undefined }), response([dupe("high")])).kind, "checked");
+    assert.equal(withNearDupes({ kind: "unknown_barcode", gtin: "1" }, response([dupe("high")])).kind, "unknown_barcode");
+  });
+
+  it("maps the card choices to the funnel outcomes", () => {
+    assert.deepEqual(NEAR_DUPE_OUTCOMES, { cancel: "cancel", wishlist: "wishlist_instead", add_anyway: "add_anyway" });
+  });
+
+  it("resolveNearDupeVerdict makes one call and upgrades", async () => {
+    let calls = 0;
+    const result = await resolveNearDupeVerdict(checked(), {
+      suppressed: new Set(),
+      loadDupes: async () => {
+        calls += 1;
+        return response([dupe("high")]);
+      },
+    });
+    assert.equal(calls, 1);
+    assert.equal(result.verdict.kind, "near_dupe");
+    assert.equal(result.answered, true);
+  });
+
+  it("resolveNearDupeVerdict marks a no-dupe answer as answered", async () => {
+    const result = await resolveNearDupeVerdict(checked(), { suppressed: new Set(), loadDupes: async () => response([]) });
+    assert.equal(result.verdict.kind, "checked");
+    assert.equal(result.answered, true);
+  });
+
+  it("resolveNearDupeVerdict skips owned, wishlisted and suppressed shades without a call", async () => {
+    const loadDupes = async (): Promise<PolishDupesResponse> => {
+      throw new Error("should not be called");
+    };
+    const cases: Array<[CheckedVerdict, Set<string>]> = [
+      [checked({ relationship: "owned" }), new Set()],
+      [checked({ relationship: "wishlisted" }), new Set()],
+      [checked(), new Set(["shade:5"])],
+    ];
+    for (const [verdict, suppressed] of cases) {
+      const result = await resolveNearDupeVerdict(verdict, { suppressed, loadDupes });
+      assert.equal(result.verdict.kind, "checked");
+      assert.equal(result.answered, false);
+      assert.equal(result.failure, undefined);
+    }
+  });
+
+  it("resolveNearDupeVerdict never blocks on a failed or slow lookup", async () => {
+    const failed = await resolveNearDupeVerdict(checked(), {
+      suppressed: new Set(),
+      loadDupes: async () => {
+        throw new Error("500");
+      },
+    });
+    assert.equal(failed.verdict.kind, "checked");
+    assert.equal(failed.failure?.reason, "error");
+    assert.equal(failed.answered, false);
+    const slow = await resolveNearDupeVerdict(checked(), {
+      suppressed: new Set(),
+      timeoutMs: 5,
+      loadDupes: () => new Promise<PolishDupesResponse>(() => undefined),
+    });
+    assert.equal(slow.failure?.reason, "timeout");
   });
 });
