@@ -2,6 +2,7 @@ import Constants from "expo-constants";
 import { ScrollView, View } from "react-native";
 import { API_BASE_URL } from "@/config/env";
 import { useAuth } from "@/auth/auth-provider";
+import { ExportCollectionCard } from "@/components/export-collection";
 import { AppText, Button, Card } from "@/components/ui";
 import { useTheme } from "@/theme/theme";
 
@@ -37,6 +38,8 @@ export default function ProfileScreen() {
         <Row label="Sign-in" value={MODE_LABELS[mode]} />
         <Row label="App version" value={Constants.expoConfig?.version ?? "dev"} />
       </Card>
+
+      <ExportCollectionCard />
 
       <Button title="Sign out" variant="outline" onPress={() => void signOut()} />
     </ScrollView>
