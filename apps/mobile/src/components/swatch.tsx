@@ -1,5 +1,5 @@
 import { Image } from "expo-image";
-import { PixelRatio, StyleSheet, View } from "react-native";
+import { PixelRatio, StyleSheet, Text, View } from "react-native";
 import { resolveDisplayHex, type Polish } from "swatchwatch-shared";
 import { swatchThumbnailUrl } from "@/lib/image-url";
 import { useTheme } from "@/theme/theme";
@@ -15,7 +15,7 @@ export function Swatch({
   size = 48,
   rounded = "md",
 }: {
-  polish?: Pick<Polish, "vendorHex" | "detectedHex" | "nameHex" | "swatchImageUrl">;
+  polish?: Pick<Polish, "vendorHex" | "detectedHex" | "nameHex" | "swatchImageUrl"> & Partial<Pick<Polish, "productCategory">>;
   hex?: string | null;
   imageUrl?: string | null;
   size?: number;
@@ -25,6 +25,28 @@ export function Swatch({
   const fill = hex ?? (polish ? resolveDisplayHex(polish) : undefined);
   const source = imageUrl ?? polish?.swatchImageUrl;
   const radius = rounded === "full" ? size / 2 : theme.radius.lg;
+  // A topper has no single color (D-D): neutral sparkle tile, never a color guess (web: TopperSwatch).
+  if (polish?.productCategory === "topper") {
+    return (
+      <View
+        accessibilityElementsHidden
+        importantForAccessibility="no"
+        testID="topper-swatch"
+        style={{
+          width: size,
+          height: size,
+          borderRadius: radius,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: theme.colors.muted,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: theme.colors.border,
+        }}
+      >
+        <Text style={{ fontSize: size * 0.45, color: theme.colors.mutedForeground }}>✦</Text>
+      </View>
+    );
+  }
   return (
     <View
       accessibilityElementsHidden

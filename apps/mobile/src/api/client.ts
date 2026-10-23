@@ -159,6 +159,7 @@ export function listPolishes(filters: PolishFilters = {}): Promise<PolishListRes
       status: filters.status?.length ? filters.status.join(",") : undefined,
       untried: filters.untried ? "true" : undefined,
       family: filters.families?.length ? filters.families.join(",") : undefined,
+      category: filters.categories?.length ? filters.categories.join(",") : undefined,
       sortBy: filters.sortBy,
       sortOrder: filters.sortOrder,
       page: filters.page,
