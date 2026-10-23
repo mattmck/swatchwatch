@@ -19,6 +19,7 @@ export default function AppLayout() {
       <Stack.Screen name="looks" options={{ title: "Looks" }} />
       <Stack.Screen name="gaps" options={{ title: "Collection gaps" }} />
       <Stack.Screen name="match" options={{ title: "Match to collection" }} />
+      <Stack.Screen name="insights" options={{ title: "Insights" }} />
     </Stack>
   );
 }
