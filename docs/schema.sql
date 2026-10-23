@@ -293,6 +293,17 @@ CREATE TABLE shade (
   -- Color family of the display hex (vendor > detected > name), or 'multichrome' for color-shifting
   -- finishes; NULL without a usable hex. Filtered by ?family= (migration 20261017061637910_add-shade-color-family)
   color_family TEXT GENERATED ALWAYS AS (shade_color_family(vendor_hex, detected_hex, name_hex, finishes, finish)) STORED,
+  -- OKLAB of the display hex (vendor > detected > name, trimmed like color_family); NULL without a usable hex.
+  -- GET /api/polishes?nearHex= sorts by distance on these (migration 20261023001520034_shade-display-oklab)
+  oklab_l DOUBLE PRECISION GENERATED ALWAYS AS (
+    (hex_to_oklab(shade_color_family_trim(COALESCE(NULLIF(vendor_hex, ''), NULLIF(detected_hex, ''), NULLIF(name_hex, '')))))[1]
+  ) STORED,
+  oklab_a DOUBLE PRECISION GENERATED ALWAYS AS (
+    (hex_to_oklab(shade_color_family_trim(COALESCE(NULLIF(vendor_hex, ''), NULLIF(detected_hex, ''), NULLIF(name_hex, '')))))[2]
+  ) STORED,
+  oklab_b DOUBLE PRECISION GENERATED ALWAYS AS (
+    (hex_to_oklab(shade_color_family_trim(COALESCE(NULLIF(vendor_hex, ''), NULLIF(detected_hex, ''), NULLIF(name_hex, '')))))[3]
+  ) STORED,
   -- Admin review of user_submitted shades (migration 20261017063252270_shade-review-queue): last decision + who/when.
   -- approve → status 'active'; reject → stays 'user_submitted' (private); merge → inventory moved to
   -- merged_into_shade_id and the row is retired (stays 'user_submitted', hidden from user polish queries).
