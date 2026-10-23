@@ -7,8 +7,8 @@
  * - no retry on 404 or on a non-network error
  * - honors Retry-After on 429 (capped at maxDelayMs), exponential backoff otherwise
  * - describeFetchError() keeps the undici cause code
- * - uploadSourceImageToBlob() retries a failed source download
- * - readBlobFromStorageUrl() retries only when asked (`retry: true`, the variants backfill)
+ * - uploadSourceImageToBlob() retries a failed source download, also when the body read resets
+ * - readBlobFromStorageUrl() retries only when asked (`retry: true`, the variants backfill), body reads included
  */
 const { describe, it, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
@@ -188,5 +188,65 @@ describe("lib/blob-storage — uploadSourceImageToBlob download retry", () => {
     const blob = await readBlobFromStorageUrl(url, { retry: true });
     assert.equal(reads, 2);
     assert.equal(blob.bytes.toString(), "bytes");
+  });
+
+  function resetMidBody(firstChunk) {
+    return new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array(firstChunk));
+        controller.error(fetchFailed("ECONNRESET").cause);
+      },
+    });
+  }
+
+  it("retries a source download whose body read resets", async () => {
+    process.env.AZURE_STORAGE_CONNECTION = `DefaultEndpointsProtocol=https;AccountName=testacct;AccountKey=${Buffer.from(
+      "test-key"
+    ).toString("base64")};EndpointSuffix=core.windows.net`;
+    const png = await sharp({
+      create: { width: 4, height: 4, channels: 3, background: { r: 7, g: 8, b: 9 } },
+    })
+      .png()
+      .toBuffer();
+
+    let downloads = 0;
+    global.fetch = async (url, init = {}) => {
+      const method = init.method || "GET";
+      if (String(url).startsWith("https://shop.example/")) {
+        downloads += 1;
+        const body = downloads === 1 ? resetMidBody(png.subarray(0, 8)) : png;
+        return new Response(body, { status: 200, headers: { "content-type": "image/png" } });
+      }
+      return new Response(null, { status: method === "HEAD" ? 200 : 201 });
+    };
+
+    const result = await uploadSourceImageToBlob({
+      sourceImageUrl: "https://shop.example/b.png",
+      source: "TestShopify",
+      externalId: "retry-body",
+      skipContainerEnsure: true,
+    });
+    assert.equal(downloads, 2);
+    assert.ok(result.storageUrl);
+  });
+
+  it("readBlobFromStorageUrl with retry: true retries a body read that resets", async () => {
+    process.env.AZURE_STORAGE_CONNECTION = `DefaultEndpointsProtocol=https;AccountName=testacct;AccountKey=${Buffer.from(
+      "test-key"
+    ).toString("base64")};EndpointSuffix=core.windows.net`;
+    let reads = 0;
+    global.fetch = async () => {
+      reads += 1;
+      const body = reads === 1 ? resetMidBody(Buffer.from("by")) : Buffer.from("bytes");
+      return new Response(body, { status: 200, headers: { "content-type": "image/png" } });
+    };
+
+    const blob = await readBlobFromStorageUrl(
+      "https://testacct.blob.core.windows.net/source-images/shop/a.png",
+      { retry: true }
+    );
+    assert.equal(reads, 2);
+    assert.equal(blob.bytes.toString(), "bytes");
+    assert.equal(blob.contentType, "image/png");
   });
 });

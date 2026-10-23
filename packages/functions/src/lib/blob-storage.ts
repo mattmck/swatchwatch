@@ -421,11 +421,25 @@ async function sendStorageRequest(
       "Azure Blob Storage request"
     );
 
-  // Only idempotent reads may opt into retries (transient network errors and 429/5xx).
+  // Only idempotent reads may opt into retries (transient network errors and 429/5xx). A
+  // successful body is buffered inside the attempt so a connection reset mid-body is retried too.
   if (options.retry && (method === "GET" || method === "HEAD")) {
-    return fetchWithRetry(send, { label: `Azure Blob Storage ${method}` });
+    return fetchWithRetry(async () => bufferSuccessfulBody(await send()), {
+      label: `Azure Blob Storage ${method}`,
+    });
   }
   return send();
+}
+
+/** Read an OK response's body now and return an equivalent, already-buffered Response. */
+async function bufferSuccessfulBody(response: Response): Promise<Response> {
+  if (!response.ok || response.body === null) return response;
+  const body = await response.arrayBuffer();
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
 }
 
 function normalizeContainerName(
@@ -848,17 +862,31 @@ export async function uploadSourceImageToBlob(
   params: UploadSourceImageOptions & { skipContainerEnsure?: boolean }
 ): Promise<UploadedBlobImage> {
   console.log(`[blob-storage] Downloading image from ${params.sourceImageUrl}`);
-  // Each attempt gets its own REQUEST_TIMEOUT_MS; transient network errors and 429/5xx are retried.
+  const limits = resolveSourceImageLimits();
+  let sourceType = "";
+  let bytes: Buffer = Buffer.alloc(0);
+  // Each attempt gets its own REQUEST_TIMEOUT_MS; transient network errors (also while reading the
+  // body, which is why the capped read happens inside the attempt) and 429/5xx are retried.
   const sourceResponse = await fetchWithRetry(
-    () =>
-      runWithTimeout(
+    async () => {
+      const response = await runWithTimeout(
         fetch(params.sourceImageUrl, {
           method: "GET",
           headers: { "User-Agent": "SwatchWatch/source-image-ingestion" },
         }),
         REQUEST_TIMEOUT_MS,
         "Source image download"
-      ),
+      );
+      if (!response.ok) return response;
+      try {
+        sourceType = assertAllowedImageType(response.headers.get("content-type") || "image/jpeg");
+      } catch (error) {
+        await response.body?.cancel().catch(() => undefined);
+        throw error;
+      }
+      bytes = await readResponseCapped(response, limits.maxDownloadBytes);
+      return response;
+    },
     { label: "Source image download" }
   );
 
@@ -867,17 +895,6 @@ export async function uploadSourceImageToBlob(
       `Failed to download source image: ${sourceResponse.status} ${sourceResponse.statusText}`
     );
   }
-
-  const sourceContentType = sourceResponse.headers.get("content-type") || "image/jpeg";
-  const limits = resolveSourceImageLimits();
-  let sourceType: string;
-  try {
-    sourceType = assertAllowedImageType(sourceContentType);
-  } catch (error) {
-    await sourceResponse.body?.cancel().catch(() => undefined);
-    throw error;
-  }
-  const bytes = await readResponseCapped(sourceResponse, limits.maxDownloadBytes);
   if (bytes.length === 0) {
     throw new Error("Image payload is empty");
   }
