@@ -72,3 +72,23 @@ export function savedCopyAgeBucket(savedAt: number, now: number): SavedCopyAge {
 export function formatSavedAt(savedAt: number): string {
   return new Date(savedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
+
+const shownOfflineKeys = new Set<string>();
+
+/**
+ * True the first time `key` is seen this session, so `collection.offline_shown` fires once per
+ * saved copy even when the page remounts and shows the same copy again.
+ */
+export function claimOfflineShown(key: string): boolean {
+  if (shownOfflineKeys.has(key)) return false;
+  shownOfflineKeys.add(key);
+  return true;
+}
+
+/** Error text when the API failed and no saved copy exists for the view. */
+export function unreachableMessage(what: "view" | "polish", offline: boolean = isBrowserOffline()): string {
+  const saved = what === "view" ? "this view hasn't" : "this polish hasn't";
+  return offline
+    ? `You're offline, and ${saved} been saved on this device.`
+    : `SwatchWatch can't be reached right now, and ${saved} been saved on this device.`;
+}

@@ -228,8 +228,8 @@ describe("polish detail cache", () => {
   });
 
   it("recovers from a full storage by clearing the cache and retrying once", () => {
-    const storage = memoryStorage(5_000);
-    storage.setItem(`${API_CACHE_PREFIX}v1:user-a:polish:old`, JSON.stringify({ v: 1, savedAt: NOW - 10, data: "x".repeat(2_500) }));
+    const storage = memoryStorage(3_000);
+    storage.setItem(`${API_CACHE_PREFIX}v1:user-a:polish:old`, JSON.stringify({ v: 1, savedAt: NOW - 10, data: "x".repeat(1_800) }));
     writePolishDetail(ctx(storage), polish(7, { notes: "short" }));
     assert.ok(readPolishDetail(ctx(storage), 7));
   });

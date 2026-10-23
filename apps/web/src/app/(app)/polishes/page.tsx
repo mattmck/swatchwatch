@@ -59,7 +59,7 @@ import {
 } from "@/lib/polish-list-url";
 import { trackEvent } from "@/lib/telemetry";
 import { currentCacheContext, ownedListCacheQuery, readOwnedList, writeOwnedList } from "@/lib/api-cache";
-import { isApiUnreachable, savedCopyAgeBucket } from "@/lib/offline";
+import { claimOfflineShown, isApiUnreachable, savedCopyAgeBucket, unreachableMessage } from "@/lib/offline";
 import { trackCollectionOfflineShown } from "@/lib/metrics-events";
 import { useOnlineRetry } from "@/hooks/use-online-retry";
 import { SavedCopyBanner } from "@/components/saved-copy-banner";
@@ -180,6 +180,9 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   // that copy was loaded. It is shown read-only under a banner (writes and export are disabled).
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const offline = savedAt !== null;
+  // The saved first page is on screen while the request runs: quantity/status writes would send
+  // values from the copy, so they wait for fresh data.
+  const [showingWarmCopy, setShowingWarmCopy] = useState(false);
   const { tick: retryTick, retry: retryNow } = useOnlineRetry();
   const hasLoadedRef = useRef(false);
   const { finishTypes } = useReferenceData();
@@ -304,6 +307,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
           setPolishes(warm.data.polishes);
           setTotal(warm.data.total);
           setHasLoaded(true);
+          setShowingWarmCopy(true);
         }
 
         const baseFilters = toApiFilters(listState);
@@ -352,14 +356,13 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
             setSavedAt(saved.savedAt);
           } else {
             setSavedAt(null);
-            setError(
-              isApiUnreachable(err) ? "You're offline, and this view hasn't been saved on this device." : message
-            );
+            setError(isApiUnreachable(err) ? unreachableMessage("view") : message);
           }
         }
       } finally {
         if (!cancelled) {
           hasLoadedRef.current = true;
+          setShowingWarmCopy(false);
           setHasLoaded(true);
           setLoading(false);
         }
@@ -374,9 +377,10 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
 
   // Once per saved copy shown (a retry that fails again keeps the same copy).
   useEffect(() => {
-    if (savedAt !== null) {
+    if (savedAt !== null && claimOfflineShown(`list:${ownedListCacheQuery({ ...listState, page, pageSize })}:${savedAt}`)) {
       trackCollectionOfflineShown({ surface: "list", age: savedCopyAgeBucket(savedAt, Date.now()) });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedAt]);
 
   // Reset page when filters change (but keep initial URL-restored page). Compares against the
@@ -651,7 +655,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       {isOwnedPolish(polish) && <LogManiButton polish={polish} variant="icon" disabled={offline} />}
       <CollectionQuickActions
         polish={polish}
-        pending={offline || actionPendingById[polish.id] === true || isGuardChecking(shadeGuardKey(polish.id))}
+        pending={offline || showingWarmCopy || actionPendingById[polish.id] === true || isGuardChecking(shadeGuardKey(polish.id))}
         onAction={(action, source) => handleCollectionAction(polish.id, action, source)}
         onQuantityChange={(delta) => handleQuantityChange(polish.id, delta)}
       />

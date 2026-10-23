@@ -41,8 +41,8 @@ import { AdminHexSipSection, AdminVendorHexSourceHint } from "@/components/admin
 import { canLogPolish, formatWornOn, toLocalIsoDate } from "@/lib/mani-log";
 import { detailHref, returnToLabel, safeReturnTo } from "@/lib/detail-href";
 import { toast } from "sonner";
-import { currentCacheContext, readPolishDetail, writePolishDetail } from "@/lib/api-cache";
-import { isApiUnreachable, savedCopyAgeBucket } from "@/lib/offline";
+import { currentCacheContext, readPolishDetail, removePolishDetail, writePolishDetail } from "@/lib/api-cache";
+import { claimOfflineShown, isApiUnreachable, savedCopyAgeBucket, unreachableMessage } from "@/lib/offline";
 import { trackCollectionOfflineShown } from "@/lib/metrics-events";
 import { useOnlineRetry } from "@/hooks/use-online-retry";
 import { SavedCopyBanner } from "@/components/saved-copy-banner";
@@ -104,7 +104,11 @@ export default function PolishDetailClient({
         setError(null);
         setSavedAt(null);
         const writeCtx = currentCacheContext();
-        if (writeCtx && isOwnedPolish(data)) writePolishDetail(writeCtx, data);
+        if (writeCtx) {
+          // No longer owned (wishlisted, archived, removed): drop the earlier owned copy.
+          if (isOwnedPolish(data)) writePolishDetail(writeCtx, data);
+          else removePolishDetail(writeCtx, id);
+        }
       } catch (err: unknown) {
         if (cancelled) return;
         const saved = isApiUnreachable(err) ? readSaved() : null;
@@ -116,7 +120,7 @@ export default function PolishDetailClient({
           setSavedAt(null);
           setError(
             isApiUnreachable(err)
-              ? "You're offline, and this polish hasn't been saved on this device."
+              ? unreachableMessage("polish")
               : err instanceof Error ? err.message : "Failed to load polish"
           );
         }
@@ -145,10 +149,10 @@ export default function PolishDetailClient({
 
   // Once per saved copy shown (a retry that fails again keeps the same copy).
   useEffect(() => {
-    if (savedAt !== null) {
+    if (savedAt !== null && claimOfflineShown(`detail:${id}:${savedAt}`)) {
       trackCollectionOfflineShown({ surface: "detail", age: savedCopyAgeBucket(savedAt, Date.now()) });
     }
-  }, [savedAt]);
+  }, [id, savedAt]);
 
   // Once per visit: the archive toast for a polish the edit form just archived. The query flag
   // is dropped so a reload doesn't offer it again.

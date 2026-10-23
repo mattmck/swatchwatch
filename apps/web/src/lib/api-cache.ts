@@ -222,6 +222,14 @@ export function writePolishDetail(ctx: CacheContext, polish: Polish): boolean {
   return writeEntry(ctx, polishDetailCacheName(polish.id), "polish:", MAX_DETAIL_ENTRIES, polish);
 }
 
+export function removePolishDetail(ctx: CacheContext, id: string | number): void {
+  try {
+    ctx.storage.removeItem(entryKey(ctx.userKey, polishDetailCacheName(id)));
+  } catch {
+    // Best effort.
+  }
+}
+
 export function readPolishDetail(ctx: CacheContext, id: string | number): CachedValue<Polish> | null {
   return readCache<Polish>(ctx, polishDetailCacheName(id));
 }

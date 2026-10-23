@@ -91,3 +91,18 @@ describe("formatSavedAt", () => {
     assert.match(formatSavedAt(Date.UTC(2026, 9, 23, 12)), /2026/);
   });
 });
+
+describe("claimOfflineShown / unreachableMessage", () => {
+  it("claims a key once", async () => {
+    const { claimOfflineShown } = await import("./offline");
+    assert.equal(claimOfflineShown("k1"), true);
+    assert.equal(claimOfflineShown("k1"), false);
+    assert.equal(claimOfflineShown("k2"), true);
+  });
+
+  it("words the message by whether the browser is offline", async () => {
+    const { unreachableMessage } = await import("./offline");
+    assert.match(unreachableMessage("view", true), /^You're offline/);
+    assert.match(unreachableMessage("polish", false), /^SwatchWatch can't be reached/);
+  });
+});
