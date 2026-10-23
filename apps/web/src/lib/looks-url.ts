@@ -3,9 +3,14 @@ import {
   LOOK_FINISHES,
   LOOK_MOODS,
   LOOK_OCCASIONS,
+  SKIN_DEPTHS,
+  SKIN_UNDERTONES,
+  skinToneFrom,
   type LookFinish,
   type LookMood,
   type LookOccasion,
+  type SkinDepth,
+  type SkinUndertone,
   type Vibe,
 } from "./looks";
 import { parsePositiveInt, type ReadableParams } from "./polish-list-url";
@@ -14,7 +19,8 @@ import type { LookStep } from "./looks";
 
 /**
  * URL state for `/polishes/looks`: `occasion`, `mood`, `finish` (omitted = any), `owned=1`,
- * `toppers=0` (Include toppers off, #386) and `seed` (Shuffle). Defaults are omitted so the bare
+ * `toppers=0` (Include toppers off, #386), `undertone` / `depth` (skin tone; either one sets the
+ * other to its no-preference value, so `?undertone=warm` is warm + medium) and `seed` (Shuffle). Defaults are omitted so the bare
  * route is the default vibe and links made before a field existed keep their meaning; back/forward
  * and shared links reproduce the same looks because the recommender is seeded.
  */
@@ -37,12 +43,17 @@ function pick<T extends string>(values: readonly T[], raw: string | null): T | n
 export function parseLooksState(params: ReadableParams): LooksState {
   const owned = params.get("owned")?.trim().toLowerCase();
   const toppers = params.get("toppers")?.trim().toLowerCase();
+  const skinTone = skinToneFrom(
+    pick<SkinUndertone>(SKIN_UNDERTONES, params.get("undertone")),
+    pick<SkinDepth>(SKIN_DEPTHS, params.get("depth"))
+  );
   return {
     vibe: {
       occasion: pick<LookOccasion>(LOOK_OCCASIONS, params.get("occasion")) ?? DEFAULT_VIBE.occasion,
       mood: pick<LookMood>(LOOK_MOODS, params.get("mood")) ?? DEFAULT_VIBE.mood,
       finish: pick<LookFinish>(LOOK_FINISHES, params.get("finish")),
       ownedOnly: owned === "1" || owned === "true",
+      ...(skinTone ? { skinTone } : {}),
     },
     seed: parsePositiveInt(params.get("seed"), DEFAULT_LOOKS_SEED),
     toppers: !(toppers === "0" || toppers === "false"),
@@ -57,6 +68,10 @@ export function buildLooksQueryString(state: LooksState): string {
   if (state.vibe.finish) params.set("finish", state.vibe.finish);
   if (state.vibe.ownedOnly) params.set("owned", "1");
   if (!state.toppers) params.set("toppers", "0");
+  if (state.vibe.skinTone) {
+    params.set("undertone", state.vibe.skinTone.undertone);
+    params.set("depth", state.vibe.skinTone.depth);
+  }
   if (state.seed !== DEFAULT_LOOKS_SEED) params.set("seed", String(state.seed));
   return params.toString();
 }
@@ -66,7 +81,8 @@ export function buildLooksQueryString(state: LooksState): string {
  * recipient sees the same vibe built from their own collection, not this person's polishes.
  */
 export function lookShareUrl(origin: string, pathname: string, state: LooksState): string {
-  const qs = buildLooksQueryString(state);
+  // Skin tone is personal: it stays out of the copied link.
+  const qs = buildLooksQueryString({ ...state, vibe: { ...state.vibe, skinTone: null } });
   return `${origin}${pathname}${qs ? `?${qs}` : ""}`;
 }
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { recommendLooks, DEFAULT_VIBE, type Polish } from "swatchwatch-shared";
-import { addSavedLook, catalogGapQueries, maniEntriesFromLook, maniEntriesFromSavedLook, nextSeed, toSavedLook, TOPPER_QUERY_KEY } from "./looks";
+import { addSavedLook, catalogGapQueries, maniEntriesFromLook, maniEntriesFromSavedLook, nextSeed, parseCachedSkinTone, toSavedLook, TOPPER_QUERY_KEY } from "./looks";
 
 let id = 1;
 function polish(hex: string, extra: Partial<Polish> = {}): Polish {
@@ -66,5 +66,15 @@ describe("nextSeed", () => {
   it("never repeats the current seed", () => {
     assert.notEqual(nextSeed(5, () => 4 / 1_000_000), 5);
     assert.ok(nextSeed(1) >= 1);
+  });
+});
+
+describe("parseCachedSkinTone", () => {
+  it("accepts a stored choice, fills a missing axis, and treats junk as none", () => {
+    assert.deepEqual(parseCachedSkinTone({ undertone: "warm", depth: "tan" }), { undertone: "warm", depth: "tan" });
+    assert.deepEqual(parseCachedSkinTone({ depth: "deep" }), { undertone: "neutral", depth: "deep" });
+    assert.equal(parseCachedSkinTone(null), null);
+    assert.equal(parseCachedSkinTone("warm"), null);
+    assert.equal(parseCachedSkinTone({ undertone: "x", depth: "y" }), null);
   });
 });

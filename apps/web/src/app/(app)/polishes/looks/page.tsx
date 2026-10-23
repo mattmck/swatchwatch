@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { ToggleChip } from "@/components/toggle-chip";
 import {
   deleteSavedLook,
+  getCurrentUserId,
   getPolishDupes,
   listAllPolishes,
   listLookShares,
@@ -20,11 +21,12 @@ import {
   saveLookToServer,
   updatePolish,
 } from "@/lib/api";
+import { readStoredSkinTone, writeStoredSkinTone } from "@/lib/looks-skin-tone";
 import { AddGuardDialog } from "@/components/add-guard-dialog";
 import { useAddGuard } from "@/hooks/use-add-guard";
 import { shadeGuardKey, wishlistInsteadUpdate } from "@/lib/add-guard";
 import { copyText } from "@/lib/clipboard";
-import { lookShareText, shoppingListText, skinToneBackdrop, type ShoppingItem } from "@/lib/looks-detail";
+import { lookShareText, shoppingListText, skinToneBackdropFor, type ShoppingItem } from "@/lib/looks-detail";
 import { isOwnedPolish } from "@/lib/inventory-status";
 import {
   LOOK_COUNT,
@@ -149,8 +151,8 @@ function LooksPageContent() {
   const { shareableLooks } = useFeatureFlags();
   const [shoppingId, setShoppingId] = useState<string | null>(null);
   const [drawerId, setDrawerId] = useState<string | null>(null);
-  // Skin-tone preview: null = off, else 0 (cool) to 100 (warm). Cosmetic: only the swatch mat changes.
-  const [skinTone, setSkinTone] = useState<number | null>(null);
+  // Keys the remembered skin tone per user; null (lookup failed) falls back to one shared key.
+  const userIdRef = useRef<string | null>(null);
   const [wishlisted, setWishlisted] = useState<ReadonlySet<string>>(() => new Set());
   const { guardAdd, active: activeGuard, choose: chooseGuard, isChecking: isGuardChecking } = useAddGuard();
   const [wishlistBusy, setWishlistBusy] = useState<ReadonlySet<string>>(() => new Set());
@@ -221,6 +223,29 @@ function LooksPageContent() {
       cancelled = true;
     };
   }, [shareableLooks]);
+
+  // Remember the skin tone per user: apply the saved choice when the URL doesn't carry one.
+  useEffect(() => {
+    let cancelled = false;
+    getCurrentUserId()
+      .catch(() => null)
+      .then((id) => {
+        if (cancelled) return;
+        userIdRef.current = id === null ? null : String(id);
+        const params = new URLSearchParams(window.location.search);
+        const current = parseLooksState(params);
+        if (current.vibe.skinTone) return;
+        const stored = readStoredSkinTone(userIdRef.current);
+        if (!stored) return;
+        const qs = buildLooksQueryString({ ...current, vibe: { ...current.vibe, skinTone: stored } });
+        router.replace(`${window.location.pathname}?${qs}`, { scroll: false });
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Once per page load: later changes go through changeVibe.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const setState = useCallback(
     (next: LooksState, trigger: LooksTrigger) => {
@@ -323,6 +348,7 @@ function LooksPageContent() {
   }, [result, catalogReady, stateKey, vibe, toppers]);
 
   function changeVibe(next: Vibe) {
+    if (next.skinTone !== vibe.skinTone) writeStoredSkinTone(userIdRef.current, next.skinTone ?? null);
     setState({ vibe: next, seed, toppers }, "vibe");
   }
 
@@ -562,33 +588,6 @@ function LooksPageContent() {
               </Notice>
             )}
 
-            {result && looks.length > 0 && (
-              <div className="flex flex-wrap items-center gap-3">
-                <ToggleChip
-                  pressed={skinTone !== null}
-                  onPressedChange={(on) => setSkinTone(on ? 50 : null)}
-                  className="rounded-full border border-border"
-                >
-                  Skin tone preview
-                </ToggleChip>
-                {skinTone !== null && (
-                  <label className="flex min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground">
-                    Cool
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      value={skinTone}
-                      onChange={(event) => setSkinTone(Number(event.target.value))}
-                      aria-label="Skin undertone, cool to warm"
-                      className="min-w-24 flex-1 accent-brand-purple"
-                    />
-                    Warm
-                  </label>
-                )}
-              </div>
-            )}
-
             {!result ? (
               <BrandSpinner label="Mixing your looks…" />
             ) : (
@@ -608,7 +607,7 @@ function LooksPageContent() {
                     shared={Boolean(shares?.has(toSavedLook(look, vibe, new Date(0)).id))}
                     colorLabHref={lookColorLabHref(look.steps, looksReturnTo)}
                     onColorLab={() => colorLabOpened(look, "card", index)}
-                    backdrop={skinTone === null ? undefined : skinToneBackdrop(skinTone)}
+                    backdrop={vibe.skinTone ? skinToneBackdropFor(vibe.skinTone) : undefined}
                     onSwap={(role, polish) => swap(look, role, polish)}
                   />
                 ))}

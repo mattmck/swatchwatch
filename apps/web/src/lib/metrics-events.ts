@@ -298,6 +298,8 @@ export function looksGeneratedEvent(input: LooksGeneratedInput): MetricEvent {
       finish: input.vibe.finish ?? "any",
       ownedOnly: input.vibe.ownedOnly,
       includeToppers: input.includeToppers ?? true,
+      undertone: input.vibe.skinTone?.undertone ?? "none",
+      depth: input.vibe.skinTone?.depth ?? "none",
       trigger: input.trigger,
       lookCount: input.looks.length,
       ownedSteps: sum("ownedSteps"),

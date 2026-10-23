@@ -18,7 +18,9 @@
  *    penalty (`finishPenalty`: 0 when the polish has a preferred finish, then by the shared
  *    finish-family rule from `color/dupes.ts`). The vibe's finish preference overrides the base
  *    step's finishes (except Flake, which asks for a topper). A base's score (distance + finish
- *    penalty) must be within `BASE_MAX_DISTANCE`; among the near-ties (`BASE_TIE_BAND`) the seed picks one.
+ *    penalty) must be within `BASE_MAX_DISTANCE`; among the near-ties (`BASE_TIE_BAND`) the seed picks one (with a skin tone only among
+ *    the near-ties of the adjusted score, `SKIN_TIE_BAND`).
+ *    An optional skin tone (see below) nudges that score after the cut-off.
  * 3. **Accent.** Targets are the template's accent hex plus the harmony rotation of the chosen
  *    base (`generateHarmonyColors`: complementary, analogous or monochromatic). Candidates must
  *    be within `ACCENT_MAX_DISTANCE` of a target and at least `ACCENT_MIN_CONTRAST` from the
@@ -42,6 +44,14 @@
  *    anything is picked (including the Flake vibe's added topper), so no look has a topper, no
  *    topper is fetched from the catalog or offered as a substitute, and the glitter-on-glitter
  *    rule no longer applies (a full-coverage glitter may be a base).
+ * 9. **Skin tone** (optional `skinTone`, `looks/skin-tone.ts`). An undertone (cool / neutral / warm)
+ *    and depth (fair … deep) add a small adjustment to base and accent scores AFTER the distance
+ *    cut-offs: cool favours blue–purple–pink–berry and cool reds, warm favours coral–orange–warm
+ *    red–gold–olive (`SKIN_UNDERTONE_WEIGHT`, bigger than `BASE_TIE_BAND` so it decides near-ties);
+ *    fair/light avoid pale low-chroma shades close to the skin and like mid tones, tan/deep avoid
+ *    dark muted shades that vanish and like higher chroma and lighter-than-skin picks. It is a soft
+ *    preference, never a filter (owned still beats a catalog gap, templates keep their identity),
+ *    and no skin tone leaves every result exactly as it was.
  */
 import type { ColorFamily } from "../color/color-family";
 import { classifyHexColorFamily } from "../color/color-family";
@@ -52,6 +62,8 @@ import { hexToOklab, oklabDistance, colorDistance, type OKLab } from "../color/o
 import type { ManicurePolishRole } from "../types/manicure";
 import { resolveDisplayHex, resolvePolishFinishes, type Polish } from "../types/polish";
 import type { LookFinish, LookMood, LookOccasion, LookStepRole, LookStepSource, LookVibe } from "../types/looks";
+import type { SkinTone } from "../types/looks";
+import { SKIN_TIE_BAND, skinToneAdjustment } from "./skin-tone";
 import { createSeededRandom, type RandomSource } from "./seeded-random";
 
 /** Ownership comes from `status`, never `quantity`. */
@@ -484,6 +496,8 @@ export interface RecommendLooksInput {
   count?: number;
   /** Topper steps on (default `true`, today's behaviour); off drops them from every look (#386). */
   includeToppers?: boolean;
+  /** Optional skin tone (default: `vibe.skinTone`, else none = today's looks). */
+  skinTone?: SkinTone | null;
 }
 
 // ── Internals ────────────────────────────────────────────────
@@ -597,6 +611,11 @@ function scoreBase(c: Candidate, step: LookTemplateStep, vibe: Vibe): Scored {
   return { candidate: c, distance, score: distance + finishPenalty(c.finishes, stepFinishes(step, vibe)) };
 }
 
+/** Nudge a base/accent score by the skin tone (a no-op without one). Applied after the distance cut-offs. */
+function withSkinTone(scored: Scored, skinTone: SkinTone | null): Scored {
+  return skinTone ? { ...scored, score: scored.score + skinToneAdjustment(scored.candidate.hex, skinTone) } : scored;
+}
+
 function scoreAccent(c: Candidate, step: LookTemplateStep, targets: readonly string[], baseHex: string): Scored | null {
   const distance = Math.min(...targets.map((t) => dist(c.hex, t)));
   if (distance > ACCENT_MAX_DISTANCE) return null;
@@ -660,6 +679,7 @@ interface BuildContext {
   usedIds: Set<string>;
   seed: number;
   includeToppers: boolean;
+  skinTone: SkinTone | null;
 }
 
 function emptyStep(step: LookTemplateStep, alternatives: Polish[]): LookStep {
@@ -705,12 +725,16 @@ function buildLook(template: LookTemplate, ctx: BuildContext): Look | null {
       .filter((c) => !isTopOnly(c) && !ctx.usedIds.has(c.polish.id) && !(hasTopper && c.family === "glitter"))
       .map((c) => scoreBase(c, baseStep, vibe))
       .filter((s) => s.score <= BASE_MAX_DISTANCE)
+      .map((s) => withSkinTone(s, ctx.skinTone))
       .filter((s) => diverseFrom(s.candidate.hex, s.candidate.family, s.candidate.polish.id, ctx.chosenBases))
   );
   let baseHex: string;
   let baseFamily: string | undefined;
   if (baseRanked.length > 0) {
-    const ties = baseRanked.filter((s) => s.score <= baseRanked[0].score + BASE_TIE_BAND);
+    // With a skin tone the near-ties narrow to the best adjusted scores, so the preference decides
+    // among equally good bases and the seed only breaks what is still tied.
+    const tieBand = ctx.skinTone ? SKIN_TIE_BAND : BASE_TIE_BAND;
+    const ties = baseRanked.filter((s) => s.score <= baseRanked[0].score + tieBand);
     const pick = ties[Math.floor(seededRandom(ctx.seed, template.id)() * ties.length)];
     // Extra headroom: alternatives used by later steps are filtered out at the end.
     const alternatives = baseRanked.filter((s) => s !== pick).slice(0, MAX_STEP_ALTERNATIVES * 2).map((s) => s.candidate.polish);
@@ -725,6 +749,7 @@ function buildLook(template: LookTemplate, ctx: BuildContext): Look | null {
         .filter((c) => !isTopOnly(c) && !(hasTopper && c.family === "glitter"))
         .map((c) => scoreBase(c, baseStep, vibe))
         .filter((s) => s.score <= CATALOG_MAX_DISTANCE)
+        .map((s) => withSkinTone(s, ctx.skinTone))
         .filter((s) => diverseFrom(s.candidate.hex, s.candidate.family, s.candidate.polish.id, ctx.chosenBases))
     )[0];
     if (catalogPick) {
@@ -749,7 +774,10 @@ function buildLook(template: LookTemplate, ctx: BuildContext): Look | null {
     if (step.role === "accent") {
       const harmony = step.harmony ?? "fixed";
       const targets = harmony === "fixed" ? [step.hex] : [step.hex, ...generateHarmonyColors(baseHex, harmony)];
-      rank = (c) => (isTopOnly(c) ? null : scoreAccent(c, step, targets, baseHex));
+      rank = (c) => {
+        const scored = isTopOnly(c) ? null : scoreAccent(c, step, targets, baseHex);
+        return scored && withSkinTone(scored, ctx.skinTone);
+      };
     } else {
       rank = (c) => scoreTopper(c, step);
     }
@@ -825,6 +853,7 @@ export function recommendLooks(input: RecommendLooksInput): LooksResult {
     usedIds: new Set(),
     seed: input.seed,
     includeToppers: input.includeToppers ?? true,
+    skinTone: input.skinTone ?? input.vibe.skinTone ?? null,
   };
   const remaining = [...LOOK_TEMPLATES];
   const looks: Look[] = [];

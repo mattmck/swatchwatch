@@ -5,19 +5,42 @@
  */
 import {
   MAX_SAVED_LOOKS,
+  SKIN_DEPTHS,
+  SKIN_UNDERTONES,
   TOPPER_FINISHES,
   catalogQueriesForLooks,
   maniRoleForStep,
   savedLookKey,
+  skinToneFrom,
   type ColorFamily,
   type Look,
   type LookCatalogQueries,
   type PolishFilters,
   type SavedLook,
   type SavedLookStep,
+  type SkinDepth,
+  type SkinTone,
+  type SkinUndertone,
   type Vibe,
 } from "swatchwatch-shared";
 import { entryFromPolish, type ManiEntry } from "./mani";
+
+/**
+ * `api-cache` key for the remembered skin tone (scope = user id; same rule as the web's
+ * `lib/looks-skin-tone.ts`). The screen rewrites it on every open, so it only lapses after
+ * `MAX_AGE_MS` of not opening Looks, and it is wiped on sign-out with the rest of the cache.
+ */
+export const SKIN_TONE_CACHE_KEY = "looks-skin-tone";
+
+/** Validate a cached value; anything unusable is "no skin tone". */
+export function parseCachedSkinTone(value: unknown): SkinTone | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { undertone, depth } = value as Record<string, unknown>;
+  return skinToneFrom(
+    (SKIN_UNDERTONES as readonly unknown[]).includes(undertone) ? (undertone as SkinUndertone) : null,
+    (SKIN_DEPTHS as readonly unknown[]).includes(depth) ? (depth as SkinDepth) : null,
+  );
+}
 
 /** Catalog rows fetched per gap query (one color family, or toppers). */
 export const CATALOG_PAGE_SIZE = 60;
