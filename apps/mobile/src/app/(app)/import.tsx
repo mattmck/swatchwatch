@@ -18,6 +18,7 @@ import { useAuth } from "@/auth/auth-provider";
 import { Swatch } from "@/components/swatch";
 import { AppText, Button, Card, Chip, ErrorBanner } from "@/components/ui";
 import { invalidateInventoryCaches } from "@/lib/api-cache";
+import { notifyCollectionChanged } from "@/lib/collection-events";
 import {
   IMPORT_TABS,
   IMPORT_TAB_LABELS,
@@ -120,6 +121,7 @@ export default function ImportScreen() {
     try {
       const response = await commitPolishImport(session.id, changedDecisions(session.rows, rows));
       if (scope) await invalidateInventoryCaches(scope);
+      notifyCollectionChanged();
       setSession(response.session);
       setRows(response.session.rows);
       setStep("summary");
