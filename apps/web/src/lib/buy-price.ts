@@ -36,6 +36,15 @@ export function buyPriceAsOf(seenAt: string | null | undefined, locale?: string)
   return `as of ${date.toLocaleDateString(locale, { year: "numeric", month: "short", day: "numeric" })}`;
 }
 
+/**
+ * Whole cents for a major-unit amount, rounded half away from zero like `Intl.NumberFormat`
+ * (`1.005` → 101, although `1.005 * 100` is 100.49999…). `toPrecision(12)` drops the binary
+ * representation error before rounding.
+ */
+function toCents(amount: number): number {
+  return Math.round(Number((amount * 100).toPrecision(12)));
+}
+
 export interface BuyPriceSubtotal {
   currency: string;
   /** Sum of the priced items in this currency, rounded to cents. */
@@ -61,8 +70,8 @@ export function buyPriceSubtotals(items: ReadonlyArray<BuyPriceFields | null | u
       continue;
     }
     const group = groups.get(price.currency) ?? { currency: price.currency, total: 0, count: 0 };
-    // Sum in cents so 0.1 + 0.2 style float noise never shows up in a subtotal.
-    group.total = Math.round(group.total * 100 + price.amount * 100) / 100;
+    // Sum in whole cents so 0.1 + 0.2 style float noise never shows up in a subtotal.
+    group.total = (toCents(group.total) + toCents(price.amount)) / 100;
     group.count += 1;
     groups.set(price.currency, group);
   }

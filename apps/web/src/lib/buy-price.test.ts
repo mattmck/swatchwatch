@@ -46,6 +46,15 @@ describe("buyPriceSubtotals", () => {
     assert.equal(result.unpricedCount, 2);
   });
 
+  it("rounds each item to the cents it is displayed with (1.005 counts as 1.01)", () => {
+    const { subtotals } = buyPriceSubtotals([
+      { buyPrice: 1.005, buyCurrency: "USD" },
+      { buyPrice: 1.005, buyCurrency: "USD" },
+    ]);
+    assert.deepEqual(subtotals, [{ currency: "USD", total: 2.02, count: 2 }]);
+    assert.equal(formatBuyPrice({ buyPrice: 1.005, buyCurrency: "USD" })?.includes("1.01"), true);
+  });
+
   it("is empty for no items", () => {
     assert.deepEqual(buyPriceSubtotals([]), { subtotals: [], unpricedCount: 0 });
   });
