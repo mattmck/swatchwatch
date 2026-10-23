@@ -954,7 +954,7 @@ Timestamp prefixes are monotonic and globally unique, which avoids the prefix co
 > **Existing `001_`–`022_` files are intentionally left as-is.** node-pg-migrate records applied migrations by filename in the `pgmigrations` table — renaming an already-applied migration would make it look unapplied and re-run it. Only new migrations adopt the dated format; the legacy files are migrated forward by convention, not by rename.
 
 ```bash
-# From repo root (requires DATABASE_URL or PG* env vars)
+# From repo root (PG* from local.settings.json, which overrides the shell env; an exported DATABASE_URL wins over PG*)
 npm run migrate          # Apply pending migrations
 npm run migrate:down     # Roll back last migration
 
@@ -1087,7 +1087,7 @@ Set locally in `local.settings.json` (git-ignored; copy `local.settings.json.exa
 | `PG_CONNECTION_TIMEOUT_MS` | `15000` | Connection acquisition timeout. |
 | `PG_QUERY_MAX_RETRIES` | `2` | Retries for retry-safe queries (`SELECT` and `UPDATE ingestion_job`) on connection timeouts. |
 | `PG_QUERY_RETRY_BASE_MS` | `250` | Linear backoff base delay for those retries. |
-| `DATABASE_URL` | — | Migrations only: `npm run migrate` loads `local.settings.json` into the environment and node-pg-migrate prefers an exported `DATABASE_URL` over the `PG*` values (root `.env.example` has the local URL). The DB scripts (`eval:hex:populate`, `backfill:product-text`) read the `PG*` variables. |
+| `DATABASE_URL` | — | Migrations only. `npm run migrate` / `migrate:down` first copy every `local.settings.json` value into the environment, overriding exported or inline variables of the same name (`PG*` included); node-pg-migrate then prefers `DATABASE_URL` over `PG*`. An exported `DATABASE_URL` therefore works only while `local.settings.json` does not define one (the example does not; root `.env.example` has the local URL). The DB scripts (`eval:hex:populate`, `backfill:product-text`) read the `PG*` variables. |
 
 ### Auth (`src/lib/auth.ts`, `src/lib/runtime-env.ts`)
 
@@ -1246,7 +1246,7 @@ Read by `npm run eval:hex` strategies, never by the Function App.
 
 ### Admin scripts (`scripts/*.cjs`)
 
-The `backfill:*` and `dedupe:gallery-images` scripts call the deployed API, not the database:
+`backfill:image-variants`, `backfill:barcodes`, `backfill:product-category` and `dedupe:gallery-images` call the deployed API, not the database (`backfill:product-text` and `eval:hex:populate` connect to Postgres with the `PG*` variables instead):
 
 | Variable | Default | Purpose |
 |----------|---------|---------|

@@ -103,7 +103,7 @@ npm run dev:mobile       # → mobile via Expo (see apps/mobile/README.md)
 | `npm run backfill:product-price --workspace=swatchwatch-functions` | Recompute product `price`/`currency` (brand list price for the buy link) from `raw_json`; Shopify store currency from `data_source.metadata.currency`, earlier ingests, or the shop's `/meta.json` (`--no-fetch-currency` skips it); dry run unless `--write`; needs Postgres |
 | `npm run backfill:product-text --workspace=swatchwatch-functions` | Recompute product `descriptionText`/`descriptors` from `raw_json` and report empty-finish coverage (#352); dry run unless `--write` (`--fill-finishes` also fills empty shade finishes) |
 | `npm run typecheck` | `tsc --noEmit` across all workspaces |
-| `npm run migrate` / `npm run migrate:down` | Apply pending Postgres migrations / roll back the last one (an exported `DATABASE_URL`, else the `PG*` values from `local.settings.json`) |
+| `npm run migrate` / `npm run migrate:down` | Apply pending Postgres migrations / roll back the last one (copies `local.settings.json` values into the environment first, overriding exported or inline variables of the same name; then `DATABASE_URL` if set, else `PG*`) |
 | `npm run generate:types` | Regenerate the `SupportedConnectorSource` type from `docs/seed_data_sources.sql` |
 | `npm run generate:pwa-icons` | Regenerate the PWA / apple-touch PNG icons in `apps/web/public` from the brand SVG (commit the PNGs) |
 | `npm run dedupe:gallery-images --workspace=swatchwatch-functions` | Unlink catalog gallery images that duplicate another image of the same shade (the same vendor picture stored twice), matched perceptually, in batches via `POST /api/images-admin/gallery-dedupe` (`API_BASE_URL`, `ADMIN_BEARER_TOKEN`; dry run unless `--write`, `--shade <ids>`, `--after <shadeId>` resumes); also backfills `image_asset` perceptual fingerprints, even in a dry run, unless `--no-store-fingerprints` |
@@ -172,7 +172,7 @@ Each deploy target has its own settings. The full references, grouped by module 
 | Functions API | `packages/functions/local.settings.json` (copy `local.settings.json.example`) | [`packages/functions/README.md` → Environment Variables](packages/functions/README.md#environment-variables) |
 | Web | `apps/web/.env.local` (`NEXT_PUBLIC_*`, inlined at build time; Next.js reads env files from `apps/web` only) | [`apps/web/README.md` → Environment Variables](apps/web/README.md#environment-variables) |
 | Mobile | `apps/mobile/.env.local` (copy `apps/mobile/.env.example`) | [`apps/mobile/README.md`](apps/mobile/README.md) |
-| Migrations | `PG*` from `local.settings.json`, or an exported `DATABASE_URL` (local value in the root `.env.example`) | [`packages/functions/README.md` → Migrations](packages/functions/README.md#migrations) |
+| Migrations | `PG*` from `local.settings.json` (authoritative over exported `PG*`), or an exported `DATABASE_URL` when `local.settings.json` has none (local value in the root `.env.example`) | [`packages/functions/README.md` → Migrations](packages/functions/README.md#migrations) |
 | Terraform / CI | GitHub environment variables and secrets | [`infrastructure/README.md`](infrastructure/README.md) |
 
 For a local stack (`npm run dev:infra` + `npm run dev`) the copied example files already work with dev bypass auth. The settings you most often change:
@@ -207,7 +207,7 @@ Then set the following in `packages/functions/local.settings.json` (the `agent-w
 }
 ```
 
-`npm run migrate` loads `packages/functions/local.settings.json` into the environment, so the `PG*` values above are enough; an exported `DATABASE_URL` (local value in the root `.env.example`) takes precedence.
+`npm run migrate` / `migrate:down` copy every `packages/functions/local.settings.json` value into the environment first, so those values win over exported or inline variables of the same name (including `PG*`). node-pg-migrate then uses `DATABASE_URL` when set, else `PG*`. To target another database, export `DATABASE_URL` (the example settings define none) or edit `local.settings.json`.
 
 ## VS Code
 
@@ -223,7 +223,8 @@ The repo includes VS Code configurations in `.vscode/`:
 Run new migrations with:
 ```bash
 cd packages/functions
-PGUSER=pgadmin PGPASSWORD=... PGHOST=... PGDATABASE=swatchwatch npm run migrate
+# Inline PG* values are overridden by local.settings.json; use DATABASE_URL instead
+DATABASE_URL='postgres://pgadmin:...@<host>:5432/swatchwatch?sslmode=require' npm run migrate
 # Or run .sql files directly with psql
 ```
 See `migrations/002_add_user_facing_columns.sql` and `003_seed_dev_data.sql`.
