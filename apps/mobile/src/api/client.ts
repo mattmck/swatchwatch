@@ -22,6 +22,7 @@ import type {
   CollectionExportFormat,
   CollectionStatsResponse,
   ColorFamily,
+  FinishTypeListResponse,
   ManicureCreateRequest,
   ManicureDeleteResponse,
   ManicureFilters,
@@ -31,6 +32,7 @@ import type {
   NailPhotoResponse,
   NailPhotoUploadRequest,
   Polish,
+  PolishCreateRequest,
   PolishDupesResponse,
   PolishFilters,
   PolishImageMatchRequest,
@@ -198,6 +200,19 @@ export async function listAllPolishes(filters: Omit<PolishFilters, "page" | "pag
 /** One polish by shade id (the caller's inventory fields when they have a row). */
 export function getPolish(id: string | number): Promise<Polish> {
   return apiRequest<Polish>(`/polishes/${encodeURIComponent(String(id))}`);
+}
+
+/**
+ * `POST /api/polishes`: the manual add form. Creates (or matches by brand + name) the shade and
+ * the caller's inventory row; a `barcode` is remembered for the caller only (#21).
+ */
+export function createPolish(data: PolishCreateRequest): Promise<Polish> {
+  return apiRequest<Polish>("/polishes", { method: "POST", body: data });
+}
+
+/** Public finish reference rows (`GET /api/reference/finishes`, no auth). */
+export function listReferenceFinishTypes(): Promise<FinishTypeListResponse> {
+  return apiRequest<FinishTypeListResponse>("/reference/finishes", { auth: false });
 }
 
 /**
