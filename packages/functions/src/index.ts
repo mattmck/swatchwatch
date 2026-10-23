@@ -16,6 +16,7 @@ export * from './functions/images';
 export * from './functions/image-variants-admin';
 export * from './functions/gallery-dedupe-admin';
 export * from './functions/barcodes-admin';
+export * from './functions/bottle-eval-admin';
 export * from './functions/ingestion-worker';
 export * from './functions/ingestion-ai-batch-poller';
 export * from './functions/ingestion';
