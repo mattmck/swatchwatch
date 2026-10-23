@@ -1,13 +1,24 @@
 import { app, InvocationContext } from "@azure/functions";
 import { getIngestionJobById, markIngestionJobFailed } from "../lib/ingestion-repo";
-import { parseIngestionCheckpoint } from "../lib/ingestion-continuation";
+import type { IngestionJobRecord } from "../lib/ingestion-repo";
 import {
+  IngestionCheckpoint,
+  parseIngestionCheckpoint,
+  readCheckpointFromMetrics,
+} from "../lib/ingestion-continuation";
+import {
+  getPipelineStage,
   INGESTION_JOB_QUEUE_NAME,
   IngestionJobQueueMessage,
   processIngestionJobQueueMessage,
+  resolveIngestionResumePoint,
 } from "./ingestion";
 
 const INVALID_QUEUE_PAYLOAD_STAGE = "queue_payload_validation";
+
+/** The Functions runtime moves a message here after `maxDequeueCount` failed deliveries. */
+export const INGESTION_JOB_POISON_QUEUE_NAME = `${INGESTION_JOB_QUEUE_NAME}-poison`;
+export const QUEUE_POISONED_STAGE = "queue_poisoned";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object";
@@ -262,8 +273,92 @@ async function ingestionJobWorker(
   await processIngestionJobQueueMessage(payload, context);
 }
 
+export type PoisonedIngestionMessageDecision =
+  | { action: "fail"; reason: string }
+  | { action: "ignore"; reason: string };
+
+/**
+ * Decide whether a message that landed in the poison queue should fail its job. Only the
+ * job's current message may: a stale duplicate (an older continuation generation) is ignored
+ * so it never fails a job a newer continuation is still running, and jobs in `awaiting_ai`
+ * belong to the AI batch poller. `queued` counts too: a first message that never got as far
+ * as marking the job running has no other message that would ever finish it.
+ */
+export function planPoisonedIngestionMessage(
+  job: Pick<IngestionJobRecord, "status" | "metrics"> | null,
+  messageCheckpoint: IngestionCheckpoint | null | undefined
+): PoisonedIngestionMessageDecision {
+  if (!job) {
+    return { action: "ignore", reason: "job not found" };
+  }
+  if (job.status !== "running" && job.status !== "queued") {
+    return { action: "ignore", reason: `job already ${job.status}` };
+  }
+  if (getPipelineStage(job.metrics) === "awaiting_ai") {
+    return { action: "ignore", reason: "job is waiting for Azure OpenAI batches (owned by the poller)" };
+  }
+
+  const resume = resolveIngestionResumePoint(
+    messageCheckpoint,
+    readCheckpointFromMetrics(job.metrics)
+  );
+  if (resume.action === "drop") {
+    return { action: "ignore", reason: resume.reason };
+  }
+  return { action: "fail", reason: "the job's current queue message exhausted its deliveries" };
+}
+
+async function ingestionJobPoisonHandler(
+  queueEntry: unknown,
+  context: InvocationContext
+): Promise<void> {
+  const rawPayload = parseQueuePayload(queueEntry);
+  const jobId = rawPayload ? parsePositiveInt(rawPayload.jobId) : null;
+  if (!rawPayload || jobId === null) {
+    context.error("Poisoned ingestion queue message has no valid jobId", queueEntry);
+    return;
+  }
+
+  // A malformed checkpoint is failed by the worker without throwing, so it never gets
+  // here; treat one as generation 0 so a stale copy still cannot fail a newer run.
+  const messageCheckpoint = parseIngestionCheckpoint(rawPayload.checkpoint);
+  const job = await getIngestionJobById(jobId);
+  const decision = planPoisonedIngestionMessage(job, messageCheckpoint);
+  if (decision.action === "ignore" || !job) {
+    context.log(`Poisoned ingestion message for job ${jobId} ignored: ${decision.reason}`);
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const metrics = isRecord(job.metrics) ? job.metrics : {};
+  const pipeline = isRecord(metrics.pipeline) ? metrics.pipeline : {};
+  const continuationCount = messageCheckpoint?.continuationCount ?? 0;
+  const lastStage = getPipelineStage(metrics);
+  const message =
+    `Ingestion queue message failed every delivery and was moved to ${INGESTION_JOB_POISON_QUEUE_NAME}` +
+    ` (continuation ${continuationCount}, last stage ${lastStage ?? "unknown"})`;
+  context.error(`Job ${jobId}: ${message}`);
+
+  await markIngestionJobFailed(jobId, message, {
+    ...metrics,
+    pipeline: { ...pipeline, status: "failed", stage: QUEUE_POISONED_STAGE, updatedAt: now },
+    poisonQueue: {
+      queueName: INGESTION_JOB_POISON_QUEUE_NAME,
+      messageContinuationCount: continuationCount,
+      lastStage,
+      failedAt: now,
+    },
+  });
+}
+
 app.storageQueue("ingestion-job-worker", {
   queueName: INGESTION_JOB_QUEUE_NAME,
   connection: "Storage",
   handler: ingestionJobWorker,
+});
+
+app.storageQueue("ingestion-job-poison", {
+  queueName: INGESTION_JOB_POISON_QUEUE_NAME,
+  connection: "Storage",
+  handler: ingestionJobPoisonHandler,
 });
