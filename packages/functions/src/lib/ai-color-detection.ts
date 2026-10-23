@@ -616,7 +616,7 @@ const DEFAULT_DEPLOYMENT_ENV_KEYS = ["AZURE_OPENAI_DEPLOYMENT_HEX", "AZURE_OPENA
 
 /**
  * Lower-level Azure OpenAI chat-completions call shared by the hex detectors:
- * config resolution (direct or APIM gateway), timeout + retry on 429/5xx,
+ * config resolution, timeout + retry on 429/5xx,
  * one content-filter retry with a safe prompt, token-usage metrics. Returns
  * the raw assistant content so callers own their prompt and parsing.
  *
@@ -631,15 +631,7 @@ export async function requestAzureOpenAIChatCompletion(
   const resolved = resolveAzureOpenAiConfig({
     deploymentEnvKeys: request.deploymentEnvKeys ?? DEFAULT_DEPLOYMENT_ENV_KEYS,
   });
-  const {
-    useGateway,
-    effectiveUseGateway,
-    endpoint,
-    apiKey,
-    gatewaySubscriptionKey,
-    missingGatewayPrerequisites,
-    headers: authHeaders,
-  } = resolved;
+  const { endpoint, apiKey, headers: authHeaders } = resolved;
   const deploymentOverride = options?.deployment?.trim() || null;
   const deployment = deploymentOverride ?? resolved.deployment;
   // An explicit deployment override only needs endpoint + credentials from the environment.
@@ -647,37 +639,15 @@ export async function requestAzureOpenAIChatCompletion(
     ? !!endpoint && resolved.hasAuthHeader
     : resolved.isValid;
 
-  if (useGateway && !effectiveUseGateway) {
-    emitLog(
-      options,
-      "warn",
-      "[ai-color-detection] AZURE_OPENAI_USE_GATEWAY=true but gateway prerequisites are missing; falling back to direct endpoint",
-      {
-        missingGatewayPrerequisites,
-        hasDirectEndpoint: !!resolved.directEndpoint,
-        hasApiKey: !!apiKey,
-      }
-    );
-  }
-
   if (!isValid || !endpoint || !deployment) {
     emitLog(options, "error", `[ai-color-detection] Missing Azure OpenAI config`, {
       hasEndpoint: !!endpoint,
-      hasDirectEndpoint: !!resolved.directEndpoint,
-      hasGatewayEndpoint: !!resolved.gatewayEndpoint,
       hasApiKey: !!apiKey,
-      hasGatewaySubscriptionKey: !!gatewaySubscriptionKey,
       hasDeployment: !!deployment,
       deploymentOverride,
-      useGateway,
-      effectiveUseGateway,
-      missingGatewayPrerequisites,
       availableEnvVars: {
         AZURE_OPENAI_ENDPOINT: process.env.AZURE_OPENAI_ENDPOINT ? "set" : "missing",
         AZURE_OPENAI_KEY: process.env.AZURE_OPENAI_KEY ? "set" : "missing",
-        AZURE_OPENAI_GATEWAY_ENDPOINT: process.env.AZURE_OPENAI_GATEWAY_ENDPOINT ? "set" : "missing",
-        AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY: process.env.AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY ? "set" : "missing",
-        AZURE_OPENAI_USE_GATEWAY: process.env.AZURE_OPENAI_USE_GATEWAY ? "set" : "missing",
         AZURE_OPENAI_DEPLOYMENT_HEX: process.env.AZURE_OPENAI_DEPLOYMENT_HEX ? "set" : "missing",
         AZURE_OPENAI_DEPLOYMENT: process.env.AZURE_OPENAI_DEPLOYMENT ? "set" : "missing",
       },

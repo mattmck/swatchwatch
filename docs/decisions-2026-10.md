@@ -375,3 +375,24 @@ Open follow-ups taken from the PR descriptions. Give each one an owner and a tic
 - **Ticket:** [#109](https://github.com/mattmck/swatchwatch/issues/109) (sub-items [#384](https://github.com/mattmck/swatchwatch/issues/384),
   [#385](https://github.com/mattmck/swatchwatch/issues/385)); Looks follow-ups [#386](https://github.com/mattmck/swatchwatch/issues/386)
 - **Open:** where this work lives in the milestones (the M3 proposal under D20).
+
+### D25 — Azure OpenAI APIM gateway removed (2026-10-23)
+- **Status:** Decided
+- **Context:** Functions could route Azure OpenAI calls through an API Management gateway when
+  `AZURE_OPENAI_USE_GATEWAY=true` (`azure-openai-config.ts`, `ai-color-detection.ts`, `azure-openai-batch.ts`), wired
+  by Terraform (`apim_enabled`, `openai_gateway_enabled`, `azurerm_api_management.main`, three Function App settings,
+  `apim_*` outputs) and the Deploy Infra workflow. Gateway mode was never enabled: the APIM API routes and policies
+  were never configured (#228), the multi-region load balancing it was meant for never started (#158), and a dev
+  APIM instance (`swatchwatch-dev-apim-j5jij0be`, Consumption tier) sat idle. Roadmap §5 asked to either finish it
+  infra-only or delete the path so the "gateway enabled, routes missing → 404" trap can't recur.
+- **Options:** (a) finish it infra-only (provision the API, policies and subscription key; keep the flag off) ·
+  (b) delete the path end to end: code, Terraform, workflow wiring, docs; close #158 and #228 as won't-do
+- **Recommendation:** (b). One Azure OpenAI region at a Consumption-plan scale needs no gateway, and the flag was
+  the only way to break hex detection by configuration alone.
+- **Decision:** (b), by the owner on 2026-10-23. The direct endpoint + `api-key` header is the only path; the
+  removed Terraform resources destroy the dev APIM instance on the next Deploy Infra Dev run; the GitHub environment
+  variables `APIM_ENABLED`, `APIM_SKU_NAME`, `OPENAI_GATEWAY_ENABLED` (and any `APIM_OPENAI_SUBSCRIPTION_KEY_URI`)
+  are unused and can be deleted by the owner. If a gateway is ever needed again it starts from a fresh design, not
+  from this branch.
+- **Date:** 2026-10-23
+- **Ticket:** [#158](https://github.com/mattmck/swatchwatch/issues/158), [#228](https://github.com/mattmck/swatchwatch/issues/228) (both closed as won't-do)

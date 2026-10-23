@@ -362,7 +362,7 @@ describe("palette-pick — parsePaletteChoice", () => {
 // ── End to end with a stubbed fetch ──────────────────────────────────────────
 
 describe("palette-pick — detectHexByPalettePick", () => {
-  const ENV_KEYS = ["AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_KEY", "AZURE_OPENAI_DEPLOYMENT_HEX", "AZURE_OPENAI_DEPLOYMENT", "AZURE_OPENAI_USE_GATEWAY", "AZURE_OPENAI_GATEWAY_ENDPOINT", "AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY"];
+  const ENV_KEYS = ["AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_KEY", "AZURE_OPENAI_DEPLOYMENT_HEX", "AZURE_OPENAI_DEPLOYMENT"];
   const savedEnv = {};
   let savedFetch;
   let calls;
@@ -497,12 +497,11 @@ describe("palette-pick — detectHexByPalettePick", () => {
 
 describe("ai-color-detection — requestAzureOpenAiChatCompletion wrapper", () => {
   const { requestAzureOpenAiChatCompletion } = require("../dist/lib/ai-color-detection");
-  const KEYS = ["AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_KEY", "AZURE_OPENAI_DEPLOYMENT_HEX", "AZURE_OPENAI_USE_GATEWAY"];
+  const KEYS = ["AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_KEY", "AZURE_OPENAI_DEPLOYMENT_HEX"];
   const saved = {};
   let savedFetch;
   beforeEach(() => {
     for (const key of KEYS) saved[key] = process.env[key];
-    delete process.env.AZURE_OPENAI_USE_GATEWAY;
     process.env.AZURE_OPENAI_ENDPOINT = "https://unit.openai.azure.com";
     process.env.AZURE_OPENAI_KEY = "k";
     process.env.AZURE_OPENAI_DEPLOYMENT_HEX = "d";
@@ -611,7 +610,7 @@ describe("eval/hex palette-pick strategy", () => {
 
   it("throws when Azure OpenAI is not configured so the runner records an error instead of a silent miss", async () => {
     const savedEnv = {};
-    for (const key of ["AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_KEY", "AZURE_OPENAI_GATEWAY_ENDPOINT", "AZURE_OPENAI_USE_GATEWAY"]) {
+    for (const key of ["AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_KEY"]) {
       savedEnv[key] = process.env[key];
       delete process.env[key];
     }
