@@ -4,7 +4,6 @@
  * `colorDistance`, color polishes only, D23) without its canvas color wheel.
  */
 import {
-  classifyHexColorFamily,
   colorDistance,
   confidenceForDistance,
   oklabToHex,
@@ -13,6 +12,7 @@ import {
   type ColorFamily,
   type MatchConfidence,
   type Polish,
+  type PolishFilters,
 } from "swatchwatch-shared";
 
 /** 12 hue stops around the OKLCH wheel (degrees). */
@@ -33,6 +33,13 @@ export const COLLECTION_FALLBACK_MIN = 10;
 
 /** Most ranked rows shown. */
 export const COLOR_RESULT_LIMIT = 40;
+
+/**
+ * Catalog rows fetched per query. The server already ranks the whole catalog (`?nearHex=`), so
+ * this only needs the shown rows plus the owned ones the collection fallback drops (fewer than
+ * `COLLECTION_FALLBACK_MIN`).
+ */
+export const CATALOG_FETCH_SIZE = COLOR_RESULT_LIMIT + COLLECTION_FALLBACK_MIN;
 
 const HEX_RE = /^#[0-9A-F]{6}$/;
 
@@ -89,13 +96,14 @@ export function rankByColor(polishes: readonly Polish[], targetHex: string, limi
 }
 
 /**
- * Families to send as `?family=` for catalog rows: the chips the user selected, or else the
- * picked color's own family so the catalog query stays focused on that color.
+ * The catalog query for a picked color: the nearest color polishes in the whole catalog,
+ * ranked on the server (`?nearHex=`), limited to the selected family chips when there are any.
  */
-export function catalogFamiliesFor(targetHex: string, selected: readonly ColorFamily[]): ColorFamily[] {
-  if (selected.length > 0) return [...selected];
-  const family = classifyHexColorFamily(targetHex);
-  return family ? [family] : [];
+export function catalogColorQuery(
+  targetHex: string,
+  families: readonly ColorFamily[],
+): Pick<PolishFilters, "families" | "nearHex" | "pageSize"> {
+  return { families: [...families], nearHex: [targetHex], pageSize: CATALOG_FETCH_SIZE };
 }
 
 /** Toggle a family chip. */

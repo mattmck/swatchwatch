@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { classifyHexColorFamily, hexToOklch, type Polish } from "swatchwatch-shared";
 import {
-  catalogFamiliesFor,
+  CATALOG_FETCH_SIZE,
+  catalogColorQuery,
+  COLLECTION_FALLBACK_MIN,
+  COLOR_RESULT_LIMIT,
   gradeLabel,
   HUE_STOPS,
   LIGHTNESS_STEPS,
@@ -77,9 +80,17 @@ describe("rankByColor", () => {
 });
 
 describe("families", () => {
-  it("uses the selected chips, else the picked color's family", () => {
-    assert.deepEqual(catalogFamiliesFor("#C0392B", ["pink"]), ["pink"]);
-    assert.deepEqual(catalogFamiliesFor("#C0392B", []), ["red"]);
+  it("ranks the whole catalog on the server, narrowed only by the selected chips", () => {
+    assert.deepEqual(catalogColorQuery("#C0392B", ["pink"]), {
+      families: ["pink"],
+      nearHex: ["#C0392B"],
+      pageSize: CATALOG_FETCH_SIZE,
+    });
+    // No chips: no family filter (the server ranks every color polish, not a family sample).
+    assert.deepEqual(catalogColorQuery("#C0392B", []).families, []);
+  });
+  it("fetches enough rows for the shown results after dropping owned ones in the fallback", () => {
+    assert.equal(CATALOG_FETCH_SIZE, COLOR_RESULT_LIMIT + COLLECTION_FALLBACK_MIN);
   });
   it("toggles chips", () => {
     assert.deepEqual(toggleFamily(["red"], "pink"), ["red", "pink"]);
