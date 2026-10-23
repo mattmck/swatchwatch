@@ -176,6 +176,9 @@ export async function listPolishes(filters?: PolishFilters): Promise<PolishListR
   if (filters?.families?.length) params.set("family", filters.families.join(","));
   if (filters?.categories?.length) params.set("category", filters.categories.join(","));
   if (filters?.tags?.length) params.set("tags", filters.tags.join(","));
+  if (filters?.nearHex?.length) {
+    params.set("nearHex", filters.nearHex.map((hex) => hex.replace(/^#/, "").toUpperCase()).join(","));
+  }
   if (filters?.sortBy) params.set("sortBy", filters.sortBy);
   if (filters?.sortOrder) params.set("sortOrder", filters.sortOrder);
   if (filters?.page) params.set("page", String(filters.page));
