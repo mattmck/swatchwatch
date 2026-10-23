@@ -36,10 +36,11 @@ jobs:
             RANGE=""
           fi
 
+          PATTERN='^(infrastructure/|\.github/workflows/deploy-infra\.yml$|\.github/scripts/check-function-app-settings\.sh$)'
           if [ -n "$RANGE" ]; then
-            CHANGED="$(git diff --name-only "$RANGE" | grep '^infrastructure/' || true)"
+            CHANGED="$(git diff --name-only "$RANGE" | grep -E "$PATTERN" || true)"
           else
-            CHANGED="$(git show --name-only --pretty='' HEAD | grep '^infrastructure/' || true)"
+            CHANGED="$(git show --name-only --pretty='' HEAD | grep -E "$PATTERN" || true)"
           fi
 
           if [ -n "$CHANGED" ]; then
