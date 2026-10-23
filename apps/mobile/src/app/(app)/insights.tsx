@@ -32,6 +32,8 @@ import {
   statsDisplayHex,
 } from "@/lib/insights";
 import { POLISH_STATUS_LABELS } from "@/lib/status";
+import { useWishlistValue } from "@/lib/use-wishlist-value";
+import type { WishlistValueView } from "@/lib/wishlist-value";
 import { useTheme } from "@/theme/theme";
 
 /** api-cache key for the last stats response (per user, wiped on sign-out). */
@@ -54,6 +56,8 @@ export default function InsightsScreen() {
   const [loading, setLoading] = useState(false);
   const [selectedCurrency, setSelectedCurrency] = useState<string | null>(null);
   const generation = useRef(0);
+  const [wishlistToken, setWishlistToken] = useState(0);
+  const wishlistValue = useWishlistValue(scope ?? undefined, true, wishlistToken);
   const exporter = useCollectionExport();
 
   useEffect(() => {
@@ -70,6 +74,7 @@ export default function InsightsScreen() {
 
   const load = useCallback(async () => {
     const gen = ++generation.current;
+    setWishlistToken((n) => n + 1);
     setLoading(true);
     setError(null);
     try {
@@ -162,6 +167,8 @@ export default function InsightsScreen() {
             <MostWornPanel stats={stats} />
           </>
         )}
+        {/* Independent of purchase stats: a wishlist-only user sees it too. */}
+        {!(!stats && error) && <WishlistPanel value={wishlistValue} />}
       </ScrollView>
     </>
   );
@@ -469,6 +476,36 @@ function MostWornPanel({ stats }: { stats: CollectionStatsResponse | null }) {
           />
         ))
       )}
+    </Panel>
+  );
+}
+
+/**
+ * What the wishlist adds up to: the brands' list prices, one total per currency (never summed or
+ * converted), with polishes that have no known price counted. Not what you paid.
+ */
+function WishlistPanel({ value }: { value: WishlistValueView | null }) {
+  return (
+    <Panel
+      title="Wishlist"
+      description="Brand list prices, not what you paid"
+      loading={!value}
+      testID="panel-wishlist"
+    >
+      {value && !value.summary ? (
+        <PanelEmpty message="Your wishlist is empty. Tap ♡ on a shade in the catalog to save it." />
+      ) : value ? (
+        <>
+          <AppText variant="small" testID="insights-wishlist-line">
+            {value.line}
+          </AppText>
+          {value.hasPrices && value.asOf ? (
+            <AppText variant="tiny" muted>
+              Prices {value.asOf}. Currencies are not added together.
+            </AppText>
+          ) : null}
+        </>
+      ) : null}
     </Panel>
   );
 }
