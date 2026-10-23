@@ -8,6 +8,7 @@ import {
   SKIN_DEPTHS,
   SKIN_UNDERTONES,
   TOPPER_FINISHES,
+  applyStepSwap,
   catalogQueriesForLooks,
   maniRoleForStep,
   savedLookKey,
@@ -15,6 +16,9 @@ import {
   type ColorFamily,
   type Look,
   type LookCatalogQueries,
+  type LookStepRole,
+  type Polish,
+  type ShoppingItem,
   type PolishFilters,
   type SavedLook,
   type SavedLookStep,
@@ -23,6 +27,7 @@ import {
   type SkinUndertone,
   type Vibe,
 } from "swatchwatch-shared";
+import { formatBuyPriceLine } from "./buy-price";
 import { entryFromPolish, type ManiEntry } from "./mani";
 
 /**
@@ -62,9 +67,12 @@ function familyQueryKey(queries: LookCatalogQueries, family: ColorFamily): strin
   return `family:${family}|${targets.join(",")}`;
 }
 
-/** The catalog fetches that fill the gaps of these looks (the web page's `catalogKeys`). */
-export function catalogGapQueries(looks: readonly Pick<Look, "steps">[]): CatalogGapQuery[] {
-  const queries = catalogQueriesForLooks(looks);
+/**
+ * The catalog fetches that fill the gaps of these looks (the web page's `catalogKeys`); with
+ * `includeOwned`, the ones that offer substitutes for every step (the Swap and Details sheets).
+ */
+export function catalogGapQueries(looks: readonly Pick<Look, "steps">[], options: { includeOwned?: boolean } = {}): CatalogGapQuery[] {
+  const queries = catalogQueriesForLooks(looks, options);
   const out: CatalogGapQuery[] = queries.families.slice(0, MAX_CATALOG_FAMILY_QUERIES).map((family) => {
     const targets = (queries.targetsByFamily[family] ?? []).slice(0, MAX_NEAR_HEX_TARGETS);
     return {
@@ -122,4 +130,36 @@ export function maniEntriesFromSavedLook(look: Pick<SavedLook, "steps">): ManiEn
 export function nextSeed(current: number, random: () => number = Math.random): number {
   const next = 1 + Math.floor(random() * 1_000_000);
   return next === current ? next + 1 : next;
+}
+
+/**
+ * Swapped looks by template id, valid only for the recommendation they were swapped in (`key`:
+ * vibe, seed, toppers, catalog readiness, owned count). A Shuffle or vibe change drops them, as
+ * on the web page.
+ */
+export interface SwapOverrides {
+  key: string;
+  looks: Readonly<Record<string, Look>>;
+}
+
+export const NO_SWAPS: SwapOverrides = { key: "", looks: {} };
+
+/** Swap `polish` (one of the step's owned alternatives) into `look`'s `role` step. */
+export function withSwap(overrides: SwapOverrides, key: string, look: Look, role: LookStepRole, polish: Polish): SwapOverrides {
+  return {
+    key,
+    looks: { ...(overrides.key === key ? overrides.looks : {}), [look.templateId]: applyStepSwap(look, role, polish) },
+  };
+}
+
+/** The recommended looks with this recommendation's swaps applied. */
+export function applySwaps(looks: readonly Look[], overrides: SwapOverrides, key: string): Look[] {
+  const swapped = overrides.key === key ? overrides.looks : {};
+  return looks.map((look) => swapped[look.templateId] ?? look);
+}
+
+/** Price line for a shopping item ("$14.00 · as of Oct 21, 2026"); null without a safe link and a price. */
+export function shoppingItemPriceLine(item: Pick<ShoppingItem, "price" | "priceSeenAt">, locale?: string): string | null {
+  if (!item.price) return null;
+  return formatBuyPriceLine({ buyPrice: item.price.amount, buyCurrency: item.price.currency, buyPriceSeenAt: item.priceSeenAt ?? undefined }, locale);
 }

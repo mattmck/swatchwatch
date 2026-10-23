@@ -165,6 +165,7 @@ Collection stats (#271): the `GET /api/stats/collection` payload behind the dash
 |--------|-------------|
 | `OUTBOUND_LINK_TARGET` | `"_blank"` — outbound "Buy from brand" links open in a new tab |
 | `OUTBOUND_LINK_REL` | `"noopener noreferrer nofollow"` — required `rel` for every outbound buy link (no `window.opener`, no referrer, no endorsement) |
+| `safeOutboundUrl(value)` | Normalized absolute http/https URL without credentials, or `null`; clients re-check `buyUrl` with it before rendering or opening a link |
 
 ### `constants/image-variants.ts`
 
@@ -226,6 +227,7 @@ Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/b
 | `recommendLooks({ polishes, catalog?, vibe, seed, count?, includeToppers?, skinTone? })`, `LOOK_TEMPLATES` (18 named looks), `rankTemplatesForVibe`, `vibeScore`, `DEFAULT_VIBE`, `LOOK_*_LABELS`, tuning constants (`BASE_MAX_DISTANCE`, `CATALOG_MAX_DISTANCE`, …) | The Looks rule (`looks/recommend.ts`, moved from the web's `lib/looks.ts`): pure and seeded, three diverse looks (base / accent / topper) for a vibe from owned polishes (`status === "owned"`), gaps filled from `catalog` rows. The module header documents every rule. Types `Look`, `LookStep`, `LooksResult`, `Vibe`, `LookTemplate`, … |
 | `SkinTone { undertone, depth }`, `SKIN_UNDERTONES`, `SKIN_DEPTHS`, `skinToneFrom()`, `skinToneAdjustment(hex, skinTone)`, `SKIN_UNDERTONE_WEIGHT`, `SKIN_LIGHTNESS`, `SKIN_TIE_BAND` | Optional skin tone for Looks (`looks/skin-tone.ts`, types in `types/looks.ts`, also on `LookVibe.skinTone`): a soft score adjustment on base and accent candidates applied after the distance cut-offs. Cool favours blue–pink–berry and cool reds, warm favours coral–orange–gold; fair/light avoid pale low-contrast shades, tan/deep avoid dark muted ones. No skin tone changes nothing. Never part of the public share payload. |
 | `applyStepSwap`, `maniEntriesForLook`, `maniRoleForStep`, `catalogQueriesForLooks(looks, { includeOwned? })`, `shopCandidatesForStep` | Helpers around a look: swap a step's polish, owned steps as mani-log entries (`base` → `color`), the color-family / topper queries that fetch the catalog rows for the gaps, catalog shades to buy per step |
+| `shoppingItemsForLook`, `shoppingSubtotals`, `formatShoppingSubtotals`, `shoppingListText`, `lookShareText(look, vibe, url?)`, `applicationOrder`, `finishNotes` | Text and list helpers behind the Looks extras (`looks/detail.ts`, moved from the web's `lib/looks-detail.ts`, which re-exports them and keeps the skin-tone backdrop): the "Add missing items" list (safe buy link, brand list price, per-currency subtotals, never summed across currencies), its copyable text, the share text (link omitted when `url` is empty), and the detail drawer's application order and finish notes. `safeOutboundUrl` (constants/outbound-links) validates the buy link. |
 | `createSeededRandom(seed)`, `RandomSource` | mulberry32 PRNG used by Looks (web `pick-for-me.ts` re-exports it) |
 
 `apps/web/src/lib/looks.ts` is a re-export shim; the vibe vocabulary and saved-look shape stay in `types/looks.ts`.
