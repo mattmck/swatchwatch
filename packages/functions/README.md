@@ -68,6 +68,7 @@ npm run test:e2e --workspace=swatchwatch-functions  # E2E tests against the runn
   clamps, foreign-key discovery (fails closed on multi-column keys), the container/owner prefilter, blob-before-row order, shared blob URLs, 404 blobs,
   blob/row failures kept for the next run, never deleting catalog / `inline://` / other-owner blobs,
   lock and re-check skips, `image_id` paging with the per-run cap, and the timer's telemetry.
+  `tests/capture-frame-store.unit.test.cjs` and `tests/capture-frame-sweep.unit.test.cjs` cover Rapid Add frame retention: blob naming and the `{userId}/capture/` prefix rule (nail photos, mani photos, bottle-eval frames and other owners never touched), the inline fallback when storage is missing or the upload throws, release on terminal states, 404 / failed deletes, and the sweep's config clamps, paging and per-run cap; the frame-endpoint wiring (flag on/off, blob removed when the frame transaction fails, release after finalize) is in `capture-check.unit.test.cjs`.
   `tests/capture-check.unit.test.cjs` covers `POST /api/capture/{captureId}/check`: owned /
   wishlisted / notOwned relationships (shade and barcode→SKU matches, candidates), zero
   `INSERT`/`UPDATE`/`DELETE` (none on `user_inventory_item` or `inventory_event`, no transaction),
@@ -140,7 +141,7 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `POST` | `/api/auth/validate` | `validateToken` | `auth.ts` | ✅ Working (403 `account_suspended` for suspended accounts, #45) |
 | `GET` | `/api/auth/config` | `getAuthConfig` | `auth.ts` | ✅ Working |
 | `POST` | `/api/capture/start` | `startCapture` | `capture.ts` | ✅ Working |
-| `POST` | `/api/capture/{captureId}/frame` | `addCaptureFrame` | `capture.ts` | ✅ Working (a `barcode` frame with a valid on-device decoded `quality.gtin` skips OCR and returns the check verdict as `check`, #21) |
+| `POST` | `/api/capture/{captureId}/frame` | `addCaptureFrame` | `capture.ts` | ✅ Working (with `BOTTLE_CAPTURE_ENABLED` on, a data-URL frame's EXIF-stripped bytes are kept as a private blob under `{userId}/capture/{captureId}/` until the session reaches `matched`/`unmatched` or the `capture-frame-sweep` timer expires it; flag off keeps the `inline://` placeholder; a `barcode` frame with a valid on-device decoded `quality.gtin` skips OCR and returns the check verdict as `check`, #21) |
 | `POST` | `/api/capture/{captureId}/finalize` | `finalizeCapture` | `capture.ts` | ✅ Working |
 | `POST` | `/api/capture/{captureId}/check` | `checkCapture` | `capture.ts` | ✅ Working (read-only) |
 | `GET` | `/api/capture/{captureId}/status` | `getCaptureStatus` | `capture.ts` | ✅ Working |
@@ -215,6 +216,7 @@ Background triggers:
 - `ingestion-ai-batch-poller` (`ingestion-ai-batch-poller.ts`) — Timer trigger that polls Azure OpenAI batch status and applies completed detections.
 - `polish-import-session-cleanup` (`polish-imports.ts`) — Hourly timer (`0 23 * * * *`) that deletes expired `polish_import_session` rows (the API already hides them).
 - `orphan-media-sweep` (`orphan-media-sweep.ts`, logic in `src/lib/orphan-media-sweep.ts`) — Daily timer (`ORPHAN_MEDIA_SWEEP_SCHEDULE`, default `0 17 3 * * *`) that deletes private user media orphaned by cascade deletes outside the API (#319, decision D9): `image_asset` rows with `owner_type = 'user'`, `captured_at` older than `ORPHAN_MEDIA_SWEEP_GRACE_SECONDS`, and no referencing row in any table with a foreign key into `image_asset` (read from `pg_constraint` on every run; a multi-column key aborts the run). Each candidate is locked `FOR UPDATE SKIP LOCKED` and re-checked, then its blob (and a user-media `thumb_url`) is deleted before the row; a 404 blob counts as `blobMissing` and the row is still deleted, any other blob error keeps the row for the next run. Only blobs in `USER_MEDIA_CONTAINER` under the owner's `<ownerId>/` prefix are deleted; user rows pointing elsewhere (catalog blobs or `inline://` capture frames) are kept and, thanks to an `ILIKE '%/<container>/<owner_id>/%'` prefilter in the candidate query, not rescanned every run (so they cannot crowd out real orphans); a blob or thumbnail URL that another `image_asset` row also uses is never deleted, and `owner_type = 'source'` catalog assets are never scanned. Pages by `image_id` (`ORPHAN_MEDIA_SWEEP_BATCH_SIZE`) up to `ORPHAN_MEDIA_SWEEP_MAX_PER_RUN` candidates. Skips when `AZURE_STORAGE_CONNECTION` is unset (`orphan_media_sweep.skipped`); otherwise emits `orphan_media_sweep.completed` (properties `scanned`, `deleted`, `blobMissing`, `failed`, `skipped`, `truncated`, plus the config) and one `orphan_media_sweep.<count>` metric per count, or `orphan_media_sweep.failed` + an exception (`area: orphan-media-sweep`, `stage: run`) when the run cannot start or scan (e.g. `USER_MEDIA_CONTAINER` equals `SOURCE_IMAGE_CONTAINER`, or the DB is down).
+- `capture-frame-sweep` (`capture-frame-sweep.ts`, logic in `src/lib/capture-frame-sweep.ts`, helpers in `src/lib/capture-frame-store.ts`) — Hourly timer (`CAPTURE_FRAME_SWEEP_SCHEDULE`, default `0 0 * * * *`) that releases Rapid Add frame blobs kept by `BOTTLE_CAPTURE_ENABLED` for sessions that never reached a terminal state: `capture_frame` → `image_asset` rows with `owner_type = 'user'`, `captured_at` older than `CAPTURE_FRAME_RETENTION_SECONDS` (default 24 h) and a `storage_url` that is not `inline://…`. Each blob is deleted and its row reset to the `inline://capture/{captureId}/{sha256}.{ext}` placeholder (a 404 blob counts as `blobMissing` and the row is still reset; any other delete error keeps the row for the next run). Only blobs in `USER_MEDIA_CONTAINER` under the owner's `<ownerId>/capture/` prefix are touched; a frame that references anything else (a nail photo attached by `imageId`) is skipped and left as is, and `capture_frame.quality_json` (the extracted label/barcode evidence) is never read or written, so it survives the bytes. The same release runs right after `finalize`/`answer` commit a `matched`/`unmatched` session (flag on or off). The timer runs regardless of the flag and skips when `AZURE_STORAGE_CONNECTION` is unset (`capture_frame_sweep.skipped`); otherwise it emits `capture_frame_sweep.completed` (properties `scanned`, `released`, `blobMissing`, `failed`, `skipped`, `truncated`, plus the config) and one `capture_frame_sweep.<count>` metric per count, or `capture_frame_sweep.failed` + an exception (`area: capture-frame-sweep`, `stage: run`).
 
 
 All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpRequest, context: InvocationContext)`.
@@ -1185,6 +1187,15 @@ Set locally in `local.settings.json` (git-ignored; copy `local.settings.json.exa
 | `ORPHAN_MEDIA_SWEEP_GRACE_SECONDS` | `86400` (24h) | Minimum age (by `image_asset.captured_at`) before an unreferenced owner-scoped asset may be swept, clamped 3600–2592000. Rows without `captured_at` are never swept. |
 | `ORPHAN_MEDIA_SWEEP_BATCH_SIZE` | `100` | Candidates fetched per scan query, clamped 1–1000. |
 | `ORPHAN_MEDIA_SWEEP_MAX_PER_RUN` | `2000` | Most candidates one run examines, clamped 1–20000; the rest wait for the next run (`truncated: true` in the completed event). |
+
+### Capture frame sweep (`src/lib/capture-frame-sweep.ts`, Bottle Flow slice A)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `CAPTURE_FRAME_SWEEP_SCHEDULE` | `0 0 * * * *` | NCRONTAB schedule for the `capture-frame-sweep` timer (hourly). |
+| `CAPTURE_FRAME_RETENTION_SECONDS` | `86400` (24h) | Minimum age (by `image_asset.captured_at`) before a Rapid Add frame blob is released, clamped 3600–604800. |
+| `CAPTURE_FRAME_SWEEP_BATCH_SIZE` | `200` | Frames fetched per scan query, clamped 1–1000. |
+| `CAPTURE_FRAME_SWEEP_MAX_PER_RUN` | `2000` | Most frames one run examines, clamped 1–20000; the rest wait for the next run (`truncated: true` in the completed event). |
 
 ### Feature flags
 

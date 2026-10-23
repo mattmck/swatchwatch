@@ -173,6 +173,8 @@ src/
 - The shutter adds `label` / `color` / `barcode` frames (≤ 6 per scan, JPEG ≤ 1600 px, EXIF
   dropped by re-encoding) to `POST /api/capture/{id}/frame`. Network errors, 408, 429 and 5xx
   retry automatically (1 s, 3 s); then the frame shows Retry / Remove.
+  With the server's `BOTTLE_CAPTURE_ENABLED` flag on, the API keeps frames as private blobs for up
+  to 24 hours (released once the scan is resolved); they are never sent back to the app.
 - **Check, don't add:** unlike the web (which finalizes and offers an undo), mobile uses the
   read-only `check` endpoint, so the verdict never changes the collection:
   - *You own this* (bottle count; "I bought another" adds one),

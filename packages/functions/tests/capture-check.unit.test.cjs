@@ -34,10 +34,14 @@ const GTIN = "1234567890123";
 
 /** Every SQL statement issued by handlers: { via, sql, params }. */
 let sqlCalls;
+let blobUploads;
+let blobDeletes;
 let transactionCount;
 let state;
 
 function resetState() {
+  blobUploads = [];
+  blobDeletes = [];
   sqlCalls = [];
   transactionCount = 0;
   state = {
@@ -63,6 +67,11 @@ function resetState() {
     frames: [{ frameType: "label", quality: { brand: "OPI", shadeName: "Big Apple Red" } }],
     /** Rows returned by the trigram shade-candidate query. */
     shadeCandidates: [{ shadeId: String(SHADE_ID), brand: "OPI", shadeName: "Big Apple Red", score: 0.95 }],
+    /** image_asset rows written by the frame endpoint: { imageId, ownerId, storageUrl, checksum }. */
+    assets: [],
+    /** When set, INSERT INTO capture_frame throws (frame transaction failure). */
+    failFrameInsert: false,
+    nextImageId: 900,
     barcodes: new Map([
       [GTIN, { skuId: String(SKU_ID), shadeId: String(SHADE_ID), brand: "OPI", productName: "Big Apple Red", shadeName: "Big Apple Red" }],
     ]),
@@ -119,6 +128,30 @@ async function fakeQuery(via, sql, params = []) {
       return { rows: [{ ...row }], rowCount: 1 };
     }
     return { rows: [], rowCount: 0 };
+  }
+
+  // Frame retention: the release lookup (frames of a session whose asset is the caller's blob).
+  if (/FROM capture_frame cf/i.test(norm) && /JOIN image_asset ia/i.test(norm)) {
+    const rows = params[0] === SESSION_ID
+      ? state.assets
+          .filter((a) => a.ownerId === Number(params[1]) && !a.storageUrl.startsWith("inline://"))
+          .map((a) => ({ imageId: String(a.imageId), storageUrl: a.storageUrl, checksum: a.checksum, captureId: CAPTURE_UUID }))
+      : [];
+    return { rows, rowCount: rows.length };
+  }
+  if (kind === "INSERT" && /INTO image_asset/i.test(norm)) {
+    const asset = { imageId: state.nextImageId++, ownerId: Number(params[0]), storageUrl: params[1], checksum: params[2] };
+    state.assets.push(asset);
+    return { rows: [{ imageId: String(asset.imageId) }], rowCount: 1 };
+  }
+  if (kind === "INSERT" && /INTO capture_frame/i.test(norm)) {
+    if (state.failFrameInsert) throw new Error("capture_frame insert failed");
+    return { rows: [{ frameId: "77" }], rowCount: 1 };
+  }
+  if (kind === "UPDATE" && /UPDATE image_asset/i.test(norm)) {
+    const asset = state.assets.find((a) => a.imageId === Number(params[0]) && a.ownerId === Number(params[2]));
+    if (asset) asset.storageUrl = params[1];
+    return { rows: [], rowCount: asset ? 1 : 0 };
   }
 
   if (/FROM capture_frame/i.test(norm)) {
@@ -277,11 +310,25 @@ registerMock("./db", dbMock);
 
 registerMock("../lib/ocr", { extractTextFromImage: async () => null });
 registerMock("../lib/ocr-parser", { parseLabelText: async () => null });
-registerMock("../lib/blob-storage", {
+const BLOB_ACCOUNT = "https://acct.blob.core.windows.net";
+const blobStorageMock = {
   checkStorageImageUrl: () => "not allowed",
   stripImageMetadata: async (bytes) => bytes,
   validateImageUpload: (contentType) => String(contentType || "").split(";")[0].trim().toLowerCase(),
-});
+  userMediaContainer: () => "nail-photos",
+  isUserMediaStorageUrl: (url) => String(url).startsWith(`${BLOB_ACCOUNT}/nail-photos/`),
+  storageUrlBlobName: (url) => String(url).replace(`${BLOB_ACCOUNT}/nail-photos/`, ""),
+  uploadBytesToBlob: async (params) => {
+    blobUploads.push(params);
+    return `${BLOB_ACCOUNT}/${params.containerName}/${params.blobName}`;
+  },
+  deleteBlobFromStorageUrl: async (storageUrl, options) => {
+    blobDeletes.push({ storageUrl, options });
+    return true;
+  },
+};
+registerMock("../lib/blob-storage", blobStorageMock);
+registerMock("./blob-storage", blobStorageMock);
 
 for (const [id, exports] of Object.entries(mockModules)) {
   require.cache[id] = { id, filename: id, loaded: true, exports };
@@ -314,7 +361,7 @@ function fakeContext() {
 async function invoke(routeName, opts = {}) {
   // `userId: undefined` means "no Authorization header", so don't use a default parameter.
   const userId = "userId" in opts ? opts.userId : OWNER;
-  const { captureId = CAPTURE_UUID, headers } = opts;
+  const { captureId = CAPTURE_UUID, headers, body = {} } = opts;
   const route = registeredRoutes[routeName];
   assert.ok(route, `route ${routeName} should be registered`);
   const action = routeName.replace(/^capture-/, "");
@@ -322,13 +369,14 @@ async function invoke(routeName, opts = {}) {
     url: `http://localhost:7071/api/capture/${captureId}/${action}`,
     headers: { ...(userId !== undefined ? { authorization: `Bearer dev:${userId}` } : {}), ...(headers || {}) },
     params: { captureId },
-    body: {},
+    body,
   });
   return route.handler(req, fakeContext());
 }
 
 const check = (opts) => invoke("capture-check", opts);
 const finalize = (opts) => invoke("capture-finalize", opts);
+const addFrame = (body, opts = {}) => invoke("capture-frame", { ...opts, body });
 
 /** Non-auth statements issued by handlers. */
 function handlerCalls() {
@@ -650,5 +698,111 @@ describe("functions/capture — finalize is unchanged by check", () => {
 
     const after = await check();
     assert.deepEqual(after.jsonBody.match.ownership, { relationship: "owned", quantity: 1 });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Frame retention (Bottle Flow slice A): private blobs while a session is open
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("functions/capture — frame retention", () => {
+  const DATA_URL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBD";
+  const frameBody = { frameType: "other", imageBlobUrl: DATA_URL };
+  const insertedAsset = () => handlerCalls().filter((c) => /INSERT\s+INTO\s+image_asset/i.test(c.sql));
+
+  beforeEach(() => {
+    process.env.AZURE_STORAGE_CONNECTION = "UseDevelopmentStorage=true";
+  });
+  afterEach(() => {
+    delete process.env.BOTTLE_CAPTURE_ENABLED;
+    delete process.env.AZURE_STORAGE_CONNECTION;
+  });
+
+  it("flag on: a data-URL frame is stored as a private blob and the row points at it", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    const res = await addFrame(frameBody);
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    assert.equal(blobUploads.length, 1);
+    assert.equal(blobUploads[0].containerName, "nail-photos");
+    assert.match(blobUploads[0].blobName, new RegExp(`^${OWNER}/capture/${CAPTURE_UUID}/[0-9a-f]{64}\\.jpg$`));
+    assert.equal(blobUploads[0].contentType, "image/jpeg");
+    assert.ok(Buffer.isBuffer(blobUploads[0].bytes));
+    const inserts = insertedAsset();
+    assert.equal(inserts.length, 1);
+    assert.equal(inserts[0].params[0], OWNER);
+    assert.equal(inserts[0].params[1], `${BLOB_ACCOUNT}/nail-photos/${blobUploads[0].blobName}`);
+    assert.equal(blobDeletes.length, 0);
+    assert.ok(!JSON.stringify(res.jsonBody).includes("nail-photos"), "the blob URL never reaches the response");
+  });
+
+  it("flag off: inline placeholder exactly as before and no upload", async () => {
+    const res = await addFrame(frameBody);
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    assert.equal(blobUploads.length, 0);
+    const inserts = insertedAsset();
+    assert.equal(inserts.length, 1);
+    assert.match(inserts[0].params[1], new RegExp(`^inline://capture/${CAPTURE_UUID}/[0-9a-f]{64}\\.jpg$`));
+  });
+
+  it("flag on but storage unconfigured: inline placeholder, no upload", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    delete process.env.AZURE_STORAGE_CONNECTION;
+    const res = await addFrame(frameBody);
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    assert.equal(blobUploads.length, 0);
+    assert.match(insertedAsset()[0].params[1], /^inline:\/\/capture\//);
+  });
+
+  it("a frame transaction that fails afterwards deletes the just-uploaded blob and returns 500", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    state.failFrameInsert = true;
+    const res = await addFrame(frameBody);
+    assert.equal(res.status, 500);
+    assert.equal(blobUploads.length, 1);
+    assert.equal(blobDeletes.length, 1);
+    assert.equal(blobDeletes[0].storageUrl, `${BLOB_ACCOUNT}/nail-photos/${blobUploads[0].blobName}`);
+    assert.deepEqual(blobDeletes[0].options, { allowedContainers: ["nail-photos"] });
+  });
+
+  it("finalize → matched releases each blob frame and resets its row to the placeholder", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    assert.equal((await addFrame(frameBody)).status, 201);
+    assert.equal((await addFrame({ ...frameBody, imageBlobUrl: `${DATA_URL}AAAA` })).status, 201);
+    const stored = state.assets.map((a) => a.storageUrl);
+    assert.equal(stored.length, 2);
+
+    const res = await finalize();
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.status, "matched");
+    assert.deepEqual(blobDeletes.map((d) => d.storageUrl).sort(), [...stored].sort());
+    const resets = handlerCalls().filter((c) => /UPDATE\s+image_asset\s+SET\s+storage_url/i.test(c.sql));
+    assert.equal(resets.length, 2);
+    assert.ok(resets.every((c) => c.params[2] === OWNER && /^inline:\/\/capture\//.test(c.params[1])));
+    assert.ok(state.assets.every((a) => a.storageUrl.startsWith("inline://capture/")));
+  });
+
+  it("finalize with the flag off still looks for blobs (none) and deletes nothing", async () => {
+    assert.equal((await addFrame(frameBody)).status, 201);
+    const res = await finalize();
+    assert.equal(res.status, 200);
+    assert.equal(blobDeletes.length, 0);
+    assert.equal(handlerCalls().filter((c) => /UPDATE\s+image_asset/i.test(c.sql)).length, 0);
+  });
+
+  it("a release failure never fails finalize", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    assert.equal((await addFrame(frameBody)).status, 201);
+    const original = blobStorageMock.deleteBlobFromStorageUrl;
+    blobStorageMock.deleteBlobFromStorageUrl = async () => {
+      throw new Error("storage down");
+    };
+    try {
+      const res = await finalize();
+      assert.equal(res.status, 200);
+      assert.equal(res.jsonBody.status, "matched");
+      assert.ok(state.assets.every((a) => !a.storageUrl.startsWith("inline://")), "row kept for the sweep");
+    } finally {
+      blobStorageMock.deleteBlobFromStorageUrl = original;
+    }
   });
 });

@@ -18,10 +18,18 @@ import {
 } from "swatchwatch-shared";
 import { query, transaction } from "../lib/db";
 import { withAuth } from "../lib/auth";
-import { checkStorageImageUrl, stripImageMetadata, validateImageUpload } from "../lib/blob-storage";
+import {
+  checkStorageImageUrl,
+  deleteBlobFromStorageUrl,
+  stripImageMetadata,
+  userMediaContainer,
+  validateImageUpload,
+} from "../lib/blob-storage";
+import { inlineCaptureFrameUrl, releaseCaptureFrames, storeCaptureFrameBytes } from "../lib/capture-frame-store";
+import { isFeatureEnabled } from "../lib/feature-flags";
 import { withCors } from "../lib/http";
 import { internalServerError } from "../lib/errors";
-import { trackEvent } from "../lib/telemetry";
+import { trackEvent, trackException } from "../lib/telemetry";
 import { invalidatePolishCachesForUser } from "../lib/polish-cache";
 import { extractTextFromImage, OcrResult } from "../lib/ocr";
 import { parseLabelText, ParsedLabelFields } from "../lib/ocr-parser";
@@ -98,6 +106,13 @@ interface PreparedImageInput {
    * the EXIF-stripped payload; for remote URLs it is the trimmed original URL.
    */
   sanitizedImageInput: string;
+  /**
+   * EXIF-stripped bytes of a data-URL frame, kept so the frame endpoint can store them as a
+   * private blob while `BOTTLE_CAPTURE_ENABLED` is on. Null for remote URLs.
+   */
+  bytes: Buffer | null;
+  contentType: string | null;
+  extension: string | null;
 }
 
 function isValidUuid(value: string): boolean {
@@ -325,13 +340,16 @@ async function normalizeCaptureImageInput(
 
     const checksumSha256 = createHash("sha256").update(cleanBytes).digest("hex");
     const extension = getImageExtension(normalizedMimeType);
-    const storageUrl = `inline://capture/${captureId}/${checksumSha256}.${extension}`;
+    const storageUrl = inlineCaptureFrameUrl(captureId, checksumSha256, extension);
     const sanitizedImageInput = `data:${normalizedMimeType};base64,${cleanBytes.toString("base64")}`;
 
     return {
       storageUrl,
       checksumSha256,
       sanitizedImageInput,
+      bytes: cleanBytes,
+      contentType: normalizedMimeType,
+      extension,
       qualityPatch: buildImageIngestionPatch({
         source: "data_url",
         mimeType: normalizedMimeType,
@@ -359,6 +377,9 @@ async function normalizeCaptureImageInput(
     storageUrl: trimmed,
     checksumSha256: null,
     sanitizedImageInput: trimmed,
+    bytes: null,
+    contentType: null,
+    extension: null,
     qualityPatch: buildImageIngestionPatch({
       source: "remote_url",
       host: parsedUrl.host,
@@ -1178,6 +1199,36 @@ async function startCapture(
   }
 }
 
+/**
+ * Release a session's frame blobs after it reaches a terminal state (matched / unmatched). Runs
+ * flag on or off (no blobs means nothing to do). Best effort: a failure is logged and the hourly
+ * sweep releases whatever is left, so the response is never affected.
+ */
+async function releaseSessionFrames(
+  context: InvocationContext,
+  session: { id: number; captureId: string },
+  userId: number
+): Promise<void> {
+  try {
+    const mediaContainer = userMediaContainer();
+    const warn = (message: string, error?: unknown) => {
+      context.warn(`${message}${error ? `: ${error instanceof Error ? error.message : String(error)}` : ""}`);
+      if (error) trackException(error, { area: "capture", stage: "release-frames" });
+    };
+    await releaseCaptureFrames(
+      { sessionId: session.id, userId, captureId: session.captureId },
+      {
+        query,
+        deleteBlob: (storageUrl) => deleteBlobFromStorageUrl(storageUrl, { allowedContainers: [mediaContainer] }),
+        warn,
+      }
+    );
+  } catch (error) {
+    context.warn(`capture frame release failed: ${error instanceof Error ? error.message : String(error)}`);
+    trackException(error, { area: "capture", stage: "release-frames" });
+  }
+}
+
 async function addCaptureFrame(
   request: HttpRequest,
   context: InvocationContext,
@@ -1193,6 +1244,8 @@ async function addCaptureFrame(
     return { status: 400, jsonBody: { error: "Capture id must be a valid UUID" } };
   }
 
+  // Blob stored for this frame but not yet referenced by a committed row; removed on failure.
+  let uploadedFrameUrl: string | null = null;
   try {
     let body: CaptureFrameRequest;
     try {
@@ -1281,6 +1334,38 @@ async function addCaptureFrame(
       });
     }
 
+    // Bottle capture keeps the EXIF-stripped bytes as a private blob until the session is
+    // resolved (or the sweep expires it). Flag off, no data-URL bytes, or an attached imageId:
+    // nothing is stored and the row keeps the inline placeholder exactly as before.
+    let frameStorageUrl = normalizedImage?.storageUrl ?? null;
+    if (
+      normalizedImage?.bytes &&
+      normalizedImage.contentType &&
+      normalizedImage.extension &&
+      normalizedImage.checksumSha256 &&
+      !body.imageId &&
+      isFeatureEnabled("bottleCapture")
+    ) {
+      const stored = await storeCaptureFrameBytes(
+        {
+          userId,
+          captureId: session.captureId,
+          bytes: normalizedImage.bytes,
+          contentType: normalizedImage.contentType,
+          checksum: normalizedImage.checksumSha256,
+          extension: normalizedImage.extension,
+        },
+        {
+          warn: (message, error) => {
+            context.warn(`${message}${error ? `: ${error instanceof Error ? error.message : String(error)}` : ""}`);
+            if (error) trackException(error, { area: "capture", stage: "store-frame" });
+          },
+        }
+      );
+      frameStorageUrl = stored.storageUrl;
+      if (stored.stored) uploadedFrameUrl = stored.storageUrl;
+    }
+
     const result = await transaction(async (client) => {
       let imageId = body.imageId ?? null;
       let qualityJson = preQualityJson;
@@ -1327,7 +1412,7 @@ async function addCaptureFrame(
           `INSERT INTO image_asset (owner_type, owner_id, storage_url, checksum_sha256, captured_at)
            VALUES ('user', $1, $2, $3, now())
            RETURNING image_id::text AS "imageId"`,
-          [userId, normalizedImage.storageUrl, normalizedImage.checksumSha256]
+          [userId, frameStorageUrl ?? normalizedImage.storageUrl, normalizedImage.checksumSha256]
         );
         imageId = parseInt(imageResult.rows[0].imageId, 10);
       }
@@ -1349,6 +1434,7 @@ async function addCaptureFrame(
 
       return frameResult.rows[0];
     });
+    uploadedFrameUrl = null; // committed: the blob is now referenced
 
     let check: CaptureCheckResponse | undefined;
     if (decodedBarcode) {
@@ -1374,6 +1460,16 @@ async function addCaptureFrame(
 
     return { status: 201, jsonBody: response };
   } catch (error: any) {
+    if (uploadedFrameUrl) {
+      // Not linked to any row: remove it so a failed frame leaves no private media behind.
+      try {
+        await deleteBlobFromStorageUrl(uploadedFrameUrl, { allowedContainers: [userMediaContainer()] });
+      } catch (deleteError) {
+        context.warn(
+          `capture frame blob cleanup failed: ${deleteError instanceof Error ? deleteError.message : String(deleteError)}`
+        );
+      }
+    }
     if (error instanceof CaptureInputError) {
       return { status: 400, jsonBody: { error: error.message } };
     }
@@ -1477,6 +1573,7 @@ async function finalizeCapture(
       });
       // Rapid Add added a bottle: drop the caller's polish list + collection stats caches.
       await invalidatePolishCachesForUser(userId);
+      await releaseSessionFrames(context, session, userId);
 
       const response: CaptureFinalizeResponse = {
         captureId: session.captureId,
@@ -1560,6 +1657,8 @@ async function finalizeCapture(
         [session.id, outcome.confidence, metadataPatch]
       );
     });
+
+    await releaseSessionFrames(context, session, userId);
 
     const response: CaptureFinalizeResponse = {
       captureId: session.captureId,
@@ -1970,6 +2069,7 @@ async function answerCaptureQuestion(
     if ((updatedStatus as CaptureStatus) === "matched") {
       // Rapid Add added a bottle: drop the caller's polish list + collection stats caches.
       await invalidatePolishCachesForUser(userId);
+      await releaseSessionFrames(context, session, userId);
     }
 
     // Re-resolve after non-selection answers (e.g., brand_shade free-text)
@@ -2031,6 +2131,7 @@ async function answerCaptureQuestion(
           });
           // Rapid Add added a bottle: drop the caller's polish list + collection stats caches.
           await invalidatePolishCachesForUser(userId);
+          await releaseSessionFrames(context, refreshedSession, userId);
         } else if (outcome.status === "needs_question") {
           updatedStatus = "needs_question";
           await transaction(async (client) => {
@@ -2064,6 +2165,7 @@ async function answerCaptureQuestion(
               [refreshedSession.id, outcome.confidence, metadataPatch]
             );
           });
+          await releaseSessionFrames(context, refreshedSession, userId);
         }
       }
     }
