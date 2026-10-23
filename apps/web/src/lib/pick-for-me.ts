@@ -33,6 +33,7 @@
  * returns that polish.
  */
 import type { HueFamily, LightnessBand, Polish } from "swatchwatch-shared";
+import type { RandomSource } from "swatchwatch-shared";
 import { resolveDisplayHex, resolveProductCategory } from "swatchwatch-shared";
 import { analyzeCollectionGaps, classifyHexToGapCell, hexToOklch } from "./color-utils";
 import { isOwnedPolish } from "./inventory-status";
@@ -103,21 +104,8 @@ export interface PickResult {
   poolSize: number;
 }
 
-export type RandomSource = () => number;
-
-/**
- * Deterministic PRNG (mulberry32) returning floats in `[0, 1)`. Same seed, same sequence.
- */
-export function createSeededRandom(seed: number): RandomSource {
-  let state = seed >>> 0;
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let t = state;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+// The seeded PRNG lives in swatchwatch-shared (`looks/seeded-random.ts`) so Looks on mobile uses it too.
+export { createSeededRandom, type RandomSource } from "swatchwatch-shared";
 
 const LIGHTNESS_WORD: Record<LightnessBand, string> = {
   dark: "deep",
