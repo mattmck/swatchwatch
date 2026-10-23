@@ -16,6 +16,7 @@
     "backfill:barcodes": "node scripts/backfill-barcodes.cjs",
     "backfill:product-category": "node scripts/backfill-product-category.cjs",
     "backfill:product-text": "npm run build --workspace=swatchwatch-shared && npm run build && node dist/scripts/backfill-product-text.js",
+    "backfill:product-price": "npm run build --workspace=swatchwatch-shared && npm run build && node dist/scripts/backfill-product-price.js",
     "pack": "func pack --output ./dist/functions.zip --skip-install",
     "start": "func start",
     "watch": "tsc -w",

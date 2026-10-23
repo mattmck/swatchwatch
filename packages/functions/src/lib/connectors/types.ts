@@ -55,6 +55,15 @@ export interface ConnectorNormalizedProduct extends Record<string, unknown> {
   descriptionText?: string | null;
   /** Product type, variant options, tags, collection names, deduped and capped (#352). */
   descriptors?: string[];
+  /**
+   * Brand list price in major units as a decimal string (`"12.50"`), or null; written by the
+   * connectors whose data has one (Shopify-style stores, MakeupAPI; `lib/product-price.ts`).
+   * Feeds `buyPrice` on the buy link. Rows ingested earlier get it from
+   * `npm run backfill:product-price`.
+   */
+  price?: string | null;
+  /** ISO 4217 code of `price`, or null when the store currency is unknown (never guessed). */
+  currency?: string | null;
 }
 
 export interface ConnectorProductRecord {

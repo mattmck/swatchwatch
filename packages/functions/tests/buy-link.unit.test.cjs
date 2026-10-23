@@ -12,6 +12,10 @@ const {
   selectBuyUrlsByShade,
   loadBuyUrlsForShades,
   withBuyUrls,
+  selectBuyFromBrandLink,
+  selectBuyLinksByShade,
+  loadBuyLinksForShades,
+  buyLinkFields,
   recordShadeSourceProduct,
   BUY_LINK_CANDIDATES_SQL,
   MAX_BUY_URL_LENGTH,
@@ -233,6 +237,70 @@ describe("withBuyUrls", () => {
     ]);
     assert.ok(!("buyUrl" in result[1]), "rows without a link must not carry a buyUrl key");
     assert.ok(!("buyUrl" in rows[0]), "input rows are not mutated");
+  });
+});
+
+describe("buy link prices", () => {
+  const base = { shadeId: "7", sourceEnabled: true, lastSeenAt: "2026-10-20T00:00:00Z", fetchedAt: "2026-10-21T12:00:00Z" };
+
+  it("carries the chosen product's price, currency and fetch time", () => {
+    assert.deepEqual(
+      selectBuyFromBrandLink([{ ...base, url: "https://brand.example/a", externalProductId: "1", price: "12.5", currency: "usd" }]),
+      { url: "https://brand.example/a", price: 12.5, currency: "USD", priceSeenAt: "2026-10-21T12:00:00.000Z" }
+    );
+  });
+
+  it("never mixes in a runner-up's price: the chosen product without a price gives no price", () => {
+    const link = selectBuyFromBrandLink([
+      { ...base, url: "https://brand.example/new", externalProductId: "2", price: null, currency: null },
+      { ...base, lastSeenAt: "2026-01-01T00:00:00Z", url: "https://brand.example/old", externalProductId: "1", price: "9.00", currency: "USD" },
+    ]);
+    assert.deepEqual(link, { url: "https://brand.example/new" });
+  });
+
+  it("drops the price without a valid currency or with a junk amount", () => {
+    for (const [price, currency] of [["12.00", null], ["12.00", "$"], ["0", "USD"], ["abc", "USD"], [null, "USD"]]) {
+      const link = selectBuyFromBrandLink([{ ...base, url: "https://brand.example/a", externalProductId: "1", price, currency }]);
+      assert.deepEqual(link, { url: "https://brand.example/a" }, `${price} ${currency}`);
+    }
+  });
+
+  it("omits priceSeenAt when the fetch time is unknown", () => {
+    const link = selectBuyFromBrandLink([{ ...base, fetchedAt: null, url: "https://brand.example/a", externalProductId: "1", price: "3", currency: "EUR" }]);
+    assert.deepEqual(link, { url: "https://brand.example/a", price: 3, currency: "EUR" });
+  });
+
+  it("selectBuyLinksByShade / loadBuyLinksForShades return links per shade", async () => {
+    const rows = [{ ...base, url: "https://brand.example/a", externalProductId: "1", price: "4.00", currency: "CAD" }];
+    assert.equal(selectBuyLinksByShade(rows).get("7").price, 4);
+    let sql = "";
+    const links = await loadBuyLinksForShades(["7"], async (text) => {
+      sql = text;
+      return { rows };
+    });
+    assert.equal(links.get("7").currency, "CAD");
+    assert.match(sql, /normalized_json ->> 'price'/);
+    assert.match(sql, /normalized_json ->> 'currency'/);
+  });
+
+  it("buyLinkFields maps a link to response fields, with no keys when there is none", () => {
+    assert.deepEqual(buyLinkFields(null), {});
+    assert.deepEqual(buyLinkFields({ url: "https://b.example/" }), { buyUrl: "https://b.example/" });
+    assert.deepEqual(buyLinkFields({ url: "https://b.example/", price: 9, currency: "USD", priceSeenAt: "2026-10-21T00:00:00.000Z" }), {
+      buyUrl: "https://b.example/",
+      buyPrice: 9,
+      buyCurrency: "USD",
+      buyPriceSeenAt: "2026-10-21T00:00:00.000Z",
+    });
+  });
+
+  it("withBuyUrls adds the price fields next to buyUrl", async () => {
+    const result = await withBuyUrls([{ id: "7" }], (row) => row.id, async () => ({
+      rows: [{ ...base, url: "https://brand.example/a", externalProductId: "1", price: "11.00", currency: "GBP" }],
+    }));
+    assert.deepEqual(result, [
+      { id: "7", buyUrl: "https://brand.example/a", buyPrice: 11, buyCurrency: "GBP", buyPriceSeenAt: "2026-10-21T12:00:00.000Z" },
+    ]);
   });
 });
 

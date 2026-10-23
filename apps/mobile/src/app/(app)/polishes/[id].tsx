@@ -21,6 +21,7 @@ import { GoesWith } from "@/components/goes-with";
 import { NailPhotoSection } from "@/components/nail-photo-section";
 import { ColorDot, Swatch } from "@/components/swatch";
 import { AppText, Button, Card, CenteredState, Chip, ErrorBanner } from "@/components/ui";
+import { formatBuyPriceLine } from "@/lib/buy-price";
 import { finishLabel } from "@/lib/finishes";
 import { formatWornOn } from "@/lib/mani";
 import {
@@ -88,6 +89,7 @@ export default function PolishDetailScreen() {
   if (!polish) return <CenteredState loading />;
 
   const finishes = resolvePolishFinishes(polish);
+  const buyPriceLine = formatBuyPriceLine(polish);
   const displayHex = resolveDisplayHex(polish);
   const images = [polish.swatchImageUrl, ...(polish.sourceImageUrls ?? [])].filter(
     (url, index, all): url is string => Boolean(url) && all.indexOf(url) === index,
@@ -288,7 +290,14 @@ export default function PolishDetailScreen() {
         </Card>
 
         {Boolean(polish.buyUrl) && (
-          <Button title={`Buy from ${polish.brand}`} variant="ghost" onPress={() => void Linking.openURL(polish.buyUrl as string)} />
+          <View style={{ alignItems: "center", gap: theme.spacing(0.5) }}>
+            <Button title={`Buy from ${polish.brand}`} variant="ghost" onPress={() => void Linking.openURL(polish.buyUrl as string)} />
+            {buyPriceLine ? (
+              <AppText variant="small" muted>
+                Brand price {buyPriceLine}
+              </AppText>
+            ) : null}
+          </View>
         )}
       </ScrollView>
     </>

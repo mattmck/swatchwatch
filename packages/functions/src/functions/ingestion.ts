@@ -159,7 +159,11 @@ function isRunnableConnectorSource(value: string): value is SupportedConnectorSo
   return isSupportedSource(value) && hasRunnableConnector(value);
 }
 
-function createConnector(source: SupportedConnectorSource, baseUrl?: string | null): ProductConnector {
+function createConnector(
+  source: SupportedConnectorSource,
+  baseUrl?: string | null,
+  currency?: string | null
+): ProductConnector {
   if (source === "OpenBeautyFacts") {
     return new OpenBeautyFactsConnector(baseUrl);
   }
@@ -167,12 +171,12 @@ function createConnector(source: SupportedConnectorSource, baseUrl?: string | nu
     return new MakeupApiConnector(baseUrl);
   }
   if (source === "HoloTacoShopify") {
-    return new HoloTacoShopifyConnector(baseUrl);
+    return new HoloTacoShopifyConnector(baseUrl, { currency });
   }
 
   // All other Shopify stores use the generic Shopify connector
   if (source.endsWith("Shopify")) {
-    return new ShopifyGenericConnector(source, baseUrl);
+    return new ShopifyGenericConnector(source, baseUrl, { currency });
   }
 
   throw new Error(`No connector available for source: ${source}`);
@@ -653,7 +657,7 @@ export async function processIngestionJobQueueMessage(
       recentDays: payload.request.recentDays,
     });
 
-    const connector = createConnector(payload.request.source, source.baseUrl);
+    const connector = createConnector(payload.request.source, source.baseUrl, source.currency);
     // One catalog download per job, reused across pages and continuation invocations.
     const catalogCache = createIngestionCatalogCache({
       jobId: payload.jobId,

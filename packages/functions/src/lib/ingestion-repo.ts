@@ -70,6 +70,11 @@ export interface DataSourceRecord {
   dataSourceId: number;
   name: string;
   baseUrl: string | null;
+  /**
+   * Store currency set by hand in `data_source.metadata.currency` (raw value; connectors
+   * validate it with `normalizeCurrencyCode`). Shopify connectors otherwise ask the shop.
+   */
+  currency?: string | null;
 }
 
 export interface IngestionJobRecord {
@@ -1629,11 +1634,13 @@ export async function getDataSourceByName(name: string): Promise<DataSourceRecor
     dataSourceId: number;
     name: string;
     baseUrl: string | null;
+    currency: string | null;
   }>(
     `SELECT
        data_source_id AS "dataSourceId",
        name,
-       base_url AS "baseUrl"
+       base_url AS "baseUrl",
+       metadata ->> 'currency' AS currency
      FROM data_source
      WHERE name = $1
      LIMIT 1`,
