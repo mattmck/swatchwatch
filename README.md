@@ -195,6 +195,8 @@ For local blob storage (used by the Holo Taco connector and other ingestion jobs
 npm run dev:infra
 ```
 
+The compose project is pinned to `swatchwatch`, so running this from any worktree manages the same containers. Postgres data lives in the `swatchwatch_pgdata` volume and Azurite data in `swatchwatch_azuritedata`, so both survive container recreates. If Azurite exits at startup with `is not valid JSON` (its metadata files were corrupted, e.g. when Docker Desktop was killed mid-write), reset it to empty storage with `docker compose rm -sf azurite && docker volume rm swatchwatch_azuritedata && npm run dev:infra`. That drops local blobs, so re-run ingestion to repopulate catalog images.
+
 Then set the following in `packages/functions/local.settings.json` (the `agent-worktree.sh` script already uses these defaults for new worktrees):
 
 ```jsonc
