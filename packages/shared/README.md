@@ -82,6 +82,7 @@ Mani log (#269): `/api/manicures` payloads. Logging, editing or deleting a manic
 | `ManicurePolish` | One polish in a manicure: `shadeId`, the caller's current `inventoryItemId` (null after removal), `role`, `position`, `brand`, `name`, `vendorHex` / `detectedHex` / `nameHex` |
 | `ManicurePolishInput` | Request polish reference: `shadeId` or `inventoryItemId` (caller's inventory only) + optional `role` |
 | `ManicureCreateRequest` / `ManicureUpdateRequest` | Create (`polishes` required, `wornOn` defaults to today UTC) / partial update (`polishes` replaces the list; `null` clears `notes` / `photoImageId`) |
+| `buildWearHistory()` / `wearHistoryTitle()` / `WEAR_HISTORY_PREVIEW_COUNT` | pure helpers for the polish detail "Worn N times" panel (web and mobile): `WearHistoryEntry[]` newest first from `GET /api/manicures?shadeId=` rows |
 | `ManicureWearStat` | `{ shadeId, inventoryItemId, wearCount, lastWornAt, triedAt }` after a write |
 | `ManicurePhotoResponse` | `PUT /api/manicures/{id}/photo` response (#327): `{ manicureId, photoImageId (the new image_asset id), photoUrl (owner-scoped v3 or null) }`; the request body is a `NailPhotoUploadRequest` |
 | `ManicureMutationResponse` / `ManicureDeleteResponse` | Create/update response (`Manicure` + `wearStats`) / delete response (`{ message, id, wearStats }`) |
