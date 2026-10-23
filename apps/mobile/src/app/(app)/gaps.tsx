@@ -5,6 +5,7 @@ import type { HueFamily } from "swatchwatch-shared";
 import { HUE_FAMILY_ORDER } from "swatchwatch-shared";
 import { useAuth } from "@/auth/auth-provider";
 import { errorMessage, listOwnedColorPolishes } from "@/api/client";
+import { EmptyState, startCollectionActions } from "@/components/empty-state";
 import { AppText, Button, Card, CenteredState, ErrorBanner } from "@/components/ui";
 import { readCache, writeCache } from "@/lib/api-cache";
 import {
@@ -95,15 +96,11 @@ export default function GapsScreen() {
 
   if (model.hexCount < GAPS_MIN_OWNED) {
     return (
-      <CenteredState
+      <EmptyState
+        testID="gaps-empty"
         title="Your gap map needs a few more polishes"
         message={`Add at least ${GAPS_MIN_OWNED} color polishes (you have ${model.hexCount}) and this map shows the colors you have plenty of and the ones you're missing.`}
-        action={
-          <View style={{ gap: theme.spacing(2) }}>
-            <Button title="Scan with Rapid Add" variant="primary" onPress={() => router.navigate("/add")} />
-            <Button title="Search the catalog" variant="outline" onPress={() => router.navigate("/search")} />
-          </View>
-        }
+        actions={startCollectionActions()}
       />
     );
   }
