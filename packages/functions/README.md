@@ -955,6 +955,35 @@ Note that in the current dev data most
 `vendor_hex` values are placeholders or CSS named colors left by older runs, so treat exported ground
 truth as "pending" until reviewed.
 
+### Bottle recognition eval (`src/eval/bottle/`)
+
+`npm run eval:bottle` replays every bottle eval sample (admin console → bottle eval capture, tables `bottle_eval_sample` / `bottle_eval_frame`) through the live capture API and scores the answers against the labels. Today's resolver reads label text only, so these numbers are the baseline that later bottle recognition slices (Slice A onward) are measured against.
+
+```bash
+# From repo root, with Postgres, Azurite and a Functions host running
+API_BASE_URL=http://localhost:7071/api ADMIN_BEARER_TOKEN=dev:2 \
+  npm run eval:bottle --workspace=swatchwatch-functions -- --verbose
+npm run eval:bottle --workspace=swatchwatch-functions -- --only "holo taco" --limit 10
+```
+
+Per sample (newest first, all admins' samples): `POST /api/capture/start` with metadata `{ source: "bottle-eval", sampleId }` (so the sessions are recognizable in `capture_session`), one `POST /api/capture/{id}/frame` per frame in shooting order (the private blob is read from `USER_MEDIA_CONTAINER` and sent as a `data:` URL, with the frame's stored `frameType` and `quality: { surface }`), then the read-only `POST /api/capture/{id}/check`. `finalize` is never called, so nothing is added to the admin's collection and the sessions stay `processing`. A sample without frames is recorded as `skipped_no_frames` without any API call.
+
+Outcomes (`classifyOutcome` in `scoring.ts`, from the check's `outcome` and the shades its `match` / `candidates` resolve to, so a SKU of the right shade counts as right):
+
+| Outcome | Meaning |
+|---------|---------|
+| `matched_correct` | Catalog bottle; the resolver matched its shade. |
+| `matched_wrong` | The resolver matched another shade, or matched a bottle that is not in the catalog (counted as `falseConfident`). |
+| `asked_has_correct` / `asked_no_correct` | Catalog bottle; the resolver would ask a question, and its candidates do / do not include the right shade. |
+| `unmatched` | Catalog bottle; the resolver found nothing. |
+| `rejected_correct` | Bottle not in the catalog; the resolver did not claim a match (asked or unmatched). |
+| `skipped_no_frames` | The sample has no frames (no API call). |
+| `error` | An API call or a blob read failed for this sample; the run goes on and exits 1. |
+
+The summary prints the outcome counts, match rate (`matched_correct` / scored catalog samples), ask rate (both `asked_*` / scored catalog samples), false-confident count, median time per bottle and a per-brand table (`--verbose` adds one row per sample); skipped and errored samples are left out of the rates and the median. The full report (`{ generatedAt, summary, results }`) goes to `eval/bottle/results/bottle-<timestamp>.json` (gitignored; `--results-dir` overrides). Options: `--limit <n>`, `--only <text>` (brand or shade name substring), `--verbose`, `--results-dir <path>`, `--help`. Exit code 1 on configuration or reachability errors (checked with `GET {API_BASE_URL}/reference/finishes` before any sample is loaded, so no report is written) or when any sample errored; 0 otherwise.
+
+Not measured yet: model calls per bottle and the per-finish-family split. Both need the resolver audit that Slice A adds to the session's `metadata.resolver`; the runner records frames sent and wall-clock time now and gains those columns then.
+
 ## Migrations
 
 Schema migrations use [node-pg-migrate](https://github.com/salsita/node-pg-migrate) with raw SQL files in `migrations/`. Each file contains an up migration and a `-- Down Migration` section for rollback.
@@ -1256,7 +1285,7 @@ Read by `npm run eval:hex` strategies, never by the Function App.
 
 ### Admin scripts (`scripts/*.cjs`)
 
-`backfill:image-variants`, `backfill:barcodes`, `backfill:product-category` and `dedupe:gallery-images` call the Functions API at `API_BASE_URL` (local host by default, or a deployed app), not the database (`backfill:product-text` and `eval:hex:populate` connect to Postgres with the `PG*` variables instead):
+`backfill:image-variants`, `backfill:barcodes`, `backfill:product-category` and `dedupe:gallery-images` call the Functions API at `API_BASE_URL` (local host by default, or a deployed app), not the database (`backfill:product-text` and `eval:hex:populate` connect to Postgres with the `PG*` variables instead). `eval:bottle` uses both: it calls the capture API at `API_BASE_URL` with `ADMIN_BEARER_TOKEN` (required), reads the samples from Postgres (`PG*`) and the frame blobs with `AZURE_STORAGE_CONNECTION` (`USER_MEDIA_CONTAINER`), filling unset variables from `local.settings.json`:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|

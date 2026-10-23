@@ -185,8 +185,11 @@ export const INSERT_SAMPLE_SQL = `
   VALUES ($1::bigint, $2, $3, $4, $5::bigint)
   RETURNING sample_id::text AS "sampleId", created_at AS "createdAt"`;
 
-/** Catalog names win for catalog samples (the text columns are a snapshot); typed text otherwise. */
-const SAMPLE_COLUMNS_SQL = `
+/**
+ * Catalog names win for catalog samples (the text columns are a snapshot); typed text otherwise.
+ * Also read by the eval runner (`eval/bottle/samples.ts`).
+ */
+export const SAMPLE_COLUMNS_SQL = `
   SELECT s.sample_id::text AS "sampleId",
          s.shade_id::text AS "shadeId",
          COALESCE(b.name_canonical, s.brand_text, '') AS brand,

@@ -68,3 +68,5 @@ packages/functions/eval/hex/results/
 packages/functions/eval/hex/.cache/
 # DB export (environment-specific); copy to a named fixture to check one in
 packages/functions/eval/hex/fixtures/color-training-sample.json
+# Bottle recognition eval (npm run eval:bottle): run outputs
+packages/functions/eval/bottle/results/
