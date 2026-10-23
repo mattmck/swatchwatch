@@ -1066,75 +1066,194 @@ are all kept there; the daily cap (`appinsights_daily_cap_gb`) bounds the cost.
 
 ## Environment Variables
 
-Defined in `local.settings.json` (git-ignored values). See the root README for the full list. For production, secrets are injected via Key Vault references.
+Set locally in `local.settings.json` (git-ignored; copy `local.settings.json.example`, which lists every setting in the same groups as below). In Azure the Function App settings are Terraform-managed (`infrastructure/main.tf`) and secrets are Key Vault references, so a portal-only change is reverted by the next infra apply. Variables are grouped by the module that reads them; anything without a default below is unset by default. The example's `NEXT_PUBLIC_*` entries are a convenience copy for the web app; the Functions host ignores them.
 
-Key variables:
+### Runtime and hosting
 
-| Variable | Purpose |
-|----------|---------|
-| `AUTH_DEV_BYPASS` | Local-dev-only bypass mode. When `true` **and the host is not running in Azure**, auth accepts `Bearer dev:<userId>` tokens. Ignored (fail closed, logged + `auth.dev_bypass_refused`) on Azure-hosted Function Apps; the deploy workflow always sets it to `false`. |
-| `IMAGE_PROXY_SIGNING_KEY` | Secret (>= 32 chars) used to HMAC-sign `/api/images/{id}` ids. Required outside dev: when unset and dev bypass is not active, image URLs are omitted and the proxy refuses every request. When unset with dev bypass active (local only), an ephemeral per-process key is used (URLs break on restart). Generate with `openssl rand -base64 48`. Terraform stores a generated value in Key Vault (`image-proxy-signing-key`). |
-| `IMAGE_PROXY_ID_TTL_SECONDS` | Minimum remaining lifetime of newly minted public (`v2`, catalog) `/api/images/{id}` ids (default `259200` = 3 days, clamped to 3600–2592000). Keep it above the Azure OpenAI batch completion window. |
-| `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL` | Optional ISO-8601 timestamp until which legacy non-expiring (v1) image ids are still accepted. Unset or in the past means they are rejected (`403`). |
-| `SHAREABLE_LOOKS_ENABLED` | Feature flag for opt-in public share links for saved looks. Default `false` (unset = off; only `true`, any case, enables). While off, `/api/look-share` and `/api/look/{token}` return `404` with `code: "feature_disabled"` and the Looks page shows no Share link controls. In Azure it is a Terraform-managed app setting (`shareable_looks_enabled`, fed from the `SHAREABLE_LOOKS_ENABLED` GitHub variable by Deploy Infra). Tokens are derived from `IMAGE_PROXY_SIGNING_KEY`, so that key must be configured too. |
-| `SHAREABLE_WISHLIST_ENABLED` | Feature flag for opt-in public wishlist links (#268). Default `false` (unset = off; only `true`, any case, enables). While off, `/api/wishlist-share*` and `/api/wishlist/{token}` return `404` with `code: "feature_disabled"` and the web share card stays hidden. In Azure it is a Terraform-managed app setting (`shareable_wishlist_enabled`, fed from the `SHAREABLE_WISHLIST_ENABLED` GitHub variable by Deploy Infra). Tokens are derived from `IMAGE_PROXY_SIGNING_KEY`, so that key must be configured too. |
-| `INGESTION_JOB_QUEUE_NAME` | Optional queue name for async ingestion jobs. Defaults to `ingestion-jobs`. |
-| `SOURCE_IMAGE_CONTAINER` | Optional blob container override for source-ingested images. Defaults to `source-images`. |
-| `SOURCE_IMAGE_MAX_EDGE_PX` | Long edge (px) above which an ingested catalog image is downscaled before storage (default `2048`, clamped `256`–`8192`). 2048 covers Azure OpenAI vision (which downsamples to 2048 px even at `detail: high`, 512 px at `low`) and the image proxy's display transforms (≤ 1024 px). |
-| `SOURCE_IMAGE_MAX_DOWNLOAD_BYTES` | Largest catalog image download accepted before resizing (default `26214400` = 25 MB, clamped 5–100 MB). Larger images are refused (`Image too large to download`). |
-| `USER_MEDIA_CONTAINER` | Optional blob container override for private user media (e.g. nail photos). Defaults to `nail-photos`; Terraform sets it from `azurerm_storage_container.nail_photos`. The only container owner-scoped `v3` image ids may read (and `v2` ids may not), see #227. |
-| `ORPHAN_MEDIA_SWEEP_SCHEDULE` | NCRONTAB schedule for the `orphan-media-sweep` timer (default `0 17 3 * * *`, daily 03:17 UTC), #319. |
-| `ORPHAN_MEDIA_SWEEP_GRACE_SECONDS` | Minimum age (by `image_asset.captured_at`) before an unreferenced owner-scoped asset may be swept (default `86400` = 24h, clamped 3600–2592000). Rows without `captured_at` are never swept. |
-| `ORPHAN_MEDIA_SWEEP_BATCH_SIZE` | Candidates fetched per sweep scan query (default `100`, clamped 1–1000). |
-| `ORPHAN_MEDIA_SWEEP_MAX_PER_RUN` | Most candidates one sweep run examines (default `2000`, clamped 1–20000); the rest are picked up by the next run (`truncated: true` in the completed event). |
-| `IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS` | Minimum remaining lifetime of newly minted owner-scoped private (`v3`) image ids (default `3600` = 1h, clamped to 300–86400, expiry bucketed to 15 minutes), see #227. |
-| `AZURE_STORAGE_CONNECTION` | Connection string for uploading source images to Azure Blob Storage. When unset (for local dev or bring-up), ingestion falls back to storing the original source image URLs so swatch images still appear. |
-| `AZURE_OPENAI_GATEWAY_ENDPOINT` | Optional APIM gateway base URL used when `AZURE_OPENAI_USE_GATEWAY=true`. |
-| `AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY` | Optional APIM subscription key header value (`Ocp-Apim-Subscription-Key`) used in gateway mode. |
-| `AZURE_OPENAI_USE_GATEWAY` | Feature flag (`true`/`false`) to route Azure OpenAI calls through APIM gateway endpoint. |
-| `AZURE_OPENAI_DEPLOYMENT_LABEL` | Optional Azure OpenAI deployment name for label OCR structured extraction (`src/lib/ocr-parser.ts`). Falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`. |
-| `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name for synchronous image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT` when unset). |
-| `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` | Optional Azure OpenAI deployment name for batch image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`). |
-| `HEX_DETECTION_SNAP_ENABLED` | Feature flag (default `false`; only `true` enables) for the production snap step in `src/lib/hex-snap.ts`: after every vision hex detection (ingestion sync and batch-submit fallback, the batch poller apply step, admin `recalc-hex`) the model's hex is replaced by the nearest palette chip measured from the same image when one is within `HEX_SNAP_MAX_DISTANCE`, stored as `detected_hex_method = 'vision-snap'`. Read at call time. |
-| `HEX_SNAP_MAX_DISTANCE` | Largest OKLAB distance at which the snap step (production when `HEX_DETECTION_SNAP_ENABLED` is on, and the eval `blind-snap` / `image-select-ai-snap` strategies) replaces the model's hex with the nearest measured palette chip (default `0.10`, the MEDIUM threshold). Further away, the model hex is kept. |
-| `AZURE_OPENAI_DEPLOYMENT_HEX_ENSEMBLE` | Optional comma-separated Azure OpenAI deployment names the eval `ensemble` strategy samples from (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`). Eval-only. |
-| `HEX_DETECTION_ENSEMBLE_SAMPLES` | Samples per deployment for the eval `ensemble` strategy (default `3`, clamped 1–10). Eval-only. |
-| `HEX_DETECTION_ENSEMBLE_TEMPERATURE` | Sampling temperature for the eval `ensemble` strategy (default `0.3`, clamped 0–2). Eval-only; production detection stays at 0. |
-| `AZURE_OPENAI_BATCH_API_VERSION` | Optional API version used for Azure OpenAI Files/Batch endpoints (default `2025-03-01-preview`). |
-| `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` | Optional completion window sent during batch creation (default `24h`). |
-| `AZURE_OPENAI_VISION_DETAIL` | Optional image detail level for vision hex detection, sync and batch (`low` default — flat ~85 tokens/image; `high`/`auto` for more resolution). Unrecognized values fall back to `low`. |
-| `HEX_DETECTION_BATCH_ENABLED` | Feature flag to enable Azure OpenAI Batch API for Shopify image detection (default `false`). |
-| `HEX_DETECTION_BATCH_MIN_IMAGES` | Minimum record count before switching from synchronous detection to batch submission (default `5`). |
-| `HEX_DETECTION_BATCH_MAX_IN_FLIGHT` | Max hex batches one ingestion job keeps pending before the worker pauses for `awaiting_ai` (default `20`, clamped 1–100); bounds the job's share of the batch deployment's enqueued-token quota. |
-| `HEX_DETECTION_DELAY_MS` | Pause after each synchronous (non-batch) hex detection call, per concurrency slot (default `1000`, max `60000`, `0` disables). The old fixed 6s pacing predates low-detail images; 429s are still retried with `Retry-After`. |
-| `HEX_DETECTION_CONCURRENCY` | Synchronous hex detection calls in flight at once (default `4`, max `32`). Records still commit to Postgres one at a time, in order. The deployment's tokens-per-minute quota is the real ceiling, so raise this together with `openai_deployment_capacity`. |
-| `SUSPICIOUS_HEX_REPEAT_MIN_RECORDS` | Batch-aware suspicious-hex check (`src/lib/suspicious-hex.ts`): a vendor hex shared by at least this many records of one data source is a store template default (default `3`). Used when `detectHexOnSuspiciousOnly` is on. |
-| `SUSPICIOUS_HEX_REPEAT_MIN_SHARE` | ...and shared by at least this fraction (0–1) of the records that carry a vendor hex (default `0.1`). Both repeat thresholds must be met. |
-| `SUSPICIOUS_HEX_GRAYSCALE_MAX_CHROMA` | OKLAB chroma below which a vendor hex is near-grayscale and flagged unless the shade name/tags say gray, silver, black, white, nude or chrome (default `0.02`). |
-| `GALLERY_MAX_IMAGES_PER_SHADE` | Max `source_gallery` images one product links to its shade per ingest, counted in vendor order after near-duplicate skipping (positive integer; unset, empty, `0` or invalid = unlimited, the default). Images past the cap are still stored as `image_asset` rows; the image AI hex detection chose is always linked; lowering the cap unlinks the extra gallery swatches (except hex-labelled / `color_features` ones) on the product's next ingest. Counted in the `galleryOverCapSkipped` job metric. |
-| `INGESTION_AI_BATCH_POLL_SCHEDULE` | NCRONTAB schedule for the timer poller that checks batch completion (default `0 * * * * *`, every minute). |
-| `INGESTION_AI_BATCH_MAX_POLL_JOBS` | Max `awaiting_ai` ingestion jobs the poller processes per run (default `10`). |
-| `INGESTION_AI_IMAGE_PROXY_ORIGIN` | Optional public origin used when building AI image-proxy URLs (for example `https://<func-app>.azurewebsites.net`). Falls back to `https://$WEBSITE_HOSTNAME`. |
-| `INGESTION_WORKER_TIME_BUDGET_MS` | Wall-clock budget per ingestion worker invocation before it checkpoints and enqueues a continuation message (default `240000`, clamped to `30000`–`270000` to stay under the Consumption plan timeout). |
-| `INGESTION_LOG_FLUSH_INTERVAL_MS` | Interval for ingestion worker metric/log flushes while a job runs (default `10000`). Increase to reduce write pressure on Postgres. |
-| `INGESTION_JOB_LOG_MAX_ENTRIES` | Entries kept in a job's `metrics_json.logs` for the whole run, shared by every worker invocation and the AI batch poller (default `500`, clamped `100`–`2000`). The first 20% of the run is kept, then the newest lines, with one marker entry counting the omitted lines by level. See [Ingestion job logs](#ingestion-job-logs). |
-| `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS` | Per-request timeout for Shopify `products.json` downloads (default `45000`). |
-| `SHOPIFY_CONNECTOR_MAX_RETRIES` | Retry count for transient Shopify request errors (default `2`, total attempts = retries + 1). |
-| `SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS` | Linear backoff base delay for Shopify retries (default `1000`). |
-| `PG_POOL_MAX` | Postgres pool max client count for Functions process (default `10`). |
-| `PG_IDLE_TIMEOUT_MS` | Idle timeout for pooled Postgres clients (default `30000`). |
-| `PG_CONNECTION_TIMEOUT_MS` | Connection acquisition timeout for Postgres clients (default `15000`). |
-| `PG_QUERY_MAX_RETRIES` | Retries for retry-safe DB queries (`SELECT` and `UPDATE ingestion_job`) when connection timeouts occur (default `2`). |
-| `PG_QUERY_RETRY_BASE_MS` | Linear backoff base delay in ms for retry-safe DB query retries (default `250`). |
-| `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` | Azure AI Document Intelligence endpoint for server-side OCR (`src/lib/ocr.ts`). Graceful degradation when missing. |
-| `AZURE_DOCUMENT_INTELLIGENCE_KEY` | Azure AI Document Intelligence subscription key for OCR. |
-| `APPLICATIONINSIGHTS_CONNECTION_STRING` | Optional custom telemetry sink for `trackEvent` / `trackMetric` / `trackException` in `src/lib/telemetry.ts`. When unset, telemetry calls are no-ops. `src/index.ts` imports `lib/telemetry` first so `pg`/`http` dependencies are auto-instrumented; the SDK's Functions `preInvocation` hook puts dependencies, custom events and exceptions under the host request's `operation_Id`. |
-| `CORS_ALLOWED_METHODS` | Overrides `Access-Control-Allow-Methods` in `src/lib/http.ts` (default `GET,POST,PUT,PATCH,DELETE,OPTIONS`; PATCH is used by `PATCH /api/users-admin/{id}`). |
-| `CORS_ALLOWED_HEADERS` | Overrides `Access-Control-Allow-Headers` in `src/lib/http.ts` (default `Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context`; the last four let browser telemetry correlate with Functions requests). `Request-Context` is always exposed. |
-| `REDIS_URL` | Redis endpoint URL for API read-through caching (for example `rediss://<host>:10000`). |
-| `REDIS_KEY` | Redis access key paired with `REDIS_URL`. When either Redis var is missing, cache helpers become no-ops and requests fall back to Postgres. |
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `FUNCTIONS_WORKER_RUNTIME` | — | Always `node` (Functions host setting). |
+| `AzureWebJobsStorage` | — | Host storage for triggers, queues and timers. Locally the Azurite connection string (`npm run dev:infra`). |
+| `FUNCTIONS_NODE_BLOCK_ON_ENTRY_POINT_ERROR` | `true` in Azure | Terraform-managed; makes entrypoint/import failures fail host startup instead of surfacing as route-level `404`s. |
+| `WEBSITE_HOSTNAME`, `WEBSITE_INSTANCE_ID` | set by Azure | Not set by us. `src/lib/runtime-env.ts` uses them to detect an Azure-hosted instance (which refuses `AUTH_DEV_BYPASS`); `WEBSITE_HOSTNAME` is also the fallback origin for AI image-proxy URLs. |
 
-Batch runtime note: `HEX_DETECTION_BATCH_ENABLED` and `HEX_DETECTION_BATCH_MIN_IMAGES` are read when each ingestion worker message and batch poller run starts, so logs reflect the effective values used for that execution.
+### Database (`src/lib/db.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` | — | Postgres connection. Locally `localhost:55432` / `swatchwatch` / `postgres` (from `npm run dev:infra`). In Azure `PGPASSWORD` is a Key Vault reference. |
+| `PG_POOL_MAX` | `10` | Pool max client count for the Functions process. |
+| `PG_IDLE_TIMEOUT_MS` | `30000` | Idle timeout for pooled clients. |
+| `PG_CONNECTION_TIMEOUT_MS` | `15000` | Connection acquisition timeout. |
+| `PG_QUERY_MAX_RETRIES` | `2` | Retries for retry-safe queries (`SELECT` and `UPDATE ingestion_job`) on connection timeouts. |
+| `PG_QUERY_RETRY_BASE_MS` | `250` | Linear backoff base delay for those retries. |
+| `DATABASE_URL` | — | Migrations only: `npm run migrate` loads `local.settings.json` into the environment and node-pg-migrate prefers an exported `DATABASE_URL` over the `PG*` values (root `.env.example` has the local URL). The DB scripts (`eval:hex:populate`, `backfill:product-text`) read the `PG*` variables. |
+
+### Auth (`src/lib/auth.ts`, `src/lib/runtime-env.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AZURE_AD_B2C_TENANT` | — | Entra External ID / B2C tenant short name. Metadata discovery tries `ciamlogin.com` first, then legacy `b2clogin.com`. |
+| `AZURE_AD_B2C_CLIENT_ID` | — | App registration client id. Accepted audiences are the id and `api://<id>`. |
+| `AUTH_DEV_BYPASS` | `false` | Local-dev-only. When `true` **and the host is not running in Azure**, auth accepts `Bearer dev:<userId>` tokens. Ignored (fail closed, logged + `auth.dev_bypass_refused`) on Azure-hosted Function Apps; the deploy workflow always sets it to `false`. |
+
+### Blob storage (`src/lib/blob-storage.ts`, `src/lib/connector-raw-storage.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AZURE_STORAGE_CONNECTION` | — | Storage account for catalog images, private user media and connector snapshots (locally Azurite). When unset, ingestion stores the original source image URLs so swatches still appear, and the orphan media sweep is skipped. |
+| `SOURCE_IMAGE_CONTAINER` | `source-images` | Container for ingested catalog images and their thumbnail variants. The only container public `v2` image ids may read. |
+| `USER_MEDIA_CONTAINER` | `nail-photos` | Container for private user media (nail and mani photos). The only container owner-scoped `v3` image ids may read (#227). Terraform sets it from `azurerm_storage_container.nail_photos`. |
+| `CONNECTOR_RAW_CONTAINER` | — | Container for raw connector snapshots and the ingestion catalog cache; unset = no-op. Terraform-provisioned. The legacy name `RAW_SNAPSHOT_CONTAINER` is still read but deprecated. |
+
+### Image proxy (`src/lib/image-proxy.ts`, `src/functions/images.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `IMAGE_PROXY_SIGNING_KEY` | — | Secret (>= 32 chars) that HMAC-signs `/api/images/{id}` ids; also the root of shareable wishlist and look tokens. Required outside dev: when unset and dev bypass is not active, image URLs are omitted and the proxy refuses every request. With dev bypass active (local only), an ephemeral per-process key is used (URLs break on restart). Generate with `openssl rand -base64 48`. Terraform stores a generated value in Key Vault (`image-proxy-signing-key`). |
+| `IMAGE_PROXY_ID_TTL_SECONDS` | `259200` (3 days) | Minimum remaining lifetime of newly minted public (`v2`, catalog) ids, clamped 3600–2592000. Keep it above the AI batch completion window plus poller lag: the batch poller re-reads the same ids for the snap step, and an expired id just keeps the raw `vision-direct` hex. |
+| `IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS` | `3600` (1h) | Minimum remaining lifetime of owner-scoped private (`v3`) ids, clamped 300–86400, expiry bucketed to 15 minutes (#227). |
+| `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL` | — | ISO-8601 timestamp until which legacy non-expiring (`v1`) ids are still accepted. Unset or in the past = rejected (`403`). |
+
+### Orphan media sweep (`src/lib/orphan-media-sweep.ts`, #319)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `ORPHAN_MEDIA_SWEEP_SCHEDULE` | `0 17 3 * * *` | NCRONTAB schedule for the `orphan-media-sweep` timer (daily 03:17 UTC). |
+| `ORPHAN_MEDIA_SWEEP_GRACE_SECONDS` | `86400` (24h) | Minimum age (by `image_asset.captured_at`) before an unreferenced owner-scoped asset may be swept, clamped 3600–2592000. Rows without `captured_at` are never swept. |
+| `ORPHAN_MEDIA_SWEEP_BATCH_SIZE` | `100` | Candidates fetched per scan query, clamped 1–1000. |
+| `ORPHAN_MEDIA_SWEEP_MAX_PER_RUN` | `2000` | Most candidates one run examines, clamped 1–20000; the rest wait for the next run (`truncated: true` in the completed event). |
+
+### Feature flags
+
+Only the exact value `true` (any case) enables a flag; anything else is off.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `SHAREABLE_WISHLIST_ENABLED` | `false` | Opt-in public wishlist links (#268). While off, `/api/wishlist-share*` and `/api/wishlist/{token}` return `404` with `code: "feature_disabled"` and the web share card stays hidden. Terraform-managed (`shareable_wishlist_enabled`, fed from the `SHAREABLE_WISHLIST_ENABLED` GitHub variable by Deploy Infra). Needs `IMAGE_PROXY_SIGNING_KEY`. |
+| `SHAREABLE_LOOKS_ENABLED` | `false` | Opt-in public share links for saved looks. While off, `/api/look-share` and `/api/look/{token}` return `404` with `code: "feature_disabled"` and the Looks page shows no Share link controls. Terraform-managed (`shareable_looks_enabled`, fed from the `SHAREABLE_LOOKS_ENABLED` GitHub variable by Deploy Infra). Needs `IMAGE_PROXY_SIGNING_KEY`. |
+| `HEX_DETECTION_BATCH_ENABLED` | `false` | Azure OpenAI Batch API for Shopify vision hex detection plus the `ingestion-ai-batch-poller` timer. See Batch hex detection below. |
+| `HEX_DETECTION_SNAP_ENABLED` | `false` | Snap step in `src/lib/hex-snap.ts`: after every vision hex detection (ingestion sync and batch-submit fallback, the batch poller apply step, admin `recalc-hex`) the model's hex is replaced by the nearest palette chip measured from the same image when one is within `HEX_SNAP_MAX_DISTANCE`, stored as `detected_hex_method = 'vision-snap'`. Read at call time. Terraform-managed (`hex_detection_snap_enabled`). |
+| `AZURE_OPENAI_USE_GATEWAY` | `false` | Route Azure OpenAI calls through the APIM gateway. See Azure OpenAI client below. |
+
+### Azure OpenAI client (`src/lib/azure-openai-config.ts`)
+
+Shared by vision hex detection (sync and batch), label OCR parsing and the hex eval.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AZURE_OPENAI_ENDPOINT` | — | Direct Azure OpenAI endpoint. |
+| `AZURE_OPENAI_KEY` | — | Direct endpoint key (`api-key` header). Key Vault reference in Azure. |
+| `AZURE_OPENAI_USE_GATEWAY` | `false` | `true` routes calls through the APIM gateway when both gateway settings below are present; if either is missing it logs a warning and falls back to the direct endpoint. |
+| `AZURE_OPENAI_GATEWAY_ENDPOINT` | — | APIM gateway base URL used in gateway mode (Terraform: `local.apim_openai_gateway_base_url`). |
+| `AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY` | — | APIM subscription key, sent as `Ocp-Apim-Subscription-Key` in gateway mode. |
+| `AZURE_OPENAI_DEPLOYMENT` | — | Fallback deployment name for every role below. |
+| `AZURE_OPENAI_DEPLOYMENT_HEX` | → `AZURE_OPENAI_DEPLOYMENT` | Deployment for synchronous vision hex detection. |
+| `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` | → `_HEX` → `AZURE_OPENAI_DEPLOYMENT` | Deployment for batch hex detection. |
+| `AZURE_OPENAI_DEPLOYMENT_LABEL` | → `_HEX` → `AZURE_OPENAI_DEPLOYMENT` | Deployment for label OCR structured extraction (`src/lib/ocr-parser.ts`). |
+| `AZURE_OPENAI_VISION_DETAIL` | `low` | Image detail for vision hex detection, sync and batch: `low` (flat ~85 tokens/image), `high` or `auto`. Unrecognized values fall back to `low`. |
+
+### Hex detection (`src/lib/ai-color-detection.ts`, `src/lib/hex-snap.ts`, `src/lib/suspicious-hex.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `HEX_DETECTION_CONCURRENCY` | `4` | Synchronous detection calls in flight at once (max `32`). Records still commit to Postgres one at a time, in order. The deployment's tokens-per-minute quota is the real ceiling, so raise this together with `openai_deployment_capacity`. |
+| `HEX_DETECTION_DELAY_MS` | `1000` | Pause after each synchronous call, per concurrency slot (max `60000`, `0` disables). 429s are still retried with `Retry-After`. |
+| `HEX_SNAP_MAX_DISTANCE` | `0.10` | Largest OKLAB distance at which the snap step (production when `HEX_DETECTION_SNAP_ENABLED` is on, and the eval `blind-snap` / `image-select-ai-snap` strategies) replaces the model's hex with the nearest measured palette chip (the MEDIUM threshold). Further away, the model hex is kept. |
+| `SUSPICIOUS_HEX_REPEAT_MIN_RECORDS` | `3` | A vendor hex shared by at least this many records of one data source's batch is a store template default and goes to AI detection when `detectHexOnSuspiciousOnly` is on. |
+| `SUSPICIOUS_HEX_REPEAT_MIN_SHARE` | `0.1` | ...and by at least this fraction (0–1) of the records that carry a vendor hex. Both repeat thresholds must be met. |
+| `SUSPICIOUS_HEX_GRAYSCALE_MAX_CHROMA` | `0.02` | OKLAB chroma below which a vendor hex is near-grayscale and flagged unless the shade name/tags say gray, silver, black, white, nude or chrome (pure grays are `0`, a nude ≈ `0.08`). |
+
+### Batch hex detection (`src/lib/azure-openai-batch.ts`, `src/functions/ingestion-ai-batch-poller.ts`)
+
+`HEX_DETECTION_BATCH_ENABLED` and `HEX_DETECTION_BATCH_MIN_IMAGES` are read when each ingestion worker message and batch poller run starts, so logs reflect the effective values for that execution.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `HEX_DETECTION_BATCH_MIN_IMAGES` | `5` | Minimum record count before ingestion switches from synchronous detection to batch submission. |
+| `HEX_DETECTION_BATCH_MAX_IN_FLIGHT` | `20` | Max batches one job keeps pending before the worker pauses for `awaiting_ai`, clamped 1–100; bounds the job's share of the deployment's enqueued-token quota. |
+| `AZURE_OPENAI_BATCH_API_VERSION` | `2025-03-01-preview` | API version for the Files/Batch endpoints. |
+| `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` | `24h` | Completion window sent on batch creation. |
+| `INGESTION_AI_BATCH_POLL_SCHEDULE` | `0 * * * * *` | NCRONTAB schedule for the batch completion poller (every minute). |
+| `INGESTION_AI_BATCH_MAX_POLL_JOBS` | `10` | Max `awaiting_ai` jobs the poller processes per run. |
+| `INGESTION_AI_IMAGE_PROXY_ORIGIN` | `https://$WEBSITE_HOSTNAME` | Public origin used to build `/api/images/{id}` URLs for Azure OpenAI vision calls (for example `https://<func-app>.azurewebsites.net`). Must be reachable from Azure OpenAI. |
+
+### Ingestion worker and connectors (`src/functions/ingestion-worker.ts`, `src/lib/connectors/`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `INGESTION_JOB_QUEUE_NAME` | `ingestion-jobs` | Storage queue for async ingestion jobs and continuation messages. |
+| `INGESTION_WORKER_TIME_BUDGET_MS` | `240000` | Wall-clock budget per worker invocation, clamped 30000–270000 (under the Consumption plan timeout). When spent, the worker saves `metrics.checkpoint`, sets stage `continuation_queued` and enqueues a continuation message. |
+| `INGESTION_LOG_FLUSH_INTERVAL_MS` | `10000` | Interval for worker metric/log flushes while a job runs. Increase to reduce write pressure on Postgres. |
+| `INGESTION_JOB_LOG_MAX_ENTRIES` | `500` | Entries kept in a job's `metrics_json.logs` across every worker invocation and poller run, clamped 100–2000. The first 20% of the run is kept, then the newest lines, with one marker entry counting the omitted lines by level. See [Ingestion job logs](#ingestion-job-logs). |
+| `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS` | `45000` | Per-request timeout for Shopify `products.json` downloads. |
+| `SHOPIFY_CONNECTOR_MAX_RETRIES` | `2` | Retries for transient Shopify request errors (total attempts = retries + 1). |
+| `SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS` | `1000` | Linear backoff base delay for Shopify retries. |
+
+### Catalog images (`src/lib/blob-storage.ts`, `src/lib/gallery-dedupe.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `SOURCE_IMAGE_MAX_EDGE_PX` | `2048` | Long edge above which an ingested image is downscaled before storage, clamped 256–8192. Covers Azure OpenAI vision (2048 px at `detail: high`, 512 px at `low`) and the proxy's display transforms (≤ 1024 px); thumbnail variants are rendered from the stored image. Images still over 5 MB after resizing are re-encoded as WebP. |
+| `SOURCE_IMAGE_MAX_DOWNLOAD_BYTES` | `26214400` (25 MB) | Largest download accepted before resizing, clamped 5–100 MB. Larger images are refused (`Image too large to download`). |
+| `GALLERY_MAX_IMAGES_PER_SHADE` | unlimited | Max `source_gallery` images one product links to its shade per ingest, in vendor order after near-duplicate skipping (positive integer; unset, empty, `0` or invalid = unlimited). Images past the cap are still stored; the image AI hex detection chose is always linked; lowering the cap unlinks the extras (except hex-labelled / `color_features` ones) on the product's next ingest. Counted in the `galleryOverCapSkipped` job metric. |
+
+### OCR and voice (`src/lib/ocr.ts`, `src/functions/voice.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` | — | Azure AI Document Intelligence endpoint for label OCR on capture frames. When it or the key is missing, OCR is skipped (graceful degradation). |
+| `AZURE_DOCUMENT_INTELLIGENCE_KEY` | — | Document Intelligence key. |
+| `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` | — | Reserved for Speech-to-text in `POST /api/voice`. Not read yet: the voice handler is a stub (Terraform sets a placeholder key). |
+
+### Cache (`src/lib/cache.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `REDIS_URL` | — | Redis endpoint for API read-through caching (for example `rediss://<host>:10000`; locally `redis://localhost:6379`). |
+| `REDIS_KEY` | — | Access key paired with `REDIS_URL`. When either is missing, cache helpers are no-ops and requests fall back to Postgres. |
+
+### HTTP / CORS (`src/lib/http.ts`)
+
+The local `func` host also applies `Host.CORS` from `local.settings.json` (pinned to `http://localhost:3000`); for a web dev server on another port start it with `func start --cors <origin>`.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000,https://*.azurestaticapps.net` | Comma-separated origins (`*` wildcards allowed). Terraform sets it to the web app origins. |
+| `CORS_ALLOWED_METHODS` | `GET,POST,PUT,PATCH,DELETE,OPTIONS` | `Access-Control-Allow-Methods` (PATCH is used by `PATCH /api/users-admin/{id}`). |
+| `CORS_ALLOWED_HEADERS` | `Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context` | `Access-Control-Allow-Headers`; the last four let browser telemetry correlate with Functions requests. `Request-Context` is always exposed. |
+| `CORS_SUPPORT_CREDENTIALS` | `false` | `true` adds `Access-Control-Allow-Credentials: true` for matched (non-`*`) origins. The API uses bearer tokens, so this is normally off. |
+
+### Telemetry (`src/lib/telemetry.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | — | Sink for `trackEvent` / `trackMetric` / `trackException`; unset = no-ops. `src/index.ts` imports `lib/telemetry` first (keep it first) so `pg`/`http` dependencies are auto-instrumented; the SDK's Functions `preInvocation` hook puts dependencies, custom events and exceptions under the host request's `operation_Id`. |
+
+### Hex eval only (`src/eval/hex/`)
+
+Read by `npm run eval:hex` strategies, never by the Function App.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AZURE_OPENAI_DEPLOYMENT_HEX_ENSEMBLE` | → `_HEX` → `AZURE_OPENAI_DEPLOYMENT` | Comma-separated deployments the `ensemble` strategy samples from. |
+| `HEX_DETECTION_ENSEMBLE_SAMPLES` | `3` | Samples per deployment for `ensemble`, clamped 1–10. |
+| `HEX_DETECTION_ENSEMBLE_TEMPERATURE` | `0.3` | Sampling temperature for `ensemble`, clamped 0–2 (production detection stays at 0). |
+| `HEX_EVAL_REGION_CROP_MODE` | `cells` | `region-crop` localization: `cells` (labeled grid) or `bbox` (normalized box). |
+| `HEX_EVAL_REGION_CROP_CELLS` | `6` | Grid size per axis in `cells` mode, clamped 2–10. |
+| `HEX_EVAL_REGION_CROP_GRID` | `false` | `true` draws a 4×4 grid on the image in `bbox` mode. |
+| `HEX_EVAL_REGION_CROP_DETAIL` | `AZURE_OPENAI_VISION_DETAIL`, then `low` | `low` / `high` / `auto` vision detail for the `region-crop` locator call. |
+
+### Admin scripts (`scripts/*.cjs`)
+
+The `backfill:*` and `dedupe:gallery-images` scripts call the deployed API, not the database:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `API_BASE_URL` | `http://localhost:7071/api` | Functions API base URL (for example `https://<func-app>.azurewebsites.net/api` or `http://localhost:7071/api`). |
+| `ADMIN_BEARER_TOKEN` | — | Bearer token of an admin user (`dev:<adminId>` against a local dev-bypass host). |
+
+### Auth and deploy notes
 
 JWT validation note:
 - In production mode (`AUTH_DEV_BYPASS=false`), auth discovery first tries Entra External ID (`ciamlogin.com`) metadata for `AZURE_AD_B2C_TENANT`, then falls back to legacy Azure AD B2C (`b2clogin.com`) metadata.
