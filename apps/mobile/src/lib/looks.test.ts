@@ -83,25 +83,26 @@ describe("swaps", () => {
   const owned = [polish("#D8BFAA"), polish("#D2B8A3"), polish("#A8846A"), polish("#F3E6E8", { finishes: ["sheer"] })];
   const { looks } = recommendLooks({ polishes: owned, vibe: { ...DEFAULT_VIBE, ownedOnly: true }, seed: 1 });
   const look = looks[0];
-  const step = look.steps.find((s) => s.alternatives.length > 0);
+  const stepIndex = look.steps.findIndex((s) => s.alternatives.length > 0);
+  const step = look.steps[stepIndex];
 
   it("swaps an owned alternative in and keeps the old polish as an alternative", () => {
     assert.ok(step, "fixture has a step with alternatives");
     const alt = step.alternatives[0];
-    const next = withSwap(NO_SWAPS, "k1", look, step.role, alt);
+    const next = withSwap(NO_SWAPS, "k1", look, stepIndex, alt);
     const [swapped] = applySwaps([look], next, "k1");
-    const after = swapped.steps.find((s) => s.role === step.role);
+    const after = swapped.steps[stepIndex];
     assert.equal(after?.polish?.id, alt.id);
     assert.ok(after?.alternatives.some((a) => a.id === step.polish?.id));
   });
 
   it("drops swaps made for another recommendation (Shuffle, vibe change)", () => {
     assert.ok(step);
-    const next = withSwap(NO_SWAPS, "k1", look, step.role, step.alternatives[0]);
+    const next = withSwap(NO_SWAPS, "k1", look, stepIndex, step.alternatives[0]);
     assert.equal(applySwaps([look], next, "k2")[0], look);
     // A swap under a new key starts from scratch instead of merging the stale ones.
     const other = looks[1];
-    const again = withSwap(next, "k2", other, other.steps[0].role, other.steps[0].alternatives[0] ?? other.steps[0].polish!);
+    const again = withSwap(next, "k2", other, 0, other.steps[0].alternatives[0] ?? other.steps[0].polish!);
     assert.deepEqual(Object.keys(again.looks), [other.templateId]);
   });
 });

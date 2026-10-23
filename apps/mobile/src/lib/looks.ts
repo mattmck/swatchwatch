@@ -16,7 +16,6 @@ import {
   type ColorFamily,
   type Look,
   type LookCatalogQueries,
-  type LookStepRole,
   type Polish,
   type ShoppingItem,
   type PolishFilters,
@@ -144,11 +143,11 @@ export interface SwapOverrides {
 
 export const NO_SWAPS: SwapOverrides = { key: "", looks: {} };
 
-/** Swap `polish` (one of the step's owned alternatives) into `look`'s `role` step. */
-export function withSwap(overrides: SwapOverrides, key: string, look: Look, role: LookStepRole, polish: Polish): SwapOverrides {
+/** Swap `polish` (one of the step's owned alternatives) into the step at `stepIndex` (a look can have two accents). */
+export function withSwap(overrides: SwapOverrides, key: string, look: Look, stepIndex: number, polish: Polish): SwapOverrides {
   return {
     key,
-    looks: { ...(overrides.key === key ? overrides.looks : {}), [look.templateId]: applyStepSwap(look, role, polish) },
+    looks: { ...(overrides.key === key ? overrides.looks : {}), [look.templateId]: applyStepSwap(look, stepIndex, polish) },
   };
 }
 

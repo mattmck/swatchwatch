@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { Look, LookStepRole, Vibe } from "@/lib/looks";
+import type { Look, Vibe } from "@/lib/looks";
 import { shopCandidatesForStep } from "@/lib/looks";
 import { applicationOrder, finishNotes } from "@/lib/looks-detail";
 import { ColorLabLink, LookSwatchStrip } from "./look-card";
@@ -26,7 +26,8 @@ interface LookDrawerProps {
   /** True while catalog rows for this look's colors are still loading. */
   catalogLoading: boolean;
   onOpenChange: (open: boolean) => void;
-  onSwap: (role: LookStepRole, polish: Polish) => void;
+  /** Swap the polish of the step at `stepIndex` (a look can have two accents). */
+  onSwap: (stepIndex: number, polish: Polish) => void;
   /** `/polishes/search` seeded with the look's palette (#386). */
   colorLabHref: string | null;
   onColorLab: () => void;
@@ -101,10 +102,10 @@ export function LookDrawer({ look, vibe, catalogPool, catalogLoading, onOpenChan
               <h3 id="look-subs" className="text-sm font-semibold">
                 Substitutions
               </h3>
-              {look.steps.map((step) => {
-                const shop = shopCandidatesForStep(look, step.role, catalogPool, vibe);
+              {look.steps.map((step, index) => {
+                const shop = shopCandidatesForStep(look, index, catalogPool, vibe);
                 return (
-                  <div key={step.role}>
+                  <div key={`${step.role}-${index}`}>
                     <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{step.label}</p>
                     {step.alternatives.length === 0 && shop.length === 0 ? (
                       <p className="px-2 py-1.5 text-sm text-muted-foreground">
@@ -117,7 +118,7 @@ export function LookDrawer({ look, vibe, catalogPool, catalogLoading, onOpenChan
                             key={`own-${alt.id}`}
                             polish={alt}
                             action={
-                              <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs pointer-coarse:h-9" onClick={() => onSwap(step.role, alt)}>
+                              <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs pointer-coarse:h-9" onClick={() => onSwap(index, alt)}>
                                 <Repeat className="size-3.5" aria-hidden />
                                 Use (owned)
                               </Button>

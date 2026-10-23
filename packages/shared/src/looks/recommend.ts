@@ -11,7 +11,8 @@
  * ## How a look is built
  *
  * 1. **Templates.** `LOOK_TEMPLATES` holds 18 named looks (Glazed Donut, Office Neutral, …). Each
- *    has target hexes per step (Base, Accent/Tip, optional Topper), the occasions/moods/finishes
+ *    has target hexes per step (Base, two accents such as Accent nail + Tip so every look has three
+ *    colors, optional Topper), the occasions/moods/finishes
  *    it suits, and a difficulty/time. `rankTemplatesForVibe` scores them: +3 occasion match, +3
  *    mood match, +2 finish match, plus a seeded jitter (`TEMPLATE_JITTER`) so Shuffle varies.
  * 2. **Base.** Owned polishes ranked by OKLAB distance to the template's base hex plus a finish
@@ -24,7 +25,9 @@
  * 3. **Accent.** Targets are the template's accent hex plus the harmony rotation of the chosen
  *    base (`generateHarmonyColors`: complementary, analogous or monochromatic). Candidates must
  *    be within `ACCENT_MAX_DISTANCE` of a target and at least `ACCENT_MIN_CONTRAST` from the
- *    base; among them, contrast with the base is rewarded ("maximize contrast within harmony").
+ *    base and from the look's other accent; among them, contrast with the base is rewarded
+ *    ("maximize contrast within harmony"). Steps are addressed by index (`applyStepSwap`,
+ *    `shopCandidatesForStep`), since a look has two `accent` steps.
  * 4. **Topper.** Owned topper/flake/glitter polishes (`TOPPER_FINISHES`, `topper` first), nearest
  *    the template's topper hex. No glitter-on-glitter: a look with a topper step never gets a
  *    glitter-family base (and a topper is skipped over one).
@@ -35,7 +38,7 @@
  *    the same look uses.
  * 6. **Diversity.** Looks are chosen greedily, one per round, from every remaining template,
  *    ranked by vibe score + jitter + `OWNED_BASE_BONUS` (owned base) + `OWNED_BONUS` × owned share.
- *    A base may not be any polish an earlier look used, and must be at
+ *    A base or accent may not be any polish an earlier look used (toppers may repeat), and a base must be at
  *    least `LOOK_MIN_BASE_DISTANCE` from earlier bases unless both finish families are known and
  *    differ.
  * 7. **Owned only.** Every required step must be owned (optional toppers are dropped instead);
@@ -156,7 +159,7 @@ export const LOOK_TEMPLATES: readonly LookTemplate[] = [
   {
     id: "glazed-donut",
     name: "Glazed Donut",
-    description: "Milky sheer base with a pearly chrome glaze.",
+    description: "Milky sheer base, a rosy pearl accent nail and a lilac tip, under a pearly chrome glaze.",
     occasions: ["everyday", "date", "formal"],
     moods: ["soft"],
     finishes: ["sheer", "chrome"],
@@ -164,13 +167,15 @@ export const LOOK_TEMPLATES: readonly LookTemplate[] = [
     minutes: 20,
     steps: [
       { role: "base", label: "Base", hex: "#F3E6E8", finishes: SHEER },
+      { role: "accent", label: "Accent nail", hex: "#E2BCC8", harmony: "monochromatic", optional: true },
+      { role: "accent", label: "Tip", hex: "#D8C8F0", harmony: "analogous", optional: true },
       { role: "topper", label: "Chrome glaze", hex: "#F5F0FF", finishes: ["topper", ...CHROME], optional: true },
     ],
   },
   {
     id: "office-neutral",
     name: "Office Neutral",
-    description: "Polished nude with a tonal accent nail.",
+    description: "Polished nude with a tonal accent nail and a soft cream tip.",
     occasions: ["work", "everyday"],
     moods: ["soft"],
     finishes: ["gloss", "matte"],
@@ -179,12 +184,13 @@ export const LOOK_TEMPLATES: readonly LookTemplate[] = [
     steps: [
       { role: "base", label: "Base", hex: "#D8BFAA", finishes: SOLID },
       { role: "accent", label: "Accent nail", hex: "#A8846A", harmony: "monochromatic", optional: true },
+      { role: "accent", label: "Tip", hex: "#F5EDE4", finishes: SOLID, harmony: "fixed", optional: true },
     ],
   },
   {
     id: "soft-chrome",
     name: "Soft Chrome",
-    description: "Blush base buffed with a silvery chrome.",
+    description: "Blush base, a dusty rose accent nail and a silver tip, buffed with chrome.",
     occasions: ["date", "party", "formal"],
     moods: ["soft", "edgy"],
     finishes: ["chrome"],
@@ -192,13 +198,15 @@ export const LOOK_TEMPLATES: readonly LookTemplate[] = [
     minutes: 25,
     steps: [
       { role: "base", label: "Base", hex: "#EBD3D6", finishes: SOLID },
+      { role: "accent", label: "Accent nail", hex: "#C49AA8", harmony: "monochromatic", optional: true },
+      { role: "accent", label: "Tip", hex: "#C0C0C8", finishes: CHROME, harmony: "fixed", optional: true },
       { role: "topper", label: "Chrome", hex: "#E3E3EC", finishes: [...CHROME, "topper"], optional: true },
     ],
   },
   {
     id: "galaxy-fade",
     name: "Galaxy Fade",
-    description: "Midnight navy fading into violet, scattered with sparkle.",
+    description: "Midnight navy fading into violet and magenta, scattered with sparkle.",
     occasions: ["party"],
     moods: ["bold", "playful"],
     finishes: ["holo", "flake"],
@@ -207,13 +215,14 @@ export const LOOK_TEMPLATES: readonly LookTemplate[] = [
     steps: [
       { role: "base", label: "Base", hex: "#1B1F4B", finishes: SOLID },
       { role: "accent", label: "Fade", hex: "#5B2A86", harmony: "analogous" },
+      { role: "accent", label: "Nebula", hex: "#A8307A", harmony: "analogous", optional: true },
       { role: "topper", label: "Stardust", hex: "#C9C9FF", finishes: SPARKLE, optional: true },
     ],
   },
   {
     id: "cyber-violet",
     name: "Cyber Violet",
-    description: "Electric violet with a neon cyan accent.",
+    description: "Electric violet with a neon cyan accent and a hot pink tip.",
     occasions: ["party"],
     moods: ["edgy", "bold"],
     finishes: ["chrome", "holo"],
@@ -222,12 +231,13 @@ export const LOOK_TEMPLATES: readonly LookTemplate[] = [
     steps: [
       { role: "base", label: "Base", hex: "#7A2BE2", finishes: [...CHROME, ...SOLID] },
       { role: "accent", label: "Accent nail", hex: "#00C8E0", harmony: "complementary" },
+      { role: "accent", label: "Tip", hex: "#FF2E9A", harmony: "analogous", optional: true },
     ],
   },
   {
     id: "berry-gradient",
     name: "Berry Gradient",
-    description: "Deep berry melting into a brighter raspberry.",
+    description: "Deep berry melting into a brighter raspberry, with a pink accent nail.",
     occasions: ["date", "formal", "everyday"],
     moods: ["bold"],
     finishes: ["gloss", "sheer"],
@@ -236,12 +246,13 @@ export const LOOK_TEMPLATES: readonly LookTemplate[] = [
     steps: [
       { role: "base", label: "Base", hex: "#8B1E3F", finishes: SOLID },
       { role: "accent", label: "Gradient", hex: "#C2185B", harmony: "monochromatic" },
+      { role: "accent", label: "Accent nail", hex: "#F06292", harmony: "monochromatic", optional: true },
     ],
   },
   {
     id: "french-modern",
     name: "French Modern",
-    description: "Sheer pink base with a crisp white tip.",
+    description: "Sheer pink base with a crisp white tip and a rose accent nail.",
     occasions: ["work", "formal", "date", "everyday"],
     moods: ["soft"],
     finishes: ["gloss", "sheer"],
@@ -250,12 +261,13 @@ export const LOOK_TEMPLATES: readonly LookTemplate[] = [
     steps: [
       { role: "base", label: "Base", hex: "#F2DCD5", finishes: SHEER },
       { role: "accent", label: "Tip", hex: "#FFFFFF", finishes: ["creme"], harmony: "fixed" },
+      { role: "accent", label: "Accent nail", hex: "#D98A9E", harmony: "analogous", optional: true },
     ],
   },
   {
     id: "monochrome-slick",
     name: "Monochrome Slick",
-    description: "Glossy black with a charcoal accent.",
+    description: "Glossy black with a charcoal accent nail and a dove-grey tip.",
     occasions: ["formal", "party", "work"],
     moods: ["edgy"],
     finishes: ["gloss", "matte"],
@@ -264,12 +276,13 @@ export const LOOK_TEMPLATES: readonly LookTemplate[] = [
     steps: [
       { role: "base", label: "Base", hex: "#111111", finishes: SOLID },
       { role: "accent", label: "Accent nail", hex: "#4A4A4A", harmony: "monochromatic" },
+      { role: "accent", label: "Tip", hex: "#9E9E9E", harmony: "monochromatic", optional: true },
     ],
   },
   {
     id: "classic-red",
     name: "Classic Red",
-    description: "True red with a gold accent.",
+    description: "True red with a gold accent nail and a deep wine tip.",
     occasions: ["date", "formal"],
     moods: ["bold"],
     finishes: ["gloss"],
@@ -278,12 +291,13 @@ export const LOOK_TEMPLATES: readonly LookTemplate[] = [
     steps: [
       { role: "base", label: "Base", hex: "#B11226", finishes: SOLID },
       { role: "accent", label: "Accent nail", hex: "#D4AF37", finishes: CHROME, harmony: "fixed", optional: true },
+      { role: "accent", label: "Tip", hex: "#5C0A16", finishes: SOLID, harmony: "monochromatic", optional: true },
     ],
   },
   {
     id: "milk-bath",
     name: "Milk Bath",
-    description: "Milky white with floating pink flakes.",
+    description: "Milky white with a blush accent nail, a sage tip and floating pink flakes.",
     occasions: ["everyday", "work"],
     moods: ["soft", "playful"],
     finishes: ["sheer", "flake"],
@@ -291,13 +305,15 @@ export const LOOK_TEMPLATES: readonly LookTemplate[] = [
     minutes: 20,
     steps: [
       { role: "base", label: "Base", hex: "#F7EFE9", finishes: SHEER },
+      { role: "accent", label: "Accent nail", hex: "#F2B8C6", harmony: "analogous", optional: true },
+      { role: "accent", label: "Tip", hex: "#B8D8C2", harmony: "fixed", optional: true },
       { role: "topper", label: "Flakes", hex: "#F3C6D3", finishes: ["flake", "topper"], optional: true },
     ],
   },
   {
     id: "coral-pop",
     name: "Coral Pop",
-    description: "Juicy coral with a tropical teal accent.",
+    description: "Juicy coral with a tropical teal accent and a sunny yellow tip.",
     occasions: ["everyday", "party"],
     moods: ["playful", "bold"],
     finishes: ["gloss"],
@@ -306,12 +322,13 @@ export const LOOK_TEMPLATES: readonly LookTemplate[] = [
     steps: [
       { role: "base", label: "Base", hex: "#FF6F61", finishes: SOLID },
       { role: "accent", label: "Accent nail", hex: "#2EC4B6", harmony: "complementary" },
+      { role: "accent", label: "Tip", hex: "#FFD166", harmony: "analogous", optional: true },
     ],
   },
   {
     id: "matte-mauve",
     name: "Matte Mauve",
-    description: "Velvety mauve with a soft rose accent.",
+    description: "Velvety mauve with a soft rose accent nail and a deep plum tip.",
     occasions: ["work", "everyday"],
     moods: ["soft"],
     finishes: ["matte"],
@@ -320,12 +337,13 @@ export const LOOK_TEMPLATES: readonly LookTemplate[] = [
     steps: [
       { role: "base", label: "Base", hex: "#9E7A8B", finishes: ["matte"] },
       { role: "accent", label: "Accent nail", hex: "#C9A9B5", harmony: "analogous", optional: true },
+      { role: "accent", label: "Tip", hex: "#5E4352", harmony: "monochromatic", optional: true },
     ],
   },
   {
     id: "golden-hour",
     name: "Golden Hour",
-    description: "Warm bronze with a gold-leaf accent.",
+    description: "Warm bronze with a gold-leaf accent nail and a deep copper tip.",
     occasions: ["date", "party"],
     moods: ["soft", "bold"],
     finishes: ["chrome"],
@@ -334,12 +352,13 @@ export const LOOK_TEMPLATES: readonly LookTemplate[] = [
     steps: [
       { role: "base", label: "Base", hex: "#B07A4F", finishes: [...CHROME, "shimmer"] },
       { role: "accent", label: "Accent nail", hex: "#E8C27A", finishes: CHROME, harmony: "analogous" },
+      { role: "accent", label: "Tip", hex: "#7A3E2B", harmony: "analogous", optional: true },
     ],
   },
   {
     id: "holo-dream",
     name: "Holo Dream",
-    description: "Silvery holo with a lilac accent.",
+    description: "Silvery holo with a lilac accent nail and a baby blue tip.",
     occasions: ["party", "date"],
     moods: ["playful"],
     finishes: ["holo"],
@@ -348,12 +367,13 @@ export const LOOK_TEMPLATES: readonly LookTemplate[] = [
     steps: [
       { role: "base", label: "Base", hex: "#B8B8C8", finishes: ["holographic"] },
       { role: "accent", label: "Accent nail", hex: "#D9A8F0", harmony: "analogous" },
+      { role: "accent", label: "Tip", hex: "#A8D8F0", harmony: "analogous", optional: true },
     ],
   },
   {
     id: "forest-velvet",
     name: "Forest Velvet",
-    description: "Deep forest green with a gold accent.",
+    description: "Deep forest green with a gold accent nail and a sage tip.",
     occasions: ["formal", "date"],
     moods: ["edgy", "bold"],
     finishes: ["gloss", "matte"],
@@ -362,12 +382,13 @@ export const LOOK_TEMPLATES: readonly LookTemplate[] = [
     steps: [
       { role: "base", label: "Base", hex: "#1E4D3A", finishes: SOLID },
       { role: "accent", label: "Accent nail", hex: "#C9A227", finishes: CHROME, harmony: "fixed" },
+      { role: "accent", label: "Tip", hex: "#7A9A6E", harmony: "monochromatic", optional: true },
     ],
   },
   {
     id: "ocean-jelly",
     name: "Ocean Jelly",
-    description: "See-through teal jelly with a deep blue accent.",
+    description: "See-through teal jelly with a deep blue accent nail and a seafoam tip.",
     occasions: ["everyday", "party"],
     moods: ["playful"],
     finishes: ["sheer", "gloss"],
@@ -376,12 +397,13 @@ export const LOOK_TEMPLATES: readonly LookTemplate[] = [
     steps: [
       { role: "base", label: "Base", hex: "#3AA6B9", finishes: ["jelly", "sheer"] },
       { role: "accent", label: "Accent nail", hex: "#1F3A93", harmony: "analogous" },
+      { role: "accent", label: "Tip", hex: "#9FE2D6", harmony: "analogous", optional: true },
     ],
   },
   {
     id: "pink-sparkle",
     name: "Pink Sparkle",
-    description: "Sweet pink under a sparkly glitter topper.",
+    description: "Sweet pink with a deeper pink accent nail and a lilac tip, under a sparkly glitter topper.",
     occasions: ["party", "date", "everyday"],
     moods: ["playful", "soft"],
     finishes: ["flake"],
@@ -389,13 +411,15 @@ export const LOOK_TEMPLATES: readonly LookTemplate[] = [
     minutes: 20,
     steps: [
       { role: "base", label: "Base", hex: "#F4C2C2", finishes: SOLID },
+      { role: "accent", label: "Accent nail", hex: "#D96C9A", harmony: "monochromatic", optional: true },
+      { role: "accent", label: "Tip", hex: "#C9A0DC", harmony: "analogous", optional: true },
       { role: "topper", label: "Glitter", hex: "#F8D7E8", finishes: SPARKLE, optional: true },
     ],
   },
   {
     id: "oxblood-matte",
     name: "Oxblood Matte",
-    description: "Matte oxblood with a glossy black accent.",
+    description: "Matte oxblood with a glossy black accent nail and an antique gold tip.",
     occasions: ["formal", "party", "date"],
     moods: ["edgy"],
     finishes: ["matte"],
@@ -404,6 +428,7 @@ export const LOOK_TEMPLATES: readonly LookTemplate[] = [
     steps: [
       { role: "base", label: "Base", hex: "#4A0E1C", finishes: ["matte"] },
       { role: "accent", label: "Accent nail", hex: "#111111", finishes: SOLID, harmony: "fixed" },
+      { role: "accent", label: "Tip", hex: "#B08D57", finishes: CHROME, harmony: "fixed", optional: true },
     ],
   },
 ];
@@ -616,11 +641,19 @@ function withSkinTone(scored: Scored, skinTone: SkinTone | null): Scored {
   return skinTone ? { ...scored, score: scored.score + skinToneAdjustment(scored.candidate.hex, skinTone) } : scored;
 }
 
-function scoreAccent(c: Candidate, step: LookTemplateStep, targets: readonly string[], baseHex: string): Scored | null {
+/** `otherHexes`: the look's other accent colors, which this one must also differ from. */
+function scoreAccent(
+  c: Candidate,
+  step: LookTemplateStep,
+  targets: readonly string[],
+  baseHex: string,
+  otherHexes: readonly string[] = []
+): Scored | null {
   const distance = Math.min(...targets.map((t) => dist(c.hex, t)));
   if (distance > ACCENT_MAX_DISTANCE) return null;
   const contrast = dist(c.hex, baseHex);
   if (contrast < ACCENT_MIN_CONTRAST) return null;
+  if (otherHexes.some((hex) => dist(c.hex, hex) < ACCENT_MIN_CONTRAST)) return null;
   return {
     candidate: c,
     distance,
@@ -675,7 +708,7 @@ interface BuildContext {
   owned: Candidate[];
   catalog: Candidate[];
   chosenBases: ChosenBase[];
-  /** Polishes used by earlier looks (any step); never a later look's base. */
+  /** Polishes used by earlier looks (any step); never a later look's base or accent. */
   usedIds: Set<string>;
   seed: number;
   includeToppers: boolean;
@@ -771,11 +804,14 @@ function buildLook(template: LookTemplate, ctx: BuildContext): Look | null {
     if (step.role === "topper" && baseFamily === "glitter") continue;
 
     let rank: (c: Candidate) => Scored | null;
+    // Accents are never a polish an earlier look used (toppers may repeat: few people own many).
     if (step.role === "accent") {
       const harmony = step.harmony ?? "fixed";
       const targets = harmony === "fixed" ? [step.hex] : [step.hex, ...generateHarmonyColors(baseHex, harmony)];
+      const otherAccents = out.filter((s) => s.role === "accent").map((s) => s.hex);
       rank = (c) => {
-        const scored = isTopOnly(c) ? null : scoreAccent(c, step, targets, baseHex);
+        const scored =
+          isTopOnly(c) || ctx.usedIds.has(c.polish.id) ? null : scoreAccent(c, step, targets, baseHex, otherAccents);
         return scored && withSkinTone(scored, ctx.skinTone);
       };
     } else {
@@ -936,13 +972,13 @@ export function catalogQueriesForLooks(
 }
 
 /**
- * "Swap": replace a step's polish with one of its owned alternatives. The previous polish, when
+ * "Swap": replace the polish of the step at `index` (a look can have two accents, so steps are
+ * addressed by position, not role) with one of its owned alternatives. The previous polish, when
  * owned, becomes the first alternative so the user can swap back. Returns a new look.
  */
-export function applyStepSwap(look: Look, role: LookStepRole, polish: Polish): Look {
-  const index = look.steps.findIndex((s) => s.role === role);
-  if (index < 0) return look;
+export function applyStepSwap(look: Look, index: number, polish: Polish): Look {
   const step = look.steps[index];
+  if (!step) return look;
   const hex = resolveDisplayHex(polish);
   const previous = step.source === "owned" && step.polish ? [step.polish] : [];
   const alternatives = [...previous, ...step.alternatives.filter((a) => a.id !== polish.id)].slice(0, MAX_STEP_ALTERNATIVES);
@@ -960,7 +996,7 @@ export function applyStepSwap(look: Look, role: LookStepRole, polish: Polish): L
 }
 
 /**
- * Catalog shades to buy for one step of a look, for the detail drawer's substitutions: up to
+ * Catalog shades to buy for the step at `index` of a look, for the detail drawer's substitutions: up to
  * `MAX_STEP_ALTERNATIVES` non-owned polishes from `pool` nearest the step's target (scored like the
  * recommender: color distance plus finish penalty), within `CATALOG_MAX_DISTANCE`. Never a polish
  * the look already uses, one the user owns, or (for color steps) a topper/flakie. Separate from
@@ -968,14 +1004,19 @@ export function applyStepSwap(look: Look, role: LookStepRole, polish: Polish): L
  */
 export function shopCandidatesForStep(
   look: Pick<Look, "templateId" | "steps">,
-  role: LookStepRole,
+  index: number,
   pool: readonly Polish[],
   vibe: Vibe
 ): Polish[] {
-  const current = look.steps.find((s) => s.role === role);
+  const current = look.steps[index];
+  if (!current) return [];
+  const { role } = current;
   const template = LOOK_TEMPLATES.find((t) => t.id === look.templateId);
-  const templateStep = template ? templateSteps(template, vibe).find((s) => s.role === role) : undefined;
-  if (!current || !templateStep) return [];
+  // Role + label is unique within a template (a look may have dropped optional steps, so not the index).
+  const templateStep = template
+    ? templateSteps(template, vibe).find((s) => s.role === role && s.label === current.label)
+    : undefined;
+  if (!templateStep) return [];
   const used = new Set(look.steps.flatMap((s) => (s.polish ? [s.polish.id] : [])));
   const baseHex = look.steps.find((s) => s.role === "base")?.hex ?? templateStep.hex;
   const hasTopper = look.steps.some((s) => s.role === "topper");
@@ -995,7 +1036,10 @@ export function shopCandidatesForStep(
       // No glitter-on-glitter: a look with a topper step never gets a glitter base.
       s = hasTopper && c.family === "glitter" ? null : scoreBase(c, templateStep, vibe);
       within = (scored) => scored.score <= CATALOG_MAX_DISTANCE;
-    } else s = scoreAccent(c, templateStep, [templateStep.hex], baseHex);
+    } else {
+      const otherAccents = look.steps.filter((st, i) => i !== index && st.role === "accent").map((st) => st.hex);
+      s = scoreAccent(c, templateStep, [templateStep.hex], baseHex, otherAccents);
+    }
     if (s && within(s)) scored.push(s);
   }
   return sortScored(scored)

@@ -20,7 +20,6 @@ import {
   resolveProductCategory,
   type Look,
   type LookStep,
-  type LookStepRole,
   type Polish,
   type PolishStatus,
   type SavedLook,
@@ -63,7 +62,7 @@ import { useTheme } from "@/theme/theme";
  * subtotals, copy list) open sheets; Copy look puts the web's share text on the clipboard.
  */
 
-type LookSheet = { kind: "swap" | "details" | "shop"; templateId: string; role?: LookStepRole };
+type LookSheet = { kind: "swap" | "details" | "shop"; templateId: string; stepIndex?: number };
 
 export default function LooksScreen() {
   const theme = useTheme();
@@ -244,8 +243,8 @@ export default function LooksScreen() {
     }
   }
 
-  function swap(look: Look, role: LookStepRole, polish: Polish) {
-    setOverrides((current) => withSwap(current, resultKey, look, role, polish));
+  function swap(look: Look, stepIndex: number, polish: Polish) {
+    setOverrides((current) => withSwap(current, resultKey, look, stepIndex, polish));
   }
 
   /** Copy text to the clipboard and say so (or that it failed). */
@@ -334,7 +333,7 @@ export default function LooksScreen() {
                   moved={moved}
                   busy={busy}
                   onStatus={(polish, status) => void setStatus(polish, status)}
-                  onSwap={(role) => setSheet({ kind: "swap", templateId: look.templateId, role })}
+                  onSwap={(stepIndex) => setSheet({ kind: "swap", templateId: look.templateId, stepIndex })}
                   extras={
                     <>
                       {look.missingSteps > 0 && (
@@ -415,11 +414,11 @@ export default function LooksScreen() {
       </ScrollView>
       <SwapSheet
         look={sheet?.kind === "swap" ? sheetLook : null}
-        role={sheet?.role ?? null}
+        stepIndex={sheet?.stepIndex ?? null}
         pool={sheetPool}
         vibe={vibe}
         loading={sheetLoading}
-        onSwap={(role, polish) => sheetLook && swap(sheetLook, role, polish)}
+        onSwap={(stepIndex, polish) => sheetLook && swap(sheetLook, stepIndex, polish)}
         onClose={() => setSheet(null)}
       />
       <LookDetailsSheet
@@ -427,7 +426,7 @@ export default function LooksScreen() {
         pool={sheetPool}
         vibe={vibe}
         loading={sheetLoading}
-        onSwap={(role, polish) => sheetLook && swap(sheetLook, role, polish)}
+        onSwap={(stepIndex, polish) => sheetLook && swap(sheetLook, stepIndex, polish)}
         onClose={() => setSheet(null)}
       />
       <ShoppingListSheet
@@ -566,7 +565,7 @@ function LookCard({
   busy: ReadonlySet<string>;
   onStatus?: (polish: Polish, status: PolishStatus) => void;
   /** Open the Swap sheet for a step (fresh looks only). */
-  onSwap?: (role: LookStepRole) => void;
+  onSwap?: (stepIndex: number) => void;
   /** Detail buttons between the steps and the main actions. */
   extras?: ReactNode;
   actions: ReactNode;
@@ -608,7 +607,7 @@ function LookCard({
                 </AppText>
               </View>
               {onSwap && step.alternatives && step.alternatives.length > 0 && (
-                <Button title="Swap" variant="ghost" compact accessibilityLabel={`Swap ${step.label}`} onPress={() => onSwap(step.role)} />
+                <Button title="Swap" variant="ghost" compact accessibilityLabel={`Swap ${step.label}`} onPress={() => onSwap(i)} />
               )}
               {onStatus && polish && step.source !== "owned" ? (
                 status === "owned" ? (

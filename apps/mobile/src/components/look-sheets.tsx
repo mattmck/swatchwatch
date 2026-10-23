@@ -11,8 +11,6 @@ import {
   shoppingSubtotals,
   shopCandidatesForStep,
   type Look,
-  type LookStep,
-  type LookStepRole,
   type Polish,
   type PolishStatus,
   type ShoppingItem,
@@ -114,21 +112,22 @@ function CandidateRow({ polish, action }: { polish: Polish; action: ReactNode })
  */
 function StepSubstitutes({
   look,
-  step,
+  stepIndex,
   pool,
   vibe,
   loading,
   onSwap,
 }: {
   look: Look;
-  step: LookStep;
+  stepIndex: number;
   pool: readonly Polish[];
   vibe: Vibe;
   loading: boolean;
-  onSwap: (role: LookStepRole, polish: Polish) => void;
+  onSwap: (stepIndex: number, polish: Polish) => void;
 }) {
   const theme = useTheme();
-  const shop = shopCandidatesForStep(look, step.role, pool, vibe);
+  const step = look.steps[stepIndex];
+  const shop = shopCandidatesForStep(look, stepIndex, pool, vibe);
   if (step.alternatives.length === 0 && shop.length === 0) {
     return (
       <AppText variant="small" muted>
@@ -142,7 +141,7 @@ function StepSubstitutes({
         <CandidateRow
           key={`own-${alt.id}`}
           polish={alt}
-          action={<Button title="Use (owned)" variant="outline" compact accessibilityLabel={`Use ${alt.name} from your collection`} onPress={() => onSwap(step.role, alt)} />}
+          action={<Button title="Use (owned)" variant="outline" compact accessibilityLabel={`Use ${alt.name} from your collection`} onPress={() => onSwap(stepIndex, alt)} />}
         />
       ))}
       {shop.map((row) => (
@@ -155,7 +154,7 @@ function StepSubstitutes({
 /** Swap one step (web: the card's inline Swap list). */
 export function SwapSheet({
   look,
-  role,
+  stepIndex,
   pool,
   vibe,
   loading,
@@ -163,25 +162,26 @@ export function SwapSheet({
   onClose,
 }: {
   look: Look | null;
-  role: LookStepRole | null;
+  /** The step to swap, by position (a look can have two accents). */
+  stepIndex: number | null;
   pool: readonly Polish[];
   vibe: Vibe;
   loading: boolean;
-  onSwap: (role: LookStepRole, polish: Polish) => void;
+  onSwap: (stepIndex: number, polish: Polish) => void;
   onClose: () => void;
 }) {
-  const step = look && role ? look.steps.find((s) => s.role === role) : undefined;
+  const step = look && stepIndex !== null ? look.steps[stepIndex] : undefined;
   return (
     <SheetFrame visible={Boolean(look && step)} title={step ? `Swap ${step.label}` : "Swap"} subtitle={look?.name} onClose={onClose}>
       {look && step ? (
         <StepSubstitutes
           look={look}
-          step={step}
+          stepIndex={stepIndex!}
           pool={pool}
           vibe={vibe}
           loading={loading}
-          onSwap={(r, polish) => {
-            onSwap(r, polish);
+          onSwap={(index, polish) => {
+            onSwap(index, polish);
             onClose();
           }}
         />
@@ -203,7 +203,7 @@ export function LookDetailsSheet({
   pool: readonly Polish[];
   vibe: Vibe;
   loading: boolean;
-  onSwap: (role: LookStepRole, polish: Polish) => void;
+  onSwap: (stepIndex: number, polish: Polish) => void;
   onClose: () => void;
 }) {
   const theme = useTheme();
@@ -244,12 +244,12 @@ export function LookDetailsSheet({
             <AppText variant="label" muted>
               Substitutions
             </AppText>
-            {look.steps.map((step) => (
-              <View key={step.role} style={{ gap: theme.spacing(1.5) }}>
+            {look.steps.map((step, index) => (
+              <View key={`${step.role}:${index}`} style={{ gap: theme.spacing(1.5) }}>
                 <AppText variant="tiny" muted>
                   {step.label}
                 </AppText>
-                <StepSubstitutes look={look} step={step} pool={pool} vibe={vibe} loading={loading} onSwap={onSwap} />
+                <StepSubstitutes look={look} stepIndex={index} pool={pool} vibe={vibe} loading={loading} onSwap={onSwap} />
               </View>
             ))}
           </View>
