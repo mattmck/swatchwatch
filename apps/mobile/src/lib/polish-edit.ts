@@ -73,7 +73,7 @@ export function parsePriceInput(text: string): PriceParse {
     fraction = cleaned.slice(decimalAt + 1);
     if (head.includes(decimalChar)) return { ok: false, error: PRICE_FORMAT_ERROR };
     const groups = head.split(groupChar);
-    if (groups[0].length === 0 || groups[0].length > 3 || groups.slice(1).some((g) => g.length !== 3)) {
+    if (!/^[1-9]\d{0,2}$/.test(groups[0]) || groups.slice(1).some((g) => g.length !== 3)) {
       return { ok: false, error: PRICE_FORMAT_ERROR };
     }
     integerPart = groups.join("");
@@ -83,7 +83,7 @@ export function parsePriceInput(text: string): PriceParse {
     const last = parts[parts.length - 1];
     const thousands = parts.length > 2 || (parts.length === 2 && last.length === 3 && /^[1-9]\d{0,2}$/.test(parts[0]));
     if (thousands) {
-      if (parts[0].length === 0 || parts[0].length > 3 || parts.slice(1).some((p) => p.length !== 3)) {
+      if (!/^[1-9]\d{0,2}$/.test(parts[0]) || parts.slice(1).some((p) => p.length !== 3)) {
         return { ok: false, error: PRICE_FORMAT_ERROR };
       }
       integerPart = parts.join("");

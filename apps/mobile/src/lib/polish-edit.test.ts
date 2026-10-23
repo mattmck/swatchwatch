@@ -43,6 +43,9 @@ describe("parsePriceInput", () => {
     assert.equal(parsePriceInput("0.125").ok, false);
     assert.equal(value("0,50"), 0.5);
     assert.equal(parsePriceInput("0,500").ok, false);
+    assert.equal(parsePriceInput("0,500,000").ok, false);
+    assert.equal(value("1,234.50"), 1234.5);
+    assert.equal(value("0.12"), 0.12);
   });
   it("treats empty as no price", () => {
     assert.equal(value(""), null);
