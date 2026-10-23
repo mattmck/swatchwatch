@@ -33,6 +33,8 @@ export function EditDetailsSheet(props: {
   polish: Polish;
   /** Form to start from (the polish's values, or the draft of a save that failed). */
   initialForm: PolishEditForm;
+  /** Field errors to show on opening (e.g. the shade name of a rename the API refused). */
+  initialErrors?: PolishEditErrors;
   onClose: () => void;
   /** Called with the validated patch; the screen saves it optimistically. */
   onSave: (patch: PolishUpdateRequest, form: PolishEditForm) => void;
@@ -45,10 +47,10 @@ export function EditDetailsSheet(props: {
   );
 }
 
-function SheetBody({ polish, initialForm, onClose, onSave }: Parameters<typeof EditDetailsSheet>[0]) {
+function SheetBody({ polish, initialForm, initialErrors, onClose, onSave }: Parameters<typeof EditDetailsSheet>[0]) {
   const theme = useTheme();
   const [form, setForm] = useState<PolishEditForm>(initialForm);
-  const [errors, setErrors] = useState<PolishEditErrors>({});
+  const [errors, setErrors] = useState<PolishEditErrors>(initialErrors ?? {});
   const finishes = resolvePolishFinishes(polish);
   const owned = isOwnedPolish(polish);
   const ownShade = Boolean(polish.ownSubmitted);

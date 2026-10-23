@@ -30,7 +30,16 @@ import { formatBuyPriceLine } from "@/lib/buy-price";
 import { notifyCollectionChanged } from "@/lib/collection-events";
 import { finishLabel } from "@/lib/finishes";
 import { formatWornOn } from "@/lib/mani";
-import { applyEditPatch, defaultCurrency, formatPurchaseLine, initialEditForm, type PolishEditForm } from "@/lib/polish-edit";
+import {
+  applyEditPatch,
+  defaultCurrency,
+  formatPurchaseLine,
+  initialEditForm,
+  isShadeIdentityTaken,
+  SHADE_IDENTITY_TAKEN_MESSAGE,
+  type PolishEditErrors,
+  type PolishEditForm,
+} from "@/lib/polish-edit";
 import {
   isOwnedPolish,
   localIsoDate,
@@ -60,6 +69,7 @@ export default function PolishDetailScreen() {
   const { user } = useAuth();
   const scope = user ? String(user.userId) : null;
   const [editForm, setEditForm] = useState<PolishEditForm | null>(null);
+  const [editErrors, setEditErrors] = useState<PolishEditErrors | undefined>(undefined);
 
   const load = useCallback(async () => {
     try {
@@ -145,6 +155,7 @@ export default function PolishDetailScreen() {
     const before = polish;
     setBusy("edit");
     setEditForm(null);
+    setEditErrors(undefined);
     setPolish(applyEditPatch(before, patch));
     setActionError(null);
     setNotice(null);
@@ -160,7 +171,12 @@ export default function PolishDetailScreen() {
       })
       .catch((err: unknown) => {
         setPolish(before);
-        setActionError(errorMessage(err, "Couldn't save your changes."));
+        if (isShadeIdentityTaken(err)) {
+          // The rename collides with another shade: keep the draft and flag the name.
+          setEditErrors({ name: SHADE_IDENTITY_TAKEN_MESSAGE });
+        } else {
+          setActionError(errorMessage(err, "Couldn't save your changes."));
+        }
         setEditForm(form);
       })
       .finally(() => setBusy(null));
@@ -373,7 +389,7 @@ export default function PolishDetailScreen() {
           </View>
         )}
       </ScrollView>
-      {editForm && <EditDetailsSheet visible polish={polish} initialForm={editForm} onClose={() => setEditForm(null)} onSave={saveEdit} />}
+      {editForm && <EditDetailsSheet visible polish={polish} initialForm={editForm} initialErrors={editErrors} onClose={() => setEditForm(null)} onSave={saveEdit} />}
     </>
   );
 }
