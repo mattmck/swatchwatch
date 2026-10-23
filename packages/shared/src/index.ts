@@ -59,3 +59,4 @@ export * from "./looks";
 export * from "./types/feature-flags";
 export * from "./color/gaps";
 export * from "./onboarding";
+export * from "./money/price-totals";
