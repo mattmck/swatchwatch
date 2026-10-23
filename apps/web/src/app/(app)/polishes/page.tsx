@@ -95,10 +95,16 @@ const MOBILE_SORT_OPTIONS: ReadonlyArray<{ key: SortKey; label: string }> = [
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
 const HAS_B2C_CONFIG = buildMsalConfig() !== null;
 
-/** The PUT response carries no `buyUrl` (#267), so keep the one already on the row. */
+/** The PUT response carries no `buyUrl` or brand price (#267), so keep the ones already on the row. */
 function keepBuyUrl(updated: Polish, previous: Polish): Polish {
   return updated.buyUrl === undefined && previous.buyUrl !== undefined
-    ? { ...updated, buyUrl: previous.buyUrl }
+    ? {
+        ...updated,
+        buyUrl: previous.buyUrl,
+        buyPrice: previous.buyPrice,
+        buyCurrency: previous.buyCurrency,
+        buyPriceSeenAt: previous.buyPriceSeenAt,
+      }
     : updated;
 }
 
@@ -786,7 +792,13 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                         </div>
                         {(polish.buyUrl || (dupeLabel && dupeHint?.best)) && (
                           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-                            <BuyFromBrandLink url={polish.buyUrl} brand={polish.brand} name={polish.name} className="flex w-fit" />
+                            <BuyFromBrandLink
+                              url={polish.buyUrl}
+                              brand={polish.brand}
+                              name={polish.name}
+                              price={isOwnedPolish(polish) ? null : polish}
+                              className="flex w-fit"
+                            />
                             {dupeLabel && dupeHint?.best && (
                               <Link
                                 href={dupeHref(dupeHint.best, returnToHref)}
@@ -961,6 +973,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                             url={polish.buyUrl}
                             brand={polish.brand}
                             name={polish.name}
+                            price={isOwnedPolish(polish) ? null : polish}
                             className="mt-0.5 flex w-fit"
                           />
                         </div>

@@ -325,6 +325,7 @@ export default function PolishDetailClient({
               url={polish.buyUrl}
               brand={polish.brand}
               name={polish.name}
+              price={polish}
               variant="button"
             />
             <LogManiButton polish={polish} onWearStatsChange={applyWearStats} />

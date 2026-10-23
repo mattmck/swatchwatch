@@ -100,6 +100,17 @@ export interface Polish {
    * (enabled source first, then most recently seen). No affiliate parameters.
    */
   buyUrl?: string;
+  /**
+   * The brand's list price for the `buyUrl` product (same chosen product), in major units
+   * (e.g. `12.5`), as the connector last saw it. A vendor price, never the user's
+   * `purchasePrice`. Present only together with `buyCurrency`; absent when the product has no
+   * price or its store currency is unknown.
+   */
+  buyPrice?: number;
+  /** ISO 4217 currency of `buyPrice` (e.g. `"USD"`); prices are never converted or summed across currencies. */
+  buyCurrency?: string;
+  /** When the connector fetched the product that `buyPrice` came from (ISO 8601). */
+  buyPriceSeenAt?: string;
   tags?: string[];
   createdAt: string;
   updatedAt: string;
@@ -323,6 +334,10 @@ export interface CatalogSearchResult {
   similarity: number;
   /** "Buy from brand" link (see `Polish.buyUrl`); absent when none is stored. */
   buyUrl?: string;
+  /** Brand list price for the buy link (see `Polish.buyPrice`); only with `buyCurrency`. */
+  buyPrice?: number;
+  buyCurrency?: string;
+  buyPriceSeenAt?: string;
 }
 
 export interface CatalogSearchResponse {
@@ -383,4 +398,8 @@ export interface CatalogShadeDetail {
   aliases: string[];
   /** "Buy from brand" link (see `Polish.buyUrl`); absent when none is stored. */
   buyUrl?: string;
+  /** Brand list price for the buy link (see `Polish.buyPrice`); only with `buyCurrency`. */
+  buyPrice?: number;
+  buyCurrency?: string;
+  buyPriceSeenAt?: string;
 }

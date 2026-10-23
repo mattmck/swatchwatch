@@ -6,6 +6,8 @@ import { DEFAULT_VIBE } from "./looks";
 import {
   applicationOrder,
   finishNotes,
+  formatShoppingSubtotals,
+  shoppingSubtotals,
   lookShareText,
   shoppingItemsForLook,
   shoppingListText,
@@ -73,6 +75,46 @@ describe("shoppingListText", () => {
     assert.match(text, /Accent nail: Willa — Zoya \(https:\/\/zoya\.example\/willa\)/);
     assert.match(text, /Topper: any shade close to #E6E6FA/);
     assert.ok(!text.includes("Ballet Slippers"), "owned steps are not on the list");
+  });
+});
+
+describe("shopping list prices", () => {
+  const priced = (id: string, extra: Partial<Polish>) =>
+    polish(id, `Shade ${id}`, { status: undefined, buyUrl: `https://brand.example/${id}`, ...extra });
+  const pricedLook = look([
+    step("base", "Base", priced("10", { buyPrice: 14, buyCurrency: "USD", buyPriceSeenAt: "2026-10-21T00:00:00.000Z" }), "catalog"),
+    step("accent", "Accent nail", priced("11", { buyPrice: 9.5, buyCurrency: "USD" }), "catalog"),
+    step("topper", "Topper", priced("12", { buyPrice: 12, buyCurrency: "EUR" }), "catalog"),
+    step("accent", "Tip", priced("13", {}), "catalog"),
+    step("topper", "Glitter", null, "template"),
+  ]);
+
+  it("carries each item's price only with a safe buy link", () => {
+    const items = shoppingItemsForLook(pricedLook);
+    assert.deepEqual(items[0].price, { amount: 14, currency: "USD" });
+    assert.equal(items[0].priceSeenAt, "2026-10-21T00:00:00.000Z");
+    assert.equal(items[3].price, null);
+    const unsafe = look([step("base", "Base", priced("14", { buyUrl: "javascript:alert(1)", buyPrice: 5, buyCurrency: "USD" }), "catalog")]);
+    assert.equal(shoppingItemsForLook(unsafe)[0].price, null);
+  });
+
+  it("subtotals per currency and never sums across currencies", () => {
+    const { subtotals, unpricedCount } = shoppingSubtotals(shoppingItemsForLook(pricedLook));
+    assert.deepEqual(subtotals, [
+      { currency: "USD", total: 23.5, count: 2 },
+      { currency: "EUR", total: 12, count: 1 },
+    ]);
+    assert.equal(unpricedCount, 2);
+    const text = formatShoppingSubtotals(subtotals);
+    assert.ok(text?.includes("23.50") && text.includes("12.00"), text ?? "");
+    assert.equal(formatShoppingSubtotals([]), null);
+  });
+
+  it("puts prices and the subtotal in the copyable text", () => {
+    const text = shoppingListText(pricedLook);
+    assert.match(text, /Base: Shade 10 — Brand, \S*14\.00\S* \(https:\/\/brand\.example\/10\)/);
+    assert.match(text, /Tip: Shade 13 — Brand \(https:\/\/brand\.example\/13\)/);
+    assert.match(text, /Subtotal \(brand list prices\): \S*23\.50\S* · \S*12\.00\S*$/);
   });
 });
 
