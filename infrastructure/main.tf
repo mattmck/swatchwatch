@@ -83,8 +83,6 @@ locals {
   openai_external_endpoint             = trimspace(var.openai_endpoint)
   openai_external_api_key              = trimspace(var.openai_api_key)
   openai_external_key_vault_secret_uri = trimspace(var.openai_key_vault_secret_uri)
-  apim_openai_subscription_key_value   = trimspace(var.apim_openai_subscription_key)
-  apim_openai_subscription_key_uri     = trimspace(var.apim_openai_subscription_key_uri)
   openai_create_resources              = var.create_openai_resources
   openai_regions_normalized = distinct([
     for region in var.openai_regions : lower(trimspace(region))
@@ -198,23 +196,6 @@ locals {
     ? local.openai_external_key_vault_secret_uri
     : try(azurerm_key_vault_secret.openai_key[0].versionless_id, "")
   )
-  apim_openai_api_suffix_trimmed = trimspace(trim(var.apim_openai_api_suffix, "/"))
-  apim_gateway_url               = var.apim_enabled ? try(azurerm_api_management.main[0].gateway_url, "") : ""
-  apim_openai_gateway_base_url = (
-    var.apim_enabled && local.apim_openai_api_suffix_trimmed != ""
-    ? "${trimsuffix(local.apim_gateway_url, "/")}/${local.apim_openai_api_suffix_trimmed}"
-    : ""
-  )
-  apim_openai_subscription_key_secret_uri = (
-    local.apim_openai_subscription_key_uri != ""
-    ? local.apim_openai_subscription_key_uri
-    : try(azurerm_key_vault_secret.apim_openai_subscription_key[0].versionless_id, "")
-  )
-  openai_gateway_enabled_value = (
-    var.openai_gateway_enabled &&
-    local.apim_openai_gateway_base_url != "" &&
-    local.apim_openai_subscription_key_secret_uri != ""
-  )
 }
 
 check "openai_configuration" {
@@ -237,29 +218,6 @@ check "openai_configuration" {
       )
     )
     error_message = "When create_openai_resources is false, set openai_endpoint with either openai_api_key or openai_key_vault_secret_uri, or leave all three empty."
-  }
-}
-
-check "apim_openai_suffix_configuration" {
-  assert {
-    condition = (
-      !var.apim_enabled ||
-      trimspace(trim(var.apim_openai_api_suffix, "/")) != ""
-    )
-    error_message = "When apim_enabled is true, apim_openai_api_suffix must contain a non-empty path."
-  }
-}
-
-check "openai_gateway_configuration" {
-  assert {
-    condition = (
-      !var.openai_gateway_enabled ||
-      (
-        local.apim_openai_gateway_base_url != "" &&
-        local.apim_openai_subscription_key_secret_uri != ""
-      )
-    )
-    error_message = "When openai_gateway_enabled is true, both APIM gateway URL and APIM subscription key secret URI are required. Set apim_enabled=true and provide apim_openai_subscription_key or apim_openai_subscription_key_uri."
   }
 }
 
@@ -942,33 +900,6 @@ resource "azurerm_monitor_metric_alert" "availability" {
   }
 }
 
-# ── Azure API Management (OpenAI Gateway) ──────────────────────
-
-resource "azurerm_api_management" "main" {
-  count               = var.apim_enabled ? 1 : 0
-  name                = "${local.resource_prefix}-apim-${local.unique_suffix}"
-  location            = azurerm_resource_group.main.location
-  resource_group_name = azurerm_resource_group.main.name
-  publisher_name      = var.apim_publisher_name
-  publisher_email     = var.apim_publisher_email
-  sku_name            = var.apim_sku_name
-
-  identity {
-    type = "SystemAssigned"
-  }
-}
-
-resource "azurerm_key_vault_secret" "apim_openai_subscription_key" {
-  count        = local.apim_openai_subscription_key_value != "" && local.apim_openai_subscription_key_uri == "" ? 1 : 0
-  name         = "apim-openai-subscription-key"
-  value        = local.apim_openai_subscription_key_value
-  key_vault_id = azurerm_key_vault.main.id
-  depends_on = [
-    azurerm_key_vault_access_policy.deployer,
-    azurerm_key_vault_access_policy.github_actions,
-  ]
-}
-
 # ── Azure Functions (Consumption/Serverless) ────────────────────
 
 resource "azurerm_service_plan" "main" {
@@ -1015,36 +946,37 @@ resource "azurerm_linux_function_app" "main" {
     # Reference Key Vault secret instead of plaintext password
     PGPASSWORD = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.pg_password.versionless_id})"
     # Placeholder for future secrets
-    AZURE_STORAGE_CONNECTION              = azurerm_storage_account.main.primary_connection_string
-    INGESTION_JOB_QUEUE_NAME              = var.ingestion_job_queue_name
-    CONNECTOR_RAW_CONTAINER               = azurerm_storage_container.connector_raw.name
-    USER_MEDIA_CONTAINER                  = azurerm_storage_container.nail_photos.name
-    AZURE_SPEECH_KEY                      = "to-be-added"
-    AZURE_SPEECH_REGION                   = azurerm_resource_group.main.location
-    AZURE_OPENAI_ENDPOINT                 = local.openai_enabled ? local.openai_endpoint_value : ""
-    AZURE_OPENAI_KEY                      = local.openai_enabled ? "@Microsoft.KeyVault(SecretUri=${local.openai_key_secret_uri})" : ""
-    AZURE_OPENAI_GATEWAY_ENDPOINT         = local.apim_openai_gateway_base_url
-    AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY = local.apim_openai_subscription_key_secret_uri != "" ? "@Microsoft.KeyVault(SecretUri=${local.apim_openai_subscription_key_secret_uri})" : ""
-    AZURE_OPENAI_USE_GATEWAY              = local.openai_gateway_enabled_value ? "true" : "false"
-    AZURE_OPENAI_DEPLOYMENT_HEX           = local.openai_deployment_name_value
-    AZURE_OPENAI_DEPLOYMENT_HEX_BATCH     = local.openai_batch_deployment_name_value
-    AZURE_OPENAI_BATCH_API_VERSION        = var.azure_openai_batch_api_version
-    AZURE_OPENAI_BATCH_COMPLETION_WINDOW  = var.azure_openai_batch_completion_window
-    AZURE_OPENAI_VISION_DETAIL            = var.azure_openai_vision_detail
-    HEX_DETECTION_BATCH_ENABLED           = var.hex_detection_batch_enabled ? "true" : "false"
-    HEX_DETECTION_BATCH_MIN_IMAGES        = tostring(var.hex_detection_batch_min_images)
-    HEX_DETECTION_SNAP_ENABLED            = var.hex_detection_snap_enabled ? "true" : "false"
-    INGESTION_AI_BATCH_POLL_SCHEDULE      = var.ingestion_ai_batch_poll_schedule
-    INGESTION_AI_BATCH_MAX_POLL_JOBS      = tostring(var.ingestion_ai_batch_max_poll_jobs)
-    AZURE_AD_B2C_TENANT                   = var.azure_ad_b2c_tenant
-    AZURE_AD_B2C_CLIENT_ID                = var.azure_ad_b2c_client_id
-    AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT  = var.enable_document_intelligence ? azurerm_cognitive_account.document_intelligence[0].endpoint : ""
-    AZURE_DOCUMENT_INTELLIGENCE_KEY       = var.enable_document_intelligence ? "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.document_intelligence_key[0].versionless_id})" : ""
-    AZURE_OPENAI_DEPLOYMENT_LABEL         = var.openai_label_deployment_name
-    AUTH_DEV_BYPASS                       = var.auth_dev_bypass ? "true" : "false"
-    SHAREABLE_WISHLIST_ENABLED            = var.shareable_wishlist_enabled ? "true" : "false" # #268; off until roadmap section 6 decision 2
-    IMAGE_PROXY_SIGNING_KEY               = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.image_proxy_signing_key.versionless_id})"
-    CORS_ALLOWED_ORIGINS                  = join(",", local.function_cors_allowed_origins)
+    AZURE_STORAGE_CONNECTION             = azurerm_storage_account.main.primary_connection_string
+    INGESTION_JOB_QUEUE_NAME             = var.ingestion_job_queue_name
+    CONNECTOR_RAW_CONTAINER              = azurerm_storage_container.connector_raw.name
+    USER_MEDIA_CONTAINER                 = azurerm_storage_container.nail_photos.name
+    AZURE_SPEECH_KEY                     = "to-be-added"
+    AZURE_SPEECH_REGION                  = azurerm_resource_group.main.location
+    AZURE_OPENAI_ENDPOINT                = local.openai_enabled ? local.openai_endpoint_value : ""
+    AZURE_OPENAI_KEY                     = local.openai_enabled ? "@Microsoft.KeyVault(SecretUri=${local.openai_key_secret_uri})" : ""
+    AZURE_OPENAI_DEPLOYMENT_HEX          = local.openai_deployment_name_value
+    AZURE_OPENAI_DEPLOYMENT_HEX_BATCH    = local.openai_batch_deployment_name_value
+    AZURE_OPENAI_BATCH_API_VERSION       = var.azure_openai_batch_api_version
+    AZURE_OPENAI_BATCH_COMPLETION_WINDOW = var.azure_openai_batch_completion_window
+    AZURE_OPENAI_VISION_DETAIL           = var.azure_openai_vision_detail
+    HEX_DETECTION_BATCH_ENABLED          = var.hex_detection_batch_enabled ? "true" : "false"
+    HEX_DETECTION_BATCH_MIN_IMAGES       = tostring(var.hex_detection_batch_min_images)
+    HEX_DETECTION_SNAP_ENABLED           = var.hex_detection_snap_enabled ? "true" : "false"
+    INGESTION_AI_BATCH_POLL_SCHEDULE     = var.ingestion_ai_batch_poll_schedule
+    INGESTION_AI_BATCH_MAX_POLL_JOBS     = tostring(var.ingestion_ai_batch_max_poll_jobs)
+    AZURE_AD_B2C_TENANT                  = var.azure_ad_b2c_tenant
+    AZURE_AD_B2C_CLIENT_ID               = var.azure_ad_b2c_client_id
+    AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT = var.enable_document_intelligence ? azurerm_cognitive_account.document_intelligence[0].endpoint : ""
+    AZURE_DOCUMENT_INTELLIGENCE_KEY      = var.enable_document_intelligence ? "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.document_intelligence_key[0].versionless_id})" : ""
+    AZURE_OPENAI_DEPLOYMENT_LABEL        = var.openai_label_deployment_name
+    AUTH_DEV_BYPASS                      = var.auth_dev_bypass ? "true" : "false"
+    SHAREABLE_WISHLIST_ENABLED           = var.shareable_wishlist_enabled ? "true" : "false" # #268; off until roadmap section 6 decision 2
+    SHAREABLE_LOOKS_ENABLED              = var.shareable_looks_enabled ? "true" : "false"    # saved-look share links; off until the owner turns them on
+    IMAGE_PROXY_SIGNING_KEY              = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.image_proxy_signing_key.versionless_id})"
+    CORS_ALLOWED_ORIGINS                 = join(",", local.function_cors_allowed_origins)
+    # Entrypoint/import failures hard-fail host startup instead of surfacing as
+    # route-level 404s. Was set by deploy.yml, which Terraform kept removing.
+    FUNCTIONS_NODE_BLOCK_ON_ENTRY_POINT_ERROR = "true"
     # Optional Redis read-through cache. Empty when create_redis = false; the app
     # caching layer (lib/cache.ts) no-ops gracefully when these are unset.
     REDIS_URL = var.create_redis ? "rediss://${azurerm_managed_redis.main[0].hostname}:10000" : ""
@@ -1055,6 +987,8 @@ resource "azurerm_linux_function_app" "main" {
     ignore_changes = [
       app_settings["WEBSITE_RUN_FROM_PACKAGE"],
       app_settings["WEBSITE_MOUNT_ENABLED"],
+      # Written by Azure/functions-action on every code deploy.
+      app_settings["WEBSITE_ENABLE_SYNC_UPDATE_SITE"],
       tags["hidden-link: /app-insights-resource-id"],
       tags["hidden-link: /app-insights-instrumentation-key"],
       tags["hidden-link: /app-insights-conn-string"],

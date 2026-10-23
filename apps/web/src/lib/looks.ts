@@ -873,6 +873,11 @@ export function maniEntriesForLook(look: Pick<Look, "steps">): { shadeId: string
 export interface LookCatalogQueries {
   /** Color families of the color steps no owned polish filled (unique, first-seen order). */
   families: ColorFamily[];
+  /**
+   * The target hexes of those steps per family (uppercase, unique, sorted), sent as `?nearHex=`
+   * so each family query returns the catalog shades nearest the gaps, not just the newest ones.
+   */
+  targetsByFamily: Partial<Record<ColorFamily, string[]>>;
   /** Whether any topper step needs a catalog topper. */
   toppers: boolean;
 }
@@ -883,6 +888,7 @@ export function catalogQueriesForLooks(
   options: { includeOwned?: boolean } = {}
 ): LookCatalogQueries {
   const families: ColorFamily[] = [];
+  const targetsByFamily: Partial<Record<ColorFamily, string[]>> = {};
   let toppers = false;
   for (const step of looks.flatMap((l) => l.steps)) {
     if (step.source === "owned" && !options.includeOwned) continue;
@@ -891,9 +897,14 @@ export function catalogQueriesForLooks(
       continue;
     }
     const family = classifyHexColorFamily(step.targetHex);
-    if (family && !families.includes(family)) families.push(family);
+    if (!family) continue;
+    if (!families.includes(family)) families.push(family);
+    const targets = (targetsByFamily[family] ??= []);
+    const hex = step.targetHex.toUpperCase();
+    if (!targets.includes(hex)) targets.push(hex);
   }
-  return { families, toppers };
+  for (const targets of Object.values(targetsByFamily)) targets?.sort();
+  return { families, targetsByFamily, toppers };
 }
 
 /**

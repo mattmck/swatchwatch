@@ -65,9 +65,22 @@ After migration, run `terraform plan` — it should show no destructive changes 
 
 Terraform infrastructure deploys in CI via:
 - `.github/workflows/deploy-infra.yml` (reusable)
-- `.github/workflows/deploy-infra-dev.yml` (caller, `dev`)
+- `.github/workflows/deploy-dev.yml` (on `dev`, runs infra first when `infrastructure/**` or the infra workflow changed, then app deploy)
+- `.github/workflows/deploy-infra-dev.yml` (caller, `dev`, manual infra-only)
 - `.github/workflows/deploy-infra-prod.yml` (caller, `prod`, manual infra-only)
-- `.github/workflows/deploy-prod.yml` (on `main`, runs infra first when `infrastructure/**` changed, then app deploy)
+- `.github/workflows/deploy-prod.yml` (on `main`, runs infra first when `infrastructure/**` or the infra workflow changed, then app deploy)
+
+### Deploy ordering
+
+Function App app settings are Terraform-managed (`azurerm_linux_function_app.main`), but the code deploy writes them too: `Azure/functions-action` reads the full settings when it starts and, on Linux Consumption, PUTs that whole set back with the new `WEBSITE_RUN_FROM_PACKAGE` (and `WEBSITE_ENABLE_SYNC_UPDATE_SITE`) about a minute later. A Terraform apply that lands in between is silently reverted. On 2026-10-23 the #408 merge started Deploy Infrastructure Dev and Deploy Dev in the same second; the action read the settings at 00:57:19Z, Terraform wrote `SHAREABLE_LOOKS_ENABLED` at 00:57:20–49Z, and the action's write after 00:57:40Z dropped it again.
+
+Rules:
+
+1. **Infra runs before the code deploy, in one workflow.** `deploy-dev.yml` and `deploy-prod.yml` run `deploy-infra.yml` first when infra files changed and start `deploy.yml` only after it succeeds. When the push's previous commit can't be resolved (a force-push), they treat infra as changed rather than skip it. The `Deploy Infrastructure Dev` / `Prod` workflows are manual-only. Don't dispatch one while a Deploy Dev / Deploy Prod run (or a manual `Deploy Application`) is in progress for the same environment.
+2. **Each key has one owner.** Terraform declares every app setting, including `FUNCTIONS_NODE_BLOCK_ON_ENTRY_POINT_ERROR` (previously set only by `deploy.yml`, so every apply removed it). The keys the deploy action writes (`WEBSITE_RUN_FROM_PACKAGE`, `WEBSITE_ENABLE_SYNC_UPDATE_SITE`) and `WEBSITE_MOUNT_ENABLED` are in `lifecycle.ignore_changes`. `deploy.yml` still sets `AUTH_DEV_BYPASS=false` and the `AZURE_AD_B2C_*` values from the same GitHub settings Terraform reads; `deploy-infra.yml` pins `TF_VAR_auth_dev_bypass` to `false` for the same reason, so the two writers can't disagree and trip the check.
+3. **Both sides check.** `.github/scripts/check-function-app-settings.sh` compares the live app (`az functionapp config appsettings list`) with `azurerm_linux_function_app.main` in the Terraform state and fails when a setting is missing or has another value (names only, never values; ignored keys skipped). Deploy Infrastructure runs it after `terraform apply`; `deploy.yml` runs it in the `Verify Function App Settings` job after the code deploy. If it fails, re-run Deploy Infrastructure for that environment.
+
+GitHub `concurrency` groups are not used to serialize infra and code deploys: a group keeps one pending run and cancels the older pending one, which could silently drop a queued infra apply.
 
 State is stored in Azure Blob Storage using Terraform's native `azurerm` backend (configured in `main.tf` with `backend "azurerm" {}`).
 
@@ -80,8 +93,8 @@ Required GitHub Actions configuration (per GitHub environment):
 - Optional variables for shared/external OpenAI accounts (used when `CREATE_OPENAI_RESOURCES=false`): `OPENAI_ENDPOINT`, `OPENAI_ACCOUNT_NAME`
 Recommended auth config (propagated to Terraform `TF_VAR_*` inputs):
 - Secrets: `AZURE_AD_B2C_CLIENT_ID`
-- Variables: `AUTH_DEV_BYPASS`, `AZURE_AD_B2C_TENANT` (falls back to `NEXT_PUBLIC_B2C_TENANT` if unset)
-- Feature flags: `SHAREABLE_WISHLIST_ENABLED` (default `false`; exported as `TF_VAR_shareable_wishlist_enabled`)
+- Variables: `AZURE_AD_B2C_TENANT` (falls back to `NEXT_PUBLIC_B2C_TENANT` if unset). An `AUTH_DEV_BYPASS` variable is ignored: the workflow always passes `false`
+- Feature flags (default `false`): `SHAREABLE_WISHLIST_ENABLED`, `SHAREABLE_LOOKS_ENABLED`, `HEX_DETECTION_BATCH_ENABLED`, `HEX_DETECTION_SNAP_ENABLED` (exported as `TF_VAR_shareable_wishlist_enabled`, `TF_VAR_shareable_looks_enabled`, `TF_VAR_hex_detection_batch_enabled`, `TF_VAR_hex_detection_snap_enabled`)
 - External ID service principal (opt-in, see [External ID service principal](#external-id-service-principal-opt-in)): variables `MANAGE_CIAM_SERVICE_PRINCIPAL` (default `false`), `CIAM_TENANT_ID`, `CIAM_TERRAFORM_CLIENT_ID` (exported as `TF_VAR_manage_ciam_service_principal`, `TF_VAR_ciam_tenant_id`, `TF_VAR_ciam_terraform_client_id`)
 - Alerts (observability Phase 3, #281): `ALERT_EMAIL` (**secret** recommended so the address is masked in logs; a variable also works; exported as `TF_VAR_alert_email`, never committed to tfvars) and optional variable `ALERTS_ENABLED` (default `true` for `prod`, `false` otherwise; exported as `TF_VAR_alerts_enabled`)
 The workflow creates the state container automatically if it does not exist.
@@ -127,7 +140,6 @@ To move or recreate an account on purpose: change the environment's `OPENAI_LOCA
 | Daily cap alert *(alerts)* | `azurerm_monitor_scheduled_query_rules_alert_v2.daily_cap` | `_LogOperation` reports `OverQuota`: the workspace daily cap stopped ingestion (sev 2) |
 | Availability tests *(alerts)* | `azurerm_application_insights_standard_web_test.availability["web"\|"api"]` | Standard tests every `availability_test_frequency_seconds` from `availability_test_locations`: web home page (custom domain) and `GET /api/reference/finishes`; expect 200 and an SSL cert valid for 7+ days. Billed per execution |
 | Availability alerts *(alerts)* | `azurerm_monitor_metric_alert.availability["web"\|"api"]` | Fires when 2+ test locations fail (sev 1) |
-| API Management *(optional)* | `azurerm_api_management.main` | Azure API Management Consumption gateway for Azure OpenAI traffic (`apim_enabled=true`) |
 | App Service Plan | `azurerm_service_plan.main` | Linux Consumption plan (Y1) |
 | Function App | `azurerm_linux_function_app.main` | Node 22 function host (Managed Identity enabled) |
 | Static Web App | `azurerm_static_web_app.main` | Next.js frontend (Standard tier) |
@@ -158,14 +170,6 @@ To move or recreate an account on purpose: change the environment's `OPENAI_LOCA
 | `pg_admin_username` | `pgadmin` | PostgreSQL admin username |
 | `pg_admin_password` | *(required)* | PostgreSQL admin password (stored in Key Vault) |
 | `github_repository` | `your-github-username/swatchwatch` | GitHub repo for OIDC federation |
-| `apim_enabled` | `false` | Provision an Azure API Management instance for Azure OpenAI gateway routing (opt-in) |
-| `apim_sku_name` | `Consumption_0` | APIM SKU (Consumption tier default for cost control) |
-| `apim_publisher_name` | `SwatchWatch` | APIM publisher display name |
-| `apim_publisher_email` | `platform@swatchwatch.app` | APIM publisher contact email |
-| `apim_openai_api_suffix` | `openai-gateway` | APIM API path suffix for Azure OpenAI proxy calls |
-| `apim_openai_subscription_key` | `""` | Optional APIM subscription key stored in Key Vault and exposed to Functions as `AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY` |
-| `apim_openai_subscription_key_uri` | `""` | Optional existing Key Vault secret URI for APIM subscription key. When set, Terraform reuses it and does not create `apim-openai-subscription-key`. |
-| `openai_gateway_enabled` | `false` | Function App setting `AZURE_OPENAI_USE_GATEWAY`; keep false until APIM API routes/policies are configured |
 | `openai_custom_subdomain_name` | `null` | Optional custom subdomain override for the primary Azure OpenAI account. Additional regions always use generated per-region subdomains. |
 | `create_openai_resources` | `false` | Provision Azure OpenAI account/deployment in this stack (disable when quota is unavailable) |
 | `openai_endpoint` | `""` | Existing Azure OpenAI endpoint when reusing an external account (`create_openai_resources=false`) |
@@ -188,8 +192,9 @@ To move or recreate an account on purpose: change the environment's `OPENAI_LOCA
 | `manage_ciam_service_principal` | `false` | Import and manage the web sign-in app's service principal in the External ID tenant (sets `app_role_assignment_required = false`). Turn on per environment only after checking that tenant's current setting; see [External ID service principal](#external-id-service-principal-opt-in) |
 | `ciam_tenant_id` | `""` | External ID (CIAM) tenant ID for the `azuread.ciam` provider. Required when `manage_ciam_service_principal = true` |
 | `ciam_terraform_client_id` | `""` | Client ID of the deployer app in the CIAM tenant; Deploy Infra signs in to it with GitHub OIDC. Empty = Azure CLI credentials (local runs) |
-| `auth_dev_bypass` | `false` | Controls Function App setting `AUTH_DEV_BYPASS`; keep `false` to require JWT validation |
+| `auth_dev_bypass` | `false` | Controls Function App setting `AUTH_DEV_BYPASS`; keep `false` to require JWT validation. Deploy Infra always passes `false` (the code deploy writes the same value and the settings check compares them) |
 | `shareable_wishlist_enabled` | `false` | Controls Function App setting `SHAREABLE_WISHLIST_ENABLED` (opt-in public wishlist links, #268). Set the `SHAREABLE_WISHLIST_ENABLED` repository/environment variable to `true` and run Deploy Infra to ship it; app settings are Terraform-managed, so a portal-only change is reverted by the next infra apply |
+| `shareable_looks_enabled` | `false` | Controls Function App setting `SHAREABLE_LOOKS_ENABLED` (opt-in public share links for saved looks). Set the `SHAREABLE_LOOKS_ENABLED` repository/environment variable to `true` and run Deploy Infra to ship it; app settings are Terraform-managed, so a portal-only change is reverted by the next infra apply |
 | `ingestion_job_queue_name` | `ingestion-jobs` | Function App queue name for ingestion worker (`INGESTION_JOB_QUEUE_NAME`) |
 | `azure_openai_batch_api_version` | `2025-03-01-preview` | Function App setting `AZURE_OPENAI_BATCH_API_VERSION` for Files/Batch endpoints |
 | `azure_openai_batch_completion_window` | `24h` | Function App setting `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` sent during batch creation |
@@ -302,9 +307,6 @@ Key outputs after `terraform apply`:
 | `openai_diagnostic_setting_name` | Primary region Azure OpenAI diagnostic setting attached to Log Analytics |
 | `openai_regions_provisioned` | List of regions where OpenAI accounts were provisioned/retained |
 | `openai_resources_provisioned` | Whether this stack provisioned Azure OpenAI resources |
-| `apim_name` | APIM service name (empty when `apim_enabled=false`) |
-| `apim_gateway_url` | APIM gateway URL (empty when `apim_enabled=false`) |
-| `openai_gateway_endpoint` | APIM OpenAI gateway base URL exposed to Functions via `AZURE_OPENAI_GATEWAY_ENDPOINT` |
 | `application_insights_name` | Application Insights resource name |
 | `application_insights_connection_string` | *(sensitive)* App Insights connection string, for the web build's `NEXT_PUBLIC_APPLICATIONINSIGHTS_CONNECTION_STRING` |
 | `log_analytics_workspace_name` | Log Analytics workspace name |
@@ -421,10 +423,10 @@ OpenAI settings are optional:
 - If `create_openai_resources=false`, either:
   - set `openai_endpoint` + `openai_api_key`, or
   - set `openai_endpoint` + `openai_key_vault_secret_uri` (preferred).
-- When `apim_enabled=true`, Terraform also provisions APIM (Consumption by default) and sets Function App gateway settings:
-  - `AZURE_OPENAI_GATEWAY_ENDPOINT`
-  - `AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY` (from `apim_openai_subscription_key_uri` when provided, otherwise from a Terraform-managed Key Vault secret created from `apim_openai_subscription_key`)
-  - `AZURE_OPENAI_USE_GATEWAY` (controlled by `openai_gateway_enabled`, with Terraform validation to fail fast if gateway endpoint/secret wiring is incomplete)
+- Functions always call the Azure OpenAI resource directly with `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_KEY`. The APIM
+  gateway path (`apim_enabled`, `openai_gateway_enabled`, the `AZURE_OPENAI_GATEWAY_*` / `AZURE_OPENAI_USE_GATEWAY`
+  settings and `azurerm_api_management.main`) was removed on 2026-10-23 ([D25](../docs/decisions-2026-10.md#d25--azure-openai-apim-gateway-removed-2026-10-23));
+  removing the resources from the configuration destroys an environment's APIM instance on its next Deploy Infra run.
 
 ## External ID service principal (opt-in)
 

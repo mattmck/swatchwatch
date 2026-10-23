@@ -217,7 +217,7 @@ describe("eval/hex strategies — registry includes image-select", () => {
 
   it("image-select throws the standard 'config missing' error when Azure is unavailable", async () => {
     const saved = {};
-    for (const key of ["AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_KEY", "AZURE_OPENAI_GATEWAY_ENDPOINT", "AZURE_OPENAI_DEPLOYMENT_HEX", "AZURE_OPENAI_DEPLOYMENT"]) {
+    for (const key of ["AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_KEY", "AZURE_OPENAI_DEPLOYMENT_HEX", "AZURE_OPENAI_DEPLOYMENT"]) {
       saved[key] = process.env[key];
       delete process.env[key];
     }

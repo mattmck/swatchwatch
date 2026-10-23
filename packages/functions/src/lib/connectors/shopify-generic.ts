@@ -19,6 +19,13 @@ import { detectHexFromColorName, stripHtmlToText } from "./color-name-detection.
 import { shopifyProductText } from "../product-text.js";
 import { classifyIngestedProduct, classifyProductCategory } from "../product-category.js";
 import { shopifyStoreProductVerdict } from "./store-filters/index.js";
+import {
+  normalizeCurrencyCode,
+  pickShopifyVariantPrice,
+  resolveShopifyStoreCurrency,
+  shopifyProductPrice,
+  type StoreCurrency,
+} from "../product-price.js";
 
 const REQUEST_TIMEOUT_MS = parseIntEnv(
   process.env.SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS,
@@ -486,9 +493,16 @@ export class ShopifyGenericConnector implements ProductConnector {
 
   private readonly baseUrl: string;
   private readonly brandName: string;
+  private readonly configuredCurrency: string | null;
+  private storeCurrency: Promise<StoreCurrency> | null = null;
 
-  constructor(source: SupportedConnectorSource, baseUrl?: string | null) {
+  constructor(
+    source: SupportedConnectorSource,
+    baseUrl?: string | null,
+    options: { currency?: string | null } = {}
+  ) {
     this.source = source;
+    this.configuredCurrency = options.currency ?? null;
     // Extract brand name from source (e.g., "MooncatShopify" -> "Mooncat")
     this.brandName = source.replace(/Shopify$/, "").replace(/([A-Z])/g, " $1").trim();
     this.baseUrl = stripTrailingSlashes(baseUrl || this.defaultBaseUrl());
@@ -498,13 +512,32 @@ export class ShopifyGenericConnector implements ProductConnector {
     return defaultShopifyBaseUrl(this.source);
   }
 
+  /**
+   * The store currency for this run's prices: the source's `data_source.metadata.currency`,
+   * else the shop's `/meta.json` (asked once, only when some product has a variant price).
+   */
+  private async resolveStoreCurrency(products: readonly ShopifyProduct[]): Promise<StoreCurrency> {
+    if (!this.storeCurrency) {
+      const configured = normalizeCurrencyCode(this.configuredCurrency);
+      const needsCurrency = products.some((product) => pickShopifyVariantPrice(product.variants) !== null);
+      this.storeCurrency =
+        configured || !needsCurrency
+          ? Promise.resolve<StoreCurrency>(
+              configured ? { currency: configured, source: "source_metadata" } : { currency: null, source: "unknown" }
+            )
+          : resolveShopifyStoreCurrency(null, this.baseUrl);
+    }
+    return this.storeCurrency;
+  }
+
   async pullProducts(options: ConnectorPullOptions): Promise<ConnectorPullResult> {
     const allProducts = await loadCatalogWithCache<ShopifyProduct>(options.catalogCache, () =>
       this.fetchAllProducts()
     );
+    const storeCurrency = await this.resolveStoreCurrency(allProducts);
     const normalizedRecords = await Promise.all(
       allProducts.map((product) =>
-        toNormalizedRecord(product, this.baseUrl, this.brandName, this.source)
+        toNormalizedRecord(product, this.baseUrl, this.brandName, this.source, storeCurrency.currency)
       )
     );
     const filteredRecords = normalizedRecords.filter(
@@ -564,6 +597,8 @@ export class ShopifyGenericConnector implements ProductConnector {
         recentDays: recentDays || null,
         textFilter: textFilter || null,
         connectorType: "generic-shopify",
+        storeCurrency: storeCurrency.currency,
+        storeCurrencySource: storeCurrency.source,
       },
     };
   }
@@ -717,6 +752,9 @@ export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
   PahlishShopify: "https://pahlish.com",
   EmilyDeMollyShopify: "https://emilydemolly.com",
   CirqueColorsShopify: "https://cirquecolors.com",
+  StellaChromaShopify: "https://stellachroma.com",
+  LemmingLacquerShopify: "https://lemminglacquer.com",
+  SweetAndSourLacquerShopify: "https://sweetandsourlacquer.com",
   HoloTacoShopify: "https://www.holotaco.com",
 };
 
@@ -731,8 +769,10 @@ export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
 export const SHOPIFY_SOURCES_PENDING_APPROVAL: ReadonlySet<string> = new Set([
   // NightOwlLacquerShopify approved 2026-10-17 (docs/decisions-2026-10.md D2).
   // PahlishShopify, EmilyDeMollyShopify and CirqueColorsShopify: the owner reported the
-  // stores' sign-off on 2026-10-19 (docs/indie-sources-2026-10.md). Add a new store here
-  // until its OK is recorded in data_source.metadata.notes.
+  // stores' sign-off on 2026-10-19. StellaChromaShopify, LemmingLacquerShopify and
+  // SweetAndSourLacquerShopify: written permission received by the owner by email on
+  // 2026-10-22 (docs/indie-sources-2026-10.md). Add a new store here until its OK is
+  // recorded in data_source.metadata.notes.
 ]);
 
 /** Whether a newly auto-provisioned data_source row for `source` starts enabled. */
@@ -749,10 +789,21 @@ const PLACEHOLDER_VENDORS: ReadonlySet<string> = new Set([
   "default vendor",
 ]);
 
-/** The product's vendor, or the source's brand when the vendor is missing or a placeholder. */
+/**
+ * The product's vendor, or the source's brand when the vendor is missing or a placeholder.
+ * A vendor shouted in capitals that spells the source's brand (Stella Chroma lists every
+ * product as "STELLA CHROMA") takes the brand's casing; any other spelling is the store's.
+ */
 export function resolveShopifyVendor(vendor: unknown, brandName: string): string {
   const normalized = asNonEmptyString(vendor);
   if (!normalized || PLACEHOLDER_VENDORS.has(normalized.toLowerCase())) {
+    return brandName;
+  }
+  if (
+    normalized === normalized.toUpperCase() &&
+    normalized !== normalized.toLowerCase() &&
+    normalized.toLowerCase() === brandName.toLowerCase()
+  ) {
     return brandName;
   }
   return normalized;
@@ -769,7 +820,8 @@ async function toNormalizedRecord(
   product: ShopifyProduct,
   baseUrl: string,
   brandName: string,
-  source: string
+  source: string,
+  storeCurrency: string | null = null
 ): Promise<ConnectorProductRecord | null> {
   const externalId = asNonEmptyString(product.id);
   if (!externalId) {
@@ -852,6 +904,8 @@ async function toNormalizedRecord(
     .find((barcode): barcode is string => Boolean(barcode)) || null;
   // Description + descriptors for finish detection (#352); never shown to users.
   const { descriptionText, descriptors } = shopifyProductText(product);
+  // Brand list price: lowest available variant (else lowest variant), in the store currency.
+  const { price, currency } = shopifyProductPrice(product.variants, storeCurrency);
 
   return {
     externalId,
@@ -878,6 +932,8 @@ async function toNormalizedRecord(
       images,
       primaryImageUrl: imageUrls[0] || null,
       productUrl: handle ? `${baseUrl}/products/${handle}` : null,
+      price,
+      currency,
       variants,
       // Color data - three independent hex sources
       colorName: colorName || null,

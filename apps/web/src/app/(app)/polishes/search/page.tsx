@@ -9,7 +9,7 @@ import type { IconType } from "react-icons";
 import { BsCurrencyDollar, BsPlusLg, BsQuestionCircleFill, BsTrash3Fill } from "react-icons/bs";
 import { GiPerfumeBottle } from "react-icons/gi";
 import { ArrowLeft, ChevronDown, ChevronUp } from "lucide-react";
-import { getPolishDupes, listPolishes, updatePolish } from "@/lib/api";
+import { getPolishDupes, listAllPolishes, listPolishes, updatePolish } from "@/lib/api";
 import { buildBrandOptions, matchesBrandFilter } from "@/lib/polish-filters";
 import { isArchivingChange, isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
 import { showArchivedToast } from "@/components/archived-toast";
@@ -110,6 +110,20 @@ const HARMONY_SYMBOLS: Record<HarmonyType, string> = {
 };
 const ALL_HARMONY_SYMBOL = "\u2726";
 const URL_WRITE_DEBOUNCE_MS = 200;
+/** Catalog rows the API ranks nearest the current target colors (`?nearHex=`). */
+const NEARBY_CATALOG_PAGE_SIZE = 120;
+/** The API's `?nearHex=` cap. */
+const MAX_NEAR_HEX_TARGETS = 24;
+/** Wait for the wheel to settle (hover, lightness slider) before asking for nearby catalog rows. */
+const NEARBY_FETCH_DEBOUNCE_MS = 250;
+
+/** Owned rows win over catalog rows for the same shade (both carry the caller's status). */
+function mergePolishes(owned: Polish[], nearby: Polish[]): Polish[] {
+  const byId = new Map<string, Polish>();
+  for (const polish of nearby) byId.set(polish.id, polish);
+  for (const polish of owned) byId.set(polish.id, polish);
+  return [...byId.values()];
+}
 
 function uniqueHexes(hexes: string[]): string[] {
   const seen = new Set<string>();
@@ -196,7 +210,12 @@ function ColorSearchPageContent() {
     () => new Map(harmonyTypeOptions.map((h) => [h.value, h.label])),
     [harmonyTypeOptions],
   );
-  const [allPolishes, setAllPolishes] = useState<Polish[]>([]);
+  // The whole owned color collection (complete, so collection results and "have" are exact),
+  // plus the catalog rows nearest the current target colors, ranked over the whole catalog by
+  // the API (`?nearHex=`) instead of ranking a fetched sample here.
+  const [ownedPolishes, setOwnedPolishes] = useState<Polish[]>([]);
+  const [nearbyPolishes, setNearbyPolishes] = useState<Polish[]>([]);
+  const allPolishes = useMemo(() => mergePolishes(ownedPolishes, nearbyPolishes), [ownedPolishes, nearbyPolishes]);
   const [loading, setLoading] = useState(true);
   const wheelSize = useWheelSize();
   const [harmonyType, setHarmonyType] = useState<HarmonyType>(
@@ -314,10 +333,10 @@ function ColorSearchPageContent() {
     let cancelled = false;
 
     // Color search compares hexes: color polishes only (#349).
-    listPolishes({ categories: ["color"] })
-      .then((res) => {
+    listAllPolishes({ status: ["owned"], categories: ["color"] })
+      .then((rows) => {
         if (!cancelled) {
-          setAllPolishes(res.polishes);
+          setOwnedPolishes(rows);
         }
       })
       .catch(() => {})
@@ -378,7 +397,11 @@ function ColorSearchPageContent() {
     () => (resultsScope === "collection" ? ownedColorPolishes : colorPolishes),
     [resultsScope, ownedColorPolishes, colorPolishes]
   );
-  const brandOptions = useMemo(() => buildBrandOptions(colorPolishes), [colorPolishes]);
+  // The selected brand stays listed even though the nearby query is then narrowed to it.
+  const brandOptions = useMemo(
+    () => buildBrandOptions(brandFilter !== "all" ? [...colorPolishes, { brand: brandFilter }] : colorPolishes),
+    [colorPolishes, brandFilter]
+  );
 
   const filteredScopedColorPolishes = useMemo(() => {
     let result = scopedColorPolishes;
@@ -428,19 +451,71 @@ function ColorSearchPageContent() {
     [harmonyColorSet, ownedColorPolishes, colorPolishes],
   );
 
-  // Generate harmony target colors — pinned to selectedHex so they don't shift on hover
-  const harmonyColors = useMemo(() => {
+  // Harmony target colors before snapping to polishes — pinned to selectedHex so they don't
+  // shift on hover. These (not the snapped ones) drive the nearby catalog query, so the query
+  // never depends on its own results.
+  const rawHarmonyColors = useMemo(() => {
     if (!selectedHex) return [];
     if (includeAllHarmonies) {
-      const allHarmonyColors = harmonyTypeOptions
-        .map((item) => item.value)
-        .filter((value): value is HarmonyType => value !== "similar")
-        .flatMap((value) => generateHarmonyColors(selectedHex, value));
-      return constrainHarmonyHexes(uniqueHexes(allHarmonyColors), selectedHex);
+      return uniqueHexes(
+        harmonyTypeOptions
+          .map((item) => item.value)
+          .filter((value): value is HarmonyType => value !== "similar")
+          .flatMap((value) => generateHarmonyColors(selectedHex, value))
+      );
     }
-    const rawHarmonyColors = generateHarmonyColors(selectedHex, harmonyType);
-    return constrainHarmonyHexes(rawHarmonyColors, selectedHex);
-  }, [selectedHex, harmonyType, includeAllHarmonies, constrainHarmonyHexes, harmonyTypeOptions]);
+    return generateHarmonyColors(selectedHex, harmonyType);
+  }, [selectedHex, harmonyType, includeAllHarmonies, harmonyTypeOptions]);
+
+  // Generate harmony target colors, snapped to polishes per the harmony color set
+  const harmonyColors = useMemo(
+    () => (selectedHex ? constrainHarmonyHexes(rawHarmonyColors, selectedHex) : []),
+    [selectedHex, rawHarmonyColors, constrainHarmonyHexes]
+  );
+
+  // Catalog rows nearest every color the page matches against (the active color, the focused
+  // target, palette anchors and harmony targets), ranked over the whole catalog by the API.
+  // Brand and finish filters go to the server so a filtered view is ranked over all its shades.
+  const nearbyTargetsKey = useMemo(
+    () =>
+      uniqueHexes(
+        [activeHex, focusedTargetHex, ...paletteAnchors, ...rawHarmonyColors].filter(
+          (hex): hex is string => Boolean(hex)
+        )
+      )
+        .slice(0, MAX_NEAR_HEX_TARGETS)
+        .join(","),
+    [activeHex, focusedTargetHex, paletteAnchors, rawHarmonyColors]
+  );
+  // A focused target ranks the results against that one color, so it gets its own page too:
+  // the shared page spreads its rows over every target and could leave the focused list thin.
+  useEffect(() => {
+    if (!nearbyTargetsKey) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      const query = (nearHex: string[]) =>
+        listPolishes({
+          categories: ["color"],
+          nearHex,
+          brand: brandFilter !== "all" ? brandFilter : undefined,
+          finish: finishFilter !== "all" ? finishFilter : undefined,
+          pageSize: NEARBY_CATALOG_PAGE_SIZE,
+        });
+      const focusedHex = focusedTargetHex?.toUpperCase() ?? null;
+      Promise.allSettled([
+        query(nearbyTargetsKey.split(",")),
+        focusedHex && focusedHex !== nearbyTargetsKey ? query([focusedHex]) : Promise.resolve(null),
+      ]).then(([all, focused]) => {
+        if (cancelled || all.status !== "fulfilled") return;
+        const focusedRows = focused.status === "fulfilled" ? focused.value?.polishes ?? [] : [];
+        setNearbyPolishes(mergePolishes(focusedRows, all.value.polishes));
+      });
+    }, NEARBY_FETCH_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [nearbyTargetsKey, focusedTargetHex, brandFilter, finishFilter]);
 
   // Harmony target dots for the color wheel (diamonds)
   const harmonyDots: HarmonyDot[] = useMemo(() => {
@@ -713,31 +788,33 @@ function ColorSearchPageContent() {
     [isGuardChecking]
   );
 
+  // Put a changed row in both lists: replaced in the nearby rows, and in or out of the owned
+  // collection by its new status.
+  const upsertPolish = useCallback((next: Polish) => {
+    setNearbyPolishes((prev) => prev.map((p) => (p.id === next.id ? next : p)));
+    setOwnedPolishes((prev) => {
+      const without = prev.filter((p) => p.id !== next.id);
+      return isOwnedPolish(next) ? [...without, next] : without;
+    });
+  }, []);
+
   // Optimistic inventory update (rolled back on failure)
   const applyInventoryChange = useCallback(
     (original: Polish, change: Pick<PolishUpdateRequest, "quantity" | "status">) => {
-      const polishId = original.id;
-      setAllPolishes((prev) =>
-        prev.map((p) => (p.id === polishId ? applyInventoryPatch(p, change) : p))
-      );
+      upsertPolish(applyInventoryPatch(original, change));
 
-      const applyUpdated = (updated: Polish) =>
-        setAllPolishes((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-
-      updatePolish(polishId, change)
+      updatePolish(original.id, change)
         .then((updated) => {
-          applyUpdated(updated);
+          upsertPolish(updated);
           if (isArchivingChange(original, change)) {
-            showArchivedToast({ polish: updated, onUpdated: applyUpdated });
+            showArchivedToast({ polish: updated, onUpdated: upsertPolish });
           }
         })
         .catch(() => {
-          setAllPolishes((prev) =>
-            prev.map((p) => (p.id === polishId ? original : p))
-          );
+          upsertPolish(original);
         });
     },
-    []
+    [upsertPolish]
   );
 
   const handleQuantityChange = useCallback(

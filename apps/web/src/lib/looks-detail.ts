@@ -1,6 +1,8 @@
 import { resolvePolishFinishes } from "swatchwatch-shared";
 import type { Look, LookStep, LookStepRole, Vibe } from "./looks";
 import { LOOK_MOOD_LABELS, LOOK_OCCASION_LABELS } from "./looks";
+import { buyPriceOf, buyPriceSubtotals, formatBuyPrice, type BuyPriceSubtotal } from "./buy-price";
+import { formatPurchasePrice } from "./inventory-status";
 import { safeOutboundUrl } from "./outbound-link";
 
 /**
@@ -23,6 +25,10 @@ export interface ShoppingItem {
   shadeId: string | null;
   /** Validated "Buy from brand" link (http/https only), or null. */
   buyUrl: string | null;
+  /** The brand's list price for that link (same product), or null when unknown. */
+  price: { amount: number; currency: string } | null;
+  /** When the price was last seen (ISO), or null. */
+  priceSeenAt: string | null;
   /** A specific catalog shade exists, so it can be wishlisted. */
   canWishlist: boolean;
 }
@@ -39,23 +45,54 @@ export function shoppingItemsForLook(look: Pick<Look, "steps">): ShoppingItem[] 
       polish: step.polish,
       shadeId: step.polish?.id ?? null,
       buyUrl: safeOutboundUrl(step.polish?.buyUrl),
+      price: safeOutboundUrl(step.polish?.buyUrl) ? buyPriceOf(step.polish) : null,
+      priceSeenAt: step.polish?.buyPriceSeenAt ?? null,
       canWishlist: Boolean(step.polish),
     }));
 }
 
-function polishLabel(step: Pick<LookStep, "polish">): string | null {
+/** API-shaped price fields of a shopping item, for `formatBuyPrice` / `BuyFromBrandLink`. */
+export function shoppingItemPriceFields(item: Pick<ShoppingItem, "price" | "priceSeenAt">) {
+  return item.price
+    ? { buyPrice: item.price.amount, buyCurrency: item.price.currency, buyPriceSeenAt: item.priceSeenAt }
+    : null;
+}
+
+export interface ShoppingSubtotals {
+  /** One subtotal per currency, never summed across currencies. */
+  subtotals: BuyPriceSubtotal[];
+  /** Items with no known price (no polish, no buy link, or no price/currency). */
+  unpricedCount: number;
+}
+
+/** Per-currency subtotal of a shopping list's priced items. */
+export function shoppingSubtotals(items: ReadonlyArray<Pick<ShoppingItem, "price" | "priceSeenAt">>): ShoppingSubtotals {
+  return buyPriceSubtotals(items.map(shoppingItemPriceFields));
+}
+
+/** "$28.00 · €12.00" style text for the subtotals, or null when nothing is priced. */
+export function formatShoppingSubtotals(subtotals: readonly BuyPriceSubtotal[]): string | null {
+  if (subtotals.length === 0) return null;
+  return subtotals.map((group) => formatPurchasePrice(group.total, group.currency)).join(" · ");
+}
+
+function polishLabel(step: { polish: { brand: string; name: string } | null }): string | null {
   return step.polish ? `${step.polish.name} — ${step.polish.brand}` : null;
 }
 
 /** Copyable plain-text shopping list for a look's missing steps. */
 export function shoppingListText(look: Pick<Look, "name" | "steps">): string {
   const lines = [`Shopping list for ${look.name}`];
-  for (const item of shoppingItemsForLook(look)) {
+  const items = shoppingItemsForLook(look);
+  for (const item of items) {
+    const price = formatBuyPrice(shoppingItemPriceFields(item));
     const what = item.polish
-      ? `${item.polish.name} — ${item.polish.brand}${item.buyUrl ? ` (${item.buyUrl})` : ""}`
+      ? `${item.polish.name} — ${item.polish.brand}${price ? `, ${price}` : ""}${item.buyUrl ? ` (${item.buyUrl})` : ""}`
       : `any shade close to ${item.targetHex}`;
     lines.push(`${item.label}: ${what}`);
   }
+  const subtotal = formatShoppingSubtotals(shoppingSubtotals(items).subtotals);
+  if (subtotal) lines.push(`Subtotal (brand list prices): ${subtotal}`);
   return lines.join("\n");
 }
 
@@ -79,22 +116,30 @@ export function lookShareText(look: Pick<Look, "name" | "steps">, vibe: Vibe, ur
 
 export type ApplicationKind = "base-coat" | "base" | "accent" | "topper" | "top-coat";
 
+/**
+ * What the drawer helpers read from a step: a recommended look's `LookStep`, or a step rebuilt from
+ * a shared look's public payload (`/l/`, `lib/look-share.ts`).
+ */
+export type DetailStep = Pick<LookStep, "role" | "label" | "targetHex"> & {
+  polish: { brand: string; name: string; finish?: string | null; finishes?: readonly string[] | null } | null;
+};
+
 export interface ApplicationStep {
   kind: ApplicationKind;
   title: string;
   text: string;
 }
 
-function finishesOf(step: Pick<LookStep, "polish">): string[] {
+function finishesOf(step: Pick<DetailStep, "polish">): string[] {
   return step.polish ? resolvePolishFinishes(step.polish).map((f) => f.toLowerCase()) : [];
 }
 
-function nameOf(step: LookStep): string {
+function nameOf(step: DetailStep): string {
   return polishLabel(step) ?? `any shade close to ${step.targetHex}`;
 }
 
 /** Order to apply a look: base coat, base color, accent/tip, topper, top coat. */
-export function applicationOrder(look: Pick<Look, "steps">): ApplicationStep[] {
+export function applicationOrder(look: { steps: readonly DetailStep[] }): ApplicationStep[] {
   const out: ApplicationStep[] = [{ kind: "base-coat", title: "Base coat", text: "One thin coat of clear base coat; let it dry." }];
   const byRole = (role: LookStepRole) => look.steps.filter((s) => s.role === role);
   for (const step of byRole("base")) {
@@ -140,7 +185,7 @@ const FINISH_NOTES: Record<string, string> = {
 };
 
 /** One practical note per distinct finish among the look's polishes (plain cremes get none). */
-export function finishNotes(look: Pick<Look, "steps">): FinishNote[] {
+export function finishNotes(look: { steps: readonly DetailStep[] }): FinishNote[] {
   const seen = new Set<string>();
   const notes: FinishNote[] = [];
   for (const step of look.steps) {

@@ -16,7 +16,7 @@ The package is automatically linked via npm workspaces — no publishing require
 
 | Type | Description |
 |------|-------------|
-| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, reserved `nailImageUrl` (not populated; see `NailPhoto`), legacy `finish`, multi-finish `finishes`, tags, timestamps, etc.). Detected-hex provenance (migration 20261017024958000_shade-detected-hex-provenance): `detectedHexConfidence` (0–1), `detectedHexMethod` (`vision-direct`, `palette-pick`, `region-crop`, `ensemble`, `client-supplied`, …), `detectedHexModel` (deployment), `detectedHexPromptVersion`, `detectedHexAt`, and `hexAgreement` (OKLAB distance vendorHex ↔ detectedHex, null unless both exist). Inventory status (#261, migration 20261017061336791_inventory-status): `status` (`PolishStatus`, null for catalog-only rows), derived `isUntried` (owned and `triedAt` null), `triedAt`, `lastWornAt`, `wearCount`, `purchasePrice`, `purchaseCurrency`. `colorFamily` (`ColorFamily \| null`, the generated `shade.color_family`; see `color/color-family.ts`). Optional `buyUrl` (#267): the brand's product page from the stored source product URL, validated server-side (absolute http/https, no credentials), absent when none is stored. `productCategory` (#349, `ProductCategory`; missing = `color`). `PolishFilters.categories`, `CatalogSearchResult.productCategory` and `CatalogShadeDetail.productCategory` carry the category too |
+| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, reserved `nailImageUrl` (not populated; see `NailPhoto`), legacy `finish`, multi-finish `finishes`, tags, timestamps, etc.). Detected-hex provenance (migration 20261017024958000_shade-detected-hex-provenance): `detectedHexConfidence` (0–1), `detectedHexMethod` (`vision-direct`, `palette-pick`, `region-crop`, `ensemble`, `client-supplied`, …), `detectedHexModel` (deployment), `detectedHexPromptVersion`, `detectedHexAt`, and `hexAgreement` (OKLAB distance vendorHex ↔ detectedHex, null unless both exist). Inventory status (#261, migration 20261017061336791_inventory-status): `status` (`PolishStatus`, null for catalog-only rows), derived `isUntried` (owned and `triedAt` null), `triedAt`, `lastWornAt`, `wearCount`, `purchasePrice`, `purchaseCurrency`. `colorFamily` (`ColorFamily \| null`, the generated `shade.color_family`; see `color/color-family.ts`). Optional `buyUrl` (#267): the brand's product page from the stored source product URL, validated server-side (absolute http/https, no credentials), absent when none is stored. Optional `buyPrice` (major units) / `buyCurrency` (ISO 4217) / `buyPriceSeenAt` (ISO): the brand's list price for that same product as last fetched, present only together, never the user's `purchasePrice`. `productCategory` (#349, `ProductCategory`; missing = `color`). `colorDistance` (OKLAB distance to the nearest `nearHex` target, only on `GET /api/polishes?nearHex=` rows; null without a usable display hex). `PolishFilters.categories`, `CatalogSearchResult.productCategory` and `CatalogShadeDetail.productCategory` carry the category too |
 | `resolveDisplayHex(polish)` | Display hex with the blind precedence vendor > detected > name (unchanged; used by the web app) |
 | `HexReviewItem` / `HexReviewResponse` / `HexReviewSort` | Admin hex-review queue payload (`GET /api/polishes-admin/hex-review`): hexes, provenance, agreement, display hex/source, `flagged`; sorted by `agreement` or `confidence` |
 | `PolishFinish` | Built-in finish name, derived as `(typeof CANONICAL_FINISHES)[number]` |
@@ -26,12 +26,12 @@ The package is automatically linked via npm workspaces — no publishing require
 | `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps); accepts `finishes` (replace) and legacy `finish`, plus inventory `status`, `triedAt`, `purchasePrice`, `purchaseCurrency` (`null` clears the last three), and create-only `barcode` / `barcodeFormat` (a Rapid Add scan remembered on the shade for the caller, #21) |
 | `PolishUpdateRequest` | Partial create fields + required `id` |
 | `PolishListResponse` | Paginated list: `{ polishes, total, page, pageSize }` |
-| `PolishFilters` | Query params: brand/finish/finishes/color/tags/search plus scope/availability/tone, `status` (`PolishStatus[]`), `untried`, `families` (`?family=`, any-of color families), sort, and pagination |
+| `PolishFilters` | Query params: brand/finish/finishes/color/tags/search plus scope/availability/tone, `status` (`PolishStatus[]`), `untried`, `families` (`?family=`, any-of color families), `nearHex` (rank by OKLAB distance to the nearest of up to 24 hexes, replaces sort), sort, and pagination |
 | `Brand` | Canonical brand entity (`brand_id`, `name_canonical`) |
 | `Shade` | Canonical shade entity (`shade_id`, `brand_id`, `shade_name_canonical`, `finish`, `finishes`, `collection`, hex columns, `detected_hex_*` provenance, `hex_agreement`, etc.) |
-| `CatalogSearchResult` | Single search hit: shade with brand name, `finish`/`finishes`, `colorFamily`, similarity score, and optional `buyUrl` (see `Polish.buyUrl`) |
+| `CatalogSearchResult` | Single search hit: shade with brand name, `finish`/`finishes`, `colorFamily`, similarity score, and optional `buyUrl` plus `buyPrice` / `buyCurrency` / `buyPriceSeenAt` (see `Polish.buyUrl`, `Polish.buyPrice`) |
 | `CatalogSearchResponse` | Search response: `{ results, query, total }` |
-| `CatalogShadeDetail` | Full shade detail with brand info, aliases, and optional `buyUrl` (see `Polish.buyUrl`) |
+| `CatalogShadeDetail` | Full shade detail with brand info, aliases, and optional `buyUrl` plus `buyPrice` / `buyCurrency` / `buyPriceSeenAt` (see `Polish.buyUrl`, `Polish.buyPrice`) |
 
 **Note:** All frontend pages now use the live API. The mock-data.ts file is no longer used.
 
@@ -309,6 +309,22 @@ Shareable wishlist (#268), behind the server flag `SHAREABLE_WISHLIST_ENABLED` (
 | `wishlistSharePath(token)` | Web path of the public page, `/w/?token=<token>` (static export → query param) |
 | `WISHLIST_SHARE_FEATURE_DISABLED_CODE` | `"feature_disabled"` — `code` of the 404 every wishlist-share route returns while the flag is off |
 | `WISHLIST_SHARE_DISPLAY_NAME_MAX_LENGTH` | `60` |
+
+### `types/look-share.ts`
+
+Shareable looks: a public, read-only link for one saved look, behind the server flag `SHAREABLE_LOOKS_ENABLED` (off by default).
+
+| Type | Description |
+|------|-------------|
+| `LookShareStatus` | Owner view of one look's link (`GET/POST/DELETE /api/look-share`): `lookKey`, `enabled`, `token` (re-derived; null when off or no longer derivable), `path` (`/l/?token=…`), `displayName`, `createdAt`, `revokedAt` |
+| `LookShareListResponse` | `GET /api/look-share`: `{ shares }`, the caller's live links |
+| `LookShareCreateRequest` | `{ lookKey, displayName? }`: share a saved look and/or set its public name (≤ 60 chars, no email addresses; omit to keep) |
+| `PublicLookStep` | Public allowlist step: `role`, `brand`/`name` (null for a color chip), `finishes`, `hex`, `imageUrl` (public catalog image or null) |
+| `PublicLookVibe` | `{ occasion, mood, finish }` (no "owned only") |
+| `PublicLookResponse` | `GET /api/look/{token}`: `{ displayName, templateId, vibe, steps }`. No ids, email, ownership, notes, prices or saved free text |
+| `lookSharePath(token)` | Web path of the public page, `/l/?token=<token>` (static export → query param) |
+| `LOOK_SHARE_FEATURE_DISABLED_CODE` | `"feature_disabled"`: `code` of the 404 every look-share route returns while the flag is off |
+| `LOOK_SHARE_REVOKED_CODE` | `"share_revoked"`: `code` of the public 410 for a link its owner turned off |
 
 ### `types/voice.ts`
 

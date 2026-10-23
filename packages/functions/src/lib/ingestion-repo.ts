@@ -19,6 +19,7 @@ import {
 } from "./hex-provenance";
 import { submitVisionHexBatch } from "./azure-openai-batch";
 import { uploadSourceImageToBlob, ensureContainer } from "./blob-storage";
+import { describeFetchError } from "./fetch-retry";
 import { toImageProxyUrlFromOrigin } from "./image-proxy";
 import { snapDetectionToImage, type HexSnapLogLevel } from "./hex-snap";
 import { loadDetectionImageBytes } from "./detection-image";
@@ -70,6 +71,11 @@ export interface DataSourceRecord {
   dataSourceId: number;
   name: string;
   baseUrl: string | null;
+  /**
+   * Store currency set by hand in `data_source.metadata.currency` (raw value; connectors
+   * validate it with `normalizeCurrencyCode`). Shopify connectors otherwise ask the shop.
+   */
+  currency?: string | null;
 }
 
 export interface IngestionJobRecord {
@@ -1088,11 +1094,11 @@ async function prepareHoloTacoImageData(
           `${sourceLogPrefix} Primary image ${reused ? "reused" : "uploaded"} for ${record.externalId}: checksum=${checksumSha256}`
         );
       } catch (err) {
-        console.error(`${sourceLogPrefix} Primary image upload failed for ${record.externalId}:`, String(err));
+        console.error(`${sourceLogPrefix} Primary image upload failed for ${record.externalId}:`, describeFetchError(err));
         progressLogger?.warn(`${sourceLogPrefix} Primary image upload failed for ${record.externalId}`, {
           externalId: record.externalId,
           imageUrl: holo.primaryImageUrl,
-          error: String(err),
+          error: describeFetchError(err),
         });
       }
 
@@ -1110,11 +1116,11 @@ async function prepareHoloTacoImageData(
           }
         } catch (err) {
           additionalFailures += 1;
-          console.error(`${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId}:`, String(err));
+          console.error(`${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId}:`, describeFetchError(err));
           progressLogger?.warn(`${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId}`, {
             externalId: record.externalId,
             imageUrl: imgUrl,
-            error: String(err),
+            error: describeFetchError(err),
           });
         }
       }
@@ -1629,11 +1635,13 @@ export async function getDataSourceByName(name: string): Promise<DataSourceRecor
     dataSourceId: number;
     name: string;
     baseUrl: string | null;
+    currency: string | null;
   }>(
     `SELECT
        data_source_id AS "dataSourceId",
        name,
-       base_url AS "baseUrl"
+       base_url AS "baseUrl",
+       metadata ->> 'currency' AS currency
      FROM data_source
      WHERE name = $1
      LIMIT 1`,

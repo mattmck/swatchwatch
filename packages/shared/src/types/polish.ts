@@ -43,6 +43,13 @@ export interface Polish {
    */
   colorFamily?: ColorFamily | null;
   /**
+   * OKLAB distance from the display hex to the nearest `nearHex` target (`GET /api/polishes?nearHex=`),
+   * equal to `colorDistance(resolveDisplayHex(polish), target)`; grade it with the shared dupe
+   * thresholds. Null when the shade has no usable display hex; absent when the request had no
+   * `nearHex`.
+   */
+  colorDistance?: number | null;
+  /**
    * What kind of product the shade is (`shade.product_category`, #349): `color`, `topper`,
    * `top_coat`, `base_coat`, `treatment` or `accessory`. Missing from older responses; treat
    * that as `color` (`resolveProductCategory`).
@@ -93,6 +100,17 @@ export interface Polish {
    * (enabled source first, then most recently seen). No affiliate parameters.
    */
   buyUrl?: string;
+  /**
+   * The brand's list price for the `buyUrl` product (same chosen product), in major units
+   * (e.g. `12.5`), as the connector last saw it. A vendor price, never the user's
+   * `purchasePrice`. Present only together with `buyCurrency`; absent when the product has no
+   * price or its store currency is unknown.
+   */
+  buyPrice?: number;
+  /** ISO 4217 currency of `buyPrice` (e.g. `"USD"`); prices are never converted or summed across currencies. */
+  buyCurrency?: string;
+  /** When the connector fetched the product that `buyPrice` came from (ISO 8601). */
+  buyPriceSeenAt?: string;
   tags?: string[];
   createdAt: string;
   updatedAt: string;
@@ -282,6 +300,12 @@ export interface PolishFilters {
   families?: ColorFamily[];
   /** Matches shades in ANY of these product categories (`?category=color,topper`). */
   categories?: ProductCategory[];
+  /**
+   * Rank by OKLAB distance from the display hex to the nearest of these colors (`#RRGGBB` or
+   * `RRGGBB`, at most 24), nearest first; replaces `sortBy`/`sortOrder` and fills
+   * `Polish.colorDistance`. Combines with every other filter and paging.
+   */
+  nearHex?: string[];
   sortBy?:
     | "name"
     | "brand"
@@ -310,6 +334,10 @@ export interface CatalogSearchResult {
   similarity: number;
   /** "Buy from brand" link (see `Polish.buyUrl`); absent when none is stored. */
   buyUrl?: string;
+  /** Brand list price for the buy link (see `Polish.buyPrice`); only with `buyCurrency`. */
+  buyPrice?: number;
+  buyCurrency?: string;
+  buyPriceSeenAt?: string;
 }
 
 export interface CatalogSearchResponse {
@@ -370,4 +398,8 @@ export interface CatalogShadeDetail {
   aliases: string[];
   /** "Buy from brand" link (see `Polish.buyUrl`); absent when none is stored. */
   buyUrl?: string;
+  /** Brand list price for the buy link (see `Polish.buyPrice`); only with `buyCurrency`. */
+  buyPrice?: number;
+  buyCurrency?: string;
+  buyPriceSeenAt?: string;
 }

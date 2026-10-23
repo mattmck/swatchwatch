@@ -91,8 +91,11 @@ jobs:
       TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
       TFSTATE_CONTAINER: ${{ vars.TFSTATE_CONTAINER || 'tfstate' }}
       TFSTATE_BLOB_NAME: ${{ vars.TFSTATE_BLOB_NAME || format('{0}.terraform.tfstate', inputs.environment) }}
-      TF_VAR_auth_dev_bypass: ${{ vars.AUTH_DEV_BYPASS || 'false' }}
+      # Fixed to false; an AUTH_DEV_BYPASS GitHub variable is ignored. deploy.yml writes the same
+      # value, so the post-deploy settings check (live app vs Terraform state) always agrees.
+      TF_VAR_auth_dev_bypass: 'false'
       TF_VAR_shareable_wishlist_enabled: ${{ vars.SHAREABLE_WISHLIST_ENABLED || 'false' }}
+      TF_VAR_shareable_looks_enabled: ${{ vars.SHAREABLE_LOOKS_ENABLED || 'false' }}
       TF_VAR_azure_ad_b2c_tenant: ${{ vars.AZURE_AD_B2C_TENANT || vars.NEXT_PUBLIC_B2C_TENANT || 'to-be-added' }}
       TF_VAR_azure_ad_b2c_client_id: ${{ secrets.AZURE_AD_B2C_CLIENT_ID || 'to-be-added' }}
       # External ID (CIAM) web service principal, opt-in per environment. The
@@ -115,14 +118,6 @@ jobs:
       TF_VAR_hex_detection_batch_enabled: ${{ vars.HEX_DETECTION_BATCH_ENABLED || 'false' }}
       TF_VAR_hex_detection_snap_enabled: ${{ vars.HEX_DETECTION_SNAP_ENABLED || 'false' }}
       OPENAI_ACCOUNT_NAME: ${{ vars.OPENAI_ACCOUNT_NAME || '' }}
-      TF_VAR_apim_enabled: ${{ vars.APIM_ENABLED || 'false' }}
-      # vars first, then literal default
-      TF_VAR_apim_sku_name: ${{ vars.APIM_SKU_NAME || 'Consumption_0' }}
-      # vars first, then literal default
-      TF_VAR_openai_gateway_enabled: ${{ vars.OPENAI_GATEWAY_ENABLED || 'false' }}
-      # secrets first (recommended for prod), then vars fallback, else empty string
-      # (Terraform will validate when gateway is enabled)
-      TF_VAR_apim_openai_subscription_key_uri: ${{ secrets.APIM_OPENAI_SUBSCRIPTION_KEY_URI || vars.APIM_OPENAI_SUBSCRIPTION_KEY_URI || '' }}
       # Observability Phase 3 (#281): alerts are prod-only by default (D16);
       # ALERTS_ENABLED overrides. The address is never committed: set ALERT_EMAIL
       # as an environment secret (masked in logs) or variable.
@@ -353,3 +348,11 @@ jobs:
       - name: Terraform apply
         if: ${{ inputs.apply }}
         run: terraform -chdir=infrastructure apply -auto-approve -no-color tfplan
+
+      # Fails when a Terraform-managed Function App setting is missing from the
+      # live app or holds another value, e.g. a code deploy that overlapped
+      # this apply wrote back its stale copy (infrastructure/README.md
+      # "Deploy ordering"). Names only, never values.
+      - name: Check Function App settings match Terraform
+        if: ${{ inputs.apply }}
+        run: bash .github/scripts/check-function-app-settings.sh infrastructure

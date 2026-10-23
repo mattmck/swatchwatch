@@ -52,6 +52,13 @@ npm run test:e2e --workspace=swatchwatch-functions  # E2E tests against the runn
   `tests/looks.unit.test.cjs` covers saved looks: auth on every verb, validation (400/413, including
   multibyte text over the DB byte budget), upsert by look key, the 30-per-user cap trimming only the
   caller's oldest rows, and cross-user isolation of list and delete.
+  `tests/look-share.unit.test.cjs` covers shareable looks: token derivation (bound to user, look and
+  salt; a different subkey from the wishlist), the flag (404 `feature_disabled` on every route before
+  auth and SQL), the owner lifecycle (idempotent share, 410 after revoke, a new token on re-share,
+  the link dying with the saved look), cross-user isolation (another user's create/revoke on your
+  look key is a no-op and every statement is bound to the caller), the public allowlist (exact key
+  sets, no snapshot text, ids, ownership or private media; private/excluded/merged/accessory shades
+  as color chips) and per-IP / per-token rate limiting with buckets separate from the wishlist's.
   `tests/wishlist-share.unit.test.cjs` covers the shareable wishlist (#268): token derivation,
   hashing and canonical parsing, the flag (404 `feature_disabled` on every route, before auth and SQL),
   rotate/revoke making old links 404, the public payload allowlist (no PII, no private fields, only
@@ -187,6 +194,10 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `DELETE` | `/api/wishlist-share` | `revokeWishlistShare` | `wishlist-share.ts` | 🚩 Behind `SHAREABLE_WISHLIST_ENABLED` (auth required) |
 | `POST` | `/api/wishlist-share/rotate` | `rotateWishlistShare` | `wishlist-share.ts` | 🚩 Behind `SHAREABLE_WISHLIST_ENABLED` (auth required) |
 | `GET` | `/api/wishlist/{token}` | `getPublicWishlist` | `wishlist-share.ts` | 🚩 Behind `SHAREABLE_WISHLIST_ENABLED` (anonymous, rate-limited) |
+| `GET` | `/api/look-share` | `listLookShares` | `look-share.ts` | 🚩 Behind `SHAREABLE_LOOKS_ENABLED`: the caller's live look links (`LookShareListResponse`; auth required) |
+| `POST` | `/api/look-share` | `createLookShare` | `look-share.ts` | 🚩 Behind `SHAREABLE_LOOKS_ENABLED`: share a saved look `{ lookKey, displayName? }` (idempotent while live; new token after a revoke; 404 when the caller has no such saved look; auth required) |
+| `DELETE` | `/api/look-share?key=<lookKey>` | `revokeLookShare` | `look-share.ts` | 🚩 Behind `SHAREABLE_LOOKS_ENABLED`: turn a look's link off (200, idempotent; auth required) |
+| `GET` | `/api/look/{token}` | `getPublicLook` | `look-share.ts` | 🚩 Behind `SHAREABLE_LOOKS_ENABLED` (anonymous, rate-limited; 410 `share_revoked` for a link turned off) |
 
 
 Background triggers:
@@ -198,7 +209,7 @@ Background triggers:
 
 All handlers return `Promise<HttpResponseInit>` and accept `(request: HttpRequest, context: InvocationContext)`.
 
-`GET /api/polishes` returns a paginated canonical shade catalog joined with the requesting user's inventory rows. `inventoryItemId` and user-facing fields are undefined when the user has not added that shade yet, but catalog metadata (brand, finish, color hexes, swatch) is still returned so the UI can show "not owned" entries. `swatchImageUrl` is the shade's primary image: its `source_product` swatch when one exists, otherwise its newest swatch. Supported query params include `search`, `brand`, `finish`, `scope` (`all|collection`; `collection` = `status = 'owned'`), `availability` (`all|owned|wishlist`; legacy alias for `status=owned` / `status=wishlist`), `status` (one or comma-separated `owned|wishlist|destash|archived`; 400 on anything else), `untried` (`true|false`; owned and `tried_at IS NULL`), `tags`, `family` (color families, see below), `sortBy` (`status|brand|name|finish|collection|createdAt|rating`; `status` orders owned, wishlist, destash, archived, then catalog-only rows), `sortOrder`, `page`, and `pageSize`. `GET /api/polishes/{id}` looks up a shade by `shade_id` and includes `sourceImageUrls` (all source images associated with that shade's swatches, primary `source_product` image first, then newest first) for the detail page. The list's `total` comes from a `COUNT(*) OVER()` window column on the page query itself (one scan per page, no separate count query); a page past the end falls back to an explicit count. The swatch LATERAL lookup in `POLISH_SELECT` is served by `idx_swatch_shade_latest` (migration `20261016040000000_add-swatch-shade-index`).
+`GET /api/polishes` returns a paginated canonical shade catalog joined with the requesting user's inventory rows. `inventoryItemId` and user-facing fields are undefined when the user has not added that shade yet, but catalog metadata (brand, finish, color hexes, swatch) is still returned so the UI can show "not owned" entries. `swatchImageUrl` is the shade's primary image: its `source_product` swatch when one exists, otherwise its newest swatch. Supported query params include `search`, `brand`, `finish`, `scope` (`all|collection`; `collection` = `status = 'owned'`), `availability` (`all|owned|wishlist`; legacy alias for `status=owned` / `status=wishlist`), `status` (one or comma-separated `owned|wishlist|destash|archived`; 400 on anything else), `untried` (`true|false`; owned and `tried_at IS NULL`), `tags`, `family` (color families, see below), `nearHex` (color-distance sort, see below), `sortBy` (`status|brand|name|finish|collection|createdAt|rating`; `status` orders owned, wishlist, destash, archived, then catalog-only rows), `sortOrder`, `page`, and `pageSize`. `GET /api/polishes/{id}` looks up a shade by `shade_id` and includes `sourceImageUrls` (all source images associated with that shade's swatches, primary `source_product` image first, then newest first) for the detail page. The list's `total` comes from a `COUNT(*) OVER()` window column on the page query itself (one scan per page, no separate count query); a page past the end falls back to an explicit count. The swatch LATERAL lookup in `POLISH_SELECT` is served by `idx_swatch_shade_latest` (migration `20261016040000000_add-swatch-shade-index`).
 **Inventory status (#261, migration `20261017061336791_inventory-status`):** each `user_inventory_item` has `status` (`owned | wishlist | destash | archived`, CHECK-constrained), `tried_at`, `last_worn_at` and `wear_count` (default 0). Ownership is **only** `status = 'owned'` — nothing reads `quantity` to decide ownership or wishlist any more (the migration backfilled `quantity <= 0` → `wishlist`, else `owned`). "Untried" is derived (`status = 'owned' AND tried_at IS NULL`), never stored. List/detail responses add `status` (null when the caller has no inventory row), `isUntried` (false for catalog-only rows), `triedAt`, `lastWornAt`, `wearCount`, `purchasePrice` (number) and `purchaseCurrency`. `POST /api/polishes` and `PUT /api/polishes/{id}` accept, validated in `src/lib/inventory.ts` (400 on bad input, before any write): `status` (exactly one of the four values), `triedAt` (ISO-8601 date or date-time with zone, not in the future), `purchasePrice` (number, 0–99,999,999.99, at most 2 decimals) and `purchaseCurrency` (3-letter ISO 4217 code, upper-cased). For `triedAt`, `purchasePrice` and `purchaseCurrency`, omitting the field keeps the stored value and `null` clears it. Omitting `status` keeps the stored status on an existing row; a **new** row defaults to `owned` (decision D5a: adding a polish with no details means you own it), except an explicit `quantity: 0`, which still gives `wishlist` so clients that predate the status model keep working; an omitted `quantity` on a new row defaults to 1 for `owned`/`destash` and 0 otherwise. Nothing moves to the wishlist automatically.
 **Archiving and its reason (D5c):** running out is `status: "archived"` (the web − on the last bottle and saving 0 bottles in the edit form both send it), never `wishlist`. Archiving records why as an `inventory_event` row (no migration; `event_type` `used_up` or `decluttered`, distinct from the mani log's `used`; `event_payload` `{ reason, previousStatus }`). `PUT` accepts `archiveReason` (`used_up | decluttered`, only with `status: "archived"`, else 400): a transition from `owned` records `used_up` by default, from `destash` `decluttered`; archiving a wishlist item or creating an archived row records an event only when `archiveReason` is sent. Sent again while the row is already archived, `archiveReason` corrects the newest reason event (within 24 h; inserted when there is none). `undoArchive: true` (with a non-archived status, e.g. the toast's Undo `{ status: "owned", quantity: 1, undoArchive: true }`; 400 with `status: "archived"` or `archiveReason`) deletes the newest reason event from the last 24 h when the row was archived. These requests read the previous status with `SELECT … FOR UPDATE` on the caller's `(user_id, shade_id)` row, and the events hang off that row's `inventory_item_id` (and carry its `user_id` / `shade_id`, so they survive deleting the polish, D8), so they stay user-scoped. Rebuy is `{ status: "wishlist" }` on an archived polish and keeps the event history. `lastWornAt` / `wearCount` are read-only in this API: the mani log (below) derives them, and `POST`/`PUT /api/polishes` re-derive them for the written row (so a polish removed and re-added picks its wear history back up) without touching `tried_at`. Other write paths: Rapid Add capture inserts `owned` rows and flips a `wishlist`/`archived` row to `owned` when it adds a bottle; ingestion materialization inserts `wishlist` rows (`quantity = 0`); the admin account merge keeps the strongest status either account had for the shade (`owned` > `destash` > `wishlist` > `archived`, so a destash bottle is never downgraded to wishlist), the earliest `tried_at`, the latest `last_worn_at` and the summed `wear_count`, and moves the source account's manicures to the target (`mergedManicureRows`), which is what those merged stats derive from, plus the source's `inventory_event` rows (including detached ones, D8; a detached event re-attaches to the target's row for the same shade when the target holds it).
 
@@ -228,7 +239,7 @@ For private blob storage, the API rewrites blob URLs to `/api/images/{id}` so im
 3. **Commit** — `POST /api/polish-imports/{id}/commit` (optional `{ decisions }`, applied first) runs in one transaction with the session row locked and a savepoint per row: `match` rows upsert inventory through `upsertInventoryItem` (keyed on `(user_id, shade_id)`), `create` rows go through `findOrCreateShade` (reusing the caller's existing private shade or an exact catalog shade, else creating a `user_submitted` shade with the canonical finishes; the brand reuses a candidate's spelling when it matches), `skip`/`pending`/`invalid` rows are skipped, and a second row resolving to the same shade is skipped as a duplicate. Blank cells are never sent, so re-importing never clears stored values; a **new** inventory row without a status cell defaults to `owned`, also when the quantity is blank (D5a), and an existing row keeps its status; a quantity-0 row without a status cell is skipped ("Quantity 0: choose wishlist or archived") until review gives it a `statusChoice`, which then applies to new and existing rows (an `archived` choice records its reason as an `inventory_event`, like `PUT`); `tried = yes` keeps an existing `tried_at` and otherwise uses the sheet's tried date, the purchase date, or today; `tried = no` clears it. Shared catalog shades are never modified by an import: `findOrCreateShade` writes catalog finishes only when it creates the shade or for the caller's own `user_submitted` shade (catalog write rule, #224). Response `PolishImportCommitResponse` `{ session, result: { created, updated, skipped, failed, shadesCreated }, alreadyCommitted }`; per-row `outcome` / `outcomeMessage` land on the session rows. A failing row is reported as `failed` and the rest still commit. Committing again returns the stored result (`alreadyCommitted: true`) without writing. Re-uploading the same sheet matches the shades the first import used or created, so its commit reports `updated`, never duplicates. A 200-row sheet parses + matches in ~0.2 s and commits in ~0.6 s against the local dev DB.
 
 Access control (issue #47):
-- Every user-data route (`/api/polishes*`, `/api/inventory/*`, `/api/manicures*`, `/api/polish-imports*`, `/api/capture/*`, `/api/voice`, `/api/wishlist-share*`) is wrapped in `withAuth`, and every query is scoped to the caller's `user_id` (inventory upserts/deletes key on `(user_id, shade_id)`; capture sessions are looked up by `capture_uuid` **and** `user_id`, and questions/answers/frames hang off that session). Admin/ops routes (`/api/ingestion/*`, `/api/reference-admin/*`, `/api/users-admin*`, `/api/shades-admin/*`, `/api/polishes-admin/*`, `/api/hex-labels-admin/*`, `/api/images-admin/*`, `/api/polishes/{id}/recalc-hex`) use `withAdmin`. Only `/api/auth/*`, `/api/catalog/*`, `/api/reference/*`, `/api/images/{id}` and `/api/wishlist/{token}` are anonymous, and none of them return per-user data anonymously except the shared wishlist, which the owner opted into (behind `SHAREABLE_WISHLIST_ENABLED`; see below): `/api/images/{id}` is anonymous for public catalog (`v2`) ids and requires the owner's bearer token for private (`v3`) ids.
+- Every user-data route (`/api/polishes*`, `/api/inventory/*`, `/api/manicures*`, `/api/polish-imports*`, `/api/capture/*`, `/api/voice`, `/api/wishlist-share*`, `/api/looks`, `/api/look-share`) is wrapped in `withAuth`, and every query is scoped to the caller's `user_id` (inventory upserts/deletes key on `(user_id, shade_id)`; capture sessions are looked up by `capture_uuid` **and** `user_id`, and questions/answers/frames hang off that session). Admin/ops routes (`/api/ingestion/*`, `/api/reference-admin/*`, `/api/users-admin*`, `/api/shades-admin/*`, `/api/polishes-admin/*`, `/api/hex-labels-admin/*`, `/api/images-admin/*`, `/api/polishes/{id}/recalc-hex`) use `withAdmin`. Only `/api/auth/*`, `/api/catalog/*`, `/api/reference/*`, `/api/images/{id}`, `/api/wishlist/{token}` and `/api/look/{token}` are anonymous, and none of them return per-user data anonymously except the shared wishlist and shared looks, which the owner opted into (behind `SHAREABLE_WISHLIST_ENABLED` / `SHAREABLE_LOOKS_ENABLED`; see below): `/api/images/{id}` is anonymous for public catalog (`v2`) ids and requires the owner's bearer token for private (`v3`) ids.
 - **Catalog write rule (#224, decision 1b):** a user request writes catalog fields (`finish`/`finishes` and the color fields `color`, `vendorHex`, `detectedHex`, `nameHex`) to a shade **only when the request creates that shade** (`POST`, or `PUT` with a new brand + name). Adopting a shade by id, matching an existing shade by brand + name, or updating one by id never modifies its `finishes`, `finish` or colors, not even to fill an empty value; the request still succeeds and only the caller's inventory row is written. Catalog data on existing shades is owned by ingestion and admin tooling (e.g. `recalc-hex`). The one exception is the caller's own private `user_submitted` shade: its creator may keep correcting it (`finishes` replace/merge, provided colors replace stored ones). `shade.finish` (the dedup key) is never changed after creation.
 - Shades created through `POST/PUT /api/polishes` start as `status = 'user_submitted'` with `created_by_user_id` (migration 024) and are private until an admin promotes them (sets `status = 'active'`; no approval endpoint yet). A `user_submitted` shade is visible only to its creator and to users holding it in their inventory: it is excluded from other users' polish list/count/detail (`GET /api/polishes*`), `polishes/match-image`, `GET /api/catalog/shade/{id}` (404) and catalog search/capture matching (`status = 'active'` only). Adopting such a shade by id (`POST shadeId`, `PUT /polishes/{id}`, capture `candidate_select`) returns 404. A brand + name that only matches another user's private shade creates the caller's own row (idx_shade_unique includes the NULL `product_line_id`, so it does not block this). Ingestion promotes a matching `user_submitted` shade to `active`. New brand rows are still created immediately.
 - Account linking: a new external identity links to an existing `app_user` by email only when the token proves the email is verified (`email_verified` true or Entra `xms_edov` true). Otherwise a separate user is created with no stored email and `auth.email_link_skipped` is tracked. Identities already linked (by `external_id`) are unaffected.
@@ -256,6 +267,13 @@ Access control (issue #47):
 - Telemetry: `wishlist_share.enabled|rotated|revoked|viewed|rate_limited` (no token, no user data). The host's own request telemetry still records the request path; the web client redacts tokens from its telemetry (`apps/web/src/lib/telemetry.ts`).
 - Account merge (`/api/users-admin/merge`) deletes the source user, which cascades to (revokes) the source's share; the target's link keeps working and now shows the merged wishlist.
 - A suspended owner's share (#45, `app_user.suspended_at`) returns 404 like a revoked one; reactivating the account brings the same link back.
+
+**Shareable looks (migration `20261023001607416_look-share`)** — an opt-in, revocable, read-only public page for one saved look (`user_look`), built like the shareable wishlist above. Behind the server flag `SHAREABLE_LOOKS_ENABLED` (default `false`): while it is off, every look-share route answers `404 { "error": "Shareable looks are not enabled", "code": "feature_disabled" }` before auth and before any SQL, and the Looks page hides its Share link controls.
+- **Owner routes** (`withAuth`, every statement keyed by the caller's `user_id`; look keys are not secret and repeat across users, so a key only ever resolves among the caller's own looks): `GET /api/look-share` lists the caller's live links as `LookShareStatus` (`lookKey`, `enabled`, `token`, `path` = `/l/?token=…`, `displayName`, `createdAt`, `revokedAt`). `POST /api/look-share` `{ lookKey, displayName? }` shares a saved look (404 when the caller has no saved look with that key): a live link keeps its token, a revoked one gets a new salt (new token); `displayName` follows the wishlist rules (≤ 60 chars, control characters stripped, email addresses rejected; omit to keep, null/empty to clear). `DELETE /api/look-share?key=…` sets `revoked_at` (200, idempotent).
+- **Data:** one `look_share` row per saved look (PK `user_look_id`), with a composite FK `(user_look_id, user_id) → user_look` (`ON DELETE CASCADE`) that pins the row to the look's owner; deleting the look, by the owner or by the 30-look cap, deletes the link. The display name is per link (not the wishlist's), so sharing a look never depends on the wishlist flag or link, and turning off the wishlist never renames or unpublishes a look.
+- **Token:** `base64url(HMAC-SHA256(k, "<user_id>:<user_look_id>:<token_salt>"))` with `k = deriveSigningSubkey("look-share:v1")`, a different subkey from the wishlist's `wishlist-share:v1`, so the two token spaces never overlap. Only the salt and `token_hash = hex(SHA-256(token))` are stored; parsing, hashing and the constant-time check are the wishlist's (`src/lib/wishlist-share.ts`).
+- **Public route** `GET /api/look/{token}` returns `PublicLookResponse` = `{ displayName, templateId, vibe: { occasion, mood, finish }, steps: [{ role, brand, name, finishes, hex, imageUrl }] }`, built by `toPublicLook` (`src/lib/look-share.ts`). The saved snapshot's free text (step labels, brand, shade name, look name), its `source` (owned / to buy) and `ownedOnly` are never returned: the web page names the look and steps from the built-in template. A step's `shadeId` is looked up only among public catalog shades (`status = 'active'`, an allowlist like catalog search, so `user_submitted`, `excluded` and any later status stay out; not an accessory; not retired by a merge); such a step gets the catalog brand, name, finishes, display hex (vendor > detected > name) and a public `v2` catalog image. Any other step (a template color, the owner's private submission, or an id that is not a public shade, including one a client made up) is a plain color chip: the saved hex with `brand`/`name` null, no finishes, no image. Application-order and finish notes are derived on the page from these fields (the Details drawer's `applicationOrder` / `finishNotes`), so they can't carry more than the payload. Headers and rate limits match the wishlist (`private, max-age=60`, `noindex`, `no-referrer`; per IP burst 30 then 1 / 2 s, per token burst 60 then 1 / s, in separate buckets). Unknown, malformed or replaced tokens and a deleted look or suspended owner → `404 { "error": "Look not found" }`; a link turned off → `410 { "code": "share_revoked" }` until it is shared again.
+- Telemetry: `look_share.enabled|revoked|viewed|rate_limited` (no token, no user data).
 
 Error responses: unexpected `500`s return only a generic message and a correlation id, `{ "error": "Failed to …", "requestId": "<invocationId>" }`. The full error (including Postgres messages) is logged server-side via `context.error` and `trackException` (`src/lib/errors.ts` → `internalServerError()`), never sent to the client.
 `POST /api/polishes/{id}/recalc-hex` is admin-only, fetches the shade's primary swatch image (the `source_product` swatch, falling back to the newest swatch), runs Azure OpenAI hex detection, updates `detected_hex` plus its provenance columns (always overwriting), and returns a 200 with the detected hex and confidence (or a 422 if no image is available for detection). The response also carries `method` (`vision-snap` when the `HEX_DETECTION_SNAP_ENABLED` snap step replaced the model's hex), `model` (deployment), `promptVersion`, `vendorHex`, `previousHexAgreement`, `hexAgreement` and `snap` (`snapped`, the raw `modelHex`, `snapDistance`). Responses now also include `tokenUsage` (`promptTokens`, `completionTokens`, `totalTokens`) when Azure returns usage metadata. Vendor context is derived from shade metadata (for example `finish`) so the endpoint does not depend on source-specific external IDs.
@@ -290,7 +308,7 @@ Tests: `tests/barcodes.unit.test.cjs` (normalization, upsert, conflict rule), `t
 `POST /api/polishes/match-image` (authenticated) matches a photo against the caller's shades: by default the **caller's owned polishes** (`status = 'owned'`). Body (`PolishImageMatchRequest`): `{ image: "data:image/<type>;base64,…", maxColors?: 1–10 (default 6), limit?: 1–50 (default 20), perColorLimit?: 1–20 (default 5), scope?: "owned" | "wishlist" | "catalog" (default "owned"), finishes?: string[] (≤ 20), families?: ColorFamily[], excludeSkinTones?, excludeBackground?, preferVibrant?: boolean (default false) }` — the same base64 data-URL convention as capture frames and the same upload policy (5 MB decoded, JPEG/PNG/WebP/GIF/HEIC/HEIF MIME allowlist). Bodies larger than the base64-encoded 5 MB limit are rejected with 413; missing/invalid images, non-image MIME types, undecodable bytes, images over 40 MP, unknown scopes/families and out-of-range or mistyped options return 400. The handler decodes the image in memory with `sharp`, extracts dominant colors (`lib/dominant-color.ts`), merges perceptually near-duplicate colors (OKLAB < 0.04), drops colors under 1% of pixels and labels each color's `kind` (`classifyPaletteColor` in swatchwatch-shared: `light` / `dark` background, `skin`, or `color`; `buildPalette` in `lib/color-match.ts`). `excludeSkinTones` / `excludeBackground` drop those kinds before matching (they do not take a palette slot); `preferVibrant` picks the palette by pixel share × chroma weight. **Scope (#105):** `owned` / `wishlist` require the caller's inventory row with that status; `catalog` ranks every shade the caller can see (the polishes list visibility rule: no merged shades, no other users' private `user_submitted` shades), whatever its inventory status; `finishes` (catalog names or aliases, canonicalized like `GET /api/polishes?finishes=`) and `families` (`shade.color_family`) narrow any scope (`lib/match-image-query.ts`, `user_id`-scoped through the `ui.user_id = $1` join). Candidates are ranked from lightweight rows (ids + hexes) and only the winners are then loaded as full `Polish` rows, so the catalog scope stays cheap. Each candidate's display hex (`vendorHex > detectedHex > nameHex`) is scored by OKLAB distance. Response (`PolishImageMatchResponse`): `{ extractedColors: [{ hex, fraction, kind }], matches: [{ polish, matchedColor, distance, confidence }], colorMatches: [{ hex, matches }], candidateCount, scope }`: `matches` is each shade's minimum distance to any color, ascending (unchanged); `colorMatches` holds each extracted color's own top `perColorLimit` (so a minor color always has matches, and clients can re-rank any subset of the palette without re-uploading). `confidence` comes from `confidenceForDistance()` (`high` ≤ 0.05, `medium` ≤ 0.10, else `low`; tune via `HIGH_CONFIDENCE_MAX_DISTANCE` / `MEDIUM_CONFIDENCE_MAX_DISTANCE`, defined in swatchwatch-shared `color/thresholds.ts` and re-exported from `src/lib/color-match.ts`). **Privacy:** the image is never persisted — not to blob storage, the database, Redis, or logs — and responses are not cached. Tests: `tests/color-match.unit.test.cjs`, `tests/match-image-query.unit.test.cjs`, `tests/palette-quality.unit.test.cjs`, handler tests in `tests/handlers.unit.test.cjs`.
 
 **Dupe finder (#265).** `GET /api/polishes/{id}/dupes?limit=` (authenticated, `{id}` = shade id as used by `/polishes/detail`) returns the **caller's owned shades** (`user_inventory_item.status = 'owned'`, scoped by `ui.user_id`) that are likely dupes of the shade. The shade itself is always excluded; wishlist/destash/archived rows and other users' inventory never enter the pool. The target must be visible to the caller (same rule as the detail route, so another user's private `user_submitted` shade is a 404). Rule (pure, in swatchwatch-shared `color/dupes.ts`): compare display hexes (`resolveDisplayHexDetailed`, vendor > detected > name) by OKLAB distance and grade with the match-image thresholds (`confidenceForDistance`: HIGH ≤ 0.05, MEDIUM ≤ 0.10); then apply finish compatibility — `same` primary finish and `compatible` (same family: solid creme/crelly/jelly/sheer, shimmer/metallic/magnetic/duo/multichrome, glitter/flake/topper; or any shared finish) keep the grade, `unknown` (missing/`other`, or a finish type with no `family`) keeps it too, and `different` families (e.g. holographic vs creme) drop it one step (HIGH → MEDIUM, MEDIUM → LOW). Only HIGH/MEDIUM are returned, ordered by grade, then finish compatibility, then distance. Response (`PolishDupesResponse`): `{ target: { shadeId, displayHex, displayHexSource, finishes }, dupes: [{ shadeId, brand, name, finishes, displayHex, displayHexSource, distance, colorGrade, grade, finishCompatibility }], dupeCount, highCount, candidateCount }`; `limit` is 1–20 (default 5) and caps `dupes` only. A target without a usable hex returns `displayHex: null` and no dupes. `POST /api/polishes/dupes` with `{ shadeIds: [...] }` (≤ 100 after de-duplication, else 400) returns `{ results: { [shadeId]: { shadeId, best, dupeCount, highCount } }, candidateCount }` for list hints; missing or invisible ids are omitted. Finish families come from `finish_type.family` (#320) via the cached `loadFinishCatalog()` (`catalog.families`), falling back to the built-in `DUPE_FINISH_FAMILIES`, so an admin-created finish with a family grades `compatible`/`different` like a built-in one. **Cost:** two queries per request (targets, then the caller's owned shades with any hex — one fetch even for a batch), plus the finish catalog query when its 5 minute in-process cache is cold; each owned hex is converted to OKLAB once and every target is a linear scan, so a request is O(K·N) for K targets and N owned shades (a few thousand at most). Not cached. Tests: `tests/dupes.unit.test.cjs` and `tests/access-control.unit.test.cjs`.
-Image uploads now enforce a shared validation policy (`maxSizeBytes=5MB`; allowed mime types: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif`, `image/gif`) used by capture-frame data URLs and source-image ingestion; capture uploads outside these limits are rejected with a 400. Source-image ingestion (`uploadSourceImageToBlob`) stores oversize catalog images instead of dropping them: the download is capped at `SOURCE_IMAGE_MAX_DOWNLOAD_BYTES` (default 25 MB; a larger `Content-Length` is refused unread and a longer stream is cancelled), `normalizeSourceImage` downscales any long edge over `SOURCE_IMAGE_MAX_EDGE_PX` (default 2048 px, keeping the format), and an image still over 5 MB after that (large PNGs) is re-encoded as WebP (q85). The 5 MB limit then applies to the stored bytes. Images within both limits keep the unchanged metadata-strip pipeline, so their checksums and checksum-named blobs stay the same. All uploaded image bytes are auto-oriented and metadata-stripped with `sharp` (removing EXIF/GPS and other embedded metadata) before any checksum generation, persistence, or forwarding to AI/OCR services. This applies to both source-image ingestion (before blob upload) and capture-frame data URLs (`quality_json.ingestion.exifStripped` records whether stripping ran). `sharp` failures degrade gracefully to the original bytes.
+Image uploads now enforce a shared validation policy (`maxSizeBytes=5MB`; allowed mime types: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif`, `image/gif`) used by capture-frame data URLs and source-image ingestion; capture uploads outside these limits are rejected with a 400. Source-image downloads (and the variants backfill's original reads, via `readBlobFromStorageUrl(url, { retry: true })`; the image proxy's reads stay single-shot so its fallback is immediate) are retried on transient failures by `fetchWithRetry` (`src/lib/fetch-retry.ts`): undici `fetch failed` / ECONNRESET / ETIMEDOUT / `UND_ERR_*` network errors and 429/5xx responses get up to 3 attempts with 0.5 s → 1 s backoff (a `Retry-After` is honored, capped at 10 s); other 4xx responses and the per-attempt 20 s timeout are not retried. When an image still fails, the job log's `Primary image upload failed` / `Additional image N upload failed` warning carries the undici cause (`describeFetchError`, e.g. `TypeError: fetch failed (read ECONNRESET)`). Source-image ingestion (`uploadSourceImageToBlob`) stores oversize catalog images instead of dropping them: the download is capped at `SOURCE_IMAGE_MAX_DOWNLOAD_BYTES` (default 25 MB; a larger `Content-Length` is refused unread and a longer stream is cancelled), `normalizeSourceImage` downscales any long edge over `SOURCE_IMAGE_MAX_EDGE_PX` (default 2048 px, keeping the format), and an image still over 5 MB after that (large PNGs) is re-encoded as WebP (q85). The 5 MB limit then applies to the stored bytes. Images within both limits keep the unchanged metadata-strip pipeline, so their checksums and checksum-named blobs stay the same. All uploaded image bytes are auto-oriented and metadata-stripped with `sharp` (removing EXIF/GPS and other embedded metadata) before any checksum generation, persistence, or forwarding to AI/OCR services. This applies to both source-image ingestion (before blob upload) and capture-frame data URLs (`quality_json.ingestion.exifStripped` records whether stripping ran). `sharp` failures degrade gracefully to the original bytes.
 
 Reference endpoints:
 - `GET /api/reference/finishes` and `GET /api/reference/harmonies` are public read endpoints for UI lookup data, sorted by `sort_order` and served with cache headers.
@@ -303,6 +321,8 @@ Reference endpoints:
 
 **Color family filter (#103, migration 20261017061637910_add-shade-color-family).** `GET /api/polishes?family=red,pink` and `GET /api/catalog/search?q=…&family=red,pink` return only shades in ANY of the listed families: `red`, `pink`, `coral`, `orange`, `yellow`, `green`, `teal`, `blue`, `purple`, `nude`, `brown`, `grey` (`gray` accepted), `black`, `white`, `multichrome`. Values are comma-separated and/or repeated (`family=red&family=pink`), case-insensitive; an unknown family is a 400 (not silently ignored). Shades with no usable hex have no family and never match a family filter. The family is the STORED GENERATED column `shade.color_family = shade_color_family(vendor_hex, detected_hex, name_hex, finishes, finish)` (indexed by `idx_shade_color_family`): `multichrome` for color-shifting finishes, otherwise OKLCH bins of the display hex (vendor > detected > name). It mirrors `classifyColorFamily()` in swatchwatch-shared; `tests/color-family.unit.test.cjs` parses the migration's threshold `CONSTANT`s and multichrome finish list and fails if they drift from `COLOR_FAMILY_THRESHOLDS` / `MULTICHROME_FAMILY_FINISHES` (set `COLOR_FAMILY_SQL_TEST_DATABASE_URL` to a migrated database to also compare the bins row for row). Because the filter is a plain `WHERE s.color_family = ANY($n)`, pagination, the `COUNT(*) OVER()` total and the page-past-the-end fallback count all stay correct. Polish list/detail responses and catalog search results expose it as `colorFamily` (null when unclassifiable). Changing a bin needs a new migration that redefines `shade_color_family_from_hex()` and rewrites the rows (`UPDATE shade SET finish = finish`) so the stored column is recomputed.
 
+**Color-distance sort (`nearHex`, migration 20261023001520034_shade-display-oklab).** `GET /api/polishes?nearHex=E0457B` orders the page by OKLAB distance from each shade's display hex (vendor > detected > name) to the target, nearest first, then by shade id; shades with no usable display hex sort last. Each row carries `colorDistance` (null without a usable hex), equal to `colorDistance(resolveDisplayHex(polish), target)` in swatchwatch-shared, so clients grade it with the shared dupe thresholds. Hexes are 6 digits with or without `#` (send `%23` or leave it out), comma-separated and/or repeated, at most 24 (`NEAR_HEX_MAX_TARGETS`); with several the distance is to the nearest one (web color search ranks a harmony palette in one query). Anything else is a 400. `nearHex` replaces `sortBy`/`sortOrder`, and it only reorders: visibility and every other filter (`status`, `scope`, `family`, `category`, `brand`, `finish`, …), paging and the `COUNT(*) OVER()` total are unchanged, and it is part of the list cache key. The shade side is three STORED GENERATED columns `shade.oklab_l/a/b` (`hex_to_oklab(shade_color_family_trim(<display hex>))`, trimmed like `color_family`), so the distance is arithmetic on stored values; the target side comes from swatchwatch-shared `hexToOklab` as bound parameters (`lib/near-hex.ts`). `tests/near-hex.unit.test.cjs` evaluates the coefficients in `hex_to_oklab()` against `hexToOklab()` on fixed hexes (set `NEAR_HEX_SQL_TEST_DATABASE_URL` or `COLOR_FAMILY_SQL_TEST_DATABASE_URL` to also compare the live function and distance). Measured on 60k synthetic shades: ranking by the stored columns takes ~9 ms vs ~73 ms calling `hex_to_oklab()` per row; a 5k-row family page costs ~1.5 ms more than its default sort. `GET /api/catalog/search` has no `nearHex`: no client ranks its results by color.
+
 ### "Buy from brand" links (#267, `src/lib/buy-link.ts`)
 
 Polish list rows and detail (`GET /api/polishes`, `GET /api/polishes/{id}`, so catalog, collection and wishlist rows alike), `GET /api/catalog/search` results and `GET /api/catalog/shade/{id}` carry an optional `buyUrl`: the brand's product page, taken from the URL the connector stored (`external_product.normalized_json ->> 'productUrl'`; Shopify sources build `https://<store>/products/<handle>`, MakeupAPI uses `product_link`, OpenBeautyFacts stores none). Shades reach their products through `shade_source_product` (migration `20261017061344201_add-shade-source-product`), which ingestion writes (`recordShadeSourceProduct`) every time it materializes a shade from a product, bumping `last_seen_at`. The key is **absent** when the shade has no stored URL or only unsafe ones, so clients render no link.
@@ -310,6 +330,7 @@ Polish list rows and detail (`GET /api/polishes`, `GET /api/polishes/{id}`, so c
 - **Validation (server-side, `sanitizeBuyUrl`)**: only absolute `http://`/`https://` URLs with a host reach the client. Any other scheme (`javascript:`, `data:`, `vbscript:`, `file:`, `ftp:`, `mailto:` …), relative or protocol-relative URLs, URLs with embedded credentials (`https://user:pass@…`), URLs containing whitespace/control characters, and URLs over 2048 characters are dropped. The returned value is the normalized `URL.href`.
 - **Selection when a shade has several source products (`selectBuyFromBrandUrl`)**: ignore candidates whose URL fails validation; prefer a product whose `data_source.enabled` is true; then the most recent `shade_source_product.last_seen_at`; then the most recent `external_product.fetched_at`; then the highest `external_product_id`. The result does not depend on row order.
 - **No affiliate parameters.** `applyAffiliateParams(url)` is the single (currently no-op) hook where they would be added; its output is re-validated.
+- **Brand list price.** The same responses carry optional `buyPrice` (number, major units), `buyCurrency` (ISO 4217) and `buyPriceSeenAt` (ISO, the product's `external_product.fetched_at`) next to `buyUrl`. They come from the **same chosen product** as the URL (`selectBuyFromBrandLink` returns `{ url, price?, currency?, priceSeenAt? }`; a runner-up's price is never used), read from `normalized_json ->> 'price'` / `'currency'`, and appear only when both a valid amount and a valid currency are stored. They are what the brand's store listed, never the user's `purchasePrice`, and are never converted or summed across currencies. See "Product prices" below for how connectors store them.
 - Lookups run as one extra query for the shades on the returned page only (`ANY($1::bigint[])`), after the main query, so the list SQL itself is unchanged. A lookup failure (for example before the migration has run) is logged as a warning and the response simply has no `buyUrl` values.
 - Clients must render the link with `target="_blank" rel="noopener noreferrer nofollow"` (`OUTBOUND_LINK_TARGET` / `OUTBOUND_LINK_REL` in swatchwatch-shared).
 
@@ -354,7 +375,24 @@ npm run backfill:product-text --workspace=swatchwatch-functions -- --write      
 npm run backfill:product-text --workspace=swatchwatch-functions -- --write --fill-finishes        # also fill empty shade finishes
 ```
 
-The backfill (`src/scripts/backfill-product-text.ts`) reads `external_product` in keyset pages (`--batch-size`, default 500; `--limit`), recomputes the two fields from `raw_json` with the connectors' own extractors, and merges them into `normalized_json` (`fetched_at` untouched). It then reports finish coverage: non-merged shades with empty `finishes` now, and how many ingestion would fill from their most recently seen linked product, split by source (`tags`/`descriptors`/`description`). With `--write --fill-finishes` it writes those, only where `finishes` is still empty. It loads `local.settings.json` like the eval scripts.
+**Product prices (buy link prices).** Connectors whose data has a price write `price` (decimal string in major units, e.g. `"12.50"`) and `currency` (ISO 4217 or `null`) into `external_product.normalized_json`, using the helpers in `src/lib/product-price.ts`:
+
+- **Shopify-style stores** (`HoloTacoShopify` and every generic `*Shopify` source): `products.json` lists `variants[].price` as a string with no currency. The product price is the lowest price among variants with `available: true`, or the lowest of all variants when every one is sold out; zero, negative, non-numeric and absurd (> 100000) prices are ignored. The store currency comes from `data_source.metadata.currency` when set (e.g. `UPDATE data_source SET metadata = metadata || '{"currency":"CAD"}' WHERE name = 'XShopify'`), otherwise from one `GET <store>/meta.json` per connector run (asked only when some product has a price; 10 s timeout, no retries, never fails the job). When neither answers, `currency` stays `null` and the API shows no price; USD is never assumed. Job metrics record `storeCurrency` and `storeCurrencySource` (`source_metadata` / `shop_meta` / `unknown`). Per-variant `price` / `compareAtPrice` / `available` stay in `normalized_json.variants`.
+- **MakeupAPI**: `price` (normalized, `"10.0"` → `"10.00"`; `"0.0"` → `null`) and `currency` when the API gives an ISO code. `priceSign` (`"$"`) is kept but never turned into a currency.
+- **OpenBeautyFacts**: no price data; nothing is written.
+
+Rows ingested before this get prices from the backfill, which re-derives them from `raw_json` with the same helpers:
+
+```bash
+npm run backfill:product-price --workspace=swatchwatch-functions                                  # dry run (default): counts per source + store currencies
+npm run backfill:product-price --workspace=swatchwatch-functions -- --source MooncatShopify --verbose
+npm run backfill:product-price --workspace=swatchwatch-functions -- --no-fetch-currency           # never call /meta.json
+npm run backfill:product-price --workspace=swatchwatch-functions -- --write
+```
+
+`src/scripts/backfill-product-price.ts` reads `external_product` in keyset pages (`--batch-size`, default 500; `--limit`) and merges `{ price, currency }` into `normalized_json` (`fetched_at` untouched) only where the stored values differ. Per Shopify source the currency is `data_source.metadata.currency`, else the currency newer ingestion runs already stored on that source's products, else the shop's `/meta.json` (skipped with `--no-fetch-currency`); a currency already stored on a row is never cleared. The summary counts rows that end up priced with and without a currency. It needs Postgres (loads `local.settings.json` like the eval scripts).
+
+The product-text backfill (`src/scripts/backfill-product-text.ts`) reads `external_product` in keyset pages (`--batch-size`, default 500; `--limit`), recomputes the two fields from `raw_json` with the connectors' own extractors, and merges them into `normalized_json` (`fetched_at` untouched). It then reports finish coverage: non-merged shades with empty `finishes` now, and how many ingestion would fill from their most recently seen linked product, split by source (`tags`/`descriptors`/`description`). With `--write --fill-finishes` it writes those, only where `finishes` is still empty. It loads `local.settings.json` like the eval scripts.
 - `GET /api/reference-admin/jobs` lists recent ingestion jobs with pagination (`page`, `pageSize`) and optional `status` filter (`queued|running|succeeded|failed|cancelled`), joined with `data_source` for source metadata.
 ### User management (`admin-users.ts`, `src/lib/admin-users.ts`, issue #45)
 
@@ -478,7 +516,7 @@ rows and user inventory rows (`quantity=0`, `status='wishlist'`) by default. Set
 
 Both materializers (MakeupAPI and every `*Shopify` source) also record a `shade_source_product`
 row linking each materialized shade to its `external_product`, which is where the shade's
-"Buy from brand" `buyUrl` comes from (see "Buy from brand" links above). The `*Shopify`
+"Buy from brand" `buyUrl` and its `buyPrice` / `buyCurrency` come from (see "Buy from brand" links above). The `*Shopify`
 materializer also links the product's GTIN and variant barcodes to the shade as catalog `barcode`
 rows (first shade to claim a GTIN keeps it; conflicts go to the job log; see "Barcode scans").
 
@@ -731,8 +769,7 @@ overriding variables already set), so the same Postgres / Azure OpenAI config th
 | `image-select-ai-snap` | `image-select-ai`'s photo choice (alt-text ranking, or one vision call picking the on-nail photo), then `blind-snap` on that photo. | yes |
 | `ensemble` | `azure-current` sampled several times at a small temperature, optionally across more than one deployment, reduced to one answer by `src/lib/hex-ensemble.ts` (see below). | yes |
 
-When Azure OpenAI is not configured (`AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_KEY` + `AZURE_OPENAI_DEPLOYMENT_HEX`/`AZURE_OPENAI_DEPLOYMENT`,
-or the APIM gateway equivalents), Azure strategies print `Skipping strategy …` and the run still exits 0.
+When Azure OpenAI is not configured (`AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_KEY` + `AZURE_OPENAI_DEPLOYMENT_HEX`/`AZURE_OPENAI_DEPLOYMENT`), Azure strategies print `Skipping strategy …` and the run still exits 0.
 
 **Snap strategies** (`src/eval/hex/strategies/snap.ts` + `snapHexToPalette` in `src/lib/hex-snap.ts`, the same module production uses behind `HEX_DETECTION_SNAP_ENABLED`). On
 `sample.json` the measured palette already holds a chip within 0.05 of the ground truth for 78% of cases, but
@@ -916,7 +953,7 @@ Timestamp prefixes are monotonic and globally unique, which avoids the prefix co
 > **Existing `001_`–`022_` files are intentionally left as-is.** node-pg-migrate records applied migrations by filename in the `pgmigrations` table — renaming an already-applied migration would make it look unapplied and re-run it. Only new migrations adopt the dated format; the legacy files are migrated forward by convention, not by rename.
 
 ```bash
-# From repo root (requires DATABASE_URL or PG* env vars)
+# From repo root (PG* from local.settings.json, which overrides the shell env; an exported DATABASE_URL wins over PG*)
 npm run migrate          # Apply pending migrations
 npm run migrate:down     # Roll back last migration
 
@@ -1028,74 +1065,190 @@ are all kept there; the daily cap (`appinsights_daily_cap_gb`) bounds the cost.
 
 ## Environment Variables
 
-Defined in `local.settings.json` (git-ignored values). See the root README for the full list. For production, secrets are injected via Key Vault references.
+Set locally in `local.settings.json` (git-ignored; copy `local.settings.json.example`, which lists every setting in the same groups as below). In Azure the Function App settings are Terraform-managed (`infrastructure/main.tf`) and secrets are Key Vault references, so a portal-only change is reverted by the next infra apply. Variables are grouped by the module that reads them; anything without a default below is unset by default. The example's `NEXT_PUBLIC_*` entries are a convenience copy for the web app; the Functions host ignores them.
 
-Key variables:
+### Runtime and hosting
 
-| Variable | Purpose |
-|----------|---------|
-| `AUTH_DEV_BYPASS` | Local-dev-only bypass mode. When `true` **and the host is not running in Azure**, auth accepts `Bearer dev:<userId>` tokens. Ignored (fail closed, logged + `auth.dev_bypass_refused`) on Azure-hosted Function Apps; the deploy workflow always sets it to `false`. |
-| `IMAGE_PROXY_SIGNING_KEY` | Secret (>= 32 chars) used to HMAC-sign `/api/images/{id}` ids. Required outside dev: when unset and dev bypass is not active, image URLs are omitted and the proxy refuses every request. When unset with dev bypass active (local only), an ephemeral per-process key is used (URLs break on restart). Generate with `openssl rand -base64 48`. Terraform stores a generated value in Key Vault (`image-proxy-signing-key`). |
-| `IMAGE_PROXY_ID_TTL_SECONDS` | Minimum remaining lifetime of newly minted public (`v2`, catalog) `/api/images/{id}` ids (default `259200` = 3 days, clamped to 3600–2592000). Keep it above the Azure OpenAI batch completion window. |
-| `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL` | Optional ISO-8601 timestamp until which legacy non-expiring (v1) image ids are still accepted. Unset or in the past means they are rejected (`403`). |
-| `SHAREABLE_WISHLIST_ENABLED` | Feature flag for opt-in public wishlist links (#268). Default `false` (unset = off; only `true`, any case, enables). While off, `/api/wishlist-share*` and `/api/wishlist/{token}` return `404` with `code: "feature_disabled"` and the web share card stays hidden. In Azure it is a Terraform-managed app setting (`shareable_wishlist_enabled`, fed from the `SHAREABLE_WISHLIST_ENABLED` GitHub variable by Deploy Infra). Tokens are derived from `IMAGE_PROXY_SIGNING_KEY`, so that key must be configured too. |
-| `INGESTION_JOB_QUEUE_NAME` | Optional queue name for async ingestion jobs. Defaults to `ingestion-jobs`. |
-| `SOURCE_IMAGE_CONTAINER` | Optional blob container override for source-ingested images. Defaults to `source-images`. |
-| `SOURCE_IMAGE_MAX_EDGE_PX` | Long edge (px) above which an ingested catalog image is downscaled before storage (default `2048`, clamped `256`–`8192`). 2048 covers Azure OpenAI vision (which downsamples to 2048 px even at `detail: high`, 512 px at `low`) and the image proxy's display transforms (≤ 1024 px). |
-| `SOURCE_IMAGE_MAX_DOWNLOAD_BYTES` | Largest catalog image download accepted before resizing (default `26214400` = 25 MB, clamped 5–100 MB). Larger images are refused (`Image too large to download`). |
-| `USER_MEDIA_CONTAINER` | Optional blob container override for private user media (e.g. nail photos). Defaults to `nail-photos`; Terraform sets it from `azurerm_storage_container.nail_photos`. The only container owner-scoped `v3` image ids may read (and `v2` ids may not), see #227. |
-| `ORPHAN_MEDIA_SWEEP_SCHEDULE` | NCRONTAB schedule for the `orphan-media-sweep` timer (default `0 17 3 * * *`, daily 03:17 UTC), #319. |
-| `ORPHAN_MEDIA_SWEEP_GRACE_SECONDS` | Minimum age (by `image_asset.captured_at`) before an unreferenced owner-scoped asset may be swept (default `86400` = 24h, clamped 3600–2592000). Rows without `captured_at` are never swept. |
-| `ORPHAN_MEDIA_SWEEP_BATCH_SIZE` | Candidates fetched per sweep scan query (default `100`, clamped 1–1000). |
-| `ORPHAN_MEDIA_SWEEP_MAX_PER_RUN` | Most candidates one sweep run examines (default `2000`, clamped 1–20000); the rest are picked up by the next run (`truncated: true` in the completed event). |
-| `IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS` | Minimum remaining lifetime of newly minted owner-scoped private (`v3`) image ids (default `3600` = 1h, clamped to 300–86400, expiry bucketed to 15 minutes), see #227. |
-| `AZURE_STORAGE_CONNECTION` | Connection string for uploading source images to Azure Blob Storage. When unset (for local dev or bring-up), ingestion falls back to storing the original source image URLs so swatch images still appear. |
-| `AZURE_OPENAI_GATEWAY_ENDPOINT` | Optional APIM gateway base URL used when `AZURE_OPENAI_USE_GATEWAY=true`. |
-| `AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY` | Optional APIM subscription key header value (`Ocp-Apim-Subscription-Key`) used in gateway mode. |
-| `AZURE_OPENAI_USE_GATEWAY` | Feature flag (`true`/`false`) to route Azure OpenAI calls through APIM gateway endpoint. |
-| `AZURE_OPENAI_DEPLOYMENT_LABEL` | Optional Azure OpenAI deployment name for label OCR structured extraction (`src/lib/ocr-parser.ts`). Falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`. |
-| `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name for synchronous image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT` when unset). |
-| `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` | Optional Azure OpenAI deployment name for batch image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`). |
-| `HEX_DETECTION_SNAP_ENABLED` | Feature flag (default `false`; only `true` enables) for the production snap step in `src/lib/hex-snap.ts`: after every vision hex detection (ingestion sync and batch-submit fallback, the batch poller apply step, admin `recalc-hex`) the model's hex is replaced by the nearest palette chip measured from the same image when one is within `HEX_SNAP_MAX_DISTANCE`, stored as `detected_hex_method = 'vision-snap'`. Read at call time. |
-| `HEX_SNAP_MAX_DISTANCE` | Largest OKLAB distance at which the snap step (production when `HEX_DETECTION_SNAP_ENABLED` is on, and the eval `blind-snap` / `image-select-ai-snap` strategies) replaces the model's hex with the nearest measured palette chip (default `0.10`, the MEDIUM threshold). Further away, the model hex is kept. |
-| `AZURE_OPENAI_DEPLOYMENT_HEX_ENSEMBLE` | Optional comma-separated Azure OpenAI deployment names the eval `ensemble` strategy samples from (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`, then `AZURE_OPENAI_DEPLOYMENT`). Eval-only. |
-| `HEX_DETECTION_ENSEMBLE_SAMPLES` | Samples per deployment for the eval `ensemble` strategy (default `3`, clamped 1–10). Eval-only. |
-| `HEX_DETECTION_ENSEMBLE_TEMPERATURE` | Sampling temperature for the eval `ensemble` strategy (default `0.3`, clamped 0–2). Eval-only; production detection stays at 0. |
-| `AZURE_OPENAI_BATCH_API_VERSION` | Optional API version used for Azure OpenAI Files/Batch endpoints (default `2025-03-01-preview`). |
-| `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` | Optional completion window sent during batch creation (default `24h`). |
-| `AZURE_OPENAI_VISION_DETAIL` | Optional image detail level for vision hex detection, sync and batch (`low` default — flat ~85 tokens/image; `high`/`auto` for more resolution). Unrecognized values fall back to `low`. |
-| `HEX_DETECTION_BATCH_ENABLED` | Feature flag to enable Azure OpenAI Batch API for Shopify image detection (default `false`). |
-| `HEX_DETECTION_BATCH_MIN_IMAGES` | Minimum record count before switching from synchronous detection to batch submission (default `5`). |
-| `HEX_DETECTION_BATCH_MAX_IN_FLIGHT` | Max hex batches one ingestion job keeps pending before the worker pauses for `awaiting_ai` (default `20`, clamped 1–100); bounds the job's share of the batch deployment's enqueued-token quota. |
-| `HEX_DETECTION_DELAY_MS` | Pause after each synchronous (non-batch) hex detection call, per concurrency slot (default `1000`, max `60000`, `0` disables). The old fixed 6s pacing predates low-detail images; 429s are still retried with `Retry-After`. |
-| `HEX_DETECTION_CONCURRENCY` | Synchronous hex detection calls in flight at once (default `4`, max `32`). Records still commit to Postgres one at a time, in order. The deployment's tokens-per-minute quota is the real ceiling, so raise this together with `openai_deployment_capacity`. |
-| `SUSPICIOUS_HEX_REPEAT_MIN_RECORDS` | Batch-aware suspicious-hex check (`src/lib/suspicious-hex.ts`): a vendor hex shared by at least this many records of one data source is a store template default (default `3`). Used when `detectHexOnSuspiciousOnly` is on. |
-| `SUSPICIOUS_HEX_REPEAT_MIN_SHARE` | ...and shared by at least this fraction (0–1) of the records that carry a vendor hex (default `0.1`). Both repeat thresholds must be met. |
-| `SUSPICIOUS_HEX_GRAYSCALE_MAX_CHROMA` | OKLAB chroma below which a vendor hex is near-grayscale and flagged unless the shade name/tags say gray, silver, black, white, nude or chrome (default `0.02`). |
-| `GALLERY_MAX_IMAGES_PER_SHADE` | Max `source_gallery` images one product links to its shade per ingest, counted in vendor order after near-duplicate skipping (positive integer; unset, empty, `0` or invalid = unlimited, the default). Images past the cap are still stored as `image_asset` rows; the image AI hex detection chose is always linked; lowering the cap unlinks the extra gallery swatches (except hex-labelled / `color_features` ones) on the product's next ingest. Counted in the `galleryOverCapSkipped` job metric. |
-| `INGESTION_AI_BATCH_POLL_SCHEDULE` | NCRONTAB schedule for the timer poller that checks batch completion (default `0 * * * * *`, every minute). |
-| `INGESTION_AI_BATCH_MAX_POLL_JOBS` | Max `awaiting_ai` ingestion jobs the poller processes per run (default `10`). |
-| `INGESTION_AI_IMAGE_PROXY_ORIGIN` | Optional public origin used when building AI image-proxy URLs (for example `https://<func-app>.azurewebsites.net`). Falls back to `https://$WEBSITE_HOSTNAME`. |
-| `INGESTION_WORKER_TIME_BUDGET_MS` | Wall-clock budget per ingestion worker invocation before it checkpoints and enqueues a continuation message (default `240000`, clamped to `30000`–`270000` to stay under the Consumption plan timeout). |
-| `INGESTION_LOG_FLUSH_INTERVAL_MS` | Interval for ingestion worker metric/log flushes while a job runs (default `10000`). Increase to reduce write pressure on Postgres. |
-| `INGESTION_JOB_LOG_MAX_ENTRIES` | Entries kept in a job's `metrics_json.logs` for the whole run, shared by every worker invocation and the AI batch poller (default `500`, clamped `100`–`2000`). The first 20% of the run is kept, then the newest lines, with one marker entry counting the omitted lines by level. See [Ingestion job logs](#ingestion-job-logs). |
-| `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS` | Per-request timeout for Shopify `products.json` downloads (default `45000`). |
-| `SHOPIFY_CONNECTOR_MAX_RETRIES` | Retry count for transient Shopify request errors (default `2`, total attempts = retries + 1). |
-| `SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS` | Linear backoff base delay for Shopify retries (default `1000`). |
-| `PG_POOL_MAX` | Postgres pool max client count for Functions process (default `10`). |
-| `PG_IDLE_TIMEOUT_MS` | Idle timeout for pooled Postgres clients (default `30000`). |
-| `PG_CONNECTION_TIMEOUT_MS` | Connection acquisition timeout for Postgres clients (default `15000`). |
-| `PG_QUERY_MAX_RETRIES` | Retries for retry-safe DB queries (`SELECT` and `UPDATE ingestion_job`) when connection timeouts occur (default `2`). |
-| `PG_QUERY_RETRY_BASE_MS` | Linear backoff base delay in ms for retry-safe DB query retries (default `250`). |
-| `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` | Azure AI Document Intelligence endpoint for server-side OCR (`src/lib/ocr.ts`). Graceful degradation when missing. |
-| `AZURE_DOCUMENT_INTELLIGENCE_KEY` | Azure AI Document Intelligence subscription key for OCR. |
-| `APPLICATIONINSIGHTS_CONNECTION_STRING` | Optional custom telemetry sink for `trackEvent` / `trackMetric` / `trackException` in `src/lib/telemetry.ts`. When unset, telemetry calls are no-ops. `src/index.ts` imports `lib/telemetry` first so `pg`/`http` dependencies are auto-instrumented; the SDK's Functions `preInvocation` hook puts dependencies, custom events and exceptions under the host request's `operation_Id`. |
-| `CORS_ALLOWED_METHODS` | Overrides `Access-Control-Allow-Methods` in `src/lib/http.ts` (default `GET,POST,PUT,PATCH,DELETE,OPTIONS`; PATCH is used by `PATCH /api/users-admin/{id}`). |
-| `CORS_ALLOWED_HEADERS` | Overrides `Access-Control-Allow-Headers` in `src/lib/http.ts` (default `Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context`; the last four let browser telemetry correlate with Functions requests). `Request-Context` is always exposed. |
-| `REDIS_URL` | Redis endpoint URL for API read-through caching (for example `rediss://<host>:10000`). |
-| `REDIS_KEY` | Redis access key paired with `REDIS_URL`. When either Redis var is missing, cache helpers become no-ops and requests fall back to Postgres. |
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `FUNCTIONS_WORKER_RUNTIME` | — | Always `node` (Functions host setting). |
+| `AzureWebJobsStorage` | — | Host storage for triggers, queues and timers. Locally the Azurite connection string (`npm run dev:infra`). |
+| `FUNCTIONS_NODE_BLOCK_ON_ENTRY_POINT_ERROR` | `true` in Azure | Terraform-managed; makes entrypoint/import failures fail host startup instead of surfacing as route-level `404`s. |
+| `WEBSITE_HOSTNAME`, `WEBSITE_INSTANCE_ID` | set by Azure | Not set by us. `src/lib/runtime-env.ts` uses them to detect an Azure-hosted instance (which refuses `AUTH_DEV_BYPASS`); `WEBSITE_HOSTNAME` is also the fallback origin for AI image-proxy URLs. |
 
-Batch runtime note: `HEX_DETECTION_BATCH_ENABLED` and `HEX_DETECTION_BATCH_MIN_IMAGES` are read when each ingestion worker message and batch poller run starts, so logs reflect the effective values used for that execution.
+### Database (`src/lib/db.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` | — | Postgres connection. Locally `localhost:55432` / `swatchwatch` / `postgres` (from `npm run dev:infra`). In Azure `PGPASSWORD` is a Key Vault reference. |
+| `PG_POOL_MAX` | `10` | Pool max client count for the Functions process. |
+| `PG_IDLE_TIMEOUT_MS` | `30000` | Idle timeout for pooled clients. |
+| `PG_CONNECTION_TIMEOUT_MS` | `15000` | Connection acquisition timeout. |
+| `PG_QUERY_MAX_RETRIES` | `2` | Retries for retry-safe queries (`SELECT` and `UPDATE ingestion_job`) on connection timeouts. |
+| `PG_QUERY_RETRY_BASE_MS` | `250` | Linear backoff base delay for those retries. |
+| `DATABASE_URL` | — | Migrations only (`migrate` and `migrate:down`). `npm run migrate` / `migrate:down` first copy every `local.settings.json` value into the environment, overriding exported or inline variables of the same name (`PG*` included); node-pg-migrate then prefers `DATABASE_URL` over `PG*`. An exported `DATABASE_URL` therefore works only while `local.settings.json` does not define one (the example does not; root `.env.example` has the local URL). The DB scripts (`eval:hex:populate`, `backfill:product-text`) read the `PG*` variables. |
+
+### Auth (`src/lib/auth.ts`, `src/lib/runtime-env.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AZURE_AD_B2C_TENANT` | — | Entra External ID / B2C tenant short name. Metadata discovery tries `ciamlogin.com` first, then legacy `b2clogin.com`. |
+| `AZURE_AD_B2C_CLIENT_ID` | — | App registration client id. Accepted audiences are the id and `api://<id>`. |
+| `AUTH_DEV_BYPASS` | `false` | Local-dev-only. When `true` **and the host is not running in Azure**, auth accepts `Bearer dev:<userId>` tokens. Ignored (fail closed, logged + `auth.dev_bypass_refused`) on Azure-hosted Function Apps; the deploy workflow always sets it to `false`. |
+
+### Blob storage (`src/lib/blob-storage.ts`, `src/lib/connector-raw-storage.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AZURE_STORAGE_CONNECTION` | — | Storage account for catalog images, private user media and connector snapshots (locally Azurite). When unset, ingestion stores the original source image URLs so swatches still appear, and the orphan media sweep is skipped. |
+| `SOURCE_IMAGE_CONTAINER` | `source-images` | Container for ingested catalog images and their thumbnail variants. The only container public `v2` image ids may read. |
+| `USER_MEDIA_CONTAINER` | `nail-photos` | Container for private user media (nail and mani photos). The only container owner-scoped `v3` image ids may read (#227). Terraform sets it from `azurerm_storage_container.nail_photos`. |
+| `CONNECTOR_RAW_CONTAINER` | — | Container for raw connector snapshots and the ingestion catalog cache; unset = no-op. Terraform-provisioned. The legacy name `RAW_SNAPSHOT_CONTAINER` is still read but deprecated. |
+
+### Image proxy (`src/lib/image-proxy.ts`, `src/functions/images.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `IMAGE_PROXY_SIGNING_KEY` | — | Secret (>= 32 chars) that HMAC-signs `/api/images/{id}` ids; also the root of shareable wishlist and look tokens. Required outside dev: when unset and dev bypass is not active, image URLs are omitted and the proxy refuses every request. With dev bypass active (local only), an ephemeral per-process key is used (URLs break on restart). Generate with `openssl rand -base64 48`. Terraform stores a generated value in Key Vault (`image-proxy-signing-key`). |
+| `IMAGE_PROXY_ID_TTL_SECONDS` | `259200` (3 days) | Minimum remaining lifetime of newly minted public (`v2`, catalog) ids, clamped 3600–2592000. Keep it above the AI batch completion window plus poller lag: the batch poller re-reads the same ids for the snap step, and an expired id just keeps the raw `vision-direct` hex. |
+| `IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS` | `3600` (1h) | Minimum remaining lifetime of owner-scoped private (`v3`) ids, clamped 300–86400, expiry bucketed to 15 minutes (#227). |
+| `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL` | — | ISO-8601 timestamp until which legacy non-expiring (`v1`) ids are still accepted. Unset or in the past = rejected (`403`). |
+
+### Orphan media sweep (`src/lib/orphan-media-sweep.ts`, #319)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `ORPHAN_MEDIA_SWEEP_SCHEDULE` | `0 17 3 * * *` | NCRONTAB schedule for the `orphan-media-sweep` timer (daily 03:17 UTC). |
+| `ORPHAN_MEDIA_SWEEP_GRACE_SECONDS` | `86400` (24h) | Minimum age (by `image_asset.captured_at`) before an unreferenced owner-scoped asset may be swept, clamped 3600–2592000. Rows without `captured_at` are never swept. |
+| `ORPHAN_MEDIA_SWEEP_BATCH_SIZE` | `100` | Candidates fetched per scan query, clamped 1–1000. |
+| `ORPHAN_MEDIA_SWEEP_MAX_PER_RUN` | `2000` | Most candidates one run examines, clamped 1–20000; the rest wait for the next run (`truncated: true` in the completed event). |
+
+### Feature flags
+
+Only the exact value `true` (any case) enables a flag; anything else is off.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `SHAREABLE_WISHLIST_ENABLED` | `false` | Opt-in public wishlist links (#268). While off, `/api/wishlist-share*` and `/api/wishlist/{token}` return `404` with `code: "feature_disabled"` and the web share card stays hidden. Terraform-managed (`shareable_wishlist_enabled`, fed from the `SHAREABLE_WISHLIST_ENABLED` GitHub variable by Deploy Infra). Needs `IMAGE_PROXY_SIGNING_KEY`. |
+| `SHAREABLE_LOOKS_ENABLED` | `false` | Opt-in public share links for saved looks. While off, `/api/look-share` and `/api/look/{token}` return `404` with `code: "feature_disabled"` and the Looks page shows no Share link controls. Terraform-managed (`shareable_looks_enabled`, fed from the `SHAREABLE_LOOKS_ENABLED` GitHub variable by Deploy Infra). Needs `IMAGE_PROXY_SIGNING_KEY`. |
+| `HEX_DETECTION_BATCH_ENABLED` | `false` | Azure OpenAI Batch API for Shopify vision hex detection plus the `ingestion-ai-batch-poller` timer. See Batch hex detection below. |
+| `HEX_DETECTION_SNAP_ENABLED` | `false` | Snap step in `src/lib/hex-snap.ts`: after every vision hex detection (ingestion sync and batch-submit fallback, the batch poller apply step, admin `recalc-hex`) the model's hex is replaced by the nearest palette chip measured from the same image when one is within `HEX_SNAP_MAX_DISTANCE`, stored as `detected_hex_method = 'vision-snap'`. Read at call time. Terraform-managed (`hex_detection_snap_enabled`). |
+
+### Azure OpenAI client (`src/lib/azure-openai-config.ts`)
+
+Shared by vision hex detection (sync and batch), label OCR parsing and the hex eval.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AZURE_OPENAI_ENDPOINT` | — | Azure OpenAI endpoint. |
+| `AZURE_OPENAI_KEY` | — | Endpoint key (`api-key` header). Key Vault reference in Azure. Functions always call the Azure OpenAI resource directly (the APIM gateway path was removed, D25). |
+| `AZURE_OPENAI_DEPLOYMENT` | — | Fallback deployment name for every role below. |
+| `AZURE_OPENAI_DEPLOYMENT_HEX` | → `AZURE_OPENAI_DEPLOYMENT` | Deployment for synchronous vision hex detection. |
+| `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` | → `_HEX` → `AZURE_OPENAI_DEPLOYMENT` | Deployment for batch hex detection. |
+| `AZURE_OPENAI_DEPLOYMENT_LABEL` | → `_HEX` → `AZURE_OPENAI_DEPLOYMENT` | Deployment for label OCR structured extraction (`src/lib/ocr-parser.ts`). Leave empty to use the fallbacks; a placeholder value would be sent as the deployment name. |
+| `AZURE_OPENAI_VISION_DETAIL` | `low` | Image detail for vision hex detection, sync and batch: `low` (flat ~85 tokens/image), `high` or `auto`. Unrecognized values fall back to `low`. |
+
+### Hex detection (`src/lib/ai-color-detection.ts`, `src/lib/hex-snap.ts`, `src/lib/suspicious-hex.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `HEX_DETECTION_CONCURRENCY` | `4` | Synchronous detection calls in flight at once (max `32`). Records still commit to Postgres one at a time, in order. The deployment's tokens-per-minute quota is the real ceiling, so raise this together with `openai_deployment_capacity`. |
+| `HEX_DETECTION_DELAY_MS` | `1000` | Pause after each synchronous call, per concurrency slot (max `60000`, `0` disables). 429s are still retried with `Retry-After`. |
+| `HEX_SNAP_MAX_DISTANCE` | `0.10` | Largest OKLAB distance at which the snap step (production when `HEX_DETECTION_SNAP_ENABLED` is on, and the eval `blind-snap` / `image-select-ai-snap` strategies) replaces the model's hex with the nearest measured palette chip (the MEDIUM threshold). Further away, the model hex is kept. |
+| `SUSPICIOUS_HEX_REPEAT_MIN_RECORDS` | `3` | A vendor hex shared by at least this many records of one data source's batch is a store template default and goes to AI detection when `detectHexOnSuspiciousOnly` is on. |
+| `SUSPICIOUS_HEX_REPEAT_MIN_SHARE` | `0.1` | ...and by at least this fraction (0–1) of the records that carry a vendor hex. Both repeat thresholds must be met. |
+| `SUSPICIOUS_HEX_GRAYSCALE_MAX_CHROMA` | `0.02` | OKLAB chroma below which a vendor hex is near-grayscale and flagged unless the shade name/tags say gray, silver, black, white, nude or chrome (pure grays are `0`, a nude ≈ `0.08`). |
+
+### Batch hex detection (`src/lib/azure-openai-batch.ts`, `src/functions/ingestion-ai-batch-poller.ts`)
+
+`HEX_DETECTION_BATCH_ENABLED` and `HEX_DETECTION_BATCH_MIN_IMAGES` are read when each ingestion worker message and batch poller run starts, so logs reflect the effective values for that execution.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `HEX_DETECTION_BATCH_MIN_IMAGES` | `5` | Minimum record count before ingestion switches from synchronous detection to batch submission. |
+| `HEX_DETECTION_BATCH_MAX_IN_FLIGHT` | `20` | Max batches one job keeps pending before the worker pauses for `awaiting_ai`, clamped 1–100; bounds the job's share of the deployment's enqueued-token quota. |
+| `AZURE_OPENAI_BATCH_API_VERSION` | `2025-03-01-preview` | API version for the Files/Batch endpoints. |
+| `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` | `24h` | Completion window sent on batch creation. |
+| `INGESTION_AI_BATCH_POLL_SCHEDULE` | `0 * * * * *` | NCRONTAB schedule for the batch completion poller (every minute). |
+| `INGESTION_AI_BATCH_MAX_POLL_JOBS` | `10` | Max `awaiting_ai` jobs the poller processes per run. |
+| `INGESTION_AI_IMAGE_PROXY_ORIGIN` | `https://$WEBSITE_HOSTNAME` | Public origin used to build `/api/images/{id}` URLs for Azure OpenAI vision calls (for example `https://<func-app>.azurewebsites.net`). Must be reachable from Azure OpenAI. |
+
+### Ingestion worker and connectors (`src/functions/ingestion-worker.ts`, `src/lib/connectors/`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `INGESTION_JOB_QUEUE_NAME` | `ingestion-jobs` | Storage queue for async ingestion jobs and continuation messages. |
+| `INGESTION_WORKER_TIME_BUDGET_MS` | `240000` | Wall-clock budget per worker invocation, clamped 30000–270000 (under the Consumption plan timeout). When spent, the worker saves `metrics.checkpoint`, sets stage `continuation_queued` and enqueues a continuation message. |
+| `INGESTION_LOG_FLUSH_INTERVAL_MS` | `10000` | Interval for worker metric/log flushes while a job runs. Increase to reduce write pressure on Postgres. |
+| `INGESTION_JOB_LOG_MAX_ENTRIES` | `500` | Entries kept in a job's `metrics_json.logs` across every worker invocation and poller run, clamped 100–2000. The first 20% of the run is kept, then the newest lines, with one marker entry counting the omitted lines by level. See [Ingestion job logs](#ingestion-job-logs). |
+| `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS` | `45000` | Per-request timeout for Shopify `products.json` downloads. |
+| `SHOPIFY_CONNECTOR_MAX_RETRIES` | `2` | Retries for transient Shopify request errors (total attempts = retries + 1). |
+| `SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS` | `1000` | Linear backoff base delay for Shopify retries. |
+
+### Catalog images (`src/lib/blob-storage.ts`, `src/lib/gallery-dedupe.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `SOURCE_IMAGE_MAX_EDGE_PX` | `2048` | Long edge above which an ingested image is downscaled before storage, clamped 256–8192. Covers Azure OpenAI vision (2048 px at `detail: high`, 512 px at `low`) and the proxy's display transforms (≤ 1024 px); thumbnail variants are rendered from the stored image. Images still over 5 MB after resizing are re-encoded as WebP. |
+| `SOURCE_IMAGE_MAX_DOWNLOAD_BYTES` | `26214400` (25 MB) | Largest download accepted before resizing, clamped 5–100 MB. Larger images are refused (`Image too large to download`). |
+| `GALLERY_MAX_IMAGES_PER_SHADE` | unlimited | Max `source_gallery` images one product links to its shade per ingest, in vendor order after near-duplicate skipping (positive integer; unset, empty, `0` or invalid = unlimited). Images past the cap are still stored; the image AI hex detection chose is always linked; lowering the cap unlinks the extras (except hex-labelled / `color_features` ones) on the product's next ingest. Counted in the `galleryOverCapSkipped` job metric. |
+
+### OCR and voice (`src/lib/ocr.ts`, `src/functions/voice.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` | — | Azure AI Document Intelligence endpoint for label OCR on capture frames. When it or the key is missing, OCR is skipped (graceful degradation). |
+| `AZURE_DOCUMENT_INTELLIGENCE_KEY` | — | Document Intelligence key. |
+| `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` | — | Reserved for Speech-to-text in `POST /api/voice`. Not read yet: the voice handler is a stub (Terraform sets a placeholder key). |
+
+### Cache (`src/lib/cache.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `REDIS_URL` | — | Redis endpoint for API read-through caching (for example `rediss://<host>:10000`; locally `redis://localhost:6379`). |
+| `REDIS_KEY` | — | Access key paired with `REDIS_URL`. When either is missing, cache helpers are no-ops and requests fall back to Postgres. |
+
+### HTTP / CORS (`src/lib/http.ts`)
+
+The local `func` host also applies `Host.CORS` from `local.settings.json` (pinned to `http://localhost:3000`); for a web dev server on another port start it with `func start --cors <origin>`.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000,https://*.azurestaticapps.net` | Comma-separated origins (`*` wildcards allowed). Terraform sets it to the web app origins. |
+| `CORS_ALLOWED_METHODS` | `GET,POST,PUT,PATCH,DELETE,OPTIONS` | `Access-Control-Allow-Methods` (PATCH is used by `PATCH /api/users-admin/{id}`). |
+| `CORS_ALLOWED_HEADERS` | `Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context` | `Access-Control-Allow-Headers`; the last four let browser telemetry correlate with Functions requests. `Request-Context` is always exposed. |
+| `CORS_SUPPORT_CREDENTIALS` | `false` | `true` adds `Access-Control-Allow-Credentials: true` for matched (non-`*`) origins. The API uses bearer tokens, so this is normally off. |
+
+### Telemetry (`src/lib/telemetry.ts`)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | — | Sink for `trackEvent` / `trackMetric` / `trackException`; unset = no-ops. `src/index.ts` imports `lib/telemetry` first (keep it first) so `pg`/`http` dependencies are auto-instrumented; the SDK's Functions `preInvocation` hook puts dependencies, custom events and exceptions under the host request's `operation_Id`. |
+
+### Hex eval only (`src/eval/hex/`)
+
+Read by `npm run eval:hex` strategies, never by the Function App.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AZURE_OPENAI_DEPLOYMENT_HEX_ENSEMBLE` | → `_HEX` → `AZURE_OPENAI_DEPLOYMENT` | Comma-separated deployments the `ensemble` strategy samples from. |
+| `HEX_DETECTION_ENSEMBLE_SAMPLES` | `3` | Samples per deployment for `ensemble`, clamped 1–10. |
+| `HEX_DETECTION_ENSEMBLE_TEMPERATURE` | `0.3` | Sampling temperature for `ensemble`, clamped 0–2 (production detection stays at 0). |
+| `HEX_EVAL_REGION_CROP_MODE` | `cells` | `region-crop` localization: `cells` (labeled grid) or `bbox` (normalized box). |
+| `HEX_EVAL_REGION_CROP_CELLS` | `6` | Grid size per axis in `cells` mode, clamped 2–10. |
+| `HEX_EVAL_REGION_CROP_GRID` | `false` | `true` draws a 4×4 grid on the image in `bbox` mode. |
+| `HEX_EVAL_REGION_CROP_DETAIL` | `AZURE_OPENAI_VISION_DETAIL`, then `low` | `low` / `high` / `auto` vision detail for the `region-crop` locator call. |
+
+### Admin scripts (`scripts/*.cjs`)
+
+`backfill:image-variants`, `backfill:barcodes`, `backfill:product-category` and `dedupe:gallery-images` call the Functions API at `API_BASE_URL` (local host by default, or a deployed app), not the database (`backfill:product-text` and `eval:hex:populate` connect to Postgres with the `PG*` variables instead):
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `API_BASE_URL` | `http://localhost:7071/api` | Functions API base URL (for example `https://<func-app>.azurewebsites.net/api` or `http://localhost:7071/api`). |
+| `ADMIN_BEARER_TOKEN` | — | Bearer token of an admin user (`dev:<adminId>` against a local dev-bypass host). |
+
+### Auth and deploy notes
 
 JWT validation note:
 - In production mode (`AUTH_DEV_BYPASS=false`), auth discovery first tries Entra External ID (`ciamlogin.com`) metadata for `AZURE_AD_B2C_TENANT`, then falls back to legacy Azure AD B2C (`b2clogin.com`) metadata.
@@ -1110,7 +1263,8 @@ Dev deploy note:
 - Tenant source: `AZURE_AD_B2C_TENANT` variable (falls back to `NEXT_PUBLIC_B2C_TENANT`)
 - Deployment packaging installs `swatchwatch-shared` from a local `.tgz` tarball (not a `file:` directory symlink) so `WEBSITE_RUN_FROM_PACKAGE` can resolve it reliably.
 - Build artifacts run npm install scripts (no `--ignore-scripts`) so native dependencies like `sharp` can hydrate their platform-specific binaries.
-- The workflow sets `FUNCTIONS_NODE_BLOCK_ON_ENTRY_POINT_ERROR=true` so entrypoint/import failures hard-fail startup instead of surfacing as misleading route-level `404` responses.
+- Terraform sets `FUNCTIONS_NODE_BLOCK_ON_ENTRY_POINT_ERROR=true` so entrypoint/import failures hard-fail startup instead of surfacing as misleading route-level `404` responses.
+- After the code deploy, the `Verify Function App Settings` job fails if a Terraform-managed app setting is missing or differs on the live app (see `infrastructure/README.md` → Deploy ordering).
 - The workflow explicitly runs `az functionapp sync-functions` after zip deployment to force trigger refresh.
 - Post-deploy smoke tests:
   - `POST /api/voice` without a token should return `401` (host reachable + routing + auth wrapper works; the workflow check is currently commented out).

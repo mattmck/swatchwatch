@@ -354,16 +354,18 @@ export function uploadManicurePhoto(manicureId: string | number, image: string):
 /**
  * Color polishes only (`?category=color`, D23) for the Search tab's By color mode, optionally
  * in some color families (`?family=`) and inventory statuses. Catalog rows come back with the
- * caller's status, like `listPolishes`.
+ * caller's status, like `listPolishes`. `nearHex` ranks on the server by OKLAB distance to the
+ * nearest of those colors (nearest first, `colorDistance` on each row).
  */
 export function listColorPolishes(
-  filters: Pick<PolishFilters, "families" | "status" | "page" | "pageSize"> = {},
+  filters: Pick<PolishFilters, "families" | "status" | "nearHex" | "page" | "pageSize"> = {},
 ): Promise<PolishListResponse> {
   return apiRequest<PolishListResponse>(
     `/polishes${query({
       category: "color",
       family: filters.families?.length ? filters.families.join(",") : undefined,
       status: filters.status?.length ? filters.status.join(",") : undefined,
+      nearHex: filters.nearHex?.length ? filters.nearHex.map((hex) => hex.replace(/^#/, "")).join(",") : undefined,
       page: filters.page,
       pageSize: filters.pageSize,
     })}`,

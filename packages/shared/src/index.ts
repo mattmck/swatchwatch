@@ -25,6 +25,7 @@ export * from "./types/shade-review";
 export * from "./types/product-category";
 export * from "./types/wishlist-share";
 export * from "./types/looks";
+export * from "./types/look-share";
 export {
   type FinishType,
   type FinishTypeCreateRequest,

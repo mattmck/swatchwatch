@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import type { ManicureWearStat, Polish, PolishDupesResponse } from "swatchwatch-shared";
 import { isUntriedInventory, resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
 import { getPolish, getPolishDupes, deletePolish, listPolishes, updatePolish } from "@/lib/api";
-import { colorDistance, hexToOklch, oklchToHex } from "@/lib/color-utils";
+import { hexToOklch, oklchToHex } from "@/lib/color-utils";
 import { resolveFinishLabel } from "@/lib/finish-options";
 import { POLISH_STATUS_LABELS, canRebuy, formatPurchasePrice, rebuyUpdate } from "@/lib/inventory-status";
 import { showArchivedToast } from "@/components/archived-toast";
@@ -62,7 +62,9 @@ export default function PolishDetailClient({
   // Back link: the page the user came from (#348); same-origin relative paths only.
   const listHref = safeReturnTo(returnTo);
   const [polish, setPolish] = useState<Polish | null>(null);
-  const [allPolishes, setAllPolishes] = useState<Polish[]>([]);
+  // Nearest shades to this one, ranked over the whole catalog by the API (`?nearHex=`), keyed
+  // by the hex so a stale response never shows for another color.
+  const [nearbyState, setNearbyState] = useState<{ hex: string; polishes: Polish[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -92,14 +94,6 @@ export default function PolishDetailClient({
 
     if (id) {
       fetchPolish();
-      listPolishes()
-        .then((response) => {
-          if (cancelled) return;
-          setAllPolishes(response.polishes);
-        })
-        .catch(() => {
-          // Keep detail view usable even if related-color enrichment fails.
-        });
       getPolishDupes(id)
         .then((response) => {
           if (cancelled) return;
@@ -155,26 +149,32 @@ export default function PolishDetailClient({
     };
   }, [displayHex]);
 
+  const validDisplayHex = displayHex && /^#[0-9A-Fa-f]{6}$/.test(displayHex) ? displayHex : null;
+  useEffect(() => {
+    if (!validDisplayHex) return;
+    let cancelled = false;
+    // One extra row: the polish itself comes back first (distance 0).
+    listPolishes({ nearHex: [validDisplayHex], pageSize: 6 })
+      .then((response) => {
+        if (!cancelled) setNearbyState({ hex: validDisplayHex, polishes: response.polishes });
+      })
+      .catch(() => {
+        // Keep detail view usable even if related-color enrichment fails.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [validDisplayHex]);
+
   const relatedShades = useMemo(() => {
     const currentId = polish?.id;
-    if (!displayHex || !currentId) return [];
+    if (!validDisplayHex || !currentId || nearbyState?.hex !== validDisplayHex) return [];
 
-    return allPolishes
-      .filter(
-        (candidate) => {
-          if (candidate.id === currentId) return false;
-          const candidateHex = resolveDisplayHex(candidate);
-          return typeof candidateHex === "string" &&
-            /^#[0-9A-Fa-f]{6}$/.test(candidateHex);
-        }
-      )
-      .map((candidate) => ({
-        polish: candidate,
-        distance: colorDistance(displayHex, resolveDisplayHex(candidate)!),
-      }))
-      .sort((a, b) => a.distance - b.distance)
+    return nearbyState.polishes
+      .filter((candidate) => candidate.id !== currentId && typeof candidate.colorDistance === "number")
+      .map((candidate) => ({ polish: candidate, distance: candidate.colorDistance as number }))
       .slice(0, 5);
-  }, [allPolishes, polish, displayHex]);
+  }, [nearbyState, polish, validDisplayHex]);
 
   const detailImageUrls = useMemo(() => {
     if (!polish) return [];
@@ -325,6 +325,7 @@ export default function PolishDetailClient({
               url={polish.buyUrl}
               brand={polish.brand}
               name={polish.name}
+              price={polish}
               variant="button"
             />
             <LogManiButton polish={polish} onWearStatsChange={applyWearStats} />

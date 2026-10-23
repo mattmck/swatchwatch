@@ -15,7 +15,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { Look } from "@/lib/looks";
-import { shoppingItemsForLook, type ShoppingItem } from "@/lib/looks-detail";
+import { formatPurchasePrice } from "@/lib/inventory-status";
+import { shoppingItemPriceFields, shoppingItemsForLook, shoppingSubtotals, type ShoppingItem } from "@/lib/looks-detail";
 
 function searchHref(hex: string): string {
   return `/polishes/search?${new URLSearchParams({ color: hex.replace("#", ""), harmony: "similar" })}`;
@@ -36,10 +37,12 @@ interface ShoppingListDialogProps {
 
 /**
  * "Add missing items": every step of a look the user doesn't own, with the brand's "Buy from
- * brand" link, a one-tap ♡ wishlist (through the add guard, page side) and a copyable text list.
+ * brand" link and list price, a per-currency subtotal (never summed across currencies), a one-tap
+ * ♡ wishlist (through the add guard, page side) and a copyable text list.
  */
 export function ShoppingListDialog({ look, returnTo, onOpenChange, wishlisted, isPending, onWishlist, onCopy }: ShoppingListDialogProps) {
   const items = look ? shoppingItemsForLook(look) : [];
+  const { subtotals, unpricedCount } = shoppingSubtotals(items);
   return (
     <Dialog open={look !== null} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
@@ -94,13 +97,35 @@ export function ShoppingListDialog({ look, returnTo, onOpenChange, wishlisted, i
                 </div>
                 {item.polish && item.buyUrl && (
                   <div className="pl-11">
-                    <BuyFromBrandLink url={item.buyUrl} brand={item.polish.brand} name={item.polish.name} />
+                    <BuyFromBrandLink
+                      url={item.buyUrl}
+                      brand={item.polish.brand}
+                      name={item.polish.name}
+                      price={shoppingItemPriceFields(item)}
+                    />
                   </div>
                 )}
               </li>
             );
           })}
         </ul>
+        {subtotals.length > 0 && (
+          <div className="space-y-1 border-t border-border pt-3 text-sm" data-testid="shopping-subtotals">
+            {subtotals.map((group) => (
+              <div key={group.currency} className="flex items-baseline justify-between gap-3">
+                <span className="text-muted-foreground">
+                  Subtotal{subtotals.length > 1 ? ` (${group.currency})` : ""} · {group.count} item{group.count === 1 ? "" : "s"}
+                </span>
+                <span className="font-medium tabular-nums">{formatPurchasePrice(group.total, group.currency)}</span>
+              </div>
+            ))}
+            <p className="text-xs text-muted-foreground">
+              Brand list prices before shipping and tax
+              {unpricedCount > 0 ? `; ${unpricedCount} item${unpricedCount === 1 ? " has" : "s have"} no price` : ""}.
+              {subtotals.length > 1 ? " Currencies are not added together." : ""}
+            </p>
+          </div>
+        )}
         <DialogFooter>
           <Button type="button" variant="outline" disabled={!look || items.length === 0} onClick={() => look && onCopy(look)}>
             <Copy className="size-4" aria-hidden />

@@ -1,0 +1,104 @@
+import { formatPurchasePrice } from "./inventory-status";
+
+/**
+ * Brand list prices next to "Buy from brand" links (`buyPrice` / `buyCurrency` /
+ * `buyPriceSeenAt` from the API). These are what the brand's store listed when SwatchWatch last
+ * fetched the product, never what the user paid, and are never converted or summed across
+ * currencies (same rule as the collection stats).
+ */
+
+export interface BuyPriceFields {
+  buyPrice?: number | null;
+  buyCurrency?: string | null;
+  buyPriceSeenAt?: string | null;
+}
+
+/** A displayable price: amount + ISO currency, or null when either is missing. */
+export function buyPriceOf(fields: BuyPriceFields | null | undefined): { amount: number; currency: string } | null {
+  const amount = fields?.buyPrice;
+  const currency = fields?.buyCurrency;
+  if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0) return null;
+  if (typeof currency !== "string" || !/^[A-Z]{3}$/.test(currency)) return null;
+  return { amount, currency };
+}
+
+/** e.g. `$12.50`; null when the polish has no price with a currency. */
+export function formatBuyPrice(fields: BuyPriceFields | null | undefined): string | null {
+  const price = buyPriceOf(fields);
+  return price ? formatPurchasePrice(price.amount, price.currency) : null;
+}
+
+/** "as of Oct 21, 2026" for the price's fetch date, or null when unknown/invalid. */
+export function buyPriceAsOf(seenAt: string | null | undefined, locale?: string): string | null {
+  if (!seenAt) return null;
+  const date = new Date(seenAt);
+  if (Number.isNaN(date.getTime())) return null;
+  return `as of ${date.toLocaleDateString(locale, { year: "numeric", month: "short", day: "numeric" })}`;
+}
+
+/**
+ * Minor units per major unit (100 for USD, 1000 for KWD, 1 for JPY), taken from
+ * `Intl.NumberFormat`'s fraction digits so subtotals round the same way the prices display.
+ * A well-formed code Intl doesn't know gets its default of two digits.
+ */
+const minorUnitScales = new Map<string, number>();
+function minorUnitScale(currency: string): number {
+  let scale = minorUnitScales.get(currency);
+  if (scale === undefined) {
+    let digits = 2;
+    try {
+      digits = new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions().maximumFractionDigits ?? 2;
+    } catch {
+      // Not a currency code Intl accepts: keep the two-digit default.
+    }
+    scale = 10 ** digits;
+    minorUnitScales.set(currency, scale);
+  }
+  return scale;
+}
+
+/**
+ * Whole minor units (cents, fils, yen) for a major-unit amount, rounded half away from zero like
+ * `Intl.NumberFormat` (`1.005` USD → 101, although `1.005 * 100` is 100.49999…). `toPrecision(12)`
+ * drops the binary representation error before rounding.
+ */
+function toMinorUnits(amount: number, scale: number): number {
+  return Math.round(Number((amount * scale).toPrecision(12)));
+}
+
+export interface BuyPriceSubtotal {
+  currency: string;
+  /** Sum of the priced items in this currency, rounded to the currency's minor unit. */
+  total: number;
+  /** Number of priced items in this currency. */
+  count: number;
+}
+
+/**
+ * Per-currency subtotals of the priced items, largest group first (then by currency code), plus
+ * how many items have no usable price. Amounts in different currencies are never added together.
+ */
+export function buyPriceSubtotals(items: ReadonlyArray<BuyPriceFields | null | undefined>): {
+  subtotals: BuyPriceSubtotal[];
+  unpricedCount: number;
+} {
+  const groups = new Map<string, BuyPriceSubtotal>();
+  let unpricedCount = 0;
+  for (const item of items) {
+    const price = buyPriceOf(item);
+    if (!price) {
+      unpricedCount += 1;
+      continue;
+    }
+    const group = groups.get(price.currency) ?? { currency: price.currency, total: 0, count: 0 };
+    // Sum in whole minor units so 0.1 + 0.2 style float noise never shows up in a subtotal.
+    const scale = minorUnitScale(price.currency);
+    group.total = (toMinorUnits(group.total, scale) + toMinorUnits(price.amount, scale)) / scale;
+    group.count += 1;
+    groups.set(price.currency, group);
+  }
+  const subtotals = Array.from(groups.values()).sort(
+    (a, b) => b.count - a.count || (a.currency < b.currency ? -1 : a.currency > b.currency ? 1 : 0)
+  );
+  return { subtotals, unpricedCount };
+}
