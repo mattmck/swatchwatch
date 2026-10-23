@@ -129,7 +129,7 @@ const POLISH_ROW = { id: "9", shadeId: "9", brand: "Indie", name: "X", finish: "
 
 async function post(body) {
   mockPool((text) => {
-    if (/AS "ownSubmitted"/.test(text)) return { rows: [{ ownSubmitted: false, brand: "Indie", shadeName: "X" }] };
+    if (/AS "ownSubmitted"/.test(text) && !/AS "inventoryItemId"/.test(text)) return { rows: [{ ownSubmitted: false, brand: "Indie", shadeName: "X" }] };
     return { rows: [POLISH_ROW] };
   });
   const tx = mockTransaction();

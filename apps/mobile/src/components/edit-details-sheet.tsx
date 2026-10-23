@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { KeyboardAvoidingView, Modal, Platform, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { resolvePolishFinishes, type Polish, type PolishUpdateRequest } from "swatchwatch-shared";
+import { resolvePolishFinishes, type FinishType, type Polish, type PolishUpdateRequest } from "swatchwatch-shared";
+import { listReferenceFinishTypes } from "@/api/client";
+import { buildFinishOptions } from "@/lib/manual-add";
 import { finishLabel } from "@/lib/finishes";
 import {
   buildEditPatch,
@@ -16,13 +18,15 @@ import {
 } from "@/lib/polish-edit";
 import { isOwnedPolish, localIsoDate } from "@/lib/status";
 import { useTheme } from "@/theme/theme";
-import { Field, FormInput, QuantityStepper, StarRating } from "./polish-form-fields";
+import { ColorField, Field, FinishField, FormInput, QuantityStepper, StarRating } from "./polish-form-fields";
 import { AppText, Button, Card, Chip } from "./ui";
 
 /**
  * "Edit details" sheet on the polish detail screen (web: the edit mode of `/polishes/new`):
  * rating, notes, bottles (owned only), purchase price + currency + date. Brand, shade name,
- * finishes and color belong to the shared catalog row, so they are shown read-only.
+ * finishes and color belong to the shared catalog row, so they are shown read-only, except for
+ * the caller's own private shade (`polish.ownSubmitted`), which its creator may keep correcting
+ * (catalog write rule, #224). A saved rating or purchase date can be cleared.
  */
 export function EditDetailsSheet(props: {
   visible: boolean;
@@ -47,6 +51,24 @@ function SheetBody({ polish, initialForm, onClose, onSave }: Parameters<typeof E
   const [errors, setErrors] = useState<PolishEditErrors>({});
   const finishes = resolvePolishFinishes(polish);
   const owned = isOwnedPolish(polish);
+  const ownShade = Boolean(polish.ownSubmitted);
+  const [finishTypes, setFinishTypes] = useState<FinishType[] | null>(null);
+  const finishOptions = useMemo(() => buildFinishOptions(finishTypes), [finishTypes]);
+
+  useEffect(() => {
+    if (!ownShade) return;
+    let cancelled = false;
+    listReferenceFinishTypes()
+      .then((res) => {
+        if (!cancelled) setFinishTypes(res.finishTypes);
+      })
+      .catch(() => {
+        // The built-in finishes stand in (same fallback as the add form).
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ownShade]);
 
   function update<K extends keyof PolishEditForm>(field: K, value: PolishEditForm[K]) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -84,24 +106,53 @@ function SheetBody({ polish, initialForm, onClose, onSave }: Parameters<typeof E
           <Button title="Save" variant="brand" compact onPress={save} testID="edit-details-save" />
         </View>
         <ScrollView contentContainerStyle={{ padding: theme.spacing(4), gap: theme.spacing(4) }} keyboardShouldPersistTaps="handled">
-          <Card>
-            <AppText style={{ fontWeight: "600" }}>
-              {polish.brand} · {polish.name}
-            </AppText>
-            {finishes.length > 0 && (
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.spacing(1.5) }}>
-                {finishes.map((finish) => (
-                  <Chip key={finish} label={finishLabel(finish)} />
-                ))}
-              </View>
-            )}
-            <AppText variant="tiny" muted>
-              Catalog details are shared, so brand, shade, finishes and color can&apos;t be changed here.
-            </AppText>
-          </Card>
+          {ownShade ? (
+            <>
+              <AppText variant="small" muted>
+                This is your own private polish, so you can correct its details until it&apos;s reviewed.
+              </AppText>
+              <Field label="Brand" required error={errors.brand}>
+                <FormInput value={form.brand} onChangeText={(v) => update("brand", v)} autoCapitalize="words" invalid={Boolean(errors.brand)} />
+              </Field>
+              <Field label="Shade name" required error={errors.name}>
+                <FormInput value={form.name} onChangeText={(v) => update("name", v)} autoCapitalize="words" invalid={Boolean(errors.name)} />
+              </Field>
+              <FinishField finishOptions={finishOptions} selected={form.finishes} onChange={(next) => update("finishes", next)} />
+              <ColorField
+                hex={form.hex}
+                colorName={form.colorName}
+                finishes={form.finishes}
+                error={errors.hex}
+                allowClear={!polish.vendorHex}
+                onHexChange={(v) => update("hex", v)}
+                onColorNameChange={(v) => update("colorName", v)}
+              />
+            </>
+          ) : (
+            <Card>
+              <AppText style={{ fontWeight: "600" }}>
+                {polish.brand} · {polish.name}
+              </AppText>
+              {finishes.length > 0 && (
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.spacing(1.5) }}>
+                  {finishes.map((finish) => (
+                    <Chip key={finish} label={finishLabel(finish)} />
+                  ))}
+                </View>
+              )}
+              <AppText variant="tiny" muted>
+                Catalog details are shared, so brand, shade, finishes and color can&apos;t be changed here.
+              </AppText>
+            </Card>
+          )}
 
           <Field label="Rating" error={errors.rating}>
-            <StarRating value={form.rating} onChange={(star) => update("rating", nextEditRating(form.rating, star, polish.rating))} />
+            <View style={{ flexDirection: "row", alignItems: "center", gap: theme.spacing(2) }}>
+              <View style={{ flex: 1 }}>
+                <StarRating value={form.rating} onChange={(star) => update("rating", nextEditRating(form.rating, star))} />
+              </View>
+              {form.rating > 0 && <Button title="Clear" variant="ghost" compact accessibilityLabel="Clear rating" onPress={() => update("rating", 0)} />}
+            </View>
           </Field>
 
           {owned && (
@@ -151,6 +202,9 @@ function SheetBody({ polish, initialForm, onClose, onSave }: Parameters<typeof E
                 />
               </View>
               <Button title="Today" variant="outline" compact onPress={() => update("purchaseDate", localIsoDate())} />
+              {form.purchaseDate !== "" && (
+                <Button title="Clear" variant="ghost" compact accessibilityLabel="Clear purchase date" onPress={() => update("purchaseDate", "")} />
+              )}
             </View>
           </Field>
 
