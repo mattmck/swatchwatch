@@ -405,26 +405,37 @@ camera and frame uploader:
    brand and shade name.
 2. Shoot front, bottom, glass (and box if there is one) with the same prompts users get.
    Any number of extra frames (different lighting, angles) is allowed and encouraged.
-3. Save. The photos go to a private blob container (`BOTTLE_EVAL_CONTAINER`, default
-   `bottle-eval`, never served by the image proxy) and one `bottle_eval_sample` row per
-   bottle records the label and the frames:
+3. Save. The photos go to the private user-media container (`USER_MEDIA_CONTAINER`) under
+   `{adminUserId}/bottle-eval/{sampleId}/`, linked by foreign key so the orphan sweep never
+   touches them and served only as owner-scoped `v3` thumbnails to the admin who shot them
+   (plan decision: no new container, proxy path or Terraform). One `bottle_eval_sample` row
+   per bottle records the label; `bottle_eval_frame` rows record the frames:
 
 ```sql
 CREATE TABLE bottle_eval_sample (
-  sample_id      BIGSERIAL PRIMARY KEY,
-  shade_id       BIGINT REFERENCES shade(shade_id) ON DELETE SET NULL,   -- NULL = not in catalog
-  brand_text     TEXT,            -- typed when not in catalog
-  shade_text     TEXT,
-  frames_json    JSONB NOT NULL,  -- [{ blob, surface, frameType, width, height, sha256 }]
-  notes          TEXT,
-  created_by_user_id BIGINT NOT NULL REFERENCES app_user(user_id),
-  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+  sample_id          BIGSERIAL PRIMARY KEY,
+  shade_id           BIGINT REFERENCES shade(shade_id) ON DELETE SET NULL,  -- NULL = not in catalog
+  brand_text         TEXT,            -- typed when not in catalog (snapshot of the catalog names otherwise)
+  shade_text         TEXT,
+  notes              TEXT,
+  created_by_user_id BIGINT NOT NULL REFERENCES app_user(user_id) ON DELETE CASCADE,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE bottle_eval_frame (
+  frame_id   BIGSERIAL PRIMARY KEY,
+  sample_id  BIGINT NOT NULL REFERENCES bottle_eval_sample(sample_id) ON DELETE CASCADE,
+  image_id   BIGINT NOT NULL UNIQUE REFERENCES image_asset(image_id) ON DELETE CASCADE,
+  surface    TEXT NOT NULL,          -- front|bottom|glass|box
+  frame_type TEXT NOT NULL,          -- barcode|label|color|other
+  position   SMALLINT NOT NULL
 );
 ```
 
-Routes: `GET/POST/DELETE /api/bottle-eval-admin/samples`, `withAdmin`, uploads re-encoded
-with the nail-photo sanitizer (EXIF stripped). The tab lists samples with thumbnails and
-lets the admin delete or re-shoot one. A sample is never used by the live resolver.
+Routes: `GET/POST /api/bottle-eval-admin/samples`, `DELETE …/samples/{id}`,
+`POST/DELETE …/samples/{id}/frames[/{frameId}]` (one frame per request), all `withAdmin`,
+uploads re-encoded with the nail-photo sanitizer (EXIF stripped). The tab lists samples
+with thumbnails and lets the admin delete or re-shoot one. A sample is never used by the
+live resolver. Implementation plan: `docs/superpowers/plans/2026-10-23-bottle-eval-capture.md`.
 
 ### 8.2 The eval
 
