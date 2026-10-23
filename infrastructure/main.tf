@@ -930,9 +930,15 @@ resource "azurerm_linux_function_app" "main" {
       node_version = "22"
     }
 
-    # No cors block: the app's withCors (packages/functions/src/lib/http.ts, driven by the
-    # CORS_* settings below) is the only CORS layer. Platform CORS would answer preflights itself,
-    # echo any requested method/headers and drop the app's headers (Request-Context exposure).
+    # Keep this block. The Functions host reserves the CORS_ALLOWED_ORIGINS setting (it
+    # JSON-parses it as the host CORS origin list); with platform CORS configured Azure supplies
+    # that value itself, without it the host reads the app's comma-separated list below and fails
+    # every request (2026-10-23 dev outage after #449). Platform CORS answers preflights and drops
+    # the app's Access-Control-Expose-Headers until the app settings move to non-reserved names.
+    cors {
+      allowed_origins     = local.function_cors_allowed_origins
+      support_credentials = false
+    }
   }
 
   app_settings = {
