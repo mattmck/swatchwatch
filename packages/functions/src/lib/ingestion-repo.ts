@@ -19,6 +19,7 @@ import {
 } from "./hex-provenance";
 import { submitVisionHexBatch } from "./azure-openai-batch";
 import { uploadSourceImageToBlob, ensureContainer } from "./blob-storage";
+import { describeFetchError } from "./fetch-retry";
 import { toImageProxyUrlFromOrigin } from "./image-proxy";
 import { snapDetectionToImage, type HexSnapLogLevel } from "./hex-snap";
 import { loadDetectionImageBytes } from "./detection-image";
@@ -1093,11 +1094,11 @@ async function prepareHoloTacoImageData(
           `${sourceLogPrefix} Primary image ${reused ? "reused" : "uploaded"} for ${record.externalId}: checksum=${checksumSha256}`
         );
       } catch (err) {
-        console.error(`${sourceLogPrefix} Primary image upload failed for ${record.externalId}:`, String(err));
+        console.error(`${sourceLogPrefix} Primary image upload failed for ${record.externalId}:`, describeFetchError(err));
         progressLogger?.warn(`${sourceLogPrefix} Primary image upload failed for ${record.externalId}`, {
           externalId: record.externalId,
           imageUrl: holo.primaryImageUrl,
-          error: String(err),
+          error: describeFetchError(err),
         });
       }
 
@@ -1115,11 +1116,11 @@ async function prepareHoloTacoImageData(
           }
         } catch (err) {
           additionalFailures += 1;
-          console.error(`${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId}:`, String(err));
+          console.error(`${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId}:`, describeFetchError(err));
           progressLogger?.warn(`${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId}`, {
             externalId: record.externalId,
             imageUrl: imgUrl,
-            error: String(err),
+            error: describeFetchError(err),
           });
         }
       }

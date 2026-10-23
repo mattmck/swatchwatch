@@ -120,7 +120,8 @@ export async function backfillImageVariants(
             connectionString,
             containerName,
             blobName: storageUrlBlobName(storageUrl),
-            bytes: async () => (await readBlobFromStorageUrl(storageUrl)).bytes,
+            // Transient blob read failures (`fetch failed`) are retried rather than reported.
+            bytes: async () => (await readBlobFromStorageUrl(storageUrl, { retry: true })).bytes,
           });
           response.variantsWritten += result.written.length;
           if (result.written.length === 0 && result.failed.length === 0) response.complete += 1;

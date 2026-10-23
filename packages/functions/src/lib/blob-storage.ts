@@ -1,4 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
+import { fetchWithRetry } from "./fetch-retry";
 import { computeImageFingerprintSafely, type ImageFingerprint } from "./gallery-dedupe";
 import { ImageProxyConfigError } from "./image-proxy-errors";
 import {
@@ -384,7 +385,8 @@ async function sendStorageRequest(
   method: "PUT" | "GET" | "HEAD" | "DELETE",
   url: URL,
   headers: Record<string, string>,
-  body?: Buffer
+  body?: Buffer,
+  options: { retry?: boolean } = {}
 ): Promise<Response> {
   const finalizedUrl = mergeSas(url, config.sasToken);
   const requestHeaders: Record<string, string> = {
@@ -408,17 +410,22 @@ async function sendStorageRequest(
 
   const requestBody = body ? new Uint8Array(body) : undefined;
 
-  const response = await runWithTimeout(
-    fetch(finalizedUrl.toString(), {
-      method,
-      headers: requestHeaders,
-      body: requestBody,
-    }),
-    REQUEST_TIMEOUT_MS,
-    "Azure Blob Storage request"
-  );
+  const send = () =>
+    runWithTimeout(
+      fetch(finalizedUrl.toString(), {
+        method,
+        headers: requestHeaders,
+        body: requestBody,
+      }),
+      REQUEST_TIMEOUT_MS,
+      "Azure Blob Storage request"
+    );
 
-  return response;
+  // Only idempotent reads may opt into retries (transient network errors and 429/5xx).
+  if (options.retry && (method === "GET" || method === "HEAD")) {
+    return fetchWithRetry(send, { label: `Azure Blob Storage ${method}` });
+  }
+  return send();
 }
 
 function normalizeContainerName(
@@ -621,6 +628,12 @@ export interface ReadBlobOptions {
    * (`SOURCE_IMAGE_CONTAINER`, default `source-images`).
    */
   allowedContainers?: readonly string[];
+  /**
+   * Retry transient network errors and 429/5xx (`fetchWithRetry`). Off by default so latency-
+   * sensitive reads such as the image proxy fall back at once; batch jobs (the variants backfill)
+   * turn it on.
+   */
+  retry?: boolean;
 }
 
 export function defaultReadableContainers(): string[] {
@@ -725,7 +738,9 @@ export async function readBlobFromStorageUrl(
     options.allowedContainers ?? defaultReadableContainers()
   );
 
-  const response = await sendStorageRequest(config, "GET", parsedStorageUrl, {});
+  const response = await sendStorageRequest(config, "GET", parsedStorageUrl, {}, undefined, {
+    retry: options.retry,
+  });
   if (!response.ok) {
     const details = await response.text().catch(() => "");
     throw new BlobReadError(
@@ -833,13 +848,18 @@ export async function uploadSourceImageToBlob(
   params: UploadSourceImageOptions & { skipContainerEnsure?: boolean }
 ): Promise<UploadedBlobImage> {
   console.log(`[blob-storage] Downloading image from ${params.sourceImageUrl}`);
-  const sourceResponse = await runWithTimeout(
-    fetch(params.sourceImageUrl, {
-      method: "GET",
-      headers: { "User-Agent": "SwatchWatch/source-image-ingestion" },
-    }),
-    REQUEST_TIMEOUT_MS,
-    "Source image download"
+  // Each attempt gets its own REQUEST_TIMEOUT_MS; transient network errors and 429/5xx are retried.
+  const sourceResponse = await fetchWithRetry(
+    () =>
+      runWithTimeout(
+        fetch(params.sourceImageUrl, {
+          method: "GET",
+          headers: { "User-Agent": "SwatchWatch/source-image-ingestion" },
+        }),
+        REQUEST_TIMEOUT_MS,
+        "Source image download"
+      ),
+    { label: "Source image download" }
   );
 
   if (!sourceResponse.ok) {
