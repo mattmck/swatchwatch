@@ -1145,7 +1145,7 @@ Shared by vision hex detection (sync and batch), label OCR parsing and the hex e
 | `AZURE_OPENAI_DEPLOYMENT` | — | Fallback deployment name for every role below. |
 | `AZURE_OPENAI_DEPLOYMENT_HEX` | → `AZURE_OPENAI_DEPLOYMENT` | Deployment for synchronous vision hex detection. |
 | `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` | → `_HEX` → `AZURE_OPENAI_DEPLOYMENT` | Deployment for batch hex detection. |
-| `AZURE_OPENAI_DEPLOYMENT_LABEL` | → `_HEX` → `AZURE_OPENAI_DEPLOYMENT` | Deployment for label OCR structured extraction (`src/lib/ocr-parser.ts`). |
+| `AZURE_OPENAI_DEPLOYMENT_LABEL` | → `_HEX` → `AZURE_OPENAI_DEPLOYMENT` | Deployment for label OCR structured extraction (`src/lib/ocr-parser.ts`). Leave empty to use the fallbacks; a placeholder value would be sent as the deployment name. |
 | `AZURE_OPENAI_VISION_DETAIL` | `low` | Image detail for vision hex detection, sync and batch: `low` (flat ~85 tokens/image), `high` or `auto`. Unrecognized values fall back to `low`. |
 
 ### Hex detection (`src/lib/ai-color-detection.ts`, `src/lib/hex-snap.ts`, `src/lib/suspicious-hex.ts`)
