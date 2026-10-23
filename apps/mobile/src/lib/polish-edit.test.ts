@@ -93,14 +93,16 @@ describe("edit form", () => {
       polish({ rating: 4, notes: "nice", quantity: 2, purchasePrice: 12, purchaseCurrency: "USD", purchaseDate: "2026-03-04T00:00:00Z" }),
       "USD",
     );
-    assert.deepEqual(form, { rating: 4, notes: "nice", quantity: 2, price: "12.00", currency: "USD", purchaseDate: "2026-03-04" });
+    assert.deepEqual(form, {
+      rating: 4, notes: "nice", quantity: 2, price: "12.00", currency: "USD", purchaseDate: "2026-03-04",
+      brand: "Holo Taco", name: "Scattered", colorName: "Pink", hex: "", finishes: [],
+    });
     assert.equal(priceToInput(null), "");
   });
 
-  it("clears a star only when nothing was saved", () => {
-    assert.equal(nextEditRating(3, 3, null), 0);
-    assert.equal(nextEditRating(3, 3, 3), 3);
-    assert.equal(nextEditRating(3, 5, 3), 5);
+  it("clears a star by tapping it again", () => {
+    assert.equal(nextEditRating(3, 3), 0);
+    assert.equal(nextEditRating(3, 5), 5);
   });
 
   it("validates", () => {
@@ -111,10 +113,21 @@ describe("edit form", () => {
     assert.ok(validateEditForm({ ...ok, purchaseDate: "2027-01-01" }, base, "2026-10-23").purchaseDate);
     assert.ok(validateEditForm({ ...ok, notes: "x".repeat(2001) }, base, "2026-10-23").notes);
     assert.ok(validateEditForm({ ...ok, quantity: 0 }, base, "2026-10-23").quantity);
+    // A saved rating and purchase date can be cleared.
     const saved = polish({ rating: 3, purchaseDate: "2026-01-01" });
     const cleared = { ...initialEditForm(saved, "USD"), rating: 0, purchaseDate: "" };
-    const errors = validateEditForm(cleared, saved, "2026-10-23");
-    assert.ok(errors.rating && errors.purchaseDate);
+    assert.deepEqual(validateEditForm(cleared, saved, "2026-10-23"), {});
+  });
+
+  it("validates the catalog fields only for the caller's own private shade", () => {
+    const shared = polish({ vendorHex: "#112233" });
+    const blank = { ...initialEditForm(shared, "USD"), brand: "", name: "", hex: "zzz" };
+    assert.deepEqual(validateEditForm(blank, shared, "2026-10-23"), {});
+    const own = polish({ ownSubmitted: true, vendorHex: "#112233" });
+    const errors = validateEditForm(blank, own, "2026-10-23");
+    assert.ok(errors.brand && errors.name && errors.hex);
+    assert.ok(validateEditForm({ ...initialEditForm(own, "USD"), hex: "" }, own, "2026-10-23").hex);
+    assert.deepEqual(validateEditForm(initialEditForm(own, "USD"), own, "2026-10-23"), {});
   });
 
   it("ignores quantity for wishlist rows", () => {
@@ -160,6 +173,59 @@ describe("buildEditPatch", () => {
     assert.equal(patch?.purchasePrice, null);
     assert.equal(patch?.purchaseCurrency, null);
     assert.equal(patch?.notes, "");
+  });
+
+  it("clears a saved rating and purchase date with null, and keeps them when untouched", () => {
+    const p = polish({ rating: 3, purchaseDate: "2026-01-01T00:00:00Z" });
+    const base = initialEditForm(p, "USD");
+    assert.equal(buildEditPatch(base, p), null);
+    const patch = buildEditPatch({ ...base, rating: 0, purchaseDate: "" }, p);
+    assert.equal(patch?.rating, null);
+    assert.equal(patch?.purchaseDate, null);
+    assert.ok("rating" in (patch ?? {}) && "purchaseDate" in (patch ?? {}));
+    // Nothing saved, nothing to clear: the keys are omitted (undefined means unchanged).
+    const none = polish();
+    const notes = buildEditPatch({ ...initialEditForm(none, "USD"), notes: "x" }, none);
+    assert.ok(notes && !("rating" in notes) && !("purchaseDate" in notes));
+    const next = applyEditPatch(p, patch!);
+    assert.equal(next.rating, undefined);
+    assert.equal(next.purchaseDate, undefined);
+  });
+
+  it("never sends catalog fields for a shared shade", () => {
+    const p = polish({ vendorHex: "#112233", finishes: ["creme"] });
+    const form = { ...initialEditForm(p, "USD"), brand: "Other", name: "Renamed", hex: "#FF0000", finishes: ["shimmer" as const], notes: "n" };
+    assert.deepEqual(buildEditPatch(form, p), { brand: "Holo Taco", name: "Scattered", color: "Pink", notes: "n" });
+  });
+
+  it("sends corrected brand, name, finishes and color for the caller's own private shade", () => {
+    const p = polish({ ownSubmitted: true, vendorHex: "#112233", finishes: ["creme"], finish: "creme" });
+    const base = initialEditForm(p, "USD");
+    assert.deepEqual(base.finishes, ["creme"]);
+    assert.equal(base.hex, "#112233");
+    assert.equal(buildEditPatch(base, p), null);
+    const patch = buildEditPatch(
+      { ...base, brand: " Indie Co ", name: "Midnight", colorName: "Navy", hex: "#0a1b3c", finishes: ["shimmer", "holographic"] },
+      p,
+    );
+    assert.deepEqual(patch, {
+      brand: "Indie Co",
+      name: "Midnight",
+      color: "Navy",
+      vendorHex: "#0A1B3C",
+      finish: "shimmer",
+      finishes: ["shimmer", "holographic"],
+    });
+    const next = applyEditPatch(p, patch!);
+    assert.equal(next.brand, "Indie Co");
+    assert.deepEqual(next.finishes, ["shimmer", "holographic"]);
+    assert.equal(next.vendorHex, "#0A1B3C");
+  });
+
+  it("keeps the existing color name when only finishes change on an own shade", () => {
+    const p = polish({ ownSubmitted: true, vendorHex: "#112233", finishes: ["creme"] });
+    const patch = buildEditPatch({ ...initialEditForm(p, "USD"), finishes: [] }, p);
+    assert.deepEqual(patch, { brand: "Holo Taco", name: "Scattered", color: "Pink", finishes: [] });
   });
 
   it("applies the patch optimistically", () => {

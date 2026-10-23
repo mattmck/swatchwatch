@@ -185,7 +185,7 @@ export default function PolishForm() {
       return;
     }
     setSubmitting(true);
-    // Editing sends null for emptied fields so the API clears them; creating omits them.
+    // Editing sends null for emptied fields (price, currency, rating) so the API clears them; creating omits them.
     const emptyValue = isEditing ? null : undefined;
     // An owned polish saved with 0 bottles is archived, like − on the last bottle (D5c).
     const status = formStatusForSave(form.status, form.quantity);
@@ -202,7 +202,7 @@ export default function PolishForm() {
       purchasePrice: parsedPrice === null ? emptyValue : Math.round(parsedPrice * 100) / 100,
       purchaseCurrency: currency || emptyValue,
       size: form.size || undefined,
-      rating: form.rating || undefined,
+      rating: form.rating || emptyValue,
       notes: form.notes || undefined,
       tags: form.tags
         ? form.tags.split(",").map((t) => t.trim()).filter(Boolean)

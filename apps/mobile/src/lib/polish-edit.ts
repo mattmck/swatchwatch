@@ -4,12 +4,15 @@
  * `PUT /api/polishes/{id}` patch (only fields that changed) and the optimistic merge.
  * Pure (no React Native imports) so it is unit-tested directly.
  *
- * Server limits this mirrors (`upsertInventoryItem`): a missing/null `rating`, `purchaseDate`
- * or `notes` means "unchanged", so a saved rating or purchase date can be changed but not
- * removed yet (notes clear with an empty string; price and currency clear with `null`).
+ * Server rules this mirrors (`upsertInventoryItem`, catalog write rule #224): a missing key
+ * means "unchanged"; `rating`, `purchaseDate`, `purchasePrice` and `purchaseCurrency` clear with
+ * an explicit `null` and notes with an empty string. Brand, shade name, finishes and color are
+ * the shared catalog row's, so the form edits them only for the caller's own private
+ * `user_submitted` shade (`polish.ownSubmitted`); for every other shade they are not sent.
  */
-import type { Polish, PolishUpdateRequest } from "swatchwatch-shared";
-import { MAX_NOTES_LENGTH, MAX_QUANTITY, clampQuantity } from "./manual-add";
+import { resolvePolishFinishes, type FinishName, type Polish, type PolishUpdateRequest } from "swatchwatch-shared";
+import { normalizeHexParam } from "./color-search";
+import { MAX_NOTES_LENGTH, MAX_QUANTITY, clampQuantity, colorNameFor } from "./manual-add";
 
 export { MAX_NOTES_LENGTH, MAX_QUANTITY, clampQuantity };
 
@@ -129,6 +132,15 @@ export interface PolishEditForm {
   currency: string;
   /** `YYYY-MM-DD` as typed; empty = none. */
   purchaseDate: string;
+  /** Catalog fields; used (and shown) only when the polish is the caller's own private shade. */
+  brand: string;
+  name: string;
+  /** Color name; optional. */
+  colorName: string;
+  /** Hex text as typed or picked; empty = none. */
+  hex: string;
+  /** Finishes in selection order; the first is the primary finish. */
+  finishes: FinishName[];
 }
 
 export function initialEditForm(polish: Polish, currency: string): PolishEditForm {
@@ -139,16 +151,22 @@ export function initialEditForm(polish: Polish, currency: string): PolishEditFor
     price: priceToInput(polish.purchasePrice),
     currency,
     purchaseDate: polish.purchaseDate ? polish.purchaseDate.slice(0, 10) : "",
+    brand: polish.brand,
+    name: polish.name,
+    colorName: polish.color ?? "",
+    hex: normalizeHexParam(polish.vendorHex) ?? "",
+    finishes: [...resolvePolishFinishes(polish)],
   };
 }
 
-/** Tapping the current star clears the rating, unless a saved rating exists (the API can't remove one yet). */
-export function nextEditRating(current: number, tapped: number, saved: number | null | undefined): number {
-  if (current !== tapped) return tapped;
-  return saved ? current : 0;
+/** Tapping the current star clears the rating (sent as `rating: null` when one was saved). */
+export function nextEditRating(current: number, tapped: number): number {
+  return current === tapped ? 0 : tapped;
 }
 
-export type PolishEditField = "notes" | "price" | "purchaseDate" | "rating" | "quantity";
+const MAX_NAME_LENGTH = 200;
+
+export type PolishEditField = "notes" | "price" | "purchaseDate" | "rating" | "quantity" | "brand" | "name" | "hex";
 export type PolishEditErrors = Partial<Record<PolishEditField, string>>;
 
 /** Field errors; empty when the form can be saved. `today` bounds the purchase date. */
@@ -160,11 +178,17 @@ export function validateEditForm(form: PolishEditForm, polish: Polish, today: st
   const date = form.purchaseDate.trim();
   if (date) {
     if (!isValidPurchaseDate(date, today)) errors.purchaseDate = "Use a date like 2026-03-04, no later than today.";
-  } else if (polish.purchaseDate) {
-    errors.purchaseDate = "A saved purchase date can be changed but not removed yet.";
   }
   if (!Number.isInteger(form.rating) || form.rating < 0 || form.rating > 5) errors.rating = "Rating must be 0–5 stars.";
-  else if (form.rating === 0 && polish.rating) errors.rating = "A saved rating can be changed but not removed yet.";
+  if (polish.ownSubmitted) {
+    if (!form.brand.trim()) errors.brand = "Enter the brand.";
+    else if (form.brand.trim().length > MAX_NAME_LENGTH) errors.brand = "Brand is too long.";
+    if (!form.name.trim()) errors.name = "Enter the shade name.";
+    else if (form.name.trim().length > MAX_NAME_LENGTH) errors.name = "Shade name is too long.";
+    const hex = form.hex.trim();
+    if (hex && !normalizeHexParam(hex)) errors.hex = "Use a 6-digit hex such as #C0392B.";
+    else if (!hex && normalizeHexParam(polish.vendorHex)) errors.hex = "A saved color can be changed but not removed.";
+  }
   if (polish.status === "owned" && (!Number.isInteger(form.quantity) || form.quantity < 1 || form.quantity > MAX_QUANTITY)) {
     errors.quantity = `Bottles must be 1–${MAX_QUANTITY}.`;
   }
@@ -177,13 +201,18 @@ export function hasEditErrors(errors: PolishEditErrors): boolean {
 
 /**
  * The `PUT /api/polishes/{id}` body for a valid form: only fields that differ from the polish.
- * `brand` / `name` / `color` are required by the type but an update by id ignores catalog
- * changes for a shared shade, so the current values go along (brand + name unchanged keeps the
- * edit on this shade). Returns null when nothing changed.
+ * `brand` / `name` / `color` are required by the type; for a shared shade the current values
+ * go along (brand + name unchanged keeps the edit on this shade, and the API never writes
+ * catalog data for it). For the caller's own private shade (`ownSubmitted`) the edited
+ * brand / name / color name / hex / finishes go in the same shape the add form sends
+ * (`vendorHex`, `finish` = primary, `finishes`). Changing brand or name makes the API resolve
+ * the shade by that identity, so the response may carry another shade id. Returns null when
+ * nothing changed.
  */
 export function buildEditPatch(form: PolishEditForm, polish: Polish): PolishUpdateRequest | null {
   const patch: PolishUpdateRequest = {};
   if (form.rating >= 1 && form.rating !== (polish.rating ?? 0)) patch.rating = form.rating;
+  else if (form.rating === 0 && polish.rating) patch.rating = null;
   const notes = form.notes.trim();
   if (notes !== (polish.notes ?? "").trim()) patch.notes = notes;
   if (polish.status === "owned") {
@@ -206,19 +235,60 @@ export function buildEditPatch(form: PolishEditForm, polish: Polish): PolishUpda
   }
   const date = form.purchaseDate.trim();
   if (date && date !== (polish.purchaseDate ?? "").slice(0, 10)) patch.purchaseDate = date;
-  if (Object.keys(patch).length === 0) return null;
-  return { brand: polish.brand, name: polish.name, color: polish.color, ...patch };
+  else if (!date && polish.purchaseDate) patch.purchaseDate = null;
+  const catalog = polish.ownSubmitted ? buildCatalogPatch(form, polish) : null;
+  if (Object.keys(patch).length === 0 && !catalog) return null;
+  return { brand: polish.brand, name: polish.name, color: polish.color, ...catalog, ...patch };
+}
+
+function sameList(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((value, i) => value === b[i]);
+}
+
+/** Catalog fields of the caller's own private shade that the form changed, or null. */
+function buildCatalogPatch(form: PolishEditForm, polish: Polish): PolishUpdateRequest | null {
+  const brand = form.brand.trim();
+  const name = form.name.trim();
+  const hex = normalizeHexParam(form.hex);
+  const typedColor = form.colorName.trim();
+  const colorChanged = typedColor !== (polish.color ?? "").trim() || (hex !== null && hex !== normalizeHexParam(polish.vendorHex));
+  const finishesChanged = !sameList(form.finishes, resolvePolishFinishes(polish));
+  const identityChanged = brand !== polish.brand || name !== polish.name;
+  if (!identityChanged && !colorChanged && !finishesChanged) return null;
+
+  const patch: PolishUpdateRequest = { brand, name };
+  if (colorChanged) {
+    patch.color = colorNameFor({ colorName: form.colorName, hex: form.hex, finishes: form.finishes });
+    if (hex) patch.vendorHex = hex;
+  } else {
+    patch.color = polish.color;
+  }
+  if (finishesChanged) {
+    patch.finishes = [...form.finishes];
+    if (form.finishes.length > 0) patch.finish = form.finishes[0];
+  }
+  return patch;
 }
 
 /** The polish as it will look once `patch` is saved (optimistic update). */
 export function applyEditPatch(polish: Polish, patch: PolishUpdateRequest): Polish {
   const next: Polish = { ...polish };
-  if (patch.rating !== undefined) next.rating = patch.rating;
+  if (polish.ownSubmitted) {
+    if (patch.brand !== undefined) next.brand = patch.brand;
+    if (patch.name !== undefined) next.name = patch.name;
+    if (patch.color !== undefined) next.color = patch.color;
+    if (patch.vendorHex !== undefined) next.vendorHex = patch.vendorHex;
+    if (patch.finishes !== undefined) {
+      next.finishes = [...patch.finishes];
+      next.finish = patch.finishes[0] ?? undefined;
+    }
+  }
+  if (patch.rating !== undefined) next.rating = patch.rating ?? undefined;
   if (patch.notes !== undefined) next.notes = patch.notes;
   if (patch.quantity !== undefined) next.quantity = patch.quantity;
   if (patch.purchasePrice !== undefined) next.purchasePrice = patch.purchasePrice;
   if (patch.purchaseCurrency !== undefined) next.purchaseCurrency = patch.purchaseCurrency;
-  if (patch.purchaseDate !== undefined) next.purchaseDate = patch.purchaseDate;
+  if (patch.purchaseDate !== undefined) next.purchaseDate = patch.purchaseDate ?? undefined;
   return next;
 }
 

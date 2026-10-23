@@ -1,15 +1,13 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from "react-native";
-import { COLOR_FAMILY_LABELS, classifyColorFamily, type FinishType, type Polish } from "swatchwatch-shared";
+import { KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
+import type { FinishType, Polish } from "swatchwatch-shared";
 import { createPolish, errorMessage, listAllPolishes, listReferenceFinishTypes } from "@/api/client";
-import { ColorDot } from "@/components/swatch";
-import { Field, FormInput, QuantityStepper, StarRating } from "@/components/polish-form-fields";
+import { ColorField, Field, FinishField, FormInput, QuantityStepper, StarRating } from "@/components/polish-form-fields";
 import { AppText, Button, Card, Chip, ErrorBanner } from "@/components/ui";
 import { confirmAlreadyOwned, confirmDupes } from "@/lib/add-guard";
 import { notifyCollectionChanged } from "@/lib/collection-events";
-import { DEFAULT_LIGHTNESS_INDEX, HUE_STOPS, LIGHTNESS_STEPS, normalizeHexParam, pickerHex } from "@/lib/color-search";
 import {
   MAX_QUANTITY,
   asWishlistRequest,
@@ -22,15 +20,11 @@ import {
   initialManualAddForm,
   manualAddPrefillFromParams,
   nextRating,
-  toggleFinish,
   validateManualAdd,
   type ManualAddErrors,
   type ManualAddForm,
 } from "@/lib/manual-add";
 import { useTheme } from "@/theme/theme";
-
-/** A hue stop index into `HUE_STOPS`, or `"neutral"`. */
-type HueChoice = number | "neutral";
 
 const GUARD_TIMEOUT_MS = 2000;
 
@@ -58,8 +52,6 @@ export default function NewPolishScreen() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [finishTypes, setFinishTypes] = useState<FinishType[] | null>(null);
-  const [hue, setHue] = useState<HueChoice | null>(null);
-  const [lightness, setLightness] = useState(DEFAULT_LIGHTNESS_INDEX);
 
   useEffect(() => {
     let cancelled = false;
@@ -76,18 +68,10 @@ export default function NewPolishScreen() {
   }, []);
 
   const finishOptions = useMemo(() => buildFinishOptions(finishTypes), [finishTypes]);
-  const hex = normalizeHexParam(form.hex);
-  const family = hex ? classifyColorFamily({ vendorHex: hex, finishes: form.finishes }) : null;
 
   function update<K extends keyof ManualAddForm>(field: K, value: ManualAddForm[K]) {
     setForm((prev) => ({ ...prev, [field]: value }));
     if (field in errors) setErrors((prev) => ({ ...prev, [field]: undefined }));
-  }
-
-  function pickColor(nextHue: HueChoice, nextLightness: number) {
-    setHue(nextHue);
-    setLightness(nextLightness);
-    update("hex", pickerHex(nextHue === "neutral" ? null : HUE_STOPS[nextHue], nextLightness));
   }
 
   async function submit() {
@@ -175,94 +159,16 @@ export default function NewPolishScreen() {
           />
         </Field>
 
-        <Field label="Finish" hint="Tap in order: the first is the main finish.">
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.spacing(2) }}>
-            {finishOptions.map((option) => {
-              const index = form.finishes.indexOf(option.value);
-              return (
-                <Chip
-                  key={option.value}
-                  label={index === 0 && form.finishes.length > 1 ? `${option.label} · main` : option.label}
-                  selected={index >= 0}
-                  onPress={() => update("finishes", toggleFinish(form.finishes, option.value))}
-                />
-              );
-            })}
-          </View>
-        </Field>
+        <FinishField finishOptions={finishOptions} selected={form.finishes} onChange={(next) => update("finishes", next)} />
 
-        <Field label="Color" error={errors.hex} hint="Pick the closest color, or type a hex.">
-          <View style={{ gap: theme.spacing(3) }}>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.spacing(2) }}>
-              {[...HUE_STOPS.map((_, i) => i as HueChoice), "neutral" as const].map((choice) => {
-                const chipHex = pickerHex(choice === "neutral" ? null : HUE_STOPS[choice], lightness);
-                const chipFamily = classifyColorFamily({ vendorHex: chipHex });
-                const selected = hue === choice && hex === chipHex.toUpperCase();
-                return (
-                  <ColorButton
-                    key={String(choice)}
-                    hex={chipHex}
-                    selected={selected}
-                    label={choice === "neutral" ? "Neutral" : chipFamily ? COLOR_FAMILY_LABELS[chipFamily] : `Hue ${HUE_STOPS[choice]}`}
-                    onPress={() => pickColor(choice, lightness)}
-                  />
-                );
-              })}
-            </View>
-            {hue !== null && (
-              <View style={{ flexDirection: "row", gap: theme.spacing(2) }}>
-                {LIGHTNESS_STEPS.map((_, i) => {
-                  const stepHex = pickerHex(hue === "neutral" ? null : HUE_STOPS[hue], i);
-                  return (
-                    <ColorButton
-                      key={i}
-                      hex={stepHex}
-                      wide
-                      selected={lightness === i && hex === stepHex.toUpperCase()}
-                      label={`Lightness ${i + 1} of ${LIGHTNESS_STEPS.length}`}
-                      onPress={() => pickColor(hue, i)}
-                    />
-                  );
-                })}
-              </View>
-            )}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: theme.spacing(2) }}>
-              <ColorDot hex={hex} size={28} />
-              <View style={{ flex: 1 }}>
-                <FormInput
-                  value={form.hex}
-                  onChangeText={(v) => {
-                    setHue(null);
-                    update("hex", v);
-                  }}
-                  placeholder="#C0392B"
-                  autoCapitalize="characters"
-                  maxLength={7}
-                  accessibilityLabel="Color hex"
-                  invalid={Boolean(errors.hex)}
-                />
-              </View>
-              {form.hex ? (
-                <Button
-                  title="Clear"
-                  variant="ghost"
-                  compact
-                  onPress={() => {
-                    setHue(null);
-                    update("hex", "");
-                  }}
-                />
-              ) : null}
-            </View>
-            <FormInput
-              value={form.colorName}
-              onChangeText={(v) => update("colorName", v)}
-              placeholder={family ? `Color name (default: ${COLOR_FAMILY_LABELS[family]})` : "Color name, e.g. Teal (optional)"}
-              accessibilityLabel="Color name"
-              autoCapitalize="words"
-            />
-          </View>
-        </Field>
+        <ColorField
+          hex={form.hex}
+          colorName={form.colorName}
+          finishes={form.finishes}
+          error={errors.hex}
+          onHexChange={(v) => update("hex", v)}
+          onColorNameChange={(v) => update("colorName", v)}
+        />
 
         <Field label="Status">
           <View style={{ flexDirection: "row", gap: theme.spacing(2) }}>
@@ -310,38 +216,5 @@ export default function NewPolishScreen() {
         <Button title="Cancel" variant="ghost" disabled={submitting} onPress={() => router.back()} />
       </ScrollView>
     </KeyboardAvoidingView>
-  );
-}
-
-function ColorButton({
-  hex,
-  label,
-  selected,
-  wide,
-  onPress,
-}: {
-  hex: string;
-  label: string;
-  selected: boolean;
-  wide?: boolean;
-  onPress: () => void;
-}) {
-  const theme = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      style={{
-        width: wide ? undefined : 36,
-        flex: wide ? 1 : undefined,
-        height: 36,
-        borderRadius: wide ? theme.radius.md : 18,
-        backgroundColor: hex,
-        borderWidth: selected ? 3 : 1,
-        borderColor: selected ? theme.colors.foreground : theme.colors.border,
-      }}
-    />
   );
 }

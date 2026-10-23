@@ -252,6 +252,8 @@ async function applyShadeColorUpdate(
 const POLISH_COLUMNS = `
     s.shade_id::text                             AS id,
     s.shade_id::text                             AS "shadeId",
+    -- True only for the caller's own private (not yet approved/merged) submission; never for another user's shade.
+    COALESCE(s.status = 'user_submitted' AND s.created_by_user_id = $1 AND s.merged_into_shade_id IS NULL, false) AS "ownSubmitted",
     ui.inventory_item_id::text                   AS "inventoryItemId",
     $1::text                                     AS "userId",
     COALESCE(b.name_canonical, '')               AS brand,
@@ -500,9 +502,10 @@ export async function upsertInventoryItem(
      ON CONFLICT (user_id, shade_id) DO UPDATE SET
        quantity          = CASE WHEN $3::int IS NULL THEN user_inventory_item.quantity ELSE EXCLUDED.quantity END,
        notes             = CASE WHEN $4 IS NULL THEN user_inventory_item.notes ELSE EXCLUDED.notes END,
-       purchase_date     = CASE WHEN $5 IS NULL THEN user_inventory_item.purchase_date ELSE EXCLUDED.purchase_date END,
+       -- rating / purchase_date: an explicit null in the request clears them (listed in $14).
+       purchase_date     = CASE WHEN 'purchaseDate' = ANY($14::text[]) OR $5 IS NOT NULL THEN EXCLUDED.purchase_date ELSE user_inventory_item.purchase_date END,
        expiration_date   = CASE WHEN $6 IS NULL THEN user_inventory_item.expiration_date ELSE EXCLUDED.expiration_date END,
-       rating            = CASE WHEN $7 IS NULL THEN user_inventory_item.rating ELSE EXCLUDED.rating END,
+       rating            = CASE WHEN 'rating' = ANY($14::text[]) OR $7 IS NOT NULL THEN EXCLUDED.rating ELSE user_inventory_item.rating END,
        tags              = CASE WHEN $8 IS NULL THEN user_inventory_item.tags ELSE EXCLUDED.tags END,
        size_display      = CASE WHEN $9 IS NULL THEN user_inventory_item.size_display ELSE EXCLUDED.size_display END,
        status            = CASE WHEN $10::text IS NULL THEN user_inventory_item.status ELSE EXCLUDED.status END,

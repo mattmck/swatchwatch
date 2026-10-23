@@ -98,9 +98,17 @@ function brandName(brandId) {
   return null;
 }
 
-function polishRow(shade, userId) {
+function polishRow(shade, userId, text = "") {
   const inInv = state.inventory.has(`${userId}:${shade.id}`);
+  // The row only carries `ownSubmitted` when the SQL projects it with the caller-bound predicate
+  // (`created_by_user_id = $1`); the value is then evaluated like Postgres would.
+  const ownSubmittedSql =
+    /AS\s+"ownSubmitted"/i.test(text) &&
+    /s\.status\s*=\s*'user_submitted'\s+AND\s+s\.created_by_user_id\s*=\s*\$1\s+AND\s+s\.merged_into_shade_id\s+IS\s+NULL/i.test(text);
   return {
+    ...(ownSubmittedSql
+      ? { ownSubmitted: shade.status === "user_submitted" && shade.createdBy === Number(userId) && !isRetired(shade) }
+      : {}),
     id: String(shade.id),
     shadeId: String(shade.id),
     inventoryItemId: inInv ? `inv-${userId}-${shade.id}` : null,
@@ -158,7 +166,7 @@ async function fakeQuery(via, sql, params = []) {
   }
 
   // getVisibleShade: [shadeId, userId]
-  if (/AS\s+"ownSubmitted"/i.test(text)) {
+  if (/AS\s+"ownSubmitted"/i.test(text) && !/AS\s+"inventoryItemId"/i.test(text)) {
     const shade = state.shades.get(Number(params[0]));
     const userId = Number(params[1]);
     if (!shade || (hasVisibilityGuard(text, params, userId) && !visibleTo(shade, userId))) return { rows: [], rowCount: 0 };
@@ -235,7 +243,7 @@ async function fakeQuery(via, sql, params = []) {
     // The list query carries its total as a window column (COUNT(*) OVER() AS "totalCount").
     const withTotal = /"totalCount"/.test(text);
     const rows = shades.map((s) =>
-      withTotal ? { ...polishRow(s, userId), totalCount: String(shades.length) } : polishRow(s, userId)
+      withTotal ? { ...polishRow(s, userId, text), totalCount: String(shades.length) } : polishRow(s, userId, text)
     );
     return { rows, rowCount: rows.length };
   }
@@ -530,6 +538,39 @@ describe("F2 — user-submitted shades are private until approved", () => {
       );
       assert.equal(q.params[0], USER_B, "$1 must be the caller");
     }
+  });
+
+  it("ownSubmitted is true only for the caller's own private shade, in detail and list", async () => {
+    await post(USER_B, { brand: "Acme", name: "Fresh Shade", quantity: 1 });
+    const created = [...state.shades.values()].find((s) => s.name === "Fresh Shade");
+
+    assert.equal((await getDetail(USER_B, created.id)).jsonBody.ownSubmitted, true);
+    const listB = await getList(USER_B);
+    assert.equal(listB.jsonBody.polishes.find((p) => p.name === "Fresh Shade").ownSubmitted, true);
+    // A shared catalog shade is never the caller's own submission.
+    assert.equal((await getDetail(USER_B, CATALOG_SHADE)).jsonBody.ownSubmitted, false);
+    assert.ok(listB.jsonBody.polishes.filter((p) => state.shades.get(Number(p.id)).createdBy !== USER_B).every((p) => p.ownSubmitted === false));
+  });
+
+  it("another user never sees ownSubmitted: true for someone else's private shade", async () => {
+    // B's private shade is invisible to A (404) ...
+    assert.equal((await getDetail(USER_A, B_PRIVATE_SHADE)).status, 404);
+    // ... and even once A holds it in inventory (visible), it is not A's submission.
+    state.inventory.add(`${USER_A}:${B_PRIVATE_SHADE}`);
+    const held = await getDetail(USER_A, B_PRIVATE_SHADE);
+    assert.equal(held.status, 200);
+    assert.equal(held.jsonBody.ownSubmitted, false);
+    const listA = await getList(USER_A);
+    assert.ok(listA.jsonBody.polishes.every((p) => p.ownSubmitted !== true || state.shades.get(Number(p.id)).createdBy === USER_A));
+    assert.equal(listA.jsonBody.polishes.find((p) => p.id === String(B_PRIVATE_SHADE)).ownSubmitted, false);
+    // The creator still gets true for the same shade.
+    assert.equal((await getDetail(USER_B, B_PRIVATE_SHADE)).jsonBody.ownSubmitted, true);
+  });
+
+  it("a creator's merged (retired) submission is not served, so ownSubmitted never marks it", async () => {
+    assert.equal((await getDetail(USER_A, A_MERGED_SHADE)).status, 404);
+    const listA = await getList(USER_A);
+    assert.ok(!listA.jsonBody.polishes.some((p) => p.id === String(A_MERGED_SHADE)));
   });
 
   it("another user's private shade is hidden from list and detail (404)", async () => {
