@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { CaptureCheckCandidate, CaptureCheckResponse, PolishDupesResponse } from "swatchwatch-shared";
 import {
+  buildFrameQuality,
   buildStartMetadata,
   canCheck,
+  deriveBottleVerdict,
   deriveVerdict,
   framesReducer,
   isRetryableStatus,
@@ -141,5 +143,93 @@ describe("verdicts", () => {
     assert.equal(withDupes(add, none).kind, "add");
     assert.equal(withDupes(add, some).kind, "near-dupe");
     assert.equal(withDupes(verdictForCandidate(candidate("owned")), some).kind, "owned");
+  });
+});
+
+describe("buildFrameQuality surface", () => {
+  const base = { source: "mobile-camera" as const, width: 1, height: 2, sourceWidth: 3, sourceHeight: 4 };
+
+  it("tags the bottle surface when given", () => {
+    assert.equal(buildFrameQuality({ ...base, surface: "bottom" }).surface, "bottom");
+  });
+
+  it("omits the surface key when absent or null", () => {
+    assert.ok(!("surface" in buildFrameQuality(base)));
+    assert.ok(!("surface" in buildFrameQuality({ ...base, surface: null })));
+  });
+});
+
+describe("buildStartMetadata sticky hints", () => {
+  const sticky = { brand: "Loud", brandCanonical: "Loud Lacquer", brandId: "7", finish: "creme", collection: "Fall" };
+
+  it("fills brand, finish and collection from the sticky hints", () => {
+    assert.deepEqual(buildStartMetadata({ barcode: null, hints: {}, sticky }), {
+      source: "mobile-rapid-add",
+      brand: "Loud Lacquer",
+      finish: "creme",
+      collection: "Fall",
+    });
+  });
+
+  it("lets a typed hint win over the sticky brand", () => {
+    const metadata = buildStartMetadata({ barcode: null, hints: { brand: "OPI" }, sticky });
+    assert.equal(metadata.brand, "OPI");
+    assert.equal(metadata.finish, "creme");
+  });
+
+  it("is unchanged without sticky hints", () => {
+    assert.deepEqual(buildStartMetadata({ barcode: null, hints: {}, sticky: null }), { source: "mobile-rapid-add" });
+  });
+});
+
+describe("deriveBottleVerdict", () => {
+  const conflict = {
+    hinted: { brandId: "1", name: "OPI", source: "hint" as const },
+    read: { brandId: "2", name: "Essie", source: "read" as const },
+  };
+  const suggestedShade = {
+    brandId: "2",
+    brandName: "Essie",
+    brandSource: "read" as const,
+    shadeName: "Ballet Slippers",
+    hex: "#F5D7DC",
+    finish: "creme",
+    gtin: null,
+  };
+
+  it("maps a match through its ownership", () => {
+    assert.equal(deriveBottleVerdict(check({ outcome: "matched", match: candidate("owned") }), { afterNoneOfThese: false }).kind, "owned");
+    assert.equal(deriveBottleVerdict(check({ outcome: "matched", match: candidate("notOwned") }), { afterNoneOfThese: false }).kind, "add");
+  });
+
+  it("offers pickable candidates and carries the brand conflict", () => {
+    const many = [candidate("notOwned"), candidate("owned", { entityId: "7", shadeId: "7" })];
+    assert.deepEqual(
+      deriveBottleVerdict(check({ outcome: "needs_question", candidates: many, brandConflict: conflict }), { afterNoneOfThese: false }),
+      { kind: "pick", candidates: many, brandConflict: conflict },
+    );
+  });
+
+  it("shows the create card after None of these, with the capture id", () => {
+    const many = [candidate("notOwned")];
+    const verdict = deriveBottleVerdict(
+      check({ captureId: "cap-9", outcome: "needs_question", candidates: many, suggestedShade, brandConflict: conflict }),
+      { afterNoneOfThese: true },
+    );
+    assert.equal(verdict.kind, "create");
+    if (verdict.kind !== "create") return;
+    assert.equal(verdict.card.captureId, "cap-9");
+    assert.equal(verdict.card.brand, "Essie");
+    assert.deepEqual(verdict.brandConflict, conflict);
+  });
+
+  it("creates directly from an unmatched bottle with a suggestion", () => {
+    const verdict = deriveBottleVerdict(check({ captureId: "cap-1", outcome: "unmatched", suggestedShade }), { afterNoneOfThese: false });
+    assert.equal(verdict.kind, "create");
+    if (verdict.kind === "create") assert.equal(verdict.brandConflict, null);
+  });
+
+  it("falls back to not-found with the gtin when there is nothing to prefill", () => {
+    assert.deepEqual(deriveBottleVerdict(check({ outcome: "unmatched" }), { afterNoneOfThese: false, gtin: "123" }), { kind: "not-found", gtin: "123" });
   });
 });

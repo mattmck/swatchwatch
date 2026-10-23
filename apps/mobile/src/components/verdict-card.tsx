@@ -185,6 +185,14 @@ export function VerdictCard(props: VerdictCardProps) {
         </>
       );
       break;
+    case "create":
+      // Placeholder until the create card lands (Task 14).
+      tone = "neutral";
+      icon = "add-circle";
+      eyebrow = "No match yet";
+      title = verdict.card.shadeName ? `${verdict.card.brand} — ${verdict.card.shadeName}` : "Not in the catalog";
+      actions = <Button title="Add manually" variant="outline" compact onPress={props.onAddManually} />;
+      break;
     case "added":
       tone = "done";
       icon = "checkmark-circle";
