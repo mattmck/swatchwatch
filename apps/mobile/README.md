@@ -113,7 +113,7 @@ src/
     sign-in.tsx
     (app)/_layout.tsx     stack over the tabs (detail, match)
     (app)/(tabs)/         Collection (index), Search, Add (Rapid Add), Profile
-    (app)/polishes/[id].tsx   polish detail (web /polishes/detail?id=)
+    (app)/polishes/[id].tsx   polish detail (web /polishes/detail?id=); owned polishes show `WearHistory` (newest 5 manis, "See all" → Manis tab with `?shade=<id>`; thumbnails via the in-memory private image loader only)
     (app)/match.tsx       Match to Collection (web /polishes/match)
   api/client.ts           typed API client (mirrors apps/web/src/lib/api.ts)
   auth/                   auth provider, token holder, Entra config, secure storage
