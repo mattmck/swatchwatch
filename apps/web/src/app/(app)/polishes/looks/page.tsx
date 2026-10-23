@@ -39,7 +39,6 @@ import {
   recommendLooks,
   type Look,
   type LookCatalogQueries,
-  type LookStepRole,
   type Vibe,
 } from "@/lib/looks";
 import {
@@ -366,8 +365,8 @@ function LooksPageContent() {
     setState({ vibe, seed: next === seed ? next + 1 : next, toppers }, "shuffle");
   }
 
-  function swap(look: Look, role: LookStepRole, polish: Polish) {
-    const next = applyStepSwap(look, role, polish);
+  function swap(look: Look, stepIndex: number, polish: Polish) {
+    const next = applyStepSwap(look, stepIndex, polish);
     setOverrides((current) => ({
       key: resultKey,
       looks: { ...(current.key === resultKey ? current.looks : {}), [look.templateId]: next },
@@ -608,7 +607,7 @@ function LooksPageContent() {
                     colorLabHref={lookColorLabHref(look.steps, looksReturnTo)}
                     onColorLab={() => colorLabOpened(look, "card", index)}
                     backdrop={vibe.skinTone ? skinToneBackdropFor(vibe.skinTone) : undefined}
-                    onSwap={(role, polish) => swap(look, role, polish)}
+                    onSwap={(stepIndex, polish) => swap(look, stepIndex, polish)}
                   />
                 ))}
               </div>
@@ -682,7 +681,7 @@ function LooksPageContent() {
         onOpenChange={(open) => {
           if (!open) setDrawerId(null);
         }}
-        onSwap={(role, polish) => drawerLook && swap(drawerLook, role, polish)}
+        onSwap={(stepIndex, polish) => drawerLook && swap(drawerLook, stepIndex, polish)}
         colorLabHref={drawerLook ? lookColorLabHref(drawerLook.steps, looksReturnTo) : null}
         onColorLab={() => {
           if (drawerLook) colorLabOpened(drawerLook, "drawer", looks.indexOf(drawerLook));

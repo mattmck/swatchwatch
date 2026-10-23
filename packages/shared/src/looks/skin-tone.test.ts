@@ -34,8 +34,9 @@ function summary(vibe = DEFAULT_VIBE, seed = 1, skinTone?: SkinTone | null) {
 }
 
 describe("skin tone off", () => {
-  // Frozen from the recommender before skin tone existed: no skin tone must never change a result.
-  const FROZEN = ["french-modern:17/5", "office-neutral:2/5", "coral-pop:16/11"];
+  // Frozen from the recommender without skin tone: no skin tone must never change a result.
+  // Re-frozen when looks got a second accent (three colors) and accents stopped repeating across looks.
+  const FROZEN = ["french-modern:17/5/16", "pink-sparkle:2/4/15/-", "berry-gradient:8/9/7"];
 
   it("matches the pre-skin-tone output for the same seed", () => {
     const actual = summary(DEFAULT_VIBE, 1);

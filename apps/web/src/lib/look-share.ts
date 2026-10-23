@@ -43,10 +43,23 @@ export function publicLookVibeLine(vibe: PublicLookResponse["vibe"]): string {
   return parts.filter(Boolean).join(" · ");
 }
 
-/** A step's label: the template's label for that role ("Tip", "Accent nail"), else the role. */
-export function publicStepLabel(templateId: string, role: PublicLookStep["role"]): string {
+/**
+ * A step's label: the template's label for the `nth` step of that role ("Accent nail", then "Tip"
+ * for a look's second accent), else the role.
+ */
+export function publicStepLabel(templateId: string, role: PublicLookStep["role"], nth = 0): string {
   const template = LOOK_TEMPLATES.find((t) => t.id === templateId);
-  return template?.steps.find((s) => s.role === role)?.label ?? ROLE_LABELS[role];
+  return template?.steps.filter((s) => s.role === role)[nth]?.label ?? ROLE_LABELS[role];
+}
+
+/** Each step's label, counting repeated roles in order (a look can have two accents). */
+export function publicStepLabels(templateId: string, steps: readonly Pick<PublicLookStep, "role">[]): string[] {
+  const seen: Partial<Record<PublicLookStep["role"], number>> = {};
+  return steps.map((step) => {
+    const nth = seen[step.role] ?? 0;
+    seen[step.role] = nth + 1;
+    return publicStepLabel(templateId, step.role, nth);
+  });
 }
 
 /**
@@ -55,9 +68,10 @@ export function publicStepLabel(templateId: string, role: PublicLookStep["role"]
  * reads as "any shade close to #RRGGBB".
  */
 export function publicLookDetailSteps(look: PublicLookResponse): DetailStep[] {
-  return look.steps.map((step) => ({
+  const labels = publicStepLabels(look.templateId, look.steps);
+  return look.steps.map((step, index) => ({
     role: step.role,
-    label: publicStepLabel(look.templateId, step.role),
+    label: labels[index],
     targetHex: step.hex,
     polish: step.brand && step.name ? { brand: step.brand, name: step.name, finishes: step.finishes } : null,
   }));

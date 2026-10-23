@@ -34,7 +34,7 @@ The MVP shipped client-side instead of behind `GET /api/looks` (the same approac
   - Finish preference (Gloss, Matte, Chrome, Holo, Flake, Sheer)
   - Skin tone preview slider (cool ↔ warm) + nail length/shape presets
   - Toggles: `Owned only`, `Include toppers`, `Advanced / Color Lab` (reveals current color wheel)
-- **Outputs (right):** 3 Look Cards with: thumbnail swatch strip, steps (Base, Accent/Tip, Topper), ownership pills (Owned ✓ / Add $), price for missing items, difficulty/time badges, `Wear this`, `Add missing items`, `Share`, `Save`.
+- **Outputs (right):** 3 Look Cards with: thumbnail swatch strip, steps (Base, two accents such as Accent nail + Tip, Topper), ownership pills (Owned ✓ / Add $), price for missing items, difficulty/time badges, `Wear this`, `Add missing items`, `Share`, `Save`.
 - **Detail drawer:** expands a card to show substitutions (owned vs. shop), care notes, and application steps.
 - **Advanced Color Lab:** existing canvas moved behind toggle; seeded with current vibe palette to stay consistent.
 
