@@ -12,7 +12,9 @@
  * (cooldown) is only ignored when every remaining candidate is in cooldown.
  */
 import {
-  hexToOklab,
+  analyzeCollectionGaps,
+  classifyHexToGapCell,
+  gapCellKey,
   resolveDisplayHex,
   resolvePolishFinishes,
   resolveProductCategory,
@@ -53,39 +55,16 @@ export function createSeededRandom(seed: number): RandomSource {
   };
 }
 
-// ── Gap heatmap (mirrors the web's color-utils: classifyHueFamily / LightnessBand) ─────────
-
-const HUE_FAMILIES = ["reds", "oranges-corals", "yellows-golds", "greens", "blues-teals", "purples-violets", "pinks-magentas", "neutrals"] as const;
-const LIGHTNESS_BANDS = ["dark", "dark-medium", "medium", "medium-light", "light"] as const;
-
-function gapCellKey(hex: string): string | null {
-  if (!HEX_RE.test(hex)) return null;
-  const { L, a, b } = hexToOklab(hex);
-  const C = Math.sqrt(a * a + b * b);
-  const h = C < 1e-8 ? NaN : ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360;
-  let hue: (typeof HUE_FAMILIES)[number];
-  if (C < 0.04 || Number.isNaN(h)) hue = "neutrals";
-  else if (h >= 350 || h < 10) hue = "reds";
-  else if (h < 40) hue = "oranges-corals";
-  else if (h < 80) hue = "yellows-golds";
-  else if (h < 170) hue = "greens";
-  else if (h < 260) hue = "blues-teals";
-  else if (h < 310) hue = "purples-violets";
-  else hue = "pinks-magentas";
-  const band = L < 0.3 ? "dark" : L < 0.44 ? "dark-medium" : L < 0.6 ? "medium" : L < 0.76 ? "medium-light" : "light";
-  return `${hue}:${band}`;
-}
+// ── Gap heatmap (the shared cells, `analyzeCollectionGaps` in swatchwatch-shared) ──────────
 
 /** Keys of cells with a few polishes (`count > 0 && count <= max(1, floor(avg × 0.5))`). */
 export function thinGapCells(hexes: readonly string[]): Set<string> {
-  const counts = new Map<string, number>();
-  for (const hex of hexes) {
-    const key = gapCellKey(hex);
-    if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  const cellCount = HUE_FAMILIES.length * LIGHTNESS_BANDS.length;
-  const low = Math.max(1, Math.floor((hexes.length / cellCount) * 0.5));
-  return new Set([...counts].filter(([, count]) => count > 0 && count <= low).map(([key]) => key));
+  return new Set(analyzeCollectionGaps(hexes).underrepresented.map(gapCellKey));
+}
+
+function cellKeyOfHex(hex: string): string | null {
+  const cell = classifyHexToGapCell(hex);
+  return cell ? gapCellKey(cell) : null;
 }
 
 // ── Scoring and picking ─────────────────────────────────────────────────────────────────
@@ -140,7 +119,7 @@ export function scorePickCandidates(polishes: readonly Polish[], now: Date | num
 
   return owned.map((polish) => {
     const hex = hexOf(polish);
-    const cell = hex ? gapCellKey(hex) : null;
+    const cell = hex ? cellKeyOfHex(hex) : null;
     const isThin = cell !== null && thin.has(cell);
     const untried = !polish.triedAt;
     const days = daysBetween(polish.lastWornAt, nowMs);
