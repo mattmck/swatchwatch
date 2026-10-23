@@ -310,6 +310,38 @@ export function deriveBottleVerdict(check: CaptureCheckResponse, opts: { afterNo
   return { kind: "not-found", gtin: opts.gtin };
 }
 
+/**
+ * Which brand a pick row came from when the typed brand and the brand read off the bottle
+ * disagree: `typed` / `bottle` with that brand's name, or `null` for any other candidate.
+ */
+export function candidateBrandBadge(
+  candidate: Pick<CaptureCheckCandidate, "brandId">,
+  conflict: CaptureBrandConflict | null | undefined,
+): { source: "typed" | "bottle"; name: string } | null {
+  if (!conflict || !candidate.brandId) return null;
+  if (candidate.brandId === conflict.read.brandId) return { source: "bottle", name: conflict.read.name };
+  if (candidate.brandId === conflict.hinted.brandId) return { source: "typed", name: conflict.hinted.name };
+  return null;
+}
+
+/** The `added` verdict's candidate for a polish the create card just made. */
+export function createdCandidate(
+  created: { id: string; brand: string; name: string },
+  status: "owned" | "wishlist",
+  hex: string | null,
+): CaptureCheckCandidate {
+  const candidate: CaptureCheckCandidate = {
+    entityType: "shade",
+    entityId: created.id,
+    shadeId: created.id,
+    display: `${created.brand} — ${created.name}`,
+    confidence: 1,
+    ownership: status === "owned" ? { relationship: "owned", quantity: 1 } : { relationship: "wishlisted" },
+  };
+  if (hex) candidate.hex = hex;
+  return candidate;
+}
+
 /** Upgrade an `add` verdict to `near-dupe` when the shopper owns a dupe. */
 export function withDupes(verdict: RapidAddVerdict, dupes: PolishDupesResponse | null): RapidAddVerdict {
   if (verdict.kind !== "add" || !dupes || dupes.dupeCount === 0) return verdict;

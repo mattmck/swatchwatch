@@ -4,28 +4,53 @@ import * as ImagePicker from "expo-image-picker";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Linking, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
-import type { CaptureCheckCandidate, CaptureFrameType } from "swatchwatch-shared";
+import {
+  bottleFlowReducer,
+  createPolishRequestFromCard,
+  deriveBottleCameraView,
+  EMPTY_STICKY_HINTS,
+  INITIAL_BOTTLE_FLOW_STATE,
+  isBatchMode,
+  shouldAutoCheck,
+  surfaceFromQuality,
+  switchBrand,
+  withBrandEcho,
+  type BottleSurface,
+  type CaptureCheckCandidate,
+  type CaptureCheckResponse,
+  type CaptureFrameType,
+  type CreateCardEdits,
+  type CreateCardModel,
+  type StickyHints,
+} from "swatchwatch-shared";
 import {
   addCaptureFrame,
+  answerCaptureQuestion,
   ApiError,
   checkCapture,
+  createPolish,
   errorMessage,
   finalizeCapture,
   startCapture,
   updatePolish,
 } from "@/api/client";
 import { useAuth } from "@/auth/auth-provider";
+import { BatchBrandBar, BottlePrompt } from "@/components/bottle-prompt";
 import { FrameStrip } from "@/components/frame-strip";
 import { AppText, Button, Card, Chip, ErrorBanner } from "@/components/ui";
 import { ShelfList } from "@/components/shelf-list";
 import { VerdictCard, type VerdictBusy } from "@/components/verdict-card";
 import { fetchOwnedDupes } from "@/lib/add-guard";
 import { readCache, writeCache } from "@/lib/api-cache";
+import { notifyCollectionChanged } from "@/lib/collection-events";
+import { useFeatureFlags } from "@/lib/feature-flags";
 import { prepareJpeg } from "@/lib/image-prep";
 import {
   buildFrameQuality,
   buildStartMetadata,
   canCheck,
+  createdCandidate,
+  deriveBottleVerdict,
   deriveVerdict,
   framesReducer,
   isRetryableStatus,
@@ -41,6 +66,7 @@ import {
   type ScannedBarcode,
 } from "@/lib/rapid-add";
 import { manualAddRoute } from "@/lib/manual-add";
+import { readStickyHintsCache, writeStickyHintsCache } from "@/lib/sticky-hints";
 import {
   EMPTY_SHELF,
   parseShelfEntries,
@@ -84,6 +110,7 @@ export default function RapidAddScreen() {
   const theme = useTheme();
   const { user } = useAuth();
   const scope = user ? String(user.userId) : null;
+  const bottle = useFeatureFlags().bottleCapture;
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
   const [focused, setFocused] = useState(false);
@@ -116,6 +143,41 @@ export default function RapidAddScreen() {
   /** Frames queued for this scan, counted when a photo starts so quick taps can't pass the cap. */
   const frameCount = useRef(0);
   const hintsRef = useRef({ brand: "", shadeName: "" });
+
+  // Bottle sequence (BOTTLE_CAPTURE_ENABLED): prompts from the server, a remembered brand for
+  // "going through one brand", and the create card. All unused while the flag is off.
+  const [flow, dispatchFlow] = useReducer(bottleFlowReducer, INITIAL_BOTTLE_FLOW_STATE);
+  const [sticky, setSticky] = useState<StickyHints>(EMPTY_STICKY_HINTS);
+  const stickyRef = useRef<StickyHints>(EMPTY_STICKY_HINTS);
+  /** A photo type picked under "More options", used for the next photo only. */
+  const [manualType, setManualType] = useState<CaptureFrameType | null>(null);
+  /** The scan's latest check response, so "None of these" can show the create card without a request. */
+  const lastCheckRef = useRef<CaptureCheckResponse | null>(null);
+  /** Set when a check has started since the last photo, so the auto-check runs once per photo. */
+  const checkedRef = useRef(false);
+
+  const updateSticky = useCallback(
+    (next: StickyHints) => {
+      stickyRef.current = next;
+      setSticky(next);
+      if (scope) void writeStickyHintsCache(scope, next).catch(() => undefined);
+    },
+    [scope],
+  );
+
+  // The remembered brand comes back per user on launch (sign-out wipes it with the API cache).
+  useEffect(() => {
+    if (!scope || !bottle) return;
+    let cancelled = false;
+    void readStickyHintsCache(scope).then((hints) => {
+      if (cancelled) return;
+      stickyRef.current = hints;
+      setSticky(hints);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [scope, bottle]);
 
   useFocusEffect(
     useCallback(() => {
@@ -157,29 +219,44 @@ export default function RapidAddScreen() {
     dispatchShelf({ type: "verdict", entry });
   }, []);
 
-  const ensureSession = useCallback((scanned: ScannedBarcode | null): Promise<string> => {
-    if (!sessionPromise.current) {
-      // Only the current scan's promise may write the refs: "Scan next" can replace it while
-      // an older start request is still in flight.
-      const promise: Promise<string> = startCapture({
-        metadata: buildStartMetadata({ barcode: scanned, hints: hintsRef.current }),
-      }).then(
-        (started) => {
-          if (sessionPromise.current === promise) {
-            captureIdRef.current = started.captureId;
-            setSessionStarted(true);
-          }
-          return started.captureId;
-        },
-        (err: unknown) => {
-          if (sessionPromise.current === promise) sessionPromise.current = null;
-          throw err;
-        },
-      );
-      sessionPromise.current = promise;
-    }
-    return sessionPromise.current;
-  }, []);
+  const ensureSession = useCallback(
+    (scanned: ScannedBarcode | null): Promise<string> => {
+      if (!sessionPromise.current) {
+        // Only the current scan's promise may write the refs: "Scan next" can replace it while
+        // an older start request is still in flight.
+        const promise: Promise<string> = startCapture({
+          metadata: buildStartMetadata({
+            barcode: scanned,
+            hints: hintsRef.current,
+            sticky: bottle ? stickyRef.current : null,
+          }),
+        }).then(
+          (started) => {
+            if (sessionPromise.current === promise) {
+              captureIdRef.current = started.captureId;
+              setSessionStarted(true);
+              if (bottle) {
+                dispatchFlow({ type: "session_started", brandHint: started.brandHint, nextFrame: started.nextFrame });
+                // Remember the catalog brand the server matched for the remembered text (not a one-off typed hint).
+                if (!hintsRef.current.brand.trim()) {
+                  const echoed = withBrandEcho(stickyRef.current, started.brandHint);
+                  if (echoed !== stickyRef.current) updateSticky(echoed);
+                }
+              }
+            }
+            return started.captureId;
+          },
+          (err: unknown) => {
+            if (sessionPromise.current === promise) sessionPromise.current = null;
+            throw err;
+          },
+        );
+        sessionPromise.current = promise;
+      }
+      return sessionPromise.current;
+    },
+    [bottle, updateSticky],
+  );
 
   /** Upload one frame; transient failures retry automatically, then it waits for a manual Retry. */
   const uploadFrame = useCallback(
@@ -196,6 +273,10 @@ export default function RapidAddScreen() {
             quality: frame.quality,
           });
           dispatchFrames({ type: "upload_succeeded", localId: frame.localId, frameId: res.frameId });
+          if (bottle && generation === scanGeneration.current) {
+            checkedRef.current = false;
+            dispatchFlow({ type: "frame_uploaded", surface: surfaceFromQuality(frame.quality), nextFrame: res.nextFrame });
+          }
           return;
         } catch (err) {
           const status = err instanceof ApiError ? err.status : 0;
@@ -212,11 +293,19 @@ export default function RapidAddScreen() {
         }
       }
     },
-    [ensureSession],
+    [ensureSession, bottle],
   );
 
   const addFrame = useCallback(
-    async (input: { uri: string; width: number; height: number; type: CaptureFrameType; source: "mobile-camera" | "mobile-library"; scanned: ScannedBarcode | null }) => {
+    async (input: {
+      uri: string;
+      width: number;
+      height: number;
+      type: CaptureFrameType;
+      source: "mobile-camera" | "mobile-library";
+      scanned: ScannedBarcode | null;
+      surface?: BottleSurface | null;
+    }) => {
       if (frameCount.current >= MAX_CAPTURE_FRAMES) {
         setError(`That's the most photos for one scan (${MAX_CAPTURE_FRAMES}). Tap Check, or remove a failed one.`);
         return { upload: Promise.resolve() };
@@ -240,6 +329,7 @@ export default function RapidAddScreen() {
           sourceWidth: input.width,
           sourceHeight: input.height,
           barcode: input.scanned,
+          surface: input.surface,
         }),
       };
       dispatchFrames({ type: "added", frame });
@@ -252,13 +342,18 @@ export default function RapidAddScreen() {
   const runCheck = useCallback(
     async (scanned: ScannedBarcode | null) => {
       const generation = scanGeneration.current;
+      checkedRef.current = true;
       setBusy("checking");
       setError(null);
       try {
         const captureId = await ensureSession(scanned);
         const res = await checkCapture(captureId);
-        const next = await enrich(deriveVerdict(res, scanned?.gtin));
+        const next = await enrich(
+          bottle ? deriveBottleVerdict(res, { afterNoneOfThese: false, gtin: scanned?.gtin }) : deriveVerdict(res, scanned?.gtin),
+        );
         if (generation !== scanGeneration.current) return;
+        lastCheckRef.current = res;
+        if (bottle) dispatchFlow({ type: "check_received", nextFrame: res.nextFrame, brandConflict: res.brandConflict });
         setVerdict(next);
         recordVerdict(next, scanned?.gtin);
         void Haptics.notificationAsync(
@@ -272,19 +367,19 @@ export default function RapidAddScreen() {
         if (generation === scanGeneration.current) setBusy(null);
       }
     },
-    [ensureSession, recordVerdict],
+    [ensureSession, recordVerdict, bottle],
   );
 
   const takeFrame = useCallback(
     /** Resolves once the photo is taken and its upload has finished (or failed). */
-    async (type: CaptureFrameType, scanned: ScannedBarcode | null): Promise<void> => {
+    async (type: CaptureFrameType, scanned: ScannedBarcode | null, surface: BottleSurface | null = null): Promise<void> => {
       const camera = cameraRef.current;
       if (!camera) return;
       setBusy((b) => b ?? "capturing");
       let upload: Promise<void> = Promise.resolve();
       try {
         const picture = await camera.takePictureAsync({ quality: 0.8, shutterSound: false });
-        ({ upload } = await addFrame({ uri: picture.uri, width: picture.width, height: picture.height, type, source: "mobile-camera", scanned }));
+        ({ upload } = await addFrame({ uri: picture.uri, width: picture.width, height: picture.height, type, source: "mobile-camera", scanned, surface }));
       } catch (err) {
         setError(errorMessage(err, "Couldn't take the photo."));
       } finally {
@@ -317,20 +412,76 @@ export default function RapidAddScreen() {
     [runCheck, takeFrame],
   );
 
+  /** The photo the shutter and "Choose a photo" take next: the prompt's, a "More options" pick, or the chip's. */
+  function nextShot(): { type: CaptureFrameType; surface: BottleSurface | null } {
+    if (!bottle) return { type: frameType, surface: null };
+    if (manualType) return { type: manualType, surface: null };
+    return view ? { type: view.frameType, surface: view.surface } : { type: "label", surface: null };
+  }
+
+  /** "Can't see it": skip the asked-for surface (a request once the scan has a session, else local). */
+  async function skipSurface() {
+    if (!view) return;
+    const generation = scanGeneration.current;
+    const surface = view.surface;
+    setError(null);
+    checkedRef.current = false;
+    try {
+      const captureId = flow.sessionStarted ? captureIdRef.current : null;
+      const res = captureId ? await answerCaptureQuestion(captureId, { skipSurface: surface }) : null;
+      if (generation === scanGeneration.current) dispatchFlow({ type: "surface_skipped", surface, nextFrame: res?.nextFrame });
+    } catch (err) {
+      if (generation === scanGeneration.current) setError(errorMessage(err, "Couldn't skip that photo. Try again."));
+    }
+  }
+
+  /** The create card's Add / Wishlist: the only place a bottle becomes a new catalog polish. */
+  async function createFromCard(card: CreateCardModel, edits: CreateCardEdits, status: "owned" | "wishlist") {
+    const generation = scanGeneration.current;
+    const current = () => generation === scanGeneration.current;
+    setVerdictBusy(status);
+    setError(null);
+    try {
+      const created = await createPolish(createPolishRequestFromCard(card, edits, status));
+      if (!current()) return;
+      notifyCollectionChanged();
+      const quantity = status === "owned" ? (created.quantity ?? 1) : undefined;
+      setVerdict({ kind: "added", candidate: createdCandidate(created, status, edits.hex), status, quantity });
+      markActed(status === "owned" ? "added" : "wishlisted", quantity);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+    } catch (err) {
+      if (current()) setError(errorMessage(err, "Couldn't add it. Try again."));
+    } finally {
+      if (current()) setVerdictBusy(null);
+    }
+  }
+
+  /** "None of these": in the bottle flow the last check's suggestion becomes the create card. */
+  function noneOfThese() {
+    const last = lastCheckRef.current;
+    const next: RapidAddVerdict =
+      bottle && last ? deriveBottleVerdict(last, { afterNoneOfThese: true, gtin: barcode?.gtin }) : { kind: "not-found", gtin: barcode?.gtin };
+    setVerdict(next);
+    recordVerdict(next, barcode?.gtin);
+  }
+
   async function pickFromLibrary() {
     setError(null);
     try {
       const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 1 });
       const asset = result.canceled ? null : result.assets[0];
       if (!asset) return;
+      const shot = nextShot();
       await addFrame({
         uri: asset.uri,
         width: asset.width,
         height: asset.height,
-        type: frameType === "barcode" ? "label" : frameType,
+        type: shot.type === "barcode" ? "label" : shot.type,
         source: "mobile-library",
         scanned: barcode,
+        surface: shot.surface,
       });
+      setManualType(null);
     } catch (err) {
       setError(errorMessage(err, "Couldn't use that photo."));
     }
@@ -447,6 +598,7 @@ export default function RapidAddScreen() {
   function scanLabel() {
     setVerdict(null);
     setFrameType("label");
+    if (bottle) setManualType("label");
   }
 
   function scanNext() {
@@ -459,6 +611,10 @@ export default function RapidAddScreen() {
     captureIdRef.current = null;
     barcodeLock.current = false;
     hintsRef.current = { brand: "", shadeName: "" };
+    dispatchFlow({ type: "reset" });
+    lastCheckRef.current = null;
+    checkedRef.current = false;
+    setManualType(null);
     setSessionStarted(false);
     setBrandHint("");
     setShadeHint("");
@@ -470,10 +626,18 @@ export default function RapidAddScreen() {
   }
 
   const summary = summarizeFrames(frames);
+  const view = bottle ? deriveBottleCameraView(flow, { brandKnown: isBatchMode(sticky) }) : null;
+  const shotType = bottle ? nextShot().type : frameType;
   const hasHints = Boolean(brandHint.trim() || shadeHint.trim());
   const checkEnabled = canCheck({ frames, hasBarcode: Boolean(barcode), hasHints, busy: busy === "checking" });
   const cameraAllowed = permission?.granted === true;
   const showCamera = focused && cameraAllowed && !verdict && Platform.OS !== "web";
+
+  // Once the server asks for nothing more and a photo is in, the check runs without a tap.
+  const autoCheckReady = bottle && !verdict && busy === null && summary.uploading === 0 && shouldAutoCheck(flow, summary.uploaded);
+  useEffect(() => {
+    if (autoCheckReady && !checkedRef.current) void runCheck(barcode);
+  }, [autoCheckReady, runCheck, barcode]);
 
   return (
     <ScrollView contentContainerStyle={{ padding: theme.spacing(4), gap: theme.spacing(4) }} keyboardShouldPersistTaps="handled">
@@ -484,20 +648,45 @@ export default function RapidAddScreen() {
           onAdd={(c, s) => void addCandidate(c, s)}
           onAddBottle={(c, q) => void addBottle(c, q)}
           onPick={(c) => void pickCandidate(c)}
-          onNoneOfThese={() => {
-            const notFound: RapidAddVerdict = { kind: "not-found", gtin: barcode?.gtin };
-            setVerdict(notFound);
-            recordVerdict(notFound, barcode?.gtin);
-          }}
+          onNoneOfThese={noneOfThese}
           onScanLabel={scanLabel}
-          onAddManually={() =>
-            router.push(manualAddRoute({ gtin: barcode?.gtin, format: barcode?.format, brand: brandHint, name: shadeHint }))
-          }
+          onAddManually={() => {
+            // What the scan read off the bottle rides along when the shopper typed nothing.
+            const suggested = lastCheckRef.current?.suggestedShade;
+            router.push(
+              manualAddRoute({
+                gtin: barcode?.gtin ?? suggested?.gtin ?? undefined,
+                format: barcode?.format,
+                brand: brandHint || suggested?.brandName || undefined,
+                name: shadeHint || suggested?.shadeName || undefined,
+              }),
+            );
+          }}
           onScanNext={scanNext}
+          onCreate={(card, edits, status) => void createFromCard(card, edits, status)}
+          onSwitchBrand={(read) => updateSticky(switchBrand(stickyRef.current, read))}
+          frames={frames}
         />
       ) : (
         <>
           <AppText muted>Scan a bottle to see if you already own it, then add it in one tap.</AppText>
+
+          {bottle && (
+            <>
+              <BatchBrandBar
+                hints={sticky}
+                onSetBrand={(brand) => updateSticky({ ...stickyRef.current, brand, brandCanonical: null, brandId: null })}
+                onDone={() => updateSticky(EMPTY_STICKY_HINTS)}
+              />
+              <BottlePrompt
+                view={view}
+                manualType={manualType}
+                disabled={busy !== null}
+                onManualType={setManualType}
+                onSkip={() => void skipSurface()}
+              />
+            </>
+          )}
 
           <View
             style={{
@@ -524,22 +713,29 @@ export default function RapidAddScreen() {
                 permissionLoaded={Boolean(permission)}
                 granted={cameraAllowed}
                 canAskAgain={permission?.canAskAgain ?? true}
+                statesRetention={bottle}
                 onRequest={() => void requestPermission()}
               />
             )}
             {showCamera && (
               <View pointerEvents="box-none" style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: theme.spacing(3), gap: theme.spacing(3) }}>
-                <View style={{ flexDirection: "row", justifyContent: "center", gap: theme.spacing(2) }}>
-                  {FRAME_TYPES.map((t) => (
-                    <Chip key={t.type} label={t.label} selected={frameType === t.type} onPress={() => setFrameType(t.type)} />
-                  ))}
-                </View>
+                {!bottle && (
+                  <View style={{ flexDirection: "row", justifyContent: "center", gap: theme.spacing(2) }}>
+                    {FRAME_TYPES.map((t) => (
+                      <Chip key={t.type} label={t.label} selected={frameType === t.type} onPress={() => setFrameType(t.type)} />
+                    ))}
+                  </View>
+                )}
                 <View style={{ alignItems: "center" }}>
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={`Take a ${frameType} photo`}
+                    accessibilityLabel={`Take a ${shotType} photo`}
                     disabled={busy === "capturing" || summary.total >= MAX_CAPTURE_FRAMES}
-                    onPress={() => void takeFrame(frameType, barcode)}
+                    onPress={() => {
+                      const shot = nextShot();
+                      setManualType(null);
+                      void takeFrame(shot.type, barcode, shot.surface);
+                    }}
                     style={({ pressed }) => ({
                       width: 68,
                       height: 68,
@@ -555,7 +751,7 @@ export default function RapidAddScreen() {
             )}
             {showCamera && !barcode && (
               <View pointerEvents="none" style={{ position: "absolute", top: theme.spacing(3) }}>
-                <Chip label="Point at the barcode" />
+                <Chip label={bottle ? "Or scan the barcode" : "Point at the barcode"} />
               </View>
             )}
           </View>
@@ -674,11 +870,14 @@ function CameraPlaceholder({
   permissionLoaded,
   granted,
   canAskAgain,
+  statesRetention,
   onRequest,
 }: {
   permissionLoaded: boolean;
   granted: boolean;
   canAskAgain: boolean;
+  /** Bottle sequence on: say how long the photos are kept. */
+  statesRetention: boolean;
   onRequest: () => void;
 }) {
   const theme = useTheme();
@@ -693,7 +892,10 @@ function CameraPlaceholder({
   return (
     <View style={{ alignItems: "center", gap: theme.spacing(3), padding: theme.spacing(6) }}>
       <AppText style={{ color: "#fff", textAlign: "center" }}>
-        Rapid Add needs the camera to scan barcodes and labels. Photos are only sent to match this bottle.
+        Rapid Add needs the camera to scan barcodes and labels.{" "}
+        {statesRetention
+          ? "Photos are only sent to match this bottle and are kept for up to 24 hours."
+          : "Photos are only sent to match this bottle."}
       </AppText>
       {canAskAgain ? (
         <Button title="Allow camera" variant="brand" onPress={onRequest} />

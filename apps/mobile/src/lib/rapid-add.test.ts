@@ -4,7 +4,9 @@ import type { CaptureCheckCandidate, CaptureCheckResponse, PolishDupesResponse }
 import {
   buildFrameQuality,
   buildStartMetadata,
+  candidateBrandBadge,
   canCheck,
+  createdCandidate,
   deriveBottleVerdict,
   deriveVerdict,
   framesReducer,
@@ -231,5 +233,43 @@ describe("deriveBottleVerdict", () => {
 
   it("falls back to not-found with the gtin when there is nothing to prefill", () => {
     assert.deepEqual(deriveBottleVerdict(check({ outcome: "unmatched" }), { afterNoneOfThese: false, gtin: "123" }), { kind: "not-found", gtin: "123" });
+  });
+});
+
+describe("candidateBrandBadge", () => {
+  const conflict = {
+    hinted: { brandId: "1", name: "OPI", source: "hint" as const },
+    read: { brandId: "2", name: "Essie", source: "read" as const },
+  };
+
+  it("names the brand a candidate belongs to when the hint and the bottle disagree", () => {
+    assert.deepEqual(candidateBrandBadge({ brandId: "2" }, conflict), { source: "bottle", name: "Essie" });
+    assert.deepEqual(candidateBrandBadge({ brandId: "1" }, conflict), { source: "typed", name: "OPI" });
+  });
+
+  it("is null without a conflict, without a brand id or for another brand", () => {
+    assert.equal(candidateBrandBadge({ brandId: "2" }, null), null);
+    assert.equal(candidateBrandBadge({ brandId: undefined }, conflict), null);
+    assert.equal(candidateBrandBadge({ brandId: "9" }, conflict), null);
+  });
+});
+
+describe("createdCandidate", () => {
+  it("describes an owned polish the create card made", () => {
+    assert.deepEqual(createdCandidate({ id: "7", brand: "Essie", name: "Ballet Slippers" }, "owned", "#F7C8D0"), {
+      entityType: "shade",
+      entityId: "7",
+      shadeId: "7",
+      display: "Essie — Ballet Slippers",
+      confidence: 1,
+      ownership: { relationship: "owned", quantity: 1 },
+      hex: "#F7C8D0",
+    });
+  });
+
+  it("marks a wishlist add without a hex", () => {
+    const candidate = createdCandidate({ id: "7", brand: "Essie", name: "Ballet Slippers" }, "wishlist", null);
+    assert.deepEqual(candidate.ownership, { relationship: "wishlisted" });
+    assert.equal("hex" in candidate, false);
   });
 });
