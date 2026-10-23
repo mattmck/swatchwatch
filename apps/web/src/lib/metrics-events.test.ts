@@ -12,6 +12,8 @@ import {
   looksWearClickedEvent,
   looksColorLabOpenedEvent,
   maniLoggedEvent,
+  collectionOfflineShownEvent,
+  trackCollectionOfflineShown,
   trackLooksWearClicked,
   onboardingStepClickedEvent,
   trackOnboardingStepClicked,
@@ -344,5 +346,20 @@ describe("metrics events: photo match (#105)", () => {
       ],
     ]);
     assert.equal(matchResultActionEvent({ action: "own", scope: "wishlist", view: "list", confidence: "medium", rank: 1, fromStatus: "wishlist" }).properties.fromStatus, "wishlist");
+  });
+});
+
+describe("collection.offline_shown", () => {
+  it("carries the surface and an age bucket only", () => {
+    assert.equal(METRIC_EVENTS.collectionOfflineShown, "collection.offline_shown");
+    const event = collectionOfflineShownEvent({ surface: "list", age: "lt_1d" });
+    assert.equal(event.name, "collection.offline_shown");
+    assert.deepEqual(event.properties, { surface: "list", age: "lt_1d" });
+  });
+
+  it("tracks through the injected tracker", () => {
+    const seen: Array<[string, MetricProperties]> = [];
+    trackCollectionOfflineShown({ surface: "detail", age: "lt_7d" }, (name, properties) => seen.push([name, properties]));
+    assert.deepEqual(seen, [["collection.offline_shown", { surface: "detail", age: "lt_7d" }]]);
   });
 });
