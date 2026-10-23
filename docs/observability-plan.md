@@ -13,7 +13,7 @@
 | Functions worker | ✅ `src/lib/telemetry.ts` uses `applicationinsights@3` for `trackEvent`/`trackMetric`/`trackException`, used across auth, cache, capture, catalog, polishes, AI detection, and `internalServerError()` |
 | Worker correlation | ⚠️ Phase 1 binds worker telemetry to the host request context (distro `preInvocation` hook); post-deploy KQL validation still pending |
 | Worker init order | ✅ `src/index.ts` imports `./lib/telemetry` before the function modules, so the SDK starts before `pg` loads (previously `lib/auth` loaded `pg` first) |
-| CORS | ✅ Default `CORS_ALLOWED_HEADERS` includes `traceparent`, `tracestate`, `Request-Id`, `Request-Context`; `Request-Context` is exposed. ⚠️ App Service platform CORS preflight still needs post-deploy validation |
+| CORS | ✅ Default `CORS_ALLOWED_HEADERS` includes `traceparent`, `tracestate`, `Request-Id`, `Request-Context`; `Request-Context` is exposed. The Function App has no platform CORS, so the app's preflight answer is what browsers see; ⚠️ check a deployed preflight with `Access-Control-Request-Headers: traceparent` (`infrastructure/README.md` → Function App CORS) |
 | Web | ✅ (Phase 2) Lazy-loaded browser SDK in `src/lib/telemetry.ts`, `TelemetryProvider`, `error.tsx` / `global-error.tsx` boundaries; ⚠️ browser ↔ Functions `operation_Id` correlation still needs post-deploy validation. Static export (`output: "export"`) means config is `NEXT_PUBLIC_*` at **build** time (set in `deploy.yml`), not SWA app settings |
 | Alerts | ✅ (Phase 3, prod only) Action group → `alert_email`; API 5xx, exception spike (server + browser), ingestion job failed, daily cap hit; availability tests for the web home page and `GET /api/reference/finishes` |
 | Cost guard | ✅ `appinsights_daily_cap_gb` caps App Insights and Log Analytics daily ingestion (2 GB prod, 0.5 GB otherwise by default, D15), with an alert when the cap is hit |
@@ -26,7 +26,7 @@
 > - **`host.json`:** the old `logLevel` block sat under `logging.applicationInsights`, which isn't where the v2 schema reads it, so the `"Trace"` levels were most likely ignored. It now lives at `logging.logLevel` (Information), with `excludedTypes: "Request;Exception"` for sampling. (#226 later added `Trace`: adaptive sampling kept only a third to a half of the trace lines during busy ingestion runs, and the daily cap below bounds the cost.)
 > - **No `CORS_ALLOWED_HEADERS` app setting in Terraform.** The code default now includes the correlation headers, so a duplicate list in Terraform would only drift.
 > - Caps: `appinsights_daily_cap_gb` (null → 5 prod / 1 otherwise) on both App Insights and the workspace. `application_insights_key` removed; `application_insights_connection_string` output (sensitive) added.
-> - **Still to verify after deploy:** correlation KQL below, and that App Service **platform** CORS (`site_config.cors`) lets `traceparent` through on preflight.
+> - **Still to verify after deploy:** correlation KQL below, and that a deployed preflight allows `traceparent` (the app's `withCors` answers it; platform CORS was removed so it no longer overrides the app).
 
 1. **Cut log volume** (`packages/functions/host.json`)
    - `logLevel.default` → `"Information"`, `"Host.Aggregator"` → `"Information"`, keep `"Function"` at `"Information"` (ingestion debugging can raise it per-env via app setting `AzureFunctionsJobHost__logging__logLevel__Function`).
@@ -49,7 +49,7 @@
    - **Bundling:** `build:deploy` uses esbuild. Add the new packages to `--external` (require-hook instrumentation breaks when bundled), and confirm `pg` stays external (it is).
 4. **Allow correlation headers through CORS**
    - `src/lib/http.ts` default `ALLOW_HEADERS` → `Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context`; also set `Access-Control-Expose-Headers: Request-Context`.
-   - Terraform: set `CORS_ALLOWED_HEADERS` to match. Check that the **platform** CORS in `site_config.cors` passes these headers on preflight (test with `curl -X OPTIONS` and `Access-Control-Request-Headers: traceparent`).
+   - Terraform: set `CORS_ALLOWED_HEADERS` to match. The Function App has no platform CORS (`site_config.cors`), so the app's preflight answer is what browsers see (test with `curl -X OPTIONS` and `Access-Control-Request-Headers: traceparent`).
 5. **Terraform cost guard + outputs** (`infrastructure/main.tf`, `outputs.tf`)
    - `azurerm_application_insights.main.daily_data_cap_in_gb` (new var `appinsights_daily_cap_gb`, default `1` dev / `5` prod) and `azurerm_log_analytics_workspace.main.daily_quota_gb`.
    - Drop `application_insights_key` from `site_config` (ikey-only ingestion is retired; the connection string is enough).

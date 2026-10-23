@@ -81,8 +81,8 @@ public and must never hold secrets. Restart the bundler after changing them.
 | `EXPO_PUBLIC_B2C_API_SCOPE` | `api://<client-id>/access_as_user` | API scope(s), space separated. |
 
 The web preview (`expo start --web`, port 8081) calls the API from the browser, so the
-Functions host must allow that origin (`CORS_ALLOWED_ORIGINS`, or `func start --cors
-http://localhost:8081`). Native builds are not subject to CORS.
+Functions host must allow that origin: add `http://localhost:8081` to `CORS_ALLOWED_ORIGINS`
+in `local.settings.json`. Native builds are not subject to CORS.
 
 ## Auth
 

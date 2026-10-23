@@ -447,19 +447,19 @@ variable "capture_frame_retention_seconds" {
 }
 
 variable "cors_allowed_methods" {
-  description = "Access-Control-Allow-Methods sent by the API (lib/http.ts) (CORS_ALLOWED_METHODS). Only effective locally while the Function App's platform cors block is set: App Service CORS answers preflights and sets the CORS headers in Azure"
+  description = "Access-Control-Allow-Methods sent by the API (lib/http.ts) (CORS_ALLOWED_METHODS). The app is the only CORS layer (the Function App has no platform cors block), so this is what browsers see"
   type        = string
   default     = "GET,POST,PUT,PATCH,DELETE,OPTIONS"
 }
 
 variable "cors_allowed_headers" {
-  description = "Access-Control-Allow-Headers sent by the API; keep the trace headers so browser telemetry can correlate (CORS_ALLOWED_HEADERS). Only effective locally while the Function App's platform cors block is set: App Service CORS answers preflights and sets the CORS headers in Azure"
+  description = "Access-Control-Allow-Headers sent by the API; keep the trace headers so browser telemetry can correlate (CORS_ALLOWED_HEADERS). Any other request header fails the preflight"
   type        = string
   default     = "Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context"
 }
 
 variable "cors_support_credentials" {
-  description = "Add Access-Control-Allow-Credentials for matched origins (CORS_SUPPORT_CREDENTIALS). Only effective locally while the Function App's platform cors block is set: App Service CORS answers preflights and sets the CORS headers in Azure"
+  description = "Add Access-Control-Allow-Credentials for matched origins (CORS_SUPPORT_CREDENTIALS). The API uses bearer tokens, so this stays off"
   type        = bool
   default     = false
 }

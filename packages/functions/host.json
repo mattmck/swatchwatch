@@ -24,16 +24,6 @@
       "batchSize": 1,
       "newBatchThreshold": 0,
       "maxDequeueCount": 5
-    },
-    "http": {
-      "cors": {
-        "supportCredentials": false,
-        "allowedOrigins": [
-          "http://localhost:3000",
-          "http://localhost:3001",
-          "https://*.azurestaticapps.net"
-        ]
-      }
     }
   }
 }
