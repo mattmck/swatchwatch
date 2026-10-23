@@ -23,6 +23,7 @@
     "SOURCE_IMAGE_CONTAINER": "source-images",
     "USER_MEDIA_CONTAINER": "nail-photos",
     "CONNECTOR_RAW_CONTAINER": "connector-raw",
+    "BLOB_STORAGE_MAX_CONNECTIONS": "16",
 
     "IMAGE_PROXY_SIGNING_KEY": "",
     "IMAGE_PROXY_ID_TTL_SECONDS": "259200",
