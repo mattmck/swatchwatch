@@ -18,11 +18,21 @@
 --              magnetic polish "magnetic-wand" because a wand ships with it).
 --   category   first match wins, in this order:
 --                accessory  stamping plates, buffers, files, tools, brushes, charms, magnets, pushers,
---                           kits, ... in the strong text; ambiguous words (jewels, studs, foils, tape,
---                           wands, racks, displays, totes, samplers, rhinestones) only when the product has a
---                           product type that names no polish; or an explicit accessory type tag
---                           (nail-tool, type:nail-tool, type:accessories: Mooncat's "Nail Elixir"
---                           is typed "Nail Polishes" but tagged type:nail-tool)
+--                           nippers, kits, merch, ... in the strong text; ambiguous words (jewels, studs,
+--                           foils, tape, wands, racks, displays, totes, samplers, rhinestones) only when
+--                           the product has a product type that names no polish; a product type that
+--                           names nail art and no polish (stickers, tattoos, chrome powders); or an
+--                           explicit accessory type tag (nail-tool, type:nail-tool, type:accessories:
+--                           Mooncat's "Nail Elixir" is typed "Nail Polishes" but tagged type:nail-tool);
+--                           or a multi-polish set/bundle: set wording in the strong text (bundle, duo,
+--                           trio, quad, gift/box/mani set, advent calendar, countdown box, full
+--                           collection, "3 pack", ...; read from set_haystack, which cuts each name and
+--                           title at "nail polish - ", where Dam names the release a single shade belongs
+--                           to: "... Blue Shimmer Nail Polish - 10th Anniversary Trio"), a shade name, color name, title or product type
+--                           with no " - " part that ENDS in set(s)/collection (mid-title they name single
+--                           shades, "Set On Fire"; Dam annotates singles "Ox - ... - Chinese Zodiac
+--                           Collection"; "Jet Set"/"Sun Set" are polishes), or a whole set tag (bundle,
+--                           bundles-sets, collection-set, gift-set)
 --                topper     'topper' in finishes/detected_finishes, or the word topper(s) anywhere
 --                           (beats coat wording)
 --                base_coat  base coat, ridge filler, primer, bonder
@@ -52,6 +62,11 @@ WITH source_text AS (
       concat_ws(' ', COALESCE(e.raw_json ->> 'title', e.normalized_json ->> 'name'), e.raw_json ->> 'product_type', e.normalized_json ->> 'productType', e.normalized_json ->> 'category'),
       ' '
     ) AS strong_text,
+    -- The strong text for the set check, each title cut at "nail polish - " (Dam's release notes).
+    string_agg(
+      concat_ws(' ', regexp_replace(lower(COALESCE(e.raw_json ->> 'title', e.normalized_json ->> 'name')), '(\mnail polish\M[^-–]*) [-–] .*$', '\1'), lower(e.raw_json ->> 'product_type'), lower(e.normalized_json ->> 'productType'), lower(e.normalized_json ->> 'category')),
+      ' '
+    ) AS set_text,
     -- Product types alone, for the polish-type check on ambiguous accessory words.
     string_agg(
       concat_ws(' ', e.raw_json ->> 'product_type', e.normalized_json ->> 'productType', e.normalized_json ->> 'category'),
@@ -74,6 +89,22 @@ WITH source_text AS (
       ) tag
       WHERE lower(trim(tag.t)) ~ '^(type:)?(nail[-_ ]?)?(tools?|accessor(y|ies))$'
     )) AS has_accessory_type_tag,
+    -- A whole set/bundle tag (bundle, bundles-sets, collection-set, gift-set, ...).
+    bool_or(EXISTS (
+      SELECT 1
+      FROM (
+        SELECT t FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(COALESCE(e.raw_json -> 'tags', e.normalized_json -> 'tags')) = 'array' THEN COALESCE(e.raw_json -> 'tags', e.normalized_json -> 'tags') ELSE '[]'::jsonb END) AS t
+        UNION ALL
+        SELECT t FROM regexp_split_to_table(CASE WHEN jsonb_typeof(COALESCE(e.raw_json -> 'tags', e.normalized_json -> 'tags')) = 'string' THEN (COALESCE(e.raw_json -> 'tags', e.normalized_json -> 'tags')) #>> '{}' ELSE '' END, ',') AS t
+      ) tag
+      WHERE lower(trim(tag.t)) ~ '^(bundles?|sets?|(gift|collection|bundles?)[-_ &]*sets?)$'
+    )) AS has_set_tag,
+    -- A title or product type that ends in set(s)/collection, checked per product because the
+    -- aggregated text has no per-title end. Same regex as the shade-name check in `base`.
+    bool_or(
+      lower(COALESCE(e.raw_json ->> 'title', e.normalized_json ->> 'name', '')) ~ '^(?!.* [-–|] ).*(?<!jet )(?<!sun )\m(sets?|collection)\s*(\[[^]]*\]|\([^)]*\))?\s*$'
+      OR lower(concat_ws(' ', e.raw_json ->> 'product_type', e.normalized_json ->> 'productType', e.normalized_json ->> 'category')) ~ '^(?!.* [-–|] ).*(?<!jet )(?<!sun )\m(sets?|collection)\s*(\[[^]]*\]|\([^)]*\))?\s*$'
+    ) AS has_set_suffix,
     string_agg(DISTINCT e.raw_json ->> 'product_type', ', ') AS product_types,
     min(e.raw_json ->> 'title') AS sample_title
   FROM shade_source_product ssp
@@ -99,13 +130,23 @@ base AS (
     st.sample_title,
     st.product_types,
     COALESCE(st.has_accessory_type_tag, false) AS has_accessory_type_tag,
+    (COALESCE(st.has_set_tag, false)
+      OR COALESCE(st.has_set_suffix, false)
+      OR lower(COALESCE(s.shade_name_canonical, '')) ~ '^(?!.* [-–|] ).*(?<!jet )(?<!sun )\m(sets?|collection)\s*(\[[^]]*\]|\([^)]*\))?\s*$'
+      OR lower(COALESCE(s.color_name, '')) ~ '^(?!.* [-–|] ).*(?<!jet )(?<!sun )\m(sets?|collection)\s*(\[[^]]*\]|\([^)]*\))?\s*$'
+    ) AS has_set_marker,
     -- Ambiguous accessory words (jewels, studs, foils, ...) only count for a product that has a
     -- product type and none of its types names a polish ("Crown Jewels", type Nail Polish, is a polish).
     (COALESCE(btrim(st.type_text), '') <> ''
       AND NOT (lower(regexp_replace(st.type_text, '[_-]+', ' ', 'g')) ~ '\m(nail ?)?(polish(es)?|lacquers?|varnish(es)?|enamels?)\M')
     ) AS typed_non_polish,
+    lower(regexp_replace(COALESCE(st.type_text, ''), '[_-]+', ' ', 'g')) AS type_haystack,
     -- strong: name, title and product type. all: strong plus tags (hyphens/underscores as spaces).
     lower(concat_ws(' ', s.shade_name_canonical, s.color_name, st.strong_text)) AS strong_haystack,
+    concat_ws(' ',
+      regexp_replace(lower(s.shade_name_canonical), '(\mnail polish\M[^-–]*) [-–] .*$', '\1'),
+      regexp_replace(lower(s.color_name), '(\mnail polish\M[^-–]*) [-–] .*$', '\1'),
+      st.set_text) AS set_haystack,
     lower(regexp_replace(concat_ws(' ', s.shade_name_canonical, s.color_name, st.strong_text, st.tag_text), '[_-]+', ' ', 'g')) AS haystack
   FROM shade s
   JOIN brand b ON b.brand_id = s.brand_id
@@ -115,9 +156,13 @@ base AS (
 SELECT
   base.*,
   CASE
-    WHEN strong_haystack ~ '\m(stamp(ing|er|ers)?|plates?|buffers?|files?|brush(es)?|tools?|charms?|decals?|stickers?|kits?|stencils?|lamps?|magnets?|pushers?|clippers?|removers?|wipes?|dehydrators?|gift ?cards?|mystery box)\M'
+    WHEN strong_haystack ~ '\m(stamp(ing|er|ers)?|plates?|buffers?|files?|brush(es)?|tools?|charms?|decals?|stickers?|kits?|stencils?|lamps?|magnets?|pushers?|clippers?|nippers?|removers?|wipes?|dehydrators?|gift ?cards?|mystery box|accessor(y|ies)|merch(andise)?|nail tattoos?|keychains?|t-?shirts?|hoodies?|lip (gloss|balm))\M'
       OR (typed_non_polish AND strong_haystack ~ '\m(jewels?|jewelry|studs?|rhinestones?|foils?|tapes?|wands?|racks?|displays?|totes?|samplers?)\M')
+      OR (typed_non_polish AND type_haystack ~ '\mnail art\M')
       OR has_accessory_type_tag
+      -- Sets and bundles: not a single polish.
+      OR set_haystack ~ '\m(bundles?(?! of\M)|duos?(?![ -]?chrome)|trios?|quads?|(gift|box|mani(cure)?) ?sets?|advent calendars?|countdown box(es)?|full collection|set of \d+|([2-9]|[1-9]\d+) ?(pcs?|pieces?|packs?|bottles))\M'
+      OR has_set_marker
       THEN 'accessory'
     -- Topper beats coat wording: Holo Taco files its flakie toppers under product type "Top Coat"
     -- with a "toppers" tag.

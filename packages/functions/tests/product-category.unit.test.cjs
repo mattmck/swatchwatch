@@ -109,6 +109,75 @@ describe("lib/product-category — ambiguous accessory words (CodeRabbit, #347)"
   });
 });
 
+describe("lib/product-category — sets, bundles and more accessories (#347 follow-up)", () => {
+  // Real titles, product types and tags from the connected stores' products.json (2026-10-23).
+  const SETS = [
+    shade("Heroes Bundle", "Nail Polish", ["Collection", "Nail Polish"]),
+    shade("Laris' Trio", "Nail Lacquer Bundle", ["Beauty Pro Pricing"]),
+    shade("2025 Nail Lacquer Countdown Box Overpours", "Nail Polish"),
+    shade("Black And White Duo", "Nail Polish", ["Collection", "Nail Polish"]),
+    shade("Curated Chaos quad", "Nail Polishes"),
+    shade("Lacquer Set", "Nail Polishes"),
+    shade("Romeo + Juliet Complete set", "Nail Polishes"),
+    shade("Declassified Tacos Set [003]", "Nail Polish"),
+    shade("Cottagecore Collection", "Nail Polish", ["all-products", "bundles-sets", "nail-polish"]),
+    shade("Babbs Holo Collection", null, ["all", "babbslacquer", "curated"]),
+    shade("Pluviophile (Full Collection)", "Polish"),
+    shade("Love Spell Gift Set", "Nail Polish"),
+    shade("Enchanted Forest Advent Calendar 2026 - PREORDER", null, ["nail polish"]),
+    shade("Mystery Packs, 10 bottles of nail polish", "Nail Polishes"),
+    shade("Danse Macabre", "Nail Polishes", ["collection-set"]),
+    shade("New Year Thermal Duo - Limited Edition", "Polish"),
+  ];
+  for (const input of SETS) {
+    it(`${input.shadeName} is a set (accessory, evidence set)`, () => {
+      assert.deepEqual(classifyProductCategory(input), { category: "accessory", evidence: "set" });
+      assert.equal(classifyIngestedProduct({ title: input.shadeName, productType: input.products[0].productType, tags: input.products[0].tags }).accept, false);
+    });
+  }
+
+  it("keeps single polishes whose names only look like sets", () => {
+    const singles = [
+      shade("Set On Fire", "Nail Lacquers"),
+      shade("Jet Set", "Nail Polish"),
+      shade("SUN-SET THE MOOD", "Nail Lacquers"),
+      shade("Box Office Bomb", "Nail Polish"),
+      shade("Bundle of Joy", "Nail Polish"),
+      shade("Duo Chrome Dream", "Nail Polish"),
+      shade("Brat Pack", "Nail Polish"),
+      shade("Gift Receipt", "Nail Polish", ["finish:metallic", "color:silver"]),
+      shade("Mystery Crackle - Jan 2024", "Polish"),
+      shade("Mystery Polish - Gel - 1 Pc (may value up to $21)", "Gel Polish"),
+      // Dam names single shades after the release they belong to.
+      shade("Citrine - Yellow Orange Holographic Polish - Gemstone Collection Pt. 4", "Holographic"),
+      shade("Ox - Brown Shimmer Nail Polish - Chinese Zodiac Collection", "Nail Polishes"),
+      shade("Cheers to 10 Years - Blue Shimmer Nail Polish - 10th Anniversary Trio", "Nail Polish"),
+      shade("A Grave Mistake - Purple Shimmer Indie Nail Polish - Halloween Quad 2024", "Nail Polish"),
+    ];
+    for (const input of singles) {
+      assert.equal(classifyProductCategory(input).category, "color", input.shadeName);
+    }
+  });
+
+  it("classifies the dev catalog examples", () => {
+    assert.equal(classifyProductCategory(shade("$2 Mystery 3D Nail Art", "Nail Art", ["spring cleaning"])).category, "accessory");
+    assert.equal(classifyProductCategory(shade("4-Sided Nail Care Buffer, 3 Pack", "Nail Art Accessory")).category, "accessory");
+    assert.deepEqual(classifyProductCategory(shade("2025 Nail Lacquer Countdown Box Overpours", null)), { category: "accessory", evidence: "set" });
+  });
+
+  it("recognizes nippers, accessory and merch product types, nail tattoos and nail-art types", () => {
+    // "Cuticle Nipper" is a tool, not a cuticle treatment.
+    assert.equal(classifyProductCategory(shade("Le Nipper - Cuticle Nipper", "Accessories")).category, "accessory");
+    assert.equal(classifyProductCategory(shade("Cuticle Nippers, Oil Slick", "Nail Art Accessory", ["kit", "tools"])).category, "accessory");
+    assert.equal(classifyProductCategory(shade("Fairy-corn (Pin/Sticker)", "Nail Polish", ["merch", "pin"])).category, "accessory");
+    assert.equal(classifyProductCategory(shade("Cracked Polish Tee", "Merch")).category, "accessory");
+    assert.equal(classifyProductCategory(shade("Fa La La Nail Tattoos", "Nail Art")).category, "accessory");
+    assert.equal(classifyProductCategory(shade("Legend Has It Aurora Powder", "Nail Art")).category, "accessory");
+    // ...but "nail art" in a top coat's name under a care type is still a top coat.
+    assert.equal(classifyProductCategory(shade("Nail Art No Smudge Top Coat", "Nail Care")).category, "top_coat");
+  });
+});
+
 describe("lib/product-category — rules and precedence", () => {
   it("accessory wins over everything", () => {
     assert.equal(classifyProductCategory(shade("Topper Brush Kit", "Nail Tools", ["toppers"], ["topper"])).category, "accessory");
@@ -125,7 +194,7 @@ describe("lib/product-category — rules and precedence", () => {
   });
 
   it("base coat beats top coat for 2-in-1 wording ('top and base coats')", () => {
-    assert.equal(classifyProductCategory(shade("Duo", "Nail Polish", ["top-and-base-coats"])).category, "base_coat");
+    assert.equal(classifyProductCategory(shade("Two Step", "Nail Polish", ["top-and-base-coats"])).category, "base_coat");
   });
 
   it("coat wording in the name, title or type beats coat wording in the tags", () => {
@@ -204,8 +273,10 @@ describe("lib/product-category — classifyIngestedProduct (connector gate)", ()
   });
 
   it("keeps the June (#184) tag blocklist as a reject-only gate rule", () => {
-    // "Nail Art" + a stamping-plate tag + a polish tag was rejected before; it still is.
-    const result = gate("Witchy Vibes", "Nail Art", ["stamping-plate", "nail-polish"]);
+    // A stamping-plate tag + a polish tag was rejected before; it still is. (Under a "Nail Art"
+    // product type the nail-art type rule now decides first.)
+    assert.equal(gate("Witchy Vibes", "Nail Art", ["stamping-plate", "nail-polish"]).accept, false);
+    const result = gate("Witchy Vibes", "Nail Care", ["stamping-plate", "nail-polish"]);
     assert.equal(result.accept, false);
     assert.equal(result.category, "accessory");
     assert.equal(result.evidence, "legacy-tag");
