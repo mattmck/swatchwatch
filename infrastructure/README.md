@@ -218,7 +218,7 @@ The preflight should return 204 with the app's fixed `Access-Control-Allow-Metho
 | `hex_detection_batch_min_images` | `5` | Function App setting `HEX_DETECTION_BATCH_MIN_IMAGES` threshold before batch mode |
 | `hex_detection_snap_enabled` | `false` | Feature-flag Function App setting `HEX_DETECTION_SNAP_ENABLED` — snap vision-detected hexes to the nearest palette chip measured from the same image (`detected_hex_method = 'vision-snap'`) |
 | `blob_storage_max_connections` | `16` | Function App setting `BLOB_STORAGE_MAX_CONNECTIONS` — sockets per storage origin in the pooled keep-alive agent every Blob Storage REST call uses (1–128; #422). Raise together with the plan's outbound SNAT budget |
-| `ingestion_ai_batch_poll_schedule` | `0 */2 * * * *` | Function App setting `INGESTION_AI_BATCH_POLL_SCHEDULE` for timer polling |
+| `ingestion_ai_batch_poll_schedule` | `0 * * * * *` | Function App setting `INGESTION_AI_BATCH_POLL_SCHEDULE` for timer polling (every minute, the code default) |
 | `ingestion_ai_batch_max_poll_jobs` | `10` | Function App setting `INGESTION_AI_BATCH_MAX_POLL_JOBS` per poll run |
 | `capture_frame_sweep_schedule` | `0 0 * * * *` | Function App setting `CAPTURE_FRAME_SWEEP_SCHEDULE` — NCRONTAB schedule of the capture-frame-sweep timer that deletes Rapid Add frame blobs past their retention |
 | `capture_frame_retention_seconds` | `86400` | Function App setting `CAPTURE_FRAME_RETENTION_SECONDS` — Age (seconds since image_asset.captured_at) after which the capture-frame sweep deletes a frame's blob, 3600-604800 |

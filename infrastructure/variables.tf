@@ -273,7 +273,7 @@ variable "openai_label_deployment_name" {
 variable "ingestion_ai_batch_poll_schedule" {
   description = "NCRONTAB schedule for ingestion-ai-batch-poller"
   type        = string
-  default     = "0 */2 * * * *"
+  default     = "0 * * * * *"
 }
 
 variable "ingestion_ai_batch_max_poll_jobs" {
