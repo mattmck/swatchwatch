@@ -1197,6 +1197,33 @@ ALTER TABLE shade ADD CONSTRAINT shade_vendor_hex_label_id_fkey
   FOREIGN KEY (vendor_hex_label_id) REFERENCES color_training_sample(training_sample_id) ON DELETE SET NULL;
 CREATE INDEX idx_shade_vendor_hex_label ON shade (vendor_hex_label_id) WHERE vendor_hex_label_id IS NOT NULL;
 
+-- Admin bottle-eval samples (spec docs/superpowers/specs/2026-10-23-bottle-recognition-design.md §8): private frames in USER_MEDIA_CONTAINER under `{userId}/bottle-eval/`; never read by the live resolver.
+-- (migration 20261023160917683_bottle-eval-samples). The FK on bottle_eval_frame.image_id keeps the orphan-media sweep
+-- (pg_constraint discovery) away from eval frames.
+CREATE TABLE IF NOT EXISTS bottle_eval_sample (
+  sample_id          BIGSERIAL PRIMARY KEY,
+  shade_id           BIGINT REFERENCES shade(shade_id) ON DELETE SET NULL,  -- NULL = not in catalog
+  brand_text         TEXT,                     -- typed when not in catalog (and kept as a snapshot otherwise)
+  shade_text         TEXT,
+  notes              TEXT,
+  created_by_user_id BIGINT NOT NULL REFERENCES app_user(user_id) ON DELETE CASCADE,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT bottle_eval_sample_label CHECK (shade_id IS NOT NULL OR (brand_text IS NOT NULL AND shade_text IS NOT NULL))
+);
+CREATE TABLE IF NOT EXISTS bottle_eval_frame (
+  frame_id     BIGSERIAL PRIMARY KEY,
+  sample_id    BIGINT NOT NULL REFERENCES bottle_eval_sample(sample_id) ON DELETE CASCADE,
+  image_id     BIGINT NOT NULL UNIQUE REFERENCES image_asset(image_id) ON DELETE CASCADE,
+  surface      TEXT NOT NULL CHECK (surface IN ('front','bottom','glass','box')),
+  frame_type   TEXT NOT NULL CHECK (frame_type IN ('barcode','label','color','other')),
+  position     SMALLINT NOT NULL,              -- shooting order within the sample
+  content_type TEXT NOT NULL,
+  width        INTEGER, height INTEGER, size_bytes INTEGER,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_bottle_eval_frame_sample ON bottle_eval_frame (sample_id, position);
+CREATE INDEX IF NOT EXISTS idx_bottle_eval_sample_created ON bottle_eval_sample (created_at DESC, sample_id DESC);
+
 -- Track which samples have been used for model training
 CREATE TABLE color_model_version (
   model_version_id BIGSERIAL PRIMARY KEY,
