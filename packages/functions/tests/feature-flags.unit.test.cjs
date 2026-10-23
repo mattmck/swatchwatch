@@ -75,3 +75,10 @@ describe("GET /api/config/flags", () => {
     }
   });
 });
+
+describe("function registration", () => {
+  it("src/index.ts re-exports the config-flags module (otherwise the route is never loaded)", () => {
+    const src = require("node:fs").readFileSync(require("node:path").join(__dirname, "../src/index.ts"), "utf8");
+    assert.match(src, /export \* from ['"]\.\/functions\/config-flags['"]/);
+  });
+});

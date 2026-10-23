@@ -10,6 +10,7 @@ export * from './functions/admin-product-category';
 export * from './functions/admin-reference';
 export * from './functions/capture';
 export * from './functions/catalog';
+export * from './functions/config-flags';
 export * from './functions/dupes';
 export * from './functions/hex-labels';
 export * from './functions/images';
