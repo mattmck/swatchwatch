@@ -690,7 +690,8 @@ CREATE TABLE wishlist_share (
 -- Saved looks (migration 20261019020500000_user-look, docs/looks-experience-plan.md). A look
 -- saved from /polishes/looks: template, vibe and steps. `steps` is an opaque display snapshot the
 -- client sends (role, label, hex, source, optional shade id/brand/name) returned to its owner
--- as-is and never joined to shade, so it can't expose another user's private shade. `look_key`
+-- as-is and never joined to shade, so it can't expose another user's private shade (the public
+-- look-share page joins step shade ids only to public catalog shades, see look_share). `look_key`
 -- (`<templateId>:<shadeIds>`) makes re-saving the same combo an upsert; the API keeps ≤ 30 per user.
 CREATE TABLE user_look (
   user_look_id BIGSERIAL PRIMARY KEY,
@@ -702,6 +703,8 @@ CREATE TABLE user_look (
   steps JSONB NOT NULL,
   saved_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT uq_user_look_key UNIQUE (user_id, look_key),
+  -- Target of look_share's composite FK (migration 20261023001607416_look-share).
+  CONSTRAINT uq_user_look_id_user UNIQUE (user_look_id, user_id),
   CONSTRAINT chk_user_look_key CHECK (char_length(look_key) BETWEEN 3 AND 160),
   CONSTRAINT chk_user_look_template CHECK (template_id ~ '^[a-z0-9-]{1,40}$'),
   CONSTRAINT chk_user_look_name CHECK (char_length(name) BETWEEN 1 AND 80),
@@ -715,6 +718,33 @@ CREATE TABLE user_look (
 
 CREATE INDEX idx_user_look_user_saved
   ON user_look(user_id, saved_at DESC);
+
+-- Shareable looks (migration 20261023001607416_look-share). One opt-in, revocable read-only link
+-- per saved look, behind the SHAREABLE_LOOKS_ENABLED flag. The raw token is never stored: it is
+-- re-derived as base64url(HMAC-SHA256(server "look-share:v1" subkey,
+-- "<user_id>:<user_look_id>:<token_salt>")) and looked up by its SHA-256 (token_hash). Revoking
+-- sets revoked_at (the link answers 410); sharing again replaces salt + hash. The composite FK
+-- pins user_id to the look's owner, and deleting the look deletes the link.
+CREATE TABLE look_share (
+  user_look_id BIGINT PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES app_user(user_id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL,
+  token_salt TEXT NOT NULL,
+  display_name TEXT,               -- owner-chosen public name per link; never derived from the email
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  revoked_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT fk_look_share_look FOREIGN KEY (user_look_id, user_id)
+    REFERENCES user_look(user_look_id, user_id) ON DELETE CASCADE,
+  CONSTRAINT uq_look_share_token_hash UNIQUE (token_hash),
+  CONSTRAINT chk_look_share_token_hash CHECK (token_hash ~ '^[0-9a-f]{64}$'),
+  CONSTRAINT chk_look_share_token_salt CHECK (char_length(token_salt) BETWEEN 16 AND 64),
+  CONSTRAINT chk_look_share_display_name CHECK (
+    display_name IS NULL OR char_length(display_name) BETWEEN 1 AND 60
+  )
+);
+
+CREATE INDEX idx_look_share_user ON look_share(user_id);
 
 -- Keyed by (user_id, shade_id) like the mani log, so history survives deleting the polish from
 -- the collection (D8, #317; migration 20261017232537776_inventory-event-keep-wear-history):

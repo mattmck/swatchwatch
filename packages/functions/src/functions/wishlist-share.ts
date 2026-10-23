@@ -8,11 +8,10 @@ import {
   type WishlistShareStatus,
 } from "swatchwatch-shared";
 import { withAuth } from "../lib/auth";
-import { isCatalogStorageUrl } from "../lib/blob-storage";
 import { query } from "../lib/db";
 import { internalServerError } from "../lib/errors";
 import { withCors, type HttpHandler } from "../lib/http";
-import { toImageProxyUrl } from "../lib/image-proxy";
+import { publicCatalogImageUrl } from "../lib/public-catalog-image";
 import { clientIpFromHeaders, TokenBucketLimiter } from "../lib/rate-limit";
 import { trackEvent } from "../lib/telemetry";
 import {
@@ -284,7 +283,7 @@ interface PublicItemRow {
 /**
  * Only the owner's status = 'wishlist' rows, and only shared-catalog shades: the owner's private
  * `user_submitted` shades stay hidden (private by default). The image is the shade's catalog
- * product swatch; it is exposed only as a public v2 proxy id (see `publicImageUrl`).
+ * product swatch; it is exposed only as a public v2 proxy id (see `publicCatalogImageUrl`).
  */
 const PUBLIC_ITEMS_SQL = `
   SELECT
@@ -313,22 +312,6 @@ const PUBLIC_ITEMS_SQL = `
   ORDER BY lower(b.name_canonical), lower(s.shade_name_canonical), s.shade_id
   LIMIT ${PUBLIC_WISHLIST_MAX_ITEMS}`;
 
-/**
- * A public (v2) proxy URL for a catalog-container blob, or null. Anything else (user media,
- * other containers, external URLs) is omitted: never a private v3 id, never a raw storage URL.
- */
-function publicImageUrl(storageUrl: string | null, requestUrl: string): string | null {
-  const url = storageUrl?.trim();
-  if (!url) return null;
-  try {
-    if (!isCatalogStorageUrl(url)) return null;
-    const proxied = toImageProxyUrl(requestUrl, url);
-    return new URL(proxied).pathname.startsWith("/api/images/v2.") ? proxied : null;
-  } catch {
-    return null;
-  }
-}
-
 /** Map a row to the public allowlist. Nothing outside these five fields can leak. */
 export function toPublicWishlistItem(row: PublicItemRow, requestUrl: string): PublicWishlistItem {
   const finishes = Array.isArray(row.finishes)
@@ -344,7 +327,7 @@ export function toPublicWishlistItem(row: PublicItemRow, requestUrl: string): Pu
       detectedHex: row.detectedHex ?? undefined,
       nameHex: row.nameHex ?? undefined,
     }) ?? null,
-    imageUrl: publicImageUrl(row.imageUrl, requestUrl),
+    imageUrl: publicCatalogImageUrl(row.imageUrl, requestUrl),
   };
 }
 

@@ -76,7 +76,7 @@ export function formatShoppingSubtotals(subtotals: readonly BuyPriceSubtotal[]):
   return subtotals.map((group) => formatPurchasePrice(group.total, group.currency)).join(" · ");
 }
 
-function polishLabel(step: Pick<LookStep, "polish">): string | null {
+function polishLabel(step: { polish: { brand: string; name: string } | null }): string | null {
   return step.polish ? `${step.polish.name} — ${step.polish.brand}` : null;
 }
 
@@ -116,22 +116,30 @@ export function lookShareText(look: Pick<Look, "name" | "steps">, vibe: Vibe, ur
 
 export type ApplicationKind = "base-coat" | "base" | "accent" | "topper" | "top-coat";
 
+/**
+ * What the drawer helpers read from a step: a recommended look's `LookStep`, or a step rebuilt from
+ * a shared look's public payload (`/l/`, `lib/look-share.ts`).
+ */
+export type DetailStep = Pick<LookStep, "role" | "label" | "targetHex"> & {
+  polish: { brand: string; name: string; finish?: string | null; finishes?: readonly string[] | null } | null;
+};
+
 export interface ApplicationStep {
   kind: ApplicationKind;
   title: string;
   text: string;
 }
 
-function finishesOf(step: Pick<LookStep, "polish">): string[] {
+function finishesOf(step: Pick<DetailStep, "polish">): string[] {
   return step.polish ? resolvePolishFinishes(step.polish).map((f) => f.toLowerCase()) : [];
 }
 
-function nameOf(step: LookStep): string {
+function nameOf(step: DetailStep): string {
   return polishLabel(step) ?? `any shade close to ${step.targetHex}`;
 }
 
 /** Order to apply a look: base coat, base color, accent/tip, topper, top coat. */
-export function applicationOrder(look: Pick<Look, "steps">): ApplicationStep[] {
+export function applicationOrder(look: { steps: readonly DetailStep[] }): ApplicationStep[] {
   const out: ApplicationStep[] = [{ kind: "base-coat", title: "Base coat", text: "One thin coat of clear base coat; let it dry." }];
   const byRole = (role: LookStepRole) => look.steps.filter((s) => s.role === role);
   for (const step of byRole("base")) {
@@ -177,7 +185,7 @@ const FINISH_NOTES: Record<string, string> = {
 };
 
 /** One practical note per distinct finish among the look's polishes (plain cremes get none). */
-export function finishNotes(look: Pick<Look, "steps">): FinishNote[] {
+export function finishNotes(look: { steps: readonly DetailStep[] }): FinishNote[] {
   const seen = new Set<string>();
   const notes: FinishNote[] = [];
   for (const step of look.steps) {

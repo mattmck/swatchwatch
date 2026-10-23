@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Bookmark, BookmarkCheck, Check, Clock, Info, Link2, Paintbrush, Palette, Plus, Repeat, Search, ShoppingBag } from "lucide-react";
+import { Bookmark, BookmarkCheck, Check, Clock, Info, Link2, Paintbrush, Palette, Plus, Repeat, Search, Share2, ShoppingBag } from "lucide-react";
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
 import { BuyFromBrandLink } from "@/components/buy-from-brand-link";
@@ -200,6 +200,10 @@ interface LookCardProps {
   onDetails: () => void;
   /** Copy the look as text + link. */
   onShare: () => void;
+  /** Open the public Share link dialog (saving the look first); omitted while look sharing is off. */
+  onShareLink?: () => void;
+  /** The saved copy of this look has a live share link. */
+  shared?: boolean;
   /** `/polishes/search` seeded with this look's palette (`lookColorLabHref`, #386). */
   colorLabHref: string;
   /** Called when the Color Lab link is followed (telemetry). */
@@ -219,6 +223,8 @@ export function LookCard({
   onShop,
   onDetails,
   onShare,
+  onShareLink,
+  shared = false,
   colorLabHref,
   onColorLab,
   backdrop,
@@ -272,15 +278,21 @@ export function LookCard({
             Add missing items ({look.missingSteps})
           </Button>
         )}
-        <Button type="button" variant="ghost" size="sm" className="flex-1" onClick={onDetails}>
+        <Button type="button" variant="ghost" size="sm" className="min-w-fit flex-1" onClick={onDetails}>
           <Info className="size-4" aria-hidden />
           Details
         </Button>
-        <Button type="button" variant="ghost" size="sm" className="flex-1" onClick={onShare}>
+        <Button type="button" variant="ghost" size="sm" className="min-w-fit flex-1" onClick={onShare}>
           <Link2 className="size-4" aria-hidden />
           Copy look
         </Button>
-        <ColorLabLink href={colorLabHref} onClick={onColorLab} lookName={look.name} className="flex-1" />
+        {onShareLink && (
+          <Button type="button" variant="ghost" size="sm" className="min-w-fit flex-1" onClick={onShareLink}>
+            <Share2 className={cn("size-4", shared && "text-brand-purple")} aria-hidden />
+            {shared ? "Shared" : "Share link"}
+          </Button>
+        )}
+        <ColorLabLink href={colorLabHref} onClick={onColorLab} lookName={look.name} className="min-w-fit flex-1" />
       </CardFooter>
     </Card>
   );

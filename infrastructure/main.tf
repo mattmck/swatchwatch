@@ -1043,6 +1043,7 @@ resource "azurerm_linux_function_app" "main" {
     AZURE_OPENAI_DEPLOYMENT_LABEL         = var.openai_label_deployment_name
     AUTH_DEV_BYPASS                       = var.auth_dev_bypass ? "true" : "false"
     SHAREABLE_WISHLIST_ENABLED            = var.shareable_wishlist_enabled ? "true" : "false" # #268; off until roadmap section 6 decision 2
+    SHAREABLE_LOOKS_ENABLED               = var.shareable_looks_enabled ? "true" : "false"    # saved-look share links; off until the owner turns them on
     IMAGE_PROXY_SIGNING_KEY               = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.image_proxy_signing_key.versionless_id})"
     CORS_ALLOWED_ORIGINS                  = join(",", local.function_cors_allowed_origins)
     # Optional Redis read-through cache. Empty when create_redis = false; the app

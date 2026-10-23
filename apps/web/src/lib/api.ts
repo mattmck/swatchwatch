@@ -86,6 +86,10 @@ import type {
   ManicurePhotoResponse,
   ManicureUpdateRequest,
   PublicWishlistResponse,
+  LookShareCreateRequest,
+  LookShareListResponse,
+  LookShareStatus,
+  PublicLookResponse,
   WishlistShareEnableRequest,
   WishlistShareStatus,
   CollectionExportFormat,
@@ -1339,4 +1343,52 @@ export async function getPublicWishlist(token: string): Promise<PublicWishlistRe
     referrerPolicy: "no-referrer",
   });
   return handleResponse<PublicWishlistResponse>(response);
+}
+
+// ── Shareable looks ─────────────────────────────────────────────────────────
+// Behind the server-side SHAREABLE_LOOKS_ENABLED flag, with the same `feature_disabled` 404 as the
+// wishlist while it is off.
+
+/** The caller's live look share links, or null when the feature is disabled on the server. */
+export async function listLookShares(): Promise<LookShareListResponse | null> {
+  const response = await fetch(`${API_BASE_URL}/look-share`, {
+    headers: await getAuthHeaders(),
+    cache: "no-store",
+  });
+  if (await isFeatureDisabled(response)) return null;
+  return handleResponse<LookShareListResponse>(response);
+}
+
+/** Share a saved look (idempotent while live; a new token after a revoke) and/or set its display name. */
+export async function createLookShare(data: LookShareCreateRequest): Promise<LookShareStatus> {
+  const response = await fetch(`${API_BASE_URL}/look-share`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<LookShareStatus>(response);
+}
+
+/** Turn a saved look's link off; it answers 410 immediately. */
+export async function revokeLookShare(lookKey: string): Promise<LookShareStatus> {
+  const response = await fetch(`${API_BASE_URL}/look-share?key=${encodeURIComponent(lookKey)}`, {
+    method: "DELETE",
+    headers: await getAuthHeaders(),
+  });
+  return handleResponse<LookShareStatus>(response);
+}
+
+/**
+ * Anonymous read of a shared look. Never sends auth headers. Throws `ApiError` (404 for an
+ * unknown token, a deleted look or a disabled feature; 410 for a link turned off; 429 when
+ * rate-limited).
+ */
+export async function getPublicLook(token: string): Promise<PublicLookResponse> {
+  const response = await fetch(`${API_BASE_URL}/look/${encodeURIComponent(token)}`, {
+    credentials: "omit",
+    referrerPolicy: "no-referrer",
+    // Skip the browser cache so a reload shows a link the owner just turned off.
+    cache: "no-store",
+  });
+  return handleResponse<PublicLookResponse>(response);
 }
