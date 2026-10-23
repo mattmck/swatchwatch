@@ -137,7 +137,7 @@ const {
   processIngestionJobQueueMessage,
   resolveIngestionResumePoint,
 } = require("../dist/functions/ingestion");
-require("../dist/functions/ingestion-worker");
+const { planPoisonedIngestionMessage } = require("../dist/functions/ingestion-worker");
 const { readResumeMessageFromMetrics } = require("../dist/lib/ingestion-continuation");
 
 // ---------------------------------------------------------------------------
@@ -824,5 +824,95 @@ describe("ingestion-worker — checkpoint payload validation", () => {
 
     assert.equal(job.status, "failed");
     assert.equal(materializeCalls().length, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Poison queue
+// ---------------------------------------------------------------------------
+
+describe("planPoisonedIngestionMessage", () => {
+  const running = (metrics = {}) => ({ status: "running", metrics });
+
+  it("fails a running job whose current message was poisoned", () => {
+    assert.equal(planPoisonedIngestionMessage(running(), undefined).action, "fail");
+    assert.equal(
+      planPoisonedIngestionMessage(
+        running({ checkpoint: checkpoint({ continuationCount: 2, recordOffset: 40 }) }),
+        checkpoint({ continuationCount: 2 })
+      ).action,
+      "fail"
+    );
+  });
+
+  it("fails a queued job whose first message never got to run", () => {
+    assert.equal(planPoisonedIngestionMessage({ status: "queued", metrics: {} }, undefined).action, "fail");
+  });
+
+  it("ignores a stale duplicate from an older continuation generation", () => {
+    const decision = planPoisonedIngestionMessage(
+      running({ checkpoint: checkpoint({ continuationCount: 3 }) }),
+      checkpoint({ continuationCount: 2 })
+    );
+    assert.equal(decision.action, "ignore");
+    assert.match(decision.reason, /stale continuation 2/);
+  });
+
+  it("never touches jobs awaiting AI batches or already finished", () => {
+    assert.equal(
+      planPoisonedIngestionMessage(running({ pipeline: { stage: "awaiting_ai" } }), undefined).action,
+      "ignore"
+    );
+    for (const status of ["succeeded", "failed", "cancelled"]) {
+      assert.equal(planPoisonedIngestionMessage({ status, metrics: {} }, undefined).action, "ignore");
+    }
+    assert.equal(planPoisonedIngestionMessage(null, undefined).action, "ignore");
+  });
+});
+
+describe("ingestion-job-poison handler", () => {
+  const poisonHandler = () => registeredQueues["ingestion-job-poison"];
+
+  it("listens on the poison queue of the ingestion queue", () => {
+    assert.equal(poisonHandler().queueName, "ingestion-jobs-poison");
+  });
+
+  it("marks the job failed, keeps its metrics and records the poison stage", async () => {
+    const dbCheckpoint = checkpoint({ continuationCount: 1, recordOffset: 25 });
+    job = {
+      status: "running",
+      metrics: { checkpoint: dbCheckpoint, logs: [{ message: "hi" }], pipeline: { status: "running", stage: "materialize" } },
+    };
+
+    await poisonHandler().handler(
+      JSON.stringify(makePayload({ checkpoint: checkpoint({ continuationCount: 1 }) })),
+      context
+    );
+
+    assert.equal(job.status, "failed");
+    assert.match(job.error, /ingestion-jobs-poison/);
+    assert.deepEqual(job.metrics.checkpoint, dbCheckpoint);
+    assert.deepEqual(job.metrics.logs, [{ message: "hi" }]);
+    assert.equal(job.metrics.pipeline.status, "failed");
+    assert.equal(job.metrics.pipeline.stage, "queue_poisoned");
+    assert.equal(job.metrics.poisonQueue.lastStage, "materialize");
+    assert.equal(job.metrics.poisonQueue.messageContinuationCount, 1);
+  });
+
+  it("leaves a job alone when the poisoned message is a stale duplicate", async () => {
+    job = { status: "running", metrics: { checkpoint: checkpoint({ continuationCount: 2 }) } };
+
+    await poisonHandler().handler(makePayload({ checkpoint: checkpoint({ continuationCount: 1 }) }), context);
+
+    assert.equal(job.status, "running");
+    assert.equal(events.filter((e) => e.type === "failed").length, 0);
+  });
+
+  it("leaves a job awaiting AI batches to the poller", async () => {
+    job = { status: "running", metrics: { pipeline: { status: "running", stage: "awaiting_ai" } } };
+
+    await poisonHandler().handler(makePayload(), context);
+
+    assert.equal(job.status, "running");
   });
 });

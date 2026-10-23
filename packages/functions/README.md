@@ -206,6 +206,7 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 
 Background triggers:
 - `ingestion-job-worker` (`ingestion-worker.ts`) — Azure Storage Queue trigger for async ingestion jobs.
+- `ingestion-job-poison` (`ingestion-worker.ts`) — queue trigger on `${INGESTION_JOB_QUEUE_NAME}-poison`; marks the job of a message that exhausted its deliveries `failed` (current message only, never `awaiting_ai`).
 - `ingestion-ai-batch-poller` (`ingestion-ai-batch-poller.ts`) — Timer trigger that polls Azure OpenAI batch status and applies completed detections.
 - `polish-import-session-cleanup` (`polish-imports.ts`) — Hourly timer (`0 23 * * * *`) that deletes expired `polish_import_session` rows (the API already hides them).
 - `orphan-media-sweep` (`orphan-media-sweep.ts`, logic in `src/lib/orphan-media-sweep.ts`) — Daily timer (`ORPHAN_MEDIA_SWEEP_SCHEDULE`, default `0 17 3 * * *`) that deletes private user media orphaned by cascade deletes outside the API (#319, decision D9): `image_asset` rows with `owner_type = 'user'`, `captured_at` older than `ORPHAN_MEDIA_SWEEP_GRACE_SECONDS`, and no referencing row in any table with a foreign key into `image_asset` (read from `pg_constraint` on every run; a multi-column key aborts the run). Each candidate is locked `FOR UPDATE SKIP LOCKED` and re-checked, then its blob (and a user-media `thumb_url`) is deleted before the row; a 404 blob counts as `blobMissing` and the row is still deleted, any other blob error keeps the row for the next run. Only blobs in `USER_MEDIA_CONTAINER` under the owner's `<ownerId>/` prefix are deleted; user rows pointing elsewhere (catalog blobs or `inline://` capture frames) are kept and, thanks to an `ILIKE '%/<container>/<owner_id>/%'` prefilter in the candidate query, not rescanned every run (so they cannot crowd out real orphans); a blob or thumbnail URL that another `image_asset` row also uses is never deleted, and `owner_type = 'source'` catalog assets are never scanned. Pages by `image_id` (`ORPHAN_MEDIA_SWEEP_BATCH_SIZE`) up to `ORPHAN_MEDIA_SWEEP_MAX_PER_RUN` candidates. Skips when `AZURE_STORAGE_CONNECTION` is unset (`orphan_media_sweep.skipped`); otherwise emits `orphan_media_sweep.completed` (properties `scanned`, `deleted`, `blobMissing`, `failed`, `skipped`, `truncated`, plus the config) and one `orphan_media_sweep.<count>` metric per count, or `orphan_media_sweep.failed` + an exception (`area: orphan-media-sweep`, `stage: run`) when the run cannot start or scan (e.g. `USER_MEDIA_CONTAINER` equals `SOURCE_IMAGE_CONTAINER`, or the DB is down).
@@ -656,7 +657,12 @@ if it was cancelled/finished or superseded. When a chunk pauses for an AI batch,
 `metrics.resumeMessage` (the continuation for the next unprocessed position, omitted when no work remains);
 after applying the batch, the poller enqueues it instead of completing the job. `host.json` processes one
 queue message per instance at a time (`batchSize: 1`, `newBatchThreshold: 0`) and moves a message to
-`ingestion-jobs-poison` after 5 dequeues.
+`ingestion-jobs-poison` after 5 dequeues (e.g. an invocation killed mid-chunk by several restarts in a row).
+The `ingestion-job-poison` trigger (`ingestion-worker.ts`) reads that queue and marks the job `failed`
+(stage `queue_poisoned`, `metrics.poisonQueue`, existing metrics and logs kept), which emits
+`ingestion.job_failed` and fires the prod alert. `planPoisonedIngestionMessage` only fails a `queued` or
+`running` job whose current message was poisoned: a stale duplicate (`resolveIngestionResumePoint` would drop
+it) and jobs in `awaiting_ai` (owned by the AI batch poller) are left alone.
 Shopify connectors download the whole store catalog per pull, so the worker gives each job a catalog
 cache: the first download is kept in memory for the rest of the invocation and, when
 `CONNECTOR_RAW_CONTAINER` is configured, saved as `catalog-cache/<source>/<jobId>.json.gz` with its URL in

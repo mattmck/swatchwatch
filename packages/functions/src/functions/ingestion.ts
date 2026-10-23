@@ -382,7 +382,7 @@ function withPipelineMetrics(
   };
 }
 
-function getPipelineStage(metrics: Record<string, unknown> | undefined): string | null {
+export function getPipelineStage(metrics: Record<string, unknown> | undefined): string | null {
   if (!metrics || typeof metrics !== "object") {
     return null;
   }
