@@ -1,0 +1,21 @@
+# Version updates go to `dev`, where feature work lands (decision D24).
+# Security updates ignore `target-branch`: GitHub always opens them against
+# the default branch (`main`), so port those to `dev` by hand.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    ignore:
+      # The root overrides pin React to the exact version React Native's
+      # renderer needs; bump it together with Expo, not on its own.
+      - dependency-name: react
+      - dependency-name: react-dom
+    groups:
+      npm-minor-patch:
+        update-types: [minor, patch]
+      npm-major:
+        update-types: [major]
