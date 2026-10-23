@@ -230,6 +230,16 @@ Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/b
 
 `apps/web/src/lib/looks.ts` is a re-export shim; the vibe vocabulary and saved-look shape stay in `types/looks.ts`.
 
+### `onboarding.ts` (getting-started checklist rules, #372 / #109)
+
+| Export | Meaning |
+|---|---|
+| `ONBOARDING_GOAL` (20), `ONBOARDING_SHOW_BELOW` (5) | Progress goal and the owned count below which the checklist shows |
+| `GETTING_STARTED_STEPS` (`{ id: "import" \| "scan" \| "search", label }`) | The three ways in, fastest first; each app maps ids to its own routes |
+| `onboardingProgress(ownedCount)` | `{ count, goal, percent, label }`, capped at the goal |
+| `GettingStartedState`, `parseGettingStartedState`, `serializeGettingStartedState` | Persisted `{ started, dismissed, visited }`, tolerant of broken storage |
+| `gettingStartedView(ownedCount, state)`, `markGettingStartedStarted`, `dismissGettingStarted`, `markStepVisited`, `gettingStartedStorageKey(userId)` | Visibility (`hidden` / `active` / `complete`) and state transitions. Web: localStorage; mobile: per-user AsyncStorage |
+
 ### `color/` (OKLAB math, thresholds, hex reconciliation, color families, harmonies, Pair it)
 
 | Export | Description |

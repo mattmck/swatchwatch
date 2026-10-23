@@ -8,6 +8,7 @@ import { deleteManicure, errorMessage, getPolish, listManicures } from "@/api/cl
 import { LogManiSheet } from "@/components/log-mani-sheet";
 import { PrivateImage } from "@/components/private-image";
 import { ColorDot } from "@/components/swatch";
+import { EmptyState } from "@/components/empty-state";
 import { AppText, Button, Card, CenteredState, Chip, ErrorBanner } from "@/components/ui";
 import { entryFromManicurePolish, formatWornOn, ROLE_LABELS } from "@/lib/mani";
 import { useTheme } from "@/theme/theme";
@@ -199,7 +200,21 @@ export default function ManisScreen() {
           loading ? (
             <CenteredState loading />
           ) : error ? null : (
-            <CenteredState title="No manis yet" message="Log what you wear and your polishes' wear counts fill in." />
+            shadeFilter ? (
+              <EmptyState
+                testID="manis-empty-filtered"
+                title="No manis with this polish yet"
+                message="Log a mani with it and it shows up here."
+                actions={[{ title: "Show all manis", onPress: () => router.setParams({ shade: undefined }) }]}
+              />
+            ) : (
+              <EmptyState
+                testID="manis-empty"
+                title="Log your first mani"
+                message="Tap Log a mani above and each polish's wear count, last worn date and cost per wear fill in."
+                actions={[{ title: "Pick from your collection", onPress: () => router.navigate("/") }]}
+              />
+            )
           )
         }
       />

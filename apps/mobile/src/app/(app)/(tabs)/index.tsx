@@ -4,11 +4,13 @@ import { ActivityIndicator, FlatList, RefreshControl, ScrollView, TextInput, Vie
 import { useAuth } from "@/auth/auth-provider";
 import { HomePanel } from "@/components/home-panel";
 import { CollectionFilterBar } from "@/components/collection-filter-bar";
+import { EmptyState, startCollectionActions, goTo } from "@/components/empty-state";
 import { PolishRow } from "@/components/polish-row";
-import { AppText, Button, CenteredState, Chip, ErrorBanner } from "@/components/ui";
+import { AppText, CenteredState, Chip, ErrorBanner } from "@/components/ui";
 import { onCollectionChanged } from "@/lib/collection-events";
 import {
   activeFilterCount,
+  clearBarFilters,
   collectionViewKey,
   parseCollectionParams,
   setPreset,
@@ -148,17 +150,41 @@ export default function CollectionScreen() {
       ListEmptyComponent={
         list.loading ? (
           <CenteredState loading />
-        ) : list.error ? null : (
-          <CenteredState
-            title={debounced || activeFilterCount(view) > 0 ? "No matches" : preset === "wishlist" ? "Your wishlist is empty" : "Nothing here yet"}
-            message={
-              debounced
-                ? `Nothing in this view matches “${debounced}”.`
-                : activeFilterCount(view) > 0
-                  ? "Nothing in this view matches these filters. Try clearing some."
-                  : "Scan a bottle on the Add tab or find shades in Search."
-            }
-            action={<Button title="Scan a bottle" variant="outline" onPress={() => router.navigate("/add")} />}
+        ) : list.error ? null : debounced || activeFilterCount(view) > 0 ? (
+          <EmptyState
+            testID="collection-empty-filtered"
+            title="No polishes match these filters"
+            message={debounced ? `Nothing in this view matches “${debounced}”.` : "Nothing in this view matches these filters."}
+            actions={[
+              {
+                title: "Clear filters",
+                onPress: () => {
+                  setSearch("");
+                  setView(clearBarFilters(view));
+                },
+              },
+            ]}
+          />
+        ) : preset === "wishlist" ? (
+          <EmptyState
+            testID="collection-empty-wishlist"
+            title="Your wishlist is empty"
+            message="Tap ♡ on any shade in the catalog to save it here."
+            actions={[{ title: "Browse the catalog", onPress: () => goTo("/search") }]}
+          />
+        ) : preset === "owned" && !view.untried ? (
+          <EmptyState
+            testID="collection-empty"
+            title="Build your collection"
+            message="Add the polishes you own and they show up here."
+            actions={startCollectionActions()}
+          />
+        ) : (
+          <EmptyState
+            testID="collection-empty-view"
+            title="Nothing here yet"
+            message="No polishes in this view yet. Add some from the catalog or scan a bottle."
+            actions={[{ title: "Scan a bottle", onPress: () => router.navigate("/add") }]}
           />
         )
       }

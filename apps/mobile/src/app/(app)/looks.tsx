@@ -14,6 +14,7 @@ import {
   SKIN_UNDERTONES,
   recommendLooks,
   skinToneFrom,
+  resolveProductCategory,
   type Look,
   type LookStep,
   type Polish,
@@ -25,6 +26,7 @@ import { deleteSavedLook, errorMessage, listAllPolishes, listPolishes, listSaved
 import { useAuth } from "@/auth/auth-provider";
 import { LogManiSheet } from "@/components/log-mani-sheet";
 import { Swatch } from "@/components/swatch";
+import { EmptyState, startCollectionActions } from "@/components/empty-state";
 import { AppText, Button, Card, CenteredState, Chip, ErrorBanner } from "@/components/ui";
 import { confirmAddWithDupes } from "@/lib/add-guard";
 import { readCache, writeCache } from "@/lib/api-cache";
@@ -223,7 +225,14 @@ export default function LooksScreen() {
           </AppText>
         )}
 
-        {tab === "looks" ? (
+        {tab === "looks" && owned.filter((p) => p.status === "owned" && resolveProductCategory(p) === "color").length === 0 ? (
+          <EmptyState
+            testID="looks-empty"
+            title="Looks need polishes to work with"
+            message="Add a few color polishes you own and SwatchWatch builds complete looks from them."
+            actions={startCollectionActions()}
+          />
+        ) : tab === "looks" ? (
           <>
             <VibePicker vibe={vibe} toppers={toppers} onVibe={changeVibe} onToppers={setToppers} />
             <View style={{ flexDirection: "row", alignItems: "center", gap: theme.spacing(2) }}>

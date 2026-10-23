@@ -11,6 +11,7 @@ import { errorMessage, getCollectionStats } from "@/api/client";
 import { useAuth } from "@/auth/auth-provider";
 import { promptCollectionExport, useCollectionExport } from "@/components/export-collection";
 import { Swatch } from "@/components/swatch";
+import { EmptyState, startCollectionActions } from "@/components/empty-state";
 import { AppText, Button, Card, Chip, ErrorBanner } from "@/components/ui";
 import { readCache, writeCache } from "@/lib/api-cache";
 import {
@@ -134,13 +135,12 @@ export default function InsightsScreen() {
         )}
 
         {!stats && error ? null : empty ? (
-          <Card testID="insights-empty">
-            <AppText variant="heading">Stats fill in as you go</AppText>
-            <AppText muted>
-              Spend by brand and month, what you wear most and cost per wear appear here once you add polishes you own.
-            </AppText>
-            <Button title="Add a polish" variant="primary" onPress={() => router.push("/add")} />
-          </Card>
+          <EmptyState
+            testID="insights-empty"
+            title="Stats fill in as you go"
+            message="Spend by brand and month, what you wear most and cost per wear appear here once you add polishes you own."
+            actions={startCollectionActions()}
+          />
         ) : (
           <>
             {currencies.length > 1 && (
