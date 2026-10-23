@@ -16,6 +16,7 @@ import {
   shelfNeedsDupeCheck,
   shelfQuickActions,
   shelfReducer,
+  shelfStartsEntry,
   shelfStatus,
   shelfStorageKey,
   writeShelf,
@@ -180,6 +181,28 @@ describe("shelfReducer", () => {
       { type: "verdict_updated", key: "gtin:012345678905", entry: entry({ verdict: "owned", quantity: 1 }), clearActed: true },
     );
     assert.equal(undone.entries[0].acted, undefined);
+  });
+
+  it("routes a scan's verdicts to one entry until Scan next", () => {
+    let state = shelfReducer(EMPTY_SHELF, { type: "verdict", entry: entry({ verdict: "not_found", key: "gtin:1" }) });
+    assert.equal(state.currentKey, "gtin:1");
+    assert.equal(shelfStartsEntry(state), false);
+    // The label photo finalizes under a capture key: still the same entry.
+    state = shelfReducer(state, { type: "verdict", entry: entry({ key: "capture:c1", verdict: "new", acted: "added" }) });
+    assert.equal(state.entries.length, 1);
+    assert.equal(state.entries[0].acted, "added");
+    state = shelfReducer(state, { type: "scan_ended" });
+    assert.equal(shelfStartsEntry(state), true);
+    state = shelfReducer(state, { type: "verdict", entry: entry({ key: "gtin:2" }) });
+    assert.equal(state.entries.length, 2);
+    // Re-scanning the first bottle flags it and makes it current.
+    state = shelfReducer(shelfReducer(state, { type: "scan_ended" }), { type: "verdict", entry: entry({ key: "gtin:1" }) });
+    assert.equal(state.entries.length, 2);
+    assert.equal(state.repeatKey, "gtin:1");
+    assert.equal(state.currentKey, "gtin:1");
+    // Clearing mid-scan: the next verdict starts afresh.
+    state = shelfReducer(state, { type: "cleared" });
+    assert.equal(shelfStartsEntry(state), true);
   });
 
   it("records actions and dupes", () => {

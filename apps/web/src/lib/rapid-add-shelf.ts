@@ -53,9 +53,11 @@ export interface ShelfState {
   entries: ShelfEntry[];
   /** Key of the entry the latest scan matched an earlier one (for the "Scanned already" flag). */
   repeatKey: string | null;
+  /** Entry the scan in progress made; its later verdicts update it (`verdict`), until `scan_ended`. */
+  currentKey: string | null;
 }
 
-export const EMPTY_SHELF: ShelfState = { entries: [], repeatKey: null };
+export const EMPTY_SHELF: ShelfState = { entries: [], repeatKey: null, currentKey: null };
 
 /** The most entries kept; the oldest drop off beyond it. */
 export const SHELF_MAX_ENTRIES = 100;
@@ -156,6 +158,10 @@ export function shelfNeedsDupeCheck(entry: Pick<ShelfEntry, "verdict" | "shadeId
 }
 
 export type ShelfAction =
+  /** A verdict of the scan in progress: updates its entry, or adds one for its first verdict. */
+  | { type: "verdict"; entry: ShelfEntry; clearActed?: boolean }
+  /** "Scan next": the next verdict starts a new entry. */
+  | { type: "scan_ended" }
   | { type: "scanned"; entry: ShelfEntry }
   /**
    * A later verdict of the same scan (the card's Add / ♡ / undo, or a label photo after an
@@ -175,13 +181,31 @@ function replaceEntry(state: ShelfState, key: string, update: (entry: ShelfEntry
   return { ...state, entries };
 }
 
+/** Whether a `verdict` dispatch would start a new entry (rather than update the current one). */
+export function shelfStartsEntry(state: ShelfState): boolean {
+  return !state.currentKey || !state.entries.some((entry) => entry.key === state.currentKey);
+}
+
 export function shelfReducer(state: ShelfState, action: ShelfAction): ShelfState {
   switch (action.type) {
+    case "verdict": {
+      if (!shelfStartsEntry(state)) {
+        return shelfReducer(state, {
+          type: "verdict_updated",
+          key: state.currentKey as string,
+          entry: action.entry,
+          clearActed: action.clearActed,
+        });
+      }
+      return { ...shelfReducer(state, { type: "scanned", entry: action.entry }), currentKey: action.entry.key };
+    }
+    case "scan_ended":
+      return state.currentKey === null ? state : { ...state, currentKey: null };
     case "scanned": {
       const incoming = action.entry;
       const existing = state.entries.find((entry) => entry.key === incoming.key);
       if (!existing) {
-        return { entries: [incoming, ...state.entries].slice(0, SHELF_MAX_ENTRIES), repeatKey: null };
+        return { ...state, entries: [incoming, ...state.entries].slice(0, SHELF_MAX_ENTRIES), repeatKey: null };
       }
       // Same bottle again: keep its place and first-scan time, refresh what the new scan knows.
       return {
@@ -233,7 +257,7 @@ export function shelfReducer(state: ShelfState, action: ShelfAction): ShelfState
         return next;
       });
     case "hydrated":
-      return { entries: action.entries.slice(0, SHELF_MAX_ENTRIES), repeatKey: null };
+      return { ...EMPTY_SHELF, entries: action.entries.slice(0, SHELF_MAX_ENTRIES) };
     case "cleared":
       return EMPTY_SHELF;
     default:
@@ -285,7 +309,7 @@ export const SHELF_VERDICT_LABELS: Record<ShelfVerdict, string> = {
 };
 
 /** The quick actions an entry offers now. */
-export type ShelfQuickAction = "add" | "wishlist" | "bought_another" | "photograph" | "manual";
+export type ShelfQuickAction = "add" | "wishlist" | "bought_another" | "manual";
 
 export function shelfQuickActions(entry: Pick<ShelfEntry, "verdict" | "acted" | "shadeId" | "captureId">): ShelfQuickAction[] {
   const status = shelfStatus(entry);
@@ -307,7 +331,7 @@ export function formatShelfAge(then: number, now: number): string {
 
 // ── sessionStorage ──────────────────────────────────────────────────────────────────────────
 
-type ShelfStore = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+type ShelfStore = Pick<Storage, "getItem" | "setItem" | "removeItem" | "key" | "length">;
 
 const VERDICTS = new Set<ShelfVerdict>(["owned", "wishlist", "near_dupe", "new", "not_found"]);
 const ACTED = new Set<ShelfActed>(["added", "wishlisted", "bought_another"]);
@@ -402,7 +426,7 @@ export function writeShelf(storage: ShelfStore | null | undefined, key: string, 
 }
 
 /** Remove every user's shelf (sign-out). */
-export function clearAllShelves(storage: (ShelfStore & Pick<Storage, "length" | "key">) | null | undefined): void {
+export function clearAllShelves(storage: ShelfStore | null | undefined): void {
   if (!storage) return;
   try {
     const keys: string[] = [];
