@@ -7,6 +7,7 @@ import { CollectionFilterBar } from "@/components/collection-filter-bar";
 import { EmptyState, startCollectionActions, goTo } from "@/components/empty-state";
 import { PolishRow } from "@/components/polish-row";
 import { AppText, CenteredState, Chip, ErrorBanner } from "@/components/ui";
+import { onCollectionChanged } from "@/lib/collection-events";
 import {
   activeFilterCount,
   clearBarFilters,
@@ -51,6 +52,16 @@ export default function CollectionScreen() {
     setHomeToken((n) => n + 1);
     list.refresh();
   };
+  // A polish added elsewhere (the manual add form) shows up without a pull-to-refresh.
+  const { refresh: refreshList } = list;
+  useEffect(
+    () =>
+      onCollectionChanged(() => {
+        setHomeToken((n) => n + 1);
+        refreshList();
+      }),
+    [refreshList],
+  );
 
   const header = (
     <View>
