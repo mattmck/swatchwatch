@@ -308,6 +308,17 @@ function layoutFor(props: VerdictCardProps): VerdictLayout {
           </>
         ),
       };
+    case "pick":
+    case "create_card":
+      // Placeholder until the bottle-flow cards land (Task 12).
+      return {
+        tone: "add",
+        icon: <ScanBarcode className="size-7 text-brand-purple" aria-hidden />,
+        eyebrow: "Bottle",
+        title: "Coming in a later task",
+        body: <p>This card is not built yet.</p>,
+        actions: null,
+      };
     default:
       return assertNever(verdict);
   }

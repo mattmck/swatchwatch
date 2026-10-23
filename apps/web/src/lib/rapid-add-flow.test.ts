@@ -1,12 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type { CaptureQuestion } from "swatchwatch-shared";
+import { EMPTY_STICKY_HINTS, type CaptureQuestion, type StickyHints } from "swatchwatch-shared";
 import type { ScannedBarcode } from "./barcode-scan";
 import {
   buildFrameQuality,
   buildQuestionView,
   buildStartMetadata,
   canAddFrame,
+  canCheck,
   canCheckBarcodeFromMetadata,
   canFinalize,
   framesReducer,
@@ -314,5 +315,72 @@ describe("canCheckBarcodeFromMetadata", () => {
       false,
     );
     assert.equal(canCheckBarcodeFromMetadata(INITIAL_SESSION_STATE, null), false);
+  });
+});
+
+describe("bottle flow additions", () => {
+  const baseQuality = {
+    source: "web-camera" as const,
+    width: 1,
+    height: 1,
+    sourceWidth: 1,
+    sourceHeight: 1,
+    metrics: { brightness: 0, contrast: 0, sharpness: 0 },
+  };
+
+  it("adds the surface to frame quality only when set", () => {
+    assert.equal(buildFrameQuality({ ...baseQuality, surface: "glass" }).surface, "glass");
+    assert.equal("surface" in buildFrameQuality(baseQuality), false);
+    assert.equal("surface" in buildFrameQuality({ ...baseQuality, surface: null }), false);
+  });
+
+  it("fills start metadata from sticky hints when the per-bottle hint is empty", () => {
+    const sticky: StickyHints = {
+      ...EMPTY_STICKY_HINTS,
+      brand: "loud",
+      brandCanonical: "Loud Lacquer",
+      finish: "creme",
+    };
+    const metadata = buildStartMetadata({ barcode: null, hints: {}, sticky });
+    assert.equal(metadata.brand, "Loud Lacquer");
+    assert.equal(metadata.finish, "creme");
+    assert.equal("collection" in metadata, false);
+  });
+
+  it("lets a typed per-bottle hint beat the sticky one", () => {
+    const sticky: StickyHints = { ...EMPTY_STICKY_HINTS, brand: "loud", brandCanonical: "Loud Lacquer", finish: "creme" };
+    const metadata = buildStartMetadata({ barcode: null, hints: { brand: "OPI", finish: "glitter" }, sticky });
+    assert.equal(metadata.brand, "OPI");
+    assert.equal(metadata.finish, "glitter");
+  });
+
+  it("ignores null sticky hints", () => {
+    assert.deepEqual(buildStartMetadata({ barcode: null, hints: {}, sticky: null }), { source: "web-rapid-add" });
+  });
+
+  describe("canCheck", () => {
+    const collecting: RapidAddSessionState = { ...INITIAL_SESSION_STATE, captureId: "c1", status: "processing" };
+    const one = framesReducer([], { type: "added", frame: frame("a") });
+    const uploaded = framesReducer(one, { type: "upload_succeeded", localId: "a", frameId: "1" });
+
+    it("is false while a frame uploads and true once one is uploaded", () => {
+      assert.equal(canCheck({ frames: one, session: collecting, hasHints: false }), false);
+      assert.equal(canCheck({ frames: uploaded, session: collecting, hasHints: false }), true);
+    });
+
+    it("is false without evidence or while busy", () => {
+      assert.equal(canCheck({ frames: [], session: INITIAL_SESSION_STATE, hasHints: false }), false);
+      assert.equal(canCheck({ frames: [], session: INITIAL_SESSION_STATE, hasHints: true }), true);
+      assert.equal(canCheck({ frames: uploaded, session: { ...collecting, busy: "checking" }, hasHints: false }), false);
+    });
+
+    it("is allowed in the collecting phase but not in a question", () => {
+      const asking: RapidAddSessionState = {
+        ...collecting,
+        status: "needs_question",
+        question: question({}),
+      };
+      assert.equal(canCheck({ frames: uploaded, session: asking, hasHints: false }), false);
+    });
   });
 });
