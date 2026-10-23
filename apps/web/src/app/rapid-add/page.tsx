@@ -63,6 +63,7 @@ import {
 import {
   bottleAddQuantity,
   bottleEvidence,
+  echoMatchesBatch,
   verdictAfterBottleAdd,
   verdictAfterCreate,
   verdictFromPickedCandidate,
@@ -83,6 +84,7 @@ import {
   buildStartMetadata,
   canAddFrame,
   canCheckBarcodeFromMetadata,
+  canCheck,
   canFinalize,
   framesReducer,
   INITIAL_SESSION_STATE,
@@ -233,6 +235,8 @@ export default function RapidAddPage() {
 
   // One capture session per scanned item; concurrent frames share the same start request.
   const sessionPromiseRef = useRef<Promise<string> | null>(null);
+  /** Bumped when a scan is abandoned, so a slow request of the old scan never lands on the next one. */
+  const scanRef = useRef(0);
   const cameraSectionRef = useRef<HTMLDivElement | null>(null);
 
   // Ownership snapshot of the collection, taken before finalize adds the match to it.
@@ -315,6 +319,7 @@ export default function RapidAddPage() {
     if (sessionRef.current.captureId) return sessionRef.current.captureId;
     if (!sessionPromiseRef.current) {
       dispatch({ type: "busy", busy: "starting" });
+      const scan = scanRef.current;
       sessionPromiseRef.current = startCapture({
         metadata: buildStartMetadata({
           barcode: barcode ?? sessionRef.current.barcode,
@@ -323,19 +328,22 @@ export default function RapidAddPage() {
         }),
       }).then(
         (started) => {
+          // The scan was abandoned (e.g. the batch brand changed) while this start was in flight.
+          if (scanRef.current !== scan) return started.captureId;
           dispatch({ type: "session_started", captureId: started.captureId, status: started.status });
           sessionRef.current = { ...sessionRef.current, captureId: started.captureId, status: started.status };
           if (bottleSequenceRef.current) {
             applyBottle({ type: "session_started", brandHint: started.brandHint, nextFrame: started.nextFrame });
             // The server's spelling of the batch brand replaces what was typed.
-            if (started.brandHint && isBatchMode(stickyRef.current)) {
-              setStickyHints(withBrandEcho(stickyRef.current, started.brandHint), true);
+            const batch = stickyRef.current;
+            if (started.brandHint && isBatchMode(batch) && echoMatchesBatch(batch, started.brandHint)) {
+              setStickyHints(withBrandEcho(batch, started.brandHint), true);
             }
           }
           return started.captureId;
         },
         (error: unknown) => {
-          sessionPromiseRef.current = null;
+          if (scanRef.current === scan) sessionPromiseRef.current = null;
           throw error;
         },
       );
@@ -349,12 +357,14 @@ export default function RapidAddPage() {
    * remembered so the shelf doesn't ask again.
    */
   const presentVerdict = useCallback(async (base: CaptureVerdict | null, barcode: ScannedBarcode | null) => {
+    const scan = scanRef.current;
     let verdict = base;
     if (base) {
       const result = await resolveNearDupeVerdict(base, {
         suppressed: readSuppressedGuardKeys(safeSessionStorage()),
         loadDupes: (shadeId) => getPolishDupes(shadeId, { limit: NEAR_DUPE_CARD_MAX }),
       });
+      if (scanRef.current !== scan) return;
       verdict = result.verdict;
       if (result.answered && base.kind === "checked" && base.shadeId) dupeCheckedRef.current.add(base.shadeId);
       if (result.failure) {
@@ -386,11 +396,14 @@ export default function RapidAddPage() {
 
   /** Check the bottle sequence's photos (read-only) and show the verdict: match, pick, create card or not found. */
   const runBottleCheck = useCallback(async () => {
+    const scan = scanRef.current;
     try {
       dispatch({ type: "busy", busy: "checking" });
       const captureId = await ensureSession(sessionRef.current.barcode);
+      if (scanRef.current !== scan) return;
       dispatch({ type: "busy", busy: "checking" });
       const check = await checkCapture(captureId);
+      if (scanRef.current !== scan) return;
       applyBottle({ type: "check_received", nextFrame: check.nextFrame, brandConflict: check.brandConflict });
       const barcode = sessionRef.current.barcode;
       await presentVerdict(
@@ -398,6 +411,7 @@ export default function RapidAddPage() {
         barcode,
       );
     } catch (error) {
+      if (scanRef.current !== scan) return;
       dispatch({
         type: "failed",
         error: `Couldn't check that bottle: ${errorMessage(error, "network error")}. Tap Find match.`,
@@ -422,6 +436,7 @@ export default function RapidAddPage() {
 
   const uploadFrame = useCallback(
     async (frame: Pick<CaptureFrameEntry, "localId" | "frameType" | "dataUrl" | "quality">, barcode: ScannedBarcode | null) => {
+      const scan = scanRef.current;
       try {
         const captureId = await ensureSession(barcode);
         const checking = frame.frameType === "barcode" && shouldCheckBarcode(sessionRef.current, barcode);
@@ -434,7 +449,7 @@ export default function RapidAddPage() {
         dispatchFrames({ type: "upload_succeeded", localId: frame.localId, frameId: res.frameId });
         if (checking && barcode) {
           await checkBarcode(captureId, barcode, res.check);
-        } else if (bottleSequenceRef.current) {
+        } else if (bottleSequenceRef.current && scanRef.current === scan) {
           const next = applyBottle({
             type: "frame_uploaded",
             surface: surfaceFromQuality(frame.quality),
@@ -623,26 +638,32 @@ export default function RapidAddPage() {
 
   async function handleBottleAdd(verdict: CheckedVerdict | NearDupeVerdict) {
     if (!verdict.shadeId) return;
+    const scan = scanRef.current;
     dispatch({ type: "busy", busy: "finalizing" });
     try {
       const updated = await updatePolish(verdict.shadeId, {
         status: "owned",
         quantity: bottleAddQuantity(verdict),
       });
-      dispatch({ type: "verdict_resolved", verdict: verdictAfterBottleAdd(verdict, updated.inventoryItemId) });
       void loadSnapshot();
+      if (scanRef.current !== scan) return;
+      dispatch({ type: "verdict_resolved", verdict: verdictAfterBottleAdd(verdict, updated.inventoryItemId) });
     } catch (error) {
+      if (scanRef.current !== scan) return;
       dispatch({ type: "failed", error: errorMessage(error, "Couldn't add it to your collection.") });
     }
   }
 
   async function handleCreate(verdict: CreateCardVerdict, edits: CreateCardEdits, status: "owned" | "wishlist") {
+    const scan = scanRef.current;
     dispatch({ type: "busy", busy: "creating" });
     try {
       const created = await createPolish(createPolishRequestFromCard(verdict.card, edits, status));
-      dispatch({ type: "verdict_resolved", verdict: verdictAfterCreate(created, verdict.card, edits, status) });
       void loadSnapshot();
+      if (scanRef.current !== scan) return;
+      dispatch({ type: "verdict_resolved", verdict: verdictAfterCreate(created, verdict.card, edits, status) });
     } catch (error) {
+      if (scanRef.current !== scan) return;
       dispatch({ type: "failed", error: errorMessage(error, "Couldn't add it. Try again.") });
     }
   }
@@ -665,6 +686,7 @@ export default function RapidAddPage() {
 
   /** The current scan is abandoned: a fresh session, photos and prompts for the next bottle. */
   function resetScan() {
+    scanRef.current += 1;
     sessionPromiseRef.current = null;
     dispatch({ type: "reset" });
     dispatchFrames({ type: "reset" });
@@ -681,7 +703,8 @@ export default function RapidAddPage() {
    * the prompts follow the new brand right away; with photos the change waits for the next bottle.
    */
   function restartUnusedSession() {
-    if (sessionRef.current.captureId && framesRef.current.length === 0 && !sessionRef.current.verdict) resetScan();
+    const started = sessionRef.current.captureId !== null || sessionPromiseRef.current !== null;
+    if (started && framesRef.current.length === 0 && !sessionRef.current.verdict) resetScan();
   }
 
   function handleConfirmBatchBrand(next: { brand: string; finish: string | null; collection: string | null }) {
@@ -689,9 +712,11 @@ export default function RapidAddPage() {
     restartUnusedSession();
     // Start the session now so the catalog spelling of the brand and the first prompt come back.
     if (bottleSequence && !sessionRef.current.captureId) {
-      void ensureSession(null).catch(() =>
-        dispatch({ type: "failed", error: "Couldn't reach the server yet. It will retry with your first photo." }),
-      );
+      const scan = scanRef.current;
+      void ensureSession(null).catch(() => {
+        if (scanRef.current !== scan) return;
+        dispatch({ type: "failed", error: "Couldn't reach the server yet. It will retry with your first photo." });
+      });
     }
   }
 
@@ -703,11 +728,14 @@ export default function RapidAddPage() {
   async function handleSkipSurface() {
     const surface = activeView?.surface;
     if (!surface) return;
+    const scan = scanRef.current;
     dispatch({ type: "busy", busy: "skipping" });
     try {
       const captureId = await ensureSession(session.barcode);
+      if (scanRef.current !== scan) return;
       dispatch({ type: "busy", busy: "skipping" });
       const res = await answerCaptureQuestion(captureId, { skipSurface: surface });
+      if (scanRef.current !== scan) return;
       trackEvent("rapid_add.bottle_skip", { surface });
       const next = applyBottle({ type: "surface_skipped", surface, nextFrame: res.nextFrame });
       setManualSurface(null);
@@ -715,6 +743,7 @@ export default function RapidAddPage() {
       const uploaded = framesRef.current.filter((f) => f.status === "uploaded").length;
       if (shouldAutoCheck(next, uploaded) && !sessionRef.current.verdict) await runBottleCheck();
     } catch (error) {
+      if (scanRef.current !== scan) return;
       dispatch({ type: "failed", error: errorMessage(error, "Couldn't skip that photo. Try again.") });
     }
   }
@@ -723,11 +752,14 @@ export default function RapidAddPage() {
     if ((verdict.kind !== "checked" && verdict.kind !== "near_dupe") || !verdict.shadeId) return;
     if (verdict.kind === "near_dupe") reportNearDupeOutcome(verdict, "wishlist", "button");
     const checked = verdict.kind === "near_dupe" ? checkedFromNearDupe(verdict) : verdict;
+    const scan = scanRef.current;
     dispatch({ type: "busy", busy: "wishlisting" });
     try {
       await updatePolish(verdict.shadeId, { status: "wishlist" });
+      if (scanRef.current !== scan) return;
       dispatch({ type: "verdict_resolved", verdict: { ...checked, relationship: "wishlisted", wishlistedNow: true } });
     } catch (error) {
+      if (scanRef.current !== scan) return;
       dispatch({ type: "failed", error: errorMessage(error, "Couldn't add it to your wishlist.") });
     }
   }
@@ -740,9 +772,11 @@ export default function RapidAddPage() {
   async function handleUndoQuantity() {
     const verdict = session.verdict;
     if (verdict?.kind !== "owned" || !verdict.shadeId) return;
+    const scan = scanRef.current;
     dispatch({ type: "busy", busy: "undoing" });
     try {
       await updatePolish(verdict.shadeId, { quantity: verdict.previousQuantity });
+      if (scanRef.current !== scan) return;
       dispatch({ type: "quantity_restored" });
       const snapshot = await snapshotRef.current;
       if (snapshot) {
@@ -758,6 +792,7 @@ export default function RapidAddPage() {
         );
       }
     } catch (error) {
+      if (scanRef.current !== scan) return;
       dispatch({ type: "failed", error: errorMessage(error, "Couldn't update the quantity.") });
     }
   }
@@ -805,7 +840,7 @@ export default function RapidAddPage() {
     resetScan();
   }
 
-  const finalizeEnabled = canFinalize({ frames, session, hasHints });
+  const finalizeEnabled = (bottleSequence ? canCheck : canFinalize)({ frames, session, hasHints });
   const badge = phase === "verdict" ? null : scanBadge(session);
   const scanning = phase !== "verdict" && phase !== "resolving" && !session.barcode;
   const busy = session.busy !== null;

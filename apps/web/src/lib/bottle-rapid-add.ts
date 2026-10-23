@@ -9,10 +9,12 @@ import {
   type BottleSurface,
   type CaptureBrandConflict,
   type CaptureCheckCandidate,
+  type CaptureBrandHintEcho,
   type CaptureCheckResponse,
   type CreateCardEdits,
   type CreateCardModel,
   type Polish,
+  type StickyHints,
 } from "swatchwatch-shared";
 import {
   verdictFromCheck,
@@ -174,4 +176,13 @@ export function verdictAfterCreate(
     ...(created.inventoryItemId ? { inventoryItemId: String(created.inventoryItemId) } : {}),
     priorOwnership: "none",
   };
+}
+
+/**
+ * A start response's brand echo belongs to the batch only while it answers the brand the batch
+ * still has (typed or canonical); an echo for a brand the user has since replaced is ignored.
+ */
+export function echoMatchesBatch(hints: StickyHints, echo: CaptureBrandHintEcho): boolean {
+  const raw = echo.raw.trim().toLowerCase();
+  return [hints.brand, hints.brandCanonical].some((brand) => brand?.trim().toLowerCase() === raw);
 }

@@ -1,10 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { CaptureCheckCandidate, CaptureCheckResponse, CreateCardEdits, CreateCardModel } from "swatchwatch-shared";
+import { EMPTY_STICKY_HINTS } from "swatchwatch-shared";
 import type { CheckedVerdict, NearDupeVerdict } from "./capture-verdict";
 import {
   bottleAddQuantity,
   bottleEvidence,
+  echoMatchesBatch,
   pickRowView,
   surfaceChipStatus,
   verdictAfterBottleAdd,
@@ -223,5 +225,19 @@ describe("verdictAfterCreate", () => {
       assert.equal(verdict.gtin, "4006381333931");
       assert.equal(verdict.hex, "#aabbcc");
     }
+  });
+});
+
+describe("echoMatchesBatch", () => {
+  const hints = { ...EMPTY_STICKY_HINTS, brand: "loud", brandCanonical: "Loud Lacquer", brandId: "9" };
+
+  it("accepts an echo of the typed or the canonical brand, ignoring case", () => {
+    assert.equal(echoMatchesBatch(hints, { raw: "Loud", brandId: "9", name: "Loud Lacquer" }), true);
+    assert.equal(echoMatchesBatch(hints, { raw: "loud lacquer", brandId: "9", name: "Loud Lacquer" }), true);
+  });
+
+  it("rejects an echo for a brand the batch no longer has", () => {
+    assert.equal(echoMatchesBatch(hints, { raw: "OPI", brandId: "1", name: "OPI" }), false);
+    assert.equal(echoMatchesBatch(EMPTY_STICKY_HINTS, { raw: "OPI", brandId: "1", name: "OPI" }), false);
   });
 });
