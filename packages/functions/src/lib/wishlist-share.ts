@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { WISHLIST_SHARE_DISPLAY_NAME_MAX_LENGTH } from "swatchwatch-shared";
 import { deriveSigningSubkey } from "./image-proxy";
+import { isFeatureEnabled } from "./feature-flags";
 
 /**
  * Shareable wishlist tokens (issue #268).
@@ -29,7 +30,7 @@ const EMAIL_LIKE = /[^\s@]+@[^\s@]+\.[^\s@]+/;
 
 /** Server-side feature flag. Off unless `SHAREABLE_WISHLIST_ENABLED` is exactly "true" (any case). */
 export function isShareableWishlistEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.SHAREABLE_WISHLIST_ENABLED?.trim().toLowerCase() === "true";
+  return isFeatureEnabled("shareableWishlist", env);
 }
 
 export function generateShareTokenSalt(): string {
