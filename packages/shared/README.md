@@ -24,7 +24,7 @@ The package is automatically linked via npm workspaces — no publishing require
 | `resolvePolishFinishes(polish)` | Finishes to display: `finishes` when non-empty, else `[finish]` (backward compatible) |
 | `polishHasFinish(polish, finish)` | Case-insensitive membership check over `resolvePolishFinishes` |
 | `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps); accepts `finishes` (replace) and legacy `finish`, plus inventory `status`, `triedAt`, `purchasePrice`, `purchaseCurrency` (`null` clears the last three), `rating` and `purchaseDate` (`null` clears them on update), and create-only `barcode` / `barcodeFormat` (a Rapid Add scan remembered on the shade for the caller, #21) |
-| `PolishUpdateRequest` | Partial create fields + required `id` |
+| `PolishUpdateRequest` | `Partial<PolishCreateRequest>` (the id is the route param); `rating` / `purchaseDate` `null` clears the value |
 | `ShadeIdentityTakenResponse` | `409` body of `PUT /api/polishes/{id}` when renaming the caller's own private shade (`Polish.ownSubmitted`) to a brand + name another visible shade already has (`error`, `code: "shade_identity_taken"`, `existingShadeId`); nothing was changed |
 | `PolishListResponse` | Paginated list: `{ polishes, total, page, pageSize }` |
 | `PolishFilters` | Query params: brand/finish/finishes/color/tags/search plus scope/availability/tone, `status` (`PolishStatus[]`), `untried`, `families` (`?family=`, any-of color families), `nearHex` (rank by OKLAB distance to the nearest of up to 24 hexes, replaces sort), sort, and pagination |
@@ -321,7 +321,7 @@ Looks (`/polishes/looks`) vocabulary and saved looks (`GET/POST/DELETE /api/look
 | `LOOK_FINISHES` / `LookFinish` | Finish preferences: `gloss`, `matte`, `chrome`, `holo`, `flake`, `sheer` |
 | `LOOK_STEP_ROLES` / `LookStepRole` | `base`, `accent`, `topper` |
 | `LOOK_STEP_SOURCES` / `LookStepSource` | `owned`, `catalog` (to buy), `template` (color only) |
-| `LookVibe` | `{ occasion, mood, finish \| null, ownedOnly }` |
+| `LookVibe` | `{ occasion, mood, finish \| null, ownedOnly, skinTone?: SkinTone \| null }` |
 | `SavedLookStep` | `{ role, label, hex, source, shadeId?, brand?, name? }` — display snapshot, never joined to shades server-side |
 | `SavedLookInput` / `SavedLook` | `{ id (look key), templateId, name, vibe, steps }`; `SavedLook` adds `savedAt` |
 | `SavedLookListResponse` | `GET /api/looks`: `{ looks }`, newest first |

@@ -93,7 +93,7 @@ npm run dev:mobile       # → mobile via Expo (see apps/mobile/README.md)
 | `npm run dev:shared` | Watch-build `packages/shared` only |
 | `npm run build` | Build all workspaces (shared → web → functions) |
 | `npm run build:shared` | Build shared types only |
-| `npm run build:web` | Build shared types + Next.js production build |
+| `npm run build:web` | Build shared types + Next.js production build + `out/sw.js` (PWA service worker precache, `apps/web/scripts/build-sw.mjs`) |
 | `npm run build:functions` | Build shared types + TypeScript compile for functions |
 | `npm run lint` | ESLint across all workspaces |
 | `npm run test` | Run workspace tests where present (includes Functions unit tests; builds shared + functions first) |
