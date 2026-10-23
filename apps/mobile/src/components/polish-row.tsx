@@ -1,5 +1,5 @@
 import { Pressable, View } from "react-native";
-import { resolvePolishFinishes, type Polish } from "swatchwatch-shared";
+import { PRODUCT_CATEGORY_LABELS, resolvePolishFinishes, resolveProductCategory, type Polish } from "swatchwatch-shared";
 import { finishLabel } from "@/lib/finishes";
 import { POLISH_STATUS_LABELS } from "@/lib/status";
 import { useTheme } from "@/theme/theme";
@@ -40,6 +40,9 @@ export function PolishRow({ polish, onPress }: { polish: Polish; onPress: () => 
       </View>
       <View style={{ alignItems: "flex-end", gap: 4 }}>
         {polish.status && polish.status !== "owned" && <Chip label={POLISH_STATUS_LABELS[polish.status]} />}
+        {resolveProductCategory(polish.productCategory) !== "color" && (
+          <Chip label={PRODUCT_CATEGORY_LABELS[resolveProductCategory(polish.productCategory)]} />
+        )}
         {polish.isUntried && <Chip label="Untried" tone="brand" />}
         {polish.status === "owned" && (polish.quantity ?? 1) > 1 && <Chip label={`×${polish.quantity}`} />}
       </View>
