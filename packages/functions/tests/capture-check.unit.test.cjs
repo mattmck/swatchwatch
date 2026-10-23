@@ -69,6 +69,8 @@ function resetState() {
     shadeCandidates: [{ shadeId: String(SHADE_ID), brand: "OPI", shadeName: "Big Apple Red", score: 0.95 }],
     /** Row returned by the brand-hint lookup (`FROM brand b`); null = no catalog brand. */
     brandRow: null,
+    /** Shade names returned by the closed-list query (`shade_name_canonical AS name`). */
+    brandShadeNames: [],
     /** image_asset rows written by the frame endpoint: { imageId, ownerId, storageUrl, checksum }. */
     assets: [],
     /** When set, INSERT INTO capture_frame throws (frame transaction failure). */
@@ -178,6 +180,11 @@ async function fakeQuery(via, sql, params = []) {
 
   if (/FROM brand b/i.test(norm) && /brand_alias/i.test(norm)) {
     return { rows: state.brandRow ? [state.brandRow] : [], rowCount: state.brandRow ? 1 : 0 };
+  }
+
+  if (/shade_name_canonical AS name/i.test(norm) && /FROM shade s/i.test(norm)) {
+    const rows = state.brandShadeNames.map((name) => ({ name }));
+    return { rows, rowCount: rows.length };
   }
 
   if (/similarity\(/i.test(norm) && /FROM shade s/i.test(norm)) {
@@ -319,8 +326,11 @@ registerMock(path.resolve(__dirname, "../dist/lib/db.js"), dbMock);
 registerMock("../lib/db", dbMock);
 registerMock("./db", dbMock);
 
-registerMock("../lib/ocr", { extractTextFromImage: async () => null });
-registerMock("../lib/ocr-parser", { parseLabelText: async () => null });
+// OCR and label parsing answer from these, replaced per test (default: no OCR result).
+let ocrImpl = async () => null;
+let parseLabelImpl = async () => null;
+registerMock("../lib/ocr", { extractTextFromImage: (...args) => ocrImpl(...args) });
+registerMock("../lib/ocr-parser", { parseLabelText: (...args) => parseLabelImpl(...args) });
 const BLOB_ACCOUNT = "https://acct.blob.core.windows.net";
 const blobStorageMock = {
   checkStorageImageUrl: () => "not allowed",
@@ -411,6 +421,8 @@ function assertNoWrites() {
 
 beforeEach(() => {
   resetState();
+  ocrImpl = async () => null;
+  parseLabelImpl = async () => null;
   process.env.AUTH_DEV_BYPASS = "true";
 });
 
@@ -1029,5 +1041,221 @@ describe("functions/capture — start with a brand hint", () => {
     assert.equal("nextFrame" in res.jsonBody, false);
     assert.equal(brandQueries().length, 0);
     assert.equal(sessionInsert().params[2].bottle, undefined);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Vision read of the bottom sticker (Bottle Flow slice A)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("functions/capture — sticker vision read", () => {
+  const sharp = require("sharp");
+  const aiColorDetection = require("../dist/lib/ai-color-detection");
+  const realRequest = aiColorDetection.requestAzureOpenAIChatCompletion;
+  const AI_ENV = ["AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_KEY", "AZURE_OPENAI_DEPLOYMENT_LABEL"];
+  const UNICORN_JSON =
+    '{"printedName":"unicorn skin","closestListed":"Unicorn Skin","brand":"Holo Taco","finish":"Holo","confidence":0.82}';
+  let dataUrl;
+  let chatRequests;
+  let chatContent;
+
+  const insertedFrame = () => {
+    const inserts = handlerCalls().filter((c) => /INSERT\s+INTO\s+capture_frame/i.test(c.sql));
+    assert.equal(inserts.length, 1);
+    return inserts[0].params[3];
+  };
+  const shadeNameQueries = () => handlerCalls().filter((c) => /shade_name_canonical AS name/i.test(c.sql));
+  const confidentOcr = (confidence = 0.9) => {
+    ocrImpl = async () => ({ rawText: "HOLO TACO\nUNICORN SKIN", lines: [], barcodes: [], confidence, provider: "unit" });
+    parseLabelImpl = async () => ({
+      brand: "Holo Taco", shadeName: "Unicorn Skn", finish: null, collection: null, gtin: null, sizeMl: null,
+      confidence, rawFields: {},
+    });
+  };
+  const useHint = (brandId = "3") => {
+    state.sessions.get(CAPTURE_UUID).metadata = {
+      bottle: { brand: { brandId, name: "Holo Taco", source: "hint", raw: "holo taco" }, prompts: {}, skipped: [] },
+    };
+    state.frames = [];
+  };
+
+  before(async () => {
+    const png = await sharp({ create: { width: 32, height: 32, channels: 3, background: "#B4004E" } }).png().toBuffer();
+    dataUrl = `data:image/png;base64,${png.toString("base64")}`;
+  });
+
+  beforeEach(() => {
+    chatRequests = [];
+    chatContent = UNICORN_JSON;
+    process.env.AZURE_OPENAI_ENDPOINT = "https://unit.openai.azure.com/";
+    process.env.AZURE_OPENAI_KEY = "unit-test-key";
+    process.env.AZURE_OPENAI_DEPLOYMENT_LABEL = "gpt-label";
+    aiColorDetection.requestAzureOpenAIChatCompletion = async (request) => {
+      chatRequests.push(request);
+      return chatContent === null
+        ? { provider: "none", content: null, usage: null, deployment: null, reason: "missing_config" }
+        : { provider: "azure-openai", content: chatContent, usage: null, deployment: "d" };
+    };
+  });
+  afterEach(() => {
+    aiColorDetection.requestAzureOpenAIChatCompletion = realRequest;
+    delete process.env.BOTTLE_CAPTURE_ENABLED;
+    for (const key of AI_ENV) delete process.env[key];
+  });
+
+  it("flag on, hinted brand: a closed-set read adds the listed shade name and the audit", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    useHint();
+    state.brandShadeNames = ["Unicorn Skin", "Linear Holo"];
+    confidentOcr(0.9);
+    // The fake DB has no finish aliases, so the finish is answered under its canonical name.
+    chatContent = UNICORN_JSON.replace('"Holo"', '"holographic"');
+    const res = await addFrame({ frameType: "label", imageBlobUrl: dataUrl, quality: { surface: "bottom" } });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    const quality = insertedFrame();
+    assert.equal(quality.extracted.shadeNameListed, "Unicorn Skin");
+    assert.equal(quality.extracted.shadeName, "Unicorn Skn", "the more confident OCR field keeps its place");
+    assert.equal(quality.extracted.finish, "holographic", "a field OCR did not read comes from vision");
+    assert.equal(quality.extracted.source, "vision");
+    assert.deepEqual(
+      { ...quality.ai.sticker },
+      { promptVersion: "sticker-read/2026-10-v1", closedSet: true, listedCount: 2, confidence: 0.82, modelCalls: 1 }
+    );
+    assert.equal(chatRequests.length, 1);
+    assert.deepEqual(shadeNameQueries().map((c) => c.params), [[3, OWNER]]);
+    const userMessage = JSON.stringify(chatRequests[0].buildPayload(false));
+    assert.match(userMessage, /Unicorn Skin/);
+    assert.match(userMessage, /bottom of the bottle/);
+  });
+
+  it("flag on, brand read from an earlier frame: it is resolved against the catalog first", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    state.sessions.get(CAPTURE_UUID).metadata = {};
+    state.frames = [{ frameType: "label", quality: { extracted: { brand: "Holo Taco", brandConfidence: 0.9 } } }];
+    state.brandRow = { brandId: "3", name: "Holo Taco", score: 0.9 };
+    state.brandShadeNames = ["Unicorn Skin"];
+    confidentOcr(0.9);
+    const res = await addFrame({ frameType: "label", imageBlobUrl: dataUrl });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    const quality = insertedFrame();
+    assert.equal(quality.ai.sticker.closedSet, true);
+    assert.equal(quality.extracted.shadeNameListed, "Unicorn Skin");
+  });
+
+  it("flag on, brand unknown and OCR usable: no vision read, the audit says so", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    state.sessions.get(CAPTURE_UUID).metadata = {};
+    state.frames = [];
+    confidentOcr(0.9);
+    const res = await addFrame({ frameType: "label", imageBlobUrl: dataUrl });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    const quality = insertedFrame();
+    assert.equal(chatRequests.length, 0);
+    assert.equal(quality.ai.sticker.modelCalls, 0);
+    assert.equal(quality.ai.sticker.confidence, null);
+    assert.equal(quality.extracted.shadeName, "Unicorn Skn");
+    assert.equal(quality.extracted.shadeNameListed, undefined);
+  });
+
+  it("flag on, brand unknown and no OCR result: an open read still runs", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    state.sessions.get(CAPTURE_UUID).metadata = {};
+    state.frames = [];
+    chatContent = '{"printedName":"Unicorn Skin","closestListed":"Unicorn Skin","brand":"Holo Taco","confidence":0.7}';
+    const res = await addFrame({ frameType: "label", imageBlobUrl: dataUrl });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    const quality = insertedFrame();
+    assert.equal(chatRequests.length, 1);
+    assert.equal(shadeNameQueries().length, 0, "no brand, no list");
+    assert.equal(quality.ai.sticker.closedSet, false);
+    assert.equal(quality.ai.sticker.listedCount, 0);
+    assert.equal(quality.extracted.shadeNameListed, undefined, "an open read never claims a listed name");
+    assert.equal(quality.extracted.shadeName, "Unicorn Skin");
+    assert.equal(quality.extracted.brand, "Holo Taco");
+    assert.equal(quality.extracted.source, "vision");
+  });
+
+  it("flag on, the model fails: the frame keeps its OCR evidence and records no call result", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    useHint();
+    state.brandShadeNames = ["Unicorn Skin"];
+    confidentOcr(0.9);
+    aiColorDetection.requestAzureOpenAIChatCompletion = async () => {
+      throw new Error("model down");
+    };
+    const res = await addFrame({ frameType: "label", imageBlobUrl: dataUrl });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    const quality = insertedFrame();
+    assert.equal(quality.extracted.shadeName, "Unicorn Skn");
+    assert.equal(quality.extracted.source, undefined);
+    assert.equal(quality.ai.sticker.modelCalls, 1, "the call was sent");
+    assert.equal(quality.ai.sticker.confidence, null);
+  });
+
+  it("flag on, a failing shade-name list falls back to an open read", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    useHint();
+    const originalQuery = dbMock.query;
+    dbMock.query = async (sql, params) => {
+      if (/shade_name_canonical AS name/i.test(String(sql))) throw new Error("db down");
+      return originalQuery(sql, params);
+    };
+    try {
+      const res = await addFrame({ frameType: "label", imageBlobUrl: dataUrl });
+      assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    } finally {
+      dbMock.query = originalQuery;
+    }
+    assert.equal(insertedFrame().ai.sticker.closedSet, false);
+  });
+
+  it("flag on, a barcode frame is never vision-read", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    useHint();
+    state.brandShadeNames = ["Unicorn Skin"];
+    confidentOcr(0.9);
+    const res = await addFrame({ frameType: "barcode", imageBlobUrl: dataUrl });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    assert.equal(chatRequests.length, 0);
+    assert.equal(insertedFrame().ai?.sticker, undefined);
+  });
+
+  it("flag on, a remote-URL frame skips the vision read", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    useHint();
+    state.brandShadeNames = ["Unicorn Skin"];
+    confidentOcr(0.9);
+    const originalCheck = blobStorageMock.checkStorageImageUrl;
+    blobStorageMock.checkStorageImageUrl = () => null;
+    try {
+      const res = await addFrame({ frameType: "label", imageBlobUrl: `${BLOB_ACCOUNT}/source-images/sticker.jpg` });
+      assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    } finally {
+      blobStorageMock.checkStorageImageUrl = originalCheck;
+    }
+    assert.equal(chatRequests.length, 0);
+    const quality = insertedFrame();
+    assert.equal(quality.ai.sticker, undefined);
+    assert.equal(quality.extracted.shadeName, "Unicorn Skn");
+  });
+
+  it("flag off: today's OCR-only path (no chat call, no shade list, no ai.sticker)", async () => {
+    useHint();
+    state.brandShadeNames = ["Unicorn Skin"];
+    confidentOcr(0.9);
+    const res = await addFrame({ frameType: "label", imageBlobUrl: dataUrl, quality: { surface: "bottom" } });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    const quality = insertedFrame();
+    assert.equal(chatRequests.length, 0);
+    assert.equal(shadeNameQueries().length, 0);
+    assert.equal(quality.ai.sticker, undefined);
+    assert.deepEqual(quality.extracted, { brand: "Holo Taco", shadeName: "Unicorn Skn" });
+  });
+
+  it("flag off and no OCR result: nothing extracted, exactly as before", async () => {
+    const res = await addFrame({ frameType: "label", imageBlobUrl: dataUrl });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    assert.equal(chatRequests.length, 0);
+    assert.equal(insertedFrame().ai, undefined);
   });
 });

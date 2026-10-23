@@ -15,7 +15,9 @@ import {
   CaptureStartResponse,
   CaptureStatus,
   CaptureStatusResponse,
+  parseBottleSurface,
   resolveDisplayHex,
+  type BottleSurface,
 } from "swatchwatch-shared";
 import { query, transaction } from "../lib/db";
 import { withAuth } from "../lib/auth";
@@ -28,9 +30,16 @@ import {
 } from "../lib/blob-storage";
 import { inlineCaptureFrameUrl, releaseCaptureFrames, storeCaptureFrameBytes } from "../lib/capture-frame-store";
 import { isFeatureEnabled } from "../lib/feature-flags";
-import { resolveBrandFromText, toBrandHintEcho, toBrandRef } from "../lib/brand-resolve";
+import { listBrandShadeNames, resolveBrandFromText, toBrandHintEcho, toBrandRef } from "../lib/brand-resolve";
 import { decodeDataUri } from "../lib/detection-image";
 import { measureGlassHex, type GlassHexAudit } from "../lib/glass-color";
+import {
+  STICKER_READ_PROMPT_VERSION,
+  mergeLabelExtraction,
+  readStickerWithVision,
+  shouldVisionRead,
+  type StickerReadResult,
+} from "../lib/sticker-read";
 import { withCors } from "../lib/http";
 import { internalServerError } from "../lib/errors";
 import { trackEvent, trackException } from "../lib/telemetry";
@@ -177,6 +186,102 @@ interface FrameAiExtractionResult {
   llmConfidence?: number;
   /** Color frames only: how the lacquer hex was measured (stored as `quality_json.ai.glass`). */
   glass?: GlassHexAudit;
+  /** Bottle-capture label frames only: the sticker vision read audit (stored as `quality_json.ai.sticker`). */
+  sticker?: StickerReadAudit;
+}
+
+/** What the sticker vision read did on one label frame (`quality_json.ai.sticker`). */
+interface StickerReadAudit {
+  promptVersion: string;
+  closedSet: boolean;
+  listedCount: number;
+  /** The read's confidence; null when no read ran or it produced nothing. */
+  confidence: number | null;
+  /** Calls that were sent to the model (0 when the read was not needed, unconfigured or skipped). */
+  modelCalls: 0 | 1;
+}
+
+/** What a label frame's vision read needs to know; present only when the bottle-capture flag is on and the frame is a data URL. */
+interface StickerReadContext {
+  userId: number;
+  surface: BottleSurface | null;
+  /** The catalog brand the session is known to be about, or null when none is. */
+  brand: { brandId: number; name: string } | null;
+}
+
+/**
+ * The catalog brand a session is known to be about: the resolved hint (`metadata.bottle.brand`,
+ * set at start), else the brand read from an earlier frame resolved against the catalog. Null
+ * when neither resolves; a failed lookup is treated as unknown.
+ */
+async function resolveSessionBrand(
+  metadata: Record<string, unknown> | null,
+  evidence: CaptureEvidence
+): Promise<StickerReadContext["brand"]> {
+  const hinted = toRecord(toRecord(metadata?.bottle).brand);
+  const hintedId = Number(hinted.brandId);
+  if (typeof hinted.brandId === "string" && Number.isSafeInteger(hintedId) && hintedId > 0) {
+    return { brandId: hintedId, name: getStringField(hinted, "name") ?? "" };
+  }
+  if (evidence.brandSource !== "read" || !evidence.brand) return null;
+  try {
+    const resolved = await resolveBrandFromText(evidence.brand);
+    return resolved ? { brandId: resolved.brandId, name: resolved.name } : null;
+  } catch (error) {
+    console.warn(`[capture] Brand lookup for the sticker read failed: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+}
+
+/**
+ * Closed-set vision read of the sticker, when needed (known brand, or unusable OCR). A brand
+ * with more shades than the prompt list holds is read open: a partial list would force wrong
+ * picks. Never throws.
+ */
+async function runStickerRead(
+  imageInput: string,
+  ocrResult: OcrResult | null,
+  sticker: StickerReadContext
+): Promise<{ vision: StickerReadResult | null; audit: StickerReadAudit }> {
+  const audit: StickerReadAudit = {
+    promptVersion: STICKER_READ_PROMPT_VERSION,
+    closedSet: false,
+    listedCount: 0,
+    confidence: null,
+    modelCalls: 0,
+  };
+  if (!shouldVisionRead({ brandKnown: sticker.brand !== null, ocr: ocrResult })) {
+    return { vision: null, audit };
+  }
+
+  let shadeNames: string[] = [];
+  if (sticker.brand) {
+    try {
+      const listed = await listBrandShadeNames(sticker.brand.brandId, sticker.userId);
+      if (!listed.truncated) shadeNames = listed.names;
+    } catch (error) {
+      console.warn(`[capture] Brand shade list for the sticker read failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  const vision = await readStickerWithVision(
+    {
+      imageDataUri: imageInput,
+      surface: sticker.surface,
+      brandName: sticker.brand?.name || null,
+      shadeNames,
+    },
+    {
+      onLog: (level, message) => console.warn(`[capture] sticker read (${level}): ${message}`),
+      onModelCall: () => {
+        audit.modelCalls = 1;
+      },
+    }
+  );
+  audit.closedSet = vision?.closedSet ?? shadeNames.length > 0;
+  audit.listedCount = audit.closedSet ? shadeNames.length : 0;
+  audit.confidence = vision?.confidence ?? null;
+  return { vision, audit };
 }
 
 /** The audit stored when a color frame yields no hex. */
@@ -217,7 +322,8 @@ async function runGlassExtraction(imageInput: string): Promise<FrameAiExtraction
 async function runFrameAiExtraction(
   imageInput: string,
   frameType: string,
-  hints?: { brand?: string; shadeName?: string; finish?: string }
+  hints?: { brand?: string; shadeName?: string; finish?: string },
+  sticker?: StickerReadContext
 ): Promise<FrameAiExtractionResult | null> {
   if (frameType === "color") {
     return isFeatureEnabled("bottleCapture") ? runGlassExtraction(imageInput) : null;
@@ -235,7 +341,8 @@ async function runFrameAiExtraction(
     );
   }
 
-  if (!ocrResult) {
+  // Without OCR a bottle-capture label frame can still be read by vision.
+  if (!ocrResult && !sticker) {
     return null;
   }
 
@@ -265,7 +372,7 @@ async function runFrameAiExtraction(
     return 3;
   };
 
-  const gtin = ocrResult.barcodes
+  const gtin = (ocrResult?.barcodes ?? [])
     .filter((b) => b.confidence >= 0.5)
     .sort((a, b) => {
       const kindPreferenceDifference =
@@ -286,7 +393,7 @@ async function runFrameAiExtraction(
 
   // Run LLM parsing on label frames
   let llmResult: ParsedLabelFields | null = null;
-  if (frameType === "label" && ocrResult.rawText.trim().length > 0) {
+  if (frameType === "label" && ocrResult && ocrResult.rawText.trim().length > 0) {
     try {
       llmResult = await parseLabelText(ocrResult.rawText, hints);
     } catch (error) {
@@ -296,25 +403,42 @@ async function runFrameAiExtraction(
     }
   }
 
+  let labelFields: Record<string, unknown> = {};
   if (llmResult) {
-    if (llmResult.brand) extracted.brand = llmResult.brand;
-    if (llmResult.shadeName) extracted.shadeName = llmResult.shadeName;
-    if (llmResult.finish) extracted.finish = llmResult.finish;
-    if (llmResult.collection) extracted.collection = llmResult.collection;
-    if (llmResult.gtin && !extracted.gtin) extracted.gtin = llmResult.gtin;
-    if (llmResult.sizeMl) extracted.sizeMl = llmResult.sizeMl;
+    if (llmResult.brand) labelFields.brand = llmResult.brand;
+    if (llmResult.shadeName) labelFields.shadeName = llmResult.shadeName;
+    if (llmResult.finish) labelFields.finish = llmResult.finish;
+    if (llmResult.collection) labelFields.collection = llmResult.collection;
+    if (llmResult.gtin) labelFields.gtin = llmResult.gtin;
+    if (llmResult.sizeMl) labelFields.sizeMl = llmResult.sizeMl;
   }
 
-  if (Object.keys(extracted).length === 0) {
+  // Bottle capture: read the sticker with vision when the brand is known or OCR is unusable,
+  // and merge it with the OCR fields (the more confident read wins each field).
+  let stickerAudit: StickerReadAudit | undefined;
+  if (sticker && frameType === "label") {
+    const { vision, audit } = await runStickerRead(imageInput, ocrResult, sticker);
+    stickerAudit = audit;
+    labelFields = mergeLabelExtraction(
+      llmResult ? { fields: labelFields, confidence: llmResult.confidence } : null,
+      vision
+    ).extracted;
+  }
+
+  // A decoded barcode GTIN outranks any GTIN read from the label text.
+  Object.assign(extracted, labelFields, extracted.gtin ? { gtin: extracted.gtin } : {});
+
+  if (Object.keys(extracted).length === 0 && !stickerAudit) {
     return null;
   }
 
   return {
     extracted,
-    ocrRawText: ocrResult.rawText,
-    ocrConfidence: ocrResult.confidence,
-    ocrBarcodeCount: ocrResult.barcodes.length,
+    ocrRawText: ocrResult?.rawText,
+    ocrConfidence: ocrResult?.confidence,
+    ocrBarcodeCount: ocrResult?.barcodes.length,
     llmConfidence: llmResult?.confidence,
+    ...(stickerAudit ? { sticker: stickerAudit } : {}),
   };
 }
 
@@ -1396,11 +1520,25 @@ async function addCaptureFrame(
         session.metadata,
         await getCaptureFrameEvidence(session.id)
       );
-      aiExtraction = await runFrameAiExtraction(imageInputForAi, body.frameType, {
-        brand: existingEvidence.brand,
-        shadeName: existingEvidence.shadeName,
-        finish: existingEvidence.finish,
-      });
+      // Bottle capture reads a data-URL label frame with vision too; a remote URL is OCR-only.
+      const stickerContext: StickerReadContext | undefined =
+        body.frameType === "label" && isFeatureEnabled("bottleCapture") && imageInputForAi.startsWith("data:")
+          ? {
+              userId,
+              surface: parseBottleSurface(frameQuality.surface),
+              brand: await resolveSessionBrand(session.metadata, existingEvidence),
+            }
+          : undefined;
+      aiExtraction = await runFrameAiExtraction(
+        imageInputForAi,
+        body.frameType,
+        {
+          brand: existingEvidence.brand,
+          shadeName: existingEvidence.shadeName,
+          finish: existingEvidence.finish,
+        },
+        stickerContext
+      );
     }
 
     // Bottle capture keeps the EXIF-stripped bytes as a private blob until the session is
@@ -1457,6 +1595,7 @@ async function addCaptureFrame(
             ocrBarcodeCount: aiExtraction.ocrBarcodeCount,
             llmConfidence: aiExtraction.llmConfidence,
             glass: aiExtraction.glass,
+            sticker: aiExtraction.sticker,
             processedAt: new Date().toISOString(),
           },
         });
