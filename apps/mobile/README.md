@@ -164,6 +164,16 @@ src/
   - *Not in the catalog* (photograph the label / search by name).
   Adding uses `PUT /api/polishes/{shadeId}`; a barcode (SKU) match with no catalog shade is
   added through `POST /api/capture/{id}/finalize`.
+- **Shelf mode** (`src/lib/shelf.ts`, `components/shelf-list.tsx`; web #426): every final verdict
+  (own it / wishlist / near-dupe / new / not found; a pick waits for the choice) is appended to a
+  shelf under the camera, newest first, with swatch, brand + shade, verdict chip and age. Entries
+  keep the verdict they had when scanned and show what the shopper did afterwards (Added /
+  Wishlisted / Bought another); the quick actions (Add, ♡ Wishlist, I bought another) use the
+  same `PUT /api/polishes/{shadeId}` as the verdict card, never without a tap. "Scan next" keeps the
+  list, a counts strip totals own / wishlist / new / not found, and a barcode scanned again is
+  flagged in place ("Scanned already · 2 min ago") instead of appended. Up to 100 entries are
+  saved per user through `api-cache` (ids, names, hexes, verdicts, GTINs and times only, never
+  frames or private image URLs), restored on launch, and cleared by Clear shelf and on sign-out.
 - No camera (simulator, denied permission, web preview): "Choose a photo" sends a library
   photo as a frame, and hints alone can be checked.
 
