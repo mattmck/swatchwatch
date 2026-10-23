@@ -12,6 +12,10 @@ import type {
   CaptureFrameRequest,
   CaptureFrameResponse,
   CaptureFrameType,
+  BottleEvalFrameRequest,
+  BottleEvalSampleListResponse,
+  BottleEvalSampleRequest,
+  BottleEvalSampleResponse,
   IngestionJobListResponse,
   IngestionJobRunRequest,
   IngestionJobRunResponse,
@@ -1116,6 +1120,71 @@ export async function undoVendorHexPromotion(shadeId: string): Promise<HexLabelP
     { method: "DELETE", headers: await getAuthHeaders({ admin: true }) }
   );
   return handleResponse<HexLabelPromoteResponse>(response);
+}
+
+// ── Bottle eval samples (admin) ─────────────────────────────────────────────
+
+/** Admin bottle eval samples, newest first (`GET /api/bottle-eval-admin/samples`). */
+export async function listBottleEvalSamples(params?: {
+  after?: string;
+  limit?: number;
+}): Promise<BottleEvalSampleListResponse> {
+  const query = new URLSearchParams();
+  if (params?.after) query.set("after", params.after);
+  if (typeof params?.limit === "number") query.set("limit", String(params.limit));
+  const qs = query.toString();
+  const response = await fetch(`${API_BASE_URL}/bottle-eval-admin/samples${qs ? `?${qs}` : ""}`, {
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<BottleEvalSampleListResponse>(response);
+}
+
+/** Create a labeled bottle eval sample (`POST /api/bottle-eval-admin/samples`, 201). */
+export async function createBottleEvalSample(body: BottleEvalSampleRequest): Promise<BottleEvalSampleResponse> {
+  const response = await fetch(`${API_BASE_URL}/bottle-eval-admin/samples`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(body),
+  });
+  return handleResponse<BottleEvalSampleResponse>(response);
+}
+
+/** Add one photographed surface to a sample (`POST /api/bottle-eval-admin/samples/{id}/frames`, 201). */
+export async function addBottleEvalFrame(
+  sampleId: string,
+  body: BottleEvalFrameRequest
+): Promise<BottleEvalSampleResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/bottle-eval-admin/samples/${encodeURIComponent(sampleId)}/frames`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+      body: JSON.stringify(body),
+    }
+  );
+  return handleResponse<BottleEvalSampleResponse>(response);
+}
+
+/** Delete a sample and its frames (`DELETE /api/bottle-eval-admin/samples/{id}`, 204). */
+export async function deleteBottleEvalSample(sampleId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/bottle-eval-admin/samples/${encodeURIComponent(sampleId)}`, {
+    method: "DELETE",
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  if (!response.ok) {
+    await handleResponse<unknown>(response);
+  }
+}
+
+/** Delete one frame of a sample (`DELETE /api/bottle-eval-admin/samples/{id}/frames/{frameId}`, 204). */
+export async function deleteBottleEvalFrame(sampleId: string, frameId: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/bottle-eval-admin/samples/${encodeURIComponent(sampleId)}/frames/${encodeURIComponent(frameId)}`,
+    { method: "DELETE", headers: await getAuthHeaders({ admin: true }) }
+  );
+  if (!response.ok) {
+    await handleResponse<unknown>(response);
+  }
 }
 
 // ── Private nail photos (#270) ──────────────────────────────────────────────
