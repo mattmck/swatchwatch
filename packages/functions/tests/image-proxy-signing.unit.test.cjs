@@ -77,6 +77,8 @@ require.cache[DB_MODULE_PATH] = {
 
 const imageProxy = require("../dist/lib/image-proxy");
 const blobStorage = require("../dist/lib/blob-storage");
+// Blob Storage requests use lib/storage-http's transport; send them to the stubbed global.fetch.
+require("../dist/lib/storage-http").blobStorageTransport.fetch = (url, init) => global.fetch(url, init);
 require("../dist/functions/images");
 
 const originalFetch = globalThis.fetch;

@@ -19,7 +19,7 @@ import {
 } from "./hex-provenance";
 import { submitVisionHexBatch } from "./azure-openai-batch";
 import { uploadSourceImageToBlob, ensureContainer } from "./blob-storage";
-import { describeFetchError } from "./fetch-retry";
+import { describeImageStoreFailure } from "./image-store-error";
 import { toImageProxyUrlFromOrigin } from "./image-proxy";
 import { snapDetectionToImage, type HexSnapLogLevel } from "./hex-snap";
 import { loadDetectionImageBytes } from "./detection-image";
@@ -1094,11 +1094,15 @@ async function prepareHoloTacoImageData(
           `${sourceLogPrefix} Primary image ${reused ? "reused" : "uploaded"} for ${record.externalId}: checksum=${checksumSha256}`
         );
       } catch (err) {
-        console.error(`${sourceLogPrefix} Primary image upload failed for ${record.externalId}:`, describeFetchError(err));
-        progressLogger?.warn(`${sourceLogPrefix} Primary image upload failed for ${record.externalId}`, {
+        const failure = describeImageStoreFailure(err);
+        const message = `${sourceLogPrefix} Primary image upload failed for ${record.externalId} at ${failure.stepLabel}${failure.host ? ` (${failure.host})` : ""}`;
+        console.error(`${message}:`, failure.error);
+        progressLogger?.warn(message, {
           externalId: record.externalId,
           imageUrl: holo.primaryImageUrl,
-          error: describeFetchError(err),
+          step: failure.step,
+          host: failure.host,
+          error: failure.error,
         });
       }
 
@@ -1116,11 +1120,15 @@ async function prepareHoloTacoImageData(
           }
         } catch (err) {
           additionalFailures += 1;
-          console.error(`${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId}:`, describeFetchError(err));
-          progressLogger?.warn(`${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId}`, {
+          const failure = describeImageStoreFailure(err);
+          const message = `${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId} at ${failure.stepLabel}${failure.host ? ` (${failure.host})` : ""}`;
+          console.error(`${message}:`, failure.error);
+          progressLogger?.warn(message, {
             externalId: record.externalId,
             imageUrl: imgUrl,
-            error: describeFetchError(err),
+            step: failure.step,
+            host: failure.host,
+            error: failure.error,
           });
         }
       }
