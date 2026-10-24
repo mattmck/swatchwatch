@@ -31,7 +31,8 @@ interface Section {
 /**
  * Search tab "By color" (#384): a 12-stop hue strip (+ neutral) and five lightness steps, color
  * family chips (`?family=`), and owned color polishes ranked by OKLAB distance to the picked
- * color with the dupe rule's HIGH / MEDIUM grade. "Catalog" switches to catalog rows, ranked
+ * color with the dupe rule's HIGH / MEDIUM grade (a hex guessed from the color name ranks last
+ * and shows "Estimated color" instead). "Catalog" switches to catalog rows, ranked
  * over the whole catalog on the server (`?nearHex=`; Add / ♡ through the add guard). With fewer than `COLLECTION_FALLBACK_MIN` owned
  * matches the catalog is listed under the collection, with a hint. `initialHex` seeds the
  * target (deep link `/search?hex=C0392B`).
@@ -301,6 +302,7 @@ export function ColorSearchPanel({ initialHex }: { initialHex: string | null }) 
 }
 
 function GradeChip({ match }: { match: ColorMatch }) {
+  if (match.estimated) return <Chip label="Estimated color" />;
   const label = gradeLabel(match.grade);
   if (!label) return null;
   return <Chip label={`${label} match`} tone={match.grade === "high" ? "success" : "warning"} />;

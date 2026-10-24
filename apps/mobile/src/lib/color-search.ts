@@ -5,7 +5,9 @@
  */
 import {
   colorDistance,
-  confidenceForDistance,
+  colorSearchConfidence,
+  compareColorSearchRank,
+  isEstimatedDisplayHex,
   oklabToHex,
   resolveDisplayHex,
   resolveProductCategory,
@@ -69,12 +71,15 @@ export interface ColorMatch {
   polish: Polish;
   hex: string;
   distance: number;
-  /** The dupe rule's color grade: high ≤ 0.05, medium ≤ 0.10, else low. */
+  /** The hex is only a guess from the color name (`isEstimatedDisplayHex`). */
+  estimated: boolean;
+  /** The dupe rule's color grade: high ≤ 0.05, medium ≤ 0.10, else low; always low when estimated. */
   grade: MatchConfidence;
 }
 
 /**
- * Color polishes with a usable hex, nearest to `targetHex` first (ties by brand, then name).
+ * Color polishes with a usable hex: measured hexes before estimated name-only ones, nearest to
+ * `targetHex` first within each (ties by brand, then name), like the server's `?nearHex=` order.
  * Other product categories (toppers, coats, …) never appear (D23).
  */
 export function rankByColor(polishes: readonly Polish[], targetHex: string, limit = COLOR_RESULT_LIMIT): ColorMatch[] {
@@ -86,11 +91,14 @@ export function rankByColor(polishes: readonly Polish[], targetHex: string, limi
     if (!hex) continue;
     seen.add(polish.id);
     const distance = colorDistance(hex, targetHex);
-    matches.push({ polish, hex, distance, grade: confidenceForDistance(distance) });
+    const estimated = isEstimatedDisplayHex(polish);
+    matches.push({ polish, hex, distance, estimated, grade: colorSearchConfidence(distance, estimated) });
   }
   matches.sort(
     (a, b) =>
-      a.distance - b.distance || a.polish.brand.localeCompare(b.polish.brand) || a.polish.name.localeCompare(b.polish.name),
+      compareColorSearchRank(a, b) ||
+      a.polish.brand.localeCompare(b.polish.brand) ||
+      a.polish.name.localeCompare(b.polish.name),
   );
   return matches.slice(0, limit);
 }

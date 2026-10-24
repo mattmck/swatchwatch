@@ -4,7 +4,7 @@ import { useState, useMemo, useCallback, useEffect, useRef, Suspense } from "rea
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { Polish, PolishUpdateRequest } from "swatchwatch-shared";
-import { polishHasFinish, resolveDisplayHex } from "swatchwatch-shared";
+import { compareColorSearchRank, isEstimatedDisplayHex, polishHasFinish, resolveDisplayHex } from "swatchwatch-shared";
 import type { IconType } from "react-icons";
 import { BsCurrencyDollar, BsPlusLg, BsQuestionCircleFill, BsTrash3Fill } from "react-icons/bs";
 import { GiPerfumeBottle } from "react-icons/gi";
@@ -645,7 +645,8 @@ function ColorSearchPageContent() {
     return [selectedHex, ...harmonyColors];
   }, [activeRecommendedPalette, isSimilarMode, activeHex, selectedHex, harmonyColors]);
 
-  // Sort polishes by distance — if a target is focused, match only that color
+  // Sort polishes by distance — if a target is focused, match only that color. Hexes guessed
+  // from the color name rank after every measured one (`compareColorSearchRank`, like `?nearHex=`).
   const sortedPolishes = useMemo(() => {
     const colorsToMatch = focusedTargetHex ? [focusedTargetHex] : targetColors;
     if (colorsToMatch.length === 0) return [];
@@ -665,11 +666,12 @@ function ColorSearchPageContent() {
         return {
           ...p,
           distance: Math.min(minDist / MAX_DISTANCE, 1),
+          estimated: isEstimatedDisplayHex(p),
           matchedHarmonyHex,
           matchedHarmonyIndex,
         };
       })
-      .sort((a, b) => a.distance - b.distance);
+      .sort(compareColorSearchRank);
   }, [focusedTargetHex, targetColors, filteredScopedColorPolishes]);
 
   const handleHover = useCallback(
