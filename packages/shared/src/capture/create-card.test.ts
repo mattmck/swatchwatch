@@ -53,6 +53,17 @@ describe("deriveCreateCard", () => {
     assert.equal(card.shadeName, "Pink Thing");
   });
 
+  it("an unmatched check (the server's create card) is a card even when it lists candidates", () => {
+    const check = { ...unmatched, candidates: [candidate("1"), candidate("2")] };
+    const card = deriveCreateCard(check, { afterNoneOfThese: false });
+    assert.ok(card);
+    assert.equal(card.brand, "Loud Lacquer");
+  });
+
+  it("the server's create-card shape (unmatched, no candidates, suggestedShade) is a card", () => {
+    assert.ok(deriveCreateCard(unmatched, { afterNoneOfThese: false }));
+  });
+
   it("is null without a suggestedShade", () => {
     assert.equal(deriveCreateCard({ ...unmatched, suggestedShade: undefined }, { afterNoneOfThese: false }), null);
   });

@@ -394,8 +394,8 @@ export function verdictFromCheck(
 export const PICK_CANDIDATE_MAX = 5;
 
 /**
- * The verdict for the bottle sequence (check-first): a match is `checked`; several candidates
- * are a `pick`; otherwise (no candidates, or the user said "None of these") the create card
+ * The verdict for the bottle sequence (check-first): a match is `checked`; the candidates of a
+ * `candidate_select` question are a `pick`; otherwise (no candidates, or the user said "None of these") the create card
  * when the server suggested a shade, else the plain `add` with the evidence collected.
  */
 export function verdictFromBottleCheck(
@@ -407,7 +407,9 @@ export function verdictFromBottleCheck(
     if (checked) return checked;
   }
   const brandConflict = check.brandConflict ?? null;
-  if (check.outcome === "needs_question" && !opts.afterNoneOfThese) {
+  // Only the candidate question is a pick list: a brand + shade question can carry weak
+  // global candidates that are not worth choosing from.
+  if (check.outcome === "needs_question" && check.questionKey === "candidate_select" && !opts.afterNoneOfThese) {
     const candidates = check.candidates.filter((c) => c.shadeId).slice(0, PICK_CANDIDATE_MAX);
     if (candidates.length > 0) return { kind: "pick", candidates, brandConflict, check };
   }

@@ -419,7 +419,7 @@ export default function RapidAddScreen() {
     return view ? { type: view.frameType, surface: view.surface } : { type: "label", surface: null };
   }
 
-  /** "Can't see it": skip the asked-for surface (a request once the scan has a session, else local). */
+  /** "Can't see it": skip the asked-for surface. Starts the session first when there is none yet, as the web does. */
   async function skipSurface() {
     if (!view) return;
     const generation = scanGeneration.current;
@@ -427,9 +427,10 @@ export default function RapidAddScreen() {
     setError(null);
     checkedRef.current = false;
     try {
-      const captureId = flow.sessionStarted ? captureIdRef.current : null;
-      const res = captureId ? await answerCaptureQuestion(captureId, { skipSurface: surface }) : null;
-      if (generation === scanGeneration.current) dispatchFlow({ type: "surface_skipped", surface, nextFrame: res?.nextFrame });
+      const captureId = await ensureSession(barcode);
+      if (generation !== scanGeneration.current) return;
+      const res = await answerCaptureQuestion(captureId, { skipSurface: surface });
+      if (generation === scanGeneration.current) dispatchFlow({ type: "surface_skipped", surface, nextFrame: res.nextFrame });
     } catch (err) {
       if (generation === scanGeneration.current) setError(errorMessage(err, "Couldn't skip that photo. Try again."));
     }

@@ -394,7 +394,7 @@ describe("verdictFromBottleCheck", () => {
       candidate("4", { shadeId: null, entityType: "sku" }),
     ];
     const verdict = verdictFromBottleCheck(
-      check({ outcome: "needs_question", candidates, brandConflict }),
+      check({ outcome: "needs_question", questionKey: "candidate_select", candidates, brandConflict }),
       { afterNoneOfThese: false, evidence },
     );
     assert.equal(verdict.kind, "pick");
@@ -404,10 +404,18 @@ describe("verdictFromBottleCheck", () => {
 
     const many = Array.from({ length: 8 }, (_, i) => candidate(String(i + 1)));
     const capped = verdictFromBottleCheck(
-      check({ outcome: "needs_question", candidates: many }),
+      check({ outcome: "needs_question", questionKey: "candidate_select", candidates: many }),
       { afterNoneOfThese: false, evidence },
     );
     assert.equal(capped.kind === "pick" && capped.candidates.length, 5);
+  });
+
+  it("a brand + shade question with weak candidates is no pick list", () => {
+    const verdict = verdictFromBottleCheck(
+      check({ outcome: "needs_question", questionKey: "brand_shade", candidates: [candidate("1"), candidate("2")] }),
+      { afterNoneOfThese: false, evidence },
+    );
+    assert.deepEqual(verdict, { kind: "add", evidence });
   });
 
   it("goes to the create card after None of these", () => {

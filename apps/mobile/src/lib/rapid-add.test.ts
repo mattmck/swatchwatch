@@ -207,8 +207,16 @@ describe("deriveBottleVerdict", () => {
   it("offers pickable candidates and carries the brand conflict", () => {
     const many = [candidate("notOwned"), candidate("owned", { entityId: "7", shadeId: "7" })];
     assert.deepEqual(
-      deriveBottleVerdict(check({ outcome: "needs_question", candidates: many, brandConflict: conflict }), { afterNoneOfThese: false }),
+      deriveBottleVerdict(check({ outcome: "needs_question", questionKey: "candidate_select", candidates: many, brandConflict: conflict }), { afterNoneOfThese: false }),
       { kind: "pick", candidates: many, brandConflict: conflict },
+    );
+  });
+
+  it("a brand + shade question with weak candidates is no pick list", () => {
+    const weak = [candidate("notOwned")];
+    assert.deepEqual(
+      deriveBottleVerdict(check({ outcome: "needs_question", questionKey: "brand_shade", candidates: weak }), { afterNoneOfThese: false, gtin: "9" }),
+      { kind: "not-found", gtin: "9" },
     );
   });
 

@@ -295,13 +295,15 @@ export function deriveVerdict(check: CaptureCheckResponse, gtin?: string): Rapid
 }
 
 /**
- * Verdict for the bottle sequence: a match answers as usual; pickable candidates are offered
- * (with any brand conflict); otherwise the suggested shade becomes the create card, and with
+ * Verdict for the bottle sequence: a match answers as usual; the pickable candidates of a
+ * `candidate_select` question are offered (with any brand conflict); otherwise the suggested shade becomes the create card, and with
  * nothing to prefill it is not-found. `afterNoneOfThese` lets the card replace the candidates.
  */
 export function deriveBottleVerdict(check: CaptureCheckResponse, opts: { afterNoneOfThese: boolean; gtin?: string }): RapidAddVerdict {
   if (check.outcome === "matched" && check.match) return verdictForCandidate(check.match);
-  if (check.outcome === "needs_question" && !opts.afterNoneOfThese) {
+  // Only the candidate question is a pick list: a brand + shade question can carry weak
+  // global candidates that are not worth choosing from.
+  if (check.outcome === "needs_question" && check.questionKey === "candidate_select" && !opts.afterNoneOfThese) {
     const pickable = check.candidates.filter((c) => c.shadeId !== null).slice(0, 5);
     if (pickable.length > 0) return { kind: "pick", candidates: pickable, brandConflict: check.brandConflict ?? null };
   }

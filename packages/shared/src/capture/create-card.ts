@@ -17,14 +17,16 @@ export interface CreateCardModel {
 
 /**
  * The card for an unmatched bottle. `null` when the check matched, when candidates are on
- * screen and the user has not said "None of these", or when there is no suggestedShade.
+ * screen (only a `needs_question` check shows them) and the user has not said "None of these",
+ * or when there is no suggestedShade. An `unmatched` check with a suggestedShade is a card
+ * whatever its `candidates` hold.
  */
 export function deriveCreateCard(
   check: Pick<CaptureCheckResponse, "captureId" | "outcome" | "candidates" | "suggestedShade">,
   opts: { afterNoneOfThese: boolean },
 ): CreateCardModel | null {
   if (check.outcome === "matched") return null;
-  if (check.candidates.length > 0 && !opts.afterNoneOfThese) return null;
+  if (check.outcome === "needs_question" && check.candidates.length > 0 && !opts.afterNoneOfThese) return null;
   const suggestion = check.suggestedShade;
   if (!suggestion) return null;
   return {
