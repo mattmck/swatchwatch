@@ -48,6 +48,7 @@ import {
   checkedFromNearDupe,
   ownedEntryAfterVerdict,
   resolveCaptureVerdict,
+  verdictHeadline,
   resolveNearDupeVerdict,
   verdictFromBottleCheck,
   verdictFromCheck,
@@ -89,6 +90,7 @@ import {
   framesReducer,
   INITIAL_SESSION_STATE,
   MAX_CAPTURE_FRAMES,
+  planLiveBarcode,
   rapidAddPhase,
   scanBadge,
   sessionReducer,
@@ -114,7 +116,13 @@ import {
   type ShelfTelemetryAction,
 } from "@/lib/rapid-add-shelf";
 import type { ScannedBarcode } from "@/lib/barcode-scan";
-import { CameraCapture, type CameraCaptureEvent } from "@/components/rapid-add/camera-capture";
+import {
+  CameraCapture,
+  defaultCameraGuide,
+  type CameraCaptureEvent,
+  type CameraGuide,
+  type ViewfinderStatus,
+} from "@/components/rapid-add/camera-capture";
 import { FrameStrip } from "@/components/rapid-add/frame-strip";
 import { BatchBrandField } from "@/components/rapid-add/batch-brand-field";
 import { BottlePromptPanel } from "@/components/rapid-add/bottle-prompt-panel";
@@ -165,6 +173,9 @@ function nearDupeDetails(verdict: NearDupeVerdict) {
   });
 }
 
+/** How long a repeat-read or "still checking" message stays over the camera. */
+const CAMERA_FLASH_MS = 2500;
+
 export default function RapidAddPage() {
   const { finishTypes } = useReferenceData();
   const finishOptions = useMemo(() => buildFinishOptions(finishTypes), [finishTypes]);
@@ -183,6 +194,20 @@ export default function RapidAddPage() {
   const [collectionHint, setCollectionHint] = useState("");
   const [frameType, setFrameType] = useState<CaptureFrameType>("label");
   const [qualityHint, setQualityHint] = useState<string | null>(null);
+  /** A short-lived message over the camera (repeat read, still checking), cleared after a moment. */
+  const [cameraFlash, setCameraFlash] = useState<ViewfinderStatus | null>(null);
+  useEffect(() => {
+    if (!cameraFlash) return;
+    const timer = setTimeout(() => setCameraFlash(null), CAMERA_FLASH_MS);
+    return () => clearTimeout(timer);
+  }, [cameraFlash]);
+  const verdictRef = useRef<HTMLDivElement | null>(null);
+  const scrollToVerdict = useCallback(() => {
+    verdictRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+  /** The latest Scan next handler, for a live read of a new bottle while a verdict shows. */
+  const scanNextRef = useRef<() => void>(() => {});
+  const handleCaptureRef = useRef<(event: CameraCaptureEvent) => void>(() => {});
 
   const [session, dispatch] = useReducer(sessionReducer, INITIAL_SESSION_STATE);
   const [frames, dispatchFrames] = useReducer(framesReducer, []);
@@ -474,6 +499,43 @@ export default function RapidAddPage() {
 
   const handleCapture = useCallback(
     (event: CameraCaptureEvent) => {
+      if (event.trigger === "live-scan" && event.barcode) {
+        const { gtin } = event.barcode;
+        const action = planLiveBarcode(sessionRef.current, gtin);
+        const hasVerdict = Boolean(sessionRef.current.verdict);
+        switch (action) {
+          case "repeat":
+            // Photographing the label of an unknown barcode: the code is still in view, so stay quiet.
+            if (sessionRef.current.labelRequested) return;
+            setCameraFlash({
+              tone: "info",
+              text: hasVerdict ? `Already scanned ${gtin} — result above` : `Already scanned ${gtin}`,
+              action: hasVerdict ? { label: "See result", onClick: scrollToVerdict } : undefined,
+            });
+            return;
+          case "wait":
+            setCameraFlash({ tone: "info", text: "Still checking the last scan…" });
+            return;
+          case "finish_first":
+            setCameraFlash({
+              tone: "warning",
+              text: `Different barcode (${gtin})`,
+              action: {
+                label: "Scan it instead",
+                onClick: () => {
+                  scanNextRef.current();
+                  handleCaptureRef.current(event);
+                },
+              },
+            });
+            return;
+          case "next_scan":
+            scanNextRef.current();
+            break;
+          case "scan":
+            break;
+        }
+      }
       const current = sessionRef.current;
       if (rapidAddPhase(current) === "verdict" || rapidAddPhase(current) === "resolving") return;
       if (event.barcode) {
@@ -521,8 +583,11 @@ export default function RapidAddPage() {
       dispatchFrames({ type: "added", frame });
       void uploadFrame(frame, event.barcode ?? sessionRef.current.barcode);
     },
-    [uploadFrame, ensureSession, checkBarcode],
+    [uploadFrame, ensureSession, checkBarcode, scrollToVerdict],
   );
+  useEffect(() => {
+    handleCaptureRef.current = handleCapture;
+  });
 
   function handleRetryFrame(localId: string) {
     const frame = frames.find((f) => f.localId === localId);
@@ -835,14 +900,19 @@ export default function RapidAddPage() {
 
   function handleScanNext() {
     // Cancel on a near-dupe verdict: nothing is added.
-    if (session.verdict?.kind === "near_dupe") reportNearDupeOutcome(session.verdict, "cancel", "scan_next");
+    const verdict = sessionRef.current.verdict;
+    if (verdict?.kind === "near_dupe") reportNearDupeOutcome(verdict, "cancel", "scan_next");
     dispatchShelf({ type: "scan_ended" });
     resetScan();
   }
+  useEffect(() => {
+    scanNextRef.current = handleScanNext;
+  });
 
   const finalizeEnabled = (bottleSequence ? canCheck : canFinalize)({ frames, session, hasHints });
   const badge = phase === "verdict" ? null : scanBadge(session);
-  const scanning = phase !== "verdict" && phase !== "resolving" && !session.barcode;
+  // Keeps scanning after a read, so a repeat read or the next bottle gets an answer (`planLiveBarcode`).
+  const scanning = phase !== "resolving";
   const busy = session.busy !== null;
   const hintsLocked = session.captureId !== null;
 
@@ -856,6 +926,34 @@ export default function RapidAddPage() {
     session.busy === "resolving" ||
     (bottleSequence && session.busy === "checking");
   const showAddFrames = bottleSequence && session.verdict?.kind === "add";
+  // One auto-shot per prompt: the key changes with every frame taken, so the next prompt re-arms it.
+  const autoCaptureKey =
+    phase !== "collecting" || busy
+      ? null
+      : bottleSequence
+        ? activeView
+          ? `${frames.length}:${activeView.surface}`
+          : null
+        : session.labelRequested
+          ? `${frames.length}:label`
+          : null;
+  // The outline follows what is asked for: the bottle prompt's surface, the label after an unknown
+  // barcode, else the frame type chip. Barcodes are read anywhere in the frame whatever it shows.
+  const cameraGuide: CameraGuide =
+    bottleSequence && activeView
+      ? activeView.surface
+      : session.labelRequested
+        ? "label"
+        : defaultCameraGuide(frameType);
+  const viewfinderStatus: ViewfinderStatus | null =
+    cameraFlash ??
+    (session.verdict
+      ? { tone: "success", text: verdictHeadline(session.verdict), action: { label: "See result", onClick: scrollToVerdict } }
+      : badge
+        ? { tone: "success", text: badge.checking ? `Scanned ${badge.gtin} — checking…` : `Scanned ${badge.gtin}` }
+        : session.error
+          ? { tone: "warning", text: session.error }
+          : null);
 
   return (
     <div className="mx-auto max-w-3xl space-y-5 pb-16">
@@ -874,6 +972,7 @@ export default function RapidAddPage() {
       <InstallPrompt />
 
       {session.verdict && (
+        <div ref={verdictRef} className="scroll-mt-4">
         <VerdictCard
           verdict={session.verdict}
           quantityRestored={session.quantityRestored}
@@ -899,6 +998,7 @@ export default function RapidAddPage() {
           }
           onScanNext={handleScanNext}
         />
+        </div>
       )}
 
       <Card ref={cameraSectionRef} className="scroll-mt-4">
@@ -935,6 +1035,9 @@ export default function RapidAddPage() {
             onFrameTypeChange={setFrameType}
             hideFrameTypeOptions={bottleSequence}
             onCapture={handleCapture}
+            autoCaptureKey={autoCaptureKey}
+            guide={cameraGuide}
+            status={viewfinderStatus}
             onCameraError={(kind) => trackEvent("rapid_add.camera_error", { kind })}
           />
 

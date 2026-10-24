@@ -250,7 +250,9 @@ export function sessionReducer(state: RapidAddSessionState, action: SessionActio
 
 export type RapidAddPhase = "collecting" | "question" | "resolving" | "verdict";
 
-export function rapidAddPhase(state: RapidAddSessionState): RapidAddPhase {
+export function rapidAddPhase(
+  state: Pick<RapidAddSessionState, "verdict" | "status" | "question">,
+): RapidAddPhase {
   if (state.verdict) return "verdict";
   if (isFinished(state.status)) return "resolving";
   if (state.status === "needs_question" && state.question) return "question";
@@ -267,6 +269,32 @@ export function canCheckBarcodeFromMetadata(
   barcode: ScannedBarcode | null,
 ): barcode is ScannedBarcode {
   return Boolean(barcode) && session.captureId === null && !session.labelRequested && !session.verdict;
+}
+
+/**
+ * What a barcode read off the live preview should do, given the scan in progress:
+ * - `scan`: nothing scanned yet, so this barcode starts (or joins) the scan;
+ * - `repeat`: the barcode this scan already read, so just say so (no new frame);
+ * - `next_scan`: a different barcode while a verdict is showing, so start the next bottle;
+ * - `wait`: a request is in flight, so ignore it for now;
+ * - `finish_first`: a different barcode mid-scan (this one already has a barcode), or while a
+ *   pick list or create card waits for the user, so it is only offered, never switched to.
+ */
+export type LiveBarcodeAction = "scan" | "repeat" | "next_scan" | "wait" | "finish_first";
+
+export function planLiveBarcode(
+  session: Pick<RapidAddSessionState, "barcode" | "verdict" | "status" | "question" | "busy">,
+  gtin: string,
+): LiveBarcodeAction {
+  const phase = rapidAddPhase(session);
+  if (session.barcode?.gtin === gtin) return session.busy ? "wait" : "repeat";
+  if (session.busy || phase === "resolving") return "wait";
+  if (phase === "verdict") {
+    const kind = session.verdict?.kind;
+    return kind === "pick" || kind === "create_card" ? "finish_first" : "next_scan";
+  }
+  if (session.barcode) return "finish_first";
+  return "scan";
 }
 
 /**

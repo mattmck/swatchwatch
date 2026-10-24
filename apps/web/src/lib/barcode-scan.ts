@@ -183,6 +183,22 @@ export function selectBarcodeEngine(env: BarcodeEnvironment): BarcodeEngine {
 /** Anything a frame can be read from: a live `<video>`, a canvas, or a decoded bitmap. */
 export type BarcodeSource = HTMLVideoElement | HTMLCanvasElement | ImageBitmap;
 
+/** The live scan keeps running after a read; the same code is reported again at most this often. */
+export const LIVE_BARCODE_REPEAT_MS = 2500;
+/** After any read, pause the live scan this long so one bottle isn't read twice in a row. */
+export const LIVE_BARCODE_COOLDOWN_MS = 1200;
+
+/** Whether a live read should be reported, given the last one reported (`null` = none yet). */
+export function shouldReportLiveBarcode(
+  last: { gtin: string; at: number } | null,
+  gtin: string,
+  now: number,
+): boolean {
+  if (!last) return true;
+  if (last.gtin !== gtin) return now - last.at >= LIVE_BARCODE_COOLDOWN_MS;
+  return now - last.at >= LIVE_BARCODE_REPEAT_MS;
+}
+
 export interface BarcodeScanner {
   engine: BarcodeEngine;
   /** Resolve the best retail barcode in `source`, or null when none is readable. */
