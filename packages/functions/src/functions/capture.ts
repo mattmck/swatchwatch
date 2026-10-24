@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { PoolClient } from "pg";
 import {
+  BOTTLE_SURFACE_FRAME_TYPE,
   CaptureAnswerRequest,
   CaptureAnswerResponse,
   CaptureBrandHintEcho,
@@ -10,12 +11,16 @@ import {
   CaptureCheckResponse,
   CaptureFinalizeResponse,
   CaptureFrameRequest,
+  CaptureFrameRequestSpec,
   CaptureFrameResponse,
   CaptureQuestion,
   CaptureStartRequest,
   CaptureStartResponse,
+  CaptureFrameType,
   CaptureStatus,
   CaptureStatusResponse,
+  BOTTLE_SURFACES,
+  frameQualityWarningsFromQuality,
   parseBottleSurface,
   resolveDisplayHex,
   type BottleSurface,
@@ -76,6 +81,17 @@ import {
   sumFrameModelCalls,
   visionConfidenceFromFrames,
 } from "../lib/bottle-resolver";
+import {
+  bottleFlowMetadataPatch,
+  decisionForPlan,
+  planNextFrame,
+  readBottleFlowState,
+  readLastNextFrame,
+  recordPrompt,
+  recordRejected,
+  recordSkip,
+  type BottleFlowState,
+} from "../lib/bottle-flow";
 
 const GUIDANCE_CONFIG = {
   recommendedFrameTypes: ["barcode", "label", "color"],
@@ -1077,6 +1093,92 @@ function trackCaptureResolved(captureId: string, resolution: SessionResolution):
   });
 }
 
+/** The next photo to ask for, from a resolution and the flow state stored with the session. */
+function planFromResolution(state: BottleFlowState, resolution: SessionResolution): CaptureFrameRequestSpec | null {
+  const { evidence } = resolution;
+  return planNextFrame({
+    state,
+    frameCount: resolution.frameCount,
+    maxFrames: GUIDANCE_CONFIG.maxFrames,
+    surfaces: evidence.surfaces,
+    brandKnown: Boolean(evidence.brand) || Boolean(resolution.bottle?.brand),
+    nameRead: Boolean(evidence.shadeName || evidence.shadeNameListed),
+    glassHex: Boolean(evidence.glassHex),
+    decision: decisionForPlan(resolution),
+  });
+}
+
+/** True when `after` holds a name, brand or glass color that `before` did not. */
+function evidenceAdded(before: CaptureEvidence, after: CaptureEvidence): boolean {
+  return (
+    (!before.shadeName && Boolean(after.shadeName)) ||
+    (!before.shadeNameListed && Boolean(after.shadeNameListed)) ||
+    (!before.brand && Boolean(after.brand)) ||
+    (!before.glassHex && Boolean(after.glassHex))
+  );
+}
+
+/**
+ * Bottle flow step after a frame or a skip: resolve (unless the caller already did), plan the
+ * next photo, store the flow counters and the resolver verdict with one metadata update, and
+ * report the surface. Throws on failure; the frame path degrades, the skip path surfaces it.
+ */
+async function advanceBottleFlow(
+  session: CaptureSessionRow,
+  userId: number,
+  step:
+    | { kind: "frame"; frameType: CaptureFrameType; quality: Record<string, unknown> | null; priorEvidence: CaptureEvidence }
+    | { kind: "skip"; surface: BottleSurface },
+  resolution?: SessionResolution | null
+): Promise<CaptureFrameRequestSpec | null> {
+  const resolved = resolution ?? (await resolveCaptureSession(session, userId));
+  let state = readBottleFlowState(session.metadata);
+
+  let surface: BottleSurface | null;
+  let frameType: CaptureFrameType;
+  let extracted = false;
+  if (step.kind === "skip") {
+    surface = step.surface;
+    frameType = BOTTLE_SURFACE_FRAME_TYPE[surface];
+    state = recordSkip(state, surface);
+  } else {
+    surface = parseBottleSurface(step.quality?.surface);
+    frameType = step.frameType;
+    extracted = evidenceAdded(step.priorEvidence, resolved.evidence);
+    const warnings = frameQualityWarningsFromQuality(step.quality);
+    // A poor photo that added nothing is retried; one that read something is not.
+    state = recordRejected(state, surface && warnings.length > 0 && !extracted ? { surface, warning: warnings[0] } : null);
+  }
+
+  const nextFrame = planFromResolution(state, resolved);
+  if (nextFrame) state = recordPrompt(state, nextFrame);
+
+  await query(
+    `UPDATE capture_session
+     SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb,
+         updated_at = now()
+     WHERE capture_session_id = $1`,
+    [
+      session.id,
+      {
+        ...bottleFlowMetadataPatch(state, nextFrame, toRecord(session.metadata?.bottle)),
+        resolver: resolved.metadataPatch.resolver,
+      },
+    ]
+  );
+
+  if (surface) {
+    trackEvent("capture.surface_captured", {
+      captureId: session.captureId,
+      surface,
+      frameType,
+      skipped: step.kind === "skip",
+      extracted,
+    });
+  }
+  return nextFrame;
+}
+
 async function resolveFromEvidence(
   evidence: CaptureEvidence,
   frameCount: number,
@@ -1424,6 +1526,24 @@ async function startCapture(
       brandHint = toBrandHintEcho(resolved, rawBrand);
     }
 
+    // The first ask: the bottom when the brand is already known, else the front.
+    let nextFrame: CaptureFrameRequestSpec | null = null;
+    if (bottleCapture) {
+      let flow = readBottleFlowState(null);
+      nextFrame = planNextFrame({
+        state: flow,
+        frameCount: 0,
+        maxFrames: GUIDANCE_CONFIG.maxFrames,
+        surfaces: {},
+        brandKnown: Boolean(toRecord(metadata.bottle).brand),
+        nameRead: false,
+        glassHex: false,
+        decision: "none",
+      });
+      if (nextFrame) flow = recordPrompt(flow, nextFrame);
+      metadata.bottle = bottleFlowMetadataPatch(flow, nextFrame, toRecord(metadata.bottle)).bottle;
+    }
+
     const result = await query<{ captureId: string; status: CaptureStatus }>(
       `INSERT INTO capture_session (capture_uuid, user_id, status, metadata)
        VALUES ($1::uuid, $2, 'processing', $3::jsonb)
@@ -1442,7 +1562,7 @@ async function startCapture(
     };
     if (bottleCapture) {
       if (brandHint) response.brandHint = brandHint;
-      response.nextFrame = null;
+      response.nextFrame = nextFrame;
     }
 
     return { status: 201, jsonBody: response };
@@ -1496,6 +1616,7 @@ async function addCaptureFrame(
     return { status: 400, jsonBody: { error: "Capture id must be a valid UUID" } };
   }
 
+  const bottleOn = isFeatureEnabled("bottleCapture");
   // Blob stored for this frame but not yet referenced by a committed row; removed on failure.
   let uploadedFrameUrl: string | null = null;
   try {
@@ -1561,6 +1682,11 @@ async function addCaptureFrame(
     // A wrong check digit is evidence worth looking up but not worth skipping OCR for.
     const decodedBarcode = scannedBarcode?.checkDigitValid ? scannedBarcode : null;
 
+    // What the session knew before this frame (bottle flow: to tell whether the frame added any).
+    const priorEvidence = bottleOn
+      ? collectCaptureEvidence(session.metadata, await getCaptureFrameEvidence(session.id))
+      : null;
+
     // Pre-transaction: normalize image and run AI extraction pipeline
     let normalizedImage: PreparedImageInput | null = null;
     let preQualityJson: Record<string, unknown> | null = body.quality ?? null;
@@ -1580,13 +1706,11 @@ async function addCaptureFrame(
     const imageInputForAi = normalizedImage ? normalizedImage.sanitizedImageInput : null;
     let aiExtraction: FrameAiExtractionResult | null = null;
     if (imageInputForAi && !decodedBarcode) {
-      const existingEvidence = collectCaptureEvidence(
-        session.metadata,
-        await getCaptureFrameEvidence(session.id)
-      );
+      const existingEvidence =
+        priorEvidence ?? collectCaptureEvidence(session.metadata, await getCaptureFrameEvidence(session.id));
       // Bottle capture reads a data-URL label frame with vision too; a remote URL is OCR-only.
       const stickerContext: StickerReadContext | undefined =
-        body.frameType === "label" && isFeatureEnabled("bottleCapture") && imageInputForAi.startsWith("data:")
+        body.frameType === "label" && bottleOn && imageInputForAi.startsWith("data:")
           ? {
               userId,
               surface: parseBottleSurface(frameQuality.surface),
@@ -1615,7 +1739,7 @@ async function addCaptureFrame(
       normalizedImage.extension &&
       normalizedImage.checksumSha256 &&
       !body.imageId &&
-      isFeatureEnabled("bottleCapture")
+      bottleOn
     ) {
       const stored = await storeCaptureFrameBytes(
         {
@@ -1712,16 +1836,36 @@ async function addCaptureFrame(
     uploadedFrameUrl = null; // committed: the blob is now referenced
 
     let check: CaptureCheckResponse | undefined;
+    let checkResolution: SessionResolution | null = null;
     if (decodedBarcode) {
       try {
         const refreshed = await getCaptureSession(captureId, userId);
         if (refreshed && refreshed.status !== "cancelled") {
-          check = await computeCaptureCheck(refreshed, userId);
+          const computed = await computeCaptureCheckWithResolution(refreshed, userId);
+          check = computed.response;
+          checkResolution = computed.resolution;
           trackCaptureChecked(check, "barcode_frame");
         }
       } catch (error) {
         // The frame is saved; the client can still call /check or /finalize.
         context.warn(`capture frame check failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    // Bottle flow: plan the next photo. The frame is saved either way, so a planning failure
+    // degrades to "nothing more to ask" (the client then calls /check).
+    let nextFrame: CaptureFrameRequestSpec | null = null;
+    if (bottleOn && priorEvidence) {
+      try {
+        nextFrame = await advanceBottleFlow(
+          session,
+          userId,
+          { kind: "frame", frameType: body.frameType, quality: preQualityJson, priorEvidence },
+          checkResolution
+        );
+      } catch (error) {
+        context.warn(`capture next-frame planning failed: ${error instanceof Error ? error.message : String(error)}`);
+        trackException(error, { area: "capture", stage: "next-frame" });
       }
     }
 
@@ -1731,6 +1875,7 @@ async function addCaptureFrame(
       frameId: result.frameId,
       status: session.status,
       ...(check ? { check } : {}),
+      ...(bottleOn ? { nextFrame } : {}),
     };
 
     return { status: 201, jsonBody: response };
@@ -2036,13 +2181,8 @@ async function loadDisplayHexes(shadeIds: Array<number | null>): Promise<Map<str
 
 /**
  * The read-only check verdict for a session (shared by POST /check and the decoded-barcode
- * frame response): resolver outcome plus the caller's relationship to each candidate.
+ * frame response) plus the resolution it ran (null when the session was already accepted).
  */
-async function computeCaptureCheck(session: CaptureSessionRow, userId: number): Promise<CaptureCheckResponse> {
-  return (await computeCaptureCheckWithResolution(session, userId)).response;
-}
-
-/** `computeCaptureCheck` plus the resolution it ran (null when the session was already accepted). */
 async function computeCaptureCheckWithResolution(
   session: CaptureSessionRow,
   userId: number
@@ -2110,6 +2250,9 @@ async function computeCaptureCheckWithResolution(
     match: matchIndex >= 0 ? checkCandidates[matchIndex] : undefined,
     candidates: checkCandidates,
     questionKey,
+    ...(isFeatureEnabled("bottleCapture")
+      ? { nextFrame: resolution ? planFromResolution(readBottleFlowState(session.metadata), resolution) : null }
+      : {}),
     ...(resolution?.bottle?.suggestedShade ? { suggestedShade: resolution.bottle.suggestedShade } : {}),
     ...(resolution?.bottle?.brandConflict ? { brandConflict: resolution.bottle.brandConflict } : {}),
   };
@@ -2202,12 +2345,32 @@ async function getCaptureStatus(
       acceptedEntityId: session.acceptedEntityId || undefined,
       metadata: session.metadata || undefined,
       question: toCaptureQuestion(question),
+      ...(isFeatureEnabled("bottleCapture") ? { nextFrame: readLastNextFrame(session.metadata) } : {}),
     };
 
     return { status: 200, jsonBody: response };
   } catch (error: any) {
     return internalServerError(context, error, "Failed to fetch capture status", "capture.status");
   }
+}
+
+/** Bottle flow: the user skipped a photo. Records it, re-plans and answers with the next ask. */
+async function skipBottleSurface(captureId: string, surface: BottleSurface, userId: number): Promise<HttpResponseInit> {
+  const session = await getCaptureSession(captureId, userId);
+  if (!session) {
+    return { status: 404, jsonBody: { error: "Capture session not found" } };
+  }
+  if (session.status === "cancelled") {
+    return { status: 409, jsonBody: { error: "Cannot skip a photo on a cancelled session" } };
+  }
+  const nextFrame = await advanceBottleFlow(session, userId, { kind: "skip", surface });
+  const response: CaptureAnswerResponse = {
+    captureId: session.captureId,
+    status: session.status,
+    question: toCaptureQuestion(await getOpenQuestion(session.id)),
+    nextFrame,
+  };
+  return { status: 200, jsonBody: response };
 }
 
 async function answerCaptureQuestion(
@@ -2231,6 +2394,23 @@ async function answerCaptureQuestion(
       body = (await request.json()) as CaptureAnswerRequest;
     } catch {
       return { status: 400, jsonBody: { error: "Invalid JSON body" } };
+    }
+    if (body?.skipSurface !== undefined) {
+      if (!isFeatureEnabled("bottleCapture")) {
+        // Flag off: skipSurface does not exist, so a bare one is the old "answer is required".
+        return {
+          status: 400,
+          jsonBody: { error: body.answer === undefined ? "answer is required" : "skipSurface is not enabled" },
+        };
+      }
+      if (body.answer !== undefined) {
+        return { status: 400, jsonBody: { error: "Send either answer or skipSurface, not both" } };
+      }
+      const skipped = parseBottleSurface(body.skipSurface);
+      if (!skipped) {
+        return { status: 400, jsonBody: { error: `skipSurface must be one of: ${BOTTLE_SURFACES.join(", ")}` } };
+      }
+      return skipBottleSurface(captureId, skipped, userId);
     }
     if (body?.answer === undefined) {
       return { status: 400, jsonBody: { error: "answer is required" } };

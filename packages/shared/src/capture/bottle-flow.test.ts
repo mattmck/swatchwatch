@@ -11,6 +11,7 @@ import {
   surfaceFromQuality,
   type BottleFlowClientState,
 } from "./bottle-flow";
+import { SURFACE_PROMPTS } from "../../../functions/src/lib/bottle-flow";
 
 const serverSpec: CaptureFrameRequestSpec = {
   surface: "glass",
@@ -30,6 +31,12 @@ describe("constants", () => {
       glass: "Turn it so we see the color",
       box: "Have the box? Show the barcode",
     });
+  });
+});
+
+describe("server prompt copy", () => {
+  it("the client's default prompts equal the server's canonical copy", () => {
+    assert.deepEqual(DEFAULT_SURFACE_PROMPTS, SURFACE_PROMPTS);
   });
 });
 

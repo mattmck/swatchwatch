@@ -991,13 +991,15 @@ describe("functions/capture — start with a brand hint", () => {
     const res = await start({ metadata: { brand: "loud" } });
     assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
     assert.deepEqual(res.jsonBody.brandHint, { raw: "loud", brandId: "3", name: "Loud Lacquer" });
-    assert.equal(res.jsonBody.nextFrame, null);
+    assert.equal(res.jsonBody.nextFrame.surface, "bottom", "a known brand goes straight to the sticker");
     const metadata = sessionInsert().params[2];
     assert.equal(metadata.brand, "loud", "the raw hint stays for the legacy resolver");
     assert.deepEqual(metadata.bottle, {
       brand: { brandId: "3", name: "Loud Lacquer", source: "hint", raw: "loud" },
-      prompts: {},
+      prompts: { "bottom:need_name": 1 },
       skipped: [],
+      lastRejected: null,
+      lastNextFrame: res.jsonBody.nextFrame,
     });
   });
 
@@ -1016,7 +1018,8 @@ describe("functions/capture — start with a brand hint", () => {
     assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
     assert.equal("brandHint" in res.jsonBody, false);
     assert.equal(brandQueries().length, 0);
-    assert.equal(sessionInsert().params[2].bottle, undefined);
+    assert.equal(res.jsonBody.nextFrame.surface, "front");
+    assert.equal(sessionInsert().params[2].bottle.brand, undefined);
   });
 
   it("flag on: a blank or non-string hint is ignored", async () => {
@@ -1034,7 +1037,7 @@ describe("functions/capture — start with a brand hint", () => {
     process.env.BOTTLE_CAPTURE_ENABLED = "true";
     const res = await start({ metadata: { bottle: { skipped: ["back"] } } });
     assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
-    assert.equal(sessionInsert().params[2].bottle, undefined);
+    assert.equal(sessionInsert().params[2].bottle.skipped.length, 0, "the client's skipped list is dropped");
   });
 
   it("flag on: a below-threshold brand row is no match and the capture still starts", async () => {
