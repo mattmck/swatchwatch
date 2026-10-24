@@ -1,3 +1,7 @@
+# Fixed project name: every worktree shares one local stack instead of
+# starting a second one that collides on these ports.
+name: swatchwatch
+
 services:
   postgres:
     image: pgvector/pgvector:pg17
@@ -22,11 +26,14 @@ services:
       --blobHost 0.0.0.0
       --queueHost 0.0.0.0
       --tableHost 0.0.0.0
+      --location /data
       --skipApiVersionCheck
     ports:
       - "10000:10000"
       - "10001:10001"
       - "10002:10002"
+    volumes:
+      - azuritedata:/data
 
   redis:
     image: redis:7-alpine
@@ -40,3 +47,4 @@ services:
 
 volumes:
   pgdata:
+  azuritedata:

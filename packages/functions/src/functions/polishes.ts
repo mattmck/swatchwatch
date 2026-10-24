@@ -11,6 +11,7 @@ import {
   type HexReviewResponse,
   type HexReviewSort,
   type PolishStatus,
+  type ShadeIdentityTakenResponse,
   type CollectionExportFormat,
   resolveProductCategory,
 } from "swatchwatch-shared";
@@ -25,7 +26,20 @@ import {
   DETECTED_HEX_METHOD_CLIENT_SUPPLIED,
   provenanceFromDetection,
 } from "../lib/hex-provenance";
-import { isCatalogStorageUrl, isUserMediaStorageUrl, readBlobFromStorageUrl } from "../lib/blob-storage";
+import {
+  deleteBlobFromStorageUrl,
+  isCatalogStorageUrl,
+  isUserMediaStorageUrl,
+  readBlobFromStorageUrl,
+  userMediaContainer,
+} from "../lib/blob-storage";
+import { releaseCaptureFrames } from "../lib/capture-frame-store";
+import {
+  CaptureSessionNotFoundError,
+  CaptureSessionStateError,
+  isValidUuid,
+  markCaptureSessionCreatedShade,
+} from "../lib/capture-session";
 import {
   cacheDelete,
   cacheDeleteByPrefix,
@@ -157,6 +171,78 @@ async function applyShadeFinishUpdate(
  */
 const POLISH_VISIBLE_SQL = `(s.merged_into_shade_id IS NULL AND (s.status <> 'user_submitted' OR s.created_by_user_id = $1 OR ui.inventory_item_id IS NOT NULL) AND ((s.product_category <> 'accessory' AND s.status <> 'excluded') OR ui.inventory_item_id IS NOT NULL))`;
 
+/** Thrown inside the rename transaction (rolling it back) when the new identity is taken. */
+class ShadeIdentityTakenError extends Error {
+  constructor(readonly existingShadeId: number) {
+    super("Another shade already has that brand and name");
+  }
+}
+
+/**
+ * Rename the caller's own private `user_submitted` shade in place (brand and/or name), keeping
+ * its `shade_id` so every inventory, mani and event row stays attached. Throws
+ * `ShadeIdentityTakenError` (rolling the transaction back) when another shade the caller can see
+ * already has the new brand + name (+ the shade's own legacy `finish`, the dedup key, which a
+ * rename never changes). Never touches a shade that is not the caller's own unmerged submission.
+ */
+async function renameOwnShade(
+  client: PoolClient,
+  userId: number,
+  shadeId: number,
+  brandName: string,
+  shadeName: string
+): Promise<void> {
+  await client.query(
+    `INSERT INTO brand (name_canonical) VALUES ($1) ON CONFLICT (name_canonical) DO NOTHING`,
+    [brandName]
+  );
+  const brandResult = await client.query<{ brand_id: number }>(
+    `SELECT brand_id FROM brand WHERE name_canonical = $1`,
+    [brandName]
+  );
+  const brandId = brandResult.rows[0].brand_id;
+
+  const own = await client.query<{ finish: string | null }>(
+    `SELECT finish FROM shade
+     WHERE shade_id = $1
+       AND status = 'user_submitted'
+       AND created_by_user_id = $2
+       AND merged_into_shade_id IS NULL
+     FOR UPDATE`,
+    [shadeId, userId]
+  );
+  if (own.rows.length === 0) {
+    throw new Error("Own shade not found for rename");
+  }
+
+  const taken = await client.query<{ shade_id: number }>(
+    `SELECT s.shade_id
+     FROM shade s
+     WHERE s.brand_id = $1
+       AND s.shade_name_canonical = $2
+       AND s.product_line_id IS NULL
+       AND COALESCE(s.finish, '') = COALESCE($3, '')
+       AND s.shade_id <> $5
+       AND s.merged_into_shade_id IS NULL
+       AND s.status <> 'excluded'
+       AND s.product_category <> 'accessory'
+       AND (s.status <> 'user_submitted' OR s.created_by_user_id = $4)
+     ORDER BY (s.status = 'user_submitted') ASC, s.shade_id ASC
+     LIMIT 1`,
+    [brandId, shadeName, own.rows[0].finish, userId, shadeId]
+  );
+  if (taken.rows.length > 0) {
+    throw new ShadeIdentityTakenError(Number(taken.rows[0].shade_id));
+  }
+
+  await client.query(
+    `UPDATE shade
+     SET brand_id = $2, shade_name_canonical = $3, updated_at = now()
+     WHERE shade_id = $1 AND status = 'user_submitted' AND created_by_user_id = $4`,
+    [shadeId, brandId, shadeName, userId]
+  );
+}
+
 /**
  * Look up a shade by id if the caller may see it. Returns null when it is missing, another
  * user's private `user_submitted` shade, or retired by an admin merge (callers answer 404 for
@@ -252,6 +338,8 @@ async function applyShadeColorUpdate(
 const POLISH_COLUMNS = `
     s.shade_id::text                             AS id,
     s.shade_id::text                             AS "shadeId",
+    -- True only for the caller's own private (not yet approved/merged) submission; never for another user's shade.
+    COALESCE(s.status = 'user_submitted' AND s.created_by_user_id = $1 AND s.merged_into_shade_id IS NULL, false) AS "ownSubmitted",
     ui.inventory_item_id::text                   AS "inventoryItemId",
     $1::text                                     AS "userId",
     COALESCE(b.name_canonical, '')               AS brand,
@@ -500,9 +588,10 @@ export async function upsertInventoryItem(
      ON CONFLICT (user_id, shade_id) DO UPDATE SET
        quantity          = CASE WHEN $3::int IS NULL THEN user_inventory_item.quantity ELSE EXCLUDED.quantity END,
        notes             = CASE WHEN $4 IS NULL THEN user_inventory_item.notes ELSE EXCLUDED.notes END,
-       purchase_date     = CASE WHEN $5 IS NULL THEN user_inventory_item.purchase_date ELSE EXCLUDED.purchase_date END,
+       -- rating / purchase_date: an explicit null in the request clears them (listed in $14).
+       purchase_date     = CASE WHEN 'purchaseDate' = ANY($14::text[]) OR $5 IS NOT NULL THEN EXCLUDED.purchase_date ELSE user_inventory_item.purchase_date END,
        expiration_date   = CASE WHEN $6 IS NULL THEN user_inventory_item.expiration_date ELSE EXCLUDED.expiration_date END,
-       rating            = CASE WHEN $7 IS NULL THEN user_inventory_item.rating ELSE EXCLUDED.rating END,
+       rating            = CASE WHEN 'rating' = ANY($14::text[]) OR $7 IS NOT NULL THEN EXCLUDED.rating ELSE user_inventory_item.rating END,
        tags              = CASE WHEN $8 IS NULL THEN user_inventory_item.tags ELSE EXCLUDED.tags END,
        size_display      = CASE WHEN $9 IS NULL THEN user_inventory_item.size_display ELSE EXCLUDED.size_display END,
        status            = CASE WHEN $10::text IS NULL THEN user_inventory_item.status ELSE EXCLUDED.status END,
@@ -1123,6 +1212,30 @@ ${POLISH_FROM}`;
   }
 }
 
+/**
+ * After the create transaction committed: the session is matched, so its frame blobs are no longer
+ * needed. Best effort; a failure is logged and the hourly sweep releases whatever is left.
+ */
+async function releaseCreatedCaptureFrames(
+  context: InvocationContext,
+  input: { sessionId: number; userId: number; captureId: string }
+): Promise<void> {
+  const warn = (message: string, error?: unknown) => {
+    context.warn(`${message}${error ? `: ${error instanceof Error ? error.message : String(error)}` : ""}`);
+    if (error) trackException(error, { area: "polishes", stage: "release-capture-frames" });
+  };
+  try {
+    const mediaContainer = userMediaContainer();
+    await releaseCaptureFrames(input, {
+      query,
+      deleteBlob: (storageUrl) => deleteBlobFromStorageUrl(storageUrl, { allowedContainers: [mediaContainer] }),
+      warn,
+    });
+  } catch (error) {
+    warn("capture frame release failed", error);
+  }
+}
+
 async function createPolish(request: HttpRequest, context: InvocationContext, userId: number): Promise<HttpResponseInit> {
   context.log("POST /api/polishes");
 
@@ -1170,10 +1283,21 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       }
     }
 
+    // The bottle flow's one-tap create sends its capture session along: validated before any query.
+    let captureId: string | null = null;
+    if (body.captureId !== undefined && body.captureId !== null && body.captureId !== "") {
+      if (typeof body.captureId !== "string" || !isValidUuid(body.captureId)) {
+        return { status: 400, jsonBody: { error: "captureId must be a valid UUID" } };
+      }
+      captureId = body.captureId;
+    }
+
     const finishUpdate = requestCarriesFinishData(body)
       ? resolveRequestedFinishes(body, await loadFinishCatalog())
       : undefined;
 
+    let capturedSessionId: number | null = null;
+    let capturedGtin: NormalizedGtin | null = null;
     const { shadeId } = await transaction(async (client) => {
       const resolvedShadeId =
         shadeIdFromBody ??
@@ -1203,12 +1327,34 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       await upsertInventoryItem(client, userId, resolvedShadeId, body, inventoryFields);
       // A re-added polish picks its wear stats back up from the mani log (#269).
       await recomputeWearStats(client, userId, [resolvedShadeId], { fillTriedAt: false });
-      if (scannedBarcode) {
-        await rememberUserShadeBarcode(client, { userId, shadeId: resolvedShadeId, gtin: scannedBarcode });
+      let captureSessionId: number | null = null;
+      let sessionGtin: NormalizedGtin | null = null;
+      if (captureId) {
+        // Throws (rolling this whole transaction back) when the session is not the caller's or is cancelled.
+        const marked = await markCaptureSessionCreatedShade(client, { userId, captureId, shadeId: resolvedShadeId });
+        captureSessionId = marked.sessionId;
+        sessionGtin = marked.gtin;
       }
+      // A barcode in the body wins over the one the session scanned; one INSERT either way.
+      const learnedGtin = scannedBarcode ?? sessionGtin;
+      if (learnedGtin) {
+        await rememberUserShadeBarcode(client, {
+          userId,
+          shadeId: resolvedShadeId,
+          gtin: learnedGtin,
+          captureSessionId,
+        });
+      }
+      capturedSessionId = captureSessionId;
+      capturedGtin = learnedGtin;
 
       return { shadeId: resolvedShadeId };
     });
+
+    if (captureId && capturedSessionId !== null) {
+      await releaseCreatedCaptureFrames(context, { sessionId: capturedSessionId, userId, captureId });
+      trackEvent("capture.shade_created", { captureId, shadeId, hadBarcode: Boolean(capturedGtin) });
+    }
 
     const created = await query<Polish>(
       `${POLISH_SELECT}
@@ -1239,6 +1385,12 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       jsonBody: withReadableSwatchUrl(created.rows[0], request.url),
     };
   } catch (error: any) {
+    if (error instanceof CaptureSessionNotFoundError) {
+      return { status: 404, jsonBody: { error: "Capture session not found" } };
+    }
+    if (error instanceof CaptureSessionStateError) {
+      return { status: 409, jsonBody: { error: "Capture session is cancelled" } };
+    }
     return internalServerError(context, error, "Failed to create polish", "polishes.create");
   }
 }
@@ -1273,6 +1425,7 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
 
     // Updating by id (no brand + name): the target must be visible to the caller.
     let targetShade: { ownSubmitted: boolean } | null = null;
+    let renameOwnShadeTo: { brand: string; name: string } | null = null;
     if (!(body.brand && body.name)) {
       targetShade = await getVisibleShade(shadeId, userId);
       if (!targetShade) {
@@ -1285,12 +1438,23 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
       const visible = await getVisibleShade(shadeId, userId);
       if (visible && visible.brand === body.brand && visible.shadeName === body.name) {
         targetShade = visible;
+      } else if (visible?.ownSubmitted) {
+        // A changed brand or name on the caller's own private shade renames that row in place
+        // (the id and every row hanging off it stay); a collision answers 409 below.
+        targetShade = visible;
+        renameOwnShadeTo = { brand: body.brand, name: body.name };
       }
     }
     const resolveByIdentity = targetShade === null;
 
-    const updatedShadeId = await transaction(async (client) => {
+    let updatedShadeId: number;
+    try {
+      updatedShadeId = await transaction(async (client) => {
       let targetShadeId = shadeId;
+
+      if (renameOwnShadeTo) {
+        await renameOwnShade(client, userId, shadeId, renameOwnShadeTo.brand, renameOwnShadeTo.name);
+      }
 
       if (resolveByIdentity && body.brand && body.name) {
         targetShadeId = await findOrCreateShade(
@@ -1323,7 +1487,18 @@ async function updatePolish(request: HttpRequest, context: InvocationContext, us
       await recomputeWearStats(client, userId, [targetShadeId], { fillTriedAt: false });
 
       return targetShadeId;
-    });
+      });
+    } catch (error) {
+      if (error instanceof ShadeIdentityTakenError) {
+        const taken: ShadeIdentityTakenResponse = {
+          error: "Another shade already has that name",
+          code: "shade_identity_taken",
+          existingShadeId: String(error.existingShadeId),
+        };
+        return { status: 409, jsonBody: taken };
+      }
+      throw error;
+    }
 
     const fullResult = await query<Polish>(
       `${POLISH_SELECT}

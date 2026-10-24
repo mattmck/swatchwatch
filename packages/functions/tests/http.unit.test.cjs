@@ -548,5 +548,65 @@ describe("lib/http — withCors", () => {
       assert.deepEqual(res.jsonBody, { error: "Internal server error" });
       assert.equal(res.headers.get("Access-Control-Allow-Origin"), "http://localhost:3000");
     });
+
+    it("turns a thrown handler error into a logged 500 that still carries CORS headers", async () => {
+      httpModule = require(path.resolve(__dirname, "../dist/lib/http.js"));
+      const logged = [];
+      const context = { invocationId: "inv-1", log: () => {}, error: (...args) => logged.push(args) };
+      const handler = httpModule.withCors(async () => {
+        throw new Error("connection terminated: secret detail");
+      });
+
+      const res = await handler(
+        fakeRequest({ method: "GET", headers: { origin: "https://dev-1.azurestaticapps.net" } }),
+        context
+      );
+      assert.equal(res.status, 500);
+      assert.deepEqual(res.jsonBody, { error: "Internal server error", requestId: "inv-1" });
+      assert.equal(res.headers.get("Access-Control-Allow-Origin"), "https://dev-1.azurestaticapps.net");
+      assert.equal(res.headers.get("Vary"), "Origin");
+      assert.equal(logged.length, 1);
+
+      const refused = await handler(fakeRequest({ method: "GET", headers: { origin: "http://evil.com" } }), context);
+      assert.equal(refused.status, 500);
+      assertNoCorsHeaders(refused.headers);
+    });
+  });
+
+  describe("Terraform origin list", () => {
+    // infrastructure/main.tf sets CORS_ALLOWED_ORIGINS = join(",", local.function_cors_allowed_origins).
+    it("allows the prod and dev web origins, SWA hosts (incl. regional preview hosts) and nothing else", async () => {
+      process.env.CORS_ALLOWED_ORIGINS =
+        "https://swatchwatch.app,https://www.swatchwatch.app,https://dev.swatchwatch.app,http://localhost:3000,https://*.azurestaticapps.net";
+      httpModule = require(path.resolve(__dirname, "../dist/lib/http.js"));
+      const preflight = async (origin) => {
+        const res = await httpModule.withCors(async () => ({ status: 200 }))(
+          fakeRequest({ method: "OPTIONS", headers: { origin, "access-control-request-method": "PATCH" } }),
+          fakeContext()
+        );
+        assert.equal(res.status, 204);
+        return res.headers?.get?.("Access-Control-Allow-Origin") ?? null;
+      };
+
+      for (const origin of [
+        "https://swatchwatch.app",
+        "https://www.swatchwatch.app",
+        "https://dev.swatchwatch.app",
+        "http://localhost:3000",
+        "https://gentle-sea-0123.azurestaticapps.net",
+        "https://gentle-sea-0123-42.eastus2.azurestaticapps.net",
+      ]) {
+        assert.equal(await preflight(origin), origin, origin);
+      }
+      for (const origin of [
+        "http://swatchwatch.app",
+        "https://api.swatchwatch.app",
+        "https://swatchwatch.app.evil.com",
+        "http://localhost:3001",
+        "https://azurestaticapps.net.evil.com",
+      ]) {
+        assert.equal(await preflight(origin), null, origin);
+      }
+    });
   });
 });

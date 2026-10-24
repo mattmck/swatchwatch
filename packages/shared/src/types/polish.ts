@@ -63,6 +63,13 @@ export interface Polish {
   /** All finishes for the shade, primary first (e.g. `["shimmer", "holographic"]`). */
   finishes?: FinishName[];
   collection?: string;
+  /**
+   * True only when the shade is the caller's own private `user_submitted` shade (created by
+   * them, not yet approved or merged): its creator may still correct brand, name, finishes and
+   * color through `PUT /api/polishes/{id}` (catalog write rule, #224). Absent/false for catalog
+   * shades and never true for another user's submission.
+   */
+  ownSubmitted?: boolean;
   quantity?: number;
   /**
    * Inventory status (`owned | wishlist | destash | archived`). Null/undefined when the caller
@@ -199,6 +206,8 @@ export interface Shade {
 }
 
 export interface PolishCreateRequest {
+  /** Capture session this add came from (bottle recognition); it must be the caller's own. */
+  captureId?: string;
   /**
    * Optional shade id when attaching an existing catalog entry to a user's collection.
    * When omitted, a new shade (brand/name) will be created or matched by name.
@@ -262,14 +271,27 @@ export interface PolishCreateRequest {
   /** ISO 4217 three-letter currency code (normalized to upper case); `null` clears it. */
   purchaseCurrency?: string | null;
   size?: string;
-  purchaseDate?: string;
+  /** `YYYY-MM-DD`; `null` clears it (a missing key keeps the stored value). */
+  purchaseDate?: string | null;
   expirationDate?: string;
-  rating?: number;
+  /** Whole number 1-5; `null` clears it (a missing key keeps the stored value). */
+  rating?: number | null;
   notes?: string;
   tags?: string[];
 }
 
 export type PolishUpdateRequest = Partial<PolishCreateRequest>;
+
+/**
+ * `409` body of `PUT /api/polishes/{id}` when renaming the caller's own private `user_submitted`
+ * shade (`Polish.ownSubmitted`) to a brand + name another shade the caller can see already has.
+ * Nothing was changed. `existingShadeId` is that shade's id (string, like `Polish.id`).
+ */
+export interface ShadeIdentityTakenResponse {
+  error: string;
+  code: "shade_identity_taken";
+  existingShadeId: string;
+}
 
 export interface PolishListResponse {
   polishes: Polish[];

@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
-import { getCurrentUserId, listAllPolishes, listPolishes } from "@/lib/api";
+import { getCurrentUserId, listAllPolishes } from "@/lib/api";
+import { wishlistValueView, type WishlistValueView } from "@/lib/wishlist-value";
 import { isOwnedPolish, summarizeCollection } from "@/lib/inventory-status";
 import { trackEvent } from "@/lib/telemetry";
 import {
@@ -47,6 +48,8 @@ export default function DashboardPage() {
   const { finishTypes } = useReferenceData();
   const [polishes, setPolishes] = useState<Polish[]>([]);
   const [wishlistTotal, setWishlistTotal] = useState(0);
+  // Brand list-price totals of every wishlist row (per currency, unpriced counted).
+  const [wishlistValue, setWishlistValue] = useState<WishlistValueView | null>(null);
   // Keys the getting-started dismissal per user; null (lookup failed) falls back to one shared key.
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -59,22 +62,24 @@ export default function DashboardPage() {
         setError(null);
         // Owned rows only: the dashboard never needs the shared catalog, and the
         // catalog is orders of magnitude larger than any user's collection.
-        // The wishlist count is the list `total` of a one-row page: no client-side over-fetch.
+        // Every wishlist row: its count and the brand list-price totals (the wishlist is far
+        // smaller than the catalog).
         const [response, wishlistPage, currentUserId] = await Promise.all([
           listAllPolishes({
             status: ["owned"],
             sortBy: "createdAt",
             sortOrder: "desc",
           }),
-          listPolishes({ status: ["wishlist"], page: 1, pageSize: 1 }),
+          listAllPolishes({ status: ["wishlist"] }),
           getCurrentUserId().catch(() => null),
         ]);
         setUserId(currentUserId === null ? null : String(currentUserId));
         const owned = response.filter(isOwnedPolish);
         setPolishes(owned);
-        setWishlistTotal(wishlistPage.total);
+        setWishlistTotal(wishlistPage.length);
+        setWishlistValue(wishlistValueView(wishlistPage));
         // Sprint 1 success metric: how much of the collection carries status/tried data.
-        const summary = summarizeCollection(owned, wishlistPage.total);
+        const summary = summarizeCollection(owned, wishlistPage.length);
         trackEvent("collection.summary", {
           owned: summary.owned,
           untried: summary.untried,
@@ -163,7 +168,9 @@ export default function DashboardPage() {
       key: "wishlist",
       label: "Wishlist",
       value: summary.wishlist.toLocaleString(),
-      subText: summary.wishlist === 1 ? "Shade you want next" : "Shades you want next",
+      subText:
+        (summary.wishlist > 0 ? wishlistValue?.summary : null) ??
+        (summary.wishlist === 1 ? "Shade you want next" : "Shades you want next"),
       icon: Heart,
       accent: "from-brand-pink via-brand-pink-soft to-brand-lilac",
       href: "/polishes?status=wishlist",

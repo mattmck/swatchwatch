@@ -40,7 +40,8 @@ mockDistModule("blob-storage.js", {
   ensureContainer: async () => {},
   uploadSourceImageToBlob: async ({ sourceImageUrl, externalId }) => {
     if (failUploadFor.has(sourceImageUrl)) {
-      throw new Error("403 from CDN");
+      const { SourceImageUploadError } = require("../dist/lib/image-store-error");
+      throw new SourceImageUploadError("blob_put", "acct.blob.core.windows.net", new Error("connect timeout"));
     }
     return { storageUrl: `https://blob.example/${externalId}.png`, checksumSha256: `sum-${externalId}` };
   },
@@ -154,7 +155,15 @@ describe("materializeHoloTacoRecords job-log milestones", () => {
     });
 
     const warnings = log.messages("warn");
-    assert.ok(warnings.some((msg) => /Primary image upload failed for p0/.test(msg)), warnings.join("\n"));
+    assert.ok(
+      warnings.some((msg) => /Primary image upload failed for p0 at blob PUT \(acct\.blob\.core\.windows\.net\)/.test(msg)),
+      warnings.join("\n")
+    );
+    const uploadWarning = log.entries.find((entry) => /Primary image upload failed for p0/.test(entry.msg));
+    assert.equal(uploadWarning.data.step, "blob_put");
+    assert.equal(uploadWarning.data.host, "acct.blob.core.windows.net");
+    assert.equal(uploadWarning.data.imageUrl, primaryUrl(0));
+    assert.equal(uploadWarning.data.error, "Error: connect timeout");
     assert.ok(warnings.some((msg) => /p1 \[ai-color-detection\] Rate limited/.test(msg)), warnings.join("\n"));
     assert.ok(warnings.some((msg) => /AI hex detection failed for p1/.test(msg)), warnings.join("\n"));
     assert.match(log.messages("info").at(-1), /Records 1–2: .*1 hex detection failures, 1 upload failures/);

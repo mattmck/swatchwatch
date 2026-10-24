@@ -3,7 +3,14 @@
  * state machine, and how adaptive questions render. No DOM or network here; the page
  * wires these reducers to the camera, the barcode scanner and the capture API.
  */
-import type { CaptureFrameType, CaptureQuestion, CaptureStatus } from "swatchwatch-shared";
+import {
+  hintsToStartMetadata,
+  type BottleSurface,
+  type CaptureFrameType,
+  type CaptureQuestion,
+  type CaptureStatus,
+  type StickyHints,
+} from "swatchwatch-shared";
 import type { ScannedBarcode } from "./barcode-scan";
 import type { FrameQualityMetrics } from "./camera";
 import type { CaptureOutcome, CaptureVerdict } from "./capture-verdict";
@@ -114,6 +121,8 @@ export interface FrameQualityInput {
   fileName?: string;
   mimeType?: string;
   fileSize?: number;
+  /** Which side of the bottle this frame shows (bottle flow). */
+  surface?: BottleSurface | null;
 }
 
 /**
@@ -139,6 +148,7 @@ export function buildFrameQuality(input: FrameQualityInput): Record<string, unkn
   if (input.fileName !== undefined) quality.fileName = input.fileName;
   if (input.mimeType !== undefined) quality.mimeType = input.mimeType;
   if (input.fileSize !== undefined) quality.fileSize = input.fileSize;
+  if (input.surface) quality.surface = input.surface;
   return quality;
 }
 
@@ -153,7 +163,9 @@ export type RapidAddBusy =
   | "answering"
   | "resolving"
   | "undoing"
-  | "wishlisting";
+  | "wishlisting"
+  | "skipping"
+  | "creating";
 
 export interface RapidAddSessionState {
   captureId: string | null;
@@ -282,17 +294,34 @@ export function canFinalize(input: {
   return summary.uploaded > 0 || Boolean(input.session.barcode) || input.hasHints;
 }
 
-/** Metadata for `POST /api/capture/start`: a scanned GTIN is the strongest evidence. */
+/**
+ * A check (read-only) can run as soon as there is something to match on, in the collecting
+ * phase: the same rule as `canFinalize`, so the bottle flow never checks half-uploaded frames.
+ */
+export function canCheck(input: {
+  frames: readonly CaptureFrameEntry[];
+  session: RapidAddSessionState;
+  hasHints: boolean;
+}): boolean {
+  return canFinalize(input);
+}
+
+/**
+ * Metadata for `POST /api/capture/start`: a scanned GTIN is the strongest evidence. Sticky
+ * (batch) hints fill the brand, finish and collection a bottle's own hint leaves empty.
+ */
 export function buildStartMetadata(input: {
   barcode: ScannedBarcode | null;
   hints: { brand?: string; shadeName?: string; finish?: string; collection?: string };
+  sticky?: StickyHints | null;
 }): Record<string, unknown> {
   const metadata: Record<string, unknown> = { source: "web-rapid-add" };
   const trimmed = (value?: string) => (value && value.trim() ? value.trim() : undefined);
-  const brand = trimmed(input.hints.brand);
+  const sticky = input.sticky ? hintsToStartMetadata(input.sticky) : {};
+  const brand = trimmed(input.hints.brand) ?? sticky.brand;
   const shadeName = trimmed(input.hints.shadeName);
-  const finish = trimmed(input.hints.finish);
-  const collection = trimmed(input.hints.collection);
+  const finish = trimmed(input.hints.finish) ?? sticky.finish;
+  const collection = trimmed(input.hints.collection) ?? sticky.collection;
   if (brand) metadata.brand = brand;
   if (shadeName) metadata.shadeName = shadeName;
   if (finish) metadata.finish = finish;

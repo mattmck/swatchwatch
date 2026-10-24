@@ -3,6 +3,8 @@
 import { LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth, useDevAuth } from "@/hooks/use-auth";
+import { clearAllShelves, safeShelfStorage } from "@/lib/rapid-add-shelf";
+import { clearStickyHints, safeLocalStorage } from "@/lib/sticky-hints-store";
 
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
 
@@ -35,7 +37,17 @@ function B2CUserCard() {
   }
 
   return (
-    <UserCardInner name={user.name} email={user.email} onSignOut={logout} />
+    <UserCardInner
+      name={user.name}
+      email={user.email}
+      onSignOut={() => {
+        // The Rapid Add shelf is per user and per tab session; never leave it to the next user.
+        clearAllShelves(safeShelfStorage());
+        // Likewise the remembered "going through this brand" hints.
+        clearStickyHints(safeLocalStorage());
+        logout();
+      }}
+    />
   );
 }
 

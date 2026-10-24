@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_LOOKS_STATE, buildLooksQueryString, lookColorLabHref, parseLooksState } from "./looks-url";
+import { DEFAULT_LOOKS_STATE, buildLooksQueryString, lookColorLabHref, lookShareUrl, parseLooksState } from "./looks-url";
 import { parseColorSearchState } from "./color-search-url";
 
 const parse = (qs: string) => parseLooksState(new URLSearchParams(qs));
@@ -80,5 +80,26 @@ describe("lookColorLabHref (#386)", () => {
     const state = parseColorSearchState(new URLSearchParams(href.split("?")[1]));
     assert.deepEqual(state.paletteAnchors, ["#111111"]);
     assert.equal(state.returnTo, null);
+  });
+});
+
+describe("skin tone in the URL", () => {
+  it("round-trips undertone and depth and omits them by default", () => {
+    const state = parseLooksState(new URLSearchParams("undertone=cool&depth=deep"));
+    assert.deepEqual(state.vibe.skinTone, { undertone: "cool", depth: "deep" });
+    assert.equal(buildLooksQueryString(state), "undertone=cool&depth=deep");
+    assert.equal("skinTone" in parseLooksState(new URLSearchParams("")).vibe, false);
+    assert.equal(buildLooksQueryString(parseLooksState(new URLSearchParams(""))), "");
+  });
+
+  it("fills the missing axis with no preference and ignores unknown values", () => {
+    assert.deepEqual(parseLooksState(new URLSearchParams("undertone=warm")).vibe.skinTone, { undertone: "warm", depth: "medium" });
+    assert.deepEqual(parseLooksState(new URLSearchParams("depth=Tan")).vibe.skinTone, { undertone: "neutral", depth: "tan" });
+    assert.equal(parseLooksState(new URLSearchParams("undertone=green&depth=huge")).vibe.skinTone, undefined);
+  });
+
+  it("keeps skin tone out of the copied share link", () => {
+    const state = parseLooksState(new URLSearchParams("undertone=cool&depth=deep&mood=bold"));
+    assert.equal(lookShareUrl("https://x.test", "/polishes/looks", state), "https://x.test/polishes/looks?mood=bold");
   });
 });

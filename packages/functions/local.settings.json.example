@@ -23,6 +23,7 @@
     "SOURCE_IMAGE_CONTAINER": "source-images",
     "USER_MEDIA_CONTAINER": "nail-photos",
     "CONNECTOR_RAW_CONTAINER": "connector-raw",
+    "BLOB_STORAGE_MAX_CONNECTIONS": "16",
 
     "IMAGE_PROXY_SIGNING_KEY": "",
     "IMAGE_PROXY_ID_TTL_SECONDS": "259200",
@@ -34,8 +35,14 @@
     "ORPHAN_MEDIA_SWEEP_BATCH_SIZE": "100",
     "ORPHAN_MEDIA_SWEEP_MAX_PER_RUN": "2000",
 
+    "CAPTURE_FRAME_SWEEP_SCHEDULE": "0 0 * * * *",
+    "CAPTURE_FRAME_RETENTION_SECONDS": "86400",
+    "CAPTURE_FRAME_SWEEP_BATCH_SIZE": "200",
+    "CAPTURE_FRAME_SWEEP_MAX_PER_RUN": "2000",
+
     "SHAREABLE_WISHLIST_ENABLED": "false",
     "SHAREABLE_LOOKS_ENABLED": "false",
+    "BOTTLE_CAPTURE_ENABLED": "false",
     "HEX_DETECTION_BATCH_ENABLED": "false",
     "HEX_DETECTION_SNAP_ENABLED": "false",
 
@@ -83,6 +90,8 @@
     "REDIS_KEY": "",
 
     "CORS_ALLOWED_ORIGINS": "http://localhost:3000,https://*.azurestaticapps.net",
+    "CORS_ALLOWED_METHODS": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+    "CORS_ALLOWED_HEADERS": "Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context",
     "CORS_SUPPORT_CREDENTIALS": "false",
 
     "APPLICATIONINSIGHTS_CONNECTION_STRING": "",
@@ -100,9 +109,5 @@
     "NEXT_PUBLIC_B2C_TENANT_ID": "<YOUR_B2C_TENANT_ID>",
     "NEXT_PUBLIC_B2C_CLIENT_ID": "<YOUR_B2C_CLIENT_ID>",
     "NEXT_PUBLIC_B2C_SIGNUP_SIGNIN_POLICY": "B2C_1_signupsignin"
-  },
-  "Host": {
-    "CORS": "http://localhost:3000",
-    "CORSCredentials": true
   }
 }

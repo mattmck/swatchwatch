@@ -3,19 +3,21 @@
 import { useEffect, type ReactNode } from "react";
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
 import { buildMsalConfig } from "@/lib/msal-config";
+import { registerServiceWorker } from "@/lib/service-worker";
 import { clearUser, initTelemetry, isTelemetryEnabled, setUser } from "@/lib/telemetry";
 
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
 const HAS_B2C_CONFIG = buildMsalConfig() !== null;
 
 /**
- * Starts browser telemetry after hydration and tags it with the signed-in
+ * Starts browser telemetry, registers the PWA service worker after hydration and tags it with the signed-in
  * user's internal id. Must sit inside `AuthProvider`. Renders nothing extra
  * and does nothing when telemetry is off.
  */
 export function TelemetryProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void initTelemetry();
+    registerServiceWorker().catch((error) => console.warn("[pwa] Service worker setup failed:", error));
   }, []);
 
   return (

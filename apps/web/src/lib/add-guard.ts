@@ -37,6 +37,7 @@ export type AddGuardSurface =
   | "polishes-list"
   | "color-search"
   | "photo-match"
+  | "rapid-add"
   | "polish-form-create"
   | "polish-form-edit"
   | "looks";

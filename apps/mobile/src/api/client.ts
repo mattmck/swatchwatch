@@ -4,6 +4,10 @@
  * Only the endpoints the app uses are here; add more by copying the web function.
  */
 import type {
+  PolishImportCommitResponse,
+  PolishImportCreateRequest,
+  PolishImportDecision,
+  PolishImportSession,
   CaptureAnswerRequest,
   CaptureAnswerResponse,
   CaptureCheckResponse,
@@ -15,7 +19,11 @@ import type {
   CaptureStatusResponse,
   CatalogSearchResponse,
   CatalogShadeDetail,
+  CollectionExportFormat,
+  CollectionStatsResponse,
   ColorFamily,
+  FeatureFlagsResponse,
+  FinishTypeListResponse,
   ManicureCreateRequest,
   ManicureDeleteResponse,
   ManicureFilters,
@@ -25,15 +33,21 @@ import type {
   NailPhotoResponse,
   NailPhotoUploadRequest,
   Polish,
+  PolishCreateRequest,
   PolishDupesResponse,
   PolishFilters,
   PolishImageMatchRequest,
   PolishImageMatchResponse,
   PolishListResponse,
+  PolishStatus,
   PolishUpdateRequest,
+  SavedLook,
+  SavedLookInput,
+  SavedLookListResponse,
 } from "swatchwatch-shared";
 import { API_BASE_URL } from "@/config/env";
 import { getAuthorizationHeader, notifySessionExpired } from "@/auth/auth-token";
+import { collectionExportPath } from "@/lib/collection-export";
 
 export { API_BASE_URL };
 
@@ -159,6 +173,8 @@ export function listPolishes(filters: PolishFilters = {}): Promise<PolishListRes
       status: filters.status?.length ? filters.status.join(",") : undefined,
       untried: filters.untried ? "true" : undefined,
       family: filters.families?.length ? filters.families.join(",") : undefined,
+      category: filters.categories?.length ? filters.categories.join(",") : undefined,
+      nearHex: filters.nearHex?.length ? filters.nearHex.map((hex) => hex.replace(/^#/, "").toUpperCase()).join(",") : undefined,
       sortBy: filters.sortBy,
       sortOrder: filters.sortOrder,
       page: filters.page,
@@ -185,6 +201,24 @@ export async function listAllPolishes(filters: Omit<PolishFilters, "page" | "pag
 /** One polish by shade id (the caller's inventory fields when they have a row). */
 export function getPolish(id: string | number): Promise<Polish> {
   return apiRequest<Polish>(`/polishes/${encodeURIComponent(String(id))}`);
+}
+
+/**
+ * `POST /api/polishes`: the manual add form. Creates (or matches by brand + name) the shade and
+ * the caller's inventory row; a `barcode` is remembered for the caller only (#21).
+ */
+export function createPolish(data: PolishCreateRequest): Promise<Polish> {
+  return apiRequest<Polish>("/polishes", { method: "POST", body: data });
+}
+
+/** Server feature flags (`GET /api/config/flags`, anonymous: no auth header). */
+export function getFeatureFlags(): Promise<FeatureFlagsResponse> {
+  return apiRequest<FeatureFlagsResponse>("/config/flags", { auth: false });
+}
+
+/** Public finish reference rows (`GET /api/reference/finishes`, no auth). */
+export function listReferenceFinishTypes(): Promise<FinishTypeListResponse> {
+  return apiRequest<FinishTypeListResponse>("/reference/finishes", { auth: false });
 }
 
 /**
@@ -240,6 +274,30 @@ export function createManicure(data: ManicureCreateRequest): Promise<ManicureMut
 
 export function deleteManicure(id: string | number): Promise<ManicureDeleteResponse> {
   return apiRequest<ManicureDeleteResponse>(`/manicures/${encodeURIComponent(String(id))}`, { method: "DELETE" });
+}
+
+// ── Saved looks ─────────────────────────────────────────────────────────────
+
+/** The caller's saved looks, newest first (`GET /api/looks`). */
+export async function listSavedLooks(): Promise<SavedLook[]> {
+  return (await apiRequest<SavedLookListResponse>("/looks")).looks;
+}
+
+/** Save (or re-save) a look (`POST /api/looks`); the server keeps the newest 30. */
+export function saveLook(look: SavedLookInput): Promise<SavedLook> {
+  return apiRequest<SavedLook>("/looks", {
+    method: "POST",
+    body: { id: look.id, templateId: look.templateId, name: look.name, vibe: look.vibe, steps: look.steps },
+  });
+}
+
+/** Delete a saved look by its look key (`DELETE /api/looks?key=`). A 404 (already gone) resolves. */
+export async function deleteSavedLook(key: string): Promise<void> {
+  try {
+    await apiRequest<void>(`/looks${query({ key })}`, { method: "DELETE" });
+  } catch (error) {
+    if (!(error instanceof ApiError && error.status === 404)) throw error;
+  }
 }
 
 // ── Catalog (anonymous) ─────────────────────────────────────────────────────
@@ -383,4 +441,89 @@ export async function listOwnedColorPolishes(families: ColorFamily[] = []): Prom
     ),
   );
   return [...first.polishes, ...rest.flatMap((page) => page.polishes)];
+}
+
+// ── Insights and export (#271, #264) ────────────────────────────────────────
+
+/** The caller's collection stats (`GET /api/stats/collection`, cached server-side ≤ 60s). */
+export function getCollectionStats(): Promise<CollectionStatsResponse> {
+  return apiRequest<CollectionStatsResponse>("/stats/collection");
+}
+
+/** A downloaded collection export: the file body and the server's `Content-Disposition`. */
+export interface DownloadedCollectionExport {
+  text: string;
+  contentDisposition: string | null;
+}
+
+/**
+ * `GET /api/polishes/export` as text, with the same bearer handling and errors as `apiRequest`
+ * (the body is CSV or JSON, not an API JSON payload). Never log `text`: it is the user's data.
+ */
+export async function downloadCollectionExport(
+  format: CollectionExportFormat,
+  status: readonly PolishStatus[] = [],
+): Promise<DownloadedCollectionExport> {
+  let authorization: string | null;
+  try {
+    authorization = await getAuthorizationHeader();
+  } catch {
+    throw new ApiError(0, "Couldn't renew your sign-in. Check your connection and try again.");
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${collectionExportPath(format, status)}`, {
+      headers: { Accept: format === "csv" ? "text/csv" : "application/json", ...(authorization ? { Authorization: authorization } : {}) },
+      signal: controller.signal,
+    });
+  } catch (error) {
+    clearTimeout(timer);
+    const aborted = error instanceof Error && error.name === "AbortError";
+    throw new ApiError(
+      0,
+      aborted ? "The export timed out. Check your connection and try again." : `Can't reach SwatchWatch at ${API_BASE_URL}.`,
+    );
+  }
+  try {
+    if (response.status === 401) notifySessionExpired();
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+      throw new ApiError(response.status, body?.error || body?.message || `Export failed (${response.status})`, body);
+    }
+    return { text: await response.text(), contentDisposition: response.headers.get("Content-Disposition") };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ── CSV import (#263, #109) ─────────────────────────────────────────────────
+
+/** Large sheets are matched in one request; give it room (matching is batched server side). */
+const IMPORT_TIMEOUT_MS = 120_000;
+
+export function createPolishImport(data: PolishImportCreateRequest): Promise<PolishImportSession> {
+  return apiRequest<PolishImportSession>("/polish-imports", { method: "POST", body: data, timeoutMs: IMPORT_TIMEOUT_MS });
+}
+
+/** Save review decisions without committing. */
+export function savePolishImportDecisions(id: string, decisions: PolishImportDecision[]): Promise<PolishImportSession> {
+  return apiRequest<PolishImportSession>(`/polish-imports/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: { decisions },
+    timeoutMs: IMPORT_TIMEOUT_MS,
+  });
+}
+
+export function commitPolishImport(id: string, decisions: PolishImportDecision[]): Promise<PolishImportCommitResponse> {
+  return apiRequest<PolishImportCommitResponse>(`/polish-imports/${encodeURIComponent(id)}/commit`, {
+    method: "POST",
+    body: { decisions },
+    timeoutMs: IMPORT_TIMEOUT_MS,
+  });
+}
+
+export function deletePolishImport(id: string): Promise<void> {
+  return apiRequest<void>(`/polish-imports/${encodeURIComponent(id)}`, { method: "DELETE" });
 }

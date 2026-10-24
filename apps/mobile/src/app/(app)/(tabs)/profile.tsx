@@ -1,7 +1,9 @@
 import Constants from "expo-constants";
+import { useRouter } from "expo-router";
 import { ScrollView, View } from "react-native";
 import { API_BASE_URL } from "@/config/env";
 import { useAuth } from "@/auth/auth-provider";
+import { ExportCollectionCard } from "@/components/export-collection";
 import { AppText, Button, Card } from "@/components/ui";
 import { useTheme } from "@/theme/theme";
 
@@ -14,6 +16,7 @@ const MODE_LABELS = {
 export default function ProfileScreen() {
   const { user, mode, signOut } = useAuth();
   const theme = useTheme();
+  const router = useRouter();
 
   return (
     <ScrollView contentContainerStyle={{ padding: theme.spacing(4), gap: theme.spacing(4) }}>
@@ -37,6 +40,18 @@ export default function ProfileScreen() {
         <Row label="Sign-in" value={MODE_LABELS[mode]} />
         <Row label="App version" value={Constants.expoConfig?.version ?? "dev"} />
       </Card>
+
+      <Card>
+        <AppText variant="label" muted>
+          Import
+        </AppText>
+        <AppText variant="small" muted>
+          Bring in a spreadsheet of your polishes as a CSV file.
+        </AppText>
+        <Button title="Import from CSV" variant="outline" onPress={() => router.push("/import")} testID="profile-import" />
+      </Card>
+
+      <ExportCollectionCard />
 
       <Button title="Sign out" variant="outline" onPress={() => void signOut()} />
     </ScrollView>

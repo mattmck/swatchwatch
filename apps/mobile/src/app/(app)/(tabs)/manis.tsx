@@ -8,6 +8,7 @@ import { deleteManicure, errorMessage, getPolish, listManicures } from "@/api/cl
 import { LogManiSheet } from "@/components/log-mani-sheet";
 import { PrivateImage } from "@/components/private-image";
 import { ColorDot } from "@/components/swatch";
+import { EmptyState } from "@/components/empty-state";
 import { AppText, Button, Card, CenteredState, Chip, ErrorBanner } from "@/components/ui";
 import { entryFromManicurePolish, formatWornOn, ROLE_LABELS } from "@/lib/mani";
 import { useTheme } from "@/theme/theme";
@@ -19,7 +20,9 @@ export default function ManisScreen() {
   const theme = useTheme();
   const { user } = useAuth();
   const scope = user ? String(user.userId) : null;
-  const { log } = useLocalSearchParams<{ log?: string }>();
+  const { log, shade } = useLocalSearchParams<{ log?: string; shade?: string }>();
+  /** `/manis?shade=<id>` (from a polish's wear history) limits the list to manis with that polish. */
+  const shadeFilter = shade || undefined;
   /** Serializes saved-copy updates after deletes. */
   const cacheUpdates = useRef<Promise<void>>(Promise.resolve());
   const [items, setItems] = useState<Manicure[]>([]);
@@ -42,8 +45,8 @@ export default function ManisScreen() {
       return [...prev, ...res.manicures.filter((m) => !seen.has(m.id))];
     });
     setError(null);
-    if (nextPage === 1 && scope) void writeCache(scope, "manis", { items: withoutPhotoUrls(res.manicures), total: res.total });
-  }, [scope]);
+    if (nextPage === 1 && scope && !shadeFilter) void writeCache(scope, "manis", { items: withoutPhotoUrls(res.manicures), total: res.total });
+  }, [scope, shadeFilter]);
 
   /**
    * Request version: every page-1 load (including the first one) starts a new one, and only the
@@ -56,7 +59,7 @@ export default function ManisScreen() {
     (nextPage: number): Promise<void> => {
       const version = nextPage === 1 ? ++requestVersion.current : requestVersion.current;
       const isCurrent = () => version === requestVersion.current;
-      return listManicures({ page: nextPage, pageSize: PAGE_SIZE })
+      return listManicures({ page: nextPage, pageSize: PAGE_SIZE, shadeId: shadeFilter })
         .then((res) => {
           if (isCurrent()) apply(res, nextPage);
         })
@@ -67,14 +70,14 @@ export default function ManisScreen() {
           if (isCurrent()) setLoading(false);
         });
     },
-    [apply],
+    [apply, shadeFilter],
   );
 
   useEffect(() => {
     let cancelled = false;
     let freshArrived = false;
     // Saved page 1 first (stale-while-revalidate), unless the fresh one already landed.
-    if (scope) {
+    if (scope && !shadeFilter) {
       void readCache<{ items: Manicure[]; total: number }>(scope, "manis").then((entry) => {
         if (!entry || cancelled || freshArrived) return;
         setItems(entry.data.items);
@@ -85,7 +88,7 @@ export default function ManisScreen() {
     }
     const version = ++requestVersion.current;
     const isCurrent = () => !cancelled && version === requestVersion.current;
-    listManicures({ page: 1, pageSize: PAGE_SIZE })
+    listManicures({ page: 1, pageSize: PAGE_SIZE, shadeId: shadeFilter })
       .then((res) => {
         freshArrived = true;
         if (isCurrent()) apply(res, 1);
@@ -95,7 +98,7 @@ export default function ManisScreen() {
     return () => {
       cancelled = true;
     };
-  }, [apply, scope]);
+  }, [apply, scope, shadeFilter]);
 
   // `/manis?log=<shadeId>` (from a polish) opens the sheet with that polish selected.
   useEffect(() => {
@@ -180,6 +183,9 @@ export default function ManisScreen() {
               }}
               testID="log-mani-open"
             />
+            {shadeFilter && (
+              <Chip label="Only manis with this polish ✕" onPress={() => router.setParams({ shade: undefined })} />
+            )}
             {notice && (
               <AppText variant="small" style={{ color: theme.colors.success }}>
                 {notice}
@@ -194,7 +200,21 @@ export default function ManisScreen() {
           loading ? (
             <CenteredState loading />
           ) : error ? null : (
-            <CenteredState title="No manis yet" message="Log what you wear and your polishes' wear counts fill in." />
+            shadeFilter ? (
+              <EmptyState
+                testID="manis-empty-filtered"
+                title="No manis with this polish yet"
+                message="Log a mani with it and it shows up here."
+                actions={[{ title: "Show all manis", onPress: () => router.setParams({ shade: undefined }) }]}
+              />
+            ) : (
+              <EmptyState
+                testID="manis-empty"
+                title="Log your first mani"
+                message="Tap Log a mani above and each polish's wear count, last worn date and cost per wear fill in."
+                actions={[{ title: "Pick from your collection", onPress: () => router.navigate("/") }]}
+              />
+            )
           )
         }
       />

@@ -28,6 +28,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Loader2, Sparkles, Upload } from "luci
 import { ColorDot } from "@/components/color-dot";
 import { LogManiButton } from "@/components/log-mani-button";
 import { WishlistShareCard } from "@/components/wishlist-share-card";
+import { WishlistValue } from "@/components/wishlist-value";
 import { CollectionQuickActions, type QuickActionSource } from "@/components/collection-quick-actions";
 import { StatusChip, UntriedBadge } from "@/components/status-chip";
 import { StatusFilter } from "@/components/status-filter";
@@ -57,6 +58,11 @@ import {
   type SortKey,
 } from "@/lib/polish-list-url";
 import { trackEvent } from "@/lib/telemetry";
+import { currentCacheContext, ownedListCacheQuery, readOwnedList, writeOwnedList } from "@/lib/api-cache";
+import { claimOfflineShown, isApiUnreachable, savedCopyAgeBucket, unreachableMessage } from "@/lib/offline";
+import { trackCollectionOfflineShown } from "@/lib/metrics-events";
+import { useOnlineRetry } from "@/hooks/use-online-retry";
+import { SavedCopyBanner } from "@/components/saved-copy-banner";
 import { DUPE_GRADE_META, dupeHintLabel, dupeHintTitle, dupeHref } from "@/lib/dupes";
 import { useDupeHints } from "@/hooks/use-dupe-hints";
 import { useAddGuard } from "@/hooks/use-add-guard";
@@ -170,6 +176,15 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const [loading, setLoading] = useState(true);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Offline: when the API is unreachable and a saved copy of this view exists, `savedAt` is when
+  // that copy was loaded. It is shown read-only under a banner (writes and export are disabled).
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const offline = savedAt !== null;
+  // The saved first page is on screen while the request runs: quantity/status writes would send
+  // values from the copy, so they wait for fresh data.
+  const [showingWarmCopy, setShowingWarmCopy] = useState(false);
+  const { tick: retryTick, retry: retryNow } = useOnlineRetry();
+  const hasLoadedRef = useRef(false);
   const { finishTypes } = useReferenceData();
   const finishOptions = useMemo(() => buildFinishOptions(finishTypes), [finishTypes]);
   const knownFinishes = useMemo(() => knownFinishNames(finishTypes), [finishTypes]);
@@ -276,9 +291,24 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     let cancelled = false;
 
     async function fetchPolishesPage() {
+      // Saved copy of the first owned page (stale-while-revalidate): shown at once on a cold
+      // view while the request runs, and the fallback when the API cannot be reached.
+      const cacheQuery = ownedListCacheQuery({ ...listState, page, pageSize });
+      const readSaved = () => {
+        const ctx = cacheQuery ? currentCacheContext() : null;
+        return ctx && cacheQuery ? readOwnedList(ctx, cacheQuery) : null;
+      };
       try {
         setLoading(true);
         setError(null);
+
+        const warm = hasLoadedRef.current ? null : readSaved();
+        if (warm) {
+          setPolishes(warm.data.polishes);
+          setTotal(warm.data.total);
+          setHasLoaded(true);
+          setShowingWarmCopy(true);
+        }
 
         const baseFilters = toApiFilters(listState);
 
@@ -312,14 +342,27 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
         if (!cancelled) {
           setPolishes(response.polishes);
           setTotal(response.total);
+          setSavedAt(null);
+          const ctx = cacheQuery ? currentCacheContext() : null;
+          if (ctx && cacheQuery) writeOwnedList(ctx, cacheQuery, response);
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Failed to load polishes";
         if (!cancelled) {
-          setError(message);
+          const saved = isApiUnreachable(err) ? readSaved() : null;
+          if (saved) {
+            setPolishes(saved.data.polishes);
+            setTotal(saved.data.total);
+            setSavedAt(saved.savedAt);
+          } else {
+            setSavedAt(null);
+            setError(isApiUnreachable(err) ? unreachableMessage("view") : message);
+          }
         }
       } finally {
         if (!cancelled) {
+          hasLoadedRef.current = true;
+          setShowingWarmCopy(false);
           setHasLoaded(true);
           setLoading(false);
         }
@@ -330,7 +373,15 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [listState, page, pageSize, toneFilter]);
+  }, [listState, page, pageSize, toneFilter, retryTick]);
+
+  // Once per saved copy shown (a retry that fails again keeps the same copy).
+  useEffect(() => {
+    if (savedAt !== null && claimOfflineShown(`list:${ownedListCacheQuery({ ...listState, page, pageSize })}:${savedAt}`)) {
+      trackCollectionOfflineShown({ surface: "list", age: savedCopyAgeBucket(savedAt, Date.now()) });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedAt]);
 
   // Reset page when filters change (but keep initial URL-restored page). Compares against the
   // last seen filters instead of a "did mount" flag, so React Strict Mode's second effect run on
@@ -601,10 +652,10 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   // handlers (add guard, optimistic updates, mani logging).
   const renderRowActions = (polish: Polish) => (
     <>
-      {isOwnedPolish(polish) && <LogManiButton polish={polish} variant="icon" />}
+      {isOwnedPolish(polish) && <LogManiButton polish={polish} variant="icon" disabled={offline} />}
       <CollectionQuickActions
         polish={polish}
-        pending={actionPendingById[polish.id] === true || isGuardChecking(shadeGuardKey(polish.id))}
+        pending={offline || showingWarmCopy || actionPendingById[polish.id] === true || isGuardChecking(shadeGuardKey(polish.id))}
         onAction={(action, source) => handleCollectionAction(polish.id, action, source)}
         onQuantityChange={(delta) => handleQuantityChange(polish.id, delta)}
       />
@@ -622,19 +673,35 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <PickForMeButton />
-          <CollectionExportMenu />
-          <Button asChild variant="outline">
-            <Link href="/polishes/import">
-              <Upload aria-hidden="true" />
-              Import
-            </Link>
-          </Button>
-          <Button asChild>
-            <Link href="/polishes/new">+ Add Polish</Link>
-          </Button>
+          <PickForMeButton disabled={offline} />
+          <CollectionExportMenu disabled={offline} />
+          {offline ? (
+            <>
+              <Button variant="outline" disabled>
+                <Upload aria-hidden="true" />
+                Import
+              </Button>
+              <Button disabled>+ Add Polish</Button>
+            </>
+          ) : (
+            <>
+              <Button asChild variant="outline">
+                <Link href="/polishes/import">
+                  <Upload aria-hidden="true" />
+                  Import
+                </Link>
+              </Button>
+              <Button asChild>
+                <Link href="/polishes/new">+ Add Polish</Link>
+              </Button>
+            </>
+          )}
         </div>
       </div>
+
+      {savedAt !== null && (
+        <SavedCopyBanner savedAt={savedAt} subject="collection" retrying={loading} onRetry={retryNow} />
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
@@ -703,6 +770,8 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       <ProductCategoryChips value={selectedCategories} onChange={(next) => setCategoryFilter(next.join(","))} />
       {/* Opt-in public wishlist link (#268); hidden unless the server flag is on. */}
       {statusPresetFor(statuses) === "wishlist" && <WishlistShareCard />}
+      {/* What the wishlist adds up to (brand list prices, per currency; all wishlist rows, not the page). */}
+      {statusPresetFor(statuses) === "wishlist" && <WishlistValue refreshKey={total} />}
 
       {showEmptyState && (
         <PolishesEmptyState
@@ -834,7 +903,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                           type="button"
                           size="xs"
                           variant="outline"
-                          disabled={recalcPending}
+                          disabled={recalcPending || offline}
                           onClick={() => handleRecalcHex(polish.id)}
                         >
                           {recalcPending ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
@@ -1027,7 +1096,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                           size="xs"
                           variant="outline"
                           className="min-w-[102px] justify-center"
-                          disabled={recalcPending}
+                          disabled={recalcPending || offline}
                           onClick={() => handleRecalcHex(polish.id)}
                         >
                           {recalcPending ? (

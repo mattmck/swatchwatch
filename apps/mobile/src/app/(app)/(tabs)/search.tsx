@@ -7,6 +7,7 @@ import { ColorSearchPanel } from "@/components/color-search-panel";
 import { SearchRow, useSetPolishStatus } from "@/components/search-row";
 import { AppText, Button, CenteredState, Chip, ErrorBanner } from "@/components/ui";
 import { normalizeHexParam } from "@/lib/color-search";
+import { manualAddRoute } from "@/lib/manual-add";
 import { useTheme } from "@/theme/theme";
 
 const PAGE_SIZE = 25;
@@ -157,6 +158,13 @@ function TextSearch() {
           loading ? null : searched ? (
             <View style={{ padding: theme.spacing(4), gap: theme.spacing(3) }}>
               <AppText muted>No shades match “{searched}”.</AppText>
+              <Button
+                title="Can't find it? Add it manually"
+                variant="outline"
+                compact
+                onPress={() => router.push(manualAddRoute({ name: searched }))}
+                style={{ alignSelf: "flex-start" }}
+              />
               {suggestions.length > 0 && (
                 <>
                   <AppText variant="label" muted>

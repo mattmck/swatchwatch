@@ -193,7 +193,8 @@ interface LookCardProps {
   saved: boolean;
   onWear: () => void;
   onSave: () => void;
-  onSwap: (role: LookStepRole, polish: Polish) => void;
+  /** Swap the polish of the step at `stepIndex` (a look can have two accents). */
+  onSwap: (stepIndex: number, polish: Polish) => void;
   /** Open the "Add missing items" shopping list. */
   onShop: () => void;
   /** Open the detail drawer. */
@@ -245,8 +246,8 @@ export function LookCard({
       <CardContent className="flex-1 space-y-2">
         <LookSwatchStrip steps={look.steps} backdrop={backdrop} />
         <ul className="divide-y divide-border">
-          {look.steps.map((step) => (
-            <StepRow key={step.role} step={step} returnTo={returnTo} onSwap={(polish) => onSwap(step.role, polish)} />
+          {look.steps.map((step, index) => (
+            <StepRow key={`${step.role}-${index}`} step={step} returnTo={returnTo} onSwap={(polish) => onSwap(index, polish)} />
           ))}
         </ul>
         {look.missingSteps > 0 && (

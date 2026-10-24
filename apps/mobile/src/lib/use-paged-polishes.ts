@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Polish, PolishFilters } from "swatchwatch-shared";
 import { errorMessage, listPolishes } from "@/api/client";
 import { readCache, writeCache } from "./api-cache";
+import { polishFiltersKey } from "./collection-filters";
 
 const PAGE_SIZE = 30;
 
@@ -36,7 +37,7 @@ interface Loaded {
  * from page 1 (`loading` until it arrives); responses for an older filter set are dropped.
  */
 export function usePagedPolishes(filters: PolishFilters, cacheScope?: string): PagedPolishes {
-  const key = JSON.stringify(filters);
+  const key = polishFiltersKey(filters);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [failed, setFailed] = useState<{ key: string; message: string } | null>(null);
   const [refreshing, setRefreshing] = useState(false);

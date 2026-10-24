@@ -21,6 +21,8 @@ const {
   describeFetchError,
 } = require("../dist/lib/fetch-retry");
 const { uploadSourceImageToBlob, readBlobFromStorageUrl } = require("../dist/lib/blob-storage");
+// Blob Storage requests use lib/storage-http's transport; send them to the stubbed global.fetch.
+require("../dist/lib/storage-http").blobStorageTransport.fetch = (url, init) => global.fetch(url, init);
 
 function fetchFailed(code = "ECONNRESET") {
   const cause = Object.assign(new Error(`read ${code}`), { code });

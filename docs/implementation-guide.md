@@ -673,7 +673,7 @@ This section describes a practical Azure implementation that minimizes server ma
 
 ## 18.1 Core Azure Services (Suggested)
 
-- API Layer: **Azure API Management** in front of **Azure Functions** (HTTP triggers).
+- API Layer: **Azure Functions** (HTTP triggers) exposed directly. _An API Management gateway was planned here and dropped ([D25](decisions-2026-10.md#d25--azure-openai-apim-gateway-removed-2026-10-23))._
 - Workflows: **Durable Functions** for long-running ingestion (OCR, matching, enrichment) and “question/answer” loops.
 - Queue/Eventing: **Azure Service Bus** and/or **Event Grid** for async fan-out (new media uploaded, new capture session finalized).
 - Media Storage: **Azure Blob Storage** (original images/video snippets, thumbnails, normalized swatches).
@@ -762,7 +762,7 @@ New tables (minimal):
 
 ## 19.4 Build Plan (Serverless Azure)
 
-- Step 0: Provision Azure resources: Blob Storage, Functions, Durable Functions storage, API Management, Postgres (or SQL), Application Insights.
+- Step 0: Provision Azure resources: Blob Storage, Functions, Durable Functions storage, Postgres (or SQL), Application Insights.
 - Step 1: Implement canonical DB + inventory CRUD + basic resolver (barcode lookup + pg_trgm shade search).
 - Step 2: Implement Rapid Add capture session APIs + Blob uploads; persist frames and session state.
 - Step 3: Durable Function finalize workflow: OCR → parse → candidates → decide match OR ask question.

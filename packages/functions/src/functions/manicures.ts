@@ -23,6 +23,7 @@ import { withCors } from "../lib/http";
 import { internalServerError } from "../lib/errors";
 import { toImageProxyUrl } from "../lib/image-proxy";
 import { isCatalogStorageUrl, isUserMediaStorageUrl } from "../lib/blob-storage";
+import { CAPTURE_FRAME_INLINE_PREFIX, isCaptureFrameStorageUrl } from "../lib/capture-frame-store";
 import { invalidatePolishCachesForUser } from "../lib/polish-cache";
 import { releaseManicurePhoto } from "../lib/manicure-photo";
 import { deleteNailPhotoBlobs } from "../lib/nail-photos";
@@ -169,10 +170,13 @@ async function getManicureForUser(manicureId: number, userId: number, requestUrl
   return manicure;
 }
 
-/** 404 unless `imageId` is an image_asset the caller owns (`owner_type = 'user'`). */
+/**
+ * 404 unless `imageId` is an image_asset the caller owns (`owner_type = 'user'`); 400 when it is
+ * a Rapid Add capture frame (its blob is released when the scan ends, so it is never a photo).
+ */
 async function assertOwnedPhoto(client: PoolClient, userId: number, imageId: number): Promise<void> {
-  const owned = await client.query(
-    `SELECT 1
+  const owned = await client.query<{ storageUrl: string | null }>(
+    `SELECT storage_url AS "storageUrl"
      FROM image_asset
      WHERE image_id = $1
        AND owner_type = 'user'
@@ -181,6 +185,13 @@ async function assertOwnedPhoto(client: PoolClient, userId: number, imageId: num
   );
   if (owned.rows.length === 0) {
     throw new ManicureRequestError(404, "Photo not found");
+  }
+  const storageUrl = owned.rows[0].storageUrl;
+  if (
+    isCaptureFrameStorageUrl(storageUrl, userId) ||
+    (typeof storageUrl === "string" && storageUrl.startsWith(CAPTURE_FRAME_INLINE_PREFIX))
+  ) {
+    throw new ManicureRequestError(400, "capture frames cannot be used as photos");
   }
 }
 

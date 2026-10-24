@@ -12,6 +12,11 @@ import type {
   CaptureFrameRequest,
   CaptureFrameResponse,
   CaptureFrameType,
+  BottleEvalFrameAddResponse,
+  BottleEvalFrameRequest,
+  BottleEvalSampleListResponse,
+  BottleEvalSampleRequest,
+  BottleEvalSampleResponse,
   IngestionJobListResponse,
   IngestionJobRunRequest,
   IngestionJobRunResponse,
@@ -95,7 +100,7 @@ import type {
   CollectionExportFormat,
   CollectionStatsResponse,
 } from "swatchwatch-shared";
-import { WISHLIST_SHARE_FEATURE_DISABLED_CODE } from "swatchwatch-shared";
+import { WISHLIST_SHARE_FEATURE_DISABLED_CODE, type FeatureFlagsResponse } from "swatchwatch-shared";
 
 import type { NailPhotoResponse } from "swatchwatch-shared";
 
@@ -1118,6 +1123,71 @@ export async function undoVendorHexPromotion(shadeId: string): Promise<HexLabelP
   return handleResponse<HexLabelPromoteResponse>(response);
 }
 
+// ── Bottle eval samples (admin) ─────────────────────────────────────────────
+
+/** Admin bottle eval samples, newest first (`GET /api/bottle-eval-admin/samples`). */
+export async function listBottleEvalSamples(params?: {
+  after?: string;
+  limit?: number;
+}): Promise<BottleEvalSampleListResponse> {
+  const query = new URLSearchParams();
+  if (params?.after) query.set("after", params.after);
+  if (typeof params?.limit === "number") query.set("limit", String(params.limit));
+  const qs = query.toString();
+  const response = await fetch(`${API_BASE_URL}/bottle-eval-admin/samples${qs ? `?${qs}` : ""}`, {
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<BottleEvalSampleListResponse>(response);
+}
+
+/** Create a labeled bottle eval sample (`POST /api/bottle-eval-admin/samples`, 201). */
+export async function createBottleEvalSample(body: BottleEvalSampleRequest): Promise<BottleEvalSampleResponse> {
+  const response = await fetch(`${API_BASE_URL}/bottle-eval-admin/samples`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(body),
+  });
+  return handleResponse<BottleEvalSampleResponse>(response);
+}
+
+/** Add one photographed surface to a sample (`POST /api/bottle-eval-admin/samples/{id}/frames`, 201). */
+export async function addBottleEvalFrame(
+  sampleId: string,
+  body: BottleEvalFrameRequest
+): Promise<BottleEvalFrameAddResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/bottle-eval-admin/samples/${encodeURIComponent(sampleId)}/frames`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+      body: JSON.stringify(body),
+    }
+  );
+  return handleResponse<BottleEvalFrameAddResponse>(response);
+}
+
+/** Delete a sample and its frames (`DELETE /api/bottle-eval-admin/samples/{id}`, 204). */
+export async function deleteBottleEvalSample(sampleId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/bottle-eval-admin/samples/${encodeURIComponent(sampleId)}`, {
+    method: "DELETE",
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  if (!response.ok) {
+    await handleResponse<unknown>(response);
+  }
+}
+
+/** Delete one frame of a sample (`DELETE /api/bottle-eval-admin/samples/{id}/frames/{frameId}`, 204). */
+export async function deleteBottleEvalFrame(sampleId: string, frameId: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/bottle-eval-admin/samples/${encodeURIComponent(sampleId)}/frames/${encodeURIComponent(frameId)}`,
+    { method: "DELETE", headers: await getAuthHeaders({ admin: true }) }
+  );
+  if (!response.ok) {
+    await handleResponse<unknown>(response);
+  }
+}
+
 // ── Private nail photos (#270) ──────────────────────────────────────────────
 
 function nailPhotoUrl(inventoryItemId: string | number): string {
@@ -1248,6 +1318,22 @@ export async function runProductCategoryBackfill(
     body: JSON.stringify(data),
   });
   return handleResponse<ProductCategoryBackfillReport>(response);
+}
+
+/**
+ * One batch of a keyset-paginated admin backfill (`POST /api/<path>`, e.g.
+ * `images-admin/variants/backfill`); the admin console's Backfills tab loops over the reports.
+ */
+export async function runAdminBackfillBatch(
+  path: string,
+  body: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const response = await fetch(`${API_BASE_URL}/${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(body),
+  });
+  return handleResponse<Record<string, unknown>>(response);
 }
 
 /** Browse shades by product category (`GET /api/shades-admin/product-category`). */
@@ -1391,4 +1477,12 @@ export async function getPublicLook(token: string): Promise<PublicLookResponse> 
     cache: "no-store",
   });
   return handleResponse<PublicLookResponse>(response);
+}
+
+// ── Feature flags (#313) ────────────────────────────────────────────────────
+
+/** Public feature flags (anonymous, cached 60s by the API). */
+export async function getFeatureFlags(): Promise<FeatureFlagsResponse> {
+  const response = await fetch(`${API_BASE_URL}/config/flags`);
+  return handleResponse<FeatureFlagsResponse>(response);
 }

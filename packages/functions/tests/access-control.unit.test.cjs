@@ -907,6 +907,8 @@ require("../dist/functions/nail-photos");
 require("../dist/functions/manicures");
 require("../dist/functions/manicure-photos");
 require("../dist/functions/stats");
+require("../dist/functions/bottle-eval-admin");
+require("../dist/functions/product-data-admin");
 const imageProxy = require("../dist/lib/image-proxy");
 
 // lib/nail-photos (like lib/image-proxy) imports the REAL dist/lib/blob-storage via "./blob-storage";
@@ -1041,6 +1043,21 @@ const USER_SCOPED_REQUESTS = [
     body: { answer: "yes" },
   },
   {
+    route: "capture-answer",
+    method: "POST",
+    url: `http://localhost:7071/api/capture/${OWNER_CAPTURE_UUID}/answer`,
+    params: { captureId: OWNER_CAPTURE_UUID },
+    body: { skipSurface: "bottom" },
+    // skipSurface exists only while the bottle flow is on.
+    env: { BOTTLE_CAPTURE_ENABLED: "true" },
+  },
+  {
+    route: "polishes-create",
+    method: "POST",
+    url: "http://localhost:7071/api/polishes",
+    body: { brand: "B", name: "N", captureId: OWNER_CAPTURE_UUID },
+  },
+  {
     route: "inventory-nail-photo",
     method: "GET",
     url: `http://localhost:7071/api/inventory/${OWNER_INVENTORY_ITEM_ID}/nail-photo`,
@@ -1123,7 +1140,7 @@ describe("access control — unauthenticated requests are rejected with 401", ()
 
 describe("access control — admin routes reject non-admin users", () => {
   const adminRouteNames = Object.keys(registeredRoutes)
-    .filter((name) => /^(ingestion-|admin-)/.test(name) || name === "polishes-recalc-hex")
+    .filter((name) => /^(ingestion-|admin-|bottle-eval-admin-)/.test(name) || name === "polishes-recalc-hex")
     .sort();
 
   it("registers each route template once (the Functions host refuses duplicates)", () => {
@@ -1156,6 +1173,13 @@ describe("access control — admin routes reject non-admin users", () => {
       "admin-hex-labels-shade",
       "admin-hex-labels-save",
       "admin-hex-labels-item",
+      "bottle-eval-admin-samples",
+      "bottle-eval-admin-sample",
+      "bottle-eval-admin-frames",
+      "bottle-eval-admin-frame",
+      "admin-product-text-backfill",
+      "admin-finish-fill-backfill",
+      "admin-product-price-backfill",
     ]) {
       assert.ok(adminRouteNames.includes(expected), `expected admin route ${expected} to be registered`);
     }
@@ -1690,8 +1714,15 @@ describe("access control — capture sessions are scoped to the owner", () => {
   );
 
   for (const r of CAPTURE_ATTACKS) {
-    it(`${requestLabel(r)} by another user → 404, no mutation, no side effects`, async () => {
-      const res = await invoke(r.route, { ...r, userId: ATTACKER });
+    it(`${requestLabel(r)}${r.body?.skipSurface ? " skipSurface" : ""} by another user → 404, no mutation, no side effects`, async () => {
+      const { env = {}, ...request } = r;
+      Object.assign(process.env, env);
+      let res;
+      try {
+        res = await invoke(r.route, { ...request, userId: ATTACKER });
+      } finally {
+        for (const key of Object.keys(env)) delete process.env[key];
+      }
       assert.ok([403, 404].includes(res.status), `expected 403/404, got ${res.status}`);
       assertNoOwnerDataInBody(res.jsonBody);
       assert.ok(!JSON.stringify(res.jsonBody).includes("awaiting_frames"), "leaked owner's session metadata");
@@ -1718,6 +1749,10 @@ describe("access control — capture sessions are scoped to the owner", () => {
       assertScopedToCaller(OWNER);
     });
   }
+
+  // POST /api/polishes with another user's captureId → 404 with no shade or inventory write is
+  // covered in polish-create-capture.unit.test.cjs (this harness has no create path); the
+  // request is in USER_SCOPED_REQUESTS for the 401 checks.
 
   it("capture-start binds the new session to the caller", async () => {
     const res = await invoke("capture-start", {

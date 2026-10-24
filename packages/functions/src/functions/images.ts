@@ -311,7 +311,7 @@ async function authorizePrivateImageRead(
  * so the public path keeps working; private ids authenticate in the handler.
  */
 app.http("images", {
-  methods: ["GET"],
+  methods: ["GET", "OPTIONS"], // private v3 reads send Authorization, so browsers preflight them
   authLevel: "anonymous",
   route: "images/{id}",
   handler: imagesHandler,

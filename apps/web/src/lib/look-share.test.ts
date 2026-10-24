@@ -80,6 +80,25 @@ describe("public look content", () => {
     assert.equal(publicStepLabel("not-a-template", "topper"), "Topper");
   });
 
+  it("labels a look's two accents by position, not both with the first accent's label", () => {
+    const template = LOOK_TEMPLATES.find((t) => t.id === "french-modern")!;
+    const accentLabels = template.steps.filter((s) => s.role === "accent").map((s) => s.label);
+    assert.equal(accentLabels.length, 2, "setup: two accents");
+    const chip = { brand: null, name: null, finishes: [], imageUrl: null };
+    const look: PublicLookResponse = {
+      ...LOOK,
+      templateId: template.id,
+      steps: [
+        { ...chip, role: "base", hex: "#F2DCD5" },
+        { ...chip, role: "accent", hex: "#FFFFFF" },
+        { ...chip, role: "accent", hex: "#D98A9E" },
+      ],
+    };
+    assert.deepEqual(publicLookDetailSteps(look).map((s) => s.label), ["Base", ...accentLabels]);
+    assert.equal(publicStepLabel(template.id, "accent", 1), accentLabels[1]);
+    assert.equal(publicStepLabel(template.id, "accent", 2), "Accent");
+  });
+
   it("shows the owner's display name or a generic line", () => {
     assert.equal(publicLookOwnerLine("Sam"), "Shared by Sam");
     assert.equal(publicLookOwnerLine("   "), "Shared from SwatchWatch");

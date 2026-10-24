@@ -223,3 +223,60 @@ describe("loadPrivateImage default wiring", () => {
     assert.deepEqual(revokeMock.mock.calls.map((call) => call.arguments[0]), ["blob:global/1"]);
   });
 });
+
+describe("loadPrivateImage admin token", () => {
+  function recordingDeps() {
+    const headerCalls: { admin: boolean }[] = [];
+    const deps: PrivateImageLoaderDeps = {
+      fetch: async () => imageResponse(200),
+      getHeaders: async (options) => {
+        headerCalls.push(options);
+        return { Authorization: options.admin ? "Bearer admin" : "Bearer user" };
+      },
+      createObjectURL: () => "blob:test/admin",
+      revokeObjectURL: () => {},
+    };
+    return { deps, headerCalls };
+  }
+
+  it("asks for the user token by default", async () => {
+    const { deps, headerCalls } = recordingDeps();
+    await loadPrivateImage(V3_ID, () => {}, deps).done;
+    assert.deepEqual(headerCalls, [{ admin: false }]);
+  });
+
+  it("forwards the admin flag to the header builder", async () => {
+    const { deps, headerCalls } = recordingDeps();
+    await loadPrivateImage(V3_ID, () => {}, deps, { admin: true }).done;
+    assert.deepEqual(headerCalls, [{ admin: true }]);
+  });
+
+  it("sends the dev-bypass admin token by default wiring when admin is set", async (t) => {
+    const previous = {
+      bypass: process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS,
+      adminId: process.env.NEXT_PUBLIC_AUTH_DEV_ADMIN_USER_ID,
+    };
+    process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS = "true";
+    process.env.NEXT_PUBLIC_AUTH_DEV_ADMIN_USER_ID = "7";
+    t.after(() => {
+      for (const [key, value] of [
+        ["NEXT_PUBLIC_AUTH_DEV_BYPASS", previous.bypass],
+        ["NEXT_PUBLIC_AUTH_DEV_ADMIN_USER_ID", previous.adminId],
+      ] as const) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    });
+    const fetchMock = t.mock.method(globalThis, "fetch", async () => imageResponse(200));
+    t.mock.method(URL, "createObjectURL", () => "blob:global/admin");
+    t.mock.method(URL, "revokeObjectURL", () => {});
+
+    await loadPrivateImage(V3_ID, () => {}, undefined, { admin: true }).done;
+    await loadPrivateImage(V3_ID, () => {}).done;
+
+    const headers = fetchMock.mock.calls.map(
+      (call) => (call.arguments[1] as RequestInit).headers as Record<string, string>
+    );
+    assert.deepEqual(headers, [{ Authorization: "Bearer dev:7" }, { Authorization: "Bearer dev:1" }]);
+  });
+});

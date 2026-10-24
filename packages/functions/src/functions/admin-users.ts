@@ -287,6 +287,15 @@ async function mergeUsers(
         [sourceUserId]
       );
 
+      // Bottle eval samples are shared ground truth: deleting the source app_user would cascade
+      // them away, so they move to the target. Their image_asset rows keep the old owner_id.
+      const movedBottleEvalSamples = await client.query(
+        `UPDATE bottle_eval_sample
+         SET created_by_user_id = $1
+         WHERE created_by_user_id = $2`,
+        [targetUserId, sourceUserId]
+      );
+
       await client.query(
         `DELETE FROM app_user
          WHERE user_id = $1`,
@@ -305,6 +314,7 @@ async function mergeUsers(
           mergedInventoryDuplicateRows: mergeDuplicateInventory.rowCount || 0,
           movedIdentityRows: movedIdentities.rowCount || 0,
           movedManicureRows: movedManicures.rowCount || 0,
+          bottleEvalSamplesMoved: movedBottleEvalSamples.rowCount || 0,
           targetRole: { from: targetUser.role, to: mergedTargetRole },
           ...(carrySuspension
             ? {
