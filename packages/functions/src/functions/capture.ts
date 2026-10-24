@@ -34,6 +34,7 @@ import {
   userMediaContainer,
   validateImageUpload,
 } from "../lib/blob-storage";
+import { isValidUuid } from "../lib/capture-session";
 import { inlineCaptureFrameUrl, releaseCaptureFrames, storeCaptureFrameBytes } from "../lib/capture-frame-store";
 import { isFeatureEnabled } from "../lib/feature-flags";
 import { listBrandShadeNames, resolveBrandFromText, toBrandHintEcho, toBrandRef } from "../lib/brand-resolve";
@@ -101,9 +102,6 @@ const GUIDANCE_CONFIG = {
 // Maximum chars stored in quality_json.ai.ocrRawText to keep jsonb rows bounded
 const MAX_CAPTURE_AI_RAW_TEXT_CHARS = 2000;
 
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 interface CaptureSessionRow {
   id: number;
   captureId: string;
@@ -150,10 +148,6 @@ interface PreparedImageInput {
   bytes: Buffer | null;
   contentType: string | null;
   extension: string | null;
-}
-
-function isValidUuid(value: string): boolean {
-  return UUID_PATTERN.test(value);
 }
 
 function isValidBase64Payload(value: string): boolean {
