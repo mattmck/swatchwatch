@@ -993,6 +993,8 @@ resource "azurerm_linux_function_app" "main" {
     AZURE_OPENAI_DEPLOYMENT               = local.openai_deployment_name_value
     CAPTURE_FRAME_SWEEP_SCHEDULE          = var.capture_frame_sweep_schedule
     CAPTURE_FRAME_RETENTION_SECONDS       = tostring(var.capture_frame_retention_seconds)
+    CAPTURE_FRAME_SWEEP_BATCH_SIZE        = tostring(var.capture_frame_sweep_batch_size)
+    CAPTURE_FRAME_SWEEP_MAX_PER_RUN       = tostring(var.capture_frame_sweep_max_per_run)
     CORS_ALLOWED_METHODS                  = var.cors_allowed_methods
     CORS_ALLOWED_HEADERS                  = var.cors_allowed_headers
     CORS_SUPPORT_CREDENTIALS              = var.cors_support_credentials ? "true" : "false"

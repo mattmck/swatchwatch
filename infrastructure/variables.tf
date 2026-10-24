@@ -452,6 +452,18 @@ variable "capture_frame_retention_seconds" {
   }
 }
 
+variable "capture_frame_sweep_batch_size" {
+  description = "Capture-frame sweep rows per scan query, 1-1000 (CAPTURE_FRAME_SWEEP_BATCH_SIZE)"
+  type        = number
+  default     = 200
+}
+
+variable "capture_frame_sweep_max_per_run" {
+  description = "Capture frames examined per sweep run, 1-20000 (CAPTURE_FRAME_SWEEP_MAX_PER_RUN)"
+  type        = number
+  default     = 2000
+}
+
 variable "cors_allowed_methods" {
   description = "Access-Control-Allow-Methods sent by the API (lib/http.ts) (CORS_ALLOWED_METHODS). The app is the only CORS layer (the Function App has no platform cors block), so this is what browsers see"
   type        = string

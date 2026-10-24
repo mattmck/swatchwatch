@@ -131,6 +131,8 @@ jobs:
       TF_VAR_openai_label_deployment_name: ${{ vars.OPENAI_LABEL_DEPLOYMENT_NAME || '' }}
       TF_VAR_capture_frame_sweep_schedule: ${{ vars.CAPTURE_FRAME_SWEEP_SCHEDULE || '0 0 * * * *' }}
       TF_VAR_capture_frame_retention_seconds: ${{ vars.CAPTURE_FRAME_RETENTION_SECONDS || '86400' }}
+      TF_VAR_capture_frame_sweep_batch_size: ${{ vars.CAPTURE_FRAME_SWEEP_BATCH_SIZE || '200' }}
+      TF_VAR_capture_frame_sweep_max_per_run: ${{ vars.CAPTURE_FRAME_SWEEP_MAX_PER_RUN || '2000' }}
       TF_VAR_cors_allowed_methods: ${{ vars.CORS_ALLOWED_METHODS || 'GET,POST,PUT,PATCH,DELETE,OPTIONS' }}
       TF_VAR_cors_allowed_headers: ${{ vars.CORS_ALLOWED_HEADERS || 'Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context' }}
       TF_VAR_cors_support_credentials: ${{ vars.CORS_SUPPORT_CREDENTIALS || 'false' }}
