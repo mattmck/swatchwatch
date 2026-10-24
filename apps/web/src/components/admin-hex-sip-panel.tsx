@@ -147,6 +147,10 @@ export function AdminHexSipPanel({ shadeId }: { shadeId: string }) {
     setResult((prev) => (prev?.item ? { ...prev, item: applyPromotionResponse(prev.item, response) } : prev));
   }, []);
 
+  const handleItemChange = useCallback((next: HexLabelQueueItem) => {
+    setResult((prev) => (prev?.item && prev.item.shadeId === next.shadeId ? { ...prev, item: next } : prev));
+  }, []);
+
   const handleSave = useCallback(
     async (request: HexLabelRequest) => {
       setSaving(true);
@@ -244,6 +248,7 @@ export function AdminHexSipPanel({ shadeId }: { shadeId: string }) {
               onSave={handleSave}
               onRemove={handleRemove}
               onPromotionChange={handlePromotionChange}
+              onItemChange={handleItemChange}
               canUndo={lastSave !== null}
               onUndo={handleUndo}
               layout="stacked"
