@@ -71,7 +71,7 @@ import {
 import { withBuyUrls } from "../lib/buy-link";
 import { parseColorFamilyFilter } from "../lib/color-family-filter";
 import { parseProductCategoryFilter } from "../lib/product-category-filter";
-import { buildNearHexDistanceSql, parseNearHexFilter } from "../lib/near-hex";
+import { NEAR_HEX_TIER_SQL, buildNearHexDistanceSql, parseNearHexFilter } from "../lib/near-hex";
 import { buildMatchCandidateWhere } from "../lib/match-image-query";
 import {
   ARCHIVE_EVENT_EDIT_WINDOW_HOURS,
@@ -1143,8 +1143,10 @@ async function getPolishes(request: HttpRequest, context: InvocationContext, use
     const sortColumn = SORT_COLUMNS[sortBy] || SORT_COLUMNS.createdAt;
     const whereClause = conditions.length > 0 ? conditions.join(" AND ") : "TRUE";
 
-    // `nearHex` replaces sortBy/sortOrder: nearest display hex first (OKLAB, shades without a
-    // usable hex last), shade id as the stable tiebreak, distance returned as colorDistance.
+    // `nearHex` replaces sortBy/sortOrder: shades with a measured hex (vendor/detected) first,
+    // then estimated name-only hexes, then shades without a usable hex (NEAR_HEX_TIER_SQL); within
+    // a tier nearest display hex first (OKLAB), shade id as the stable tiebreak, distance
+    // returned as colorDistance.
     let listSelect = POLISH_LIST_SELECT;
     let orderBy = `${sortColumn} ${sortOrder} NULLS LAST`;
     const distanceParams: number[] = [];
@@ -1156,7 +1158,7 @@ ${POLISH_COLUMNS},
     COUNT(*) OVER()                              AS "totalCount",
     ${distance.sql} AS "colorDistance"
 ${POLISH_FROM}`;
-      orderBy = `"colorDistance" ASC NULLS LAST, s.shade_id ASC`;
+      orderBy = `${NEAR_HEX_TIER_SQL} ASC, "colorDistance" ASC NULLS LAST, s.shade_id ASC`;
       distanceParams.push(...distance.params);
       paramIndex += distance.params.length;
     }

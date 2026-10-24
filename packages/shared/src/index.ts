@@ -56,6 +56,7 @@ export * from "./color/oklab";
 export * from "./color/gamut";
 export * from "./color/thresholds";
 export * from "./color/hex-reconciliation";
+export * from "./color/estimated-hex";
 export * from "./color/color-family";
 export * from "./color/dupes";
 export * from "./color/palette-quality";

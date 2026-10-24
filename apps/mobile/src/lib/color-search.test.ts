@@ -72,6 +72,21 @@ describe("rankByColor", () => {
     assert.equal(rankByColor(rows, "#C0392B", 1).length, 1);
   });
 
+  it("ranks estimated name-only hexes after measured ones and never grades them above low", () => {
+    const ranked = rankByColor(
+      [
+        polish("guess", { nameHex: "#C0392B" }),
+        polish("measured-far", { detectedHex: "#1F4E9C", nameHex: "#C0392B" }),
+        polish("measured", { vendorHex: "#D85A40" }),
+      ],
+      "#C0392B",
+    );
+    assert.deepEqual(ranked.map((m) => m.polish.id), ["measured", "measured-far", "guess"]);
+    assert.deepEqual(ranked.map((m) => m.estimated), [false, false, true]);
+    assert.equal(ranked[2].distance, 0);
+    assert.equal(ranked[2].grade, "low");
+  });
+
   it("labels only HIGH and MEDIUM", () => {
     assert.equal(gradeLabel("high"), "HIGH");
     assert.equal(gradeLabel("medium"), "MEDIUM");
