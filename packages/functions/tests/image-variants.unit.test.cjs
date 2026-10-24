@@ -459,6 +459,49 @@ describe("functions/image-variants-admin — backfill", () => {
     assert.equal(second.jsonBody.nextAfterImageId, null);
   });
 
+  it("ends a batch early once the time budget is spent, with a cursor before the first unstarted image", async () => {
+    const png = await fixturePng();
+    const blobs = {};
+    for (const name of ["a.png", "b.png", "c.png"]) blobs[blobUrl(name)] = { body: png, contentType: "image/png" };
+    mockStorage(blobs);
+    imageAssetRows = [
+      { image_id: 10, storage_url: "https://cdn.shop.example/x.png" },
+      { image_id: 11, storage_url: blobUrl("a.png") },
+      { image_id: 12, storage_url: blobUrl("b.png") },
+      { image_id: 13, storage_url: "https://cdn.shop.example/y.png" },
+      { image_id: 14, storage_url: blobUrl("c.png") },
+    ];
+    const run = (afterImageId) =>
+      variantsAdmin.backfillImageVariants(
+        { text: async () => JSON.stringify({ afterImageId, limit: 5 }) },
+        fakeContext(),
+        { timeBudgetMs: 0 }
+      );
+
+    const first = await run(0);
+    assert.equal(first.status, 200);
+    assert.deepEqual(first.jsonBody, {
+      scanned: 2,
+      checked: 1,
+      complete: 0,
+      variantsWritten: 4,
+      skipped: 1,
+      failures: [],
+      nextAfterImageId: 11,
+    });
+    assert.ok(!blobs[`${blobUrl("b.png")}.c1.w64.webp`], "an unstarted image is left for the next batch");
+
+    const second = await run(11);
+    assert.equal(second.jsonBody.scanned, 2);
+    assert.equal(second.jsonBody.skipped, 1, "rows past the cursor are not counted");
+    assert.equal(second.jsonBody.nextAfterImageId, 13);
+
+    const last = await run(13);
+    assert.equal(last.jsonBody.scanned, 1);
+    assert.equal(last.jsonBody.variantsWritten, 4);
+    assert.equal(last.jsonBody.nextAfterImageId, null);
+  });
+
   it("reports an image whose original cannot be read", async () => {
     mockStorage({});
     imageAssetRows = [{ image_id: 9, storage_url: blobUrl("gone.png") }];

@@ -189,7 +189,7 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `PUT` | `/api/shades-admin/{id}/product-category` | `setCategory` | `admin-product-category.ts` | ✅ Working (admin-only) |
 | `POST` | `/api/voice` | `processVoiceInput` | `voice.ts` | ⬜ Stub (auth required) |
 | `GET` | `/api/images/{id}` | `images` | `images.ts` | ✅ Working (signed ids; owner-scoped for private media; catalog thumbnails from pre-generated variants) |
-| `POST` | `/api/images-admin/variants/backfill` | `backfillImageVariants` | `image-variants-admin.ts` | ✅ Working (admin-only; one keyset batch of catalog thumbnail backfill) |
+| `POST` | `/api/images-admin/variants/backfill` | `backfillImageVariants` | `image-variants-admin.ts` | ✅ Working (admin-only; one keyset batch of catalog thumbnail backfill; stops starting new images after 45 s and returns a cursor to the last finished row, so a write-heavy batch never outlasts the 230 s HTTP limit) |
 | `POST` | `/api/images-admin/gallery-dedupe` | `dedupeGalleryImages` | `gallery-dedupe-admin.ts` | ✅ Working (admin-only; one keyset batch of the duplicate gallery image cleanup, dry run by default; also backfills `image_asset` perceptual fingerprints) |
 | `POST` | `/api/barcodes-admin/backfill` | `backfillBarcodes` | `barcodes-admin.ts` | ✅ Working (admin-only; one keyset batch building catalog `barcode` rows from stored connector products, dry run by default, #21) |
 | `POST` | `/api/products-admin/text/backfill` | `backfillProductText` | `product-data-admin.ts` | ✅ Working (admin-only; one keyset batch of the product text backfill, dry run by default, #352) |
