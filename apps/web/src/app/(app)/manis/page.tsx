@@ -173,7 +173,7 @@ function ManisPageContent() {
   if (error) return <ErrorState message={error} onRetry={() => void reload()} />;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="heading-page">Mani Log</h1>
