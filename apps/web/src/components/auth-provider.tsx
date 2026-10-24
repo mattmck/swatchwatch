@@ -10,7 +10,12 @@ import {
   buildPolicyQueryParameters,
   buildSilentRedirectUri,
 } from "@/lib/msal-config";
-import { setAccessToken, setAccessTokenProvider, setAuthOffline } from "@/lib/auth-token";
+import {
+  getFreshAccessToken,
+  setAccessToken,
+  setAccessTokenProvider,
+  setAuthOffline,
+} from "@/lib/auth-token";
 import { clearApiCache, setApiCacheUser } from "@/lib/api-cache";
 import { isOfflineRenewalFailure } from "@/lib/offline";
 import { claimTokenRedirect, createAccessTokenProvider } from "@/lib/token-renewal";
@@ -131,7 +136,9 @@ function MsalAuthProvider({
       }
 
       setAccessTokenProvider(getToken);
-      await getToken();
+      // Store the token before the app renders: the auth guard reads it on its first render, and
+      // the ACQUIRE_TOKEN_SUCCESS listener below is not registered yet to catch this call.
+      await getFreshAccessToken();
       if (redirecting) {
         return;
       }
