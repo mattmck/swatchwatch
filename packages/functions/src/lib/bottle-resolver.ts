@@ -226,7 +226,8 @@ const CANDIDATE_COLOR_DISTANCE_SQL = buildNearHexDistanceSql(["#000000"], 4).sql
 
 /**
  * $1 brand_id[] (bigint[]), $2 user_id, $3 printed shade name text or null, $4–$6 glass OKLAB
- * L/a/b or null. Shades of those brands only: live color shades, plus the caller's own private
+ * L/a/b or null, $7 the closed-set pick `shadeNameListed` or null (its row sorts first, so a
+ * confident pick is never cut by the pool limit). Shades of those brands only: live color shades, plus the caller's own private
  * `user_submitted` ones (never another user's). `nameScore` is NULL without a name, and
  * `colorDistance` is NULL without a glass color or a stored display color.
  */
@@ -242,7 +243,8 @@ WHERE s.brand_id = ANY($1::bigint[])
   AND s.merged_into_shade_id IS NULL
   AND s.product_category = 'color'
   AND (s.status = 'active' OR (s.status = 'user_submitted' AND s.created_by_user_id = $2))
-ORDER BY "nameScore" DESC NULLS LAST, "colorDistance" ASC NULLS LAST, s.shade_id ASC
+ORDER BY COALESCE(lower(s.shade_name_canonical) = lower($7::text), false) DESC,
+         "nameScore" DESC NULLS LAST, "colorDistance" ASC NULLS LAST, s.shade_id ASC
 LIMIT ${BOTTLE_RESOLVER_THRESHOLDS.poolLimit}`;
 
 const HEX_PATTERN = /^#?[0-9a-f]{6}$/i;
@@ -438,6 +440,7 @@ export async function resolveBottle(
       oklab ? oklab.L : null,
       oklab ? oklab.a : null,
       oklab ? oklab.b : null,
+      evidence.shadeNameListed ?? null,
     ]);
     scored = scoreBottleCandidates(result.rows, {
       shadeNameListed: evidence.shadeNameListed ?? null,

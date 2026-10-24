@@ -80,6 +80,13 @@ describe("lib/bottle-resolver — scoreBottleCandidates", () => {
     assert.equal(scored[0].display, "Loud Lacquer — Unicorn Skin");
     assert.equal(scored[1].nameScore, 0.3);
   });
+  it("puts the listed row first when its lifted score tops the pool, even with null trigrams", () => {
+    const scored = scoreBottleCandidates(
+      [row(1, "Other", { colorDistance: 0.01 }), row(2, "Unicorn Skin")],
+      { shadeNameListed: "unicorn skin", visionConfidence: 0.9, hintBrandId: 3 }
+    );
+    assert.deepEqual(scored.map((c) => [c.shadeId, c.nameScore]), [[2, 0.9], [1, null]]);
+  });
   it("keeps a higher trigram over the vision confidence", () => {
     const scored = scoreBottleCandidates([row(1, "Unicorn Skin", { nameScore: 0.95 })], {
       shadeNameListed: "Unicorn Skin",
@@ -335,7 +342,7 @@ describe("lib/bottle-resolver — resolveBottle", () => {
     assert.equal(decision.entityId, 11);
     assert.equal(decision.confidence, 0.95);
     assert.deepEqual(calls.query[0].params.slice(0, 3), [[3], USER, "Unicorn Skin"]);
-    assert.deepEqual(calls.query[0].params.slice(3), [null, null, null]);
+    assert.deepEqual(calls.query[0].params.slice(3), [null, null, null, null]);
     assert.equal(calls.global.length, 0);
     assert.equal(decision.bottle.brand.brandId, "3");
     assert.equal(decision.bottle.modelCalls, 2);
@@ -373,6 +380,20 @@ describe("lib/bottle-resolver — resolveBottle", () => {
     assert.equal(decision.candidates[0].shadeId, 11);
     assert.equal(decision.candidates[0].confidence, 0.85);
     assert.equal(decision.question.key, "candidate_select");
+  });
+
+  it("a listed pick with no printed name binds the listed name as $7 and lifts that row", async () => {
+    const { calls, deps } = recorder({ rows: [row(11, "Unicorn Skin"), row(12, "Other", { colorDistance: 0.01 })] });
+    const decision = await resolveBottle(
+      baseEvidence({ shadeNameListed: "Unicorn Skin" }),
+      ctx({ hintBrand: hint(), visionConfidence: 0.95 }),
+      deps
+    );
+    assert.equal(calls.query[0].params[2], null, "no printed name: $3 is null");
+    assert.equal(calls.query[0].params[6], "Unicorn Skin");
+    assert.equal(decision.status, "matched");
+    assert.equal(decision.entityId, 11);
+    assert.equal(decision.confidence, 0.95);
   });
 
   it("hint plus a confident read of another brand pools both and reports the conflict", async () => {
@@ -596,6 +617,10 @@ describe("lib/bottle-resolver — SQL", () => {
     assert.match(sql, /\$4::float8/);
     assert.match(sql, /\$6::float8/);
     assert.match(sql, /LIMIT 50/);
+  });
+  it("sorts the listed pick first so the pool limit cannot cut it", () => {
+    assert.match(sql, /\$7::text/);
+    assert.match(sql, /ORDER BY COALESCE\(lower\(s\.shade_name_canonical\) = lower\(\$7::text\), false\) DESC, "nameScore" DESC/);
   });
   it("never exposes another user's private shade", () => {
     assert.ok(!/status = 'user_submitted'(?! AND s\.created_by_user_id = \$2)/.test(sql));
