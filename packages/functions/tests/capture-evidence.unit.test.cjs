@@ -136,6 +136,31 @@ describe("collectCaptureEvidence", () => {
     assert.deepEqual(stored.brandRead, { text: "OPI", confidence: 0, source: "request_quality" });
   });
 
+  it("keeps a barcode the device decoded on a bottle photo the pipeline also read", () => {
+    // Bottle flow: a bottom photo with its barcode sticker in view stays a label frame (OCR and
+    // the sticker read run), and the GTIN decoded on the device is still evidence.
+    const evidence = collectCaptureEvidence({}, [
+      labelFrame({
+        surface: "bottom",
+        gtin: "4006381333931",
+        barcodeFormat: "ean_13",
+        extracted: { brand: "Holo Taco", brandConfidence: 0.9, shadeName: "Unicorn Skin" },
+      }),
+    ]);
+    assert.equal(evidence.gtin, "4006381333931");
+    assert.equal(evidence.gtinFormat, "ean_13");
+    assert.equal(evidence.shadeName, "Unicorn Skin");
+  });
+
+  it("a barcode the pipeline read wins over the device-decoded one", () => {
+    const extracted = extractFrameEvidence({
+      gtin: "4006381333931",
+      extracted: { gtin: "0012345678905", gtinFormat: "upc_a", brand: "OPI" },
+    });
+    assert.equal(extracted.gtin, "0012345678905");
+    assert.equal(extracted.gtinFormat, "upc_a");
+  });
+
   it("prefers answers.brand_shade over top-level metadata", () => {
     const evidence = collectCaptureEvidence(
       {

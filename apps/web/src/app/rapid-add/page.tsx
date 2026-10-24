@@ -14,6 +14,7 @@ import {
   switchBrand,
   withBrandEcho,
   type BottleFlowAction,
+  type BottleCameraView,
   type BottleSurface,
   type CaptureBrandRef,
   type CaptureCheckCandidate,
@@ -86,6 +87,8 @@ import {
   buildStartMetadata,
   canAddFrame,
   canCheckBarcodeFromMetadata,
+  shouldCheckBarcodeFrame,
+  stillFrameTarget,
   canCheck,
   canFinalize,
   framesReducer,
@@ -145,18 +148,6 @@ import {
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
-}
-
-/**
- * A freshly decoded barcode is checked right away (its frame's upload response carries the
- * verdict, no OCR; without a frame, one `check` call). Not once a verdict is showing or the
- * user is photographing the label for an unknown barcode.
- */
-function shouldCheckBarcode(
-  session: { labelRequested: boolean; verdict: unknown },
-  barcode: ScannedBarcode | null,
-): barcode is ScannedBarcode {
-  return Boolean(barcode) && !session.labelRequested && !session.verdict;
 }
 
 function newLocalId(): string {
@@ -239,7 +230,7 @@ export default function RapidAddPage() {
   const bottleRef = useRef(bottle);
   const stickyRef = useRef(sticky);
   const stickyUserRef = useRef<string | null>(null);
-  const activeSurfaceRef = useRef<BottleSurface | null>(null);
+  const activeViewRef = useRef<BottleCameraView | null>(null);
   useEffect(() => {
     sessionRef.current = session;
     framesRef.current = frames;
@@ -469,7 +460,9 @@ export default function RapidAddPage() {
       const scan = scanRef.current;
       try {
         const captureId = await ensureSession(barcode);
-        const checking = frame.frameType === "barcode" && shouldCheckBarcode(sessionRef.current, barcode);
+        const checking =
+          frame.frameType === "barcode" &&
+          shouldCheckBarcodeFrame(sessionRef.current, barcode, { bottleSequence: bottleSequenceRef.current });
         if (checking) dispatch({ type: "busy", busy: "checking" });
         const res = await addCaptureFrame(captureId, {
           frameType: frame.frameType,
@@ -551,7 +544,7 @@ export default function RapidAddPage() {
       if (!event.frame) {
         // Read live but no snapshot: check the barcode from the session metadata alone.
         const barcode = event.barcode;
-        if (canCheckBarcodeFromMetadata(sessionRef.current, barcode)) {
+        if (canCheckBarcodeFromMetadata(sessionRef.current, barcode, { bottleSequence: bottleSequenceRef.current })) {
           dispatch({ type: "busy", busy: "checking" });
           void ensureSession(barcode).then(
             (captureId) => checkBarcode(captureId, barcode),
@@ -567,9 +560,10 @@ export default function RapidAddPage() {
       const warnings = assessFrameQuality(event.frame.metrics);
       setQualityHint(warnings.length ? FRAME_QUALITY_WARNING_COPY[warnings[0]] : null);
 
+      const target = stillFrameTarget(event, activeViewRef.current);
       const frame = {
         localId: newLocalId(),
-        frameType: event.frameType,
+        frameType: target.frameType,
         dataUrl: event.frame.dataUrl,
         quality: buildFrameQuality({
           source: event.source,
@@ -582,7 +576,7 @@ export default function RapidAddPage() {
           fileName: event.file?.name,
           mimeType: event.file?.type,
           fileSize: event.file?.size,
-          surface: event.barcode ? null : activeSurfaceRef.current,
+          surface: target.surface,
         }),
       };
       framesRef.current = [...framesRef.current, { ...frame, status: "uploading", attempts: 1 }];
@@ -927,7 +921,7 @@ export default function RapidAddPage() {
   const bottleView = bottleSequence ? deriveBottleCameraView(bottle, { brandKnown: Boolean(sticky.brandId) }) : null;
   const activeView = manualSurface && bottleSequence ? viewForSurface(manualSurface, bottleView) : bottleView;
   useEffect(() => {
-    activeSurfaceRef.current = activeView?.surface ?? null;
+    activeViewRef.current = activeView;
   });
   const matching =
     session.busy === "finalizing" ||
