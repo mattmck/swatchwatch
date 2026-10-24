@@ -14,6 +14,8 @@ import { detailHref } from "@/lib/detail-href";
 interface ColorSearchResultsProps {
   polishes: (Polish & {
     distance: number;
+    /** The hex is only a guess from the color name (`isEstimatedDisplayHex`): no match %. */
+    estimated: boolean;
     matchedHarmonyHex: string;
     matchedHarmonyIndex: number;
   })[];
@@ -41,7 +43,7 @@ interface ColorSearchResultsProps {
 /**
  * Render a searchable list of polishes with color swatches, match indicators, ownership and quantity controls.
  *
- * Renders a header row of harmony color swatches and a scrolling list of polish rows. Each row shows an optional swatch image, a color dot (and optional matched-harmony dot), name/brand/collection, finish badge, match percentage, ownership indicator, and optional controls to add to focused colors or change collection quantity.
+ * Renders a header row of harmony color swatches and a scrolling list of polish rows. Each row shows an optional swatch image, a color dot (and optional matched-harmony dot), name/brand/collection, finish badge, match percentage ("Estimated color" for a name-guessed hex), ownership indicator, and optional controls to add to focused colors or change collection quantity.
  *
  * @param polishes - Array of polish objects augmented with `distance`, `matchedHarmonyHex`, and `matchedHarmonyIndex`.
  * @param harmonyColors - Array of hex color strings used to render the header swatches.
@@ -169,9 +171,18 @@ export function ColorSearchResults({
                 </p>
               </div>
               <FinishBadges polish={polish} finishTypes={finishTypes} max={2} className="hidden shrink-0 justify-end sm:inline-flex" />
-              <span className="shrink-0 text-xs tabular-nums text-muted-foreground w-12 text-right">
-                {((1 - polish.distance) * 100).toFixed(0)}%
-              </span>
+              {polish.estimated ? (
+                <span
+                  className="shrink-0 text-right text-xs italic text-muted-foreground"
+                  title="Estimated color: guessed from the shade name, not measured from the bottle"
+                >
+                  Estimated color
+                </span>
+              ) : (
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground w-12 text-right">
+                  {((1 - polish.distance) * 100).toFixed(0)}%
+                </span>
+              )}
             </Link>
 
             {/* Quantity controls. Phones: they wrap onto a second line, right-aligned under the name. */}
