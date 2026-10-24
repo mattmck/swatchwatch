@@ -122,6 +122,28 @@ export interface CaptureFrameRequest {
   quality?: Record<string, unknown>;
 }
 
+/** A field the bottle flow can read from a photo. */
+export type CaptureReadField = "gtin" | "brand" | "shadeName" | "hex" | "finish";
+
+/**
+ * What the session has read from its photos so far (bottle flow, `BOTTLE_CAPTURE_ENABLED` on), so
+ * the camera screen can show "barcode 4006…, brand Holo Taco, name Unicorn Skin" as photos arrive.
+ */
+export interface CaptureReadSummary {
+  gtin: string | null;
+  /** `catalogMatch` is true when the brand resolved to a catalog brand; `source` as on `suggestedShade`. */
+  brand: { name: string; source: CaptureBrandSource; catalogMatch: boolean } | null;
+  /** Shade name as printed (OCR or vision). */
+  shadeName: string | null;
+  /** Closest catalog shade name the vision read picked from the brand's list. */
+  shadeNameListed: string | null;
+  /** Lacquer color measured from the glass photo. */
+  hex: string | null;
+  finish: string | null;
+  /** Fields the latest photo added (empty for a skip or a check). */
+  newFields: CaptureReadField[];
+}
+
 export interface CaptureFrameResponse {
   received: boolean;
   captureId: string;
@@ -135,6 +157,8 @@ export interface CaptureFrameResponse {
   check?: CaptureCheckResponse;
   /** Next photo to take (`null` = nothing more to ask); present only while `BOTTLE_CAPTURE_ENABLED` is on. */
   nextFrame?: CaptureFrameRequestSpec | null;
+  /** Bottle flow only: what the session has read so far. */
+  readSoFar?: CaptureReadSummary;
 }
 
 export interface CaptureFinalizeResponse {
@@ -169,6 +193,8 @@ export interface CaptureAnswerResponse {
   question?: CaptureQuestion;
   /** Next photo to take (`null` = nothing more to ask); present only while `BOTTLE_CAPTURE_ENABLED` is on. */
   nextFrame?: CaptureFrameRequestSpec | null;
+  /** Bottle flow only: what the session has read so far. */
+  readSoFar?: CaptureReadSummary;
 }
 
 /**
@@ -229,4 +255,6 @@ export interface CaptureCheckResponse {
   suggestedShade?: CaptureSuggestedShade;
   /** Set when the typed brand and the brand read from the bottle disagree. */
   brandConflict?: CaptureBrandConflict;
+  /** Bottle flow only: what the session has read so far. */
+  readSoFar?: CaptureReadSummary;
 }

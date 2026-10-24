@@ -459,7 +459,7 @@ let events;
 
 const DATA_URL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBD";
 const LOUD_HINT = { brandId: "3", name: "Loud Lacquer", source: "hint", raw: "loud" };
-const FORBIDDEN_KEYS = ["nextFrame", "brandHint", "suggestedShade", "brandConflict"];
+const FORBIDDEN_KEYS = ["nextFrame", "brandHint", "suggestedShade", "brandConflict", "readSoFar"];
 
 const start = (body) =>
   registeredRoutes["capture-start"].handler(
@@ -570,6 +570,32 @@ describe("functions/capture — nextFrame at start", () => {
 
 describe("functions/capture — nextFrame after a frame", () => {
   beforeEach(() => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+  });
+
+  it("the frame response says what the session has read so far and what this photo added", async () => {
+    useHintedSession([]);
+    state.bottleCandidates = [poolRow(SHADE_ID, "Big Apple Red", { nameScore: 0.8 })];
+    state.onInsertFrames = [labelFrame({ shadeName: "Big Appl" }, { surface: "bottom" })];
+    const res = await frame({ frameType: "label", quality: { surface: "bottom", extracted: { shadeName: "Big Appl" } } });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    const read = res.jsonBody.readSoFar;
+    assert.equal(read.shadeName, "Big Appl");
+    assert.equal(read.brand.name, LOUD_HINT.name);
+    assert.equal(read.brand.source, "hint");
+    assert.equal(read.brand.catalogMatch, true);
+    assert.deepEqual(read.newFields, ["shadeName"]);
+  });
+
+  it("check and skip carry readSoFar too; flag off, none of the three do", async () => {
+    useHintedSession([labelFrame({ shadeName: "Big Appl" }, { surface: "bottom" })]);
+    state.bottleCandidates = [poolRow(SHADE_ID, "Big Apple Red", { nameScore: 0.8 })];
+    const checked = await check();
+    assert.equal(checked.jsonBody.readSoFar.shadeName, "Big Appl");
+    assert.deepEqual(checked.jsonBody.readSoFar.newFields, []);
+    process.env.BOTTLE_CAPTURE_ENABLED = "false";
+    const off = await check();
+    assert.equal("readSoFar" in off.jsonBody, false);
     process.env.BOTTLE_CAPTURE_ENABLED = "true";
   });
 
