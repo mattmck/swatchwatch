@@ -117,6 +117,7 @@ jobs:
       TF_VAR_openai_batch_deployment_capacity: ${{ vars.OPENAI_BATCH_DEPLOYMENT_CAPACITY || '5000' }}
       TF_VAR_hex_detection_batch_enabled: ${{ vars.HEX_DETECTION_BATCH_ENABLED || 'false' }}
       TF_VAR_hex_detection_snap_enabled: ${{ vars.HEX_DETECTION_SNAP_ENABLED || 'false' }}
+      TF_VAR_enable_document_intelligence: ${{ vars.ENABLE_DOCUMENT_INTELLIGENCE || 'false' }}
       TF_VAR_blob_storage_max_connections: ${{ vars.BLOB_STORAGE_MAX_CONNECTIONS || '16' }}
       # Function App runtime settings: one GitHub environment variable per app
       # setting, same name; the fallbacks equal the Terraform and code defaults.
