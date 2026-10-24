@@ -200,6 +200,12 @@ variable "shareable_looks_enabled" {
   default     = false
 }
 
+variable "bottle_capture_enabled" {
+  description = "Enable the guided bottle recognition flow (BOTTLE_CAPTURE_ENABLED): brand hint, next-photo prompts and add-form prefill on the capture API. Off by default."
+  type        = bool
+  default     = false
+}
+
 variable "ingestion_job_queue_name" {
   description = "Azure Storage Queue name for ingestion jobs"
   type        = string
@@ -444,6 +450,18 @@ variable "capture_frame_retention_seconds" {
     condition     = var.capture_frame_retention_seconds >= 3600 && var.capture_frame_retention_seconds <= 604800 && floor(var.capture_frame_retention_seconds) == var.capture_frame_retention_seconds
     error_message = "capture_frame_retention_seconds must be a whole number between 3600 and 604800."
   }
+}
+
+variable "capture_frame_sweep_batch_size" {
+  description = "Capture-frame sweep rows per scan query, 1-1000 (CAPTURE_FRAME_SWEEP_BATCH_SIZE)"
+  type        = number
+  default     = 200
+}
+
+variable "capture_frame_sweep_max_per_run" {
+  description = "Capture frames examined per sweep run, 1-20000 (CAPTURE_FRAME_SWEEP_MAX_PER_RUN)"
+  type        = number
+  default     = 2000
 }
 
 variable "cors_allowed_methods" {

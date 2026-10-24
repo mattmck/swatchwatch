@@ -12,25 +12,36 @@ const { toEvalSamples } = require("../dist/eval/bottle/samples");
 const { formatSummary } = require("../dist/eval/bottle/report");
 const { summarize } = require("../dist/eval/bottle/scoring");
 
-function fakeApi(checkResponse, { failOn } = {}) {
+function fakeApi(checkResponse, { failOn, nextFrame, frameResponses = [], status } = {}) {
   const calls = [];
+  const queue = [...frameResponses];
   return {
     calls,
     baseUrl: "http://fake/api",
     async start(meta) {
       calls.push(["start", meta]);
       if (failOn === "start") throw new Error("POST start → 500");
-      return "capture-1";
+      return { captureId: "capture-1", nextFrame };
     },
     async frame(id, body) {
       calls.push(["frame", id, body]);
       if (failOn === "frame") throw new Error("POST frame → 500");
+      return { nextFrame: queue.length ? queue.shift() : undefined };
     },
     async check(id) {
       calls.push(["check", id]);
       return checkResponse;
     },
+    async status(id) {
+      calls.push(["status", id]);
+      if (status instanceof Error) throw status;
+      return status ?? { captureId: id, status: "processing", metadata: { resolver: { modelCalls: 2 } } };
+    },
   };
+}
+
+function spec(surface) {
+  return { surface, frameType: "label", prompt: `Photograph the ${surface}`, reason: "needed", optional: false };
 }
 
 function sample(overrides = {}) {
@@ -43,6 +54,7 @@ function sample(overrides = {}) {
       { frameId: 2, surface: "front", frameType: "label", storageUrl: "blob://front" },
       { frameId: 3, surface: "glass", frameType: "color", storageUrl: "blob://glass" },
     ],
+    finishFamily: "solid",
     ...overrides,
   };
 }
@@ -68,7 +80,7 @@ describe("runSample", () => {
   it("starts with eval metadata, sends frames in order as data URLs, then only checks", async () => {
     const api = fakeApi({ status: "processing", outcome: "matched", confidence: 0.95, match: MATCH, candidates: [MATCH] });
     const result = await runSample(api, sample(), async (url) => `data:image/jpeg;base64,${Buffer.from(url).toString("base64")}`);
-    assert.deepEqual(api.calls.map((call) => call[0]), ["start", "frame", "frame", "check"]);
+    assert.deepEqual(api.calls.map((call) => call[0]), ["start", "frame", "frame", "check", "status"]);
     assert.deepEqual(api.calls[0][1], { source: "bottle-eval", sampleId: 5 });
     assert.deepEqual(api.calls[1][2], {
       imageBlobUrl: `data:image/jpeg;base64,${Buffer.from("blob://front").toString("base64")}`,
@@ -83,6 +95,11 @@ describe("runSample", () => {
     assert.deepEqual(result.candidateIds, [42]);
     assert.equal(result.frames, 2);
     assert.equal(result.inCatalog, true);
+    assert.equal(result.adaptive, false);
+    assert.equal(result.promptsFollowed, 0);
+    assert.equal(result.finishFamily, "solid");
+    assert.equal(result.modelCalls, 2);
+    assert.equal(result.createCard, false);
   });
 
   it("records an API or blob failure as error and keeps going", async () => {
@@ -96,6 +113,73 @@ describe("runSample", () => {
     assert.equal(blobFailure.outcome, "error");
     assert.equal(blobFailure.frames, 0);
     assert.match(blobFailure.error, /Blob read failed/);
+  });
+});
+
+const MATCHED = { status: "processing", outcome: "matched", confidence: 0.95, match: MATCH, candidates: [MATCH] };
+const THREE_FRAMES = [
+  { frameId: 1, surface: "front", frameType: "label", storageUrl: "blob://front" },
+  { frameId: 2, surface: "bottom", frameType: "label", storageUrl: "blob://bottom" },
+  { frameId: 3, surface: "glass", frameType: "color", storageUrl: "blob://glass" },
+];
+const readFrame = async (url) => `data:image/jpeg;base64,${Buffer.from(url).toString("base64")}`;
+const sentSurfaces = (api) => api.calls.filter((call) => call[0] === "frame").map((call) => call[2].quality.surface);
+
+describe("runSample adaptive replay", () => {
+  it("follows the server's requested surfaces until nextFrame is null", async () => {
+    const api = fakeApi(MATCHED, { nextFrame: spec("bottom"), frameResponses: [spec("glass"), null] });
+    const result = await runSample(api, sample({ frames: THREE_FRAMES }), readFrame);
+    assert.deepEqual(sentSurfaces(api), ["bottom", "glass"]);
+    assert.equal(result.frames, 2);
+    assert.equal(result.promptsFollowed, 2);
+    assert.equal(result.adaptive, true);
+    assert.deepEqual(api.calls.map((call) => call[0]), ["start", "frame", "frame", "check", "status"]);
+    assert.equal(result.outcome, "matched_correct");
+    assert.equal(result.modelCalls, 2);
+  });
+
+  it("stops when the sample runs out of frames", async () => {
+    const api = fakeApi(MATCHED, { nextFrame: spec("bottom"), frameResponses: [spec("bottom"), spec("front"), spec("glass")] });
+    const result = await runSample(api, sample({ frames: THREE_FRAMES }), readFrame);
+    assert.deepEqual(sentSurfaces(api), ["bottom", "front", "glass"]);
+    assert.equal(result.frames, 3);
+  });
+
+  it("sends the next unsent frame when the sample lacks the requested surface", async () => {
+    const api = fakeApi(MATCHED, { nextFrame: spec("cap"), frameResponses: [null] });
+    const result = await runSample(api, sample({ frames: THREE_FRAMES }), readFrame);
+    assert.deepEqual(sentSurfaces(api), ["front"]);
+    assert.equal(result.promptsFollowed, 1);
+    assert.equal(result.adaptive, true);
+  });
+
+  it("sends all frames in position order when start returns no nextFrame, and still reads status", async () => {
+    for (const nextFrame of [undefined, null]) {
+      const api = fakeApi(MATCHED, { nextFrame, frameResponses: [spec("glass"), null] });
+      const result = await runSample(api, sample({ frames: THREE_FRAMES }), readFrame);
+      assert.deepEqual(sentSurfaces(api), ["front", "bottom", "glass"]);
+      assert.equal(result.adaptive, false);
+      assert.equal(result.promptsFollowed, 0);
+      assert.equal(result.frames, 3);
+      assert.equal(api.calls.filter((call) => call[0] === "status").length, 1);
+    }
+  });
+
+  it("leaves modelCalls null, not an error, when the status read fails", async () => {
+    const api = fakeApi(MATCHED, { status: new Error("GET status → 500") });
+    const result = await runSample(api, sample(), readFrame);
+    assert.equal(result.modelCalls, null);
+    assert.equal(result.outcome, "matched_correct");
+    assert.equal(result.error, undefined);
+  });
+
+  it("flags a create card when the check carries a suggested shade for an external sample", async () => {
+    const unmatched = { status: "processing", outcome: "unmatched", confidence: 0, candidates: [], suggestedShade: { brand: "Indie", shadeName: "Mystery" } };
+    const result = await runSample(fakeApi(unmatched), sample({ shadeId: null, brand: "Indie", shadeName: "Mystery" }), readFrame);
+    assert.equal(result.createCard, true);
+    assert.equal(result.outcome, "rejected_correct");
+    const without = await runSample(fakeApi({ ...unmatched, suggestedShade: undefined }), sample({ shadeId: null }), readFrame);
+    assert.equal(without.createCard, false);
   });
 });
 
@@ -226,6 +310,21 @@ describe("toEvalSamples", () => {
     assert.deepEqual(samples.map((s) => [s.sampleId, s.shadeId, s.frames.length]), [[9, null, 0], [8, 42, 2]]);
     assert.deepEqual(samples[1].frames.map((f) => f.frameId), [11, 10]);
   });
+
+  it("resolves the finish family: catalog family, else the built-in map by finish, else unknown (external: unknown)", () => {
+    const row = (sampleId, extra) => ({ sampleId, shadeId: "42", brand: "B", shadeName: "S", notes: null, createdByUserId: "2", createdAt: new Date(), finishFamily: null, primaryFinish: null, ...extra });
+    const samples = toEvalSamples(
+      [
+        row("1", { finishFamily: "glow", primaryFinish: "creme" }),
+        row("2", { primaryFinish: "Holographic" }),
+        row("3", { primaryFinish: "mystery-finish" }),
+        row("4", {}),
+        row("5", { shadeId: null, finishFamily: "solid", primaryFinish: "creme" }),
+      ],
+      []
+    );
+    assert.deepEqual(samples.map((s) => s.finishFamily), ["glow", "holo", "unknown", "unknown", "unknown"]);
+  });
 });
 
 describe("parseArgs and formatSummary", () => {
@@ -240,12 +339,18 @@ describe("parseArgs and formatSummary", () => {
 
   it("prints rates, per-brand rows and the per-sample table when verbose", () => {
     const results = [
-      { sampleId: 1, brand: "Holo Taco", shadeName: "A", inCatalog: true, outcome: "matched_correct", status: "matched", topEntityId: 42, candidateIds: [42], frames: 2, ms: 120 },
+      { sampleId: 1, brand: "Holo Taco", shadeName: "A", inCatalog: true, outcome: "matched_correct", status: "matched", topEntityId: 42, candidateIds: [42], frames: 2, ms: 120, finishFamily: "holo", modelCalls: 3, promptsFollowed: 2, adaptive: true, createCard: false },
     ];
     const text = formatSummary(summarize(results), results, true);
     assert.match(text, /Match rate:\s+100\.0%/);
     assert.match(text, /Holo Taco/);
     assert.match(text, /matched_correct/);
+    assert.match(text, /Model calls per bottle: mean 3\.00 \/ median 3/);
+    assert.match(text, /Median frames needed:\s+2/);
+    assert.match(text, /Create card \(not in catalog\): 0\.0%/);
+    assert.match(text, /finish family/);
+    assert.match(text, /holo/);
+    for (const column of ["family", "calls", "prompts", "card"]) assert.match(text, new RegExp(`\\b${column}\\b`));
     assert.ok(!formatSummary(summarize(results), results, false).includes("candidates"));
   });
 });

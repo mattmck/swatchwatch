@@ -158,7 +158,7 @@ type HueChoice = number | "neutral";
 /** Hue / lightness picker plus a hex box and an optional color name (manual add and Edit details). */
 export function ColorField({
   hex: hexText,
-  colorName,
+  colorName = "",
   finishes,
   error,
   onHexChange,
@@ -167,11 +167,12 @@ export function ColorField({
   allowClear = true,
 }: {
   hex: string;
-  colorName: string;
+  /** The color name box shows only when `onColorNameChange` is given. */
+  colorName?: string;
   finishes: readonly FinishName[];
   error?: string;
   onHexChange: (hex: string) => void;
-  onColorNameChange: (name: string) => void;
+  onColorNameChange?: (name: string) => void;
   hint?: string;
   allowClear?: boolean;
 }) {
@@ -251,13 +252,15 @@ export function ColorField({
             />
           ) : null}
         </View>
-        <FormInput
-          value={colorName}
-          onChangeText={onColorNameChange}
-          placeholder={family ? `Color name (default: ${COLOR_FAMILY_LABELS[family]})` : "Color name, e.g. Teal (optional)"}
-          accessibilityLabel="Color name"
-          autoCapitalize="words"
-        />
+        {onColorNameChange && (
+          <FormInput
+            value={colorName}
+            onChangeText={onColorNameChange}
+            placeholder={family ? `Color name (default: ${COLOR_FAMILY_LABELS[family]})` : "Color name, e.g. Teal (optional)"}
+            accessibilityLabel="Color name"
+            autoCapitalize="words"
+          />
+        )}
       </View>
     </Field>
   );

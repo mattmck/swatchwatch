@@ -22,6 +22,7 @@ import type {
   CollectionExportFormat,
   CollectionStatsResponse,
   ColorFamily,
+  FeatureFlagsResponse,
   FinishTypeListResponse,
   ManicureCreateRequest,
   ManicureDeleteResponse,
@@ -208,6 +209,11 @@ export function getPolish(id: string | number): Promise<Polish> {
  */
 export function createPolish(data: PolishCreateRequest): Promise<Polish> {
   return apiRequest<Polish>("/polishes", { method: "POST", body: data });
+}
+
+/** Server feature flags (`GET /api/config/flags`, anonymous: no auth header). */
+export function getFeatureFlags(): Promise<FeatureFlagsResponse> {
+  return apiRequest<FeatureFlagsResponse>("/config/flags", { auth: false });
 }
 
 /** Public finish reference rows (`GET /api/reference/finishes`, no auth). */

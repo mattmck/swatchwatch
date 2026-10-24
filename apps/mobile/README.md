@@ -143,7 +143,11 @@ src/
                           photo picking (`pick-photo.ts`, camera/library → `prepareJpeg`),
                           color search (By color), Goes with, brand list price line
                           for the buy link (`buy-price.ts`), import file reading (`read-import-file.ts`),
-                          wishlist value (`use-wishlist-value.ts`), polish edit (`polish-edit.ts`)
+                          wishlist value (`use-wishlist-value.ts`), polish edit (`polish-edit.ts`),
+                          feature flags (`feature-flags.ts`: `useFeatureFlags()` reads `bottleCapture`
+                          and the share flags from `GET /api/config/flags` via `getFeatureFlags()` in
+                          `src/api/client.ts`, fetched once per launch and cached in `api-cache`;
+                          a failure keeps the cached flags, else all off)
   theme/theme.tsx         light/dark theme from the shared design tokens
 ```
 
@@ -173,6 +177,8 @@ src/
 - The shutter adds `label` / `color` / `barcode` frames (≤ 6 per scan, JPEG ≤ 1600 px, EXIF
   dropped by re-encoding) to `POST /api/capture/{id}/frame`. Network errors, 408, 429 and 5xx
   retry automatically (1 s, 3 s); then the frame shows Retry / Remove.
+  With the server's `BOTTLE_CAPTURE_ENABLED` flag on, the API keeps frames as private blobs for up
+  to 24 hours (released once the scan is resolved); they are never sent back to the app.
 - **Check, don't add:** unlike the web (which finalizes and offers an undo), mobile uses the
   read-only `check` endpoint, so the verdict never changes the collection:
   - *You own this* (bottle count; "I bought another" adds one),
@@ -195,6 +201,31 @@ src/
   flagged in place ("Scanned already · 2 min ago") instead of appended. Up to 100 entries are
   saved per user through `api-cache` (ids, names, hexes, verdicts, GTINs and times only, never
   frames or private image URLs), restored on launch, and cleared by Clear shelf and on sign-out.
+- **Bottle sequence** (server flag `BOTTLE_CAPTURE_ENABLED`, read as `bottleCapture` from
+  `GET /api/config/flags`; off = the tab above, unchanged): a prompt card follows the server's
+  `nextFrame` ("Show the front of the bottle", "Now the bottom", "Turn it so we see the color",
+  with a hint, "Step n of m" and **Can't see it**, which calls `POST /api/capture/{id}/answer`
+  with `skipSurface`). The shutter and "Choose a photo" take the asked-for surface (sent as
+  `quality.surface`); the Barcode / Label / Color chips move under **More options** and apply to
+  the next photo only. The barcode scanner keeps running and still short-circuits to a verdict.
+  When the server asks for nothing more and a photo is in, the check runs on its own (read-only,
+  no `finalize`). The pure state is `bottleFlowReducer` / `deriveBottleCameraView` /
+  `shouldAutoCheck` in `swatchwatch-shared`; the UI is `components/bottle-prompt.tsx`.
+  - **Batch mode:** a brand field above the camera ("Going through one brand?") becomes
+    "Going through: Loud Lacquer · **Done**". The brand is sent as the start hint of every scan
+    (the server's canonical brand is remembered from its echo), skips the front photo, and is kept
+    per user in the API cache (`src/lib/sticky-hints.ts`, so it survives a tab switch and a
+    restart; Done and sign-out clear it).
+  - **Create card:** a bottle the catalog can't match (or "None of these" on a pick) shows the
+    server's suggestion as an editable card: brand (a brand only read off the bottle needs a
+    "Yes, it's X" tap or an edit), shade name, color (hue chips or a typed hex) and finish. Add
+    to collection / Wishlist call `POST /api/polishes` with the capture id and the scanned GTIN
+    (`createPolishRequestFromCard`), then show the usual "Added" verdict; nothing is created
+    before that tap. When the typed brand and the brand read off the bottle disagree, the card
+    and the pick list say so, with a **Switch to <brand>** button and a Typed / Bottle badge on
+    each candidate. The *Not in the catalog* card shows the scan's photos above "Add manually".
+  - Photos are only sent to match the bottle and are kept for up to 24 hours (the camera
+    placeholder says so while the flag is on).
 - No camera (simulator, denied permission, web preview): "Choose a photo" sends a library
   photo as a frame, and hints alone can be checked.
 

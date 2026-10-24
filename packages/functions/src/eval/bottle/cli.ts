@@ -6,21 +6,24 @@
  *   API_BASE_URL=http://localhost:7071/api ADMIN_BEARER_TOKEN=dev:2 \
  *     npm run eval:bottle --workspace=swatchwatch-functions -- --verbose
  *
- * Per sample: `POST capture/start` (metadata `{ source: "bottle-eval", sampleId }`), one
- * `POST capture/{id}/frame` per frame in shooting order (the private blob sent as a data URL,
- * `frameType` from the frame, `quality: { surface }`), then the read-only `POST capture/{id}/check`.
+ * Per sample: `POST capture/start` (metadata `{ source: "bottle-eval", sampleId }`), `POST
+ * capture/{id}/frame` per frame (the private blob sent as a data URL, `frameType` from the frame,
+ * `quality: { surface }`), the read-only `POST capture/{id}/check`, then `GET capture/{id}/status`
+ * for the resolver's model-call count. When the server answers `start` with a `nextFrame` (bottle
+ * flow on) the frames are sent as it asks (see `runSample`); otherwise all in shooting order.
  * `finalize` is never called, so nothing is added to the admin's collection. Prints the summary and
  * writes the JSON report to the (gitignored) results directory. Exit 1 on config, reachability or
  * admin-token errors (before any sample is loaded or any JSON written) or when any sample errored.
  */
 import path from "path";
+import type { CaptureFrameRequestSpec } from "swatchwatch-shared";
 import { readBlobFromStorageUrl, userMediaContainer } from "../../lib/blob-storage";
 import { closePool } from "../../lib/db";
 import { FUNCTIONS_ROOT, loadLocalSettings } from "../hex/env";
 import { assertAdminToken, assertApiReachable, createCaptureApi, EvalConfigError, type CaptureApi } from "./api-client";
 import { formatSummary, writeReportJson } from "./report";
 import { loadEvalSamples } from "./samples";
-import { candidateShadeId, classifyOutcome, summarize } from "./scoring";
+import { candidateShadeId, classifyOutcome, modelCallsFromStatus, summarize } from "./scoring";
 import type { EvalSample, SampleResult } from "./types";
 
 export const DEFAULT_API_BASE_URL = "http://localhost:7071/api";
@@ -36,8 +39,9 @@ export interface CliArgs {
 
 export const USAGE = `Usage: eval:bottle -- [options]
 
-Replays every bottle eval sample through the capture API (start → frames → read-only check)
-and scores the verdict against the label.
+Replays every bottle eval sample through the capture API (start → frames → read-only check →
+status) and scores the verdict against the label. Frames follow the server's prompts when it
+sends them.
 
 Options:
   --limit <n>            Only the newest n samples (after --only)
@@ -105,9 +109,21 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** Index of the first unsent frame of the requested surface, else of the first unsent frame; -1 when none are left. */
+function pickFrameIndex(frames: EvalSample["frames"], sent: ReadonlySet<number>, surface: CaptureFrameRequestSpec["surface"]): number {
+  const unsent = frames.map((_, index) => index).filter((index) => !sent.has(index));
+  return unsent.find((index) => frames[index].surface === surface) ?? unsent[0] ?? -1;
+}
+
 /**
  * Run one sample through the capture API. A sample without frames is `skipped_no_frames` and makes
  * no API call; any API or blob failure is recorded as `error` (never thrown).
+ *
+ * Adaptive when `start` returns a `nextFrame`: send the sample's first unsent frame of the
+ * requested surface (the next unsent frame when it has none of that surface), then follow each
+ * frame response's `nextFrame` until it is null or the frames run out. Without a `nextFrame` on
+ * start, all frames are sent in position order. `status` is read once after `check` for the
+ * resolver's model calls; a failed read leaves `modelCalls` null and is not an error.
  */
 export async function runSample(
   api: CaptureApi,
@@ -119,21 +135,60 @@ export async function runSample(
     brand: sample.brand,
     shadeName: sample.shadeName,
     inCatalog: sample.shadeId !== null,
+    finishFamily: sample.finishFamily,
   };
   if (sample.frames.length === 0) {
-    return { ...base, outcome: "skipped_no_frames", status: "skipped", topEntityId: null, candidateIds: [], frames: 0, ms: 0 };
+    return {
+      ...base,
+      outcome: "skipped_no_frames",
+      status: "skipped",
+      topEntityId: null,
+      candidateIds: [],
+      frames: 0,
+      ms: 0,
+      modelCalls: null,
+      promptsFollowed: 0,
+      adaptive: false,
+      createCard: false,
+    };
   }
 
   const startedAt = Date.now();
   let sent = 0;
+  let promptsFollowed = 0;
+  let adaptive = false;
   try {
-    const captureId = await api.start({ source: "bottle-eval", sampleId: sample.sampleId });
-    for (const frame of sample.frames) {
+    const started = await api.start({ source: "bottle-eval", sampleId: sample.sampleId });
+    const captureId = started.captureId;
+    const sentIndexes = new Set<number>();
+    const sendFrame = async (index: number) => {
+      const frame = sample.frames[index];
+      sentIndexes.add(index);
       const imageBlobUrl = await readFrame(frame.storageUrl);
-      await api.frame(captureId, { imageBlobUrl, frameType: frame.frameType, quality: { surface: frame.surface } });
+      const response = await api.frame(captureId, {
+        imageBlobUrl,
+        frameType: frame.frameType,
+        quality: { surface: frame.surface },
+      });
       sent += 1;
+      return response.nextFrame;
+    };
+
+    if (started.nextFrame) {
+      adaptive = true;
+      let requested: CaptureFrameRequestSpec | null | undefined = started.nextFrame;
+      while (requested) {
+        const index = pickFrameIndex(sample.frames, sentIndexes, requested.surface);
+        if (index < 0) break;
+        promptsFollowed += 1;
+        requested = await sendFrame(index);
+      }
+    } else {
+      for (let index = 0; index < sample.frames.length; index += 1) await sendFrame(index);
     }
+
     const check = await api.check(captureId);
+    const modelCalls = await api.status(captureId).then(modelCallsFromStatus, () => null);
     const candidates = check.candidates ?? [];
     const candidateIds = candidates.map(candidateShadeId).filter((id): id is number => id !== null);
     return {
@@ -144,6 +199,10 @@ export async function runSample(
       candidateIds,
       frames: sent,
       ms: Date.now() - startedAt,
+      modelCalls,
+      promptsFollowed,
+      adaptive,
+      createCard: check.suggestedShade !== undefined && check.suggestedShade !== null,
     };
   } catch (error) {
     return {
@@ -154,6 +213,10 @@ export async function runSample(
       candidateIds: [],
       frames: sent,
       ms: Date.now() - startedAt,
+      modelCalls: null,
+      promptsFollowed,
+      adaptive,
+      createCard: false,
       error: errorMessage(error),
     };
   }

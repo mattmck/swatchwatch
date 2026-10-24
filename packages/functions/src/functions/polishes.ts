@@ -26,7 +26,20 @@ import {
   DETECTED_HEX_METHOD_CLIENT_SUPPLIED,
   provenanceFromDetection,
 } from "../lib/hex-provenance";
-import { isCatalogStorageUrl, isUserMediaStorageUrl, readBlobFromStorageUrl } from "../lib/blob-storage";
+import {
+  deleteBlobFromStorageUrl,
+  isCatalogStorageUrl,
+  isUserMediaStorageUrl,
+  readBlobFromStorageUrl,
+  userMediaContainer,
+} from "../lib/blob-storage";
+import { releaseCaptureFrames } from "../lib/capture-frame-store";
+import {
+  CaptureSessionNotFoundError,
+  CaptureSessionStateError,
+  isValidUuid,
+  markCaptureSessionCreatedShade,
+} from "../lib/capture-session";
 import {
   cacheDelete,
   cacheDeleteByPrefix,
@@ -1199,6 +1212,30 @@ ${POLISH_FROM}`;
   }
 }
 
+/**
+ * After the create transaction committed: the session is matched, so its frame blobs are no longer
+ * needed. Best effort; a failure is logged and the hourly sweep releases whatever is left.
+ */
+async function releaseCreatedCaptureFrames(
+  context: InvocationContext,
+  input: { sessionId: number; userId: number; captureId: string }
+): Promise<void> {
+  const warn = (message: string, error?: unknown) => {
+    context.warn(`${message}${error ? `: ${error instanceof Error ? error.message : String(error)}` : ""}`);
+    if (error) trackException(error, { area: "polishes", stage: "release-capture-frames" });
+  };
+  try {
+    const mediaContainer = userMediaContainer();
+    await releaseCaptureFrames(input, {
+      query,
+      deleteBlob: (storageUrl) => deleteBlobFromStorageUrl(storageUrl, { allowedContainers: [mediaContainer] }),
+      warn,
+    });
+  } catch (error) {
+    warn("capture frame release failed", error);
+  }
+}
+
 async function createPolish(request: HttpRequest, context: InvocationContext, userId: number): Promise<HttpResponseInit> {
   context.log("POST /api/polishes");
 
@@ -1246,10 +1283,21 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       }
     }
 
+    // The bottle flow's one-tap create sends its capture session along: validated before any query.
+    let captureId: string | null = null;
+    if (body.captureId !== undefined && body.captureId !== null && body.captureId !== "") {
+      if (typeof body.captureId !== "string" || !isValidUuid(body.captureId)) {
+        return { status: 400, jsonBody: { error: "captureId must be a valid UUID" } };
+      }
+      captureId = body.captureId;
+    }
+
     const finishUpdate = requestCarriesFinishData(body)
       ? resolveRequestedFinishes(body, await loadFinishCatalog())
       : undefined;
 
+    let capturedSessionId: number | null = null;
+    let capturedGtin: NormalizedGtin | null = null;
     const { shadeId } = await transaction(async (client) => {
       const resolvedShadeId =
         shadeIdFromBody ??
@@ -1279,12 +1327,34 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       await upsertInventoryItem(client, userId, resolvedShadeId, body, inventoryFields);
       // A re-added polish picks its wear stats back up from the mani log (#269).
       await recomputeWearStats(client, userId, [resolvedShadeId], { fillTriedAt: false });
-      if (scannedBarcode) {
-        await rememberUserShadeBarcode(client, { userId, shadeId: resolvedShadeId, gtin: scannedBarcode });
+      let captureSessionId: number | null = null;
+      let sessionGtin: NormalizedGtin | null = null;
+      if (captureId) {
+        // Throws (rolling this whole transaction back) when the session is not the caller's or is cancelled.
+        const marked = await markCaptureSessionCreatedShade(client, { userId, captureId, shadeId: resolvedShadeId });
+        captureSessionId = marked.sessionId;
+        sessionGtin = marked.gtin;
       }
+      // A barcode in the body wins over the one the session scanned; one INSERT either way.
+      const learnedGtin = scannedBarcode ?? sessionGtin;
+      if (learnedGtin) {
+        await rememberUserShadeBarcode(client, {
+          userId,
+          shadeId: resolvedShadeId,
+          gtin: learnedGtin,
+          captureSessionId,
+        });
+      }
+      capturedSessionId = captureSessionId;
+      capturedGtin = learnedGtin;
 
       return { shadeId: resolvedShadeId };
     });
+
+    if (captureId && capturedSessionId !== null) {
+      await releaseCreatedCaptureFrames(context, { sessionId: capturedSessionId, userId, captureId });
+      trackEvent("capture.shade_created", { captureId, shadeId, hadBarcode: Boolean(capturedGtin) });
+    }
 
     const created = await query<Polish>(
       `${POLISH_SELECT}
@@ -1315,6 +1385,12 @@ async function createPolish(request: HttpRequest, context: InvocationContext, us
       jsonBody: withReadableSwatchUrl(created.rows[0], request.url),
     };
   } catch (error: any) {
+    if (error instanceof CaptureSessionNotFoundError) {
+      return { status: 404, jsonBody: { error: "Capture session not found" } };
+    }
+    if (error instanceof CaptureSessionStateError) {
+      return { status: 409, jsonBody: { error: "Capture session is cancelled" } };
+    }
     return internalServerError(context, error, "Failed to create polish", "polishes.create");
   }
 }

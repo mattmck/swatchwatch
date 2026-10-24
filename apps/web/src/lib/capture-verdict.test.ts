@@ -1,11 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type { Polish, PolishDupe, PolishDupesResponse } from "swatchwatch-shared";
+import type { CaptureCheckCandidate, CaptureCheckResponse, Polish, PolishDupe, PolishDupesResponse } from "swatchwatch-shared";
 import {
   NEAR_DUPE_OUTCOMES,
   buildOwnershipSnapshot,
   checkedFromNearDupe,
   resolveNearDupeVerdict,
+  verdictFromBottleCheck,
   withNearDupes,
   candidateOptionLabel,
   deriveCaptureVerdict,
@@ -338,5 +339,126 @@ describe("near-dupe verdict (#265)", () => {
       loadDupes: () => new Promise<PolishDupesResponse>(() => undefined),
     });
     assert.equal(slow.failure?.reason, "timeout");
+  });
+});
+
+describe("verdictFromBottleCheck", () => {
+  function candidate(id: string, overrides: Partial<CaptureCheckCandidate> = {}): CaptureCheckCandidate {
+    return {
+      entityType: "shade",
+      entityId: id,
+      shadeId: id,
+      display: `Brand — Shade ${id}`,
+      confidence: 0.6,
+      ownership: { relationship: "notOwned" },
+      ...overrides,
+    };
+  }
+  function check(overrides: Partial<CaptureCheckResponse>): CaptureCheckResponse {
+    return {
+      captureId: "cap-1",
+      status: "processing",
+      outcome: "unmatched",
+      confidence: 0,
+      candidates: [],
+      ...overrides,
+    };
+  }
+  const evidence = { brand: "Loud Lacquer", shadeName: "Mango" };
+
+  it("turns an owned match into a checked verdict with no barcode", () => {
+    const match = candidate("7", { ownership: { relationship: "owned", quantity: 2 }, hex: "#ff8800" });
+    const verdict = verdictFromBottleCheck(
+      check({ outcome: "matched", match, candidates: [match] }),
+      { afterNoneOfThese: false, evidence },
+    );
+    assert.equal(verdict.kind, "checked");
+    if (verdict.kind !== "checked") return;
+    assert.equal(verdict.relationship, "owned");
+    assert.equal(verdict.quantity, 2);
+    assert.equal(verdict.hex, "#ff8800");
+    assert.equal(verdict.shadeId, "7");
+    assert.equal(verdict.display, "Brand — Shade 7");
+    assert.equal(verdict.gtin, "");
+  });
+
+  it("offers a pick of up to five candidates with a shade and copies the brand conflict", () => {
+    const brandConflict = {
+      hinted: { brandId: null, name: "Loud", source: "hint" as const },
+      read: { brandId: "9", name: "Loud Lacquer", source: "read" as const },
+    };
+    const candidates = [
+      candidate("1"),
+      candidate("2"),
+      candidate("3"),
+      candidate("4", { shadeId: null, entityType: "sku" }),
+    ];
+    const verdict = verdictFromBottleCheck(
+      check({ outcome: "needs_question", questionKey: "candidate_select", candidates, brandConflict }),
+      { afterNoneOfThese: false, evidence },
+    );
+    assert.equal(verdict.kind, "pick");
+    if (verdict.kind !== "pick") return;
+    assert.deepEqual(verdict.candidates.map((c) => c.entityId), ["1", "2", "3"]);
+    assert.deepEqual(verdict.brandConflict, brandConflict);
+
+    const many = Array.from({ length: 8 }, (_, i) => candidate(String(i + 1)));
+    const capped = verdictFromBottleCheck(
+      check({ outcome: "needs_question", questionKey: "candidate_select", candidates: many }),
+      { afterNoneOfThese: false, evidence },
+    );
+    assert.equal(capped.kind === "pick" && capped.candidates.length, 5);
+  });
+
+  it("a brand + shade question with weak candidates is no pick list", () => {
+    const verdict = verdictFromBottleCheck(
+      check({ outcome: "needs_question", questionKey: "brand_shade", candidates: [candidate("1"), candidate("2")] }),
+      { afterNoneOfThese: false, evidence },
+    );
+    assert.deepEqual(verdict, { kind: "add", evidence });
+  });
+
+  it("goes to the create card after None of these", () => {
+    const suggestedShade = {
+      brandId: null,
+      brandName: "Loud Lacquer",
+      brandSource: "hint" as const,
+      shadeName: "Mango",
+      hex: "#ff8800",
+      finish: "creme",
+      gtin: null,
+    };
+    const verdict = verdictFromBottleCheck(
+      check({ outcome: "needs_question", candidates: [candidate("1"), candidate("2")], suggestedShade }),
+      { afterNoneOfThese: true, evidence },
+    );
+    assert.equal(verdict.kind, "create_card");
+    if (verdict.kind !== "create_card") return;
+    assert.equal(verdict.card.shadeName, "Mango");
+    assert.equal(verdict.brandConflict, null);
+  });
+
+  it("asks to confirm a brand that was only read off the bottle", () => {
+    const verdict = verdictFromBottleCheck(
+      check({
+        suggestedShade: {
+          brandId: "9",
+          brandName: "Loud Lacquer",
+          brandSource: "read",
+          shadeName: "Mango",
+          hex: null,
+          finish: null,
+          gtin: null,
+        },
+      }),
+      { afterNoneOfThese: false, evidence },
+    );
+    assert.equal(verdict.kind, "create_card");
+    assert.equal(verdict.kind === "create_card" && verdict.card.brandNeedsConfirm, true);
+  });
+
+  it("falls back to add with the evidence when nothing was suggested", () => {
+    const verdict = verdictFromBottleCheck(check({}), { afterNoneOfThese: false, evidence });
+    assert.deepEqual(verdict, { kind: "add", evidence });
   });
 });

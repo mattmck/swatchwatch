@@ -8,13 +8,17 @@
  * / "new to you" without anything being written, and only an explicit tap adds it.
  */
 import type {
+  BottleSurface,
+  CaptureBrandConflict,
   CaptureCheckCandidate,
   CaptureCheckResponse,
   CaptureFrameType,
+  CreateCardModel,
   NormalizedBarcode,
   PolishDupesResponse,
+  StickyHints,
 } from "swatchwatch-shared";
-import { normalizeScannedBarcode } from "swatchwatch-shared";
+import { deriveCreateCard, hintsToStartMetadata, normalizeScannedBarcode } from "swatchwatch-shared";
 
 /** Matches the capture API's `guidanceConfig.maxFrames`. */
 export const MAX_CAPTURE_FRAMES = 6;
@@ -132,6 +136,8 @@ export interface FrameQualityInput {
   sourceWidth: number;
   sourceHeight: number;
   barcode?: ScannedBarcode | null;
+  /** Which side of the bottle this photo shows (bottle flow). */
+  surface?: BottleSurface | null;
 }
 
 /** The `quality` object sent with a frame; a scanned barcode rides along as `gtin` (web parity). */
@@ -148,6 +154,7 @@ export function buildFrameQuality(input: FrameQualityInput): Record<string, unkn
     quality.barcodeFormat = input.barcode.format;
     quality.barcodeDecoder = input.barcode.engine;
   }
+  if (input.surface) quality.surface = input.surface;
   return quality;
 }
 
@@ -156,9 +163,16 @@ export interface CaptureHints {
   shadeName?: string;
 }
 
-/** Metadata for `POST /api/capture/start`: a scanned GTIN is the strongest evidence. */
-export function buildStartMetadata(input: { barcode: ScannedBarcode | null; hints: CaptureHints }): Record<string, unknown> {
-  const metadata: Record<string, unknown> = { source: "mobile-rapid-add" };
+/**
+ * Metadata for `POST /api/capture/start`: a scanned GTIN is the strongest evidence. The sticky
+ * "going through this brand" hints fill in whatever the shopper did not type for this scan.
+ */
+export function buildStartMetadata(input: {
+  barcode: ScannedBarcode | null;
+  hints: CaptureHints;
+  sticky?: StickyHints | null;
+}): Record<string, unknown> {
+  const metadata: Record<string, unknown> = { source: "mobile-rapid-add", ...(input.sticky ? hintsToStartMetadata(input.sticky) : {}) };
   const brand = input.hints.brand?.trim();
   const shadeName = input.hints.shadeName?.trim();
   if (brand) metadata.brand = brand;
@@ -218,6 +232,15 @@ export interface AddVerdict {
 export interface PickVerdict {
   kind: "pick";
   candidates: CaptureCheckCandidate[];
+  /** The typed brand disagrees with the brand read off the bottle (bottle flow). */
+  brandConflict?: CaptureBrandConflict | null;
+}
+
+/** Nothing in the catalog matched: add the bottle as new from the prefilled card. */
+export interface CreateVerdict {
+  kind: "create";
+  card: CreateCardModel;
+  brandConflict: CaptureBrandConflict | null;
 }
 
 /** No catalog match. */
@@ -242,6 +265,7 @@ export type RapidAddVerdict =
   | AddVerdict
   | PickVerdict
   | NotFoundVerdict
+  | CreateVerdict
   | AddedVerdict;
 
 /** Verdict for one candidate, before the near-dupe upgrade. */
@@ -268,6 +292,56 @@ export function deriveVerdict(check: CaptureCheckResponse, gtin?: string): Rapid
     if (pickable.length > 0) return { kind: "pick", candidates: pickable };
   }
   return { kind: "not-found", gtin };
+}
+
+/**
+ * Verdict for the bottle sequence: a match answers as usual; the pickable candidates of a
+ * `candidate_select` question are offered (with any brand conflict); otherwise the suggested shade becomes the create card, and with
+ * nothing to prefill it is not-found. `afterNoneOfThese` lets the card replace the candidates.
+ */
+export function deriveBottleVerdict(check: CaptureCheckResponse, opts: { afterNoneOfThese: boolean; gtin?: string }): RapidAddVerdict {
+  if (check.outcome === "matched" && check.match) return verdictForCandidate(check.match);
+  // Only the candidate question is a pick list: a brand + shade question can carry weak
+  // global candidates that are not worth choosing from.
+  if (check.outcome === "needs_question" && check.questionKey === "candidate_select" && !opts.afterNoneOfThese) {
+    const pickable = check.candidates.filter((c) => c.shadeId !== null).slice(0, 5);
+    if (pickable.length > 0) return { kind: "pick", candidates: pickable, brandConflict: check.brandConflict ?? null };
+  }
+  const card = deriveCreateCard(check, { afterNoneOfThese: opts.afterNoneOfThese });
+  if (card) return { kind: "create", card, brandConflict: check.brandConflict ?? null };
+  return { kind: "not-found", gtin: opts.gtin };
+}
+
+/**
+ * Which brand a pick row came from when the typed brand and the brand read off the bottle
+ * disagree: `typed` / `bottle` with that brand's name, or `null` for any other candidate.
+ */
+export function candidateBrandBadge(
+  candidate: Pick<CaptureCheckCandidate, "brandId">,
+  conflict: CaptureBrandConflict | null | undefined,
+): { source: "typed" | "bottle"; name: string } | null {
+  if (!conflict || !candidate.brandId) return null;
+  if (candidate.brandId === conflict.read.brandId) return { source: "bottle", name: conflict.read.name };
+  if (candidate.brandId === conflict.hinted.brandId) return { source: "typed", name: conflict.hinted.name };
+  return null;
+}
+
+/** The `added` verdict's candidate for a polish the create card just made. */
+export function createdCandidate(
+  created: { id: string; brand: string; name: string },
+  status: "owned" | "wishlist",
+  hex: string | null,
+): CaptureCheckCandidate {
+  const candidate: CaptureCheckCandidate = {
+    entityType: "shade",
+    entityId: created.id,
+    shadeId: created.id,
+    display: `${created.brand} — ${created.name}`,
+    confidence: 1,
+    ownership: status === "owned" ? { relationship: "owned", quantity: 1 } : { relationship: "wishlisted" },
+  };
+  if (hex) candidate.hex = hex;
+  return candidate;
 }
 
 /** Upgrade an `add` verdict to `near-dupe` when the shopper owns a dupe. */

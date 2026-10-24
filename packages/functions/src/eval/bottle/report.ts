@@ -19,7 +19,7 @@ function pct(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
-/** Plain-text report: outcome counts, rates, median time, per brand (and per sample when verbose). */
+/** Plain-text report: outcome counts, rates, median time, resolver-audit stats, per brand and finish family (and per sample when verbose). */
 export function formatSummary(summary: EvalSummary, results: SampleResult[], verbose: boolean): string {
   const catalog = results.filter((r) => r.inCatalog).length;
   const lines = [
@@ -34,6 +34,9 @@ export function formatSummary(summary: EvalSummary, results: SampleResult[], ver
     `Ask rate:        ${pct(summary.askRate)}  (asked_* / scored catalog samples)`,
     `False confident: ${summary.falseConfident}  (matched_wrong)`,
     `Median time:     ${Math.round(summary.medianMs)} ms per bottle`,
+    `Model calls per bottle: mean ${summary.modelCalls.mean.toFixed(2)} / median ${summary.modelCalls.median} (${summary.modelCalls.samples} bottle(s) reported)`,
+    `Median frames needed:   ${summary.medianFramesNeeded}`,
+    `Create card (not in catalog): ${pct(summary.createCardRate)}  (suggestedShade / scored not-in-catalog samples)`,
   ];
 
   const brands = Object.keys(summary.byBrand).sort((a, b) => a.localeCompare(b));
@@ -51,17 +54,36 @@ export function formatSummary(summary: EvalSummary, results: SampleResult[], ver
     );
   }
 
+  const families = Object.keys(summary.byFinishFamily).sort((a, b) => a.localeCompare(b));
+  if (families.length > 0) {
+    lines.push(
+      "",
+      renderTable(
+        ["finish family", "n", ...OUTCOMES.map((o) => SHORT[o])],
+        families.map((family) => {
+          const counts = summary.byFinishFamily[family];
+          const total = OUTCOMES.reduce((sum, o) => sum + counts[o], 0);
+          return [family, String(total), ...OUTCOMES.map((o) => String(counts[o]))];
+        })
+      )
+    );
+  }
+
   if (verbose && results.length > 0) {
     lines.push(
       "",
       renderTable(
-        ["sample", "brand", "shade", "catalog", "frames", "verdict", "outcome", "top", "candidates", "ms", "note"],
+        ["sample", "brand", "shade", "family", "catalog", "frames", "calls", "prompts", "card", "verdict", "outcome", "top", "candidates", "ms", "note"],
         results.map((r) => [
           String(r.sampleId),
           r.brand,
           r.shadeName,
+          r.finishFamily,
           r.inCatalog ? "yes" : "no",
           String(r.frames),
+          r.modelCalls === null ? "-" : String(r.modelCalls),
+          r.adaptive ? String(r.promptsFollowed) : "-",
+          r.createCard ? "yes" : "no",
           r.status,
           r.outcome,
           r.topEntityId === null ? "-" : String(r.topEntityId),

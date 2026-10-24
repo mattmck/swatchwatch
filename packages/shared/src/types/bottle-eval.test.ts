@@ -1,11 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import {
-  BOTTLE_SURFACE_FRAME_TYPE,
-  BottleEvalValidationError,
-  parseBottleSurface,
-  validateBottleEvalSampleInput,
-} from "./bottle-eval";
+import { BottleEvalValidationError, validateBottleEvalSampleInput } from "./bottle-eval";
+import { BOTTLE_SURFACE_FRAME_TYPE, parseBottleSurface } from "../index";
 
 describe("validateBottleEvalSampleInput", () => {
   it("accepts a catalog shade id, trimmed, with null notes", () => {

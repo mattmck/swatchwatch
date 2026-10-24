@@ -16,13 +16,16 @@
  *      TypeScript points at the missing branch).
  */
 import type {
+  CaptureBrandConflict,
+  CaptureCheckCandidate,
   CaptureCheckResponse,
   CaptureOwnershipRelationship,
   CaptureStatus,
+  CreateCardModel,
   Polish,
   PolishDupesResponse,
 } from "swatchwatch-shared";
-import { resolveDisplayHex } from "swatchwatch-shared";
+import { deriveCreateCard, resolveDisplayHex } from "swatchwatch-shared";
 import { resolveAddGuard, shadeGuardKey, type AddGuardOutcome } from "./add-guard";
 import { dupeVerdict, type DupeVerdictKind } from "./dupes";
 import { isOwnedPolish } from "./inventory-status";
@@ -163,6 +166,28 @@ export interface NearDupeVerdict {
   dupeKind: Exclude<DupeVerdictKind, "none">;
 }
 
+/**
+ * The bottle sequence found several possible shades (check-first, nothing added yet): the card
+ * lists them, with "None of these" leading to the create card.
+ */
+export interface PickVerdict {
+  kind: "pick";
+  display?: undefined;
+  /** At most `PICK_CANDIDATE_MAX`, each with a `shadeId`. */
+  candidates: CaptureCheckCandidate[];
+  brandConflict: CaptureBrandConflict | null;
+  /** The check the candidates came from (for the create card after "None of these"). */
+  check: CaptureCheckResponse;
+}
+
+/** The bottle matched nothing in the catalog: an editable "add it as new" card. */
+export interface CreateCardVerdict {
+  kind: "create_card";
+  display?: undefined;
+  card: CreateCardModel;
+  brandConflict: CaptureBrandConflict | null;
+}
+
 // Extension point: WishlistVerdict (#261) joins this union.
 export type CaptureVerdict =
   | OwnedVerdict
@@ -170,7 +195,9 @@ export type CaptureVerdict =
   | AddVerdict
   | CheckedVerdict
   | NearDupeVerdict
-  | UnknownBarcodeVerdict;
+  | UnknownBarcodeVerdict
+  | PickVerdict
+  | CreateCardVerdict;
 export type CaptureVerdictKind = CaptureVerdict["kind"];
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -361,6 +388,34 @@ export function verdictFromCheck(
   }
   if (!barcode) return null;
   return { kind: "unknown_barcode", gtin: barcode.gtin, ...(barcode.format ? { format: barcode.format } : {}) };
+}
+
+/** The most candidates the pick card lists. */
+export const PICK_CANDIDATE_MAX = 5;
+
+/**
+ * The verdict for the bottle sequence (check-first): a match is `checked`; the candidates of a
+ * `candidate_select` question are a `pick`; otherwise (no candidates, or the user said "None of these") the create card
+ * when the server suggested a shade, else the plain `add` with the evidence collected.
+ */
+export function verdictFromBottleCheck(
+  check: CaptureCheckResponse,
+  opts: { afterNoneOfThese: boolean; evidence: CaptureEvidenceSummary },
+): CaptureVerdict {
+  if (check.outcome === "matched" && check.match) {
+    const checked = verdictFromCheck(check, null);
+    if (checked) return checked;
+  }
+  const brandConflict = check.brandConflict ?? null;
+  // Only the candidate question is a pick list: a brand + shade question can carry weak
+  // global candidates that are not worth choosing from.
+  if (check.outcome === "needs_question" && check.questionKey === "candidate_select" && !opts.afterNoneOfThese) {
+    const candidates = check.candidates.filter((c) => c.shadeId).slice(0, PICK_CANDIDATE_MAX);
+    if (candidates.length > 0) return { kind: "pick", candidates, brandConflict, check };
+  }
+  const card = deriveCreateCard(check, { afterNoneOfThese: opts.afterNoneOfThese });
+  if (card) return { kind: "create_card", card, brandConflict };
+  return { kind: "add", evidence: opts.evidence };
 }
 
 /**

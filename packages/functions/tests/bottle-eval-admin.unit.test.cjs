@@ -783,4 +783,10 @@ describe("bottle eval sample SQL", () => {
     assert.match(SAMPLE_COLUMNS_SQL, /COALESCE\(sh\.merged_into_shade_id, s\.shade_id\)::text AS "shadeId"/);
     assert.match(SAMPLE_COLUMNS_SQL, /LEFT JOIN shade sh ON sh\.shade_id = s\.shade_id/);
   });
+
+  it("reads the family of the shade's first finish from finish_type", () => {
+    const { SAMPLE_COLUMNS_SQL } = require("../dist/lib/bottle-eval");
+    assert.match(SAMPLE_COLUMNS_SQL, /FROM finish_type ft\s+WHERE lower\(ft\.name\) = lower\(sh\.finishes\[1\]\)\) AS "finishFamily"/);
+    assert.match(SAMPLE_COLUMNS_SQL, /sh\.finishes\[1\] AS "primaryFinish"/);
+  });
 });

@@ -1,4 +1,4 @@
-import type { CaptureCheckCandidate, CaptureCheckResponse } from "swatchwatch-shared";
+import type { CaptureCheckCandidate, CaptureCheckResponse, CaptureStatusResponse } from "swatchwatch-shared";
 import type { EvalSample, EvalSummary, Outcome, SampleResult } from "./types";
 
 /** Every outcome, in report order. */
@@ -52,8 +52,20 @@ export function classifyOutcome(
   }
 }
 
+/** `metadata.resolver.modelCalls` of a capture status read, when it is a finite number; else `null`. */
+export function modelCallsFromStatus(status: Pick<CaptureStatusResponse, "metadata">): number | null {
+  const resolver = status.metadata?.resolver;
+  if (typeof resolver !== "object" || resolver === null) return null;
+  const calls = (resolver as { modelCalls?: unknown }).modelCalls;
+  return typeof calls === "number" && Number.isFinite(calls) ? calls : null;
+}
+
 function emptyCounts(): Record<Outcome, number> {
   return Object.fromEntries(OUTCOMES.map((outcome) => [outcome, 0])) as Record<Outcome, number>;
+}
+
+function mean(values: number[]): number {
+  return values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 function median(values: number[]): number {
@@ -64,22 +76,37 @@ function median(values: number[]): number {
 }
 
 /**
- * Pure: totals per outcome and per brand, plus the rates. Rates are over the scored catalog samples
- * (skipped and errored samples are counted per outcome but left out of the rates and the median).
+ * Pure: totals per outcome, per brand and per finish family, plus the rates. Rates are over the
+ * scored catalog samples (skipped and errored samples are counted per outcome but left out of the
+ * rates, the medians and the resolver-audit columns). Model calls average only the scored samples
+ * that reported a number; the create-card rate is over the scored not-in-catalog samples.
  */
 export function summarize(results: SampleResult[]): EvalSummary {
   const byOutcome = emptyCounts();
   const byBrand: Record<string, Record<Outcome, number>> = {};
+  const byFinishFamily: Record<string, Record<Outcome, number>> = {};
   let catalogScored = 0;
+  let externalScored = 0;
+  let externalCreateCards = 0;
   const scoredMs: number[] = [];
+  const scoredFrames: number[] = [];
+  const modelCalls: number[] = [];
 
   for (const result of results) {
     byOutcome[result.outcome] += 1;
     const brandCounts = (byBrand[result.brand] ??= emptyCounts());
     brandCounts[result.outcome] += 1;
+    (byFinishFamily[result.finishFamily] ??= emptyCounts())[result.outcome] += 1;
     if (UNSCORED.has(result.outcome)) continue;
     scoredMs.push(result.ms);
-    if (result.inCatalog) catalogScored += 1;
+    scoredFrames.push(result.frames);
+    if (result.modelCalls !== null) modelCalls.push(result.modelCalls);
+    if (result.inCatalog) {
+      catalogScored += 1;
+    } else {
+      externalScored += 1;
+      if (result.createCard) externalCreateCards += 1;
+    }
   }
 
   const rate = (count: number) => (catalogScored === 0 ? 0 : count / catalogScored);
@@ -91,5 +118,9 @@ export function summarize(results: SampleResult[]): EvalSummary {
     falseConfident: byOutcome.matched_wrong,
     medianMs: median(scoredMs),
     byBrand,
+    byFinishFamily,
+    modelCalls: { mean: mean(modelCalls), median: median(modelCalls), samples: modelCalls.length },
+    medianFramesNeeded: median(scoredFrames),
+    createCardRate: externalScored === 0 ? 0 : externalCreateCards / externalScored,
   };
 }

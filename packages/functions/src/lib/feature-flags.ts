@@ -17,6 +17,7 @@ interface FeatureFlagDefinition {
 export const FEATURE_FLAGS = {
   shareableWishlist: { env: "SHAREABLE_WISHLIST_ENABLED", public: true },
   shareableLooks: { env: "SHAREABLE_LOOKS_ENABLED", public: true },
+  bottleCapture: { env: "BOTTLE_CAPTURE_ENABLED", public: true },
   hexDetectionBatch: { env: "HEX_DETECTION_BATCH_ENABLED", public: false, lenient: true },
   hexDetectionSnap: { env: "HEX_DETECTION_SNAP_ENABLED", public: false },
 } as const satisfies Record<string, FeatureFlagDefinition>;

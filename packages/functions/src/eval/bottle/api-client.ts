@@ -1,4 +1,11 @@
-import type { CaptureCheckResponse, CaptureFrameType, CaptureStartResponse } from "swatchwatch-shared";
+import type {
+  CaptureCheckResponse,
+  CaptureFrameRequestSpec,
+  CaptureFrameResponse,
+  CaptureFrameType,
+  CaptureStartResponse,
+  CaptureStatusResponse,
+} from "swatchwatch-shared";
 
 /** Missing or invalid runner configuration (the CLI exits 1 before doing any work). */
 export class EvalConfigError extends Error {
@@ -19,18 +26,24 @@ export class CaptureApiError extends Error {
   }
 }
 
-/** The three capture calls the runner makes. `check` is read-only; `finalize` is never called. */
+/**
+ * The capture calls the runner makes. `check` and `status` are read-only; `finalize` is never called.
+ * `nextFrame` is the photo the server asks for next (`null` = nothing more; `undefined` = the
+ * server does not send prompts, i.e. the bottle flow is off).
+ */
 export interface CaptureApi {
   /** API base URL without a trailing slash (e.g. `http://localhost:7071/api`). */
   readonly baseUrl: string;
   /** Authenticated `GET {baseUrl}/{path}`; resolves to the HTTP status (the body is discarded). */
   getStatus(path: string): Promise<number>;
-  start(meta: Record<string, unknown>): Promise<string>;
+  start(meta: Record<string, unknown>): Promise<{ captureId: string; nextFrame: CaptureFrameRequestSpec | null | undefined }>;
   frame(
     id: string,
     body: { imageBlobUrl: string; frameType: CaptureFrameType; quality: Record<string, unknown> }
-  ): Promise<void>;
+  ): Promise<{ nextFrame: CaptureFrameRequestSpec | null | undefined }>;
   check(id: string): Promise<CaptureCheckResponse>;
+  /** `GET capture/{id}/status`: the stored session, whose `metadata.resolver` carries the audit. */
+  status(id: string): Promise<CaptureStatusResponse>;
 }
 
 /** Per-call timeout: frames can run OCR and AI extraction. */
@@ -45,7 +58,7 @@ function errorMessage(error: unknown): string {
   return detail ? `${error.message} (${detail})` : error.message;
 }
 
-/** HTTP client for `POST capture/start`, `capture/{id}/frame` and `capture/{id}/check`, as the admin. */
+/** HTTP client for `POST capture/start`, `capture/{id}/frame`, `capture/{id}/check` and `GET capture/{id}/status`, as the admin. */
 export function createCaptureApi(baseUrl: string, bearer: string): CaptureApi {
   const base = (baseUrl ?? "").trim().replace(/\/+$/, "");
   const token = (bearer ?? "").trim();
@@ -59,27 +72,31 @@ export function createCaptureApi(baseUrl: string, bearer: string): CaptureApi {
     throw new EvalConfigError(`API_BASE_URL is not a URL: ${base}`);
   }
 
-  async function post<T>(path: string, body: unknown): Promise<T> {
+  async function send<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
     const url = `${base}/${path}`;
     const response = await fetch(url, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      method,
+      headers:
+        body === undefined
+          ? { Authorization: `Bearer ${token}` }
+          : { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
     });
     const text = await response.text();
     if (!response.ok) {
       throw new CaptureApiError(
-        `POST ${url} → ${response.status} ${response.statusText} ${text.slice(0, 300)}`.trim(),
+        `${method} ${url} → ${response.status} ${response.statusText} ${text.slice(0, 300)}`.trim(),
         response.status
       );
     }
     try {
       return (text ? JSON.parse(text) : {}) as T;
     } catch {
-      throw new CaptureApiError(`POST ${url} returned invalid JSON`, response.status);
+      throw new CaptureApiError(`${method} ${url} returned invalid JSON`, response.status);
     }
   }
+  const post = <T>(path: string, body: unknown) => send<T>("POST", path, body);
 
   return {
     baseUrl: base,
@@ -96,13 +113,17 @@ export function createCaptureApi(baseUrl: string, bearer: string): CaptureApi {
       if (typeof response.captureId !== "string" || !response.captureId) {
         throw new CaptureApiError("capture/start returned no captureId", 200);
       }
-      return response.captureId;
+      return { captureId: response.captureId, nextFrame: response.nextFrame };
     },
     async frame(id, body) {
-      await post(`capture/${encodeURIComponent(id)}/frame`, body);
+      const response = await post<Partial<CaptureFrameResponse>>(`capture/${encodeURIComponent(id)}/frame`, body);
+      return { nextFrame: response.nextFrame };
     },
     async check(id) {
       return post<CaptureCheckResponse>(`capture/${encodeURIComponent(id)}/check`, {});
+    },
+    async status(id) {
+      return send<CaptureStatusResponse>("GET", `capture/${encodeURIComponent(id)}/status`);
     },
   };
 }

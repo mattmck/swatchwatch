@@ -24,6 +24,7 @@ export * from './functions/ingestion-ai-batch-poller';
 export * from './functions/ingestion';
 export * from './functions/nail-photos';
 export * from './functions/orphan-media-sweep';
+export * from './functions/capture-frame-sweep';
 export * from './functions/manicures';
 export * from './functions/manicure-photos';
 export * from './functions/polishes';
