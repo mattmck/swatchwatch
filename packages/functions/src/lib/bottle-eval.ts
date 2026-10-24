@@ -100,6 +100,10 @@ export interface SampleRow {
   shadeId: string | null;
   brand: string;
   shadeName: string;
+  /** `finish_type.family` of the shade's first finish; `null` = no family, no finish or an external sample. */
+  finishFamily: string | null;
+  /** The shade's first finish (`finishes[1]`), for the built-in family fallback; `null` for external samples. */
+  primaryFinish: string | null;
   notes: string | null;
   createdByUserId: string;
   createdAt: string | Date;
@@ -196,6 +200,9 @@ export const SAMPLE_COLUMNS_SQL = `
          COALESCE(sh.merged_into_shade_id, s.shade_id)::text AS "shadeId",
          COALESCE(b.name_canonical, s.brand_text, '') AS brand,
          COALESCE(sh.shade_name_canonical, s.shade_text, '') AS "shadeName",
+         (SELECT MAX(ft.family) FROM finish_type ft
+           WHERE lower(ft.name) = lower(sh.finishes[1])) AS "finishFamily",
+         sh.finishes[1] AS "primaryFinish",
          s.notes,
          s.created_by_user_id::text AS "createdByUserId",
          s.created_at AS "createdAt"

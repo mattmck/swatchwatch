@@ -13,6 +13,11 @@ export interface EvalSample {
   shadeId: number | null;
   brand: string;
   shadeName: string;
+  /**
+   * Finish family of the shade's primary finish: `finish_type.family`, else the built-in
+   * `DUPE_FINISH_FAMILIES` by finish name, else `"unknown"` (always `"unknown"` for external samples).
+   */
+  finishFamily: string;
   frames: { frameId: number; surface: BottleSurface; frameType: CaptureFrameType; storageUrl: string }[];
 }
 
@@ -53,6 +58,16 @@ export interface SampleResult {
   frames: number;
   /** Wall-clock time of the whole session (start, frames, check). */
   ms: number;
+  /** The sample's finish family (see `EvalSample.finishFamily`). */
+  finishFamily: string;
+  /** Model calls the resolver made (`metadata.resolver.modelCalls` of the session); `null` when not reported or unreadable. */
+  modelCalls: number | null;
+  /** Frames sent because the server asked for their surface (`nextFrame`); 0 when the replay was not adaptive. */
+  promptsFollowed: number;
+  /** The server returned a `nextFrame` on start, so the frames were sent as it asked. */
+  adaptive: boolean;
+  /** The check carried a `suggestedShade`, i.e. the app would show a create card. */
+  createCard: boolean;
   error?: string;
 }
 
@@ -68,4 +83,12 @@ export interface EvalSummary {
   /** Median session time of the scored samples (0 when there are none). */
   medianMs: number;
   byBrand: Record<string, Record<Outcome, number>>;
+  /** Outcome counts per `SampleResult.finishFamily`. */
+  byFinishFamily: Record<string, Record<Outcome, number>>;
+  /** Model calls per bottle over scored samples that reported a number (zeros when none did). */
+  modelCalls: { mean: number; median: number; samples: number };
+  /** Median frames sent over the scored samples (0 when there are none). */
+  medianFramesNeeded: number;
+  /** Scored not-in-catalog samples whose check carried a create card / scored not-in-catalog samples (0 when there are none). */
+  createCardRate: number;
 }

@@ -253,6 +253,8 @@ async function createBottleEvalSample(
           shadeId: shadeId === null ? null : String(shadeId),
           brand,
           shadeName,
+          finishFamily: null,
+          primaryFinish: null,
           notes: input.notes,
           createdByUserId: String(adminUserId),
           createdAt: created.createdAt,

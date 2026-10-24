@@ -1,4 +1,4 @@
-import { parseBottleSurface, type CaptureFrameType } from "swatchwatch-shared";
+import { DUPE_FINISH_FAMILIES, parseBottleSurface, type CaptureFrameType } from "swatchwatch-shared";
 import { SAMPLE_COLUMNS_SQL, SELECT_FRAMES_SQL, type FrameRow, type SampleRow } from "../../lib/bottle-eval";
 import { query } from "../../lib/db";
 import type { EvalSample } from "./types";
@@ -20,6 +20,14 @@ export const SELECT_EVAL_SAMPLES_SQL = `
   WHERE ($1::text IS NULL OR sample.brand ILIKE $1 OR sample."shadeName" ILIKE $1)
   ORDER BY sample."sampleId"::bigint DESC
   LIMIT $2::int`;
+
+/** Catalog family, else the built-in family of the finish name, else `"unknown"`; external samples are always unknown. */
+function finishFamilyOf(row: SampleRow): string {
+  if (row.shadeId === null || row.shadeId === undefined) return "unknown";
+  const finish = row.primaryFinish?.trim().toLowerCase();
+  const builtIn = finish && Object.prototype.hasOwnProperty.call(DUPE_FINISH_FAMILIES, finish) ? DUPE_FINISH_FAMILIES[finish] : null;
+  return row.finishFamily || builtIn || "unknown";
+}
 
 function toId(value: string): number {
   const id = Number(value);
@@ -44,6 +52,7 @@ export function toEvalSamples(rows: SampleRow[], frames: FrameRow[]): EvalSample
     shadeId: row.shadeId === null || row.shadeId === undefined ? null : toId(row.shadeId),
     brand: row.brand,
     shadeName: row.shadeName,
+    finishFamily: finishFamilyOf(row),
     frames: bySample.get(row.sampleId) ?? [],
   }));
 }
