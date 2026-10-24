@@ -117,14 +117,17 @@ async function fixturePng() {
   return originalPng;
 }
 
+// Existence checks are Get Blob Metadata (`GET ?comp=metadata`), never HEAD (lib/blob-storage blobExists).
+const requestKind = (url, init = {}) => (String(url).includes("comp=metadata") ? "METADATA" : init.method || "GET");
+
 /**
  * Fake blob storage: `blobs` maps blob URL → { body, contentType, etag }. Records every request.
  */
 function mockStorage(blobs) {
   const calls = [];
   global.fetch = async (url, init = {}) => {
-    const method = init.method || "GET";
-    const key = String(url);
+    const method = requestKind(url, init);
+    const key = String(url).replace("?comp=metadata", "");
     calls.push({ method, url: key, body: init.body });
     const blob = blobs[key];
     if (method === "PUT") {
@@ -132,7 +135,7 @@ function mockStorage(blobs) {
       return new Response(null, { status: 201 });
     }
     if (!blob) return new Response("missing", { status: 404, statusText: "Not Found" });
-    if (method === "HEAD") return new Response(null, { status: 200 });
+    if (method === "METADATA") return new Response(null, { status: 200 });
     return new Response(blob.body, {
       status: 200,
       headers: {
