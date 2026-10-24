@@ -187,6 +187,20 @@ describe("lib/bottle-flow — planNextFrame", () => {
       );
     });
 
+    it("never fires once the session is matched, even for a poor frame that added nothing", () => {
+      for (const surface of ["box", "front", "bottom", "glass"]) {
+        const spec = planNextFrame(
+          input({
+            state: withState({ lastRejected: { surface, warning: "blurry" } }),
+            surfaces: { [surface]: 1 },
+            decision: "matched",
+            frameCount: 1,
+          })
+        );
+        assert.equal(spec, null, surface);
+      }
+    });
+
     it("is capped like any other prompt and honours a skip", () => {
       const common = { surfaces: { bottom: 1 }, brandKnown: true, nameRead: false, frameCount: 1 };
       const capped = withState({ lastRejected: rejected, prompts: { "bottom:retry_quality": 2 } });

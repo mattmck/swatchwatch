@@ -168,15 +168,15 @@ export function planNextFrame(input: PlanNextFrameInput): CaptureFrameRequestSpe
     !state.skipped.includes(candidate.surface) && (state.prompts[promptKey(candidate)] ?? 0) < BOTTLE_MAX_PROMPTS_PER_KEY;
   const firstUsable = (...candidates: CaptureFrameRequestSpec[]) => candidates.find(usable) ?? null;
 
-  // 1. A poor photo that produced nothing: the same surface again.
+  // 1. Matched (a barcode match included): the flow is over, whatever the last photo looked like.
+  if (input.decision === "matched") return null;
+
+  // 2. A poor photo that produced nothing: the same surface again.
   const rejected = state.lastRejected;
   if (rejected && !surfaceProducedEvidence(rejected.surface, input)) {
     const retry = firstUsable(spec(rejected.surface, "retry_quality", { hint: RETRY_HINTS[rejected.warning] }));
     if (retry) return retry;
   }
-
-  // 2. Matched: done.
-  if (input.decision === "matched") return null;
 
   // 3. No brand: the front, else the box barcode.
   if (!input.brandKnown) {

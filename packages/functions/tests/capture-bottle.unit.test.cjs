@@ -675,6 +675,20 @@ describe("functions/capture — nextFrame after a frame", () => {
     assert.equal(res.jsonBody.nextFrame, null);
   });
 
+  it("a poor decoded-barcode frame that matches the session ends the flow (no retry)", async () => {
+    const VALID_GTIN = "4006381333931";
+    state.barcodes.set(VALID_GTIN, { skuId: String(SKU_ID), shadeId: String(SHADE_ID), brand: "OPI", productName: "Big Apple Red", shadeName: "Big Apple Red" });
+    state.sessions.get(CAPTURE_UUID).metadata = { bottle: { prompts: {}, skipped: [] } };
+    state.frames = [];
+    const quality = { surface: "box", brightness: 0.1, sharpness: 0.001, gtin: VALID_GTIN };
+    state.onInsertFrames = [{ frameType: "barcode", quality: { ...quality, extracted: { gtin: VALID_GTIN } } }];
+    const res = await frame({ frameType: "barcode", quality });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    assert.equal(res.jsonBody.check.outcome, "matched");
+    assert.equal(res.jsonBody.nextFrame, null);
+    assert.deepEqual(bottleUpdates()[0].params[1].bottle.lastRejected, { surface: "box", warning: "too-dark" });
+  });
+
   it("a failure while planning does not fail the saved frame", async () => {
     useHintedSession([]);
     state.onInsertFrames = [];
