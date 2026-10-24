@@ -8,7 +8,9 @@ import { useCameraStream } from "@/hooks/use-camera-stream";
 import {
   armAutoShutter,
   AUTO_SHUTTER_BLOCKER_COPY,
+  AUTO_SHUTTER_REGIONS,
   AUTO_SHUTTER_SETTINGS,
+  cropLuminance,
   stepAutoShutter,
   type AutoShutterStatus,
 } from "@/lib/auto-shutter";
@@ -19,7 +21,7 @@ import {
   type BarcodeScanner,
   type ScannedBarcode,
 } from "@/lib/barcode-scan";
-import { CAMERA_ERROR_COPY, type CameraErrorKind } from "@/lib/camera";
+import { CAMERA_ERROR_COPY, computeFrameQuality, type CameraErrorKind } from "@/lib/camera";
 import {
   captureFrameFromFile,
   captureFrameFromSource,
@@ -284,7 +286,14 @@ export function CameraCapture({
       if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
       const sample = sampleLuminance(video, scratch);
       if (!sample) return;
-      const step = stepAutoShutter(gate, sample, Date.now(), frameType);
+      // Measure only what is inside the guide: the background is sharp and steady too.
+      const region = cropLuminance(sample.luminance, sample.width, sample.height, AUTO_SHUTTER_REGIONS[guide]);
+      const step = stepAutoShutter(
+        gate,
+        { luminance: region.luminance, metrics: computeFrameQuality(region.luminance, region.width, region.height) },
+        Date.now(),
+        frameType,
+      );
       gate = step.state;
       setAutoStatus(step.status);
       if (step.status.phase === "fire") {
@@ -297,7 +306,7 @@ export function CameraCapture({
       clearInterval(timer);
       setAutoStatus(null);
     };
-  }, [autoArmed, autoCaptureKey, frameType]);
+  }, [autoArmed, autoCaptureKey, frameType, guide]);
 
   function toggleAuto() {
     setAutoOn((on) => {

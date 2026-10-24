@@ -18,6 +18,7 @@ import {
   type CaptureBrandRef,
   type CaptureCheckCandidate,
   type CaptureCheckResponse,
+  type CaptureReadSummary,
   type CaptureFrameType,
   type CreateCardEdits,
   type FinishName,
@@ -116,6 +117,7 @@ import {
   type ShelfTelemetryAction,
 } from "@/lib/rapid-add-shelf";
 import type { ScannedBarcode } from "@/lib/barcode-scan";
+import { BottleReadPanel } from "@/components/rapid-add/bottle-read-panel";
 import {
   CameraCapture,
   defaultCameraGuide,
@@ -185,6 +187,8 @@ export default function RapidAddPage() {
   const bottleSequence = flags.bottleCapture && !moreOptions;
   const [sticky, setSticky] = useState<StickyHints>(EMPTY_STICKY_HINTS);
   const [bottle, setBottle] = useState(INITIAL_BOTTLE_FLOW_STATE);
+  /** What the server has read from this bottle's photos so far (bottle sequence only). */
+  const [readSoFar, setReadSoFar] = useState<CaptureReadSummary | null>(null);
   /** A surface the user jumped to with a chip, until the next photo is taken. */
   const [manualSurface, setManualSurface] = useState<BottleSurface | null>(null);
 
@@ -430,6 +434,7 @@ export default function RapidAddPage() {
       const check = await checkCapture(captureId);
       if (scanRef.current !== scan) return;
       applyBottle({ type: "check_received", nextFrame: check.nextFrame, brandConflict: check.brandConflict });
+      if (check.readSoFar) setReadSoFar(check.readSoFar);
       const barcode = sessionRef.current.barcode;
       await presentVerdict(
         verdictFromBottleCheck(check, { afterNoneOfThese: false, evidence: bottleEvidence(check, barcode?.gtin) }),
@@ -472,6 +477,7 @@ export default function RapidAddPage() {
           quality: frame.quality,
         });
         dispatchFrames({ type: "upload_succeeded", localId: frame.localId, frameId: res.frameId });
+        if (res.readSoFar && scanRef.current === scan) setReadSoFar(res.readSoFar);
         if (checking && barcode) {
           await checkBarcode(captureId, barcode, res.check);
         } else if (bottleSequenceRef.current && scanRef.current === scan) {
@@ -758,6 +764,7 @@ export default function RapidAddPage() {
     sessionRef.current = INITIAL_SESSION_STATE;
     framesRef.current = [];
     applyBottle({ type: "reset" });
+    setReadSoFar(null);
     setManualSurface(null);
     setQualityHint(null);
     setFrameType("label");
@@ -803,6 +810,7 @@ export default function RapidAddPage() {
       if (scanRef.current !== scan) return;
       trackEvent("rapid_add.bottle_skip", { surface });
       const next = applyBottle({ type: "surface_skipped", surface, nextFrame: res.nextFrame });
+      if (res.readSoFar) setReadSoFar(res.readSoFar);
       setManualSurface(null);
       dispatch({ type: "status_received", status: res.status, question: res.question });
       const uploaded = framesRef.current.filter((f) => f.status === "uploaded").length;
@@ -1040,6 +1048,10 @@ export default function RapidAddPage() {
             status={viewfinderStatus}
             onCameraError={(kind) => trackEvent("rapid_add.camera_error", { kind })}
           />
+
+          {bottleSequence && phase === "collecting" && (
+            <BottleReadPanel summary={readSoFar} liveBarcode={session.barcode?.gtin ?? null} />
+          )}
 
           {badge && (
             <p
