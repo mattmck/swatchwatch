@@ -260,15 +260,46 @@ export function rapidAddPhase(
 }
 
 /**
+ * A freshly decoded barcode is checked right away (its frame's upload response carries the
+ * verdict, no OCR; without a frame, one `check` call). Not once a verdict is showing or the
+ * user is photographing the label for an unknown barcode, and never in the guided bottle
+ * sequence: there the barcode is one more piece of evidence and the server's `nextFrame` decides
+ * whether to ask for another photo or to check (a catalog match ends the sequence by itself).
+ */
+export function shouldCheckBarcodeFrame(
+  session: Pick<RapidAddSessionState, "labelRequested" | "verdict">,
+  barcode: ScannedBarcode | null,
+  opts: { bottleSequence: boolean },
+): barcode is ScannedBarcode {
+  return Boolean(barcode) && !opts.bottleSequence && !session.labelRequested && !session.verdict;
+}
+
+/**
+ * The frame type and bottle surface a captured photo is sent as. In the bottle sequence a photo
+ * the user took (shutter, auto-shutter or an upload) is the prompted surface's frame even when a
+ * barcode is in view (a bottle's bottom often has its sticker), so the label is still read; the
+ * barcode rides along in its quality. A live read off the preview stays a barcode frame.
+ */
+export function stillFrameTarget(
+  event: { frameType: CaptureFrameType; barcode: ScannedBarcode | null; trigger: "live-scan" | "shutter" | "auto" | "file" },
+  view: { surface: BottleSurface; frameType: CaptureFrameType } | null,
+): { frameType: CaptureFrameType; surface: BottleSurface | null } {
+  if (view && event.trigger !== "live-scan") return { frameType: view.frameType, surface: view.surface };
+  return { frameType: event.frameType, surface: event.barcode ? null : (view?.surface ?? null) };
+}
+
+/**
  * A live barcode read with no snapshot can only be checked from the session metadata, and only a
  * session that read starts carries the GTIN there (`buildStartMetadata`). For an existing session
  * (e.g. a label photo came first) the check would report a false "unknown barcode", so skip it.
+ * In the bottle sequence the read is only kept: the first photo's session start sends it along.
  */
 export function canCheckBarcodeFromMetadata(
   session: Pick<RapidAddSessionState, "captureId" | "labelRequested" | "verdict">,
   barcode: ScannedBarcode | null,
+  opts: { bottleSequence: boolean } = { bottleSequence: false },
 ): barcode is ScannedBarcode {
-  return Boolean(barcode) && session.captureId === null && !session.labelRequested && !session.verdict;
+  return shouldCheckBarcodeFrame(session, barcode, opts) && session.captureId === null;
 }
 
 /**

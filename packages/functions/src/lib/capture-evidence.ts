@@ -171,6 +171,14 @@ export function extractFrameEvidence(quality: Record<string, unknown> | null): F
     || extractedEvidence.shadeNameListed
     || extractedEvidence.hex
   ) {
+    // A barcode the device decoded on a photo the pipeline also read (a bottle's bottom with its
+    // sticker in view) is still evidence; a code the pipeline read itself wins.
+    if (!extractedEvidence.gtin) {
+      extractedEvidence.gtin = getStringField(quality, "gtin", "upc", "ean");
+      extractedEvidence.gtinFormat = extractedEvidence.gtin
+        ? getStringField(quality, "barcodeFormat", "gtinFormat")
+        : undefined;
+    }
     return {
       ...extractedEvidence,
       brandConfidence: getNumberField(extracted, "brandConfidence"),
