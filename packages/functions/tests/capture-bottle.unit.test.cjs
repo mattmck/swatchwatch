@@ -686,7 +686,38 @@ describe("functions/capture — nextFrame after a frame", () => {
     assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
     assert.equal(res.jsonBody.check.outcome, "matched");
     assert.equal(res.jsonBody.nextFrame, null);
-    assert.deepEqual(bottleUpdates()[0].params[1].bottle.lastRejected, { surface: "box", warning: "too-dark" });
+    assert.equal(bottleUpdates()[0].params[1].bottle.lastRejected, null, "the decoded GTIN is evidence");
+  });
+
+  it("a blurry box frame with a decoded but unknown barcode is not asked to retry", async () => {
+    const UNKNOWN_GTIN = "4006381333931";
+    state.sessions.get(CAPTURE_UUID).metadata = { bottle: { prompts: {}, skipped: [] } };
+    state.frames = [];
+    state.shadeCandidates = [];
+    const quality = { surface: "box", brightness: 0.1, sharpness: 0.001, gtin: UNKNOWN_GTIN };
+    state.onInsertFrames = [{ frameType: "barcode", quality: { ...quality, extracted: { gtin: UNKNOWN_GTIN } } }];
+    const res = await frame({ frameType: "barcode", quality });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    assert.notEqual(res.jsonBody.check.outcome, "matched");
+    assert.notEqual(res.jsonBody.nextFrame?.reason, "retry_quality");
+    assert.equal(bottleUpdates()[0].params[1].bottle.lastRejected, null, "the GTIN is evidence: no rejected frame");
+  });
+
+  it("the client cannot set the server-owned quality keys (ai audits, listed pick, brand confidence, source)", async () => {
+    useHintedSession([]);
+    const quality = {
+      surface: "bottom",
+      ai: { sticker: { confidence: 0.99, modelCalls: 5 }, glass: { modelCalls: 3 } },
+      extracted: { shadeName: "Big Appl", shadeNameListed: "Big Apple Red", brandConfidence: 0.99, source: "vision" },
+    };
+    const res = await frame({ frameType: "other", quality });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    const stored = handlerCalls().find((c) => /INSERT INTO capture_frame/i.test(c.sql)).params[3];
+    assert.equal(stored.ai, undefined, "no client ai block is stored");
+    assert.equal(stored.extracted.shadeNameListed, undefined);
+    assert.equal(stored.extracted.brandConfidence, undefined);
+    assert.notEqual(stored.extracted.source, "vision");
+    assert.equal(stored.extracted.shadeName, "Big Appl", "the client's own evidence stays");
   });
 
   it("a failure while planning does not fail the saved frame", async () => {
@@ -697,6 +728,27 @@ describe("functions/capture — nextFrame after a frame", () => {
     state.failBottleUpdate = false;
     assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
     assert.equal(res.jsonBody.nextFrame, null);
+  });
+});
+
+describe("functions/capture — the create card reaches the client", () => {
+  beforeEach(() => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+  });
+
+  it("brand known, every pool row below 0.5: unmatched with no candidates and the suggested shade", async () => {
+    useHintedSession([labelFrame({ shadeName: "Moonlit" }, { surface: "bottom" })]);
+    state.bottleCandidates = [
+      poolRow(11, "Totally Different", { nameScore: 0.2 }),
+      poolRow(12, "Also Different", { nameScore: 0.1 }),
+    ];
+    const res = await check();
+    assert.equal(res.status, 200, JSON.stringify(res.jsonBody));
+    assert.equal(res.jsonBody.outcome, "unmatched");
+    assert.deepEqual(res.jsonBody.candidates, []);
+    assert.equal(res.jsonBody.suggestedShade.brandName, "Loud Lacquer");
+    assert.equal(res.jsonBody.suggestedShade.shadeName, "Moonlit");
+    assert.equal(res.jsonBody.suggestedShade.brandSource, "hint");
   });
 });
 
@@ -751,11 +803,18 @@ describe("functions/capture — skipping a surface", () => {
     assert.equal(bottleUpdates().length, 0);
   });
 
-  it("a cancelled session is a 409", async () => {
-    useHintedSession([]);
-    state.sessions.get(CAPTURE_UUID).status = "cancelled";
-    const res = await answer({ skipSurface: "bottom" });
-    assert.equal(res.status, 409);
+  it("a cancelled, matched or unmatched session is a 409, with no re-resolve and no metadata write", async () => {
+    for (const status of ["cancelled", "matched", "unmatched"]) {
+      sqlCalls = [];
+      useHintedSession([]);
+      state.sessions.get(CAPTURE_UUID).status = status;
+      const before = JSON.stringify(state.sessions.get(CAPTURE_UUID).metadata);
+      const res = await answer({ skipSurface: "bottom" });
+      assert.equal(res.status, 409, status);
+      assert.equal(bottleUpdates().length, 0, status);
+      assert.equal(handlerCalls().filter((c) => /FROM capture_frame/i.test(c.sql)).length, 0, `${status}: no resolve`);
+      assert.equal(JSON.stringify(state.sessions.get(CAPTURE_UUID).metadata), before);
+    }
   });
 
   it("answer without skipSurface still requires an answer", async () => {
@@ -813,6 +872,17 @@ describe("functions/capture — nextFrame on check and status", () => {
     const res = await status();
     assert.equal(res.status, 200, JSON.stringify(res.jsonBody));
     assert.deepEqual(res.jsonBody.nextFrame, spec);
+  });
+
+  it("status on a matched, unmatched or cancelled session is null, whatever was planned last", async () => {
+    const spec = { surface: "glass", frameType: "color", prompt: "Turn it so we see the color", reason: "need_color", optional: true };
+    for (const sessionStatus of ["matched", "unmatched", "cancelled"]) {
+      useHintedSession([], { lastNextFrame: spec });
+      state.sessions.get(CAPTURE_UUID).status = sessionStatus;
+      const res = await status();
+      assert.equal(res.status, 200);
+      assert.equal(res.jsonBody.nextFrame, null, sessionStatus);
+    }
   });
 
   it("status with no stored spec is null", async () => {

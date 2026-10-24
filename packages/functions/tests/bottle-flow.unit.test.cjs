@@ -207,7 +207,19 @@ describe("lib/bottle-flow — planNextFrame", () => {
       // Falls through to the ordinary bottom/need_name ask.
       assert.equal(planNextFrame(input({ ...common, state: capped })).reason, "need_name");
       const skipped = withState({ lastRejected: rejected, skipped: ["bottom"] });
-      assert.equal(planNextFrame(input({ ...common, state: skipped })), null);
+      // The bottom skipped and no name: the glass color is the evidence left to ask for.
+      const next = planNextFrame(input({ ...common, state: skipped }));
+      assert.equal(next.surface, "glass");
+      assert.equal(next.reason, "need_color");
+    });
+
+    it("a blurry box frame whose barcode was read (matched or not) is not asked again", () => {
+      const box = withState({ lastRejected: { surface: "box", warning: "blurry" } });
+      const withGtin = planNextFrame(input({ state: box, surfaces: { box: 1 }, frameCount: 1, gtinRead: true }));
+      assert.notEqual(withGtin?.reason, "retry_quality");
+      const withoutGtin = planNextFrame(input({ state: box, surfaces: { box: 1 }, frameCount: 1 }));
+      assert.equal(withoutGtin.reason, "retry_quality");
+      assert.equal(withoutGtin.surface, "box");
     });
   });
 
@@ -252,15 +264,50 @@ describe("lib/bottle-flow — planNextFrame", () => {
     assert.equal(glass.optional, true);
   });
 
-  it("with frames already taken the default-order fallback does not apply", () => {
-    assert.equal(planNextFrame(input({ state: withState({ skipped: ["front", "box"] }), frameCount: 1 })), null);
+  it("with frames already taken the default-order fallback still applies", () => {
+    const spec = planNextFrame(input({ state: withState({ skipped: ["front", "box"] }), surfaces: { front: 1 }, frameCount: 1 }));
+    assert.equal(spec.surface, "bottom");
+    assert.equal(spec.reason, "need_name");
   });
 
-  it("a name prompt capped at two stops asking for the bottom", () => {
+  it("no brand text, front asked twice and box skipped: the bottom, then the glass, then nothing", () => {
+    let state = withState({ prompts: { "front:need_brand": 2 }, skipped: ["box"] });
+    const surfaces = { front: 2 };
+    const bottom = planNextFrame(input({ state, surfaces, frameCount: 2 }));
+    assert.equal(bottom.surface, "bottom");
+    assert.equal(bottom.reason, "need_name");
+    state = recordPrompt(state, bottom);
+    surfaces.bottom = 1; // photographed, read nothing
+    const glass = planNextFrame(input({ state, surfaces, frameCount: 3 }));
+    assert.equal(glass.surface, "glass");
+    assert.equal(glass.reason, "need_color");
+    assert.equal(glass.optional, true);
+    state = recordPrompt(state, glass);
+    surfaces.glass = 1;
+    assert.equal(planNextFrame(input({ state, surfaces, frameCount: 4, glassHex: true })), null);
+  });
+
+  it("brand known, the bottom asked twice and no name read: the glass color before the create card", () => {
     const spec = planNextFrame(
-      input({ brandKnown: true, frameCount: 2, state: withState({ prompts: { "bottom:need_name": 2 } }) })
+      input({
+        brandKnown: true,
+        frameCount: 2,
+        surfaces: { bottom: 2 },
+        decision: "create_card",
+        state: withState({ prompts: { "bottom:need_name": 2 } }),
+      })
     );
-    assert.equal(spec, null);
+    assert.equal(spec.surface, "glass");
+    assert.equal(spec.reason, "need_color");
+    assert.equal(
+      planNextFrame(input({ brandKnown: true, frameCount: 3, surfaces: { bottom: 2, glass: 1 }, decision: "create_card", state: withState({ prompts: { "bottom:need_name": 2, "glass:need_color": 1 } }) })),
+      null,
+      "the glass was photographed: nothing more"
+    );
+  });
+
+  it("a name read without a catalog match asks for no glass (the color cannot rescue a name miss)", () => {
+    assert.equal(planNextFrame(input({ brandKnown: true, nameRead: true, frameCount: 1, surfaces: { bottom: 1 }, decision: "create_card" })), null);
   });
 });
 

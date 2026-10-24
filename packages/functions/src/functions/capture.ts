@@ -60,7 +60,6 @@ import {
   CaptureEvidence,
   CaptureFrameEvidenceRow,
   CaptureMatchCandidate,
-  CaptureQuestionSpec,
   FrameExtractionSource,
   ResolverDecision,
   ResolverOutcome,
@@ -217,6 +216,8 @@ interface StickerReadAudit {
   confidence: number | null;
   /** Calls that were sent to the model (0 when the read was not needed, unconfigured or skipped). */
   modelCalls: 0 | 1;
+  /** Barcode digits the read reported; evidence only when the check digit is valid (`mergeLabelExtraction`). */
+  gtin?: string | null;
 }
 
 /** What a label frame's vision read needs to know; present only when the bottle-capture flag is on and the frame is a data URL. */
@@ -299,6 +300,7 @@ async function runStickerRead(
   audit.closedSet = vision?.closedSet ?? shadeNames.length > 0;
   audit.listedCount = audit.closedSet ? shadeNames.length : 0;
   audit.confidence = vision?.confidence ?? null;
+  if (vision?.gtin) audit.gtin = vision.gtin;
   return { vision, audit };
 }
 
@@ -563,6 +565,29 @@ async function normalizeCaptureImageInput(
       host: parsedUrl.host,
     }),
   };
+}
+
+/**
+ * A client-sent frame `quality` without the keys only the server writes: `ai` and
+ * `extracted.shadeNameListed` / `brandConfidence` / `source` (`source: "glass"` marks
+ * server-measured lacquer evidence, `"request_quality"` client evidence the server stored). The
+ * client's evidence fields (`extracted.brand`, `shadeName`, `gtin`, `finish`, …) stay.
+ */
+function stripServerOwnedQuality(
+  quality: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  if (!quality || typeof quality !== "object" || Array.isArray(quality)) return quality;
+  const { ai: _ai, ...rest } = quality;
+  if ("extracted" in rest) {
+    const {
+      shadeNameListed: _listed,
+      brandConfidence: _brandConfidence,
+      source: _source,
+      ...extracted
+    } = toRecord(rest.extracted);
+    rest.extracted = extracted;
+  }
+  return rest;
 }
 
 function mergeQualityJson(
@@ -1095,16 +1120,20 @@ function planFromResolution(state: BottleFlowState, resolution: SessionResolutio
     frameCount: resolution.frameCount,
     maxFrames: GUIDANCE_CONFIG.maxFrames,
     surfaces: evidence.surfaces,
-    brandKnown: Boolean(evidence.brand) || Boolean(resolution.bottle?.brand),
+    // What the resolver counts as the session brand (a hint, a barcode brand, or a read that
+    // resolved); without a resolver verdict (barcode match, no frames yet), any brand text.
+    brandKnown: resolution.bottle ? resolution.bottle.brand !== null : Boolean(evidence.brand),
     nameRead: Boolean(evidence.shadeName || evidence.shadeNameListed),
     glassHex: Boolean(evidence.glassHex),
+    gtinRead: Boolean(evidence.gtin),
     decision: decisionForPlan(resolution),
   });
 }
 
-/** True when `after` holds a name, brand or glass color that `before` did not. */
+/** True when `after` holds a name, brand, GTIN or glass color that `before` did not. */
 function evidenceAdded(before: CaptureEvidence, after: CaptureEvidence): boolean {
   return (
+    (!before.gtin && Boolean(after.gtin)) ||
     (!before.shadeName && Boolean(after.shadeName)) ||
     (!before.shadeNameListed && Boolean(after.shadeNameListed)) ||
     (!before.brand && Boolean(after.brand)) ||
@@ -1500,13 +1529,14 @@ async function startCapture(
     // brand. The raw `metadata.brand` stays for the legacy resolver. Flag off: untouched.
     let brandHint: CaptureBrandHintEcho | undefined;
     const bottleCapture = isFeatureEnabled("bottleCapture");
-    // `metadata.bottle` is server-owned while the flag is on; a client-sent one is never kept.
-    if (bottleCapture) delete metadata.bottle;
+    // `metadata.bottle` is server-owned; a client-sent one is never kept (flag on or off, so it
+    // is not waiting to be read when the flag is turned on).
+    delete metadata.bottle;
     const rawBrand = typeof metadata.brand === "string" ? metadata.brand.trim() : "";
     if (bottleCapture && rawBrand) {
       let resolved = null;
       try {
-        resolved = await resolveBrandFromText(rawBrand);
+        resolved = await resolveBrandFromText(rawBrand, undefined, { mode: "hint" });
       } catch (error) {
         // A failed lookup must not block the capture: the hint is kept as typed.
         context.warn(`capture brand hint lookup failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -1665,11 +1695,9 @@ async function addCaptureFrame(
 
     // A barcode the client already decoded on-device (BarcodeDetector / zxing) is trusted
     // evidence when it is a valid GTIN: no OCR, and the verdict goes back in this response.
-    // `extracted.source: "glass"` marks server-measured lacquer evidence; a client never sets it.
-    if (toRecord(toRecord(body.quality).extracted).source === "glass") {
-      const { source: _clientSource, ...extracted } = toRecord(toRecord(body.quality).extracted);
-      body.quality = { ...body.quality, extracted };
-    }
+    // The server owns `quality.ai` (model audits, read back as model calls and the sticker
+    // read's confidence) and the vision-derived `extracted` fields; a client never sets them.
+    body.quality = stripServerOwnedQuality(body.quality);
     const frameQuality = toRecord(body.quality);
     const scannedBarcode =
       body.frameType === "barcode" ? normalizeGtin(frameQuality.gtin, frameQuality.barcodeFormat) : null;
@@ -1724,10 +1752,13 @@ async function addCaptureFrame(
     }
 
     // Bottle capture keeps the EXIF-stripped bytes as a private blob until the session is
-    // resolved (or the sweep expires it). Flag off, no data-URL bytes, or an attached imageId:
-    // nothing is stored and the row keeps the inline placeholder exactly as before.
+    // resolved (or the sweep expires it). Flag off, no data-URL bytes, an attached imageId, or a
+    // session that is already over (matched / unmatched, whose frames are released at that
+    // terminal state): nothing is stored and the row keeps the inline placeholder as before.
+    const sessionOver = session.status === "matched" || session.status === "unmatched";
     let frameStorageUrl = normalizedImage?.storageUrl ?? null;
     if (
+      !sessionOver &&
       normalizedImage?.bytes &&
       normalizedImage.contentType &&
       normalizedImage.extension &&
@@ -2339,7 +2370,10 @@ async function getCaptureStatus(
       acceptedEntityId: session.acceptedEntityId || undefined,
       metadata: session.metadata || undefined,
       question: toCaptureQuestion(question),
-      ...(isFeatureEnabled("bottleCapture") ? { nextFrame: readLastNextFrame(session.metadata) } : {}),
+      // A session that is over asks for no more photos, whatever was planned last.
+      ...(isFeatureEnabled("bottleCapture")
+        ? { nextFrame: isTerminalCaptureStatus(session.status) ? null : readLastNextFrame(session.metadata) }
+        : {}),
     };
 
     return { status: 200, jsonBody: response };
@@ -2348,14 +2382,20 @@ async function getCaptureStatus(
   }
 }
 
+/** Matched, unmatched or cancelled: the session takes no more photo asks. */
+function isTerminalCaptureStatus(status: CaptureStatus): boolean {
+  return status === "matched" || status === "unmatched" || status === "cancelled";
+}
+
 /** Bottle flow: the user skipped a photo. Records it, re-plans and answers with the next ask. */
 async function skipBottleSurface(captureId: string, surface: BottleSurface, userId: number): Promise<HttpResponseInit> {
   const session = await getCaptureSession(captureId, userId);
   if (!session) {
     return { status: 404, jsonBody: { error: "Capture session not found" } };
   }
-  if (session.status === "cancelled") {
-    return { status: 409, jsonBody: { error: "Cannot skip a photo on a cancelled session" } };
+  if (isTerminalCaptureStatus(session.status)) {
+    // Over: no re-resolve and no metadata write.
+    return { status: 409, jsonBody: { error: `Cannot skip a photo on a ${session.status} session` } };
   }
   const nextFrame = await advanceBottleFlow(session, userId, { kind: "skip", surface });
   const response: CaptureAnswerResponse = {

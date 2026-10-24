@@ -323,6 +323,14 @@ describe("lib/sticker-read — mergeLabelExtraction", () => {
     assert.equal(tie.extracted.shadeName, "Big Apple Red");
   });
 
+  it("a model-read gtin with a wrong check digit is no evidence", () => {
+    const merged = mergeLabelExtraction(null, visionResult({ gtin: "012345678906", printedName: "A", confidence: 0.9 }));
+    assert.equal(merged.extracted.gtin, undefined);
+    assert.equal(merged.sources.gtin, undefined);
+    const kept = mergeLabelExtraction({ fields: { gtin: "4006381333931" }, confidence: 0.1 }, visionResult({ gtin: "4006381333932", confidence: 0.9 }));
+    assert.equal(kept.extracted.gtin, "4006381333931", "the invalid vision read does not replace OCR's");
+  });
+
   it("a field only one side has is used whatever the confidences", () => {
     const merged = mergeLabelExtraction(
       { fields: { brand: "OPI", collection: "Fall", sizeMl: 15 }, confidence: 0.95 },
@@ -336,21 +344,32 @@ describe("lib/sticker-read — mergeLabelExtraction", () => {
     assert.equal(merged.sources.collection, "ocr");
   });
 
-  it("shadeNameListed and brandConfidence always come from vision", () => {
+  it("shadeNameListed always comes from vision; an OCR-won brand carries the OCR parse confidence", () => {
     const merged = mergeLabelExtraction(
       { fields: { brand: "OPI", shadeName: "Big Apple" }, confidence: 0.99 },
       visionResult({ brand: "Opi", brandConfidence: 0.3, closestListed: "Big Apple Red", confidence: 0.3 })
     );
     assert.equal(merged.extracted.shadeNameListed, "Big Apple Red");
-    assert.equal(merged.extracted.brandConfidence, 0.3);
     assert.equal(merged.extracted.brand, "OPI");
+    assert.equal(merged.extracted.brandConfidence, 0.99, "the confidence of the brand that won, not vision's 0.3");
+    assert.equal(merged.sources.brandConfidence, "ocr");
     assert.equal(merged.extracted.source, "vision");
   });
 
-  it("no vision: the OCR fields as they were, nothing marked", () => {
+  it("a vision-won brand carries the vision brand confidence", () => {
+    const merged = mergeLabelExtraction(
+      { fields: { brand: "OPI" }, confidence: 0.4 },
+      visionResult({ brand: "Holo Taco", brandConfidence: 0.85, confidence: 0.85 })
+    );
+    assert.equal(merged.extracted.brand, "Holo Taco");
+    assert.equal(merged.extracted.brandConfidence, 0.85);
+    assert.equal(merged.sources.brandConfidence, "vision");
+  });
+
+  it("no vision: the OCR fields as they were, the brand scored with the OCR parse confidence", () => {
     const merged = mergeLabelExtraction({ fields: { brand: "OPI", shadeName: null }, confidence: 0.5 }, null);
-    assert.deepEqual(merged.extracted, { brand: "OPI" });
-    assert.deepEqual(merged.sources, { brand: "ocr" });
+    assert.deepEqual(merged.extracted, { brand: "OPI", brandConfidence: 0.5 });
+    assert.deepEqual(merged.sources, { brand: "ocr", brandConfidence: "ocr" });
   });
 
   it("no OCR: the vision fields only", () => {

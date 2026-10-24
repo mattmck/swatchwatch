@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { query as dbQuery } from "./db";
 import {
   isUserMediaStorageUrl,
@@ -10,8 +11,9 @@ import {
  * Capture frame retention (Bottle Flow slice A).
  *
  * While `BOTTLE_CAPTURE_ENABLED` is on, the EXIF-stripped bytes of a Rapid Add frame are kept as a
- * private blob in USER_MEDIA_CONTAINER, named `{userId}/capture/{captureId}/{sha256}.{ext}`, so a
- * session can be re-read until it is resolved. They are released (blob deleted, `image_asset` row
+ * private blob in USER_MEDIA_CONTAINER, named `{userId}/capture/{captureId}/{sha256}-{uploadId}.{ext}`
+ * (a fresh id per upload, so a client retry with identical bytes never shares a blob with the
+ * first attempt's row), so a session can be re-read until it is resolved. They are released (blob deleted, `image_asset` row
  * reset to the `inline://` placeholder) when the session reaches a terminal state, or by the
  * hourly sweep in `capture-frame-sweep.ts` once they are older than the retention window.
  *
@@ -30,8 +32,15 @@ export function inlineCaptureFrameUrl(captureId: string, checksum: string, exten
   return `${CAPTURE_FRAME_INLINE_PREFIX}${captureId}/${checksum}.${extension}`;
 }
 
-export function captureFrameBlobName(userId: number, captureId: string, checksum: string, extension: string): string {
-  return `${userId}/capture/${captureId}/${checksum}.${extension}`;
+/** `{userId}/capture/{captureId}/{checksum}-{uploadId}.{ext}`; `uploadId` is unique per upload. */
+export function captureFrameBlobName(
+  userId: number,
+  captureId: string,
+  checksum: string,
+  extension: string,
+  uploadId: string
+): string {
+  return `${userId}/capture/${captureId}/${checksum}-${uploadId}.${extension}`;
 }
 
 /** True for a blob in USER_MEDIA_CONTAINER under `{userId}/capture/`. */
@@ -56,6 +65,8 @@ export interface StoreCaptureFrameInput {
 
 export interface StoreCaptureFrameDeps {
   upload?: typeof uploadBytesToBlob;
+  /** Per-upload blob name suffix; defaults to a random UUID. */
+  uploadId?: () => string;
   /** Defaults to AZURE_STORAGE_CONNECTION; an explicit empty/undefined value means "not configured". */
   connectionString?: string | undefined;
   warn?: (message: string, error?: unknown) => void;
@@ -77,7 +88,13 @@ export async function storeCaptureFrameBytes(
     const storageUrl = await upload({
       connectionString,
       containerName: userMediaContainer(),
-      blobName: captureFrameBlobName(input.userId, input.captureId, input.checksum, input.extension),
+      blobName: captureFrameBlobName(
+        input.userId,
+        input.captureId,
+        input.checksum,
+        input.extension,
+        (deps.uploadId ?? randomUUID)()
+      ),
       bytes: input.bytes,
       contentType: input.contentType,
     });
@@ -88,7 +105,24 @@ export async function storeCaptureFrameBytes(
   }
 }
 
-/** $1 capture_session_id, $2 user_id → frames whose image_asset is the caller's and not inline. */
+/**
+ * An `image_asset` a capture frame shares with something else: a mani photo, a nail photo, or
+ * another `capture_frame` row (a frame of one session attached to another by `imageId`). Such an
+ * asset is never released, by the session or by the sweep; `cf` is the frame being released.
+ */
+export const FRAME_ASSET_SHARED_ELSEWHERE_SQL = `(
+    EXISTS (SELECT 1 FROM manicure m WHERE m.photo_image_id = ia.image_id)
+    OR EXISTS (SELECT 1 FROM inventory_nail_photo p WHERE p.image_id = ia.image_id)
+    OR EXISTS (
+      SELECT 1 FROM capture_frame other
+      WHERE other.image_id = ia.image_id AND other.capture_frame_id <> cf.capture_frame_id
+    )
+  )`;
+
+/**
+ * $1 capture_session_id, $2 user_id → frames whose image_asset is the caller's, not inline, and
+ * not shared with a photo or another frame.
+ */
 export const SELECT_SESSION_FRAME_BLOBS_SQL = `SELECT ia.image_id::text AS "imageId",
        ia.storage_url AS "storageUrl",
        ia.checksum_sha256 AS "checksum",
@@ -101,6 +135,7 @@ WHERE cf.capture_session_id = $1
   AND ia.owner_type = 'user'
   AND ia.owner_id = $2
   AND ia.storage_url NOT LIKE 'inline://%'
+  AND NOT ${FRAME_ASSET_SHARED_ELSEWHERE_SQL}
 ORDER BY ia.image_id`;
 
 /** $1 image_id, $2 placeholder URL, $3 owner id. Touches only the storage URL. */
@@ -126,18 +161,21 @@ export interface ReleaseDeps {
 
 export type FrameReleaseOutcome = "released" | "blobMissing" | "failed" | "skipped";
 
-/** `…/{captureId}/{checksum}.{ext}` → the file name's extension, or `jpg` when it has none. */
+/** `…/{captureId}/{checksum}-{uploadId}.{ext}` → the file name's extension, or `jpg` when it has none. */
 function frameExtension(storageUrl: string): string {
   const name = storageUrlBlobName(storageUrl).split("/").pop() ?? "";
   const dot = name.lastIndexOf(".");
   return dot > 0 && dot < name.length - 1 ? name.slice(dot + 1) : "jpg";
 }
 
+/** The row's checksum, else the blob name's `{checksum}` (before `-{uploadId}` and the extension). */
 function frameChecksum(row: FrameBlobRow): string {
   if (row.checksum) return row.checksum;
   const name = storageUrlBlobName(row.storageUrl).split("/").pop() ?? "";
   const dot = name.lastIndexOf(".");
-  return dot > 0 ? name.slice(0, dot) : name;
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const dash = stem.indexOf("-");
+  return dash > 0 ? stem.slice(0, dash) : stem;
 }
 
 /**

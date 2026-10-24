@@ -155,9 +155,9 @@ function handle(via, rawSql, params = []) {
   if (/FROM user_inventory_item WHERE user_id = \$1 AND shade_id = ANY\(\$2::bigint\[\]\) ORDER BY inventory_item_id FOR UPDATE/.test(sql)) {
     return { rows: [] };
   }
-  if (/^SELECT 1 FROM image_asset WHERE image_id = \$1 AND owner_type = 'user' AND owner_id = \$2/.test(sql)) {
+  if (/^SELECT storage_url AS "storageUrl" FROM image_asset WHERE image_id = \$1 AND owner_type = 'user' AND owner_id = \$2$/.test(sql)) {
     const image = state.images.get(Number(params[0]));
-    return { rows: image && image.ownerId === Number(params[1]) ? [{ "?column?": 1 }] : [] };
+    return { rows: image && image.ownerId === Number(params[1]) ? [{ storageUrl: image.url }] : [] };
   }
   if (/^INSERT INTO manicure \(user_id, worn_on, notes, photo_image_id\)/.test(sql)) {
     const id = state.nextManicureId++;
@@ -831,6 +831,26 @@ describe("manicures — access control", () => {
     res = await update(own.jsonBody.id, { photoImageId: ATTACKER_PHOTO }, ATTACKER);
     assert.equal(res.status, 200);
     assert.match(res.jsonBody.photoUrl, /\/api\/images\/v3\.[^.]+\.[^.]+\.2\./);
+  });
+
+  it("a Rapid Add capture frame (blob or inline placeholder) cannot be attached as a photo (400)", async () => {
+    const FRAME_BLOB = 991;
+    const FRAME_INLINE = 992;
+    state.images.set(FRAME_BLOB, {
+      ownerId: OWNER,
+      url: `http://127.0.0.1:10000/devstoreaccount1/nail-photos/${OWNER}/capture/11111111-1111-4111-8111-111111111111/abc-u1.jpg`,
+    });
+    state.images.set(FRAME_INLINE, { ownerId: OWNER, url: "inline://capture/11111111-1111-4111-8111-111111111111/abc.jpg" });
+    for (const photoImageId of [FRAME_BLOB, FRAME_INLINE]) {
+      const res = await create({ photoImageId, polishes: [{ shadeId: 10 }] });
+      assert.equal(res.status, 400, JSON.stringify(res.jsonBody));
+      assert.match(res.jsonBody.error, /capture frames cannot be used as photos/);
+    }
+    assert.equal(state.manicures.size, 0);
+    const own = await create({ polishes: [{ shadeId: 10 }] });
+    const res = await update(own.jsonBody.id, { photoImageId: FRAME_BLOB });
+    assert.equal(res.status, 400);
+    assert.equal(state.manicures.get(Number(own.jsonBody.id)).photo, null);
   });
 
   it("the owner's own reads and writes are scoped to the owner (positive control)", async () => {

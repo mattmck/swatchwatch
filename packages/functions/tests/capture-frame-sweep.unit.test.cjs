@@ -84,6 +84,13 @@ describe("SELECT_EXPIRED_CAPTURE_FRAMES_SQL", () => {
     assert.match(sql, /ORDER BY ia\.image_id/);
     assert.doesNotMatch(sql, /quality_json/);
   });
+
+  it("never selects an asset that is also a mani photo, a nail photo or another frame's image", () => {
+    const sql = sweep.SELECT_EXPIRED_CAPTURE_FRAMES_SQL.replace(/\s+/g, " ");
+    assert.match(sql, /AND NOT \( EXISTS \(SELECT 1 FROM manicure m WHERE m\.photo_image_id = ia\.image_id\)/);
+    assert.match(sql, /inventory_nail_photo p WHERE p\.image_id = ia\.image_id/);
+    assert.match(sql, /other\.capture_frame_id <> cf\.capture_frame_id/);
+  });
 });
 
 describe("sweepExpiredCaptureFrames", () => {

@@ -117,6 +117,8 @@ export interface PlanNextFrameInput {
   brandKnown: boolean;
   nameRead: boolean;
   glassHex: boolean;
+  /** A barcode GTIN is known (decoded or read), matched or not. */
+  gtinRead?: boolean;
   decision: PlanDecision;
 }
 
@@ -139,8 +141,10 @@ function spec(
 function surfaceProducedEvidence(surface: BottleSurface, input: PlanNextFrameInput): boolean {
   switch (surface) {
     case "front":
-    case "box":
       return input.brandKnown;
+    case "box":
+      // The box is for its barcode: a GTIN read off it is evidence even when it matches nothing.
+      return input.brandKnown || Boolean(input.gtinRead);
     case "bottom":
       return input.nameRead;
     case "glass":
@@ -208,13 +212,20 @@ export function planNextFrame(input: PlanNextFrameInput): CaptureFrameRequestSpe
     if (ask) return ask;
   }
 
-  // 7. Nothing known and no frames yet: the default order, first surface not yet photographed.
-  if (input.frameCount === 0 && !input.brandKnown && !input.nameRead && !input.glassHex) {
-    for (const { surface, reason } of DEFAULT_ORDER) {
-      if ((input.surfaces[surface] ?? 0) > 0) continue;
-      const ask = firstUsable(spec(surface, reason, { optional: surface === "glass" }));
-      if (ask) return ask;
-    }
+  // 7. The asks above are used up: the default order, first surface not yet photographed (nor
+  // skipped, nor at its cap) that could still add what is missing: the front for a brand, the
+  // bottom for a name, the glass for a color when there is no name either (brand known or not),
+  // so a bottle whose sticker would not read gets a color photo before the create card.
+  const missing: Record<BottleSurface, boolean> = {
+    front: !input.brandKnown,
+    bottom: !input.nameRead,
+    glass: !input.glassHex && !input.nameRead,
+    box: false,
+  };
+  for (const { surface, reason } of DEFAULT_ORDER) {
+    if (!missing[surface] || (input.surfaces[surface] ?? 0) > 0) continue;
+    const ask = firstUsable(spec(surface, reason, { optional: surface === "glass" }));
+    if (ask) return ask;
   }
 
   // 8. Nothing left to ask.

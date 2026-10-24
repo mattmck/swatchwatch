@@ -402,7 +402,7 @@ describe("lib/bottle-resolver — resolveBottle", () => {
       brands: { "holo taco": holoTaco },
     });
     const decision = await resolveBottle(
-      baseEvidence({ shadeName: "Unicorn Skin", brandRead: { text: "Holo Taco", confidence: 0.85 } }),
+      baseEvidence({ shadeName: "Unicorn Skin", brandRead: { text: "Holo Taco", confidence: 0.85, source: "pipeline" } }),
       ctx({ hintBrand: hint() }),
       deps
     );
@@ -418,7 +418,7 @@ describe("lib/bottle-resolver — resolveBottle", () => {
   it("a read below the conflict bar is not looked up and adds no pool", async () => {
     const { calls, deps } = recorder({ rows: [row(11, "A", { nameScore: 0.95 })], brands: { "holo taco": holoTaco } });
     const decision = await resolveBottle(
-      baseEvidence({ shadeName: "A", brandRead: { text: "Holo Taco", confidence: 0.7 } }),
+      baseEvidence({ shadeName: "A", brandRead: { text: "Holo Taco", confidence: 0.7, source: "pipeline" } }),
       ctx({ hintBrand: hint() }),
       deps
     );
@@ -430,7 +430,7 @@ describe("lib/bottle-resolver — resolveBottle", () => {
   it("a confident read that resolves to the hint brand is no conflict", async () => {
     const { calls, deps } = recorder({ rows: [row(11, "A", { nameScore: 0.95 })], brands: { "loud lacquer": loud } });
     const decision = await resolveBottle(
-      baseEvidence({ shadeName: "A", brandRead: { text: "Loud Lacquer", confidence: 0.9 } }),
+      baseEvidence({ shadeName: "A", brandRead: { text: "Loud Lacquer", confidence: 0.9, source: "pipeline" } }),
       ctx({ hintBrand: hint() }),
       deps
     );
@@ -441,7 +441,7 @@ describe("lib/bottle-resolver — resolveBottle", () => {
   it("no hint: a read brand that resolves becomes the session brand with source read", async () => {
     const { calls, deps } = recorder({ rows: [row(21, "Unicorn Skin", { brandId: "7", brand: "Holo Taco", nameScore: 0.7 })], brands: { "holo taco": holoTaco } });
     const decision = await resolveBottle(
-      baseEvidence({ brand: "Holo Taco", brandSource: "read", shadeName: "Unicorn Skin", brandRead: { text: "Holo Taco", confidence: 0.85 } }),
+      baseEvidence({ brand: "Holo Taco", brandSource: "read", shadeName: "Unicorn Skin", brandRead: { text: "Holo Taco", confidence: 0.85, source: "pipeline" } }),
       ctx(),
       deps
     );
@@ -461,7 +461,7 @@ describe("lib/bottle-resolver — resolveBottle", () => {
       distances: { 31: 0.09, 32: 0.02 },
     });
     const decision = await resolveBottle(
-      baseEvidence({ brand: "Holo Tco", brandSource: "read", shadeName: "One", glassHex: "#B4004E", brandRead: { text: "Holo Tco", confidence: 0.55 } }),
+      baseEvidence({ brand: "Holo Tco", brandSource: "read", shadeName: "One", glassHex: "#B4004E", brandRead: { text: "Holo Tco", confidence: 0.55, source: "pipeline" } }),
       ctx(),
       deps
     );
@@ -505,6 +505,8 @@ describe("lib/bottle-resolver — resolveBottle", () => {
     );
     assert.equal(decision.status, "unmatched");
     assert.equal(decision.confidence, 0);
+    assert.deepEqual(decision.candidates, [], "no candidate is on screen, so the create card shows");
+    assert.equal(decision.metadataPatch.resolver.top5.length, 1, "the score components stay in the audit");
     assert.equal(decision.metadataPatch.resolver.step, "create_card");
     assert.equal(decision.metadataPatch.resolver.method, "create_card");
     assert.deepEqual(decision.metadataPatch.resolver.suggestedShade, decision.bottle.suggestedShade);
@@ -521,23 +523,58 @@ describe("lib/bottle-resolver — resolveBottle", () => {
     assert.equal(decision.bottle.suggestedShade.brandSource, "hint");
   });
 
-  it("a confidence-0 read (client-sent text) is user text: source hint, no model-read confidence", async () => {
+  it("a pipeline brand with no confidence is a read: it pools the brand but the card asks to confirm it", async () => {
     const { calls, deps } = recorder({ rows: [], brands: { loud: loud } });
     const decision = await resolveBottle(
-      baseEvidence({ brand: "loud", brandSource: "read", shadeName: "Zzz", brandRead: { text: "loud", confidence: 0 } }),
+      baseEvidence({ brand: "loud", brandSource: "read", shadeName: "Zzz", brandRead: { text: "loud", confidence: 0, source: "pipeline" } }),
+      ctx(),
+      deps
+    );
+    assert.deepEqual(calls.query[0].params[0], [3]);
+    assert.equal(decision.bottle.brand.source, "read");
+    assert.equal(decision.bottle.brand.confidence, undefined, "unscored: no confidence is claimed");
+    assert.equal(decision.bottle.suggestedShade.brandSource, "read");
+  });
+
+  it("a pipeline brand that does not resolve is no session brand (no card)", async () => {
+    const { calls, deps } = recorder({ brands: {}, global: [] });
+    const decision = await resolveBottle(
+      baseEvidence({ brand: "Lowd", brandSource: "read", shadeName: "Zzz", brandRead: { text: "Lowd", confidence: 0.9, source: "pipeline" } }),
+      ctx(),
+      deps
+    );
+    assert.equal(calls.query.length, 0);
+    assert.equal(decision.bottle.brand, null);
+    assert.equal(decision.bottle.suggestedShade, undefined);
+  });
+
+  it("a client-sent (request_quality) brand is typed text: source hint", async () => {
+    const { calls, deps } = recorder({ rows: [], brands: { loud: loud } });
+    const decision = await resolveBottle(
+      baseEvidence({ brand: "loud", brandSource: "read", shadeName: "Zzz", brandRead: { text: "loud", confidence: 0, source: "request_quality" } }),
       ctx(),
       deps
     );
     assert.deepEqual(calls.query[0].params[0], [3]);
     assert.equal(decision.bottle.brand.source, "hint");
-    assert.equal(decision.bottle.brand.confidence, undefined);
     assert.equal(decision.bottle.suggestedShade.brandSource, "hint");
+  });
+
+  it("a confident model read that resolves is a read, whatever its confidence", async () => {
+    const { deps } = recorder({ rows: [], brands: { loud: loud } });
+    const decision = await resolveBottle(
+      baseEvidence({ brand: "loud", brandSource: "read", shadeName: "Zzz", brandRead: { text: "loud", confidence: 0.99, source: "pipeline" } }),
+      ctx(),
+      deps
+    );
+    assert.equal(decision.bottle.brand.source, "read");
+    assert.equal(decision.bottle.suggestedShade.brandSource, "read");
   });
 
   it("a low-confidence read (0 < c < 0.6) is not used as the brand", async () => {
     const { calls, deps } = recorder({ brands: { smudge: loud } });
     const decision = await resolveBottle(
-      baseEvidence({ brand: "smudge", brandSource: "read", shadeName: "Zzz", brandRead: { text: "smudge", confidence: 0.5 } }),
+      baseEvidence({ brand: "smudge", brandSource: "read", shadeName: "Zzz", brandRead: { text: "smudge", confidence: 0.5, source: "pipeline" } }),
       ctx(),
       deps
     );

@@ -341,24 +341,30 @@ interface BrandPlan {
   brandConflict?: CaptureBrandConflict;
 }
 
-/** Spec 5.3: brand = hint > barcode > typed text > a read at >= 0.6; a confident read of another brand than the hint joins the pool. */
+/**
+ * Spec 5.3: brand = hint > barcode > typed text > a frame read. Typed means the user's hint or
+ * answer, or a client-sent (`request_quality`) frame brand; a brand the pipeline read (OCR or the
+ * model) is always `source: "read"`, so the create card asks to confirm it (spec 4.3: model text
+ * alone never creates a shared brand row). A read is used when unscored (confidence 0) or at
+ * >= `brandRead`, and only when it resolves to a catalog brand; a read of another brand than the
+ * hint at >= `brandConflict` joins the pool.
+ */
 async function planBrand(evidence: CaptureEvidence, ctx: ResolveBottleContext, deps: ResolveBottleDeps): Promise<BrandPlan> {
   const T = BOTTLE_RESOLVER_THRESHOLDS;
   const read = evidence.brandRead;
-  // A frame brand with confidence 0 never came from the model: it is text the user (or OCR) supplied.
-  const modelRead = read && read.confidence > 0 ? read : null;
+  const pipelineRead = read && read.source === "pipeline" ? read : null;
 
   if (ctx.hintBrand) {
     const hintId = numericBrandId(ctx.hintBrand);
     if (hintId === null) return { brand: ctx.hintBrand, poolIds: [] };
     const plan: BrandPlan = { brand: ctx.hintBrand, poolIds: [hintId] };
-    if (modelRead && modelRead.confidence >= T.brandConflict) {
-      const resolved = await deps.resolveBrand(modelRead.text);
+    if (pipelineRead && pipelineRead.confidence >= T.brandConflict) {
+      const resolved = await deps.resolveBrand(pipelineRead.text);
       if (resolved && resolved.brandId !== hintId) {
         plan.poolIds.push(resolved.brandId);
         plan.brandConflict = {
           hinted: ctx.hintBrand,
-          read: { ...toBrandRef(resolved, modelRead.text, "read"), confidence: modelRead.confidence },
+          read: { ...toBrandRef(resolved, pipelineRead.text, "read"), confidence: pipelineRead.confidence },
         };
       }
     }
@@ -372,17 +378,19 @@ async function planBrand(evidence: CaptureEvidence, ctx: ResolveBottleContext, d
     };
   }
 
-  const typed = evidence.brandSource === "hint" ? evidence.brand : read && read.confidence === 0 ? read.text : undefined;
+  const typed =
+    evidence.brandSource === "hint" ? evidence.brand : read && read.source === "request_quality" ? read.text : undefined;
   if (typed) {
     const resolved = await deps.resolveBrand(typed);
     return { brand: toBrandRef(resolved, typed, "hint"), poolIds: resolved ? [resolved.brandId] : [] };
   }
 
-  if (modelRead && modelRead.confidence >= T.brandRead) {
-    const resolved = await deps.resolveBrand(modelRead.text);
+  if (pipelineRead && (pipelineRead.confidence === 0 || pipelineRead.confidence >= T.brandRead)) {
+    const resolved = await deps.resolveBrand(pipelineRead.text);
     if (resolved) {
+      const ref = toBrandRef(resolved, pipelineRead.text, "read");
       return {
-        brand: { ...toBrandRef(resolved, modelRead.text, "read"), confidence: modelRead.confidence },
+        brand: pipelineRead.confidence > 0 ? { ...ref, confidence: pipelineRead.confidence } : ref,
         poolIds: [resolved.brandId],
       };
     }
@@ -546,10 +554,11 @@ export async function resolveBottle(
       };
     }
     case "create_card":
+      // No plausible candidate: none is sent, so the create card shows (the top five stay in the audit).
       return {
         status: "unmatched",
         confidence: 0,
-        candidates: ranked.map((candidate) => toMatchCandidate(candidate)),
+        candidates: [],
         metadataPatch: { resolver: { ...resolverBase, step: "create_card", method: "create_card" } },
         bottle: bottle(false),
       };

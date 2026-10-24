@@ -759,7 +759,7 @@ describe("functions/capture — frame retention", () => {
     assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
     assert.equal(blobUploads.length, 1);
     assert.equal(blobUploads[0].containerName, "nail-photos");
-    assert.match(blobUploads[0].blobName, new RegExp(`^${OWNER}/capture/${CAPTURE_UUID}/[0-9a-f]{64}\\.jpg$`));
+    assert.match(blobUploads[0].blobName, new RegExp(`^${OWNER}/capture/${CAPTURE_UUID}/[0-9a-f]{64}-[0-9a-f-]{36}\\.jpg$`));
     assert.equal(blobUploads[0].contentType, "image/jpeg");
     assert.ok(Buffer.isBuffer(blobUploads[0].bytes));
     const inserts = insertedAsset();
@@ -797,6 +797,33 @@ describe("functions/capture — frame retention", () => {
     assert.equal(blobDeletes.length, 1);
     assert.equal(blobDeletes[0].storageUrl, `${BLOB_ACCOUNT}/nail-photos/${blobUploads[0].blobName}`);
     assert.deepEqual(blobDeletes[0].options, { allowedContainers: ["nail-photos"] });
+  });
+
+  it("a retried frame with identical bytes whose transaction fails deletes only its own blob", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    assert.equal((await addFrame(frameBody)).status, 201);
+    const committed = state.assets[0].storageUrl;
+    state.failFrameInsert = true;
+    const res = await addFrame(frameBody);
+    state.failFrameInsert = false;
+    assert.equal(res.status, 500);
+    assert.equal(blobUploads.length, 2);
+    assert.notEqual(blobUploads[0].blobName, blobUploads[1].blobName, "identical bytes, separate blobs");
+    assert.deepEqual(blobDeletes.map((d) => d.storageUrl), [`${BLOB_ACCOUNT}/nail-photos/${blobUploads[1].blobName}`]);
+    assert.ok(!blobDeletes.some((d) => d.storageUrl === committed), "the first row's blob is untouched");
+  });
+
+  it("flag on: a frame added to a matched or unmatched session keeps the inline placeholder (no blob)", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    for (const status of ["matched", "unmatched"]) {
+      sqlCalls = [];
+      blobUploads = [];
+      state.sessions.get(CAPTURE_UUID).status = status;
+      const res = await addFrame(frameBody);
+      assert.equal(res.status, 201, `${status}: ${JSON.stringify(res.jsonBody)}`);
+      assert.equal(blobUploads.length, 0, status);
+      assert.match(insertedAsset()[0].params[1], new RegExp(`^inline://capture/${CAPTURE_UUID}/[0-9a-f]{64}\\.jpg$`));
+    }
   });
 
   it("finalize → matched releases each blob frame and resets its row to the placeholder", async () => {
@@ -985,11 +1012,18 @@ describe("functions/capture — start with a brand hint", () => {
     delete process.env.BOTTLE_CAPTURE_ENABLED;
   });
 
-  it("flag on: a matching hint is echoed with the canonical name and stored as the session brand", async () => {
+  it("flag on: a short typed hint is resolved in hint mode, echoed with the canonical name and stored as the session brand", async () => {
     process.env.BOTTLE_CAPTURE_ENABLED = "true";
-    state.brandRow = { brandId: "3", name: "Loud Lacquer", score: 0.8 };
+    // Realistic scores for "loud" vs "Loud Lacquer": similarity() = 5/12 ≈ 0.42 (below the 0.6
+    // bar, so the read mode would miss it); word_similarity() = 1.0 and the name starts with it,
+    // which is why the start handler resolves typed hints with RESOLVE_BRAND_HINT_SQL.
+    state.brandRow = { brandId: "3", name: "Loud Lacquer", score: 1 };
     const res = await start({ metadata: { brand: "loud" } });
     assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    assert.equal(brandQueries().length, 1);
+    assert.match(brandQueries()[0].sql, /word_similarity\(\$1::text, b\.name_canonical\)/);
+    assert.match(brandQueries()[0].sql, /starts_with\(lower\(b\.name_canonical\), lower\(\$1::text\)\)/);
+    assert.deepEqual(brandQueries()[0].params, ["loud"]);
     assert.deepEqual(res.jsonBody.brandHint, { raw: "loud", brandId: "3", name: "Loud Lacquer" });
     assert.equal(res.jsonBody.nextFrame.surface, "bottom", "a known brand goes straight to the sticker");
     const metadata = sessionInsert().params[2];
@@ -1046,6 +1080,14 @@ describe("functions/capture — start with a brand hint", () => {
     const res = await start({ metadata: { brand: "loud" } });
     assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
     assert.deepEqual(res.jsonBody.brandHint, { raw: "loud", brandId: null, name: "loud" });
+  });
+
+  it("flag off: a client-sent metadata.bottle is not stored either", async () => {
+    const res = await start({ metadata: { brand: "loud", bottle: { brand: { brandId: "9", name: "Forged", source: "hint" }, skipped: ["front"] } } });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    const metadata = sessionInsert().params[2];
+    assert.equal(metadata.bottle, undefined);
+    assert.equal(metadata.brand, "loud");
   });
 
   it("flag off: today's start (no brandHint key, no nextFrame key, no brand query, no bottle metadata)", async () => {
@@ -1339,7 +1381,7 @@ describe("functions/capture — brand-first resolver", () => {
     assert.deepEqual(res.jsonBody.suggestedShade, {
       brandId: "3", brandName: "Loud Lacquer", brandSource: "hint", shadeName: "Moonlit", hex: "#B4004E", finish: "creme", gtin: null,
     });
-    assert.equal(res.jsonBody.candidates[0].colorDistance, 0.4);
+    assert.deepEqual(res.jsonBody.candidates, [], "a create card sends no candidates, so the card shows");
     assertNoWrites();
   });
 

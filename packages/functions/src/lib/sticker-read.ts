@@ -8,6 +8,7 @@ import {
   type VisionImageDetail,
 } from "./ai-color-detection";
 import { resolveAzureOpenAiConfig } from "./azure-openai-config";
+import { normalizeGtin } from "./barcodes";
 import { BRAND_SHADE_NAMES_CAP } from "./brand-resolve";
 import { canonicalizeFinish, finishNamesForPrompt, type FinishCatalog } from "./finishes";
 import type { OcrResult } from "./ocr";
@@ -230,8 +231,11 @@ const CONTESTED_FIELDS: ReadonlyArray<readonly [string, "brand" | "printedName" 
 
 /**
  * Merge the OCR-derived label fields (`parseLabelText`, confidence = its `confidence`) with the
- * vision read. `shadeNameListed` and `brandConfidence` exist only in the vision read and are
- * always copied. `extracted.source = "vision"` when any vision field made it into the result.
+ * vision read. A vision `gtin` is used only when its check digit is valid. `shadeNameListed`
+ * exists only in the vision read and is always copied;
+ * `brandConfidence` is the confidence of whichever read supplied `brand` (vision's
+ * `brandConfidence`, or the OCR parse's `confidence`). `extracted.source = "vision"` when any
+ * vision field made it into the result.
  */
 export function mergeLabelExtraction(
   ocr: { fields: Record<string, unknown>; confidence: number } | null,
@@ -251,6 +255,8 @@ export function mergeLabelExtraction(
     for (const [key, visionKey] of CONTESTED_FIELDS) {
       const visionValue = vision[visionKey];
       if (!hasValue(visionValue)) continue;
+      // Barcode digits the model read are evidence only with a valid check digit (else audit only).
+      if (key === "gtin" && !normalizeGtin(visionValue)?.checkDigitValid) continue;
       const ocrKeeps = hasValue(ocrFields[key]) && ocr !== null && ocr.confidence > vision.confidence;
       if (ocrKeeps) continue;
       extracted[key] = visionValue;
@@ -260,10 +266,15 @@ export function mergeLabelExtraction(
       extracted.shadeNameListed = vision.closestListed;
       sources.shadeNameListed = "vision";
     }
-    if (vision.brandConfidence !== null) {
-      extracted.brandConfidence = vision.brandConfidence;
-      sources.brandConfidence = "vision";
-    }
+  }
+
+  // `brandConfidence` describes the brand that won: the vision read's, or OCR's parse confidence.
+  if (sources.brand === "vision" && vision) {
+    extracted.brandConfidence = vision.brandConfidence ?? vision.confidence;
+    sources.brandConfidence = "vision";
+  } else if (sources.brand === "ocr" && ocr) {
+    extracted.brandConfidence = ocr.confidence;
+    sources.brandConfidence = "ocr";
   }
 
   if (Object.values(sources).includes("vision")) extracted.source = "vision";

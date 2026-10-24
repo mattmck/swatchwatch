@@ -23,8 +23,12 @@ export interface CaptureEvidence {
   finish?: string;
   /** `hint` when `brand` came from metadata (the user's hint or an answer), `read` when from a frame. */
   brandSource?: "hint" | "read";
-  /** Newest frame-read brand, kept even when a hint wins `brand` (the brand-conflict rule compares them). */
-  brandRead?: { text: string; confidence: number };
+  /**
+   * Newest frame brand, kept even when a hint wins `brand` (the brand-conflict rule compares
+   * them). `source` is the frame's `FrameExtraction.source`: only a `request_quality` (client-sent)
+   * brand counts as typed; a `pipeline` one was read off the bottle. `confidence` is 0 when unscored.
+   */
+  brandRead?: { text: string; confidence: number; source: FrameExtraction["source"] };
   /** Shade name the model picked from a closed list of catalog names. */
   shadeNameListed?: string;
   /** Glass color read from a frame the pipeline marked `extracted.source === "glass"`; never client-supplied. */
@@ -169,7 +173,9 @@ export function extractFrameEvidence(quality: Record<string, unknown> | null): F
       ...extractedEvidence,
       brandConfidence: getNumberField(extracted, "brandConfidence"),
       hexConfidence: glassHex ? getNumberField(extracted, "hexConfidence") : undefined,
-      source: "pipeline",
+      // Ingest stores a client-sent frame's evidence under `extracted` with its source; the
+      // client's own `extracted.source` is stripped on ingest, so only the server writes it.
+      source: extracted.source === "request_quality" ? "request_quality" : "pipeline",
     };
   }
 
@@ -254,7 +260,7 @@ export function collectCaptureEvidence(
       if (extracted.brand) evidence.brandSource = "read";
     }
     if (!evidence.brandRead && extracted.brand) {
-      evidence.brandRead = { text: extracted.brand, confidence: extracted.brandConfidence ?? 0 };
+      evidence.brandRead = { text: extracted.brand, confidence: extracted.brandConfidence ?? 0, source: extracted.source };
     }
     if (!evidence.shadeName) {
       evidence.shadeName = extracted.shadeName;

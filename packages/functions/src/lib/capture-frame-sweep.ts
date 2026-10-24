@@ -1,4 +1,9 @@
-import { releaseCaptureFrame, type FrameBlobRow, type ReleaseDeps } from "./capture-frame-store";
+import {
+  FRAME_ASSET_SHARED_ELSEWHERE_SQL,
+  releaseCaptureFrame,
+  type FrameBlobRow,
+  type ReleaseDeps,
+} from "./capture-frame-store";
 
 /**
  * Capture frame sweep (Bottle Flow slice A). Frames of sessions that never reached a terminal
@@ -54,7 +59,8 @@ export function getCaptureFrameSweepConfig(env: NodeJS.ProcessEnv = process.env)
  * Keyset page of capture frames whose asset is past the retention window and not yet reset.
  * Params: $1 retention seconds, $2 last image_id seen, $3 limit. The `LIKE` on the owner's
  * `/capture/` prefix is only a prefilter, so frames that reference something else (a nail photo
- * attached by `imageId`) are not rescanned every hour; `isCaptureFrameStorageUrl` decides.
+ * attached by `imageId`) are not rescanned every hour; `isCaptureFrameStorageUrl` decides. An
+ * asset also used as a mani or nail photo, or by another frame, is never released.
  */
 export const SELECT_EXPIRED_CAPTURE_FRAMES_SQL = `SELECT ia.image_id::text AS "imageId",
        ia.owner_id::text AS "ownerId",
@@ -69,6 +75,7 @@ WHERE ia.owner_type = 'user'
   AND ia.captured_at < now() - make_interval(secs => $1)
   AND ia.storage_url NOT LIKE 'inline://%'
   AND ia.storage_url LIKE '%/' || ia.owner_id::text || '/capture/%'
+  AND NOT ${FRAME_ASSET_SHARED_ELSEWHERE_SQL}
   AND ia.image_id > $2
 ORDER BY ia.image_id
 LIMIT $3`;

@@ -33,7 +33,7 @@ describe("collectCaptureEvidence", () => {
     ]);
     assert.equal(evidence.brand, "Holo Taco");
     assert.equal(evidence.brandSource, "read");
-    assert.deepEqual(evidence.brandRead, { text: "Holo Taco", confidence: 0.9 });
+    assert.deepEqual(evidence.brandRead, { text: "Holo Taco", confidence: 0.9, source: "pipeline" });
     assert.equal(evidence.shadeName, "Unicorn Skin");
     assert.deepEqual(evidence.surfaces, { bottom: 1 });
   });
@@ -55,7 +55,7 @@ describe("collectCaptureEvidence", () => {
       labelFrame({ extracted: { brand: "Newest", brandConfidence: 0.7 } }),
       labelFrame({ extracted: { brand: "Older", brandConfidence: 0.99 } }),
     ]);
-    assert.deepEqual(evidence.brandRead, { text: "Newest", confidence: 0.7 });
+    assert.deepEqual(evidence.brandRead, { text: "Newest", confidence: 0.7, source: "pipeline" });
   });
 
   it("accepts a glass hex only from a frame the pipeline marked source glass", () => {
@@ -118,6 +118,22 @@ describe("collectCaptureEvidence", () => {
       extractFrameEvidence({ brand: "OPI", shadeName: "Big Apple Red" }).source,
       "request_quality"
     );
+  });
+
+  it("a pipeline brand with no confidence is an unscored read, not typed text", () => {
+    const evidence = collectCaptureEvidence({}, [labelFrame({ extracted: { brand: "Loud Lacquer" } })]);
+    assert.deepEqual(evidence.brandRead, { text: "Loud Lacquer", confidence: 0, source: "pipeline" });
+    assert.equal(evidence.brandSource, "read");
+  });
+
+  it("a client-sent (request_quality) brand is reported with that source, before and after ingest", () => {
+    const legacy = collectCaptureEvidence({}, [labelFrame({ brand: "OPI" })]);
+    assert.deepEqual(legacy.brandRead, { text: "OPI", confidence: 0, source: "request_quality" });
+    // Ingest stores the client evidence under `extracted` with the server-set source.
+    const stored = collectCaptureEvidence({}, [
+      labelFrame({ brand: "OPI", extracted: { brand: "OPI", source: "request_quality" } }),
+    ]);
+    assert.deepEqual(stored.brandRead, { text: "OPI", confidence: 0, source: "request_quality" });
   });
 
   it("prefers answers.brand_shade over top-level metadata", () => {

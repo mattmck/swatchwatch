@@ -48,7 +48,7 @@ beforeEach(() => {
 
 describe("capture frame names", () => {
   it("builds the blob name and keeps the inline placeholder format", () => {
-    assert.equal(store.captureFrameBlobName(7, CAPTURE_ID, "abc", "jpg"), `7/capture/${CAPTURE_ID}/abc.jpg`);
+    assert.equal(store.captureFrameBlobName(7, CAPTURE_ID, "abc", "jpg", "u1"), `7/capture/${CAPTURE_ID}/abc-u1.jpg`);
     assert.equal(store.inlineCaptureFrameUrl(CAPTURE_ID, "abc", "jpg"), `inline://capture/${CAPTURE_ID}/abc.jpg`);
     assert.equal(store.CAPTURE_FRAME_INLINE_PREFIX, "inline://capture/");
   });
@@ -79,14 +79,23 @@ describe("storeCaptureFrameBytes", () => {
   };
 
   it("uploads to the user-media container under the capture prefix", async () => {
-    const result = await store.storeCaptureFrameBytes(input, { connectionString: "UseDevelopmentStorage=true" });
-    assert.deepEqual(result, { storageUrl: blobUrl(`7/capture/${CAPTURE_ID}/abc.jpg`), stored: true });
+    const result = await store.storeCaptureFrameBytes(input, { connectionString: "UseDevelopmentStorage=true", uploadId: () => "u1" });
+    assert.deepEqual(result, { storageUrl: blobUrl(`7/capture/${CAPTURE_ID}/abc-u1.jpg`), stored: true });
     assert.equal(uploads.length, 1);
     assert.equal(uploads[0].containerName, "nail-photos");
-    assert.equal(uploads[0].blobName, `7/capture/${CAPTURE_ID}/abc.jpg`);
+    assert.equal(uploads[0].blobName, `7/capture/${CAPTURE_ID}/abc-u1.jpg`);
     assert.equal(uploads[0].connectionString, "UseDevelopmentStorage=true");
     assert.equal(uploads[0].contentType, "image/jpeg");
     assert.equal(uploads[0].bytes, input.bytes);
+  });
+
+  it("the same bytes uploaded twice (a client retry) get two blobs, so neither attempt can delete the other's", async () => {
+    const first = await store.storeCaptureFrameBytes(input, { connectionString: "UseDevelopmentStorage=true" });
+    const retry = await store.storeCaptureFrameBytes(input, { connectionString: "UseDevelopmentStorage=true" });
+    assert.notEqual(first.storageUrl, retry.storageUrl);
+    for (const upload of uploads) {
+      assert.match(upload.blobName, new RegExp(`^7/capture/${CAPTURE_ID}/abc-[0-9a-f-]{36}\\.jpg$`));
+    }
   });
 
   it("falls back to the inline placeholder, with no upload, when storage is not configured", async () => {
@@ -154,6 +163,21 @@ describe("releaseCaptureFrames", () => {
     assert.match(calls[0].sql, /NOT LIKE 'inline:\/\/%'/);
     assert.match(calls[0].sql, /owner_id = \$2/);
     assert.doesNotMatch(calls[0].sql, /quality_json/);
+  });
+
+  it("never selects an asset that is also a mani photo, a nail photo or another frame's image", async () => {
+    const { calls } = await run([], async () => true);
+    const sql = calls[0].sql.replace(/\s+/g, " ");
+    assert.match(sql, /AND NOT \( EXISTS \(SELECT 1 FROM manicure m WHERE m\.photo_image_id = ia\.image_id\)/);
+    assert.match(sql, /OR EXISTS \(SELECT 1 FROM inventory_nail_photo p WHERE p\.image_id = ia\.image_id\)/);
+    assert.match(sql, /FROM capture_frame other WHERE other\.image_id = ia\.image_id AND other\.capture_frame_id <> cf\.capture_frame_id/);
+  });
+
+  it("a row without a checksum resets to the placeholder named by the blob's checksum (upload id dropped)", async () => {
+    const id = "0b0e8d0e-3c0a-4a52-9b1e-5d6f5d4a8c11";
+    const { calls } = await run([frame("10", blobUrl(`7/capture/${CAPTURE_ID}/abc-${id}.webp`), null)], async () => true);
+    const resets = calls.filter((c) => /UPDATE image_asset/i.test(c.sql));
+    assert.deepEqual(resets[0].params, ["10", `inline://capture/${CAPTURE_ID}/abc.webp`, USER]);
   });
 
   it("deletes a capture frame blob and resets its row to the placeholder; leaves other blobs alone", async () => {

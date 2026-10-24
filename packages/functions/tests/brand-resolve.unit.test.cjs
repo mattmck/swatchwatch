@@ -10,6 +10,7 @@ const {
   BRAND_MATCH_MIN_SIMILARITY,
   BRAND_SHADE_NAMES_CAP,
   RESOLVE_BRAND_SQL,
+  RESOLVE_BRAND_HINT_SQL,
   SELECT_BRAND_SHADE_NAMES_SQL,
   resolveBrandFromText,
   listBrandShadeNames,
@@ -40,20 +41,44 @@ describe("lib/brand-resolve — resolveBrandFromText", () => {
     assert.equal(db.calls.length, 0);
   });
 
-  it("maps the best row to a numeric brand id", async () => {
-    const db = fakeDb([{ brandId: "3", name: "Loud Lacquer", score: 0.71 }]);
-    assert.deepEqual(await resolveBrandFromText("Loud", db), { brandId: 3, name: "Loud Lacquer", score: 0.71 });
-    assert.deepEqual(db.calls[0].params, ["Loud"]);
+  // Realistic scores: similarity('Loud', 'Loud Lacquer') = 5/12 ≈ 0.42 (trigrams counted by
+  // hand; the dev database was not running), word_similarity('Loud', 'Loud Lacquer') = 1.0. So a
+  // short typed hint only resolves in hint mode; the read mode needs most of the name.
+  it("maps the best row to a numeric brand id (read mode by default)", async () => {
+    const db = fakeDb([{ brandId: "3", name: "Loud Lacquer", score: 0.75 }]);
+    assert.deepEqual(await resolveBrandFromText("Loud Lacquar", db), { brandId: 3, name: "Loud Lacquer", score: 0.75 });
+    assert.deepEqual(db.calls[0].params, ["Loud Lacquar"]);
+    assert.equal(db.calls[0].sql, RESOLVE_BRAND_SQL);
   });
 
   it("trims the text it searches with", async () => {
-    const db = fakeDb([{ brandId: "3", name: "Loud Lacquer", score: 0.71 }]);
-    await resolveBrandFromText("  Loud ", db);
+    const db = fakeDb([{ brandId: "3", name: "Loud Lacquer", score: 0.75 }]);
+    await resolveBrandFromText("  Loud Lacquar ", db);
+    assert.deepEqual(db.calls[0].params, ["Loud Lacquar"]);
+  });
+
+  it("hint mode runs the word-similarity SQL with the trimmed text", async () => {
+    const db = fakeDb([{ brandId: "3", name: "Loud Lacquer", score: 1 }]);
+    assert.deepEqual(await resolveBrandFromText("  Loud ", db, { mode: "hint" }), { brandId: 3, name: "Loud Lacquer", score: 1 });
+    assert.equal(db.calls[0].sql, RESOLVE_BRAND_HINT_SQL);
     assert.deepEqual(db.calls[0].params, ["Loud"]);
   });
 
+  it("the hint SQL scores word similarity and a name prefix, and ranks deterministically", () => {
+    assert.match(RESOLVE_BRAND_HINT_SQL, /word_similarity\(\$1::text, b\.name_canonical\)/);
+    assert.match(RESOLVE_BRAND_HINT_SQL, /MAX\(word_similarity\(\$1::text, ba\.alias\)\)/);
+    assert.match(RESOLVE_BRAND_HINT_SQL, /CASE WHEN starts_with\(lower\(b\.name_canonical\), lower\(\$1::text\)\) THEN 1/);
+    assert.match(RESOLVE_BRAND_HINT_SQL, /\$1::text <% b\.name_canonical/);
+    assert.match(RESOLVE_BRAND_HINT_SQL, /\$1::text <% ba\.alias/);
+    assert.match(RESOLVE_BRAND_HINT_SQL, /OR starts_with\(lower\(b\.name_canonical\), lower\(\$1::text\)\)/);
+    assert.match(RESOLVE_BRAND_HINT_SQL, /WHERE r\.score >= 0\.6/);
+    assert.match(RESOLVE_BRAND_HINT_SQL, /ORDER BY r\.score DESC, length\(r\.name\) ASC, r\.brand_id ASC/);
+    assert.match(RESOLVE_BRAND_HINT_SQL, /LIMIT 1/);
+    assert.doesNotMatch(RESOLVE_BRAND_HINT_SQL, /LIKE/, "user text is never a LIKE pattern");
+  });
+
   it("a score under the minimum is no match", async () => {
-    const db = fakeDb([{ brandId: "3", name: "Loud Lacquer", score: 0.59 }]);
+    const db = fakeDb([{ brandId: "3", name: "Loud Lacquer", score: 0.42 }]);
     assert.equal(await resolveBrandFromText("Loud", db), null);
   });
 
