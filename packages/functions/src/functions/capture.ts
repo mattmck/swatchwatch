@@ -5,6 +5,7 @@ import {
   CaptureAnswerRequest,
   CaptureAnswerResponse,
   CaptureBrandHintEcho,
+  CaptureBrandRef,
   CaptureCheckCandidate,
   CaptureCheckResponse,
   CaptureFinalizeResponse,
@@ -68,6 +69,13 @@ import {
   buildNeedsFrameQuestion,
   serializeQuestionOptions,
 } from "../lib/capture-questions";
+import {
+  hintBrandFromMetadata,
+  loadColorDistances,
+  resolveBottle,
+  sumFrameModelCalls,
+  visionConfidenceFromFrames,
+} from "../lib/bottle-resolver";
 
 const GUIDANCE_CONFIG = {
   recommendedFrameTypes: ["barcode", "label", "color"],
@@ -1027,17 +1035,53 @@ async function resolveShadeCandidates(evidence: CaptureEvidence): Promise<Captur
   }));
 }
 
-async function resolveCaptureSession(session: CaptureSessionRow, userId: number): Promise<ResolverOutcome> {
+/** A resolver outcome plus what `capture.resolved` reports about the session it ran on. */
+type SessionResolution = ResolverOutcome & { frameCount: number; brandLocked: boolean; modelCalls: number };
+
+/** What the brand-first resolver needs from the session (present only while `BOTTLE_CAPTURE_ENABLED` is on). */
+interface BottleResolverInput {
+  hintBrand: CaptureBrandRef | null;
+  frames: CaptureFrameEvidenceRow[];
+  modelCalls: number;
+}
+
+async function resolveCaptureSession(session: CaptureSessionRow, userId: number): Promise<SessionResolution> {
   const frames = await getCaptureFrameEvidence(session.id);
   const evidence = collectCaptureEvidence(session.metadata, frames);
-  const outcome = await resolveFromEvidence(evidence, frames.length, userId);
-  return { ...outcome, evidence };
+  const modelCalls = sumFrameModelCalls(frames);
+  const hintBrand = isFeatureEnabled("bottleCapture") ? hintBrandFromMetadata(session.metadata) : null;
+  const bottle: BottleResolverInput | null = isFeatureEnabled("bottleCapture") ? { hintBrand, frames, modelCalls } : null;
+  const outcome = await resolveFromEvidence(evidence, frames.length, userId, bottle);
+  return { ...outcome, evidence, frameCount: frames.length, brandLocked: hintBrand !== null, modelCalls };
+}
+
+/** `capture.resolved` method: how the session was (or was not) resolved. */
+function resolvedMethod(outcome: ResolverDecision): string {
+  if (outcome.barcodeVia) return "barcode";
+  const resolver = toRecord(outcome.metadataPatch.resolver);
+  if (typeof resolver.method === "string") return resolver.method;
+  return resolver.step === "matched_by_shade_similarity" || resolver.step === "needs_user_candidate_selection"
+    ? "name"
+    : "unmatched";
+}
+
+function trackCaptureResolved(captureId: string, resolution: SessionResolution): void {
+  const resolver = toRecord(resolution.metadataPatch.resolver);
+  trackEvent("capture.resolved", {
+    captureId,
+    method: resolvedMethod(resolution),
+    brandLocked: resolution.brandLocked,
+    candidateCount: typeof resolver.candidateCount === "number" ? resolver.candidateCount : resolution.candidates.length,
+    modelCalls: resolution.modelCalls,
+    frames: resolution.frameCount,
+  });
 }
 
 async function resolveFromEvidence(
   evidence: CaptureEvidence,
   frameCount: number,
-  userId: number
+  userId: number,
+  bottle: BottleResolverInput | null = null
 ): Promise<ResolverDecision> {
   const hasTextEvidence = Boolean(evidence.gtin || evidence.shadeName || evidence.brand);
   const resolverAudit = {
@@ -1084,6 +1128,26 @@ async function resolveFromEvidence(
         },
       };
     }
+  }
+
+  if (bottle) {
+    return resolveBottle(
+      evidence,
+      {
+        userId,
+        frameCount,
+        hintBrand: bottle.hintBrand,
+        barcodeBrand: null, // a barcode hit has already matched above
+        modelCalls: bottle.modelCalls,
+        visionConfidence: visionConfidenceFromFrames(bottle.frames),
+      },
+      {
+        query,
+        resolveBrand: resolveBrandFromText,
+        globalCandidates: (frameEvidence) => resolveShadeCandidates(frameEvidence),
+        colorDistances: (shadeIds, glassHex) => loadColorDistances(shadeIds, glassHex, userId, { query }),
+      }
+    );
   }
 
   const shadeCandidates = await resolveShadeCandidates(evidence);
@@ -1734,6 +1798,7 @@ async function finalizeCapture(
       confidence: outcome.confidence,
       runId: finalizeRunId,
     });
+    trackCaptureResolved(session.captureId, outcome);
 
     if (outcome.status === "matched") {
       await transaction(async (client) => {
@@ -1974,6 +2039,15 @@ async function loadDisplayHexes(shadeIds: Array<number | null>): Promise<Map<str
  * frame response): resolver outcome plus the caller's relationship to each candidate.
  */
 async function computeCaptureCheck(session: CaptureSessionRow, userId: number): Promise<CaptureCheckResponse> {
+  return (await computeCaptureCheckWithResolution(session, userId)).response;
+}
+
+/** `computeCaptureCheck` plus the resolution it ran (null when the session was already accepted). */
+async function computeCaptureCheckWithResolution(
+  session: CaptureSessionRow,
+  userId: number
+): Promise<{ response: CaptureCheckResponse; resolution: SessionResolution | null }> {
+  let resolution: SessionResolution | null = null;
   let outcome: CaptureCheckResponse["outcome"];
   let confidence: number;
   let match: CaptureMatchCandidate | null = null;
@@ -1990,6 +2064,7 @@ async function computeCaptureCheck(session: CaptureSessionRow, userId: number): 
     candidates = [match];
   } else {
     const resolved = await resolveCaptureSession(session, userId);
+    resolution = resolved;
     outcome = resolved.status;
     confidence = resolved.confidence;
     candidates = resolved.candidates;
@@ -2021,6 +2096,8 @@ async function computeCaptureCheck(session: CaptureSessionRow, userId: number): 
     confidence: c.confidence,
     ownership: ownerships[i],
     ...(c.shadeId !== null && hexes.has(String(c.shadeId)) ? { hex: hexes.get(String(c.shadeId)) } : {}),
+    ...(c.brandId !== undefined ? { brandId: String(c.brandId) } : {}),
+    ...(typeof c.colorDistance === "number" ? { colorDistance: c.colorDistance } : {}),
   }));
   const matched = match;
   const matchIndex = matched ? candidates.findIndex((c) => sameEntity(c, matched)) : -1;
@@ -2033,8 +2110,10 @@ async function computeCaptureCheck(session: CaptureSessionRow, userId: number): 
     match: matchIndex >= 0 ? checkCandidates[matchIndex] : undefined,
     candidates: checkCandidates,
     questionKey,
+    ...(resolution?.bottle?.suggestedShade ? { suggestedShade: resolution.bottle.suggestedShade } : {}),
+    ...(resolution?.bottle?.brandConflict ? { brandConflict: resolution.bottle.brandConflict } : {}),
   };
-  return response;
+  return { response, resolution };
 }
 
 function trackCaptureChecked(response: CaptureCheckResponse, trigger: "check" | "barcode_frame"): void {
@@ -2081,9 +2160,10 @@ async function checkCapture(
       return { status: 409, jsonBody: { error: "Cannot check a cancelled session" } };
     }
 
-    const response = await computeCaptureCheck(session, userId);
+    const { response, resolution } = await computeCaptureCheckWithResolution(session, userId);
 
     trackCaptureChecked(response, "check");
+    if (resolution) trackCaptureResolved(session.captureId, resolution);
 
     return { status: 200, jsonBody: response };
   } catch (error: any) {

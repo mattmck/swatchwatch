@@ -60,6 +60,10 @@ export interface CaptureMatchCandidate {
   shadeId: number | null;
   display: string;
   confidence: number;
+  /** Catalog brand of the shade; set by the bottle resolver only. */
+  brandId?: number;
+  /** OKLAB distance from the glass photo's hex to the shade's display hex; set by the bottle resolver only. */
+  colorDistance?: number | null;
 }
 
 export interface CaptureQuestionSpec {

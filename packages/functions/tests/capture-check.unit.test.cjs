@@ -71,6 +71,10 @@ function resetState() {
     brandRow: null,
     /** Shade names returned by the closed-list query (`shade_name_canonical AS name`). */
     brandShadeNames: [],
+    /** Rows returned by the brand-first pool query (`s.brand_id = ANY($1::bigint[])`). */
+    bottleCandidates: [],
+    /** Rows returned by the color-distance lookup of global candidates. */
+    colorDistances: [],
     /** image_asset rows written by the frame endpoint: { imageId, ownerId, storageUrl, checksum }. */
     assets: [],
     /** When set, INSERT INTO capture_frame throws (frame transaction failure). */
@@ -185,6 +189,14 @@ async function fakeQuery(via, sql, params = []) {
   if (/shade_name_canonical AS name/i.test(norm) && /FROM shade s/i.test(norm)) {
     const rows = state.brandShadeNames.map((name) => ({ name }));
     return { rows, rowCount: rows.length };
+  }
+
+  if (/s\.brand_id = ANY\(\$1::bigint\[\]\)/i.test(norm) && /FROM shade s/i.test(norm)) {
+    return { rows: state.bottleCandidates, rowCount: state.bottleCandidates.length };
+  }
+
+  if (/shade_id = ANY\(\$1::bigint\[\]\)/i.test(norm) && /s\.oklab_l/i.test(norm)) {
+    return { rows: state.colorDistances, rowCount: state.colorDistances.length };
   }
 
   if (/similarity\(/i.test(norm) && /FROM shade s/i.test(norm)) {
@@ -1257,5 +1269,189 @@ describe("functions/capture — sticker vision read", () => {
     assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
     assert.equal(chatRequests.length, 0);
     assert.equal(insertedFrame().ai, undefined);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Brand-first bottle resolver (Bottle Flow slice A): check / finalize wiring
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("functions/capture — brand-first resolver", () => {
+  const telemetry = require("../dist/lib/telemetry");
+  const realTrackEvent = telemetry.trackEvent;
+  let events;
+
+  const LOUD_HINT = { brandId: "3", name: "Loud Lacquer", source: "hint", raw: "loud" };
+  const poolRow = (shadeId, shadeName, over = {}) => ({
+    shadeId: String(shadeId),
+    brandId: "3",
+    brand: "Loud Lacquer",
+    shadeName,
+    nameScore: null,
+    colorDistance: null,
+    ...over,
+  });
+  const useBottleSession = (frames, brand = LOUD_HINT) => {
+    state.sessions.get(CAPTURE_UUID).metadata = brand ? { bottle: { brand, prompts: {}, skipped: [] } } : {};
+    state.frames = frames;
+  };
+  const labelFrame = (extracted, ai) => ({ frameType: "label", quality: { extracted, ...(ai ? { ai } : {}) } });
+  const glassFrame = (hex = "#B4004E") => ({
+    frameType: "color",
+    quality: { extracted: { hex, hexConfidence: 0.9, source: "glass" }, ai: { glass: { modelCalls: 1 } } },
+  });
+  const resolvedEvents = () => events.filter((e) => e.name === "capture.resolved");
+  const poolQueries = () => handlerCalls().filter((c) => /s\.brand_id = ANY/i.test(c.sql));
+
+  beforeEach(() => {
+    events = [];
+    telemetry.trackEvent = (name, properties) => events.push({ name, properties });
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+  });
+  afterEach(() => {
+    telemetry.trackEvent = realTrackEvent;
+    delete process.env.BOTTLE_CAPTURE_ENABLED;
+  });
+
+  it("flag on: a confident name in the hinted brand matches; no create card, no conflict", async () => {
+    useBottleSession([labelFrame({ shadeName: "Big Apple Red" })]);
+    state.bottleCandidates = [poolRow(SHADE_ID, "Big Apple Red", { nameScore: 0.97 })];
+    const res = await check();
+    assert.equal(res.status, 200, JSON.stringify(res.jsonBody));
+    assert.equal(res.jsonBody.outcome, "matched");
+    assert.equal(res.jsonBody.match.shadeId, String(SHADE_ID));
+    assert.equal(res.jsonBody.match.brandId, "3");
+    assert.equal("suggestedShade" in res.jsonBody, false);
+    assert.equal("brandConflict" in res.jsonBody, false);
+    assert.deepEqual(poolQueries().map((c) => [c.params[0], c.params[1], c.params[2]]), [[[3], OWNER, "Big Apple Red"]]);
+    assertNoWrites();
+  });
+
+  it("flag on: no plausible shade in the brand gives the create card with the glass color", async () => {
+    useBottleSession([labelFrame({ shadeName: "Moonlit", finish: "creme" }), glassFrame()]);
+    state.bottleCandidates = [poolRow(11, "Other Shade", { nameScore: 0.2, colorDistance: 0.4 })];
+    const res = await check();
+    assert.equal(res.status, 200, JSON.stringify(res.jsonBody));
+    assert.equal(res.jsonBody.outcome, "unmatched");
+    assert.deepEqual(res.jsonBody.suggestedShade, {
+      brandId: "3", brandName: "Loud Lacquer", brandSource: "hint", shadeName: "Moonlit", hex: "#B4004E", finish: "creme", gtin: null,
+    });
+    assert.equal(res.jsonBody.candidates[0].colorDistance, 0.4);
+    assertNoWrites();
+  });
+
+  it("flag on: candidates carry brandId and colorDistance when a glass hex exists", async () => {
+    useBottleSession([labelFrame({ shadeName: "Big Appl" }), glassFrame()]);
+    state.bottleCandidates = [poolRow(SHADE_ID, "Big Apple Red", { nameScore: 0.8, colorDistance: 0.08 })];
+    const res = await check();
+    assert.equal(res.jsonBody.outcome, "needs_question");
+    assert.equal(res.jsonBody.questionKey, "candidate_select");
+    assert.equal(res.jsonBody.candidates[0].brandId, "3");
+    assert.equal(res.jsonBody.candidates[0].colorDistance, 0.08);
+    assert.ok(res.jsonBody.suggestedShade, "None of these can show the card");
+    const [, , , L, a, b] = poolQueries()[0].params;
+    assert.ok([L, a, b].every((v) => typeof v === "number"));
+  });
+
+  it("flag on: a confident read of another brand is reported as a conflict and pools both brands", async () => {
+    useBottleSession([
+      labelFrame({ brand: "Holo Taco", brandConfidence: 0.85, shadeName: "Unicorn Skin" }),
+    ]);
+    state.brandRow = { brandId: "7", name: "Holo Taco", score: 0.9 };
+    state.bottleCandidates = [poolRow(11, "Unicorn Skin", { nameScore: 0.7 })];
+    const res = await check();
+    assert.equal(res.status, 200, JSON.stringify(res.jsonBody));
+    assert.deepEqual(res.jsonBody.brandConflict, {
+      hinted: { brandId: "3", name: "Loud Lacquer", source: "hint" },
+      read: { brandId: "7", name: "Holo Taco", source: "read", confidence: 0.85 },
+    });
+    assert.deepEqual(poolQueries()[0].params[0], [3, 7]);
+  });
+
+  it("flag on, no brand at all: the trigram candidates are re-ranked by color distance", async () => {
+    useBottleSession([labelFrame({ shadeName: "Big Apple Red" }), glassFrame()], null);
+    state.shadeCandidates = [
+      { shadeId: "21", brand: "OPI", shadeName: "Big Apple Red", score: 0.8 },
+      { shadeId: "22", brand: "Essie", shadeName: "Big Apple Red", score: 0.8 },
+    ];
+    state.colorDistances = [{ shadeId: "21", distance: 0.09 }, { shadeId: "22", distance: 0.02 }];
+    const res = await check();
+    assert.equal(res.status, 200, JSON.stringify(res.jsonBody));
+    assert.equal(res.jsonBody.outcome, "matched");
+    assert.equal(res.jsonBody.match.shadeId, "22");
+    assert.equal(res.jsonBody.match.colorDistance, 0.02);
+    assert.equal("brandId" in res.jsonBody.match, false, "the global path does not know the brand id");
+    assert.equal(poolQueries().length, 0);
+  });
+
+  it("flag off: no suggestedShade, brandConflict, brandId or colorDistance, and no pool query", async () => {
+    delete process.env.BOTTLE_CAPTURE_ENABLED;
+    useBottleSession([labelFrame({ shadeName: "Moonlit" }), glassFrame()]);
+    state.shadeCandidates = [];
+    const res = await check();
+    assert.equal(res.status, 200, JSON.stringify(res.jsonBody));
+    assert.equal(res.jsonBody.outcome, "needs_question");
+    assert.equal("suggestedShade" in res.jsonBody, false);
+    assert.equal("brandConflict" in res.jsonBody, false);
+    assert.equal(poolQueries().length, 0);
+    state.shadeCandidates = [{ shadeId: String(SHADE_ID), brand: "OPI", shadeName: "Big Apple Red", score: 0.95 }];
+    const matched = await check();
+    assert.deepEqual(Object.keys(matched.jsonBody.candidates[0]).sort(), ["confidence", "display", "entityId", "entityType", "ownership", "shadeId"]);
+  });
+
+  it("check emits capture.resolved with the method, brand lock, candidate count, model calls and frames", async () => {
+    useBottleSession([
+      labelFrame({ shadeName: "Big Apple Red" }, { sticker: { modelCalls: 1, confidence: 0.8 } }),
+      glassFrame(),
+    ]);
+    state.bottleCandidates = [poolRow(SHADE_ID, "Big Apple Red", { nameScore: 0.97, colorDistance: 0.02 })];
+    assert.equal((await check()).status, 200);
+    assert.deepEqual(resolvedEvents().map((e) => e.properties), [
+      { captureId: CAPTURE_UUID, method: "name", brandLocked: true, candidateCount: 1, modelCalls: 2, frames: 2 },
+    ]);
+  });
+
+  it("check emits method barcode for a barcode hit, create_card and unmatched otherwise", async () => {
+    state.sessions.get(CAPTURE_UUID).metadata = { gtin: GTIN };
+    assert.equal((await check()).jsonBody.outcome, "matched");
+    useBottleSession([labelFrame({ shadeName: "Moonlit" })]);
+    state.bottleCandidates = [];
+    await check();
+    useBottleSession([labelFrame({ brand: "Nope", brandConfidence: 0.7, shadeName: "Moonlit" })], null);
+    state.brandRow = null;
+    state.shadeCandidates = [];
+    await check();
+    assert.deepEqual(resolvedEvents().map((e) => [e.properties.method, e.properties.brandLocked]), [
+      ["barcode", false],
+      ["create_card", true],
+      ["unmatched", false],
+    ]);
+  });
+
+  it("finalize emits capture.resolved and a create card finalizes unmatched with the audit", async () => {
+    useBottleSession([labelFrame({ shadeName: "Moonlit" }), glassFrame()]);
+    state.bottleCandidates = [];
+    const res = await finalize();
+    assert.equal(res.status, 200, JSON.stringify(res.jsonBody));
+    assert.equal(res.jsonBody.status, "unmatched");
+    assert.deepEqual(resolvedEvents().map((e) => e.properties), [
+      { captureId: CAPTURE_UUID, method: "create_card", brandLocked: true, candidateCount: 0, modelCalls: 1, frames: 2 },
+    ]);
+    const update = handlerCalls().find((c) => /SET status = 'unmatched'/i.test(c.sql));
+    assert.ok(update, "finalize stores the unmatched session");
+    const resolver = update.params[2].resolver;
+    assert.equal(resolver.step, "create_card");
+    assert.equal(resolver.version, "bottle-v1");
+    assert.equal(resolver.suggestedShade.shadeName, "Moonlit");
+    assert.equal(resolver.modelCalls, 1);
+  });
+
+  it("flag off: finalize still emits capture.resolved with the legacy method", async () => {
+    delete process.env.BOTTLE_CAPTURE_ENABLED;
+    const res = await finalize();
+    assert.equal(res.status, 200);
+    assert.deepEqual(resolvedEvents().map((e) => e.properties), [
+      { captureId: CAPTURE_UUID, method: "name", brandLocked: false, candidateCount: 1, modelCalls: 0, frames: 1 },
+    ]);
   });
 });
