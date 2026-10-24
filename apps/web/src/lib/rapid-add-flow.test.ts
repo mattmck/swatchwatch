@@ -13,6 +13,7 @@ import {
   framesReducer,
   INITIAL_SESSION_STATE,
   MAX_CAPTURE_FRAMES,
+  planLiveBarcode,
   rapidAddPhase,
   scanBadge,
   sessionReducer,
@@ -382,5 +383,41 @@ describe("bottle flow additions", () => {
       };
       assert.equal(canCheck({ frames: uploaded, session: asking, hasHints: false }), false);
     });
+  });
+});
+
+describe("planLiveBarcode", () => {
+  const other = "0123456789012";
+  const checked = { kind: "checked", relationship: "owned", shadeId: "1" } as unknown as RapidAddSessionState["verdict"];
+
+  it("starts a scan when nothing has been read", () => {
+    assert.equal(planLiveBarcode(INITIAL_SESSION_STATE, barcode.gtin), "scan");
+  });
+
+  it("calls the same code a repeat, or waits while it is being checked", () => {
+    const read = { ...INITIAL_SESSION_STATE, barcode };
+    assert.equal(planLiveBarcode(read, barcode.gtin), "repeat");
+    assert.equal(planLiveBarcode({ ...read, busy: "checking" }, barcode.gtin), "wait");
+    assert.equal(planLiveBarcode({ ...read, verdict: checked }, barcode.gtin), "repeat");
+  });
+
+  it("starts the next bottle on a new code while a verdict shows", () => {
+    assert.equal(planLiveBarcode({ ...INITIAL_SESSION_STATE, barcode, verdict: checked }, other), "next_scan");
+    assert.equal(
+      planLiveBarcode({ ...INITIAL_SESSION_STATE, barcode, verdict: checked, busy: "wishlisting" }, other),
+      "wait",
+    );
+  });
+
+  it("only offers a new code mid-scan or while a pick list or create card waits", () => {
+    assert.equal(planLiveBarcode({ ...INITIAL_SESSION_STATE, barcode }, other), "finish_first");
+    for (const kind of ["pick", "create_card"]) {
+      const verdict = { kind } as unknown as RapidAddSessionState["verdict"];
+      assert.equal(planLiveBarcode({ ...INITIAL_SESSION_STATE, verdict }, other), "finish_first");
+    }
+  });
+
+  it("waits while a finished session resolves", () => {
+    assert.equal(planLiveBarcode({ ...INITIAL_SESSION_STATE, status: "matched" }, other), "wait");
   });
 });
