@@ -720,6 +720,33 @@ describe("functions/capture — nextFrame after a frame", () => {
     assert.equal(stored.extracted.shadeName, "Big Appl", "the client's own evidence stays");
   });
 
+  it("client evidence under quality.extracted is stored as request_quality, never as a pipeline read", async () => {
+    useHintedSession([]);
+    const res = await frame({ frameType: "other", quality: { surface: "front", extracted: { brand: "OPI" } } });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    const stored = handlerCalls().find((c) => /INSERT INTO capture_frame/i.test(c.sql)).params[3];
+    assert.equal(stored.extracted.brand, "OPI");
+    assert.equal(stored.extracted.source, "request_quality", "typed text, not a model read");
+    const ingest = handlerCalls().find((c) => /UPDATE capture_session/i.test(c.sql) && c.params[1]?.pipeline);
+    assert.equal(ingest.params[1].pipeline.ingest.lastExtractionSource, "request_quality");
+  });
+
+  it("a frame added to a finished session plans nothing and leaves the resolver audit alone", async () => {
+    for (const status of ["matched", "unmatched"]) {
+      useHintedSession([]);
+      const session = state.sessions.get(CAPTURE_UUID);
+      session.status = status;
+      session.metadata.resolver = { step: "created_from_capture", createdShadeId: 9 };
+      events.length = 0;
+      const res = await frame({ frameType: "label", quality: { surface: "bottom" } });
+      assert.equal(res.status, 201, `${status}: ${JSON.stringify(res.jsonBody)}`);
+      assert.equal(res.jsonBody.nextFrame, null, status);
+      assert.equal(bottleUpdates().length, 0, `${status}: no bottle/resolver metadata rewrite`);
+      assert.equal(surfaceEvents().length, 0, `${status}: no surface ask tracked`);
+      session.status = "processing";
+    }
+  });
+
   it("a failure while planning does not fail the saved frame", async () => {
     useHintedSession([]);
     state.onInsertFrames = [];

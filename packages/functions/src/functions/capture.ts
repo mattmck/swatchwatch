@@ -1816,16 +1816,18 @@ async function addCaptureFrame(
 
       const normalizedExtraction = extractFrameEvidence(qualityJson);
       if (normalizedExtraction && !hasAiExtracted) {
-        // Only set extracted from request quality if AI didn't already populate it
+        // AI produced nothing, so whatever `extracted` holds came from the client. Its own
+        // `source` was stripped on ingest, so mark it here: client evidence is typed text
+        // (`request_quality`), never a pipeline read.
         qualityJson = mergeQualityJson(qualityJson ?? undefined, {
-          extracted: normalizedExtraction,
+          extracted: { ...normalizedExtraction, source: "request_quality" },
         });
       }
       const ingestMetadataPatch = buildIngestMetadataPatch(
         session.metadata,
         body.frameType,
         Boolean(normalizedExtraction || hasAiExtracted),
-        hasAiExtracted ? "pipeline" : (normalizedExtraction?.source ?? "none")
+        hasAiExtracted ? "pipeline" : normalizedExtraction ? "request_quality" : "none"
       );
 
       if (!imageId && body.imageBlobUrl) {
@@ -1879,8 +1881,10 @@ async function addCaptureFrame(
 
     // Bottle flow: plan the next photo. The frame is saved either way, so a planning failure
     // degrades to "nothing more to ask" (the client then calls /check).
+    // A finished session (matched / unmatched) takes no more asks: planning would overwrite the
+    // finalize or create audit in `metadata.resolver`.
     let nextFrame: CaptureFrameRequestSpec | null = null;
-    if (bottleOn && priorEvidence) {
+    if (bottleOn && priorEvidence && !isTerminalCaptureStatus(session.status)) {
       try {
         nextFrame = await advanceBottleFlow(
           session,
