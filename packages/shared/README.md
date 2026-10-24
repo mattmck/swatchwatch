@@ -23,7 +23,7 @@ The package is automatically linked via npm workspaces — no publishing require
 | `FinishName` | `PolishFinish \| (string & {})` — any finish name on API-facing fields (`Polish.finishes`, request `finish`/`finishes`); admits runtime names from admin-managed `finish_type` rows while keeping autocomplete for built-ins |
 | `resolvePolishFinishes(polish)` | Finishes to display: `finishes` when non-empty, else `[finish]` (backward compatible) |
 | `polishHasFinish(polish, finish)` | Case-insensitive membership check over `resolvePolishFinishes` |
-| `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps); accepts `finishes` (replace) and legacy `finish`, plus inventory `status`, `triedAt`, `purchasePrice`, `purchaseCurrency` (`null` clears the last three), `rating` and `purchaseDate` (`null` clears them on update), and create-only `barcode` / `barcodeFormat` (a Rapid Add scan remembered on the shade for the caller, #21) |
+| `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps); accepts `finishes` (replace) and legacy `finish`, plus inventory `status`, `triedAt`, `purchasePrice`, `purchaseCurrency` (`null` clears the last three), `rating` and `purchaseDate` (`null` clears them on update), and create-only `barcode` / `barcodeFormat` (a Rapid Add scan remembered on the shade for the caller, #21) and optional `captureId` (the capture session this add came from, the bottle flow's create card; must be the caller's own) |
 | `PolishUpdateRequest` | `Partial<PolishCreateRequest>` (the id is the route param); `rating` / `purchaseDate` `null` clears the value |
 | `ShadeIdentityTakenResponse` | `409` body of `PUT /api/polishes/{id}` when renaming the caller's own private shade (`Polish.ownSubmitted`) to a brand + name another visible shade already has (`error`, `code: "shade_identity_taken"`, `existingShadeId`); nothing was changed |
 | `PolishListResponse` | Paginated list: `{ polishes, total, page, pageSize }` |
@@ -419,7 +419,7 @@ The "add it as new" card for a bottle the catalog could not match. Pure.
 
 | Export | Description |
 |--------|-------------|
-| `CreateCardModel` / `deriveCreateCard(check, { afterNoneOfThese })` | The prefilled card from a check's `suggestedShade`; `null` when matched, while candidates are on screen, or without a suggestion. `brandNeedsConfirm` is true when the brand was only read from the bottle |
+| `CreateCardModel` / `deriveCreateCard(check, { afterNoneOfThese })` | The prefilled card from a check's `suggestedShade`; `null` when matched, while candidates are on screen (a `needs_question` check with candidates, until "None of these"), or without a suggestion; an `unmatched` check with a suggestion is always a card. `brandNeedsConfirm` is true when the brand was only read from the bottle |
 | `CreateCardEdits` / `canSubmitCreateCard(card, edits)` | The user's edits; submit needs a brand and shade name, and a read brand confirmed or edited |
 | `createPolishRequestFromCard(card, edits, status)` | The `PolishCreateRequest` (color family from the hex, `detectedHex`, `finishes`, `barcode`, `captureId`; quantity 1 owned, 0 wishlist) |
 
@@ -433,23 +433,24 @@ The "add it as new" card for a bottle the catalog could not match. Pure.
 | `CaptureQuestionStatus` | Question status: `open \| answered \| skipped \| expired` |
 | `CaptureGuidanceConfig` | Capture guidance contract returned by `/api/capture/start` |
 | `CaptureQuestion` | Open question payload used by status/finalize/answer responses |
-| `CaptureStartRequest` / `CaptureStartResponse` | Start capture session payloads |
-| `CaptureFrameRequest` / `CaptureFrameResponse` | Add frame payloads (`imageId` or `imageBlobUrl`); the response's optional `check` is the read-only verdict for a `barcode` frame with a valid on-device decoded `quality.gtin` (#21) |
+| `CaptureStartRequest` / `CaptureStartResponse` | Start capture session payloads; the response's optional `brandHint?` (`CaptureBrandHintEcho`) and `nextFrame?` exist only while `BOTTLE_CAPTURE_ENABLED` is on |
+| `CaptureFrameRequest` / `CaptureFrameResponse` | Add frame payloads (`imageId` or `imageBlobUrl`); the response's optional `check` is the read-only verdict for a `barcode` frame with a valid on-device decoded `quality.gtin` (#21), and `nextFrame?` the next photo ask (bottle flow) |
 | `CaptureFinalizeResponse` | Finalize response with session status and optional question |
-| `CaptureStatusResponse` | Session status payload with confidence/accepted entity/question |
-| `CaptureAnswerRequest` / `CaptureAnswerResponse` | Answer question payloads for adaptive loop |
+| `CaptureStatusResponse` | Session status payload with confidence/accepted entity/question, and `nextFrame?` (bottle flow; `null` on a terminal session) |
+| `CaptureAnswerRequest` / `CaptureAnswerResponse` | Answer question payloads for adaptive loop: `answer` is optional (required unless `skipSurface?` is sent; `skipSurface` skips a bottle photo of that surface); the response's `nextFrame?` is returned for a `skipSurface` answer |
 | `CaptureOwnershipRelationship` | Caller's relationship to a matched shade: `owned \| wishlisted \| notOwned` |
 | `CaptureOwnership` | `{ relationship, quantity? }` (`quantity` = total owned, only when `owned`) |
 | `CaptureCheckOutcome` | Resolver outcome reported by check: `matched \| needs_question \| unmatched` |
 | `CaptureCheckCandidate` | Match/candidate with `entityType`, `entityId`, `shadeId`, `display`, `confidence`, `ownership`, optional display `hex` (swatch) |
-| `CaptureCheckResponse` | `POST /api/capture/{captureId}/check` payload: outcome, confidence, `match?`, `candidates`, `questionKey?`, unchanged session `status` (read-only, never touches inventory) |
+| `CaptureCheckResponse` | `POST /api/capture/{captureId}/check` payload: outcome, confidence, `match?`, `candidates`, `questionKey?`, unchanged session `status` (read-only, never touches inventory); bottle flow adds `nextFrame?`, `suggestedShade?` (the create card's prefill) and `brandConflict?` |
 | `BOTTLE_SURFACES` / `BottleSurface` | Photographed surfaces: `front`, `bottom`, `glass`, `box` |
 | `BOTTLE_SURFACE_FRAME_TYPE` / `parseBottleSurface(value)` | Capture frame type per surface (`glass` → `color`, the others → `label`) and the exact-lowercase surface parser (`null` otherwise) |
-| `CaptureFrameRequestSpec` / `CaptureFrameRequestReason` | The next photo the server asks for: `surface`, `frameType`, `prompt`, optional `hint`, `reason` (`need_brand \| need_name \| need_color \| tie_break \| retry_quality`), `optional`. Carried as `nextFrame` (`null` = nothing more to ask) on the start, frame, status, answer and check responses; present only while `BOTTLE_CAPTURE_ENABLED` is on |
+| `CaptureFrameRequestSpec` / `CaptureFrameRequestReason` | The next photo the server asks for: `surface`, `frameType`, `prompt`, optional `hint`, `reason` (`need_brand \| need_name \| need_color \| tie_break \| retry_quality`), `optional`. Carried as `nextFrame` (`null` = nothing more to ask) on the start, frame, status, check and (for a `skipSurface` answer) answer responses; present only while `BOTTLE_CAPTURE_ENABLED` is on |
 | `CaptureBrandSource` / `CaptureBrandRef` / `CaptureBrandConflict` | A brand on a session (`brandId` or `null`, `name`, `source` `hint \| barcode \| read`, optional `confidence`); `brandConflict` on check when the typed and read brands disagree |
 | `CaptureBrandHintEcho` | `CaptureStartResponse.brandHint`: the user's raw brand text, the matched `brandId` and the canonical (else raw) `name` |
 | `CaptureSuggestedShade` | `CaptureCheckResponse.suggestedShade`: best-effort `brandId`/`brandName`/`brandSource`/`shadeName`/`hex`/`finish`/`gtin` (each nullable) to prefill the add form for an unmatched bottle |
-| `CaptureCheckCandidate` extras | Optional `brandId` and `colorDistance` (OKLAB, glass photo hex ↔ display hex, when a glass hex exists); `CaptureAnswerRequest.answer` is optional, `skipSurface` skips an optional photo
+| `CaptureCheckCandidate` extras | Optional `brandId` and `colorDistance` (OKLAB, glass photo hex ↔ display hex, when a glass hex exists) |
+| `CaptureAnswerRequest` extras | `answer` is optional; `skipSurface?: BottleSurface` skips the photo of that surface (bottle flow only) |
 
 ### `types/palette.ts`
 
@@ -530,7 +531,6 @@ Admin bottle eval samples (`/api/bottle-eval-admin/*`): a labeled bottle (catalo
 | `BottleEvalSampleResponse` / `BottleEvalSampleListResponse` | `{ sample }` and `{ samples, total, nextCursor }` |
 | `BottleEvalFrameAddResponse` | `POST /api/bottle-eval-admin/samples/{id}/frames` response: `BottleEvalSampleResponse` plus the new frame's `frameId` |
 | `validateBottleEvalSampleInput(body)` / `BottleEvalSampleInput` | Pure request validator: trims, enforces the lengths and the shadeId-xor-text rule (`shadeId` a digits-only string or positive integer), blank `notes` → `null`; returns `{ kind: "catalog", … }` or `{ kind: "external", … }`, throws `BottleEvalValidationError` |
-| `parseBottleSurface(value)` | Exact surface name, else `null` |
 
 ### `types/reference.ts`
 

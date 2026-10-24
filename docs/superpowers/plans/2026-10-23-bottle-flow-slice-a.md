@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-23-bottle-recognition-design.md` (§4 UX, §5 Slice A, §9.1 retention, §10 rollout; decisions §11–§12)
 
-**Builds on:** Slice 0 (`docs/superpowers/plans/2026-10-23-bottle-eval-capture.md`, PR mattmck/swatchwatch#459 against `dev`). Cut the Slice A branch from `claude/bottle-label-image-polish-4f14af` until #459 is merged, then rebase onto `dev`; the PR targets `dev` (D24). No migration: Slice A uses the existing `capture_session`, `capture_frame`, `image_asset`, `user_shade_barcode` and `shade.oklab_*` columns.
+**Builds on:** Slice 0 (`docs/superpowers/plans/2026-10-23-bottle-eval-capture.md`, PR mattmck/swatchwatch#459). The Slice A branch was cut from `dev` after #459 merged; the PR targets `dev` (D24). No migration: Slice A uses the existing `capture_session`, `capture_frame`, `image_asset`, `user_shade_barcode` and `shade.oklab_*` columns.
 
 **Calls made in this plan (the spec leaves them open or silent):**
 - Frame blob storage (§9.1) is also behind the flag: off, frames keep the `inline://` placeholder exactly as today. The sweep timer runs regardless (it finds nothing while off).

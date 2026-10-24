@@ -143,7 +143,11 @@ src/
                           photo picking (`pick-photo.ts`, camera/library → `prepareJpeg`),
                           color search (By color), Goes with, brand list price line
                           for the buy link (`buy-price.ts`), import file reading (`read-import-file.ts`),
-                          wishlist value (`use-wishlist-value.ts`), polish edit (`polish-edit.ts`)
+                          wishlist value (`use-wishlist-value.ts`), polish edit (`polish-edit.ts`),
+                          feature flags (`feature-flags.ts`: `useFeatureFlags()` reads `bottleCapture`
+                          and the share flags from `GET /api/config/flags` via `getFeatureFlags()` in
+                          `src/api/client.ts`, fetched once per launch and cached in `api-cache`;
+                          a failure keeps the cached flags, else all off)
   theme/theme.tsx         light/dark theme from the shared design tokens
 ```
 

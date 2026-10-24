@@ -205,6 +205,18 @@ confirmed:
 
 ## 5. Slice A: surfaces, color evidence, brand-first resolver, batch mode
 
+Slice A plan: `docs/superpowers/plans/2026-10-23-bottle-flow-slice-a.md`.
+
+Calls made in the Slice A plan:
+- Frame blob storage (§9.1) is also behind the flag: off, frames keep the `inline://` placeholder exactly as today. The sweep timer runs regardless (it finds nothing while off).
+- "Can't see it" is `POST /api/capture/{id}/answer` with a new body field `skipSurface` (no open `capture_question` needed); the response carries the next `nextFrame`.
+- There is no cancel route today; an abandoned session is a `processing` session whose frames the 24-hour sweep releases.
+- The §5.4 telemetry events are emitted server-side (`trackEvent` in the capture handlers and `polishes.ts`), where every client's flow is visible at once.
+- Picking a candidate or tapping Add on the check-first path uses `PUT /api/polishes/{shadeId}` as mobile does today; it does not mark the session or learn the barcode (pre-existing mobile gap, follow-up ticket). Only the one-tap create (`POST /api/polishes` with `captureId`) marks the session.
+- Only a hex the server measured from a `color` frame (`quality_json.extracted.source = "glass"`) is color evidence; a client-supplied `quality.hex` is ignored.
+- The client flow reducer is shared (`packages/shared/src/capture/bottle-flow.ts`), not duplicated per app.
+- Candidate rows show the swatch `hex`, confidence and the new `colorDistance`; the catalog image on candidate and match rows (§4.3) waits for Slice B, which loads catalog images at check time anyway.
+
 Ships without new infrastructure.
 
 ### 5.1 Color evidence from the glass frame
