@@ -43,6 +43,7 @@ import type {
   ProductCategoryBackfillRequest,
   ShadeProductCategoryListResponse,
   ShadeProductCategoryUpdateResponse,
+  ShadeFinishesUpdateResponse,
   Polish,
   PolishCreateRequest,
   PolishUpdateRequest,
@@ -1380,6 +1381,19 @@ export async function setShadeProductCategory(
     }
   );
   return handleResponse<ShadeProductCategoryUpdateResponse>(response);
+}
+
+/**
+ * Admin override of a shade's whole finish list, primary first (`PUT /api/shades-admin/{id}/finishes`);
+ * sticky: ingestion never changes it afterwards.
+ */
+export async function setShadeFinishes(shadeId: string | number, finishes: string[]): Promise<ShadeFinishesUpdateResponse> {
+  const response = await fetch(`${API_BASE_URL}/shades-admin/${encodeURIComponent(String(shadeId))}/finishes`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify({ finishes }),
+  });
+  return handleResponse<ShadeFinishesUpdateResponse>(response);
 }
 
 // ── Shareable wishlist (#268) ───────────────────────────────────────────────

@@ -47,13 +47,16 @@ Admin Hex Labeling tool (admin console tab, routes `/api/hex-labels-admin/*`): h
 | `HexLabelSamplePoint` | Where a canvas sample was taken: `x`/`y` normalized 0..1 to the natural image size, `size`, `imageWidth`, `imageHeight` |
 | `HexLabelImage` | A catalog product image of a shade: `imageId`, signed proxy `url`, `swatchType`, vendor `sourceUrl` (from `source_image_url`, null when unknown), `isPrimary` |
 | `HexLabel` | A saved manual label: `trainingSampleId`, `shadeId`, `hex` (null only when `unreliable`), `unreliable`, `imageId`, `note`, `method`, `samplePoint`, `labeledByUserId`, `labeledAt` |
-| `HexLabelQueueItem` | One queued shade: brand/name/finishes, `vendorHex`/`detectedHex`/`nameHex`, `hexAgreement`, detection confidence/method, `flagged` (agreement > MEDIUM), `images`, current `label`, vendor hex provenance `vendorHexSource` / `promotedLabelId` / `vendorHexPrevious` (#321) |
+| `HexLabelQueueItem` | One queued shade: brand/name/finishes, `finishesSource`, `productCategory` / `productCategorySource`, `vendorHex`/`detectedHex`/`nameHex`, `hexAgreement`, detection confidence/method, `flagged` (agreement > MEDIUM), `images`, current `label`, vendor hex provenance `vendorHexSource` / `promotedLabelId` / `vendorHexPrevious` (#321) |
 | `HexLabelQueueFilters` | `GET /api/hex-labels-admin/queue` query: `brand`, `disagreeOnly`, `showLabeled`, `includeWithoutImages`, `cursor`, `pageSize` |
 | `HexLabelQueueResponse` | `{ items, nextCursor, total, labeled, pageSize, disagreementThreshold }` (`total`/`labeled` drive the progress bar) |
 | `HexLabelRequest` | `POST /api/hex-labels-admin/labels` body: `shadeId`, `hex` (`#RRGGBB`, required unless `unreliable`), `imageId`, `unreliable`, `note`, `method`, `samplePoint` |
 | `HexLabelSaveResponse` | `{ label, previous }`; `previous` is the label the save replaced (the client restores it to undo) |
 | `HexLabelDeleteResponse` | `{ deleted }` from `DELETE /api/hex-labels-admin/labels/{id}` |
 | `VENDOR_HEX_SOURCES` / `VendorHexSource` | `shade.vendor_hex_source` (#321): `vendor` (vendor/catalog data) or `manual_label` (an admin promoted the shade's manual label; ingestion never overwrites it). Admin-only |
+| `FINISHES_SOURCES` / `FinishesSource` | `shade.finishes_source`: `rule` (ingestion / backfills) or `admin` (set in the Hex Labeling tool; ingestion never changes it). Admin-only |
+| `SHADE_FINISHES_MAX` | Most finishes an admin can set on one shade (8) |
+| `ShadeFinishesUpdateRequest` / `ShadeFinishesUpdateResponse` | `PUT /api/shades-admin/{shadeId}/finishes`: `{ finishes }` in; `{ shadeId, finishes, finishesSource, changed }` out |
 | `HexLabelPromoteResponse` | `{ shadeId, vendorHex, vendorHexSource, promotedLabelId, vendorHexPrevious, changed }` from `POST`/`DELETE /api/hex-labels-admin/labels/{id}/promote` and `DELETE /api/hex-labels-admin/shades/{shadeId}/promotion` |
 
 ### `types/inventory.ts`

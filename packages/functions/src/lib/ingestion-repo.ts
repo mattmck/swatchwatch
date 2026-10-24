@@ -2390,8 +2390,10 @@ export async function materializeMakeupApiRecords(
 
         const collection = makeup.name;
 
-        const existingShade = await client.query<{ shadeId: number; finishes: string[] | null } & ShadeVendorHexState>(
-          `SELECT shade_id AS "shadeId", finishes,
+        const existingShade = await client.query<
+          { shadeId: number; finishes: string[] | null; finishesSource: string | null } & ShadeVendorHexState
+        >(
+          `SELECT shade_id AS "shadeId", finishes, finishes_source AS "finishesSource",
                   ${SHADE_VENDOR_HEX_COLUMNS}
            FROM shade
            WHERE brand_id = $1
@@ -2405,10 +2407,12 @@ export async function materializeMakeupApiRecords(
 
         let shadeId: number;
         let currentFinishes: string[] = [];
+        let currentFinishesSource: string | null = null;
         let currentVendorHex: ShadeVendorHexState | null = null;
         if (existingShade.rows.length > 0) {
           shadeId = existingShade.rows[0].shadeId;
           currentFinishes = existingShade.rows[0].finishes ?? [];
+          currentFinishesSource = existingShade.rows[0].finishesSource;
           currentVendorHex = existingShade.rows[0];
         } else {
           const insertedShade = await client.query<{ shadeId: number }>(
@@ -2431,8 +2435,8 @@ export async function materializeMakeupApiRecords(
         const vendorHexPlan = planIngestedVendorHex(currentVendorHex, variant.hex || null, true);
         // Merge (never remove) tag finishes in TypeScript, like the Holo Taco path, so aliases
         // and legacy values are canonicalized and deduped; descriptor/description finishes only
-        // fill a shade with none (#352); null leaves finishes untouched.
-        const mergedFinishes = applyIngestedFinishes(currentFinishes, finishResolution, finishCatalog);
+        // fill a shade with none (#352); an admin-set list is never touched; null leaves finishes untouched.
+        const mergedFinishes = applyIngestedFinishes(currentFinishes, finishResolution, finishCatalog, currentFinishesSource);
         await client.query(
           `UPDATE shade SET
              color_name = COALESCE($2, color_name),
@@ -2668,23 +2672,29 @@ async function materializePreparedHoloTacoRecord(
     detectedFinishes: string[] | null;
     nameHex: string | null;
     finishes: string[] | null;
+    finishesSource: string | null;
   }>(
     `SELECT
        ${SHADE_VENDOR_HEX_COLUMNS},
        detected_hex AS "detectedHex",
        detected_finishes AS "detectedFinishes",
        name_hex AS "nameHex",
-       finishes
+       finishes,
+       finishes_source AS "finishesSource"
      FROM shade WHERE shade_id = $1
      FOR UPDATE`,
     [shadeId]
   );
   // Vendor tag finishes are merged (never removed) so manual edits survive re-imports;
-  // descriptor/description finishes only fill a shade that has none yet (#352).
+  // descriptor/description finishes only fill a shade that has none yet (#352); an admin-set
+  // list (finishes_source = 'admin') is written back exactly as it is.
   const currentFinishes = currentShade.rows[0]?.finishes ?? [];
+  const currentFinishesSource = currentShade.rows[0]?.finishesSource ?? null;
   const mergedFinishes =
-    applyIngestedFinishes(currentFinishes, finishResolution, finishCatalog) ??
-    mergeFinishLists([currentFinishes], finishCatalog);
+    currentFinishesSource === "admin"
+      ? currentFinishes
+      : applyIngestedFinishes(currentFinishes, finishResolution, finishCatalog) ??
+        mergeFinishLists([currentFinishes], finishCatalog);
 
   // A vendor hex follows the overwrite rule, except an admin-promoted manual label, which
   // ingestion never replaces (#321, D12): the vendor value is kept in vendor_hex_previous.
