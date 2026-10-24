@@ -108,6 +108,12 @@ function MsalAuthProvider({
       if (response?.accessToken) {
         setAccessToken(response.accessToken);
       }
+      // The account that just signed in becomes the active one. The active account persists in
+      // localStorage, so without this a stale cached account (expired refresh token) stays
+      // active, every silent renewal fails for it, and the app keeps bouncing through sign-in.
+      if (response?.account) {
+        msalInstance.setActiveAccount(response.account);
+      }
 
       // MSAL's silent renew loads its redirect URI in a hidden iframe. That is the bridge page
       // (buildSilentRedirectUri), but if the app root is ever loaded there, running the rest of
