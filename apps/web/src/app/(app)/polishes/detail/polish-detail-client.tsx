@@ -290,7 +290,8 @@ export default function PolishDetailClient({
     );
   }
 
-  const hasSidePanels = Boolean(polish.inventoryItemId || canLogPolish(polish) || (dupes && dupeCallout));
+  // Only panels that always render a card: WearHistoryPanel hides itself while loading or on error.
+  const hasSidePanels = Boolean(polish.inventoryItemId || (dupes && dupeCallout));
 
   return (
     <div className="space-y-6">
