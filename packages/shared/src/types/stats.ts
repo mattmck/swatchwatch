@@ -6,6 +6,7 @@
  * (`currency` is the ISO 4217 code, or `null` for prices saved without a currency).
  */
 import type { PolishStatus } from "./inventory";
+import type { ListPriceTotals } from "../money/price-totals";
 
 /** Brands listed by name in `CurrencySpend.byBrand`; the rest fold into one "other" entry. */
 export const COLLECTION_STATS_TOP_BRANDS = 8;
@@ -104,6 +105,17 @@ export interface CostPerWearCurrency {
   worst: CostPerWearEntry[];
 }
 
+/**
+ * What the wishlist adds up to in the brands' list prices (`Polish.buyPrice` / `buyCurrency`),
+ * over every wishlist row the polishes list shows (`GET /api/polishes?status=wishlist`).
+ */
+export interface WishlistValueStats {
+  /** Wishlist rows, priced or not (the polishes list `total` for `status=wishlist`). */
+  count: number;
+  /** Per-currency list-price totals (never converted or summed across currencies). */
+  listPrices: ListPriceTotals;
+}
+
 export interface CollectionStatsResponse {
   /** ISO timestamp the stats were computed (responses may be cached for up to 60s). */
   generatedAt: string;
@@ -131,4 +143,5 @@ export interface CollectionStatsResponse {
     /** Owned items with a price and no wears, across currencies (a count, not money). */
     pricedUnwornCount: number;
   };
+  wishlist: WishlistValueStats;
 }

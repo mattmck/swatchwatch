@@ -405,9 +405,20 @@ export async function deleteSavedLook(key: string): Promise<void> {
 }
 
 /** The caller's dashboard aggregates (`GET /api/stats/collection`, cached server-side ≤60s). */
-export async function getCollectionStats(): Promise<CollectionStatsResponse> {
-  const response = await fetch(`${API_BASE_URL}/stats/collection`, { headers: await getAuthHeaders() });
-  return handleResponse<CollectionStatsResponse>(response);
+let collectionStatsInFlight: Promise<CollectionStatsResponse> | null = null;
+
+/**
+ * `GET /api/stats/collection`. Callers that ask while a request is in flight (the dashboard's
+ * wishlist card and its stats section) share it; the next call after it settles fetches again.
+ */
+export function getCollectionStats(): Promise<CollectionStatsResponse> {
+  collectionStatsInFlight ??= (async () => {
+    const response = await fetch(`${API_BASE_URL}/stats/collection`, { headers: await getAuthHeaders() });
+    return handleResponse<CollectionStatsResponse>(response);
+  })().finally(() => {
+    collectionStatsInFlight = null;
+  });
+  return collectionStatsInFlight;
 }
 
 /**

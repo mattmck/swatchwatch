@@ -1,23 +1,26 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { listAllPolishes } from "@/lib/api";
-import { wishlistValueView, type WishlistValueView } from "@/lib/wishlist-value";
+import { getCollectionStats } from "@/lib/api";
+import { wishlistValueViewFromTotals, type WishlistValueView } from "@/lib/wishlist-value";
 
 /**
  * Wishlist value line for the `/polishes` Wishlist view: what the wishlist adds up to in the
  * brands' list prices, one total per currency (never converted or summed across currencies) with
- * unpriced polishes counted. Totals come from a dedicated fetch of every wishlist row, not the
- * visible page; `refreshKey` (e.g. the list total) refetches after quick actions.
+ * unpriced polishes counted. Totals come summed from `GET /api/stats/collection` (every wishlist
+ * row, not the visible page); `refreshKey` (e.g. the list total) refetches after quick actions.
  */
 export function WishlistValue({ refreshKey }: { refreshKey?: number }) {
   const [view, setView] = useState<WishlistValueView | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    listAllPolishes({ status: ["wishlist"] })
-      .then((rows) => {
-        if (!cancelled) setView(wishlistValueView(rows));
+    getCollectionStats()
+      .then((stats) => {
+        if (cancelled) return;
+        // `wishlist` may be missing from a stats response cached before the API added it.
+        const wishlist = stats.wishlist ?? null;
+        setView(wishlist ? wishlistValueViewFromTotals(wishlist.count, wishlist.listPrices) : null);
       })
       .catch(() => {
         // The header is a nicety: the list itself reports load errors.
