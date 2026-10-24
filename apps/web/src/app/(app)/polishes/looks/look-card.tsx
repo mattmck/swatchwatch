@@ -20,8 +20,8 @@ const DIFFICULTY_LABELS: Record<LookDifficulty, string> = {
   advanced: "Advanced",
 };
 
-/** Swatch strip widths: the base dominates, toppers are a sliver. */
-const STRIP_GROW: Record<LookStepRole, number> = { base: 3, accent: 2, topper: 1 };
+/** Swatch strip widths: every color step gets an equal cell, toppers are a sliver. */
+const STRIP_GROW: Record<LookStepRole, number> = { base: 2, accent: 2, topper: 1 };
 
 /**
  * A swatch strip for the look's steps, in order (toppers get a sparkle sheen). With `backdrop`
