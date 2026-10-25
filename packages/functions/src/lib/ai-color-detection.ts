@@ -7,6 +7,7 @@ import {
 import { trackMetric } from "./telemetry";
 import { normalizeDescriptors, truncateText } from "./product-text";
 import { resolveAzureOpenAiConfig } from "./azure-openai-config";
+import { describeFetchError } from "./fetch-retry";
 
 const OPENAI_API_VERSION = "2024-05-01-preview";
 const REQUEST_TIMEOUT_MS = 20000;
@@ -473,13 +474,6 @@ async function readErrorBodySnippet(response: Response): Promise<string> {
     : text;
 }
 
-function formatFetchError(error: unknown): string {
-  if (error instanceof Error) {
-    return `${error.name}: ${error.message}`;
-  }
-  return String(error);
-}
-
 function isContentFilterResponse(status: number, details: string): boolean {
   if (status !== 400) {
     return false;
@@ -561,14 +555,14 @@ async function fetchWithRetry(
       emitLog(
         options,
         "warn",
-        `[ai-color-detection] Request error attempt ${attemptNumber}/${MAX_RETRIES}: ${formatFetchError(error)}${
+        `[ai-color-detection] Request error attempt ${attemptNumber}/${MAX_RETRIES}: ${describeFetchError(error)}${
           attempt < MAX_RETRIES - 1 ? `, retrying in ${delay}ms` : ""
         }`,
         {
           attemptNumber,
           maxRetries: MAX_RETRIES,
           delayMs: attempt < MAX_RETRIES - 1 ? delay : undefined,
-          error: formatFetchError(error),
+          error: describeFetchError(error),
         }
       );
       if (attempt < MAX_RETRIES - 1) {
@@ -578,7 +572,7 @@ async function fetchWithRetry(
   }
 
   if (lastError) {
-    emitLog(options, "error", `[ai-color-detection] Exhausted retries: ${formatFetchError(lastError)}`);
+    emitLog(options, "error", `[ai-color-detection] Exhausted retries: ${describeFetchError(lastError)}`);
   }
   throw lastError || new Error("Request failed after retries");
 }

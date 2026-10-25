@@ -43,6 +43,7 @@ import type {
   ProductCategoryBackfillRequest,
   ShadeProductCategoryListResponse,
   ShadeProductCategoryUpdateResponse,
+  ShadeFinishesUpdateResponse,
   Polish,
   PolishCreateRequest,
   PolishUpdateRequest,
@@ -405,9 +406,20 @@ export async function deleteSavedLook(key: string): Promise<void> {
 }
 
 /** The caller's dashboard aggregates (`GET /api/stats/collection`, cached server-side ≤60s). */
-export async function getCollectionStats(): Promise<CollectionStatsResponse> {
-  const response = await fetch(`${API_BASE_URL}/stats/collection`, { headers: await getAuthHeaders() });
-  return handleResponse<CollectionStatsResponse>(response);
+let collectionStatsInFlight: Promise<CollectionStatsResponse> | null = null;
+
+/**
+ * `GET /api/stats/collection`. Callers that ask while a request is in flight (the dashboard's
+ * wishlist card and its stats section) share it; the next call after it settles fetches again.
+ */
+export function getCollectionStats(): Promise<CollectionStatsResponse> {
+  collectionStatsInFlight ??= (async () => {
+    const response = await fetch(`${API_BASE_URL}/stats/collection`, { headers: await getAuthHeaders() });
+    return handleResponse<CollectionStatsResponse>(response);
+  })().finally(() => {
+    collectionStatsInFlight = null;
+  });
+  return collectionStatsInFlight;
 }
 
 /**
@@ -1369,6 +1381,19 @@ export async function setShadeProductCategory(
     }
   );
   return handleResponse<ShadeProductCategoryUpdateResponse>(response);
+}
+
+/**
+ * Admin override of a shade's whole finish list, primary first (`PUT /api/shades-admin/{id}/finishes`);
+ * sticky: ingestion never changes it afterwards.
+ */
+export async function setShadeFinishes(shadeId: string | number, finishes: string[]): Promise<ShadeFinishesUpdateResponse> {
+  const response = await fetch(`${API_BASE_URL}/shades-admin/${encodeURIComponent(String(shadeId))}/finishes`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify({ finishes }),
+  });
+  return handleResponse<ShadeFinishesUpdateResponse>(response);
 }
 
 // ── Shareable wishlist (#268) ───────────────────────────────────────────────

@@ -4,6 +4,8 @@ import {
   CaptureBrandRef,
   CaptureFrameType,
   CaptureQuestion,
+  CaptureReadField,
+  CaptureReadSummary,
   CaptureSuggestedShade,
   parseBottleSurface,
 } from "swatchwatch-shared";
@@ -169,6 +171,14 @@ export function extractFrameEvidence(quality: Record<string, unknown> | null): F
     || extractedEvidence.shadeNameListed
     || extractedEvidence.hex
   ) {
+    // A barcode the device decoded on a photo the pipeline also read (a bottle's bottom with its
+    // sticker in view) is still evidence; a code the pipeline read itself wins.
+    if (!extractedEvidence.gtin) {
+      extractedEvidence.gtin = getStringField(quality, "gtin", "upc", "ean");
+      extractedEvidence.gtinFormat = extractedEvidence.gtin
+        ? getStringField(quality, "barcodeFormat", "gtinFormat")
+        : undefined;
+    }
     return {
       ...extractedEvidence,
       brandConfidence: getNumberField(extracted, "brandConfidence"),
@@ -278,4 +288,45 @@ export function collectCaptureEvidence(
   }
 
   return evidence;
+}
+
+/**
+ * What the session has read so far, for the camera screen (`readSoFar` on frame / skip / check
+ * responses). `brand` is the brand the resolver settled on when it ran, else the raw brand text;
+ * a typed brand (hint, answer or client-sent text) is `hint`, a brand read off the bottle `read`.
+ * `newFields` lists what `after` has that `before` lacked (empty without `before`).
+ */
+export function summarizeCaptureRead(
+  after: CaptureEvidence,
+  resolvedBrand: CaptureBrandRef | null,
+  before?: CaptureEvidence
+): CaptureReadSummary {
+  let brand: CaptureReadSummary["brand"] = null;
+  if (resolvedBrand) {
+    brand = { name: resolvedBrand.name, source: resolvedBrand.source, catalogMatch: resolvedBrand.brandId !== null };
+  } else if (after.brand) {
+    const typed = after.brandSource === "hint" || after.brandRead?.source === "request_quality";
+    brand = { name: after.brand, source: typed ? "hint" : "read", catalogMatch: false };
+  }
+
+  const newFields: CaptureReadField[] = [];
+  if (before) {
+    if (!before.gtin && after.gtin) newFields.push("gtin");
+    if (!before.brand && after.brand) newFields.push("brand");
+    if (!(before.shadeName || before.shadeNameListed) && (after.shadeName || after.shadeNameListed)) {
+      newFields.push("shadeName");
+    }
+    if (!before.glassHex && after.glassHex) newFields.push("hex");
+    if (!before.finish && after.finish) newFields.push("finish");
+  }
+
+  return {
+    gtin: after.gtin ?? null,
+    brand,
+    shadeName: after.shadeName ?? null,
+    shadeNameListed: after.shadeNameListed ?? null,
+    hex: after.glassHex ?? null,
+    finish: after.finish ?? null,
+    newFields,
+  };
 }

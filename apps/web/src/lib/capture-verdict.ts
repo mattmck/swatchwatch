@@ -546,3 +546,34 @@ export async function resolveNearDupeVerdict(
   if (outcome.kind === "proceed-unchecked") return { verdict, answered: false, failure: outcome };
   return { verdict, answered: outcome.reason === "no-dupes" };
 }
+
+/** A few words for a verdict, shown over the live camera so the result is visible without scrolling. */
+export function verdictHeadline(verdict: CaptureVerdict): string {
+  switch (verdict.kind) {
+    case "owned":
+      return "You already own this";
+    case "added":
+      return verdict.priorOwnership === "none" ? "Added to your collection" : "It's in your collection";
+    case "add":
+      return "Not found — add it";
+    case "checked":
+      switch (verdict.relationship) {
+        case "owned":
+          return "You own this";
+        case "wishlisted":
+          return "On your wishlist";
+        case "notOwned":
+          return "New to you";
+      }
+      break;
+    case "near_dupe":
+      return "New to you — but close";
+    case "unknown_barcode":
+      return "Barcode not in the catalog";
+    case "pick":
+      return "Which one is it?";
+    case "create_card":
+      return "Not in the catalog yet";
+  }
+  return "Result ready";
+}

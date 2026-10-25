@@ -39,6 +39,9 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { HexSwatch, ImageSampler, formatDistance, getEyeDropperCtor, isTextField } from "@/components/hex-sampler";
 import { VendorHexPromotion } from "@/components/vendor-hex-promotion";
+import { ShadeClassificationEditor } from "@/components/shade-classification-editor";
+import { setShadeFinishes } from "@/lib/api";
+import { applyFinishesResponse, finishesChanged } from "@/lib/shade-classification";
 
 /** A pick awaiting save: where the colour came from. */
 export interface PickedColor {
@@ -72,6 +75,11 @@ export interface ShadeLabelerProps {
    * promote/undo response so the host can update its item. Hidden without a handler.
    */
   onPromotionChange?: (response: HexLabelPromoteResponse) => void;
+  /**
+   * Shows the type (product category) and finish pills and receives the item after a category or
+   * finish change. Hidden without a handler.
+   */
+  onItemChange?: (item: HexLabelQueueItem) => void;
   /** `split`: images beside the label panel from `lg` up (tab). `stacked`: one column (narrow hosts). */
   layout?: "split" | "stacked";
   /**
@@ -109,6 +117,7 @@ export function ShadeLabeler({
   onUndo,
   onRemove,
   onPromotionChange,
+  onItemChange,
   layout = "split",
   shortcutScope = "window",
 }: ShadeLabelerProps) {
@@ -120,6 +129,9 @@ export function ShadeLabeler({
   const [note, setNote] = useState(() => item.label?.note ?? "");
   const [hover, setHover] = useState<RegionSample | null>(null);
   const [eyeDropperSupported] = useState(() => getEyeDropperCtor() !== null);
+  const [finishDraft, setFinishDraft] = useState<string[]>(() => item.finishes);
+  const [savingFinishes, setSavingFinishes] = useState(false);
+  const finishesDirty = Boolean(onItemChange) && finishesChanged(item.finishes, finishDraft);
 
   const activeImage: HexLabelImage | null = item.images[imageIndex] ?? null;
   const activeImageId = activeImage?.imageId ?? null;
@@ -146,12 +158,37 @@ export function ShadeLabeler({
     }
   }, [activeImageId, choosePick]);
 
-  const submit = useCallback(() => {
-    if (saving) return;
+  /** Save the finish draft; false when the request failed (the label save then waits). */
+  const saveFinishes = useCallback(async (): Promise<boolean> => {
+    if (!onItemChange) return true;
+    setSavingFinishes(true);
+    try {
+      const response = await setShadeFinishes(item.shadeId, finishDraft);
+      setFinishDraft(response.finishes);
+      onItemChange(applyFinishesResponse(item, response));
+      if (response.changed) toast.success("Finishes saved");
+      return true;
+    } catch (error) {
+      toast.error("Failed to save finishes", {
+        description: error instanceof Error && error.message ? error.message : "Request failed",
+      });
+      return false;
+    } finally {
+      setSavingFinishes(false);
+    }
+  }, [finishDraft, item, onItemChange]);
+
+  const submit = useCallback(async () => {
+    if (saving || savingFinishes) return;
     if (!typedHex && !unreliable) {
+      if (finishesDirty) {
+        void saveFinishes();
+        return;
+      }
       toast.error("No colour picked", { description: "Click the image, use the eyedropper, or type a #RRGGBB hex." });
       return;
     }
+    if (finishesDirty && !(await saveFinishes())) return;
     const fromPick = Boolean(picked && typedHex && picked.hex === typedHex);
     const method: HexLabelSampleMethod | null = typedHex ? (fromPick && picked ? picked.method : "manual") : null;
     const imageId = fromPick && picked ? picked.imageId : activeImageId;
@@ -164,7 +201,7 @@ export function ShadeLabeler({
       method,
       samplePoint: fromPick && picked?.method === "canvas" ? picked.samplePoint : null,
     });
-  }, [activeImageId, item.shadeId, note, onSave, picked, saving, typedHex, unreliable]);
+  }, [activeImageId, finishesDirty, item.shadeId, note, onSave, picked, saveFinishes, saving, savingFinishes, typedHex, unreliable]);
 
   // Keyboard shortcuts (see hexLabelKeyAction).
   useEffect(() => {
@@ -192,7 +229,7 @@ export function ShadeLabeler({
       event.preventDefault();
       switch (action.type) {
         case "save":
-          submit();
+          void submit();
           break;
         case "skip":
           onSkip?.();
@@ -302,7 +339,9 @@ export function ShadeLabeler({
           <p className="text-xs uppercase tracking-wide text-muted-foreground">{item.brand}</p>
           <h3 className="text-lg font-semibold leading-tight">{item.name}</h3>
           <div className="flex flex-wrap items-center gap-2">
-            <FinishBadges polish={{ finishes: item.finishes }} empty={<span className="text-xs text-muted-foreground">No finish</span>} />
+            {onItemChange ? null : (
+              <FinishBadges polish={{ finishes: item.finishes }} empty={<span className="text-xs text-muted-foreground">No finish</span>} />
+            )}
             {item.label ? (
               <Badge variant={item.label.unreliable ? "destructive" : "secondary"}>
                 {item.label.unreliable ? "Flagged unreliable" : "Labeled"}
@@ -310,6 +349,18 @@ export function ShadeLabeler({
             ) : null}
           </div>
         </div>
+
+        {onItemChange ? (
+          <ShadeClassificationEditor
+            item={item}
+            draftFinishes={finishDraft}
+            onDraftFinishesChange={setFinishDraft}
+            onSaveFinishes={() => void saveFinishes()}
+            savingFinishes={savingFinishes}
+            disabled={saving}
+            onItemChange={onItemChange}
+          />
+        ) : null}
 
         <div className="grid grid-cols-3 gap-2">
           <HexSwatch label="Vendor" hex={item.vendorHex} detail={item.vendorHexSource === "manual_label" ? "manual" : null} />
@@ -405,7 +456,7 @@ export function ShadeLabeler({
           ) : null}
 
           <div className="flex flex-wrap gap-2 pt-1">
-            <Button type="button" onClick={submit} disabled={saving}>
+            <Button type="button" onClick={() => void submit()} disabled={saving || savingFinishes}>
               <Save className="size-4" /> {saving ? "Saving…" : "Save"} <kbd className="ml-1 text-[10px] opacity-70">↵</kbd>
             </Button>
             {onSkip ? (

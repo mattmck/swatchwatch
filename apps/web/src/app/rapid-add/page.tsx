@@ -14,10 +14,12 @@ import {
   switchBrand,
   withBrandEcho,
   type BottleFlowAction,
+  type BottleCameraView,
   type BottleSurface,
   type CaptureBrandRef,
   type CaptureCheckCandidate,
   type CaptureCheckResponse,
+  type CaptureReadSummary,
   type CaptureFrameType,
   type CreateCardEdits,
   type FinishName,
@@ -48,6 +50,7 @@ import {
   checkedFromNearDupe,
   ownedEntryAfterVerdict,
   resolveCaptureVerdict,
+  verdictHeadline,
   resolveNearDupeVerdict,
   verdictFromBottleCheck,
   verdictFromCheck,
@@ -84,11 +87,14 @@ import {
   buildStartMetadata,
   canAddFrame,
   canCheckBarcodeFromMetadata,
+  shouldCheckBarcodeFrame,
+  stillFrameTarget,
   canCheck,
   canFinalize,
   framesReducer,
   INITIAL_SESSION_STATE,
   MAX_CAPTURE_FRAMES,
+  planLiveBarcode,
   rapidAddPhase,
   scanBadge,
   sessionReducer,
@@ -114,7 +120,14 @@ import {
   type ShelfTelemetryAction,
 } from "@/lib/rapid-add-shelf";
 import type { ScannedBarcode } from "@/lib/barcode-scan";
-import { CameraCapture, type CameraCaptureEvent } from "@/components/rapid-add/camera-capture";
+import { BottleReadPanel } from "@/components/rapid-add/bottle-read-panel";
+import {
+  CameraCapture,
+  defaultCameraGuide,
+  type CameraCaptureEvent,
+  type CameraGuide,
+  type ViewfinderStatus,
+} from "@/components/rapid-add/camera-capture";
 import { FrameStrip } from "@/components/rapid-add/frame-strip";
 import { BatchBrandField } from "@/components/rapid-add/batch-brand-field";
 import { BottlePromptPanel } from "@/components/rapid-add/bottle-prompt-panel";
@@ -137,18 +150,6 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-/**
- * A freshly decoded barcode is checked right away (its frame's upload response carries the
- * verdict, no OCR; without a frame, one `check` call). Not once a verdict is showing or the
- * user is photographing the label for an unknown barcode.
- */
-function shouldCheckBarcode(
-  session: { labelRequested: boolean; verdict: unknown },
-  barcode: ScannedBarcode | null,
-): barcode is ScannedBarcode {
-  return Boolean(barcode) && !session.labelRequested && !session.verdict;
-}
-
 function newLocalId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
@@ -165,6 +166,9 @@ function nearDupeDetails(verdict: NearDupeVerdict) {
   });
 }
 
+/** How long a repeat-read or "still checking" message stays over the camera. */
+const CAMERA_FLASH_MS = 2500;
+
 export default function RapidAddPage() {
   const { finishTypes } = useReferenceData();
   const finishOptions = useMemo(() => buildFinishOptions(finishTypes), [finishTypes]);
@@ -174,6 +178,8 @@ export default function RapidAddPage() {
   const bottleSequence = flags.bottleCapture && !moreOptions;
   const [sticky, setSticky] = useState<StickyHints>(EMPTY_STICKY_HINTS);
   const [bottle, setBottle] = useState(INITIAL_BOTTLE_FLOW_STATE);
+  /** What the server has read from this bottle's photos so far (bottle sequence only). */
+  const [readSoFar, setReadSoFar] = useState<CaptureReadSummary | null>(null);
   /** A surface the user jumped to with a chip, until the next photo is taken. */
   const [manualSurface, setManualSurface] = useState<BottleSurface | null>(null);
 
@@ -183,6 +189,20 @@ export default function RapidAddPage() {
   const [collectionHint, setCollectionHint] = useState("");
   const [frameType, setFrameType] = useState<CaptureFrameType>("label");
   const [qualityHint, setQualityHint] = useState<string | null>(null);
+  /** A short-lived message over the camera (repeat read, still checking), cleared after a moment. */
+  const [cameraFlash, setCameraFlash] = useState<ViewfinderStatus | null>(null);
+  useEffect(() => {
+    if (!cameraFlash) return;
+    const timer = setTimeout(() => setCameraFlash(null), CAMERA_FLASH_MS);
+    return () => clearTimeout(timer);
+  }, [cameraFlash]);
+  const verdictRef = useRef<HTMLDivElement | null>(null);
+  const scrollToVerdict = useCallback(() => {
+    verdictRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+  /** The latest Scan next handler, for a live read of a new bottle while a verdict shows. */
+  const scanNextRef = useRef<() => void>(() => {});
+  const handleCaptureRef = useRef<(event: CameraCaptureEvent) => void>(() => {});
 
   const [session, dispatch] = useReducer(sessionReducer, INITIAL_SESSION_STATE);
   const [frames, dispatchFrames] = useReducer(framesReducer, []);
@@ -210,7 +230,7 @@ export default function RapidAddPage() {
   const bottleRef = useRef(bottle);
   const stickyRef = useRef(sticky);
   const stickyUserRef = useRef<string | null>(null);
-  const activeSurfaceRef = useRef<BottleSurface | null>(null);
+  const activeViewRef = useRef<BottleCameraView | null>(null);
   useEffect(() => {
     sessionRef.current = session;
     framesRef.current = frames;
@@ -405,6 +425,7 @@ export default function RapidAddPage() {
       const check = await checkCapture(captureId);
       if (scanRef.current !== scan) return;
       applyBottle({ type: "check_received", nextFrame: check.nextFrame, brandConflict: check.brandConflict });
+      if (check.readSoFar) setReadSoFar(check.readSoFar);
       const barcode = sessionRef.current.barcode;
       await presentVerdict(
         verdictFromBottleCheck(check, { afterNoneOfThese: false, evidence: bottleEvidence(check, barcode?.gtin) }),
@@ -439,7 +460,9 @@ export default function RapidAddPage() {
       const scan = scanRef.current;
       try {
         const captureId = await ensureSession(barcode);
-        const checking = frame.frameType === "barcode" && shouldCheckBarcode(sessionRef.current, barcode);
+        const checking =
+          frame.frameType === "barcode" &&
+          shouldCheckBarcodeFrame(sessionRef.current, barcode, { bottleSequence: bottleSequenceRef.current });
         if (checking) dispatch({ type: "busy", busy: "checking" });
         const res = await addCaptureFrame(captureId, {
           frameType: frame.frameType,
@@ -447,6 +470,7 @@ export default function RapidAddPage() {
           quality: frame.quality,
         });
         dispatchFrames({ type: "upload_succeeded", localId: frame.localId, frameId: res.frameId });
+        if (res.readSoFar && scanRef.current === scan) setReadSoFar(res.readSoFar);
         if (checking && barcode) {
           await checkBarcode(captureId, barcode, res.check);
         } else if (bottleSequenceRef.current && scanRef.current === scan) {
@@ -474,6 +498,43 @@ export default function RapidAddPage() {
 
   const handleCapture = useCallback(
     (event: CameraCaptureEvent) => {
+      if (event.trigger === "live-scan" && event.barcode) {
+        const { gtin } = event.barcode;
+        const action = planLiveBarcode(sessionRef.current, gtin);
+        const hasVerdict = Boolean(sessionRef.current.verdict);
+        switch (action) {
+          case "repeat":
+            // Photographing the label of an unknown barcode: the code is still in view, so stay quiet.
+            if (sessionRef.current.labelRequested) return;
+            setCameraFlash({
+              tone: "info",
+              text: hasVerdict ? `Already scanned ${gtin} — result above` : `Already scanned ${gtin}`,
+              action: hasVerdict ? { label: "See result", onClick: scrollToVerdict } : undefined,
+            });
+            return;
+          case "wait":
+            setCameraFlash({ tone: "info", text: "Still checking the last scan…" });
+            return;
+          case "finish_first":
+            setCameraFlash({
+              tone: "warning",
+              text: `Different barcode (${gtin})`,
+              action: {
+                label: "Scan it instead",
+                onClick: () => {
+                  scanNextRef.current();
+                  handleCaptureRef.current(event);
+                },
+              },
+            });
+            return;
+          case "next_scan":
+            scanNextRef.current();
+            break;
+          case "scan":
+            break;
+        }
+      }
       const current = sessionRef.current;
       if (rapidAddPhase(current) === "verdict" || rapidAddPhase(current) === "resolving") return;
       if (event.barcode) {
@@ -483,7 +544,7 @@ export default function RapidAddPage() {
       if (!event.frame) {
         // Read live but no snapshot: check the barcode from the session metadata alone.
         const barcode = event.barcode;
-        if (canCheckBarcodeFromMetadata(sessionRef.current, barcode)) {
+        if (canCheckBarcodeFromMetadata(sessionRef.current, barcode, { bottleSequence: bottleSequenceRef.current })) {
           dispatch({ type: "busy", busy: "checking" });
           void ensureSession(barcode).then(
             (captureId) => checkBarcode(captureId, barcode),
@@ -499,9 +560,10 @@ export default function RapidAddPage() {
       const warnings = assessFrameQuality(event.frame.metrics);
       setQualityHint(warnings.length ? FRAME_QUALITY_WARNING_COPY[warnings[0]] : null);
 
+      const target = stillFrameTarget(event, activeViewRef.current);
       const frame = {
         localId: newLocalId(),
-        frameType: event.frameType,
+        frameType: target.frameType,
         dataUrl: event.frame.dataUrl,
         quality: buildFrameQuality({
           source: event.source,
@@ -514,15 +576,18 @@ export default function RapidAddPage() {
           fileName: event.file?.name,
           mimeType: event.file?.type,
           fileSize: event.file?.size,
-          surface: event.barcode ? null : activeSurfaceRef.current,
+          surface: target.surface,
         }),
       };
       framesRef.current = [...framesRef.current, { ...frame, status: "uploading", attempts: 1 }];
       dispatchFrames({ type: "added", frame });
       void uploadFrame(frame, event.barcode ?? sessionRef.current.barcode);
     },
-    [uploadFrame, ensureSession, checkBarcode],
+    [uploadFrame, ensureSession, checkBarcode, scrollToVerdict],
   );
+  useEffect(() => {
+    handleCaptureRef.current = handleCapture;
+  });
 
   function handleRetryFrame(localId: string) {
     const frame = frames.find((f) => f.localId === localId);
@@ -693,6 +758,7 @@ export default function RapidAddPage() {
     sessionRef.current = INITIAL_SESSION_STATE;
     framesRef.current = [];
     applyBottle({ type: "reset" });
+    setReadSoFar(null);
     setManualSurface(null);
     setQualityHint(null);
     setFrameType("label");
@@ -738,6 +804,7 @@ export default function RapidAddPage() {
       if (scanRef.current !== scan) return;
       trackEvent("rapid_add.bottle_skip", { surface });
       const next = applyBottle({ type: "surface_skipped", surface, nextFrame: res.nextFrame });
+      if (res.readSoFar) setReadSoFar(res.readSoFar);
       setManualSurface(null);
       dispatch({ type: "status_received", status: res.status, question: res.question });
       const uploaded = framesRef.current.filter((f) => f.status === "uploaded").length;
@@ -835,27 +902,60 @@ export default function RapidAddPage() {
 
   function handleScanNext() {
     // Cancel on a near-dupe verdict: nothing is added.
-    if (session.verdict?.kind === "near_dupe") reportNearDupeOutcome(session.verdict, "cancel", "scan_next");
+    const verdict = sessionRef.current.verdict;
+    if (verdict?.kind === "near_dupe") reportNearDupeOutcome(verdict, "cancel", "scan_next");
     dispatchShelf({ type: "scan_ended" });
     resetScan();
   }
+  useEffect(() => {
+    scanNextRef.current = handleScanNext;
+  });
 
   const finalizeEnabled = (bottleSequence ? canCheck : canFinalize)({ frames, session, hasHints });
   const badge = phase === "verdict" ? null : scanBadge(session);
-  const scanning = phase !== "verdict" && phase !== "resolving" && !session.barcode;
+  // Keeps scanning after a read, so a repeat read or the next bottle gets an answer (`planLiveBarcode`).
+  const scanning = phase !== "resolving";
   const busy = session.busy !== null;
   const hintsLocked = session.captureId !== null;
 
   const bottleView = bottleSequence ? deriveBottleCameraView(bottle, { brandKnown: Boolean(sticky.brandId) }) : null;
   const activeView = manualSurface && bottleSequence ? viewForSurface(manualSurface, bottleView) : bottleView;
   useEffect(() => {
-    activeSurfaceRef.current = activeView?.surface ?? null;
+    activeViewRef.current = activeView;
   });
   const matching =
     session.busy === "finalizing" ||
     session.busy === "resolving" ||
     (bottleSequence && session.busy === "checking");
   const showAddFrames = bottleSequence && session.verdict?.kind === "add";
+  // One auto-shot per prompt: the key changes with every frame taken, so the next prompt re-arms it.
+  const autoCaptureKey =
+    phase !== "collecting" || busy
+      ? null
+      : bottleSequence
+        ? activeView
+          ? `${frames.length}:${activeView.surface}`
+          : null
+        : session.labelRequested
+          ? `${frames.length}:label`
+          : null;
+  // The outline follows what is asked for: the bottle prompt's surface, the label after an unknown
+  // barcode, else the frame type chip. Barcodes are read anywhere in the frame whatever it shows.
+  const cameraGuide: CameraGuide =
+    bottleSequence && activeView
+      ? activeView.surface
+      : session.labelRequested
+        ? "label"
+        : defaultCameraGuide(frameType);
+  const viewfinderStatus: ViewfinderStatus | null =
+    cameraFlash ??
+    (session.verdict
+      ? { tone: "success", text: verdictHeadline(session.verdict), action: { label: "See result", onClick: scrollToVerdict } }
+      : badge
+        ? { tone: "success", text: badge.checking ? `Scanned ${badge.gtin} — checking…` : `Scanned ${badge.gtin}` }
+        : session.error
+          ? { tone: "warning", text: session.error }
+          : null);
 
   return (
     <div className="mx-auto max-w-3xl space-y-5 pb-16">
@@ -874,6 +974,7 @@ export default function RapidAddPage() {
       <InstallPrompt />
 
       {session.verdict && (
+        <div ref={verdictRef} className="scroll-mt-4">
         <VerdictCard
           verdict={session.verdict}
           quantityRestored={session.quantityRestored}
@@ -899,6 +1000,7 @@ export default function RapidAddPage() {
           }
           onScanNext={handleScanNext}
         />
+        </div>
       )}
 
       <Card ref={cameraSectionRef} className="scroll-mt-4">
@@ -935,8 +1037,15 @@ export default function RapidAddPage() {
             onFrameTypeChange={setFrameType}
             hideFrameTypeOptions={bottleSequence}
             onCapture={handleCapture}
+            autoCaptureKey={autoCaptureKey}
+            guide={cameraGuide}
+            status={viewfinderStatus}
             onCameraError={(kind) => trackEvent("rapid_add.camera_error", { kind })}
           />
+
+          {bottleSequence && phase === "collecting" && (
+            <BottleReadPanel summary={readSoFar} liveBarcode={session.barcode?.gtin ?? null} />
+          )}
 
           {badge && (
             <p

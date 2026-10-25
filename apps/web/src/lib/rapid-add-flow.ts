@@ -250,7 +250,9 @@ export function sessionReducer(state: RapidAddSessionState, action: SessionActio
 
 export type RapidAddPhase = "collecting" | "question" | "resolving" | "verdict";
 
-export function rapidAddPhase(state: RapidAddSessionState): RapidAddPhase {
+export function rapidAddPhase(
+  state: Pick<RapidAddSessionState, "verdict" | "status" | "question">,
+): RapidAddPhase {
   if (state.verdict) return "verdict";
   if (isFinished(state.status)) return "resolving";
   if (state.status === "needs_question" && state.question) return "question";
@@ -258,15 +260,72 @@ export function rapidAddPhase(state: RapidAddSessionState): RapidAddPhase {
 }
 
 /**
+ * A freshly decoded barcode is checked right away (its frame's upload response carries the
+ * verdict, no OCR; without a frame, one `check` call). Not once a verdict is showing or the
+ * user is photographing the label for an unknown barcode, and never in the guided bottle
+ * sequence: there the barcode is one more piece of evidence and the server's `nextFrame` decides
+ * whether to ask for another photo or to check (a catalog match ends the sequence by itself).
+ */
+export function shouldCheckBarcodeFrame(
+  session: Pick<RapidAddSessionState, "labelRequested" | "verdict">,
+  barcode: ScannedBarcode | null,
+  opts: { bottleSequence: boolean },
+): barcode is ScannedBarcode {
+  return Boolean(barcode) && !opts.bottleSequence && !session.labelRequested && !session.verdict;
+}
+
+/**
+ * The frame type and bottle surface a captured photo is sent as. In the bottle sequence a photo
+ * the user took (shutter, auto-shutter or an upload) is the prompted surface's frame even when a
+ * barcode is in view (a bottle's bottom often has its sticker), so the label is still read; the
+ * barcode rides along in its quality. A live read off the preview stays a barcode frame.
+ */
+export function stillFrameTarget(
+  event: { frameType: CaptureFrameType; barcode: ScannedBarcode | null; trigger: "live-scan" | "shutter" | "auto" | "file" },
+  view: { surface: BottleSurface; frameType: CaptureFrameType } | null,
+): { frameType: CaptureFrameType; surface: BottleSurface | null } {
+  if (view && event.trigger !== "live-scan") return { frameType: view.frameType, surface: view.surface };
+  return { frameType: event.frameType, surface: event.barcode ? null : (view?.surface ?? null) };
+}
+
+/**
  * A live barcode read with no snapshot can only be checked from the session metadata, and only a
  * session that read starts carries the GTIN there (`buildStartMetadata`). For an existing session
  * (e.g. a label photo came first) the check would report a false "unknown barcode", so skip it.
+ * In the bottle sequence the read is only kept: the first photo's session start sends it along.
  */
 export function canCheckBarcodeFromMetadata(
   session: Pick<RapidAddSessionState, "captureId" | "labelRequested" | "verdict">,
   barcode: ScannedBarcode | null,
+  opts: { bottleSequence: boolean } = { bottleSequence: false },
 ): barcode is ScannedBarcode {
-  return Boolean(barcode) && session.captureId === null && !session.labelRequested && !session.verdict;
+  return shouldCheckBarcodeFrame(session, barcode, opts) && session.captureId === null;
+}
+
+/**
+ * What a barcode read off the live preview should do, given the scan in progress:
+ * - `scan`: nothing scanned yet, so this barcode starts (or joins) the scan;
+ * - `repeat`: the barcode this scan already read, so just say so (no new frame);
+ * - `next_scan`: a different barcode while a verdict is showing, so start the next bottle;
+ * - `wait`: a request is in flight, so ignore it for now;
+ * - `finish_first`: a different barcode mid-scan (this one already has a barcode), or while a
+ *   pick list or create card waits for the user, so it is only offered, never switched to.
+ */
+export type LiveBarcodeAction = "scan" | "repeat" | "next_scan" | "wait" | "finish_first";
+
+export function planLiveBarcode(
+  session: Pick<RapidAddSessionState, "barcode" | "verdict" | "status" | "question" | "busy">,
+  gtin: string,
+): LiveBarcodeAction {
+  const phase = rapidAddPhase(session);
+  if (session.barcode?.gtin === gtin) return session.busy ? "wait" : "repeat";
+  if (session.busy || phase === "resolving") return "wait";
+  if (phase === "verdict") {
+    const kind = session.verdict?.kind;
+    return kind === "pick" || kind === "create_card" ? "finish_first" : "next_scan";
+  }
+  if (session.barcode) return "finish_first";
+  return "scan";
 }
 
 /**

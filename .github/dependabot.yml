@@ -16,8 +16,8 @@ updates:
       # renderer needs; bump it together with Expo, not on its own.
       - dependency-name: react
       - dependency-name: react-dom
-      # The Expo SDK pins these to one version (`npx expo install --check`);
-      # bump them with the SDK via `npx expo install --fix`.
+      # The Expo SDK pins these native packages; move them with the SDK
+      # (`npx expo install --fix`), never ahead of it.
       - dependency-name: react-native
       - dependency-name: react-native-safe-area-context
       - dependency-name: react-native-screens

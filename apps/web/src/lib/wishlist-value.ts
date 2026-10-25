@@ -4,6 +4,7 @@ import {
   formatWishlistValueLine,
   sumListPrices,
   type ListPriceFields,
+  type ListPriceTotals,
 } from "swatchwatch-shared";
 
 /**
@@ -23,9 +24,16 @@ export interface WishlistValueView {
 }
 
 export function wishlistValueView(rows: ReadonlyArray<ListPriceFields>, locale?: string): WishlistValueView {
-  const totals = sumListPrices(rows);
+  return wishlistValueViewFromTotals(rows.length, sumListPrices(rows), locale);
+}
+
+/**
+ * The same view from totals the API already summed (`CollectionStatsResponse.wishlist`), so no
+ * client has to fetch every wishlist row.
+ */
+export function wishlistValueViewFromTotals(count: number, totals: ListPriceTotals, locale?: string): WishlistValueView {
   return {
-    line: formatWishlistValueLine(rows.length, totals, locale),
+    line: formatWishlistValueLine(count, totals, locale),
     summary: formatListPriceSummary(totals, locale),
     asOf: formatListPriceAsOf(totals.latestSeenAt, locale),
     hasPrices: totals.byCurrency.length > 0,

@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode } from "react";
+import { useSyncExternalStore, type ReactNode } from "react";
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
 import {
   buildApiTokenScopes,
@@ -8,7 +8,7 @@ import {
   buildMsalConfig,
   buildPolicyQueryParameters,
 } from "@/lib/msal-config";
-import { getAccessToken, isAuthOffline } from "@/lib/auth-token";
+import { hasUsableAccessToken, subscribeAccessToken } from "@/lib/auth-token";
 import { Button } from "@/components/ui/button";
 
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
@@ -60,7 +60,9 @@ function B2CGuard({ children }: { children: ReactNode }) {
   const needsApiToken = buildApiTokenScopes().length > 0;
   // Offline with a cached account: no token can be renewed, but the session is fine. Open the
   // app so saved copies show read-only; renewal resumes on the next API call once online.
-  const hasApiToken = !needsApiToken || getAccessToken() !== null || isAuthOffline();
+  // Subscribed, not read once: a token stored after this guard's last render must re-render it.
+  const hasStoredToken = useSyncExternalStore(subscribeAccessToken, hasUsableAccessToken, () => false);
+  const hasApiToken = !needsApiToken || hasStoredToken;
 
   if (isAuthenticated && hasApiToken) {
     return <>{children}</>;

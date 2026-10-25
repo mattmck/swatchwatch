@@ -179,6 +179,12 @@ export function HexLabelingTab() {
     setQueue((prev) => (prev ? { ...prev, items: prev.items.map((item) => applyPromotionResponse(item, response)) } : prev));
   }, []);
 
+  const handleItemChange = useCallback((next: HexLabelQueueItem) => {
+    setQueue((prev) =>
+      prev ? { ...prev, items: prev.items.map((item) => (item.shadeId === next.shadeId ? next : item)) } : prev
+    );
+  }, []);
+
   const handleSave = useCallback(
     async (request: HexLabelRequest) => {
       setSaving(true);
@@ -311,6 +317,7 @@ export function HexLabelingTab() {
           onPrev={handlePrev}
           onUndo={handleUndo}
           onPromotionChange={handlePromotionChange}
+          onItemChange={handleItemChange}
         />
       ) : (
         <p className="py-12 text-center text-sm text-muted-foreground">
