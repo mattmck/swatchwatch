@@ -1,3 +1,4 @@
+import { useState } from "react";
 import Link from "next/link";
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
@@ -38,7 +39,15 @@ interface ColorSearchResultsProps {
   onColorLeave?: () => void;
   /** `returnTo` for the detail links (#348); defaults to the current page. */
   returnTo?: string;
+  /** The catalog rows for the current colors are still loading: rows are dimmed. */
+  provisional?: boolean;
 }
+
+/**
+ * Rows rendered at first and per "Show more". The list holds the whole owned collection, so
+ * rendering every row (thumbnail, controls) on each color change would grow with the collection.
+ */
+export const COLOR_SEARCH_RESULTS_PAGE_SIZE = 100;
 
 /**
  * Render a searchable list of polishes with color swatches, match indicators, ownership and quantity controls.
@@ -58,6 +67,7 @@ interface ColorSearchResultsProps {
  * @param onColorSelect - Optional handler invoked with a hex string when a swatch or matched-harmony dot is clicked.
  * @param onColorHover - Optional handler invoked with a hex string when a swatch or matched-harmony dot is hovered.
  * @param onColorLeave - Optional handler invoked when a swatch or matched-harmony dot hover ends.
+ * @param provisional - When true, the rows are dimmed and marked busy (catalog matches still loading).
  * @returns A React node containing the rendered color search results list.
  */
 export function ColorSearchResults({
@@ -76,7 +86,10 @@ export function ColorSearchResults({
   onColorHover,
   onColorLeave,
   returnTo,
+  provisional = false,
 }: ColorSearchResultsProps) {
+  const [visibleCount, setVisibleCount] = useState(COLOR_SEARCH_RESULTS_PAGE_SIZE);
+
   if (polishes.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -88,9 +101,14 @@ export function ColorSearchResults({
   }
 
   const showMatchDot = showMatchDots && harmonyColors.length > 1;
+  const visiblePolishes = polishes.slice(0, visibleCount);
+  const hiddenCount = polishes.length - visiblePolishes.length;
 
   return (
-    <div className="space-y-1">
+    <div
+      className={`space-y-1 transition-opacity duration-200 ${provisional ? "opacity-60 delay-150" : "opacity-100"}`}
+      aria-busy={provisional}
+    >
       <div className="flex items-center gap-2 pb-2">
         {harmonyColors.map((hex, i) => (
           <span
@@ -110,7 +128,7 @@ export function ColorSearchResults({
           {polishes.length} {polishes.length === 1 ? "polish" : "polishes"}
         </p>
       </div>
-      {polishes.map((polish) => {
+      {visiblePolishes.map((polish) => {
         const owned = isOwnedPolish(polish);
         return (
           <div
@@ -221,6 +239,20 @@ export function ColorSearchResults({
           </div>
         );
       })}
+      {hiddenCount > 0 && (
+        <div className="flex justify-center pt-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setVisibleCount((count) => count + COLOR_SEARCH_RESULTS_PAGE_SIZE)}
+          >
+            {hiddenCount <= COLOR_SEARCH_RESULTS_PAGE_SIZE
+              ? `Show ${hiddenCount} more`
+              : `Show ${COLOR_SEARCH_RESULTS_PAGE_SIZE} more (${hiddenCount} not shown)`}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
