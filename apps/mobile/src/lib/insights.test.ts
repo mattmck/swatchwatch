@@ -28,6 +28,7 @@ function stats(overrides: Partial<CollectionStatsResponse> = {}): CollectionStat
     spend: { currencies: [], months: [], pricedCount: 0, unpricedCount: 0 },
     mostWorn: [],
     costPerWear: { currencies: [], pricedUnwornCount: 0 },
+    wishlist: { count: 0, listPrices: { byCurrency: [], unpricedCount: 0, latestSeenAt: null } },
     ...overrides,
   };
 }

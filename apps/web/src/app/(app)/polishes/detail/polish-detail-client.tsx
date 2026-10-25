@@ -290,8 +290,11 @@ export default function PolishDetailClient({
     );
   }
 
+  // Only panels that always render a card: WearHistoryPanel hides itself while loading or on error.
+  const hasSidePanels = Boolean(polish.inventoryItemId || (dupes && dupeCallout));
+
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="space-y-6">
       {savedAt !== null && (
         <SavedCopyBanner savedAt={savedAt} subject="polish" retrying={loading} onRetry={retryNow} />
       )}
@@ -409,6 +412,11 @@ export default function PolishDetailClient({
       {/* Admins only: sip a ground-truth hex from the catalog images (#351). Not mounted for others. */}
       <AdminHexSipSection key={`hex-sip-${polish.id}`} shadeId={polish.id} />
 
+      {/* Wide screens: personal panels (photo, wear, dupes) beside the shade details. */}
+      <div className={`grid items-start gap-6 ${hasSidePanels ? "lg:grid-cols-2" : ""}`}>
+      {hasSidePanels && (
+      <div className="min-w-0 space-y-6 lg:order-last">
+
       {polish.inventoryItemId && offline && (
         <Card data-testid="nail-photo-offline">
           <CardHeader>
@@ -505,6 +513,10 @@ export default function PolishDetailClient({
         </Card>
       )}
 
+      </div>
+      )}
+
+      <div className="min-w-0 space-y-6">
       <Card className="relative overflow-hidden">
         <span
           aria-hidden
@@ -746,6 +758,8 @@ export default function PolishDetailClient({
           </CardContent>
         </Card>
       )}
+      </div>
+      </div>
     </div>
   );
 }

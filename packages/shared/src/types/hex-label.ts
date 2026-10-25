@@ -12,6 +12,8 @@
  * and undo it, #321 / decision D12).
  */
 
+import type { ProductCategory, ProductCategorySource } from "../constants/product-categories";
+
 /**
  * Where `shade.vendor_hex` came from (`shade.vendor_hex_source`, #321): `vendor` = vendor/catalog
  * data, `manual_label` = an admin promoted the shade's manual label. Ingestion never overwrites a
@@ -19,6 +21,17 @@
  */
 export const VENDOR_HEX_SOURCES = ["vendor", "manual_label"] as const;
 export type VendorHexSource = (typeof VENDOR_HEX_SOURCES)[number];
+
+/**
+ * Where `shade.finishes` came from (`shade.finishes_source`): `rule` = ingestion / backfills,
+ * `admin` = set in the Hex Labeling tool with `PUT /api/shades-admin/{shadeId}/finishes`.
+ * Ingestion and the product-text backfill never change an `admin` list. Admin-only.
+ */
+export const FINISHES_SOURCES = ["rule", "admin"] as const;
+export type FinishesSource = (typeof FINISHES_SOURCES)[number];
+
+/** Most finishes an admin can set on one shade. */
+export const SHADE_FINISHES_MAX = 8;
 
 /** How the labelled hex was picked. */
 export type HexLabelSampleMethod = "canvas" | "eyedropper" | "manual";
@@ -78,6 +91,11 @@ export interface HexLabelQueueItem {
   brand: string;
   name: string;
   finishes: string[];
+  /** Provenance of `finishes`; `admin` lists are never changed by ingestion. */
+  finishesSource: FinishesSource;
+  /** `shade.product_category`; the queue only lists `color` shades. */
+  productCategory: ProductCategory;
+  productCategorySource: ProductCategorySource;
   vendorHex: string | null;
   detectedHex: string | null;
   nameHex: string | null;
@@ -166,5 +184,23 @@ export interface HexLabelPromoteResponse {
   promotedLabelId: string | null;
   vendorHexPrevious: string | null;
   /** False when the request changed nothing (repeat promote, or undo with nothing promoted). */
+  changed: boolean;
+}
+
+/**
+ * Body of `PUT /api/shades-admin/{shadeId}/finishes` (admin-only): the shade's whole finish list,
+ * primary first. Every entry must be a known finish or alias (`finish_type` / `finish_normalization`);
+ * an empty list is allowed. The list becomes sticky (`finishesSource = 'admin'`).
+ */
+export interface ShadeFinishesUpdateRequest {
+  finishes: string[];
+}
+
+export interface ShadeFinishesUpdateResponse {
+  shadeId: string;
+  /** Canonical finish names as stored, primary first. */
+  finishes: string[];
+  finishesSource: FinishesSource;
+  /** False when the list was already exactly this (nothing written, nothing logged). */
   changed: boolean;
 }

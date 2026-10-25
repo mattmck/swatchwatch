@@ -5,7 +5,7 @@
  * - BLOB_STORAGE_MAX_CONNECTIONS parsing and clamping
  * - the default transport (undici's fetch + pooled Agent) works on this Node, against a loopback server
  * - every storage request goes through the shared pooled Agent; source downloads do not
- * - blob PUT and HEAD are retried on connect timeouts / refused connections, DELETE is not
+ * - blob PUT and metadata (existence) GETs are retried on connect timeouts / refused connections, DELETE is not
  * - non-GET response bodies are consumed so sockets return to the pool
  * - variants are written one at a time
  * - uploadSourceImageToBlob failures name the failed step and host (SourceImageUploadError)
@@ -146,7 +146,7 @@ describe("lib/blob-storage — pooled requests and connect retries", () => {
       if (String(url).startsWith("https://shop.example/")) {
         return new Response(png, { status: 200, headers: { "content-type": "image/png" } });
       }
-      return new Response(null, { status: (init.method || "GET") === "HEAD" ? 404 : 201 });
+      return new Response(null, { status: String(url).includes("comp=metadata") ? 404 : 201 });
     };
     await uploadSourceImageToBlob({
       sourceImageUrl: "https://shop.example/p1.png",
@@ -259,8 +259,8 @@ describe("lib/blob-storage — pooled requests and connect retries", () => {
   it("writes thumbnail variants one at a time", async () => {
     let inFlight = 0;
     let maxInFlightPuts = 0;
-    global.fetch = async (_url, init = {}) => {
-      if (init.method === "HEAD") return new Response(null, { status: 404 });
+    global.fetch = async (url) => {
+      if (String(url).includes("comp=metadata")) return new Response(null, { status: 404 });
       inFlight += 1;
       maxInFlightPuts = Math.max(maxInFlightPuts, inFlight);
       await new Promise((resolve) => setTimeout(resolve, 5));
@@ -307,7 +307,7 @@ describe("lib/blob-storage — uploadSourceImageToBlob failure steps", () => {
       if (String(url).startsWith("https://cdn.shop.example/")) {
         return new Response(png, { status: 200, headers: { "content-type": "image/png" } });
       }
-      if (init.method === "HEAD") return new Response(null, { status: 404 });
+      if (String(url).includes("comp=metadata")) return new Response(null, { status: 404 });
       throw connectTimeout();
     };
     await assert.rejects(upload(), (error) => {

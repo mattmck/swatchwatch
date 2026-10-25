@@ -52,6 +52,18 @@ export function parseNearHexFilter(searchParams: URLSearchParams): NearHexFilter
 }
 
 /**
+ * SQL rank tier of shade `s` for `?nearHex=` ordering: 0 = display hex from a vendor or detected
+ * hex, 1 = estimated (only `name_hex`, a guess from the color name; `isEstimatedDisplayHex` in
+ * packages/shared), 2 = no usable display hex. Ordered before the distance so every measured
+ * shade outranks every estimated one, whatever their distances.
+ */
+export const NEAR_HEX_TIER_SQL = `CASE
+      WHEN s.oklab_l IS NULL THEN 2
+      WHEN NULLIF(s.vendor_hex, '') IS NULL AND NULLIF(s.detected_hex, '') IS NULL THEN 1
+      ELSE 0
+    END`;
+
+/**
  * SQL expression for the OKLAB distance from shade `s` (its stored display-hex OKLAB,
  * `shade.oklab_l/a/b`, migration 20261023001520034_shade-display-oklab) to the nearest target.
  * NULL when the shade has no usable display hex. Target coordinates come from the shared

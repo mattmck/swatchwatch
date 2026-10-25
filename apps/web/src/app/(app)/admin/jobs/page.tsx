@@ -217,7 +217,9 @@ function changeSummary(job: IngestionJobRecord): string {
   const i = inserted ?? 0;
   const u = updated ?? 0;
   const s = skipped ?? 0;
-  return `${stage ? `${stage} • ` : ""}processed ${p} • +${i} / ~${u} / -${s}`;
+  // hexDetectedTotal adds the AI batch poller's applied detections to the sync count.
+  const hex = parseMetricNumber(job.metrics, "hexDetectedTotal") ?? parseMetricNumber(job.metrics, "hexDetected");
+  return `${stage ? `${stage} • ` : ""}processed ${p} • +${i} / ~${u} / -${s}${hex === null ? "" : ` • ${hex} hex`}`;
 }
 
 function JobLogPanel({

@@ -1,14 +1,14 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect, useRef, Suspense } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef, Suspense, type Dispatch, type SetStateAction } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { Polish, PolishUpdateRequest } from "swatchwatch-shared";
-import { polishHasFinish, resolveDisplayHex } from "swatchwatch-shared";
+import { compareColorSearchRank, isEstimatedDisplayHex, polishHasFinish, resolveDisplayHex } from "swatchwatch-shared";
 import type { IconType } from "react-icons";
 import { BsCurrencyDollar, BsPlusLg, BsQuestionCircleFill, BsTrash3Fill } from "react-icons/bs";
 import { GiPerfumeBottle } from "react-icons/gi";
-import { ArrowLeft, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { getPolishDupes, listAllPolishes, listPolishes, updatePolish } from "@/lib/api";
 import { buildBrandOptions, matchesBrandFilter } from "@/lib/polish-filters";
 import { isArchivingChange, isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
@@ -56,6 +56,15 @@ import {
   type ColorSearchUrlState,
 } from "@/lib/color-search-url";
 import { returnToLabel } from "@/lib/detail-href";
+import {
+  LatestLoader,
+  contextNearbyTargets,
+  listNearbyTargets,
+  nearbyQueryKey,
+  uniqueHexes,
+  type NearbyQuery,
+  type NearbyTargetsInput,
+} from "@/lib/color-search-nearby";
 import { toast } from "sonner";
 
 type ResultsScope = "all" | "collection";
@@ -112,10 +121,12 @@ const ALL_HARMONY_SYMBOL = "\u2726";
 const URL_WRITE_DEBOUNCE_MS = 200;
 /** Catalog rows the API ranks nearest the current target colors (`?nearHex=`). */
 const NEARBY_CATALOG_PAGE_SIZE = 120;
-/** The API's `?nearHex=` cap. */
-const MAX_NEAR_HEX_TARGETS = 24;
-/** Wait for the wheel to settle (hover, lightness slider) before asking for nearby catalog rows. */
-const NEARBY_FETCH_DEBOUNCE_MS = 250;
+/** While the color moves (hover, lightness slider), ask for nearby catalog rows at most this often. */
+const NEARBY_FETCH_MIN_INTERVAL_MS = 300;
+
+/** Catalog rows from one `?nearHex=` query, and the query key they were fetched for. */
+type NearbyRows = { key: string | null; rows: Polish[]; failedKey: string | null };
+const EMPTY_NEARBY_ROWS: NearbyRows = { key: null, rows: [], failedKey: null };
 
 /** Owned rows win over catalog rows for the same shade (both carry the caller's status). */
 function mergePolishes(owned: Polish[], nearby: Polish[]): Polish[] {
@@ -123,18 +134,6 @@ function mergePolishes(owned: Polish[], nearby: Polish[]): Polish[] {
   for (const polish of nearby) byId.set(polish.id, polish);
   for (const polish of owned) byId.set(polish.id, polish);
   return [...byId.values()];
-}
-
-function uniqueHexes(hexes: string[]): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const hex of hexes) {
-    const canonical = hex.toUpperCase();
-    if (seen.has(canonical)) continue;
-    seen.add(canonical);
-    result.push(canonical);
-  }
-  return result;
 }
 
 function findClosestPolish(
@@ -212,9 +211,17 @@ function ColorSearchPageContent() {
   );
   // The whole owned color collection (complete, so collection results and "have" are exact),
   // plus the catalog rows nearest the current target colors, ranked over the whole catalog by
-  // the API (`?nearHex=`) instead of ranking a fetched sample here.
+  // the API (`?nearHex=`) instead of ranking a fetched sample here: one page for the colors the
+  // list is ranked against, and one for the rest of the page's colors when those differ.
   const [ownedPolishes, setOwnedPolishes] = useState<Polish[]>([]);
-  const [nearbyPolishes, setNearbyPolishes] = useState<Polish[]>([]);
+  const [listNearby, setListNearby] = useState<NearbyRows>(EMPTY_NEARBY_ROWS);
+  const [contextNearby, setContextNearby] = useState<NearbyRows>(EMPTY_NEARBY_ROWS);
+  // Context rows kept from an earlier query are still real catalog rows ranked on the client,
+  // so they never push a nearer row out of the list.
+  const nearbyPolishes = useMemo(
+    () => mergePolishes(listNearby.rows, contextNearby.rows),
+    [listNearby.rows, contextNearby.rows]
+  );
   const allPolishes = useMemo(() => mergePolishes(ownedPolishes, nearbyPolishes), [ownedPolishes, nearbyPolishes]);
   const [loading, setLoading] = useState(true);
   const wheelSize = useWheelSize();
@@ -473,49 +480,86 @@ function ColorSearchPageContent() {
     [selectedHex, rawHarmonyColors, constrainHarmonyHexes]
   );
 
-  // Catalog rows nearest every color the page matches against (the active color, the focused
-  // target, palette anchors and harmony targets), ranked over the whole catalog by the API.
-  // Brand and finish filters go to the server so a filtered view is ranked over all its shades.
-  const nearbyTargetsKey = useMemo(
-    () =>
-      uniqueHexes(
-        [activeHex, focusedTargetHex, ...paletteAnchors, ...rawHarmonyColors].filter(
-          (hex): hex is string => Boolean(hex)
-        )
-      )
-        .slice(0, MAX_NEAR_HEX_TARGETS)
-        .join(","),
-    [activeHex, focusedTargetHex, paletteAnchors, rawHarmonyColors]
+  // Catalog rows nearest the colors the page matches against, ranked over the whole catalog by
+  // the API. Brand and finish filters go to the server so a filtered view is ranked over all its
+  // shades. The list's own query follows what the list is ranked against (the hover color only in
+  // Similar mode); the context query (focused colors, palette slots, harmony snapping) never
+  // includes the hover color, so moving over the wheel in a harmony mode asks for nothing.
+  const nearbyTargetsInput = useMemo<NearbyTargetsInput>(
+    () => ({
+      hoverHex: previewHex,
+      selectedHex,
+      focusedTargetHex,
+      similarMode: isSimilarMode,
+      paletteAnchors,
+      rawHarmonyColors,
+    }),
+    [previewHex, selectedHex, focusedTargetHex, isSimilarMode, paletteAnchors, rawHarmonyColors]
   );
-  // A focused target ranks the results against that one color, so it gets its own page too:
-  // the shared page spreads its rows over every target and could leave the focused list thin.
+  const brandQuery = brandFilter !== "all" ? brandFilter : undefined;
+  const finishQuery = finishFilter !== "all" ? finishFilter : undefined;
+  const listTargetsKey = listNearbyTargets(nearbyTargetsInput).join(",");
+  const contextTargetsKey = contextNearbyTargets(nearbyTargetsInput).join(",");
+  const listQuery = useMemo<NearbyQuery>(
+    () => ({ nearHex: listTargetsKey ? listTargetsKey.split(",") : [], brand: brandQuery, finish: finishQuery }),
+    [listTargetsKey, brandQuery, finishQuery]
+  );
+  const contextQuery = useMemo<NearbyQuery>(
+    () => ({ nearHex: contextTargetsKey ? contextTargetsKey.split(",") : [], brand: brandQuery, finish: finishQuery }),
+    [contextTargetsKey, brandQuery, finishQuery]
+  );
+  const listQueryKey = nearbyQueryKey(listQuery);
+  const contextQueryKey = nearbyQueryKey(contextQuery);
+
+  // Throttled, latest-wins loaders: rows follow a moving color (at most one request per
+  // interval each), a slow older response never replaces a newer one, and superseded requests
+  // are aborted.
+  const listLoaderRef = useRef<LatestLoader<NearbyQuery, Polish[]> | null>(null);
+  const contextLoaderRef = useRef<LatestLoader<NearbyQuery, Polish[]> | null>(null);
   useEffect(() => {
-    if (!nearbyTargetsKey) return;
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      const query = (nearHex: string[]) =>
-        listPolishes({
-          categories: ["color"],
-          nearHex,
-          brand: brandFilter !== "all" ? brandFilter : undefined,
-          finish: finishFilter !== "all" ? finishFilter : undefined,
-          pageSize: NEARBY_CATALOG_PAGE_SIZE,
-        });
-      const focusedHex = focusedTargetHex?.toUpperCase() ?? null;
-      Promise.allSettled([
-        query(nearbyTargetsKey.split(",")),
-        focusedHex && focusedHex !== nearbyTargetsKey ? query([focusedHex]) : Promise.resolve(null),
-      ]).then(([all, focused]) => {
-        if (cancelled || all.status !== "fulfilled") return;
-        const focusedRows = focused.status === "fulfilled" ? focused.value?.polishes ?? [] : [];
-        setNearbyPolishes(mergePolishes(focusedRows, all.value.polishes));
+    const createLoader = (setRows: Dispatch<SetStateAction<NearbyRows>>) =>
+      new LatestLoader<NearbyQuery, Polish[]>({
+        minIntervalMs: NEARBY_FETCH_MIN_INTERVAL_MS,
+        load: (query, signal) =>
+          listPolishes(
+            {
+              categories: ["color"],
+              nearHex: query.nearHex,
+              brand: query.brand,
+              finish: query.finish,
+              pageSize: NEARBY_CATALOG_PAGE_SIZE,
+            },
+            { signal }
+          ).then((response) => response.polishes),
+        onLoaded: (key, rows) => setRows({ key, rows, failedKey: null }),
+        onFailed: (key) => setRows((prev) => ({ ...prev, failedKey: key })),
       });
-    }, NEARBY_FETCH_DEBOUNCE_MS);
+    const listLoader = createLoader(setListNearby);
+    const contextLoader = createLoader(setContextNearby);
+    listLoaderRef.current = listLoader;
+    contextLoaderRef.current = contextLoader;
     return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
+      listLoader.dispose();
+      contextLoader.dispose();
+      listLoaderRef.current = null;
+      contextLoaderRef.current = null;
     };
-  }, [nearbyTargetsKey, focusedTargetHex, brandFilter, finishFilter]);
+  }, []);
+  useEffect(() => {
+    listLoaderRef.current?.request(listQueryKey, listQuery);
+  }, [listQueryKey, listQuery]);
+  useEffect(() => {
+    // Same colors as the list: its rows already cover them.
+    const key = contextQueryKey === listQueryKey ? null : contextQueryKey;
+    contextLoaderRef.current?.request(key, contextQuery);
+  }, [contextQueryKey, listQueryKey, contextQuery]);
+
+  // The list is ranked on the client the moment the color moves; until the catalog rows for the
+  // new colors arrive, it may miss nearer catalog shades (My Collection is always complete).
+  const catalogInResults = resultsScope === "all";
+  const catalogFailed = catalogInResults && listQueryKey !== null && listNearby.failedKey === listQueryKey;
+  const catalogPending =
+    catalogInResults && listQueryKey !== null && listNearby.key !== listQueryKey && !catalogFailed;
 
   // Harmony target dots for the color wheel (diamonds)
   const harmonyDots: HarmonyDot[] = useMemo(() => {
@@ -645,7 +689,8 @@ function ColorSearchPageContent() {
     return [selectedHex, ...harmonyColors];
   }, [activeRecommendedPalette, isSimilarMode, activeHex, selectedHex, harmonyColors]);
 
-  // Sort polishes by distance — if a target is focused, match only that color
+  // Sort polishes by distance — if a target is focused, match only that color. Hexes guessed
+  // from the color name rank after every measured one (`compareColorSearchRank`, like `?nearHex=`).
   const sortedPolishes = useMemo(() => {
     const colorsToMatch = focusedTargetHex ? [focusedTargetHex] : targetColors;
     if (colorsToMatch.length === 0) return [];
@@ -665,11 +710,12 @@ function ColorSearchPageContent() {
         return {
           ...p,
           distance: Math.min(minDist / MAX_DISTANCE, 1),
+          estimated: isEstimatedDisplayHex(p),
           matchedHarmonyHex,
           matchedHarmonyIndex,
         };
       })
-      .sort((a, b) => a.distance - b.distance);
+      .sort(compareColorSearchRank);
   }, [focusedTargetHex, targetColors, filteredScopedColorPolishes]);
 
   const handleHover = useCallback(
@@ -791,7 +837,12 @@ function ColorSearchPageContent() {
   // Put a changed row in both lists: replaced in the nearby rows, and in or out of the owned
   // collection by its new status.
   const upsertPolish = useCallback((next: Polish) => {
-    setNearbyPolishes((prev) => prev.map((p) => (p.id === next.id ? next : p)));
+    const replaceRow = (prev: NearbyRows): NearbyRows => ({
+      ...prev,
+      rows: prev.rows.map((p) => (p.id === next.id ? next : p)),
+    });
+    setListNearby(replaceRow);
+    setContextNearby(replaceRow);
     setOwnedPolishes((prev) => {
       const without = prev.filter((p) => p.id !== next.id);
       return isOwnedPolish(next) ? [...without, next] : without;
@@ -1420,8 +1471,25 @@ function ColorSearchPageContent() {
             </div>
 
             {activeHex && targetColors.length > 0 ? (
+              <>
+              <p
+                aria-live="polite"
+                className={`flex min-h-4 items-center gap-1.5 text-xs text-muted-foreground transition-opacity ${
+                  catalogPending || catalogFailed ? "opacity-100 delay-150" : "opacity-0"
+                }`}
+              >
+                {catalogFailed ? (
+                  "Couldn't load catalog matches for this color. Showing your collection and earlier matches."
+                ) : catalogPending ? (
+                  <>
+                    <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+                    Updating catalog matches…
+                  </>
+                ) : null}
+              </p>
               <ColorSearchResults
                 polishes={sortedPolishes}
+                provisional={catalogPending}
                 harmonyColors={targetColors}
                 showMatchDots={!isSimilarMode}
                 finishTypes={finishTypes}
@@ -1440,6 +1508,7 @@ function ColorSearchPageContent() {
                 onColorLeave={handleColorLeave}
                 returnTo={returnToHref}
               />
+              </>
             ) : (
               <div className="flex flex-col items-center justify-center py-16 text-center">
                 <span className="text-4xl">🎨</span>

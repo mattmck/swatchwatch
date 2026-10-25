@@ -7,7 +7,9 @@
  * ports per destination and new connects time out (`UND_ERR_CONNECT_TIMEOUT`). Storage requests
  * therefore go through a dedicated keep-alive Agent capped at `BLOB_STORAGE_MAX_CONNECTIONS`
  * sockets per origin; extra requests wait in the Agent's queue instead of opening new sockets.
- * Source image downloads (vendor CDNs) keep using the global dispatcher.
+ * Source image downloads (vendor CDNs) keep using the global dispatcher. Never send HEAD through it:
+ * undici closes the socket after every HEAD response, so each one bypasses the pool's reuse
+ * (lib/blob-storage `blobExists` uses Get Blob Metadata for that reason).
  *
  * Requests use the `undici` package's own `fetch` with its own Agent rather than Node's global
  * fetch: an Agent from the npm package only works as the global fetch's `dispatcher` when both are

@@ -47,13 +47,16 @@ Admin Hex Labeling tool (admin console tab, routes `/api/hex-labels-admin/*`): h
 | `HexLabelSamplePoint` | Where a canvas sample was taken: `x`/`y` normalized 0..1 to the natural image size, `size`, `imageWidth`, `imageHeight` |
 | `HexLabelImage` | A catalog product image of a shade: `imageId`, signed proxy `url`, `swatchType`, vendor `sourceUrl` (from `source_image_url`, null when unknown), `isPrimary` |
 | `HexLabel` | A saved manual label: `trainingSampleId`, `shadeId`, `hex` (null only when `unreliable`), `unreliable`, `imageId`, `note`, `method`, `samplePoint`, `labeledByUserId`, `labeledAt` |
-| `HexLabelQueueItem` | One queued shade: brand/name/finishes, `vendorHex`/`detectedHex`/`nameHex`, `hexAgreement`, detection confidence/method, `flagged` (agreement > MEDIUM), `images`, current `label`, vendor hex provenance `vendorHexSource` / `promotedLabelId` / `vendorHexPrevious` (#321) |
+| `HexLabelQueueItem` | One queued shade: brand/name/finishes, `finishesSource`, `productCategory` / `productCategorySource`, `vendorHex`/`detectedHex`/`nameHex`, `hexAgreement`, detection confidence/method, `flagged` (agreement > MEDIUM), `images`, current `label`, vendor hex provenance `vendorHexSource` / `promotedLabelId` / `vendorHexPrevious` (#321) |
 | `HexLabelQueueFilters` | `GET /api/hex-labels-admin/queue` query: `brand`, `disagreeOnly`, `showLabeled`, `includeWithoutImages`, `cursor`, `pageSize` |
 | `HexLabelQueueResponse` | `{ items, nextCursor, total, labeled, pageSize, disagreementThreshold }` (`total`/`labeled` drive the progress bar) |
 | `HexLabelRequest` | `POST /api/hex-labels-admin/labels` body: `shadeId`, `hex` (`#RRGGBB`, required unless `unreliable`), `imageId`, `unreliable`, `note`, `method`, `samplePoint` |
 | `HexLabelSaveResponse` | `{ label, previous }`; `previous` is the label the save replaced (the client restores it to undo) |
 | `HexLabelDeleteResponse` | `{ deleted }` from `DELETE /api/hex-labels-admin/labels/{id}` |
 | `VENDOR_HEX_SOURCES` / `VendorHexSource` | `shade.vendor_hex_source` (#321): `vendor` (vendor/catalog data) or `manual_label` (an admin promoted the shade's manual label; ingestion never overwrites it). Admin-only |
+| `FINISHES_SOURCES` / `FinishesSource` | `shade.finishes_source`: `rule` (ingestion / backfills) or `admin` (set in the Hex Labeling tool; ingestion never changes it). Admin-only |
+| `SHADE_FINISHES_MAX` | Most finishes an admin can set on one shade (8) |
+| `ShadeFinishesUpdateRequest` / `ShadeFinishesUpdateResponse` | `PUT /api/shades-admin/{shadeId}/finishes`: `{ finishes }` in; `{ shadeId, finishes, finishesSource, changed }` out |
 | `HexLabelPromoteResponse` | `{ shadeId, vendorHex, vendorHexSource, promotedLabelId, vendorHexPrevious, changed }` from `POST`/`DELETE /api/hex-labels-admin/labels/{id}/promote` and `DELETE /api/hex-labels-admin/shades/{shadeId}/promotion` |
 
 ### `types/inventory.ts`
@@ -142,7 +145,8 @@ Collection stats (#271): the `GET /api/stats/collection` payload behind the dash
 |--------|-------------|
 | `COLLECTION_STATS_TOP_BRANDS` (8), `COLLECTION_STATS_MONTHS` (12), `COLLECTION_STATS_MOST_WORN` (10), `COLLECTION_STATS_COST_PER_WEAR_LIST` (5) | List sizes used by the API |
 | `SPEND_STATUSES` | `["owned", "destash", "archived"]` — statuses whose purchase price counts as spend (a wishlist price is a target, not money spent) |
-| `CollectionStatsResponse` | `{ generatedAt, totals: { byStatus, total }, untried: { owned, untried, percent \| null }, wornVsWaiting: { worn, waiting }, spend, mostWorn, costPerWear: { currencies, pricedUnwornCount } }` |
+| `CollectionStatsResponse` | `{ generatedAt, totals: { byStatus, total }, untried: { owned, untried, percent \| null }, wornVsWaiting: { worn, waiting }, spend, mostWorn, costPerWear: { currencies, pricedUnwornCount }, wishlist }` |
+| `WishlistValueStats` | `{ count, listPrices: ListPriceTotals }` — every wishlist row the polishes list shows and its brand list prices summed per currency (`sumListPrices`, unpriced counted) |
 | `CollectionSpendStats` | `{ currencies: CurrencySpend[], months (YYYY-MM, oldest first), pricedCount, unpricedCount }` |
 | `CurrencySpend` | One currency: `currency`, all-time `total` / `itemCount`, `byBrand` (top N + one "Other"), `byMonth` (zero-filled) |
 | `SpendByBrandEntry` / `SpendByMonthEntry` | `{ brand, isOther, brandCount, total, itemCount }` / `{ month, total, itemCount, estimatedDateCount }` (`estimatedDateCount` = rows bucketed by `createdAt` because they have no purchase date) |
@@ -258,6 +262,7 @@ Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/b
 | `HIGH_CONFIDENCE_MAX_DISTANCE` (0.05), `MEDIUM_CONFIDENCE_MAX_DISTANCE` (0.10), `confidenceForDistance(d)` | Distance buckets used by photo matching and vendor↔detected reconciliation (`color/thresholds.ts`) |
 | `normalizeHexColor(value)` | Uppercase `#RRGGBB` or null |
 | `computeHexAgreement(vendorHex, detectedHex)` | OKLAB distance rounded to 4 decimals, null unless both hexes are valid; mirrors the Postgres `hex_oklab_distance()` behind `shade.hex_agreement` |
+| `isEstimatedDisplayHex(polish)`, `colorSearchConfidence(distance, estimated)`, `compareColorSearchRank(a, b)` | Color search on estimated hexes (`color/estimated-hex.ts`): true when the display hex is only `nameHex` (no vendor or detected hex); grade capped at low when estimated; comparator ranking measured rows before estimated ones, nearest first (the server's `?nearHex=` tiers) |
 | `resolveDisplayHexDetailed(polish, { vendorHexSuspicious?, disagreementThreshold? })` | Pure reconciliation → `{ hex, source, agreement, flagged, reason }`. Keeps vendor > detected > name by default; flags `disagreement` when vendor and detected differ by more than MEDIUM; when the caller marks the vendor hex suspicious, prefers detected (and flags `vendor-suspicious` if the vendor hex still had to be used). Uses a stored `hexAgreement` when present |
 | `COLOR_FAMILIES`, `ColorFamily`, `HexColorFamily`, `isColorFamily(value)` | The 15 color families (#103): `red`, `pink`, `coral`, `orange`, `yellow`, `green`, `teal`, `blue`, `purple`, `nude`, `brown`, `grey`, `black`, `white`, `multichrome` (`color/color-family.ts`) |
 | `COLOR_FAMILY_LABELS`, `COLOR_FAMILY_SWATCH_HEX` | Display label and representative chip swatch per family (each swatch classifies into its own family; render `multichrome` as a gradient) |
@@ -446,6 +451,7 @@ The "add it as new" card for a bottle the catalog could not match. Pure.
 | `BOTTLE_SURFACES` / `BottleSurface` | Photographed surfaces: `front`, `bottom`, `glass`, `box` |
 | `BOTTLE_SURFACE_FRAME_TYPE` / `parseBottleSurface(value)` | Capture frame type per surface (`glass` → `color`, the others → `label`) and the exact-lowercase surface parser (`null` otherwise) |
 | `CaptureFrameRequestSpec` / `CaptureFrameRequestReason` | The next photo the server asks for: `surface`, `frameType`, `prompt`, optional `hint`, `reason` (`need_brand \| need_name \| need_color \| tie_break \| retry_quality`), `optional`. Carried as `nextFrame` (`null` = nothing more to ask) on the start, frame, status, check and (for a `skipSurface` answer) answer responses; present only while `BOTTLE_CAPTURE_ENABLED` is on |
+| `CaptureReadSummary` / `CaptureReadField` | What the session has read from its photos so far: `gtin`, `brand` (`name`, `source`, `catalogMatch`), `shadeName`, `shadeNameListed`, `hex` (glass), `finish`, and `newFields` (what the latest photo added). Carried as `readSoFar` on the frame, check and `skipSurface` answer responses; present only while `BOTTLE_CAPTURE_ENABLED` is on |
 | `CaptureBrandSource` / `CaptureBrandRef` / `CaptureBrandConflict` | A brand on a session (`brandId` or `null`, `name`, `source` `hint \| barcode \| read`, optional `confidence`); `brandConflict` on check when the typed and read brands disagree |
 | `CaptureBrandHintEcho` | `CaptureStartResponse.brandHint`: the user's raw brand text, the matched `brandId` and the canonical (else raw) `name` |
 | `CaptureSuggestedShade` | `CaptureCheckResponse.suggestedShade`: best-effort `brandId`/`brandName`/`brandSource`/`shadeName`/`hex`/`finish`/`gtin` (each nullable) to prefill the add form for an unmatched bottle |

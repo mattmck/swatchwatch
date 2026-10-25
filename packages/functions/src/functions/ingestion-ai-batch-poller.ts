@@ -204,6 +204,7 @@ function sumBatchTokenUsage(
 const AI_BATCH_APPLY_TOTAL_KEYS = [
   "processed",
   "applied",
+  "appliedHex",
   "skippedNoDetection",
   "noShadeMatch",
   "outputRows",
@@ -297,7 +298,8 @@ function accumulateAiBatchApplyTotals(
   const prior = toRecord(previous);
   const totals = {} as AiBatchApplyTotals;
   for (const key of AI_BATCH_APPLY_TOTAL_KEYS) {
-    const priorValue = prior[key];
+    // Totals written before appliedHex existed only have `applied`; seed from it.
+    const priorValue = key === "appliedHex" && !("appliedHex" in prior) ? prior.applied : prior[key];
     totals[key] =
       (typeof priorValue === "number" && Number.isFinite(priorValue) ? priorValue : 0) +
       batchApply[key];

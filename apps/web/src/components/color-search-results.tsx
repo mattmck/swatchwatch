@@ -1,3 +1,4 @@
+import { useState } from "react";
 import Link from "next/link";
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex } from "swatchwatch-shared";
@@ -14,6 +15,8 @@ import { detailHref } from "@/lib/detail-href";
 interface ColorSearchResultsProps {
   polishes: (Polish & {
     distance: number;
+    /** The hex is only a guess from the color name (`isEstimatedDisplayHex`): no match %. */
+    estimated: boolean;
     matchedHarmonyHex: string;
     matchedHarmonyIndex: number;
   })[];
@@ -36,12 +39,20 @@ interface ColorSearchResultsProps {
   onColorLeave?: () => void;
   /** `returnTo` for the detail links (#348); defaults to the current page. */
   returnTo?: string;
+  /** The catalog rows for the current colors are still loading: rows are dimmed. */
+  provisional?: boolean;
 }
+
+/**
+ * Rows rendered at first and per "Show more". The list holds the whole owned collection, so
+ * rendering every row (thumbnail, controls) on each color change would grow with the collection.
+ */
+export const COLOR_SEARCH_RESULTS_PAGE_SIZE = 100;
 
 /**
  * Render a searchable list of polishes with color swatches, match indicators, ownership and quantity controls.
  *
- * Renders a header row of harmony color swatches and a scrolling list of polish rows. Each row shows an optional swatch image, a color dot (and optional matched-harmony dot), name/brand/collection, finish badge, match percentage, ownership indicator, and optional controls to add to focused colors or change collection quantity.
+ * Renders a header row of harmony color swatches and a scrolling list of polish rows. Each row shows an optional swatch image, a color dot (and optional matched-harmony dot), name/brand/collection, finish badge, match percentage ("Estimated color" for a name-guessed hex), ownership indicator, and optional controls to add to focused colors or change collection quantity.
  *
  * @param polishes - Array of polish objects augmented with `distance`, `matchedHarmonyHex`, and `matchedHarmonyIndex`.
  * @param harmonyColors - Array of hex color strings used to render the header swatches.
@@ -56,6 +67,7 @@ interface ColorSearchResultsProps {
  * @param onColorSelect - Optional handler invoked with a hex string when a swatch or matched-harmony dot is clicked.
  * @param onColorHover - Optional handler invoked with a hex string when a swatch or matched-harmony dot is hovered.
  * @param onColorLeave - Optional handler invoked when a swatch or matched-harmony dot hover ends.
+ * @param provisional - When true, the rows are dimmed and marked busy (catalog matches still loading).
  * @returns A React node containing the rendered color search results list.
  */
 export function ColorSearchResults({
@@ -74,7 +86,10 @@ export function ColorSearchResults({
   onColorHover,
   onColorLeave,
   returnTo,
+  provisional = false,
 }: ColorSearchResultsProps) {
+  const [visibleCount, setVisibleCount] = useState(COLOR_SEARCH_RESULTS_PAGE_SIZE);
+
   if (polishes.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -86,9 +101,14 @@ export function ColorSearchResults({
   }
 
   const showMatchDot = showMatchDots && harmonyColors.length > 1;
+  const visiblePolishes = polishes.slice(0, visibleCount);
+  const hiddenCount = polishes.length - visiblePolishes.length;
 
   return (
-    <div className="space-y-1">
+    <div
+      className={`space-y-1 transition-opacity duration-200 ${provisional ? "opacity-60 delay-150" : "opacity-100"}`}
+      aria-busy={provisional}
+    >
       <div className="flex items-center gap-2 pb-2">
         {harmonyColors.map((hex, i) => (
           <span
@@ -108,7 +128,7 @@ export function ColorSearchResults({
           {polishes.length} {polishes.length === 1 ? "polish" : "polishes"}
         </p>
       </div>
-      {polishes.map((polish) => {
+      {visiblePolishes.map((polish) => {
         const owned = isOwnedPolish(polish);
         return (
           <div
@@ -169,9 +189,18 @@ export function ColorSearchResults({
                 </p>
               </div>
               <FinishBadges polish={polish} finishTypes={finishTypes} max={2} className="hidden shrink-0 justify-end sm:inline-flex" />
-              <span className="shrink-0 text-xs tabular-nums text-muted-foreground w-12 text-right">
-                {((1 - polish.distance) * 100).toFixed(0)}%
-              </span>
+              {polish.estimated ? (
+                <span
+                  className="shrink-0 text-right text-xs italic text-muted-foreground"
+                  title="Estimated color: guessed from the shade name, not measured from the bottle"
+                >
+                  Estimated color
+                </span>
+              ) : (
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground w-12 text-right">
+                  {((1 - polish.distance) * 100).toFixed(0)}%
+                </span>
+              )}
             </Link>
 
             {/* Quantity controls. Phones: they wrap onto a second line, right-aligned under the name. */}
@@ -210,6 +239,20 @@ export function ColorSearchResults({
           </div>
         );
       })}
+      {hiddenCount > 0 && (
+        <div className="flex justify-center pt-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setVisibleCount((count) => count + COLOR_SEARCH_RESULTS_PAGE_SIZE)}
+          >
+            {hiddenCount <= COLOR_SEARCH_RESULTS_PAGE_SIZE
+              ? `Show ${hiddenCount} more`
+              : `Show ${COLOR_SEARCH_RESULTS_PAGE_SIZE} more (${hiddenCount} not shown)`}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

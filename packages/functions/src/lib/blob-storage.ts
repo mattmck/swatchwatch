@@ -387,16 +387,19 @@ async function runWithTimeout<T>(promise: Promise<T>, timeoutMs: number, label: 
  * One Azure Blob Storage REST call over the pooled storage Agent (lib/storage-http).
  *
  * Every non-GET response body is read before returning so its socket goes back to the pool; GET
- * callers read (or `text()`) the body themselves. PUT and HEAD are always retried on transient
- * network errors (a connect timeout, refused or reset connection, no response) and 429/5xx: Put
- * Blob of a checksum-named blob and container creation are idempotent, and fetch only rejects for
- * these methods before a response arrived. GET opts in with `retry` (the successful body is
- * buffered inside the attempt so a reset mid-body is retried too). DELETE is never retried, since
- * a retry after a lost success response would report the blob as missing.
+ * callers read (or `text()`) the body themselves. There is no HEAD: undici closes the socket after
+ * every HEAD response, so each one cost a new TCP + TLS connect and an outbound SNAT port, and the
+ * 4–5 existence checks per catalog image exhausted the Consumption instance's ports to the storage
+ * IP until every connect on it timed out (`blobExists` uses Get Blob Metadata instead). PUT is
+ * always retried on transient network errors (a connect timeout, refused or reset connection, no
+ * response) and 429/5xx: Put Blob of a checksum-named blob and container creation are idempotent,
+ * and fetch only rejects for it before a response arrived. GET opts in with `retry` (the successful
+ * body is buffered inside the attempt so a reset mid-body is retried too). DELETE is never
+ * retried, since a retry after a lost success response would report the blob as missing.
  */
 async function sendStorageRequest(
   config: StorageAccountConfig,
-  method: "PUT" | "GET" | "HEAD" | "DELETE",
+  method: "PUT" | "GET" | "DELETE",
   url: URL,
   headers: Record<string, string>,
   body?: Buffer,
@@ -434,7 +437,7 @@ async function sendStorageRequest(
   };
 
   const retryOptions = { ...blobStorageRetry, label: `Azure Blob Storage ${method}` };
-  if (method === "PUT" || method === "HEAD") {
+  if (method === "PUT") {
     return fetchWithRetry(send, retryOptions);
   }
   if (options.retry && method === "GET") {
@@ -841,16 +844,20 @@ export async function blobExists(
 ): Promise<boolean> {
   const config = parseStorageConnectionString(connectionString);
   const container = normalizeContainerName(containerName);
+  // Get Blob Metadata, not HEAD (Get Blob Properties): a GET keeps its pooled socket (see
+  // sendStorageRequest). It answers 200 with an empty body, or 404 for a missing blob.
   const blobUrl = new URL(
-    `${config.blobEndpoint}/${container}/${encodeBlobPath(blobName)}`
+    `${config.blobEndpoint}/${container}/${encodeBlobPath(blobName)}?comp=metadata`
   );
-  const response = await sendStorageRequest(config, "HEAD", blobUrl, {});
+  const response = await sendStorageRequest(config, "GET", blobUrl, {}, undefined, { retry: true });
 
   if (response.status === 200) {
     return true;
   }
 
   if (response.status === 404) {
+    // Read the small error body so the socket goes back to the pool.
+    await response.arrayBuffer().catch(() => undefined);
     return false;
   }
 
