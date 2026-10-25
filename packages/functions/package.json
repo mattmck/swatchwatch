@@ -35,14 +35,14 @@
     "redis": "^5.11.0",
     "sharp": "^0.35.5",
     "swatchwatch-shared": "*",
-    "undici": "^6.29.1"
+    "undici": "^8.12.3"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/pg": "^8.23.1",
     "azure-functions-core-tools": "^4.16.0",
     "esbuild": "^0.28.2",
-    "node-pg-migrate": "^8.0.4",
+    "node-pg-migrate": "^9.0.0",
     "typescript": "^5.3.0"
   }
 }
