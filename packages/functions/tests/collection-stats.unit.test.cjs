@@ -94,8 +94,25 @@ for (let id = 1; id <= 40; id += 1) {
   SHADES[id] = { brandId: ((id - 1) % 5) + 1, name: `Shade ${id}`, vendorHex: "#AA0000" };
 }
 
+/** Brand products (buy links) per shade id: list prices the wishlist value sums. */
+const BUY_LINK = (price, currency, fetchedAt) => ({
+  url: "https://brand.example/p",
+  sourceEnabled: true,
+  lastSeenAt: fetchedAt,
+  fetchedAt,
+  externalProductId: "1",
+  price,
+  currency,
+});
+const BUY_LINKS = {
+  6: BUY_LINK("14.00", "USD", "2026-10-20T00:00:00Z"),
+  8: BUY_LINK("18.50", "EUR", "2026-10-21T00:00:00Z"),
+  30: BUY_LINK("1000.00", "USD", "2026-10-21T00:00:00Z"),
+};
+
 let inventory;
 let calls;
+let buyLinkCalls;
 let nextId;
 
 function item(userId, shadeId, fields = {}) {
@@ -118,6 +135,7 @@ function item(userId, shadeId, fields = {}) {
 function resetState() {
   nextId = 100;
   calls = [];
+  buyLinkCalls = [];
   cacheOps = [];
   cacheStore.clear();
   inventory = [
@@ -128,12 +146,15 @@ function resetState() {
     item(OWNER, 4, { price: "5.00", currency: null, purchaseDate: "2026-09-02", wearCount: 2, lastWornAt: "2026-09-05T00:00:00Z" }),
     item(OWNER, 5, { wearCount: 0 }), // unpriced
     item(OWNER, 6, { status: "wishlist", price: "99.00", currency: "USD" }), // target price, not spend
+    item(OWNER, 8, { status: "wishlist" }), // EUR list price
+    item(OWNER, 9, { status: "wishlist" }), // no buy link: counted, unpriced
     item(OWNER, 7, { status: "destash", price: "7.25", currency: "USD", purchaseDate: "2025-01-15", wearCount: 9, lastWornAt: "2025-06-01T00:00:00Z" }),
     // ATTACKER: big numbers that must never show up in OWNER's stats.
     ...Array.from({ length: 12 }, (_, i) =>
       item(ATTACKER, 20 + i, { price: "1000.00", currency: "USD", purchaseDate: "2026-10-01", wearCount: 50, triedAt: "2026-01-01" })
     ),
     item(ATTACKER, 1, { price: "1000.00", currency: "EUR", purchaseDate: "2026-10-01", wearCount: 99 }),
+    item(ATTACKER, 30, { status: "wishlist" }),
   ];
 }
 resetState();
@@ -174,6 +195,10 @@ function handle(rawSql, params = []) {
   if (/FROM app_user/i.test(sql)) {
     const user = USERS[Number(params[0])];
     return { rows: user ? [user] : [] };
+  }
+  if (sql === sqlOf(buyLink.BUY_LINK_CANDIDATES_SQL)) {
+    buyLinkCalls.push(params[0]);
+    return { rows: params[0].filter((id) => BUY_LINKS[id]).map((id) => ({ shadeId: id, ...BUY_LINKS[id] })) };
   }
   calls.push({ sql, params });
   const userId = Number(params[0]);
@@ -238,6 +263,9 @@ function handle(rawSql, params = []) {
       })),
     };
   }
+  if (sql === sqlOf(lib.STATS_WISHLIST_SHADES_SQL)) {
+    return { rows: mine.filter((r) => r.status === "wishlist").map((r) => ({ shadeId: String(r.shadeId) })) };
+  }
   if (sql === sqlOf(lib.STATS_MOST_WORN_SQL)) {
     return {
       rows: mine
@@ -290,6 +318,7 @@ for (const [id, exports] of Object.entries(mockModules)) {
 }
 
 lib = require("../dist/lib/collection-stats");
+const buyLink = require("../dist/lib/buy-link");
 const polishCache = require("../dist/lib/polish-cache");
 require("../dist/functions/stats");
 
@@ -320,7 +349,7 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 // Pure assembly
 // ---------------------------------------------------------------------------
-const EMPTY_ROWS = { counts: [], spendByBrand: [], spendByMonth: [], mostWorn: [], costPerWear: [] };
+const EMPTY_ROWS = { counts: [], spendByBrand: [], spendByMonth: [], mostWorn: [], costPerWear: [], wishlistPrices: [] };
 const NOW = new Date("2026-10-17T12:00:00Z");
 
 describe("monthWindow", () => {
@@ -511,7 +540,7 @@ describe("GET /api/stats/collection", () => {
     assert.equal(res.headers["Cache-Control"], "private, no-cache");
     const stats = res.jsonBody;
 
-    assert.deepEqual(stats.totals.byStatus, { owned: 5, wishlist: 1, destash: 1, archived: 0 });
+    assert.deepEqual(stats.totals.byStatus, { owned: 5, wishlist: 3, destash: 1, archived: 0 });
     assert.deepEqual(stats.untried, { owned: 5, untried: 3, percent: 60 });
     assert.deepEqual(stats.wornVsWaiting, { worn: 3, waiting: 2 });
 
@@ -541,6 +570,21 @@ describe("GET /api/stats/collection", () => {
     assert.equal(cpw.EUR.wornCount, 0);
     assert.equal(cpw.EUR.pricedUnwornCount, 1);
     assert.equal(stats.costPerWear.pricedUnwornCount, 1);
+
+    // Wishlist value: brand list prices of the buy links, per currency; the row's own target
+    // price (99.00) is never used, and a shade without a buy link is counted as unpriced.
+    assert.deepEqual(stats.wishlist, {
+      count: 3,
+      listPrices: {
+        byCurrency: [
+          { currency: "EUR", total: 18.5, count: 1 },
+          { currency: "USD", total: 14, count: 1 },
+        ],
+        unpricedCount: 1,
+        latestSeenAt: "2026-10-21T00:00:00.000Z",
+      },
+    });
+    assert.deepEqual(buyLinkCalls, [["6", "8", "9"]], "buy links are looked up for the caller's wishlist shades only");
   });
 
   it("never includes another user's rows", async () => {
@@ -555,7 +599,7 @@ describe("GET /api/stats/collection", () => {
     ]) {
       assert.ok(ownerItemIds.has(entry.inventoryItemId), `item ${entry.inventoryItemId} is not the caller's`);
     }
-    assert.equal(calls.length, 5);
+    assert.equal(calls.length, 6);
     for (const call of calls) assert.equal(call.params[0], OWNER, "every statement binds the caller as $1");
   });
 
@@ -566,6 +610,8 @@ describe("GET /api/stats/collection", () => {
     assert.equal(res.jsonBody.untried.percent, null);
     assert.deepEqual(res.jsonBody.spend.currencies, []);
     assert.deepEqual(res.jsonBody.mostWorn, []);
+    assert.deepEqual(res.jsonBody.wishlist, { count: 0, listPrices: { byCurrency: [], unpricedCount: 0, latestSeenAt: null } });
+    assert.deepEqual(buyLinkCalls, [], "no wishlist, no buy-link lookup");
   });
 
   it("caches per user for 60s and serves the cached copy without queries", async () => {
@@ -578,7 +624,7 @@ describe("GET /api/stats/collection", () => {
 
     // Another user's request never reads OWNER's cache entry.
     await getStats(ATTACKER);
-    assert.ok(calls.length === 5 && calls.every((c) => c.params[0] === ATTACKER));
+    assert.ok(calls.length === 6 && calls.every((c) => c.params[0] === ATTACKER));
   });
 
   it("is invalidated by the per-user polish cache hook", async () => {

@@ -2,6 +2,7 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/fu
 import {
   HEX_LABEL_SAMPLE_SIZES,
   MEDIUM_CONFIDENCE_MAX_DISTANCE,
+  resolveProductCategory,
   type HexLabel,
   type HexLabelDeleteResponse,
   type HexLabelImage,
@@ -244,6 +245,9 @@ const QUEUE_COLUMNS = `
       COALESCE(s.shade_name_canonical, '')          AS name,
       COALESCE(s.finishes, ARRAY[]::text[])         AS finishes,
       NULLIF(s.finish, '')                          AS "legacyFinish",
+      s.finishes_source                             AS "finishesSource",
+      s.product_category                            AS "productCategory",
+      s.product_category_source                     AS "productCategorySource",
       s.vendor_hex                                  AS "vendorHex",
       s.detected_hex                                AS "detectedHex",
       s.name_hex                                    AS "nameHex",
@@ -488,6 +492,9 @@ interface QueueRow extends LabelColumns {
   name: string;
   finishes: string[] | null;
   legacyFinish: string | null;
+  finishesSource: string | null;
+  productCategory: string | null;
+  productCategorySource: string | null;
   vendorHex: string | null;
   detectedHex: string | null;
   nameHex: string | null;
@@ -511,6 +518,9 @@ function toQueueItem(row: QueueRow, imageRows: ShadeImageRow[], requestUrl: stri
     brand: row.brand,
     name: row.name,
     finishes,
+    finishesSource: row.finishesSource === "admin" ? "admin" : "rule",
+    productCategory: resolveProductCategory(row.productCategory),
+    productCategorySource: row.productCategorySource === "admin" ? "admin" : "rule",
     vendorHex: row.vendorHex,
     detectedHex: row.detectedHex,
     nameHex: row.nameHex,

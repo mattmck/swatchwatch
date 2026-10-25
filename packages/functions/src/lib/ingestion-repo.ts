@@ -23,6 +23,8 @@ import { describeImageStoreFailure } from "./image-store-error";
 import { toImageProxyUrlFromOrigin } from "./image-proxy";
 import { snapDetectionToImage, type HexSnapLogLevel } from "./hex-snap";
 import { loadDetectionImageBytes } from "./detection-image";
+import { withHexDetectionTotals } from "./ingestion-hex-totals";
+import { describeFetchError } from "./fetch-retry";
 import pLimit = require("p-limit");
 import {
   buildSuspiciousHexContext,
@@ -1548,7 +1550,7 @@ async function prepareHoloTacoImageData(
       // Batch submission failed: degrade to synchronous detection for this run so the
       // job still materializes detected hex instead of failing outright. Detections are
       // applied via the same shade write path the batch poller uses.
-      const reason = error instanceof Error ? error.message : String(error);
+      const reason = describeFetchError(error);
       metrics.batchFallbacks += 1;
       const fallbackMessage = `${sourceLogPrefix} Batch submission failed (${reason}); falling back to synchronous hex detection for ${queuedBatchRequests.length} request(s)`;
       console.warn(fallbackMessage);
@@ -1867,7 +1869,7 @@ export async function markIngestionJobRunning(
          error = NULL,
          metrics_json = $2::jsonb
      WHERE ingestion_job_id = $1`,
-    [jobId, metrics]
+    [jobId, withHexDetectionTotals(metrics)]
   );
 }
 
@@ -1879,7 +1881,7 @@ export async function updateIngestionJobMetrics(
     `UPDATE ingestion_job
      SET metrics_json = $2::jsonb
      WHERE ingestion_job_id = $1`,
-    [jobId, metrics]
+    [jobId, withHexDetectionTotals(metrics)]
   );
 }
 
@@ -1897,7 +1899,7 @@ export async function updateRunningIngestionJobMetrics(
      SET metrics_json = $2::jsonb
      WHERE ingestion_job_id = $1
        AND status = 'running'`,
-    [jobId, metrics]
+    [jobId, withHexDetectionTotals(metrics)]
   );
   return (result.rowCount ?? 0) > 0;
 }
@@ -1912,7 +1914,7 @@ export async function markIngestionJobSucceeded(
          finished_at = now(),
          metrics_json = $2::jsonb
      WHERE ingestion_job_id = $1`,
-    [jobId, metrics]
+    [jobId, withHexDetectionTotals(metrics)]
   );
 }
 
@@ -1928,7 +1930,7 @@ export async function markIngestionJobFailed(
          error = $2,
          metrics_json = $3::jsonb
      WHERE ingestion_job_id = $1`,
-    [jobId, errorMessage, metrics]
+    [jobId, errorMessage, withHexDetectionTotals(metrics)]
   );
   // Signal for the prod "ingestion job failed" alert (infrastructure/main.tf).
   trackEvent("ingestion.job_failed", { jobId, error: errorMessage.slice(0, 500) });
@@ -2046,7 +2048,7 @@ export async function getIngestionJobById(jobId: number): Promise<IngestionJobRe
     status: row.status,
     startedAt: row.startedAt,
     finishedAt: row.finishedAt || undefined,
-    metrics: row.metrics || undefined,
+    metrics: row.metrics ? withHexDetectionTotals(row.metrics) : undefined,
     error: row.error || undefined,
   };
 }
@@ -2106,7 +2108,10 @@ export interface AiBatchShadeDetectionInput {
 
 export interface ApplyAiBatchShadeDetectionsMetrics {
   processed: number;
+  /** Rows matched to a shade (hex and/or finishes). */
   applied: number;
+  /** Subset of `applied` that carried a detected hex, the batch counterpart of `hexDetected`. */
+  appliedHex: number;
   skippedNoDetection: number;
   noShadeMatch: number;
 }
@@ -2117,6 +2122,7 @@ export async function applyAiBatchShadeDetections(
   overwriteDetectedHex: boolean
 ): Promise<ApplyAiBatchShadeDetectionsMetrics> {
   let applied = 0;
+  let appliedHex = 0;
   let skippedNoDetection = 0;
   let noShadeMatch = 0;
 
@@ -2199,6 +2205,9 @@ export async function applyAiBatchShadeDetections(
 
     if (result.rows.length > 0) {
       applied += 1;
+      if (detectedHex) {
+        appliedHex += 1;
+      }
     } else {
       noShadeMatch += 1;
     }
@@ -2207,6 +2216,7 @@ export async function applyAiBatchShadeDetections(
   return {
     processed: detections.length,
     applied,
+    appliedHex,
     skippedNoDetection,
     noShadeMatch,
   };
@@ -2271,7 +2281,7 @@ export async function listIngestionJobs(
       status: row.status,
       startedAt: row.startedAt,
       finishedAt: row.finishedAt || undefined,
-      metrics: row.metrics || undefined,
+      metrics: row.metrics ? withHexDetectionTotals(row.metrics) : undefined,
       error: row.error || undefined,
     })),
     total: parseInt(countResult.rows[0].total, 10),
@@ -2390,8 +2400,10 @@ export async function materializeMakeupApiRecords(
 
         const collection = makeup.name;
 
-        const existingShade = await client.query<{ shadeId: number; finishes: string[] | null } & ShadeVendorHexState>(
-          `SELECT shade_id AS "shadeId", finishes,
+        const existingShade = await client.query<
+          { shadeId: number; finishes: string[] | null; finishesSource: string | null } & ShadeVendorHexState
+        >(
+          `SELECT shade_id AS "shadeId", finishes, finishes_source AS "finishesSource",
                   ${SHADE_VENDOR_HEX_COLUMNS}
            FROM shade
            WHERE brand_id = $1
@@ -2405,10 +2417,12 @@ export async function materializeMakeupApiRecords(
 
         let shadeId: number;
         let currentFinishes: string[] = [];
+        let currentFinishesSource: string | null = null;
         let currentVendorHex: ShadeVendorHexState | null = null;
         if (existingShade.rows.length > 0) {
           shadeId = existingShade.rows[0].shadeId;
           currentFinishes = existingShade.rows[0].finishes ?? [];
+          currentFinishesSource = existingShade.rows[0].finishesSource;
           currentVendorHex = existingShade.rows[0];
         } else {
           const insertedShade = await client.query<{ shadeId: number }>(
@@ -2431,8 +2445,8 @@ export async function materializeMakeupApiRecords(
         const vendorHexPlan = planIngestedVendorHex(currentVendorHex, variant.hex || null, true);
         // Merge (never remove) tag finishes in TypeScript, like the Holo Taco path, so aliases
         // and legacy values are canonicalized and deduped; descriptor/description finishes only
-        // fill a shade with none (#352); null leaves finishes untouched.
-        const mergedFinishes = applyIngestedFinishes(currentFinishes, finishResolution, finishCatalog);
+        // fill a shade with none (#352); an admin-set list is never touched; null leaves finishes untouched.
+        const mergedFinishes = applyIngestedFinishes(currentFinishes, finishResolution, finishCatalog, currentFinishesSource);
         await client.query(
           `UPDATE shade SET
              color_name = COALESCE($2, color_name),
@@ -2668,23 +2682,29 @@ async function materializePreparedHoloTacoRecord(
     detectedFinishes: string[] | null;
     nameHex: string | null;
     finishes: string[] | null;
+    finishesSource: string | null;
   }>(
     `SELECT
        ${SHADE_VENDOR_HEX_COLUMNS},
        detected_hex AS "detectedHex",
        detected_finishes AS "detectedFinishes",
        name_hex AS "nameHex",
-       finishes
+       finishes,
+       finishes_source AS "finishesSource"
      FROM shade WHERE shade_id = $1
      FOR UPDATE`,
     [shadeId]
   );
   // Vendor tag finishes are merged (never removed) so manual edits survive re-imports;
-  // descriptor/description finishes only fill a shade that has none yet (#352).
+  // descriptor/description finishes only fill a shade that has none yet (#352); an admin-set
+  // list (finishes_source = 'admin') is written back exactly as it is.
   const currentFinishes = currentShade.rows[0]?.finishes ?? [];
+  const currentFinishesSource = currentShade.rows[0]?.finishesSource ?? null;
   const mergedFinishes =
-    applyIngestedFinishes(currentFinishes, finishResolution, finishCatalog) ??
-    mergeFinishLists([currentFinishes], finishCatalog);
+    currentFinishesSource === "admin"
+      ? currentFinishes
+      : applyIngestedFinishes(currentFinishes, finishResolution, finishCatalog) ??
+        mergeFinishLists([currentFinishes], finishCatalog);
 
   // A vendor hex follows the overwrite rule, except an admin-promoted manual label, which
   // ingestion never replaces (#321, D12): the vendor value is kept in vendor_hex_previous.

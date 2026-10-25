@@ -45,7 +45,7 @@ const BACKFILLS: BackfillDefinition[] = [
     id: "image-variants",
     title: "Catalog thumbnails",
     description:
-      "Writes the pre-generated WebP thumbnails missing for catalog images. Idempotent: existing variants are skipped, so a re-run only fills gaps. Run after bumping IMAGE_VARIANT_CROP_VERSION or changing the size ladder.",
+      "Writes the pre-generated WebP thumbnails missing for catalog images. Idempotent: existing variants are skipped, so a re-run only fills gaps. A batch that has to write many thumbnails ends early (about 45 s) and the run carries on from where it stopped. Run after bumping IMAGE_VARIANT_CROP_VERSION or changing the size ladder.",
     command: "npm run backfill:image-variants --workspace=swatchwatch-functions",
     path: "images-admin/variants/backfill",
     cursorKey: "afterImageId",

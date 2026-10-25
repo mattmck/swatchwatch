@@ -153,14 +153,14 @@ describe("lib/blob-storage — uploadSourceImageToBlob download retry", () => {
 
     let downloads = 0;
     global.fetch = async (url, init = {}) => {
-      const method = init.method || "GET";
+      const method = String(url).includes("comp=metadata") ? "METADATA" : init.method || "GET";
       if (String(url).startsWith("https://shop.example/")) {
         downloads += 1;
         if (downloads === 1) throw fetchFailed();
         return new Response(png, { status: 200, headers: { "content-type": "image/png" } });
       }
-      // Blob already stored (HEAD 200) for the original and every variant.
-      return new Response(null, { status: method === "HEAD" ? 200 : 201 });
+      // Blob already stored (metadata 200) for the original and every variant.
+      return new Response(null, { status: method === "METADATA" ? 200 : 201 });
     };
 
     const result = await uploadSourceImageToBlob({
@@ -215,13 +215,13 @@ describe("lib/blob-storage — uploadSourceImageToBlob download retry", () => {
 
     let downloads = 0;
     global.fetch = async (url, init = {}) => {
-      const method = init.method || "GET";
+      const method = String(url).includes("comp=metadata") ? "METADATA" : init.method || "GET";
       if (String(url).startsWith("https://shop.example/")) {
         downloads += 1;
         const body = downloads === 1 ? resetMidBody(png.subarray(0, 8)) : png;
         return new Response(body, { status: 200, headers: { "content-type": "image/png" } });
       }
-      return new Response(null, { status: method === "HEAD" ? 200 : 201 });
+      return new Response(null, { status: method === "METADATA" ? 200 : 201 });
     };
 
     const result = await uploadSourceImageToBlob({

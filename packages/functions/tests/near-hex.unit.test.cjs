@@ -42,7 +42,7 @@ preload(path.resolve(__dirname, "../dist/lib/db.js"), {
 });
 
 require("../dist/functions/polishes");
-const { parseNearHexFilter, buildNearHexDistanceSql, NEAR_HEX_MAX_TARGETS } = require("../dist/lib/near-hex");
+const { parseNearHexFilter, buildNearHexDistanceSql, NEAR_HEX_MAX_TARGETS, NEAR_HEX_TIER_SQL } = require("../dist/lib/near-hex");
 const { hexToOklab, colorDistance } = require("swatchwatch-shared");
 
 const MIGRATION_PATH = path.resolve(__dirname, "../migrations/20261023001520034_shade-display-oklab.sql");
@@ -158,7 +158,10 @@ describe("GET /api/polishes?nearHex=", () => {
 
     assert.equal(calls.length, 1);
     const { text, params } = calls[0];
-    assert.match(text, /ORDER BY "colorDistance" ASC NULLS LAST, s\.shade_id ASC/);
+    // Measured hexes, then estimated name-only hexes, then no hex; nearest first within a tier.
+    assert.ok(text.includes(`ORDER BY ${NEAR_HEX_TIER_SQL} ASC, "colorDistance" ASC NULLS LAST, s.shade_id ASC`));
+    assert.match(NEAR_HEX_TIER_SQL, /WHEN s\.oklab_l IS NULL THEN 2/);
+    assert.match(NEAR_HEX_TIER_SQL, /NULLIF\(s\.vendor_hex, ''\) IS NULL AND NULLIF\(s\.detected_hex, ''\) IS NULL THEN 1/);
     assert.doesNotMatch(text, /ORDER BY s\.shade_name_canonical/, "nearHex replaces sortBy");
     // Visibility and every filter stay in the WHERE clause: nearHex only changes the order.
     assert.match(text, /s\.merged_into_shade_id IS NULL AND \(s\.status <> 'user_submitted'/);
