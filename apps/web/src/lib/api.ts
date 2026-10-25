@@ -169,7 +169,14 @@ export async function getCurrentUserId(options?: { admin?: boolean }): Promise<n
   return body?.valid && typeof body.userId === "number" ? body.userId : null;
 }
 
-export async function listPolishes(filters?: PolishFilters): Promise<PolishListResponse> {
+/**
+ * `options.signal` aborts the request; such a call is not shared with other callers of the
+ * same URL (an abort must not cancel their request).
+ */
+export async function listPolishes(
+  filters?: PolishFilters,
+  options?: { signal?: AbortSignal }
+): Promise<PolishListResponse> {
   const params = new URLSearchParams();
 
   if (filters?.search) params.set("search", filters.search);
@@ -196,6 +203,10 @@ export async function listPolishes(filters?: PolishFilters): Promise<PolishListR
 
   const qs = params.toString();
   const url = `${API_BASE_URL}/polishes${qs ? `?${qs}` : ""}`;
+  if (options?.signal) {
+    const response = await fetch(url, { headers: await getAuthHeaders(), signal: options.signal });
+    return handleResponse<PolishListResponse>(response);
+  }
   const cacheKey = url;
   if (!listPolishesInFlight.has(cacheKey)) {
     listPolishesInFlight.set(
