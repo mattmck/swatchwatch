@@ -48,6 +48,14 @@ describe("withHexDetectionTotals", () => {
     assert.equal(metrics.hexSnappedTotal, 41);
   });
 
+  it("prefers appliedHex (matched rows with a hex) over applied, which also counts finishes-only rows", () => {
+    const metrics = withHexDetectionTotals({
+      hexDetected: 3,
+      aiBatchApplyTotals: { applied: 50, appliedHex: 44 },
+    });
+    assert.equal(metrics.hexDetectedTotal, 47);
+  });
+
   it("counts a batch-only job (the worker detected nothing synchronously)", () => {
     const metrics = withHexDetectionTotals({
       hexDetected: 0,

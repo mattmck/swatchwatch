@@ -1,8 +1,9 @@
 /**
  * A job's hex count across both detection paths. The worker's `hexDetected` / `hexSnapped` only
  * count synchronous detections (it rebuilds them from its own totals on every write), while the
- * AI batch poller sums the detections it applies in `aiBatchApplyTotals`. `hexDetectedTotal` /
- * `hexSnappedTotal` add the two so a batch-mode job does not read as "0 hex detected".
+ * AI batch poller sums the detections it applies in `aiBatchApplyTotals` (`appliedHex`: matched
+ * rows with a hex). `hexDetectedTotal` / `hexSnappedTotal` add the two so a batch-mode job does not
+ * read as "0 hex detected".
  */
 
 function readCount(value: unknown): number {
@@ -23,7 +24,10 @@ export function withHexDetectionTotals<T extends Record<string, unknown>>(metric
   }
   return {
     ...metrics,
-    hexDetectedTotal: readCount(metrics.hexDetected) + readCount(batchTotals?.applied),
+    // `appliedHex` counts matched rows with a hex; older totals only have `applied`.
+    hexDetectedTotal:
+      readCount(metrics.hexDetected) +
+      readCount(batchTotals && "appliedHex" in batchTotals ? batchTotals.appliedHex : batchTotals?.applied),
     hexSnappedTotal: readCount(metrics.hexSnapped) + readCount(batchTotals?.hexSnapped),
   };
 }

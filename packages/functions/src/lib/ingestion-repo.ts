@@ -2108,7 +2108,10 @@ export interface AiBatchShadeDetectionInput {
 
 export interface ApplyAiBatchShadeDetectionsMetrics {
   processed: number;
+  /** Rows matched to a shade (hex and/or finishes). */
   applied: number;
+  /** Subset of `applied` that carried a detected hex, the batch counterpart of `hexDetected`. */
+  appliedHex: number;
   skippedNoDetection: number;
   noShadeMatch: number;
 }
@@ -2119,6 +2122,7 @@ export async function applyAiBatchShadeDetections(
   overwriteDetectedHex: boolean
 ): Promise<ApplyAiBatchShadeDetectionsMetrics> {
   let applied = 0;
+  let appliedHex = 0;
   let skippedNoDetection = 0;
   let noShadeMatch = 0;
 
@@ -2201,6 +2205,9 @@ export async function applyAiBatchShadeDetections(
 
     if (result.rows.length > 0) {
       applied += 1;
+      if (detectedHex) {
+        appliedHex += 1;
+      }
     } else {
       noShadeMatch += 1;
     }
@@ -2209,6 +2216,7 @@ export async function applyAiBatchShadeDetections(
   return {
     processed: detections.length,
     applied,
+    appliedHex,
     skippedNoDetection,
     noShadeMatch,
   };
