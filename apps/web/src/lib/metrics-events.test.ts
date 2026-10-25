@@ -10,7 +10,10 @@ import {
   importCompletedEvent,
   looksGeneratedEvent,
   looksWearClickedEvent,
+  looksColorLabOpenedEvent,
   maniLoggedEvent,
+  collectionOfflineShownEvent,
+  trackCollectionOfflineShown,
   trackLooksWearClicked,
   onboardingStepClickedEvent,
   trackOnboardingStepClicked,
@@ -204,6 +207,9 @@ describe("looks events", () => {
       mood: "soft",
       finish: "any",
       ownedOnly: false,
+      includeToppers: true,
+      undertone: "none",
+      depth: "none",
       trigger: "shuffle",
       lookCount: 1,
       ownedSteps: 1,
@@ -215,16 +221,48 @@ describe("looks events", () => {
     });
   });
 
+  it("looks.generated reports the skin-tone dimensions, 'none' when unset", () => {
+    const event = looksGeneratedEvent({
+      vibe: { occasion: "work", mood: "soft", finish: null, ownedOnly: false, skinTone: { undertone: "warm", depth: "tan" } },
+      looks: [look],
+      shortfall: false,
+      ownedCount: 4,
+      trigger: "vibe",
+    });
+    assert.equal(event.properties.undertone, "warm");
+    assert.equal(event.properties.depth, "tan");
+  });
+
   it("looks.wear_clicked carries the template and step counts", () => {
     const calls: Array<[string, MetricProperties]> = [];
     trackLooksWearClicked({ look, swapped: true, position: 2 }, (name, properties) => calls.push([name, properties]));
     assert.deepEqual(calls, [
       [
         "looks.wear_clicked",
-        { template: "french-modern", position: 2, ownedSteps: 1, missingSteps: 1, swapped: true },
+        { template: "french-modern", position: 2, ownedSteps: 1, missingSteps: 1, swapped: true, surface: "card" },
       ],
     ]);
     assert.equal(looksWearClickedEvent({ look, swapped: false, position: 0 }).properties.swapped, false);
+    assert.equal(looksWearClickedEvent({ look, swapped: false, position: 1, surface: "saved" }).properties.surface, "saved");
+  });
+
+  it("looks.generated reports the Include toppers toggle (#386)", () => {
+    const event = looksGeneratedEvent({
+      vibe: { occasion: "work", mood: "soft", finish: null, ownedOnly: false },
+      looks: [look],
+      shortfall: false,
+      ownedCount: 4,
+      trigger: "vibe",
+      includeToppers: false,
+    });
+    assert.equal(event.properties.includeToppers, false);
+  });
+
+  it("looks.color_lab_opened carries the template, surface and step counts (#386)", () => {
+    assert.deepEqual(looksColorLabOpenedEvent({ look, surface: "drawer", position: 1 }), {
+      name: "looks.color_lab_opened",
+      properties: { template: "french-modern", surface: "drawer", position: 1, ownedSteps: 1, missingSteps: 1 },
+    });
   });
 });
 
@@ -308,5 +346,20 @@ describe("metrics events: photo match (#105)", () => {
       ],
     ]);
     assert.equal(matchResultActionEvent({ action: "own", scope: "wishlist", view: "list", confidence: "medium", rank: 1, fromStatus: "wishlist" }).properties.fromStatus, "wishlist");
+  });
+});
+
+describe("collection.offline_shown", () => {
+  it("carries the surface and an age bucket only", () => {
+    assert.equal(METRIC_EVENTS.collectionOfflineShown, "collection.offline_shown");
+    const event = collectionOfflineShownEvent({ surface: "list", age: "lt_1d" });
+    assert.equal(event.name, "collection.offline_shown");
+    assert.deepEqual(event.properties, { surface: "list", age: "lt_1d" });
+  });
+
+  it("tracks through the injected tracker", () => {
+    const seen: Array<[string, MetricProperties]> = [];
+    trackCollectionOfflineShown({ surface: "detail", age: "lt_7d" }, (name, properties) => seen.push([name, properties]));
+    assert.deepEqual(seen, [["collection.offline_shown", { surface: "detail", age: "lt_7d" }]]);
   });
 });

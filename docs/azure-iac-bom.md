@@ -8,7 +8,7 @@ This is a minimal but production-safe layout for **one backend serving iOS/Andro
 ## Per-Environment (repeat for dev, stg, prod)
 
 ### Resource Groups (recommended)
-- `rg-np-{env}-core`  (Functions, APIM, monitoring, Key Vault)
+- `rg-np-{env}-core`  (Functions, monitoring, Key Vault)
 - `rg-np-{env}-data`  (Postgres/SQL, backups)
 - `rg-np-{env}-media` (Storage accounts, CDN config if used)
 - `rg-np-{env}-edge`  (Front Door, WAF, DNS)
@@ -18,7 +18,7 @@ This is a minimal but production-safe layout for **one backend serving iOS/Andro
 **Compute / API**
 - Azure Functions (HTTP API)
 - Durable Functions (can be same Function App)
-- (Optional early) API Management (policy/rate limiting/versioning)
+- ~~(Optional early) API Management (policy/rate limiting/versioning)~~ — dropped 2026-10-23 ([D25](decisions-2026-10.md#d25--azure-openai-apim-gateway-removed-2026-10-23)): Functions call Azure OpenAI directly
 
 **Storage / Media**
 - Storage Account:

@@ -20,6 +20,7 @@ import type {
 } from "swatchwatch-shared";
 import type { Look, Vibe } from "./looks";
 import type { GettingStartedStepId } from "./onboarding";
+import type { SavedCopyAge } from "./offline";
 import { trackEvent } from "./telemetry";
 
 export const METRIC_EVENTS = {
@@ -29,9 +30,11 @@ export const METRIC_EVENTS = {
   importCompleted: "import.completed",
   looksGenerated: "looks.generated",
   looksWearClicked: "looks.wear_clicked",
+  looksColorLabOpened: "looks.color_lab_opened",
   onboardingStepClicked: "onboarding.step_clicked",
   matchImageProcessed: "match.image_processed",
   matchResultAction: "match.result_action",
+  collectionOfflineShown: "collection.offline_shown",
 } as const;
 
 export type MetricEventName = (typeof METRIC_EVENTS)[keyof typeof METRIC_EVENTS];
@@ -283,6 +286,8 @@ export interface LooksGeneratedInput {
   /** Owned polishes the recommender considered. */
   ownedCount: number;
   trigger: LooksTrigger;
+  /** The "Include toppers" toggle (#386; default on). */
+  includeToppers?: boolean;
 }
 
 export function looksGeneratedEvent(input: LooksGeneratedInput): MetricEvent {
@@ -294,6 +299,9 @@ export function looksGeneratedEvent(input: LooksGeneratedInput): MetricEvent {
       mood: input.vibe.mood,
       finish: input.vibe.finish ?? "any",
       ownedOnly: input.vibe.ownedOnly,
+      includeToppers: input.includeToppers ?? true,
+      undertone: input.vibe.skinTone?.undertone ?? "none",
+      depth: input.vibe.skinTone?.depth ?? "none",
       trigger: input.trigger,
       lookCount: input.looks.length,
       ownedSteps: sum("ownedSteps"),
@@ -306,12 +314,17 @@ export function looksGeneratedEvent(input: LooksGeneratedInput): MetricEvent {
   };
 }
 
+/** Where a Looks action was taken: a live look card, its details drawer, or the Saved tab. */
+export type LooksSurface = "card" | "drawer" | "saved";
+
 export interface LooksWearClickedInput {
   look: LookCounts;
   /** Whether the user swapped any step before wearing. */
   swapped: boolean;
-  /** 0-based card position. */
+  /** 0-based card position (in the Saved list for `surface: "saved"`). */
   position: number;
+  /** Default `card`. */
+  surface?: Exclude<LooksSurface, "drawer">;
 }
 
 export function looksWearClickedEvent(input: LooksWearClickedInput): MetricEvent {
@@ -323,6 +336,28 @@ export function looksWearClickedEvent(input: LooksWearClickedInput): MetricEvent
       ownedSteps: input.look.ownedSteps,
       missingSteps: input.look.missingSteps,
       swapped: input.swapped,
+      surface: input.surface ?? "card",
+    },
+  };
+}
+
+export interface LooksColorLabOpenedInput {
+  look: LookCounts;
+  surface: LooksSurface;
+  /** 0-based card position (in the Saved list for `surface: "saved"`). */
+  position: number;
+}
+
+/** "Open in Color Lab" (#386): the look's palette handed to `/polishes/search`. */
+export function looksColorLabOpenedEvent(input: LooksColorLabOpenedInput): MetricEvent {
+  return {
+    name: METRIC_EVENTS.looksColorLabOpened,
+    properties: {
+      template: input.look.templateId,
+      surface: input.surface,
+      position: input.position,
+      ownedSteps: input.look.ownedSteps,
+      missingSteps: input.look.missingSteps,
     },
   };
 }
@@ -335,9 +370,31 @@ export function trackLooksWearClicked(input: LooksWearClickedInput, tracker: Met
   emit(looksWearClickedEvent(input), tracker);
 }
 
+export function trackLooksColorLabOpened(input: LooksColorLabOpenedInput, tracker: MetricTracker = defaultTracker): void {
+  emit(looksColorLabOpenedEvent(input), tracker);
+}
+
 export function trackOnboardingStepClicked(
   input: OnboardingStepInput,
   tracker: MetricTracker = defaultTracker
 ): void {
   emit(onboardingStepClickedEvent(input), tracker);
+}
+
+/** Which page showed the saved copy: the owned list or an owned polish's detail page. */
+export type OfflineSurface = "list" | "detail";
+
+/** The API was unreachable and a saved copy of the collection was shown instead (age bucketed). */
+export function collectionOfflineShownEvent(input: { surface: OfflineSurface; age: SavedCopyAge }): MetricEvent {
+  return {
+    name: METRIC_EVENTS.collectionOfflineShown,
+    properties: { surface: input.surface, age: input.age },
+  };
+}
+
+export function trackCollectionOfflineShown(
+  input: { surface: OfflineSurface; age: SavedCopyAge },
+  tracker: MetricTracker = defaultTracker
+): void {
+  emit(collectionOfflineShownEvent(input), tracker);
 }

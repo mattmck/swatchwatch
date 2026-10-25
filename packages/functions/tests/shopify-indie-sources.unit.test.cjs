@@ -63,6 +63,50 @@ describe("indie Shopify sources (#273, #328)", () => {
     }
   });
 
+  const BATCH_3 = {
+    StellaChromaShopify: "https://stellachroma.com",
+    LemmingLacquerShopify: "https://lemminglacquer.com",
+    SweetAndSourLacquerShopify: "https://sweetandsourlacquer.com",
+  };
+
+  it("enables the three stores whose written permission arrived on 2026-10-22 (batch 3)", () => {
+    for (const [source, baseUrl] of Object.entries(BATCH_3)) {
+      assert.ok(SUPPORTED_SOURCES.includes(source), source);
+      assert.equal(SHOPIFY_SOURCE_BASE_URLS[source], baseUrl, source);
+      assert.equal(SHOPIFY_SOURCES_PENDING_APPROVAL.has(source), false, source);
+      assert.equal(isShopifySourceEnabledByDefault(source), true, source);
+      const tuple = seedTuple(SEED_SQL, source);
+      assert.match(tuple, /,\s*true,\s*'\{/, `${source} must be seeded enabled`);
+      assert.doesNotMatch(tuple, /"pendingApproval"/, source);
+      assert.match(tuple, /written permission received by the owner by email on 2026-10-22/, source);
+      assert.match(tuple, /policies\/terms-of-service/, `${source} notes must name the terms page`);
+      assert.doesNotMatch(tuple, /Disabled pending|not yet confirmed/, source);
+    }
+  });
+
+  it("the batch 3 migration inserts the stores enabled, marks its rows, and its Down reverts only those (#394 pattern)", () => {
+    const files = readdirSync(MIGRATIONS_DIR).sort();
+    const file = files.find((entry) => entry.endsWith("_add-approved-indie-shopify-sources.sql"));
+    assert.ok(file, "batch 3 migration missing");
+    const id = file.split("_")[0];
+    const sql = readFileSync(resolve(MIGRATIONS_DIR, file), "utf8");
+    const at = sql.search(/^\s*--[\s-]*down\s+migration/im);
+    const up = sql.slice(0, at);
+    const down = sql.slice(at);
+    for (const source of Object.keys(BATCH_3)) {
+      assert.ok(up.includes(`'${source}'`), `${source} not inserted`);
+      assert.ok(down.includes(`'${source}'`), `${source} not reverted`);
+    }
+    assert.equal((up.match(new RegExp(`"insertedByMigration": "${id}"`, "g")) || []).length, 3, "each inserted row is marked");
+    assert.match(up, /EXCLUDED\.metadata - 'insertedByMigration'/, "a pre-existing row must never be marked as inserted");
+    assert.match(up, /enabled\s+=\s+true/);
+    assert.ok(up.includes(`"enabledByMigration": "${id}"`), "a pre-existing disabled row is marked as enabled here");
+    assert.match(up, /WHERE name = 'NightOwlLacquerShopify'\s+AND metadata->>'pendingApproval' = 'true'/, "Night Owl is enabled only while pending");
+    assert.match(down, new RegExp(`metadata->>'insertedByMigration' = '${id}'\\s+AND NOT EXISTS`), "down deletes only marked rows without history");
+    assert.ok(down.includes(`metadata->>'enabledByMigration' = '${id}'`), "down re-disables only rows this migration enabled");
+    assert.doesNotMatch(down, /DELETE FROM data_source[^;]*NightOwl/, "Night Owl is never deleted");
+  });
+
   it("a migration inserts the indie sources disabled and another enables the signed-off ones", () => {
     const read = (suffix) =>
       readdirSync(MIGRATIONS_DIR)
@@ -90,11 +134,97 @@ describe("indie Shopify sources (#273, #328)", () => {
       "down must only revert rows this migration enabled"
     );
   });
+
+  it("rolling back the second indie migration deletes only the rows it inserted (#375)", () => {
+    const files = readdirSync(MIGRATIONS_DIR).sort();
+    const addMore = files.find((file) => file.endsWith("_add-more-indie-shopify-sources.sql"));
+    const guard = files.find((file) => file.endsWith("_guard-more-indie-shopify-sources-rollback.sql"));
+    assert.ok(addMore && guard, "migrations missing");
+    assert.ok(guard > addMore, "the guard must be rolled back before the migration it protects");
+    const split = (file) => {
+      const sql = readFileSync(resolve(MIGRATIONS_DIR, file), "utf8");
+      const at = sql.search(/^\s*--[\s-]*down\s+migration/im);
+      return { up: sql.slice(0, at), down: sql.slice(at) };
+    };
+    const addMoreDown = split(addMore).down;
+    const deleted = addMoreDown.match(/DELETE FROM data_source AS ds\s+WHERE ds\.name IN \(([^)]*)\)/);
+    assert.ok(deleted, "the original rollback DELETE changed; re-check the guard");
+    const deletedNames = deleted[1].match(/'[^']+'/g);
+
+    const { up, down } = split(guard);
+    const marker = `'{"insertedByMigration": "${addMore.split("_")[0]}"}'`;
+    // Up marks only rows the original migration inserted: found by its own pgmigrations row,
+    // created in the seconds before it was recorded, and never an auto-provisioned row.
+    assert.ok(up.includes(marker), "up must stamp the marker");
+    assert.ok(up.includes(`m.name = '${addMore.replace(/\.sql$/, "")}'`), "up must read the original's run_on");
+    assert.match(up, /NOT COALESCE\(ds\.metadata \? 'autoProvisioned', false\)/);
+    assert.match(up, /ds\.created_at <= m\.run_on\s+AND ds\.created_at > m\.run_on - interval '10 seconds'/);
+    for (const name of deletedNames) assert.ok(up.includes(name), `${name} not marked`);
+
+    // Down leaves a guard that skips the delete of every unmarked row the original DELETE targets.
+    assert.match(down, /CREATE TRIGGER data_source_keep_preexisting_indie_shopify_rows\s+BEFORE DELETE ON data_source\s+FOR EACH ROW/);
+    const when = down.match(/WHEN \(([\s\S]*?)\)\s+EXECUTE FUNCTION/);
+    assert.ok(when, "guard needs a WHEN clause");
+    for (const name of deletedNames) assert.ok(when[1].includes(name), `${name} not guarded`);
+    assert.match(
+      when[1],
+      new RegExp(`\\(OLD\\.metadata->>'insertedByMigration'\\) IS DISTINCT FROM '${addMore.split("_")[0]}'`),
+      "only unmarked rows may be kept"
+    );
+    assert.match(down, /RETURN NULL;/, "the guard must skip the delete, not fail the rollback");
+    assert.doesNotMatch(down, /DROP FUNCTION|- 'insertedByMigration'/, "down must keep the guard and the marker");
+  });
+
+  it("rolling back the first indie migration deletes only the rows it inserted", () => {
+    const files = readdirSync(MIGRATIONS_DIR).sort();
+    const addIndie = files.find((file) => file.endsWith("_add-indie-shopify-sources.sql"));
+    const guard = files.find((file) => file.endsWith("_guard-indie-shopify-sources-rollback.sql"));
+    assert.ok(addIndie && guard, "migrations missing");
+    assert.ok(guard > addIndie, "the guard must be rolled back before the migration it protects");
+    const split = (file) => {
+      const sql = readFileSync(resolve(MIGRATIONS_DIR, file), "utf8");
+      const at = sql.search(/^\s*--[\s-]*down\s+migration/im);
+      return { up: sql.slice(0, at), down: sql.slice(at) };
+    };
+    const addIndieDown = split(addIndie).down;
+    const deleted = addIndieDown.match(/DELETE FROM data_source AS ds\s+WHERE ds\.name IN \(([^)]*)\)/);
+    assert.ok(deleted, "the original rollback DELETE changed; re-check the guard");
+    const deletedNames = deleted[1].match(/'[^']+'/g);
+
+    const { up, down } = split(guard);
+    const marker = `'{"insertedByMigration": "${addIndie.split("_")[0]}"}'`;
+    // Up marks only rows the original migration inserted: found by its own pgmigrations row,
+    // created in the seconds before it was recorded, and never an auto-provisioned row.
+    assert.ok(up.includes(marker), "up must stamp the marker");
+    assert.ok(up.includes(`m.name = '${addIndie.replace(/\.sql$/, "")}'`), "up must read the original's run_on");
+    assert.match(up, /NOT COALESCE\(ds\.metadata \? 'autoProvisioned', false\)/);
+    assert.match(up, /ds\.created_at <= m\.run_on\s+AND ds\.created_at > m\.run_on - interval '10 seconds'/);
+    for (const name of deletedNames) assert.ok(up.includes(name), `${name} not marked`);
+
+    // Down leaves a guard that skips the delete of every unmarked row the original DELETE targets.
+    assert.match(down, /CREATE TRIGGER data_source_keep_preexisting_nightowl_pahlish_rows\s+BEFORE DELETE ON data_source\s+FOR EACH ROW/);
+    const when = down.match(/WHEN \(([\s\S]*?)\)\s+EXECUTE FUNCTION/);
+    assert.ok(when, "guard needs a WHEN clause");
+    for (const name of deletedNames) assert.ok(when[1].includes(name), `${name} not guarded`);
+    assert.match(
+      when[1],
+      new RegExp(`\\(OLD\\.metadata->>'insertedByMigration'\\) IS DISTINCT FROM '${addIndie.split("_")[0]}'`),
+      "only unmarked rows may be kept"
+    );
+    assert.match(down, /RETURN NULL;/, "the guard must skip the delete, not fail the rollback");
+    assert.doesNotMatch(down, /DROP FUNCTION|- 'insertedByMigration'/, "down must keep the guard and the marker");
+  });
 });
 
 describe("resolveShopifyVendor", () => {
   it("keeps a real vendor", () => {
     assert.equal(resolveShopifyVendor("Night Owl Lacquer", "Fallback"), "Night Owl Lacquer");
+  });
+
+  it("uses the brand's casing for an all-caps vendor that spells it (Stella Chroma)", () => {
+    assert.equal(resolveShopifyVendor("STELLA CHROMA", "Stella Chroma"), "Stella Chroma");
+    assert.equal(resolveShopifyVendor("Emily de Molly", "Emily De Molly"), "Emily de Molly");
+    assert.equal(resolveShopifyVendor("ILNP", "Stella Chroma"), "ILNP");
   });
 
   it("falls back to the source brand for missing or placeholder vendors", () => {

@@ -76,8 +76,6 @@ export interface VisionHexBatchDetection {
 interface AzureOpenAiBatchConfig {
   endpoint: string;
   apiKey: string | null;
-  gatewaySubscriptionKey: string | null;
-  useGateway: boolean;
   deployment: string;
   apiVersion: string;
 }
@@ -95,25 +93,19 @@ function getBatchConfig(): AzureOpenAiBatchConfig {
 
   if (!resolved.isValid || !resolved.endpoint || !resolved.deployment) {
     throw new Error(
-      "Azure OpenAI batch configuration is incomplete (AZURE_OPENAI_ENDPOINT|AZURE_OPENAI_GATEWAY_ENDPOINT, AZURE_OPENAI_KEY|AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY, AZURE_OPENAI_DEPLOYMENT_HEX_BATCH|AZURE_OPENAI_DEPLOYMENT_HEX|AZURE_OPENAI_DEPLOYMENT). For gateway-only mode, set AZURE_OPENAI_USE_GATEWAY=true with AZURE_OPENAI_GATEWAY_ENDPOINT and AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY."
+      "Azure OpenAI batch configuration is incomplete (AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_KEY, AZURE_OPENAI_DEPLOYMENT_HEX_BATCH|AZURE_OPENAI_DEPLOYMENT_HEX|AZURE_OPENAI_DEPLOYMENT)."
     );
   }
 
   return {
     endpoint: resolved.endpoint,
     apiKey: resolved.apiKey,
-    gatewaySubscriptionKey: resolved.gatewaySubscriptionKey,
-    useGateway: resolved.effectiveUseGateway,
     deployment: resolved.deployment,
     apiVersion,
   };
 }
 
 function buildAuthHeaders(cfg: AzureOpenAiBatchConfig): Record<string, string> {
-  if (cfg.useGateway && cfg.gatewaySubscriptionKey) {
-    return { "Ocp-Apim-Subscription-Key": cfg.gatewaySubscriptionKey };
-  }
-
   if (cfg.apiKey) {
     return { "api-key": cfg.apiKey };
   }

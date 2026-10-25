@@ -17,6 +17,12 @@ const DEFAULT_BATCH_SIZE = 25;
 const MAX_BATCH_SIZE = 100;
 const CONCURRENCY = 4;
 const MAX_REPORTED_FAILURES = 20;
+/**
+ * Wall-clock budget per batch. Images still missing variants cost a blob read, four renders and four
+ * writes each, so a full 100-row batch can outlast the front end's 230s HTTP limit (the caller then
+ * never gets its cursor). Once the budget is spent no new image is started and the batch ends early.
+ */
+const BATCH_TIME_BUDGET_MS = 45_000;
 
 export interface ImageVariantBackfillResponse {
   /** `image_asset` rows read in this batch. */
@@ -30,7 +36,10 @@ export interface ImageVariantBackfillResponse {
   /** Rows skipped: not a catalog blob on the configured storage account. */
   skipped: number;
   failures: { imageId: number; error: string }[];
-  /** Pass as `afterImageId` for the next batch; null when the scan is finished. */
+  /**
+   * Pass as `afterImageId` for the next batch; null when the scan is finished. A batch that ran out
+   * of time returns the last row it finished, so the next batch picks up the rest.
+   */
   nextAfterImageId: number | null;
 }
 
@@ -54,12 +63,17 @@ function parseBody(raw: unknown): { afterImageId: number; limit: number } | stri
  * Admin-only. Keyset-paginated over `image_asset` (`owner_type = 'source'`, `image_id > afterImageId`,
  * `limit` rows, default 25, max 100): the caller repeats with `nextAfterImageId` until it is null
  * (`scripts/backfill-image-variants.cjs` does the loop). Idempotent: existing variants are skipped
- * without reading the original, so a re-run only fills gaps.
+ * without reading the original, so a re-run only fills gaps. Each batch stops starting new images
+ * after `BATCH_TIME_BUDGET_MS` and then reports fewer rows than `limit` with a cursor to continue.
  */
 export async function backfillImageVariants(
   request: HttpRequest,
-  context: InvocationContext
+  context: InvocationContext,
+  options: { timeBudgetMs?: number; now?: () => number } = {}
 ): Promise<HttpResponseInit> {
+  const now = options.now ?? Date.now;
+  const timeBudgetMs = options.timeBudgetMs ?? BATCH_TIME_BUDGET_MS;
+  const startedAt = now();
   const connectionString = process.env.AZURE_STORAGE_CONNECTION?.trim();
   if (!connectionString) {
     return { status: 503, jsonBody: { error: "AZURE_STORAGE_CONNECTION is not configured" } };
@@ -97,30 +111,39 @@ export async function backfillImageVariants(
     nextAfterImageId: null,
   };
 
-  const byUrl = new Map<string, number>();
-  for (const row of rows.rows) {
+  // Distinct catalog URLs in image_id order, each with the row index where it first appears.
+  const skippedRows: boolean[] = [];
+  const byUrl = new Map<string, { imageId: number; rowIndex: number }>();
+  rows.rows.forEach((row, rowIndex) => {
     const url = row.storage_url;
     const blobName = storageUrlBlobName(url);
-    if (!isCatalogStorageUrl(url) || !blobName || isImageVariantBlobName(blobName)) {
-      response.skipped += 1;
-      continue;
-    }
-    if (!byUrl.has(url)) byUrl.set(url, Number(row.image_id));
-  }
+    skippedRows.push(!isCatalogStorageUrl(url) || !blobName || isImageVariantBlobName(blobName));
+    if (!skippedRows[rowIndex] && !byUrl.has(url)) byUrl.set(url, { imageId: Number(row.image_id), rowIndex });
+  });
 
   // isCatalogStorageUrl above: every remaining URL is in the catalog container.
   const [containerName] = defaultReadableContainers();
   const limit = pLimit(CONCURRENCY);
+  // Images start in row order, so once the budget is spent the unstarted ones are a suffix of the
+  // batch; the first of them is where the next batch resumes. The first image always runs.
+  let started = 0;
+  let deferredFromRow = rows.rows.length;
   await Promise.all(
-    [...byUrl].map(([storageUrl, imageId]) =>
+    [...byUrl].map(([storageUrl, { imageId, rowIndex }]) =>
       limit(async () => {
+        if (started > 0 && now() - startedAt >= timeBudgetMs) {
+          deferredFromRow = Math.min(deferredFromRow, rowIndex);
+          return;
+        }
+        started += 1;
         response.checked += 1;
         try {
           const result = await ensureImageVariants({
             connectionString,
             containerName,
             blobName: storageUrlBlobName(storageUrl),
-            bytes: async () => (await readBlobFromStorageUrl(storageUrl)).bytes,
+            // Transient blob read failures (`fetch failed`) are retried rather than reported.
+            bytes: async () => (await readBlobFromStorageUrl(storageUrl, { retry: true })).bytes,
           });
           response.variantsWritten += result.written.length;
           if (result.written.length === 0 && result.failed.length === 0) response.complete += 1;
@@ -136,12 +159,16 @@ export async function backfillImageVariants(
 
   const failureCount = response.failures.length;
   response.failures = response.failures.sort((a, b) => a.imageId - b.imageId).slice(0, MAX_REPORTED_FAILURES);
-  if (rows.rows.length === parsed.limit) {
-    response.nextAfterImageId = Number(rows.rows[rows.rows.length - 1].image_id);
+  const processedRows = deferredFromRow;
+  response.scanned = processedRows;
+  response.skipped = skippedRows.slice(0, processedRows).filter(Boolean).length;
+  if (processedRows < rows.rows.length || rows.rows.length === parsed.limit) {
+    response.nextAfterImageId = Number(rows.rows[processedRows - 1].image_id);
   }
 
   context.log(
-    `[image-variants-admin] backfill after=${parsed.afterImageId} scanned=${response.scanned} written=${response.variantsWritten} failed=${failureCount}`
+    `[image-variants-admin] backfill after=${parsed.afterImageId} scanned=${response.scanned} written=${response.variantsWritten} failed=${failureCount}` +
+      (processedRows < rows.rows.length ? ` stopped early after ${now() - startedAt}ms (time budget)` : "")
   );
   trackEvent("image_variants.backfill_batch", {
     scanned: String(response.scanned),

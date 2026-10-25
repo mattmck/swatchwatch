@@ -8,7 +8,7 @@
 ![PRs](https://img.shields.io/github/issues-pr/mattmck/swatchwatch)
 ![License](https://img.shields.io/github/license/mattmck/swatchwatch)
 
-Smart nail polish collection manager with voice input, color-based search, and cross-platform support.
+Smart nail polish collection manager with color-based search, barcode and camera Rapid Add, a mani log, Looks, and web and Expo mobile apps (public wishlist and look share links ship behind server flags, off by default).
 
 ## Architecture
 
@@ -16,7 +16,7 @@ Smart nail polish collection manager with voice input, color-based search, and c
 swatchwatch/
 ├── apps/
 │   ├── web/              → Next.js 16 (App Router) + Tailwind v4 + shadcn/ui
-│   └── mobile/           → Expo / React Native (SDK 54)
+│   └── mobile/           → Expo / React Native (SDK 57, Expo Router)
 ├── packages/
 │   ├── functions/        → Azure Functions v4 (Node 22, TypeScript)
 │   └── shared/           → Shared TypeScript types (polish, user, voice)
@@ -75,7 +75,7 @@ npm run dev              # → web on http://localhost:3000, API on http://local
 # Or run pieces individually
 npm run dev:web          # → web only
 npm run dev:functions    # → functions only (builds on change via TypeScript watch)
-npm run dev:mobile       # → mobile via Expo
+npm run dev:mobile       # → mobile via Expo (see apps/mobile/README.md)
 ```
 
 ## All Commands
@@ -86,19 +86,29 @@ npm run dev:mobile       # → mobile via Expo
 | `npm run dev:infra` | Start local Postgres + Azurite containers in Docker |
 | `npm run dev` | Run shared type watcher, Functions host, and web dev server together (CTRL+C stops all) |
 | `npm run dev:web` | Next.js dev server (port 3000) |
-| `npm run dev:mobile` | Expo start |
+| `npm run dev:mobile` | Build shared types, then Expo start for `apps/mobile` (copy `apps/mobile/.env.example` to `.env.local` first) |
+| `npm run lint\|typecheck\|test --workspace=apps/mobile` | Mobile ESLint, `tsc --noEmit` and unit tests (what CI's Mobile job runs) |
+| `npm run sync:design-tokens` | Regenerate the shared light/dark color tokens (used by mobile) from the web theme; `-- --check` fails on drift |
 | `npm run dev:functions` | Functions TypeScript watch + Azure Functions Core Tools (`func start`) |
+| `npm run dev:shared` | Watch-build `packages/shared` only |
 | `npm run build` | Build all workspaces (shared → web → functions) |
 | `npm run build:shared` | Build shared types only |
-| `npm run build:web` | Build shared types + Next.js production build |
+| `npm run build:web` | Build shared types + Next.js production build + `out/sw.js` (PWA service worker precache, `apps/web/scripts/build-sw.mjs`) |
 | `npm run build:functions` | Build shared types + TypeScript compile for functions |
 | `npm run lint` | ESLint across all workspaces |
 | `npm run test` | Run workspace tests where present (includes Functions unit tests; builds shared + functions first) |
+| `npm run test --workspace=swatchwatch-shared` | Shared unit tests (color harmonies, Pair it; node:test via tsx; CI's "Shared unit tests" step) |
 | `npm run test:e2e --workspace=swatchwatch-functions` | E2E API + cross-user access-control tests against a running local Functions host (`AUTH_DEV_BYPASS=true`); skips when the host is unreachable |
 | `npm run backfill:product-category --workspace=swatchwatch-functions` | Re-classify every shade's product category (#349, #347) via `POST /api/shades-admin/product-category/backfill` and save the JSON report (`--out`); dry run unless `--write`; `--clear-topper-hex` also clears suspicious topper detected hexes (logged for undo); `API_BASE_URL`, `ADMIN_BEARER_TOKEN` |
+| `npm run backfill:product-price --workspace=swatchwatch-functions` | Recompute product `price`/`currency` (brand list price for the buy link) from `raw_json`; Shopify store currency from `data_source.metadata.currency`, earlier ingests, or the shop's `/meta.json` (`--no-fetch-currency` skips it); dry run unless `--write`; needs Postgres |
 | `npm run backfill:product-text --workspace=swatchwatch-functions` | Recompute product `descriptionText`/`descriptors` from `raw_json` and report empty-finish coverage (#352); dry run unless `--write` (`--fill-finishes` also fills empty shade finishes) |
+| `npm run eval:bottle --workspace=swatchwatch-functions` | Bottle recognition eval: replays every bottle eval sample through the capture API (start → frames → read-only check, never finalize) and scores the answers against the labels; `--verbose`, `--only`, `--limit`; report JSON in `packages/functions/eval/bottle/results` (gitignored); `API_BASE_URL`, `ADMIN_BEARER_TOKEN`, Postgres and storage from `local.settings.json` |
 | `npm run typecheck` | `tsc --noEmit` across all workspaces |
+| `npm run migrate` / `npm run migrate:down` | Apply pending Postgres migrations / roll back the last one (copies `local.settings.json` values into the environment first, overriding exported or inline variables of the same name; then `DATABASE_URL` if set, else `PG*`) |
+| `npm run generate:types` | Regenerate the `SupportedConnectorSource` type from `docs/seed_data_sources.sql` |
+| `npm run generate:pwa-icons` | Regenerate the PWA / apple-touch PNG icons in `apps/web/public` from the brand SVG (commit the PNGs) |
 | `npm run dedupe:gallery-images --workspace=swatchwatch-functions` | Unlink catalog gallery images that duplicate another image of the same shade (the same vendor picture stored twice), matched perceptually, in batches via `POST /api/images-admin/gallery-dedupe` (`API_BASE_URL`, `ADMIN_BEARER_TOKEN`; dry run unless `--write`, `--shade <ids>`, `--after <shadeId>` resumes); also backfills `image_asset` perceptual fingerprints, even in a dry run, unless `--no-store-fingerprints` |
+| `npm run backfill:barcodes --workspace=swatchwatch-functions` | Build catalog `barcode` rows from stored connector products (GTIN + variant barcodes → shade via `shade_source_product`) in batches via `POST /api/barcodes-admin/backfill` (`API_BASE_URL`, `ADMIN_BEARER_TOKEN`; dry run unless `--write`, `--after <externalProductId>` resumes; first shade to claim a GTIN keeps it, conflicts are listed) |
 | `npm run backfill:image-variants --workspace=swatchwatch-functions` | Generate missing pre-generated catalog thumbnails for images stored before variants existed, in batches via `POST /api/images-admin/variants/backfill` (`API_BASE_URL`, `ADMIN_BEARER_TOKEN`; idempotent, `--after <imageId>` resumes) |
 
 `dev`, `dev:web`, `dev:functions`, and `dev:shared` run a dependency preflight and print a clear
@@ -111,10 +121,10 @@ npm run dev:mobile       # → mobile via Expo
 | Workflow | Purpose | Trigger |
 |----------|---------|---------|
 | `.github/workflows/deploy.yml` | Reusable app deploy workflow (web + functions + smoke tests) | Called by env-specific workflows, manual dispatch |
-| `.github/workflows/deploy-dev.yml` | Deploy app stack to dev | Push to `dev`, manual dispatch |
+| `.github/workflows/deploy-dev.yml` | Deploy app stack to dev (runs infra first when infra files changed) | Push to `dev`, manual dispatch |
 | `.github/workflows/deploy-prod.yml` | Deploy app stack to prod (runs infra first when `infrastructure/**` changed) | Push to `main`, manual dispatch |
 | `.github/workflows/deploy-infra.yml` | Reusable Terraform deploy workflow | Called by env-specific workflows, manual dispatch |
-| `.github/workflows/deploy-infra-dev.yml` | Deploy Terraform infrastructure to dev | Push to `dev` when `infrastructure/**` changes, manual dispatch |
+| `.github/workflows/deploy-infra-dev.yml` | Deploy Terraform infrastructure to dev (infra-only; never while Deploy Dev runs, see `infrastructure/README.md` → Deploy ordering) | Manual dispatch |
 | `.github/workflows/deploy-infra-prod.yml` | Deploy Terraform infrastructure to prod (infra-only) | Manual dispatch |
 
 Claude assistant workflows (`.github/workflows/claude.yml`, `.github/workflows/claude-code-review.yml`) are advisory and configured as non-blocking, so quota/credit failures emit warnings without failing the overall run.
@@ -139,7 +149,7 @@ The web app is the most developed part of the project. Key pages:
 |-------|------|-------------|
 | `/` | `apps/web/src/app/(marketing)/page.tsx` | Marketing landing page |
 | `/dashboard` | `apps/web/src/app/(app)/dashboard/page.tsx` | Dashboard — stats cards, recent additions, finish breakdown |
-| `/admin` | `apps/web/src/app/(admin)/admin/page.tsx` | Unified admin console — tabs: Configuration (finish/harmony CRUD), Job Runs (reference-admin jobs), Admin Jobs (ingestion jobs), User Management (search/filter/sort users, detail dialog to edit the handle and suspend/reactivate, audit history, duplicate-account merge), Review Queue (user-submitted shades), Hex Labeling (eyedropper ground-truth hexes for the hex-detection eval) |
+| `/admin` | `apps/web/src/app/(admin)/admin/page.tsx` | Unified admin console — tabs: Configuration (finish/harmony CRUD), Job Runs (reference-admin jobs), Admin Jobs (ingestion jobs), User Management (search/filter/sort users, detail dialog to edit the handle and suspend/reactivate, audit history, duplicate-account merge), Review Queue (user-submitted shades), Hex Labeling (eyedropper ground-truth hexes for the hex-detection eval), Backfills (runs the `backfill:*` / `dedupe:gallery-images` jobs below in batches from the browser, dry run / apply, stop and resume) |
 | `/admin/reference-data` | `apps/web/src/app/(admin)/admin/reference-data/page.tsx` | Legacy redirect → `/admin?tab=configuration` |
 | `/admin/jobs` | `apps/web/src/app/(app)/admin/jobs/page.tsx` | Legacy redirect → `/admin?tab=admin-jobs` |
 | `/polishes` | `apps/web/src/app/(app)/polishes/page.tsx` | Collection table — search/filter/sort with All/My Collection scope toggle and URL-persisted list state |
@@ -156,55 +166,27 @@ The web app is the most developed part of the project. Key pages:
 
 ## Environment Variables
 
-Functions require secrets defined in `packages/functions/local.settings.json`:
+Each deploy target has its own settings. The full references, grouped by module with defaults, live next to the code:
 
-| Variable | Purpose |
-|----------|---------|
-| `PGHOST` | PostgreSQL host |
-| `PGPORT` | PostgreSQL port |
-| `PGDATABASE` | PostgreSQL database name |
-| `PGUSER` | PostgreSQL username |
-| `PGPASSWORD` | PostgreSQL password |
-| `AZURE_STORAGE_CONNECTION` | Storage account (swatch/nail photos). In local dev this points to Azurite (see "Local storage emulator" below). |
-| `INGESTION_JOB_QUEUE_NAME` | Optional async ingestion queue name (default: `ingestion-jobs`) |
-| `SOURCE_IMAGE_CONTAINER` | Optional container for source-ingested product images (default: `source-images`) |
-| `BLOB_READ_SAS_TTL_SECONDS` | Optional signed read URL TTL for blob-backed swatch images, in seconds (default: `3600`) |
-| `AZURE_SPEECH_KEY` | Azure Speech Services key |
-| `AZURE_SPEECH_REGION` | Azure Speech Services region |
-| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint for voice parsing |
-| `AZURE_OPENAI_KEY` | Azure OpenAI key |
-| `AZURE_OPENAI_GATEWAY_ENDPOINT` | Optional APIM gateway base URL for Azure OpenAI proxying |
-| `AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY` | Optional APIM subscription key used when gateway mode is enabled |
-| `AZURE_OPENAI_USE_GATEWAY` | Feature flag (`true`/`false`) to route OpenAI calls through APIM |
-| `AZURE_OPENAI_DEPLOYMENT_HEX` | Optional Azure OpenAI deployment name for image-based hex detection |
-| `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` | Optional Azure OpenAI deployment name for batch image hex detection (falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`) |
-| `AZURE_OPENAI_DEPLOYMENT_HEX_ENSEMBLE` | Optional comma-separated deployment names for the hex-eval `ensemble` strategy (eval-only; falls back to `AZURE_OPENAI_DEPLOYMENT_HEX`) |
-| `AZURE_OPENAI_BATCH_API_VERSION` | Optional API version used for Azure OpenAI Files/Batch endpoints (default `2025-03-01-preview`) |
-| `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` | Optional completion window sent during batch creation (default `24h`) |
-| `AZURE_OPENAI_VISION_DETAIL` | Optional image detail level for vision hex detection: `low` (default), `high`, or `auto` |
-| `HEX_DETECTION_BATCH_ENABLED` | Feature flag for Azure OpenAI Batch API during Shopify image detection (default `false`) |
-| `HEX_DETECTION_BATCH_MIN_IMAGES` | Minimum record count before ingestion switches to batch detection (default `5`) |
-| `INGESTION_AI_BATCH_POLL_SCHEDULE` | NCRONTAB schedule for the timer poller that checks awaiting batch jobs (default `0 * * * * *`, every minute) |
-| `INGESTION_AI_BATCH_MAX_POLL_JOBS` | Max awaiting batch-backed ingestion jobs processed per poll run (default `10`) |
-| `INGESTION_AI_IMAGE_PROXY_ORIGIN` | Optional public origin used to build AI image-proxy URLs for Azure OpenAI vision calls (defaults to `https://$WEBSITE_HOSTNAME`) |
-| `INGESTION_LOG_FLUSH_INTERVAL_MS` | Interval for ingestion worker metric/log flushes while a job runs (default `10000`) |
-| `INGESTION_JOB_LOG_MAX_ENTRIES` | Entries kept in a job's log across the whole run (default `500`, clamped 100–2000); keeps the start and the newest lines, with a marker counting the omitted ones |
-| `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS` | Per-request timeout for Shopify `products.json` downloads (default `45000`) |
-| `SHOPIFY_CONNECTOR_MAX_RETRIES` | Retry count for transient Shopify request errors (default `2`) |
-| `SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS` | Linear backoff base delay for Shopify retries (default `1000`) |
-| `PG_POOL_MAX` | Postgres pool max client count for Functions process (default `10`) |
-| `PG_IDLE_TIMEOUT_MS` | Idle timeout for pooled Postgres clients (default `30000`) |
-| `PG_CONNECTION_TIMEOUT_MS` | Connection acquisition timeout for Postgres clients (default `15000`) |
-| `PG_QUERY_MAX_RETRIES` | Retries for retry-safe DB queries (`SELECT` and `UPDATE ingestion_job`) on connection timeouts (default `2`) |
-| `PG_QUERY_RETRY_BASE_MS` | Linear backoff base delay for retry-safe DB query retries (default `250`) |
-| `APPLICATIONINSIGHTS_CONNECTION_STRING` | Optional App Insights connection string for custom function telemetry events/metrics |
-| `AZURE_AD_B2C_TENANT` | B2C tenant name |
-| `AZURE_AD_B2C_CLIENT_ID` | B2C app client ID |
-| `AUTH_DEV_BYPASS` | Dev-only bypass (`true` enables `Bearer dev:<userId>` tokens); do not use in shared/prod environments |
-| `NEXT_PUBLIC_API_URL` | Web API base URL used at web build time |
-| `NEXT_PUBLIC_AUTH_DEV_BYPASS` | Web dev-only bypass toggle (`true` makes the UI send `Authorization: Bearer dev:1`) |
-| `NEXT_PUBLIC_AUTH_DEV_ADMIN_USER_ID` | Optional web admin bypass user id for admin-only API calls (defaults to `2`) |
-| `NEXT_PUBLIC_B2C_API_SCOPE` | Optional web auth scope(s) for API tokens (space-delimited). Defaults to `api://<NEXT_PUBLIC_B2C_CLIENT_ID>/access_as_user` |
+| Target | Local file | Reference |
+|--------|-----------|-----------|
+| Functions API | `packages/functions/local.settings.json` (copy `local.settings.json.example`) | [`packages/functions/README.md` → Environment Variables](packages/functions/README.md#environment-variables) |
+| Web | `apps/web/.env.local` (`NEXT_PUBLIC_*`, inlined at build time; Next.js reads env files from `apps/web` only) | [`apps/web/README.md` → Environment Variables](apps/web/README.md#environment-variables) |
+| Mobile | `apps/mobile/.env.local` (copy `apps/mobile/.env.example`) | [`apps/mobile/README.md`](apps/mobile/README.md) |
+| Migrations | `PG*` from `local.settings.json` (authoritative over exported `PG*`), or an exported `DATABASE_URL` when `local.settings.json` has none (local value in the root `.env.example`) | [`packages/functions/README.md` → Migrations](packages/functions/README.md#migrations) |
+| Terraform / CI | GitHub environment variables and secrets | [`infrastructure/README.md`](infrastructure/README.md) |
+
+For a local stack (`npm run dev:infra` + `npm run dev`) the copied example files already work with dev bypass auth. The settings you most often change:
+
+| Variable | Where | Purpose |
+|----------|-------|---------|
+| `PGHOST` … `PGPASSWORD` | Functions | Postgres connection (example points at the `dev:infra` container on port 55432) |
+| `AZURE_STORAGE_CONNECTION`, `AzureWebJobsStorage` | Functions | Blob + queue storage (example points at Azurite, see below) |
+| `AUTH_DEV_BYPASS` / `NEXT_PUBLIC_AUTH_DEV_BYPASS` / `EXPO_PUBLIC_AUTH_DEV_BYPASS` | Functions / web / mobile | Dev-only `Bearer dev:<userId>` auth; refused by Functions hosted in Azure |
+| `AZURE_AD_B2C_TENANT`, `AZURE_AD_B2C_CLIENT_ID` / `NEXT_PUBLIC_B2C_*` | Functions / web | Real Entra External ID sign-in |
+| `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, `AZURE_OPENAI_DEPLOYMENT_HEX` | Functions | Vision hex detection and label OCR parsing (ingestion, `recalc-hex`) |
+| `IMAGE_PROXY_SIGNING_KEY` | Functions | Signs `/api/images/{id}` ids; optional locally with dev bypass (ephemeral key) |
+| `NEXT_PUBLIC_API_URL` / `EXPO_PUBLIC_API_URL` | Web / mobile | Functions API base URL (default `http://localhost:7071/api`) |
 
 ### Local storage emulator (Azurite)
 
@@ -214,6 +196,8 @@ For local blob storage (used by the Holo Taco connector and other ingestion jobs
 npm run dev:infra
 ```
 
+The compose project is pinned to `swatchwatch`, so running this from any worktree manages the same containers. Postgres data lives in the `swatchwatch_pgdata` volume and Azurite data in `swatchwatch_azuritedata`, so both survive container recreates. If Azurite exits at startup with `is not valid JSON` (its metadata files were corrupted, e.g. when Docker Desktop was killed mid-write), reset it to empty storage with `docker compose rm -sf azurite && docker volume rm swatchwatch_azuritedata && npm run dev:infra`. That drops local blobs, so re-run ingestion to repopulate catalog images.
+
 Then set the following in `packages/functions/local.settings.json` (the `agent-worktree.sh` script already uses these defaults for new worktrees):
 
 ```jsonc
@@ -221,13 +205,12 @@ Then set the following in `packages/functions/local.settings.json` (the `agent-w
   "Values": {
     "AzureWebJobsStorage": "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;QueueEndpoint=http://127.0.0.1:10001/devstoreaccount1;TableEndpoint=http://127.0.0.1:10002/devstoreaccount1;",
     "AZURE_STORAGE_CONNECTION": "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;QueueEndpoint=http://127.0.0.1:10001/devstoreaccount1;TableEndpoint=http://127.0.0.1:10002/devstoreaccount1;",
-    "SOURCE_IMAGE_CONTAINER": "source-images",
-    "BLOB_READ_SAS_TTL_SECONDS": "3600"
+    "SOURCE_IMAGE_CONTAINER": "source-images"
   }
 }
 ```
 
-Migrations use `DATABASE_URL` from the root `.env` file (see `.env.example`).
+`npm run migrate` / `migrate:down` copy every `packages/functions/local.settings.json` value into the environment first, so those values win over exported or inline variables of the same name (including `PG*`). node-pg-migrate then uses `DATABASE_URL` when set, else `PG*`. To target another database, export `DATABASE_URL` (the example settings define none) or edit `local.settings.json`.
 
 ## VS Code
 
@@ -243,7 +226,8 @@ The repo includes VS Code configurations in `.vscode/`:
 Run new migrations with:
 ```bash
 cd packages/functions
-PGUSER=pgadmin PGPASSWORD=... PGHOST=... PGDATABASE=swatchwatch npm run migrate
+# Inline PG* values are overridden by local.settings.json; use DATABASE_URL instead
+DATABASE_URL='postgres://pgadmin:...@<host>:5432/swatchwatch?sslmode=require' npm run migrate
 # Or run .sql files directly with psql
 ```
 See `migrations/002_add_user_facing_columns.sql` and `003_seed_dev_data.sql`.

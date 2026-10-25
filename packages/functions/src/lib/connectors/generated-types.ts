@@ -24,6 +24,7 @@ export type SupportedConnectorSource =
   | "ImpactAffiliateNetwork"
   | "KathleenAndCoShopify"
   | "LeMiniMacaronShopify"
+  | "LemmingLacquerShopify"
   | "LightsLacquerShopify"
   | "LoudBabbsShopify"
   | "MakeupAPI"
@@ -42,6 +43,8 @@ export type SupportedConnectorSource =
   | "RoylaleeShopify"
   | "SassysaucePolishShopify"
   | "StarrilyShopify"
+  | "StellaChromaShopify"
+  | "SweetAndSourLacquerShopify"
   | "TylerStrinketsShopify"
   | "UserCapture"
   | "ZombieClawPolishShopify"
@@ -67,6 +70,7 @@ export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProt
   ImpactAffiliateNetwork: "Custom",
   KathleenAndCoShopify: "Shopify",
   LeMiniMacaronShopify: "Shopify",
+  LemmingLacquerShopify: "Shopify",
   LightsLacquerShopify: "Shopify",
   LoudBabbsShopify: "Shopify",
   MakeupAPI: "MakeupAPI",
@@ -85,6 +89,8 @@ export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProt
   RoylaleeShopify: "Shopify",
   SassysaucePolishShopify: "Shopify",
   StarrilyShopify: "Shopify",
+  StellaChromaShopify: "Shopify",
+  SweetAndSourLacquerShopify: "Shopify",
   TylerStrinketsShopify: "Shopify",
   UserCapture: "Custom",
   ZombieClawPolishShopify: "Shopify",
@@ -111,6 +117,7 @@ export const SUPPORTED_SOURCES: SupportedConnectorSource[] = [
   "ImpactAffiliateNetwork",
   "KathleenAndCoShopify",
   "LeMiniMacaronShopify",
+  "LemmingLacquerShopify",
   "LightsLacquerShopify",
   "LoudBabbsShopify",
   "MakeupAPI",
@@ -129,6 +136,8 @@ export const SUPPORTED_SOURCES: SupportedConnectorSource[] = [
   "RoylaleeShopify",
   "SassysaucePolishShopify",
   "StarrilyShopify",
+  "StellaChromaShopify",
+  "SweetAndSourLacquerShopify",
   "TylerStrinketsShopify",
   "UserCapture",
   "ZombieClawPolishShopify",

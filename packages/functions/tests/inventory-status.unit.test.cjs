@@ -141,6 +141,8 @@ describe("lib/inventory — parseInventoryFields", () => {
       purchasePrice: undefined,
       purchaseCurrency: undefined,
       archiveReason: undefined,
+      purchaseDate: undefined,
+      rating: undefined,
       undoArchive: false,
     });
     assert.deepEqual(parseInventoryFields(null).status, undefined);
@@ -391,7 +393,7 @@ describe("functions/polishes — create/update inventory fields", () => {
   /** Pool: the target shade is visible and the reloaded polish row comes back. */
   function visibleShadePool() {
     return mockPool((text) => {
-      if (/AS "ownSubmitted"/.test(text)) return { rows: [{ ownSubmitted: false, brand: "OPI", shadeName: "X" }] };
+      if (/AS "ownSubmitted"/.test(text) && !/AS "inventoryItemId"/.test(text)) return { rows: [{ ownSubmitted: false, brand: "OPI", shadeName: "X" }] };
       return { rows: [POLISH_ROW] };
     });
   }
@@ -475,6 +477,42 @@ describe("functions/polishes — create/update inventory fields", () => {
     assert.deepEqual(param(call, 14), ["triedAt", "purchasePrice", "purchaseCurrency"]);
     assert.match(call.text, /tried_at\s+= CASE WHEN 'triedAt' = ANY\(\$14::text\[\]\) THEN EXCLUDED\.tried_at/);
   });
+
+  it("PUT with rating / purchaseDate null clears them; a missing key keeps them", async () => {
+    const cleared = await put({ rating: null, purchaseDate: null });
+    assert.equal(cleared.res.status, 200);
+    const call = upsertCall(cleared.tx);
+    assert.equal(param(call, 5), null);
+    assert.equal(param(call, 7), null);
+    assert.deepEqual(param(call, 14), ["rating", "purchaseDate"]);
+    assert.match(call.text, /rating\s+= CASE WHEN 'rating' = ANY\(\$14::text\[\]\) OR \$7 IS NOT NULL THEN EXCLUDED\.rating ELSE user_inventory_item\.rating END/);
+    assert.match(call.text, /purchase_date\s+= CASE WHEN 'purchaseDate' = ANY\(\$14::text\[\]\) OR \$5 IS NOT NULL THEN EXCLUDED\.purchase_date ELSE user_inventory_item\.purchase_date END/);
+
+    const kept = await put({ notes: "just notes" });
+    assert.equal(kept.res.status, 200);
+    assert.deepEqual(param(upsertCall(kept.tx), 14), [], "missing rating / purchaseDate keys stay unchanged");
+
+    const set = await put({ rating: 4, purchaseDate: "2026-03-04" });
+    assert.equal(set.res.status, 200);
+    const setCall = upsertCall(set.tx);
+    assert.equal(param(setCall, 7), 4);
+    assert.equal(param(setCall, 5), "2026-03-04");
+    assert.deepEqual(param(setCall, 14), ["rating", "purchaseDate"]);
+  });
+
+  for (const [label, body] of [
+    ["rating 0", { rating: 0 }],
+    ["rating 6", { rating: 6 }],
+    ["fractional rating", { rating: 2.5 }],
+    ["string rating", { rating: "4" }],
+    ["numeric purchaseDate", { purchaseDate: 20260304 }],
+  ]) {
+    it(`PUT returns 400 for ${label} before any write`, async () => {
+      const { res, tx } = await put(body);
+      assert.equal(res.status, 400);
+      assert.equal(tx.length, 0);
+    });
+  }
 
   it("POST without status: a new row defaults from quantity (owned when > 0)", async () => {
     const { res, tx } = await post({ shadeId: "9", quantity: 2 });

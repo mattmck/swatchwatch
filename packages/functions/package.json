@@ -10,11 +10,14 @@
     "test": "node --test tests/*.unit.test.cjs",
     "test:e2e": "node --test tests/api.test.cjs tests/access-control.e2e.test.cjs",
     "eval:hex": "npm run build --workspace=swatchwatch-shared && npm run build && node dist/eval/hex/cli.js",
+    "eval:bottle": "npm run build --workspace=swatchwatch-shared && npm run build && node dist/eval/bottle/cli.js",
     "eval:hex:populate": "npm run build --workspace=swatchwatch-shared && npm run build && node dist/eval/hex/populate.js",
     "backfill:image-variants": "node scripts/backfill-image-variants.cjs",
     "dedupe:gallery-images": "node scripts/dedupe-gallery-images.cjs",
+    "backfill:barcodes": "node scripts/backfill-barcodes.cjs",
     "backfill:product-category": "node scripts/backfill-product-category.cjs",
     "backfill:product-text": "npm run build --workspace=swatchwatch-shared && npm run build && node dist/scripts/backfill-product-text.js",
+    "backfill:product-price": "npm run build --workspace=swatchwatch-shared && npm run build && node dist/scripts/backfill-product-price.js",
     "pack": "func pack --output ./dist/functions.zip --skip-install",
     "start": "func start",
     "watch": "tsc -w",
@@ -31,7 +34,8 @@
     "pg": "^8.18.0",
     "redis": "^5.11.0",
     "sharp": "^0.35.5",
-    "swatchwatch-shared": "*"
+    "swatchwatch-shared": "*",
+    "undici": "^6.29.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

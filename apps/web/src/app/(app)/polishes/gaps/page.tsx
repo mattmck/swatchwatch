@@ -265,29 +265,29 @@ function PolishCollectionGapsContent() {
         </Button>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Card className="relative overflow-hidden border border-brand-purple/20">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        <Card className="relative overflow-hidden border border-brand-purple/20 py-0 sm:py-6">
           <span className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-pink-soft via-brand-lilac to-brand-purple" />
-          <CardContent className="p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Owned Shades</p>
+          <CardContent className="p-3 sm:p-4">
+            <p className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground sm:text-xs sm:tracking-[0.18em]">Owned Shades</p>
             <p className="mt-1 text-2xl font-black text-gradient-brand">{ownedHexes.length}</p>
-            <p className="text-xs text-muted-foreground">Unique display colors in your collection</p>
+            <p className="hidden text-xs text-muted-foreground sm:block">Unique display colors in your collection</p>
           </CardContent>
         </Card>
-        <Card className="relative overflow-hidden border border-rose-300/40">
+        <Card className="relative overflow-hidden border border-rose-300/40 py-0 sm:py-6">
           <span className="absolute inset-y-0 left-0 w-1 bg-rose-500/70" />
-          <CardContent className="p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Missing Cells</p>
+          <CardContent className="p-3 sm:p-4">
+            <p className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground sm:text-xs sm:tracking-[0.18em]">Missing Cells</p>
             <p className="mt-1 text-2xl font-black text-rose-600 dark:text-rose-300">{analysis.missing.length}</p>
-            <p className="text-xs text-muted-foreground">No owned shades in that bucket</p>
+            <p className="hidden text-xs text-muted-foreground sm:block">No owned shades in that bucket</p>
           </CardContent>
         </Card>
-        <Card className="relative overflow-hidden border border-amber-300/40">
+        <Card className="relative overflow-hidden border border-amber-300/40 py-0 sm:py-6">
           <span className="absolute inset-y-0 left-0 w-1 bg-amber-500/70" />
-          <CardContent className="p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Thin Cells</p>
+          <CardContent className="p-3 sm:p-4">
+            <p className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground sm:text-xs sm:tracking-[0.18em]">Thin Cells</p>
             <p className="mt-1 text-2xl font-black text-amber-600 dark:text-amber-300">{analysis.underrepresented.length}</p>
-            <p className="text-xs text-muted-foreground">Represented, but below healthy coverage</p>
+            <p className="hidden text-xs text-muted-foreground sm:block">Represented, but below healthy coverage</p>
           </CardContent>
         </Card>
       </div>
@@ -317,15 +317,16 @@ function PolishCollectionGapsContent() {
           </div>
 
           <div className="overflow-x-auto pb-2">
-            <div className="min-w-[920px]">
-              <div className="grid grid-cols-[140px_repeat(8,minmax(88px,1fr))] gap-2">
+            <div className="min-w-[640px] sm:min-w-[920px]">
+              <div className="grid grid-cols-[76px_repeat(8,minmax(64px,1fr))] gap-1.5 sm:grid-cols-[140px_repeat(8,minmax(88px,1fr))] sm:gap-2">
                 <div />
                 {HUE_FAMILY_ORDER.map((hueFamily) => (
                   <div
                     key={hueFamily}
-                    className="rounded-md border border-brand-lilac/45 bg-muted/40 px-2 py-2 text-center text-[11px] font-semibold leading-tight"
+                    className="rounded-md border border-brand-lilac/45 bg-muted/40 px-1 py-2 text-center text-[11px] font-semibold leading-tight sm:px-2"
                   >
-                    {HUE_META[hueFamily].label}
+                    {/* Break after the slash ("Oranges/Corals") rather than mid-word on phones. */}
+                    {HUE_META[hueFamily].label.replace("/", "/\u200B")}
                   </div>
                 ))}
 
@@ -429,7 +430,7 @@ function PolishCollectionGapsContent() {
                       key={key}
                       type="button"
                       onClick={() => setSelectedCellKey(key)}
-                      className={`rounded-full border px-3 py-1 text-xs transition ${
+                      className={`rounded-full border px-3 py-2 text-xs transition sm:py-1 ${
                         severity === "missing"
                           ? "border-rose-400/65 bg-rose-100/80 text-rose-800 hover:bg-rose-200/80 dark:bg-rose-950/40 dark:text-rose-100"
                           : "border-amber-400/65 bg-amber-100/80 text-amber-800 hover:bg-amber-200/80 dark:bg-amber-950/40 dark:text-amber-100"

@@ -22,8 +22,8 @@ M2; drafted against 17 open issues and 2 milestones):
 |---|---|---|
 | Land now | #256, #258, #237 (release #276); #245 closed (fixed by #246, hardened in #237); #227 owner-scoped image ids | ✅ All shipped; #227 closed |
 | Decide + do | #224 multi-finish follow-ups (3 decisions) | ✅ Shipped in #288 + #306 (decision D11), closed |
-| Fold into this roadmap | #21 camera capture (web half), #103 color taxonomy, #104 LacquerTracker research, #45 admin users (remaining bits), #226 ingestion logs | ✅ #21 web half (#294; mobile remainder moved to #109), #103 (#293), #104 (closed, site dead), #226 (#290) closed. #45 stays open: the review-queue half shipped in #298, user management remains |
-| Defer to 2027 | #109 Expo scaffold, #2 ESM migration, #117 Redis, #158/#228 APIM gateway, #102 (superseded by `finish_type` admin) | Still deferred, see §5 and [retro-m2.md](retro-m2.md) Q1 candidates |
+| Fold into this roadmap | #21 camera capture (web half), #103 color taxonomy, #104 LacquerTracker research, #45 admin users (remaining bits), #226 ingestion logs | ✅ #21 web half (#294; mobile remainder moved to #109), #103 (#293), #104 (closed, site dead), #226 (#290) closed. #45: the review-queue half shipped in #298, user management in #356; closed by release #365 |
+| Defer to 2027 | #109 Expo scaffold, #2 ESM migration, #117 Redis (closed 2026-10-23), #158/#228 APIM gateway, #102 (superseded by `finish_type` admin) | #109 started early on 2026-10-19 ([D24](decisions-2026-10.md#d24--expo-app-and-looks-started-early-overnight-merge-to-dev-rule-2026-10-19)); #158/#228 closed as won't-do on 2026-10-23 ([D25](decisions-2026-10.md#d25--azure-openai-apim-gateway-removed-2026-10-23)); the rest still deferred, see §5 and [retro-m2.md](retro-m2.md) Q1 candidates |
 
 Hygiene: M0 and M1 are closed; **M2 — Collector's companion** holds the batch. Release #340
 (2026-10-17) promoted every Sprint 1–4 item below to `main` as one squash commit. Deploy Prod run
@@ -32,20 +32,39 @@ minutes. Several PRs in it
 targeted `dev`, so their closing keywords only fired on the release; the housekeeping pass on
 2026-10-17 closed the rest by hand with a comment citing the PR.
 
-**Remaining for M2** (open after release #340):
+Release [#365](https://github.com/mattmck/swatchwatch/pull/365) (2026-10-19) promoted the
+post-release follow-ups #344–#368 to `main` and closed #45, #319 and #320. Two overnight batches
+then merged into `dev` (2026-10-20, 03:00Z): the 10-18 batch #370–#383 (runbook:
+[overnight-2026-10-18-release-runbook.md](overnight-2026-10-18-release-runbook.md)) and the
+10-19 batch #388–#399 (runbook:
+[overnight-2026-10-19-release-runbook.md](overnight-2026-10-19-release-runbook.md)). Release
+[#411](https://github.com/mattmck/swatchwatch/pull/411) (2026-10-23) promoted both batches to
+`main`; their issues (#328, #348, #349, #347, #321, #386, #385, #384, #387) were then closed by
+hand, as after #340. #105 stays open for its mobile half.
 
-- #45 admin user management: list users, state, password reset, editable settings, audit (review queue half shipped in #298)
-- #105 image-to-polish matching, web/API gaps only (filters, add-to-wishlist, per-color matches, Phase 5); mobile items moved to #109
-- #273 indie Shopify sources: Night Owl Lacquer approved (#333); more stores still to add, Pahlish waits on #328
-- #328 store-specific product filter for Pahlish
-- #319 sweep orphaned `image_asset` rows and blobs
-- #320 optional family on finish types for dupe grading
-- #321 opt-in promote a hand-labeled hex to `vendor_hex`, with provenance
+Since #411, `dev` is ahead of `main` again with: brand list prices on buy-from-brand links
+(#406), the server-side `nearHex` color-distance sort (#407), public share links for saved
+looks behind `SHAREABLE_LOOKS_ENABLED` (#408), a retry for transient catalog image download
+failures (#409), CI ordering of dev infra before the code deploy (#410), web token renewal
+(#403), the indie batch 3 stores (#415), removal of the Azure OpenAI APIM gateway (#413, D25),
+the env-var regrouping across the docs (#412) and docs fixes (#414, #416, #417). They reach `main`
+with the next `dev → main` release. The docs sweep for #274 (this update) ran in the 2026-10-23 overnight batch.
+
+> **Status (2026-10-20):** the Expo app (#109) and the Looks page started early instead of in
+> Q1, and overnight sessions now merge their own PRs into `dev`. See
+> [D24](decisions-2026-10.md#d24--expo-app-and-looks-started-early-overnight-merge-to-dev-rule-2026-10-19).
+
+**Remaining for M2** (updated 2026-10-23; the M2 milestone holds four open issues):
+
+- #273 indie Shopify sources: closed 2026-10-23. Seven stores are enabled (Night Owl, Pahlish, Emily de Molly and Cirque Colors, then Stella Chroma, Lemming Lacquer and Sweet & Sour Lacquer on 2026-10-22 with written permission); batch 2 (#388) added none, since every remaining Shopify candidate's terms forbid automated access. Measuring the catalog growth on prod is still open (see the retro metrics)
 - #322 label ground truth with the color sip tool, then run the hex detection gate (D4)
 - #325 verify camera Rapid Add on real iOS and Android devices
 - #326 nail-photo upload/delete end-to-end against a live host
-- #313 decide the feature-flag mechanism (env vars vs. Azure App Configuration); not in the M2 milestone but raised by #305
 - #274 release, docs sweep and retro (skeleton in [retro-m2.md](retro-m2.md))
+
+Not in M2: #281 (Application Insights observability, no milestone). **M3 — On the go** (due 2027-03-30,
+[D20](decisions-2026-10.md#d20--milestones)) holds #109 (Expo app), #105 (image-to-polish, mobile half), #313 (decide
+the feature-flag mechanism, raised by #305) and #2 (ESM migration).
 
 ## 2. What nail polish nerds want (research)
 
@@ -196,7 +215,7 @@ Goal: more indie coverage, and the ops to absorb user-created data.
 | Dupe warnings shown → user cancels or wishlists instead | tracked; > 20% |
 | Share of owned polishes with a status other than default | > 60% of active users |
 | Manis logged per active user per week | ≥ 1 |
-| Catalog shades (active) | +10k via indie sources |
+| Catalog shades (active) | +10k via indie sources (2026-10-19 dry runs: Cirque Colors 328 of 415 products with its new store filter, was 10; no new store added in batch 2: every remaining Shopify candidate's terms forbid automated access, see [indie-sources-2026-10.md](indie-sources-2026-10.md) and [PR #388](https://github.com/mattmck/swatchwatch/pull/388), whose "Decisions needed" asks whether to seek store approvals or a non-Shopify route for the +10k) |
 | Detected-hex HIGH-confidence share | frozen at Week 0 baseline or better |
 
 How each number is read (decision D19, #323): the dupe-warning funnel from the browser events
@@ -207,20 +226,24 @@ eval harness (`npm run eval:hex`).
 
 ## 5. Deferred, and why
 
-- **Native Expo app (#109)** — the biggest single item on the list and the blank
-  template it is today needs a full sprint just to reach parity. For the holiday
-  window a mobile-web PWA with real camera capture gets 80% of the in-store value.
-  Recommend starting it in January as the Q1 headline.
-- **Looks experience** — keep the plan; ship "Pick for me" in Sprint 3 as the
-  wedge and decide on the full page in Q1 with usage data.
+- ~~**Native Expo app (#109)**~~ — **no longer deferred.** Started on 2026-10-19
+  (#376, #379, #396, #399), superseding D3's January start. See
+  [D24](decisions-2026-10.md#d24--expo-app-and-looks-started-early-overnight-merge-to-dev-rule-2026-10-19).
+  _Original note: the blank template needed a full sprint to reach parity, and a
+  mobile-web PWA with real camera capture gets 80% of the in-store value._
+- ~~**Looks experience**~~ — **no longer deferred.** The page shipped client-side
+  (#370, #378, #392) without a recommendation endpoint, instead of waiting for Q1
+  usage data. See [D24](decisions-2026-10.md#d24--expo-app-and-looks-started-early-overnight-merge-to-dev-rule-2026-10-19)
+  and [looks-experience-plan.md](looks-experience-plan.md).
 - **Ingredients / clean-beauty flags (Epic 5)**, **retail/affiliate (Epic 6)** — real
   asks, but behind the collector basics. The "Buy from brand" link is the cheap hook.
-- **Redis (#117)** — no concrete need yet; revisit if share-page rate limiting or
+- ~~**Redis (#117)**~~ — closed 2026-10-23; no concrete need. Reopen if share-page rate limiting or
   catalog-search caching becomes measurable.
-- **APIM OpenAI gateway (#228/#158)** — either finish it infra-only or delete the
-  `AZURE_OPENAI_USE_GATEWAY` path so the 404 trap can't recur. No product value in
-  this window.
-- **ESM migration (#2)** — pure debt; pair it with the Expo work when the toolchain
+- ~~**APIM OpenAI gateway (#228/#158)**~~ — **deleted on 2026-10-23**
+  ([D25](decisions-2026-10.md#d25--azure-openai-apim-gateway-removed-2026-10-23)): the
+  `AZURE_OPENAI_USE_GATEWAY` path, the Terraform APIM resources and the Function App
+  gateway settings are gone, so the 404 trap can't recur; #158 and #228 closed as won't-do.
+- **ESM migration (#2)** — pure debt; now in the M3 milestone, pair it with the Expo work when the toolchain
   gets touched anyway.
 
 ## 6. Decisions (resolved 2026-10-17)
@@ -228,11 +251,12 @@ eval harness (`npm run eval:hex`).
 All four are decided. Full context is in [decisions-2026-10.md](decisions-2026-10.md).
 
 1. **Mobile** (D3): ✅ PWA-first through December. The Expo scaffold (#109) starts in January.
+   _Superseded 2026-10-19 by D24: the Expo app started early._
 2. **Sharing** (D1): ✅ Opt-in public wishlist pages (#305), switched on once #305 and the inventory status rules
    (#314) are in prod. Everything else stays private by default.
 3. **Hex detection freeze** (D4): ✅ Tuning is frozen now. The gate runs after the color sip tool (#311) has been
    used to hand-label ground truth (#322).
-4. **Indie source list** (D2): ✅ Night Owl Lacquer first. Pahlish waits for a store-specific filter (#328).
+4. **Indie source list** (D2): ✅ Night Owl Lacquer first; Pahlish, Emily de Molly and Cirque Colors followed on 2026-10-19 (#328, #388), and Stella Chroma, Lemming Lacquer and Sweet & Sour on 2026-10-22 with written permission (#273 closed, seven stores).
 
 ## 7. Sources
 

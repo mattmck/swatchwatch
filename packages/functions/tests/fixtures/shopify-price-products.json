@@ -1,0 +1,46 @@
+{
+  "_source": "Hand-written products.json shapes for the price tests: variants[].price is a string in the shop currency, available is per variant, and products.json carries no currency.",
+  "products": [
+    {
+      "id": 101,
+      "title": "Galaxy Holo",
+      "handle": "galaxy-holo",
+      "vendor": "Indie",
+      "product_type": "Nail Polish",
+      "tags": ["nail-polish"],
+      "variants": [
+        { "id": 1011, "title": "Full size", "option1": "Full size", "price": "14.00", "compare_at_price": "16.00", "available": true },
+        { "id": 1012, "title": "Mini", "option1": "Mini", "price": "8.50", "compare_at_price": null, "available": false },
+        { "id": 1013, "title": "Full size + topper", "option1": "Full size + topper", "price": "21.00", "compare_at_price": null, "available": true }
+      ],
+      "images": []
+    },
+    {
+      "id": 102,
+      "title": "Sold Out Shimmer",
+      "handle": "sold-out-shimmer",
+      "vendor": "Indie",
+      "product_type": "Nail Polish",
+      "tags": ["nail-polish"],
+      "variants": [
+        { "id": 1021, "title": "Full size", "option1": "Full size", "price": "13.5", "available": false },
+        { "id": 1022, "title": "Mini", "option1": "Mini", "price": "9", "available": false }
+      ],
+      "images": []
+    },
+    {
+      "id": 103,
+      "title": "Unpriced Creme",
+      "handle": "unpriced-creme",
+      "vendor": "Indie",
+      "product_type": "Nail Polish",
+      "tags": ["nail-polish"],
+      "variants": [
+        { "id": 1031, "title": "Default Title", "price": "", "available": true },
+        { "id": 1032, "title": "Sample", "price": "0.00", "available": true },
+        { "id": 1033, "title": "Broken", "price": "free", "available": true }
+      ],
+      "images": []
+    }
+  ]
+}

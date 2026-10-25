@@ -21,6 +21,20 @@ export type LookStepRole = (typeof LOOK_STEP_ROLES)[number];
 /** Where a step's polish comes from: your collection, the catalog (to buy), or just the template color. */
 export type LookStepSource = (typeof LOOK_STEP_SOURCES)[number];
 
+export const SKIN_UNDERTONES = ["cool", "neutral", "warm"] as const;
+export const SKIN_DEPTHS = ["fair", "light", "medium", "tan", "deep"] as const;
+export type SkinUndertone = (typeof SKIN_UNDERTONES)[number];
+export type SkinDepth = (typeof SKIN_DEPTHS)[number];
+
+/**
+ * Optional skin-tone input for the Looks recommender: a soft preference, never a filter.
+ * `neutral` / `medium` express no preference on their axis. Rule: `looks/skin-tone.ts`.
+ */
+export interface SkinTone {
+  undertone: SkinUndertone;
+  depth: SkinDepth;
+}
+
 export interface LookVibe {
   occasion: LookOccasion;
   mood: LookMood;
@@ -28,6 +42,8 @@ export interface LookVibe {
   finish: LookFinish | null;
   /** Only build looks entirely from owned polishes. */
   ownedOnly: boolean;
+  /** Skin-tone preference (absent/null = none, today's looks). Kept in saved looks; never in the public share payload. */
+  skinTone?: SkinTone | null;
 }
 
 /** Most saved looks kept per user (oldest fall off). */
@@ -129,7 +145,13 @@ function validateVibe(raw: unknown): LookVibe | null {
   if (!oneOf(LOOK_OCCASIONS, raw.occasion) || !oneOf(LOOK_MOODS, raw.mood)) return null;
   if (raw.finish !== null && !oneOf(LOOK_FINISHES, raw.finish)) return null;
   if (typeof raw.ownedOnly !== "boolean") return null;
-  return { occasion: raw.occasion, mood: raw.mood, finish: raw.finish, ownedOnly: raw.ownedOnly };
+  const vibe: LookVibe = { occasion: raw.occasion, mood: raw.mood, finish: raw.finish, ownedOnly: raw.ownedOnly };
+  // Optional, so snapshots saved before skin tone existed stay valid; a malformed value is dropped.
+  const skin = raw.skinTone;
+  if (isRecord(skin) && oneOf(SKIN_UNDERTONES, skin.undertone) && oneOf(SKIN_DEPTHS, skin.depth)) {
+    vibe.skinTone = { undertone: skin.undertone, depth: skin.depth };
+  }
+  return vibe;
 }
 
 /**

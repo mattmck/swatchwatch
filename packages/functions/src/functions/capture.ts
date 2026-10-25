@@ -2,29 +2,98 @@ import { createHash, randomUUID } from "node:crypto";
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { PoolClient } from "pg";
 import {
+  BOTTLE_SURFACE_FRAME_TYPE,
   CaptureAnswerRequest,
   CaptureAnswerResponse,
+  CaptureBrandHintEcho,
+  CaptureBrandRef,
   CaptureCheckCandidate,
   CaptureCheckResponse,
   CaptureFinalizeResponse,
   CaptureFrameRequest,
+  CaptureFrameRequestSpec,
   CaptureFrameResponse,
   CaptureQuestion,
+  CaptureReadSummary,
   CaptureStartRequest,
   CaptureStartResponse,
+  CaptureFrameType,
   CaptureStatus,
   CaptureStatusResponse,
+  BOTTLE_SURFACES,
+  frameQualityWarningsFromQuality,
+  parseBottleSurface,
+  resolveDisplayHex,
+  type BottleSurface,
 } from "swatchwatch-shared";
 import { query, transaction } from "../lib/db";
 import { withAuth } from "../lib/auth";
-import { checkStorageImageUrl, stripImageMetadata, validateImageUpload } from "../lib/blob-storage";
+import {
+  checkStorageImageUrl,
+  deleteBlobFromStorageUrl,
+  stripImageMetadata,
+  userMediaContainer,
+  validateImageUpload,
+} from "../lib/blob-storage";
+import { isValidUuid } from "../lib/capture-session";
+import { inlineCaptureFrameUrl, releaseCaptureFrames, storeCaptureFrameBytes } from "../lib/capture-frame-store";
+import { isFeatureEnabled } from "../lib/feature-flags";
+import { listBrandShadeNames, resolveBrandFromText, toBrandHintEcho, toBrandRef } from "../lib/brand-resolve";
+import { decodeDataUri } from "../lib/detection-image";
+import { measureGlassHex, type GlassHexAudit } from "../lib/glass-color";
+import {
+  STICKER_READ_PROMPT_VERSION,
+  mergeLabelExtraction,
+  readStickerWithVision,
+  shouldVisionRead,
+  type StickerReadResult,
+} from "../lib/sticker-read";
 import { withCors } from "../lib/http";
 import { internalServerError } from "../lib/errors";
-import { trackEvent } from "../lib/telemetry";
+import { trackEvent, trackException } from "../lib/telemetry";
 import { invalidatePolishCachesForUser } from "../lib/polish-cache";
 import { extractTextFromImage, OcrResult } from "../lib/ocr";
 import { parseLabelText, ParsedLabelFields } from "../lib/ocr-parser";
 import { loadInventoryOwnership } from "../lib/inventory-relationship";
+import { gtinLookupKeys, gtinSpellings, normalizeGtin, rememberUserShadeBarcode } from "../lib/barcodes";
+import {
+  BarcodeMatchVia,
+  CaptureEvidence,
+  CaptureFrameEvidenceRow,
+  CaptureMatchCandidate,
+  FrameExtractionSource,
+  ResolverDecision,
+  ResolverOutcome,
+  collectCaptureEvidence,
+  summarizeCaptureRead,
+  extractFrameEvidence,
+  getStringField,
+  toRecord,
+} from "../lib/capture-evidence";
+import {
+  buildBrandShadeQuestion,
+  buildCandidateQuestion,
+  buildNeedsFrameQuestion,
+  serializeQuestionOptions,
+} from "../lib/capture-questions";
+import {
+  hintBrandFromMetadata,
+  loadColorDistances,
+  resolveBottle,
+  sumFrameModelCalls,
+  visionConfidenceFromFrames,
+} from "../lib/bottle-resolver";
+import {
+  bottleFlowMetadataPatch,
+  decisionForPlan,
+  planNextFrame,
+  readBottleFlowState,
+  readLastNextFrame,
+  recordPrompt,
+  recordRejected,
+  recordSkip,
+  type BottleFlowState,
+} from "../lib/bottle-flow";
 
 const GUIDANCE_CONFIG = {
   recommendedFrameTypes: ["barcode", "label", "color"],
@@ -33,9 +102,6 @@ const GUIDANCE_CONFIG = {
 
 // Maximum chars stored in quality_json.ai.ocrRawText to keep jsonb rows bounded
 const MAX_CAPTURE_AI_RAW_TEXT_CHARS = 2000;
-
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 interface CaptureSessionRow {
   id: number;
@@ -57,68 +123,6 @@ interface CaptureQuestionRow {
   createdAt: string;
 }
 
-interface CaptureFrameEvidenceRow {
-  frameType: "barcode" | "label" | "color" | "other";
-  quality: Record<string, unknown> | null;
-}
-
-interface CaptureEvidence {
-  gtin?: string;
-  brand?: string;
-  shadeName?: string;
-  finish?: string;
-}
-
-interface FrameExtraction {
-  gtin?: string;
-  brand?: string;
-  shadeName?: string;
-  finish?: string;
-  source: "pipeline" | "request_quality";
-}
-
-type FrameExtractionSource = FrameExtraction["source"] | "none";
-
-interface CaptureMatchCandidate {
-  entityType: "shade" | "sku";
-  entityId: number;
-  /** Shade the entity resolves to (the shade itself, or a SKU's shade_id). */
-  shadeId: number | null;
-  display: string;
-  confidence: number;
-}
-
-interface CaptureQuestionSpec {
-  key: string;
-  prompt: string;
-  type: CaptureQuestion["type"];
-  options?: string[];
-}
-
-// `candidates` is what the resolver considered, ranked; finalize ignores it, check reports it.
-type ResolverOutcome =
-  | {
-      status: "matched";
-      confidence: number;
-      entityType: "shade" | "sku";
-      entityId: number;
-      candidates: CaptureMatchCandidate[];
-      metadataPatch: Record<string, unknown>;
-    }
-  | {
-      status: "needs_question";
-      confidence: number;
-      question: CaptureQuestionSpec;
-      candidates: CaptureMatchCandidate[];
-      metadataPatch: Record<string, unknown>;
-    }
-  | {
-      status: "unmatched";
-      confidence: number;
-      candidates: CaptureMatchCandidate[];
-      metadataPatch: Record<string, unknown>;
-    };
-
 const REMOTE_IMAGE_URL_ERROR =
   "imageBlobUrl must be a base64 data URL or an https URL on the configured storage account";
 
@@ -138,10 +142,13 @@ interface PreparedImageInput {
    * the EXIF-stripped payload; for remote URLs it is the trimmed original URL.
    */
   sanitizedImageInput: string;
-}
-
-function isValidUuid(value: string): boolean {
-  return UUID_PATTERN.test(value);
+  /**
+   * EXIF-stripped bytes of a data-URL frame, kept so the frame endpoint can store them as a
+   * private blob while `BOTTLE_CAPTURE_ENABLED` is on. Null for remote URLs.
+   */
+  bytes: Buffer | null;
+  contentType: string | null;
+  extension: string | null;
 }
 
 function isValidBase64Payload(value: string): boolean {
@@ -196,6 +203,134 @@ interface FrameAiExtractionResult {
   ocrConfidence?: number;
   ocrBarcodeCount?: number;
   llmConfidence?: number;
+  /** Color frames only: how the lacquer hex was measured (stored as `quality_json.ai.glass`). */
+  glass?: GlassHexAudit;
+  /** Bottle-capture label frames only: the sticker vision read audit (stored as `quality_json.ai.sticker`). */
+  sticker?: StickerReadAudit;
+}
+
+/** What the sticker vision read did on one label frame (`quality_json.ai.sticker`). */
+interface StickerReadAudit {
+  promptVersion: string;
+  closedSet: boolean;
+  listedCount: number;
+  /** The read's confidence; null when no read ran or it produced nothing. */
+  confidence: number | null;
+  /** Calls that were sent to the model (0 when the read was not needed, unconfigured or skipped). */
+  modelCalls: 0 | 1;
+  /** Barcode digits the read reported; evidence only when the check digit is valid (`mergeLabelExtraction`). */
+  gtin?: string | null;
+}
+
+/** What a label frame's vision read needs to know; present only when the bottle-capture flag is on and the frame is a data URL. */
+interface StickerReadContext {
+  userId: number;
+  surface: BottleSurface | null;
+  /** The catalog brand the session is known to be about, or null when none is. */
+  brand: { brandId: number; name: string } | null;
+}
+
+/**
+ * The catalog brand a session is known to be about: the resolved hint (`metadata.bottle.brand`,
+ * set at start), else the brand read from an earlier frame resolved against the catalog. Null
+ * when neither resolves; a failed lookup is treated as unknown.
+ */
+async function resolveSessionBrand(
+  metadata: Record<string, unknown> | null,
+  evidence: CaptureEvidence
+): Promise<StickerReadContext["brand"]> {
+  const hinted = toRecord(toRecord(metadata?.bottle).brand);
+  const hintedId = Number(hinted.brandId);
+  if (typeof hinted.brandId === "string" && Number.isSafeInteger(hintedId) && hintedId > 0) {
+    return { brandId: hintedId, name: getStringField(hinted, "name") ?? "" };
+  }
+  if (evidence.brandSource !== "read" || !evidence.brand) return null;
+  try {
+    const resolved = await resolveBrandFromText(evidence.brand);
+    return resolved ? { brandId: resolved.brandId, name: resolved.name } : null;
+  } catch (error) {
+    console.warn(`[capture] Brand lookup for the sticker read failed: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+}
+
+/**
+ * Closed-set vision read of the sticker, when needed (known brand, or unusable OCR). A brand
+ * with more shades than the prompt list holds is read open: a partial list would force wrong
+ * picks. Never throws.
+ */
+async function runStickerRead(
+  imageInput: string,
+  ocrResult: OcrResult | null,
+  sticker: StickerReadContext
+): Promise<{ vision: StickerReadResult | null; audit: StickerReadAudit }> {
+  const audit: StickerReadAudit = {
+    promptVersion: STICKER_READ_PROMPT_VERSION,
+    closedSet: false,
+    listedCount: 0,
+    confidence: null,
+    modelCalls: 0,
+  };
+  if (!shouldVisionRead({ brandKnown: sticker.brand !== null, ocr: ocrResult })) {
+    return { vision: null, audit };
+  }
+
+  let shadeNames: string[] = [];
+  if (sticker.brand) {
+    try {
+      const listed = await listBrandShadeNames(sticker.brand.brandId, sticker.userId);
+      if (!listed.truncated) shadeNames = listed.names;
+    } catch (error) {
+      console.warn(`[capture] Brand shade list for the sticker read failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  const vision = await readStickerWithVision(
+    {
+      imageDataUri: imageInput,
+      surface: sticker.surface,
+      brandName: sticker.brand?.name || null,
+      shadeNames,
+    },
+    {
+      onLog: (level, message) => console.warn(`[capture] sticker read (${level}): ${message}`),
+      onModelCall: () => {
+        audit.modelCalls = 1;
+      },
+    }
+  );
+  audit.closedSet = vision?.closedSet ?? shadeNames.length > 0;
+  audit.listedCount = audit.closedSet ? shadeNames.length : 0;
+  audit.confidence = vision?.confidence ?? null;
+  if (vision?.gtin) audit.gtin = vision.gtin;
+  return { vision, audit };
+}
+
+/** The audit stored when a color frame yields no hex. */
+function glassMissAudit(reason: "no_candidates" | "remote_url"): GlassHexAudit {
+  return { candidates: [], choice: null, modelCalls: 0, reason };
+}
+
+/**
+ * Bottle capture: measure the lacquer hex from a color (glass) frame. Only a data-URL frame is
+ * measured; `extracted` stays empty when nothing could be, so no hex evidence is claimed.
+ */
+async function runGlassExtraction(imageInput: string): Promise<FrameAiExtractionResult> {
+  const bytes = decodeDataUri(imageInput);
+  const glass = bytes ? await measureGlassHex(bytes) : null;
+  if (!glass) {
+    return { extracted: {}, glass: glassMissAudit(bytes ? "no_candidates" : "remote_url") };
+  }
+  return {
+    extracted: {
+      hex: glass.hex,
+      hexConfidence: glass.confidence,
+      hexMethod: glass.method,
+      hexPromptVersion: glass.promptVersion,
+      source: "glass",
+    },
+    glass: glass.audit,
+  };
 }
 
 /**
@@ -209,8 +344,12 @@ interface FrameAiExtractionResult {
 async function runFrameAiExtraction(
   imageInput: string,
   frameType: string,
-  hints?: { brand?: string; shadeName?: string; finish?: string }
+  hints?: { brand?: string; shadeName?: string; finish?: string },
+  sticker?: StickerReadContext
 ): Promise<FrameAiExtractionResult | null> {
+  if (frameType === "color") {
+    return isFeatureEnabled("bottleCapture") ? runGlassExtraction(imageInput) : null;
+  }
   if (frameType !== "label" && frameType !== "barcode") {
     return null;
   }
@@ -224,7 +363,8 @@ async function runFrameAiExtraction(
     );
   }
 
-  if (!ocrResult) {
+  // Without OCR a bottle-capture label frame can still be read by vision.
+  if (!ocrResult && !sticker) {
     return null;
   }
 
@@ -254,7 +394,7 @@ async function runFrameAiExtraction(
     return 3;
   };
 
-  const gtin = ocrResult.barcodes
+  const gtin = (ocrResult?.barcodes ?? [])
     .filter((b) => b.confidence >= 0.5)
     .sort((a, b) => {
       const kindPreferenceDifference =
@@ -275,7 +415,7 @@ async function runFrameAiExtraction(
 
   // Run LLM parsing on label frames
   let llmResult: ParsedLabelFields | null = null;
-  if (frameType === "label" && ocrResult.rawText.trim().length > 0) {
+  if (frameType === "label" && ocrResult && ocrResult.rawText.trim().length > 0) {
     try {
       llmResult = await parseLabelText(ocrResult.rawText, hints);
     } catch (error) {
@@ -285,25 +425,42 @@ async function runFrameAiExtraction(
     }
   }
 
+  let labelFields: Record<string, unknown> = {};
   if (llmResult) {
-    if (llmResult.brand) extracted.brand = llmResult.brand;
-    if (llmResult.shadeName) extracted.shadeName = llmResult.shadeName;
-    if (llmResult.finish) extracted.finish = llmResult.finish;
-    if (llmResult.collection) extracted.collection = llmResult.collection;
-    if (llmResult.gtin && !extracted.gtin) extracted.gtin = llmResult.gtin;
-    if (llmResult.sizeMl) extracted.sizeMl = llmResult.sizeMl;
+    if (llmResult.brand) labelFields.brand = llmResult.brand;
+    if (llmResult.shadeName) labelFields.shadeName = llmResult.shadeName;
+    if (llmResult.finish) labelFields.finish = llmResult.finish;
+    if (llmResult.collection) labelFields.collection = llmResult.collection;
+    if (llmResult.gtin) labelFields.gtin = llmResult.gtin;
+    if (llmResult.sizeMl) labelFields.sizeMl = llmResult.sizeMl;
   }
 
-  if (Object.keys(extracted).length === 0) {
+  // Bottle capture: read the sticker with vision when the brand is known or OCR is unusable,
+  // and merge it with the OCR fields (the more confident read wins each field).
+  let stickerAudit: StickerReadAudit | undefined;
+  if (sticker && frameType === "label") {
+    const { vision, audit } = await runStickerRead(imageInput, ocrResult, sticker);
+    stickerAudit = audit;
+    labelFields = mergeLabelExtraction(
+      llmResult ? { fields: labelFields, confidence: llmResult.confidence } : null,
+      vision
+    ).extracted;
+  }
+
+  // A decoded barcode GTIN outranks any GTIN read from the label text.
+  Object.assign(extracted, labelFields, extracted.gtin ? { gtin: extracted.gtin } : {});
+
+  if (Object.keys(extracted).length === 0 && !stickerAudit) {
     return null;
   }
 
   return {
     extracted,
-    ocrRawText: ocrResult.rawText,
-    ocrConfidence: ocrResult.confidence,
-    ocrBarcodeCount: ocrResult.barcodes.length,
+    ocrRawText: ocrResult?.rawText,
+    ocrConfidence: ocrResult?.confidence,
+    ocrBarcodeCount: ocrResult?.barcodes.length,
     llmConfidence: llmResult?.confidence,
+    ...(stickerAudit ? { sticker: stickerAudit } : {}),
   };
 }
 
@@ -365,13 +522,16 @@ async function normalizeCaptureImageInput(
 
     const checksumSha256 = createHash("sha256").update(cleanBytes).digest("hex");
     const extension = getImageExtension(normalizedMimeType);
-    const storageUrl = `inline://capture/${captureId}/${checksumSha256}.${extension}`;
+    const storageUrl = inlineCaptureFrameUrl(captureId, checksumSha256, extension);
     const sanitizedImageInput = `data:${normalizedMimeType};base64,${cleanBytes.toString("base64")}`;
 
     return {
       storageUrl,
       checksumSha256,
       sanitizedImageInput,
+      bytes: cleanBytes,
+      contentType: normalizedMimeType,
+      extension,
       qualityPatch: buildImageIngestionPatch({
         source: "data_url",
         mimeType: normalizedMimeType,
@@ -399,11 +559,37 @@ async function normalizeCaptureImageInput(
     storageUrl: trimmed,
     checksumSha256: null,
     sanitizedImageInput: trimmed,
+    bytes: null,
+    contentType: null,
+    extension: null,
     qualityPatch: buildImageIngestionPatch({
       source: "remote_url",
       host: parsedUrl.host,
     }),
   };
+}
+
+/**
+ * A client-sent frame `quality` without the keys only the server writes: `ai` and
+ * `extracted.shadeNameListed` / `brandConfidence` / `source` (`source: "glass"` marks
+ * server-measured lacquer evidence, `"request_quality"` client evidence the server stored). The
+ * client's evidence fields (`extracted.brand`, `shadeName`, `gtin`, `finish`, …) stay.
+ */
+function stripServerOwnedQuality(
+  quality: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  if (!quality || typeof quality !== "object" || Array.isArray(quality)) return quality;
+  const { ai: _ai, ...rest } = quality;
+  if ("extracted" in rest) {
+    const {
+      shadeNameListed: _listed,
+      brandConfidence: _brandConfidence,
+      source: _source,
+      ...extracted
+    } = toRecord(rest.extracted);
+    rest.extracted = extracted;
+  }
+  return rest;
 }
 
 function mergeQualityJson(
@@ -418,58 +604,6 @@ function mergeQualityJson(
     ...(baseQuality ?? {}),
     ...(patch ?? {}),
   };
-}
-
-function toRecord(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {};
-  }
-  return value as Record<string, unknown>;
-}
-
-function extractFrameEvidence(quality: Record<string, unknown> | null): FrameExtraction | null {
-  if (!quality) {
-    return null;
-  }
-
-  const extracted = toRecord(quality.extracted);
-  const extractedEvidence = {
-    gtin: getStringField(extracted, "gtin", "upc", "ean"),
-    brand: getStringField(extracted, "brand"),
-    shadeName: getStringField(extracted, "shadeName", "name"),
-    finish: getStringField(extracted, "finish"),
-  };
-  if (
-    extractedEvidence.gtin
-    || extractedEvidence.brand
-    || extractedEvidence.shadeName
-    || extractedEvidence.finish
-  ) {
-    return {
-      ...extractedEvidence,
-      source: "pipeline",
-    };
-  }
-
-  const legacyEvidence = {
-    gtin: getStringField(quality, "gtin", "upc", "ean"),
-    brand: getStringField(quality, "brand"),
-    shadeName: getStringField(quality, "shadeName", "name"),
-    finish: getStringField(quality, "finish"),
-  };
-  if (
-    legacyEvidence.gtin
-    || legacyEvidence.brand
-    || legacyEvidence.shadeName
-    || legacyEvidence.finish
-  ) {
-    return {
-      ...legacyEvidence,
-      source: "request_quality",
-    };
-  }
-
-  return null;
 }
 
 function toNumber(value: unknown): number | undefined {
@@ -612,22 +746,6 @@ function toCaptureQuestion(row: CaptureQuestionRow | undefined): CaptureQuestion
   };
 }
 
-function getStringField(
-  source: Record<string, unknown> | null | undefined,
-  ...keys: string[]
-): string | undefined {
-  if (!source) return undefined;
-
-  for (const key of keys) {
-    const value = source[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      return value.trim();
-    }
-  }
-
-  return undefined;
-}
-
 async function getCaptureFrameEvidence(sessionId: number): Promise<CaptureFrameEvidenceRow[]> {
   const result = await query<CaptureFrameEvidenceRow>(
     `SELECT
@@ -640,53 +758,6 @@ async function getCaptureFrameEvidence(sessionId: number): Promise<CaptureFrameE
   );
 
   return result.rows;
-}
-
-function collectCaptureEvidence(
-  metadata: Record<string, unknown> | null,
-  frames: CaptureFrameEvidenceRow[]
-): CaptureEvidence {
-  const answers = (metadata?.answers as Record<string, unknown> | undefined) ?? {};
-  const brandFromAnswers =
-    getStringField(answers.brand_shade as Record<string, unknown>, "brand")
-    || getStringField(answers, "brand");
-  const shadeFromAnswers =
-    getStringField(answers.brand_shade as Record<string, unknown>, "shadeName", "name")
-    || getStringField(answers, "shadeName", "name");
-  const finishFromAnswers =
-    getStringField(answers.brand_shade as Record<string, unknown>, "finish")
-    || getStringField(answers, "finish");
-
-  const evidence: CaptureEvidence = {
-    gtin: getStringField(metadata, "gtin"),
-    brand: brandFromAnswers || getStringField(metadata, "brand"),
-    shadeName: shadeFromAnswers || getStringField(metadata, "shadeName", "name"),
-    finish: finishFromAnswers || getStringField(metadata, "finish"),
-  };
-
-  for (const frame of frames) {
-    const quality = frame.quality;
-    if (!quality) continue;
-    const extracted = extractFrameEvidence(quality);
-    if (!extracted) {
-      continue;
-    }
-
-    if (!evidence.gtin) {
-      evidence.gtin = extracted.gtin;
-    }
-    if (!evidence.brand) {
-      evidence.brand = extracted.brand;
-    }
-    if (!evidence.shadeName) {
-      evidence.shadeName = extracted.shadeName;
-    }
-    if (!evidence.finish) {
-      evidence.finish = extracted.finish;
-    }
-  }
-
-  return evidence;
 }
 
 function extractSelectedEntityId(answer: unknown): number | null {
@@ -763,8 +834,33 @@ function normalizeAnswerForQuestion(questionKey: string, answer: unknown): unkno
   return answer;
 }
 
-async function resolveByBarcode(gtin: string): Promise<CaptureMatchCandidate | null> {
-  const result = await query<{
+/**
+ * Barcode lookup for the capture resolver (#21, #325), first hit wins:
+ * 1. catalog `barcode` rows (written by ingestion and the admin backfill) by canonical key, so a
+ *    UPC-A scan finds the EAN-13 form a vendor published; the raw string is also tried for rows
+ *    stored before normalization. Shades the caller cannot see are skipped.
+ * 2. the caller's own learned barcodes (`user_shade_barcode`, scoped by user_id), following an
+ *    admin merge to the surviving shade.
+ * 3. fallback until the backfill has run everywhere: connector products whose raw GTIN equals
+ *    any spelling of the code, through `shade_source_product`, active shades only. Only a GTIN
+ *    that leads to exactly one shade matches; several shades fall through to label matching.
+ * Every hit is exact, so confidence is 1 (as before).
+ */
+async function resolveByBarcode(
+  gtin: string,
+  format: string | undefined,
+  userId: number
+): Promise<{ candidate: CaptureMatchCandidate; via: BarcodeMatchVia } | null> {
+  const keys = gtinLookupKeys(gtin, format);
+  const scanned = normalizeGtin(gtin, format);
+  if (scanned && !scanned.checkDigitValid) {
+    // Looked up anyway: the bottle may still be known under its (mis)printed code.
+    trackEvent("capture.barcode_bad_check_digit", { gtin: scanned.gtin, source: "resolver" });
+  }
+  const raw = gtin.trim();
+  const catalogKeys = Array.from(new Set([...keys, raw])).filter(Boolean);
+
+  const catalog = await query<{
     skuId: string;
     shadeId: string | null;
     brand: string | null;
@@ -781,27 +877,124 @@ async function resolveByBarcode(gtin: string): Promise<CaptureMatchCandidate | n
      JOIN sku s ON bc.sku_id = s.sku_id
      LEFT JOIN brand b ON s.brand_id = b.brand_id
      LEFT JOIN shade sh ON s.shade_id = sh.shade_id
-     WHERE bc.gtin = $1
+     WHERE bc.gtin = ANY($1::text[])
+       AND (
+         sh.shade_id IS NULL
+         OR (sh.merged_into_shade_id IS NULL AND (sh.status <> 'user_submitted' OR sh.created_by_user_id = $2))
+       )
+     ORDER BY array_position($1::text[], bc.gtin)
      LIMIT 1`,
-    [gtin]
+    [catalogKeys, userId]
   );
-
-  if (result.rows.length === 0) {
-    return null;
+  const row = catalog.rows[0];
+  if (row) {
+    const display = [row.brand, row.productName || row.shadeName || `SKU ${row.skuId}`]
+      .filter(Boolean)
+      .join(" — ");
+    return {
+      via: "catalog",
+      candidate: {
+        entityType: "sku",
+        entityId: parseInt(row.skuId, 10),
+        shadeId: row.shadeId ? parseInt(row.shadeId, 10) : null,
+        display,
+        confidence: 1,
+      },
+    };
   }
 
-  const row = result.rows[0];
-  const display = [row.brand, row.productName || row.shadeName || `SKU ${row.skuId}`]
-    .filter(Boolean)
-    .join(" — ");
+  if (keys.length === 0) return null;
 
+  const learned = await query<{ shadeId: string; brand: string; shadeName: string }>(
+    `SELECT sh.shade_id::text AS "shadeId", b.name_canonical AS brand, sh.shade_name_canonical AS "shadeName"
+     FROM user_shade_barcode ub
+     JOIN shade src ON src.shade_id = ub.shade_id
+     JOIN shade sh ON sh.shade_id = COALESCE(src.merged_into_shade_id, src.shade_id)
+     JOIN brand b ON b.brand_id = sh.brand_id
+     WHERE ub.gtin = ANY($1::text[])
+       AND ub.user_id = $2
+       AND (
+         sh.status <> 'user_submitted'
+         OR sh.created_by_user_id = $2
+         OR EXISTS (SELECT 1 FROM user_inventory_item ui WHERE ui.shade_id = sh.shade_id AND ui.user_id = $2)
+       )
+     ORDER BY ub.updated_at DESC
+     LIMIT 1`,
+    [keys, userId]
+  );
+  const learnedRow = learned.rows[0];
+  if (learnedRow) {
+    const shadeId = parseInt(learnedRow.shadeId, 10);
+    return {
+      via: "user",
+      candidate: {
+        entityType: "shade",
+        entityId: shadeId,
+        shadeId,
+        display: `${learnedRow.brand} — ${learnedRow.shadeName}`,
+        confidence: 1,
+      },
+    };
+  }
+
+  const spellings = Array.from(new Set(keys.flatMap((key) => gtinSpellings(key))));
+  const products = await query<{ shadeId: string; brand: string; shadeName: string }>(
+    `SELECT DISTINCT sh.shade_id::text AS "shadeId", b.name_canonical AS brand, sh.shade_name_canonical AS "shadeName"
+     FROM external_product ep
+     JOIN shade_source_product ssp ON ssp.external_product_id = ep.external_product_id
+     JOIN shade sh ON sh.shade_id = ssp.shade_id
+     JOIN brand b ON b.brand_id = sh.brand_id
+     WHERE ep.gtin IS NOT NULL
+       AND regexp_replace(ep.gtin, '[[:space:]-]', '', 'g') = ANY($1::text[])
+       AND sh.status = 'active'
+       AND sh.merged_into_shade_id IS NULL
+     LIMIT 2`,
+    [spellings]
+  );
+  if (products.rows.length !== 1) return null;
+  const product = products.rows[0];
+  const shadeId = parseInt(product.shadeId, 10);
   return {
-    entityType: "sku",
-    entityId: parseInt(row.skuId, 10),
-    shadeId: row.shadeId ? parseInt(row.shadeId, 10) : null,
-    display,
-    confidence: 1,
+    via: "external_product",
+    candidate: {
+      entityType: "shade",
+      entityId: shadeId,
+      shadeId,
+      display: `${product.brand} — ${product.shadeName}`,
+      confidence: 1,
+    },
   };
+}
+
+/**
+ * Teach the caller's next scan (#21): when a session that scanned a valid GTIN ends up matched
+ * by something other than that barcode (label photo, picked candidate, typed name), remember the
+ * GTIN on the matched shade in `user_shade_barcode`, private to the caller. Never touches the
+ * shared catalog. Runs inside the caller's transaction.
+ */
+async function rememberScannedBarcode(
+  client: PoolClient,
+  userId: number,
+  sessionId: number,
+  evidence: CaptureEvidence,
+  entityType: "shade" | "sku",
+  entityId: number,
+  barcodeVia: BarcodeMatchVia | undefined
+): Promise<void> {
+  if (barcodeVia || !evidence.gtin) return;
+  const normalized = normalizeGtin(evidence.gtin, evidence.gtinFormat);
+  if (!normalized) return;
+  let shadeId: number | null = entityType === "shade" ? entityId : null;
+  if (entityType === "sku") {
+    const sku = await client.query<{ shadeId: number | string | null }>(
+      `SELECT shade_id AS "shadeId" FROM sku WHERE sku_id = $1`,
+      [entityId]
+    );
+    const found = sku.rows[0]?.shadeId;
+    shadeId = found === undefined || found === null ? null : Number(found);
+  }
+  if (shadeId === null || !Number.isSafeInteger(shadeId)) return;
+  await rememberUserShadeBarcode(client, { userId, shadeId, gtin: normalized, captureSessionId: sessionId });
 }
 
 async function resolveShadeCandidates(evidence: CaptureEvidence): Promise<CaptureMatchCandidate[]> {
@@ -879,43 +1072,153 @@ async function resolveShadeCandidates(evidence: CaptureEvidence): Promise<Captur
   }));
 }
 
-function buildNeedsFrameQuestion(): CaptureQuestionSpec {
-  return {
-    key: "capture_frame",
-    prompt: "Upload at least one barcode or label frame so we can continue matching.",
-    type: "single_select",
-    options: ["scan_barcode", "upload_label_photo", "skip"],
-  };
+/** A resolver outcome plus what `capture.resolved` reports about the session it ran on. */
+type SessionResolution = ResolverOutcome & { frameCount: number; brandLocked: boolean; modelCalls: number };
+
+/** What the brand-first resolver needs from the session (present only while `BOTTLE_CAPTURE_ENABLED` is on). */
+interface BottleResolverInput {
+  hintBrand: CaptureBrandRef | null;
+  frames: CaptureFrameEvidenceRow[];
+  modelCalls: number;
 }
 
-function buildBrandShadeQuestion(): CaptureQuestionSpec {
-  return {
-    key: "brand_shade",
-    prompt: "Tell us the brand and shade name (or upload a clearer label frame) to improve matching.",
-    type: "free_text",
-    options: ["brand + shade", "upload_label_photo", "skip"],
-  };
-}
-
-function buildCandidateQuestion(candidates: CaptureMatchCandidate[]): CaptureQuestionSpec {
-  return {
-    key: "candidate_select",
-    prompt: "We found close shade matches. Reply with a shade ID from the options below, or skip.",
-    type: "single_select",
-    options: [
-      ...candidates.map((candidate) => `${candidate.entityId}: ${candidate.display}`),
-      "skip",
-    ],
-  };
-}
-
-async function resolveCaptureSession(session: CaptureSessionRow): Promise<ResolverOutcome> {
+async function resolveCaptureSession(session: CaptureSessionRow, userId: number): Promise<SessionResolution> {
   const frames = await getCaptureFrameEvidence(session.id);
   const evidence = collectCaptureEvidence(session.metadata, frames);
+  const modelCalls = sumFrameModelCalls(frames);
+  const hintBrand = isFeatureEnabled("bottleCapture") ? hintBrandFromMetadata(session.metadata) : null;
+  const bottle: BottleResolverInput | null = isFeatureEnabled("bottleCapture") ? { hintBrand, frames, modelCalls } : null;
+  const outcome = await resolveFromEvidence(evidence, frames.length, userId, bottle);
+  return { ...outcome, evidence, frameCount: frames.length, brandLocked: hintBrand !== null, modelCalls };
+}
+
+/** `capture.resolved` method: how the session was (or was not) resolved. */
+function resolvedMethod(outcome: ResolverDecision): string {
+  if (outcome.barcodeVia) return "barcode";
+  const resolver = toRecord(outcome.metadataPatch.resolver);
+  if (typeof resolver.method === "string") return resolver.method;
+  return resolver.step === "matched_by_shade_similarity" || resolver.step === "needs_user_candidate_selection"
+    ? "name"
+    : "unmatched";
+}
+
+function trackCaptureResolved(captureId: string, resolution: SessionResolution): void {
+  const resolver = toRecord(resolution.metadataPatch.resolver);
+  trackEvent("capture.resolved", {
+    captureId,
+    method: resolvedMethod(resolution),
+    brandLocked: resolution.brandLocked,
+    candidateCount: typeof resolver.candidateCount === "number" ? resolver.candidateCount : resolution.candidates.length,
+    modelCalls: resolution.modelCalls,
+    frames: resolution.frameCount,
+  });
+}
+
+/** The next photo to ask for, from a resolution and the flow state stored with the session. */
+function planFromResolution(state: BottleFlowState, resolution: SessionResolution): CaptureFrameRequestSpec | null {
+  const { evidence } = resolution;
+  return planNextFrame({
+    state,
+    frameCount: resolution.frameCount,
+    maxFrames: GUIDANCE_CONFIG.maxFrames,
+    surfaces: evidence.surfaces,
+    // What the resolver counts as the session brand (a hint, a barcode brand, or a read that
+    // resolved); without a resolver verdict (barcode match, no frames yet), any brand text.
+    brandKnown: resolution.bottle ? resolution.bottle.brand !== null : Boolean(evidence.brand),
+    nameRead: Boolean(evidence.shadeName || evidence.shadeNameListed),
+    glassHex: Boolean(evidence.glassHex),
+    gtinRead: Boolean(evidence.gtin),
+    decision: decisionForPlan(resolution),
+  });
+}
+
+/** True when `after` holds a name, brand, GTIN or glass color that `before` did not. */
+function evidenceAdded(before: CaptureEvidence, after: CaptureEvidence): boolean {
+  return (
+    (!before.gtin && Boolean(after.gtin)) ||
+    (!before.shadeName && Boolean(after.shadeName)) ||
+    (!before.shadeNameListed && Boolean(after.shadeNameListed)) ||
+    (!before.brand && Boolean(after.brand)) ||
+    (!before.glassHex && Boolean(after.glassHex))
+  );
+}
+
+/**
+ * Bottle flow step after a frame or a skip: resolve (unless the caller already did), plan the
+ * next photo, store the flow counters and the resolver verdict with one metadata update, and
+ * report the surface. Throws on failure; the frame path degrades, the skip path surfaces it.
+ */
+async function advanceBottleFlow(
+  session: CaptureSessionRow,
+  userId: number,
+  step:
+    | { kind: "frame"; frameType: CaptureFrameType; quality: Record<string, unknown> | null; priorEvidence: CaptureEvidence }
+    | { kind: "skip"; surface: BottleSurface },
+  resolution?: SessionResolution | null
+): Promise<{ nextFrame: CaptureFrameRequestSpec | null; readSoFar: CaptureReadSummary }> {
+  const resolved = resolution ?? (await resolveCaptureSession(session, userId));
+  let state = readBottleFlowState(session.metadata);
+
+  let surface: BottleSurface | null;
+  let frameType: CaptureFrameType;
+  let extracted = false;
+  if (step.kind === "skip") {
+    surface = step.surface;
+    frameType = BOTTLE_SURFACE_FRAME_TYPE[surface];
+    state = recordSkip(state, surface);
+  } else {
+    surface = parseBottleSurface(step.quality?.surface);
+    frameType = step.frameType;
+    extracted = evidenceAdded(step.priorEvidence, resolved.evidence);
+    const warnings = frameQualityWarningsFromQuality(step.quality);
+    // A poor photo that added nothing is retried; one that read something is not.
+    state = recordRejected(state, surface && warnings.length > 0 && !extracted ? { surface, warning: warnings[0] } : null);
+  }
+
+  const nextFrame = planFromResolution(state, resolved);
+  if (nextFrame) state = recordPrompt(state, nextFrame);
+
+  await query(
+    `UPDATE capture_session
+     SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb,
+         updated_at = now()
+     WHERE capture_session_id = $1`,
+    [
+      session.id,
+      {
+        ...bottleFlowMetadataPatch(state, nextFrame, toRecord(session.metadata?.bottle)),
+        resolver: resolved.metadataPatch.resolver,
+      },
+    ]
+  );
+
+  if (surface) {
+    trackEvent("capture.surface_captured", {
+      captureId: session.captureId,
+      surface,
+      frameType,
+      skipped: step.kind === "skip",
+      extracted,
+    });
+  }
+  const readSoFar = summarizeCaptureRead(
+    resolved.evidence,
+    resolved.bottle?.brand ?? null,
+    step.kind === "frame" ? step.priorEvidence : undefined
+  );
+  return { nextFrame, readSoFar };
+}
+
+async function resolveFromEvidence(
+  evidence: CaptureEvidence,
+  frameCount: number,
+  userId: number,
+  bottle: BottleResolverInput | null = null
+): Promise<ResolverDecision> {
   const hasTextEvidence = Boolean(evidence.gtin || evidence.shadeName || evidence.brand);
   const resolverAudit = {
     version: "deterministic-v1",
-    frameCount: frames.length,
+    frameCount,
     hasTextEvidence,
     evidence: {
       gtin: evidence.gtin ?? null,
@@ -925,7 +1228,7 @@ async function resolveCaptureSession(session: CaptureSessionRow): Promise<Resolv
     },
   };
 
-  if (frames.length === 0 && !hasTextEvidence) {
+  if (frameCount === 0 && !hasTextEvidence) {
     return {
       status: "needs_question",
       confidence: 0,
@@ -936,10 +1239,12 @@ async function resolveCaptureSession(session: CaptureSessionRow): Promise<Resolv
   }
 
   if (evidence.gtin) {
-    const barcodeMatch = await resolveByBarcode(evidence.gtin);
-    if (barcodeMatch) {
+    const barcodeHit = await resolveByBarcode(evidence.gtin, evidence.gtinFormat, userId);
+    if (barcodeHit) {
+      const barcodeMatch = barcodeHit.candidate;
       return {
         status: "matched",
+        barcodeVia: barcodeHit.via,
         confidence: barcodeMatch.confidence,
         entityType: barcodeMatch.entityType,
         entityId: barcodeMatch.entityId,
@@ -947,6 +1252,7 @@ async function resolveCaptureSession(session: CaptureSessionRow): Promise<Resolv
         metadataPatch: {
           resolver: {
             step: "matched_by_barcode",
+            via: barcodeHit.via,
             gtin: evidence.gtin,
             display: barcodeMatch.display,
             audit: resolverAudit,
@@ -954,6 +1260,26 @@ async function resolveCaptureSession(session: CaptureSessionRow): Promise<Resolv
         },
       };
     }
+  }
+
+  if (bottle) {
+    return resolveBottle(
+      evidence,
+      {
+        userId,
+        frameCount,
+        hintBrand: bottle.hintBrand,
+        barcodeBrand: null, // a barcode hit has already matched above
+        modelCalls: bottle.modelCalls,
+        visionConfidence: visionConfidenceFromFrames(bottle.frames),
+      },
+      {
+        query,
+        resolveBrand: resolveBrandFromText,
+        globalCandidates: (frameEvidence) => resolveShadeCandidates(frameEvidence),
+        colorDistances: (shadeIds, glassHex) => loadColorDistances(shadeIds, glassHex, userId, { query }),
+      }
+    );
   }
 
   const shadeCandidates = await resolveShadeCandidates(evidence);
@@ -1206,6 +1532,49 @@ async function startCapture(
 
     const metadata = buildStartCaptureMetadata(body.metadata);
 
+    // Bottle flow: resolve the typed brand hint against the catalog and keep it as the session
+    // brand. The raw `metadata.brand` stays for the legacy resolver. Flag off: untouched.
+    let brandHint: CaptureBrandHintEcho | undefined;
+    const bottleCapture = isFeatureEnabled("bottleCapture");
+    // `metadata.bottle` is server-owned; a client-sent one is never kept (flag on or off, so it
+    // is not waiting to be read when the flag is turned on).
+    delete metadata.bottle;
+    const rawBrand = typeof metadata.brand === "string" ? metadata.brand.trim() : "";
+    if (bottleCapture && rawBrand) {
+      let resolved = null;
+      try {
+        resolved = await resolveBrandFromText(rawBrand, undefined, { mode: "hint" });
+      } catch (error) {
+        // A failed lookup must not block the capture: the hint is kept as typed.
+        context.warn(`capture brand hint lookup failed: ${error instanceof Error ? error.message : String(error)}`);
+        trackException(error, { area: "capture", stage: "brand-hint" });
+      }
+      metadata.bottle = {
+        brand: { ...toBrandRef(resolved, rawBrand, "hint"), raw: rawBrand },
+        prompts: {},
+        skipped: [],
+      };
+      brandHint = toBrandHintEcho(resolved, rawBrand);
+    }
+
+    // The first ask: the bottom when the brand is already known, else the front.
+    let nextFrame: CaptureFrameRequestSpec | null = null;
+    if (bottleCapture) {
+      let flow = readBottleFlowState(null);
+      nextFrame = planNextFrame({
+        state: flow,
+        frameCount: 0,
+        maxFrames: GUIDANCE_CONFIG.maxFrames,
+        surfaces: {},
+        brandKnown: Boolean(toRecord(metadata.bottle).brand),
+        nameRead: false,
+        glassHex: false,
+        decision: "none",
+      });
+      if (nextFrame) flow = recordPrompt(flow, nextFrame);
+      metadata.bottle = bottleFlowMetadataPatch(flow, nextFrame, toRecord(metadata.bottle)).bottle;
+    }
+
     const result = await query<{ captureId: string; status: CaptureStatus }>(
       `INSERT INTO capture_session (capture_uuid, user_id, status, metadata)
        VALUES ($1::uuid, $2, 'processing', $3::jsonb)
@@ -1222,10 +1591,44 @@ async function startCapture(
         maxFrames: GUIDANCE_CONFIG.maxFrames,
       },
     };
+    if (bottleCapture) {
+      if (brandHint) response.brandHint = brandHint;
+      response.nextFrame = nextFrame;
+    }
 
     return { status: 201, jsonBody: response };
   } catch (error: any) {
     return internalServerError(context, error, "Failed to start capture", "capture.start");
+  }
+}
+
+/**
+ * Release a session's frame blobs after it reaches a terminal state (matched / unmatched). Runs
+ * flag on or off (no blobs means nothing to do). Best effort: a failure is logged and the hourly
+ * sweep releases whatever is left, so the response is never affected.
+ */
+async function releaseSessionFrames(
+  context: InvocationContext,
+  session: { id: number; captureId: string },
+  userId: number
+): Promise<void> {
+  try {
+    const mediaContainer = userMediaContainer();
+    const warn = (message: string, error?: unknown) => {
+      context.warn(`${message}${error ? `: ${error instanceof Error ? error.message : String(error)}` : ""}`);
+      if (error) trackException(error, { area: "capture", stage: "release-frames" });
+    };
+    await releaseCaptureFrames(
+      { sessionId: session.id, userId, captureId: session.captureId },
+      {
+        query,
+        deleteBlob: (storageUrl) => deleteBlobFromStorageUrl(storageUrl, { allowedContainers: [mediaContainer] }),
+        warn,
+      }
+    );
+  } catch (error) {
+    context.warn(`capture frame release failed: ${error instanceof Error ? error.message : String(error)}`);
+    trackException(error, { area: "capture", stage: "release-frames" });
   }
 }
 
@@ -1244,6 +1647,9 @@ async function addCaptureFrame(
     return { status: 400, jsonBody: { error: "Capture id must be a valid UUID" } };
   }
 
+  const bottleOn = isFeatureEnabled("bottleCapture");
+  // Blob stored for this frame but not yet referenced by a committed row; removed on failure.
+  let uploadedFrameUrl: string | null = null;
   try {
     let body: CaptureFrameRequest;
     try {
@@ -1294,6 +1700,22 @@ async function addCaptureFrame(
       body.imageId = requestedImageId;
     }
 
+    // A barcode the client already decoded on-device (BarcodeDetector / zxing) is trusted
+    // evidence when it is a valid GTIN: no OCR, and the verdict goes back in this response.
+    // The server owns `quality.ai` (model audits, read back as model calls and the sticker
+    // read's confidence) and the vision-derived `extracted` fields; a client never sets them.
+    body.quality = stripServerOwnedQuality(body.quality);
+    const frameQuality = toRecord(body.quality);
+    const scannedBarcode =
+      body.frameType === "barcode" ? normalizeGtin(frameQuality.gtin, frameQuality.barcodeFormat) : null;
+    // A wrong check digit is evidence worth looking up but not worth skipping OCR for.
+    const decodedBarcode = scannedBarcode?.checkDigitValid ? scannedBarcode : null;
+
+    // What the session knew before this frame (bottle flow: to tell whether the frame added any).
+    const priorEvidence = bottleOn
+      ? collectCaptureEvidence(session.metadata, await getCaptureFrameEvidence(session.id))
+      : null;
+
     // Pre-transaction: normalize image and run AI extraction pipeline
     let normalizedImage: PreparedImageInput | null = null;
     let preQualityJson: Record<string, unknown> | null = body.quality ?? null;
@@ -1312,23 +1734,72 @@ async function addCaptureFrame(
     // allowlisted storage-account URLs.
     const imageInputForAi = normalizedImage ? normalizedImage.sanitizedImageInput : null;
     let aiExtraction: FrameAiExtractionResult | null = null;
-    if (imageInputForAi) {
-      const existingEvidence = collectCaptureEvidence(
-        session.metadata,
-        await getCaptureFrameEvidence(session.id)
+    if (imageInputForAi && !decodedBarcode) {
+      const existingEvidence =
+        priorEvidence ?? collectCaptureEvidence(session.metadata, await getCaptureFrameEvidence(session.id));
+      // Bottle capture reads a data-URL label frame with vision too; a remote URL is OCR-only.
+      const stickerContext: StickerReadContext | undefined =
+        body.frameType === "label" && bottleOn && imageInputForAi.startsWith("data:")
+          ? {
+              userId,
+              surface: parseBottleSurface(frameQuality.surface),
+              brand: await resolveSessionBrand(session.metadata, existingEvidence),
+            }
+          : undefined;
+      aiExtraction = await runFrameAiExtraction(
+        imageInputForAi,
+        body.frameType,
+        {
+          brand: existingEvidence.brand,
+          shadeName: existingEvidence.shadeName,
+          finish: existingEvidence.finish,
+        },
+        stickerContext
       );
-      aiExtraction = await runFrameAiExtraction(imageInputForAi, body.frameType, {
-        brand: existingEvidence.brand,
-        shadeName: existingEvidence.shadeName,
-        finish: existingEvidence.finish,
-      });
+    }
+
+    // Bottle capture keeps the EXIF-stripped bytes as a private blob until the session is
+    // resolved (or the sweep expires it). Flag off, no data-URL bytes, an attached imageId, or a
+    // session that is already over (matched / unmatched, whose frames are released at that
+    // terminal state): nothing is stored and the row keeps the inline placeholder as before.
+    const sessionOver = session.status === "matched" || session.status === "unmatched";
+    let frameStorageUrl = normalizedImage?.storageUrl ?? null;
+    if (
+      !sessionOver &&
+      normalizedImage?.bytes &&
+      normalizedImage.contentType &&
+      normalizedImage.extension &&
+      normalizedImage.checksumSha256 &&
+      !body.imageId &&
+      bottleOn
+    ) {
+      const stored = await storeCaptureFrameBytes(
+        {
+          userId,
+          captureId: session.captureId,
+          bytes: normalizedImage.bytes,
+          contentType: normalizedImage.contentType,
+          checksum: normalizedImage.checksumSha256,
+          extension: normalizedImage.extension,
+        },
+        {
+          warn: (message, error) => {
+            context.warn(`${message}${error ? `: ${error instanceof Error ? error.message : String(error)}` : ""}`);
+            if (error) trackException(error, { area: "capture", stage: "store-frame" });
+          },
+        }
+      );
+      frameStorageUrl = stored.storageUrl;
+      if (stored.stored) uploadedFrameUrl = stored.storageUrl;
     }
 
     const result = await transaction(async (client) => {
       let imageId = body.imageId ?? null;
       let qualityJson = preQualityJson;
+      const hasAiExtracted = Boolean(aiExtraction && Object.keys(aiExtraction.extracted).length > 0);
 
-      // Merge AI extraction results into quality_json.extracted
+      // Merge AI extraction results into quality_json.extracted. A color frame that measured
+      // nothing has an empty `extracted` and leaves the request's evidence alone.
       if (aiExtraction) {
         const ocrRawTextRaw = aiExtraction.ocrRawText;
         const ocrRawText = ocrRawTextRaw
@@ -1337,29 +1808,33 @@ async function addCaptureFrame(
             : ocrRawTextRaw
           : undefined;
         qualityJson = mergeQualityJson(qualityJson ?? undefined, {
-          extracted: aiExtraction.extracted,
+          ...(hasAiExtracted ? { extracted: aiExtraction.extracted } : {}),
           ai: {
             ocrRawText,
             ocrConfidence: aiExtraction.ocrConfidence,
             ocrBarcodeCount: aiExtraction.ocrBarcodeCount,
             llmConfidence: aiExtraction.llmConfidence,
+            glass: aiExtraction.glass,
+            sticker: aiExtraction.sticker,
             processedAt: new Date().toISOString(),
           },
         });
       }
 
       const normalizedExtraction = extractFrameEvidence(qualityJson);
-      if (normalizedExtraction && !aiExtraction) {
-        // Only set extracted from request quality if AI didn't already populate it
+      if (normalizedExtraction && !hasAiExtracted) {
+        // AI produced nothing, so whatever `extracted` holds came from the client. Its own
+        // `source` was stripped on ingest, so mark it here: client evidence is typed text
+        // (`request_quality`), never a pipeline read.
         qualityJson = mergeQualityJson(qualityJson ?? undefined, {
-          extracted: normalizedExtraction,
+          extracted: { ...normalizedExtraction, source: "request_quality" },
         });
       }
       const ingestMetadataPatch = buildIngestMetadataPatch(
         session.metadata,
         body.frameType,
-        Boolean(normalizedExtraction || aiExtraction),
-        aiExtraction ? "pipeline" : (normalizedExtraction?.source ?? "none")
+        Boolean(normalizedExtraction || hasAiExtracted),
+        hasAiExtracted ? "pipeline" : normalizedExtraction ? "request_quality" : "none"
       );
 
       if (!imageId && body.imageBlobUrl) {
@@ -1370,7 +1845,7 @@ async function addCaptureFrame(
           `INSERT INTO image_asset (owner_type, owner_id, storage_url, checksum_sha256, captured_at)
            VALUES ('user', $1, $2, $3, now())
            RETURNING image_id::text AS "imageId"`,
-          [userId, normalizedImage.storageUrl, normalizedImage.checksumSha256]
+          [userId, frameStorageUrl ?? normalizedImage.storageUrl, normalizedImage.checksumSha256]
         );
         imageId = parseInt(imageResult.rows[0].imageId, 10);
       }
@@ -1392,16 +1867,67 @@ async function addCaptureFrame(
 
       return frameResult.rows[0];
     });
+    uploadedFrameUrl = null; // committed: the blob is now referenced
+
+    let check: CaptureCheckResponse | undefined;
+    let checkResolution: SessionResolution | null = null;
+    if (decodedBarcode) {
+      try {
+        const refreshed = await getCaptureSession(captureId, userId);
+        if (refreshed && refreshed.status !== "cancelled") {
+          const computed = await computeCaptureCheckWithResolution(refreshed, userId);
+          check = computed.response;
+          checkResolution = computed.resolution;
+          trackCaptureChecked(check, "barcode_frame");
+        }
+      } catch (error) {
+        // The frame is saved; the client can still call /check or /finalize.
+        context.warn(`capture frame check failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    // Bottle flow: plan the next photo. The frame is saved either way, so a planning failure
+    // degrades to "nothing more to ask" (the client then calls /check).
+    // A finished session (matched / unmatched) takes no more asks: planning would overwrite the
+    // finalize or create audit in `metadata.resolver`.
+    let nextFrame: CaptureFrameRequestSpec | null = null;
+    let readSoFar: CaptureReadSummary | undefined;
+    if (bottleOn && priorEvidence && !isTerminalCaptureStatus(session.status)) {
+      try {
+        ({ nextFrame, readSoFar } = await advanceBottleFlow(
+          session,
+          userId,
+          { kind: "frame", frameType: body.frameType, quality: preQualityJson, priorEvidence },
+          checkResolution
+        ));
+      } catch (error) {
+        context.warn(`capture next-frame planning failed: ${error instanceof Error ? error.message : String(error)}`);
+        trackException(error, { area: "capture", stage: "next-frame" });
+      }
+    }
 
     const response: CaptureFrameResponse = {
       received: true,
       captureId: session.captureId,
       frameId: result.frameId,
       status: session.status,
+      ...(check ? { check } : {}),
+      ...(bottleOn ? { nextFrame } : {}),
+      ...(readSoFar ? { readSoFar } : {}),
     };
 
     return { status: 201, jsonBody: response };
   } catch (error: any) {
+    if (uploadedFrameUrl) {
+      // Not linked to any row: remove it so a failed frame leaves no private media behind.
+      try {
+        await deleteBlobFromStorageUrl(uploadedFrameUrl, { allowedContainers: [userMediaContainer()] });
+      } catch (deleteError) {
+        context.warn(
+          `capture frame blob cleanup failed: ${deleteError instanceof Error ? deleteError.message : String(deleteError)}`
+        );
+      }
+    }
     if (error instanceof CaptureInputError) {
       return { status: 400, jsonBody: { error: error.message } };
     }
@@ -1441,7 +1967,7 @@ async function finalizeCapture(
     }
     const finalizeStartedAt = new Date().toISOString();
     const finalizeRunId = randomUUID();
-    const outcome = await resolveCaptureSession(session);
+    const outcome = await resolveCaptureSession(session, userId);
     const metadataPatch = withFinalizeAuditPatch(
       session.metadata,
       outcome.metadataPatch,
@@ -1455,6 +1981,7 @@ async function finalizeCapture(
       confidence: outcome.confidence,
       runId: finalizeRunId,
     });
+    trackCaptureResolved(session.captureId, outcome);
 
     if (outcome.status === "matched") {
       await transaction(async (client) => {
@@ -1463,6 +1990,15 @@ async function finalizeCapture(
           userId,
           outcome.entityType,
           outcome.entityId
+        );
+        await rememberScannedBarcode(
+          client,
+          userId,
+          session.id,
+          outcome.evidence,
+          outcome.entityType,
+          outcome.entityId,
+          outcome.barcodeVia
         );
 
         await client.query(
@@ -1481,7 +2017,7 @@ async function finalizeCapture(
                accepted_entity_id = $4,
                metadata = COALESCE(metadata, '{}'::jsonb)
                  || $5::jsonb
-                 || jsonb_build_object('inventoryItemId', $6),
+                 || jsonb_build_object('inventoryItemId', $6::bigint),
                updated_at = now()
            WHERE capture_session_id = $1`,
           [
@@ -1496,6 +2032,7 @@ async function finalizeCapture(
       });
       // Rapid Add added a bottle: drop the caller's polish list + collection stats caches.
       await invalidatePolishCachesForUser(userId);
+      await releaseSessionFrames(context, session, userId);
 
       const response: CaptureFinalizeResponse = {
         captureId: session.captureId,
@@ -1543,7 +2080,7 @@ async function finalizeCapture(
             outcome.question.key,
             outcome.question.prompt,
             outcome.question.type,
-            outcome.question.options ?? null,
+            serializeQuestionOptions(outcome.question.options),
           ]
         );
 
@@ -1579,6 +2116,8 @@ async function finalizeCapture(
         [session.id, outcome.confidence, metadataPatch]
       );
     });
+
+    await releaseSessionFrames(context, session, userId);
 
     const response: CaptureFinalizeResponse = {
       captureId: session.captureId,
@@ -1651,6 +2190,127 @@ function sameEntity(a: CaptureMatchCandidate, b: CaptureMatchCandidate): boolean
   return a.entityType === b.entityType && a.entityId === b.entityId;
 }
 
+/** Display hex (vendor > detected > name) per shade id, for the verdict swatch. */
+async function loadDisplayHexes(shadeIds: Array<number | null>): Promise<Map<string, string>> {
+  const ids = Array.from(new Set(shadeIds.filter((id): id is number => id !== null)));
+  const hexes = new Map<string, string>();
+  if (ids.length === 0) return hexes;
+  const result = await query<{
+    shadeId: string;
+    vendorHex: string | null;
+    detectedHex: string | null;
+    nameHex: string | null;
+  }>(
+    `SELECT shade_id::text AS "shadeId", vendor_hex AS "vendorHex", detected_hex AS "detectedHex", name_hex AS "nameHex"
+     FROM shade
+     WHERE shade_id = ANY($1::bigint[])`,
+    [ids]
+  );
+  for (const row of result.rows) {
+    const hex = resolveDisplayHex({
+      vendorHex: row.vendorHex ?? undefined,
+      detectedHex: row.detectedHex ?? undefined,
+      nameHex: row.nameHex ?? undefined,
+    });
+    if (hex) hexes.set(row.shadeId, hex);
+  }
+  return hexes;
+}
+
+/**
+ * The read-only check verdict for a session (shared by POST /check and the decoded-barcode
+ * frame response) plus the resolution it ran (null when the session was already accepted).
+ */
+async function computeCaptureCheckWithResolution(
+  session: CaptureSessionRow,
+  userId: number
+): Promise<{ response: CaptureCheckResponse; resolution: SessionResolution | null }> {
+  let resolution: SessionResolution | null = null;
+  let outcome: CaptureCheckResponse["outcome"];
+  let confidence: number;
+  let match: CaptureMatchCandidate | null = null;
+  let candidates: CaptureMatchCandidate[];
+  let questionKey: string | undefined;
+
+  const acceptedEntityId = session.acceptedEntityId ? parseInt(session.acceptedEntityId, 10) : NaN;
+  if (session.status === "matched" && session.acceptedEntityType && Number.isInteger(acceptedEntityId)) {
+    // Already finalized/answered: report the accepted entity, don't second-guess it.
+    const accepted = await describeCaptureEntity(session.acceptedEntityType, acceptedEntityId);
+    match = { ...accepted, confidence: parseNumeric(session.topConfidence) ?? accepted.confidence };
+    outcome = "matched";
+    confidence = match.confidence;
+    candidates = [match];
+  } else {
+    const resolved = await resolveCaptureSession(session, userId);
+    resolution = resolved;
+    outcome = resolved.status;
+    confidence = resolved.confidence;
+    candidates = resolved.candidates;
+    if (resolved.status === "matched") {
+      const { entityType, entityId } = resolved;
+      const found = candidates.find((c) => c.entityType === entityType && c.entityId === entityId);
+      match = found ?? (await describeCaptureEntity(entityType, entityId));
+      if (!found) {
+        candidates = [match, ...candidates];
+      }
+    } else if (resolved.status === "needs_question") {
+      questionKey = resolved.question.key;
+    }
+  }
+
+  const ownerships = await loadInventoryOwnership(
+    userId,
+    candidates.map((c) => ({
+      shadeId: c.shadeId === null ? null : String(c.shadeId),
+      skuId: c.entityType === "sku" ? String(c.entityId) : null,
+    }))
+  );
+  const hexes = await loadDisplayHexes(candidates.map((c) => c.shadeId));
+  const checkCandidates: CaptureCheckCandidate[] = candidates.map((c, i) => ({
+    entityType: c.entityType,
+    entityId: String(c.entityId),
+    shadeId: c.shadeId === null ? null : String(c.shadeId),
+    display: c.display,
+    confidence: c.confidence,
+    ownership: ownerships[i],
+    ...(c.shadeId !== null && hexes.has(String(c.shadeId)) ? { hex: hexes.get(String(c.shadeId)) } : {}),
+    ...(c.brandId !== undefined ? { brandId: String(c.brandId) } : {}),
+    ...(typeof c.colorDistance === "number" ? { colorDistance: c.colorDistance } : {}),
+  }));
+  const matched = match;
+  const matchIndex = matched ? candidates.findIndex((c) => sameEntity(c, matched)) : -1;
+
+  const response: CaptureCheckResponse = {
+    captureId: session.captureId,
+    status: session.status,
+    outcome,
+    confidence,
+    match: matchIndex >= 0 ? checkCandidates[matchIndex] : undefined,
+    candidates: checkCandidates,
+    questionKey,
+    ...(isFeatureEnabled("bottleCapture")
+      ? { nextFrame: resolution ? planFromResolution(readBottleFlowState(session.metadata), resolution) : null }
+      : {}),
+    ...(isFeatureEnabled("bottleCapture") && resolution
+      ? { readSoFar: summarizeCaptureRead(resolution.evidence, resolution.bottle?.brand ?? null) }
+      : {}),
+    ...(resolution?.bottle?.suggestedShade ? { suggestedShade: resolution.bottle.suggestedShade } : {}),
+    ...(resolution?.bottle?.brandConflict ? { brandConflict: resolution.bottle.brandConflict } : {}),
+  };
+  return { response, resolution };
+}
+
+function trackCaptureChecked(response: CaptureCheckResponse, trigger: "check" | "barcode_frame"): void {
+  trackEvent("capture.checked", {
+    captureId: response.captureId,
+    outcome: response.outcome,
+    confidence: response.confidence,
+    relationship: response.match?.ownership.relationship ?? "none",
+    candidateCount: response.candidates.length,
+    trigger,
+  });
+}
+
 /**
  * POST /api/capture/{captureId}/check — "do I own this?" without buying it.
  *
@@ -1684,72 +2344,10 @@ async function checkCapture(
       return { status: 409, jsonBody: { error: "Cannot check a cancelled session" } };
     }
 
-    let outcome: CaptureCheckResponse["outcome"];
-    let confidence: number;
-    let match: CaptureMatchCandidate | null = null;
-    let candidates: CaptureMatchCandidate[];
-    let questionKey: string | undefined;
+    const { response, resolution } = await computeCaptureCheckWithResolution(session, userId);
 
-    const acceptedEntityId = session.acceptedEntityId ? parseInt(session.acceptedEntityId, 10) : NaN;
-    if (session.status === "matched" && session.acceptedEntityType && Number.isInteger(acceptedEntityId)) {
-      // Already finalized/answered: report the accepted entity, don't second-guess it.
-      const accepted = await describeCaptureEntity(session.acceptedEntityType, acceptedEntityId);
-      match = { ...accepted, confidence: parseNumeric(session.topConfidence) ?? accepted.confidence };
-      outcome = "matched";
-      confidence = match.confidence;
-      candidates = [match];
-    } else {
-      const resolved = await resolveCaptureSession(session);
-      outcome = resolved.status;
-      confidence = resolved.confidence;
-      candidates = resolved.candidates;
-      if (resolved.status === "matched") {
-        const { entityType, entityId } = resolved;
-        const found = candidates.find((c) => c.entityType === entityType && c.entityId === entityId);
-        match = found ?? (await describeCaptureEntity(entityType, entityId));
-        if (!found) {
-          candidates = [match, ...candidates];
-        }
-      } else if (resolved.status === "needs_question") {
-        questionKey = resolved.question.key;
-      }
-    }
-
-    const ownerships = await loadInventoryOwnership(
-      userId,
-      candidates.map((c) => ({
-        shadeId: c.shadeId === null ? null : String(c.shadeId),
-        skuId: c.entityType === "sku" ? String(c.entityId) : null,
-      }))
-    );
-    const checkCandidates: CaptureCheckCandidate[] = candidates.map((c, i) => ({
-      entityType: c.entityType,
-      entityId: String(c.entityId),
-      shadeId: c.shadeId === null ? null : String(c.shadeId),
-      display: c.display,
-      confidence: c.confidence,
-      ownership: ownerships[i],
-    }));
-    const matched = match;
-    const matchIndex = matched ? candidates.findIndex((c) => sameEntity(c, matched)) : -1;
-
-    const response: CaptureCheckResponse = {
-      captureId: session.captureId,
-      status: session.status,
-      outcome,
-      confidence,
-      match: matchIndex >= 0 ? checkCandidates[matchIndex] : undefined,
-      candidates: checkCandidates,
-      questionKey,
-    };
-
-    trackEvent("capture.checked", {
-      captureId: session.captureId,
-      outcome,
-      confidence,
-      relationship: response.match?.ownership.relationship ?? "none",
-      candidateCount: checkCandidates.length,
-    });
+    trackCaptureChecked(response, "check");
+    if (resolution) trackCaptureResolved(session.captureId, resolution);
 
     return { status: 200, jsonBody: response };
   } catch (error: any) {
@@ -1788,12 +2386,42 @@ async function getCaptureStatus(
       acceptedEntityId: session.acceptedEntityId || undefined,
       metadata: session.metadata || undefined,
       question: toCaptureQuestion(question),
+      // A session that is over asks for no more photos, whatever was planned last.
+      ...(isFeatureEnabled("bottleCapture")
+        ? { nextFrame: isTerminalCaptureStatus(session.status) ? null : readLastNextFrame(session.metadata) }
+        : {}),
     };
 
     return { status: 200, jsonBody: response };
   } catch (error: any) {
     return internalServerError(context, error, "Failed to fetch capture status", "capture.status");
   }
+}
+
+/** Matched, unmatched or cancelled: the session takes no more photo asks. */
+function isTerminalCaptureStatus(status: CaptureStatus): boolean {
+  return status === "matched" || status === "unmatched" || status === "cancelled";
+}
+
+/** Bottle flow: the user skipped a photo. Records it, re-plans and answers with the next ask. */
+async function skipBottleSurface(captureId: string, surface: BottleSurface, userId: number): Promise<HttpResponseInit> {
+  const session = await getCaptureSession(captureId, userId);
+  if (!session) {
+    return { status: 404, jsonBody: { error: "Capture session not found" } };
+  }
+  if (isTerminalCaptureStatus(session.status)) {
+    // Over: no re-resolve and no metadata write.
+    return { status: 409, jsonBody: { error: `Cannot skip a photo on a ${session.status} session` } };
+  }
+  const { nextFrame, readSoFar } = await advanceBottleFlow(session, userId, { kind: "skip", surface });
+  const response: CaptureAnswerResponse = {
+    captureId: session.captureId,
+    status: session.status,
+    question: toCaptureQuestion(await getOpenQuestion(session.id)),
+    nextFrame,
+    readSoFar,
+  };
+  return { status: 200, jsonBody: response };
 }
 
 async function answerCaptureQuestion(
@@ -1817,6 +2445,23 @@ async function answerCaptureQuestion(
       body = (await request.json()) as CaptureAnswerRequest;
     } catch {
       return { status: 400, jsonBody: { error: "Invalid JSON body" } };
+    }
+    if (body?.skipSurface !== undefined) {
+      if (!isFeatureEnabled("bottleCapture")) {
+        // Flag off: skipSurface does not exist, so a bare one is the old "answer is required".
+        return {
+          status: 400,
+          jsonBody: { error: body.answer === undefined ? "answer is required" : "skipSurface is not enabled" },
+        };
+      }
+      if (body.answer !== undefined) {
+        return { status: 400, jsonBody: { error: "Send either answer or skipSurface, not both" } };
+      }
+      const skipped = parseBottleSurface(body.skipSurface);
+      if (!skipped) {
+        return { status: 400, jsonBody: { error: `skipSurface must be one of: ${BOTTLE_SURFACES.join(", ")}` } };
+      }
+      return skipBottleSurface(captureId, skipped, userId);
     }
     if (body?.answer === undefined) {
       return { status: 400, jsonBody: { error: "answer is required" } };
@@ -1864,6 +2509,11 @@ async function answerCaptureQuestion(
     const answerJson = JSON.stringify(normalizedAnswer);
 
     let updatedStatus: CaptureStatus = "processing";
+    // A picked candidate can teach the scanned GTIN (#21); read the evidence before writing.
+    const answerEvidence =
+      openQuestion.key === "candidate_select"
+        ? collectCaptureEvidence(session.metadata, await getCaptureFrameEvidence(session.id))
+        : null;
 
     await transaction(async (client) => {
       await client.query(
@@ -1892,6 +2542,9 @@ async function answerCaptureQuestion(
           "shade",
           selectedShadeId
         );
+        if (answerEvidence) {
+          await rememberScannedBarcode(client, userId, session.id, answerEvidence, "shade", selectedShadeId, undefined);
+        }
 
         await client.query(
           `UPDATE capture_session
@@ -1905,7 +2558,7 @@ async function answerCaptureQuestion(
                       COALESCE(metadata->'answers', '{}'::jsonb)
                         || jsonb_build_object($3::text, $4::jsonb)
                     )
-                 || jsonb_build_object('inventoryItemId', $5),
+                 || jsonb_build_object('inventoryItemId', $5::bigint),
                updated_at = now()
            WHERE capture_session_id = $1`,
           [session.id, selectedShadeId, openQuestion.key, answerJson, inventoryItemId]
@@ -1938,6 +2591,7 @@ async function answerCaptureQuestion(
     if ((updatedStatus as CaptureStatus) === "matched") {
       // Rapid Add added a bottle: drop the caller's polish list + collection stats caches.
       await invalidatePolishCachesForUser(userId);
+      await releaseSessionFrames(context, session, userId);
     }
 
     // Re-resolve after non-selection answers (e.g., brand_shade free-text)
@@ -1946,7 +2600,7 @@ async function answerCaptureQuestion(
       if (refreshedSession && refreshedSession.status === "processing") {
         const reResolveRunId = randomUUID();
         const reResolveStartedAt = new Date().toISOString();
-        const outcome = await resolveCaptureSession(refreshedSession);
+        const outcome = await resolveCaptureSession(refreshedSession, userId);
         const metadataPatch = withFinalizeAuditPatch(
           refreshedSession.metadata,
           outcome.metadataPatch,
@@ -1972,6 +2626,15 @@ async function answerCaptureQuestion(
               outcome.entityType,
               outcome.entityId
             );
+            await rememberScannedBarcode(
+              client,
+              userId,
+              refreshedSession.id,
+              outcome.evidence,
+              outcome.entityType,
+              outcome.entityId,
+              outcome.barcodeVia
+            );
             await client.query(
               `UPDATE capture_question SET status = 'expired' WHERE capture_session_id = $1 AND status = 'open'`,
               [refreshedSession.id]
@@ -1982,7 +2645,7 @@ async function answerCaptureQuestion(
                    top_confidence = $2,
                    accepted_entity_type = $3,
                    accepted_entity_id = $4,
-                   metadata = COALESCE(metadata, '{}'::jsonb) || $5::jsonb || jsonb_build_object('inventoryItemId', $6),
+                   metadata = COALESCE(metadata, '{}'::jsonb) || $5::jsonb || jsonb_build_object('inventoryItemId', $6::bigint),
                    updated_at = now()
                WHERE capture_session_id = $1`,
               [refreshedSession.id, outcome.confidence, outcome.entityType, outcome.entityId, metadataPatch, inventoryItemId]
@@ -1990,6 +2653,7 @@ async function answerCaptureQuestion(
           });
           // Rapid Add added a bottle: drop the caller's polish list + collection stats caches.
           await invalidatePolishCachesForUser(userId);
+          await releaseSessionFrames(context, refreshedSession, userId);
         } else if (outcome.status === "needs_question") {
           updatedStatus = "needs_question";
           await transaction(async (client) => {
@@ -2006,7 +2670,7 @@ async function answerCaptureQuestion(
             await client.query(
               `INSERT INTO capture_question (capture_session_id, question_key, prompt, question_type, options_json, status)
                VALUES ($1, $2, $3, $4, $5::jsonb, 'open')`,
-              [refreshedSession.id, outcome.question.key, outcome.question.prompt, outcome.question.type, outcome.question.options ?? null]
+              [refreshedSession.id, outcome.question.key, outcome.question.prompt, outcome.question.type, serializeQuestionOptions(outcome.question.options)]
             );
           });
         } else {
@@ -2023,6 +2687,7 @@ async function answerCaptureQuestion(
               [refreshedSession.id, outcome.confidence, metadataPatch]
             );
           });
+          await releaseSessionFrames(context, refreshedSession, userId);
         }
       }
     }

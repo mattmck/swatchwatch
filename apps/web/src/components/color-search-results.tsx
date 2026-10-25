@@ -14,6 +14,8 @@ import { detailHref } from "@/lib/detail-href";
 interface ColorSearchResultsProps {
   polishes: (Polish & {
     distance: number;
+    /** The hex is only a guess from the color name (`isEstimatedDisplayHex`): no match %. */
+    estimated: boolean;
     matchedHarmonyHex: string;
     matchedHarmonyIndex: number;
   })[];
@@ -41,7 +43,7 @@ interface ColorSearchResultsProps {
 /**
  * Render a searchable list of polishes with color swatches, match indicators, ownership and quantity controls.
  *
- * Renders a header row of harmony color swatches and a scrolling list of polish rows. Each row shows an optional swatch image, a color dot (and optional matched-harmony dot), name/brand/collection, finish badge, match percentage, ownership indicator, and optional controls to add to focused colors or change collection quantity.
+ * Renders a header row of harmony color swatches and a scrolling list of polish rows. Each row shows an optional swatch image, a color dot (and optional matched-harmony dot), name/brand/collection, finish badge, match percentage ("Estimated color" for a name-guessed hex), ownership indicator, and optional controls to add to focused colors or change collection quantity.
  *
  * @param polishes - Array of polish objects augmented with `distance`, `matchedHarmonyHex`, and `matchedHarmonyIndex`.
  * @param harmonyColors - Array of hex color strings used to render the header swatches.
@@ -113,7 +115,7 @@ export function ColorSearchResults({
         return (
           <div
             key={polish.id}
-            className="flex items-center gap-3 rounded-md p-2 transition-colors hover:bg-muted"
+            className="flex flex-wrap items-center gap-3 rounded-md p-2 transition-colors hover:bg-muted sm:flex-nowrap"
           >
             {/* Ownership status icon */}
             <span className="shrink-0 text-lg" title={owned ? "In collection" : "Not owned"}>
@@ -122,7 +124,7 @@ export function ColorSearchResults({
 
             <Link
               href={detailHref(polish.id, returnTo)}
-              className="flex min-w-0 flex-1 items-center gap-3"
+              className="flex min-w-0 flex-1 basis-[calc(100%-2.5rem)] items-center gap-3 sm:basis-auto"
             >
               {polish.swatchImageUrl ? (
                 <SwatchThumbnail
@@ -168,15 +170,24 @@ export function ColorSearchResults({
                   {polish.collection ? ` · ${polish.collection}` : ""}
                 </p>
               </div>
-              <FinishBadges polish={polish} finishTypes={finishTypes} max={2} className="shrink-0 justify-end" />
-              <span className="shrink-0 text-xs tabular-nums text-muted-foreground w-12 text-right">
-                {((1 - polish.distance) * 100).toFixed(0)}%
-              </span>
+              <FinishBadges polish={polish} finishTypes={finishTypes} max={2} className="hidden shrink-0 justify-end sm:inline-flex" />
+              {polish.estimated ? (
+                <span
+                  className="shrink-0 text-right text-xs italic text-muted-foreground"
+                  title="Estimated color: guessed from the shade name, not measured from the bottle"
+                >
+                  Estimated color
+                </span>
+              ) : (
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground w-12 text-right">
+                  {((1 - polish.distance) * 100).toFixed(0)}%
+                </span>
+              )}
             </Link>
 
-            {/* Quantity controls */}
+            {/* Quantity controls. Phones: they wrap onto a second line, right-aligned under the name. */}
             {(onAddFocus || onQuantityChange) && (
-              <div className="shrink-0 flex items-center gap-2">
+              <div className="ml-auto flex shrink-0 items-center gap-2">
                 {onAddFocus && resolveDisplayHex(polish) && (
                   <Button
                     type="button"
@@ -196,7 +207,7 @@ export function ColorSearchResults({
               </div>
             )}
             {onQuantityChange && (
-              <div className="shrink-0 w-[92px] flex justify-end">
+              <div className="flex shrink-0 justify-end sm:w-[92px]">
                 <QuantityControls
                   owned={owned}
                   quantity={polish.quantity ?? 0}

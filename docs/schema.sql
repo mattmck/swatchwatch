@@ -262,15 +262,27 @@ CREATE TABLE shade (
   detected_finishes TEXT[],                      -- AI-detected finishes (migration 016)
   collection TEXT,
   release_year INT,
-  status TEXT NOT NULL DEFAULT 'unknown',       -- active|user_submitted|excluded|...; user_submitted = private to creator/inventory holders until an admin sets 'active' (migration 024); excluded = accessory hidden from discovery, still shown to holders (migration 20261019011858000)
-  -- Product category (migration 20261019011858000_shade-product-category, #349/#347, D23): classifyProductCategory
+  status TEXT NOT NULL DEFAULT 'unknown',       -- active|user_submitted|excluded|...; user_submitted = private to creator/inventory holders until an admin sets 'active' (migration 024); excluded = accessory hidden from discovery, still shown to holders (migration 20261022190729000)
+  -- Product category (migration 20261022190729000_shade-product-category, #349/#347, D23): classifyProductCategory
   -- in packages/functions/src/lib/product-category.ts. 'admin' categories are never changed by ingestion or the backfill.
   product_category TEXT NOT NULL DEFAULT 'color'
     CHECK (product_category IN ('color', 'topper', 'top_coat', 'base_coat', 'treatment', 'accessory')),
   product_category_source TEXT NOT NULL DEFAULT 'rule' CHECK (product_category_source IN ('rule', 'admin')),
+  -- 'admin' = finishes set in the Hex Labeling tool (migration 20261024053633287_shade-finishes-source); ingestion
+  -- and the product-text backfill never change an 'admin' list (ingestion otherwise merges vendor tag finishes in).
+  finishes_source TEXT NOT NULL DEFAULT 'rule' CHECK (finishes_source IN ('rule', 'admin')),
   created_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL, -- creator of a user-API shade; NULL for catalog/ingestion rows (migration 024)
   color_name TEXT,
-  vendor_hex TEXT,                               -- hex published by the vendor (e.g. Shopify variant option)
+  vendor_hex TEXT,                               -- hex published by the vendor (e.g. Shopify variant option), or an admin-promoted manual label
+  -- vendor_hex provenance (migration 20261020024540860_shade-vendor-hex-provenance, #321/D12). 'manual_label' =
+  -- promoted from a color_training_sample manual label; ingestion never overwrites it (it records the vendor's
+  -- latest value in vendor_hex_previous instead). NULL = unknown / no hex.
+  vendor_hex_source TEXT CONSTRAINT shade_vendor_hex_source_check
+    CHECK (vendor_hex_source IS NULL OR vendor_hex_source IN ('vendor', 'manual_label')),
+  vendor_hex_label_id BIGINT,                    -- promoted label (FK added after color_training_sample, ON DELETE SET NULL keeps the hex)
+  vendor_hex_set_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL, -- admin who promoted it
+  vendor_hex_set_at TIMESTAMPTZ,                 -- last promotion / ingestion write of vendor_hex
+  vendor_hex_previous TEXT,                      -- vendor hex a promotion replaced; Undo restores it
   detected_hex TEXT,                             -- hex detected from the product image (AI vision)
   name_hex TEXT,                                 -- hex inferred from the color name
   -- detected_hex provenance (migration 20261017024958000_shade-detected-hex-provenance): who/what produced detected_hex and how sure it was
@@ -284,6 +296,17 @@ CREATE TABLE shade (
   -- Color family of the display hex (vendor > detected > name), or 'multichrome' for color-shifting
   -- finishes; NULL without a usable hex. Filtered by ?family= (migration 20261017061637910_add-shade-color-family)
   color_family TEXT GENERATED ALWAYS AS (shade_color_family(vendor_hex, detected_hex, name_hex, finishes, finish)) STORED,
+  -- OKLAB of the display hex (vendor > detected > name, trimmed like color_family); NULL without a usable hex.
+  -- GET /api/polishes?nearHex= sorts by distance on these (migration 20261023001520034_shade-display-oklab)
+  oklab_l DOUBLE PRECISION GENERATED ALWAYS AS (
+    (hex_to_oklab(shade_color_family_trim(COALESCE(NULLIF(vendor_hex, ''), NULLIF(detected_hex, ''), NULLIF(name_hex, '')))))[1]
+  ) STORED,
+  oklab_a DOUBLE PRECISION GENERATED ALWAYS AS (
+    (hex_to_oklab(shade_color_family_trim(COALESCE(NULLIF(vendor_hex, ''), NULLIF(detected_hex, ''), NULLIF(name_hex, '')))))[2]
+  ) STORED,
+  oklab_b DOUBLE PRECISION GENERATED ALWAYS AS (
+    (hex_to_oklab(shade_color_family_trim(COALESCE(NULLIF(vendor_hex, ''), NULLIF(detected_hex, ''), NULLIF(name_hex, '')))))[3]
+  ) STORED,
   -- Admin review of user_submitted shades (migration 20261017063252270_shade-review-queue): last decision + who/when.
   -- approve → status 'active'; reject → stays 'user_submitted' (private); merge → inventory moved to
   -- merged_into_shade_id and the row is retired (stays 'user_submitted', hidden from user polish queries).
@@ -313,12 +336,13 @@ CREATE INDEX idx_shade_merged_into ON shade (merged_into_shade_id) WHERE merged_
 -- Category filters (dupes, color search, gaps, ?category=)
 CREATE INDEX idx_shade_product_category_status ON shade (product_category, status);
 
--- Undo log for product-category changes (migration 20261019011858000): one row per category change,
--- exclusion or cleared topper detected_hex made by the backfill job or an admin, with before/after values.
+-- Undo log for product-category changes (migration 20261022190729000): one row per category change,
+-- exclusion or cleared topper detected_hex made by the backfill job or an admin, and admin finish edits
+-- ('finishes', migration 20261024053633287), with before/after values.
 CREATE TABLE shade_category_change (
   shade_category_change_id BIGSERIAL PRIMARY KEY,
   shade_id BIGINT NOT NULL REFERENCES shade(shade_id) ON DELETE CASCADE,
-  action TEXT NOT NULL CHECK (action IN ('category', 'exclude', 'clear_detected_hex')),
+  action TEXT NOT NULL CHECK (action IN ('category', 'exclude', 'clear_detected_hex', 'finishes')),
   before JSONB NOT NULL DEFAULT '{}'::jsonb,
   after JSONB NOT NULL DEFAULT '{}'::jsonb,
   source TEXT NOT NULL CHECK (source IN ('backfill', 'admin')),
@@ -349,13 +373,24 @@ CREATE TABLE sku (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Catalog GTINs (#21, #325; migration 20261019030000000_barcode-provenance-and-user-barcodes).
+-- gtin is the canonical key from lib/barcodes.ts normalizeGtin (UPC-A/UPC-E/GTIN-14 → 13-digit
+-- EAN form, EAN-8 as is). One GTIN → one SKU → one shade: the first shade to claim a GTIN keeps
+-- it; a later claim from another shade is logged as a conflict and skipped.
 CREATE TABLE barcode (
   barcode_id BIGSERIAL PRIMARY KEY,
   sku_id BIGINT NOT NULL REFERENCES sku(sku_id) ON DELETE CASCADE,
   gtin TEXT NOT NULL UNIQUE,
-  barcode_type TEXT,
-  is_primary BOOLEAN NOT NULL DEFAULT TRUE
+  barcode_type TEXT,                           -- EAN_13|UPC_A|UPC_E|EAN_8|GTIN_14
+  is_primary BOOLEAN NOT NULL DEFAULT TRUE,
+  source TEXT NOT NULL DEFAULT 'unknown'        -- who wrote the row
+    CONSTRAINT barcode_source_check CHECK (source IN ('ingestion', 'backfill', 'admin', 'unknown')),
+  external_product_id BIGINT,                  -- connector product it came from (FK added after external_product below)
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE INDEX idx_barcode_sku ON barcode(sku_id);
+
 
 -- Labels (versioned)
 CREATE TABLE label_document (
@@ -509,7 +544,11 @@ CREATE TABLE admin_audit_event (
   note TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT admin_audit_event_action_check
-    CHECK (action IN ('user.update', 'user.suspend', 'user.unsuspend', 'user.merge'))
+    CHECK (action IN (
+      'user.update', 'user.suspend', 'user.unsuspend', 'user.merge',
+      -- #321 vendor-hex promotions: target_user_id NULL, shade id in changes
+      'shade.vendor_hex_promote', 'shade.vendor_hex_demote'
+    ))
 );
 
 CREATE INDEX idx_admin_audit_event_target ON admin_audit_event(target_user_id, created_at DESC);
@@ -655,7 +694,8 @@ CREATE TABLE wishlist_share (
 -- Saved looks (migration 20261019020500000_user-look, docs/looks-experience-plan.md). A look
 -- saved from /polishes/looks: template, vibe and steps. `steps` is an opaque display snapshot the
 -- client sends (role, label, hex, source, optional shade id/brand/name) returned to its owner
--- as-is and never joined to shade, so it can't expose another user's private shade. `look_key`
+-- as-is and never joined to shade, so it can't expose another user's private shade (the public
+-- look-share page joins step shade ids only to public catalog shades, see look_share). `look_key`
 -- (`<templateId>:<shadeIds>`) makes re-saving the same combo an upsert; the API keeps ≤ 30 per user.
 CREATE TABLE user_look (
   user_look_id BIGSERIAL PRIMARY KEY,
@@ -667,6 +707,8 @@ CREATE TABLE user_look (
   steps JSONB NOT NULL,
   saved_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT uq_user_look_key UNIQUE (user_id, look_key),
+  -- Target of look_share's composite FK (migration 20261023001607416_look-share).
+  CONSTRAINT uq_user_look_id_user UNIQUE (user_look_id, user_id),
   CONSTRAINT chk_user_look_key CHECK (char_length(look_key) BETWEEN 3 AND 160),
   CONSTRAINT chk_user_look_template CHECK (template_id ~ '^[a-z0-9-]{1,40}$'),
   CONSTRAINT chk_user_look_name CHECK (char_length(name) BETWEEN 1 AND 80),
@@ -680,6 +722,33 @@ CREATE TABLE user_look (
 
 CREATE INDEX idx_user_look_user_saved
   ON user_look(user_id, saved_at DESC);
+
+-- Shareable looks (migration 20261023001607416_look-share). One opt-in, revocable read-only link
+-- per saved look, behind the SHAREABLE_LOOKS_ENABLED flag. The raw token is never stored: it is
+-- re-derived as base64url(HMAC-SHA256(server "look-share:v1" subkey,
+-- "<user_id>:<user_look_id>:<token_salt>")) and looked up by its SHA-256 (token_hash). Revoking
+-- sets revoked_at (the link answers 410); sharing again replaces salt + hash. The composite FK
+-- pins user_id to the look's owner, and deleting the look deletes the link.
+CREATE TABLE look_share (
+  user_look_id BIGINT PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES app_user(user_id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL,
+  token_salt TEXT NOT NULL,
+  display_name TEXT,               -- owner-chosen public name per link; never derived from the email
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  revoked_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT fk_look_share_look FOREIGN KEY (user_look_id, user_id)
+    REFERENCES user_look(user_look_id, user_id) ON DELETE CASCADE,
+  CONSTRAINT uq_look_share_token_hash UNIQUE (token_hash),
+  CONSTRAINT chk_look_share_token_hash CHECK (token_hash ~ '^[0-9a-f]{64}$'),
+  CONSTRAINT chk_look_share_token_salt CHECK (char_length(token_salt) BETWEEN 16 AND 64),
+  CONSTRAINT chk_look_share_display_name CHECK (
+    display_name IS NULL OR char_length(display_name) BETWEEN 1 AND 60
+  )
+);
+
+CREATE INDEX idx_look_share_user ON look_share(user_id);
 
 -- Keyed by (user_id, shade_id) like the mani log, so history survives deleting the polish from
 -- the collection (D8, #317; migration 20261017232537776_inventory-event-keep-wear-history):
@@ -813,6 +882,21 @@ CREATE TABLE capture_answer (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- GTINs a user taught Rapid Add (unknown barcode → label photo / manual add). Private to the
+-- user: always queried with user_id; catalog barcode rows win over these.
+CREATE TABLE user_shade_barcode (
+  user_id BIGINT NOT NULL REFERENCES app_user(user_id) ON DELETE CASCADE,
+  gtin TEXT NOT NULL,                          -- canonical key, as barcode.gtin
+  shade_id BIGINT NOT NULL REFERENCES shade(shade_id) ON DELETE CASCADE,
+  barcode_type TEXT,
+  capture_session_id BIGINT REFERENCES capture_session(capture_session_id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, gtin)
+);
+
+CREATE INDEX idx_user_shade_barcode_shade ON user_shade_barcode(shade_id);
+
 CREATE INDEX idx_capture_session_user_status ON capture_session(user_id, status, created_at DESC);
 CREATE INDEX idx_capture_frame_session_type ON capture_frame(capture_session_id, frame_type);
 CREATE INDEX idx_capture_question_session_status ON capture_question(capture_session_id, status);
@@ -926,7 +1010,7 @@ CREATE TABLE data_source (
   license TEXT,                               -- license identifier/name (if applicable)
   terms_url TEXT,
   enabled BOOLEAN NOT NULL DEFAULT true,       -- false: hidden from /api/ingestion/sources (admin pickers)
-  metadata JSONB,                              -- priority, mvp, notes (incl. per-source access verification), ingestion settings
+  metadata JSONB,                              -- priority, mvp, notes (incl. per-source access verification), ingestion settings, optional store `currency` (ISO 4217, Shopify prices)
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -957,6 +1041,12 @@ CREATE TABLE external_product (
 );
 
 CREATE INDEX idx_external_product_gtin ON external_product(gtin);
+ALTER TABLE barcode ADD CONSTRAINT barcode_external_product_id_fkey
+  FOREIGN KEY (external_product_id) REFERENCES external_product(external_product_id) ON DELETE SET NULL;
+-- Capture resolver fallback: scanned code vs. the raw connector GTIN (spaces/hyphens removed)
+CREATE INDEX idx_external_product_gtin_compact
+  ON external_product ((regexp_replace(gtin, '[[:space:]-]', '', 'g')))
+  WHERE gtin IS NOT NULL;
 CREATE INDEX idx_external_product_source_time ON external_product(data_source_id, fetched_at DESC);
 
 -- Which connector product(s) each shade was materialized from (migration
@@ -1105,6 +1195,38 @@ CREATE UNIQUE INDEX idx_color_training_external_product_source
 CREATE UNIQUE INDEX idx_color_training_manual_shade
   ON color_training_sample(shade_id)
   WHERE source_type = 'manual' AND shade_id IS NOT NULL;
+
+-- Promoted manual label behind shade.vendor_hex (#321, D12). Deleting the label keeps the promoted hex.
+ALTER TABLE shade ADD CONSTRAINT shade_vendor_hex_label_id_fkey
+  FOREIGN KEY (vendor_hex_label_id) REFERENCES color_training_sample(training_sample_id) ON DELETE SET NULL;
+CREATE INDEX idx_shade_vendor_hex_label ON shade (vendor_hex_label_id) WHERE vendor_hex_label_id IS NOT NULL;
+
+-- Admin bottle-eval samples (spec docs/superpowers/specs/2026-10-23-bottle-recognition-design.md §8): private frames in USER_MEDIA_CONTAINER under `{userId}/bottle-eval/`; never read by the live resolver.
+-- (migration 20261023160917683_bottle-eval-samples). The FK on bottle_eval_frame.image_id keeps the orphan-media sweep
+-- (pg_constraint discovery) away from eval frames.
+CREATE TABLE IF NOT EXISTS bottle_eval_sample (
+  sample_id          BIGSERIAL PRIMARY KEY,
+  shade_id           BIGINT REFERENCES shade(shade_id) ON DELETE SET NULL,  -- NULL = not in catalog
+  brand_text         TEXT,                     -- typed when not in catalog (and kept as a snapshot otherwise)
+  shade_text         TEXT,
+  notes              TEXT,
+  created_by_user_id BIGINT NOT NULL REFERENCES app_user(user_id) ON DELETE CASCADE,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT bottle_eval_sample_label CHECK (shade_id IS NOT NULL OR (brand_text IS NOT NULL AND shade_text IS NOT NULL))
+);
+CREATE TABLE IF NOT EXISTS bottle_eval_frame (
+  frame_id     BIGSERIAL PRIMARY KEY,
+  sample_id    BIGINT NOT NULL REFERENCES bottle_eval_sample(sample_id) ON DELETE CASCADE,
+  image_id     BIGINT NOT NULL UNIQUE REFERENCES image_asset(image_id) ON DELETE CASCADE,
+  surface      TEXT NOT NULL CHECK (surface IN ('front','bottom','glass','box')),
+  frame_type   TEXT NOT NULL CHECK (frame_type IN ('barcode','label','color','other')),
+  position     SMALLINT NOT NULL,              -- shooting order within the sample
+  content_type TEXT NOT NULL,
+  width        INTEGER, height INTEGER, size_bytes INTEGER,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_bottle_eval_frame_sample ON bottle_eval_frame (sample_id, position);
+CREATE INDEX IF NOT EXISTS idx_bottle_eval_sample_created ON bottle_eval_sample (created_at DESC, sample_id DESC);
 
 -- Track which samples have been used for model training
 CREATE TABLE color_model_version (

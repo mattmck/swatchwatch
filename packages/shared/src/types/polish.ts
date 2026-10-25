@@ -43,6 +43,13 @@ export interface Polish {
    */
   colorFamily?: ColorFamily | null;
   /**
+   * OKLAB distance from the display hex to the nearest `nearHex` target (`GET /api/polishes?nearHex=`),
+   * equal to `colorDistance(resolveDisplayHex(polish), target)`; grade it with the shared dupe
+   * thresholds. Null when the shade has no usable display hex; absent when the request had no
+   * `nearHex`.
+   */
+  colorDistance?: number | null;
+  /**
    * What kind of product the shade is (`shade.product_category`, #349): `color`, `topper`,
    * `top_coat`, `base_coat`, `treatment` or `accessory`. Missing from older responses; treat
    * that as `color` (`resolveProductCategory`).
@@ -56,6 +63,13 @@ export interface Polish {
   /** All finishes for the shade, primary first (e.g. `["shimmer", "holographic"]`). */
   finishes?: FinishName[];
   collection?: string;
+  /**
+   * True only when the shade is the caller's own private `user_submitted` shade (created by
+   * them, not yet approved or merged): its creator may still correct brand, name, finishes and
+   * color through `PUT /api/polishes/{id}` (catalog write rule, #224). Absent/false for catalog
+   * shades and never true for another user's submission.
+   */
+  ownSubmitted?: boolean;
   quantity?: number;
   /**
    * Inventory status (`owned | wishlist | destash | archived`). Null/undefined when the caller
@@ -93,6 +107,17 @@ export interface Polish {
    * (enabled source first, then most recently seen). No affiliate parameters.
    */
   buyUrl?: string;
+  /**
+   * The brand's list price for the `buyUrl` product (same chosen product), in major units
+   * (e.g. `12.5`), as the connector last saw it. A vendor price, never the user's
+   * `purchasePrice`. Present only together with `buyCurrency`; absent when the product has no
+   * price or its store currency is unknown.
+   */
+  buyPrice?: number;
+  /** ISO 4217 currency of `buyPrice` (e.g. `"USD"`); prices are never converted or summed across currencies. */
+  buyCurrency?: string;
+  /** When the connector fetched the product that `buyPrice` came from (ISO 8601). */
+  buyPriceSeenAt?: string;
   tags?: string[];
   createdAt: string;
   updatedAt: string;
@@ -181,6 +206,8 @@ export interface Shade {
 }
 
 export interface PolishCreateRequest {
+  /** Capture session this add came from (bottle recognition); it must be the caller's own. */
+  captureId?: string;
   /**
    * Optional shade id when attaching an existing catalog entry to a user's collection.
    * When omitted, a new shade (brand/name) will be created or matched by name.
@@ -207,6 +234,15 @@ export interface PolishCreateRequest {
    */
   finishes?: FinishName[];
   collection?: string;
+  /**
+   * Create only: a barcode scanned in Rapid Add for this polish (EAN-13 / UPC-A / UPC-E /
+   * EAN-8, as decoded). Remembered on the resulting shade for the caller only, so their next
+   * scan of the bottle matches; never written to the shared catalog. 400 when not a valid
+   * GTIN. Ignored by PUT.
+   */
+  barcode?: string;
+  /** Decoder format of `barcode` (`ean_13`, `upc_a`, `upc_e`, `ean_8`), used to read 8-digit codes. */
+  barcodeFormat?: string;
   quantity?: number;
   /**
    * Inventory status. When omitted, a NEW inventory row is `owned` unless `quantity` is
@@ -235,14 +271,27 @@ export interface PolishCreateRequest {
   /** ISO 4217 three-letter currency code (normalized to upper case); `null` clears it. */
   purchaseCurrency?: string | null;
   size?: string;
-  purchaseDate?: string;
+  /** `YYYY-MM-DD`; `null` clears it (a missing key keeps the stored value). */
+  purchaseDate?: string | null;
   expirationDate?: string;
-  rating?: number;
+  /** Whole number 1-5; `null` clears it (a missing key keeps the stored value). */
+  rating?: number | null;
   notes?: string;
   tags?: string[];
 }
 
 export type PolishUpdateRequest = Partial<PolishCreateRequest>;
+
+/**
+ * `409` body of `PUT /api/polishes/{id}` when renaming the caller's own private `user_submitted`
+ * shade (`Polish.ownSubmitted`) to a brand + name another shade the caller can see already has.
+ * Nothing was changed. `existingShadeId` is that shade's id (string, like `Polish.id`).
+ */
+export interface ShadeIdentityTakenResponse {
+  error: string;
+  code: "shade_identity_taken";
+  existingShadeId: string;
+}
 
 export interface PolishListResponse {
   polishes: Polish[];
@@ -273,6 +322,12 @@ export interface PolishFilters {
   families?: ColorFamily[];
   /** Matches shades in ANY of these product categories (`?category=color,topper`). */
   categories?: ProductCategory[];
+  /**
+   * Rank by OKLAB distance from the display hex to the nearest of these colors (`#RRGGBB` or
+   * `RRGGBB`, at most 24), nearest first; replaces `sortBy`/`sortOrder` and fills
+   * `Polish.colorDistance`. Combines with every other filter and paging.
+   */
+  nearHex?: string[];
   sortBy?:
     | "name"
     | "brand"
@@ -301,6 +356,10 @@ export interface CatalogSearchResult {
   similarity: number;
   /** "Buy from brand" link (see `Polish.buyUrl`); absent when none is stored. */
   buyUrl?: string;
+  /** Brand list price for the buy link (see `Polish.buyPrice`); only with `buyCurrency`. */
+  buyPrice?: number;
+  buyCurrency?: string;
+  buyPriceSeenAt?: string;
 }
 
 export interface CatalogSearchResponse {
@@ -361,4 +420,8 @@ export interface CatalogShadeDetail {
   aliases: string[];
   /** "Buy from brand" link (see `Polish.buyUrl`); absent when none is stored. */
   buyUrl?: string;
+  /** Brand list price for the buy link (see `Polish.buyPrice`); only with `buyCurrency`. */
+  buyPrice?: number;
+  buyCurrency?: string;
+  buyPriceSeenAt?: string;
 }

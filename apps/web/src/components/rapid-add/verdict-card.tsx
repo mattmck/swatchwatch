@@ -2,10 +2,25 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { CircleCheck, CirclePlus, PackageCheck, ScanBarcode } from "lucide-react";
+import { Camera, CircleCheck, CirclePlus, Copy, Heart, ListChecks, PackageCheck, ScanBarcode, X } from "lucide-react";
+import type { CaptureBrandRef, CaptureCheckCandidate, CreateCardEdits } from "swatchwatch-shared";
 import { Button } from "@/components/ui/button";
 import { ColorDot } from "@/components/color-dot";
-import type { CaptureVerdict } from "@/lib/capture-verdict";
+import { Badge } from "@/components/ui/badge";
+import { useReferenceData } from "@/hooks/use-reference-data";
+import { resolveFinishLabel } from "@/lib/finish-options";
+import { DUPE_GRADE_META, FINISH_COMPATIBILITY_LABELS, dupeCalloutText, dupeHref } from "@/lib/dupes";
+import {
+  NEAR_DUPE_CARD_MAX,
+  manualAddHref,
+  type CaptureVerdict,
+  type CreateCardVerdict,
+  type NearDupeVerdict,
+  type PickVerdict,
+} from "@/lib/capture-verdict";
+import { pickRowView } from "@/lib/bottle-rapid-add";
+import { CreateShadeCard } from "@/components/rapid-add/create-shade-card";
+import type { RapidAddBusy } from "@/lib/rapid-add-flow";
 import { cn } from "@/lib/utils";
 import { detailHref } from "@/lib/detail-href";
 
@@ -14,7 +29,27 @@ export interface VerdictCardProps {
   /** The owned-verdict quantity bump has been undone. */
   quantityRestored: boolean;
   undoing: boolean;
+  /** Current page activity, to disable the buttons it affects. */
+  busy?: RapidAddBusy | null;
   onUndoQuantity: () => void;
+  /** Checked match: add it to the collection (finalize). */
+  onAddToCollection?: () => void;
+  /** Checked match not owned: put it on the wishlist. */
+  onAddToWishlist?: (verdict: CaptureVerdict) => void;
+  /** Near-dupe verdict: the user followed the link to one of their dupes (counts as cancel). */
+  onNearDupeLink?: (verdict: NearDupeVerdict) => void;
+  /** Unknown barcode: continue the same scan with a label photo. */
+  onPhotographLabel?: () => void;
+  /** Pick verdict: the user chose one of the candidates. */
+  onPick?: (verdict: PickVerdict, candidate: CaptureCheckCandidate) => void;
+  /** Pick verdict: none of the candidates is the bottle. */
+  onNoneOfThese?: (verdict: PickVerdict) => void;
+  /** Create card: add the new shade (or wishlist it). */
+  onCreate?: (verdict: CreateCardVerdict, edits: CreateCardEdits, status: "owned" | "wishlist") => void;
+  /** The brand read from the bottle replaces the batch brand. */
+  onSwitchBrand?: (read: CaptureBrandRef) => void;
+  /** Thumbnails of the scan's photos, shown with the "not found" card (guided bottle sequence). */
+  frameStrip?: ReactNode;
   onScanNext: () => void;
 }
 
@@ -27,26 +62,87 @@ function verdictDetailHref(shadeId: string | undefined): string {
 }
 
 interface VerdictLayout {
-  tone: "owned" | "added" | "add";
+  tone: "owned" | "added" | "add" | "wishlist" | "dupe";
+  /** Label of the "scan next" button; a near-dupe verdict calls it Cancel. */
+  scanNextLabel?: string;
   icon: ReactNode;
   eyebrow: string;
   title: string;
   body: ReactNode;
   actions: ReactNode;
+  /** The body carries its own buttons (the create card), so the shared footer is left out. */
+  hideFooter?: boolean;
 }
 
 const TONE_CLASSES: Record<VerdictLayout["tone"], string> = {
   owned: "border-amber-400/70 bg-amber-50 dark:bg-amber-950/30",
   added: "border-emerald-400/70 bg-emerald-50 dark:bg-emerald-950/30",
   add: "border-brand-purple/40 bg-brand-pink-light/15 dark:bg-brand-purple/15",
+  wishlist: "border-rose-300/70 bg-rose-50 dark:bg-rose-950/30",
+  dupe: "border-orange-400/70 bg-orange-50 dark:bg-orange-950/30",
 };
+
+/** Owned near-dupes of the scanned shade as swatch pairs with grade and finish compatibility. */
+function NearDupeList({ verdict, onLink }: { verdict: NearDupeVerdict; onLink?: (verdict: NearDupeVerdict) => void }) {
+  const { finishTypes } = useReferenceData();
+  const shown = verdict.dupes.dupes.slice(0, NEAR_DUPE_CARD_MAX);
+  const targetHex = verdict.dupes.target.displayHex ?? verdict.hex;
+  return (
+    <div className="space-y-2">
+      <p>
+        {dupeCalloutText(verdict.dupes) ?? "You own something similar"}. Add it anyway, or save it to your
+        wishlist instead.
+      </p>
+      <ul className="space-y-2" aria-label="Owned dupes">
+        {shown.map((dupe) => {
+          const finishes = dupe.finishes.map((finish) => resolveFinishLabel(finish, finishTypes)).join(", ");
+          return (
+            <li key={dupe.shadeId}>
+              <Link
+                href={dupeHref(dupe, "/rapid-add")}
+                onClick={() => onLink?.(verdict)}
+                className="flex items-center gap-3 rounded-lg border bg-background/60 px-3 py-2 text-foreground transition-colors hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+              >
+                <span className="flex shrink-0 items-center" aria-hidden>
+                  <ColorDot hex={targetHex} size="lg" className="ring-2 ring-white/80" />
+                  <ColorDot hex={dupe.displayHex} size="lg" className="-ml-3 ring-2 ring-white/80" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{dupe.name}</span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {dupe.brand}
+                    {finishes ? ` · ${finishes}` : ""}
+                    {" · "}
+                    {FINISH_COMPATIBILITY_LABELS[dupe.finishCompatibility]}
+                  </span>
+                </span>
+                <Badge
+                  className={`shrink-0 ${DUPE_GRADE_META[dupe.grade].badgeClassName}`}
+                  title={DUPE_GRADE_META[dupe.grade].description}
+                >
+                  {DUPE_GRADE_META[dupe.grade].label}
+                </Badge>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+      {verdict.dupes.dupeCount > shown.length && (
+        <p className="text-xs">
+          Showing the closest {shown.length} of {verdict.dupes.dupeCount}.
+        </p>
+      )}
+    </div>
+  );
+}
 
 /**
  * The in-aisle answer for one scan. The switch is exhaustive: a new `CaptureVerdict`
  * kind (near-dupe #265, wishlist #261) fails type-checking until it gets a layout here.
  */
 function layoutFor(props: VerdictCardProps): VerdictLayout {
-  const { verdict, quantityRestored, undoing, onUndoQuantity } = props;
+  const { verdict, quantityRestored, undoing, onUndoQuantity, busy } = props;
+  const adding = busy === "finalizing" || busy === "resolving";
   switch (verdict.kind) {
     case "owned":
       return {
@@ -99,17 +195,217 @@ function layoutFor(props: VerdictCardProps): VerdictLayout {
         eyebrow: "No match yet",
         title: "Not found — add it",
         body: (
-          <p>
-            We couldn&apos;t match this to the catalog
-            {verdict.evidence.gtin ? ` (barcode ${verdict.evidence.gtin})` : ""}. Add it by hand, or
-            scan again with a clear photo of the label.
-          </p>
+          <div className="space-y-3">
+            <p>
+              We couldn&apos;t match this to the catalog
+              {verdict.evidence.gtin ? ` (barcode ${verdict.evidence.gtin})` : ""}. Add it by hand, or
+              scan again with a clear photo of the label.
+            </p>
+            {props.frameStrip}
+          </div>
         ),
         actions: (
           <Button asChild variant="outline">
-            <Link href="/polishes/new">Add manually</Link>
+            <Link href={manualAddHref(verdict.evidence)}>Add manually</Link>
           </Button>
         ),
+      };
+    case "checked": {
+      const viewLink = verdict.shadeId ? (
+        <Button asChild variant="outline">
+          <Link href={detailHref(verdict.shadeId)}>View polish</Link>
+        </Button>
+      ) : null;
+      const addButton = (label: string) => (
+        <Button type="button" variant="outline" onClick={props.onAddToCollection} disabled={adding}>
+          {adding ? "Adding…" : label}
+        </Button>
+      );
+      if (verdict.relationship === "owned") {
+        const count = verdict.quantity;
+        return {
+          tone: "owned",
+          icon: <PackageCheck className="size-7 text-amber-600 dark:text-amber-400" aria-hidden />,
+          eyebrow: "Already in your collection",
+          title: "You own this",
+          body: (
+            <p>
+              {typeof count === "number" && count > 0
+                ? `You have ${count} ${count === 1 ? "bottle" : "bottles"}.`
+                : "It's in your collection."}{" "}
+              Bought another? Add it to count the extra bottle.
+            </p>
+          ),
+          actions: (
+            <>
+              {addButton("Add another bottle")}
+              {viewLink}
+            </>
+          ),
+        };
+      }
+      if (verdict.relationship === "wishlisted") {
+        return {
+          tone: "wishlist",
+          icon: <Heart className="size-7 text-rose-500" aria-hidden />,
+          eyebrow: verdict.wishlistedNow ? "Saved" : "On your wishlist",
+          title: verdict.wishlistedNow ? "Added to your wishlist" : "It's on your wishlist",
+          body: <p>Buying it? Add it to your collection and it leaves the wishlist.</p>,
+          actions: (
+            <>
+              {addButton("I bought it")}
+              {viewLink}
+            </>
+          ),
+        };
+      }
+      return {
+        tone: "added",
+        icon: <CircleCheck className="size-7 text-emerald-600 dark:text-emerald-400" aria-hidden />,
+        eyebrow: "Found it",
+        title: "You don't own this yet",
+        body: <p>Add it to your collection, or save it to your wishlist for later.</p>,
+        actions: (
+          <>
+            {addButton("Add to collection")}
+            {verdict.shadeId && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => props.onAddToWishlist?.(verdict)}
+                disabled={busy === "wishlisting"}
+              >
+                <Heart aria-hidden /> {busy === "wishlisting" ? "Saving…" : "Add to wishlist"}
+              </Button>
+            )}
+            {viewLink}
+          </>
+        ),
+      };
+    }
+    case "near_dupe":
+      return {
+        tone: "dupe",
+        scanNextLabel: "Cancel",
+        icon: <Copy className="size-7 text-orange-600 dark:text-orange-400" aria-hidden />,
+        eyebrow: verdict.dupeKind === "dupe-owned" ? "You own a close dupe" : "You own something similar",
+        title: "New to you — but close",
+        body: <NearDupeList verdict={verdict} onLink={props.onNearDupeLink} />,
+        actions: (
+          <>
+            <Button type="button" variant="outline" onClick={props.onAddToCollection} disabled={adding}>
+              {adding ? "Adding…" : "Add anyway"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => props.onAddToWishlist?.(verdict)}
+              disabled={busy === "wishlisting"}
+            >
+              <Heart aria-hidden /> {busy === "wishlisting" ? "Saving…" : "Wishlist instead"}
+            </Button>
+            <Button asChild variant="outline">
+              <Link href={detailHref(verdict.shadeId)}>View polish</Link>
+            </Button>
+          </>
+        ),
+      };
+    case "unknown_barcode":
+      return {
+        tone: "add",
+        icon: <ScanBarcode className="size-7 text-brand-purple" aria-hidden />,
+        eyebrow: "Barcode not recognized",
+        title: "We don't know this barcode yet",
+        body: (
+          <p>
+            Barcode <span className="font-mono">{verdict.gtin}</span> isn&apos;t in the catalog. Photograph the
+            label and we&apos;ll match it by name — then remember this barcode for your next scan.
+          </p>
+        ),
+        actions: (
+          <>
+            <Button type="button" variant="outline" onClick={props.onPhotographLabel}>
+              <Camera aria-hidden /> Photograph the label
+            </Button>
+            <Button asChild variant="outline">
+              <Link href={manualAddHref({ gtin: verdict.gtin, format: verdict.format })}>Add manually</Link>
+            </Button>
+          </>
+        ),
+      };
+    case "pick": {
+      const conflict = verdict.brandConflict;
+      return {
+        tone: "add",
+        icon: <ListChecks className="size-7 text-brand-purple" aria-hidden />,
+        eyebrow: "Could be a few shades",
+        title: "Which one is it?",
+        body: (
+          <div className="space-y-3">
+            {conflict && (
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span>
+                  You said {conflict.hinted.name}, but this bottle reads {conflict.read.name}.
+                </span>
+                <Button type="button" variant="outline" size="xs" onClick={() => props.onSwitchBrand?.(conflict.read)}>
+                  Switch to {conflict.read.name}
+                </Button>
+              </div>
+            )}
+            <ul className="space-y-2" aria-label="Possible shades">
+              {verdict.candidates.map((candidate) => {
+                const row = pickRowView(candidate, conflict);
+                const details = [row.brandName, row.confidenceLabel, row.colorDeltaLabel].filter(Boolean).join(" · ");
+                return (
+                  <li key={`${candidate.entityType}-${candidate.entityId}`}>
+                    <button
+                      type="button"
+                      onClick={() => props.onPick?.(verdict, candidate)}
+                      className="flex w-full items-center gap-3 rounded-lg border bg-background/60 px-3 py-2 text-left text-foreground transition-colors hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 pointer-coarse:py-3"
+                    >
+                      <ColorDot hex={row.hex} size="lg" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">{row.display}</span>
+                        <span className="block truncate text-xs text-muted-foreground">{details}</span>
+                      </span>
+                      {row.ownershipLabel && (
+                        <Badge variant="outline" className="shrink-0">
+                          {row.ownershipLabel}
+                        </Badge>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ),
+        actions: (
+          <Button type="button" variant="outline" onClick={() => props.onNoneOfThese?.(verdict)}>
+            None of these
+          </Button>
+        ),
+      };
+    }
+    case "create_card":
+      return {
+        tone: "add",
+        hideFooter: true,
+        icon: <CirclePlus className="size-7 text-brand-purple" aria-hidden />,
+        eyebrow: "Not in the catalog yet",
+        title: "Add it as new",
+        body: (
+          <CreateShadeCard
+            key={verdict.card.captureId}
+            card={verdict.card}
+            brandConflict={verdict.brandConflict}
+            creating={busy === "creating"}
+            onCreate={(edits, status) => props.onCreate?.(verdict, edits, status)}
+            onNext={props.onScanNext}
+            onSwitchBrand={(read) => props.onSwitchBrand?.(read)}
+          />
+        ),
+        actions: null,
       };
     default:
       return assertNever(verdict);
@@ -119,7 +415,9 @@ function layoutFor(props: VerdictCardProps): VerdictLayout {
 export function VerdictCard(props: VerdictCardProps) {
   const layout = layoutFor(props);
   const display = props.verdict.display;
-  const hex = props.verdict.kind === "owned" ? props.verdict.hex : undefined;
+  const hex =
+    props.verdict.kind === "owned" || props.verdict.kind === "checked" || props.verdict.kind === "near_dupe"
+      ? props.verdict.hex : undefined;
 
   return (
     <section
@@ -145,12 +443,15 @@ export function VerdictCard(props: VerdictCardProps) {
         </div>
       </div>
       <div className="text-sm text-muted-foreground">{layout.body}</div>
-      <div className="flex flex-wrap gap-2">
-        <Button type="button" variant="brand" onClick={props.onScanNext}>
-          <ScanBarcode aria-hidden /> Scan next
-        </Button>
-        {layout.actions}
-      </div>
+      {!layout.hideFooter && (
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="brand" onClick={props.onScanNext}>
+            {layout.scanNextLabel ? <X aria-hidden /> : <ScanBarcode aria-hidden />}{" "}
+            {layout.scanNextLabel ?? "Scan next"}
+          </Button>
+          {layout.actions}
+        </div>
+      )}
     </section>
   );
 }

@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_LOOKS_STATE, buildLooksQueryString, parseLooksState } from "./looks-url";
+import { DEFAULT_LOOKS_STATE, buildLooksQueryString, lookColorLabHref, lookShareUrl, parseLooksState } from "./looks-url";
+import { parseColorSearchState } from "./color-search-url";
 
 const parse = (qs: string) => parseLooksState(new URLSearchParams(qs));
 
@@ -10,13 +11,15 @@ describe("parseLooksState", () => {
     assert.deepEqual(DEFAULT_LOOKS_STATE, {
       vibe: { occasion: "everyday", mood: "soft", finish: null, ownedOnly: false },
       seed: 1,
+      toppers: true,
     });
   });
 
   it("reads every field", () => {
-    assert.deepEqual(parse("occasion=party&mood=edgy&finish=chrome&owned=1&seed=42"), {
+    assert.deepEqual(parse("occasion=party&mood=edgy&finish=chrome&owned=1&toppers=0&seed=42"), {
       vibe: { occasion: "party", mood: "edgy", finish: "chrome", ownedOnly: true },
       seed: 42,
+      toppers: false,
     });
   });
 
@@ -24,6 +27,14 @@ describe("parseLooksState", () => {
     assert.deepEqual(parse("occasion=brunch&mood=SOFT&finish=velvet&owned=maybe&seed=-3"), DEFAULT_LOOKS_STATE);
     assert.equal(parse("mood=Bold").vibe.mood, "bold");
     assert.equal(parse("owned=true").vibe.ownedOnly, true);
+  });
+
+  it("keeps toppers on unless toppers=0 or false (links made before the toggle keep their looks, #386)", () => {
+    assert.equal(parse("").toppers, true);
+    assert.equal(parse("toppers=1").toppers, true);
+    assert.equal(parse("toppers=maybe").toppers, true);
+    assert.equal(parse("toppers=0").toppers, false);
+    assert.equal(parse("toppers=FALSE").toppers, false);
   });
 });
 
@@ -33,9 +44,62 @@ describe("buildLooksQueryString", () => {
   });
 
   it("round-trips", () => {
-    const state = { vibe: { occasion: "work", mood: "bold", finish: "matte", ownedOnly: true }, seed: 7 } as const;
+    const state = { vibe: { occasion: "work", mood: "bold", finish: "matte", ownedOnly: true }, seed: 7, toppers: false } as const;
     const qs = buildLooksQueryString(state);
-    assert.equal(qs, "occasion=work&mood=bold&finish=matte&owned=1&seed=7");
+    assert.equal(qs, "occasion=work&mood=bold&finish=matte&owned=1&toppers=0&seed=7");
     assert.deepEqual(parse(qs), state);
+  });
+});
+
+describe("lookColorLabHref (#386)", () => {
+  const steps = [
+    { role: "base", hex: "#f4c2c2" },
+    { role: "accent", hex: "#B22222" },
+    { role: "topper", hex: "#E6E6FA" },
+  ] as const;
+
+  it("seeds color search with the base color, every step hex as a focused color, and returnTo", () => {
+    const href = lookColorLabHref(steps, "/polishes/looks?mood=bold&toppers=0&seed=4");
+    assert.ok(href.startsWith("/polishes/search?"), href);
+    const state = parseColorSearchState(new URLSearchParams(href.split("?")[1]));
+    assert.equal(state.color, "#F4C2C2");
+    assert.deepEqual(state.paletteAnchors, ["#F4C2C2", "#B22222", "#E6E6FA"]);
+    assert.equal(state.returnTo, "/polishes/looks?mood=bold&toppers=0&seed=4");
+    assert.equal(state.harmony, "all");
+  });
+
+  it("deduplicates hexes, skips invalid ones and drops an unsafe returnTo", () => {
+    const href = lookColorLabHref(
+      [
+        { role: "base", hex: "#111111" },
+        { role: "accent", hex: "#111111" },
+        { role: "topper", hex: "sparkle" },
+      ],
+      "//evil.example"
+    );
+    const state = parseColorSearchState(new URLSearchParams(href.split("?")[1]));
+    assert.deepEqual(state.paletteAnchors, ["#111111"]);
+    assert.equal(state.returnTo, null);
+  });
+});
+
+describe("skin tone in the URL", () => {
+  it("round-trips undertone and depth and omits them by default", () => {
+    const state = parseLooksState(new URLSearchParams("undertone=cool&depth=deep"));
+    assert.deepEqual(state.vibe.skinTone, { undertone: "cool", depth: "deep" });
+    assert.equal(buildLooksQueryString(state), "undertone=cool&depth=deep");
+    assert.equal("skinTone" in parseLooksState(new URLSearchParams("")).vibe, false);
+    assert.equal(buildLooksQueryString(parseLooksState(new URLSearchParams(""))), "");
+  });
+
+  it("fills the missing axis with no preference and ignores unknown values", () => {
+    assert.deepEqual(parseLooksState(new URLSearchParams("undertone=warm")).vibe.skinTone, { undertone: "warm", depth: "medium" });
+    assert.deepEqual(parseLooksState(new URLSearchParams("depth=Tan")).vibe.skinTone, { undertone: "neutral", depth: "tan" });
+    assert.equal(parseLooksState(new URLSearchParams("undertone=green&depth=huge")).vibe.skinTone, undefined);
+  });
+
+  it("keeps skin tone out of the copied share link", () => {
+    const state = parseLooksState(new URLSearchParams("undertone=cool&depth=deep&mood=bold"));
+    assert.equal(lookShareUrl("https://x.test", "/polishes/looks", state), "https://x.test/polishes/looks?mood=bold");
   });
 });

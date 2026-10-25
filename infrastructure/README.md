@@ -65,9 +65,22 @@ After migration, run `terraform plan` — it should show no destructive changes 
 
 Terraform infrastructure deploys in CI via:
 - `.github/workflows/deploy-infra.yml` (reusable)
-- `.github/workflows/deploy-infra-dev.yml` (caller, `dev`)
+- `.github/workflows/deploy-dev.yml` (on `dev`, runs infra first when `infrastructure/**` or the infra workflow changed, then app deploy)
+- `.github/workflows/deploy-infra-dev.yml` (caller, `dev`, manual infra-only)
 - `.github/workflows/deploy-infra-prod.yml` (caller, `prod`, manual infra-only)
-- `.github/workflows/deploy-prod.yml` (on `main`, runs infra first when `infrastructure/**` changed, then app deploy)
+- `.github/workflows/deploy-prod.yml` (on `main`, runs infra first when `infrastructure/**` or the infra workflow changed, then app deploy)
+
+### Deploy ordering
+
+Function App app settings are Terraform-managed (`azurerm_linux_function_app.main`), but the code deploy writes them too: `Azure/functions-action` reads the full settings when it starts and, on Linux Consumption, PUTs that whole set back with the new `WEBSITE_RUN_FROM_PACKAGE` (and `WEBSITE_ENABLE_SYNC_UPDATE_SITE`) about a minute later. A Terraform apply that lands in between is silently reverted. On 2026-10-23 the #408 merge started Deploy Infrastructure Dev and Deploy Dev in the same second; the action read the settings at 00:57:19Z, Terraform wrote `SHAREABLE_LOOKS_ENABLED` at 00:57:20–49Z, and the action's write after 00:57:40Z dropped it again.
+
+Rules:
+
+1. **Infra runs before the code deploy, in one workflow.** `deploy-dev.yml` and `deploy-prod.yml` run `deploy-infra.yml` first when infra files changed and start `deploy.yml` only after it succeeds. When the push's previous commit can't be resolved (a force-push), they treat infra as changed rather than skip it. The `Deploy Infrastructure Dev` / `Prod` workflows are manual-only. Don't dispatch one while a Deploy Dev / Deploy Prod run (or a manual `Deploy Application`) is in progress for the same environment.
+2. **Each key has one owner.** Terraform declares every app setting, including `FUNCTIONS_NODE_BLOCK_ON_ENTRY_POINT_ERROR` (previously set only by `deploy.yml`, so every apply removed it). The keys the deploy action writes (`WEBSITE_RUN_FROM_PACKAGE`, `WEBSITE_ENABLE_SYNC_UPDATE_SITE`) and `WEBSITE_MOUNT_ENABLED` are in `lifecycle.ignore_changes`. `deploy.yml` still sets `AUTH_DEV_BYPASS=false` and the `AZURE_AD_B2C_*` values from the same GitHub settings Terraform reads; `deploy-infra.yml` pins `TF_VAR_auth_dev_bypass` to `false` for the same reason, so the two writers can't disagree and trip the check.
+3. **Both sides check.** `.github/scripts/check-function-app-settings.sh` compares the live app (`az functionapp config appsettings list`) with `azurerm_linux_function_app.main` in the Terraform state and fails when a setting is missing or has another value (names only, never values; ignored keys skipped). Deploy Infrastructure runs it after `terraform apply`; `deploy.yml` runs it in the `Verify Function App Settings` job after the code deploy. If it fails, re-run Deploy Infrastructure for that environment.
+
+GitHub `concurrency` groups are not used to serialize infra and code deploys: a group keeps one pending run and cancels the older pending one, which could silently drop a queued infra apply.
 
 State is stored in Azure Blob Storage using Terraform's native `azurerm` backend (configured in `main.tf` with `backend "azurerm" {}`).
 
@@ -80,8 +93,11 @@ Required GitHub Actions configuration (per GitHub environment):
 - Optional variables for shared/external OpenAI accounts (used when `CREATE_OPENAI_RESOURCES=false`): `OPENAI_ENDPOINT`, `OPENAI_ACCOUNT_NAME`
 Recommended auth config (propagated to Terraform `TF_VAR_*` inputs):
 - Secrets: `AZURE_AD_B2C_CLIENT_ID`
-- Variables: `AUTH_DEV_BYPASS`, `AZURE_AD_B2C_TENANT` (falls back to `NEXT_PUBLIC_B2C_TENANT` if unset)
-- Feature flags: `SHAREABLE_WISHLIST_ENABLED` (default `false`; exported as `TF_VAR_shareable_wishlist_enabled`)
+- Variables: `AZURE_AD_B2C_TENANT` (falls back to `NEXT_PUBLIC_B2C_TENANT` if unset). An `AUTH_DEV_BYPASS` variable is ignored: the workflow always passes `false`
+- Feature flags (default `false`): `SHAREABLE_WISHLIST_ENABLED`, `SHAREABLE_LOOKS_ENABLED`, `BOTTLE_CAPTURE_ENABLED`, `HEX_DETECTION_BATCH_ENABLED`, `HEX_DETECTION_SNAP_ENABLED` (exported as `TF_VAR_shareable_wishlist_enabled`, `TF_VAR_shareable_looks_enabled`, `TF_VAR_bottle_capture_enabled`, `TF_VAR_hex_detection_batch_enabled`, `TF_VAR_hex_detection_snap_enabled`)
+- `ENABLE_DOCUMENT_INTELLIGENCE` (default `false`): `true` creates the Document Intelligence account and its Key Vault key and sets `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` / `AZURE_DOCUMENT_INTELLIGENCE_KEY` on the Function App, which turns on server-side label OCR in the capture pipeline (exported as `TF_VAR_enable_document_intelligence`)
+- `BLOB_STORAGE_MAX_CONNECTIONS` (default `16`): sockets per storage origin in the Function App's pooled Blob Storage HTTP agent (#422), exported as `TF_VAR_blob_storage_max_connections`
+- **Function App runtime settings:** every other app setting the Functions code reads is Terraform-managed from the GitHub environment variable of the same name, exported as `TF_VAR_<lowercase name>` with the code default as fallback: `HEX_DETECTION_BATCH_MIN_IMAGES`, `INGESTION_JOB_QUEUE_NAME`, `INGESTION_AI_BATCH_POLL_SCHEDULE`, `INGESTION_AI_BATCH_MAX_POLL_JOBS`, `AZURE_OPENAI_BATCH_API_VERSION`, `AZURE_OPENAI_BATCH_COMPLETION_WINDOW`, `AZURE_OPENAI_VISION_DETAIL`, `CAPTURE_FRAME_SWEEP_SCHEDULE`, `CAPTURE_FRAME_RETENTION_SECONDS`, `CAPTURE_FRAME_SWEEP_BATCH_SIZE`, `CAPTURE_FRAME_SWEEP_MAX_PER_RUN`, `CORS_ALLOWED_METHODS`, `CORS_ALLOWED_HEADERS`, `CORS_SUPPORT_CREDENTIALS`, `GALLERY_MAX_IMAGES_PER_SHADE`, `HEX_DETECTION_BATCH_MAX_IN_FLIGHT`, `HEX_DETECTION_CONCURRENCY`, `HEX_DETECTION_DELAY_MS`, `HEX_SNAP_MAX_DISTANCE`, `IMAGE_PROXY_ID_TTL_SECONDS`, `IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS`, `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL`, `INGESTION_AI_IMAGE_PROXY_ORIGIN`, `INGESTION_JOB_LOG_MAX_ENTRIES`, `INGESTION_LOG_FLUSH_INTERVAL_MS`, `INGESTION_WORKER_TIME_BUDGET_MS`, `ORPHAN_MEDIA_SWEEP_SCHEDULE`, `ORPHAN_MEDIA_SWEEP_GRACE_SECONDS`, `ORPHAN_MEDIA_SWEEP_BATCH_SIZE`, `ORPHAN_MEDIA_SWEEP_MAX_PER_RUN`, `PG_POOL_MAX`, `PG_IDLE_TIMEOUT_MS`, `PG_CONNECTION_TIMEOUT_MS`, `PG_QUERY_MAX_RETRIES`, `PG_QUERY_RETRY_BASE_MS`, `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS`, `SHOPIFY_CONNECTOR_MAX_RETRIES`, `SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS`, `SOURCE_IMAGE_CONTAINER`, `SOURCE_IMAGE_MAX_EDGE_PX`, `SOURCE_IMAGE_MAX_DOWNLOAD_BYTES`, `SUSPICIOUS_HEX_REPEAT_MIN_RECORDS`, `SUSPICIOUS_HEX_REPEAT_MIN_SHARE`, `SUSPICIOUS_HEX_GRAYSCALE_MAX_CHROMA`. `OPENAI_LABEL_DEPLOYMENT_NAME` sets `AZURE_OPENAI_DEPLOYMENT_LABEL` (`TF_VAR_openai_label_deployment_name`). Leave `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL`, `INGESTION_AI_IMAGE_PROXY_ORIGIN` and `OPENAI_LABEL_DEPLOYMENT_NAME` undefined for their empty defaults (GitHub has no empty variables). The four `CAPTURE_FRAME_*` settings are read by the hourly `capture-frame-sweep` timer (`src/lib/capture-frame-sweep.ts`, bottle recognition design §9.1), which runs whether or not `BOTTLE_CAPTURE_ENABLED` is on. Defaults and ranges: the variable table below and `packages/functions/README.md` → Environment Variables
 - External ID service principal (opt-in, see [External ID service principal](#external-id-service-principal-opt-in)): variables `MANAGE_CIAM_SERVICE_PRINCIPAL` (default `false`), `CIAM_TENANT_ID`, `CIAM_TERRAFORM_CLIENT_ID` (exported as `TF_VAR_manage_ciam_service_principal`, `TF_VAR_ciam_tenant_id`, `TF_VAR_ciam_terraform_client_id`)
 - Alerts (observability Phase 3, #281): `ALERT_EMAIL` (**secret** recommended so the address is masked in logs; a variable also works; exported as `TF_VAR_alert_email`, never committed to tfvars) and optional variable `ALERTS_ENABLED` (default `true` for `prod`, `false` otherwise; exported as `TF_VAR_alerts_enabled`)
 The workflow creates the state container automatically if it does not exist.
@@ -97,6 +113,21 @@ An Azure OpenAI account's `location` is immutable, so a plan with a different re
 3. **Plan guard.** Between `terraform plan` and `terraform apply` the **Guard against Azure OpenAI account replacement** step runs `terraform show -json tfplan` and fails with `::error::` (listing the addresses) if any `azurerm_cognitive_account` or `azurerm_cognitive_deployment` has a `delete` or replace (`delete`+`create`) action. This covers every Cognitive Services account (OpenAI, Speech, Document Intelligence). Only the boolean input `allow_openai_replace=true` lets such a plan apply (with a `::warning::`); it defaults to `false` and the committed callers never set it, so a push to `main` cannot replace an account either.
 
 To move or recreate an account on purpose: change the environment's `OPENAI_LOCATION` / `OPENAI_REGIONS` first, **and** update the hardcoded `openai_location` in the committed callers (`deploy-prod.yml` and `deploy-infra-prod.yml` for prod, `deploy-infra-dev.yml` for dev). Those callers pass their old region as the input on every push, and rule 2 fails a run whose input differs from the variable, so a push-triggered deploy would break after the move (or, with `allow_openai_replace`, move it back). Then dispatch `Deploy Infrastructure` with `allow_openai_replace: true`, and update the Function App's `AZURE_OPENAI_*` settings (Terraform rewires them from the new primary account).
+
+### Function App CORS
+
+`azurerm_linux_function_app.main` keeps a `site_config.cors` block (`local.function_cors_allowed_origins`: the environment's web origins, `http://localhost:3000` outside prod, and `https://*.azurestaticapps.net`). **Do not remove it** while the app reads `CORS_ALLOWED_ORIGINS`: the Azure Functions host reserves that setting name and JSON-parses it as its own origin list. With platform CORS configured Azure supplies a value the host can parse; without it the host reads the app's comma-separated list and throws `JsonReaderException` in `HostCorsOptionsSetup` on every request, so every route answers 500 and code deploys fail with "Failed to perform sync trigger" (dev, 2026-10-23, after #449 removed the block; restored the same day).
+
+The app's `withCors` (`packages/functions/src/lib/http.ts`, driven by the `CORS_*` app settings) still sets CORS headers on every response, and every HTTP route registers `"OPTIONS"` (`tests/http-routes.unit.test.cjs`). With the platform layer in front, App Service answers preflights itself (echoing the requested method and headers) and the app's `Access-Control-Expose-Headers: Request-Context` does not reach the browser. Making the app the only CORS layer needs the app settings renamed to names the host does not read first; then the block can go.
+
+After an apply that changes CORS, check the live app before relying on it:
+
+```bash
+az functionapp cors show -g <resource-group> -n <function-app>   # expect the web origins in allowedOrigins
+curl -si -X OPTIONS -H 'Origin: https://dev.swatchwatch.app' -H 'Access-Control-Request-Method: PATCH' -H 'Access-Control-Request-Headers: authorization,content-type' https://<function-app>.azurewebsites.net/api/polishes
+```
+
+The preflight should return 204 with the app's fixed `Access-Control-Allow-Methods` (`GET,POST,PUT,PATCH,DELETE,OPTIONS`), `Access-Control-Allow-Headers`, `Access-Control-Expose-Headers: Request-Context` and `Vary: Origin`; an origin outside the list gets a 204 without `Access-Control-Allow-Origin`. If `cors show` still lists origins after the apply, clear them with `az functionapp cors remove -g <resource-group> -n <function-app> --allowed-origins <each origin>` (the next plan would otherwise keep proposing the removal).
 
 ## Resources Provisioned
 
@@ -127,9 +158,8 @@ To move or recreate an account on purpose: change the environment's `OPENAI_LOCA
 | Daily cap alert *(alerts)* | `azurerm_monitor_scheduled_query_rules_alert_v2.daily_cap` | `_LogOperation` reports `OverQuota`: the workspace daily cap stopped ingestion (sev 2) |
 | Availability tests *(alerts)* | `azurerm_application_insights_standard_web_test.availability["web"\|"api"]` | Standard tests every `availability_test_frequency_seconds` from `availability_test_locations`: web home page (custom domain) and `GET /api/reference/finishes`; expect 200 and an SSL cert valid for 7+ days. Billed per execution |
 | Availability alerts *(alerts)* | `azurerm_monitor_metric_alert.availability["web"\|"api"]` | Fires when 2+ test locations fail (sev 1) |
-| API Management *(optional)* | `azurerm_api_management.main` | Azure API Management Consumption gateway for Azure OpenAI traffic (`apim_enabled=true`) |
 | App Service Plan | `azurerm_service_plan.main` | Linux Consumption plan (Y1) |
-| Function App | `azurerm_linux_function_app.main` | Node 22 function host (Managed Identity enabled) |
+| Function App | `azurerm_linux_function_app.main` | Node 22 function host (Managed Identity enabled); platform CORS (`site_config.cors`) must stay while the app uses the host-reserved `CORS_ALLOWED_ORIGINS` name (see [Function App CORS](#function-app-cors)) |
 | Static Web App | `azurerm_static_web_app.main` | Next.js frontend (Standard tier) |
 | Document Intelligence *(optional)* | `azurerm_cognitive_account.document_intelligence` | Server-side OCR for capture pipeline label/barcode extraction (`enable_document_intelligence=true`) |
 | Speech Services | `azurerm_cognitive_account.speech` | Speech-to-text for voice input |
@@ -158,14 +188,6 @@ To move or recreate an account on purpose: change the environment's `OPENAI_LOCA
 | `pg_admin_username` | `pgadmin` | PostgreSQL admin username |
 | `pg_admin_password` | *(required)* | PostgreSQL admin password (stored in Key Vault) |
 | `github_repository` | `your-github-username/swatchwatch` | GitHub repo for OIDC federation |
-| `apim_enabled` | `false` | Provision an Azure API Management instance for Azure OpenAI gateway routing (opt-in) |
-| `apim_sku_name` | `Consumption_0` | APIM SKU (Consumption tier default for cost control) |
-| `apim_publisher_name` | `SwatchWatch` | APIM publisher display name |
-| `apim_publisher_email` | `platform@swatchwatch.app` | APIM publisher contact email |
-| `apim_openai_api_suffix` | `openai-gateway` | APIM API path suffix for Azure OpenAI proxy calls |
-| `apim_openai_subscription_key` | `""` | Optional APIM subscription key stored in Key Vault and exposed to Functions as `AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY` |
-| `apim_openai_subscription_key_uri` | `""` | Optional existing Key Vault secret URI for APIM subscription key. When set, Terraform reuses it and does not create `apim-openai-subscription-key`. |
-| `openai_gateway_enabled` | `false` | Function App setting `AZURE_OPENAI_USE_GATEWAY`; keep false until APIM API routes/policies are configured |
 | `openai_custom_subdomain_name` | `null` | Optional custom subdomain override for the primary Azure OpenAI account. Additional regions always use generated per-region subdomains. |
 | `create_openai_resources` | `false` | Provision Azure OpenAI account/deployment in this stack (disable when quota is unavailable) |
 | `openai_endpoint` | `""` | Existing Azure OpenAI endpoint when reusing an external account (`create_openai_resources=false`) |
@@ -188,8 +210,10 @@ To move or recreate an account on purpose: change the environment's `OPENAI_LOCA
 | `manage_ciam_service_principal` | `false` | Import and manage the web sign-in app's service principal in the External ID tenant (sets `app_role_assignment_required = false`). Turn on per environment only after checking that tenant's current setting; see [External ID service principal](#external-id-service-principal-opt-in) |
 | `ciam_tenant_id` | `""` | External ID (CIAM) tenant ID for the `azuread.ciam` provider. Required when `manage_ciam_service_principal = true` |
 | `ciam_terraform_client_id` | `""` | Client ID of the deployer app in the CIAM tenant; Deploy Infra signs in to it with GitHub OIDC. Empty = Azure CLI credentials (local runs) |
-| `auth_dev_bypass` | `false` | Controls Function App setting `AUTH_DEV_BYPASS`; keep `false` to require JWT validation |
+| `auth_dev_bypass` | `false` | Controls Function App setting `AUTH_DEV_BYPASS`; keep `false` to require JWT validation. Deploy Infra always passes `false` (the code deploy writes the same value and the settings check compares them) |
 | `shareable_wishlist_enabled` | `false` | Controls Function App setting `SHAREABLE_WISHLIST_ENABLED` (opt-in public wishlist links, #268). Set the `SHAREABLE_WISHLIST_ENABLED` repository/environment variable to `true` and run Deploy Infra to ship it; app settings are Terraform-managed, so a portal-only change is reverted by the next infra apply |
+| `shareable_looks_enabled` | `false` | Controls Function App setting `SHAREABLE_LOOKS_ENABLED` (opt-in public share links for saved looks). Set the `SHAREABLE_LOOKS_ENABLED` repository/environment variable to `true` and run Deploy Infra to ship it; app settings are Terraform-managed, so a portal-only change is reverted by the next infra apply |
+| `bottle_capture_enabled` | `false` | Controls Function App setting `BOTTLE_CAPTURE_ENABLED` (guided bottle recognition on the capture API). Set the `BOTTLE_CAPTURE_ENABLED` repository/environment variable to `true` and run Deploy Infra to ship it; app settings are Terraform-managed, so a portal-only change is reverted by the next infra apply |
 | `ingestion_job_queue_name` | `ingestion-jobs` | Function App queue name for ingestion worker (`INGESTION_JOB_QUEUE_NAME`) |
 | `azure_openai_batch_api_version` | `2025-03-01-preview` | Function App setting `AZURE_OPENAI_BATCH_API_VERSION` for Files/Batch endpoints |
 | `azure_openai_batch_completion_window` | `24h` | Function App setting `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` sent during batch creation |
@@ -197,8 +221,46 @@ To move or recreate an account on purpose: change the environment's `OPENAI_LOCA
 | `hex_detection_batch_enabled` | `false` | Feature-flag Function App setting `HEX_DETECTION_BATCH_ENABLED` |
 | `hex_detection_batch_min_images` | `5` | Function App setting `HEX_DETECTION_BATCH_MIN_IMAGES` threshold before batch mode |
 | `hex_detection_snap_enabled` | `false` | Feature-flag Function App setting `HEX_DETECTION_SNAP_ENABLED` — snap vision-detected hexes to the nearest palette chip measured from the same image (`detected_hex_method = 'vision-snap'`) |
-| `ingestion_ai_batch_poll_schedule` | `0 */2 * * * *` | Function App setting `INGESTION_AI_BATCH_POLL_SCHEDULE` for timer polling |
+| `blob_storage_max_connections` | `16` | Function App setting `BLOB_STORAGE_MAX_CONNECTIONS` — sockets per storage origin in the pooled keep-alive agent every Blob Storage REST call uses (1–128; #422). Raise together with the plan's outbound SNAT budget |
+| `ingestion_ai_batch_poll_schedule` | `0 * * * * *` | Function App setting `INGESTION_AI_BATCH_POLL_SCHEDULE` for timer polling (every minute, the code default) |
 | `ingestion_ai_batch_max_poll_jobs` | `10` | Function App setting `INGESTION_AI_BATCH_MAX_POLL_JOBS` per poll run |
+| `capture_frame_sweep_schedule` | `0 0 * * * *` | Function App setting `CAPTURE_FRAME_SWEEP_SCHEDULE` — NCRONTAB schedule of the capture-frame-sweep timer that deletes Rapid Add frame blobs past their retention |
+| `capture_frame_retention_seconds` | `86400` | Function App setting `CAPTURE_FRAME_RETENTION_SECONDS` — Age (seconds since image_asset.captured_at) after which the capture-frame sweep deletes a frame's blob, 3600-604800 |
+| `capture_frame_sweep_batch_size` | `200` | Function App setting `CAPTURE_FRAME_SWEEP_BATCH_SIZE` — Capture-frame sweep rows per scan query, 1-1000 |
+| `capture_frame_sweep_max_per_run` | `2000` | Function App setting `CAPTURE_FRAME_SWEEP_MAX_PER_RUN` — Capture frames examined per sweep run, 1-20000 |
+| `cors_allowed_methods` | `GET,POST,PUT,PATCH,DELETE,OPTIONS` | Function App setting `CORS_ALLOWED_METHODS` — Access-Control-Allow-Methods sent by the API (lib/http.ts). The app is the only CORS layer (the Function App has no platform `site_config.cors` block), so this is what browsers see |
+| `cors_allowed_headers` | `Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context` | Function App setting `CORS_ALLOWED_HEADERS` — Access-Control-Allow-Headers sent by the API; keep the trace headers so browser telemetry can correlate. Any other request header fails the preflight |
+| `cors_support_credentials` | `false` | Function App setting `CORS_SUPPORT_CREDENTIALS` — Add Access-Control-Allow-Credentials for matched origins. The API uses bearer tokens, so this stays off |
+| `gallery_max_images_per_shade` | `0` | Function App setting `GALLERY_MAX_IMAGES_PER_SHADE` — Max source_gallery images one product links per ingest (0 = unlimited) |
+| `hex_detection_batch_max_in_flight` | `20` | Function App setting `HEX_DETECTION_BATCH_MAX_IN_FLIGHT` — Pending Azure OpenAI batches per ingestion job before it pauses for awaiting_ai, 1-100 |
+| `hex_detection_concurrency` | `4` | Function App setting `HEX_DETECTION_CONCURRENCY` — Parallel sync vision hex detection calls, 1-32; capped by the deployment's TPM quota |
+| `hex_detection_delay_ms` | `1000` | Function App setting `HEX_DETECTION_DELAY_MS` — Pause after each sync vision call per slot, 0-60000 (0 disables) |
+| `hex_snap_max_distance` | `0.1` | Function App setting `HEX_SNAP_MAX_DISTANCE` — Largest OKLAB distance at which the snap step replaces the model hex with the nearest measured palette chip |
+| `image_proxy_id_ttl_seconds` | `259200` | Function App setting `IMAGE_PROXY_ID_TTL_SECONDS` — Minimum lifetime of public v2 image proxy ids, 3600-2592000 |
+| `image_proxy_private_id_ttl_seconds` | `3600` | Function App setting `IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS` — Minimum lifetime of owner-scoped v3 image proxy ids, 300-86400 |
+| `image_proxy_legacy_id_accept_until` | `""` | Function App setting `IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL` — ISO-8601 cutoff for accepting legacy v1 image ids (empty = rejected) |
+| `ingestion_ai_image_proxy_origin` | `""` | Function App setting `INGESTION_AI_IMAGE_PROXY_ORIGIN` — Public origin for image proxy URLs sent to Azure OpenAI (empty = https://$WEBSITE_HOSTNAME) |
+| `ingestion_job_log_max_entries` | `500` | Function App setting `INGESTION_JOB_LOG_MAX_ENTRIES` — Log entries kept per ingestion job, 100-2000 |
+| `ingestion_log_flush_interval_ms` | `10000` | Function App setting `INGESTION_LOG_FLUSH_INTERVAL_MS` — Ingestion job log flush interval, 1000-120000 |
+| `ingestion_worker_time_budget_ms` | `240000` | Function App setting `INGESTION_WORKER_TIME_BUDGET_MS` — Wall-clock budget per ingestion worker invocation before it checkpoints, 30000-270000 |
+| `orphan_media_sweep_schedule` | `0 17 3 * * *` | Function App setting `ORPHAN_MEDIA_SWEEP_SCHEDULE` — NCRONTAB schedule of the orphan-media-sweep timer |
+| `orphan_media_sweep_grace_seconds` | `86400` | Function App setting `ORPHAN_MEDIA_SWEEP_GRACE_SECONDS` — Minimum captured_at age before an unreferenced user media asset is swept, 3600-2592000 |
+| `orphan_media_sweep_batch_size` | `100` | Function App setting `ORPHAN_MEDIA_SWEEP_BATCH_SIZE` — Orphan media sweep rows per scan query, 1-1000 |
+| `orphan_media_sweep_max_per_run` | `2000` | Function App setting `ORPHAN_MEDIA_SWEEP_MAX_PER_RUN` — Orphan media assets swept per run, 1-20000 |
+| `pg_pool_max` | `10` | Function App setting `PG_POOL_MAX` — Postgres pool size per Function instance, 1-100 |
+| `pg_idle_timeout_ms` | `30000` | Function App setting `PG_IDLE_TIMEOUT_MS` — Postgres pool idle client timeout |
+| `pg_connection_timeout_ms` | `15000` | Function App setting `PG_CONNECTION_TIMEOUT_MS` — Postgres connection timeout |
+| `pg_query_max_retries` | `2` | Function App setting `PG_QUERY_MAX_RETRIES` — Retries for retry-safe queries on connection timeouts |
+| `pg_query_retry_base_ms` | `250` | Function App setting `PG_QUERY_RETRY_BASE_MS` — Base delay between Postgres query retries |
+| `shopify_connector_request_timeout_ms` | `45000` | Function App setting `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS` — Shopify connector request timeout, 5000-180000 |
+| `shopify_connector_max_retries` | `2` | Function App setting `SHOPIFY_CONNECTOR_MAX_RETRIES` — Shopify connector retries per request, 0-6 |
+| `shopify_connector_retry_base_delay_ms` | `1000` | Function App setting `SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS` — Shopify connector linear backoff base, 100-30000 |
+| `source_image_container` | `source-images` | Function App setting `SOURCE_IMAGE_CONTAINER` — Blob container for catalog images and their thumbnail variants (the only container public v2 ids read) |
+| `source_image_max_edge_px` | `2048` | Function App setting `SOURCE_IMAGE_MAX_EDGE_PX` — Long edge above which catalog images are downscaled before storage, 256-8192 |
+| `source_image_max_download_bytes` | `26214400` | Function App setting `SOURCE_IMAGE_MAX_DOWNLOAD_BYTES` — Largest catalog image download accepted before resizing, 5-100 MB |
+| `suspicious_hex_repeat_min_records` | `3` | Function App setting `SUSPICIOUS_HEX_REPEAT_MIN_RECORDS` — Records sharing one vendor hex in a source batch before it counts as a store template default |
+| `suspicious_hex_repeat_min_share` | `0.1` | Function App setting `SUSPICIOUS_HEX_REPEAT_MIN_SHARE` — Share (0-1) of a source batch sharing one vendor hex before it counts as a store template default |
+| `suspicious_hex_grayscale_max_chroma` | `0.02` | Function App setting `SUSPICIOUS_HEX_GRAYSCALE_MAX_CHROMA` — OKLCH chroma below which a vendor hex is flagged as near-grayscale unless the name suggests gray |
 | `appinsights_daily_cap_gb` | `null` (→ `appinsights_daily_cap_gb_defaults`) | Daily ingestion cap (GB) for Application Insights and the Log Analytics workspace; telemetry stops for the rest of the day once hit (the daily cap alert reports it) |
 | `appinsights_daily_cap_gb_defaults` | `{ dev = 0.5, prod = 2 }` | Per-environment default cap when `appinsights_daily_cap_gb` is null; unlisted environments use the `dev` entry (decision D15) |
 | `alerts_enabled` | `null` (→ `true` prod, `false` otherwise) | Create the action group, alert rules and availability tests (decision D16) |
@@ -302,9 +364,6 @@ Key outputs after `terraform apply`:
 | `openai_diagnostic_setting_name` | Primary region Azure OpenAI diagnostic setting attached to Log Analytics |
 | `openai_regions_provisioned` | List of regions where OpenAI accounts were provisioned/retained |
 | `openai_resources_provisioned` | Whether this stack provisioned Azure OpenAI resources |
-| `apim_name` | APIM service name (empty when `apim_enabled=false`) |
-| `apim_gateway_url` | APIM gateway URL (empty when `apim_enabled=false`) |
-| `openai_gateway_endpoint` | APIM OpenAI gateway base URL exposed to Functions via `AZURE_OPENAI_GATEWAY_ENDPOINT` |
 | `application_insights_name` | Application Insights resource name |
 | `application_insights_connection_string` | *(sensitive)* App Insights connection string, for the web build's `NEXT_PUBLIC_APPLICATIONINSIGHTS_CONNECTION_STRING` |
 | `log_analytics_workspace_name` | Log Analytics workspace name |
@@ -421,10 +480,10 @@ OpenAI settings are optional:
 - If `create_openai_resources=false`, either:
   - set `openai_endpoint` + `openai_api_key`, or
   - set `openai_endpoint` + `openai_key_vault_secret_uri` (preferred).
-- When `apim_enabled=true`, Terraform also provisions APIM (Consumption by default) and sets Function App gateway settings:
-  - `AZURE_OPENAI_GATEWAY_ENDPOINT`
-  - `AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY` (from `apim_openai_subscription_key_uri` when provided, otherwise from a Terraform-managed Key Vault secret created from `apim_openai_subscription_key`)
-  - `AZURE_OPENAI_USE_GATEWAY` (controlled by `openai_gateway_enabled`, with Terraform validation to fail fast if gateway endpoint/secret wiring is incomplete)
+- Functions always call the Azure OpenAI resource directly with `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_KEY`. The APIM
+  gateway path (`apim_enabled`, `openai_gateway_enabled`, the `AZURE_OPENAI_GATEWAY_*` / `AZURE_OPENAI_USE_GATEWAY`
+  settings and `azurerm_api_management.main`) was removed on 2026-10-23 ([D25](../docs/decisions-2026-10.md#d25--azure-openai-apim-gateway-removed-2026-10-23));
+  removing the resources from the configuration destroys an environment's APIM instance on its next Deploy Infra run.
 
 ## External ID service principal (opt-in)
 

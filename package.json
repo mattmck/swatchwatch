@@ -13,7 +13,7 @@
     "dev:infra": "docker compose up -d postgres azurite",
     "dev:shared": "npm run predev:check && npm run watch --workspace=packages/shared",
     "dev:web": "npm run predev:check && npm run build:shared && npm run dev --workspace=apps/web",
-    "dev:mobile": "npm run start --workspace=apps/mobile",
+    "dev:mobile": "npm run predev:check && npm run build:shared && npm run start --workspace=apps/mobile",
     "dev:functions": "npm run predev:check && npm run build:shared && concurrently -k -n func-build,func-host \"npm run watch --workspace=packages/functions\" \"npm run start --workspace=packages/functions\"",
     "build": "npm run build:shared && npm run build --workspace=apps/web && npm run build --workspace=packages/functions",
     "build:shared": "npm run build --workspace=swatchwatch-shared",
@@ -26,6 +26,7 @@
     "migrate:down": "npm run migrate:down --workspace=packages/functions",
     "generate:types": "node scripts/generate-connector-types.mjs",
     "generate:pwa-icons": "node scripts/generate-pwa-icons.mjs",
+    "sync:design-tokens": "node scripts/sync-design-tokens.mjs",
     "prepare": "husky"
   },
   "engines": {
@@ -37,10 +38,14 @@
     "@types/node": "^25.2.1",
     "concurrently": "^9.2.5",
     "husky": "^9.1.7",
-    "next": "16.3.8",
+    "next": "16.4.2",
     "typescript": "^5.9.3"
   },
   "dependencies": {
     "express": "^5.2.1"
+  },
+  "overrides": {
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
   }
 }

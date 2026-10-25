@@ -19,9 +19,12 @@ import {
 } from "./hex-provenance";
 import { submitVisionHexBatch } from "./azure-openai-batch";
 import { uploadSourceImageToBlob, ensureContainer } from "./blob-storage";
+import { describeImageStoreFailure } from "./image-store-error";
 import { toImageProxyUrlFromOrigin } from "./image-proxy";
 import { snapDetectionToImage, type HexSnapLogLevel } from "./hex-snap";
 import { loadDetectionImageBytes } from "./detection-image";
+import { withHexDetectionTotals } from "./ingestion-hex-totals";
+import { describeFetchError } from "./fetch-retry";
 import pLimit = require("p-limit");
 import {
   buildSuspiciousHexContext,
@@ -43,6 +46,7 @@ import { classifyProductCategory } from "./product-category";
 import { resolveProductCategory, type ProductCategory } from "swatchwatch-shared";
 import { PoolClient } from "pg";
 import { recordShadeSourceProduct } from "./buy-link";
+import { materializeProductBarcodes, type BarcodeConflict } from "./barcodes";
 import {
   fingerprintColumnsSql,
   fingerprintFromColumns,
@@ -57,11 +61,23 @@ import {
   type ImageFingerprint,
 } from "./gallery-dedupe";
 import { trackEvent } from "./telemetry";
+import {
+  ingestedVendorHexParams,
+  ingestedVendorHexSetSql,
+  planIngestedVendorHex,
+  SHADE_VENDOR_HEX_COLUMNS,
+  type ShadeVendorHexState,
+} from "./vendor-hex";
 
 export interface DataSourceRecord {
   dataSourceId: number;
   name: string;
   baseUrl: string | null;
+  /**
+   * Store currency set by hand in `data_source.metadata.currency` (raw value; connectors
+   * validate it with `normalizeCurrencyCode`). Shopify connectors otherwise ask the shop.
+   */
+  currency?: string | null;
 }
 
 export interface IngestionJobRecord {
@@ -117,6 +133,10 @@ export interface HoloTacoMaterializationMetrics {
   galleryNearDuplicatesSkipped: number;
   /** Additional images not linked because the product reached `GALLERY_MAX_IMAGES_PER_SHADE`. */
   galleryOverCapSkipped: number;
+  /** Catalog `barcode` rows newly linked (product GTIN + variant barcodes, #21). */
+  barcodesLinked: number;
+  /** GTINs skipped because another shade already owns them (each one is in the job log). */
+  barcodeConflicts: number;
   hexDetected: number;
   hexDetectionFailures: number;
   hexDetectionSkipped: number;
@@ -1076,11 +1096,15 @@ async function prepareHoloTacoImageData(
           `${sourceLogPrefix} Primary image ${reused ? "reused" : "uploaded"} for ${record.externalId}: checksum=${checksumSha256}`
         );
       } catch (err) {
-        console.error(`${sourceLogPrefix} Primary image upload failed for ${record.externalId}:`, String(err));
-        progressLogger?.warn(`${sourceLogPrefix} Primary image upload failed for ${record.externalId}`, {
+        const failure = describeImageStoreFailure(err);
+        const message = `${sourceLogPrefix} Primary image upload failed for ${record.externalId} at ${failure.stepLabel}${failure.host ? ` (${failure.host})` : ""}`;
+        console.error(`${message}:`, failure.error);
+        progressLogger?.warn(message, {
           externalId: record.externalId,
           imageUrl: holo.primaryImageUrl,
-          error: String(err),
+          step: failure.step,
+          host: failure.host,
+          error: failure.error,
         });
       }
 
@@ -1098,11 +1122,15 @@ async function prepareHoloTacoImageData(
           }
         } catch (err) {
           additionalFailures += 1;
-          console.error(`${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId}:`, String(err));
-          progressLogger?.warn(`${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId}`, {
+          const failure = describeImageStoreFailure(err);
+          const message = `${sourceLogPrefix} Additional image ${i} upload failed for ${record.externalId} at ${failure.stepLabel}${failure.host ? ` (${failure.host})` : ""}`;
+          console.error(`${message}:`, failure.error);
+          progressLogger?.warn(message, {
             externalId: record.externalId,
             imageUrl: imgUrl,
-            error: String(err),
+            step: failure.step,
+            host: failure.host,
+            error: failure.error,
           });
         }
       }
@@ -1522,7 +1550,7 @@ async function prepareHoloTacoImageData(
       // Batch submission failed: degrade to synchronous detection for this run so the
       // job still materializes detected hex instead of failing outright. Detections are
       // applied via the same shade write path the batch poller uses.
-      const reason = error instanceof Error ? error.message : String(error);
+      const reason = describeFetchError(error);
       metrics.batchFallbacks += 1;
       const fallbackMessage = `${sourceLogPrefix} Batch submission failed (${reason}); falling back to synchronous hex detection for ${queuedBatchRequests.length} request(s)`;
       console.warn(fallbackMessage);
@@ -1617,11 +1645,13 @@ export async function getDataSourceByName(name: string): Promise<DataSourceRecor
     dataSourceId: number;
     name: string;
     baseUrl: string | null;
+    currency: string | null;
   }>(
     `SELECT
        data_source_id AS "dataSourceId",
        name,
-       base_url AS "baseUrl"
+       base_url AS "baseUrl",
+       metadata ->> 'currency' AS currency
      FROM data_source
      WHERE name = $1
      LIMIT 1`,
@@ -1839,7 +1869,7 @@ export async function markIngestionJobRunning(
          error = NULL,
          metrics_json = $2::jsonb
      WHERE ingestion_job_id = $1`,
-    [jobId, metrics]
+    [jobId, withHexDetectionTotals(metrics)]
   );
 }
 
@@ -1851,7 +1881,7 @@ export async function updateIngestionJobMetrics(
     `UPDATE ingestion_job
      SET metrics_json = $2::jsonb
      WHERE ingestion_job_id = $1`,
-    [jobId, metrics]
+    [jobId, withHexDetectionTotals(metrics)]
   );
 }
 
@@ -1869,7 +1899,7 @@ export async function updateRunningIngestionJobMetrics(
      SET metrics_json = $2::jsonb
      WHERE ingestion_job_id = $1
        AND status = 'running'`,
-    [jobId, metrics]
+    [jobId, withHexDetectionTotals(metrics)]
   );
   return (result.rowCount ?? 0) > 0;
 }
@@ -1884,7 +1914,7 @@ export async function markIngestionJobSucceeded(
          finished_at = now(),
          metrics_json = $2::jsonb
      WHERE ingestion_job_id = $1`,
-    [jobId, metrics]
+    [jobId, withHexDetectionTotals(metrics)]
   );
 }
 
@@ -1900,7 +1930,7 @@ export async function markIngestionJobFailed(
          error = $2,
          metrics_json = $3::jsonb
      WHERE ingestion_job_id = $1`,
-    [jobId, errorMessage, metrics]
+    [jobId, errorMessage, withHexDetectionTotals(metrics)]
   );
   // Signal for the prod "ingestion job failed" alert (infrastructure/main.tf).
   trackEvent("ingestion.job_failed", { jobId, error: errorMessage.slice(0, 500) });
@@ -2018,7 +2048,7 @@ export async function getIngestionJobById(jobId: number): Promise<IngestionJobRe
     status: row.status,
     startedAt: row.startedAt,
     finishedAt: row.finishedAt || undefined,
-    metrics: row.metrics || undefined,
+    metrics: row.metrics ? withHexDetectionTotals(row.metrics) : undefined,
     error: row.error || undefined,
   };
 }
@@ -2078,7 +2108,10 @@ export interface AiBatchShadeDetectionInput {
 
 export interface ApplyAiBatchShadeDetectionsMetrics {
   processed: number;
+  /** Rows matched to a shade (hex and/or finishes). */
   applied: number;
+  /** Subset of `applied` that carried a detected hex, the batch counterpart of `hexDetected`. */
+  appliedHex: number;
   skippedNoDetection: number;
   noShadeMatch: number;
 }
@@ -2089,6 +2122,7 @@ export async function applyAiBatchShadeDetections(
   overwriteDetectedHex: boolean
 ): Promise<ApplyAiBatchShadeDetectionsMetrics> {
   let applied = 0;
+  let appliedHex = 0;
   let skippedNoDetection = 0;
   let noShadeMatch = 0;
 
@@ -2171,6 +2205,9 @@ export async function applyAiBatchShadeDetections(
 
     if (result.rows.length > 0) {
       applied += 1;
+      if (detectedHex) {
+        appliedHex += 1;
+      }
     } else {
       noShadeMatch += 1;
     }
@@ -2179,6 +2216,7 @@ export async function applyAiBatchShadeDetections(
   return {
     processed: detections.length,
     applied,
+    appliedHex,
     skippedNoDetection,
     noShadeMatch,
   };
@@ -2243,7 +2281,7 @@ export async function listIngestionJobs(
       status: row.status,
       startedAt: row.startedAt,
       finishedAt: row.finishedAt || undefined,
-      metrics: row.metrics || undefined,
+      metrics: row.metrics ? withHexDetectionTotals(row.metrics) : undefined,
       error: row.error || undefined,
     })),
     total: parseInt(countResult.rows[0].total, 10),
@@ -2362,22 +2400,30 @@ export async function materializeMakeupApiRecords(
 
         const collection = makeup.name;
 
-        const existingShade = await client.query<{ shadeId: number; finishes: string[] | null }>(
-          `SELECT shade_id AS "shadeId", finishes
+        const existingShade = await client.query<
+          { shadeId: number; finishes: string[] | null; finishesSource: string | null } & ShadeVendorHexState
+        >(
+          `SELECT shade_id AS "shadeId", finishes, finishes_source AS "finishesSource",
+                  ${SHADE_VENDOR_HEX_COLUMNS}
            FROM shade
            WHERE brand_id = $1
              AND product_line_id IS NULL
              AND lower(shade_name_canonical) = lower($2)
              AND coalesce(collection, '') = coalesce($3, '')
-           LIMIT 1`,
+           LIMIT 1
+           FOR UPDATE`,
           [brandId, shadeName, collection]
         );
 
         let shadeId: number;
         let currentFinishes: string[] = [];
+        let currentFinishesSource: string | null = null;
+        let currentVendorHex: ShadeVendorHexState | null = null;
         if (existingShade.rows.length > 0) {
           shadeId = existingShade.rows[0].shadeId;
           currentFinishes = existingShade.rows[0].finishes ?? [];
+          currentFinishesSource = existingShade.rows[0].finishesSource;
+          currentVendorHex = existingShade.rows[0];
         } else {
           const insertedShade = await client.query<{ shadeId: number }>(
             `INSERT INTO shade (brand_id, shade_name_canonical, collection, status)
@@ -2395,22 +2441,23 @@ export async function materializeMakeupApiRecords(
 
         // Write color data to shade (product-level)
         const resolvedColorName = variant.name || makeup.name;
-        const resolvedVendorHex = variant.hex;
+        // A vendor hex replaces the stored one, except an admin-promoted manual label (#321, D12).
+        const vendorHexPlan = planIngestedVendorHex(currentVendorHex, variant.hex || null, true);
         // Merge (never remove) tag finishes in TypeScript, like the Holo Taco path, so aliases
         // and legacy values are canonicalized and deduped; descriptor/description finishes only
-        // fill a shade with none (#352); null leaves finishes untouched.
-        const mergedFinishes = applyIngestedFinishes(currentFinishes, finishResolution, finishCatalog);
+        // fill a shade with none (#352); an admin-set list is never touched; null leaves finishes untouched.
+        const mergedFinishes = applyIngestedFinishes(currentFinishes, finishResolution, finishCatalog, currentFinishesSource);
         await client.query(
           `UPDATE shade SET
              color_name = COALESCE($2, color_name),
-             vendor_hex = COALESCE($3, vendor_hex),
+             ${ingestedVendorHexSetSql("$3", 5)},
              finishes = COALESCE($4::text[], finishes),
              -- Catalog data confirms a user-submitted shade: promote it to the shared catalog
              -- (never one an admin retired by merging it into another shade).
              status = CASE WHEN status = 'user_submitted' AND merged_into_shade_id IS NULL THEN 'active' ELSE status END,
              updated_at = now()
            WHERE shade_id = $1`,
-          [shadeId, resolvedColorName, resolvedVendorHex, mergedFinishes]
+          [shadeId, resolvedColorName, vendorHexPlan.vendorHex, mergedFinishes, ...ingestedVendorHexParams(vendorHexPlan)]
         );
         const { category: productCategory } = classifyProductCategory({
           shadeName,
@@ -2484,6 +2531,14 @@ interface HoloTacoRecordMaterializationDelta {
   gallerySwatchesPruned: number;
   galleryNearDuplicatesSkipped: number;
   galleryOverCapSkipped: number;
+  /** The materialized shade (unset when the record was skipped). */
+  shadeId?: number;
+  /** Catalog barcodes newly linked to the shade (#21). */
+  barcodesLinked: number;
+  /** GTINs another shade already owns (kept by that shade; logged by the caller). */
+  barcodeConflicts: BarcodeConflict[];
+  /** GTINs stored although their check digit is wrong (logged by the caller). */
+  barcodeInvalidCheckDigits: string[];
   skipped: number;
 }
 
@@ -2509,6 +2564,9 @@ async function materializePreparedHoloTacoRecord(
     gallerySwatchesPruned: 0,
     galleryNearDuplicatesSkipped: 0,
     galleryOverCapSkipped: 0,
+    barcodesLinked: 0,
+    barcodeConflicts: [],
+    barcodeInvalidCheckDigits: [],
     skipped: 0,
   };
 
@@ -2593,6 +2651,12 @@ async function materializePreparedHoloTacoRecord(
 
   // Remember which product this shade came from (drives the "Buy from brand" link, #267).
   await recordShadeSourceProduct(client, shadeId, dataSourceId, record.externalId);
+  delta.shadeId = shadeId;
+  // Catalog barcodes (#21): the product GTIN and variant barcodes resolve scans to this shade.
+  const barcodeResult = await materializeProductBarcodes(client, { shadeId, dataSourceId, record });
+  delta.barcodesLinked += barcodeResult.inserted;
+  delta.barcodeConflicts.push(...barcodeResult.conflicts);
+  delta.barcodeInvalidCheckDigits.push(...barcodeResult.invalidCheckDigit);
 
   const importNote = `Imported from ${sourceLogPrefix.replace(/[\[\]]/g, "")} external_id=${record.externalId}`;
   const vendorHex = holo.vendorHex;
@@ -2613,33 +2677,43 @@ async function materializePreparedHoloTacoRecord(
   );
 
   // Read current shade color data for overwrite comparison
-  const currentShade = await client.query<{
-    vendorHex: string | null;
+  const currentShade = await client.query<ShadeVendorHexState & {
     detectedHex: string | null;
     detectedFinishes: string[] | null;
     nameHex: string | null;
     finishes: string[] | null;
+    finishesSource: string | null;
   }>(
     `SELECT
-       vendor_hex AS "vendorHex",
+       ${SHADE_VENDOR_HEX_COLUMNS},
        detected_hex AS "detectedHex",
        detected_finishes AS "detectedFinishes",
        name_hex AS "nameHex",
-       finishes
-     FROM shade WHERE shade_id = $1`,
+       finishes,
+       finishes_source AS "finishesSource"
+     FROM shade WHERE shade_id = $1
+     FOR UPDATE`,
     [shadeId]
   );
   // Vendor tag finishes are merged (never removed) so manual edits survive re-imports;
-  // descriptor/description finishes only fill a shade that has none yet (#352).
+  // descriptor/description finishes only fill a shade that has none yet (#352); an admin-set
+  // list (finishes_source = 'admin') is written back exactly as it is.
   const currentFinishes = currentShade.rows[0]?.finishes ?? [];
+  const currentFinishesSource = currentShade.rows[0]?.finishesSource ?? null;
   const mergedFinishes =
-    applyIngestedFinishes(currentFinishes, finishResolution, finishCatalog) ??
-    mergeFinishLists([currentFinishes], finishCatalog);
+    currentFinishesSource === "admin"
+      ? currentFinishes
+      : applyIngestedFinishes(currentFinishes, finishResolution, finishCatalog) ??
+        mergeFinishLists([currentFinishes], finishCatalog);
+
+  // A vendor hex follows the overwrite rule, except an admin-promoted manual label, which
+  // ingestion never replaces (#321, D12): the vendor value is kept in vendor_hex_previous.
+  const vendorHexPlan = planIngestedVendorHex(currentShade.rows[0] ?? null, vendorHex || null, overwriteDetectedHex);
 
   const shouldOverwrite = overwriteDetectedHex;
   if (
     shouldOverwrite && currentShade.rows.length > 0 &&
-    ((vendorHex && vendorHex !== currentShade.rows[0].vendorHex) ||
+    (vendorHexPlan.vendorHexChanged ||
       (detectedHex && detectedHex !== currentShade.rows[0].detectedHex) ||
       (detectedFinishes &&
         JSON.stringify(detectedFinishes) !==
@@ -2653,10 +2727,7 @@ async function materializePreparedHoloTacoRecord(
   await client.query(
     `UPDATE shade
      SET color_name = COALESCE(color_name, $2),
-         vendor_hex = CASE
-           WHEN $6::boolean AND $3::text IS NOT NULL THEN $3::text
-           ELSE COALESCE(vendor_hex, $3::text)
-         END,
+         ${ingestedVendorHexSetSql("$3", 13)},
          detected_hex = CASE
            WHEN $6::boolean AND $4::text IS NOT NULL THEN $4::text
            ELSE COALESCE(detected_hex, $4::text)
@@ -2692,13 +2763,14 @@ async function materializePreparedHoloTacoRecord(
     [
       shadeId,
       holo.name,
-      vendorHex,
+      vendorHexPlan.vendorHex,
       detectedHex,
       detectedFinishes,
       overwriteDetectedHex,
       nameHex,
       mergedFinishes,
       ...provenanceParams(detectedHexProvenance),
+      ...ingestedVendorHexParams(vendorHexPlan),
     ]
   );
 
@@ -3027,6 +3099,8 @@ export async function materializeHoloTacoRecords(
   let gallerySwatchesPruned = 0;
   let galleryNearDuplicatesSkipped = 0;
   let galleryOverCapSkipped = 0;
+  let barcodesLinked = 0;
+  let barcodeConflicts = 0;
   let skipped = 0;
 
   const brandCache = new Map<string, number>();
@@ -3069,6 +3143,27 @@ export async function materializeHoloTacoRecords(
       gallerySwatchesPruned += delta.gallerySwatchesPruned;
       galleryNearDuplicatesSkipped += delta.galleryNearDuplicatesSkipped;
       galleryOverCapSkipped += delta.galleryOverCapSkipped;
+      barcodesLinked += delta.barcodesLinked;
+      barcodeConflicts += delta.barcodeConflicts.length;
+      for (const gtin of delta.barcodeInvalidCheckDigits) {
+        // Kept (a vendor typo still names the bottle), but worth a look.
+        options?.progressLogger?.warn(
+          `${sourceLogPrefix} Barcode ${gtin} of ${record.externalId} has a wrong check digit; stored anyway`,
+          { externalId: record.externalId, gtin, shadeId: delta.shadeId }
+        );
+      }
+      for (const conflict of delta.barcodeConflicts) {
+        // First shade wins: the GTIN stays where it is; an admin can move it if it is wrong.
+        options?.progressLogger?.warn(
+          `${sourceLogPrefix} Barcode ${conflict.gtin} of ${record.externalId} already belongs to shade ${conflict.existingShadeId}; kept there`,
+          {
+            externalId: record.externalId,
+            gtin: conflict.gtin,
+            shadeId: delta.shadeId,
+            existingShadeId: conflict.existingShadeId,
+          }
+        );
+      }
       skipped += delta.skipped;
       if (delta.skipped > 0) {
         options?.progressLogger?.warn(
@@ -3092,6 +3187,8 @@ export async function materializeHoloTacoRecords(
     gallerySwatchesPruned,
     galleryNearDuplicatesSkipped,
     galleryOverCapSkipped,
+    barcodesLinked,
+    barcodeConflicts,
     skipped,
   };
 

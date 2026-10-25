@@ -16,22 +16,23 @@ The package is automatically linked via npm workspaces — no publishing require
 
 | Type | Description |
 |------|-------------|
-| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, reserved `nailImageUrl` (not populated; see `NailPhoto`), legacy `finish`, multi-finish `finishes`, tags, timestamps, etc.). Detected-hex provenance (migration 20261017024958000_shade-detected-hex-provenance): `detectedHexConfidence` (0–1), `detectedHexMethod` (`vision-direct`, `palette-pick`, `region-crop`, `ensemble`, `client-supplied`, …), `detectedHexModel` (deployment), `detectedHexPromptVersion`, `detectedHexAt`, and `hexAgreement` (OKLAB distance vendorHex ↔ detectedHex, null unless both exist). Inventory status (#261, migration 20261017061336791_inventory-status): `status` (`PolishStatus`, null for catalog-only rows), derived `isUntried` (owned and `triedAt` null), `triedAt`, `lastWornAt`, `wearCount`, `purchasePrice`, `purchaseCurrency`. `colorFamily` (`ColorFamily \| null`, the generated `shade.color_family`; see `color/color-family.ts`). Optional `buyUrl` (#267): the brand's product page from the stored source product URL, validated server-side (absolute http/https, no credentials), absent when none is stored. `productCategory` (#349, `ProductCategory`; missing = `color`). `PolishFilters.categories`, `CatalogSearchResult.productCategory` and `CatalogShadeDetail.productCategory` carry the category too |
+| `Polish` | Full polish entity (id, userId, brand, name, independent hex fields, swatch image, optional `sourceImageUrls` gallery, reserved `nailImageUrl` (not populated; see `NailPhoto`), legacy `finish`, multi-finish `finishes`, tags, timestamps, etc.). Detected-hex provenance (migration 20261017024958000_shade-detected-hex-provenance): `detectedHexConfidence` (0–1), `detectedHexMethod` (`vision-direct`, `palette-pick`, `region-crop`, `ensemble`, `client-supplied`, …), `detectedHexModel` (deployment), `detectedHexPromptVersion`, `detectedHexAt`, and `hexAgreement` (OKLAB distance vendorHex ↔ detectedHex, null unless both exist). Inventory status (#261, migration 20261017061336791_inventory-status): `ownSubmitted` (true only for the caller's own private `user_submitted` shade; its creator may still edit brand, name, finishes and color, #224; a rename keeps the shade id, or answers `409` `ShadeIdentityTakenResponse` on a collision), `status` (`PolishStatus`, null for catalog-only rows), derived `isUntried` (owned and `triedAt` null), `triedAt`, `lastWornAt`, `wearCount`, `purchasePrice`, `purchaseCurrency`. `colorFamily` (`ColorFamily \| null`, the generated `shade.color_family`; see `color/color-family.ts`). Optional `buyUrl` (#267): the brand's product page from the stored source product URL, validated server-side (absolute http/https, no credentials), absent when none is stored. Optional `buyPrice` (major units) / `buyCurrency` (ISO 4217) / `buyPriceSeenAt` (ISO): the brand's list price for that same product as last fetched, present only together, never the user's `purchasePrice`. `productCategory` (#349, `ProductCategory`; missing = `color`). `colorDistance` (OKLAB distance to the nearest `nearHex` target, only on `GET /api/polishes?nearHex=` rows; null without a usable display hex). `PolishFilters.categories`, `CatalogSearchResult.productCategory` and `CatalogShadeDetail.productCategory` carry the category too |
 | `resolveDisplayHex(polish)` | Display hex with the blind precedence vendor > detected > name (unchanged; used by the web app) |
 | `HexReviewItem` / `HexReviewResponse` / `HexReviewSort` | Admin hex-review queue payload (`GET /api/polishes-admin/hex-review`): hexes, provenance, agreement, display hex/source, `flagged`; sorted by `agreement` or `confidence` |
 | `PolishFinish` | Built-in finish name, derived as `(typeof CANONICAL_FINISHES)[number]` |
 | `FinishName` | `PolishFinish \| (string & {})` — any finish name on API-facing fields (`Polish.finishes`, request `finish`/`finishes`); admits runtime names from admin-managed `finish_type` rows while keeping autocomplete for built-ins |
 | `resolvePolishFinishes(polish)` | Finishes to display: `finishes` when non-empty, else `[finish]` (backward compatible) |
 | `polishHasFinish(polish, finish)` | Case-insensitive membership check over `resolvePolishFinishes` |
-| `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps); accepts `finishes` (replace) and legacy `finish`, plus inventory `status`, `triedAt`, `purchasePrice`, `purchaseCurrency` (`null` clears the last three) |
-| `PolishUpdateRequest` | Partial create fields + required `id` |
+| `PolishCreateRequest` | Required + optional fields for creating a polish (no id/userId/timestamps); accepts `finishes` (replace) and legacy `finish`, plus inventory `status`, `triedAt`, `purchasePrice`, `purchaseCurrency` (`null` clears the last three), `rating` and `purchaseDate` (`null` clears them on update), and create-only `barcode` / `barcodeFormat` (a Rapid Add scan remembered on the shade for the caller, #21) and optional `captureId` (the capture session this add came from, the bottle flow's create card; must be the caller's own) |
+| `PolishUpdateRequest` | `Partial<PolishCreateRequest>` (the id is the route param); `rating` / `purchaseDate` `null` clears the value |
+| `ShadeIdentityTakenResponse` | `409` body of `PUT /api/polishes/{id}` when renaming the caller's own private shade (`Polish.ownSubmitted`) to a brand + name another visible shade already has (`error`, `code: "shade_identity_taken"`, `existingShadeId`); nothing was changed |
 | `PolishListResponse` | Paginated list: `{ polishes, total, page, pageSize }` |
-| `PolishFilters` | Query params: brand/finish/finishes/color/tags/search plus scope/availability/tone, `status` (`PolishStatus[]`), `untried`, `families` (`?family=`, any-of color families), sort, and pagination |
+| `PolishFilters` | Query params: brand/finish/finishes/color/tags/search plus scope/availability/tone, `status` (`PolishStatus[]`), `untried`, `families` (`?family=`, any-of color families), `nearHex` (rank by OKLAB distance to the nearest of up to 24 hexes, replaces sort), sort, and pagination |
 | `Brand` | Canonical brand entity (`brand_id`, `name_canonical`) |
 | `Shade` | Canonical shade entity (`shade_id`, `brand_id`, `shade_name_canonical`, `finish`, `finishes`, `collection`, hex columns, `detected_hex_*` provenance, `hex_agreement`, etc.) |
-| `CatalogSearchResult` | Single search hit: shade with brand name, `finish`/`finishes`, `colorFamily`, similarity score, and optional `buyUrl` (see `Polish.buyUrl`) |
+| `CatalogSearchResult` | Single search hit: shade with brand name, `finish`/`finishes`, `colorFamily`, similarity score, and optional `buyUrl` plus `buyPrice` / `buyCurrency` / `buyPriceSeenAt` (see `Polish.buyUrl`, `Polish.buyPrice`) |
 | `CatalogSearchResponse` | Search response: `{ results, query, total }` |
-| `CatalogShadeDetail` | Full shade detail with brand info, aliases, and optional `buyUrl` (see `Polish.buyUrl`) |
+| `CatalogShadeDetail` | Full shade detail with brand info, aliases, and optional `buyUrl` plus `buyPrice` / `buyCurrency` / `buyPriceSeenAt` (see `Polish.buyUrl`, `Polish.buyPrice`) |
 
 **Note:** All frontend pages now use the live API. The mock-data.ts file is no longer used.
 
@@ -46,12 +47,17 @@ Admin Hex Labeling tool (admin console tab, routes `/api/hex-labels-admin/*`): h
 | `HexLabelSamplePoint` | Where a canvas sample was taken: `x`/`y` normalized 0..1 to the natural image size, `size`, `imageWidth`, `imageHeight` |
 | `HexLabelImage` | A catalog product image of a shade: `imageId`, signed proxy `url`, `swatchType`, vendor `sourceUrl` (from `source_image_url`, null when unknown), `isPrimary` |
 | `HexLabel` | A saved manual label: `trainingSampleId`, `shadeId`, `hex` (null only when `unreliable`), `unreliable`, `imageId`, `note`, `method`, `samplePoint`, `labeledByUserId`, `labeledAt` |
-| `HexLabelQueueItem` | One queued shade: brand/name/finishes, `vendorHex`/`detectedHex`/`nameHex`, `hexAgreement`, detection confidence/method, `flagged` (agreement > MEDIUM), `images`, current `label` |
+| `HexLabelQueueItem` | One queued shade: brand/name/finishes, `finishesSource`, `productCategory` / `productCategorySource`, `vendorHex`/`detectedHex`/`nameHex`, `hexAgreement`, detection confidence/method, `flagged` (agreement > MEDIUM), `images`, current `label`, vendor hex provenance `vendorHexSource` / `promotedLabelId` / `vendorHexPrevious` (#321) |
 | `HexLabelQueueFilters` | `GET /api/hex-labels-admin/queue` query: `brand`, `disagreeOnly`, `showLabeled`, `includeWithoutImages`, `cursor`, `pageSize` |
 | `HexLabelQueueResponse` | `{ items, nextCursor, total, labeled, pageSize, disagreementThreshold }` (`total`/`labeled` drive the progress bar) |
 | `HexLabelRequest` | `POST /api/hex-labels-admin/labels` body: `shadeId`, `hex` (`#RRGGBB`, required unless `unreliable`), `imageId`, `unreliable`, `note`, `method`, `samplePoint` |
 | `HexLabelSaveResponse` | `{ label, previous }`; `previous` is the label the save replaced (the client restores it to undo) |
 | `HexLabelDeleteResponse` | `{ deleted }` from `DELETE /api/hex-labels-admin/labels/{id}` |
+| `VENDOR_HEX_SOURCES` / `VendorHexSource` | `shade.vendor_hex_source` (#321): `vendor` (vendor/catalog data) or `manual_label` (an admin promoted the shade's manual label; ingestion never overwrites it). Admin-only |
+| `FINISHES_SOURCES` / `FinishesSource` | `shade.finishes_source`: `rule` (ingestion / backfills) or `admin` (set in the Hex Labeling tool; ingestion never changes it). Admin-only |
+| `SHADE_FINISHES_MAX` | Most finishes an admin can set on one shade (8) |
+| `ShadeFinishesUpdateRequest` / `ShadeFinishesUpdateResponse` | `PUT /api/shades-admin/{shadeId}/finishes`: `{ finishes }` in; `{ shadeId, finishes, finishesSource, changed }` out |
+| `HexLabelPromoteResponse` | `{ shadeId, vendorHex, vendorHexSource, promotedLabelId, vendorHexPrevious, changed }` from `POST`/`DELETE /api/hex-labels-admin/labels/{id}/promote` and `DELETE /api/hex-labels-admin/shades/{shadeId}/promotion` |
 
 ### `types/inventory.ts`
 
@@ -80,6 +86,7 @@ Mani log (#269): `/api/manicures` payloads. Logging, editing or deleting a manic
 | `ManicurePolish` | One polish in a manicure: `shadeId`, the caller's current `inventoryItemId` (null after removal), `role`, `position`, `brand`, `name`, `vendorHex` / `detectedHex` / `nameHex` |
 | `ManicurePolishInput` | Request polish reference: `shadeId` or `inventoryItemId` (caller's inventory only) + optional `role` |
 | `ManicureCreateRequest` / `ManicureUpdateRequest` | Create (`polishes` required, `wornOn` defaults to today UTC) / partial update (`polishes` replaces the list; `null` clears `notes` / `photoImageId`) |
+| `buildWearHistory()` / `wearHistoryTitle()` / `WEAR_HISTORY_PREVIEW_COUNT` | pure helpers for the polish detail "Worn N times" panel (web and mobile): `WearHistoryEntry[]` newest first from `GET /api/manicures?shadeId=` rows |
 | `ManicureWearStat` | `{ shadeId, inventoryItemId, wearCount, lastWornAt, triedAt }` after a write |
 | `ManicurePhotoResponse` | `PUT /api/manicures/{id}/photo` response (#327): `{ manicureId, photoImageId (the new image_asset id), photoUrl (owner-scoped v3 or null) }`; the request body is a `NailPhotoUploadRequest` |
 | `ManicureMutationResponse` / `ManicureDeleteResponse` | Create/update response (`Manicure` + `wearStats`) / delete response (`{ message, id, wearStats }`) |
@@ -138,7 +145,8 @@ Collection stats (#271): the `GET /api/stats/collection` payload behind the dash
 |--------|-------------|
 | `COLLECTION_STATS_TOP_BRANDS` (8), `COLLECTION_STATS_MONTHS` (12), `COLLECTION_STATS_MOST_WORN` (10), `COLLECTION_STATS_COST_PER_WEAR_LIST` (5) | List sizes used by the API |
 | `SPEND_STATUSES` | `["owned", "destash", "archived"]` — statuses whose purchase price counts as spend (a wishlist price is a target, not money spent) |
-| `CollectionStatsResponse` | `{ generatedAt, totals: { byStatus, total }, untried: { owned, untried, percent \| null }, wornVsWaiting: { worn, waiting }, spend, mostWorn, costPerWear: { currencies, pricedUnwornCount } }` |
+| `CollectionStatsResponse` | `{ generatedAt, totals: { byStatus, total }, untried: { owned, untried, percent \| null }, wornVsWaiting: { worn, waiting }, spend, mostWorn, costPerWear: { currencies, pricedUnwornCount }, wishlist }` |
+| `WishlistValueStats` | `{ count, listPrices: ListPriceTotals }` — every wishlist row the polishes list shows and its brand list prices summed per currency (`sumListPrices`, unpriced counted) |
 | `CollectionSpendStats` | `{ currencies: CurrencySpend[], months (YYYY-MM, oldest first), pricedCount, unpricedCount }` |
 | `CurrencySpend` | One currency: `currency`, all-time `total` / `itemCount`, `byBrand` (top N + one "Other"), `byMonth` (zero-filled) |
 | `SpendByBrandEntry` / `SpendByMonthEntry` | `{ brand, isOther, brandCount, total, itemCount }` / `{ month, total, itemCount, estimatedDateCount }` (`estimatedDateCount` = rows bucketed by `createdAt` because they have no purchase date) |
@@ -162,6 +170,7 @@ Collection stats (#271): the `GET /api/stats/collection` payload behind the dash
 |--------|-------------|
 | `OUTBOUND_LINK_TARGET` | `"_blank"` — outbound "Buy from brand" links open in a new tab |
 | `OUTBOUND_LINK_REL` | `"noopener noreferrer nofollow"` — required `rel` for every outbound buy link (no `window.opener`, no referrer, no endorsement) |
+| `safeOutboundUrl(value)` | Normalized absolute http/https URL without credentials, or `null`; clients re-check `buyUrl` with it before rendering or opening a link |
 
 ### `constants/image-variants.ts`
 
@@ -171,6 +180,29 @@ Collection stats (#271): the `GET /api/stats/collection` payload behind the dash
 | `ImageVariantSize` | Union of the ladder sizes |
 | `IMAGE_VARIANT_QUALITY` | `72` — WebP quality of every variant (the proxy's default `q`) |
 | `snapImageVariantSize(size)` | Smallest ladder size ≥ `size`, or `null` above 512 |
+
+### `constants/design-tokens.ts` (generated)
+
+Generated from `apps/web/src/app/globals.css` by `npm run sync:design-tokens` (don't edit; CI checks it with `--check`). Hex values for clients that can't use the web's `oklch()` CSS variables (the Expo app).
+
+| Export | Description |
+|--------|-------------|
+| `ThemeColorTokens` | Semantic colors with the shadcn/ui names: `background`, `foreground`, `card`, `primary`, `secondary`, `muted`, `accent` (+ `*Foreground`), `destructive`, `border`, `input`, `ring` |
+| `LIGHT_THEME_COLORS` / `DARK_THEME_COLORS` | The `:root` / `.dark` palettes (`#rrggbb`, or `#rrggbbaa` where the CSS has alpha) |
+| `THEME_COLORS` | `{ light, dark }` keyed by `ThemeColorScheme` |
+| `BRAND_COLOR_TOKENS` | The `--brand-*` palette (equal to `swatchWatchBrandPalette`) |
+
+### `barcode/gtin.ts`
+
+Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/barcode-scan.ts`, used by the mobile app). The capture API looks GTINs up exactly as printed.
+
+| Export | Description |
+|--------|-------------|
+| `RetailBarcodeFormat`, `RETAIL_BARCODE_FORMATS` | `ean_13`, `upc_a`, `ean_8`, `upc_e` (preference order) |
+| `normalizeBarcodeFormat(format)` | Decoder spellings (`ean13`, `EAN_13`, `EAN13`) → ours, or `null` |
+| `hasValidGtinCheckDigit(digits)` | GS1 mod-10 check for GTIN-8/12/13/14 |
+| `expandUpcE(upcE)` | 8-digit UPC-E → 12-digit UPC-A, or `null` |
+| `normalizeScannedBarcode({ rawValue, format })` | Validated `NormalizedBarcode` (`{ gtin, format }`, digits as printed) or `null` |
 
 ### `constants/product-categories.ts` (#349, decision D23)
 
@@ -193,7 +225,36 @@ Collection stats (#271): the `GET /api/stats/collection` payload behind the dash
 | `ShadeProductCategoryUpdateRequest`, `ShadeProductCategoryUpdateResponse` | `PUT /api/shades-admin/{id}/product-category` |
 | `ShadeProductCategoryItem`, `ShadeProductCategoryListResponse` | `GET /api/shades-admin/product-category` |
 
-### `color/` (OKLAB math, thresholds, hex reconciliation, color families)
+### `looks/` (Looks recommender)
+
+| Export | Description |
+|---|---|
+| `recommendLooks({ polishes, catalog?, vibe, seed, count?, includeToppers?, skinTone? })`, `LOOK_TEMPLATES` (18 named looks), `rankTemplatesForVibe`, `vibeScore`, `DEFAULT_VIBE`, `LOOK_*_LABELS`, tuning constants (`BASE_MAX_DISTANCE`, `CATALOG_MAX_DISTANCE`, …) | The Looks rule (`looks/recommend.ts`, moved from the web's `lib/looks.ts`): pure and seeded, three diverse looks (base / accent / topper) for a vibe from owned polishes (`status === "owned"`), gaps filled from `catalog` rows. The module header documents every rule. Types `Look`, `LookStep`, `LooksResult`, `Vibe`, `LookTemplate`, … |
+| `SkinTone { undertone, depth }`, `SKIN_UNDERTONES`, `SKIN_DEPTHS`, `skinToneFrom()`, `skinToneAdjustment(hex, skinTone)`, `SKIN_UNDERTONE_WEIGHT`, `SKIN_LIGHTNESS`, `SKIN_TIE_BAND` | Optional skin tone for Looks (`looks/skin-tone.ts`, types in `types/looks.ts`, also on `LookVibe.skinTone`): a soft score adjustment on base and accent candidates applied after the distance cut-offs. Cool favours blue–pink–berry and cool reds, warm favours coral–orange–gold; fair/light avoid pale low-contrast shades, tan/deep avoid dark muted ones. No skin tone changes nothing. Never part of the public share payload. |
+| `applyStepSwap(look, stepIndex, polish)`, `maniEntriesForLook`, `maniRoleForStep`, `catalogQueriesForLooks(looks, { includeOwned? })`, `shopCandidatesForStep(look, stepIndex, pool, vibe)` | Helpers around a look: swap a step's polish (steps are addressed by position, since every template has a base and two accents), owned steps as mani-log entries (`base` → `color`), the color-family / topper queries that fetch the catalog rows for the gaps, catalog shades to buy per step |
+| `shoppingItemsForLook`, `shoppingSubtotals`, `formatShoppingSubtotals`, `shoppingListText`, `lookShareText(look, vibe, url?)`, `applicationOrder`, `finishNotes` | Text and list helpers behind the Looks extras (`looks/detail.ts`, moved from the web's `lib/looks-detail.ts`, which re-exports them and keeps the skin-tone backdrop): the "Add missing items" list (safe buy link, brand list price, per-currency subtotals, never summed across currencies), its copyable text, the share text (link omitted when `url` is empty), and the detail drawer's application order and finish notes. `safeOutboundUrl` (constants/outbound-links) validates the buy link. |
+| `createSeededRandom(seed)`, `RandomSource` | mulberry32 PRNG used by Looks (web `pick-for-me.ts` re-exports it) |
+
+`apps/web/src/lib/looks.ts` is a re-export shim; the vibe vocabulary and saved-look shape stay in `types/looks.ts`.
+
+### `onboarding.ts` (getting-started checklist rules, #372 / #109)
+
+| Export | Meaning |
+|---|---|
+| `ONBOARDING_GOAL` (20), `ONBOARDING_SHOW_BELOW` (5) | Progress goal and the owned count below which the checklist shows |
+| `GETTING_STARTED_STEPS` (`{ id: "import" \| "scan" \| "search", label }`) | The three ways in, fastest first; each app maps ids to its own routes |
+| `onboardingProgress(ownedCount)` | `{ count, goal, percent, label }`, capped at the goal |
+| `GettingStartedState`, `parseGettingStartedState`, `serializeGettingStartedState` | Persisted `{ started, dismissed, visited }`, tolerant of broken storage |
+| `gettingStartedView(ownedCount, state)`, `markGettingStartedStarted`, `dismissGettingStarted`, `markStepVisited`, `gettingStartedStorageKey(userId)` | Visibility (`hidden` / `active` / `complete`) and state transitions. Web: localStorage; mobile: per-user AsyncStorage |
+
+### `money/price-totals.ts` (brand list-price totals)
+
+| Export | Meaning |
+|---|---|
+| `sumListPrices(rows)` | `{ byCurrency: [{ currency, total, count }], unpricedCount, latestSeenAt }` over rows carrying `buyPrice` / `buyCurrency` / `buyPriceSeenAt`: decimal-safe (whole minor units per `Intl` currency digits), never converted or summed across currencies, rows without a usable price are counted in `unpricedCount`, never guessed. Used by the web Looks shopping list, the wishlist value lines and the mobile wishlist views |
+| `listPriceOf`, `formatListAmount`, `formatListPriceAsOf`, `formatListPriceTotals`, `formatListPriceSummary`, `formatWishlistValueLine(count, totals)` | Price validation and text: "12 polishes · $148.00 (9 priced) + €20.00 (2) · 1 without a price" |
+
+### `color/` (OKLAB math, thresholds, hex reconciliation, color families, harmonies, Pair it)
 
 | Export | Description |
 |--------|-------------|
@@ -201,6 +262,7 @@ Collection stats (#271): the `GET /api/stats/collection` payload behind the dash
 | `HIGH_CONFIDENCE_MAX_DISTANCE` (0.05), `MEDIUM_CONFIDENCE_MAX_DISTANCE` (0.10), `confidenceForDistance(d)` | Distance buckets used by photo matching and vendor↔detected reconciliation (`color/thresholds.ts`) |
 | `normalizeHexColor(value)` | Uppercase `#RRGGBB` or null |
 | `computeHexAgreement(vendorHex, detectedHex)` | OKLAB distance rounded to 4 decimals, null unless both hexes are valid; mirrors the Postgres `hex_oklab_distance()` behind `shade.hex_agreement` |
+| `isEstimatedDisplayHex(polish)`, `colorSearchConfidence(distance, estimated)`, `compareColorSearchRank(a, b)` | Color search on estimated hexes (`color/estimated-hex.ts`): true when the display hex is only `nameHex` (no vendor or detected hex); grade capped at low when estimated; comparator ranking measured rows before estimated ones, nearest first (the server's `?nearHex=` tiers) |
 | `resolveDisplayHexDetailed(polish, { vendorHexSuspicious?, disagreementThreshold? })` | Pure reconciliation → `{ hex, source, agreement, flagged, reason }`. Keeps vendor > detected > name by default; flags `disagreement` when vendor and detected differ by more than MEDIUM; when the caller marks the vendor hex suspicious, prefers detected (and flags `vendor-suspicious` if the vendor hex still had to be used). Uses a stored `hexAgreement` when present |
 | `COLOR_FAMILIES`, `ColorFamily`, `HexColorFamily`, `isColorFamily(value)` | The 15 color families (#103): `red`, `pink`, `coral`, `orange`, `yellow`, `green`, `teal`, `blue`, `purple`, `nude`, `brown`, `grey`, `black`, `white`, `multichrome` (`color/color-family.ts`) |
 | `COLOR_FAMILY_LABELS`, `COLOR_FAMILY_SWATCH_HEX` | Display label and representative chip swatch per family (each swatch classifies into its own family; render `multichrome` as a gradient) |
@@ -213,6 +275,9 @@ Collection stats (#271): the `GET /api/stats/collection` payload behind the dash
 | `finishCompatibility(targetFinishes, candidateFinishes, families?)` | `same` (same primary), `compatible` (same family or any shared finish), `different` (known, different families), `unknown` (missing/`other`/no family — never penalized); `families` defaults to `DUPE_FINISH_FAMILIES` |
 | `PaletteColorKind`, `PALETTE_COLOR_KINDS`, `PALETTE_QUALITY_THRESHOLDS`, `classifyPaletteColor(hex)`, `isBackgroundPaletteKind(kind)`, `paletteVibrancyWeight(hex)` | Photo-palette quality (#105, `color/palette-quality.ts`): `light` (L ≥ 0.97, or L ≥ 0.90 with C < 0.05), `dark` (L < 0.22, C < 0.06), `skin` (hue 20–80, C 0.025–0.14, L 0.35–0.92) or `color`. Coarse on purpose (nudes read as skin), so the web hides these only by default and the API drops them only on request. `paletteVibrancyWeight` = 1 + min(C / 0.2, 1) for `preferVibrant` |
 | `gradeDupe(distance, compatibility)` | `{ colorGrade, grade }`: `confidenceForDistance` (the match-image thresholds), dropped one step for `different` finishes; `grade` null when LOW |
+| `HARMONY_TYPES`, `getHarmonyTypeOptions(harmonyTypes?)`, `generateHarmonyPalette(sourceHex, harmony)`, `generateHarmonyColors(sourceHex, harmony)`, `suggestPaletteCompletion(anchorHexes)` | Color harmony rules (#384, `color/harmonies.ts`, moved from the web): hue rotations in OKLCH (gamut-mapped by reducing chroma, so lightness is kept; grays never rotate). Palette index 0 is the source (monochromatic: five steps dark → light). Used by the web search page / Pick for me and mobile By color / Goes with; `apps/web/src/lib/color-harmonies.ts` is a re-export shim |
+| `analyzeCollectionGaps(hexes)`, `classifyHexToGapCell(hex)`, `gapCellToSeedHex(hue, lightness)`, `recommendGapCells(analysis, limit = 6)`, `gapCellKey`, `parseGapCellKey`, `sortGapCellsByGridOrder`, `HUE_FAMILY_ORDER`, `LIGHTNESS_BAND_ORDER`, `GAP_HUE_META`, `GAP_LIGHTNESS_META` | Collection gap heatmap rules (#109, `color/gaps.ts`, moved from the web's `color-utils.ts`): 8 hue families × 5 OKLCH lightness bands, missing cells (0) and thin cells (`count <= max(1, floor(avg × 0.5))`), the "What to add next" order (missing in grid order, then thin emptiest first) and a representative in-gamut seed hex per cell (chroma clamped with `clampOklchToSrgb`, so every seed classifies back into its own cell). `apps/web/src/lib/color-utils.ts` re-exports the analysis functions; mobile `/gaps` and Pick for me use them directly |
+| `suggestPairings(pick, polishes, max = MAX_PAIRINGS)`, `PairSuggestion`, `PairHarmony`, `PairablePolish`, `pairableDisplayHex(polish)`, `PAIR_MAX_DISTANCE` (0.12), `PAIR_NEUTRAL_MAX_CHROMA` (0.04), `TOPPER_FINISHES`, `MAX_PAIRINGS` (2) | "Pair it" rule (#272/#384, `color/pair-it.ts`): up to two owned companions for a pick, the complementary / analogous owned color polish nearest each harmony target within `PAIR_MAX_DISTANCE` (and closer to the target than to the pick; skipped for near-neutral picks) plus a topper / flake / glitter accent; `role` `accent` or `topper` for the mani log. Web `pick-for-me.ts` re-exports it; mobile Home uses it directly |
 | `prepareDupeShade(shade)`, `prepareDupeCandidates(shades)`, `findDupes(target, candidates, { finishFamilies? })`, `summarizeDupes(id, dupes)`, `compareDupes` | Pure dupe finder: resolve each display hex (`resolveDisplayHexDetailed`) and OKLAB once, then O(N) per target; excludes the target's own id and candidates of another product category (color ↔ color, topper ↔ topper only, #349; `productCategory` on `DupeShade`/`PreparedDupeShade`, missing = color); ordered by grade, finish compatibility, distance, brand/name |
 
 ### `types/user.ts`
@@ -230,7 +295,7 @@ Collection stats (#271): the `GET /api/stats/collection` payload behind the dash
 | `AdminUserIdentity` | Linked external identity (`externalId`, `email`, `createdAt`, `lastSeenAt`) |
 | `AdminUserDetailResponse` | `GET`/`PATCH /api/users-admin/{id}`: `user`, `identities`, `suspendedReason`, `suspendedByUserId`, newest 20 `auditEvents` |
 | `AdminUserUpdateRequest` | `PATCH /api/users-admin/{id}` body: `handle`, `suspended`, `suspendedReason`, `note` (role is not editable: assigned in Entra) |
-| `AdminAuditEvent` / `AdminAuditAction` | `admin_audit_event` row: actor, target, `user.update \| user.suspend \| user.unsuspend \| user.merge`, `changes`, `note`, `createdAt` |
+| `AdminAuditEvent` / `AdminAuditAction` | `admin_audit_event` row: actor, target, `user.update \| user.suspend \| user.unsuspend \| user.merge \| shade.vendor_hex_promote \| shade.vendor_hex_demote` (the `shade.*` actions, #321, have no target user; the shade id is in `changes`), `changes`, `note`, `createdAt` |
 | `AdminUserMergeRequest` | Admin payload for duplicate-account repair (`sourceUserId`, `targetUserId`) |
 | `AdminUserMergeResponse` | Admin merge result summary (moved row counts incl. `mergedManicureRows` + merge status/message) |
 
@@ -261,13 +326,21 @@ Looks (`/polishes/looks`) vocabulary and saved looks (`GET/POST/DELETE /api/look
 | `LOOK_FINISHES` / `LookFinish` | Finish preferences: `gloss`, `matte`, `chrome`, `holo`, `flake`, `sheer` |
 | `LOOK_STEP_ROLES` / `LookStepRole` | `base`, `accent`, `topper` |
 | `LOOK_STEP_SOURCES` / `LookStepSource` | `owned`, `catalog` (to buy), `template` (color only) |
-| `LookVibe` | `{ occasion, mood, finish \| null, ownedOnly }` |
+| `LookVibe` | `{ occasion, mood, finish \| null, ownedOnly, skinTone?: SkinTone \| null }` |
 | `SavedLookStep` | `{ role, label, hex, source, shadeId?, brand?, name? }` — display snapshot, never joined to shades server-side |
 | `SavedLookInput` / `SavedLook` | `{ id (look key), templateId, name, vibe, steps }`; `SavedLook` adds `savedAt` |
 | `SavedLookListResponse` | `GET /api/looks`: `{ looks }`, newest first |
 | `savedLookKey(templateId, steps)` | `<templateId>:<shadeId or "-" per step>` — saving the same combo twice is one look |
-| `validateSavedLookInput(input)` | The one validation rule (API body and web localStorage): enums, `#RRGGBB` hexes, trimmed/capped text, 1–4 steps, ≤ `MAX_LOOK_STEPS_BYTES` of JSON, `id` = look key; drops unknown fields |
+| `validateSavedLookInput(input)` | Returns a `SavedLookValidation`. The one validation rule (API body and web localStorage): enums, `#RRGGBB` hexes, trimmed/capped text, 1–4 steps, ≤ `MAX_LOOK_STEPS_BYTES` of JSON, `id` = look key; drops unknown fields |
 | `MAX_SAVED_LOOKS` / `MAX_LOOK_STEPS` / `MAX_LOOK_STEPS_BYTES` | `30` / `4` / `3500` |
+
+### `types/feature-flags.ts`
+
+| Type | Description |
+|---|---|
+| `FEATURE_FLAG_NAMES` | `["shareableWishlist", "shareableLooks", "bottleCapture"]` — the flags `GET /api/config/flags` reports (internal flags never appear) |
+| `PublicFeatureFlagName` | Union of `FEATURE_FLAG_NAMES` |
+| `FeatureFlagsResponse` | `{ flags: Record<PublicFeatureFlagName, boolean> }` |
 
 ### `types/wishlist-share.ts`
 
@@ -283,6 +356,22 @@ Shareable wishlist (#268), behind the server flag `SHAREABLE_WISHLIST_ENABLED` (
 | `WISHLIST_SHARE_FEATURE_DISABLED_CODE` | `"feature_disabled"` — `code` of the 404 every wishlist-share route returns while the flag is off |
 | `WISHLIST_SHARE_DISPLAY_NAME_MAX_LENGTH` | `60` |
 
+### `types/look-share.ts`
+
+Shareable looks: a public, read-only link for one saved look, behind the server flag `SHAREABLE_LOOKS_ENABLED` (off by default).
+
+| Type | Description |
+|------|-------------|
+| `LookShareStatus` | Owner view of one look's link (`GET/POST/DELETE /api/look-share`): `lookKey`, `enabled`, `token` (re-derived; null when off or no longer derivable), `path` (`/l/?token=…`), `displayName`, `createdAt`, `revokedAt` |
+| `LookShareListResponse` | `GET /api/look-share`: `{ shares }`, the caller's live links |
+| `LookShareCreateRequest` | `{ lookKey, displayName? }`: share a saved look and/or set its public name (≤ 60 chars, no email addresses; omit to keep) |
+| `PublicLookStep` | Public allowlist step: `role`, `brand`/`name` (null for a color chip), `finishes`, `hex`, `imageUrl` (public catalog image or null) |
+| `PublicLookVibe` | `{ occasion, mood, finish }` (no "owned only") |
+| `PublicLookResponse` | `GET /api/look/{token}`: `{ displayName, templateId, vibe, steps }`. No ids, email, ownership, notes, prices or saved free text |
+| `lookSharePath(token)` | Web path of the public page, `/l/?token=<token>` (static export → query param) |
+| `LOOK_SHARE_FEATURE_DISABLED_CODE` | `"feature_disabled"`: `code` of the 404 every look-share route returns while the flag is off |
+| `LOOK_SHARE_REVOKED_CODE` | `"share_revoked"`: `code` of the public 410 for a link its owner turned off |
+
 ### `types/voice.ts`
 
 | Type | Description |
@@ -291,6 +380,53 @@ Shareable wishlist (#268), behind the server flag `SHAREABLE_WISHLIST_ENABLED` (
 | `ParsedPolishDetails` | AI-extracted fields from voice transcription + confidence score |
 | `VoiceProcessResponse` | Parsed result + optional alternative suggestions |
 | `VoiceCommand` | Discriminated union: `add \| update \| delete \| search` actions |
+
+### `capture/frame-quality.ts`
+
+Frame exposure/focus thresholds, moved from the web's `lib/camera.ts` (which re-exports them) so the capture API can judge stored frames too. Pure.
+
+| Export | Description |
+|--------|-------------|
+| `FRAME_QUALITY_THRESHOLDS` | `{ minBrightness: 0.15, maxBrightness: 0.92, minSharpness: 0.012 }` |
+| `FrameQualityMetrics` / `FrameQualityWarning` | `{ brightness, contrast, sharpness }` and `"too-dark" \| "too-bright" \| "blurry"` |
+| `assessFrameQuality(metrics)` | The warnings for measured metrics |
+| `frameQualityWarningsFromQuality(quality)` | The same from a frame's `quality` object (numeric `brightness` and `sharpness`); `[]` when either is missing, e.g. mobile frames |
+
+### `capture/bottle-flow.ts`
+
+Client-side state for the bottle photo flow (front, bottom, glass, optional box), shared by the web and mobile camera screens. Pure: the apps wrap it in their own reducer hook.
+
+| Export | Description |
+|--------|-------------|
+| `BOTTLE_DEFAULT_SURFACE_ORDER` / `DEFAULT_SURFACE_PROMPTS` | Local surface order (`front, bottom, glass`) and the prompt copy used before the server has spoken (the server's copy is canonical and a test keeps them equal) |
+| `surfaceFromQuality(quality)` | The `BottleSurface` named by a frame's `quality.surface`, or `null` |
+| `BottleFlowClientState` / `INITIAL_BOTTLE_FLOW_STATE` | Session started, the server's `nextFrame`, captured and skipped surfaces, brand echo and brand conflict |
+| `bottleFlowReducer(state, action)` | Handles `session_started`, `frame_uploaded`, `surface_skipped`, `check_received` and `reset`; an absent `nextFrame` means the server asked for nothing more |
+| `deriveBottleCameraView(state, { brandKnown })` | What the camera shows (`BottleCameraView`: surface, prompt, hint, reason, optional, step of total); `null` = nothing left to ask, call check |
+| `shouldAutoCheck(state, uploadedFrames)` | True right after an upload when the server asked for nothing more and at least one frame is uploaded |
+
+### `capture/sticky-hints.ts`
+
+Rapid Add's remembered brand/finish/collection hints ("Going through: Loud Lacquer"). Pure: the apps own the storage (`stickyHintsStorageKey` is the per-user key).
+
+| Export | Description |
+|--------|-------------|
+| `StickyHints` / `EMPTY_STICKY_HINTS` | `brand`, `brandCanonical`, `brandId`, `finish`, `collection` (all nullable) |
+| `STICKY_HINTS_STORAGE_PREFIX` / `STICKY_HINT_MAX_LENGTH` / `stickyHintsStorageKey(userId)` | Storage key prefix, the 200-character cap per field and the per-user key (`anon` when signed out) |
+| `parseStickyHints(raw)` / `serializeStickyHints(hints)` | Tolerant parse of stored JSON (trims, drops blanks and over-long values, anything else gives the empty hints) and the matching serializer |
+| `isBatchMode(hints)` / `batchHeaderLabel(hints)` | Batch mode is on while a brand is set; the header label, `null` when off |
+| `hintsToStartMetadata(hints)` | `metadata` for `POST /api/capture/start` (canonical brand preferred, no undefined keys) |
+| `withBrandEcho(hints, echo)` / `switchBrand(hints, read)` | Remember the catalog brand the server matched; switch the batch to the brand read from a bottle |
+
+### `capture/create-card.ts`
+
+The "add it as new" card for a bottle the catalog could not match. Pure.
+
+| Export | Description |
+|--------|-------------|
+| `CreateCardModel` / `deriveCreateCard(check, { afterNoneOfThese })` | The prefilled card from a check's `suggestedShade`; `null` when matched, while candidates are on screen (a `needs_question` check with candidates, until "None of these"), or without a suggestion; an `unmatched` check with a suggestion is always a card. `brandNeedsConfirm` is true when the brand was only read from the bottle |
+| `CreateCardEdits` / `canSubmitCreateCard(card, edits)` | The user's edits; submit needs a brand and shade name, and a read brand confirmed or edited |
+| `createPolishRequestFromCard(card, edits, status)` | The `PolishCreateRequest` (color family from the hex, `detectedHex`, `finishes`, `barcode`, `captureId`; quantity 1 owned, 0 wishlist) |
 
 ### `types/capture.ts`
 
@@ -302,16 +438,25 @@ Shareable wishlist (#268), behind the server flag `SHAREABLE_WISHLIST_ENABLED` (
 | `CaptureQuestionStatus` | Question status: `open \| answered \| skipped \| expired` |
 | `CaptureGuidanceConfig` | Capture guidance contract returned by `/api/capture/start` |
 | `CaptureQuestion` | Open question payload used by status/finalize/answer responses |
-| `CaptureStartRequest` / `CaptureStartResponse` | Start capture session payloads |
-| `CaptureFrameRequest` / `CaptureFrameResponse` | Add frame payloads (`imageId` or `imageBlobUrl`) |
+| `CaptureStartRequest` / `CaptureStartResponse` | Start capture session payloads; the response's optional `brandHint?` (`CaptureBrandHintEcho`) and `nextFrame?` exist only while `BOTTLE_CAPTURE_ENABLED` is on |
+| `CaptureFrameRequest` / `CaptureFrameResponse` | Add frame payloads (`imageId` or `imageBlobUrl`); the response's optional `check` is the read-only verdict for a `barcode` frame with a valid on-device decoded `quality.gtin` (#21), and `nextFrame?` the next photo ask (bottle flow) |
 | `CaptureFinalizeResponse` | Finalize response with session status and optional question |
-| `CaptureStatusResponse` | Session status payload with confidence/accepted entity/question |
-| `CaptureAnswerRequest` / `CaptureAnswerResponse` | Answer question payloads for adaptive loop |
+| `CaptureStatusResponse` | Session status payload with confidence/accepted entity/question, and `nextFrame?` (bottle flow; `null` on a terminal session) |
+| `CaptureAnswerRequest` / `CaptureAnswerResponse` | Answer question payloads for adaptive loop: `answer` is optional (required unless `skipSurface?` is sent; `skipSurface` skips a bottle photo of that surface); the response's `nextFrame?` is returned for a `skipSurface` answer |
 | `CaptureOwnershipRelationship` | Caller's relationship to a matched shade: `owned \| wishlisted \| notOwned` |
 | `CaptureOwnership` | `{ relationship, quantity? }` (`quantity` = total owned, only when `owned`) |
 | `CaptureCheckOutcome` | Resolver outcome reported by check: `matched \| needs_question \| unmatched` |
-| `CaptureCheckCandidate` | Match/candidate with `entityType`, `entityId`, `shadeId`, `display`, `confidence`, `ownership` |
-| `CaptureCheckResponse` | `POST /api/capture/{captureId}/check` payload: outcome, confidence, `match?`, `candidates`, `questionKey?`, unchanged session `status` (read-only, never touches inventory) |
+| `CaptureCheckCandidate` | Match/candidate with `entityType`, `entityId`, `shadeId`, `display`, `confidence`, `ownership`, optional display `hex` (swatch) |
+| `CaptureCheckResponse` | `POST /api/capture/{captureId}/check` payload: outcome, confidence, `match?`, `candidates`, `questionKey?`, unchanged session `status` (read-only, never touches inventory); bottle flow adds `nextFrame?`, `suggestedShade?` (the create card's prefill) and `brandConflict?` |
+| `BOTTLE_SURFACES` / `BottleSurface` | Photographed surfaces: `front`, `bottom`, `glass`, `box` |
+| `BOTTLE_SURFACE_FRAME_TYPE` / `parseBottleSurface(value)` | Capture frame type per surface (`glass` → `color`, the others → `label`) and the exact-lowercase surface parser (`null` otherwise) |
+| `CaptureFrameRequestSpec` / `CaptureFrameRequestReason` | The next photo the server asks for: `surface`, `frameType`, `prompt`, optional `hint`, `reason` (`need_brand \| need_name \| need_color \| tie_break \| retry_quality`), `optional`. Carried as `nextFrame` (`null` = nothing more to ask) on the start, frame, status, check and (for a `skipSurface` answer) answer responses; present only while `BOTTLE_CAPTURE_ENABLED` is on |
+| `CaptureReadSummary` / `CaptureReadField` | What the session has read from its photos so far: `gtin`, `brand` (`name`, `source`, `catalogMatch`), `shadeName`, `shadeNameListed`, `hex` (glass), `finish`, and `newFields` (what the latest photo added). Carried as `readSoFar` on the frame, check and `skipSurface` answer responses; present only while `BOTTLE_CAPTURE_ENABLED` is on |
+| `CaptureBrandSource` / `CaptureBrandRef` / `CaptureBrandConflict` | A brand on a session (`brandId` or `null`, `name`, `source` `hint \| barcode \| read`, optional `confidence`); `brandConflict` on check when the typed and read brands disagree |
+| `CaptureBrandHintEcho` | `CaptureStartResponse.brandHint`: the user's raw brand text, the matched `brandId` and the canonical (else raw) `name` |
+| `CaptureSuggestedShade` | `CaptureCheckResponse.suggestedShade`: best-effort `brandId`/`brandName`/`brandSource`/`shadeName`/`hex`/`finish`/`gtin` (each nullable) to prefill the add form for an unmatched bottle |
+| `CaptureCheckCandidate` extras | Optional `brandId` and `colorDistance` (OKLAB, glass photo hex ↔ display hex, when a glass hex exists) |
+| `CaptureAnswerRequest` extras | `answer` is optional; `skipSurface?: BottleSurface` skips the photo of that surface (bottle flow only) |
 
 ### `types/palette.ts`
 
@@ -378,6 +523,21 @@ Shareable wishlist (#268), behind the server flag `SHAREABLE_WISHLIST_ENABLED` (
 | `NAIL_PHOTO_MAX_UPLOAD_BYTES` | Largest decoded upload the API accepts (8 MB) |
 | `NAIL_PHOTO_MAX_EDGE` | Longest edge (px) the server stores (2048; larger photos are downscaled) |
 
+### `types/bottle-eval.ts`
+
+Admin bottle eval samples (`/api/bottle-eval-admin/*`): a labeled bottle (catalog shade, or brand + shade text when not in the catalog) with photos of its surfaces, kept as ground truth for bottle recognition.
+
+| Export | Description |
+|--------|-------------|
+| `BOTTLE_SURFACES` / `BottleSurface` / `BOTTLE_SURFACE_FRAME_TYPE` / `parseBottleSurface` | Moved to `types/capture.ts` (still exported from the package root) |
+| `BOTTLE_EVAL_MAX_FRAMES` / `BOTTLE_EVAL_MAX_TEXT_LENGTH` / `BOTTLE_EVAL_MAX_NOTES_LENGTH` | Limits: 12 frames per sample, 200 chars for `brandText`/`shadeText`, 1000 for `notes` |
+| `BottleEvalSampleRequest` | `POST /api/bottle-eval-admin/samples` body: `shadeId`, or both `brandText` and `shadeText`; optional `notes` |
+| `BottleEvalFrameRequest` | `POST /api/bottle-eval-admin/samples/{id}/frames` body: `{ surface, image }` (base64 data URL) |
+| `BottleEvalFrame` / `BottleEvalSample` | Stored frame (`surface`, `frameType`, owner-scoped `v3` `imageUrl` or `null`, size) and sample (`shadeId`, `brand`, `shadeName`, `inCatalog`, `notes`, `frames`, creator, `createdAt`) |
+| `BottleEvalSampleResponse` / `BottleEvalSampleListResponse` | `{ sample }` and `{ samples, total, nextCursor }` |
+| `BottleEvalFrameAddResponse` | `POST /api/bottle-eval-admin/samples/{id}/frames` response: `BottleEvalSampleResponse` plus the new frame's `frameId` |
+| `validateBottleEvalSampleInput(body)` / `BottleEvalSampleInput` | Pure request validator: trims, enforces the lengths and the shadeId-xor-text rule (`shadeId` a digits-only string or positive integer), blank `notes` → `null`; returns `{ kind: "catalog", … }` or `{ kind: "external", … }`, throws `BottleEvalValidationError` |
+
 ### `types/reference.ts`
 
 | Type | Description |
@@ -418,6 +578,7 @@ Pure, dependency-free OKLAB color math shared by the web app (`apps/web/src/lib/
 | `oklabToRgb(oklab)` | OKLAB → 0–255 sRGB `{ r, g, b }` (gamut-clipped per channel) |
 | `rgbToHexString(rgb)` | 0–255 sRGB `{ r, g, b }` → uppercase `#RRGGBB` |
 | `oklabToHex(oklab)` | OKLAB → uppercase `#RRGGBB` (gamut-clipped) |
+| `clampOklchToSrgb(L, C, h)`, `clampChromaToSrgb`, `isOklchInSrgb` (`color/gamut.ts`) | Gamut mapping: binary-search chroma down at the same L and h until the color is inside sRGB, returns OKLAB. Use instead of `oklabToHex` clipping when generating hexes from OKLCH (clipping shifts hue, e.g. dark yellows toward orange) |
 
 Pinned-distance tests in `packages/functions/tests/color-match.unit.test.cjs` and `apps/web/src/lib/color-utils.test.ts` guard against numeric drift.
 
@@ -436,6 +597,7 @@ Pinned-distance tests in `packages/functions/tests/color-match.unit.test.cjs` an
 ```bash
 npm run build --workspace=packages/shared    # tsc → dist/
 npm run typecheck --workspace=packages/shared # tsc --noEmit
+npm run test --workspace=swatchwatch-shared    # node:test unit tests (src/**/*.test.ts via tsx; harmonies, Pair it, Looks, gaps)
 ```
 
 **Important:** You must build this package before other packages can resolve its types. The `main` and `types` fields in `package.json` point to `dist/`.

@@ -91,8 +91,12 @@ jobs:
       TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
       TFSTATE_CONTAINER: ${{ vars.TFSTATE_CONTAINER || 'tfstate' }}
       TFSTATE_BLOB_NAME: ${{ vars.TFSTATE_BLOB_NAME || format('{0}.terraform.tfstate', inputs.environment) }}
-      TF_VAR_auth_dev_bypass: ${{ vars.AUTH_DEV_BYPASS || 'false' }}
+      # Fixed to false; an AUTH_DEV_BYPASS GitHub variable is ignored. deploy.yml writes the same
+      # value, so the post-deploy settings check (live app vs Terraform state) always agrees.
+      TF_VAR_auth_dev_bypass: 'false'
       TF_VAR_shareable_wishlist_enabled: ${{ vars.SHAREABLE_WISHLIST_ENABLED || 'false' }}
+      TF_VAR_shareable_looks_enabled: ${{ vars.SHAREABLE_LOOKS_ENABLED || 'false' }}
+      TF_VAR_bottle_capture_enabled: ${{ vars.BOTTLE_CAPTURE_ENABLED || 'false' }}
       TF_VAR_azure_ad_b2c_tenant: ${{ vars.AZURE_AD_B2C_TENANT || vars.NEXT_PUBLIC_B2C_TENANT || 'to-be-added' }}
       TF_VAR_azure_ad_b2c_client_id: ${{ secrets.AZURE_AD_B2C_CLIENT_ID || 'to-be-added' }}
       # External ID (CIAM) web service principal, opt-in per environment. The
@@ -114,15 +118,56 @@ jobs:
       TF_VAR_openai_batch_deployment_capacity: ${{ vars.OPENAI_BATCH_DEPLOYMENT_CAPACITY || '5000' }}
       TF_VAR_hex_detection_batch_enabled: ${{ vars.HEX_DETECTION_BATCH_ENABLED || 'false' }}
       TF_VAR_hex_detection_snap_enabled: ${{ vars.HEX_DETECTION_SNAP_ENABLED || 'false' }}
+      TF_VAR_enable_document_intelligence: ${{ vars.ENABLE_DOCUMENT_INTELLIGENCE || 'false' }}
+      TF_VAR_blob_storage_max_connections: ${{ vars.BLOB_STORAGE_MAX_CONNECTIONS || '16' }}
+      # Function App runtime settings: one GitHub environment variable per app
+      # setting, same name; the fallbacks equal the Terraform and code defaults.
+      TF_VAR_hex_detection_batch_min_images: ${{ vars.HEX_DETECTION_BATCH_MIN_IMAGES || '5' }}
+      TF_VAR_ingestion_job_queue_name: ${{ vars.INGESTION_JOB_QUEUE_NAME || 'ingestion-jobs' }}
+      TF_VAR_ingestion_ai_batch_poll_schedule: ${{ vars.INGESTION_AI_BATCH_POLL_SCHEDULE || '0 * * * * *' }}
+      TF_VAR_ingestion_ai_batch_max_poll_jobs: ${{ vars.INGESTION_AI_BATCH_MAX_POLL_JOBS || '10' }}
+      TF_VAR_azure_openai_batch_api_version: ${{ vars.AZURE_OPENAI_BATCH_API_VERSION || '2025-03-01-preview' }}
+      TF_VAR_azure_openai_batch_completion_window: ${{ vars.AZURE_OPENAI_BATCH_COMPLETION_WINDOW || '24h' }}
+      TF_VAR_azure_openai_vision_detail: ${{ vars.AZURE_OPENAI_VISION_DETAIL || 'low' }}
+      TF_VAR_openai_label_deployment_name: ${{ vars.OPENAI_LABEL_DEPLOYMENT_NAME || '' }}
+      TF_VAR_capture_frame_sweep_schedule: ${{ vars.CAPTURE_FRAME_SWEEP_SCHEDULE || '0 0 * * * *' }}
+      TF_VAR_capture_frame_retention_seconds: ${{ vars.CAPTURE_FRAME_RETENTION_SECONDS || '86400' }}
+      TF_VAR_capture_frame_sweep_batch_size: ${{ vars.CAPTURE_FRAME_SWEEP_BATCH_SIZE || '200' }}
+      TF_VAR_capture_frame_sweep_max_per_run: ${{ vars.CAPTURE_FRAME_SWEEP_MAX_PER_RUN || '2000' }}
+      TF_VAR_cors_allowed_methods: ${{ vars.CORS_ALLOWED_METHODS || 'GET,POST,PUT,PATCH,DELETE,OPTIONS' }}
+      TF_VAR_cors_allowed_headers: ${{ vars.CORS_ALLOWED_HEADERS || 'Content-Type, Authorization, traceparent, tracestate, Request-Id, Request-Context' }}
+      TF_VAR_cors_support_credentials: ${{ vars.CORS_SUPPORT_CREDENTIALS || 'false' }}
+      TF_VAR_gallery_max_images_per_shade: ${{ vars.GALLERY_MAX_IMAGES_PER_SHADE || '0' }}
+      TF_VAR_hex_detection_batch_max_in_flight: ${{ vars.HEX_DETECTION_BATCH_MAX_IN_FLIGHT || '20' }}
+      TF_VAR_hex_detection_concurrency: ${{ vars.HEX_DETECTION_CONCURRENCY || '4' }}
+      TF_VAR_hex_detection_delay_ms: ${{ vars.HEX_DETECTION_DELAY_MS || '1000' }}
+      TF_VAR_hex_snap_max_distance: ${{ vars.HEX_SNAP_MAX_DISTANCE || '0.1' }}
+      TF_VAR_image_proxy_id_ttl_seconds: ${{ vars.IMAGE_PROXY_ID_TTL_SECONDS || '259200' }}
+      TF_VAR_image_proxy_private_id_ttl_seconds: ${{ vars.IMAGE_PROXY_PRIVATE_ID_TTL_SECONDS || '3600' }}
+      TF_VAR_image_proxy_legacy_id_accept_until: ${{ vars.IMAGE_PROXY_LEGACY_ID_ACCEPT_UNTIL || '' }}
+      TF_VAR_ingestion_ai_image_proxy_origin: ${{ vars.INGESTION_AI_IMAGE_PROXY_ORIGIN || '' }}
+      TF_VAR_ingestion_job_log_max_entries: ${{ vars.INGESTION_JOB_LOG_MAX_ENTRIES || '500' }}
+      TF_VAR_ingestion_log_flush_interval_ms: ${{ vars.INGESTION_LOG_FLUSH_INTERVAL_MS || '10000' }}
+      TF_VAR_ingestion_worker_time_budget_ms: ${{ vars.INGESTION_WORKER_TIME_BUDGET_MS || '240000' }}
+      TF_VAR_orphan_media_sweep_schedule: ${{ vars.ORPHAN_MEDIA_SWEEP_SCHEDULE || '0 17 3 * * *' }}
+      TF_VAR_orphan_media_sweep_grace_seconds: ${{ vars.ORPHAN_MEDIA_SWEEP_GRACE_SECONDS || '86400' }}
+      TF_VAR_orphan_media_sweep_batch_size: ${{ vars.ORPHAN_MEDIA_SWEEP_BATCH_SIZE || '100' }}
+      TF_VAR_orphan_media_sweep_max_per_run: ${{ vars.ORPHAN_MEDIA_SWEEP_MAX_PER_RUN || '2000' }}
+      TF_VAR_pg_pool_max: ${{ vars.PG_POOL_MAX || '10' }}
+      TF_VAR_pg_idle_timeout_ms: ${{ vars.PG_IDLE_TIMEOUT_MS || '30000' }}
+      TF_VAR_pg_connection_timeout_ms: ${{ vars.PG_CONNECTION_TIMEOUT_MS || '15000' }}
+      TF_VAR_pg_query_max_retries: ${{ vars.PG_QUERY_MAX_RETRIES || '2' }}
+      TF_VAR_pg_query_retry_base_ms: ${{ vars.PG_QUERY_RETRY_BASE_MS || '250' }}
+      TF_VAR_shopify_connector_request_timeout_ms: ${{ vars.SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS || '45000' }}
+      TF_VAR_shopify_connector_max_retries: ${{ vars.SHOPIFY_CONNECTOR_MAX_RETRIES || '2' }}
+      TF_VAR_shopify_connector_retry_base_delay_ms: ${{ vars.SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS || '1000' }}
+      TF_VAR_source_image_container: ${{ vars.SOURCE_IMAGE_CONTAINER || 'source-images' }}
+      TF_VAR_source_image_max_edge_px: ${{ vars.SOURCE_IMAGE_MAX_EDGE_PX || '2048' }}
+      TF_VAR_source_image_max_download_bytes: ${{ vars.SOURCE_IMAGE_MAX_DOWNLOAD_BYTES || '26214400' }}
+      TF_VAR_suspicious_hex_repeat_min_records: ${{ vars.SUSPICIOUS_HEX_REPEAT_MIN_RECORDS || '3' }}
+      TF_VAR_suspicious_hex_repeat_min_share: ${{ vars.SUSPICIOUS_HEX_REPEAT_MIN_SHARE || '0.1' }}
+      TF_VAR_suspicious_hex_grayscale_max_chroma: ${{ vars.SUSPICIOUS_HEX_GRAYSCALE_MAX_CHROMA || '0.02' }}
       OPENAI_ACCOUNT_NAME: ${{ vars.OPENAI_ACCOUNT_NAME || '' }}
-      TF_VAR_apim_enabled: ${{ vars.APIM_ENABLED || 'false' }}
-      # vars first, then literal default
-      TF_VAR_apim_sku_name: ${{ vars.APIM_SKU_NAME || 'Consumption_0' }}
-      # vars first, then literal default
-      TF_VAR_openai_gateway_enabled: ${{ vars.OPENAI_GATEWAY_ENABLED || 'false' }}
-      # secrets first (recommended for prod), then vars fallback, else empty string
-      # (Terraform will validate when gateway is enabled)
-      TF_VAR_apim_openai_subscription_key_uri: ${{ secrets.APIM_OPENAI_SUBSCRIPTION_KEY_URI || vars.APIM_OPENAI_SUBSCRIPTION_KEY_URI || '' }}
       # Observability Phase 3 (#281): alerts are prod-only by default (D16);
       # ALERTS_ENABLED overrides. The address is never committed: set ALERT_EMAIL
       # as an environment secret (masked in logs) or variable.
@@ -353,3 +398,11 @@ jobs:
       - name: Terraform apply
         if: ${{ inputs.apply }}
         run: terraform -chdir=infrastructure apply -auto-approve -no-color tfplan
+
+      # Fails when a Terraform-managed Function App setting is missing from the
+      # live app or holds another value, e.g. a code deploy that overlapped
+      # this apply wrote back its stale copy (infrastructure/README.md
+      # "Deploy ordering"). Names only, never values.
+      - name: Check Function App settings match Terraform
+        if: ${{ inputs.apply }}
+        run: bash .github/scripts/check-function-app-settings.sh infrastructure

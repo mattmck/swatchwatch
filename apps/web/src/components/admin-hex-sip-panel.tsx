@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, Pipette } from "lucide-react";
 import { toast } from "sonner";
 import {
   MEDIUM_CONFIDENCE_MAX_DISTANCE,
+  type HexLabelPromoteResponse,
   type HexLabelQueueItem,
   type HexLabelRequest,
   type HexLabelSaveResponse,
@@ -13,6 +14,7 @@ import { deleteHexLabel, getHexLabelShade, saveHexLabel } from "@/lib/api";
 import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
 import { buildMsalConfig } from "@/lib/msal-config";
 import { undoHexLabelSave } from "@/lib/hex-sampling";
+import { applyPromotionResponse } from "@/lib/vendor-hex-promotion";
 import { ShadeLabeler } from "@/components/shade-hex-labeler";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,29 +27,77 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 /**
- * Renders `AdminHexSipPanel` for admins only; everyone else gets nothing (no markup, no request).
+ * Renders its children for admins only; everyone else gets nothing (no markup, no request).
  * Picks the auth hook for the current mode (dev bypass / unconfigured / B2C) the same way the
  * admin and polishes pages do, because `useAuth()` may only run inside `<MsalProvider>`.
  */
-export function AdminHexSipSection({ shadeId }: { shadeId: string }) {
-  if (IS_DEV_BYPASS) return <DevAdminHexSip shadeId={shadeId} />;
-  if (!HAS_B2C_CONFIG) return <UnconfiguredAdminHexSip shadeId={shadeId} />;
-  return <B2CAdminHexSip shadeId={shadeId} />;
+function AdminOnly({ children }: { children: ReactNode }) {
+  if (IS_DEV_BYPASS) return <DevAdminOnly>{children}</DevAdminOnly>;
+  if (!HAS_B2C_CONFIG) return <UnconfiguredAdminOnly>{children}</UnconfiguredAdminOnly>;
+  return <B2CAdminOnly>{children}</B2CAdminOnly>;
 }
 
-function DevAdminHexSip({ shadeId }: { shadeId: string }) {
+function DevAdminOnly({ children }: { children: ReactNode }) {
   const { isAdmin } = useDevAuth();
-  return isAdmin ? <AdminHexSipPanel shadeId={shadeId} /> : null;
+  return isAdmin ? children : null;
 }
 
-function B2CAdminHexSip({ shadeId }: { shadeId: string }) {
+function B2CAdminOnly({ children }: { children: ReactNode }) {
   const { isAdmin } = useAuth();
-  return isAdmin ? <AdminHexSipPanel shadeId={shadeId} /> : null;
+  return isAdmin ? children : null;
 }
 
-function UnconfiguredAdminHexSip({ shadeId }: { shadeId: string }) {
+function UnconfiguredAdminOnly({ children }: { children: ReactNode }) {
   const { isAdmin } = useUnconfiguredAuth();
-  return isAdmin ? <AdminHexSipPanel shadeId={shadeId} /> : null;
+  return isAdmin ? children : null;
+}
+
+/** `AdminHexSipPanel` for admins only. */
+export function AdminHexSipSection({ shadeId }: { shadeId: string }) {
+  return (
+    <AdminOnly>
+      <AdminHexSipPanel shadeId={shadeId} />
+    </AdminOnly>
+  );
+}
+
+/**
+ * Admin-only provenance hint next to the vendor hex on the polish detail page (#321): shows
+ * "manual label" when the vendor hex was promoted from a ground-truth label. User-facing polish
+ * responses do not carry the provenance, so it is read from the admin labeling endpoint.
+ */
+export function AdminVendorHexSourceHint({ shadeId }: { shadeId: string }) {
+  return (
+    <AdminOnly>
+      <VendorHexSourceHint shadeId={shadeId} />
+    </AdminOnly>
+  );
+}
+
+function VendorHexSourceHint({ shadeId }: { shadeId: string }) {
+  const [promoted, setPromoted] = useState<{ shadeId: string; value: boolean } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getHexLabelShade(shadeId)
+      .then((item) => {
+        if (!cancelled) setPromoted({ shadeId, value: item.vendorHexSource === "manual_label" });
+      })
+      .catch(() => {
+        // A hint only: no label data (e.g. a private shade) means no hint.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [shadeId]);
+  if (!promoted || promoted.shadeId !== shadeId || !promoted.value) return null;
+  return (
+    <span
+      className="rounded bg-muted px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide text-muted-foreground"
+      title="Promoted from an admin ground-truth label; ingestion does not overwrite it"
+    >
+      manual label
+    </span>
+  );
 }
 
 /**
@@ -55,7 +105,8 @@ function UnconfiguredAdminHexSip({ shadeId }: { shadeId: string }) {
  * expanding it loads the shade's catalog images and current manual label
  * (`GET /api/hex-labels-admin/shades/{shadeId}`) and shows the same eyedropper as the admin
  * Hex Labeling tab. Save / Remove write the shade's one `manual` `color_training_sample` label;
- * they never change its vendor or detected hex. The caller renders this for admins only, so
+ * they never change its vendor or detected hex. Only the explicit, confirmed "Promote to vendor hex"
+ * action (#321) writes the saved label's hex to `vendor_hex`. The caller renders this for admins only, so
  * non-admins never mount it and never trigger the request.
  */
 export function AdminHexSipPanel({ shadeId }: { shadeId: string }) {
@@ -90,6 +141,14 @@ export function AdminHexSipPanel({ shadeId }: { shadeId: string }) {
 
   const setLabel = useCallback((label: HexLabelQueueItem["label"]) => {
     setResult((prev) => (prev?.item ? { ...prev, item: { ...prev.item, label } } : prev));
+  }, []);
+
+  const handlePromotionChange = useCallback((response: HexLabelPromoteResponse) => {
+    setResult((prev) => (prev?.item ? { ...prev, item: applyPromotionResponse(prev.item, response) } : prev));
+  }, []);
+
+  const handleItemChange = useCallback((next: HexLabelQueueItem) => {
+    setResult((prev) => (prev?.item && prev.item.shadeId === next.shadeId ? { ...prev, item: next } : prev));
   }, []);
 
   const handleSave = useCallback(
@@ -149,7 +208,7 @@ export function AdminHexSipPanel({ shadeId }: { shadeId: string }) {
         <CardTitle>
           <button
             type="button"
-            className="flex w-full items-center gap-2 text-left"
+            className="-my-3 flex w-full items-center gap-2 py-3 text-left"
             aria-expanded={open}
             aria-controls="admin-hex-sip-body"
             onClick={() => setOpen((value) => !value)}
@@ -164,7 +223,7 @@ export function AdminHexSipPanel({ shadeId }: { shadeId: string }) {
         </CardTitle>
         <CardDescription>
           Sample this shade&apos;s true colour from its catalog images for the hex-detection eval. Saves the shade&apos;s
-          label only; vendor and AI hexes are not changed.
+          label only; vendor and AI hexes change only if you explicitly promote a saved label to the vendor hex.
         </CardDescription>
       </CardHeader>
       {open ? (
@@ -188,6 +247,8 @@ export function AdminHexSipPanel({ shadeId }: { shadeId: string }) {
               saving={saving}
               onSave={handleSave}
               onRemove={handleRemove}
+              onPromotionChange={handlePromotionChange}
+              onItemChange={handleItemChange}
               canUndo={lastSave !== null}
               onUndo={handleUndo}
               layout="stacked"

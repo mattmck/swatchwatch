@@ -7,10 +7,16 @@ import type {
   ConnectorProtocol,
   CaptureAnswerRequest,
   CaptureAnswerResponse,
+  CaptureCheckResponse,
   CaptureFinalizeResponse,
   CaptureFrameRequest,
   CaptureFrameResponse,
   CaptureFrameType,
+  BottleEvalFrameAddResponse,
+  BottleEvalFrameRequest,
+  BottleEvalSampleListResponse,
+  BottleEvalSampleRequest,
+  BottleEvalSampleResponse,
   IngestionJobListResponse,
   IngestionJobRunRequest,
   IngestionJobRunResponse,
@@ -37,6 +43,7 @@ import type {
   ProductCategoryBackfillRequest,
   ShadeProductCategoryListResponse,
   ShadeProductCategoryUpdateResponse,
+  ShadeFinishesUpdateResponse,
   Polish,
   PolishCreateRequest,
   PolishUpdateRequest,
@@ -70,6 +77,7 @@ import type {
   HarmonyTypeListResponse,
   IngestionJob,
   HexLabelDeleteResponse,
+  HexLabelPromoteResponse,
   HexLabelQueueFilters,
   HexLabelQueueItem,
   HexLabelQueueResponse,
@@ -84,16 +92,20 @@ import type {
   ManicurePhotoResponse,
   ManicureUpdateRequest,
   PublicWishlistResponse,
+  LookShareCreateRequest,
+  LookShareListResponse,
+  LookShareStatus,
+  PublicLookResponse,
   WishlistShareEnableRequest,
   WishlistShareStatus,
   CollectionExportFormat,
   CollectionStatsResponse,
 } from "swatchwatch-shared";
-import { WISHLIST_SHARE_FEATURE_DISABLED_CODE } from "swatchwatch-shared";
+import { WISHLIST_SHARE_FEATURE_DISABLED_CODE, type FeatureFlagsResponse } from "swatchwatch-shared";
 
 import type { NailPhotoResponse } from "swatchwatch-shared";
 
-import { getAccessToken } from "./auth-token";
+import { getFreshAccessToken } from "./auth-token";
 import {
   fetchCollectionExport,
   type CollectionExportOptions,
@@ -125,7 +137,7 @@ export async function getAuthHeaders(options?: { admin?: boolean }): Promise<Rec
     return { Authorization: `Bearer dev:${devUserId}` };
   }
 
-  const token = getAccessToken();
+  const token = await getFreshAccessToken();
   if (token) {
     return { Authorization: `Bearer ${token}` };
   }
@@ -174,6 +186,9 @@ export async function listPolishes(filters?: PolishFilters): Promise<PolishListR
   if (filters?.families?.length) params.set("family", filters.families.join(","));
   if (filters?.categories?.length) params.set("category", filters.categories.join(","));
   if (filters?.tags?.length) params.set("tags", filters.tags.join(","));
+  if (filters?.nearHex?.length) {
+    params.set("nearHex", filters.nearHex.map((hex) => hex.replace(/^#/, "").toUpperCase()).join(","));
+  }
   if (filters?.sortBy) params.set("sortBy", filters.sortBy);
   if (filters?.sortOrder) params.set("sortOrder", filters.sortOrder);
   if (filters?.page) params.set("page", String(filters.page));
@@ -391,9 +406,20 @@ export async function deleteSavedLook(key: string): Promise<void> {
 }
 
 /** The caller's dashboard aggregates (`GET /api/stats/collection`, cached server-side ≤60s). */
-export async function getCollectionStats(): Promise<CollectionStatsResponse> {
-  const response = await fetch(`${API_BASE_URL}/stats/collection`, { headers: await getAuthHeaders() });
-  return handleResponse<CollectionStatsResponse>(response);
+let collectionStatsInFlight: Promise<CollectionStatsResponse> | null = null;
+
+/**
+ * `GET /api/stats/collection`. Callers that ask while a request is in flight (the dashboard's
+ * wishlist card and its stats section) share it; the next call after it settles fetches again.
+ */
+export function getCollectionStats(): Promise<CollectionStatsResponse> {
+  collectionStatsInFlight ??= (async () => {
+    const response = await fetch(`${API_BASE_URL}/stats/collection`, { headers: await getAuthHeaders() });
+    return handleResponse<CollectionStatsResponse>(response);
+  })().finally(() => {
+    collectionStatsInFlight = null;
+  });
+  return collectionStatsInFlight;
 }
 
 /**
@@ -756,6 +782,18 @@ export async function finalizeCapture(captureId: string): Promise<CaptureFinaliz
   return handleResponse<CaptureFinalizeResponse>(response);
 }
 
+/**
+ * Read-only "do I own this?" for a capture session: the resolver's match plus the caller's
+ * relationship to it. Adds nothing to the collection (finalize does).
+ */
+export async function checkCapture(captureId: string): Promise<CaptureCheckResponse> {
+  const response = await fetch(`${API_BASE_URL}/capture/${captureId}/check`, {
+    method: "POST",
+    headers: await getAuthHeaders(),
+  });
+  return handleResponse<CaptureCheckResponse>(response);
+}
+
 export async function getCaptureStatus(captureId: string): Promise<CaptureStatusResponse> {
   const response = await fetch(`${API_BASE_URL}/capture/${captureId}/status`, {
     headers: await getAuthHeaders(),
@@ -1076,6 +1114,92 @@ export async function deleteHexLabel(trainingSampleId: string): Promise<HexLabel
   return handleResponse<HexLabelDeleteResponse>(response);
 }
 
+/** Promote a saved manual label's hex to the shade's vendor hex (`POST /api/hex-labels-admin/labels/{id}/promote`, #321). */
+export async function promoteHexLabel(trainingSampleId: string): Promise<HexLabelPromoteResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/hex-labels-admin/labels/${encodeURIComponent(trainingSampleId)}/promote`,
+    { method: "POST", headers: await getAuthHeaders({ admin: true }) }
+  );
+  return handleResponse<HexLabelPromoteResponse>(response);
+}
+
+/**
+ * Undo a shade's vendor hex promotion (`DELETE /api/hex-labels-admin/shades/{shadeId}/promotion`, #321).
+ * Keyed by shade so it also works after the promoted label was deleted.
+ */
+export async function undoVendorHexPromotion(shadeId: string): Promise<HexLabelPromoteResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/hex-labels-admin/shades/${encodeURIComponent(shadeId)}/promotion`,
+    { method: "DELETE", headers: await getAuthHeaders({ admin: true }) }
+  );
+  return handleResponse<HexLabelPromoteResponse>(response);
+}
+
+// ── Bottle eval samples (admin) ─────────────────────────────────────────────
+
+/** Admin bottle eval samples, newest first (`GET /api/bottle-eval-admin/samples`). */
+export async function listBottleEvalSamples(params?: {
+  after?: string;
+  limit?: number;
+}): Promise<BottleEvalSampleListResponse> {
+  const query = new URLSearchParams();
+  if (params?.after) query.set("after", params.after);
+  if (typeof params?.limit === "number") query.set("limit", String(params.limit));
+  const qs = query.toString();
+  const response = await fetch(`${API_BASE_URL}/bottle-eval-admin/samples${qs ? `?${qs}` : ""}`, {
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<BottleEvalSampleListResponse>(response);
+}
+
+/** Create a labeled bottle eval sample (`POST /api/bottle-eval-admin/samples`, 201). */
+export async function createBottleEvalSample(body: BottleEvalSampleRequest): Promise<BottleEvalSampleResponse> {
+  const response = await fetch(`${API_BASE_URL}/bottle-eval-admin/samples`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(body),
+  });
+  return handleResponse<BottleEvalSampleResponse>(response);
+}
+
+/** Add one photographed surface to a sample (`POST /api/bottle-eval-admin/samples/{id}/frames`, 201). */
+export async function addBottleEvalFrame(
+  sampleId: string,
+  body: BottleEvalFrameRequest
+): Promise<BottleEvalFrameAddResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/bottle-eval-admin/samples/${encodeURIComponent(sampleId)}/frames`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+      body: JSON.stringify(body),
+    }
+  );
+  return handleResponse<BottleEvalFrameAddResponse>(response);
+}
+
+/** Delete a sample and its frames (`DELETE /api/bottle-eval-admin/samples/{id}`, 204). */
+export async function deleteBottleEvalSample(sampleId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/bottle-eval-admin/samples/${encodeURIComponent(sampleId)}`, {
+    method: "DELETE",
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  if (!response.ok) {
+    await handleResponse<unknown>(response);
+  }
+}
+
+/** Delete one frame of a sample (`DELETE /api/bottle-eval-admin/samples/{id}/frames/{frameId}`, 204). */
+export async function deleteBottleEvalFrame(sampleId: string, frameId: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/bottle-eval-admin/samples/${encodeURIComponent(sampleId)}/frames/${encodeURIComponent(frameId)}`,
+    { method: "DELETE", headers: await getAuthHeaders({ admin: true }) }
+  );
+  if (!response.ok) {
+    await handleResponse<unknown>(response);
+  }
+}
+
 // ── Private nail photos (#270) ──────────────────────────────────────────────
 
 function nailPhotoUrl(inventoryItemId: string | number): string {
@@ -1208,6 +1332,22 @@ export async function runProductCategoryBackfill(
   return handleResponse<ProductCategoryBackfillReport>(response);
 }
 
+/**
+ * One batch of a keyset-paginated admin backfill (`POST /api/<path>`, e.g.
+ * `images-admin/variants/backfill`); the admin console's Backfills tab loops over the reports.
+ */
+export async function runAdminBackfillBatch(
+  path: string,
+  body: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const response = await fetch(`${API_BASE_URL}/${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(body),
+  });
+  return handleResponse<Record<string, unknown>>(response);
+}
+
 /** Browse shades by product category (`GET /api/shades-admin/product-category`). */
 export async function listShadesByProductCategory(params?: {
   categories?: ProductCategory[];
@@ -1241,6 +1381,19 @@ export async function setShadeProductCategory(
     }
   );
   return handleResponse<ShadeProductCategoryUpdateResponse>(response);
+}
+
+/**
+ * Admin override of a shade's whole finish list, primary first (`PUT /api/shades-admin/{id}/finishes`);
+ * sticky: ingestion never changes it afterwards.
+ */
+export async function setShadeFinishes(shadeId: string | number, finishes: string[]): Promise<ShadeFinishesUpdateResponse> {
+  const response = await fetch(`${API_BASE_URL}/shades-admin/${encodeURIComponent(String(shadeId))}/finishes`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify({ finishes }),
+  });
+  return handleResponse<ShadeFinishesUpdateResponse>(response);
 }
 
 // ── Shareable wishlist (#268) ───────────────────────────────────────────────
@@ -1301,4 +1454,60 @@ export async function getPublicWishlist(token: string): Promise<PublicWishlistRe
     referrerPolicy: "no-referrer",
   });
   return handleResponse<PublicWishlistResponse>(response);
+}
+
+// ── Shareable looks ─────────────────────────────────────────────────────────
+// Behind the server-side SHAREABLE_LOOKS_ENABLED flag, with the same `feature_disabled` 404 as the
+// wishlist while it is off.
+
+/** The caller's live look share links, or null when the feature is disabled on the server. */
+export async function listLookShares(): Promise<LookShareListResponse | null> {
+  const response = await fetch(`${API_BASE_URL}/look-share`, {
+    headers: await getAuthHeaders(),
+    cache: "no-store",
+  });
+  if (await isFeatureDisabled(response)) return null;
+  return handleResponse<LookShareListResponse>(response);
+}
+
+/** Share a saved look (idempotent while live; a new token after a revoke) and/or set its display name. */
+export async function createLookShare(data: LookShareCreateRequest): Promise<LookShareStatus> {
+  const response = await fetch(`${API_BASE_URL}/look-share`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders() },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<LookShareStatus>(response);
+}
+
+/** Turn a saved look's link off; it answers 410 immediately. */
+export async function revokeLookShare(lookKey: string): Promise<LookShareStatus> {
+  const response = await fetch(`${API_BASE_URL}/look-share?key=${encodeURIComponent(lookKey)}`, {
+    method: "DELETE",
+    headers: await getAuthHeaders(),
+  });
+  return handleResponse<LookShareStatus>(response);
+}
+
+/**
+ * Anonymous read of a shared look. Never sends auth headers. Throws `ApiError` (404 for an
+ * unknown token, a deleted look or a disabled feature; 410 for a link turned off; 429 when
+ * rate-limited).
+ */
+export async function getPublicLook(token: string): Promise<PublicLookResponse> {
+  const response = await fetch(`${API_BASE_URL}/look/${encodeURIComponent(token)}`, {
+    credentials: "omit",
+    referrerPolicy: "no-referrer",
+    // Skip the browser cache so a reload shows a link the owner just turned off.
+    cache: "no-store",
+  });
+  return handleResponse<PublicLookResponse>(response);
+}
+
+// ── Feature flags (#313) ────────────────────────────────────────────────────
+
+/** Public feature flags (anonymous, cached 60s by the API). */
+export async function getFeatureFlags(): Promise<FeatureFlagsResponse> {
+  const response = await fetch(`${API_BASE_URL}/config/flags`);
+  return handleResponse<FeatureFlagsResponse>(response);
 }

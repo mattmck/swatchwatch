@@ -40,6 +40,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { BrandSpinner } from "@/components/brand-spinner";
+import { scanPrefillFromParams } from "@/lib/capture-verdict";
 import { detailHref, safeReturnTo } from "@/lib/detail-href";
 
 const PRESET_SWATCHES = [
@@ -68,9 +69,11 @@ export default function PolishForm() {
   const returnTo = searchParams.get("returnTo");
   const listHref = safeReturnTo(returnTo);
   const isEditing = Boolean(editId);
+  // Rapid Add's unknown-barcode path: the scanned code (remembered on save) and any names it read.
+  const [scanPrefill] = useState(() => (editId ? {} : scanPrefillFromParams(new URLSearchParams(searchParams.toString()))));
   const [form, setForm] = useState({
-    brand: "",
-    name: "",
+    brand: scanPrefill.brand ?? "",
+    name: scanPrefill.name ?? "",
     color: "",
     colorHex: "#000000",
     /** Selected finishes in selection order; the first is the primary finish. */
@@ -182,7 +185,7 @@ export default function PolishForm() {
       return;
     }
     setSubmitting(true);
-    // Editing sends null for emptied fields so the API clears them; creating omits them.
+    // Editing sends null for emptied fields (price, currency, rating) so the API clears them; creating omits them.
     const emptyValue = isEditing ? null : undefined;
     // An owned polish saved with 0 bottles is archived, like − on the last bottle (D5c).
     const status = formStatusForSave(form.status, form.quantity);
@@ -199,11 +202,14 @@ export default function PolishForm() {
       purchasePrice: parsedPrice === null ? emptyValue : Math.round(parsedPrice * 100) / 100,
       purchaseCurrency: currency || emptyValue,
       size: form.size || undefined,
-      rating: form.rating || undefined,
+      rating: form.rating || emptyValue,
       notes: form.notes || undefined,
       tags: form.tags
         ? form.tags.split(",").map((t) => t.trim()).filter(Boolean)
         : undefined,
+      ...(!isEditing && scanPrefill.barcode
+        ? { barcode: scanPrefill.barcode, barcodeFormat: scanPrefill.barcodeFormat }
+        : {}),
     };
     // `status`, not `form.status`: an owned polish saved with 0 bottles is archived, not an add.
     const intent: AddGuardIntent | null =
@@ -303,6 +309,12 @@ export default function PolishForm() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            {!isEditing && scanPrefill.barcode && (
+              <p className="rounded-lg bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+                Scanned barcode <span className="font-mono font-semibold text-foreground">{scanPrefill.barcode}</span>{" "}
+                is saved with this polish, so your next scan of the bottle finds it.
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label htmlFor="brand" className="text-sm font-medium">
@@ -318,7 +330,7 @@ export default function PolishForm() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <label htmlFor="color" className="text-sm font-medium">
                   Color <span className="text-destructive">*</span>
@@ -406,7 +418,7 @@ export default function PolishForm() {
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <label htmlFor="collection" className="text-sm font-medium">
                   Collection
@@ -420,7 +432,7 @@ export default function PolishForm() {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
               <div className="space-y-2">
                 <label htmlFor="quantity" className="text-sm font-medium">
                   Quantity
@@ -453,7 +465,7 @@ export default function PolishForm() {
                   onChange={(e) => update("size", e.target.value)}
                 />
               </div>
-              <div className="space-y-2">
+              <div className="col-span-2 space-y-2 sm:col-span-1">
                 <label className="text-sm font-medium">Rating</label>
                 <div className="relative flex items-center gap-3 overflow-hidden rounded-xl border border-brand-lilac/40 bg-card px-3 py-2 shadow-sm">
                   <span
@@ -488,8 +500,8 @@ export default function PolishForm() {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <div className="col-span-2 space-y-2 sm:col-span-1">
                 <label htmlFor="status" className="text-sm font-medium">
                   Status
                 </label>

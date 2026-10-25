@@ -1,14 +1,15 @@
 "use client";
 
 import { useState, useMemo, useCallback, useEffect, useRef, Suspense } from "react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { Polish, PolishUpdateRequest } from "swatchwatch-shared";
-import { polishHasFinish, resolveDisplayHex } from "swatchwatch-shared";
+import { compareColorSearchRank, isEstimatedDisplayHex, polishHasFinish, resolveDisplayHex } from "swatchwatch-shared";
 import type { IconType } from "react-icons";
 import { BsCurrencyDollar, BsPlusLg, BsQuestionCircleFill, BsTrash3Fill } from "react-icons/bs";
 import { GiPerfumeBottle } from "react-icons/gi";
-import { ChevronDown, ChevronUp } from "lucide-react";
-import { getPolishDupes, listPolishes, updatePolish } from "@/lib/api";
+import { ArrowLeft, ChevronDown, ChevronUp } from "lucide-react";
+import { getPolishDupes, listAllPolishes, listPolishes, updatePolish } from "@/lib/api";
 import { buildBrandOptions, matchesBrandFilter } from "@/lib/polish-filters";
 import { isArchivingChange, isOwnedPolish, quantityChangeUpdate } from "@/lib/inventory-status";
 import { showArchivedToast } from "@/components/archived-toast";
@@ -54,6 +55,7 @@ import {
   parseColorSearchState,
   type ColorSearchUrlState,
 } from "@/lib/color-search-url";
+import { returnToLabel } from "@/lib/detail-href";
 import { toast } from "sonner";
 
 type ResultsScope = "all" | "collection";
@@ -108,6 +110,20 @@ const HARMONY_SYMBOLS: Record<HarmonyType, string> = {
 };
 const ALL_HARMONY_SYMBOL = "\u2726";
 const URL_WRITE_DEBOUNCE_MS = 200;
+/** Catalog rows the API ranks nearest the current target colors (`?nearHex=`). */
+const NEARBY_CATALOG_PAGE_SIZE = 120;
+/** The API's `?nearHex=` cap. */
+const MAX_NEAR_HEX_TARGETS = 24;
+/** Wait for the wheel to settle (hover, lightness slider) before asking for nearby catalog rows. */
+const NEARBY_FETCH_DEBOUNCE_MS = 250;
+
+/** Owned rows win over catalog rows for the same shade (both carry the caller's status). */
+function mergePolishes(owned: Polish[], nearby: Polish[]): Polish[] {
+  const byId = new Map<string, Polish>();
+  for (const polish of nearby) byId.set(polish.id, polish);
+  for (const polish of owned) byId.set(polish.id, polish);
+  return [...byId.values()];
+}
 
 function uniqueHexes(hexes: string[]): string[] {
   const seen = new Set<string>();
@@ -144,7 +160,9 @@ function findClosestPolish(
 function useWheelSize(defaultSize = 280, mobileSize = 240) {
   const [size, setSize] = useState(defaultSize);
   useEffect(() => {
-    const update = () => setSize(window.innerWidth < 640 ? mobileSize : defaultSize);
+    // Phones: shrink the wheel so it and the lightness slider fit beside each other (375px → 215).
+    const update = () =>
+      setSize(window.innerWidth < 640 ? Math.max(180, Math.min(mobileSize, window.innerWidth - 160)) : defaultSize);
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
@@ -192,7 +210,12 @@ function ColorSearchPageContent() {
     () => new Map(harmonyTypeOptions.map((h) => [h.value, h.label])),
     [harmonyTypeOptions],
   );
-  const [allPolishes, setAllPolishes] = useState<Polish[]>([]);
+  // The whole owned color collection (complete, so collection results and "have" are exact),
+  // plus the catalog rows nearest the current target colors, ranked over the whole catalog by
+  // the API (`?nearHex=`) instead of ranking a fetched sample here.
+  const [ownedPolishes, setOwnedPolishes] = useState<Polish[]>([]);
+  const [nearbyPolishes, setNearbyPolishes] = useState<Polish[]>([]);
+  const allPolishes = useMemo(() => mergePolishes(ownedPolishes, nearbyPolishes), [ownedPolishes, nearbyPolishes]);
   const [loading, setLoading] = useState(true);
   const wheelSize = useWheelSize();
   const [harmonyType, setHarmonyType] = useState<HarmonyType>(
@@ -211,6 +234,8 @@ function ColorSearchPageContent() {
   const [lightness, setLightness] = useState(initialHsl?.l ?? 0.5);
   const [selectedHsl, setSelectedHsl] = useState<HSL | null>(initialHsl);
   const [paletteAnchors, setPaletteAnchors] = useState<string[]>(initialUrlState.paletteAnchors);
+  // Page that opened this search (e.g. a look's "Color Lab" link, #386); kept in the URL.
+  const [openedFrom, setOpenedFrom] = useState<string | null>(initialUrlState.returnTo);
   const [anchorFeedback, setAnchorFeedback] = useState<string | null>(null);
   const [previewHex, setPreviewHex] = useState<string | null>(null);
   const [externalHoverHex, setExternalHoverHex] = useState<string | null>(null);
@@ -257,10 +282,12 @@ function ColorSearchPageContent() {
       paletteAnchors,
       target: lockedTarget,
       paletteId: activeRecommendedPaletteId,
+      returnTo: openedFrom,
     }),
     [
       selectedHex, includeAllHarmonies, harmonyType, wheelMode, harmonyColorSet, resultsScope, toneFilter,
       brandFilter, finishFilter, availabilityFilter, paletteAnchors, lockedTarget, activeRecommendedPaletteId,
+      openedFrom,
     ]
   );
   const queryString = useMemo(() => buildColorSearchQueryString(urlState), [urlState]);
@@ -288,6 +315,7 @@ function ColorSearchPageContent() {
     setLockedTarget(next.target);
     setFocusedTargetHex(next.target);
     setActiveRecommendedPaletteId(next.paletteId);
+    setOpenedFrom(next.returnTo);
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [searchParamsString, setLockedTarget]);
 
@@ -305,10 +333,10 @@ function ColorSearchPageContent() {
     let cancelled = false;
 
     // Color search compares hexes: color polishes only (#349).
-    listPolishes({ categories: ["color"] })
-      .then((res) => {
+    listAllPolishes({ status: ["owned"], categories: ["color"] })
+      .then((rows) => {
         if (!cancelled) {
-          setAllPolishes(res.polishes);
+          setOwnedPolishes(rows);
         }
       })
       .catch(() => {})
@@ -369,7 +397,11 @@ function ColorSearchPageContent() {
     () => (resultsScope === "collection" ? ownedColorPolishes : colorPolishes),
     [resultsScope, ownedColorPolishes, colorPolishes]
   );
-  const brandOptions = useMemo(() => buildBrandOptions(colorPolishes), [colorPolishes]);
+  // The selected brand stays listed even though the nearby query is then narrowed to it.
+  const brandOptions = useMemo(
+    () => buildBrandOptions(brandFilter !== "all" ? [...colorPolishes, { brand: brandFilter }] : colorPolishes),
+    [colorPolishes, brandFilter]
+  );
 
   const filteredScopedColorPolishes = useMemo(() => {
     let result = scopedColorPolishes;
@@ -419,19 +451,71 @@ function ColorSearchPageContent() {
     [harmonyColorSet, ownedColorPolishes, colorPolishes],
   );
 
-  // Generate harmony target colors — pinned to selectedHex so they don't shift on hover
-  const harmonyColors = useMemo(() => {
+  // Harmony target colors before snapping to polishes — pinned to selectedHex so they don't
+  // shift on hover. These (not the snapped ones) drive the nearby catalog query, so the query
+  // never depends on its own results.
+  const rawHarmonyColors = useMemo(() => {
     if (!selectedHex) return [];
     if (includeAllHarmonies) {
-      const allHarmonyColors = harmonyTypeOptions
-        .map((item) => item.value)
-        .filter((value): value is HarmonyType => value !== "similar")
-        .flatMap((value) => generateHarmonyColors(selectedHex, value));
-      return constrainHarmonyHexes(uniqueHexes(allHarmonyColors), selectedHex);
+      return uniqueHexes(
+        harmonyTypeOptions
+          .map((item) => item.value)
+          .filter((value): value is HarmonyType => value !== "similar")
+          .flatMap((value) => generateHarmonyColors(selectedHex, value))
+      );
     }
-    const rawHarmonyColors = generateHarmonyColors(selectedHex, harmonyType);
-    return constrainHarmonyHexes(rawHarmonyColors, selectedHex);
-  }, [selectedHex, harmonyType, includeAllHarmonies, constrainHarmonyHexes, harmonyTypeOptions]);
+    return generateHarmonyColors(selectedHex, harmonyType);
+  }, [selectedHex, harmonyType, includeAllHarmonies, harmonyTypeOptions]);
+
+  // Generate harmony target colors, snapped to polishes per the harmony color set
+  const harmonyColors = useMemo(
+    () => (selectedHex ? constrainHarmonyHexes(rawHarmonyColors, selectedHex) : []),
+    [selectedHex, rawHarmonyColors, constrainHarmonyHexes]
+  );
+
+  // Catalog rows nearest every color the page matches against (the active color, the focused
+  // target, palette anchors and harmony targets), ranked over the whole catalog by the API.
+  // Brand and finish filters go to the server so a filtered view is ranked over all its shades.
+  const nearbyTargetsKey = useMemo(
+    () =>
+      uniqueHexes(
+        [activeHex, focusedTargetHex, ...paletteAnchors, ...rawHarmonyColors].filter(
+          (hex): hex is string => Boolean(hex)
+        )
+      )
+        .slice(0, MAX_NEAR_HEX_TARGETS)
+        .join(","),
+    [activeHex, focusedTargetHex, paletteAnchors, rawHarmonyColors]
+  );
+  // A focused target ranks the results against that one color, so it gets its own page too:
+  // the shared page spreads its rows over every target and could leave the focused list thin.
+  useEffect(() => {
+    if (!nearbyTargetsKey) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      const query = (nearHex: string[]) =>
+        listPolishes({
+          categories: ["color"],
+          nearHex,
+          brand: brandFilter !== "all" ? brandFilter : undefined,
+          finish: finishFilter !== "all" ? finishFilter : undefined,
+          pageSize: NEARBY_CATALOG_PAGE_SIZE,
+        });
+      const focusedHex = focusedTargetHex?.toUpperCase() ?? null;
+      Promise.allSettled([
+        query(nearbyTargetsKey.split(",")),
+        focusedHex && focusedHex !== nearbyTargetsKey ? query([focusedHex]) : Promise.resolve(null),
+      ]).then(([all, focused]) => {
+        if (cancelled || all.status !== "fulfilled") return;
+        const focusedRows = focused.status === "fulfilled" ? focused.value?.polishes ?? [] : [];
+        setNearbyPolishes(mergePolishes(focusedRows, all.value.polishes));
+      });
+    }, NEARBY_FETCH_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [nearbyTargetsKey, focusedTargetHex, brandFilter, finishFilter]);
 
   // Harmony target dots for the color wheel (diamonds)
   const harmonyDots: HarmonyDot[] = useMemo(() => {
@@ -561,7 +645,8 @@ function ColorSearchPageContent() {
     return [selectedHex, ...harmonyColors];
   }, [activeRecommendedPalette, isSimilarMode, activeHex, selectedHex, harmonyColors]);
 
-  // Sort polishes by distance — if a target is focused, match only that color
+  // Sort polishes by distance — if a target is focused, match only that color. Hexes guessed
+  // from the color name rank after every measured one (`compareColorSearchRank`, like `?nearHex=`).
   const sortedPolishes = useMemo(() => {
     const colorsToMatch = focusedTargetHex ? [focusedTargetHex] : targetColors;
     if (colorsToMatch.length === 0) return [];
@@ -581,11 +666,12 @@ function ColorSearchPageContent() {
         return {
           ...p,
           distance: Math.min(minDist / MAX_DISTANCE, 1),
+          estimated: isEstimatedDisplayHex(p),
           matchedHarmonyHex,
           matchedHarmonyIndex,
         };
       })
-      .sort((a, b) => a.distance - b.distance);
+      .sort(compareColorSearchRank);
   }, [focusedTargetHex, targetColors, filteredScopedColorPolishes]);
 
   const handleHover = useCallback(
@@ -704,31 +790,33 @@ function ColorSearchPageContent() {
     [isGuardChecking]
   );
 
+  // Put a changed row in both lists: replaced in the nearby rows, and in or out of the owned
+  // collection by its new status.
+  const upsertPolish = useCallback((next: Polish) => {
+    setNearbyPolishes((prev) => prev.map((p) => (p.id === next.id ? next : p)));
+    setOwnedPolishes((prev) => {
+      const without = prev.filter((p) => p.id !== next.id);
+      return isOwnedPolish(next) ? [...without, next] : without;
+    });
+  }, []);
+
   // Optimistic inventory update (rolled back on failure)
   const applyInventoryChange = useCallback(
     (original: Polish, change: Pick<PolishUpdateRequest, "quantity" | "status">) => {
-      const polishId = original.id;
-      setAllPolishes((prev) =>
-        prev.map((p) => (p.id === polishId ? applyInventoryPatch(p, change) : p))
-      );
+      upsertPolish(applyInventoryPatch(original, change));
 
-      const applyUpdated = (updated: Polish) =>
-        setAllPolishes((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-
-      updatePolish(polishId, change)
+      updatePolish(original.id, change)
         .then((updated) => {
-          applyUpdated(updated);
+          upsertPolish(updated);
           if (isArchivingChange(original, change)) {
-            showArchivedToast({ polish: updated, onUpdated: applyUpdated });
+            showArchivedToast({ polish: updated, onUpdated: upsertPolish });
           }
         })
         .catch(() => {
-          setAllPolishes((prev) =>
-            prev.map((p) => (p.id === polishId ? original : p))
-          );
+          upsertPolish(original);
         });
     },
-    []
+    [upsertPolish]
   );
 
   const handleQuantityChange = useCallback(
@@ -793,6 +881,15 @@ function ColorSearchPageContent() {
   return (
     <div className="space-y-6">
       <div>
+        {openedFrom ? (
+          <Link
+            href={openedFrom}
+            className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="size-4" aria-hidden="true" />
+            Back to {returnToLabel(openedFrom)}
+          </Link>
+        ) : null}
         <h1 className="heading-page">Color Search</h1>
         <p className="text-muted-foreground">
           Explore your collection by color. Hover to preview, click to select.
@@ -834,10 +931,10 @@ function ColorSearchPageContent() {
                 </p>
               </CardContent>
             ) : (
-              <CardContent className="space-y-4">
-                <div className="mx-auto flex w-fit items-center gap-4" onMouseLeave={handleMouseLeaveWheel}>
+              <CardContent className="space-y-4 px-4 sm:px-6">
+                <div className="mx-auto flex w-fit items-center gap-2 sm:gap-4" onMouseLeave={handleMouseLeaveWheel}>
                   <div className="rounded-[2rem] bg-gradient-brand p-[2px] shadow-glow-brand">
-                    <div className="glass rounded-[calc(2rem-2px)] p-3">
+                    <div className="glass rounded-[calc(2rem-2px)] p-1.5 sm:p-3">
                       <div className="rounded-full border border-white/60 bg-background/65 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
                         <ColorWheel
                           lightness={lightness}
@@ -886,7 +983,7 @@ function ColorSearchPageContent() {
                     <Button
                       type="button"
                       size="sm"
-                      className="h-7 rounded-full px-2.5 text-[11px] font-medium"
+                      className="h-7 rounded-full px-2.5 text-[11px] font-medium pointer-coarse:h-9"
                       variant={wheelMode === "snap" ? "default" : "outline"}
                       onClick={() => setWheelMode((prev) => (prev === "snap" ? "free" : "snap"))}
                       title={wheelMode === "snap" ? "Mine mode is on. Click to turn off." : "Mine mode is off. Click to turn on."}
@@ -915,7 +1012,7 @@ function ColorSearchPageContent() {
                         type="button"
                         size="icon-xs"
                         variant="secondary"
-                        className="h-6 w-6 rounded-full"
+                        className="h-6 w-6 rounded-full pointer-coarse:size-9"
                         onClick={() => addPaletteAnchorHex(selectedHex)}
                         disabled={!selectedHex}
                         aria-label="Add focused color"
@@ -969,7 +1066,7 @@ function ColorSearchPageContent() {
                     type="button"
                     size="sm"
                     variant={includeAllHarmonies ? "default" : "ghost"}
-                    className="h-7 w-full rounded-md px-0"
+                    className="h-7 w-full rounded-md px-0 pointer-coarse:h-9"
                     title="All harmony types"
                     aria-label="Set harmony type to all"
                     onClick={() => {
@@ -987,7 +1084,7 @@ function ColorSearchPageContent() {
                       type="button"
                       size="sm"
                       variant={!includeAllHarmonies && harmonyType === h.value ? "default" : "ghost"}
-                      className="h-7 w-full rounded-md px-0"
+                      className="h-7 w-full rounded-md px-0 pointer-coarse:h-9"
                       title={h.label}
                       aria-label={`Set harmony type to ${h.label}`}
                       onClick={() => {

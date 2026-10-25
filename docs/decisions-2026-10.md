@@ -15,8 +15,8 @@ recommendation in place for the record.
 | ID | Topic | Status | Blocks |
 |----|-------|--------|--------|
 | D1 | Public wishlist pages | Decided | Turning on #305 |
-| D2 | Which indie stores to enable first | Decided | Turning on #292 sources |
-| D3 | Mobile: PWA or Expo | Decided | Q4 scope |
+| D2 | Which indie stores to enable first | Decided; followed through 2026-10-22 (seven stores enabled) | Turning on #292 sources, #273 batches 2–3 |
+| D3 | Mobile: PWA or Expo | Decided (January start superseded by D24) | Q4 scope |
 | D4 | Hex detection gate and freeze | Decided | The hex baseline metric |
 | D5 | Inventory status rules: defaults, zero, running out (D5a–c) | Decided | #304 vs #291 consistency, the − button |
 | D6 | What counts as spend | Decided | #309 stats |
@@ -33,10 +33,11 @@ recommendation in place for the record.
 | D17 | Observability issue numbering | Decided | Phase 3 branch name |
 | D18 | How to release this batch | Decided (revised: one release) | Promoting `dev` to `main` |
 | D19 | Tracking the success metrics | Decided | Roadmap §4 metrics |
-| D20 | Milestones | Decided | Housekeeping |
+| D20 | Milestones (M3 — On the go created 2026-10-23) | Decided | Housekeeping |
 | D21 | Owners for follow-ups | Decided | Follow-up work |
-| D22 | How feature flags work | Deferred ([#313](https://github.com/mattmck/swatchwatch/issues/313)) | Nothing yet |
+| D22 | How feature flags work | Decided 2026-10-23: option 2, thin env-backed wrapper ([#313](https://github.com/mattmck/swatchwatch/issues/313)) | Shipped: `lib/feature-flags.ts`, `GET /api/config/flags` |
 | D23 | Product categories and non-polish cleanup | Decided | #349, #347 |
+| D24 | Expo app and Looks started early; overnight merge-to-dev rule | Decided | #109, #384, #385, Looks follow-ups |
 
 ---
 
@@ -62,6 +63,12 @@ recommendation in place for the record.
   (ILNP, Mooncat, Cirque, KBShimmer, Emily de Molly, Painted Polish, Cupcake) in priority order.
 - **Decision:** Night Owl Lacquer only. Hold Pahlish until it has a store-specific filter.
 - **Date:** 2026-10-17
+- **Follow-through:** Pahlish, Emily de Molly and Cirque Colors enabled 2026-10-19 after sign-off (#388 named
+  Stella Chroma, Lemming Lacquer and Sweet & Sour as the stores to ask). The owner received written permission from
+  all three by email on 2026-10-22; migration `20261023021845964_add-approved-indie-shopify-sources` registers them
+  enabled with the approval in `data_source.metadata.notes` and also enables Night Owl's row, which the 2026-10-17
+  migration had left disabled (no environment had run the activation `UPDATE`). Seven indie stores are enabled, which
+  meets the #273 target of 6–10; the batch-3 counts are in `docs/indie-sources-2026-10.md`.
 
 ### D3 — Mobile: PWA or Expo
 - **Context:** roadmap §6.1. #294 delivers camera capture in the mobile browser and defers the mobile half of #21 to #109.
@@ -69,6 +76,8 @@ recommendation in place for the record.
 - **Recommendation:** (a).
 - **Decision:** PWA-first through December; Expo (#109) starts in January.
 - **Date:** 2026-10-17
+- **Superseded 2026-10-19 by [D24](#d24--expo-app-and-looks-started-early-overnight-merge-to-dev-rule-2026-10-19):** the Expo app
+  started on 2026-10-19, alongside the PWA, instead of in January.
 
 ### D4 — Hex detection gate and freeze
 - **Context:** roadmap §6.3. The two-day gate hasn't run yet. #311 adds hand-labeled ground truth; the last
@@ -206,6 +215,9 @@ recommendation in place for the record.
 - **Decision:** Opt-in promote. Add a "promote to vendor hex" admin action (off by default), plus provenance columns on `vendor_hex` so promoted values can be told apart from vendor data.
 - **Date:** 2026-10-17
 - **Ticket:** [#321](https://github.com/mattmck/swatchwatch/issues/321)
+- **Implemented:** `POST /api/hex-labels-admin/labels/{id}/promote` + Undo, `shade.vendor_hex_source` and friends
+  (migration 20261020024540860_shade-vendor-hex-provenance); ingestion never overwrites a `manual_label` vendor hex
+  (the vendor's value is kept in `vendor_hex_previous` for Undo).
 
 ### D13 — Buy link when there's no URL, and http links
 - **Context:** #289 leaves out `buyUrl` when there's no valid URL, and keeps `http` URLs as they are.
@@ -273,6 +285,13 @@ recommendation in place for the record.
 - **Recommendation:** close M0 and M1, open **M2 — Collector's companion**, and move the Sprint 1–4 issues into it.
 - **Decision:** Yes. Already done: M0 and M1 are closed, and M2 — Collector's companion holds the Sprint 1–4 issues and these follow-ups.
 - **Date:** 2026-10-17
+- **M3 (decided 2026-10-23):** the owner created the milestone **M3 — On the go** (milestone 4, due 2027-03-30) on
+  2026-10-23. It holds #109 (Expo app), #105 (image-to-polish matching, mobile half), #313 (feature flags) and #2 (ESM).
+  M2 keeps its 2026-12-19 due date and holds #322, #325, #326 and #274. This replaces the 2026-10-19 proposal, which also
+  listed #384 (shipped in #399), #117 (Redis, closed 2026-10-23) and the Looks follow-ups (the
+  skin-tone model; prices on the shopping list shipped in #406 and server-side share in #408). The `plan-me` label
+  stays for issues that have no milestone yet.
+  - **Decision:** done (owner)
 
 ### D21 — Owners for follow-ups
 Open follow-ups taken from the PR descriptions. Give each one an owner and a ticket, or mark it "won't do".
@@ -310,8 +329,13 @@ Open follow-ups taken from the PR descriptions. Give each one an owner and a tic
 - **D18:** cut one `dev → main` release before 27 Nov, following the pre-release checklist on #274.
 
 ### D22 — How feature flags work
-- **Status:** Deferred, see [#313](https://github.com/mattmck/swatchwatch/issues/313). Env vars for now; revisit
-  at the third or fourth flag, or when per-user targeting is needed.
+- **Status:** Decided 2026-10-23 (the fourth flag arrived): **option 2, a thin `isFeatureEnabled(flag)` wrapper backed by
+  env vars; move to Azure App Configuration when per-user targeting is needed.** See [#313](https://github.com/mattmck/swatchwatch/issues/313).
+- **Decision:** `packages/functions/src/lib/feature-flags.ts` is the one registry (flag name → env var, `public` or internal,
+  fail closed: only `true`, trimmed, any case; the batch flag keeps its older `1`/`yes`/`on` spellings). A later move to App
+  Configuration changes `isFeatureEnabled` only. `GET /api/config/flags` (anonymous, `Cache-Control: public, max-age=60`)
+  reports the public flags (`shareableWishlist`, `shareableLooks`) so the web asks once instead of probing feature endpoints;
+  the hex flags stay internal. The routes' `404 feature_disabled` answers stay as the fallback for a stale cache.
 
 ## E. Catalog hygiene
 
@@ -327,3 +351,55 @@ Open follow-ups taken from the PR descriptions. Give each one an owner and a tic
   - **D-E (coats and treatments at ingestion):** stop dropping treatment, primer and bond products; ingest them as `base_coat` / `top_coat` / `treatment`. True accessories are still skipped.
 - **Date:** 2026-10-18
 
+## F. Plan changes
+
+### D24 — Expo app and Looks started early; overnight merge-to-dev rule (2026-10-19)
+- **Status:** Decided
+- **Context:** the 10-18 overnight batch built the Expo app foundation (#376) and its second wave (#379) under #109, and
+  the Looks page (#370, #378), while D3 said Expo starts in January and roadmap §5 deferred the full Looks page to Q1
+  "with usage data". The batch also raised process and toolchain questions in the PR bodies: who merges overnight PRs,
+  how mobile Rapid Add should add (PR #376 decision 1), and which React and Expo versions to pin (PR #376 decisions 2–3).
+  The 10-19 batch continued both tracks (#392 Looks toggles, #396 mobile photos, #399 mobile color search).
+- **Options:** (a) keep D3 and the §5 deferral: park the mobile and Looks PRs until Q1 · (b) accept the early start and
+  record the rules the PRs chose
+- **Recommendation:** (b). The work is built, reviewed and green, and parking it would only let it rot against `dev`.
+- **Decision:** (b), agreed by the owner in chat with the lead session on 2026-10-19:
+  - **(a) Overnight merge rule:** overnight sessions merge their own PRs into `dev` once CI is green and review threads
+    are handled. They never merge `dev → main`; releases stay with the owner.
+  - **(b) Expo started early:** the Expo app (#109) started on 2026-10-19 instead of January. This supersedes D3's
+    January start; the PWA stays the in-store path on the web. Sub-items: #384 (color search, harmonies, Pair it) and
+    #385 (nail photo, photo-match parity, mani photos).
+  - **(c) Looks ships client-side:** the Looks page shipped as a client-side recommender (`apps/web/src/lib/looks.ts`,
+    seeded like "Pick for me") with no `GET /api/looks` recommendation endpoint (that route lists saved looks), instead
+    of waiting for Q1 usage data. This supersedes the Looks deferral in roadmap §5.
+  - **(d) Mobile Rapid Add is check-first:** the Expo app answers a scan from the read-only
+    `POST /api/capture/{id}/check` and only adds when the user taps Add, rather than the web's finalize-and-undo
+    (PR #376 decision 1).
+  - **(e) Toolchain pins:** the root `package.json` `overrides` pins React 19.2.3 (`react`, `react-dom`) for every
+    workspace, because React Native's renderer must match React exactly, and the mobile app is on Expo SDK 57
+    (React Native 0.86) (PR #376 decisions 2–3).
+- **Date:** 2026-10-19
+- **Ticket:** [#109](https://github.com/mattmck/swatchwatch/issues/109) (sub-items [#384](https://github.com/mattmck/swatchwatch/issues/384),
+  [#385](https://github.com/mattmck/swatchwatch/issues/385)); Looks follow-ups [#386](https://github.com/mattmck/swatchwatch/issues/386)
+- **Resolved 2026-10-23:** the Expo work lives in the **M3 — On the go** milestone (#109, #105; see D20).
+
+### D25 — Azure OpenAI APIM gateway removed (2026-10-23)
+- **Status:** Decided
+- **Context:** Functions could route Azure OpenAI calls through an API Management gateway when
+  `AZURE_OPENAI_USE_GATEWAY=true` (`azure-openai-config.ts`, `ai-color-detection.ts`, `azure-openai-batch.ts`), wired
+  by Terraform (`apim_enabled`, `openai_gateway_enabled`, `azurerm_api_management.main`, three Function App settings,
+  `apim_*` outputs) and the Deploy Infra workflow. Gateway mode was never enabled: the APIM API routes and policies
+  were never configured (#228), the multi-region load balancing it was meant for never started (#158), and a dev
+  APIM instance (`swatchwatch-dev-apim-j5jij0be`, Consumption tier) sat idle. Roadmap §5 asked to either finish it
+  infra-only or delete the path so the "gateway enabled, routes missing → 404" trap can't recur.
+- **Options:** (a) finish it infra-only (provision the API, policies and subscription key; keep the flag off) ·
+  (b) delete the path end to end: code, Terraform, workflow wiring, docs; close #158 and #228 as won't-do
+- **Recommendation:** (b). One Azure OpenAI region at a Consumption-plan scale needs no gateway, and the flag was
+  the only way to break hex detection by configuration alone.
+- **Decision:** (b), by the owner on 2026-10-23. The direct endpoint + `api-key` header is the only path; the
+  removed Terraform resources destroy the dev APIM instance on the next Deploy Infra Dev run; the GitHub environment
+  variables `APIM_ENABLED`, `APIM_SKU_NAME`, `OPENAI_GATEWAY_ENABLED` (and any `APIM_OPENAI_SUBSCRIPTION_KEY_URI`)
+  are unused and can be deleted by the owner. If a gateway is ever needed again it starts from a fresh design, not
+  from this branch.
+- **Date:** 2026-10-23
+- **Ticket:** [#158](https://github.com/mattmck/swatchwatch/issues/158), [#228](https://github.com/mattmck/swatchwatch/issues/228) (both closed as won't-do)

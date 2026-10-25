@@ -150,8 +150,8 @@ export function ColumnMappingTable({
       <TableHeader>
         <TableRow>
           <TableHead>Column</TableHead>
-          <TableHead>Sample values</TableHead>
-          <TableHead className="w-[200px]">Import as</TableHead>
+          <TableHead className="hidden sm:table-cell">Sample values</TableHead>
+          <TableHead className="sm:w-[200px]">Import as</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -159,8 +159,14 @@ export function ColumnMappingTable({
           const field = fieldForColumn(mapping, column.index);
           return (
             <TableRow key={column.index}>
-              <TableCell className="font-medium">{column.label}</TableCell>
-              <TableCell className="max-w-[320px] truncate text-sm text-muted-foreground">
+              <TableCell className="max-w-[140px] font-medium sm:max-w-none">
+                <span className="block truncate">{column.label}</span>
+                {/* Phones: the samples sit under the name so the "Import as" select stays on screen. */}
+                <span className="block truncate text-xs font-normal text-muted-foreground sm:hidden">
+                  {column.samples.length ? column.samples.join(" · ") : <span className="italic">empty</span>}
+                </span>
+              </TableCell>
+              <TableCell className="hidden max-w-[320px] truncate text-sm text-muted-foreground sm:table-cell">
                 {column.samples.length ? column.samples.join(" · ") : <span className="italic">empty</span>}
               </TableCell>
               <TableCell>
@@ -168,7 +174,7 @@ export function ColumnMappingTable({
                   value={field ?? IGNORE}
                   onValueChange={(value) => onChange(column.index, value === IGNORE ? null : (value as PolishImportField))}
                 >
-                  <SelectTrigger className="h-8 w-[190px]" aria-label={`Import ${column.label} as`}>
+                  <SelectTrigger className="h-9 w-[150px] sm:h-8 sm:w-[190px]" aria-label={`Import ${column.label} as`}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -227,14 +233,15 @@ function CandidateLabel({ candidate }: { candidate: PolishImportCandidate }) {
       <span className="truncate">
         {candidate.brand} — {candidate.name}
       </span>
-      <span className="shrink-0 text-xs text-muted-foreground">{formatConfidence(candidate.confidence)}</span>
+      {/* Phones: the closed select shows only the name; the row's own badge carries the confidence. */}
+      <span className="shrink-0 text-xs text-muted-foreground max-sm:in-data-[slot=select-trigger]:hidden">{formatConfidence(candidate.confidence)}</span>
       {candidate.inCollection && (
-        <Badge variant="secondary" className="shrink-0 text-[10px]">
+        <Badge variant="secondary" className="shrink-0 text-[10px] max-sm:in-data-[slot=select-trigger]:hidden">
           in collection
         </Badge>
       )}
       {candidate.userSubmitted && (
-        <Badge variant="outline" className="shrink-0 text-[10px]">
+        <Badge variant="outline" className="shrink-0 text-[10px] max-sm:in-data-[slot=select-trigger]:hidden">
           private
         </Badge>
       )}
@@ -290,16 +297,16 @@ export function ReviewTable({
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead className="w-[64px]">Row</TableHead>
+          <TableHead className="hidden w-[64px] sm:table-cell">Row</TableHead>
           <TableHead>From your sheet</TableHead>
-          <TableHead className="min-w-[320px]">Import as</TableHead>
+          <TableHead className="min-w-[180px] sm:min-w-[320px]">Import as</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {rows.map((row) => (
           <TableRow key={row.rowNumber} className="align-top">
-            <TableCell className="text-muted-foreground">{row.rowNumber}</TableCell>
-            <TableCell className="max-w-[360px] whitespace-normal">
+            <TableCell className="hidden text-muted-foreground sm:table-cell">{row.rowNumber}</TableCell>
+            <TableCell className="max-w-[120px] whitespace-normal break-words sm:max-w-[360px]">
               <div className="font-medium">
                 {row.values.brand || <span className="italic text-muted-foreground">no brand</span>} ·{" "}
                 {row.values.name || <span className="italic text-muted-foreground">no name</span>}
@@ -312,7 +319,7 @@ export function ReviewTable({
                 </div>
               ))}
             </TableCell>
-            <TableCell className="whitespace-normal">
+            <TableCell className="max-w-[200px] whitespace-normal sm:max-w-none">
               {row.matchState === "invalid" ? (
                 <span className="text-sm text-muted-foreground">Skipped</span>
               ) : readOnly ? (
@@ -327,7 +334,7 @@ export function ReviewTable({
                     }}
                   >
                     <SelectTrigger
-                      className={cn("h-auto min-h-8 w-full max-w-[420px] py-1", row.action === "pending" && "border-amber-400")}
+                      className={cn("h-auto min-h-9 w-full min-w-0 max-w-[420px] py-1 sm:min-h-8", row.action === "pending" && "border-amber-400")}
                       aria-label={`Decision for row ${row.rowNumber}`}
                     >
                       <SelectValue placeholder="Choose a match…" />

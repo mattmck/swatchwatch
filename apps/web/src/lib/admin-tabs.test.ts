@@ -19,6 +19,10 @@ describe("getTabFromQuery", () => {
   it("recognizes the review queue tab", () => {
     assert.equal(getTabFromQuery("review-queue"), "review-queue");
   });
+
+  it("recognizes the backfills tab", () => {
+    assert.equal(getTabFromQuery("backfills"), "backfills");
+  });
 });
 
 describe("buildAdminTabSearch", () => {

@@ -10,6 +10,7 @@
  * - resize-on-ingest: oversize source images are downscaled/re-encoded and stored, downloads are capped
  * - pre-generated thumbnails: uploadSourceImageToBlob() / ensureImageVariants() write the missing
  *   `<blob>.c<n>.w<size>.webp` variants, skip existing ones, and never fail the ingest on a variant error
+ * - storage requests use the pooled Agent, PUT/metadata retry connect errors, upload failures name their step
  * - userMediaContainer() default/override, and readBlobFromStorageUrl() scoped to it (#227)
  */
 const { describe, it, beforeEach, afterEach } = require("node:test");
@@ -29,6 +30,13 @@ const {
   BlobAccessDeniedError,
   UPLOAD_LIMITS,
 } = require("../dist/lib/blob-storage");
+
+// Blob Storage requests use lib/storage-http's transport; send them to the stubbed global.fetch.
+require("../dist/lib/storage-http").blobStorageTransport.fetch = (url, init) => global.fetch(url, init);
+// Storage PUT/metadata retries (lib/storage-http) without the backoff, so failure cases stay fast.
+require("../dist/lib/storage-http").blobStorageRetry.baseDelayMs = 0;
+// Existence checks are Get Blob Metadata (`GET ?comp=metadata`), never HEAD (lib/blob-storage blobExists).
+const requestKind = (url, init = {}) => (String(url).includes("comp=metadata") ? "METADATA" : init.method || "GET");
 
 describe("lib/blob-storage — validateImageUpload", () => {
   it("normalizes and accepts an allowed image type within limits", () => {
@@ -101,7 +109,7 @@ describe("lib/blob-storage — uploadSourceImageToBlob", () => {
     }
   });
 
-  const VARIANT = /\.w(\d+)\.webp$/;
+  const VARIANT = /\.w(\d+)\.webp(?:\?comp=metadata)?$/;
 
   async function runUpload(headStatus, variantHeadStatus = 200) {
     process.env.AZURE_STORAGE_CONNECTION = `DefaultEndpointsProtocol=https;AccountName=testacct;AccountKey=${Buffer.from(
@@ -116,17 +124,17 @@ describe("lib/blob-storage — uploadSourceImageToBlob", () => {
     const methods = [];
     const variantCalls = [];
     global.fetch = async (url, init = {}) => {
-      const method = init.method || "GET";
+      const method = requestKind(url, init);
       const variant = String(url).match(VARIANT);
       if (variant) {
         variantCalls.push({ method, size: Number(variant[1]), body: init.body, headers: init.headers });
-        return new Response(null, { status: method === "HEAD" ? variantHeadStatus : 201 });
+        return new Response(null, { status: method === "METADATA" ? variantHeadStatus : 201 });
       }
       methods.push(method);
       if (String(url).startsWith("https://shop.example/")) {
         return new Response(png, { status: 200, headers: { "content-type": "image/png" } });
       }
-      if (method === "HEAD") {
+      if (method === "METADATA") {
         return new Response(null, { status: headStatus });
       }
       return new Response(null, { status: 201 });
@@ -143,14 +151,14 @@ describe("lib/blob-storage — uploadSourceImageToBlob", () => {
 
   it("skips the upload when the blob already exists", async () => {
     const { result, methods } = await runUpload(200);
-    assert.deepEqual(methods, ["GET", "HEAD"]);
+    assert.deepEqual(methods, ["GET", "METADATA"]);
     assert.match(result.storageUrl, /^https:\/\/testacct\.blob\.core\.windows\.net\/.+\/testshopify\/p1-[0-9a-f]{12}\.png$/);
     assert.match(result.checksumSha256, /^[0-9a-f]{64}$/);
   });
 
   it("uploads when the blob is missing", async () => {
     const { methods } = await runUpload(404);
-    assert.deepEqual(methods, ["GET", "HEAD", "PUT"]);
+    assert.deepEqual(methods, ["GET", "METADATA", "PUT"]);
   });
 
   it("returns the perceptual fingerprint of the stored bytes, for new and already stored blobs", async () => {
@@ -162,9 +170,9 @@ describe("lib/blob-storage — uploadSourceImageToBlob", () => {
     }
   });
 
-  it("still uploads when the existence check fails", async () => {
+  it("still uploads when the existence check fails (after retrying the metadata check)", async () => {
     const { methods } = await runUpload(500);
-    assert.deepEqual(methods, ["GET", "HEAD", "PUT"]);
+    assert.deepEqual(methods, ["GET", "METADATA", "METADATA", "METADATA", "PUT"]);
   });
 
   it("writes every missing thumbnail variant as square cover WebP next to a new blob", async () => {
@@ -179,19 +187,19 @@ describe("lib/blob-storage — uploadSourceImageToBlob", () => {
       assert.equal(meta.width, 4);
       assert.equal(meta.height, 4);
     }
-    const heads = variantCalls.filter((call) => call.method === "HEAD");
+    const heads = variantCalls.filter((call) => call.method === "METADATA");
     assert.equal(heads.length, 4);
     assert.match(result.storageUrl, /\.png$/, "the returned URL is still the original");
   });
 
   it("skips variants that are already stored", async () => {
     const { variantCalls } = await runUpload(404, 200);
-    assert.deepEqual(variantCalls.map((call) => call.method), ["HEAD", "HEAD", "HEAD", "HEAD"]);
+    assert.deepEqual(variantCalls.map((call) => call.method), ["METADATA", "METADATA", "METADATA", "METADATA"]);
   });
 
   it("fills in missing variants when the original was already stored (re-ingest)", async () => {
     const { methods, variantCalls } = await runUpload(200, 404);
-    assert.deepEqual(methods, ["GET", "HEAD"]);
+    assert.deepEqual(methods, ["GET", "METADATA"]);
     assert.equal(variantCalls.filter((call) => call.method === "PUT").length, 4);
   });
 
@@ -205,14 +213,14 @@ describe("lib/blob-storage — uploadSourceImageToBlob", () => {
       .png()
       .toBuffer();
     global.fetch = async (url, init = {}) => {
-      const method = init.method || "GET";
+      const method = requestKind(url, init);
       if (String(url).startsWith("https://shop.example/")) {
         return new Response(png, { status: 200, headers: { "content-type": "image/png" } });
       }
       if (VARIANT.test(String(url))) {
-        return new Response("boom", { status: method === "HEAD" ? 404 : 500 });
+        return new Response("boom", { status: method === "METADATA" ? 404 : 500 });
       }
-      return new Response(null, { status: method === "HEAD" ? 404 : 201 });
+      return new Response(null, { status: method === "METADATA" ? 404 : 201 });
     };
     const result = await uploadSourceImageToBlob({
       sourceImageUrl: "https://shop.example/p1.png",
@@ -237,10 +245,10 @@ describe("lib/blob-storage — ensureImageVariants", () => {
   function mockStorage(existing) {
     const calls = [];
     global.fetch = async (url, init = {}) => {
-      const method = init.method || "GET";
+      const method = requestKind(url, init);
       const name = decodeURIComponent(new URL(String(url)).pathname);
       calls.push({ method, name, body: init.body });
-      if (method === "HEAD") return new Response(null, { status: existing.has(name) ? 200 : 404 });
+      if (method === "METADATA") return new Response(null, { status: existing.has(name) ? 200 : 404 });
       return new Response(null, { status: 201 });
     };
     return calls;
@@ -423,14 +431,14 @@ describe("lib/blob-storage — uploadSourceImageToBlob size handling", () => {
   function mockFetch(makeSourceResponse) {
     const calls = { methods: [], putBody: null, putHeaders: null, variantPuts: 0 };
     global.fetch = async (url, init = {}) => {
-      const method = init.method || "GET";
-      if (/\.w\d+\.webp$/.test(String(url))) {
+      const method = requestKind(url, init);
+      if (/\.w\d+\.webp(?:\?comp=metadata)?$/.test(String(url))) {
         if (method === "PUT") calls.variantPuts += 1;
-        return new Response(null, { status: method === "HEAD" ? 404 : 201 });
+        return new Response(null, { status: method === "METADATA" ? 404 : 201 });
       }
       calls.methods.push(method);
       if (String(url).startsWith("https://shop.example/")) return makeSourceResponse();
-      if (method === "HEAD") return new Response(null, { status: 404 });
+      if (method === "METADATA") return new Response(null, { status: 404 });
       if (method === "PUT") {
         calls.putBody = Buffer.from(init.body);
         calls.putHeaders = init.headers;
@@ -456,7 +464,7 @@ describe("lib/blob-storage — uploadSourceImageToBlob size handling", () => {
     const calls = mockFetch(() => new Response(png, { status: 200, headers: { "content-type": "image/png" } }));
 
     const result = await upload();
-    assert.deepEqual(calls.methods, ["GET", "HEAD", "PUT"]);
+    assert.deepEqual(calls.methods, ["GET", "METADATA", "PUT"]);
     assert.ok(calls.putBody.length <= UPLOAD_LIMITS.maxSizeBytes);
     assert.equal(result.contentType, "image/webp");
     assert.equal(result.sizeBytes, calls.putBody.length);

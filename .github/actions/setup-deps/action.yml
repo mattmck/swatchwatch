@@ -1,8 +1,15 @@
 name: Setup Node + workspace dependencies
 description: >
   Restores node_modules from cache keyed on the lockfile. On a miss, installs
-  only the workspaces CI builds (web, functions, shared — never mobile) with
-  install scripts disabled, then patches Tailwind's native binaries.
+  only the workspaces CI builds (web, functions, shared; mobile only when
+  include-mobile is 'true') with install scripts disabled, then patches
+  Tailwind's native binaries.
+
+inputs:
+  include-mobile:
+    description: "'true' also installs apps/mobile (Expo) for the mobile lint/typecheck job."
+    required: false
+    default: 'false'
 
 runs:
   using: composite
@@ -21,7 +28,7 @@ runs:
           node_modules
           apps/*/node_modules
           packages/*/node_modules
-        key: nm-${{ runner.os }}-node24-${{ hashFiles('package-lock.json', '.github/actions/setup-deps/action.yml') }}
+        key: nm-${{ runner.os }}-node24-${{ inputs.include-mobile == 'true' && 'mobile-' || '' }}${{ hashFiles('package-lock.json', '.github/actions/setup-deps/action.yml') }}
 
     - name: Restore npm download cache
       if: steps.nm-cache.outputs.cache-hit != 'true'
@@ -34,9 +41,12 @@ runs:
     - name: Install dependencies
       if: steps.nm-cache.outputs.cache-hit != 'true'
       shell: bash
+      env:
+        MOBILE_WORKSPACE: ${{ inputs.include-mobile == 'true' && '--workspace=apps/mobile' || '' }}
       run: >
         npm ci --ignore-scripts --no-audit --no-fund --include-workspace-root
         --workspace=apps/web --workspace=packages/functions --workspace=packages/shared
+        $MOBILE_WORKSPACE
 
     - name: Install Tailwind CSS native binaries
       if: steps.nm-cache.outputs.cache-hit != 'true'

@@ -1,5 +1,6 @@
 import type { HarmonyType } from "swatchwatch-shared";
 import type { Undertone } from "@/lib/color-utils";
+import { safeReturnTo } from "@/lib/detail-href";
 
 /**
  * URL state for `/polishes/search` (#348), same pattern as `polish-list-url.ts`: the page
@@ -8,6 +9,11 @@ import type { Undertone } from "@/lib/color-utils";
  *
  * `color` + `harmony` were already read from links (the gap map's "Explore seed color"); they
  * keep their names. Hover state, collapsed panels and feedback toasts stay in memory.
+ *
+ * Seeding from another page (#386, Looks' "Open in Color Lab"): link with `color` (the wheel
+ * color), `focus` (comma list of palette hexes, without `#`) and `returnTo` (a same-origin
+ * relative path, checked with `safeReturnTo`). `returnTo` is kept in the canonical query, so the
+ * page's "Back to …" link survives the page's own URL rewrites and a detail round trip.
  */
 
 export type ColorSearchHarmony = "all" | HarmonyType;
@@ -33,6 +39,8 @@ export interface ColorSearchUrlState {
   target: string | null;
   /** Applied recommended palette id (restored only if the page still recommends it). */
   paletteId: string | null;
+  /** Page that opened the search (same-origin relative path), shown as a "Back to …" link. */
+  returnTo: string | null;
 }
 
 export const MAX_PALETTE_ANCHORS = 8;
@@ -50,6 +58,7 @@ export const DEFAULT_COLOR_SEARCH_STATE: ColorSearchUrlState = {
   paletteAnchors: [],
   target: null,
   paletteId: null,
+  returnTo: null,
 };
 
 const HARMONIES: readonly HarmonyType[] = [
@@ -100,6 +109,7 @@ export function parseColorSearchState(params: ReadableParams): ColorSearchUrlSta
     paletteAnchors: parseAnchors(params.get("focus")),
     target: parseHexParam(params.get("target")),
     paletteId: params.get("palette") || null,
+    returnTo: safeReturnTo(params.get("returnTo"), "") || null,
   };
 }
 
@@ -121,6 +131,8 @@ export function buildColorSearchQueryString(state: ColorSearchUrlState): string 
   const target = parseHexParam(state.target);
   if (target) params.set("target", target.slice(1));
   if (state.paletteId) params.set("palette", state.paletteId);
+  const returnTo = safeReturnTo(state.returnTo, "");
+  if (returnTo) params.set("returnTo", returnTo);
   return params.toString();
 }
 

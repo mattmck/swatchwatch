@@ -1,0 +1,83 @@
+import { Alert, Platform } from "react-native";
+import type { PolishDupesResponse } from "swatchwatch-shared";
+import { getPolishDupes } from "@/api/client";
+
+const GUARD_TIMEOUT_MS = 2000;
+
+/**
+ * Add guard (#266, web `lib/add-guard.ts`): before adding a not-owned shade, look up owned
+ * near-dupes. Failures and slow responses never block the add (resolves to null).
+ */
+export async function fetchOwnedDupes(shadeId: string): Promise<PolishDupesResponse | null> {
+  const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), GUARD_TIMEOUT_MS));
+  return Promise.race([getPolishDupes(shadeId, { limit: 3 }).catch(() => null), timeout]);
+}
+
+export type AddGuardChoice = "add" | "wishlist" | "cancel";
+
+/** Ask whether to go ahead when the shade has owned dupes; resolves "add" when it has none. */
+export async function confirmAddWithDupes(
+  shadeId: string,
+  target: "owned" | "wishlist",
+): Promise<AddGuardChoice> {
+  return confirmDupes(await fetchOwnedDupes(shadeId), target);
+}
+
+/**
+ * Ask about already-loaded owned dupes (the manual add form computes them on device for a
+ * shade with no id yet); resolves "add" when there are none.
+ */
+export async function confirmDupes(
+  dupes: PolishDupesResponse | null,
+  target: "owned" | "wishlist",
+): Promise<AddGuardChoice> {
+  if (!dupes || dupes.dupeCount === 0) return "add";
+  const best = dupes.dupes[0];
+  const names = dupes.dupes.map((d) => `• ${d.brand} — ${d.name}`).join("\n");
+  if (Platform.OS === "web") {
+    // react-native-web's Alert.alert does nothing, so ask with two browser confirms that keep all
+    // three outcomes: add anyway, wishlist instead (when adding), cancel.
+    const message = `You own ${dupes.dupeCount === 1 ? "a close dupe" : `${dupes.dupeCount} close dupes`}:\n${names}`;
+    const verb = target === "owned" ? "Add anyway" : "Wishlist anyway";
+    if (globalThis.confirm?.(`${message}\n\n${verb}?`)) return "add";
+    if (target === "owned" && globalThis.confirm?.("Add it to your wishlist instead?")) return "wishlist";
+    return "cancel";
+  }
+  return new Promise((resolve) => {
+    const buttons: Parameters<typeof Alert.alert>[2] = [
+      { text: "Cancel", style: "cancel", onPress: () => resolve("cancel") },
+    ];
+    if (target === "owned") buttons.push({ text: "Wishlist instead", onPress: () => resolve("wishlist") });
+    buttons.push({ text: target === "owned" ? "Add anyway" : "Wishlist anyway", onPress: () => resolve("add") });
+    Alert.alert(
+      `You own ${dupes.dupeCount === 1 ? "a close dupe" : `${dupes.dupeCount} close dupes`}`,
+      `${best?.grade === "high" ? "Near-identical" : "Close"} to what you already have:\n${names}`,
+      buttons,
+      { cancelable: true, onDismiss: () => resolve("cancel") },
+    );
+  });
+}
+
+export type AlreadyOwnedChoice = "view" | "cancel";
+
+/**
+ * The manual add form found an owned polish with the same brand and shade name: saving would
+ * update that row, so offer to open it instead (nothing is saved either way).
+ */
+export function confirmAlreadyOwned(label: string): Promise<AlreadyOwnedChoice> {
+  const message = `${label} is already in your collection. Open it to change its bottles or status.`;
+  if (Platform.OS === "web") {
+    return Promise.resolve(globalThis.confirm?.(`${message}\n\nOpen it?`) ? "view" : "cancel");
+  }
+  return new Promise((resolve) => {
+    Alert.alert(
+      "You own this",
+      message,
+      [
+        { text: "Cancel", style: "cancel", onPress: () => resolve("cancel") },
+        { text: "View polish", onPress: () => resolve("view") },
+      ],
+      { cancelable: true, onDismiss: () => resolve("cancel") },
+    );
+  });
+}

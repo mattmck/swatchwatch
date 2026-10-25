@@ -37,8 +37,10 @@ export type AddGuardSurface =
   | "polishes-list"
   | "color-search"
   | "photo-match"
+  | "rapid-add"
   | "polish-form-create"
-  | "polish-form-edit";
+  | "polish-form-edit"
+  | "looks";
 
 /** Abandon the dupe check after this long and proceed with the add. */
 export const ADD_GUARD_TIMEOUT_MS = 2000;

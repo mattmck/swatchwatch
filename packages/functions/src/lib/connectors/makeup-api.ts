@@ -6,6 +6,7 @@ import {
 } from "./types";
 import { makeupApiProductText } from "../product-text";
 import { classifyIngestedProduct } from "../product-category";
+import { makeupApiProductPrice } from "../product-price";
 
 const DEFAULT_BASE_URL = "https://makeup-api.herokuapp.com";
 const REQUEST_TIMEOUT_MS = 15000;
@@ -99,6 +100,8 @@ function toNormalizedRecord(product: MakeupApiProduct): ConnectorProductRecord |
 
   // Description + descriptors for finish detection (#352); never shown to users.
   const { descriptionText, descriptors } = makeupApiProductText(product);
+  // List price (decimal string) + ISO currency when MakeupAPI gives one; `price_sign` alone is ambiguous.
+  const { price, currency } = makeupApiProductPrice(product);
 
   return {
     externalId,
@@ -112,9 +115,9 @@ function toNormalizedRecord(product: MakeupApiProduct): ConnectorProductRecord |
       productType: asNonEmptyString(product.product_type),
       category: asNonEmptyString(product.category),
       description: asNonEmptyString(product.description),
-      price: asNonEmptyString(product.price),
+      price,
       priceSign: asNonEmptyString(product.price_sign),
-      currency: asNonEmptyString(product.currency),
+      currency,
       imageUrl: asNonEmptyString(product.image_link),
       productUrl: asNonEmptyString(product.product_link),
       websiteUrl: asNonEmptyString(product.website_link),

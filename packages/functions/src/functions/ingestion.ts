@@ -62,6 +62,7 @@ import { OpenBeautyFactsConnector } from "../lib/connectors/open-beauty-facts";
 import { MakeupApiConnector } from "../lib/connectors/makeup-api";
 import { HoloTacoShopifyConnector } from "../lib/connectors/holo-taco-shopify";
 import { ShopifyGenericConnector } from "../lib/connectors/shopify-generic";
+import { isFeatureEnabled } from "../lib/feature-flags";
 import {
   ProductConnector,
   SOURCE_PROTOCOL_MAP,
@@ -100,12 +101,6 @@ const CONTINUATION_ENQUEUE_STAGE = "continuation_enqueue";
 const NON_CARRIED_METRIC_KEYS = new Set(["logs", "pipeline", RESUME_MESSAGE_METRICS_KEY]);
 
 
-function envFlagTrue(value: string | undefined): boolean {
-  if (!value) return false;
-  const normalized = value.trim().toLowerCase();
-  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
-}
-
 interface HexBatchRuntimeConfig {
   enabled: boolean;
   minImages: number;
@@ -137,7 +132,7 @@ function clampInt(
 
 function getHexBatchRuntimeConfig(): HexBatchRuntimeConfig {
   return {
-    enabled: envFlagTrue(process.env.HEX_DETECTION_BATCH_ENABLED),
+    enabled: isFeatureEnabled("hexDetectionBatch"),
     minImages: clampInt(
       process.env.HEX_DETECTION_BATCH_MIN_IMAGES,
       DEFAULT_HEX_BATCH_MIN_IMAGES,
@@ -159,7 +154,11 @@ function isRunnableConnectorSource(value: string): value is SupportedConnectorSo
   return isSupportedSource(value) && hasRunnableConnector(value);
 }
 
-function createConnector(source: SupportedConnectorSource, baseUrl?: string | null): ProductConnector {
+function createConnector(
+  source: SupportedConnectorSource,
+  baseUrl?: string | null,
+  currency?: string | null
+): ProductConnector {
   if (source === "OpenBeautyFacts") {
     return new OpenBeautyFactsConnector(baseUrl);
   }
@@ -167,12 +166,12 @@ function createConnector(source: SupportedConnectorSource, baseUrl?: string | nu
     return new MakeupApiConnector(baseUrl);
   }
   if (source === "HoloTacoShopify") {
-    return new HoloTacoShopifyConnector(baseUrl);
+    return new HoloTacoShopifyConnector(baseUrl, { currency });
   }
 
   // All other Shopify stores use the generic Shopify connector
   if (source.endsWith("Shopify")) {
-    return new ShopifyGenericConnector(source, baseUrl);
+    return new ShopifyGenericConnector(source, baseUrl, { currency });
   }
 
   throw new Error(`No connector available for source: ${source}`);
@@ -383,7 +382,7 @@ function withPipelineMetrics(
   };
 }
 
-function getPipelineStage(metrics: Record<string, unknown> | undefined): string | null {
+export function getPipelineStage(metrics: Record<string, unknown> | undefined): string | null {
   if (!metrics || typeof metrics !== "object") {
     return null;
   }
@@ -653,7 +652,7 @@ export async function processIngestionJobQueueMessage(
       recentDays: payload.request.recentDays,
     });
 
-    const connector = createConnector(payload.request.source, source.baseUrl);
+    const connector = createConnector(payload.request.source, source.baseUrl, source.currency);
     // One catalog download per job, reused across pages and continuation invocations.
     const catalogCache = createIngestionCatalogCache({
       jobId: payload.jobId,

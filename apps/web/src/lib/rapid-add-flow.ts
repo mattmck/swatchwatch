@@ -3,7 +3,14 @@
  * state machine, and how adaptive questions render. No DOM or network here; the page
  * wires these reducers to the camera, the barcode scanner and the capture API.
  */
-import type { CaptureFrameType, CaptureQuestion, CaptureStatus } from "swatchwatch-shared";
+import {
+  hintsToStartMetadata,
+  type BottleSurface,
+  type CaptureFrameType,
+  type CaptureQuestion,
+  type CaptureStatus,
+  type StickyHints,
+} from "swatchwatch-shared";
 import type { ScannedBarcode } from "./barcode-scan";
 import type { FrameQualityMetrics } from "./camera";
 import type { CaptureOutcome, CaptureVerdict } from "./capture-verdict";
@@ -114,6 +121,8 @@ export interface FrameQualityInput {
   fileName?: string;
   mimeType?: string;
   fileSize?: number;
+  /** Which side of the bottle this frame shows (bottle flow). */
+  surface?: BottleSurface | null;
 }
 
 /**
@@ -139,6 +148,7 @@ export function buildFrameQuality(input: FrameQualityInput): Record<string, unkn
   if (input.fileName !== undefined) quality.fileName = input.fileName;
   if (input.mimeType !== undefined) quality.mimeType = input.mimeType;
   if (input.fileSize !== undefined) quality.fileSize = input.fileSize;
+  if (input.surface) quality.surface = input.surface;
   return quality;
 }
 
@@ -146,7 +156,16 @@ export function buildFrameQuality(input: FrameQualityInput): Record<string, unkn
 // Capture session
 // ---------------------------------------------------------------------------
 
-export type RapidAddBusy = "starting" | "finalizing" | "answering" | "resolving" | "undoing";
+export type RapidAddBusy =
+  | "starting"
+  | "checking"
+  | "finalizing"
+  | "answering"
+  | "resolving"
+  | "undoing"
+  | "wishlisting"
+  | "skipping"
+  | "creating";
 
 export interface RapidAddSessionState {
   captureId: string | null;
@@ -157,6 +176,8 @@ export interface RapidAddSessionState {
   verdict: CaptureVerdict | null;
   /** Set once the "I didn't buy another" quantity undo has been applied. */
   quantityRestored: boolean;
+  /** The barcode was unknown and the user chose to photograph the label (same session). */
+  labelRequested: boolean;
   busy: RapidAddBusy | null;
   error: string | null;
 }
@@ -169,6 +190,7 @@ export const INITIAL_SESSION_STATE: RapidAddSessionState = {
   outcome: null,
   verdict: null,
   quantityRestored: false,
+  labelRequested: false,
   busy: null,
   error: null,
 };
@@ -181,6 +203,7 @@ export type SessionAction =
   | { type: "outcome_received"; outcome: CaptureOutcome }
   | { type: "verdict_resolved"; verdict: CaptureVerdict | null }
   | { type: "quantity_restored" }
+  | { type: "label_requested" }
   | { type: "failed"; error: string }
   | { type: "error_dismissed" }
   | { type: "reset" };
@@ -213,6 +236,9 @@ export function sessionReducer(state: RapidAddSessionState, action: SessionActio
       return { ...state, verdict: action.verdict, busy: null };
     case "quantity_restored":
       return { ...state, quantityRestored: true, busy: null };
+    case "label_requested":
+      // Unknown barcode → label photo: same session, so the GTIN is learned on the match.
+      return { ...state, verdict: null, labelRequested: true, busy: null, error: null };
     case "failed":
       return { ...state, busy: null, error: action.error };
     case "error_dismissed":
@@ -224,11 +250,91 @@ export function sessionReducer(state: RapidAddSessionState, action: SessionActio
 
 export type RapidAddPhase = "collecting" | "question" | "resolving" | "verdict";
 
-export function rapidAddPhase(state: RapidAddSessionState): RapidAddPhase {
+export function rapidAddPhase(
+  state: Pick<RapidAddSessionState, "verdict" | "status" | "question">,
+): RapidAddPhase {
   if (state.verdict) return "verdict";
   if (isFinished(state.status)) return "resolving";
   if (state.status === "needs_question" && state.question) return "question";
   return "collecting";
+}
+
+/**
+ * A freshly decoded barcode is checked right away (its frame's upload response carries the
+ * verdict, no OCR; without a frame, one `check` call). Not once a verdict is showing or the
+ * user is photographing the label for an unknown barcode, and never in the guided bottle
+ * sequence: there the barcode is one more piece of evidence and the server's `nextFrame` decides
+ * whether to ask for another photo or to check (a catalog match ends the sequence by itself).
+ */
+export function shouldCheckBarcodeFrame(
+  session: Pick<RapidAddSessionState, "labelRequested" | "verdict">,
+  barcode: ScannedBarcode | null,
+  opts: { bottleSequence: boolean },
+): barcode is ScannedBarcode {
+  return Boolean(barcode) && !opts.bottleSequence && !session.labelRequested && !session.verdict;
+}
+
+/**
+ * The frame type and bottle surface a captured photo is sent as. In the bottle sequence a photo
+ * the user took (shutter, auto-shutter or an upload) is the prompted surface's frame even when a
+ * barcode is in view (a bottle's bottom often has its sticker), so the label is still read; the
+ * barcode rides along in its quality. A live read off the preview stays a barcode frame.
+ */
+export function stillFrameTarget(
+  event: { frameType: CaptureFrameType; barcode: ScannedBarcode | null; trigger: "live-scan" | "shutter" | "auto" | "file" },
+  view: { surface: BottleSurface; frameType: CaptureFrameType } | null,
+): { frameType: CaptureFrameType; surface: BottleSurface | null } {
+  if (view && event.trigger !== "live-scan") return { frameType: view.frameType, surface: view.surface };
+  return { frameType: event.frameType, surface: event.barcode ? null : (view?.surface ?? null) };
+}
+
+/**
+ * A live barcode read with no snapshot can only be checked from the session metadata, and only a
+ * session that read starts carries the GTIN there (`buildStartMetadata`). For an existing session
+ * (e.g. a label photo came first) the check would report a false "unknown barcode", so skip it.
+ * In the bottle sequence the read is only kept: the first photo's session start sends it along.
+ */
+export function canCheckBarcodeFromMetadata(
+  session: Pick<RapidAddSessionState, "captureId" | "labelRequested" | "verdict">,
+  barcode: ScannedBarcode | null,
+  opts: { bottleSequence: boolean } = { bottleSequence: false },
+): barcode is ScannedBarcode {
+  return shouldCheckBarcodeFrame(session, barcode, opts) && session.captureId === null;
+}
+
+/**
+ * What a barcode read off the live preview should do, given the scan in progress:
+ * - `scan`: nothing scanned yet, so this barcode starts (or joins) the scan;
+ * - `repeat`: the barcode this scan already read, so just say so (no new frame);
+ * - `next_scan`: a different barcode while a verdict is showing, so start the next bottle;
+ * - `wait`: a request is in flight, so ignore it for now;
+ * - `finish_first`: a different barcode mid-scan (this one already has a barcode), or while a
+ *   pick list or create card waits for the user, so it is only offered, never switched to.
+ */
+export type LiveBarcodeAction = "scan" | "repeat" | "next_scan" | "wait" | "finish_first";
+
+export function planLiveBarcode(
+  session: Pick<RapidAddSessionState, "barcode" | "verdict" | "status" | "question" | "busy">,
+  gtin: string,
+): LiveBarcodeAction {
+  const phase = rapidAddPhase(session);
+  if (session.barcode?.gtin === gtin) return session.busy ? "wait" : "repeat";
+  if (session.busy || phase === "resolving") return "wait";
+  if (phase === "verdict") {
+    const kind = session.verdict?.kind;
+    return kind === "pick" || kind === "create_card" ? "finish_first" : "next_scan";
+  }
+  if (session.barcode) return "finish_first";
+  return "scan";
+}
+
+/**
+ * The "scanned ✓" pill: the barcode was read on the device, and whether the server is still
+ * checking it. Null until a barcode is read.
+ */
+export function scanBadge(state: RapidAddSessionState): { gtin: string; checking: boolean } | null {
+  if (!state.barcode) return null;
+  return { gtin: state.barcode.gtin, checking: state.busy === "checking" || state.busy === "starting" };
 }
 
 /**
@@ -247,17 +353,34 @@ export function canFinalize(input: {
   return summary.uploaded > 0 || Boolean(input.session.barcode) || input.hasHints;
 }
 
-/** Metadata for `POST /api/capture/start`: a scanned GTIN is the strongest evidence. */
+/**
+ * A check (read-only) can run as soon as there is something to match on, in the collecting
+ * phase: the same rule as `canFinalize`, so the bottle flow never checks half-uploaded frames.
+ */
+export function canCheck(input: {
+  frames: readonly CaptureFrameEntry[];
+  session: RapidAddSessionState;
+  hasHints: boolean;
+}): boolean {
+  return canFinalize(input);
+}
+
+/**
+ * Metadata for `POST /api/capture/start`: a scanned GTIN is the strongest evidence. Sticky
+ * (batch) hints fill the brand, finish and collection a bottle's own hint leaves empty.
+ */
 export function buildStartMetadata(input: {
   barcode: ScannedBarcode | null;
   hints: { brand?: string; shadeName?: string; finish?: string; collection?: string };
+  sticky?: StickyHints | null;
 }): Record<string, unknown> {
   const metadata: Record<string, unknown> = { source: "web-rapid-add" };
   const trimmed = (value?: string) => (value && value.trim() ? value.trim() : undefined);
-  const brand = trimmed(input.hints.brand);
+  const sticky = input.sticky ? hintsToStartMetadata(input.sticky) : {};
+  const brand = trimmed(input.hints.brand) ?? sticky.brand;
   const shadeName = trimmed(input.hints.shadeName);
-  const finish = trimmed(input.hints.finish);
-  const collection = trimmed(input.hints.collection);
+  const finish = trimmed(input.hints.finish) ?? sticky.finish;
+  const collection = trimmed(input.hints.collection) ?? sticky.collection;
   if (brand) metadata.brand = brand;
   if (shadeName) metadata.shadeName = shadeName;
   if (finish) metadata.finish = finish;

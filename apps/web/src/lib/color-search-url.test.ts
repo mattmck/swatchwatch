@@ -20,7 +20,7 @@ describe("parseColorSearchState (#348)", () => {
       qs(
         "color=ff8800&harmony=triadic&wheel=snap&set=collection&scope=collection&tone=warm" +
           "&brand=Holo%20Taco&finish=holo&avail=wishlist&focus=aa0000,00bb00&target=00bb00" +
-          "&palette=triadic-%23FF8800-%23001122"
+          "&palette=triadic-%23FF8800-%23001122&returnTo=%2Fpolishes%2Flooks%3Fmood%3Dbold"
       )
     );
     assert.deepEqual(state, {
@@ -36,6 +36,7 @@ describe("parseColorSearchState (#348)", () => {
       paletteAnchors: ["#AA0000", "#00BB00"],
       target: "#00BB00",
       paletteId: "triadic-#FF8800-#001122",
+      returnTo: "/polishes/looks?mood=bold",
     } satisfies ColorSearchUrlState);
   });
 
@@ -47,7 +48,7 @@ describe("parseColorSearchState (#348)", () => {
 
   it("drops invalid values", () => {
     const state = parseColorSearchState(
-      qs("color=red&harmony=bogus&wheel=x&set=y&scope=z&tone=hot&avail=maybe&focus=xyz,123456,123456&target=nope")
+      qs("color=red&harmony=bogus&wheel=x&set=y&scope=z&tone=hot&avail=maybe&focus=xyz,123456,123456&target=nope&returnTo=https://evil.example")
     );
     assert.deepEqual(state, { ...DEFAULT_COLOR_SEARCH_STATE, paletteAnchors: ["#123456"] });
   });
@@ -80,6 +81,7 @@ describe("buildColorSearchQueryString", () => {
       paletteAnchors: ["#AA0000", "#00BB00"],
       target: "#AA0000",
       paletteId: "complementary-#FF8800-#0077FF",
+      returnTo: "/polishes/looks?occasion=party&toppers=0",
     };
     const query = buildColorSearchQueryString(state);
     assert.deepEqual(parseColorSearchState(qs(query)), state);
@@ -100,5 +102,14 @@ describe("colorSearchHref", () => {
       colorSearchHref({ ...DEFAULT_COLOR_SEARCH_STATE, color: "#112233", resultsScope: "collection" }),
       "/polishes/search?color=112233&scope=collection"
     );
+  });
+});
+
+describe("returnTo (#386)", () => {
+  it("keeps only same-origin relative paths", () => {
+    assert.equal(parseColorSearchState(qs("returnTo=%2F%2Fevil.example")).returnTo, null);
+    assert.equal(parseColorSearchState(qs("returnTo=javascript:alert(1)")).returnTo, null);
+    assert.equal(parseColorSearchState(qs("returnTo=%2Fpolishes%2Flooks")).returnTo, "/polishes/looks");
+    assert.equal(buildColorSearchQueryString({ ...DEFAULT_COLOR_SEARCH_STATE, returnTo: "https://evil.example" }), "");
   });
 });

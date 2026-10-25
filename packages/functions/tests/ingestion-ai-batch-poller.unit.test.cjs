@@ -231,7 +231,7 @@ beforeEach(() => {
     errorFileId: null,
     requestCounts: { total: 2, completed: 2, failed: 0 },
   };
-  applyResult = { processed: 2, applied: 1, skippedNoDetection: 1, noShadeMatch: 0 };
+  applyResult = { processed: 2, applied: 1, appliedHex: 1, skippedNoDetection: 1, noShadeMatch: 0 };
   onApply = () => {};
   onPoll = () => {};
   enqueueMock = async () => {};
@@ -356,7 +356,7 @@ describe("ingestion-ai-batch-poller completed batch", () => {
     seedJob(secondMetrics);
     calls = [];
     batchStatus = { ...batchStatus, id: "batch-2", outputFileId: "file-out-2" };
-    applyResult = { processed: 3, applied: 2, skippedNoDetection: 0, noShadeMatch: 1 };
+    applyResult = { processed: 3, applied: 2, appliedHex: 1, skippedNoDetection: 0, noShadeMatch: 1 };
 
     await runPoller();
 
@@ -370,6 +370,7 @@ describe("ingestion-ai-batch-poller completed batch", () => {
     assert.deepEqual(done.aiBatchApplyTotals, {
       processed: 5,
       applied: 3,
+      appliedHex: 2,
       skippedNoDetection: 1,
       noShadeMatch: 1,
       outputRows: 4,
@@ -381,6 +382,22 @@ describe("ingestion-ai-batch-poller completed batch", () => {
       completionTokens: 30,
       totalTokens: 330,
     });
+  });
+});
+
+describe("ingestion-ai-batch-poller — appliedHex in totals written before it existed", () => {
+  it("seeds a missing appliedHex from the earlier applied count", async () => {
+    seedJob({
+      ...makeAwaitingMetrics({}),
+      aiBatchApplyTotals: { processed: 6, applied: 5, skippedNoDetection: 1 },
+    });
+    applyResult = { processed: 2, applied: 2, appliedHex: 1, skippedNoDetection: 0, noShadeMatch: 0 };
+
+    await runPoller();
+
+    const done = calls.find((c) => c.type === "succeeded").metrics;
+    assert.equal(done.aiBatchApplyTotals.applied, 7);
+    assert.equal(done.aiBatchApplyTotals.appliedHex, 6);
   });
 });
 

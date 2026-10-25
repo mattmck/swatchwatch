@@ -1,4 +1,6 @@
 import { createHash, createHmac } from "node:crypto";
+import { describeFetchError, fetchWithRetry } from "./fetch-retry";
+export { SourceImageUploadError, describeImageStoreFailure, type SourceImageUploadStep } from "./image-store-error";
 import { computeImageFingerprintSafely, type ImageFingerprint } from "./gallery-dedupe";
 import { ImageProxyConfigError } from "./image-proxy-errors";
 import {
@@ -8,6 +10,8 @@ import {
   planImageVariantCrop,
   renderImageVariant,
 } from "./image-variants";
+import { blobStorageRetry, blobStorageTransport, getBlobStorageDispatcher } from "./storage-http";
+import { SourceImageUploadError, type SourceImageUploadStep } from "./image-store-error";
 
 const AZURE_STORAGE_API_VERSION = "2023-11-03";
 const DEFAULT_SOURCE_IMAGE_CONTAINER = "source-images";
@@ -379,46 +383,89 @@ async function runWithTimeout<T>(promise: Promise<T>, timeoutMs: number, label: 
   }
 }
 
+/**
+ * One Azure Blob Storage REST call over the pooled storage Agent (lib/storage-http).
+ *
+ * Every non-GET response body is read before returning so its socket goes back to the pool; GET
+ * callers read (or `text()`) the body themselves. There is no HEAD: undici closes the socket after
+ * every HEAD response, so each one cost a new TCP + TLS connect and an outbound SNAT port, and the
+ * 4–5 existence checks per catalog image exhausted the Consumption instance's ports to the storage
+ * IP until every connect on it timed out (`blobExists` uses Get Blob Metadata instead). PUT is
+ * always retried on transient network errors (a connect timeout, refused or reset connection, no
+ * response) and 429/5xx: Put Blob of a checksum-named blob and container creation are idempotent,
+ * and fetch only rejects for it before a response arrived. GET opts in with `retry` (the successful
+ * body is buffered inside the attempt so a reset mid-body is retried too). DELETE is never
+ * retried, since a retry after a lost success response would report the blob as missing.
+ */
 async function sendStorageRequest(
   config: StorageAccountConfig,
-  method: "PUT" | "GET" | "HEAD" | "DELETE",
+  method: "PUT" | "GET" | "DELETE",
   url: URL,
   headers: Record<string, string>,
-  body?: Buffer
+  body?: Buffer,
+  options: { retry?: boolean } = {}
 ): Promise<Response> {
   const finalizedUrl = mergeSas(url, config.sasToken);
-  const requestHeaders: Record<string, string> = {
-    ...headers,
-    "x-ms-date": new Date().toUTCString(),
-    "x-ms-version": AZURE_STORAGE_API_VERSION,
-  };
-
-  if (!config.sasToken) {
-    if (!config.accountKey) {
-      throw new Error("Account key missing for storage request");
-    }
-    requestHeaders.Authorization = authorizationHeader(
-      method,
-      config.accountName,
-      config.accountKey,
-      finalizedUrl,
-      requestHeaders
-    );
-  }
-
   const requestBody = body ? new Uint8Array(body) : undefined;
 
-  const response = await runWithTimeout(
-    fetch(finalizedUrl.toString(), {
+  const send = async () => {
+    // Signed per attempt: x-ms-date must be fresh (Storage rejects requests older than 15 min).
+    const requestHeaders: Record<string, string> = {
+      ...headers,
+      "x-ms-date": new Date().toUTCString(),
+      "x-ms-version": AZURE_STORAGE_API_VERSION,
+    };
+    if (!config.sasToken) {
+      if (!config.accountKey) {
+        throw new Error("Account key missing for storage request");
+      }
+      requestHeaders.Authorization = authorizationHeader(
+        method,
+        config.accountName,
+        config.accountKey,
+        finalizedUrl,
+        requestHeaders
+      );
+    }
+    const response = await blobStorageTransport.fetch(finalizedUrl.toString(), {
       method,
       headers: requestHeaders,
       body: requestBody,
-    }),
-    REQUEST_TIMEOUT_MS,
-    "Azure Blob Storage request"
-  );
+      dispatcher: getBlobStorageDispatcher(REQUEST_TIMEOUT_MS),
+    });
+    return method === "GET" ? response : bufferBody(response);
+  };
 
-  return response;
+  const retryOptions = { ...blobStorageRetry, label: `Azure Blob Storage ${method}` };
+  if (method === "PUT") {
+    return fetchWithRetry(send, retryOptions);
+  }
+  if (options.retry && method === "GET") {
+    return fetchWithRetry(async () => bufferSuccessfulBody(await send()), retryOptions);
+  }
+  return send();
+}
+
+/** Read any response's body now (releasing the socket) and return an equivalent buffered Response. */
+async function bufferBody(response: Response): Promise<Response> {
+  if (response.body === null) return response;
+  const body = await response.arrayBuffer();
+  return new Response(body.byteLength > 0 ? body : null, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+/** Read an OK response's body now and return an equivalent, already-buffered Response. */
+async function bufferSuccessfulBody(response: Response): Promise<Response> {
+  if (!response.ok || response.body === null) return response;
+  const body = await response.arrayBuffer();
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
 }
 
 function normalizeContainerName(
@@ -621,6 +668,12 @@ export interface ReadBlobOptions {
    * (`SOURCE_IMAGE_CONTAINER`, default `source-images`).
    */
   allowedContainers?: readonly string[];
+  /**
+   * Retry transient network errors and 429/5xx (`fetchWithRetry`). Off by default so latency-
+   * sensitive reads such as the image proxy fall back at once; batch jobs (the variants backfill)
+   * turn it on.
+   */
+  retry?: boolean;
 }
 
 export function defaultReadableContainers(): string[] {
@@ -725,7 +778,9 @@ export async function readBlobFromStorageUrl(
     options.allowedContainers ?? defaultReadableContainers()
   );
 
-  const response = await sendStorageRequest(config, "GET", parsedStorageUrl, {});
+  const response = await sendStorageRequest(config, "GET", parsedStorageUrl, {}, undefined, {
+    retry: options.retry,
+  });
   if (!response.ok) {
     const details = await response.text().catch(() => "");
     throw new BlobReadError(
@@ -789,16 +844,20 @@ export async function blobExists(
 ): Promise<boolean> {
   const config = parseStorageConnectionString(connectionString);
   const container = normalizeContainerName(containerName);
+  // Get Blob Metadata, not HEAD (Get Blob Properties): a GET keeps its pooled socket (see
+  // sendStorageRequest). It answers 200 with an empty body, or 404 for a missing blob.
   const blobUrl = new URL(
-    `${config.blobEndpoint}/${container}/${encodeBlobPath(blobName)}`
+    `${config.blobEndpoint}/${container}/${encodeBlobPath(blobName)}?comp=metadata`
   );
-  const response = await sendStorageRequest(config, "HEAD", blobUrl, {});
+  const response = await sendStorageRequest(config, "GET", blobUrl, {}, undefined, { retry: true });
 
   if (response.status === 200) {
     return true;
   }
 
   if (response.status === 404) {
+    // Read the small error body so the socket goes back to the pool.
+    await response.arrayBuffer().catch(() => undefined);
     return false;
   }
 
@@ -829,42 +888,78 @@ export async function ensureContainer(
   }
 }
 
+function urlHost(value: string): string | null {
+  try {
+    return new URL(value).host;
+  } catch {
+    return null;
+  }
+}
+
+/** Run `fn`, rethrowing any failure as a `SourceImageUploadError` for `step`. */
+async function atUploadStep<T>(step: SourceImageUploadStep, host: string | null, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    throw error instanceof SourceImageUploadError ? error : new SourceImageUploadError(step, host, error);
+  }
+}
+
+/**
+ * Download a vendor image, normalize it and store it (plus its thumbnail variants) in the source
+ * image container. Every failure is a `SourceImageUploadError` naming the failed step.
+ */
 export async function uploadSourceImageToBlob(
   params: UploadSourceImageOptions & { skipContainerEnsure?: boolean }
 ): Promise<UploadedBlobImage> {
   console.log(`[blob-storage] Downloading image from ${params.sourceImageUrl}`);
-  const sourceResponse = await runWithTimeout(
-    fetch(params.sourceImageUrl, {
-      method: "GET",
-      headers: { "User-Agent": "SwatchWatch/source-image-ingestion" },
-    }),
-    REQUEST_TIMEOUT_MS,
-    "Source image download"
-  );
+  const sourceHost = urlHost(params.sourceImageUrl);
+  const limits = resolveSourceImageLimits();
+  let sourceType = "";
+  let bytes: Buffer = Buffer.alloc(0);
+  // Each attempt gets its own REQUEST_TIMEOUT_MS; transient network errors (also while reading the
+  // body, which is why the capped read happens inside the attempt) and 429/5xx are retried.
+  const sourceResponse = await atUploadStep("source_download", sourceHost, () => fetchWithRetry(
+    async () => {
+      const response = await runWithTimeout(
+        fetch(params.sourceImageUrl, {
+          method: "GET",
+          headers: { "User-Agent": "SwatchWatch/source-image-ingestion" },
+        }),
+        REQUEST_TIMEOUT_MS,
+        "Source image download"
+      );
+      if (!response.ok) return response;
+      try {
+        sourceType = assertAllowedImageType(response.headers.get("content-type") || "image/jpeg");
+      } catch (error) {
+        await response.body?.cancel().catch(() => undefined);
+        throw error;
+      }
+      bytes = await readResponseCapped(response, limits.maxDownloadBytes);
+      return response;
+    },
+    { label: "Source image download" }
+  ));
 
   if (!sourceResponse.ok) {
-    throw new Error(
-      `Failed to download source image: ${sourceResponse.status} ${sourceResponse.statusText}`
+    throw new SourceImageUploadError(
+      "source_download",
+      sourceHost,
+      new Error(`Failed to download source image: ${sourceResponse.status} ${sourceResponse.statusText}`)
     );
   }
-
-  const sourceContentType = sourceResponse.headers.get("content-type") || "image/jpeg";
-  const limits = resolveSourceImageLimits();
-  let sourceType: string;
-  try {
-    sourceType = assertAllowedImageType(sourceContentType);
-  } catch (error) {
-    await sourceResponse.body?.cancel().catch(() => undefined);
-    throw error;
-  }
-  const bytes = await readResponseCapped(sourceResponse, limits.maxDownloadBytes);
   if (bytes.length === 0) {
-    throw new Error("Image payload is empty");
+    throw new SourceImageUploadError("source_download", sourceHost, new Error("Image payload is empty"));
   }
   // Oversize images are downscaled/re-encoded rather than rejected; UPLOAD_LIMITS.maxSizeBytes
   // still guards what is stored (and handed to AI vision as a data URI).
-  const normalized = await normalizeSourceImage(bytes, sourceType, { maxEdgePx: limits.maxEdgePx });
-  const contentType = validateImageUpload(normalized.contentType, normalized.bytes.length);
+  const normalized = await atUploadStep("image_processing", null, () =>
+    normalizeSourceImage(bytes, sourceType, { maxEdgePx: limits.maxEdgePx })
+  );
+  const contentType = await atUploadStep("image_processing", null, async () =>
+    validateImageUpload(normalized.contentType, normalized.bytes.length)
+  );
   const cleanBytes = normalized.bytes;
   if (normalized.resized || normalized.reencoded) {
     console.log(
@@ -909,7 +1004,7 @@ export async function uploadSourceImageToBlob(
   const containerUrl = new URL(`${config.blobEndpoint}/${containerName}`);
   if (!params.skipContainerEnsure) {
     console.log(`[blob-storage] Ensuring container exists: ${containerName}`);
-    await ensureContainer(connectionString, containerName);
+    await atUploadStep("blob_put", containerUrl.host, () => ensureContainer(connectionString, containerName));
   }
 
   const blobUrl = new URL(`${containerUrl.toString()}/${encodeBlobPath(blobName)}`);
@@ -933,22 +1028,23 @@ export async function uploadSourceImageToBlob(
   }
 
   console.log(`[blob-storage] Uploading blob: ${blobName}`);
-  const uploadResponse = await sendStorageRequest(
-    config,
-    "PUT",
-    blobUrl,
-    {
-      "Content-Type": contentType,
-      "Content-Length": String(cleanBytes.length),
-      "x-ms-blob-type": "BlockBlob",
-    },
-    cleanBytes
-  );
-
-  if (uploadResponse.status !== 201) {
-    const details = await uploadResponse.text().catch(() => "");
-    throw new Error(`Blob upload failed: ${uploadResponse.status} ${details}`);
-  }
+  await atUploadStep("blob_put", blobUrl.host, async () => {
+    const uploadResponse = await sendStorageRequest(
+      config,
+      "PUT",
+      blobUrl,
+      {
+        "Content-Type": contentType,
+        "Content-Length": String(cleanBytes.length),
+        "x-ms-blob-type": "BlockBlob",
+      },
+      cleanBytes
+    );
+    if (uploadResponse.status !== 201) {
+      const details = await uploadResponse.text().catch(() => "");
+      throw new Error(`Blob upload failed: ${uploadResponse.status} ${details}`.trim());
+    }
+  });
 
   console.log(`[blob-storage] Blob uploaded successfully: ${blobUrl.toString()}`);
   await ensureImageVariantsSafely({ connectionString, containerName, blobName, bytes: cleanBytes });
@@ -1006,25 +1102,36 @@ export async function ensureImageVariants(params: {
 
   const original = typeof params.bytes === "function" ? await params.bytes() : params.bytes;
   const crop = await planImageVariantCrop(original);
-  await Promise.all(
-    missing.map(async (size) => {
-      try {
-        const variant = await renderImageVariant(original, size, crop);
-        await uploadBytesToBlob({
-          connectionString: params.connectionString,
-          containerName: params.containerName,
-          blobName: imageVariantBlobName(params.blobName, size),
-          bytes: variant,
-          contentType: "image/webp",
-          skipContainerEnsure: true,
-        });
-        result.written.push(size);
-      } catch (error) {
-        console.warn(`[blob-storage] Failed to store ${size}px variant of ${params.blobName}:`, error);
-        result.failed.push(size);
-      }
-    })
-  );
+  // One size at a time: each ingest worker already uploads several products in parallel, and
+  // parallel variant PUTs multiplied the sockets opened to the storage account (see lib/storage-http).
+  for (const size of missing) {
+    let variant: Buffer;
+    try {
+      variant = await renderImageVariant(original, size, crop);
+    } catch (error) {
+      console.warn(`[blob-storage] Failed to render ${size}px variant of ${params.blobName}:`, describeFetchError(error));
+      result.failed.push(size);
+      continue;
+    }
+    try {
+      await uploadBytesToBlob({
+        connectionString: params.connectionString,
+        containerName: params.containerName,
+        blobName: imageVariantBlobName(params.blobName, size),
+        bytes: variant,
+        contentType: "image/webp",
+        skipContainerEnsure: true,
+      });
+      result.written.push(size);
+    } catch (error) {
+      const host = urlHost(parseStorageConnectionString(params.connectionString).blobEndpoint);
+      console.warn(
+        `[blob-storage] Variant write (${host ?? "blob storage"}) failed for ${size}px variant of ${params.blobName}:`,
+        describeFetchError(error)
+      );
+      result.failed.push(size);
+    }
+  }
   result.written.sort((a, b) => a - b);
   result.failed.sort((a, b) => a - b);
   return result;

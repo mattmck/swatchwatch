@@ -6,9 +6,9 @@ import { useRouter } from "next/navigation";
 import type { ManicureWearStat, Polish, PolishDupesResponse } from "swatchwatch-shared";
 import { isUntriedInventory, resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
 import { getPolish, getPolishDupes, deletePolish, listPolishes, updatePolish } from "@/lib/api";
-import { colorDistance, hexToOklch, oklchToHex } from "@/lib/color-utils";
+import { hexToOklch, oklchToHex } from "@/lib/color-utils";
 import { resolveFinishLabel } from "@/lib/finish-options";
-import { POLISH_STATUS_LABELS, canRebuy, formatPurchasePrice, rebuyUpdate } from "@/lib/inventory-status";
+import { POLISH_STATUS_LABELS, canRebuy, isOwnedPolish, formatPurchasePrice, rebuyUpdate } from "@/lib/inventory-status";
 import { showArchivedToast } from "@/components/archived-toast";
 import {
   DUPE_GRADE_META,
@@ -36,10 +36,16 @@ import { BrandSpinner } from "@/components/brand-spinner";
 import { ErrorState } from "@/components/error-state";
 import { NailPhotoPanel } from "@/components/nail-photo-panel";
 import { LogManiButton } from "@/components/log-mani-button";
-import { AdminHexSipSection } from "@/components/admin-hex-sip-panel";
+import { WearHistoryPanel } from "@/components/wear-history-panel";
+import { AdminHexSipSection, AdminVendorHexSourceHint } from "@/components/admin-hex-sip-panel";
 import { canLogPolish, formatWornOn, toLocalIsoDate } from "@/lib/mani-log";
 import { detailHref, returnToLabel, safeReturnTo } from "@/lib/detail-href";
 import { toast } from "sonner";
+import { currentCacheContext, readPolishDetail, removePolishDetail, writePolishDetail } from "@/lib/api-cache";
+import { claimOfflineShown, isApiUnreachable, savedCopyAgeBucket, unreachableMessage } from "@/lib/offline";
+import { trackCollectionOfflineShown } from "@/lib/metrics-events";
+import { useOnlineRetry } from "@/hooks/use-online-retry";
+import { SavedCopyBanner } from "@/components/saved-copy-banner";
 
 /**
  * Render a detailed polish view including color swatch, metadata, images, color profile, and related shades.
@@ -62,9 +68,15 @@ export default function PolishDetailClient({
   // Back link: the page the user came from (#348); same-origin relative paths only.
   const listHref = safeReturnTo(returnTo);
   const [polish, setPolish] = useState<Polish | null>(null);
-  const [allPolishes, setAllPolishes] = useState<Polish[]>([]);
+  // Nearest shades to this one, ranked over the whole catalog by the API (`?nearHex=`), keyed
+  // by the hex so a stale response never shows for another color.
+  const [nearbyState, setNearbyState] = useState<{ hex: string; polishes: Polish[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Offline: the API is unreachable and an owned polish's saved copy is shown read-only.
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const offline = savedAt !== null;
+  const { tick: retryTick, retry: retryNow } = useOnlineRetry();
   const [deleting, setDeleting] = useState(false);
   const [rebuying, setRebuying] = useState(false);
   const archivedToastShown = useRef(false);
@@ -76,14 +88,42 @@ export default function PolishDetailClient({
     let cancelled = false;
 
     async function fetchPolish() {
+      const ctx = currentCacheContext();
+      const readSaved = () => (ctx ? readPolishDetail(ctx, id) : null);
       try {
         setLoading(true);
+        // Stale-while-revalidate: an owned polish visited before opens from its saved copy at once.
+        const warm = readSaved();
+        if (warm) {
+          setPolish(warm.data);
+          setLoading(false);
+        }
         const data = await getPolish(id);
         if (cancelled) return;
         setPolish(data);
+        setError(null);
+        setSavedAt(null);
+        const writeCtx = currentCacheContext();
+        if (writeCtx) {
+          // No longer owned (wishlisted, archived, removed): drop the earlier owned copy.
+          if (isOwnedPolish(data)) writePolishDetail(writeCtx, data);
+          else removePolishDetail(writeCtx, id);
+        }
       } catch (err: unknown) {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Failed to load polish");
+        const saved = isApiUnreachable(err) ? readSaved() : null;
+        if (saved) {
+          setPolish(saved.data);
+          setError(null);
+          setSavedAt(saved.savedAt);
+        } else {
+          setSavedAt(null);
+          setError(
+            isApiUnreachable(err)
+              ? unreachableMessage("polish")
+              : err instanceof Error ? err.message : "Failed to load polish"
+          );
+        }
       } finally {
         if (cancelled) return;
         setLoading(false);
@@ -92,14 +132,6 @@ export default function PolishDetailClient({
 
     if (id) {
       fetchPolish();
-      listPolishes()
-        .then((response) => {
-          if (cancelled) return;
-          setAllPolishes(response.polishes);
-        })
-        .catch(() => {
-          // Keep detail view usable even if related-color enrichment fails.
-        });
       getPolishDupes(id)
         .then((response) => {
           if (cancelled) return;
@@ -113,7 +145,14 @@ export default function PolishDetailClient({
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, retryTick]);
+
+  // Once per saved copy shown (a retry that fails again keeps the same copy).
+  useEffect(() => {
+    if (savedAt !== null && claimOfflineShown(`detail:${id}:${savedAt}`)) {
+      trackCollectionOfflineShown({ surface: "detail", age: savedCopyAgeBucket(savedAt, Date.now()) });
+    }
+  }, [id, savedAt]);
 
   // Once per visit: the archive toast for a polish the edit form just archived. The query flag
   // is dropped so a reload doesn't offer it again.
@@ -155,26 +194,32 @@ export default function PolishDetailClient({
     };
   }, [displayHex]);
 
+  const validDisplayHex = displayHex && /^#[0-9A-Fa-f]{6}$/.test(displayHex) ? displayHex : null;
+  useEffect(() => {
+    if (!validDisplayHex) return;
+    let cancelled = false;
+    // One extra row: the polish itself comes back first (distance 0).
+    listPolishes({ nearHex: [validDisplayHex], pageSize: 6 })
+      .then((response) => {
+        if (!cancelled) setNearbyState({ hex: validDisplayHex, polishes: response.polishes });
+      })
+      .catch(() => {
+        // Keep detail view usable even if related-color enrichment fails.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [validDisplayHex]);
+
   const relatedShades = useMemo(() => {
     const currentId = polish?.id;
-    if (!displayHex || !currentId) return [];
+    if (!validDisplayHex || !currentId || nearbyState?.hex !== validDisplayHex) return [];
 
-    return allPolishes
-      .filter(
-        (candidate) => {
-          if (candidate.id === currentId) return false;
-          const candidateHex = resolveDisplayHex(candidate);
-          return typeof candidateHex === "string" &&
-            /^#[0-9A-Fa-f]{6}$/.test(candidateHex);
-        }
-      )
-      .map((candidate) => ({
-        polish: candidate,
-        distance: colorDistance(displayHex, resolveDisplayHex(candidate)!),
-      }))
-      .sort((a, b) => a.distance - b.distance)
+    return nearbyState.polishes
+      .filter((candidate) => candidate.id !== currentId && typeof candidate.colorDistance === "number")
+      .map((candidate) => ({ polish: candidate, distance: candidate.colorDistance as number }))
       .slice(0, 5);
-  }, [allPolishes, polish, displayHex]);
+  }, [nearbyState, polish, validDisplayHex]);
 
   const detailImageUrls = useMemo(() => {
     if (!polish) return [];
@@ -245,8 +290,14 @@ export default function PolishDetailClient({
     );
   }
 
+  // Only panels that always render a card: WearHistoryPanel hides itself while loading or on error.
+  const hasSidePanels = Boolean(polish.inventoryItemId || (dupes && dupeCallout));
+
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="space-y-6">
+      {savedAt !== null && (
+        <SavedCopyBanner savedAt={savedAt} subject="polish" retrying={loading} onRetry={retryNow} />
+      )}
       <nav className="flex items-center gap-2 text-sm text-muted-foreground">
         <Link href={listHref} className="hover:text-foreground">
           {returnToLabel(listHref)}
@@ -270,8 +321,8 @@ export default function PolishDetailClient({
           className="pointer-events-none absolute -right-10 -top-10 size-40 rounded-full opacity-30 blur-3xl"
           style={{ background: displayHex || "transparent" }}
         />
-        <div className="relative flex items-start justify-between">
-          <div className="flex items-center gap-4">
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 items-center gap-4">
             {isTopper ? (
               <TopperSwatch size="lg" className="size-16 rounded-xl shadow-lg ring-2 ring-white/50" />
             ) : (
@@ -280,8 +331,8 @@ export default function PolishDetailClient({
                 style={{ backgroundColor: displayHex || "#ccc" }}
               />
             )}
-            <div>
-              <h1 className="heading-page">
+            <div className="min-w-0">
+              <h1 className="heading-page break-words">
                 {polish.name}
                 <ProductCategoryPill category={polish.productCategory} className="ml-2 align-middle" />
               </h1>
@@ -301,6 +352,7 @@ export default function PolishDetailClient({
                     <div className="flex items-center gap-1.5">
                       <ColorDot hex={polish.vendorHex} size="sm" />
                       <span className="text-[10px] text-muted-foreground">Vendor {polish.vendorHex}</span>
+                      <AdminVendorHexSourceHint shadeId={polish.id} />
                     </div>
                   )}
                   {polish.detectedHex && (
@@ -319,22 +371,24 @@ export default function PolishDetailClient({
               )}
             </div>
           </div>
-          <div className="flex flex-wrap justify-end gap-2">
+          <div className="flex flex-wrap gap-2 sm:justify-end">
             <BuyFromBrandLink
               url={polish.buyUrl}
               brand={polish.brand}
               name={polish.name}
+              price={polish}
               variant="button"
             />
-            <LogManiButton polish={polish} onWearStatsChange={applyWearStats} />
+            <LogManiButton polish={polish} onWearStatsChange={applyWearStats} disabled={offline} />
             {canRebuy(polish) && (
-              <Button variant="outline" size="sm" onClick={handleRebuy} disabled={rebuying}>
+              <Button variant="outline" size="sm" onClick={handleRebuy} disabled={rebuying || offline}>
                 {rebuying ? "Adding…" : "Rebuy"}
               </Button>
             )}
             <Button
               variant="outline"
               size="sm"
+              disabled={offline}
               onClick={() =>
                 router.push(
                   `/polishes/new?id=${polish.id}&returnTo=${encodeURIComponent(listHref)}`
@@ -347,7 +401,7 @@ export default function PolishDetailClient({
               variant="destructive"
               size="sm"
               onClick={handleDelete}
-              disabled={deleting}
+              disabled={deleting || offline}
             >
               {deleting ? "Deleting…" : "Delete"}
             </Button>
@@ -356,16 +410,41 @@ export default function PolishDetailClient({
       </div>
 
       {/* Admins only: sip a ground-truth hex from the catalog images (#351). Not mounted for others. */}
-      <AdminHexSipSection key={polish.id} shadeId={polish.id} />
+      <AdminHexSipSection key={`hex-sip-${polish.id}`} shadeId={polish.id} />
 
-      {polish.inventoryItemId && (
+      {/* Wide screens: personal panels (photo, wear, dupes) beside the shade details. */}
+      <div className={`grid items-start gap-6 ${hasSidePanels ? "lg:grid-cols-2" : ""}`}>
+      {hasSidePanels && (
+      <div className="min-w-0 space-y-6 lg:order-last">
+
+      {polish.inventoryItemId && offline && (
+        <Card data-testid="nail-photo-offline">
+          <CardHeader>
+            <CardTitle>Nail photo</CardTitle>
+            <CardDescription>
+              Your private nail photo isn&apos;t saved offline. It shows again when you&apos;re back online.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
+
+      {polish.inventoryItemId && !offline && (
         <NailPhotoPanel
-          key={polish.inventoryItemId}
+          key={`nail-photo-${polish.inventoryItemId}`}
           inventoryItemId={polish.inventoryItemId}
           polishLabel={`${polish.brand} ${polish.name}`}
           vendorHex={polish.vendorHex}
           detectedHex={polish.detectedHex}
           nameHex={polish.nameHex}
+        />
+      )}
+
+      {canLogPolish(polish) && (
+        <WearHistoryPanel
+          key={`wear-history-${polish.id}`}
+          shadeId={polish.id}
+          wearCount={polish.wearCount ?? 0}
+          logButton={<LogManiButton polish={polish} onWearStatsChange={applyWearStats} disabled={offline} />}
         />
       )}
 
@@ -434,6 +513,10 @@ export default function PolishDetailClient({
         </Card>
       )}
 
+      </div>
+      )}
+
+      <div className="min-w-0 space-y-6">
       <Card className="relative overflow-hidden">
         <span
           aria-hidden
@@ -675,6 +758,8 @@ export default function PolishDetailClient({
           </CardContent>
         </Card>
       )}
+      </div>
+      </div>
     </div>
   );
 }

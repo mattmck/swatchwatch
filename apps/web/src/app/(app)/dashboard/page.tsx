@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import type { Polish } from "swatchwatch-shared";
 import { resolveDisplayHex, resolvePolishFinishes } from "swatchwatch-shared";
-import { getCurrentUserId, listAllPolishes, listPolishes } from "@/lib/api";
+import { getCollectionStats, getCurrentUserId, listAllPolishes, listPolishes } from "@/lib/api";
+import { wishlistValueViewFromTotals, type WishlistValueView } from "@/lib/wishlist-value";
 import { isOwnedPolish, summarizeCollection } from "@/lib/inventory-status";
 import { trackEvent } from "@/lib/telemetry";
 import {
@@ -47,6 +48,8 @@ export default function DashboardPage() {
   const { finishTypes } = useReferenceData();
   const [polishes, setPolishes] = useState<Polish[]>([]);
   const [wishlistTotal, setWishlistTotal] = useState(0);
+  // Brand list-price totals of every wishlist row (per currency, unpriced counted).
+  const [wishlistValue, setWishlistValue] = useState<WishlistValueView | null>(null);
   // Keys the getting-started dismissal per user; null (lookup failed) falls back to one shared key.
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -59,22 +62,29 @@ export default function DashboardPage() {
         setError(null);
         // Owned rows only: the dashboard never needs the shared catalog, and the
         // catalog is orders of magnitude larger than any user's collection.
-        // The wishlist count is the list `total` of a one-row page: no client-side over-fetch.
-        const [response, wishlistPage, currentUserId] = await Promise.all([
+        // The wishlist count and its brand list-price totals come summed from the collection
+        // stats (the same request the stats section makes, shared while in flight), never from
+        // paging through every wishlist row. If stats fail, a one-row page still gives the count.
+        const [response, stats, currentUserId] = await Promise.all([
           listAllPolishes({
             status: ["owned"],
             sortBy: "createdAt",
             sortOrder: "desc",
           }),
-          listPolishes({ status: ["wishlist"], page: 1, pageSize: 1 }),
+          getCollectionStats().catch(() => null),
           getCurrentUserId().catch(() => null),
         ]);
+        // `wishlist` may be missing from a stats response cached before the API added it.
+        const wishlist = stats?.wishlist ?? null;
+        const wishlistCount =
+          wishlist?.count ?? (await listPolishes({ status: ["wishlist"], page: 1, pageSize: 1 })).total;
         setUserId(currentUserId === null ? null : String(currentUserId));
         const owned = response.filter(isOwnedPolish);
         setPolishes(owned);
-        setWishlistTotal(wishlistPage.total);
+        setWishlistTotal(wishlistCount);
+        setWishlistValue(wishlist ? wishlistValueViewFromTotals(wishlist.count, wishlist.listPrices) : null);
         // Sprint 1 success metric: how much of the collection carries status/tried data.
-        const summary = summarizeCollection(owned, wishlistPage.total);
+        const summary = summarizeCollection(owned, wishlistCount);
         trackEvent("collection.summary", {
           owned: summary.owned,
           untried: summary.untried,
@@ -163,7 +173,9 @@ export default function DashboardPage() {
       key: "wishlist",
       label: "Wishlist",
       value: summary.wishlist.toLocaleString(),
-      subText: summary.wishlist === 1 ? "Shade you want next" : "Shades you want next",
+      subText:
+        (summary.wishlist > 0 ? wishlistValue?.summary : null) ??
+        (summary.wishlist === 1 ? "Shade you want next" : "Shades you want next"),
       icon: Heart,
       accent: "from-brand-pink via-brand-pink-soft to-brand-lilac",
       href: "/polishes?status=wishlist",
@@ -206,12 +218,12 @@ export default function DashboardPage() {
 
       {/* Stats row */}
       {!hasNothing && (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
         {statCards.map((card) => {
           const tile = (
           <Card
             key={card.key}
-            className={`relative h-full overflow-hidden border border-brand-purple/20 bg-card/95 shadow-[0_20px_45px_rgba(66,16,126,0.12)] backdrop-blur-xl ${
+            className={`relative h-full overflow-hidden border border-brand-purple/20 py-0 sm:py-6 bg-card/95 shadow-[0_20px_45px_rgba(66,16,126,0.12)] backdrop-blur-xl ${
               card.href ? "transition-shadow group-hover:shadow-[0_24px_50px_rgba(66,16,126,0.2)]" : ""
             }`}
           >
@@ -223,14 +235,14 @@ export default function DashboardPage() {
               aria-hidden
               className="pointer-events-none absolute inset-0 opacity-70 [background:radial-gradient(circle_at_top_right,rgba(249,227,255,0.65),transparent_55%)] dark:opacity-30"
             />
-            <CardContent className="relative z-10 flex items-center justify-between gap-4 px-6 py-6">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-brand-purple-deep/80 dark:text-brand-lilac/95">
+            <CardContent className="relative z-10 flex h-full items-center justify-between gap-4 px-4 py-4 sm:px-6 sm:py-6">
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] sm:tracking-[0.35em] text-brand-purple-deep/80 dark:text-brand-lilac/95">
                   {card.label}
                 </p>
                 <div className="mt-1 flex items-baseline gap-1">
                   <p
-                    className={`text-3xl font-black leading-tight text-gradient-brand ${card.valueClassName ?? ""}`}
+                    className={`break-words text-2xl font-black leading-tight text-gradient-brand sm:text-3xl ${card.valueClassName ?? ""}`}
                   >
                     {card.value}
                   </p>
@@ -240,11 +252,11 @@ export default function DashboardPage() {
                     </span>
                   )}
                 </div>
-                <p className="mt-1 text-sm text-muted-foreground dark:text-brand-pink-soft/90">
+                <p className="mt-1 text-xs text-muted-foreground sm:text-sm dark:text-brand-pink-soft/90">
                   {card.subText}
                 </p>
               </div>
-              <div className="flex size-12 items-center justify-center rounded-xl bg-gradient-brand-soft text-white shadow-glow-brand">
+              <div className="hidden size-12 shrink-0 items-center justify-center rounded-xl bg-gradient-brand-soft text-white shadow-glow-brand sm:flex">
                 <card.icon className="size-5" aria-hidden="true" />
               </div>
             </CardContent>

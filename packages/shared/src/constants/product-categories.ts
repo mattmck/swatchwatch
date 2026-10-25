@@ -2,7 +2,7 @@ import type { ManicurePolishRole } from "../types/manicure";
 
 /**
  * What kind of product a shade is (#349, decision D23). Stored in `shade.product_category`
- * (CHECK-constrained, migration 20261019011858000_shade-product-category; a test keeps the two
+ * (CHECK-constrained, migration 20261022190729000_shade-product-category; a test keeps the two
  * lists equal). The classifier is `classifyProductCategory` in
  * `packages/functions/src/lib/product-category.ts`.
  *

@@ -7,6 +7,7 @@ import {
 import { trackMetric } from "./telemetry";
 import { normalizeDescriptors, truncateText } from "./product-text";
 import { resolveAzureOpenAiConfig } from "./azure-openai-config";
+import { describeFetchError } from "./fetch-retry";
 
 const OPENAI_API_VERSION = "2024-05-01-preview";
 const REQUEST_TIMEOUT_MS = 20000;
@@ -473,13 +474,6 @@ async function readErrorBodySnippet(response: Response): Promise<string> {
     : text;
 }
 
-function formatFetchError(error: unknown): string {
-  if (error instanceof Error) {
-    return `${error.name}: ${error.message}`;
-  }
-  return String(error);
-}
-
 function isContentFilterResponse(status: number, details: string): boolean {
   if (status !== 400) {
     return false;
@@ -561,14 +555,14 @@ async function fetchWithRetry(
       emitLog(
         options,
         "warn",
-        `[ai-color-detection] Request error attempt ${attemptNumber}/${MAX_RETRIES}: ${formatFetchError(error)}${
+        `[ai-color-detection] Request error attempt ${attemptNumber}/${MAX_RETRIES}: ${describeFetchError(error)}${
           attempt < MAX_RETRIES - 1 ? `, retrying in ${delay}ms` : ""
         }`,
         {
           attemptNumber,
           maxRetries: MAX_RETRIES,
           delayMs: attempt < MAX_RETRIES - 1 ? delay : undefined,
-          error: formatFetchError(error),
+          error: describeFetchError(error),
         }
       );
       if (attempt < MAX_RETRIES - 1) {
@@ -578,7 +572,7 @@ async function fetchWithRetry(
   }
 
   if (lastError) {
-    emitLog(options, "error", `[ai-color-detection] Exhausted retries: ${formatFetchError(lastError)}`);
+    emitLog(options, "error", `[ai-color-detection] Exhausted retries: ${describeFetchError(lastError)}`);
   }
   throw lastError || new Error("Request failed after retries");
 }
@@ -616,7 +610,7 @@ const DEFAULT_DEPLOYMENT_ENV_KEYS = ["AZURE_OPENAI_DEPLOYMENT_HEX", "AZURE_OPENA
 
 /**
  * Lower-level Azure OpenAI chat-completions call shared by the hex detectors:
- * config resolution (direct or APIM gateway), timeout + retry on 429/5xx,
+ * config resolution, timeout + retry on 429/5xx,
  * one content-filter retry with a safe prompt, token-usage metrics. Returns
  * the raw assistant content so callers own their prompt and parsing.
  *
@@ -631,15 +625,7 @@ export async function requestAzureOpenAIChatCompletion(
   const resolved = resolveAzureOpenAiConfig({
     deploymentEnvKeys: request.deploymentEnvKeys ?? DEFAULT_DEPLOYMENT_ENV_KEYS,
   });
-  const {
-    useGateway,
-    effectiveUseGateway,
-    endpoint,
-    apiKey,
-    gatewaySubscriptionKey,
-    missingGatewayPrerequisites,
-    headers: authHeaders,
-  } = resolved;
+  const { endpoint, apiKey, headers: authHeaders } = resolved;
   const deploymentOverride = options?.deployment?.trim() || null;
   const deployment = deploymentOverride ?? resolved.deployment;
   // An explicit deployment override only needs endpoint + credentials from the environment.
@@ -647,37 +633,15 @@ export async function requestAzureOpenAIChatCompletion(
     ? !!endpoint && resolved.hasAuthHeader
     : resolved.isValid;
 
-  if (useGateway && !effectiveUseGateway) {
-    emitLog(
-      options,
-      "warn",
-      "[ai-color-detection] AZURE_OPENAI_USE_GATEWAY=true but gateway prerequisites are missing; falling back to direct endpoint",
-      {
-        missingGatewayPrerequisites,
-        hasDirectEndpoint: !!resolved.directEndpoint,
-        hasApiKey: !!apiKey,
-      }
-    );
-  }
-
   if (!isValid || !endpoint || !deployment) {
     emitLog(options, "error", `[ai-color-detection] Missing Azure OpenAI config`, {
       hasEndpoint: !!endpoint,
-      hasDirectEndpoint: !!resolved.directEndpoint,
-      hasGatewayEndpoint: !!resolved.gatewayEndpoint,
       hasApiKey: !!apiKey,
-      hasGatewaySubscriptionKey: !!gatewaySubscriptionKey,
       hasDeployment: !!deployment,
       deploymentOverride,
-      useGateway,
-      effectiveUseGateway,
-      missingGatewayPrerequisites,
       availableEnvVars: {
         AZURE_OPENAI_ENDPOINT: process.env.AZURE_OPENAI_ENDPOINT ? "set" : "missing",
         AZURE_OPENAI_KEY: process.env.AZURE_OPENAI_KEY ? "set" : "missing",
-        AZURE_OPENAI_GATEWAY_ENDPOINT: process.env.AZURE_OPENAI_GATEWAY_ENDPOINT ? "set" : "missing",
-        AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY: process.env.AZURE_OPENAI_GATEWAY_SUBSCRIPTION_KEY ? "set" : "missing",
-        AZURE_OPENAI_USE_GATEWAY: process.env.AZURE_OPENAI_USE_GATEWAY ? "set" : "missing",
         AZURE_OPENAI_DEPLOYMENT_HEX: process.env.AZURE_OPENAI_DEPLOYMENT_HEX ? "set" : "missing",
         AZURE_OPENAI_DEPLOYMENT: process.env.AZURE_OPENAI_DEPLOYMENT ? "set" : "missing",
       },

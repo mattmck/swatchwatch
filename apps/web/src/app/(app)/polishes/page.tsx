@@ -28,6 +28,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Loader2, Sparkles, Upload } from "luci
 import { ColorDot } from "@/components/color-dot";
 import { LogManiButton } from "@/components/log-mani-button";
 import { WishlistShareCard } from "@/components/wishlist-share-card";
+import { WishlistValue } from "@/components/wishlist-value";
 import { CollectionQuickActions, type QuickActionSource } from "@/components/collection-quick-actions";
 import { StatusChip, UntriedBadge } from "@/components/status-chip";
 import { StatusFilter } from "@/components/status-filter";
@@ -57,6 +58,11 @@ import {
   type SortKey,
 } from "@/lib/polish-list-url";
 import { trackEvent } from "@/lib/telemetry";
+import { currentCacheContext, ownedListCacheQuery, readOwnedList, writeOwnedList } from "@/lib/api-cache";
+import { claimOfflineShown, isApiUnreachable, savedCopyAgeBucket, unreachableMessage } from "@/lib/offline";
+import { trackCollectionOfflineShown } from "@/lib/metrics-events";
+import { useOnlineRetry } from "@/hooks/use-online-retry";
+import { SavedCopyBanner } from "@/components/saved-copy-banner";
 import { DUPE_GRADE_META, dupeHintLabel, dupeHintTitle, dupeHref } from "@/lib/dupes";
 import { useDupeHints } from "@/hooks/use-dupe-hints";
 import { useAddGuard } from "@/hooks/use-add-guard";
@@ -84,13 +90,27 @@ import { detailHref } from "@/lib/detail-href";
 
 /** Idle time after the last keystroke before the search box triggers a fetch. */
 const SEARCH_DEBOUNCE_MS = 350;
+/** Sort choices for the mobile card list (the table's column headers are not shown there). */
+const MOBILE_SORT_OPTIONS: ReadonlyArray<{ key: SortKey; label: string }> = [
+  { key: "brand", label: "Brand" },
+  { key: "name", label: "Name" },
+  { key: "status", label: "Status" },
+  { key: "finish", label: "Finish" },
+  { key: "collection", label: "Collection" },
+];
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
 const HAS_B2C_CONFIG = buildMsalConfig() !== null;
 
-/** The PUT response carries no `buyUrl` (#267), so keep the one already on the row. */
+/** The PUT response carries no `buyUrl` or brand price (#267), so keep the ones already on the row. */
 function keepBuyUrl(updated: Polish, previous: Polish): Polish {
   return updated.buyUrl === undefined && previous.buyUrl !== undefined
-    ? { ...updated, buyUrl: previous.buyUrl }
+    ? {
+        ...updated,
+        buyUrl: previous.buyUrl,
+        buyPrice: previous.buyPrice,
+        buyCurrency: previous.buyCurrency,
+        buyPriceSeenAt: previous.buyPriceSeenAt,
+      }
     : updated;
 }
 
@@ -156,6 +176,15 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
   const [loading, setLoading] = useState(true);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Offline: when the API is unreachable and a saved copy of this view exists, `savedAt` is when
+  // that copy was loaded. It is shown read-only under a banner (writes and export are disabled).
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const offline = savedAt !== null;
+  // The saved first page is on screen while the request runs: quantity/status writes would send
+  // values from the copy, so they wait for fresh data.
+  const [showingWarmCopy, setShowingWarmCopy] = useState(false);
+  const { tick: retryTick, retry: retryNow } = useOnlineRetry();
+  const hasLoadedRef = useRef(false);
   const { finishTypes } = useReferenceData();
   const finishOptions = useMemo(() => buildFinishOptions(finishTypes), [finishTypes]);
   const knownFinishes = useMemo(() => knownFinishNames(finishTypes), [finishTypes]);
@@ -262,9 +291,24 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     let cancelled = false;
 
     async function fetchPolishesPage() {
+      // Saved copy of the first owned page (stale-while-revalidate): shown at once on a cold
+      // view while the request runs, and the fallback when the API cannot be reached.
+      const cacheQuery = ownedListCacheQuery({ ...listState, page, pageSize });
+      const readSaved = () => {
+        const ctx = cacheQuery ? currentCacheContext() : null;
+        return ctx && cacheQuery ? readOwnedList(ctx, cacheQuery) : null;
+      };
       try {
         setLoading(true);
         setError(null);
+
+        const warm = hasLoadedRef.current ? null : readSaved();
+        if (warm) {
+          setPolishes(warm.data.polishes);
+          setTotal(warm.data.total);
+          setHasLoaded(true);
+          setShowingWarmCopy(true);
+        }
 
         const baseFilters = toApiFilters(listState);
 
@@ -298,14 +342,27 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
         if (!cancelled) {
           setPolishes(response.polishes);
           setTotal(response.total);
+          setSavedAt(null);
+          const ctx = cacheQuery ? currentCacheContext() : null;
+          if (ctx && cacheQuery) writeOwnedList(ctx, cacheQuery, response);
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Failed to load polishes";
         if (!cancelled) {
-          setError(message);
+          const saved = isApiUnreachable(err) ? readSaved() : null;
+          if (saved) {
+            setPolishes(saved.data.polishes);
+            setTotal(saved.data.total);
+            setSavedAt(saved.savedAt);
+          } else {
+            setSavedAt(null);
+            setError(isApiUnreachable(err) ? unreachableMessage("view") : message);
+          }
         }
       } finally {
         if (!cancelled) {
+          hasLoadedRef.current = true;
+          setShowingWarmCopy(false);
           setHasLoaded(true);
           setLoading(false);
         }
@@ -316,7 +373,15 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [listState, page, pageSize, toneFilter]);
+  }, [listState, page, pageSize, toneFilter, retryTick]);
+
+  // Once per saved copy shown (a retry that fails again keeps the same copy).
+  useEffect(() => {
+    if (savedAt !== null && claimOfflineShown(`list:${ownedListCacheQuery({ ...listState, page, pageSize })}:${savedAt}`)) {
+      trackCollectionOfflineShown({ surface: "list", age: savedCopyAgeBucket(savedAt, Date.now()) });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedAt]);
 
   // Reset page when filters change (but keep initial URL-restored page). Compares against the
   // last seen filters instead of a "did mount" flag, so React Strict Mode's second effect run on
@@ -583,10 +648,24 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     return <ErrorState message={error} onRetry={() => window.location.reload()} />;
   }
 
+  // Row actions shared by the desktop table and the mobile cards, so both layouts use the same
+  // handlers (add guard, optimistic updates, mani logging).
+  const renderRowActions = (polish: Polish) => (
+    <>
+      {isOwnedPolish(polish) && <LogManiButton polish={polish} variant="icon" disabled={offline} />}
+      <CollectionQuickActions
+        polish={polish}
+        pending={offline || showingWarmCopy || actionPendingById[polish.id] === true || isGuardChecking(shadeGuardKey(polish.id))}
+        onAction={(action, source) => handleCollectionAction(polish.id, action, source)}
+        onQuantityChange={(delta) => handleQuantityChange(polish.id, delta)}
+      />
+    </>
+  );
+
   return (
     <div className="space-y-4">
       {/* Page header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="heading-page">All Polishes</h1>
           <p className="text-muted-foreground">
@@ -594,19 +673,35 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <PickForMeButton />
-          <CollectionExportMenu />
-          <Button asChild variant="outline">
-            <Link href="/polishes/import">
-              <Upload aria-hidden="true" />
-              Import
-            </Link>
-          </Button>
-          <Button asChild>
-            <Link href="/polishes/new">+ Add Polish</Link>
-          </Button>
+          <PickForMeButton disabled={offline} />
+          <CollectionExportMenu disabled={offline} />
+          {offline ? (
+            <>
+              <Button variant="outline" disabled>
+                <Upload aria-hidden="true" />
+                Import
+              </Button>
+              <Button disabled>+ Add Polish</Button>
+            </>
+          ) : (
+            <>
+              <Button asChild variant="outline">
+                <Link href="/polishes/import">
+                  <Upload aria-hidden="true" />
+                  Import
+                </Link>
+              </Button>
+              <Button asChild>
+                <Link href="/polishes/new">+ Add Polish</Link>
+              </Button>
+            </>
+          )}
         </div>
       </div>
+
+      {savedAt !== null && (
+        <SavedCopyBanner savedAt={savedAt} subject="collection" retrying={loading} onRetry={retryNow} />
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
@@ -675,6 +770,8 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
       <ProductCategoryChips value={selectedCategories} onChange={(next) => setCategoryFilter(next.join(","))} />
       {/* Opt-in public wishlist link (#268); hidden unless the server flag is on. */}
       {statusPresetFor(statuses) === "wishlist" && <WishlistShareCard />}
+      {/* What the wishlist adds up to (brand list prices, per currency; all wishlist rows, not the page). */}
+      {statusPresetFor(statuses) === "wishlist" && <WishlistValue refreshKey={total} />}
 
       {showEmptyState && (
         <PolishesEmptyState
@@ -695,6 +792,135 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
           aria-hidden
           className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-brand-pink-soft via-brand-lilac to-brand-purple"
         />
+        {/* Phones: one card per polish with its actions inline (below md). */}
+        <div className="md:hidden">
+          <div className="flex items-center gap-2 border-b border-border/60 py-2 pl-4 pr-3">
+            <span className="text-xs font-medium text-muted-foreground">Sort</span>
+            <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
+              <SelectTrigger className="h-8 w-[140px]" aria-label="Sort polishes by">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {MOBILE_SORT_OPTIONS.map((option) => (
+                  <SelectItem key={option.key} value={option.key}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon-sm"
+              aria-label={sortDirection === "asc" ? "Sorted ascending, switch to descending" : "Sorted descending, switch to ascending"}
+              onClick={() => setSortDirection((d) => (d === "asc" ? "desc" : "asc"))}
+            >
+              {sortDirection === "asc" ? <ArrowUp aria-hidden="true" /> : <ArrowDown aria-hidden="true" />}
+            </Button>
+          </div>
+          {pageItems.length === 0 ? null : (
+            <ul className="divide-y divide-border/60" aria-label="Polishes">
+              {pageItems.map((polish) => {
+                const recalcPending = recalcPendingById[polish.id] === true;
+                const dupeHint = isOwnedPolish(polish) ? undefined : dupeHints[polish.id];
+                const dupeLabel = dupeHintLabel(dupeHint);
+                const displayHex = resolveDisplayHex(polish);
+                return (
+                  <li key={polish.id} className="space-y-2 py-3 pl-4 pr-3" data-testid="polish-card">
+                    <div className="flex items-start gap-3">
+                      {polish.swatchImageUrl ? (
+                        <a
+                          href={polish.swatchImageUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label={`Open ${polish.brand} ${polish.name} swatch image in new tab`}
+                          className="shrink-0"
+                        >
+                          <SwatchThumbnail
+                            src={polish.swatchImageUrl}
+                            displaySize={48}
+                            alt={`${polish.brand} ${polish.name} swatch`}
+                            className="h-12 w-12 rounded-md border object-cover"
+                          />
+                        </a>
+                      ) : (
+                        <div className="h-12 w-12 shrink-0 rounded-md border bg-muted/40" />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs text-muted-foreground">{polish.brand}</p>
+                        <Link
+                          href={`/polishes/detail?id=${polish.id}&returnTo=${encodeURIComponent(returnToHref)}`}
+                          className="break-words font-medium text-primary hover:underline"
+                        >
+                          {polish.name}
+                        </Link>
+                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                          <StatusChip status={polish.status} />
+                          {polish.isUntried && <UntriedBadge />}
+                          <FinishBadges polish={polish} finishTypes={finishTypes} max={2} />
+                        </div>
+                        {(polish.buyUrl || (dupeLabel && dupeHint?.best)) && (
+                          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                            <BuyFromBrandLink
+                              url={polish.buyUrl}
+                              brand={polish.brand}
+                              name={polish.name}
+                              price={isOwnedPolish(polish) ? null : polish}
+                              className="flex w-fit"
+                            />
+                            {dupeLabel && dupeHint?.best && (
+                              <Link
+                                href={dupeHref(dupeHint.best, returnToHref)}
+                                title={dupeHintTitle(dupeHint) ?? undefined}
+                                aria-label={dupeHintTitle(dupeHint) ?? dupeLabel}
+                                className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none ${DUPE_GRADE_META[dupeHint.best.grade].badgeClassName}`}
+                              >
+                                <ColorDot hex={dupeHint.best.displayHex} size="sm" className="h-2.5 w-2.5" />
+                                {dupeLabel}
+                              </Link>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <ColorDot
+                        hex={displayHex}
+                        size="md"
+                        className="shrink-0 ring-2 ring-white/80 shadow-[0_0_0_1px_rgba(66,16,126,0.18),0_8px_20px_rgba(66,16,126,0.16)]"
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center justify-end gap-1">
+                      {displayHex && (
+                        <Link
+                          href={`/polishes/search?color=${displayHex.replace("#", "")}`}
+                          className="mr-auto inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground hover:text-primary"
+                          aria-label={`Find colors similar to ${polish.name}`}
+                        >
+                          <span aria-hidden="true">🔍</span> Similar
+                        </Link>
+                      )}
+                      {isAdmin && (
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="outline"
+                          disabled={recalcPending || offline}
+                          onClick={() => handleRecalcHex(polish.id)}
+                        >
+                          {recalcPending ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
+                          {recalcPending ? "Submitting..." : "Recalc"}
+                        </Button>
+                      )}
+                      {renderRowActions(polish)}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
+        {/* md and up: the full sortable table. */}
+        <div className="hidden md:block">
         <Table>
           <TableHeader className="sticky top-0 z-10">
             <TableRow className="glass border-b border-border/60">
@@ -816,6 +1042,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                             url={polish.buyUrl}
                             brand={polish.brand}
                             name={polish.name}
+                            price={isOwnedPolish(polish) ? null : polish}
                             className="mt-0.5 flex w-fit"
                           />
                         </div>
@@ -869,7 +1096,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                           size="xs"
                           variant="outline"
                           className="min-w-[102px] justify-center"
-                          disabled={recalcPending}
+                          disabled={recalcPending || offline}
                           onClick={() => handleRecalcHex(polish.id)}
                         >
                           {recalcPending ? (
@@ -883,15 +1110,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                     )}
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
-                        {owned && <LogManiButton polish={polish} variant="icon" />}
-                        <CollectionQuickActions
-                          polish={polish}
-                          pending={
-                            actionPendingById[polish.id] === true || isGuardChecking(shadeGuardKey(polish.id))
-                          }
-                          onAction={(action, source) => handleCollectionAction(polish.id, action, source)}
-                          onQuantityChange={(delta) => handleQuantityChange(polish.id, delta)}
-                        />
+                        {renderRowActions(polish)}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -900,6 +1119,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
             )}
           </TableBody>
         </Table>
+        </div>
       </div>
 
       <AddGuardDialog guard={activeGuard} onChoice={chooseGuard} returnTo={returnToHref} />

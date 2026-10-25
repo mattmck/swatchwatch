@@ -1,4 +1,12 @@
 {
+  "routes": [
+    {
+      "route": "/sw.js",
+      "headers": {
+        "cache-control": "no-cache"
+      }
+    }
+  ],
   "navigationFallback": {
     "rewrite": "/index.html",
     "exclude": [

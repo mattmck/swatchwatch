@@ -1,13 +1,9 @@
 name: Deploy Infrastructure Dev
 
+# Manual only. Pushes to dev apply infra from deploy-dev.yml, before the code
+# deploy, so the two never run side by side (infrastructure/README.md
+# "Deploy ordering"). Don't dispatch this while Deploy Dev is running.
 on:
-  push:
-    branches:
-      - dev
-    paths:
-      - infrastructure/**
-      - .github/workflows/deploy-infra.yml
-      - .github/workflows/deploy-infra-dev.yml
   workflow_dispatch:
     inputs:
       apply:

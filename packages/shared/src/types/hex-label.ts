@@ -6,8 +6,32 @@
  *
  * Routes (admin-only): `GET /api/hex-labels-admin/queue`, `GET /api/hex-labels-admin/shades/{shadeId}`
  * (one `HexLabelQueueItem`, for the polish detail page),
- * `POST /api/hex-labels-admin/labels`, `DELETE /api/hex-labels-admin/labels/{trainingSampleId}`.
+ * `POST /api/hex-labels-admin/labels`, `DELETE /api/hex-labels-admin/labels/{trainingSampleId}`,
+ * `POST|DELETE /api/hex-labels-admin/labels/{trainingSampleId}/promote` and
+ * `DELETE /api/hex-labels-admin/shades/{shadeId}/promotion` (promote a label to `shade.vendor_hex`
+ * and undo it, #321 / decision D12).
  */
+
+import type { ProductCategory, ProductCategorySource } from "../constants/product-categories";
+
+/**
+ * Where `shade.vendor_hex` came from (`shade.vendor_hex_source`, #321): `vendor` = vendor/catalog
+ * data, `manual_label` = an admin promoted the shade's manual label. Ingestion never overwrites a
+ * `manual_label` hex. Admin-only: not part of user-facing polish responses.
+ */
+export const VENDOR_HEX_SOURCES = ["vendor", "manual_label"] as const;
+export type VendorHexSource = (typeof VENDOR_HEX_SOURCES)[number];
+
+/**
+ * Where `shade.finishes` came from (`shade.finishes_source`): `rule` = ingestion / backfills,
+ * `admin` = set in the Hex Labeling tool with `PUT /api/shades-admin/{shadeId}/finishes`.
+ * Ingestion and the product-text backfill never change an `admin` list. Admin-only.
+ */
+export const FINISHES_SOURCES = ["rule", "admin"] as const;
+export type FinishesSource = (typeof FINISHES_SOURCES)[number];
+
+/** Most finishes an admin can set on one shade. */
+export const SHADE_FINISHES_MAX = 8;
 
 /** How the labelled hex was picked. */
 export type HexLabelSampleMethod = "canvas" | "eyedropper" | "manual";
@@ -67,6 +91,11 @@ export interface HexLabelQueueItem {
   brand: string;
   name: string;
   finishes: string[];
+  /** Provenance of `finishes`; `admin` lists are never changed by ingestion. */
+  finishesSource: FinishesSource;
+  /** `shade.product_category`; the queue only lists `color` shades. */
+  productCategory: ProductCategory;
+  productCategorySource: ProductCategorySource;
   vendorHex: string | null;
   detectedHex: string | null;
   nameHex: string | null;
@@ -80,6 +109,15 @@ export interface HexLabelQueueItem {
   images: HexLabelImage[];
   /** The shade's current manual label, if any. */
   label: HexLabel | null;
+  /** Provenance of `vendorHex`; null = unknown / no vendor hex. */
+  vendorHexSource: VendorHexSource | null;
+  /**
+   * The label promoted to `vendorHex` when `vendorHexSource` is `manual_label`; null when none, or
+   * when the promoted label was deleted afterwards (the promoted hex is kept).
+   */
+  promotedLabelId: string | null;
+  /** Vendor hex a promotion replaced (restored by Undo); null when not promoted or there was none. */
+  vendorHexPrevious: string | null;
 }
 
 export interface HexLabelQueueFilters {
@@ -133,4 +171,36 @@ export interface HexLabelSaveResponse {
 
 export interface HexLabelDeleteResponse {
   deleted: string;
+}
+
+/**
+ * Response of `POST /api/hex-labels-admin/labels/{id}/promote` and of the two undo routes
+ * (`DELETE .../labels/{id}/promote`, `DELETE .../shades/{shadeId}/promotion`).
+ */
+export interface HexLabelPromoteResponse {
+  shadeId: string;
+  vendorHex: string | null;
+  vendorHexSource: VendorHexSource | null;
+  promotedLabelId: string | null;
+  vendorHexPrevious: string | null;
+  /** False when the request changed nothing (repeat promote, or undo with nothing promoted). */
+  changed: boolean;
+}
+
+/**
+ * Body of `PUT /api/shades-admin/{shadeId}/finishes` (admin-only): the shade's whole finish list,
+ * primary first. Every entry must be a known finish or alias (`finish_type` / `finish_normalization`);
+ * an empty list is allowed. The list becomes sticky (`finishesSource = 'admin'`).
+ */
+export interface ShadeFinishesUpdateRequest {
+  finishes: string[];
+}
+
+export interface ShadeFinishesUpdateResponse {
+  shadeId: string;
+  /** Canonical finish names as stored, primary first. */
+  finishes: string[];
+  finishesSource: FinishesSource;
+  /** False when the list was already exactly this (nothing written, nothing logged). */
+  changed: boolean;
 }

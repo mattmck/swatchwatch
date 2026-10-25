@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CalendarHeart, Droplets, Pencil, Trash2 } from "lucide-react";
+import { CalendarHeart, Droplets, Pencil, Trash2, X } from "lucide-react";
 import type { Manicure, Polish } from "swatchwatch-shared";
 import { toast } from "sonner";
 import { deleteManicure, listAllPolishes, listManicures } from "@/lib/api";
@@ -55,6 +55,8 @@ function ManisPageContent() {
   const searchParams = useSearchParams();
   // `?log=<shadeId>` (from the polish detail page) opens the form with that polish picked.
   const [initialLogShadeId] = useState(() => searchParams.get("log"));
+  // `?shade=<shadeId>` (from the polish detail "Worn N times" panel) limits the log to manis with that polish.
+  const shadeFilter = searchParams.get("shade");
   const [todayIso] = useState(() => toLocalIsoDate(new Date()));
   const stripRange = useMemo(() => calendarStripRange(todayIso, CALENDAR_STRIP_WEEKS), [todayIso]);
 
@@ -75,8 +77,8 @@ function ManisPageContent() {
   const reload = useCallback(
     () =>
       Promise.all([
-        listManicures({ from: stripRange.from, to: stripRange.to, pageSize: 200 }),
-        listManicures({ page: 1, pageSize: HISTORY_PAGE_SIZE }),
+        listManicures({ from: stripRange.from, to: stripRange.to, pageSize: 200, shadeId: shadeFilter ?? undefined }),
+        listManicures({ page: 1, pageSize: HISTORY_PAGE_SIZE, shadeId: shadeFilter ?? undefined }),
       ])
         .then(([strip, firstPage]) => {
           setError(null);
@@ -89,7 +91,7 @@ function ManisPageContent() {
           setError(err instanceof Error ? err.message : "Failed to load your mani log");
         })
         .finally(() => setLoading(false)),
-    [stripRange]
+    [stripRange, shadeFilter]
   );
 
   useEffect(() => {
@@ -121,7 +123,7 @@ function ManisPageContent() {
   async function loadMore() {
     setLoadingMore(true);
     try {
-      const next = await listManicures({ page: historyPage + 1, pageSize: HISTORY_PAGE_SIZE });
+      const next = await listManicures({ page: historyPage + 1, pageSize: HISTORY_PAGE_SIZE, shadeId: shadeFilter ?? undefined });
       setHistory((current) => [...current, ...next.manicures.filter((m) => !current.some((c) => c.id === m.id))]);
       setHistoryTotal(next.total);
       setHistoryPage(next.page);
@@ -161,12 +163,17 @@ function ManisPageContent() {
     ? stripManicures.filter((manicure) => manicure.wornOn === selectedDate)
     : history;
   const stripCount = stripManicures.length;
+  const filterLabel = useMemo(() => {
+    if (!shadeFilter) return null;
+    const found = [...history, ...stripManicures].flatMap((m) => m.polishes).find((p) => p.shadeId === shadeFilter);
+    return found ? `${found.brand} ${found.name}` : "one polish";
+  }, [shadeFilter, history, stripManicures]);
 
   if (loading) return <BrandSpinner label="Loading your mani log…" />;
   if (error) return <ErrorState message={error} onRetry={() => void reload()} />;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="heading-page">Mani Log</h1>
@@ -180,6 +187,17 @@ function ManisPageContent() {
           Log a mani
         </Button>
       </div>
+
+      {shadeFilter && (
+        <div>
+          <Badge variant="secondary" className="gap-2 py-1">
+            Only manis with {filterLabel}
+            <Link href="/manis" aria-label="Clear polish filter" className="hover:text-foreground">
+              <X className="size-3.5" />
+            </Link>
+          </Badge>
+        </div>
+      )}
 
       <Card>
         <CardHeader>

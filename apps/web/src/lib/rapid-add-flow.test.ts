@@ -1,18 +1,24 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type { CaptureQuestion } from "swatchwatch-shared";
+import { EMPTY_STICKY_HINTS, type CaptureQuestion, type StickyHints } from "swatchwatch-shared";
 import type { ScannedBarcode } from "./barcode-scan";
 import {
   buildFrameQuality,
   buildQuestionView,
   buildStartMetadata,
   canAddFrame,
+  canCheck,
+  canCheckBarcodeFromMetadata,
   canFinalize,
   framesReducer,
   INITIAL_SESSION_STATE,
   MAX_CAPTURE_FRAMES,
+  planLiveBarcode,
   rapidAddPhase,
+  scanBadge,
   sessionReducer,
+  shouldCheckBarcodeFrame,
+  stillFrameTarget,
   summarizeFrames,
   type CaptureFrameEntry,
   type RapidAddSessionState,
@@ -249,5 +255,233 @@ describe("buildQuestionView", () => {
   it("renders candidates with readable labels and the raw value as the answer", () => {
     const view = buildQuestionView(question({ options: ["42: OPI — Big Apple Red", "skip"] }));
     assert.deepEqual(view.choices, [{ kind: "answer", label: "OPI — Big Apple Red", value: "42: OPI — Big Apple Red" }]);
+  });
+});
+
+describe("barcode check flow", () => {
+  const started: RapidAddSessionState = {
+    ...INITIAL_SESSION_STATE,
+    captureId: "c1",
+    status: "processing",
+    barcode,
+  };
+
+  it("shows the barcode as read (✓) while the server is checking, then plainly read", () => {
+    assert.equal(scanBadge(INITIAL_SESSION_STATE), null);
+    assert.deepEqual(scanBadge({ ...started, busy: "checking" }), { gtin: barcode.gtin, checking: true });
+    assert.deepEqual(scanBadge(started), { gtin: barcode.gtin, checking: false });
+  });
+
+  it("a check verdict is shown while the session stays open (nothing finalized)", () => {
+    const state = sessionReducer(
+      { ...started, busy: "checking" },
+      { type: "verdict_resolved", verdict: { kind: "unknown_barcode", gtin: barcode.gtin } },
+    );
+    assert.equal(rapidAddPhase(state), "verdict");
+    assert.equal(state.status, "processing");
+    assert.equal(state.busy, null);
+  });
+
+  it("'Photograph the label' leaves the verdict and keeps the session and barcode for the label frame", () => {
+    const withVerdict = sessionReducer(started, {
+      type: "verdict_resolved",
+      verdict: { kind: "unknown_barcode", gtin: barcode.gtin },
+    });
+    const next = sessionReducer(withVerdict, { type: "label_requested" });
+    assert.equal(next.verdict, null);
+    assert.equal(next.captureId, "c1");
+    assert.deepEqual(next.barcode, barcode);
+    assert.equal(next.labelRequested, true);
+    assert.equal(rapidAddPhase(next), "collecting");
+    assert.equal(canFinalize({ frames: [], session: next, hasHints: false }), true);
+  });
+
+  it("a reset clears the label request", () => {
+    const next = sessionReducer({ ...started, labelRequested: true }, { type: "reset" });
+    assert.equal(next.labelRequested, false);
+  });
+});
+
+describe("canCheckBarcodeFromMetadata", () => {
+  it("only a session this read starts carries the GTIN in its metadata", () => {
+    assert.equal(canCheckBarcodeFromMetadata(INITIAL_SESSION_STATE, barcode), true);
+  });
+
+  it("not in the bottle sequence: the barcode rides along in the start metadata instead", () => {
+    assert.equal(canCheckBarcodeFromMetadata(INITIAL_SESSION_STATE, barcode, { bottleSequence: true }), false);
+  });
+
+  it("an already started session (label photo first) never learns it from a frameless read", () => {
+    assert.equal(canCheckBarcodeFromMetadata({ ...INITIAL_SESSION_STATE, captureId: "c1" }, barcode), false);
+  });
+
+  it("not while photographing the label for an unknown barcode, after a verdict, or without a barcode", () => {
+    assert.equal(canCheckBarcodeFromMetadata({ ...INITIAL_SESSION_STATE, labelRequested: true }, barcode), false);
+    assert.equal(
+      canCheckBarcodeFromMetadata({ ...INITIAL_SESSION_STATE, verdict: { kind: "unknown_barcode", gtin: barcode.gtin } }, barcode),
+      false,
+    );
+    assert.equal(canCheckBarcodeFromMetadata(INITIAL_SESSION_STATE, null), false);
+  });
+});
+
+describe("shouldCheckBarcodeFrame", () => {
+  const afterFront: RapidAddSessionState = { ...INITIAL_SESSION_STATE, captureId: "c1", status: "processing" };
+
+  it("a decoded barcode is checked at once outside the bottle sequence", () => {
+    assert.equal(shouldCheckBarcodeFrame(afterFront, barcode, { bottleSequence: false }), true);
+  });
+
+  it("not in the bottle sequence: a barcode read while turning to the bottom keeps the server's nextFrame", () => {
+    // Regression: after the front photo, the bottom's (or side's) barcode was checked as a plain
+    // barcode scan and the verdict replaced the "Now the bottom" prompt before it was taken.
+    assert.equal(shouldCheckBarcodeFrame(afterFront, barcode, { bottleSequence: true }), false);
+    assert.equal(shouldCheckBarcodeFrame(INITIAL_SESSION_STATE, barcode, { bottleSequence: true }), false);
+  });
+
+  it("not while photographing the label for an unknown barcode, after a verdict, or without a barcode", () => {
+    const opts = { bottleSequence: false };
+    assert.equal(shouldCheckBarcodeFrame({ ...afterFront, labelRequested: true }, barcode, opts), false);
+    assert.equal(
+      shouldCheckBarcodeFrame({ ...afterFront, verdict: { kind: "unknown_barcode", gtin: barcode.gtin } }, barcode, opts),
+      false,
+    );
+    assert.equal(shouldCheckBarcodeFrame(afterFront, null, opts), false);
+  });
+});
+
+describe("stillFrameTarget", () => {
+  const bottom = { surface: "bottom" as const, frameType: "label" as const };
+
+  it("a bottle photo with a barcode in view stays the prompted surface's frame", () => {
+    // Regression: the bottom's barcode sticker turned the bottom photo into a barcode frame with
+    // no surface, so it skipped OCR and the sticker read and the bottom was never counted.
+    for (const trigger of ["shutter", "auto", "file"] as const) {
+      assert.deepEqual(stillFrameTarget({ frameType: "barcode", barcode, trigger }, bottom), {
+        frameType: "label",
+        surface: "bottom",
+      });
+    }
+  });
+
+  it("a live barcode read is a barcode frame with no surface", () => {
+    assert.deepEqual(stillFrameTarget({ frameType: "barcode", barcode, trigger: "live-scan" }, bottom), {
+      frameType: "barcode",
+      surface: null,
+    });
+  });
+
+  it("outside the bottle sequence the camera's frame type is kept", () => {
+    assert.deepEqual(stillFrameTarget({ frameType: "barcode", barcode, trigger: "shutter" }, null), {
+      frameType: "barcode",
+      surface: null,
+    });
+    assert.deepEqual(stillFrameTarget({ frameType: "label", barcode: null, trigger: "shutter" }, null), {
+      frameType: "label",
+      surface: null,
+    });
+  });
+});
+
+describe("bottle flow additions", () => {
+  const baseQuality = {
+    source: "web-camera" as const,
+    width: 1,
+    height: 1,
+    sourceWidth: 1,
+    sourceHeight: 1,
+    metrics: { brightness: 0, contrast: 0, sharpness: 0 },
+  };
+
+  it("adds the surface to frame quality only when set", () => {
+    assert.equal(buildFrameQuality({ ...baseQuality, surface: "glass" }).surface, "glass");
+    assert.equal("surface" in buildFrameQuality(baseQuality), false);
+    assert.equal("surface" in buildFrameQuality({ ...baseQuality, surface: null }), false);
+  });
+
+  it("fills start metadata from sticky hints when the per-bottle hint is empty", () => {
+    const sticky: StickyHints = {
+      ...EMPTY_STICKY_HINTS,
+      brand: "loud",
+      brandCanonical: "Loud Lacquer",
+      finish: "creme",
+    };
+    const metadata = buildStartMetadata({ barcode: null, hints: {}, sticky });
+    assert.equal(metadata.brand, "Loud Lacquer");
+    assert.equal(metadata.finish, "creme");
+    assert.equal("collection" in metadata, false);
+  });
+
+  it("lets a typed per-bottle hint beat the sticky one", () => {
+    const sticky: StickyHints = { ...EMPTY_STICKY_HINTS, brand: "loud", brandCanonical: "Loud Lacquer", finish: "creme" };
+    const metadata = buildStartMetadata({ barcode: null, hints: { brand: "OPI", finish: "glitter" }, sticky });
+    assert.equal(metadata.brand, "OPI");
+    assert.equal(metadata.finish, "glitter");
+  });
+
+  it("ignores null sticky hints", () => {
+    assert.deepEqual(buildStartMetadata({ barcode: null, hints: {}, sticky: null }), { source: "web-rapid-add" });
+  });
+
+  describe("canCheck", () => {
+    const collecting: RapidAddSessionState = { ...INITIAL_SESSION_STATE, captureId: "c1", status: "processing" };
+    const one = framesReducer([], { type: "added", frame: frame("a") });
+    const uploaded = framesReducer(one, { type: "upload_succeeded", localId: "a", frameId: "1" });
+
+    it("is false while a frame uploads and true once one is uploaded", () => {
+      assert.equal(canCheck({ frames: one, session: collecting, hasHints: false }), false);
+      assert.equal(canCheck({ frames: uploaded, session: collecting, hasHints: false }), true);
+    });
+
+    it("is false without evidence or while busy", () => {
+      assert.equal(canCheck({ frames: [], session: INITIAL_SESSION_STATE, hasHints: false }), false);
+      assert.equal(canCheck({ frames: [], session: INITIAL_SESSION_STATE, hasHints: true }), true);
+      assert.equal(canCheck({ frames: uploaded, session: { ...collecting, busy: "checking" }, hasHints: false }), false);
+    });
+
+    it("is allowed in the collecting phase but not in a question", () => {
+      const asking: RapidAddSessionState = {
+        ...collecting,
+        status: "needs_question",
+        question: question({}),
+      };
+      assert.equal(canCheck({ frames: uploaded, session: asking, hasHints: false }), false);
+    });
+  });
+});
+
+describe("planLiveBarcode", () => {
+  const other = "0123456789012";
+  const checked = { kind: "checked", relationship: "owned", shadeId: "1" } as unknown as RapidAddSessionState["verdict"];
+
+  it("starts a scan when nothing has been read", () => {
+    assert.equal(planLiveBarcode(INITIAL_SESSION_STATE, barcode.gtin), "scan");
+  });
+
+  it("calls the same code a repeat, or waits while it is being checked", () => {
+    const read = { ...INITIAL_SESSION_STATE, barcode };
+    assert.equal(planLiveBarcode(read, barcode.gtin), "repeat");
+    assert.equal(planLiveBarcode({ ...read, busy: "checking" }, barcode.gtin), "wait");
+    assert.equal(planLiveBarcode({ ...read, verdict: checked }, barcode.gtin), "repeat");
+  });
+
+  it("starts the next bottle on a new code while a verdict shows", () => {
+    assert.equal(planLiveBarcode({ ...INITIAL_SESSION_STATE, barcode, verdict: checked }, other), "next_scan");
+    assert.equal(
+      planLiveBarcode({ ...INITIAL_SESSION_STATE, barcode, verdict: checked, busy: "wishlisting" }, other),
+      "wait",
+    );
+  });
+
+  it("only offers a new code mid-scan or while a pick list or create card waits", () => {
+    assert.equal(planLiveBarcode({ ...INITIAL_SESSION_STATE, barcode }, other), "finish_first");
+    for (const kind of ["pick", "create_card"]) {
+      const verdict = { kind } as unknown as RapidAddSessionState["verdict"];
+      assert.equal(planLiveBarcode({ ...INITIAL_SESSION_STATE, verdict }, other), "finish_first");
+    }
+  });
+
+  it("waits while a finished session resolves", () => {
+    assert.equal(planLiveBarcode({ ...INITIAL_SESSION_STATE, status: "matched" }, other), "wait");
   });
 });
