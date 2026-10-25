@@ -282,6 +282,19 @@ describe("applyAiBatchShadeDetections — provenance write", () => {
     assert.doesNotMatch(sql, /hex_agreement\s*=/);
   });
 
+  it("counts appliedHex only for matched rows that carry a detected hex", async () => {
+    const metrics = await applyAiBatchShadeDetections(
+      7,
+      [
+        { externalId: "ext-1", detectedHex: "#112233", detectedFinishes: null },
+        { externalId: "ext-2", detectedHex: null, detectedFinishes: ["shimmer"] },
+      ],
+      false
+    );
+    assert.equal(metrics.applied, 2, "both rows matched a shade");
+    assert.equal(metrics.appliedHex, 1, "the finishes-only row adds no hex");
+  });
+
   it("sends null provenance when a detection carries none", async () => {
     await applyAiBatchShadeDetections(
       7,

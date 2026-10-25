@@ -23,6 +23,8 @@ import { describeImageStoreFailure } from "./image-store-error";
 import { toImageProxyUrlFromOrigin } from "./image-proxy";
 import { snapDetectionToImage, type HexSnapLogLevel } from "./hex-snap";
 import { loadDetectionImageBytes } from "./detection-image";
+import { withHexDetectionTotals } from "./ingestion-hex-totals";
+import { describeFetchError } from "./fetch-retry";
 import pLimit = require("p-limit");
 import {
   buildSuspiciousHexContext,
@@ -1548,7 +1550,7 @@ async function prepareHoloTacoImageData(
       // Batch submission failed: degrade to synchronous detection for this run so the
       // job still materializes detected hex instead of failing outright. Detections are
       // applied via the same shade write path the batch poller uses.
-      const reason = error instanceof Error ? error.message : String(error);
+      const reason = describeFetchError(error);
       metrics.batchFallbacks += 1;
       const fallbackMessage = `${sourceLogPrefix} Batch submission failed (${reason}); falling back to synchronous hex detection for ${queuedBatchRequests.length} request(s)`;
       console.warn(fallbackMessage);
@@ -1867,7 +1869,7 @@ export async function markIngestionJobRunning(
          error = NULL,
          metrics_json = $2::jsonb
      WHERE ingestion_job_id = $1`,
-    [jobId, metrics]
+    [jobId, withHexDetectionTotals(metrics)]
   );
 }
 
@@ -1879,7 +1881,7 @@ export async function updateIngestionJobMetrics(
     `UPDATE ingestion_job
      SET metrics_json = $2::jsonb
      WHERE ingestion_job_id = $1`,
-    [jobId, metrics]
+    [jobId, withHexDetectionTotals(metrics)]
   );
 }
 
@@ -1897,7 +1899,7 @@ export async function updateRunningIngestionJobMetrics(
      SET metrics_json = $2::jsonb
      WHERE ingestion_job_id = $1
        AND status = 'running'`,
-    [jobId, metrics]
+    [jobId, withHexDetectionTotals(metrics)]
   );
   return (result.rowCount ?? 0) > 0;
 }
@@ -1912,7 +1914,7 @@ export async function markIngestionJobSucceeded(
          finished_at = now(),
          metrics_json = $2::jsonb
      WHERE ingestion_job_id = $1`,
-    [jobId, metrics]
+    [jobId, withHexDetectionTotals(metrics)]
   );
 }
 
@@ -1928,7 +1930,7 @@ export async function markIngestionJobFailed(
          error = $2,
          metrics_json = $3::jsonb
      WHERE ingestion_job_id = $1`,
-    [jobId, errorMessage, metrics]
+    [jobId, errorMessage, withHexDetectionTotals(metrics)]
   );
   // Signal for the prod "ingestion job failed" alert (infrastructure/main.tf).
   trackEvent("ingestion.job_failed", { jobId, error: errorMessage.slice(0, 500) });
@@ -2046,7 +2048,7 @@ export async function getIngestionJobById(jobId: number): Promise<IngestionJobRe
     status: row.status,
     startedAt: row.startedAt,
     finishedAt: row.finishedAt || undefined,
-    metrics: row.metrics || undefined,
+    metrics: row.metrics ? withHexDetectionTotals(row.metrics) : undefined,
     error: row.error || undefined,
   };
 }
@@ -2106,7 +2108,10 @@ export interface AiBatchShadeDetectionInput {
 
 export interface ApplyAiBatchShadeDetectionsMetrics {
   processed: number;
+  /** Rows matched to a shade (hex and/or finishes). */
   applied: number;
+  /** Subset of `applied` that carried a detected hex, the batch counterpart of `hexDetected`. */
+  appliedHex: number;
   skippedNoDetection: number;
   noShadeMatch: number;
 }
@@ -2117,6 +2122,7 @@ export async function applyAiBatchShadeDetections(
   overwriteDetectedHex: boolean
 ): Promise<ApplyAiBatchShadeDetectionsMetrics> {
   let applied = 0;
+  let appliedHex = 0;
   let skippedNoDetection = 0;
   let noShadeMatch = 0;
 
@@ -2199,6 +2205,9 @@ export async function applyAiBatchShadeDetections(
 
     if (result.rows.length > 0) {
       applied += 1;
+      if (detectedHex) {
+        appliedHex += 1;
+      }
     } else {
       noShadeMatch += 1;
     }
@@ -2207,6 +2216,7 @@ export async function applyAiBatchShadeDetections(
   return {
     processed: detections.length,
     applied,
+    appliedHex,
     skippedNoDetection,
     noShadeMatch,
   };
@@ -2271,7 +2281,7 @@ export async function listIngestionJobs(
       status: row.status,
       startedAt: row.startedAt,
       finishedAt: row.finishedAt || undefined,
-      metrics: row.metrics || undefined,
+      metrics: row.metrics ? withHexDetectionTotals(row.metrics) : undefined,
       error: row.error || undefined,
     })),
     total: parseInt(countResult.rows[0].total, 10),
