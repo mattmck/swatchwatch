@@ -38,6 +38,7 @@ import { NailPhotoPanel } from "@/components/nail-photo-panel";
 import { LogManiButton } from "@/components/log-mani-button";
 import { WearHistoryPanel } from "@/components/wear-history-panel";
 import { AdminHexSipSection, AdminVendorHexSourceHint } from "@/components/admin-hex-sip-panel";
+import { AdminCatalogSection } from "@/components/admin-catalog-panel";
 import { canLogPolish, formatWornOn, toLocalIsoDate } from "@/lib/mani-log";
 import { detailHref, returnToLabel, safeReturnTo } from "@/lib/detail-href";
 import { toast } from "sonner";
@@ -411,6 +412,14 @@ export default function PolishDetailClient({
 
       {/* Admins only: sip a ground-truth hex from the catalog images (#351). Not mounted for others. */}
       <AdminHexSipSection key={`hex-sip-${polish.id}`} shadeId={polish.id} />
+
+      {/* Admins only: product category override and the vendor listings' source JSON. */}
+      <AdminCatalogSection
+        key={`catalog-${polish.id}`}
+        shadeId={polish.id}
+        productCategory={polish.productCategory}
+        onCategoryChange={(productCategory) => setPolish((current) => (current ? { ...current, productCategory } : current))}
+      />
 
       {/* Wide screens: personal panels (photo, wear, dupes) beside the shade details. */}
       <div className={`grid items-start gap-6 ${hasSidePanels ? "lg:grid-cols-2" : ""}`}>

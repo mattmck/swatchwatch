@@ -183,7 +183,7 @@ describe("materializeHoloTacoRecords hex detection", () => {
   });
 
   it("runs detections concurrently up to the limit but commits one at a time in record order", async () => {
-    const metrics = await materializeHoloTacoRecords(1, 7, records(7), { detectHexFromImage: true });
+    const metrics = await materializeHoloTacoRecords(7, records(7), { detectHexFromImage: true });
 
     assert.equal(maxInFlightDetections, 3);
     assert.equal(detectCalls.length, 7);
@@ -204,7 +204,7 @@ describe("materializeHoloTacoRecords hex detection", () => {
     base.normalized.name = "Sticky Base";
     base.normalized.tags = ["base-coat", "nail-polish"];
 
-    const metrics = await materializeHoloTacoRecords(1, 7, [record(0), topper, base], { detectHexFromImage: true });
+    const metrics = await materializeHoloTacoRecords(7, [record(0), topper, base], { detectHexFromImage: true });
 
     assert.deepEqual(detectCalls, ["Shade 0"]);
     assert.equal(metrics.hexDetected, 1);
@@ -227,7 +227,7 @@ describe("materializeHoloTacoRecords hex detection", () => {
       { externalId: "p1", productCategory: "topper" },
       { externalId: "p2", productCategory: "accessory" },
     ];
-    const metrics = await materializeHoloTacoRecords(1, 7, records(3), { detectHexFromImage: true });
+    const metrics = await materializeHoloTacoRecords(7, records(3), { detectHexFromImage: true });
 
     assert.deepEqual(detectCalls, ["Shade 0"], "no vision call for admin-categorized shades");
     assert.equal(metrics.hexDetected, 1);
@@ -238,20 +238,20 @@ describe("materializeHoloTacoRecords hex detection", () => {
   });
 
   it("skips the admin lookup when hex detection is off", async () => {
-    await materializeHoloTacoRecords(1, 7, records(2), { detectHexFromImage: false });
+    await materializeHoloTacoRecords(7, records(2), { detectHexFromImage: false });
     assert.equal(adminLookups.length, 0);
   });
 
   it("falls back to the default concurrency for invalid values", async () => {
     process.env.HEX_DETECTION_CONCURRENCY = "0";
-    await materializeHoloTacoRecords(1, 7, records(6), { detectHexFromImage: true });
+    await materializeHoloTacoRecords(7, records(6), { detectHexFromImage: true });
     assert.equal(maxInFlightDetections, 4);
   });
 
   it("skips AI for records whose image is unchanged and whose shade already has a hex", async () => {
     lookupHandler = async () => [{ externalId: "p1" }];
 
-    const metrics = await materializeHoloTacoRecords(1, 7, records(3), { detectHexFromImage: true });
+    const metrics = await materializeHoloTacoRecords(7, records(3), { detectHexFromImage: true });
 
     assert.deepEqual(detectCalls.sort(), ["Shade 0", "Shade 2"]);
     assert.equal(metrics.hexDetectionSkippedUnchanged, 1);
@@ -270,7 +270,7 @@ describe("materializeHoloTacoRecords hex detection", () => {
   it("re-detects everything when overwriteDetectedHex is set", async () => {
     lookupHandler = async () => [{ externalId: "p1" }];
 
-    const metrics = await materializeHoloTacoRecords(1, 7, records(3), {
+    const metrics = await materializeHoloTacoRecords(7, records(3), {
       detectHexFromImage: true,
       overwriteDetectedHex: true,
     });
@@ -285,7 +285,7 @@ describe("materializeHoloTacoRecords hex detection", () => {
       throw new Error("connection reset");
     };
 
-    const metrics = await materializeHoloTacoRecords(1, 7, records(3), { detectHexFromImage: true });
+    const metrics = await materializeHoloTacoRecords(7, records(3), { detectHexFromImage: true });
 
     assert.equal(detectCalls.length, 3);
     assert.equal(metrics.hexDetected, 3);
@@ -297,7 +297,7 @@ describe("materializeHoloTacoRecords hex detection", () => {
     failTransactionAt = 1;
 
     await assert.rejects(
-      materializeHoloTacoRecords(1, 7, records(6), { detectHexFromImage: true }),
+      materializeHoloTacoRecords(7, records(6), { detectHexFromImage: true }),
       /commit failed/
     );
     // Give any detections that escaped the queue time to run before counting.
@@ -308,7 +308,7 @@ describe("materializeHoloTacoRecords hex detection", () => {
   });
 
   it("does not look anything up when hex detection is off", async () => {
-    await materializeHoloTacoRecords(1, 7, records(2), { detectHexFromImage: false });
+    await materializeHoloTacoRecords(7, records(2), { detectHexFromImage: false });
 
     assert.equal(lookupCalls.length, 0);
     assert.equal(detectCalls.length, 0);
@@ -320,7 +320,7 @@ describe("materializeHoloTacoRecords hex detection", () => {
     withText.normalized.descriptionText = "A linear holo with gold shimmer.";
     withText.normalized.descriptors = ["Nail Polish", "Linear Holo"];
 
-    await materializeHoloTacoRecords(1, 7, [withText], { detectHexFromImage: true });
+    await materializeHoloTacoRecords(7, [withText], { detectHexFromImage: true });
 
     assert.equal(detectContexts.length, 1);
     const context = detectContexts[0];
@@ -356,7 +356,7 @@ describe("materializeHoloTacoRecords hex snapping (HEX_DETECTION_SNAP_ENABLED)",
 
   it("writes the model hex as vision-direct and never loads the image while the flag is off", async () => {
     imageLoader = () => solidPng(0x10, 0x20, 0x30);
-    const metrics = await materializeHoloTacoRecords(1, 7, records(2), { detectHexFromImage: true });
+    const metrics = await materializeHoloTacoRecords(7, records(2), { detectHexFromImage: true });
 
     assert.equal(metrics.hexSnapped, 0);
     assert.deepEqual(loadedImageUrls, []);
@@ -370,7 +370,7 @@ describe("materializeHoloTacoRecords hex snapping (HEX_DETECTION_SNAP_ENABLED)",
   it("snaps the model hex to the image sent to the model and records vision-snap provenance", async () => {
     process.env.HEX_DETECTION_SNAP_ENABLED = "true";
     imageLoader = () => solidPng(0x10, 0x20, 0x30);
-    const metrics = await materializeHoloTacoRecords(1, 7, records(2), { detectHexFromImage: true });
+    const metrics = await materializeHoloTacoRecords(7, records(2), { detectHexFromImage: true });
 
     assert.equal(metrics.hexDetected, 2);
     assert.equal(metrics.hexSnapped, 2);
@@ -393,7 +393,7 @@ describe("materializeHoloTacoRecords hex snapping (HEX_DETECTION_SNAP_ENABLED)",
       if (call === 1) throw new Error("fetch failed");
       return solidPng(0xf4, 0xf4, 0xf4);
     };
-    const metrics = await materializeHoloTacoRecords(1, 7, records(2), { detectHexFromImage: true });
+    const metrics = await materializeHoloTacoRecords(7, records(2), { detectHexFromImage: true });
 
     assert.equal(metrics.hexDetected, 2, "a snap problem never drops the detection");
     assert.equal(metrics.hexDetectionFailures, 0);

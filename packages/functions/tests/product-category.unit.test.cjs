@@ -133,6 +133,10 @@ describe("lib/product-category — sets, bundles and more accessories (#347 foll
     shade("Holiday Gift-Set", "Nail Polish"),
     shade("Fall Favorites 4-Piece", "Nail Polish"),
     shade("Neon 2-Piece", "Nail Polish"),
+    // A year or plural finish word after "Collection" (Red Eyed Lacquer, Night Owl Lacquer, 2026-10-25).
+    shade("Rain Collection 2026", "Nail Polish"),
+    shade("Light & Bright Collection Cremes", "Polish"),
+    shade("Halloween 2026 Collection", "Polish", ["Fall", "Halloween"]),
   ];
   for (const input of SETS) {
     it(`${input.shadeName} is a set (accessory, evidence set)`, () => {
@@ -161,6 +165,9 @@ describe("lib/product-category — sets, bundles and more accessories (#347 foll
       shade("Citrine - Yellow Orange Holographic Polish - Anniversary Trio", "Holographic"),
       // "2-in-1" is not a piece count.
       shade("2-in-1 Glow", "Nail Polish"),
+      // Only a year or a PLURAL finish word extends the set suffix.
+      shade("Collection Shimmer", "Nail Polish"),
+      shade("Jet Set 2026", "Nail Polish"),
     ];
     for (const input of singles) {
       assert.equal(classifyProductCategory(input).category, "color", input.shadeName);

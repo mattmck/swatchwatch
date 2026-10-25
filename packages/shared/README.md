@@ -224,6 +224,7 @@ Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/b
 | `ProductCategoryReportShade`, `ProductCategoryChangeItem`, `HeldAccessoryItem`, `TopperHexCandidate` | Report rows |
 | `ShadeProductCategoryUpdateRequest`, `ShadeProductCategoryUpdateResponse` | `PUT /api/shades-admin/{id}/product-category` |
 | `ShadeProductCategoryItem`, `ShadeProductCategoryListResponse` | `GET /api/shades-admin/product-category` |
+| `ShadeSourceProduct`, `ShadeSourceProductsResponse` | `GET /api/shades-admin/{id}/source-products`: the connector products (raw + normalized JSON) behind a shade, admin-only |
 
 ### `looks/` (Looks recommender)
 

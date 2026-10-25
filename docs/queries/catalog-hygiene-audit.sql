@@ -29,7 +29,8 @@
 --                           collection, "3-pack", ...; read from set_haystack, which cuts each name and
 --                           title at "... nail/holographic polish - ", where Dam names the release a single shade belongs
 --                           to: "... Blue Shimmer Nail Polish - 10th Anniversary Trio"), a shade name, color name, title or product type
---                           with no " - " part that ENDS in set(s)/collection (mid-title they name single
+--                           with no " - " part that ENDS in set(s)/collection, optionally + a year or a
+--                           plural finish word ("Rain Collection 2026", "... Collection Cremes") (mid-title they name single
 --                           shades, "Set On Fire"; Dam annotates singles "Ox - ... - Chinese Zodiac
 --                           Collection"; "Jet Set"/"Sun Set" are polishes), or a whole set tag (bundle,
 --                           bundles-sets, collection-set, gift-set)
@@ -102,8 +103,8 @@ WITH source_text AS (
     -- A title or product type that ends in set(s)/collection, checked per product because the
     -- aggregated text has no per-title end. Same regex as the shade-name check in `base`.
     bool_or(
-      lower(COALESCE(e.raw_json ->> 'title', e.normalized_json ->> 'name', '')) ~ '^(?!.* [-–|] ).*(?<!jet )(?<!sun )\m(sets?|collection)\s*(\[[^]]*\]|\([^)]*\))?\s*$'
-      OR lower(concat_ws(' ', e.raw_json ->> 'product_type', e.normalized_json ->> 'productType', e.normalized_json ->> 'category')) ~ '^(?!.* [-–|] ).*(?<!jet )(?<!sun )\m(sets?|collection)\s*(\[[^]]*\]|\([^)]*\))?\s*$'
+      lower(COALESCE(e.raw_json ->> 'title', e.normalized_json ->> 'name', '')) ~ '^(?!.* [-–|] ).*(?<!jet )(?<!sun )\m(sets?|collection)(\s+((19|20)\d{2}|cremes|crèmes|shimmers|glitters|jellies|holos|toppers|polishes|lacquers))?\s*(\[[^]]*\]|\([^)]*\))?\s*$'
+      OR lower(concat_ws(' ', e.raw_json ->> 'product_type', e.normalized_json ->> 'productType', e.normalized_json ->> 'category')) ~ '^(?!.* [-–|] ).*(?<!jet )(?<!sun )\m(sets?|collection)(\s+((19|20)\d{2}|cremes|crèmes|shimmers|glitters|jellies|holos|toppers|polishes|lacquers))?\s*(\[[^]]*\]|\([^)]*\))?\s*$'
     ) AS has_set_suffix,
     string_agg(DISTINCT e.raw_json ->> 'product_type', ', ') AS product_types,
     min(e.raw_json ->> 'title') AS sample_title
@@ -132,8 +133,8 @@ base AS (
     COALESCE(st.has_accessory_type_tag, false) AS has_accessory_type_tag,
     (COALESCE(st.has_set_tag, false)
       OR COALESCE(st.has_set_suffix, false)
-      OR lower(COALESCE(s.shade_name_canonical, '')) ~ '^(?!.* [-–|] ).*(?<!jet )(?<!sun )\m(sets?|collection)\s*(\[[^]]*\]|\([^)]*\))?\s*$'
-      OR lower(COALESCE(s.color_name, '')) ~ '^(?!.* [-–|] ).*(?<!jet )(?<!sun )\m(sets?|collection)\s*(\[[^]]*\]|\([^)]*\))?\s*$'
+      OR lower(COALESCE(s.shade_name_canonical, '')) ~ '^(?!.* [-–|] ).*(?<!jet )(?<!sun )\m(sets?|collection)(\s+((19|20)\d{2}|cremes|crèmes|shimmers|glitters|jellies|holos|toppers|polishes|lacquers))?\s*(\[[^]]*\]|\([^)]*\))?\s*$'
+      OR lower(COALESCE(s.color_name, '')) ~ '^(?!.* [-–|] ).*(?<!jet )(?<!sun )\m(sets?|collection)(\s+((19|20)\d{2}|cremes|crèmes|shimmers|glitters|jellies|holos|toppers|polishes|lacquers))?\s*(\[[^]]*\]|\([^)]*\))?\s*$'
     ) AS has_set_marker,
     -- Ambiguous accessory words (jewels, studs, foils, ...) only count for a product that has a
     -- product type and none of its types names a polish ("Crown Jewels", type Nail Polish, is a polish).

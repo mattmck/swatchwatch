@@ -100,7 +100,6 @@ describe("materializeHoloTacoRecords job-log milestones", () => {
     const log = captureLogger();
 
     await materializeHoloTacoRecords(
-      1,
       7,
       [record(0), record(1)],
       { detectHexFromImage: true, progressLogger: log.progressLogger, chunkLabel: "Records 1–2 of 2 on page 1" },
@@ -130,7 +129,7 @@ describe("materializeHoloTacoRecords job-log milestones", () => {
   it("keeps per-record step lines (selection, token usage, success, AI info) out of the job log", async () => {
     const log = captureLogger();
 
-    await materializeHoloTacoRecords(1, 7, [record(0)], {
+    await materializeHoloTacoRecords(7, [record(0)], {
       detectHexFromImage: true,
       progressLogger: log.progressLogger,
     });
@@ -148,7 +147,7 @@ describe("materializeHoloTacoRecords job-log milestones", () => {
       throw new Error("Exhausted retries");
     };
 
-    await materializeHoloTacoRecords(1, 7, [record(0), record(1)], {
+    await materializeHoloTacoRecords(7, [record(0), record(1)], {
       detectHexFromImage: true,
       progressLogger: log.progressLogger,
       chunkLabel: "Records 1–2",
@@ -174,7 +173,7 @@ describe("materializeHoloTacoRecords job-log milestones", () => {
     const nameless = record(2);
     nameless.normalized.name = null;
 
-    await materializeHoloTacoRecords(1, 7, [record(0), nameless], {
+    await materializeHoloTacoRecords(7, [record(0), nameless], {
       detectHexFromImage: false,
       progressLogger: log.progressLogger,
     });

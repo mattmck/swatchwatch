@@ -188,6 +188,8 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `GET` | `/api/shades-admin/product-category` | `listByCategory` | `admin-product-category.ts` | ✅ Working (admin-only) |
 | `PUT` | `/api/shades-admin/{id}/product-category` | `setCategory` | `admin-product-category.ts` | ✅ Working (admin-only) |
 | `PUT` | `/api/shades-admin/{id}/finishes` | `setShadeFinishes` | `admin-shade-finishes.ts` | ✅ Working (admin-only, sticky `finishes_source = 'admin'`) |
+| `GET` | `/api/shades-admin/{id}/source-products` | `getShadeSourceProducts` | `shade-sources-admin.ts` | ✅ Working (admin-only; every connector product linked to the shade through `shade_source_product`, newest sighting first, with source, external id, GTIN, `productUrl`, fetch/seen dates and the raw + normalized JSON; `ShadeSourceProductsResponse`) |
+| `POST` | `/api/inventory-admin/imported-wishlist/backfill` | `cleanupImportedWishlist` | `inventory-admin.ts` | ✅ Working (admin-only; one keyset batch removing the untouched wishlist rows old ingestion runs added for their admin: still `wishlist`, quantity 0, the "Imported from … external_id=…" note and `imported` tag, no rating/price/purchase date/tried/worn data, no inventory event, nail photo or mani; body `{ afterInventoryItemId?: 0, limit?: 500 (≤ 2000), dryRun?: true }`, response `{ dryRun, scanned, removed, byUser, bySource, nextAfterInventoryItemId }`; the rule is re-checked in the DELETE; `lib/imported-wishlist-cleanup.ts`) |
 | `POST` | `/api/voice` | `processVoiceInput` | `voice.ts` | ⬜ Stub (auth required) |
 | `GET` | `/api/images/{id}` | `images` | `images.ts` | ✅ Working (signed ids; owner-scoped for private media; catalog thumbnails from pre-generated variants) |
 | `POST` | `/api/images-admin/variants/backfill` | `backfillImageVariants` | `image-variants-admin.ts` | ✅ Working (admin-only; one keyset batch of catalog thumbnail backfill; stops starting new images after 45 s and returns a cursor to the last finished row, so a write-heavy batch never outlasts the 230 s HTTP limit) |
@@ -553,8 +555,11 @@ Auth requirement:
 - In dev bypass mode, use an admin dev user token (for example `Bearer dev:2` with seeded admin user id 2).
 
 For `MakeupAPI`, ingestion also materializes product color variants into searchable `shade`
-rows and user inventory rows (`quantity=0`, `status='wishlist'`) by default. Set `materializeToInventory` to
-`false` to store only raw/normalized external records.
+rows by default (the `*Shopify` sources materialize one shade per product). Despite its name,
+`materializeToInventory` only controls this catalog step: set it to `false` to store only
+raw/normalized external records. Ingestion never writes `user_inventory_item` rows; until 2026-10
+it added every shade to the running admin's wishlist, and `POST /api/inventory-admin/imported-wishlist/backfill`
+(`npm run backfill:imported-wishlist`, or `/admin?tab=backfills`) removes those rows while they are untouched.
 
 Both materializers (MakeupAPI and every `*Shopify` source) also record a `shade_source_product`
 row linking each materialized shade to its `external_product`, which is where the shade's
@@ -1338,7 +1343,7 @@ Read by `npm run eval:hex` strategies, never by the Function App.
 
 ### Admin scripts and evals (`scripts/*.cjs`, `src/eval/`)
 
-`backfill:image-variants`, `backfill:barcodes`, `backfill:product-category` and `dedupe:gallery-images` call the Functions API at `API_BASE_URL` (local host by default, or a deployed app), not the database (`backfill:product-text` and `eval:hex:populate` connect to Postgres with the `PG*` variables instead). `eval:bottle` uses both: it calls the capture API at `API_BASE_URL` with `ADMIN_BEARER_TOKEN` (required), reads the samples from Postgres (`PG*`) and the frame blobs with `AZURE_STORAGE_CONNECTION` (`USER_MEDIA_CONTAINER`), filling unset variables from `local.settings.json`:
+`backfill:image-variants`, `backfill:barcodes`, `backfill:imported-wishlist`, `backfill:product-category` and `dedupe:gallery-images` call the Functions API at `API_BASE_URL` (local host by default, or a deployed app), not the database (`backfill:product-text` and `eval:hex:populate` connect to Postgres with the `PG*` variables instead). `eval:bottle` uses both: it calls the capture API at `API_BASE_URL` with `ADMIN_BEARER_TOKEN` (required), reads the samples from Postgres (`PG*`) and the frame blobs with `AZURE_STORAGE_CONNECTION` (`USER_MEDIA_CONTAINER`), filling unset variables from `local.settings.json`:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
