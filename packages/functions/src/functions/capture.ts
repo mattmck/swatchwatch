@@ -257,7 +257,8 @@ async function resolveSessionBrand(
 /**
  * Closed-set vision read of the sticker, when needed (known brand, or unusable OCR). A brand
  * with more shades than the prompt list holds is read open: a partial list would force wrong
- * picks. Never throws.
+ * picks. The front is read for its brand only, so it is read (open) only when OCR is unusable.
+ * Never throws.
  */
 async function runStickerRead(
   imageInput: string,
@@ -271,12 +272,14 @@ async function runStickerRead(
     confidence: null,
     modelCalls: 0,
   };
-  if (!shouldVisionRead({ brandKnown: sticker.brand !== null, ocr: ocrResult })) {
+  // A known brand makes the read a closed question about the name, which the front never answers.
+  const nameQuestion = sticker.brand !== null && sticker.surface !== "front";
+  if (!shouldVisionRead({ brandKnown: nameQuestion, ocr: ocrResult })) {
     return { vision: null, audit };
   }
 
   let shadeNames: string[] = [];
-  if (sticker.brand) {
+  if (sticker.brand && nameQuestion) {
     try {
       const listed = await listBrandShadeNames(sticker.brand.brandId, sticker.userId);
       if (!listed.truncated) shadeNames = listed.names;

@@ -15,6 +15,26 @@ const { collectCaptureEvidence, extractFrameEvidence, summarizeCaptureRead } = r
 const labelFrame = (quality) => ({ frameType: "label", quality });
 
 describe("collectCaptureEvidence", () => {
+  it("takes the brand and finish from a front frame but never its shade name or listed pick", () => {
+    const front = {
+      frameType: "label",
+      quality: {
+        surface: "front",
+        extracted: { brand: "Holo Taco", shadeName: "Rainbow Collection", shadeNameListed: "Unicorn Skin", finish: "holo" },
+      },
+    };
+    const evidence = collectCaptureEvidence({}, [front]);
+    assert.equal(evidence.brand, "Holo Taco");
+    assert.equal(evidence.finish, "holo");
+    assert.equal(evidence.shadeName, undefined);
+    assert.equal(evidence.shadeNameListed, undefined);
+
+    const bottom = { frameType: "label", quality: { surface: "bottom", extracted: { shadeName: "Unicorn Skin" } } };
+    assert.equal(collectCaptureEvidence({}, [front, bottom]).shadeName, "Unicorn Skin");
+    const noSurface = { frameType: "label", quality: { extracted: { shadeName: "Unicorn Skin" } } };
+    assert.equal(collectCaptureEvidence({}, [noSurface]).shadeName, "Unicorn Skin", "frames outside the bottle flow are unchanged");
+  });
+
   it("takes a metadata brand as a hint and reports empty surface state", () => {
     const evidence = collectCaptureEvidence({ brand: "OPI" }, []);
     assert.equal(evidence.brand, "OPI");
