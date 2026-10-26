@@ -41,9 +41,6 @@
     "next": "16.4.2",
     "typescript": "^5.9.3"
   },
-  "dependencies": {
-    "express": "^5.2.1"
-  },
   "overrides": {
     "react": "19.2.3",
     "react-dom": "19.2.3"
