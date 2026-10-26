@@ -160,12 +160,12 @@ export default function CollectionScreen() {
       onEndReachedThreshold={0.5}
       refreshControl={<RefreshControl refreshing={list.refreshing} onRefresh={refreshAll} tintColor={theme.colors.primary} />}
       ListFooterComponent={
-        list.loadingMore ? <ActivityIndicator style={{ margin: theme.spacing(4) }} color={theme.colors.primary} /> : null
+        list.loadingMore ? <ActivityIndicator style={{ margin: theme.spacing(4) }} color={theme.colors.primary} /> : undefined
       }
       ListEmptyComponent={
         list.loading ? (
           <CenteredState loading />
-        ) : list.error ? null : debounced || activeFilterCount(view) > 0 ? (
+        ) : list.error ? undefined : debounced || activeFilterCount(view) > 0 ? (
           <EmptyState
             testID="collection-empty-filtered"
             title="No polishes match these filters"

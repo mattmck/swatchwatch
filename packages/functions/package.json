@@ -32,7 +32,7 @@
     "jose": "^6.2.13",
     "p-limit": "^3.1.0",
     "pg": "^8.23.1",
-    "redis": "^5.11.0",
+    "redis": "^6.3.0",
     "sharp": "^0.35.5",
     "swatchwatch-shared": "*",
     "undici": "^8.12.3"

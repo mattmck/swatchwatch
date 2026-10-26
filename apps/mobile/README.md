@@ -1,6 +1,6 @@
 # SwatchWatch mobile (Expo)
 
-The iOS / Android app: Expo SDK 57 (React Native 0.86, React 19.2, new architecture) with
+The iOS / Android app: Expo SDK 58 (React Native 0.88, React 19.3, new architecture) with
 Expo Router. It talks to the same Azure Functions API as the web app, with the same auth
 token, the same `swatchwatch-shared` types and the same color palette.
 
@@ -40,7 +40,7 @@ npm run dev:functions         # API on http://localhost:7071/api (AUTH_DEV_BYPAS
 npm run dev:mobile            # builds shared types, then `expo start`
 ```
 
-Native iOS builds need full Xcode (`xcode-select -s /Applications/Xcode.app/Contents/Developer`) and CocoaPods (`brew install cocoapods`). The Xcode 27 SDK requires the UIKit scene lifecycle, which Expo SDK 57 adopts through the `expo-build-properties` plugin's `ios.enableSceneSupport` (set in `app.json`; SDK 58 includes it, then remove the plugin). Without it the app is killed at launch with "UIScene life cycle is required".
+Native iOS builds need full Xcode (`xcode-select -s /Applications/Xcode.app/Contents/Developer`) and CocoaPods (`brew install cocoapods`). The Xcode 27 SDK requires the UIKit scene lifecycle (without it the app is killed at launch with "UIScene life cycle is required"); Expo SDK 58 includes it in the project template, so no config plugin is needed.
 
 Then press `i` (iOS simulator), `a` (Android emulator) or `w` (web preview), or scan the QR
 code with a development build. Useful variants, run from `apps/mobile`:

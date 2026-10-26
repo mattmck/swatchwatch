@@ -195,11 +195,11 @@ export default function ManisScreen() {
           </View>
         }
         renderItem={({ item }) => <ManiCard mani={item} onDelete={() => confirmDelete(item)} />}
-        ListFooterComponent={loadingMore ? <ActivityIndicator color={theme.colors.primary} /> : null}
+        ListFooterComponent={loadingMore ? <ActivityIndicator color={theme.colors.primary} /> : undefined}
         ListEmptyComponent={
           loading ? (
             <CenteredState loading />
-          ) : error ? null : (
+          ) : error ? undefined : (
             shadeFilter ? (
               <EmptyState
                 testID="manis-empty-filtered"

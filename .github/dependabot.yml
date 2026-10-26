@@ -21,6 +21,20 @@ updates:
       - dependency-name: react-native
       - dependency-name: react-native-safe-area-context
       - dependency-name: react-native-screens
+      - dependency-name: "@react-native-async-storage/async-storage"
+      # Majors held back from the 2026-10 npm-major group (#465):
+      # typescript-eslint supports TypeScript < 6.1 and Functions still use
+      # moduleResolution node10 (removed in 7); @types/node follows the Node 22
+      # runtime; p-limit 7 is ESM-only (Functions are CommonJS);
+      # eslint-plugin-react (Next and Expo configs) breaks on ESLint 10.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: p-limit
+        update-types: ["version-update:semver-major"]
+      - dependency-name: eslint
+        update-types: ["version-update:semver-major"]
     groups:
       npm-minor-patch:
         update-types: [minor, patch]

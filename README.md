@@ -16,7 +16,7 @@ Smart nail polish collection manager with color-based search, barcode and camera
 swatchwatch/
 ├── apps/
 │   ├── web/              → Next.js 16 (App Router) + Tailwind v4 + shadcn/ui
-│   └── mobile/           → Expo / React Native (SDK 57, Expo Router)
+│   └── mobile/           → Expo / React Native (SDK 58, Expo Router)
 ├── packages/
 │   ├── functions/        → Azure Functions v4 (Node 22, TypeScript)
 │   └── shared/           → Shared TypeScript types (polish, user, voice)
@@ -54,7 +54,7 @@ Admin authorization note:
 
 ## Prerequisites
 
-- **Node.js ≥ 20** (see `engines` in `package.json`)
+- **Node.js ≥ 22.13** (see `engines` in `package.json`; Expo SDK 58 and React Native 0.88 need it)
 - **Docker** — for local Postgres (pgvector)
 - **Azure Functions Core Tools v4** — for local functions development (`brew install azure-functions-core-tools@4`)
 - **Terraform ≥ 1.5** — for infrastructure provisioning

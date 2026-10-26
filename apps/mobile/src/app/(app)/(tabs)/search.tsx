@@ -155,7 +155,7 @@ function TextSearch() {
         )}
         ItemSeparatorComponent={() => <View style={{ height: 1, marginLeft: 84, backgroundColor: theme.colors.border }} />}
         ListEmptyComponent={
-          loading ? null : searched ? (
+          loading ? undefined : searched ? (
             <View style={{ padding: theme.spacing(4), gap: theme.spacing(3) }}>
               <AppText muted>No shades match “{searched}”.</AppText>
               <Button
