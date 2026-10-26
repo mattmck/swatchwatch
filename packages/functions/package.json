@@ -35,7 +35,7 @@
     "redis": "^6.3.0",
     "sharp": "^0.35.5",
     "swatchwatch-shared": "*",
-    "undici": "^8.12.3"
+    "undici": "^6.29.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
