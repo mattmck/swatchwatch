@@ -16,7 +16,7 @@ Smart nail polish collection manager with color-based search, barcode and camera
 swatchwatch/
 ├── apps/
 │   ├── web/              → Next.js 16 (App Router) + Tailwind v4 + shadcn/ui
-│   └── mobile/           → Expo / React Native (SDK 57, Expo Router)
+│   └── mobile/           → Expo / React Native (SDK 58, Expo Router)
 ├── packages/
 │   ├── functions/        → Azure Functions v4 (Node 22, TypeScript)
 │   └── shared/           → Shared TypeScript types (polish, user, voice)

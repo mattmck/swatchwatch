@@ -290,7 +290,7 @@ export function ColorSearchPanel({ initialHex }: { initialHex: string | null }) 
       )}
       ItemSeparatorComponent={() => <View style={{ height: 1, marginLeft: 84, backgroundColor: theme.colors.border }} />}
       ListEmptyComponent={
-        loading ? null : (
+        loading ? undefined : (
           <AppText muted style={{ padding: theme.spacing(4) }}>
             {families.length > 0 ? "Nothing in these color families yet." : "No color polishes to match yet."}
           </AppText>

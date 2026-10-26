@@ -6,7 +6,7 @@ Smart nail polish collection manager. **npm workspaces monorepo** with three dep
 
 ```
 apps/web          → Next.js 16 (App Router) + Tailwind v4 + shadcn/ui → Azure Static Web App
-apps/mobile       → Expo / React Native (SDK 57, RN 0.86) + Expo Router
+apps/mobile       → Expo / React Native (SDK 58, RN 0.88) + Expo Router
 packages/functions → Azure Functions v4 (Node 22, TS)    → Azure Linux Function App
 packages/shared    → Shared TypeScript types (polish, user, voice)
 infrastructure/    → Terraform (azurerm ~4.50) for all Azure resources
