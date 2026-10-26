@@ -217,6 +217,47 @@ const BACKFILLS: BackfillDefinition[] = [
     ],
     applyConfirm: "Rewrite the stored product prices?",
   },
+  {
+    id: "makeupapi-dedupe",
+    title: "MakeupAPI duplicates",
+    description:
+      "Merges MakeupAPI shades into the brand's own shade when the names match without MakeupAPI's \"(40052)\" codes, folds MakeupAPI's copies of one color into one shade, then deletes the MakeupAPI-only shades nothing uses. Inventory, mani log and wear history move to the surviving shade, which keeps every vendor listing; its name, finishes and hexes never change. Held, labeled or admin-edited shades are kept.",
+    command: "npm run dedupe:makeupapi-shades --workspace=swatchwatch-functions -- --write",
+    path: "shades-admin/makeupapi-dedupe/backfill",
+    cursorKey: "afterBrandId",
+    nextKey: "nextAfterBrandId",
+    dryRun: true,
+    defaultLimit: 10,
+    maxLimit: 100,
+    metrics: [
+      { key: "scannedBrands", label: "Brands read" },
+      { key: "makeupApiShades", label: "MakeupAPI-only shades" },
+      { key: "merged", label: "Merged" },
+      { key: "mergedIntoStoreShades", label: "Into store shades" },
+      { key: "inventoryRowsMoved", label: "Inventory rows moved" },
+      { key: "deleted", label: "Deleted" },
+    ],
+    lists: [
+      {
+        key: "merges",
+        label: "Merges",
+        format: (m) => `${m.brand} "${m.sourceName}" ${m.sourceShadeId} → ${m.targetShadeId} "${m.targetName}" (${m.reason})`,
+      },
+      {
+        key: "skippedGroups",
+        label: "Skipped groups",
+        format: (g) => `${g.brand} "${g.key}" (${g.reason}): ${Array.isArray(g.shadeIds) ? g.shadeIds.join(", ") : ""}`,
+      },
+      {
+        key: "keptShades",
+        label: "Kept (in use)",
+        format: (k) => `${k.shadeId} ${k.brand} "${k.name}": ${Array.isArray(k.reasons) ? k.reasons.join(", ") : ""}`,
+      },
+      { key: "deletedShades", label: "Deleted shades", format: (d) => `${d.shadeId} ${d.brand} "${d.name}"` },
+    ],
+    applyConfirm:
+      "Merge the duplicate MakeupAPI shades and permanently delete the unused MakeupAPI-only shades? Each change is recorded in the admin audit log.",
+  },
 ];
 
 type RunStatus = "idle" | "running" | "done" | "stopped" | "failed";

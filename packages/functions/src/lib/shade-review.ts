@@ -249,6 +249,12 @@ export interface MergeShadeOptions {
   /** Add the source name as an alias of the target when it differs (default true). */
   keepNameAsAlias?: boolean;
   note?: string | null;
+  /**
+   * `user_submitted` (default): the review queue merge, the source must be reviewable and stays
+   * private. `catalog`: a duplicate catalog shade (catalog dedupe backfills); the source must be an
+   * active or excluded, unmerged shade and is retired as `excluded` so no catalog surface shows it.
+   */
+  sourceKind?: "user_submitted" | "catalog";
 }
 
 export interface MergeShadeOutcome {
@@ -261,7 +267,23 @@ export interface MergeShadeOutcome {
   copiedAliasRows: number;
   movedSkuRows: number;
   movedSwatchRows: number;
+  /** Vendor listings (`shade_source_product`) now on the target. */
+  movedSourceProductRows: number;
   reviewedAt: string;
+}
+
+/** A duplicate catalog shade can be merged away while it is active or excluded and not yet merged. */
+export function assertMergeableCatalogShade(shade: LockedShade | undefined): LockedShade {
+  if (!shade) {
+    throw new ShadeReviewError(404, "Shade not found");
+  }
+  if (!["active", "excluded"].includes(shade.status) || shade.mergedIntoShadeId !== null) {
+    throw new ShadeReviewError(409, "Shade is not a mergeable catalog shade", {
+      status: shade.status,
+      reviewStatus: shade.reviewStatus,
+    });
+  }
+  return shade;
 }
 
 /**
@@ -276,20 +298,26 @@ export interface MergeShadeOutcome {
  * 3. Every other inventory row is re-pointed to the target. Manicure polishes and inventory
  *    events of the source move to the target too, and wear stats are recomputed for the users
  *    involved.
- * 4. Aliases are copied (plus the submitted name, unless `keepNameAsAlias` is false); SKUs and
- *    catalog-sourced swatches (`image_asset.owner_type = 'source'`) move. User-owned swatch
- *    images stay on the retired row so private media never surfaces on a shared shade.
+ * 4. Aliases are copied (plus the submitted name, unless `keepNameAsAlias` is false); SKUs,
+ *    catalog-sourced swatches (`image_asset.owner_type = 'source'`), vendor listings
+ *    (`shade_source_product`, so one shade keeps every vendor that sells it) and users' learned
+ *    barcodes (`user_shade_barcode`) move. User-owned swatch images stay on the retired row so
+ *    private media never surfaces on a shared shade.
  *    Target catalog data (name, finishes, hexes) is never modified.
- * 5. The source is retired: `review_status = 'merged'`, `merged_into_shade_id`, audit columns.
+ * 5. The source is retired: `review_status = 'merged'`, `merged_into_shade_id`, audit columns;
+ *    a `catalog` source also becomes `excluded`.
  */
 export async function mergeShadeInto(client: PoolClient, options: MergeShadeOptions): Promise<MergeShadeOutcome> {
   const { sourceShadeId, targetShadeId, adminUserId } = options;
+  const catalogSource = options.sourceKind === "catalog";
   if (sourceShadeId === targetShadeId) {
     throw new ShadeReviewError(400, "A shade cannot be merged into itself");
   }
 
   const locked = await lockShades(client, [sourceShadeId, targetShadeId]);
-  const source = assertReviewable(locked.get(sourceShadeId));
+  const source = catalogSource
+    ? assertMergeableCatalogShade(locked.get(sourceShadeId))
+    : assertReviewable(locked.get(sourceShadeId));
   const target = locked.get(targetShadeId);
   if (!target) {
     throw new ShadeReviewError(404, "Merge target shade not found");
@@ -434,7 +462,22 @@ export async function mergeShadeInto(client: PoolClient, options: MergeShadeOpti
     [sourceShadeId, targetShadeId]
   );
 
-  // 5. Retire the source (stays user_submitted → private everywhere).
+  // Every vendor listing follows the shade (buy links, "Catalog data"); one the target already
+  // has keeps its own row, and the source's copy goes with the retired shade.
+  const sourceProducts = await client.query(
+    `INSERT INTO shade_source_product (shade_id, external_product_id, first_seen_at, last_seen_at)
+     SELECT $2, ssp.external_product_id, ssp.first_seen_at, ssp.last_seen_at
+     FROM shade_source_product ssp
+     WHERE ssp.shade_id = $1
+     ON CONFLICT (shade_id, external_product_id) DO NOTHING`,
+    [sourceShadeId, targetShadeId]
+  );
+  await client.query(`DELETE FROM shade_source_product WHERE shade_id = $1`, [sourceShadeId]);
+
+  // Barcodes users taught the source (one row per user + GTIN) now resolve to the target.
+  await client.query(`UPDATE user_shade_barcode SET shade_id = $2 WHERE shade_id = $1`, [sourceShadeId, targetShadeId]);
+
+  // 5. Retire the source: a user_submitted one stays private everywhere, a catalog one is excluded.
   const retired = await client.query<{ reviewedAt: string | Date }>(
     `UPDATE shade
      SET review_status = 'merged',
@@ -442,6 +485,7 @@ export async function mergeShadeInto(client: PoolClient, options: MergeShadeOpti
          reviewed_by_user_id = $3,
          reviewed_at = now(),
          review_note = $4,
+         ${catalogSource ? "status = 'excluded'," : ""}
          updated_at = now()
      WHERE shade_id = $1
      RETURNING reviewed_at AS "reviewedAt"`,
@@ -457,6 +501,7 @@ export async function mergeShadeInto(client: PoolClient, options: MergeShadeOpti
     copiedAliasRows,
     movedSkuRows: skus.rowCount ?? 0,
     movedSwatchRows: swatches.rowCount ?? 0,
+    movedSourceProductRows: sourceProducts.rowCount ?? 0,
     reviewedAt: toIsoString(retired.rows[0]?.reviewedAt),
   };
 }

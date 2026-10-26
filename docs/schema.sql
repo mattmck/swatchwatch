@@ -547,7 +547,10 @@ CREATE TABLE admin_audit_event (
     CHECK (action IN (
       'user.update', 'user.suspend', 'user.unsuspend', 'user.merge',
       -- #321 vendor-hex promotions: target_user_id NULL, shade id in changes
-      'shade.vendor_hex_promote', 'shade.vendor_hex_demote'
+      'shade.vendor_hex_promote', 'shade.vendor_hex_demote',
+      -- MakeupAPI dedupe backfill (migration 20261026045216957): one per merged / deleted catalog
+      -- shade; target_user_id NULL, shade ids (and the deleted row as JSON) in changes
+      'shade.catalog_merge', 'shade.catalog_delete'
     ))
 );
 
