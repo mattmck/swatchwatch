@@ -45,10 +45,10 @@ state". A per-row STORED GENERATED OKLAB column can be indexed and `min()`-ed, a
 CREATE TABLE shade_color_stop (
   shade_color_stop_id BIGSERIAL PRIMARY KEY,
   shade_id   BIGINT NOT NULL REFERENCES shade(shade_id) ON DELETE CASCADE,
-  position   SMALLINT NOT NULL,              -- 0..n-1, gradient order
+  position   SMALLINT NOT NULL CHECK (position BETWEEN 0 AND 3),  -- 0..n-1, gradient order
   hex        TEXT NOT NULL CHECK (hex ~ '^#[0-9A-F]{6}$'),
   role       TEXT NOT NULL CHECK (role IN ('cold','warm','mid','base','flash','shift')),
-  offset_pct SMALLINT,                       -- optional gradient stop 0..100; NULL = evenly spaced
+  offset_pct SMALLINT CHECK (offset_pct BETWEEN 0 AND 100),  -- optional gradient stop; NULL = evenly spaced
   source     TEXT NOT NULL CHECK (source IN ('manual_label','vendor','ai')),
   label_id   BIGINT REFERENCES color_training_sample(training_sample_id) ON DELETE SET NULL,
   set_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL,
@@ -60,14 +60,26 @@ CREATE TABLE shade_color_stop (
 );
 ALTER TABLE shade ADD COLUMN color_kind TEXT NOT NULL DEFAULT 'solid'
   CHECK (color_kind IN ('solid','thermal','magnetic','multichrome','gradient'));
+ALTER TABLE shade ADD COLUMN color_kind_source TEXT NOT NULL DEFAULT 'rule'
+  CHECK (color_kind_source IN ('rule','admin'));
 ```
 
 Rules:
 - A shade has either no stops (`color_kind = 'solid'`) or **2–4** stops. One stop is never stored
   (that is just the normal hex).
+- The row CHECKs above cover a single stop. The set rules (2–4 stops, positions `0..n-1` with no
+  gaps, every role valid for the shade's `color_kind`) span rows, so they are enforced in the
+  database by a `DEFERRABLE INITIALLY DEFERRED` constraint trigger on `shade_color_stop` and on
+  `shade.color_kind`, checked at commit. Every write goes through one helper that replaces a
+  shade's whole stop set in one transaction (Promote colors, Undo, the later AI path), so direct
+  SQL or a future path that breaks the invariants fails at commit.
 - `color_kind` defaults from finishes (`thermal`, `magnetic`, `multichrome`/`duochrome` finish →
   that kind) but can be set by an admin; it drives rendering and which roles are valid
-  (thermal: cold/mid/warm; magnetic: base/flash; multichrome/gradient: shift).
+  (thermal: cold/mid/warm; magnetic: base/flash; multichrome/gradient: shift). The migration
+  backfills it from `shade.finishes` (and the legacy `finish`), and ingestion and the finish
+  backfills keep it in step with the finishes. An admin choice sets `color_kind_source = 'admin'`,
+  which no backfill or ingest changes (the same sticky rule as `product_category_source` and
+  `finishes_source`).
 - The **primary hex stays the shade's display hex** (vendor > detected > name, unchanged). For a
   thermal shade, we recommend the primary be the room-temperature (warm) state the bottle shows.
   Stops never write `vendor_hex` / `detected_hex`, so `hex_agreement`, `color_family` and the
@@ -75,7 +87,9 @@ Rules:
 - Ingestion never writes stops in phase 1 (sources: admin labels only), and later never
   overwrites `manual_label` stops (same D12 rule as the vendor hex).
 - API: polish/catalog responses gain optional `colorKind` and `colorStops: { hex, role, offset? }[]`
-  (omitted when solid), so old clients ignore them. Never on private `user_submitted` shades of
+  (omitted when solid), and a `nearHex` row gains optional `colorDistanceRole` (the stop role that
+  gave `colorDistance`; omitted when the primary hex was closest), so old clients ignore them. All
+  three go on the shared `Polish` type in `packages/shared/src/types/polish.ts`. Never on private `user_submitted` shades of
   other users (same visibility as the shade).
 
 ## 4. Rendering ("the two form a gradient")
@@ -95,7 +109,7 @@ One pure helper in `packages/shared/src/color/swatch-fill.ts`:
 
 | Surface | Change | Notes |
 |---|---|---|
-| Color search / `nearHex` | rank by min distance over primary **and** stops | `LEFT JOIN LATERAL (SELECT min(dist) FROM shade_color_stop …)`; `colorDistance` reports the closest state and which role matched |
+| Color search / `nearHex` | rank by min distance over primary **and** stops | `LEFT JOIN LATERAL (SELECT min(dist) FROM shade_color_stop …)`; `colorDistance` is the closest state's distance and `colorDistanceRole` names its role |
 | Photo match | same min-over-states | a photo of a cold thermal nail should find it |
 | Dupes | two thermals are dupes only if **both** states are close (pair stops by role); a thermal vs a solid compares the solid to the closest state and drops one grade | extend `gradeDupe` with an optional stops argument; keep the solid path byte-identical |
 | Color family / gaps / Looks / Pick for me | primary only (unchanged) | a later option: count a thermal in both families' gap cells |
@@ -105,7 +119,8 @@ One pure helper in `packages/shared/src/color/swatch-fill.ts`:
 ## 6. Phases
 
 1. **Data + labeling (≈1 session).** Migration above. Hex Labeling: a "Color kind" pill row
-   (Solid / Thermal / Magnetic / Multichrome) and, for non-solid kinds, sip 2–4 points with a role
+   (Solid / Thermal / Magnetic / Multichrome / Gradient, so an ombre shade can be labeled too)
+   and, for non-solid kinds, sip 2–4 points with a role
    chip each (the eyedropper already returns a sample point per click). Labels store the stops in
    `color_training_sample.label_meta.stops` (the label's own `hex` stays the primary), and a
    "Promote colors" action (like Promote to vendor hex: confirm, audit row, Undo) copies them to

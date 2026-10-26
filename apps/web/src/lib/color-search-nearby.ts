@@ -34,10 +34,15 @@ export interface NearbyTargetsInput {
   similarMode: boolean;
   paletteAnchors: readonly string[];
   /**
-   * Harmony targets of the selected color (or the active recommended palette's slots) before
-   * they are snapped to polishes, so the query never depends on its own results.
+   * Harmony targets of the selected color before they are snapped to polishes, so the query
+   * never depends on its own results.
    */
   rawHarmonyColors: readonly string[];
+  /**
+   * Slots of the recommended palettes (each anchor, or the selected color, through each shown
+   * harmony) before snapping, so every slot's Have / Buy is graded against nearby catalog rows.
+   */
+  paletteSlotHexes: readonly string[];
 }
 
 /** The colors the result list is ranked against, so its catalog rows are the nearest ones. */
@@ -58,6 +63,7 @@ export function contextNearbyTargets(input: NearbyTargetsInput): string[] {
     input.focusedTargetHex,
     ...input.paletteAnchors,
     ...input.rawHarmonyColors,
+    ...input.paletteSlotHexes,
   ]).slice(0, MAX_NEAR_HEX_TARGETS);
 }
 
