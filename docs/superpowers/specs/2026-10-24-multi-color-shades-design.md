@@ -67,17 +67,31 @@ ALTER TABLE shade ADD COLUMN color_kind_source TEXT NOT NULL DEFAULT 'rule'
 Rules:
 - A shade has either no stops (`color_kind = 'solid'`) or **2–4** stops. One stop is never stored
   (that is just the normal hex).
-- The row CHECKs above cover a single stop. The set rules (2–4 stops, positions `0..n-1` with no
-  gaps, every role valid for the shade's `color_kind`) span rows, so they are enforced in the
+- Roles per `color_kind`, with exact counts:
+  - thermal: one `cold` and one `warm`, plus at most one `mid` (2–3 stops)
+  - magnetic: one `base` and one `flash` (2 stops)
+  - multichrome / gradient: 2–4 `shift` stops
+
+  Stops render and match in `position` order, so an incomplete or repeated set never has to be
+  guessed at.
+- Offsets are all-or-none per shade: either every stop's `offset_pct` is NULL (evenly spaced), or
+  every stop has one and they are nondecreasing by `position`.
+- The row CHECKs above cover a single stop. The set rules (the counts and roles above, positions
+  `0..n-1` with no gaps, all-or-none nondecreasing offsets) span rows, so they are enforced in the
   database by a `DEFERRABLE INITIALLY DEFERRED` constraint trigger on `shade_color_stop` and on
-  `shade.color_kind`, checked at commit. Every write goes through one helper that replaces a
-  shade's whole stop set in one transaction (Promote colors, Undo, the later AI path), so direct
-  SQL or a future path that breaks the invariants fails at commit.
+  `shade.color_kind`, checked at commit. Direct SQL or a future path that breaks them fails at
+  commit.
+- A shade's stops all come from one source. Every write goes through one helper that replaces the
+  whole set in one transaction, and it never replaces `manual_label` stops with another source:
+  - Promote colors and Undo (admin) may replace any set.
+  - The later AI path may write only a shade that has no stops or only `ai` stops. A shade with
+    `manual_label` stops is skipped and logged, and those rows and their `label_id`s stay.
 - `color_kind` defaults from finishes (`thermal`, `magnetic`, `multichrome`/`duochrome` finish →
-  that kind) but can be set by an admin; it drives rendering and which roles are valid
-  (thermal: cold/mid/warm; magnetic: base/flash; multichrome/gradient: shift). The migration
-  backfills it from `shade.finishes` (and the legacy `finish`), and ingestion and the finish
-  backfills keep it in step with the finishes. An admin choice sets `color_kind_source = 'admin'`,
+  that kind) but can be set by an admin; it drives rendering and which roles are valid. The
+  migration backfills it from `shade.finishes` (and the legacy `finish`), and ingestion and the
+  finish backfills keep it in step with the finishes. When a shade's finishes map to more than one
+  kind, the rule picks thermal > magnetic > multichrome (the effect the bottle is sold on), and an
+  admin can change it. An admin choice sets `color_kind_source = 'admin'`,
   which no backfill or ingest changes (the same sticky rule as `product_category_source` and
   `finishes_source`).
 - The **primary hex stays the shade's display hex** (vendor > detected > name, unchanged). For a
@@ -88,9 +102,11 @@ Rules:
   overwrites `manual_label` stops (same D12 rule as the vendor hex).
 - API: polish/catalog responses gain optional `colorKind` and `colorStops: { hex, role, offset? }[]`
   (omitted when solid), and a `nearHex` row gains optional `colorDistanceRole` (the stop role that
-  gave `colorDistance`; omitted when the primary hex was closest), so old clients ignore them. All
-  three go on the shared `Polish` type in `packages/shared/src/types/polish.ts`. Never on private `user_submitted` shades of
-  other users (same visibility as the shade).
+  gave `colorDistance`; omitted when the primary hex was closest), so old clients ignore them. Ties
+  are broken deterministically: the primary hex wins a tie with any stop (no role), and between
+  stops the lowest `position` wins. The SQL and TS parity tests cover both ties. All three fields
+  go on the shared `Polish` type in `packages/shared/src/types/polish.ts`. They are never sent for
+  another user's private `user_submitted` shade (same visibility as the shade).
 
 ## 4. Rendering ("the two form a gradient")
 
@@ -109,7 +125,7 @@ One pure helper in `packages/shared/src/color/swatch-fill.ts`:
 
 | Surface | Change | Notes |
 |---|---|---|
-| Color search / `nearHex` | rank by min distance over primary **and** stops | `LEFT JOIN LATERAL (SELECT min(dist) FROM shade_color_stop …)`; `colorDistance` is the closest state's distance and `colorDistanceRole` names its role |
+| Color search / `nearHex` | rank by min distance over primary **and** stops | `LEFT JOIN LATERAL (SELECT min(dist) FROM shade_color_stop …)`; `colorDistance` is the closest state's distance and `colorDistanceRole` names its role. The min-over-states distance replaces the distance *within* each `NEAR_HEX_TIER_SQL` tier: measured before estimated still comes first, so a close stop never lifts an estimated shade above a measured one. |
 | Photo match | same min-over-states | a photo of a cold thermal nail should find it |
 | Dupes | two thermals are dupes only if **both** states are close (pair stops by role); a thermal vs a solid compares the solid to the closest state and drops one grade | extend `gradeDupe` with an optional stops argument; keep the solid path byte-identical |
 | Color family / gaps / Looks / Pick for me | primary only (unchanged) | a later option: count a thermal in both families' gap cells |
