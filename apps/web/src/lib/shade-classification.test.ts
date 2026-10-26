@@ -4,6 +4,7 @@ import { SHADE_FINISHES_MAX, type HexLabelQueueItem } from "swatchwatch-shared";
 import {
   applyCategoryResponse,
   applyFinishesResponse,
+  applyQueueItemChange,
   finishesChanged,
   makePrimaryFinish,
   toggleFinish,
@@ -68,5 +69,40 @@ describe("apply responses", () => {
     const updated = applyCategoryResponse(item, category);
     assert.equal(updated.productCategory, "topper");
     assert.equal(updated.productCategorySource, "admin");
+  });
+});
+
+describe("applyQueueItemChange", () => {
+  const queue = (items: HexLabelQueueItem[], index: number) => ({ items, index, total: 10, labeled: 2 });
+  const a = { ...item, shadeId: "1" };
+  const b = { ...item, shadeId: "2", label: { hex: "#112233" } as unknown as HexLabelQueueItem["label"] };
+  const c = { ...item, shadeId: "3" };
+
+  it("replaces a colour item in place", () => {
+    const next = { ...b, finishes: ["shimmer"] };
+    const result = applyQueueItemChange(queue([a, b, c], 1), next);
+    assert.deepEqual(result.items, [a, next, c]);
+    assert.equal(result.index, 1);
+    assert.equal(result.total, 10);
+  });
+
+  it("drops a recategorized item so the next shade takes its place", () => {
+    const result = applyQueueItemChange(queue([a, b, c], 1), { ...b, productCategory: "topper" });
+    assert.deepEqual(result.items, [a, c]);
+    assert.equal(result.index, 1);
+    assert.equal(result.total, 9);
+    assert.equal(result.labeled, 1);
+  });
+
+  it("keeps the labeled count for an unlabeled item and clamps the index at the end", () => {
+    const result = applyQueueItemChange(queue([a, b, c], 2), { ...c, productCategory: "accessory" });
+    assert.deepEqual(result.items, [a, b]);
+    assert.equal(result.index, 1);
+    assert.equal(result.labeled, 2);
+  });
+
+  it("ignores an item that is not in the queue", () => {
+    const state = queue([a], 0);
+    assert.equal(applyQueueItemChange(state, { ...c, productCategory: "topper" }), state);
   });
 });

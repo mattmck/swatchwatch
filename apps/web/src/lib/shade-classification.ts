@@ -43,3 +43,32 @@ export function applyCategoryResponse(
   if (item.shadeId !== response.shadeId) return item;
   return { ...item, productCategory: response.productCategory, productCategorySource: response.productCategorySource };
 }
+
+/** The part of the Hex Labeling tab's queue state a changed item touches. */
+export interface LabelQueueSlice {
+  items: HexLabelQueueItem[];
+  index: number;
+  total: number;
+  labeled: number;
+}
+
+/**
+ * A queue with one changed item applied. The queue is colour-only, so an item whose type moved
+ * away from `color` (topper, coat, treatment, accessory) leaves it and the next shade takes its
+ * place; any other change replaces the item in place. An unknown item returns the queue as is.
+ */
+export function applyQueueItemChange<Q extends LabelQueueSlice>(queue: Q, next: HexLabelQueueItem): Q {
+  const position = queue.items.findIndex((item) => item.shadeId === next.shadeId);
+  if (position < 0) return queue;
+  if (next.productCategory === "color") {
+    return { ...queue, items: queue.items.map((item, i) => (i === position ? next : item)) };
+  }
+  const items = queue.items.filter((_, i) => i !== position);
+  return {
+    ...queue,
+    items,
+    index: Math.min(queue.index > position ? queue.index - 1 : queue.index, Math.max(0, items.length - 1)),
+    total: Math.max(0, queue.total - 1),
+    labeled: queue.items[position].label ? Math.max(0, queue.labeled - 1) : queue.labeled,
+  };
+}
