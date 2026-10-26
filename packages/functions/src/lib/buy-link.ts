@@ -11,11 +11,12 @@
  * paths, `https://user:pass@…`) is dropped.
  *
  * Selection when a shade has several source products (`selectBuyFromBrandUrl`):
- *   1. candidates whose URL fails validation are ignored;
- *   2. a product from an enabled `data_source` beats one from a disabled source;
- *   3. then the most recently seen link (`shade_source_product.last_seen_at`);
- *   4. then the most recently fetched product (`external_product.fetched_at`);
- *   5. then the highest `external_product_id`, so ties are still deterministic.
+ *   1. candidates whose URL fails validation are ignored, and so are products of a disabled
+ *      `data_source` (a source is disabled when its links are dead or the store has not
+ *      agreed, e.g. MakeupAPI's 2015 well.ca / dior.com URLs), so such a shade shows no link;
+ *   2. then the most recently seen link (`shade_source_product.last_seen_at`);
+ *   3. then the most recently fetched product (`external_product.fetched_at`);
+ *   4. then the highest `external_product_id`, so ties are still deterministic.
  *
  * Price: the chosen product's vendor list price (`normalized_json` `price` + `currency`,
  * written by the connectors, see `product-price.ts`) travels with the URL as one `BuyLink`.
@@ -37,7 +38,7 @@ export const MAX_BUY_URL_LENGTH = 2048;
 export interface BuyLinkCandidate {
   shadeId: string;
   url: string | null | undefined;
-  /** `data_source.enabled` of the product's source. */
+  /** `data_source.enabled` of the product's source; `false` drops the candidate. */
   sourceEnabled: boolean | null | undefined;
   /** `shade_source_product.last_seen_at`. */
   lastSeenAt: Date | string | null | undefined;
@@ -117,10 +118,6 @@ function toIdNumber(value: string | number | null | undefined): number {
 
 /** Sort comparator implementing the selection rule (best candidate first). */
 export function compareBuyLinkCandidates(a: BuyLinkCandidate, b: BuyLinkCandidate): number {
-  const enabledA = a.sourceEnabled === false ? 0 : 1;
-  const enabledB = b.sourceEnabled === false ? 0 : 1;
-  if (enabledA !== enabledB) return enabledB - enabledA;
-
   const seenA = toMillis(a.lastSeenAt);
   const seenB = toMillis(b.lastSeenAt);
   if (seenA !== seenB) return seenB > seenA ? 1 : -1;
@@ -155,12 +152,13 @@ function buyLinkPrice(candidate: BuyLinkCandidate): Omit<BuyLink, "url"> {
 
 /**
  * Picks one buy link from a shade's candidates (see the selection rule at the top of this
- * file), or null when none has a valid URL. Input order does not matter. The price, when
+ * file), or null when none from an enabled source has a valid URL. Input order does not matter. The price, when
  * present, belongs to the chosen product; a better-priced runner-up is never mixed in.
  */
 export function selectBuyFromBrandLink(candidates: readonly BuyLinkCandidate[]): BuyLink | null {
   const valid: Array<{ candidate: BuyLinkCandidate; url: string }> = [];
   for (const candidate of candidates) {
+    if (candidate.sourceEnabled === false) continue;
     const url = sanitizeBuyUrl(candidate.url);
     if (url) valid.push({ candidate, url });
   }

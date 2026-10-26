@@ -1055,7 +1055,7 @@ CREATE INDEX idx_external_product_source_time ON external_product(data_source_id
 -- Which connector product(s) each shade was materialized from (migration
 -- 20261017061344201_add-shade-source-product). Drives the "Buy from brand" link (#267):
 -- the URL is external_product.normalized_json ->> 'productUrl'; with several products the
--- API prefers an enabled data_source, then the latest last_seen_at (lib/buy-link.ts).
+-- API uses only products of an enabled data_source, then the latest last_seen_at (lib/buy-link.ts).
 CREATE TABLE shade_source_product (
   shade_id BIGINT NOT NULL REFERENCES shade(shade_id) ON DELETE CASCADE,
   external_product_id BIGINT NOT NULL REFERENCES external_product(external_product_id) ON DELETE CASCADE,
