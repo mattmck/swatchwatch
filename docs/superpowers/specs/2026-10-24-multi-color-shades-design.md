@@ -65,9 +65,13 @@ ALTER TABLE shade ADD COLUMN color_kind_source TEXT NOT NULL DEFAULT 'rule'
 ```
 
 Rules:
-- A shade has either no stops (`color_kind = 'solid'`) or **2–4** stops. One stop is never stored
-  (that is just the normal hex).
-- Roles per `color_kind`, with exact counts:
+- A shade has either no stops or **2–4** stops. One stop is never stored (that is just the normal
+  hex).
+- `color_kind` and the stops are separate. Any kind may have **no stops**: a thermal shade whose
+  colors nobody has labeled yet renders and matches on its primary hex like a solid one, with
+  only the kind glyph. A `solid` shade never has stops. So setting a kind from finishes never
+  needs stops to exist, and it never fails a commit.
+- When a shade has stops, their roles must fit its kind, with exact counts:
   - thermal: one `cold` and one `warm`, plus at most one `mid` (2–3 stops)
   - magnetic: one `base` and one `flash` (2 stops)
   - multichrome / gradient: 2–4 `shift` stops
@@ -94,6 +98,11 @@ Rules:
   admin can change it. An admin choice sets `color_kind_source = 'admin'`,
   which no backfill or ingest changes (the same sticky rule as `product_category_source` and
   `finishes_source`).
+- The rule path (migration backfill, ingestion, finish backfills) changes `color_kind` only on a
+  shade **with no stops**. A shade that has stops keeps its kind until an admin changes it, and an
+  admin kind change goes through the stop-set helper, which writes the new kind and the new (or
+  empty) stop set in the same transaction. Stops can therefore never be left with roles of a
+  different kind, and a routine backfill never aborts on the deferred check.
 - The **primary hex stays the shade's display hex** (vendor > detected > name, unchanged). For a
   thermal shade, we recommend the primary be the room-temperature (warm) state the bottle shows.
   Stops never write `vendor_hex` / `detected_hex`, so `hex_agreement`, `color_family` and the
