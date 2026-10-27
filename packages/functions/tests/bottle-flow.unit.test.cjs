@@ -91,7 +91,7 @@ describe("lib/bottle-flow — planNextFrame", () => {
 
   it("name read, candidates, no glass hex yet: an optional glass photo", () => {
     assert.deepEqual(
-      planNextFrame(input({ brandKnown: true, nameRead: true, decision: "candidates", frameCount: 2 })),
+      planNextFrame(input({ brandKnown: true, nameRead: true, decision: "candidates", frameCount: 2, surfaces: { bottom: 1 } })),
       {
         surface: "glass",
         frameType: "color",
@@ -102,15 +102,30 @@ describe("lib/bottle-flow — planNextFrame", () => {
     );
   });
 
-  it("candidates with a glass hex already: nothing more to ask", () => {
-    assert.equal(
-      planNextFrame(input({ brandKnown: true, nameRead: true, glassHex: true, decision: "candidates", frameCount: 3 })),
-      null
-    );
+  it("candidates with a glass hex already: the box for its barcode, then nothing more to ask", () => {
+    const base = { brandKnown: true, nameRead: true, glassHex: true, decision: "candidates", frameCount: 3, surfaces: { bottom: 1, glass: 1 } };
+    assert.deepEqual(planNextFrame(input(base)), {
+      surface: "box",
+      frameType: "label",
+      prompt: "Have the box? Show the barcode",
+      reason: "need_name",
+      optional: true,
+    });
+    assert.equal(planNextFrame(input({ ...base, gtinRead: true })), null, "a barcode already read: no box");
+    assert.equal(planNextFrame(input({ ...base, state: withState({ skipped: ["box"] }) })), null, "box skipped");
+    assert.equal(planNextFrame(input({ ...base, surfaces: { ...base.surfaces, box: 1 } })), null, "box photographed");
   });
 
   it("a tie asks for the glass again, with the first hint, then the second, then stops", () => {
-    const tied = { brandKnown: true, nameRead: true, glassHex: true, decision: "candidates_tied", frameCount: 3 };
+    const tied = {
+      brandKnown: true,
+      nameRead: true,
+      glassHex: true,
+      gtinRead: true,
+      decision: "candidates_tied",
+      frameCount: 3,
+      surfaces: { bottom: 1, glass: 1 },
+    };
     const first = planNextFrame(input(tied));
     assert.equal(first.surface, "glass");
     assert.equal(first.reason, "tie_break");
@@ -124,13 +139,34 @@ describe("lib/bottle-flow — planNextFrame", () => {
     assert.equal(planNextFrame(input({ ...tied, state: withState({ prompts: { "glass:tie_break": 2 } }) })), null);
   });
 
-  it("a matched session asks for nothing", () => {
-    assert.equal(planNextFrame(input({ decision: "matched", brandKnown: true, nameRead: true, frameCount: 2 })), null);
+  it("a barcode match asks for nothing", () => {
+    assert.equal(planNextFrame(input({ decision: "barcode_matched", frameCount: 1, surfaces: { box: 1 }, gtinRead: true })), null);
+    assert.equal(planNextFrame(input({ decision: "barcode_matched", brandKnown: true, frameCount: 1 })), null);
   });
 
-  it("create_card and unmatched with brand and name known ask for nothing", () => {
+  it("a name match keeps walking: the glass, then the box, then nothing", () => {
+    const matched = { decision: "matched", brandKnown: true, nameRead: true, frameCount: 1, surfaces: { bottom: 1 } };
+    assert.equal(planNextFrame(input(matched)).surface, "glass");
+    assert.equal(planNextFrame(input({ ...matched, frameCount: 2, glassHex: true, surfaces: { bottom: 1, glass: 1 } })).surface, "box");
+    assert.equal(
+      planNextFrame(input({ ...matched, frameCount: 3, glassHex: true, surfaces: { bottom: 1, glass: 1, box: 1 } })),
+      null
+    );
+  });
+
+  it("a name match from a front photo still asks for the bottom", () => {
+    assert.equal(
+      planNextFrame(input({ decision: "matched", brandKnown: true, nameRead: true, frameCount: 1, surfaces: { front: 1 } })).surface,
+      "bottom"
+    );
+  });
+
+  it("create_card and unmatched with every photo taken ask for nothing", () => {
     for (const decision of ["create_card", "unmatched"]) {
-      assert.equal(planNextFrame(input({ decision, brandKnown: true, nameRead: true, frameCount: 2 })), null);
+      assert.equal(
+        planNextFrame(input({ decision, brandKnown: true, nameRead: true, frameCount: 3, surfaces: { bottom: 1, glass: 1, box: 1 } })),
+        null
+      );
     }
   });
 
@@ -166,6 +202,8 @@ describe("lib/bottle-flow — planNextFrame", () => {
           nameRead: true,
           decision: "candidates",
           glassHex: true,
+          gtinRead: true,
+          surfaces: { bottom: 1, glass: 1 },
           frameCount: 2,
         })
       );
@@ -173,7 +211,7 @@ describe("lib/bottle-flow — planNextFrame", () => {
     });
 
     it("judges each surface by the evidence it can produce", () => {
-      const base = { surfaces: { glass: 1 }, brandKnown: true, nameRead: true, decision: "candidates", frameCount: 2 };
+      const base = { surfaces: { bottom: 1, glass: 1 }, brandKnown: true, nameRead: true, gtinRead: true, decision: "candidates", frameCount: 2 };
       const glassBlurry = withState({ lastRejected: { surface: "glass", warning: "too-dark" } });
       assert.equal(planNextFrame(input({ ...base, state: glassBlurry, glassHex: false })).reason, "retry_quality");
       assert.equal(planNextFrame(input({ ...base, state: glassBlurry, glassHex: true })), null);
@@ -182,18 +220,19 @@ describe("lib/bottle-flow — planNextFrame", () => {
       assert.equal(front.reason, "retry_quality");
       assert.equal(front.hint, "Too bright — move out of the glare");
       assert.equal(
-        planNextFrame(input({ surfaces: { front: 1 }, state: frontBlurry, brandKnown: true, nameRead: true, decision: "matched", frameCount: 1 })),
-        null
+        planNextFrame(input({ surfaces: { front: 1 }, state: frontBlurry, brandKnown: true, decision: "matched", frameCount: 1 })).reason,
+        "need_name",
+        "the front read its brand: no retry, on to the bottom"
       );
     });
 
-    it("never fires once the session is matched, even for a poor frame that added nothing", () => {
+    it("never fires once a barcode matched, even for a poor frame that added nothing", () => {
       for (const surface of ["box", "front", "bottom", "glass"]) {
         const spec = planNextFrame(
           input({
             state: withState({ lastRejected: { surface, warning: "blurry" } }),
             surfaces: { [surface]: 1 },
-            decision: "matched",
+            decision: "barcode_matched",
             frameCount: 1,
           })
         );
@@ -300,14 +339,16 @@ describe("lib/bottle-flow — planNextFrame", () => {
     assert.equal(spec.surface, "glass");
     assert.equal(spec.reason, "need_color");
     assert.equal(
-      planNextFrame(input({ brandKnown: true, frameCount: 3, surfaces: { bottom: 2, glass: 1 }, decision: "create_card", state: withState({ prompts: { "bottom:need_name": 2, "glass:need_color": 1 } }) })),
-      null,
-      "the glass was photographed: nothing more"
+      planNextFrame(input({ brandKnown: true, frameCount: 3, surfaces: { bottom: 2, glass: 1 }, decision: "create_card", state: withState({ prompts: { "bottom:need_name": 2, "glass:need_color": 1 } }) })).surface,
+      "box",
+      "the glass was photographed: the box"
     );
   });
 
-  it("a name read without a catalog match asks for no glass (the color cannot rescue a name miss)", () => {
-    assert.equal(planNextFrame(input({ brandKnown: true, nameRead: true, frameCount: 1, surfaces: { bottom: 1 }, decision: "create_card" })), null);
+  it("a name read without a catalog match still walks the glass and the box before the create card", () => {
+    const base = { brandKnown: true, nameRead: true, frameCount: 1, surfaces: { bottom: 1 }, decision: "create_card" };
+    assert.equal(planNextFrame(input(base)).surface, "glass");
+    assert.equal(planNextFrame(input({ ...base, frameCount: 2, glassHex: true, surfaces: { bottom: 1, glass: 1 } })).surface, "box");
   });
 });
 
@@ -387,11 +428,10 @@ describe("lib/bottle-flow — decisionForPlan", () => {
   const candidates = [{ entityType: "shade", entityId: 1, shadeId: 1, display: "A", confidence: 0.8 }];
   const question = { key: "candidate_select", prompt: "Which one?", type: "single_select" };
 
-  it("matched → matched", () => {
-    assert.equal(
-      decisionForPlan({ status: "matched", confidence: 1, entityType: "shade", entityId: 1, candidates, metadataPatch: {} }),
-      "matched"
-    );
+  it("matched → matched, or barcode_matched when the barcode matched", () => {
+    const matched = { status: "matched", confidence: 1, entityType: "shade", entityId: 1, candidates, metadataPatch: {} };
+    assert.equal(decisionForPlan(matched), "matched");
+    assert.equal(decisionForPlan({ ...matched, barcodeVia: "catalog" }), "barcode_matched");
   });
 
   it("candidates to choose from → candidates, or candidates_tied on a tie", () => {

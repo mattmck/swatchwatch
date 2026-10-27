@@ -626,7 +626,7 @@ describe("functions/capture — nextFrame after a frame", () => {
     ]);
   });
 
-  it("a glass frame after that: nothing more to ask", async () => {
+  it("a glass frame after that: the box, for its barcode", async () => {
     useHintedSession([labelFrame({ shadeName: "Big Appl" }, { surface: "bottom" })], {
       prompts: { "glass:need_color": 1 },
     });
@@ -634,19 +634,48 @@ describe("functions/capture — nextFrame after a frame", () => {
     state.onInsertFrames = [glassFrame()];
     const res = await frame({ frameType: "color", quality: { surface: "glass" } });
     assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
-    assert.equal(res.jsonBody.nextFrame, null);
-    assert.equal(bottleUpdates()[0].params[1].bottle.lastNextFrame, null);
+    assert.deepEqual(res.jsonBody.nextFrame, {
+      surface: "box",
+      frameType: "label",
+      prompt: "Have the box? Show the barcode",
+      reason: "need_name",
+      optional: true,
+    });
+    assert.deepEqual(bottleUpdates()[0].params[1].bottle.lastNextFrame, res.jsonBody.nextFrame);
     assert.deepEqual(surfaceEvents(), [
       { captureId: CAPTURE_UUID, surface: "glass", frameType: "color", skipped: false, extracted: true },
     ]);
   });
 
-  it("a matched session asks for nothing", async () => {
+  it("a glass frame with the box skipped: nothing more to ask", async () => {
+    useHintedSession([labelFrame({ shadeName: "Big Appl" }, { surface: "bottom" })], { skipped: ["box"] });
+    state.bottleCandidates = [poolRow(SHADE_ID, "Big Apple Red", { nameScore: 0.8, colorDistance: 0.02 })];
+    state.onInsertFrames = [glassFrame()];
+    const res = await frame({ frameType: "color", quality: { surface: "glass" } });
+    assert.equal(res.jsonBody.nextFrame, null);
+    assert.equal(bottleUpdates()[0].params[1].bottle.lastNextFrame, null);
+  });
+
+  it("a name match off the bottom still asks for the glass before the session is compared", async () => {
     useHintedSession([]);
     state.bottleCandidates = [poolRow(SHADE_ID, "Big Apple Red", { nameScore: 0.97 })];
     state.onInsertFrames = [labelFrame({ shadeName: "Big Apple Red" }, { surface: "bottom" })];
     const res = await frame({ frameType: "label", quality: { surface: "bottom", extracted: { shadeName: "Big Apple Red" } } });
-    assert.equal(res.jsonBody.nextFrame, null);
+    assert.equal(res.jsonBody.nextFrame.surface, "glass");
+  });
+
+  it("a name read or picked off the front is not the shade name: the bottom is still asked for", async () => {
+    useHintedSession([]);
+    state.bottleCandidates = [poolRow(SHADE_ID, "Big Apple Red", { nameScore: 0.97 })];
+    const extracted = { brand: "Loud Lacquer", shadeName: "Big Apple Red", shadeNameListed: "Big Apple Red", source: "vision" };
+    state.onInsertFrames = [
+      { frameType: "label", quality: { surface: "front", extracted, ai: { sticker: { confidence: 0.95, modelCalls: 1 } } } },
+    ];
+    const res = await frame({ frameType: "label", quality: { surface: "front" } });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    assert.equal(res.jsonBody.nextFrame.surface, "bottom");
+    assert.equal(res.jsonBody.nextFrame.reason, "need_name");
+    assert.equal(res.jsonBody.readSoFar.shadeName ?? null, null);
   });
 
   it("a poor frame that added nothing is retried once, with the warning's hint", async () => {
@@ -907,9 +936,12 @@ describe("functions/capture — nextFrame on check and status", () => {
     assertNoWrites();
   });
 
-  it("check on a matched session says there is nothing more to ask", async () => {
+  it("check on a name match asks for the photos not taken yet, then for nothing", async () => {
     useHintedSession([labelFrame({ shadeName: "Big Apple Red" }, { surface: "bottom" })]);
     state.bottleCandidates = [poolRow(SHADE_ID, "Big Apple Red", { nameScore: 0.97 })];
+    assert.equal((await check()).jsonBody.nextFrame.surface, "glass");
+    useHintedSession([labelFrame({ shadeName: "Big Apple Red" }, { surface: "bottom" }), glassFrame()], { skipped: ["box"] });
+    state.bottleCandidates = [poolRow(SHADE_ID, "Big Apple Red", { nameScore: 0.97, colorDistance: 0.02 })];
     assert.equal((await check()).jsonBody.nextFrame, null);
   });
 

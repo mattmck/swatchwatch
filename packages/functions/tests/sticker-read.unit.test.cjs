@@ -195,13 +195,19 @@ describe("lib/sticker-read — parseStickerRead", () => {
   });
 
   it("matches the listed name case-insensitively and returns its listed casing", () => {
-    const parsed = parseStickerRead('{"closestListed":"  unicorn   SKIN ","confidence":0.7}', ["Unicorn Skin"]);
+    const parsed = parseStickerRead('{"printedName":"Unicorn Skin","closestListed":"  unicorn   SKIN ","confidence":0.7}', ["Unicorn Skin"]);
     assert.equal(parsed.closestListed, "Unicorn Skin");
   });
 
   it("a name that is not listed is null", () => {
-    assert.equal(parseStickerRead('{"closestListed":"Not Listed","confidence":0.7}', ["Unicorn Skin"]).closestListed, null);
-    assert.equal(parseStickerRead('{"closestListed":"Unicorn Skin","confidence":0.7}', []).closestListed, null);
+    assert.equal(parseStickerRead('{"printedName":"Not Listed","closestListed":"Not Listed","confidence":0.7}', ["Unicorn Skin"]).closestListed, null);
+    assert.equal(parseStickerRead('{"printedName":"Unicorn Skin","closestListed":"Unicorn Skin","confidence":0.7}', []).closestListed, null);
+  });
+
+  it("a listed pick without a printed name is a guess and is dropped", () => {
+    const parsed = parseStickerRead('{"printedName":null,"closestListed":"Unicorn Skin","brand":"Holo Taco","confidence":0.9}', ["Unicorn Skin"]);
+    assert.equal(parsed.closestListed, null);
+    assert.equal(parsed.brand, "Holo Taco");
   });
 
   it("invalid JSON: every field null and confidence 0", () => {
