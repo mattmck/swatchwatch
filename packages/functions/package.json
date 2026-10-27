@@ -14,6 +14,7 @@
     "eval:hex:populate": "npm run build --workspace=swatchwatch-shared && npm run build && node dist/eval/hex/populate.js",
     "backfill:image-variants": "node scripts/backfill-image-variants.cjs",
     "dedupe:gallery-images": "node scripts/dedupe-gallery-images.cjs",
+    "dedupe:makeupapi-shades": "node scripts/dedupe-makeupapi-shades.cjs",
     "backfill:barcodes": "node scripts/backfill-barcodes.cjs",
     "backfill:imported-wishlist": "node scripts/backfill-imported-wishlist.cjs",
     "backfill:product-category": "node scripts/backfill-product-category.cjs",

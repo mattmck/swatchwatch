@@ -39,8 +39,8 @@ VALUES
     'https://makeup-api.herokuapp.com',
     'Public API (verify terms)',
     'https://makeup-api.herokuapp.com',
-    true,
-    '{"priority":"medium","mvp":"yes","notes":"One-time bootstrap for nail polish brand/shade and hex color variants."}'::jsonb
+    false,
+    '{"priority":"low","mvp":"no","notes":"Disabled 2026-10-26 (migration 20261026045216957): frozen 2015 feed with dead product/image URLs and scraped hexes."}'::jsonb
   ),
   (
     'HoloTacoShopify',

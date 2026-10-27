@@ -251,19 +251,14 @@ describe("materializeMakeupApiRecords — description finishes", () => {
     assert.deepEqual(shadeUpdates, [["jelly"]]);
   });
 
-  it("never adds description finishes to a shade that already has finishes", async () => {
+  it("tag finishes win over the description", async () => {
     resetFinishAliasCache();
     shadeUpdates.length = 0;
-    storedFinishes = ["creme"];
-    await materializeMakeupApiRecords([record({ tags: [], descriptors: [], descriptionText: "A jelly." })]);
-    assert.deepEqual(shadeUpdates, [["creme"]], "COALESCE(NULL, finishes) keeps the stored value");
+    storedFinishes = [];
+    await materializeMakeupApiRecords([record({ tags: ["holo"], descriptionText: "A jelly." })]);
+    assert.deepEqual(shadeUpdates, [["holographic"]]);
   });
 
-  it("tag finishes still merge into existing finishes", async () => {
-    resetFinishAliasCache();
-    shadeUpdates.length = 0;
-    storedFinishes = ["creme"];
-    await materializeMakeupApiRecords([record({ tags: ["holo"], descriptionText: "A jelly." })]);
-    assert.deepEqual(shadeUpdates, [["creme", "holographic"]]);
-  });
+  // MakeupAPI writes finishes only to shades it creates; an existing shade only gains the listing
+  // (tests/ingestion-repo-makeup-finishes.unit.test.cjs).
 });

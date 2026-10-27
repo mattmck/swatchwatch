@@ -547,7 +547,10 @@ CREATE TABLE admin_audit_event (
     CHECK (action IN (
       'user.update', 'user.suspend', 'user.unsuspend', 'user.merge',
       -- #321 vendor-hex promotions: target_user_id NULL, shade id in changes
-      'shade.vendor_hex_promote', 'shade.vendor_hex_demote'
+      'shade.vendor_hex_promote', 'shade.vendor_hex_demote',
+      -- MakeupAPI dedupe backfill (migration 20261026045216957): one per merged / deleted catalog
+      -- shade; target_user_id NULL, shade ids (and the deleted row as JSON) in changes
+      'shade.catalog_merge', 'shade.catalog_delete'
     ))
 );
 
@@ -1052,7 +1055,7 @@ CREATE INDEX idx_external_product_source_time ON external_product(data_source_id
 -- Which connector product(s) each shade was materialized from (migration
 -- 20261017061344201_add-shade-source-product). Drives the "Buy from brand" link (#267):
 -- the URL is external_product.normalized_json ->> 'productUrl'; with several products the
--- API prefers an enabled data_source, then the latest last_seen_at (lib/buy-link.ts).
+-- API uses only products of an enabled data_source, then the latest last_seen_at (lib/buy-link.ts).
 CREATE TABLE shade_source_product (
   shade_id BIGINT NOT NULL REFERENCES shade(shade_id) ON DELETE CASCADE,
   external_product_id BIGINT NOT NULL REFERENCES external_product(external_product_id) ON DELETE CASCADE,

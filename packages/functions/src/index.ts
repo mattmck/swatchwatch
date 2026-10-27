@@ -18,6 +18,7 @@ export * from './functions/images';
 export * from './functions/image-variants-admin';
 export * from './functions/gallery-dedupe-admin';
 export * from './functions/barcodes-admin';
+export * from './functions/makeupapi-dedupe-admin';
 export * from './functions/inventory-admin';
 export * from './functions/shade-sources-admin';
 export * from './functions/bottle-eval-admin';

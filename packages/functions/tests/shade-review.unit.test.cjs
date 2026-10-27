@@ -80,6 +80,13 @@ function resetState() {
       { shadeId: SOURCE, alias: "Apple Red Typo" },
     ],
     inventoryReferences: [{ tableName: "inventory_event", columnName: '"inventory_item_id"' }],
+    // Vendor listings: the target already has product 900, the source has 900 and 901.
+    sourceProducts: [
+      { shadeId: TARGET, externalProductId: 900, firstSeenAt: "2026-01-01" },
+      { shadeId: SOURCE, externalProductId: 900, firstSeenAt: "2026-02-01" },
+      { shadeId: SOURCE, externalProductId: 901, firstSeenAt: "2026-02-01" },
+    ],
+    userBarcodes: [{ userId: 1, gtin: "0012345678905", shadeId: SOURCE }],
   };
 }
 
@@ -291,9 +298,31 @@ async function fakeQuery(sql, params = []) {
     return { rows: [], rowCount: 1 };
   }
   if (/^UPDATE sku/i.test(text) || /^UPDATE swatch/i.test(text)) return { rows: [], rowCount: 0 };
+  if (/^INSERT INTO shade_source_product/i.test(text) && /FROM shade_source_product ssp/i.test(text)) {
+    const [sourceId, targetId] = params.map(Number);
+    let count = 0;
+    for (const link of state.sourceProducts.filter((l) => l.shadeId === sourceId)) {
+      if (state.sourceProducts.some((l) => l.shadeId === targetId && l.externalProductId === link.externalProductId)) continue;
+      state.sourceProducts.push({ ...link, shadeId: targetId });
+      count += 1;
+    }
+    return { rows: [], rowCount: count };
+  }
+  if (/^DELETE FROM shade_source_product WHERE shade_id = \$1$/i.test(text)) {
+    const before = state.sourceProducts.length;
+    state.sourceProducts = state.sourceProducts.filter((l) => l.shadeId !== Number(params[0]));
+    return { rows: [], rowCount: before - state.sourceProducts.length };
+  }
+  if (/^UPDATE user_shade_barcode SET shade_id = \$2 WHERE shade_id = \$1$/i.test(text)) {
+    const [sourceId, targetId] = params.map(Number);
+    const moved = state.userBarcodes.filter((b) => b.shadeId === sourceId);
+    for (const b of moved) b.shadeId = targetId;
+    return { rows: [], rowCount: moved.length };
+  }
   if (/^UPDATE shade\s+SET review_status = 'merged'/i.test(text)) {
     const shade = state.shades.get(Number(params[0]));
     Object.assign(shade, { reviewStatus: "merged", mergedInto: Number(params[1]), reviewedBy: params[2], note: params[3] });
+    if (/status = 'excluded'/.test(text)) shade.status = "excluded";
     return rowsResult([{ reviewedAt: new Date("2026-10-17T00:00:00Z") }]);
   }
   if (/^UPDATE shade\s+SET review_status = 'rejected'/i.test(text)) {
@@ -487,6 +516,45 @@ describe("mergeShadeInto", () => {
     state.shades.get(SOURCE).reviewStatus = "rejected";
     await mergeShadeInto(client, { sourceShadeId: SOURCE, targetShadeId: TARGET, adminUserId: ADMIN });
     assert.equal(state.shades.get(SOURCE).reviewStatus, "merged");
+  });
+
+  it("moves every vendor listing and learned barcode to the target", async () => {
+    const outcome = await mergeShadeInto(client, { sourceShadeId: SOURCE, targetShadeId: TARGET, adminUserId: ADMIN });
+    assert.equal(outcome.movedSourceProductRows, 1, "product 900 was already on the target");
+    assert.deepEqual(
+      state.sourceProducts.map((l) => [l.shadeId, l.externalProductId, l.firstSeenAt]).sort(),
+      [[TARGET, 900, "2026-01-01"], [TARGET, 901, "2026-02-01"]].sort(),
+      "the target keeps its own row for a shared product and gains the others with their dates"
+    );
+    assert.deepEqual(state.userBarcodes, [{ userId: 1, gtin: "0012345678905", shadeId: TARGET }]);
+    assert.equal(state.shades.get(SOURCE).status, "user_submitted", "a review merge keeps the source private");
+  });
+
+  it("a catalog merge takes an active source and retires it as excluded", async () => {
+    const DUP = 600;
+    state.shades.set(DUP, { brandId: 1, productLineId: null, name: "Big Apple Red (40052)", status: "active", reviewStatus: null, mergedInto: null, finish: null, finishes: [] });
+    await assert.rejects(
+      mergeShadeInto(client, { sourceShadeId: DUP, targetShadeId: TARGET, adminUserId: ADMIN }),
+      (e) => e instanceof ShadeReviewError && e.status === 409,
+      "the review merge refuses a catalog shade"
+    );
+    await mergeShadeInto(client, { sourceShadeId: DUP, targetShadeId: TARGET, adminUserId: ADMIN, sourceKind: "catalog" });
+    const dup = state.shades.get(DUP);
+    assert.equal(dup.status, "excluded");
+    assert.equal(dup.reviewStatus, "merged");
+    assert.equal(dup.mergedInto, TARGET);
+    assert.ok(state.aliases.some((a) => a.shadeId === TARGET && a.alias === "Big Apple Red (40052)"));
+
+    await assert.rejects(
+      mergeShadeInto(client, { sourceShadeId: DUP, targetShadeId: TARGET, adminUserId: ADMIN, sourceKind: "catalog" }),
+      (e) => e instanceof ShadeReviewError && e.status === 409,
+      "an already merged shade cannot be merged again"
+    );
+    await assert.rejects(
+      mergeShadeInto(client, { sourceShadeId: SOURCE, targetShadeId: TARGET, adminUserId: ADMIN, sourceKind: "catalog" }),
+      (e) => e instanceof ShadeReviewError && e.status === 409,
+      "a catalog merge refuses a user_submitted shade"
+    );
   });
 });
 
