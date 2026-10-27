@@ -10,7 +10,7 @@ import { confidenceForDistance } from "./thresholds";
  * the shade's color name: "Mirage", "Illusion" and "Supernova" all came out as the same
  * slate blue. Color search therefore ranks estimated shades after every shade with a measured
  * hex and never grades them above low. `GET /api/polishes?nearHex=` applies the same rule in
- * SQL (`NEAR_HEX_ESTIMATED_SQL` in packages/functions/src/lib/near-hex.ts).
+ * SQL (`NEAR_HEX_TIER_SQL` in packages/functions/src/lib/near-hex.ts).
  */
 
 /** True when the display hex is only a guess from the color name (no vendor or detected hex). */

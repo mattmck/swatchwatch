@@ -17,6 +17,7 @@ const base: NearbyTargetsInput = {
   similarMode: false,
   paletteAnchors: [],
   rawHarmonyColors: ["#00AA00", "#0000AA"],
+  paletteSlotHexes: [],
 };
 
 describe("uniqueHexes", () => {
@@ -52,6 +53,15 @@ describe("contextNearbyTargets", () => {
       contextNearbyTargets({ ...base, hoverHex: "#123456", focusedTargetHex: "#00AA00", paletteAnchors: ["#ffffff"] }),
       ["#AA0000", "#00AA00", "#FFFFFF", "#0000AA"],
     );
+  });
+
+  it("adds the recommended palettes' slots after the other targets, within the API limit", () => {
+    assert.deepEqual(
+      contextNearbyTargets({ ...base, paletteAnchors: ["#ffffff"], paletteSlotHexes: ["#ffffff", "#123456"] }),
+      ["#AA0000", "#FFFFFF", "#00AA00", "#0000AA", "#123456"],
+    );
+    const many = Array.from({ length: 40 }, (_, i) => `#0000${i.toString(16).padStart(2, "0")}`);
+    assert.equal(contextNearbyTargets({ ...base, paletteSlotHexes: many }).length, MAX_NEAR_HEX_TARGETS);
   });
 
   it("does not change while only the hover color moves", () => {

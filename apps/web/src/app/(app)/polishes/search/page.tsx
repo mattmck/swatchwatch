@@ -485,6 +485,17 @@ function ColorSearchPageContent() {
   // shades. The list's own query follows what the list is ranked against (the hover color only in
   // Similar mode); the context query (focused colors, palette slots, harmony snapping) never
   // includes the hover color, so moving over the wheel in a harmony mode asks for nothing.
+  // The recommended palettes' slots before snapping (same seeds and harmonies as
+  // recommendedPalettes below), so the query never depends on its own results.
+  const paletteSlotHexes = useMemo(() => {
+    const seeds = uniqueHexes(paletteAnchors.length > 0 ? paletteAnchors : [selectedHex]);
+    const harmonies = harmonyTypeOptions
+      .map((item) => item.value)
+      .filter((h): h is HarmonyType => h !== "similar")
+      .filter((h) => recommendationHarmonyFilter === "all" || recommendationHarmonyFilter === h);
+    return uniqueHexes(seeds.flatMap((seed) => harmonies.flatMap((h) => generateHarmonyPalette(seed, h))));
+  }, [paletteAnchors, selectedHex, harmonyTypeOptions, recommendationHarmonyFilter]);
+
   const nearbyTargetsInput = useMemo<NearbyTargetsInput>(
     () => ({
       hoverHex: previewHex,
@@ -493,8 +504,9 @@ function ColorSearchPageContent() {
       similarMode: isSimilarMode,
       paletteAnchors,
       rawHarmonyColors,
+      paletteSlotHexes,
     }),
-    [previewHex, selectedHex, focusedTargetHex, isSimilarMode, paletteAnchors, rawHarmonyColors]
+    [previewHex, selectedHex, focusedTargetHex, isSimilarMode, paletteAnchors, rawHarmonyColors, paletteSlotHexes]
   );
   const brandQuery = brandFilter !== "all" ? brandFilter : undefined;
   const finishQuery = finishFilter !== "all" ? finishFilter : undefined;
