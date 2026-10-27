@@ -7,8 +7,10 @@ const path = require("node:path");
 // ---------------------------------------------------------------------------
 
 const shadeUpdates = [];
+const allSql = [];
 
 function fakeRows(sql, params) {
+  allSql.push(sql);
   if (sql.includes("FROM finish_normalization")) {
     return [
       { kind: "type", sourceValue: "holographic", normalizedFinishName: "holographic" },
@@ -55,7 +57,7 @@ const { materializeMakeupApiRecords } = require("../dist/lib/ingestion-repo");
 
 describe("materializeMakeupApiRecords finish merge", () => {
   it("canonicalizes existing alias finishes before merging tag finishes", async () => {
-    await materializeMakeupApiRecords(1, [
+    await materializeMakeupApiRecords([
       {
         externalId: "mk-1",
         raw: {},
@@ -71,5 +73,11 @@ describe("materializeMakeupApiRecords finish merge", () => {
     assert.equal(shadeUpdates.length, 1);
     // "Holo" (stored) and "holographic" (tag) resolve to the same finish: one entry, not two.
     assert.deepEqual(shadeUpdates[0], ["holographic"]);
+  });
+
+  it("writes catalog rows only, never the running admin's inventory", () => {
+    // Ingestion used to add every shade to the admin's wishlist; it must not touch inventory.
+    assert.ok(allSql.length > 0);
+    assert.ok(!allSql.some((sql) => /\b(?:INSERT INTO|UPDATE|DELETE FROM) user_inventory_item\b/.test(sql)));
   });
 });

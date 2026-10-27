@@ -78,6 +78,7 @@ import { FinishBadges } from "@/components/finish-badges";
 import { BuyFromBrandLink } from "@/components/buy-from-brand-link";
 import { ColorFamilyChips } from "@/components/color-family-chips";
 import { ProductCategoryChips, ProductCategoryPill, TopperSwatch, showsTopperSwatch } from "@/components/product-category";
+import { MarkAccessoryButton } from "@/components/admin-catalog-panel";
 import { parseProductCategoryParam } from "@/lib/product-category-filter";
 import { parseColorFamilyParam, serializeColorFamilies } from "@/lib/color-family-filter";
 import { SwatchThumbnail } from "@/components/swatch-thumbnail";
@@ -619,6 +620,11 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
     });
   }, [knownFinishes]);
 
+  // Admin "Accessory" row action: show the new category (pill, swatch) without a refetch.
+  const markRowCategory = useCallback((polishId: string, productCategory: Polish["productCategory"]) => {
+    setPolishes((prev) => prev.map((p) => (p.id === polishId ? { ...p, productCategory } : p)));
+  }, []);
+
   const clearAllFilters = () => {
     setSearch("");
     setStatuses([]);
@@ -910,6 +916,14 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                           {recalcPending ? "Submitting..." : "Recalc"}
                         </Button>
                       )}
+                      {isAdmin && (
+                        <MarkAccessoryButton
+                          shadeId={polish.id}
+                          productCategory={polish.productCategory}
+                          disabled={offline}
+                          onMarked={(productCategory) => markRowCategory(polish.id, productCategory)}
+                        />
+                      )}
                       {renderRowActions(polish)}
                     </div>
                   </li>
@@ -983,7 +997,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                 </button>
               </TableHead>
               {isAdmin && (
-                <TableHead className="w-28 text-right">Recalc Hex</TableHead>
+                <TableHead className="w-36 text-right">Admin</TableHead>
               )}
               <TableHead className="w-40 text-right">Actions</TableHead>
             </TableRow>
@@ -1091,6 +1105,7 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                     </TableCell>
                     {isAdmin && (
                       <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
                         <Button
                           type="button"
                           size="xs"
@@ -1106,6 +1121,14 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
                           )}
                           {recalcPending ? "Submitting..." : "Recalc"}
                         </Button>
+                        <MarkAccessoryButton
+                          shadeId={polish.id}
+                          productCategory={polish.productCategory}
+                          disabled={offline}
+                          compact
+                          onMarked={(productCategory) => markRowCategory(polish.id, productCategory)}
+                        />
+                        </div>
                       </TableCell>
                     )}
                     <TableCell className="text-right">
@@ -1130,7 +1153,11 @@ function PolishesPageContent({ isAdmin }: { isAdmin: boolean }) {
         totalPages={totalPages}
         totalItems={total}
         pageSize={pageSize}
-        onPageChange={setPage}
+        onPageChange={(nextPage) => {
+          setPage(nextPage);
+          // The controls sit under the table: bring the new page's first rows into view.
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
         onPageSizeChange={(newSize) => {
           setPageSize(newSize);
           setPage(1); // Reset to first page when page size changes
