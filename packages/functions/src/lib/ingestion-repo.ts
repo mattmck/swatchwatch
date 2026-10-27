@@ -46,6 +46,7 @@ import { classifyProductCategory } from "./product-category";
 import { resolveProductCategory, type ProductCategory } from "swatchwatch-shared";
 import { PoolClient } from "pg";
 import { recordShadeSourceProduct } from "./buy-link";
+import { MAKEUPAPI_CODE_SUFFIX_PATTERN, makeupApiNameKey, makeupApiNameKeySql } from "./makeupapi-dedupe";
 import { materializeProductBarcodes, type BarcodeConflict } from "./barcodes";
 import {
   fingerprintColumnsSql,
@@ -113,6 +114,8 @@ export interface MakeupApiMaterializationMetrics {
   skipped: number;
   /** Variants matched to an existing shade: only the MakeupAPI listing was recorded. */
   existingShadesLinked: number;
+  /** Variants whose name matches several catalog shades of the brand: skipped, nothing created. */
+  ambiguousShadesSkipped: number;
 }
 
 export interface HoloTacoMaterializationMetrics {
@@ -2291,56 +2294,68 @@ export async function listIngestionJobs(
 }
 
 /**
- * The catalog shade a MakeupAPI color variant belongs to: brand + color name, else a shade of the
- * brand carrying the name as an alias (a merge keeps the merged name as an alias), preferring
- * unmerged rows; a merged row resolves to the shade it was merged into. Users' private
- * `user_submitted` shades are never matched.
+ * The catalog shade a MakeupAPI color variant belongs to, matched with the MakeupAPI dedupe's
+ * name rule (`makeupApiNameKey`: case, whitespace and a trailing "(40052)" code ignored) against
+ * the brand's shade names and aliases (a merge keeps the merged name as an alias). A merged row
+ * resolves to the shade it was merged into. Users' private `user_submitted` shades are never
+ * matched, and only a shade of the same product category counts. Several distinct candidates are
+ * `ambiguous`: nothing is guessed.
  */
 async function findMakeupApiShade(
   client: PoolClient,
   brandId: number,
-  shadeName: string
-): Promise<{ shadeId: number } | null> {
+  shadeName: string,
+  productCategory: string
+): Promise<{ kind: "match"; shadeId: number } | { kind: "none" } | { kind: "ambiguous" }> {
+  const key = makeupApiNameKey(shadeName);
+  if (!key) return { kind: "none" };
   type Row = { shadeId: string; mergedIntoShadeId: string | null };
-  const byName = await client.query<Row>(
-    `SELECT shade_id::text AS "shadeId", merged_into_shade_id::text AS "mergedIntoShadeId"
-     FROM shade
-     WHERE brand_id = $1
-       AND product_line_id IS NULL
-       AND lower(shade_name_canonical) = lower($2)
-       AND status <> 'user_submitted'
-     ORDER BY (merged_into_shade_id IS NULL) DESC, shade_id
-     LIMIT 1`,
-    [brandId, shadeName]
-  );
-  let row: Row | null = byName.rows[0] ?? null;
-  if (!row) {
-    const byAlias = await client.query<Row>(
-      `SELECT shade_id::text AS "shadeId", merged_into_shade_id::text AS "mergedIntoShadeId"
-       FROM shade
-       WHERE brand_id = $1
-         AND status <> 'user_submitted'
-         AND EXISTS (
+  const candidates = await client.query<Row>(
+    `SELECT s.shade_id::text AS "shadeId", s.merged_into_shade_id::text AS "mergedIntoShadeId"
+     FROM shade s
+     WHERE s.brand_id = $1
+       AND s.status <> 'user_submitted'
+       AND (
+         (s.product_line_id IS NULL AND ${makeupApiNameKeySql("s.shade_name_canonical", "$3")} = $2)
+         OR EXISTS (
            SELECT 1 FROM shade_alias sa
-           WHERE sa.shade_id = shade.shade_id AND lower(sa.alias) = lower($2)
+           WHERE sa.shade_id = s.shade_id AND ${makeupApiNameKeySql("sa.alias", "$3")} = $2
          )
-       ORDER BY (merged_into_shade_id IS NULL) DESC, shade_id
-       LIMIT 1`,
-      [brandId, shadeName]
-    );
-    row = byAlias.rows[0] ?? null;
-  }
+       )
+     ORDER BY s.shade_id`,
+    [brandId, key, MAKEUPAPI_CODE_SUFFIX_PATTERN]
+  );
+
   // Follow merges to the survivor (bounded, in case of a cycle).
-  for (let hops = 0; row && row.mergedIntoShadeId !== null && hops < 10; hops += 1) {
-    const next: { rows: Row[] } = await client.query<Row>(
-      `SELECT shade_id::text AS "shadeId", merged_into_shade_id::text AS "mergedIntoShadeId"
-       FROM shade
-       WHERE shade_id = $1`,
-      [row.mergedIntoShadeId]
-    );
-    row = next.rows[0] ?? null;
+  const survivors = new Set<string>();
+  for (const candidate of candidates.rows) {
+    let row: Row | null = candidate;
+    for (let hops = 0; row && row.mergedIntoShadeId !== null && hops < 10; hops += 1) {
+      const next: { rows: Row[] } = await client.query<Row>(
+        `SELECT shade_id::text AS "shadeId", merged_into_shade_id::text AS "mergedIntoShadeId"
+         FROM shade
+         WHERE shade_id = $1`,
+        [row.mergedIntoShadeId]
+      );
+      row = next.rows[0] ?? null;
+    }
+    if (row && row.mergedIntoShadeId === null) survivors.add(row.shadeId);
   }
-  return row ? { shadeId: Number(row.shadeId) } : null;
+  if (survivors.size === 0) return { kind: "none" };
+
+  const eligible = await client.query<{ shadeId: string }>(
+    `SELECT shade_id::text AS "shadeId"
+     FROM shade
+     WHERE shade_id = ANY($1::bigint[])
+       AND merged_into_shade_id IS NULL
+       AND status <> 'user_submitted'
+       AND product_category = $2
+     ORDER BY shade_id`,
+    [[...survivors], productCategory]
+  );
+  if (eligible.rows.length === 0) return { kind: "none" };
+  if (eligible.rows.length > 1) return { kind: "ambiguous" };
+  return { kind: "match", shadeId: Number(eligible.rows[0].shadeId) };
 }
 
 export async function materializeMakeupApiRecords(
@@ -2359,6 +2374,7 @@ export async function materializeMakeupApiRecords(
     let legacyRowsDeleted = 0;
     let skipped = 0;
     let existingShadesLinked = 0;
+    let ambiguousShadesSkipped = 0;
 
     const brandCache = new Map<string, number>();
 
@@ -2458,12 +2474,27 @@ export async function materializeMakeupApiRecords(
         variantRowsProcessed += 1;
 
         const collection = makeup.name;
+        const resolvedColorName = variant.name || makeup.name;
+        // Tag finishes are canonicalized and deduped like the Holo Taco path; descriptor/description
+        // finishes fill in when there are none (#352); null leaves finishes empty.
+        const mergedFinishes = applyIngestedFinishes([], finishResolution, finishCatalog, null);
+        const { category: productCategory } = classifyProductCategory({
+          shadeName,
+          colorName: resolvedColorName,
+          finishes: mergedFinishes ?? [],
+          products: [{ title: makeup.name, productType: asString(normalized.category), tags: makeup.tags }],
+        });
 
         // Identity is brand + color name, never the product name: MakeupAPI lists the sibling colors
         // of a family on every product of the family (Dior), so keying on `collection` made a copy
         // per product. A shade merged away by the MakeupAPI dedupe resolves to its survivor.
-        const existingShade = await findMakeupApiShade(client, brandId, shadeName);
-        if (existingShade) {
+        const existingShade = await findMakeupApiShade(client, brandId, shadeName, productCategory);
+        if (existingShade.kind === "ambiguous") {
+          // The catalog already has several shades by that name: leave them to an admin.
+          ambiguousShadesSkipped += 1;
+          continue;
+        }
+        if (existingShade.kind === "match") {
           // MakeupAPI's feed is frozen 2015 data with scraped hexes: it only writes catalog data to a
           // shade it creates. An existing shade (a store or seed shade, or a merge survivor) only
           // gains the MakeupAPI listing, so it never takes MakeupAPI's hex, color name or finishes.
@@ -2488,11 +2519,7 @@ export async function materializeMakeupApiRecords(
         }
 
         // Write color data to the new shade
-        const resolvedColorName = variant.name || makeup.name;
         const vendorHexPlan = planIngestedVendorHex(null, variant.hex || null, true);
-        // Tag finishes are canonicalized and deduped like the Holo Taco path; descriptor/description
-        // finishes fill in when there are none (#352); null leaves finishes empty.
-        const mergedFinishes = applyIngestedFinishes([], finishResolution, finishCatalog, null);
         await client.query(
           `UPDATE shade SET
              color_name = COALESCE($2, color_name),
@@ -2502,12 +2529,6 @@ export async function materializeMakeupApiRecords(
            WHERE shade_id = $1`,
           [shadeId, resolvedColorName, vendorHexPlan.vendorHex, mergedFinishes, ...ingestedVendorHexParams(vendorHexPlan)]
         );
-        const { category: productCategory } = classifyProductCategory({
-          shadeName,
-          colorName: resolvedColorName,
-          finishes: mergedFinishes ?? [],
-          products: [{ title: makeup.name, productType: asString(normalized.category), tags: makeup.tags }],
-        });
         await applyRuleProductCategory(client, shadeId, productCategory);
 
         const inventory = await client.query<{
@@ -2560,6 +2581,7 @@ export async function materializeMakeupApiRecords(
       legacyRowsDeleted,
       skipped,
       existingShadesLinked,
+      ambiguousShadesSkipped,
     };
   });
 }

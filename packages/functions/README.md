@@ -558,8 +558,11 @@ rows and user inventory rows (`quantity=0`, `status='wishlist'`) by default. Set
 `false` to store only raw/normalized external records. The `MakeupAPI` data source is disabled
 (migration `20261026045216957_makeupapi-cleanup`): its feed is frozen 2015 data with dead product and image
 URLs and scraped hexes. A variant's shade is keyed on brand + color name (never the product name, since
-Dior lists a family's sibling colors on every product of the family); a name the MakeupAPI dedupe merged
-away resolves through `merged_into_shade_id` or the survivor's alias. MakeupAPI writes catalog data
+Dior lists a family's sibling colors on every product of the family), compared with the dedupe's
+`makeupApiNameKey` rule (a trailing "(40052)" code ignored, so "Monroe's Red (40052)" finds the store's
+"Monroe's Red") against the brand's shade names and aliases; a merged row resolves through
+`merged_into_shade_id`. Only a single candidate of the variant's product category counts: several are
+skipped (`metrics.ambiguousShadesSkipped`), none creates a shade. MakeupAPI writes catalog data
 (color name, vendor hex, finishes, category) only to shades it creates: an existing shade, such as a store
 or seed shade or a merge survivor, only gains the MakeupAPI `shade_source_product` listing
 (`metrics.existingShadesLinked`). Users' private `user_submitted` shades are never matched.
@@ -586,7 +589,8 @@ deletedShades[], keptShades[], nextAfterBrandId }`. Per brand:
   deleted with its aliases and listings (the `external_product` rows stay). A shade stays (`keptShades`, with
   reasons) when any other table with a foreign key to `shade` has a row for it (inventory, mani log, events,
   learned barcodes, labels, SKUs, ...; the list is read from `pg_constraint`), when it has an admin category,
-  admin finishes or a promoted vendor hex, or when a kept merged row points at it.
+  admin finishes or a promoted vendor hex, when a user created it or an admin approved it from the review
+  queue, or when a kept merged row points at it. Batches walk brands in numeric `brand_id` order.
 - Every merge and delete writes an `admin_audit_event` (`shade.catalog_merge` / `shade.catalog_delete`,
   the deleted row as JSON) in the same transaction. A dry run runs the same statements and rolls them
   back. Idempotent. `npm run dedupe:makeupapi-shades` loops it (`--write`, `--after`, `--limit`, `--out`), and

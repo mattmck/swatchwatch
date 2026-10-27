@@ -26,8 +26,9 @@
  *   move; the survivor's name, finishes and hexes never change.
  * - Then every MakeupAPI-only shade (and every copy merged in this batch) that nothing else
  *   references is deleted: no inventory, mani log, events, learned barcodes, labels or any other
- *   row of a table with a foreign key to `shade` (discovered from `pg_constraint` each run), and
- *   no admin edit (admin category or finishes, promoted vendor hex). Aliases, vendor listings and
+ *   row of a table with a foreign key to `shade` (discovered from `pg_constraint` each run), no
+ *   admin edit (admin category or finishes, promoted vendor hex), and neither created by a user nor
+ *   approved from the review queue. Aliases, vendor listings and
  *   the category change log go with it; the `external_product` rows stay.
  * - Every merge and delete writes an `admin_audit_event` (`shade.catalog_merge` /
  *   `shade.catalog_delete`, the deleted row as JSON) in the same transaction.
@@ -47,14 +48,24 @@ const DELETED_WITH_SHADE = new Set(["shade_alias", "shade_source_product", "shad
 
 const MERGE_NOTE = "MakeupAPI dedupe";
 
+/**
+ * A trailing MakeupAPI product code such as " (40052)". One pattern for TypeScript and Postgres
+ * (both read `\s`, `\d` and `{m,n}` the same way), so ingestion's SQL lookup and the dedupe agree.
+ */
+export const MAKEUPAPI_CODE_SUFFIX_PATTERN = String.raw`\s*\(\s*[A-Za-z]?\d{2,6}\s*\)$`;
+const CODE_SUFFIX = new RegExp(MAKEUPAPI_CODE_SUFFIX_PATTERN);
+
 /** Catalog name key: whitespace collapsed, case folded, a trailing "(40052)"-style code removed. */
 export function makeupApiNameKey(name: string): string {
-  return name
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/\s*\(\s*[A-Za-z]?\d{2,6}\s*\)$/, "")
-    .trim()
-    .toLowerCase();
+  return name.replace(/\s+/g, " ").trim().replace(CODE_SUFFIX, "").trim().toLowerCase();
+}
+
+/**
+ * `makeupApiNameKey` as a SQL expression over the text expression `column`; `patternParam` is
+ * the placeholder (e.g. `$3`) bound to `MAKEUPAPI_CODE_SUFFIX_PATTERN`.
+ */
+export function makeupApiNameKeySql(column: string, patternParam: string): string {
+  return `lower(btrim(regexp_replace(btrim(regexp_replace(${column}, '\\s+', ' ', 'g')), ${patternParam}, '')))`;
 }
 
 export interface DedupeShadeRow {
@@ -304,18 +315,19 @@ export async function runMakeupApiDedupeBatch(
   const sourceIds = sources.rows.map((row) => row.dataSourceId);
   if (sourceIds.length === 0) return { ...report, changedShadeIds: [] };
 
-  const brands = await db.query<{ brandId: string }>(
-    `SELECT DISTINCT s.brand_id::text AS "brandId"
+  // Order by the numeric id (not its text form): the cursor is compared numerically.
+  const brands = await db.query<{ brandId: string | number }>(
+    `SELECT DISTINCT s.brand_id AS "brandId"
      FROM shade s
      JOIN shade_source_product ssp ON ssp.shade_id = s.shade_id
      JOIN external_product ep ON ep.external_product_id = ssp.external_product_id
      WHERE ep.data_source_id = ANY($1::bigint[])
        AND s.brand_id > $2
-     ORDER BY 1
+     ORDER BY s.brand_id
      LIMIT $3`,
     [sourceIds, options.afterBrandId, options.limit]
   );
-  const brandIds = brands.rows.map((row) => Number(row.brandId)).sort((a, b) => a - b);
+  const brandIds = brands.rows.map((row) => Number(row.brandId));
   report.scannedBrands = brandIds.length;
   report.nextAfterBrandId = brandIds.length === options.limit ? brandIds[brandIds.length - 1] : null;
   if (brandIds.length === 0) return { ...report, changedShadeIds: [] };
@@ -505,13 +517,26 @@ async function loadDeleteBlockers(client: QueryClient, shadeIds: number[]): Prom
     for (const row of used.rows) add(Number(row.shadeId), reference.plainTable);
   }
 
-  const edited = await client.query<{ shadeId: string }>(
-    `SELECT shade_id::text AS "shadeId"
+  // Admin edits, and shades a user created or an admin approved from the review queue (their
+  // name, collection and color edits have no provenance column, so the shade as a whole is kept).
+  const edited = await client.query<{ shadeId: string; adminEdit: boolean; userShade: boolean }>(
+    `SELECT shade_id::text AS "shadeId",
+            (product_category_source = 'admin' OR finishes_source = 'admin' OR vendor_hex_source = 'manual_label') AS "adminEdit",
+            (created_by_user_id IS NOT NULL OR review_status = 'approved') AS "userShade"
      FROM shade
      WHERE shade_id = ANY($1::bigint[])
-       AND (product_category_source = 'admin' OR finishes_source = 'admin' OR vendor_hex_source = 'manual_label')`,
+       AND (
+         product_category_source = 'admin'
+         OR finishes_source = 'admin'
+         OR vendor_hex_source = 'manual_label'
+         OR created_by_user_id IS NOT NULL
+         OR review_status = 'approved'
+       )`,
     [shadeIds]
   );
-  for (const row of edited.rows) add(Number(row.shadeId), "admin edit");
+  for (const row of edited.rows) {
+    if (row.adminEdit) add(Number(row.shadeId), "admin edit");
+    if (row.userShade) add(Number(row.shadeId), "user or approved shade");
+  }
   return blockers;
 }

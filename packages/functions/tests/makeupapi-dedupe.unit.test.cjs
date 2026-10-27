@@ -6,7 +6,9 @@ const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
+  MAKEUPAPI_CODE_SUFFIX_PATTERN,
   makeupApiNameKey,
+  makeupApiNameKeySql,
   parseMakeupApiDedupeBody,
   planMakeupApiMerges,
   resolveDeletableShades,
@@ -36,6 +38,15 @@ describe("makeupApiNameKey", () => {
     assert.equal(makeupApiNameKey("Drops of Jade  (55)"), "drops of jade");
     assert.equal(makeupApiNameKey("Shiny Orange Glitter (604)"), "shiny orange glitter");
     assert.equal(makeupApiNameKey("745   Grenat"), "745 grenat");
+  });
+
+  it("has a SQL form that collapses whitespace, strips the shared code pattern and folds case", () => {
+    const sql = makeupApiNameKeySql("s.shade_name_canonical", "$3");
+    assert.equal(
+      sql,
+      "lower(btrim(regexp_replace(btrim(regexp_replace(s.shade_name_canonical, '\\s+', ' ', 'g')), $3, '')))"
+    );
+    assert.equal(MAKEUPAPI_CODE_SUFFIX_PATTERN, String.raw`\s*\(\s*[A-Za-z]?\d{2,6}\s*\)$`);
   });
 
   it("keeps descriptive parentheses and codes that are not a trailing parenthesis", () => {

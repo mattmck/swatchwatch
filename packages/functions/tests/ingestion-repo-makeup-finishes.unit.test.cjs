@@ -24,23 +24,22 @@ function fakeRows(sql, params) {
   }
   if (sql.includes("FROM brand")) return [{ brandId: 1 }];
   const asRow = (s) => ({ shadeId: String(s.shadeId), mergedIntoShadeId: s.mergedInto === null ? null : String(s.mergedInto) });
-  const unmergedFirst = (a, b) => (a.mergedInto === null ? 0 : 1) - (b.mergedInto === null ? 0 : 1) || a.shadeId - b.shadeId;
-  if (sql.includes('merged_into_shade_id::text AS "mergedIntoShadeId"')) {
-    if (sql.includes("lower(shade_name_canonical) = lower($2)")) {
-      const name = String(params[1]).toLowerCase();
-      return existing.filter((s) => s.name.toLowerCase() === name).sort(unmergedFirst).slice(0, 1).map(asRow);
-    }
-    if (sql.includes("FROM shade_alias sa")) {
-      const name = String(params[1]).toLowerCase();
-      return existing
-        .filter((s) => (s.aliases ?? []).some((a) => a.toLowerCase() === name))
-        .sort(unmergedFirst)
-        .slice(0, 1)
-        .map(asRow);
-    }
-    if (sql.includes("WHERE shade_id = $1")) {
-      return existing.filter((s) => s.shadeId === Number(params[0])).map(asRow);
-    }
+  if (sql.includes("FROM shade_alias sa") && sql.includes("regexp_replace")) {
+    // The SQL key must use the shared pattern; the fake compares with the TypeScript key.
+    assert.equal(params[2], MAKEUPAPI_CODE_SUFFIX_PATTERN);
+    const key = params[1];
+    return existing
+      .filter((s) => makeupApiNameKey(s.name) === key || (s.aliases ?? []).some((a) => makeupApiNameKey(a) === key))
+      .map(asRow);
+  }
+  if (sql.includes('merged_into_shade_id::text AS "mergedIntoShadeId"') && sql.includes("WHERE shade_id = $1")) {
+    return existing.filter((s) => s.shadeId === Number(params[0])).map(asRow);
+  }
+  if (sql.includes("product_category = $2") && sql.includes("shade_id = ANY($1::bigint[])")) {
+    const ids = params[0].map(Number);
+    return existing
+      .filter((s) => ids.includes(s.shadeId) && s.mergedInto === null && (s.category ?? "color") === params[1])
+      .map((s) => ({ shadeId: String(s.shadeId) }));
   }
   if (sql.includes("INSERT INTO shade (")) {
     inserts.push(params[1]);
@@ -72,6 +71,7 @@ require.cache[dbPath] = {
 };
 
 const { materializeMakeupApiRecords } = require("../dist/lib/ingestion-repo");
+const { MAKEUPAPI_CODE_SUFFIX_PATTERN, makeupApiNameKey } = require("../dist/lib/makeupapi-dedupe");
 
 function product(externalId, name, colors, extra = {}) {
   return {
@@ -141,8 +141,27 @@ describe("materializeMakeupApiRecords", () => {
 
   it("never matches a user's private shade", async () => {
     await materializeMakeupApiRecords(1, [product("mk-3", "Prism", ["Prism"])], 9);
-    const lookups = statements.filter((sql) => sql.includes('merged_into_shade_id::text AS "mergedIntoShadeId"') && !sql.includes("WHERE shade_id = $1"));
-    assert.ok(lookups.length >= 2);
-    for (const sql of lookups) assert.ok(sql.includes("status <> 'user_submitted'"));
+    const lookups = statements.filter((sql) => sql.includes("FROM shade_alias sa") && sql.includes("regexp_replace"));
+    assert.equal(lookups.length, 1);
+    assert.ok(lookups[0].includes("s.status <> 'user_submitted'"));
+  });
+
+  it("matches a store shade with MakeupAPI's product code stripped, like the dedupe", async () => {
+    existing = [{ shadeId: 1491, name: "Bus Stop Crimson", mergedInto: null }];
+    const metrics = await materializeMakeupApiRecords(1, [product("orly-3", "Orly Nail Lacquer", ["Bus Stop Crimson (40087)"])], 9);
+    assert.equal(metrics.shadesCreated, 0);
+    assert.deepEqual(links, [{ shadeId: 1491, externalId: "orly-3" }]);
+  });
+
+  it("creates nothing when the name matches several shades, and ignores another category", async () => {
+    existing = [
+      { shadeId: 1, name: "Gorgeous", mergedInto: null },
+      { shadeId: 2, name: "gorgeous (40131)", mergedInto: null },
+      { shadeId: 3, name: "Prism", mergedInto: null, category: "top_coat" },
+    ];
+    const metrics = await materializeMakeupApiRecords(1, [product("orly-4", "Orly Nail Lacquer", ["Gorgeous", "Prism"])], 9);
+    assert.equal(metrics.ambiguousShadesSkipped, 1, "Gorgeous: two shades, nothing guessed");
+    assert.deepEqual(inserts, ["Prism"], "the only Prism is a top coat, so the color polish gets its own shade");
+    assert.deepEqual(links, [{ shadeId: 901, externalId: "orly-4" }]);
   });
 });
