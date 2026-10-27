@@ -121,6 +121,8 @@ Rules:
 
 One pure helper in `packages/shared/src/color/swatch-fill.ts`:
 `swatchFill(primaryHex, colorKind, stops) → { kind: 'solid', hex } | { kind: 'linear', angle, stops } | { kind: 'band', base, band }`.
+An empty stop set returns `{ kind: 'solid', hex: primaryHex }` for every `colorKind`, so web and
+mobile both show an unlabeled thermal or magnetic shade as its primary hex (plus the kind glyph).
 
 - Web: `swatchBackground(fill)` → a CSS `background` string (`linear-gradient(135deg, …)`; magnetic
   = base plus a blurred band via a second gradient layer). Adopt it in the shared swatch pieces
@@ -149,7 +151,9 @@ One pure helper in `packages/shared/src/color/swatch-fill.ts`:
    chip each (the eyedropper already returns a sample point per click). Labels store the stops in
    `color_training_sample.label_meta.stops` (the label's own `hex` stays the primary), and a
    "Promote colors" action (like Promote to vendor hex: confirm, audit row, Undo) copies them to
-   `shade_color_stop` with `source = 'manual_label'`. The eval export keeps scoring the primary.
+   `shade_color_stop` with `source = 'manual_label'`. It calls the stop-set helper with the
+   label's chosen `color_kind`, `color_kind_source = 'admin'` and the complete stop set, all in
+   one transaction, so promoting onto a `solid` shade never fails the deferred check. The eval export keeps scoring the primary.
 2. **Display (≈1 session).** `swatchFill` + web `swatchBackground` + mobile `expo-linear-gradient`,
    responses carry `colorKind` / `colorStops`, adopt in the main swatch surfaces.
 3. **Matching (≈1 session).** `nearHex`, photo match and dupes as in §5, behind unit tests that
