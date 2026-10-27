@@ -31,7 +31,7 @@ function errorMessage(error: unknown, fallback: string): string {
  * Picks the auth hook for the current mode (dev bypass / unconfigured / B2C) the same way the
  * admin and polishes pages do, because `useAuth()` may only run inside `<MsalProvider>`.
  */
-function AdminOnly({ children }: { children: ReactNode }) {
+export function AdminOnly({ children }: { children: ReactNode }) {
   if (IS_DEV_BYPASS) return <DevAdminOnly>{children}</DevAdminOnly>;
   if (!HAS_B2C_CONFIG) return <UnconfiguredAdminOnly>{children}</UnconfiguredAdminOnly>;
   return <B2CAdminOnly>{children}</B2CAdminOnly>;

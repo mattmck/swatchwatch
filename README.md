@@ -16,7 +16,7 @@ Smart nail polish collection manager with color-based search, barcode and camera
 swatchwatch/
 ├── apps/
 │   ├── web/              → Next.js 16 (App Router) + Tailwind v4 + shadcn/ui
-│   └── mobile/           → Expo / React Native (SDK 57, Expo Router)
+│   └── mobile/           → Expo / React Native (SDK 58, Expo Router)
 ├── packages/
 │   ├── functions/        → Azure Functions v4 (Node 22, TypeScript)
 │   └── shared/           → Shared TypeScript types (polish, user, voice)
@@ -54,7 +54,7 @@ Admin authorization note:
 
 ## Prerequisites
 
-- **Node.js ≥ 20** (see `engines` in `package.json`)
+- **Node.js ≥ 22.13** (see `engines` in `package.json`; Expo SDK 58 and React Native 0.88 need it)
 - **Docker** — for local Postgres (pgvector)
 - **Azure Functions Core Tools v4** — for local functions development (`brew install azure-functions-core-tools@4`)
 - **Terraform ≥ 1.5** — for infrastructure provisioning
@@ -109,6 +109,7 @@ npm run dev:mobile       # → mobile via Expo (see apps/mobile/README.md)
 | `npm run generate:pwa-icons` | Regenerate the PWA / apple-touch PNG icons in `apps/web/public` from the brand SVG (commit the PNGs) |
 | `npm run dedupe:makeupapi-shades --workspace=swatchwatch-functions` | Merge the duplicate shades the MakeupAPI connector created (copies inside MakeupAPI, and MakeupAPI copies of a brand-store shade) and delete the MakeupAPI-only shades nothing uses, in batches of brands via `POST /api/shades-admin/makeupapi-dedupe/backfill` (`API_BASE_URL`, `ADMIN_BEARER_TOKEN`; dry run unless `--write`, `--out report.json` saves the report) |
 | `npm run dedupe:gallery-images --workspace=swatchwatch-functions` | Unlink catalog gallery images that duplicate another image of the same shade (the same vendor picture stored twice), matched perceptually, in batches via `POST /api/images-admin/gallery-dedupe` (`API_BASE_URL`, `ADMIN_BEARER_TOKEN`; dry run unless `--write`, `--shade <ids>`, `--after <shadeId>` resumes); also backfills `image_asset` perceptual fingerprints, even in a dry run, unless `--no-store-fingerprints` |
+| `npm run backfill:imported-wishlist --workspace=swatchwatch-functions` | Remove the untouched wishlist rows that old ingestion runs added for the admin who ran them, in batches via `POST /api/inventory-admin/imported-wishlist/backfill` (`API_BASE_URL`, `ADMIN_BEARER_TOKEN`; dry run unless `--write`, `--after <inventoryItemId>` resumes); then run `backfill:product-category` |
 | `npm run backfill:barcodes --workspace=swatchwatch-functions` | Build catalog `barcode` rows from stored connector products (GTIN + variant barcodes → shade via `shade_source_product`) in batches via `POST /api/barcodes-admin/backfill` (`API_BASE_URL`, `ADMIN_BEARER_TOKEN`; dry run unless `--write`, `--after <externalProductId>` resumes; first shade to claim a GTIN keeps it, conflicts are listed) |
 | `npm run backfill:image-variants --workspace=swatchwatch-functions` | Generate missing pre-generated catalog thumbnails for images stored before variants existed, in batches via `POST /api/images-admin/variants/backfill` (`API_BASE_URL`, `ADMIN_BEARER_TOKEN`; idempotent, `--after <imageId>` resumes) |
 

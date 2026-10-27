@@ -168,7 +168,7 @@ function record(imageUrls, images) {
 }
 
 const run = (imageUrls, images) =>
-  materializeHoloTacoRecords(1, 7, [record(imageUrls, images)], { detectHexFromImage: false });
+  materializeHoloTacoRecords(7, [record(imageUrls, images)], { detectHexFromImage: false });
 
 const imageIdFor = (url) => images.find((img) => img.checksum === `sum-${url}`).imageId;
 

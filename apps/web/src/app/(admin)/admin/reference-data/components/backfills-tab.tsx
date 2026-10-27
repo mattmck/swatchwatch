@@ -218,6 +218,28 @@ const BACKFILLS: BackfillDefinition[] = [
     applyConfirm: "Rewrite the stored product prices?",
   },
   {
+    id: "imported-wishlist",
+    title: "Imported wishlist rows",
+    description:
+      "Removes the wishlist rows ingestion used to add for the admin who ran each job. Only rows still exactly as ingestion wrote them (\"Imported from …\" note, quantity 0, no rating, price, wear, photo or mani) go; anything a user touched stays. Run the product category backfill afterwards so accessories nobody holds are excluded.",
+    command: "npm run backfill:imported-wishlist --workspace=swatchwatch-functions -- --write",
+    path: "inventory-admin/imported-wishlist/backfill",
+    cursorKey: "afterInventoryItemId",
+    nextKey: "nextAfterInventoryItemId",
+    dryRun: true,
+    defaultLimit: 500,
+    maxLimit: 2000,
+    metrics: [
+      { key: "scanned", label: "Rows matching" },
+      { key: "removed", label: "Rows removed" },
+    ],
+    maps: [
+      { key: "bySource", label: "By source" },
+      { key: "byUser", label: "By user id" },
+    ],
+    applyConfirm: "Delete the untouched imported wishlist rows?",
+  },
+  {
     id: "makeupapi-dedupe",
     title: "MakeupAPI duplicates",
     description:

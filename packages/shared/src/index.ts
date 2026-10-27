@@ -28,6 +28,7 @@ export * from "./types/nail-photo";
 export * from "./types/bottle-eval";
 export * from "./types/shade-review";
 export * from "./types/product-category";
+export * from "./types/shade-sources";
 export * from "./types/wishlist-share";
 export * from "./types/looks";
 export * from "./types/look-share";

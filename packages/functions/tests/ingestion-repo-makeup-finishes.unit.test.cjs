@@ -91,7 +91,7 @@ beforeEach(() => {
 
 describe("materializeMakeupApiRecords", () => {
   it("canonicalizes tag finishes on a new shade", async () => {
-    await materializeMakeupApiRecords(1, [product("mk-1", "Prism", ["Prism"], { tags: ["holo", "holographic"] })], 9);
+    await materializeMakeupApiRecords([product("mk-1", "Prism", ["Prism"], { tags: ["holo", "holographic"] })], 9);
     assert.deepEqual(inserts, ["Prism"]);
     assert.equal(shadeUpdates.length, 1);
     // "holo" (alias) and "holographic" (tag) resolve to the same finish: one entry, not two.
@@ -104,9 +104,9 @@ describe("materializeMakeupApiRecords", () => {
     const colors = ["745 Grenat", "673 Ruby"];
     const records = [product("ruby", "Ruby", colors), product("grenat", "Grenat", colors)];
     // The first product creates the shades; the fake then knows them for the second one.
-    const metrics = await materializeMakeupApiRecords(1, records.slice(0, 1), 9);
+    const metrics = await materializeMakeupApiRecords(records.slice(0, 1), 9);
     existing = inserts.map((name, i) => ({ shadeId: 901 + i, name, mergedInto: null }));
-    const again = await materializeMakeupApiRecords(1, records.slice(1), 9);
+    const again = await materializeMakeupApiRecords(records.slice(1), 9);
     assert.equal(metrics.shadesCreated, 2);
     assert.equal(again.shadesCreated, 0);
     assert.equal(again.existingShadesLinked, 2);
@@ -119,7 +119,7 @@ describe("materializeMakeupApiRecords", () => {
 
   it("only adds its listing to an existing shade, never its hex, color name or finishes", async () => {
     existing = [{ shadeId: 1443, name: "Monroe's Red", mergedInto: null }];
-    const metrics = await materializeMakeupApiRecords(1, [product("orly-1", "Orly Nail Lacquer", ["monroe's red"], { tags: ["holo"] })], 9);
+    const metrics = await materializeMakeupApiRecords([product("orly-1", "Orly Nail Lacquer", ["monroe's red"], { tags: ["holo"] })], 9);
     assert.equal(metrics.shadesCreated, 0);
     assert.equal(metrics.existingShadesLinked, 1);
     assert.deepEqual(shadeUpdates, []);
@@ -134,13 +134,13 @@ describe("materializeMakeupApiRecords", () => {
       // Deleted after the merge: only the survivor's alias remembers the MakeupAPI name.
       { shadeId: 701, name: "Gorgeous", mergedInto: null, aliases: ["Gorgeous (40131)"] },
     ];
-    await materializeMakeupApiRecords(1, [product("orly-2", "Orly Nail Lacquer", ["Monroe's Red (40052)", "Gorgeous (40131)"])], 9);
+    await materializeMakeupApiRecords([product("orly-2", "Orly Nail Lacquer", ["Monroe's Red (40052)", "Gorgeous (40131)"])], 9);
     assert.deepEqual(inserts, []);
     assert.deepEqual(links, [{ shadeId: 1443, externalId: "orly-2" }, { shadeId: 701, externalId: "orly-2" }]);
   });
 
   it("never matches a user's private shade", async () => {
-    await materializeMakeupApiRecords(1, [product("mk-3", "Prism", ["Prism"])], 9);
+    await materializeMakeupApiRecords([product("mk-3", "Prism", ["Prism"])], 9);
     const lookups = statements.filter((sql) => sql.includes("FROM shade_alias sa") && sql.includes("regexp_replace"));
     assert.equal(lookups.length, 1);
     assert.ok(lookups[0].includes("s.status <> 'user_submitted'"));
@@ -148,7 +148,7 @@ describe("materializeMakeupApiRecords", () => {
 
   it("matches a store shade with MakeupAPI's product code stripped, like the dedupe", async () => {
     existing = [{ shadeId: 1491, name: "Bus Stop Crimson", mergedInto: null }];
-    const metrics = await materializeMakeupApiRecords(1, [product("orly-3", "Orly Nail Lacquer", ["Bus Stop Crimson (40087)"])], 9);
+    const metrics = await materializeMakeupApiRecords([product("orly-3", "Orly Nail Lacquer", ["Bus Stop Crimson (40087)"])], 9);
     assert.equal(metrics.shadesCreated, 0);
     assert.deepEqual(links, [{ shadeId: 1491, externalId: "orly-3" }]);
   });
@@ -159,9 +159,17 @@ describe("materializeMakeupApiRecords", () => {
       { shadeId: 2, name: "gorgeous (40131)", mergedInto: null },
       { shadeId: 3, name: "Prism", mergedInto: null, category: "top_coat" },
     ];
-    const metrics = await materializeMakeupApiRecords(1, [product("orly-4", "Orly Nail Lacquer", ["Gorgeous", "Prism"])], 9);
+    const metrics = await materializeMakeupApiRecords([product("orly-4", "Orly Nail Lacquer", ["Gorgeous", "Prism"])], 9);
     assert.equal(metrics.ambiguousShadesSkipped, 1, "Gorgeous: two shades, nothing guessed");
     assert.deepEqual(inserts, ["Prism"], "the only Prism is a top coat, so the color polish gets its own shade");
     assert.deepEqual(links, [{ shadeId: 901, externalId: "orly-4" }]);
+  });
+
+  it("writes catalog rows only, never the running admin's inventory", async () => {
+    // Ingestion used to add every shade to the admin's wishlist; it must not touch inventory.
+    existing = [{ shadeId: 1443, name: "Monroe's Red", mergedInto: null }];
+    await materializeMakeupApiRecords([product("mk-5", "Orly Nail Lacquer", ["Monroe's Red (40052)", "New Color"])], 9);
+    assert.ok(statements.length > 0);
+    assert.ok(!statements.some((sql) => /\b(?:INSERT INTO|UPDATE|DELETE FROM) user_inventory_item\b/.test(sql)));
   });
 });

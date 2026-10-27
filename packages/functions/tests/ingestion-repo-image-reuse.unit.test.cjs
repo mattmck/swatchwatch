@@ -115,7 +115,7 @@ describe("materializeHoloTacoRecords source image reuse", () => {
   });
 
   it("looks up every primary and gallery URL for the data source in one query", async () => {
-    await materializeHoloTacoRecords(1, 7, [record(0), record(1)], { detectHexFromImage: false });
+    await materializeHoloTacoRecords(7, [record(0), record(1)], { detectHexFromImage: false });
 
     assert.equal(storedImageCalls.length, 1);
     const [dataSourceId, urls] = storedImageCalls[0];
@@ -129,7 +129,7 @@ describe("materializeHoloTacoRecords source image reuse", () => {
   it("skips the download for URLs that already have a stored image", async () => {
     storedImageHandler = async () => [stored(primaryUrl(0)), stored(galleryUrl(0))];
 
-    const metrics = await materializeHoloTacoRecords(1, 7, [record(0)], { detectHexFromImage: true });
+    const metrics = await materializeHoloTacoRecords(7, [record(0)], { detectHexFromImage: true });
 
     assert.deepEqual(uploadCalls, []);
     assert.equal(metrics.imagesReused, 2);
@@ -143,7 +143,7 @@ describe("materializeHoloTacoRecords source image reuse", () => {
   it("downloads only the URLs that are not stored yet", async () => {
     storedImageHandler = async () => [stored(primaryUrl(0))];
 
-    const metrics = await materializeHoloTacoRecords(1, 7, [record(0)], { detectHexFromImage: false });
+    const metrics = await materializeHoloTacoRecords(7, [record(0)], { detectHexFromImage: false });
 
     assert.deepEqual(uploadCalls, [galleryUrl(0)]);
     assert.equal(metrics.imagesReused, 1);
@@ -154,7 +154,7 @@ describe("materializeHoloTacoRecords source image reuse", () => {
   it("records the source URL of every stored image", async () => {
     storedImageHandler = async () => [stored(primaryUrl(0))];
 
-    await materializeHoloTacoRecords(1, 7, [record(0)], { detectHexFromImage: false });
+    await materializeHoloTacoRecords(7, [record(0)], { detectHexFromImage: false });
 
     assert.deepEqual(
       sourceUrlWrites.map(({ dataSourceId, sourceUrl }) => ({ dataSourceId, sourceUrl })),
@@ -171,7 +171,7 @@ describe("materializeHoloTacoRecords source image reuse", () => {
       throw new Error("relation \"source_image_url\" does not exist");
     };
 
-    const metrics = await materializeHoloTacoRecords(1, 7, [record(0)], { detectHexFromImage: false });
+    const metrics = await materializeHoloTacoRecords(7, [record(0)], { detectHexFromImage: false });
 
     assert.deepEqual(uploadCalls.sort(), [primaryUrl(0), galleryUrl(0)].sort());
     assert.equal(metrics.imagesReused, 0);

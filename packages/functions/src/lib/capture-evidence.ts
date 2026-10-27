@@ -211,6 +211,15 @@ export function extractFrameEvidence(quality: Record<string, unknown> | null): F
   return null;
 }
 
+/**
+ * Whether a frame of `surface` may supply the shade name. The front is photographed for the
+ * brand: its text is the brand, a collection or a tagline, and a closed-set pick off it is a
+ * guess, so a name read there would match the bottle before the bottom sticker is seen.
+ */
+export function surfaceReadsShadeName(surface: BottleSurface | null): boolean {
+  return surface !== "front";
+}
+
 export function collectCaptureEvidence(
   metadata: Record<string, unknown> | null,
   frames: CaptureFrameEvidenceRow[]
@@ -272,11 +281,13 @@ export function collectCaptureEvidence(
     if (!evidence.brandRead && extracted.brand) {
       evidence.brandRead = { text: extracted.brand, confidence: extracted.brandConfidence ?? 0, source: extracted.source };
     }
-    if (!evidence.shadeName) {
-      evidence.shadeName = extracted.shadeName;
-    }
-    if (!evidence.shadeNameListed) {
-      evidence.shadeNameListed = extracted.shadeNameListed;
+    if (surfaceReadsShadeName(surface)) {
+      if (!evidence.shadeName) {
+        evidence.shadeName = extracted.shadeName;
+      }
+      if (!evidence.shadeNameListed) {
+        evidence.shadeNameListed = extracted.shadeNameListed;
+      }
     }
     if (!evidence.finish) {
       evidence.finish = extracted.finish;

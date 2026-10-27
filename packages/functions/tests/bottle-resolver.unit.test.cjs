@@ -296,6 +296,14 @@ describe("lib/bottle-resolver — session helpers", () => {
     assert.equal(visionConfidenceFromFrames(frames), 0.81);
     assert.equal(visionConfidenceFromFrames([]), null);
   });
+  it("visionConfidenceFromFrames skips a front frame's pick (the front never names the shade)", () => {
+    const frames = [
+      { frameType: "label", quality: { surface: "front", extracted: { shadeNameListed: "A" }, ai: { sticker: { confidence: 0.95 } } } },
+      { frameType: "label", quality: { surface: "bottom", extracted: { shadeNameListed: "A" }, ai: { sticker: { confidence: 0.7 } } } },
+    ];
+    assert.equal(visionConfidenceFromFrames(frames), 0.7);
+    assert.equal(visionConfidenceFromFrames(frames.slice(0, 1)), null);
+  });
 });
 
 function recorder(opts = {}) {

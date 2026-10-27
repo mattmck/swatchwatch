@@ -64,7 +64,7 @@ export interface StickerReadResult {
   brandConfidence: number | null;
   /** The shade name as printed. */
   printedName: string | null;
-  /** Exactly one of the listed names (listed spelling), or null; always null on an open read. */
+  /** Exactly one of the listed names (listed spelling), or null; null on an open read or without a printed name. */
   closestListed: string | null;
   finish: string | null;
   gtin: string | null;
@@ -145,8 +145,10 @@ export function parseStickerRead(
     return { brand: null, brandConfidence: null, printedName: null, closestListed: null, finish: null, gtin: null, confidence: 0 };
   }
 
+  const printedName = cleanText(row.printedName);
   const listed = cleanText(row.closestListed);
-  const closestListed = listed
+  // A pick with no printed name was made from the bottle's look, not its sticker: a guess.
+  const closestListed = listed && printedName
     ? (shadeNames.find((name) => listKey(name) === listKey(listed)) ?? null)
     : null;
   const brand = cleanText(row.brand);
@@ -156,7 +158,7 @@ export function parseStickerRead(
   return {
     brand,
     brandConfidence: brand ? confidence : null,
-    printedName: cleanText(row.printedName),
+    printedName,
     closestListed,
     finish: canonicalizeFinish(row.finish, finishCatalog),
     gtin: GTIN_PATTERN.test(digits) ? digits : null,

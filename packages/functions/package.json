@@ -16,6 +16,7 @@
     "dedupe:gallery-images": "node scripts/dedupe-gallery-images.cjs",
     "dedupe:makeupapi-shades": "node scripts/dedupe-makeupapi-shades.cjs",
     "backfill:barcodes": "node scripts/backfill-barcodes.cjs",
+    "backfill:imported-wishlist": "node scripts/backfill-imported-wishlist.cjs",
     "backfill:product-category": "node scripts/backfill-product-category.cjs",
     "backfill:product-text": "npm run build --workspace=swatchwatch-shared && npm run build && node dist/scripts/backfill-product-text.js",
     "backfill:product-price": "npm run build --workspace=swatchwatch-shared && npm run build && node dist/scripts/backfill-product-price.js",
@@ -33,7 +34,7 @@
     "jose": "^6.2.13",
     "p-limit": "^3.1.0",
     "pg": "^8.23.1",
-    "redis": "^5.11.0",
+    "redis": "^6.3.0",
     "sharp": "^0.35.5",
     "swatchwatch-shared": "*",
     "undici": "^8.12.3"

@@ -67,7 +67,7 @@ function record(images) {
   };
 }
 
-const run = (images) => materializeHoloTacoRecords(1, 7, [record(images)], { detectHexFromImage: true });
+const run = (images) => materializeHoloTacoRecords(7, [record(images)], { detectHexFromImage: true });
 
 describe("ingestion AI detection uses the selected image", () => {
   beforeEach(() => {

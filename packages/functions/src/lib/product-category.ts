@@ -86,11 +86,13 @@ const SET_REGEX =
 const SINGLE_SHADE_RELEASE_NOTE_REGEX = /(\b(?:nail|holographic) polish\b[^-–]*) [-–] .*$/;
 /**
  * "Set(s)" or "collection" as the LAST word of one name, title or product type, optionally followed
- * by a bracketed note ("Declassified Tacos Set [003]"). Mid-title they name single shades ("Set On
+ * by a year or a plural finish word ("Rain Collection 2026", "Light & Bright Collection Cremes") and
+ * a bracketed note ("Declassified Tacos Set [003]"). Mid-title they name single shades ("Set On
  * Fire"), "Jet Set" / "Sun Set" are polish names, and a title with " - " parts is a single shade
  * annotated with its collection ("Ox - Brown Shimmer Nail Polish - Chinese Zodiac Collection").
  */
-const SET_SUFFIX_REGEX = /^(?!.* [-–|] ).*(?<!jet )(?<!sun )\b(?:sets?|collection)\s*(?:\[[^\]]*\]|\([^)]*\))?\s*$/;
+const SET_SUFFIX_REGEX =
+  /^(?!.* [-–|] ).*(?<!jet )(?<!sun )\b(?:sets?|collection)(?:\s+(?:(?:19|20)\d{2}|cremes|crèmes|shimmers|glitters|jellies|holos|toppers|polishes|lacquers))?\s*(?:\[[^\]]*\]|\([^)]*\))?\s*$/;
 const NAIL_ART_TYPE_REGEX = /\bnail art\b/;
 /** Whole tags (after lower-casing) that mark a set or bundle. */
 const SET_TAG_REGEX = /^(?:bundles?|sets?|(?:gift|collection|bundles?)[-_ &]*sets?)$/;

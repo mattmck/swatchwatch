@@ -108,9 +108,6 @@ export interface MakeupApiMaterializationMetrics {
   variantRowsProcessed: number;
   brandsCreated: number;
   shadesCreated: number;
-  inventoryInserted: number;
-  inventoryUpdated: number;
-  legacyRowsDeleted: number;
   skipped: number;
   /** Variants matched to an existing shade: only the MakeupAPI listing was recorded. */
   existingShadesLinked: number;
@@ -122,8 +119,6 @@ export interface HoloTacoMaterializationMetrics {
   processed: number;
   brandsCreated: number;
   shadesCreated: number;
-  inventoryInserted: number;
-  inventoryUpdated: number;
   hexOverwritten: number;
   imageCandidates: number;
   imageUploads: number;
@@ -2359,7 +2354,6 @@ async function findMakeupApiShade(
 }
 
 export async function materializeMakeupApiRecords(
-  userId: number,
   records: ConnectorProductRecord[],
   /** MakeupAPI data_source id; when set, each shade is linked to its product (buy links, #267). */
   dataSourceId?: number
@@ -2369,9 +2363,6 @@ export async function materializeMakeupApiRecords(
     let variantRowsProcessed = 0;
     let brandsCreated = 0;
     let shadesCreated = 0;
-    let inventoryInserted = 0;
-    let inventoryUpdated = 0;
-    let legacyRowsDeleted = 0;
     let skipped = 0;
     let existingShadesLinked = 0;
     let ambiguousShadesSkipped = 0;
@@ -2433,23 +2424,7 @@ export async function materializeMakeupApiRecords(
           : [{ name: null, hex: null }];
 
       if (makeup.colorVariants.length > 0) {
-        // Remove legacy product-level rows from earlier imports once variant rows are available.
-        const deletedLegacy = await client.query(
-          `DELETE FROM user_inventory_item ui
-           USING shade sh
-           WHERE ui.shade_id = sh.shade_id
-             AND ui.user_id = $1
-             AND sh.brand_id = $2
-             AND lower(sh.shade_name_canonical) = lower($3)
-             AND coalesce(sh.collection, '') = ''
-             AND ui.quantity = 0
-             AND ui.status = 'wishlist'
-             AND ui.notes LIKE 'Imported from MakeupAPI%'
-             AND ui.tags @> ARRAY['makeupapi']::text[]`,
-          [userId, brandId, makeup.name]
-        );
-        legacyRowsDeleted += deletedLegacy.rowCount ?? 0;
-
+        // Remove legacy product-level shades from earlier imports once variant rows are available.
         await client.query(
           `DELETE FROM shade sh
            WHERE sh.brand_id = $1
@@ -2530,45 +2505,6 @@ export async function materializeMakeupApiRecords(
           [shadeId, resolvedColorName, vendorHexPlan.vendorHex, mergedFinishes, ...ingestedVendorHexParams(vendorHexPlan)]
         );
         await applyRuleProductCategory(client, shadeId, productCategory);
-
-        const inventory = await client.query<{
-          inventoryItemId: number;
-        }>(
-          `SELECT inventory_item_id AS "inventoryItemId"
-           FROM user_inventory_item
-           WHERE user_id = $1
-             AND shade_id = $2
-           LIMIT 1`,
-          [userId, shadeId]
-        );
-
-        const importNote = `Imported from MakeupAPI external_id=${record.externalId}`;
-
-        if (inventory.rows.length === 0) {
-          await client.query(
-            `INSERT INTO user_inventory_item
-               (user_id, shade_id, quantity, status, notes, tags)
-             VALUES ($1, $2, 0, 'wishlist', $3, ARRAY['imported','makeupapi']::text[])`,
-            [userId, shadeId, importNote]
-          );
-          inventoryInserted += 1;
-        } else {
-          const inventoryItemId = inventory.rows[0].inventoryItemId;
-          await client.query(
-            `UPDATE user_inventory_item
-             SET notes = COALESCE(notes, $2),
-                 tags = (
-                   SELECT ARRAY(
-                     SELECT DISTINCT t
-                     FROM unnest(COALESCE(user_inventory_item.tags, ARRAY[]::text[]) || ARRAY['imported','makeupapi']::text[]) AS t
-                     ORDER BY t
-                   )
-                 )
-             WHERE inventory_item_id = $1`,
-            [inventoryItemId, importNote]
-          );
-          inventoryUpdated += 1;
-        }
       }
     }
 
@@ -2576,9 +2512,6 @@ export async function materializeMakeupApiRecords(
       variantRowsProcessed,
       brandsCreated,
       shadesCreated,
-      inventoryInserted,
-      inventoryUpdated,
-      legacyRowsDeleted,
       skipped,
       existingShadesLinked,
       ambiguousShadesSkipped,
@@ -2590,8 +2523,6 @@ interface HoloTacoRecordMaterializationDelta {
   processed: number;
   brandsCreated: number;
   shadesCreated: number;
-  inventoryInserted: number;
-  inventoryUpdated: number;
   hexOverwritten: number;
   swatchesLinked: number;
   gallerySwatchesPruned: number;
@@ -2610,7 +2541,6 @@ interface HoloTacoRecordMaterializationDelta {
 
 async function materializePreparedHoloTacoRecord(
   client: PoolClient,
-  userId: number,
   dataSourceId: number,
   record: ConnectorProductRecord,
   preparedImage: HoloTacoPreparedImage,
@@ -2623,8 +2553,6 @@ async function materializePreparedHoloTacoRecord(
     processed: 0,
     brandsCreated: 0,
     shadesCreated: 0,
-    inventoryInserted: 0,
-    inventoryUpdated: 0,
     hexOverwritten: 0,
     swatchesLinked: 0,
     gallerySwatchesPruned: 0,
@@ -2724,20 +2652,11 @@ async function materializePreparedHoloTacoRecord(
   delta.barcodeConflicts.push(...barcodeResult.conflicts);
   delta.barcodeInvalidCheckDigits.push(...barcodeResult.invalidCheckDigit);
 
-  const importNote = `Imported from ${sourceLogPrefix.replace(/[\[\]]/g, "")} external_id=${record.externalId}`;
   const vendorHex = holo.vendorHex;
   const detectedHex = preparedImage.detectedHex || null;
   const detectedFinishes = preparedImage.detectedFinishes || null;
   const detectedHexProvenance = preparedImage.detectedHexProvenance ?? EMPTY_DETECTED_HEX_PROVENANCE;
   const nameHex = holo.nameHex;
-  const sourceTags = Array.from(
-    new Set(
-      [...holo.tags, "imported", "shopify"]
-        .map((tag) => tag.trim())
-        .filter(Boolean)
-    )
-  );
-
   console.log(
     `${sourceLogPrefix} Shade color update: shadeId=${shadeId}, vendorHex=${vendorHex}, detectedHex=${detectedHex}, nameHex=${nameHex}, confidence=${detectedHexProvenance.confidence}, method=${detectedHexProvenance.method}, model=${detectedHexProvenance.model}, promptVersion=${detectedHexProvenance.promptVersion}`
   );
@@ -2849,51 +2768,6 @@ async function materializePreparedHoloTacoRecord(
     products: [{ title: holo.name, productType: asString(normalized.productType), tags: holo.tags }],
   });
   await applyRuleProductCategory(client, shadeId, productCategory);
-
-  const inventory = await client.query<{
-    inventoryItemId: number;
-  }>(
-    `SELECT inventory_item_id AS "inventoryItemId"
-     FROM user_inventory_item
-     WHERE user_id = $1
-       AND shade_id = $2
-     LIMIT 1`,
-    [userId, shadeId]
-  );
-
-  if (inventory.rows.length === 0) {
-    console.log(`${sourceLogPrefix} Inserting new inventory item for shade ${shadeId}`);
-    await client.query(
-      `INSERT INTO user_inventory_item
-         (user_id, shade_id, quantity, status, notes, tags)
-       VALUES ($1, $2, 0, 'wishlist', $3, $4::text[])`,
-      [userId, shadeId, importNote, sourceTags]
-    );
-    delta.inventoryInserted += 1;
-    console.log(`${sourceLogPrefix} Inserted inventory item successfully`);
-  } else {
-    const inventoryItemId = inventory.rows[0].inventoryItemId;
-
-    console.log(
-      `${sourceLogPrefix} Updating inventory item ${inventoryItemId}`
-    );
-
-    await client.query(
-      `UPDATE user_inventory_item
-       SET notes = COALESCE(notes, $2),
-           tags = (
-             SELECT ARRAY(
-               SELECT DISTINCT t
-               FROM unnest(COALESCE(user_inventory_item.tags, ARRAY[]::text[]) || $3::text[]) AS t
-               ORDER BY t
-             )
-           )
-       WHERE inventory_item_id = $1`,
-      [inventoryItemId, importNote, sourceTags]
-    );
-    delta.inventoryUpdated += 1;
-    console.log(`${sourceLogPrefix} Updated inventory item successfully`);
-  }
 
   // Image ids of the product's current images (primary first), for the gallery prune below.
   const currentImageIds: number[] = [];
@@ -3147,7 +3021,6 @@ export function formatMaterializationSummary(
 }
 
 export async function materializeHoloTacoRecords(
-  userId: number,
   dataSourceId: number,
   records: ConnectorProductRecord[],
   options?: HoloTacoMaterializationOptions,
@@ -3158,8 +3031,6 @@ export async function materializeHoloTacoRecords(
   let processed = 0;
   let brandsCreated = 0;
   let shadesCreated = 0;
-  let inventoryInserted = 0;
-  let inventoryUpdated = 0;
   let hexOverwritten = 0;
   let swatchesLinked = 0;
   let gallerySwatchesPruned = 0;
@@ -3176,7 +3047,7 @@ export async function materializeHoloTacoRecords(
   });
 
   console.log(
-    `${sourceLogPrefix} Starting materialization for ${records.length} records, userId=${userId}, dataSourceId=${dataSourceId}, overwriteDetectedHex=${overwriteDetectedHex}`
+    `${sourceLogPrefix} Starting materialization for ${records.length} records, dataSourceId=${dataSourceId}, overwriteDetectedHex=${overwriteDetectedHex}`
   );
 
   const preparedImageData = await prepareHoloTacoImageData(
@@ -3188,7 +3059,6 @@ export async function materializeHoloTacoRecords(
       const delta = await transaction(async (client) =>
         materializePreparedHoloTacoRecord(
           client,
-          userId,
           dataSourceId,
           record,
           preparedImage,
@@ -3202,8 +3072,6 @@ export async function materializeHoloTacoRecords(
       processed += delta.processed;
       brandsCreated += delta.brandsCreated;
       shadesCreated += delta.shadesCreated;
-      inventoryInserted += delta.inventoryInserted;
-      inventoryUpdated += delta.inventoryUpdated;
       hexOverwritten += delta.hexOverwritten;
       swatchesLinked += delta.swatchesLinked;
       gallerySwatchesPruned += delta.gallerySwatchesPruned;
@@ -3244,8 +3112,6 @@ export async function materializeHoloTacoRecords(
     processed,
     brandsCreated,
     shadesCreated,
-    inventoryInserted,
-    inventoryUpdated,
     hexOverwritten,
     ...preparedImageData.metrics,
     ...(preparedImageData.aiBatch ? { aiBatch: preparedImageData.aiBatch } : {}),

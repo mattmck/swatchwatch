@@ -245,7 +245,7 @@ describe("materializeMakeupApiRecords — description finishes", () => {
     resetFinishAliasCache();
     shadeUpdates.length = 0;
     storedFinishes = [];
-    await materializeMakeupApiRecords(1, [
+    await materializeMakeupApiRecords([
       record({ tags: ["Vegan"], descriptors: ["nail_polish", "Vegan"], descriptionText: "A squishy jelly." }),
     ]);
     assert.deepEqual(shadeUpdates, [["jelly"]]);
@@ -255,7 +255,7 @@ describe("materializeMakeupApiRecords — description finishes", () => {
     resetFinishAliasCache();
     shadeUpdates.length = 0;
     storedFinishes = [];
-    await materializeMakeupApiRecords(1, [record({ tags: ["holo"], descriptionText: "A jelly." })]);
+    await materializeMakeupApiRecords([record({ tags: ["holo"], descriptionText: "A jelly." })]);
     assert.deepEqual(shadeUpdates, [["holographic"]]);
   });
 

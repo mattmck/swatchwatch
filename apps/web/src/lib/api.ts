@@ -44,6 +44,7 @@ import type {
   ShadeProductCategoryListResponse,
   ShadeProductCategoryUpdateResponse,
   ShadeFinishesUpdateResponse,
+  ShadeSourceProductsResponse,
   Polish,
   PolishCreateRequest,
   PolishUpdateRequest,
@@ -1405,6 +1406,15 @@ export async function setShadeFinishes(shadeId: string | number, finishes: strin
     body: JSON.stringify({ finishes }),
   });
   return handleResponse<ShadeFinishesUpdateResponse>(response);
+}
+
+/** The connector products behind a shade, with raw + normalized JSON (`GET /api/shades-admin/{id}/source-products`). */
+export async function getShadeSourceProducts(shadeId: string | number): Promise<ShadeSourceProductsResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/shades-admin/${encodeURIComponent(String(shadeId))}/source-products`,
+    { headers: await getAuthHeaders({ admin: true }) }
+  );
+  return handleResponse<ShadeSourceProductsResponse>(response);
 }
 
 // ── Shareable wishlist (#268) ───────────────────────────────────────────────
