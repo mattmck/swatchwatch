@@ -290,7 +290,7 @@ when it drifts. Change colors in `globals.css`, then rerun the script.
 
 ## Monorepo notes
 
-- The root `package.json` pins `react` / `react-dom` to `19.2.3` with `overrides` so the repo
+- The root `package.json` pins `react` / `react-dom` to `19.3.0` with `overrides` so the repo
   has one React: React Native's renderer must match React exactly, and the root `next`
   dependency would otherwise hoist a newer patch. Bump the override together with the web's and
   the Expo SDK's React versions.
