@@ -77,6 +77,16 @@ function formatDate(iso: string): string {
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleDateString(undefined, { dateStyle: "medium" });
 }
 
+/** Connector `productUrl`s are unvalidated vendor data: only absolute http(s) URLs become links. */
+function isHttpUrl(value: string): boolean {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Admin-only catalog tools for the polish detail page: set the shade's product category (sticky
  * admin override, `PUT /api/shades-admin/{id}/product-category`, with a one-tap "Mark as
@@ -235,7 +245,7 @@ function SourceProductItem({ product }: { product: ShadeSourceProduct }) {
       <p className="mt-1 text-xs text-muted-foreground">
         Fetched {formatDate(product.fetchedAt)} · last seen {formatDate(product.lastSeenAt)}
       </p>
-      {product.productUrl && (
+      {product.productUrl && isHttpUrl(product.productUrl) ? (
         <a
           href={product.productUrl}
           target="_blank"
@@ -245,7 +255,9 @@ function SourceProductItem({ product }: { product: ShadeSourceProduct }) {
           <ExternalLink className="size-3 shrink-0" aria-hidden />
           {product.productUrl}
         </a>
-      )}
+      ) : product.productUrl ? (
+        <p className="mt-1 break-all text-xs text-muted-foreground">{product.productUrl}</p>
+      ) : null}
       <div className="mt-2 flex flex-wrap gap-2">
         <Button
           variant={view === "raw" ? "default" : "outline"}
