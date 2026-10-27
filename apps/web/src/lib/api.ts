@@ -43,6 +43,8 @@ import type {
   ProductCategoryBackfillRequest,
   ShadeProductCategoryListResponse,
   ShadeProductCategoryUpdateResponse,
+  ShadeFinishesUpdateResponse,
+  ShadeSourceProductsResponse,
   Polish,
   PolishCreateRequest,
   PolishUpdateRequest,
@@ -168,7 +170,14 @@ export async function getCurrentUserId(options?: { admin?: boolean }): Promise<n
   return body?.valid && typeof body.userId === "number" ? body.userId : null;
 }
 
-export async function listPolishes(filters?: PolishFilters): Promise<PolishListResponse> {
+/**
+ * `options.signal` aborts the request; such a call is not shared with other callers of the
+ * same URL (an abort must not cancel their request).
+ */
+export async function listPolishes(
+  filters?: PolishFilters,
+  options?: { signal?: AbortSignal }
+): Promise<PolishListResponse> {
   const params = new URLSearchParams();
 
   if (filters?.search) params.set("search", filters.search);
@@ -195,6 +204,10 @@ export async function listPolishes(filters?: PolishFilters): Promise<PolishListR
 
   const qs = params.toString();
   const url = `${API_BASE_URL}/polishes${qs ? `?${qs}` : ""}`;
+  if (options?.signal) {
+    const response = await fetch(url, { headers: await getAuthHeaders(), signal: options.signal });
+    return handleResponse<PolishListResponse>(response);
+  }
   const cacheKey = url;
   if (!listPolishesInFlight.has(cacheKey)) {
     listPolishesInFlight.set(
@@ -405,9 +418,20 @@ export async function deleteSavedLook(key: string): Promise<void> {
 }
 
 /** The caller's dashboard aggregates (`GET /api/stats/collection`, cached server-side ≤60s). */
-export async function getCollectionStats(): Promise<CollectionStatsResponse> {
-  const response = await fetch(`${API_BASE_URL}/stats/collection`, { headers: await getAuthHeaders() });
-  return handleResponse<CollectionStatsResponse>(response);
+let collectionStatsInFlight: Promise<CollectionStatsResponse> | null = null;
+
+/**
+ * `GET /api/stats/collection`. Callers that ask while a request is in flight (the dashboard's
+ * wishlist card and its stats section) share it; the next call after it settles fetches again.
+ */
+export function getCollectionStats(): Promise<CollectionStatsResponse> {
+  collectionStatsInFlight ??= (async () => {
+    const response = await fetch(`${API_BASE_URL}/stats/collection`, { headers: await getAuthHeaders() });
+    return handleResponse<CollectionStatsResponse>(response);
+  })().finally(() => {
+    collectionStatsInFlight = null;
+  });
+  return collectionStatsInFlight;
 }
 
 /**
@@ -1369,6 +1393,28 @@ export async function setShadeProductCategory(
     }
   );
   return handleResponse<ShadeProductCategoryUpdateResponse>(response);
+}
+
+/**
+ * Admin override of a shade's whole finish list, primary first (`PUT /api/shades-admin/{id}/finishes`);
+ * sticky: ingestion never changes it afterwards.
+ */
+export async function setShadeFinishes(shadeId: string | number, finishes: string[]): Promise<ShadeFinishesUpdateResponse> {
+  const response = await fetch(`${API_BASE_URL}/shades-admin/${encodeURIComponent(String(shadeId))}/finishes`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify({ finishes }),
+  });
+  return handleResponse<ShadeFinishesUpdateResponse>(response);
+}
+
+/** The connector products behind a shade, with raw + normalized JSON (`GET /api/shades-admin/{id}/source-products`). */
+export async function getShadeSourceProducts(shadeId: string | number): Promise<ShadeSourceProductsResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/shades-admin/${encodeURIComponent(String(shadeId))}/source-products`,
+    { headers: await getAuthHeaders({ admin: true }) }
+  );
+  return handleResponse<ShadeSourceProductsResponse>(response);
 }
 
 // ── Shareable wishlist (#268) ───────────────────────────────────────────────

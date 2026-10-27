@@ -515,7 +515,7 @@ function LooksPageContent() {
   const vibeSummary = `${LOOK_OCCASION_LABELS[vibe.occasion]} · ${LOOK_MOOD_LABELS[vibe.mood]}`;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="heading-page flex items-center gap-2">

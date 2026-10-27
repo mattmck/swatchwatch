@@ -102,7 +102,7 @@ describe("selectBuyFromBrandUrl", () => {
     );
   });
 
-  it("prefers an enabled source over a more recently seen disabled one", () => {
+  it("ignores a disabled source even when it was seen more recently", () => {
     const enabled = { ...base, url: "https://enabled.example/p", lastSeenAt: T("2026-01-01T00:00:00Z") };
     const disabled = {
       ...base,
@@ -113,14 +113,19 @@ describe("selectBuyFromBrandUrl", () => {
     assert.equal(selectBuyFromBrandUrl([disabled, enabled]), "https://enabled.example/p");
   });
 
-  it("falls back to a disabled source when it is the only valid one", () => {
+  it("gives no link when only disabled sources have a valid URL", () => {
+    // MakeupAPI (disabled) listings on a seed shade: their 2015 URLs are dead.
     assert.equal(
       selectBuyFromBrandUrl([
         { ...base, url: "javascript:alert(1)" },
-        { ...base, url: "https://disabled.example/p", sourceEnabled: false },
+        { ...base, url: "https://well.ca/products/essie-mint-candy-apple.html", sourceEnabled: false },
       ]),
-      "https://disabled.example/p"
+      null
     );
+  });
+
+  it("treats an unknown enabled flag as enabled", () => {
+    assert.equal(selectBuyFromBrandUrl([{ ...base, url: "https://brand.example/p", sourceEnabled: null }]), "https://brand.example/p");
   });
 
   it("then prefers the most recently seen link (Date or ISO string)", () => {

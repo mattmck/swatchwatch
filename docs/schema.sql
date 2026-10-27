@@ -268,6 +268,9 @@ CREATE TABLE shade (
   product_category TEXT NOT NULL DEFAULT 'color'
     CHECK (product_category IN ('color', 'topper', 'top_coat', 'base_coat', 'treatment', 'accessory')),
   product_category_source TEXT NOT NULL DEFAULT 'rule' CHECK (product_category_source IN ('rule', 'admin')),
+  -- 'admin' = finishes set in the Hex Labeling tool (migration 20261024053633287_shade-finishes-source); ingestion
+  -- and the product-text backfill never change an 'admin' list (ingestion otherwise merges vendor tag finishes in).
+  finishes_source TEXT NOT NULL DEFAULT 'rule' CHECK (finishes_source IN ('rule', 'admin')),
   created_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL, -- creator of a user-API shade; NULL for catalog/ingestion rows (migration 024)
   color_name TEXT,
   vendor_hex TEXT,                               -- hex published by the vendor (e.g. Shopify variant option), or an admin-promoted manual label
@@ -334,11 +337,12 @@ CREATE INDEX idx_shade_merged_into ON shade (merged_into_shade_id) WHERE merged_
 CREATE INDEX idx_shade_product_category_status ON shade (product_category, status);
 
 -- Undo log for product-category changes (migration 20261022190729000): one row per category change,
--- exclusion or cleared topper detected_hex made by the backfill job or an admin, with before/after values.
+-- exclusion or cleared topper detected_hex made by the backfill job or an admin, and admin finish edits
+-- ('finishes', migration 20261024053633287), with before/after values.
 CREATE TABLE shade_category_change (
   shade_category_change_id BIGSERIAL PRIMARY KEY,
   shade_id BIGINT NOT NULL REFERENCES shade(shade_id) ON DELETE CASCADE,
-  action TEXT NOT NULL CHECK (action IN ('category', 'exclude', 'clear_detected_hex')),
+  action TEXT NOT NULL CHECK (action IN ('category', 'exclude', 'clear_detected_hex', 'finishes')),
   before JSONB NOT NULL DEFAULT '{}'::jsonb,
   after JSONB NOT NULL DEFAULT '{}'::jsonb,
   source TEXT NOT NULL CHECK (source IN ('backfill', 'admin')),
@@ -543,7 +547,10 @@ CREATE TABLE admin_audit_event (
     CHECK (action IN (
       'user.update', 'user.suspend', 'user.unsuspend', 'user.merge',
       -- #321 vendor-hex promotions: target_user_id NULL, shade id in changes
-      'shade.vendor_hex_promote', 'shade.vendor_hex_demote'
+      'shade.vendor_hex_promote', 'shade.vendor_hex_demote',
+      -- MakeupAPI dedupe backfill (migration 20261026045216957): one per merged / deleted catalog
+      -- shade; target_user_id NULL, shade ids (and the deleted row as JSON) in changes
+      'shade.catalog_merge', 'shade.catalog_delete'
     ))
 );
 
@@ -1048,7 +1055,7 @@ CREATE INDEX idx_external_product_source_time ON external_product(data_source_id
 -- Which connector product(s) each shade was materialized from (migration
 -- 20261017061344201_add-shade-source-product). Drives the "Buy from brand" link (#267):
 -- the URL is external_product.normalized_json ->> 'productUrl'; with several products the
--- API prefers an enabled data_source, then the latest last_seen_at (lib/buy-link.ts).
+-- API uses only products of an enabled data_source, then the latest last_seen_at (lib/buy-link.ts).
 CREATE TABLE shade_source_product (
   shade_id BIGINT NOT NULL REFERENCES shade(shade_id) ON DELETE CASCADE,
   external_product_id BIGINT NOT NULL REFERENCES external_product(external_product_id) ON DELETE CASCADE,

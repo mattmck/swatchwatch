@@ -18,9 +18,11 @@ function mockDistModule(relativePath, exports) {
 
 let shadeRow;
 let lockedReads;
+const ingestSql = [];
 
 const transactionClient = {
   async query(sql, params) {
+    ingestSql.push(sql);
     if (sql.includes("RETURNING brand_id")) return { rows: [{ brandId: 1 }] };
     if (sql.includes("lower(shade_name_canonical) = lower($2)") && sql.includes("SELECT shade_id")) {
       return { rows: shadeRow ? [{ shadeId: 42 }] : [] };
@@ -86,7 +88,7 @@ function product(vendorHex) {
   };
 }
 
-const ingest = (vendorHex, options = {}) => materializeHoloTacoRecords(1, 7, [product(vendorHex)], options);
+const ingest = (vendorHex, options = {}) => materializeHoloTacoRecords(7, [product(vendorHex)], options);
 
 describe("planIngestedVendorHex", () => {
   const vendor = { vendorHex: "#111111", vendorHexSource: "vendor", vendorHexPrevious: null };
@@ -164,6 +166,14 @@ describe("materializeHoloTacoRecords vendor_hex guard (#321)", () => {
     await ingest("#222222", { overwriteDetectedHex: true });
     assert.equal(shadeRow.vendorHex, "#222222");
     assert.equal(shadeRow.vendorHexSource, "vendor");
+  });
+
+  it("writes catalog rows only, never the running admin's inventory", async () => {
+    // Ingestion used to add every shade to the admin's wishlist; it must not touch inventory.
+    ingestSql.length = 0;
+    await ingest("#111111");
+    assert.ok(ingestSql.length > 0);
+    assert.ok(!ingestSql.some((sql) => /\b(?:INSERT INTO|UPDATE|DELETE FROM) user_inventory_item\b/.test(sql)));
   });
 });
 

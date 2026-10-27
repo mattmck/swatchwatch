@@ -7,7 +7,23 @@ const redisKey = process.env.REDIS_KEY?.trim();
 
 const isConfigured = Boolean(redisUrl && redisKey);
 
-type CacheClient = ReturnType<typeof createClient>;
+function createCacheClient() {
+  return createClient({
+    url: redisUrl,
+    password: redisKey,
+    socket: {
+      connectTimeout: 5000,
+      reconnectStrategy: (retries: number) => {
+        if (retries >= 5) {
+          return false;
+        }
+        return Math.min((retries + 1) * 200, 2000);
+      },
+    },
+  });
+}
+
+type CacheClient = ReturnType<typeof createCacheClient>;
 
 let client: CacheClient | null = null;
 let connectPromise: Promise<CacheClient | null> | null = null;
@@ -30,19 +46,7 @@ async function getClient(): Promise<CacheClient | null> {
     return connectPromise;
   }
 
-  const nextClient = createClient({
-    url: redisUrl,
-    password: redisKey,
-    socket: {
-      connectTimeout: 5000,
-      reconnectStrategy: (retries: number) => {
-        if (retries >= 5) {
-          return false;
-        }
-        return Math.min((retries + 1) * 200, 2000);
-      },
-    },
-  });
+  const nextClient = createCacheClient();
 
   nextClient.on("error", (error) => {
     trackException(error, { component: "redis", operation: "client.error" });

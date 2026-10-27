@@ -3,10 +3,13 @@ import assert from "node:assert/strict";
 import {
   expandUpcE,
   hasValidGtinCheckDigit,
+  LIVE_BARCODE_COOLDOWN_MS,
+  LIVE_BARCODE_REPEAT_MS,
   normalizeBarcodeFormat,
   normalizeScannedBarcode,
   pickBestBarcode,
   selectBarcodeEngine,
+  shouldReportLiveBarcode,
   supportedNativeRetailFormats,
 } from "./barcode-scan";
 
@@ -125,5 +128,23 @@ describe("supportedNativeRetailFormats", () => {
       "upc_e",
     ]);
     assert.deepEqual(supportedNativeRetailFormats(null), []);
+  });
+});
+
+describe("shouldReportLiveBarcode", () => {
+  it("reports the first read", () => {
+    assert.equal(shouldReportLiveBarcode(null, "4006381333931", 0), true);
+  });
+
+  it("throttles the same code to one report per LIVE_BARCODE_REPEAT_MS", () => {
+    const last = { gtin: "4006381333931", at: 1000 };
+    assert.equal(shouldReportLiveBarcode(last, last.gtin, 1000 + LIVE_BARCODE_REPEAT_MS - 1), false);
+    assert.equal(shouldReportLiveBarcode(last, last.gtin, 1000 + LIVE_BARCODE_REPEAT_MS), true);
+  });
+
+  it("reports a different code after the short cooldown", () => {
+    const last = { gtin: "4006381333931", at: 1000 };
+    assert.equal(shouldReportLiveBarcode(last, "0123456789012", 1000 + LIVE_BARCODE_COOLDOWN_MS - 1), false);
+    assert.equal(shouldReportLiveBarcode(last, "0123456789012", 1000 + LIVE_BARCODE_COOLDOWN_MS), true);
   });
 });

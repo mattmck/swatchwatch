@@ -189,9 +189,6 @@ const ADDITIVE_METRIC_KEYS = new Set([
   "variantRowsProcessed",
   "brandsCreated",
   "shadesCreated",
-  "inventoryInserted",
-  "inventoryUpdated",
-  "legacyRowsDeleted",
   "hexOverwritten",
   "imageCandidates",
   "imageUploads",
@@ -793,7 +790,6 @@ export async function processIngestionJobQueueMessage(
 
         try {
           materializationMetrics = (await materializeMakeupApiRecords(
-            payload.userId,
             connectorResult.records,
             source.dataSourceId
           )) as unknown as Record<string, unknown>;
@@ -838,7 +834,6 @@ export async function processIngestionJobQueueMessage(
 
         try {
           materializationMetrics = (await materializeHoloTacoRecords(
-            payload.userId,
             source.dataSourceId,
             connectorResult.records,
             {

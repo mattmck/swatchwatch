@@ -8,13 +8,33 @@ const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 
-const { collectCaptureEvidence, extractFrameEvidence } = require(
+const { collectCaptureEvidence, extractFrameEvidence, summarizeCaptureRead } = require(
   path.join(__dirname, "..", "dist", "lib", "capture-evidence.js")
 );
 
 const labelFrame = (quality) => ({ frameType: "label", quality });
 
 describe("collectCaptureEvidence", () => {
+  it("takes the brand and finish from a front frame but never its shade name or listed pick", () => {
+    const front = {
+      frameType: "label",
+      quality: {
+        surface: "front",
+        extracted: { brand: "Holo Taco", shadeName: "Rainbow Collection", shadeNameListed: "Unicorn Skin", finish: "holo" },
+      },
+    };
+    const evidence = collectCaptureEvidence({}, [front]);
+    assert.equal(evidence.brand, "Holo Taco");
+    assert.equal(evidence.finish, "holo");
+    assert.equal(evidence.shadeName, undefined);
+    assert.equal(evidence.shadeNameListed, undefined);
+
+    const bottom = { frameType: "label", quality: { surface: "bottom", extracted: { shadeName: "Unicorn Skin" } } };
+    assert.equal(collectCaptureEvidence({}, [front, bottom]).shadeName, "Unicorn Skin");
+    const noSurface = { frameType: "label", quality: { extracted: { shadeName: "Unicorn Skin" } } };
+    assert.equal(collectCaptureEvidence({}, [noSurface]).shadeName, "Unicorn Skin", "frames outside the bottle flow are unchanged");
+  });
+
   it("takes a metadata brand as a hint and reports empty surface state", () => {
     const evidence = collectCaptureEvidence({ brand: "OPI" }, []);
     assert.equal(evidence.brand, "OPI");
@@ -136,6 +156,31 @@ describe("collectCaptureEvidence", () => {
     assert.deepEqual(stored.brandRead, { text: "OPI", confidence: 0, source: "request_quality" });
   });
 
+  it("keeps a barcode the device decoded on a bottle photo the pipeline also read", () => {
+    // Bottle flow: a bottom photo with its barcode sticker in view stays a label frame (OCR and
+    // the sticker read run), and the GTIN decoded on the device is still evidence.
+    const evidence = collectCaptureEvidence({}, [
+      labelFrame({
+        surface: "bottom",
+        gtin: "4006381333931",
+        barcodeFormat: "ean_13",
+        extracted: { brand: "Holo Taco", brandConfidence: 0.9, shadeName: "Unicorn Skin" },
+      }),
+    ]);
+    assert.equal(evidence.gtin, "4006381333931");
+    assert.equal(evidence.gtinFormat, "ean_13");
+    assert.equal(evidence.shadeName, "Unicorn Skin");
+  });
+
+  it("a barcode the pipeline read wins over the device-decoded one", () => {
+    const extracted = extractFrameEvidence({
+      gtin: "4006381333931",
+      extracted: { gtin: "0012345678905", gtinFormat: "upc_a", brand: "OPI" },
+    });
+    assert.equal(extracted.gtin, "0012345678905");
+    assert.equal(extracted.gtinFormat, "upc_a");
+  });
+
   it("prefers answers.brand_shade over top-level metadata", () => {
     const evidence = collectCaptureEvidence(
       {
@@ -148,5 +193,65 @@ describe("collectCaptureEvidence", () => {
     assert.equal(evidence.brand, "OPI");
     assert.equal(evidence.shadeName, "Big Apple Red");
     assert.equal(evidence.brandSource, "hint");
+  });
+});
+
+describe("summarizeCaptureRead", () => {
+  const empty = { surfaces: {}, skippedSurfaces: [] };
+
+  it("reports every field read so far and which ones the latest photo added", () => {
+    const before = { ...empty, gtin: "4006381333931" };
+    const after = {
+      ...before,
+      brand: "Holo Taco",
+      brandSource: "read",
+      brandRead: { text: "Holo Taco", confidence: 0.9, source: "pipeline" },
+      shadeName: "Unicorn Skn",
+      shadeNameListed: "Unicorn Skin",
+      glassHex: "#C8A2D6",
+      finish: "holographic",
+    };
+    const brand = { brandId: "7", name: "Holo Taco", source: "read", confidence: 0.9 };
+    assert.deepEqual(summarizeCaptureRead(after, brand, before), {
+      gtin: "4006381333931",
+      brand: { name: "Holo Taco", source: "read", catalogMatch: true },
+      shadeName: "Unicorn Skn",
+      shadeNameListed: "Unicorn Skin",
+      hex: "#C8A2D6",
+      finish: "holographic",
+      newFields: ["brand", "shadeName", "hex", "finish"],
+    });
+  });
+
+  it("an unresolved brand is shown as read, with no catalog match", () => {
+    const after = { ...empty, brand: "Loud", brandSource: "read", brandRead: { text: "Loud", confidence: 0, source: "pipeline" } };
+    assert.deepEqual(summarizeCaptureRead(after, null).brand, { name: "Loud", source: "read", catalogMatch: false });
+  });
+
+  it("a typed brand (hint or client text) is a hint", () => {
+    const hinted = { ...empty, brand: "Loud", brandSource: "hint" };
+    assert.equal(summarizeCaptureRead(hinted, null).brand.source, "hint");
+    const typed = { ...empty, brand: "Loud", brandSource: "read", brandRead: { text: "Loud", confidence: 0, source: "request_quality" } };
+    assert.equal(summarizeCaptureRead(typed, null).brand.source, "hint");
+  });
+
+  it("the resolved brand wins over the raw text, and a hint without a catalog row has no match", () => {
+    const after = { ...empty, brand: "loud", brandSource: "hint" };
+    const resolved = { brandId: "3", name: "Loud Lacquer", source: "hint" };
+    assert.deepEqual(summarizeCaptureRead(after, resolved).brand, { name: "Loud Lacquer", source: "hint", catalogMatch: true });
+    const raw = { brandId: null, name: "loud", source: "hint" };
+    assert.equal(summarizeCaptureRead(after, raw).brand.catalogMatch, false);
+  });
+
+  it("nothing read yet: every field null and no new fields; no `before` means nothing is new", () => {
+    assert.deepEqual(summarizeCaptureRead(empty, null), {
+      gtin: null, brand: null, shadeName: null, shadeNameListed: null, hex: null, finish: null, newFields: [],
+    });
+    assert.deepEqual(summarizeCaptureRead({ ...empty, gtin: "4006381333931" }, null).newFields, []);
+  });
+
+  it("a listed pick alone counts as a new shade name", () => {
+    const after = { ...empty, shadeNameListed: "Unicorn Skin" };
+    assert.deepEqual(summarizeCaptureRead(after, null, empty).newFields, ["shadeName"]);
   });
 });

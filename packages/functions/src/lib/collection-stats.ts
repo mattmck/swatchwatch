@@ -1,9 +1,10 @@
 /**
  * Collection stats (issue #271) behind `GET /api/stats/collection`.
  *
- * Five aggregate queries, every one bound to the caller (`ui.user_id = $1`) and joined only to
- * the shared catalog (`sku` / `shade` / `brand`), then assembled by the pure
- * `buildCollectionStats` (unit-tested without a database).
+ * Six queries, every one bound to the caller (`ui.user_id = $1`) and joined only to the shared
+ * catalog (`sku` / `shade` / `brand`), plus the buy-link lookup for the wishlist's shades
+ * (`lib/buy-link.ts`), then assembled by the pure `buildCollectionStats` (unit-tested without a
+ * database).
  *
  * Rules (see `packages/functions/README.md`, "Collection stats"):
  * - Money is grouped by `purchase_currency` and never summed across currencies; a price saved
@@ -18,6 +19,9 @@
  * - Product categories (#349, D-C): spend counts every category except accessories (coats and
  *   treatments are bought too); counts, untried, worn vs waiting, most-worn and cost per wear
  *   look at color polishes and toppers only. A row without a shade counts as `color`.
+ * - The wishlist value counts every wishlist row the polishes list shows (shade not merged away)
+ *   and sums the brands' list prices of the selected buy link per currency (`sumListPrices`),
+ *   so clients never page through the whole wishlist to show it.
  * - Queries are plain `SELECT`s (no leading `WITH`) so `lib/db` may retry them on connection
  *   timeouts.
  */
@@ -29,6 +33,7 @@ import {
   POLISH_STATUSES,
   SPEND_STATUSES,
   isPolishStatus,
+  sumListPrices,
   type CollectionStatsResponse,
   type CostPerWearCurrency,
   type CostPerWearEntry,
@@ -37,7 +42,9 @@ import {
   type PolishStatus,
   type SpendByBrandEntry,
   type SpendByMonthEntry,
+  type ListPriceFields,
 } from "swatchwatch-shared";
+import { buyLinkFields, loadBuyLinksForShades } from "./buy-link";
 
 /** Redis TTL of a user's cached stats. Writes invalidate earlier (`lib/polish-cache.ts`). */
 export const COLLECTION_STATS_CACHE_TTL_SECONDS = 60;
@@ -201,6 +208,18 @@ FROM (
 WHERE ranked.best_rank <= $2 OR ranked.best_rank > ranked.n - $2
 ORDER BY ranked.currency NULLS LAST, ranked.best_rank`;
 
+/**
+ * `$1` user. The shade of every wishlist row the polishes list shows (same join on `shade_id`
+ * and the same "not merged away" rule as its `POLISH_VISIBLE_SQL` for rows the caller holds).
+ */
+export const STATS_WISHLIST_SHADES_SQL = `
+SELECT ui.shade_id::text AS "shadeId"
+FROM user_inventory_item ui
+JOIN shade s ON s.shade_id = ui.shade_id
+WHERE ui.user_id = $1
+  AND ui.status = 'wishlist'
+  AND s.merged_into_shade_id IS NULL`;
+
 // ---------------------------------------------------------------------------
 // Row shapes (as returned by `pg`; numerics arrive as text)
 // ---------------------------------------------------------------------------
@@ -259,12 +278,18 @@ export interface CostPerWearRow extends ShadeRow {
   currencyCount: number | string;
 }
 
+export interface WishlistShadeRow {
+  shadeId: string;
+}
+
 export interface CollectionStatsRows {
   counts: StatsCountsRow[];
   spendByBrand: SpendByBrandRow[];
   spendByMonth: SpendByMonthRow[];
   mostWorn: MostWornRow[];
   costPerWear: CostPerWearRow[];
+  /** One entry per wishlist row: its selected buy link's list price (empty when none). */
+  wishlistPrices: ListPriceFields[];
 }
 
 // ---------------------------------------------------------------------------
@@ -345,7 +370,7 @@ function compareCurrencyGroups(
 }
 
 /**
- * Assemble the response from the five query results. Pure: `now` only names the month window
+ * Assemble the response from the query results. Pure: `now` only names the month window
  * and `generatedAt`.
  */
 export function buildCollectionStats(rows: CollectionStatsRows, now: Date): CollectionStatsResponse {
@@ -510,14 +535,16 @@ export function buildCollectionStats(rows: CollectionStatsRows, now: Date): Coll
     },
     mostWorn,
     costPerWear: { currencies: cpwCurrencies, pricedUnwornCount },
+    wishlist: { count: rows.wishlistPrices.length, listPrices: sumListPrices(rows.wishlistPrices) },
   };
 }
 
 type QueryFn = <T extends object>(text: string, params: unknown[]) => Promise<{ rows: T[] }>;
 
 /**
- * Run the five aggregate queries for `userId` (in parallel) and assemble the response.
- * Every statement binds `userId` as `$1` and filters `ui.user_id = $1`.
+ * Run the six queries for `userId` (in parallel) and assemble the response. Every statement
+ * binds `userId` as `$1` and filters `ui.user_id = $1`; the buy-link lookup that follows reads
+ * only the shared catalog for the caller's own wishlist shade ids.
  */
 export async function loadCollectionStats(
   runQuery: QueryFn,
@@ -526,13 +553,21 @@ export async function loadCollectionStats(
 ): Promise<CollectionStatsResponse> {
   const window = monthWindow(now);
   const spendStatuses = [...SPEND_STATUSES];
-  const [counts, spendByBrand, spendByMonth, mostWorn, costPerWear] = await Promise.all([
+  const [counts, spendByBrand, spendByMonth, mostWorn, costPerWear, wishlistShades] = await Promise.all([
     runQuery<StatsCountsRow>(STATS_COUNTS_SQL, [userId]),
     runQuery<SpendByBrandRow>(STATS_SPEND_BY_BRAND_SQL, [userId, spendStatuses, COLLECTION_STATS_TOP_BRANDS]),
     runQuery<SpendByMonthRow>(STATS_SPEND_BY_MONTH_SQL, [userId, spendStatuses, window.start, window.end]),
     runQuery<MostWornRow>(STATS_MOST_WORN_SQL, [userId, COLLECTION_STATS_MOST_WORN]),
     runQuery<CostPerWearRow>(STATS_COST_PER_WEAR_SQL, [userId, COLLECTION_STATS_COST_PER_WEAR_LIST]),
+    runQuery<WishlistShadeRow>(STATS_WISHLIST_SHADES_SQL, [userId]),
   ]);
+  const wishlistShadeIds = wishlistShades.rows.map((row) => String(row.shadeId));
+  // `loadBuyLinksForShades` always binds its params; its query type only differs in generics.
+  const buyLinks = await loadBuyLinksForShades(
+    wishlistShadeIds,
+    runQuery as unknown as NonNullable<Parameters<typeof loadBuyLinksForShades>[1]>
+  );
+  const wishlistPrices = wishlistShadeIds.map((shadeId) => buyLinkFields(buyLinks.get(shadeId)));
   return buildCollectionStats(
     {
       counts: counts.rows,
@@ -540,6 +575,7 @@ export async function loadCollectionStats(
       spendByMonth: spendByMonth.rows,
       mostWorn: mostWorn.rows,
       costPerWear: costPerWear.rows,
+      wishlistPrices,
     },
     now
   );

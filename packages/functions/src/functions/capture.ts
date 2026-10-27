@@ -14,6 +14,7 @@ import {
   CaptureFrameRequestSpec,
   CaptureFrameResponse,
   CaptureQuestion,
+  CaptureReadSummary,
   CaptureStartRequest,
   CaptureStartResponse,
   CaptureFrameType,
@@ -64,6 +65,7 @@ import {
   ResolverDecision,
   ResolverOutcome,
   collectCaptureEvidence,
+  summarizeCaptureRead,
   extractFrameEvidence,
   getStringField,
   toRecord,
@@ -255,7 +257,8 @@ async function resolveSessionBrand(
 /**
  * Closed-set vision read of the sticker, when needed (known brand, or unusable OCR). A brand
  * with more shades than the prompt list holds is read open: a partial list would force wrong
- * picks. Never throws.
+ * picks. The front is read for its brand only, so it is read (open) only when OCR is unusable.
+ * Never throws.
  */
 async function runStickerRead(
   imageInput: string,
@@ -269,12 +272,14 @@ async function runStickerRead(
     confidence: null,
     modelCalls: 0,
   };
-  if (!shouldVisionRead({ brandKnown: sticker.brand !== null, ocr: ocrResult })) {
+  // A known brand makes the read a closed question about the name, which the front never answers.
+  const nameQuestion = sticker.brand !== null && sticker.surface !== "front";
+  if (!shouldVisionRead({ brandKnown: nameQuestion, ocr: ocrResult })) {
     return { vision: null, audit };
   }
 
   let shadeNames: string[] = [];
-  if (sticker.brand) {
+  if (sticker.brand && nameQuestion) {
     try {
       const listed = await listBrandShadeNames(sticker.brand.brandId, sticker.userId);
       if (!listed.truncated) shadeNames = listed.names;
@@ -1153,7 +1158,7 @@ async function advanceBottleFlow(
     | { kind: "frame"; frameType: CaptureFrameType; quality: Record<string, unknown> | null; priorEvidence: CaptureEvidence }
     | { kind: "skip"; surface: BottleSurface },
   resolution?: SessionResolution | null
-): Promise<CaptureFrameRequestSpec | null> {
+): Promise<{ nextFrame: CaptureFrameRequestSpec | null; readSoFar: CaptureReadSummary }> {
   const resolved = resolution ?? (await resolveCaptureSession(session, userId));
   let state = readBottleFlowState(session.metadata);
 
@@ -1199,7 +1204,12 @@ async function advanceBottleFlow(
       extracted,
     });
   }
-  return nextFrame;
+  const readSoFar = summarizeCaptureRead(
+    resolved.evidence,
+    resolved.bottle?.brand ?? null,
+    step.kind === "frame" ? step.priorEvidence : undefined
+  );
+  return { nextFrame, readSoFar };
 }
 
 async function resolveFromEvidence(
@@ -1884,14 +1894,15 @@ async function addCaptureFrame(
     // A finished session (matched / unmatched) takes no more asks: planning would overwrite the
     // finalize or create audit in `metadata.resolver`.
     let nextFrame: CaptureFrameRequestSpec | null = null;
+    let readSoFar: CaptureReadSummary | undefined;
     if (bottleOn && priorEvidence && !isTerminalCaptureStatus(session.status)) {
       try {
-        nextFrame = await advanceBottleFlow(
+        ({ nextFrame, readSoFar } = await advanceBottleFlow(
           session,
           userId,
           { kind: "frame", frameType: body.frameType, quality: preQualityJson, priorEvidence },
           checkResolution
-        );
+        ));
       } catch (error) {
         context.warn(`capture next-frame planning failed: ${error instanceof Error ? error.message : String(error)}`);
         trackException(error, { area: "capture", stage: "next-frame" });
@@ -1905,6 +1916,7 @@ async function addCaptureFrame(
       status: session.status,
       ...(check ? { check } : {}),
       ...(bottleOn ? { nextFrame } : {}),
+      ...(readSoFar ? { readSoFar } : {}),
     };
 
     return { status: 201, jsonBody: response };
@@ -2282,6 +2294,9 @@ async function computeCaptureCheckWithResolution(
     ...(isFeatureEnabled("bottleCapture")
       ? { nextFrame: resolution ? planFromResolution(readBottleFlowState(session.metadata), resolution) : null }
       : {}),
+    ...(isFeatureEnabled("bottleCapture") && resolution
+      ? { readSoFar: summarizeCaptureRead(resolution.evidence, resolution.bottle?.brand ?? null) }
+      : {}),
     ...(resolution?.bottle?.suggestedShade ? { suggestedShade: resolution.bottle.suggestedShade } : {}),
     ...(resolution?.bottle?.brandConflict ? { brandConflict: resolution.bottle.brandConflict } : {}),
   };
@@ -2401,12 +2416,13 @@ async function skipBottleSurface(captureId: string, surface: BottleSurface, user
     // Over: no re-resolve and no metadata write.
     return { status: 409, jsonBody: { error: `Cannot skip a photo on a ${session.status} session` } };
   }
-  const nextFrame = await advanceBottleFlow(session, userId, { kind: "skip", surface });
+  const { nextFrame, readSoFar } = await advanceBottleFlow(session, userId, { kind: "skip", surface });
   const response: CaptureAnswerResponse = {
     captureId: session.captureId,
     status: session.status,
     question: toCaptureQuestion(await getOpenQuestion(session.id)),
     nextFrame,
+    readSoFar,
   };
   return { status: 200, jsonBody: response };
 }

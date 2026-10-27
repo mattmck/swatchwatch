@@ -338,6 +338,7 @@ export function BottleEvalTab() {
                 scanBarcodes={false}
                 captureDisabled={!currentSurface || frameLimitReached}
                 frameType={frameTypeForSurface(currentSurface ?? "front")}
+                guide={currentSurface ?? "front"}
                 onFrameTypeChange={() => {}}
                 hideFrameTypeOptions
                 onCapture={handleCapture}

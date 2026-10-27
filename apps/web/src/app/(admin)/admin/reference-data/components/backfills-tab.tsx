@@ -45,7 +45,7 @@ const BACKFILLS: BackfillDefinition[] = [
     id: "image-variants",
     title: "Catalog thumbnails",
     description:
-      "Writes the pre-generated WebP thumbnails missing for catalog images. Idempotent: existing variants are skipped, so a re-run only fills gaps. Run after bumping IMAGE_VARIANT_CROP_VERSION or changing the size ladder.",
+      "Writes the pre-generated WebP thumbnails missing for catalog images. Idempotent: existing variants are skipped, so a re-run only fills gaps. A batch that has to write many thumbnails ends early (about 45 s) and the run carries on from where it stopped. Run after bumping IMAGE_VARIANT_CROP_VERSION or changing the size ladder.",
     command: "npm run backfill:image-variants --workspace=swatchwatch-functions",
     path: "images-admin/variants/backfill",
     cursorKey: "afterImageId",
@@ -216,6 +216,69 @@ const BACKFILLS: BackfillDefinition[] = [
       },
     ],
     applyConfirm: "Rewrite the stored product prices?",
+  },
+  {
+    id: "imported-wishlist",
+    title: "Imported wishlist rows",
+    description:
+      "Removes the wishlist rows ingestion used to add for the admin who ran each job. Only rows still exactly as ingestion wrote them (\"Imported from …\" note, quantity 0, no rating, price, wear, photo or mani) go; anything a user touched stays. Run the product category backfill afterwards so accessories nobody holds are excluded.",
+    command: "npm run backfill:imported-wishlist --workspace=swatchwatch-functions -- --write",
+    path: "inventory-admin/imported-wishlist/backfill",
+    cursorKey: "afterInventoryItemId",
+    nextKey: "nextAfterInventoryItemId",
+    dryRun: true,
+    defaultLimit: 500,
+    maxLimit: 2000,
+    metrics: [
+      { key: "scanned", label: "Rows matching" },
+      { key: "removed", label: "Rows removed" },
+    ],
+    maps: [
+      { key: "bySource", label: "By source" },
+      { key: "byUser", label: "By user id" },
+    ],
+    applyConfirm: "Delete the untouched imported wishlist rows?",
+  },
+  {
+    id: "makeupapi-dedupe",
+    title: "MakeupAPI duplicates",
+    description:
+      "Merges MakeupAPI shades into the brand's own shade when the names match without MakeupAPI's \"(40052)\" codes, folds MakeupAPI's copies of one color into one shade, then deletes the MakeupAPI-only shades nothing uses. Inventory, mani log and wear history move to the surviving shade, which keeps every vendor listing; its name, finishes and hexes never change. Held, labeled or admin-edited shades are kept.",
+    command: "npm run dedupe:makeupapi-shades --workspace=swatchwatch-functions -- --write",
+    path: "shades-admin/makeupapi-dedupe/backfill",
+    cursorKey: "afterBrandId",
+    nextKey: "nextAfterBrandId",
+    dryRun: true,
+    defaultLimit: 10,
+    maxLimit: 100,
+    metrics: [
+      { key: "scannedBrands", label: "Brands read" },
+      { key: "makeupApiShades", label: "MakeupAPI-only shades" },
+      { key: "merged", label: "Merged" },
+      { key: "mergedIntoStoreShades", label: "Into store shades" },
+      { key: "inventoryRowsMoved", label: "Inventory rows moved" },
+      { key: "deleted", label: "Deleted" },
+    ],
+    lists: [
+      {
+        key: "merges",
+        label: "Merges",
+        format: (m) => `${m.brand} "${m.sourceName}" ${m.sourceShadeId} → ${m.targetShadeId} "${m.targetName}" (${m.reason})`,
+      },
+      {
+        key: "skippedGroups",
+        label: "Skipped groups",
+        format: (g) => `${g.brand} "${g.key}" (${g.reason}): ${Array.isArray(g.shadeIds) ? g.shadeIds.join(", ") : ""}`,
+      },
+      {
+        key: "keptShades",
+        label: "Kept (in use)",
+        format: (k) => `${k.shadeId} ${k.brand} "${k.name}": ${Array.isArray(k.reasons) ? k.reasons.join(", ") : ""}`,
+      },
+      { key: "deletedShades", label: "Deleted shades", format: (d) => `${d.shadeId} ${d.brand} "${d.name}"` },
+    ],
+    applyConfirm:
+      "Merge the duplicate MakeupAPI shades and permanently delete the unused MakeupAPI-only shades? Each change is recorded in the admin audit log.",
   },
 ];
 

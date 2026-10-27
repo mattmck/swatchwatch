@@ -92,7 +92,7 @@ registerMock("ingestion-repo", {
     updated: 0,
     skipped: 0,
   }),
-  materializeHoloTacoRecords: async (_userId, _dsId, records, options) => {
+  materializeHoloTacoRecords: async (_dsId, records, options) => {
     events.push({ type: "materialize", ids: records.map((r) => r.externalId) });
     return materializeMock(records, options);
   },

@@ -74,14 +74,25 @@ runs:
           echo "::endgroup::"
         }
 
-        CSS_VERSION=$(node -p "require('./node_modules/lightningcss/package.json').version")
-        OXIDE_VERSION=$(node -p "require('./node_modules/@tailwindcss/oxide/package.json').version")
+        # npm may hoist these to the root or keep them in apps/web/node_modules;
+        # look where the web app's resolution would find them first.
+        pkg_dir() {
+          for dir in "apps/web/node_modules/$1" "node_modules/$1"; do
+            if [ -f "${dir}/package.json" ]; then echo "${dir}"; return; fi
+          done
+          echo "::error::$1 is not installed" >&2
+          return 1
+        }
+        CSS_DIR=$(pkg_dir lightningcss)
+        OXIDE_DIR=$(pkg_dir @tailwindcss/oxide)
+        CSS_VERSION=$(node -p "require('./${CSS_DIR}/package.json').version")
+        OXIDE_VERSION=$(node -p "require('./${OXIDE_DIR}/package.json').version")
 
         install_native_pkg "lightningcss-linux-x64-gnu" "${CSS_VERSION}" \
-          "node_modules/lightningcss-linux-x64-gnu" "node_modules/lightningcss"
+          "${CSS_DIR}-linux-x64-gnu" "${CSS_DIR}"
 
         install_native_pkg "@tailwindcss/oxide-linux-x64-gnu" "${OXIDE_VERSION}" \
-          "node_modules/@tailwindcss/oxide-linux-x64-gnu" "node_modules/@tailwindcss/oxide"
+          "${OXIDE_DIR}-linux-x64-gnu" "${OXIDE_DIR}"
 
-        node -e "require('lightningcss')" && echo "✓ lightningcss loads OK"
-        node -e "require('@tailwindcss/oxide')" && echo "✓ @tailwindcss/oxide loads OK"
+        (cd apps/web && node -e "require('lightningcss')") && echo "✓ lightningcss loads OK"
+        (cd apps/web && node -e "require('@tailwindcss/oxide')") && echo "✓ @tailwindcss/oxide loads OK"

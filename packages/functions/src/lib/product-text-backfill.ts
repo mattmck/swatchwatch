@@ -120,6 +120,7 @@ const READ_EMPTY_FINISH_SHADES_SQL = `SELECT s.shade_id::text AS "shadeId",
      ) lp ON true
      WHERE s.shade_id > $1::bigint
        AND COALESCE(cardinality(s.finishes), 0) = 0
+       AND s.finishes_source <> 'admin'
        AND s.merged_into_shade_id IS NULL
      ORDER BY s.shade_id
      LIMIT $3`;
@@ -133,12 +134,16 @@ const COVERAGE_SQL = `SELECT count(*)::int AS "totalShades",
      FROM shade s
      WHERE s.merged_into_shade_id IS NULL`;
 
-/** Fill only shades that still have no finishes (guards against a concurrent ingestion run). */
+/**
+ * Fill only shades that still have no finishes (guards against a concurrent ingestion run) and
+ * whose list an admin has not set (an admin may deliberately leave it empty).
+ */
 const FILL_FINISHES_SQL = `UPDATE shade s
      SET finishes = ARRAY(SELECT jsonb_array_elements_text(v.list)), updated_at = now()
      FROM (SELECT unnest($1::bigint[]) AS id, unnest($2::jsonb[]) AS list) v
      WHERE s.shade_id = v.id
-       AND COALESCE(cardinality(s.finishes), 0) = 0`;
+       AND COALESCE(cardinality(s.finishes), 0) = 0
+       AND s.finishes_source <> 'admin'`;
 
 function bump(counter: Record<string, number>, key: string): void {
   counter[key] = (counter[key] ?? 0) + 1;

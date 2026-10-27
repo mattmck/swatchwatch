@@ -13,6 +13,7 @@ import { deleteHexLabel, getHexLabelQueue, saveHexLabel } from "@/lib/api";
 import { labelProgress, undoHexLabelSave } from "@/lib/hex-sampling";
 import { ShadeLabeler } from "@/components/shade-hex-labeler";
 import { applyPromotionResponse } from "@/lib/vendor-hex-promotion";
+import { applyQueueItemChange } from "@/lib/shade-classification";
 import { ToggleChip } from "@/components/toggle-chip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -179,6 +180,11 @@ export function HexLabelingTab() {
     setQueue((prev) => (prev ? { ...prev, items: prev.items.map((item) => applyPromotionResponse(item, response)) } : prev));
   }, []);
 
+  const handleItemChange = useCallback((next: HexLabelQueueItem) => {
+    // A shade recategorized away from colour leaves the (colour-only) queue; the next one shows.
+    setQueue((prev) => (prev ? applyQueueItemChange(prev, next) : prev));
+  }, []);
+
   const handleSave = useCallback(
     async (request: HexLabelRequest) => {
       setSaving(true);
@@ -311,6 +317,7 @@ export function HexLabelingTab() {
           onPrev={handlePrev}
           onUndo={handleUndo}
           onPromotionChange={handlePromotionChange}
+          onItemChange={handleItemChange}
         />
       ) : (
         <p className="py-12 text-center text-sm text-muted-foreground">

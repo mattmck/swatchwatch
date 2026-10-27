@@ -35,16 +35,36 @@ function drawableSize(source: DrawableSource): { width: number; height: number }
   return { width: source.width, height: source.height };
 }
 
-function measureQuality(canvas: HTMLCanvasElement): FrameQualityMetrics {
-  const sample = document.createElement("canvas");
-  const { width, height } = computeScaledSize(canvas.width, canvas.height, QUALITY_SAMPLE_WIDTH);
-  sample.width = width;
-  sample.height = height;
-  const ctx = sample.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return { brightness: 0, contrast: 0, sharpness: 0 };
-  ctx.drawImage(canvas, 0, 0, width, height);
+export interface LuminanceSample {
+  luminance: Uint8ClampedArray;
+  width: number;
+  height: number;
+  metrics: FrameQualityMetrics;
+}
+
+/**
+ * Draw `source` into a ~160px-wide thumbnail and measure it. Pass the same `scratch` canvas on
+ * every call of a sampling loop to avoid allocating one per frame. Null when nothing can be drawn.
+ */
+export function sampleLuminance(
+  source: DrawableSource,
+  scratch: HTMLCanvasElement = document.createElement("canvas"),
+): LuminanceSample | null {
+  const size = drawableSize(source);
+  if (!size.width || !size.height) return null;
+  const { width, height } = computeScaledSize(size.width, size.height, QUALITY_SAMPLE_WIDTH);
+  if (scratch.width !== width) scratch.width = width;
+  if (scratch.height !== height) scratch.height = height;
+  const ctx = scratch.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(source, 0, 0, width, height);
   const { data } = ctx.getImageData(0, 0, width, height);
-  return computeFrameQuality(rgbaToLuminance(data, width, height), width, height);
+  const luminance = rgbaToLuminance(data, width, height);
+  return { luminance, width, height, metrics: computeFrameQuality(luminance, width, height) };
+}
+
+function measureQuality(canvas: HTMLCanvasElement): FrameQualityMetrics {
+  return sampleLuminance(canvas)?.metrics ?? { brightness: 0, contrast: 0, sharpness: 0 };
 }
 
 /** Snapshot `source` (a playing `<video>`, canvas or bitmap) into a capture frame. */

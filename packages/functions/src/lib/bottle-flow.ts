@@ -106,7 +106,7 @@ export function promptKey(spec: Pick<CaptureFrameRequestSpec, "surface" | "reaso
   return `${spec.surface}:${spec.reason}`;
 }
 
-export type PlanDecision = "matched" | "candidates" | "candidates_tied" | "create_card" | "unmatched" | "none";
+export type PlanDecision = "barcode_matched" | "matched" | "candidates" | "candidates_tied" | "create_card" | "unmatched" | "none";
 
 export interface PlanNextFrameInput {
   state: BottleFlowState;
@@ -152,17 +152,25 @@ function surfaceProducedEvidence(surface: BottleSurface, input: PlanNextFrameInp
   }
 }
 
-const DEFAULT_ORDER: ReadonlyArray<{ surface: BottleSurface; reason: CaptureFrameRequestReason }> = [
-  { surface: "front", reason: "need_brand" },
-  { surface: "bottom", reason: "need_name" },
-  { surface: "glass", reason: "need_color" },
+/**
+ * The photos every bottle is walked through, in order, before the session is compared: the
+ * front for the brand (only while it is unknown), the bottom for the name, the glass for the
+ * color, and the box for its barcode (only while no GTIN is known).
+ */
+const SEQUENCE: ReadonlyArray<{ surface: BottleSurface; reason: CaptureFrameRequestReason; optional: boolean }> = [
+  { surface: "front", reason: "need_brand", optional: false },
+  { surface: "bottom", reason: "need_name", optional: false },
+  { surface: "glass", reason: "need_color", optional: true },
+  { surface: "box", reason: "need_name", optional: true },
 ];
 
 /**
  * The next photo to ask for, or null when there is nothing (more) to ask. A candidate ask is
  * dropped when the frame cap is reached, its prompt was already shown
  * `BOTTLE_MAX_PROMPTS_PER_KEY` times, or its surface was skipped; the first remaining candidate
- * of the first row that has one wins.
+ * of the first row that has one wins. A name match does not end the walk: only a barcode match
+ * identifies the bottle exactly, so every other session sees each photo of `SEQUENCE` taken or
+ * skipped before it is compared.
  */
 export function planNextFrame(input: PlanNextFrameInput): CaptureFrameRequestSpec | null {
   const { state } = input;
@@ -172,8 +180,8 @@ export function planNextFrame(input: PlanNextFrameInput): CaptureFrameRequestSpe
     !state.skipped.includes(candidate.surface) && (state.prompts[promptKey(candidate)] ?? 0) < BOTTLE_MAX_PROMPTS_PER_KEY;
   const firstUsable = (...candidates: CaptureFrameRequestSpec[]) => candidates.find(usable) ?? null;
 
-  // 1. Matched (a barcode match included): the flow is over, whatever the last photo looked like.
-  if (input.decision === "matched") return null;
+  // 1. A barcode match: the flow is over, whatever the last photo looked like.
+  if (input.decision === "barcode_matched") return null;
 
   // 2. A poor photo that produced nothing: the same surface again.
   const rejected = state.lastRejected;
@@ -197,9 +205,17 @@ export function planNextFrame(input: PlanNextFrameInput): CaptureFrameRequestSpe
     if (ask) return ask;
   }
 
-  // 5. Candidates to choose from and no glass photo yet: the color confirms the pick.
-  if (input.decision === "candidates" && !input.glassHex) {
-    const ask = firstUsable(spec("glass", "need_color", { optional: true }));
+  // 5. The walk: the first surface of the sequence not yet photographed (nor skipped, nor at
+  // its cap) that could still add something.
+  const wanted: Record<BottleSurface, boolean> = {
+    front: !input.brandKnown,
+    bottom: true,
+    glass: true,
+    box: !input.gtinRead,
+  };
+  for (const { surface, reason, optional } of SEQUENCE) {
+    if (!wanted[surface] || (input.surfaces[surface] ?? 0) > 0) continue;
+    const ask = firstUsable(spec(surface, reason, { optional }));
     if (ask) return ask;
   }
 
@@ -212,23 +228,7 @@ export function planNextFrame(input: PlanNextFrameInput): CaptureFrameRequestSpe
     if (ask) return ask;
   }
 
-  // 7. The asks above are used up: the default order, first surface not yet photographed (nor
-  // skipped, nor at its cap) that could still add what is missing: the front for a brand, the
-  // bottom for a name, the glass for a color when there is no name either (brand known or not),
-  // so a bottle whose sticker would not read gets a color photo before the create card.
-  const missing: Record<BottleSurface, boolean> = {
-    front: !input.brandKnown,
-    bottom: !input.nameRead,
-    glass: !input.glassHex && !input.nameRead,
-    box: false,
-  };
-  for (const { surface, reason } of DEFAULT_ORDER) {
-    if (!missing[surface] || (input.surfaces[surface] ?? 0) > 0) continue;
-    const ask = firstUsable(spec(surface, reason, { optional: surface === "glass" }));
-    if (ask) return ask;
-  }
-
-  // 8. Nothing left to ask.
+  // 7. Nothing left to ask.
   return null;
 }
 
@@ -268,7 +268,7 @@ export function bottleFlowMetadataPatch(
 
 /** What the planner needs to know about the resolver's verdict. */
 export function decisionForPlan(decision: ResolverDecision): PlanDecision {
-  if (decision.status === "matched") return "matched";
+  if (decision.status === "matched") return decision.barcodeVia ? "barcode_matched" : "matched";
   if (decision.status === "needs_question") {
     const resolver = asRecord(decision.metadataPatch.resolver);
     if (resolver.step === "awaiting_frames") return "none";

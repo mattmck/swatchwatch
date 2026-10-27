@@ -116,7 +116,6 @@ describe("materializeHoloTacoRecords barcodes", () => {
 
   it("links the product GTIN and each variant barcode to the shade with provenance", async () => {
     const metrics = await materializeHoloTacoRecords(
-      1,
       7,
       [record({ gtin: UPC_A, variantBarcodes: [UPC_A, EAN_13, "not-a-barcode"] })],
       { detectHexFromImage: false }
@@ -136,8 +135,8 @@ describe("materializeHoloTacoRecords barcodes", () => {
 
   it("is idempotent on a re-run", async () => {
     const input = [record({ gtin: UPC_A, variantBarcodes: [UPC_A] })];
-    await materializeHoloTacoRecords(1, 7, input, { detectHexFromImage: false });
-    const second = await materializeHoloTacoRecords(1, 7, input, { detectHexFromImage: false });
+    await materializeHoloTacoRecords(7, input, { detectHexFromImage: false });
+    const second = await materializeHoloTacoRecords(7, input, { detectHexFromImage: false });
     assert.equal(barcodes.length, 1);
     assert.equal(skus.length, 1);
     assert.equal(second.barcodesLinked, 0);
@@ -149,7 +148,6 @@ describe("materializeHoloTacoRecords barcodes", () => {
     const progressLogger = logger();
 
     const metrics = await materializeHoloTacoRecords(
-      1,
       7,
       [record({ gtin: EAN_13, variantBarcodes: [EAN_13] })],
       { detectHexFromImage: false, progressLogger }
@@ -172,7 +170,6 @@ describe("materializeHoloTacoRecords barcodes", () => {
   it("stores a barcode with a bad check digit and warns in the job log", async () => {
     const progressLogger = logger();
     const metrics = await materializeHoloTacoRecords(
-      1,
       7,
       [record({ gtin: "036000291453", variantBarcodes: [] })],
       { detectHexFromImage: false, progressLogger }
@@ -185,7 +182,7 @@ describe("materializeHoloTacoRecords barcodes", () => {
   });
 
   it("issues no barcode SQL for a product without barcodes", async () => {
-    await materializeHoloTacoRecords(1, 7, [record({ gtin: null, variantBarcodes: [""] })], {
+    await materializeHoloTacoRecords(7, [record({ gtin: null, variantBarcodes: [""] })], {
       detectHexFromImage: false,
     });
     assert.equal(calls.filter((c) => /barcode|\bsku\b/i.test(c.sql)).length, 0);

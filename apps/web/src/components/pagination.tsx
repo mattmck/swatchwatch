@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -8,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { buildPageNumbers, pageRange } from "@/lib/pagination";
 
 interface PaginationProps {
   currentPage: number;
@@ -18,6 +20,13 @@ interface PaginationProps {
   onPageSizeChange?: (size: number) => void;
 }
 
+const PAGE_SIZES = [10, 25, 50, 100];
+
+/**
+ * Previous / page numbers / Next, with the item range and rows-per-page as secondary controls.
+ * Desktop shows at most 7 page slots (first, last, current ±1, ellipses). Phones get one line:
+ * ‹ [Page 14 of 64 ▾] › where the middle is a jump-to-page picker, with 40px touch targets.
+ */
 export function Pagination({
   currentPage,
   totalPages,
@@ -26,154 +35,115 @@ export function Pagination({
   onPageChange,
   onPageSizeChange,
 }: PaginationProps) {
-  if (totalPages <= 1) {
-    return (
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-sm text-muted-foreground">
-          {totalItems} {totalItems === 1 ? "polish" : "polishes"}
+  const { start, end } = pageRange(currentPage, pageSize, totalItems);
+  const noun = totalItems === 1 ? "polish" : "polishes";
+  const summary =
+    totalPages <= 1 ? (
+      <>
+        {totalItems.toLocaleString()} {noun}
+      </>
+    ) : (
+      <>
+        {start.toLocaleString()}&ndash;{end.toLocaleString()} of {totalItems.toLocaleString()} {noun}
+      </>
+    );
+
+  return (
+    <nav
+      aria-label="Pagination"
+      className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
+    >
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between gap-2 sm:order-2 sm:justify-center">
+          <Button
+            variant="outline"
+            className="size-10 px-0 sm:h-8 sm:w-auto sm:px-2.5"
+            disabled={currentPage <= 1}
+            onClick={() => onPageChange(currentPage - 1)}
+            aria-label="Previous page"
+          >
+            <ChevronLeft aria-hidden />
+            <span className="hidden sm:inline">Previous</span>
+          </Button>
+
+          {/* Phones: one jump-to-page picker instead of a row of numbers. */}
+          <div className="flex-1 sm:hidden">
+            <Select value={currentPage.toString()} onValueChange={(v) => onPageChange(parseInt(v, 10))}>
+              <SelectTrigger aria-label="Go to page" className="w-full justify-center gap-1 data-[size=default]:h-10">
+                <SelectValue>
+                  Page {currentPage} of {totalPages}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                  <SelectItem key={p} value={p.toString()}>
+                    Page {p}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <ol className="hidden items-center gap-1 sm:flex">
+            {buildPageNumbers(currentPage, totalPages).map((slot, i) =>
+              slot === "ellipsis" ? (
+                <li key={`ellipsis-${i}`} aria-hidden className="w-6 text-center text-muted-foreground">
+                  …
+                </li>
+              ) : (
+                <li key={slot}>
+                  <Button
+                    variant={slot === currentPage ? "default" : "ghost"}
+                    size="sm"
+                    className="min-w-8 px-2 tabular-nums"
+                    aria-label={`Page ${slot}`}
+                    aria-current={slot === currentPage ? "page" : undefined}
+                    onClick={() => onPageChange(slot)}
+                  >
+                    {slot}
+                  </Button>
+                </li>
+              )
+            )}
+          </ol>
+
+          <Button
+            variant="outline"
+            className="size-10 px-0 sm:h-8 sm:w-auto sm:px-2.5"
+            disabled={currentPage >= totalPages}
+            onClick={() => onPageChange(currentPage + 1)}
+            aria-label="Next page"
+          >
+            <span className="hidden sm:inline">Next</span>
+            <ChevronRight aria-hidden />
+          </Button>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-4 sm:contents">
+        <span className="text-sm text-muted-foreground tabular-nums sm:order-1" aria-live="polite">
+          {summary}
         </span>
         {onPageSizeChange && (
-          <PageSizeSelector pageSize={pageSize} onPageSizeChange={onPageSizeChange} />
+          <div className="flex items-center gap-2 sm:order-3">
+            <label htmlFor="page-size" className="text-sm text-muted-foreground">
+              Show
+            </label>
+            <Select value={pageSize.toString()} onValueChange={(v) => onPageSizeChange(parseInt(v, 10))}>
+              <SelectTrigger id="page-size" size="sm" className="w-[4.5rem]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PAGE_SIZES.map((size) => (
+                  <SelectItem key={size} value={size.toString()}>
+                    {size}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         )}
       </div>
-    );
-  }
-
-  const pages = buildPageNumbers(currentPage, totalPages);
-  const start = (currentPage - 1) * pageSize + 1;
-  const end = Math.min(currentPage * pageSize, totalItems);
-
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-      <span className="text-sm text-muted-foreground">
-        {start}&ndash;{end} of {totalItems}
-      </span>
-      <div className="flex flex-wrap items-center gap-1">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={currentPage <= 1}
-          onClick={() => onPageChange(1)}
-          aria-label="First page"
-          title="First page"
-        >
-          «
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={currentPage <= 1}
-          onClick={() => onPageChange(Math.max(1, currentPage - 5))}
-          aria-label="Back up to 5 pages"
-          title="Back up to 5 pages"
-        >
-          ‹‹
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={currentPage <= 1}
-          onClick={() => onPageChange(currentPage - 1)}
-        >
-          Prev
-        </Button>
-        {pages.map((p, i) =>
-          p === "..." ? (
-            <span key={`ellipsis-${i}`} className="px-1 text-muted-foreground">
-              ...
-            </span>
-          ) : (
-            <Button
-              key={p}
-              variant={p === currentPage ? "default" : "outline"}
-              size="sm"
-              onClick={() => onPageChange(p as number)}
-            >
-              {p}
-            </Button>
-          )
-        )}
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={currentPage >= totalPages}
-          onClick={() => onPageChange(currentPage + 1)}
-        >
-          Next
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={currentPage >= totalPages}
-          onClick={() => onPageChange(Math.min(totalPages, currentPage + 5))}
-          aria-label="Forward up to 5 pages"
-          title="Forward up to 5 pages"
-        >
-          ››
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={currentPage >= totalPages}
-          onClick={() => onPageChange(totalPages)}
-          aria-label="Last page"
-          title="Last page"
-        >
-          »
-        </Button>
-      </div>
-      {onPageSizeChange && (
-        <PageSizeSelector pageSize={pageSize} onPageSizeChange={onPageSizeChange} />
-      )}
-    </div>
+    </nav>
   );
-}
-
-function PageSizeSelector({
-  pageSize,
-  onPageSizeChange,
-}: {
-  pageSize: number;
-  onPageSizeChange: (size: number) => void;
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <label htmlFor="page-size" className="text-sm text-muted-foreground">
-        Rows per page:
-      </label>
-      <Select value={pageSize.toString()} onValueChange={(v) => onPageSizeChange(parseInt(v, 10))}>
-        <SelectTrigger id="page-size" className="w-20">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="10">10</SelectItem>
-          <SelectItem value="25">25</SelectItem>
-          <SelectItem value="50">50</SelectItem>
-          <SelectItem value="100">100</SelectItem>
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-
-function buildPageNumbers(
-  current: number,
-  total: number
-): (number | "...")[] {
-  if (total <= 7) {
-    return Array.from({ length: total }, (_, i) => i + 1);
-  }
-
-  const pages: (number | "...")[] = [1];
-
-  if (current > 3) pages.push("...");
-
-  const start = Math.max(2, current - 1);
-  const end = Math.min(total - 1, current + 1);
-  for (let i = start; i <= end; i++) pages.push(i);
-
-  if (current < total - 2) pages.push("...");
-
-  pages.push(total);
-  return pages;
 }

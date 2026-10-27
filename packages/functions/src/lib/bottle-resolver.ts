@@ -5,6 +5,7 @@ import {
   HIGH_CONFIDENCE_MAX_DISTANCE,
   MEDIUM_CONFIDENCE_MAX_DISTANCE,
   hexToOklab,
+  parseBottleSurface,
 } from "swatchwatch-shared";
 import type { resolveBrandFromText } from "./brand-resolve";
 import { toBrandRef } from "./brand-resolve";
@@ -14,7 +15,7 @@ import type {
   CaptureMatchCandidate,
   ResolverDecision,
 } from "./capture-evidence";
-import { toRecord } from "./capture-evidence";
+import { surfaceReadsShadeName, toRecord } from "./capture-evidence";
 import { buildBrandShadeQuestion, buildCandidateQuestion } from "./capture-questions";
 import type { query } from "./db";
 import { buildNearHexDistanceSql } from "./near-hex";
@@ -318,9 +319,10 @@ export function sumFrameModelCalls(frames: readonly CaptureFrameEvidenceRow[]): 
   return total;
 }
 
-/** Confidence of the newest frame's sticker read that picked a listed shade name. */
+/** Confidence of the newest name-bearing frame's sticker read that picked a listed shade name (never the front). */
 export function visionConfidenceFromFrames(frames: readonly CaptureFrameEvidenceRow[]): number | null {
   for (const frame of frames) {
+    if (!surfaceReadsShadeName(parseBottleSurface(toRecord(frame.quality).surface))) continue;
     const listed = toRecord(toRecord(frame.quality).extracted).shadeNameListed;
     if (typeof listed === "string" && listed.trim().length > 0) {
       return finiteOrNull(aiBlock(frame, "sticker").confidence);

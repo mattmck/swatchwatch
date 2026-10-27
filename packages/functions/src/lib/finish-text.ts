@@ -364,13 +364,17 @@ export function resolveNormalizedProductFinishes(
  * - `descriptors` / `description`: only fill a shade that has no finishes yet; text never adds
  *   to or reorders finishes that are already there (manual edits, earlier tag runs).
  * - `none`: untouched.
+ * - an admin-set list (`shade.finishes_source = 'admin'`, Hex Labeling tool) is always untouched,
+ *   so a finish an admin removed never comes back from vendor tags.
  * Ingestion-only (catalog write rule #224): user requests never go through this.
  */
 export function applyIngestedFinishes(
   current: readonly string[] | null | undefined,
   resolution: IngestedFinishResolution,
-  catalog: FinishCatalog = DEFAULT_FINISH_CATALOG
+  catalog: FinishCatalog = DEFAULT_FINISH_CATALOG,
+  finishesSource: string | null = null
 ): string[] | null {
+  if (finishesSource === "admin") return null;
   if (resolution.finishes.length === 0) return null;
   if (resolution.source === "tags") {
     return mergeFinishLists([current ?? [], resolution.finishes], catalog);
