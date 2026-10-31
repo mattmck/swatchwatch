@@ -16,7 +16,10 @@ interface RefreshConfig {
 
 let tokens: StoredTokens | null = null;
 let refreshConfig: RefreshConfig | null = null;
-let refreshing: Promise<StoredTokens | null> | null = null;
+/** The in-flight refresh (single flight) and the token set it is refreshing. */
+let refreshing: { tokens: StoredTokens; promise: Promise<StoredTokens | null> } | null = null;
+/** The token set whose refresh token the endpoint last rejected (that session is over). */
+let rejectedTokens: StoredTokens | null = null;
 let devSignedIn = false;
 /** The saved user and token endpoint, re-written with every refreshed token set. */
 let sessionExtras: Pick<StoredAuth, "user" | "tokenEndpoint"> = {};
@@ -42,6 +45,9 @@ const EXPIRY_SKEW_SECONDS = 60;
 
 export function setTokens(next: StoredTokens | null, config?: RefreshConfig | null): void {
   tokens = next;
+  // A sign-out or new sign-in ends any rejected session: a request still waiting on its
+  // refresh must not report it as expired.
+  rejectedTokens = null;
   if (!next) sessionExtras = {};
   if (config !== undefined) refreshConfig = config;
 }
@@ -77,8 +83,14 @@ export async function refreshTokens(): Promise<StoredTokens | null> {
   const current = tokens;
   const config = refreshConfig;
   if (!current?.refreshToken || !config) return null;
+  if (refreshing && refreshing.tokens !== current) {
+    // Still refreshing a session that has since been signed out or replaced: let it settle,
+    // then refresh this one (its result says nothing about the current session).
+    await refreshing.promise.catch(() => undefined);
+    return refreshTokens();
+  }
   if (!refreshing) {
-    refreshing = refreshAsync(
+    const promise: Promise<StoredTokens | null> = refreshAsync(
       {
         clientId: config.clientId,
         refreshToken: current.refreshToken,
@@ -100,16 +112,21 @@ export async function refreshTokens(): Promise<StoredTokens | null> {
       })
       .catch((error: unknown) => {
         if (error instanceof TokenError) {
-          tokens = null;
+          // End only the session this refresh was for; a sign-out meanwhile already ended it.
+          if (tokens === current) {
+            tokens = null;
+            rejectedTokens = current;
+          }
           return null;
         }
         throw error;
       })
       .finally(() => {
-        refreshing = null;
+        if (refreshing?.promise === promise) refreshing = null;
       });
+    refreshing = { tokens: current, promise };
   }
-  return refreshing;
+  return refreshing.promise;
 }
 
 /**
@@ -120,10 +137,13 @@ export async function getAuthorizationHeader(): Promise<string | null> {
   if (AUTH_MODE === "dev-bypass") {
     return devSignedIn ? `Bearer dev:${DEV_USER_ID}` : null;
   }
-  let current = tokens;
+  const before = tokens;
+  let current = before;
   if (current && isExpired(current)) {
     current = (await refreshTokens()) ?? null;
-    if (!current) notifySessionExpired();
+    // Expire only the session this request started with: a refresh cut short by sign-out (or
+    // a new sign-in) leaves nothing to expire.
+    if (!current && (tokens === before || rejectedTokens === before)) notifySessionExpired();
   }
   return current ? `Bearer ${current.accessToken}` : null;
 }
