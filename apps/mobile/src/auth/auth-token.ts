@@ -17,6 +17,8 @@ interface RefreshConfig {
 let tokens: StoredTokens | null = null;
 let refreshConfig: RefreshConfig | null = null;
 let refreshing: Promise<StoredTokens | null> | null = null;
+/** The token set whose refresh token the endpoint last rejected (that session is over). */
+let rejectedTokens: StoredTokens | null = null;
 let devSignedIn = false;
 /** The saved user and token endpoint, re-written with every refreshed token set. */
 let sessionExtras: Pick<StoredAuth, "user" | "tokenEndpoint"> = {};
@@ -100,7 +102,11 @@ export async function refreshTokens(): Promise<StoredTokens | null> {
       })
       .catch((error: unknown) => {
         if (error instanceof TokenError) {
-          tokens = null;
+          // End only the session this refresh was for; a sign-out meanwhile already ended it.
+          if (tokens === current) {
+            tokens = null;
+            rejectedTokens = current;
+          }
           return null;
         }
         throw error;
@@ -120,10 +126,13 @@ export async function getAuthorizationHeader(): Promise<string | null> {
   if (AUTH_MODE === "dev-bypass") {
     return devSignedIn ? `Bearer dev:${DEV_USER_ID}` : null;
   }
-  let current = tokens;
+  const before = tokens;
+  let current = before;
   if (current && isExpired(current)) {
     current = (await refreshTokens()) ?? null;
-    if (!current) notifySessionExpired();
+    // Expire only the session this request started with: a refresh cut short by sign-out (or
+    // a new sign-in) leaves nothing to expire.
+    if (!current && (tokens === before || rejectedTokens === before)) notifySessionExpired();
   }
   return current ? `Bearer ${current.accessToken}` : null;
 }
