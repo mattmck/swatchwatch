@@ -2061,7 +2061,8 @@ export async function upsertExternalProducts(
              raw_json = EXCLUDED.raw_json,
              normalized_json = EXCLUDED.normalized_json,
              etag = EXCLUDED.etag,
-             fetched_at = now()
+             fetched_at = now(),
+             missing_since = NULL
            RETURNING (xmax = 0) AS inserted
          )
          SELECT inserted FROM upsert`,

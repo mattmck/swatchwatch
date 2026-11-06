@@ -58,6 +58,8 @@ import {
   readCatalogSnapshotFromMetrics,
 } from "../lib/ingestion-catalog-cache";
 import { JobLogger } from "../lib/job-logger";
+import { markExternalProductsMissing } from "../lib/listing-freshness";
+import { transaction } from "../lib/db";
 import { OpenBeautyFactsConnector } from "../lib/connectors/open-beauty-facts";
 import { MakeupApiConnector } from "../lib/connectors/makeup-api";
 import { HoloTacoShopifyConnector } from "../lib/connectors/holo-taco-shopify";
@@ -668,6 +670,7 @@ export async function processIngestionJobQueueMessage(
       ? toMetricsRecord(existingMetrics[WORKER_TOTALS_METRICS_KEY])
       : {};
     let connectorMetadata: Record<string, unknown> = {};
+    let listingFreshnessDone = false;
     const persistenceMetricsAggregate: Record<string, unknown> = toMetricsRecord(priorTotals.persistence);
     let materializationMetricsAggregate: Record<string, unknown> | null =
       priorTotals.materialization ? toMetricsRecord(priorTotals.materialization) : null;
@@ -1068,6 +1071,31 @@ export async function processIngestionJobQueueMessage(
         catalogCache,
       });
       const records = pageResult.records;
+
+      // Once per job: the first pull of a fresh start downloaded the catalog itself (a
+      // continuation's snapshot carries no completeness flag), so only that pull reports it.
+      if (!startCheckpoint && !listingFreshnessDone) {
+        listingFreshnessDone = true;
+        if (pageResult.catalog) {
+          try {
+            const freshness = await transaction((client) =>
+              markExternalProductsMissing(client, source.dataSourceId, pageResult.catalog!)
+            );
+            persistenceMetricsAggregate.listingsMarkedMissing = freshness.marked;
+            persistenceMetricsAggregate.listingsCleared = freshness.cleared;
+            logger.info(
+              freshness.skipped
+                ? "Listing freshness skipped: the catalog fetch was incomplete or empty"
+                : `Listing freshness: ${freshness.marked} marked missing, ${freshness.cleared} cleared`,
+              { ...freshness }
+            );
+          } catch (freshnessError) {
+            logger.warn("Listing freshness update failed; continuing ingestion", {
+              error: getErrorMessage(freshnessError),
+            });
+          }
+        }
+      }
 
       // Stop decisions always use the FULL page, never a chunk of it.
       let stopReason: string | null = null;

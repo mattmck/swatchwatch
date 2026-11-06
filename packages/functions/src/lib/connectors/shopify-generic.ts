@@ -537,9 +537,14 @@ export class ShopifyGenericConnector implements ProductConnector {
   }
 
   async pullProducts(options: ConnectorPullOptions): Promise<ConnectorPullResult> {
-    const allProducts = await loadCatalogWithCache<ShopifyProduct>(options.catalogCache, () =>
-      this.fetchAllProducts()
-    );
+    // Set only when this pull downloaded the catalog; a cached catalog (a continuation's
+    // snapshot) carries no completeness flag, so it never reports one.
+    let fetchedComplete = null as boolean | null;
+    const allProducts = await loadCatalogWithCache<ShopifyProduct>(options.catalogCache, async () => {
+      const fetched = await this.fetchAllProducts();
+      fetchedComplete = fetched.complete;
+      return fetched.products;
+    });
     const storeCurrency = await this.resolveStoreCurrency(allProducts);
     const normalizedRecords = await Promise.all(
       allProducts.map((product) =>
@@ -590,6 +595,14 @@ export class ShopifyGenericConnector implements ProductConnector {
     return {
       source: this.source as any,
       records,
+      ...(fetchedComplete === null
+        ? {}
+        : {
+            catalog: {
+              externalIds: allProducts.map((product) => String(product.id)),
+              complete: fetchedComplete && allProducts.length > 0,
+            },
+          }),
       metadata: {
         requestUrl: `${this.baseUrl}/products.json`,
         responsePage: options.page,
@@ -609,8 +622,10 @@ export class ShopifyGenericConnector implements ProductConnector {
     };
   }
 
-  private async fetchAllProducts(): Promise<ShopifyProduct[]> {
+  /** `complete` is true only when the loop ended on a page shorter than the page limit. */
+  private async fetchAllProducts(): Promise<{ products: ShopifyProduct[]; complete: boolean }> {
     const allProducts: ShopifyProduct[] = [];
+    let complete = false;
 
     for (let page = 1; page <= MAX_SHOPIFY_PAGES; page += 1) {
       const params = new URLSearchParams({
@@ -630,11 +645,12 @@ export class ShopifyGenericConnector implements ProductConnector {
       allProducts.push(...pageProducts);
 
       if (pageProducts.length === 0 || pageProducts.length < SHOPIFY_PAGE_LIMIT) {
+        complete = true;
         break;
       }
     }
 
-    return allProducts;
+    return { products: allProducts, complete };
   }
 
   private async fetchJson(url: string): Promise<unknown> {
