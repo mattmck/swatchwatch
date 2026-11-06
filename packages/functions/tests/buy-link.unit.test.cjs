@@ -329,3 +329,68 @@ describe("recordShadeSourceProduct", () => {
     assert.equal(calls.length, 0);
   });
 });
+
+describe("selectBuyFromBrandUrl: missing listings and retailer ordering", () => {
+  const base = {
+    shadeId: "1",
+    sourceEnabled: true,
+    lastSeenAt: T("2026-10-01T00:00:00Z"),
+    fetchedAt: T("2026-10-01T00:00:00Z"),
+    externalProductId: "10",
+    sourceKind: "brand_store",
+    available: true,
+    missingSince: null,
+  };
+
+  it("never chooses a missing listing, even when it is the newest", () => {
+    const live = { ...base, url: "https://brand.example/p", lastSeenAt: T("2026-01-01T00:00:00Z") };
+    const missing = {
+      ...base,
+      url: "https://retailer.example/p",
+      sourceKind: "retailer",
+      lastSeenAt: T("2026-10-30T00:00:00Z"),
+      missingSince: T("2026-10-29T00:00:00Z"),
+    };
+    assert.equal(selectBuyFromBrandUrl([missing, live]), "https://brand.example/p");
+  });
+
+  it("returns no link when every listing is missing", () => {
+    const missing = { ...base, url: "https://brand.example/p", missingSince: "2026-10-29T00:00:00Z" };
+    assert.equal(selectBuyFromBrandUrl([missing]), null);
+    assert.equal(selectBuyFromBrandLink([missing]), null);
+  });
+
+  it("prefers an available retailer over a sold-out brand store", () => {
+    const brand = { ...base, url: "https://brand.example/p", available: false };
+    const retailer = { ...base, url: "https://retailer.example/p", sourceKind: "retailer", available: true };
+    assert.equal(selectBuyFromBrandUrl([brand, retailer]), "https://retailer.example/p");
+  });
+
+  it("prefers the brand store when both are available, even if the retailer was seen later", () => {
+    const brand = { ...base, url: "https://brand.example/p", lastSeenAt: T("2026-01-01T00:00:00Z") };
+    const retailer = {
+      ...base,
+      url: "https://retailer.example/p",
+      sourceKind: "retailer",
+      lastSeenAt: T("2026-10-30T00:00:00Z"),
+    };
+    assert.equal(selectBuyFromBrandUrl([retailer, brand]), "https://brand.example/p");
+  });
+
+  it("ranks an unknown availability (null) with available", () => {
+    const brand = { ...base, url: "https://brand.example/p", available: null };
+    const retailer = { ...base, url: "https://retailer.example/p", sourceKind: "retailer", available: true };
+    assert.equal(selectBuyFromBrandUrl([retailer, brand]), "https://brand.example/p");
+  });
+
+  it("falls back to a sold-out listing when it is the only one", () => {
+    const brand = { ...base, url: "https://brand.example/p", available: false };
+    assert.equal(selectBuyFromBrandUrl([brand]), "https://brand.example/p");
+  });
+
+  it("selects candidate columns for the new fields", () => {
+    assert.match(BUY_LINK_CANDIDATES_SQL, /missing_since/);
+    assert.match(BUY_LINK_CANDIDATES_SQL, /"sourceMetadata"/);
+    assert.match(BUY_LINK_CANDIDATES_SQL, /available/);
+  });
+});
