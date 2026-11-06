@@ -1096,6 +1096,47 @@ Resolver-audit columns (Slice A). When the server's bottle flow is on (`BOTTLE_C
 
 `classifyOutcome` is unchanged; the new columns sit beside it on `SampleResult` / `EvalSummary`. `BOTTLE_CAPTURE_ENABLED` flips per environment once false confident matches (`matched_wrong`) read 0 on the eval set, so run the eval with the flag on against that environment's host before turning it on there, and keep the flag-off run as the baseline.
 
+### Importing bottle eval samples in bulk (`src/eval/bottle/import/`)
+
+`npm run eval:bottle:import` turns a folder of bottle photos or short phone clips into bottle eval samples, so a whole shooting session (many bottles, several lighting takes each) is labelled without tapping through the admin console's Bottle Eval tab. Everything goes through the admin API (`GET /api/catalog/search`, `GET /api/catalog/shade/{id}`, `POST /api/bottle-eval-admin/samples`, `POST /api/bottle-eval-admin/samples/{id}/frames`), never the database or storage, so it works against a local host or the deployed dev environment with a real admin token.
+
+```text
+bottles/
+  labels.csv                      optional: folder,shadeId,brand,shade,notes
+  Holo Taco - Up in Smoke/        one folder per bottle, named "<Brand> - <Shade name>"
+    front.jpg                     default take: files directly in the bottle folder
+    bottom.heic
+    glass.mov                     a clip: the sharpest frame is used
+    box.png
+    warm/                         a take: its own sample, "take warm" in the notes
+      front.jpg
+      glass.jpg
+    dim/
+      Front.JPG
+  bottle-17/                      no " - " in the name: labelled by labels.csv
+    front.jpg
+```
+
+- **Labels.** The folder name is split on the first spaced hyphen (or en/em dash): `<Brand> - <Shade name>`; underscores count as spaces. A `labels.csv` row (`folder,shadeId,brand,shade,notes`, header required, any column order and case; default `<dir>/labels.csv`, or `--labels <file>`) overrides it field by field: a `shadeId` is used as is, otherwise its brand/shade replace the folder's, and `notes` go on every sample of that bottle. A brand + shade label is looked up with `GET /api/catalog/search?q=<brand shade>` and only an **exact** (case- and whitespace-insensitive) brand + shade-name match becomes a catalog label; anything else (no hit, a fuzzy hit, or several shades with that exact name) is imported as an external label (`brandText` + `shadeText`), or is an error with `--require-catalog`. Each folder's resolution is printed.
+- **Files.** Named by surface: `front`, `bottom`, `glass`, `box` (any case; a suffix after a separator is fine: `front-2.jpg`, `glass (1).mov`), as `jpg`/`jpeg`/`png`/`heic`/`heif`/`webp` photos or `mp4`/`mov`/`m4v` clips. A surface with several files uses a photo over a clip, then the first in natural order; the rest, and other files, are listed as ignored. Photos are decoded with orientation applied, bounded to 2048 px and re-encoded as JPEG (no metadata) before upload; HEIC that sharp cannot decode (iPhone HEVC) is converted with `sips` on macOS or ffmpeg.
+- **Takes.** Each subfolder of a bottle folder (`warm/`, `window/`, `dim/`, `left-hand/`, anything) is one lighting or pose variant and becomes its own sample with `take <name>` appended to the notes; files directly in the bottle folder are the default take.
+- **Clips** need `ffmpeg` on PATH (checked before anything is uploaded when any surface is a clip; `brew install ffmpeg`). The importer reads evenly spaced candidate frames (at least 8, 4 per kept frame), scores each with the variance of the Laplacian on a 512 px grey copy, and keeps the sharpest. `--frames-per-clip <n>` (max 10) keeps n sharp frames at least `clip length / 2n` apart and makes n samples of the take (note `clip frame k/n`), since different moments of a handheld clip are different poses; photo surfaces of the take are reused in each of them.
+- **Idempotent.** Every take folder gets `.bottle-eval-import.json` (sample id per variant, and each uploaded surface with its source file and frame id), rewritten after every API call. A re-run skips recorded surfaces, adds missing ones to the recorded sample and creates samples only for new takes/variants; a label change after import is reported but does not relabel the existing sample. `--reset` ignores the manifests and creates new samples (delete the old ones in the admin tab if they should go). `--dry-run` prints the whole plan (label resolution, the file and sharpness per surface, the candidate scores of each clip) and calls nothing but the catalog search; it does not need `ADMIN_BEARER_TOKEN`.
+- **Failures.** A failed upload stops that bottle (what was uploaded stays in the manifest, so a re-run continues) and the importer moves on to the next folder; a per-folder summary table ends the run, and the exit code is 1 when any folder failed (no label, unknown `shadeId`, `--require-catalog` miss, unreadable file, API error) or on a config error (missing token, non-admin token: checked with `GET bottle-eval-admin/samples?limit=1` before any upload).
+
+```bash
+# Local host (dev bypass): preview, then import
+npm run eval:bottle:import --workspace=swatchwatch-functions -- --dir ~/Pictures/bottles --dry-run
+API_BASE_URL=http://localhost:7071/api ADMIN_BEARER_TOKEN=dev:2 \
+  npm run eval:bottle:import --workspace=swatchwatch-functions -- --dir ~/Pictures/bottles --frames-per-clip 3
+
+# Deployed dev environment, with an admin's access token from the web app
+API_BASE_URL=https://<dev-func-app>.azurewebsites.net/api ADMIN_BEARER_TOKEN=<admin token> \
+  npm run eval:bottle:import --workspace=swatchwatch-functions -- --dir ~/Pictures/bottles --require-catalog
+```
+
+Options: `--dir <path>` (required), `--dry-run`, `--labels <file>`, `--require-catalog`, `--reset`, `--frames-per-clip <n>`, `--only <text>` (bottle folder name substring), `--help`. `API_BASE_URL` and `ADMIN_BEARER_TOKEN` are filled from `local.settings.json` when unset, like the other admin scripts.
+
 ## Migrations
 
 Schema migrations use [node-pg-migrate](https://github.com/salsita/node-pg-migrate) with raw SQL files in `migrations/`. Each file contains an up migration and a `-- Down Migration` section for rollback.
@@ -1409,7 +1450,7 @@ Read by `npm run eval:hex` strategies, never by the Function App.
 
 ### Admin scripts and evals (`scripts/*.cjs`, `src/eval/`)
 
-`backfill:image-variants`, `backfill:barcodes`, `backfill:imported-wishlist`, `backfill:product-category`, `dedupe:gallery-images` and `dedupe:makeupapi-shades` call the Functions API at `API_BASE_URL` (local host by default, or a deployed app), not the database (`backfill:product-text` and `eval:hex:populate` connect to Postgres with the `PG*` variables instead). `eval:bottle` uses both: it calls the capture API at `API_BASE_URL` with `ADMIN_BEARER_TOKEN` (required), reads the samples from Postgres (`PG*`) and the frame blobs with `AZURE_STORAGE_CONNECTION` (`USER_MEDIA_CONTAINER`), filling unset variables from `local.settings.json`:
+`backfill:image-variants`, `backfill:barcodes`, `backfill:imported-wishlist`, `backfill:product-category`, `dedupe:gallery-images` and `dedupe:makeupapi-shades` call the Functions API at `API_BASE_URL` (local host by default, or a deployed app), not the database (`backfill:product-text` and `eval:hex:populate` connect to Postgres with the `PG*` variables instead). `eval:bottle:import` calls only the admin API (`ADMIN_BEARER_TOKEN` required unless `--dry-run`). `eval:bottle` uses both: it calls the capture API at `API_BASE_URL` with `ADMIN_BEARER_TOKEN` (required), reads the samples from Postgres (`PG*`) and the frame blobs with `AZURE_STORAGE_CONNECTION` (`USER_MEDIA_CONTAINER`), filling unset variables from `local.settings.json`:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
