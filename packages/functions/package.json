@@ -31,10 +31,10 @@
     "@azure/functions": "^4.16.5",
     "@azure/storage-queue": "^12.32.0",
     "applicationinsights": "^3.17.0",
-    "jose": "^6.2.13",
+    "jose": "^6.2.14",
     "p-limit": "^3.1.0",
     "pg": "^8.23.1",
-    "redis": "^6.3.0",
+    "redis": "^6.3.1",
     "sharp": "^0.35.5",
     "swatchwatch-shared": "*",
     "undici": "^8.12.3"
