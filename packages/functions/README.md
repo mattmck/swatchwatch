@@ -1315,6 +1315,8 @@ Shared by vision hex detection (sync and batch), label OCR parsing and the hex e
 | `AZURE_OPENAI_DEPLOYMENT_HEX_BATCH` | → `_HEX` → `AZURE_OPENAI_DEPLOYMENT` | Deployment for batch hex detection. |
 | `AZURE_OPENAI_DEPLOYMENT_LABEL` | → `_HEX` → `AZURE_OPENAI_DEPLOYMENT` | Deployment for label OCR structured extraction (`src/lib/ocr-parser.ts`) and the bottle sticker read (`src/lib/sticker-read.ts`). Leave empty to use the fallbacks; a placeholder value would be sent as the deployment name. |
 | `AZURE_OPENAI_VISION_DETAIL` | `low` | Image detail for vision hex detection, sync and batch: `low` (flat ~85 tokens/image), `high` or `auto`. Unrecognized values fall back to `low`. |
+| `AZURE_OPENAI_REASONING_DEPLOYMENTS` | (empty) | Comma list of deployment names (any case) that serve a reasoning model (gpt-5 family, o-series) when the name does not say so; names starting with `gpt-5`, `o1`, `o3` or `o4` are detected without it. Reasoning deployments get `max_completion_tokens` instead of `max_tokens` (the call's usual cap × 4, at least 1024, because reasoning tokens count against it), `reasoning_effort`, and no `temperature` (a non-zero one, e.g. the eval `ensemble`'s, is dropped with a one-time warning). Every chat-completions call (sync, batch JSONL, label OCR, color name, eval strategies) goes through `src/lib/azure-openai-request.ts`; gpt-4o / gpt-4.1 requests are unchanged. |
+| `AZURE_OPENAI_REASONING_EFFORT` | `minimal` | `reasoning_effort` sent to reasoning deployments only: `minimal`, `low`, `medium` or `high`. Unrecognized values fall back to `minimal`. |
 
 ### Hex detection (`src/lib/ai-color-detection.ts`, `src/lib/hex-snap.ts`, `src/lib/suspicious-hex.ts`)
 

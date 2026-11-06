@@ -1,4 +1,5 @@
 import { resolveAzureOpenAiConfig } from "../azure-openai-config";
+import { chatCompletionModelParams } from "../azure-openai-request";
 import { htmlToPlainText } from "../product-text";
 
 /**
@@ -289,8 +290,7 @@ async function detectWithAzureOpenAI(
         ...headers,
       },
       body: JSON.stringify({
-        temperature: 0,
-        max_tokens: 60,
+        ...chatCompletionModelParams(deployment, { maxTokens: 60, temperature: 0 }).fields,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: prompt.system },

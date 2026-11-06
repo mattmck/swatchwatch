@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { resolveAzureOpenAiConfig } from "./azure-openai-config";
+import { chatCompletionModelParams, warnDroppedTemperatureOnce } from "./azure-openai-request";
 import { finishNamesForPrompt, loadFinishCatalog, type FinishCatalog } from "./finishes";
 
 const OPENAI_API_VERSION = "2024-06-01";
@@ -181,9 +182,12 @@ export async function parseLabelText(
   });
   const requestUrl = `${resolved.endpoint}/openai/deployments/${resolved.deployment}/chat/completions?api-version=${OPENAI_API_VERSION}`;
 
+  const modelParams = chatCompletionModelParams(resolved.deployment, { maxTokens: 500, temperature: 0.1 });
+  if (modelParams.droppedTemperature !== null) {
+    warnDroppedTemperatureOnce(resolved.deployment, modelParams.droppedTemperature);
+  }
   const requestBody = JSON.stringify({
-    temperature: 0.1,
-    max_tokens: 500,
+    ...modelParams.fields,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: buildLabelSystemPrompt(finishCatalog) },

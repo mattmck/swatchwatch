@@ -129,6 +129,8 @@ jobs:
       TF_VAR_azure_openai_batch_api_version: ${{ vars.AZURE_OPENAI_BATCH_API_VERSION || '2025-03-01-preview' }}
       TF_VAR_azure_openai_batch_completion_window: ${{ vars.AZURE_OPENAI_BATCH_COMPLETION_WINDOW || '24h' }}
       TF_VAR_azure_openai_vision_detail: ${{ vars.AZURE_OPENAI_VISION_DETAIL || 'low' }}
+      TF_VAR_azure_openai_reasoning_deployments: ${{ vars.AZURE_OPENAI_REASONING_DEPLOYMENTS || '' }}
+      TF_VAR_azure_openai_reasoning_effort: ${{ vars.AZURE_OPENAI_REASONING_EFFORT || 'minimal' }}
       TF_VAR_openai_label_deployment_name: ${{ vars.OPENAI_LABEL_DEPLOYMENT_NAME || '' }}
       TF_VAR_capture_frame_sweep_schedule: ${{ vars.CAPTURE_FRAME_SWEEP_SCHEDULE || '0 0 * * * *' }}
       TF_VAR_capture_frame_retention_seconds: ${{ vars.CAPTURE_FRAME_RETENTION_SECONDS || '86400' }}
