@@ -34,20 +34,24 @@ export interface ResolverTrace {
   thresholds: { match: number; question: number; colorHigh: number; colorMedium: number };
 }
 
+/** `value` as a plain object, else `{}`. */
 function record(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
+/** A non-empty trimmed string, else `null`. */
 function text(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+/** A finite number (numeric strings included), else `null`. */
 function num(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
 
+/** A stored `CaptureBrandRef` as `{ brandId, name }`, or `null` without a name. */
 function brandRef(value: unknown): { brandId: string | null; name: string } | null {
   const ref = record(value);
   const name = text(ref.name);
@@ -99,10 +103,12 @@ function stepOutcome(step: string | null): CaptureCheckResponse["outcome"] | nul
   return null;
 }
 
+/** A score for the detail text: two decimals, `-` when missing. */
 function fmt(value: number | null): string {
   return value === null ? "-" : value.toFixed(2);
 }
 
+/** Case-insensitive equality of two non-empty names. */
 function sameName(a: string | null | undefined, b: string | null | undefined): boolean {
   return Boolean(a && b && a.trim().toLowerCase() === b.trim().toLowerCase());
 }

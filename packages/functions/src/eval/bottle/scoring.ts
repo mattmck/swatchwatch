@@ -80,10 +80,12 @@ export function modelCallsFromStatus(status: Pick<CaptureStatusResponse, "metada
   return typeof calls === "number" && Number.isFinite(calls) ? calls : null;
 }
 
+/** A zero count for every outcome. */
 function emptyCounts(): Record<Outcome, number> {
   return Object.fromEntries(OUTCOMES.map((outcome) => [outcome, 0])) as Record<Outcome, number>;
 }
 
+/** A zero count for every failure stage. */
 function emptyStageCounts(): Record<FailureStage, number> {
   return Object.fromEntries(FAILURE_STAGES.map((stage) => [stage, 0])) as Record<FailureStage, number>;
 }
