@@ -1,5 +1,5 @@
 import type { CaptureCheckCandidate, CaptureCheckResponse, CaptureStatusResponse } from "swatchwatch-shared";
-import type { EvalSample, EvalSummary, Outcome, SampleResult } from "./types";
+import type { EvalSample, EvalSummary, FailureStage, Outcome, SampleResult } from "./types";
 
 /** Every outcome, in report order. */
 export const OUTCOMES: readonly Outcome[] = [
@@ -11,6 +11,26 @@ export const OUTCOMES: readonly Outcome[] = [
   "rejected_correct",
   "skipped_no_frames",
   "error",
+];
+
+/** Every failure stage, in pipeline order (barcode → brand → pool → name → color), then the rest. */
+export const FAILURE_STAGES: readonly FailureStage[] = [
+  "barcode_wrong_shade",
+  "brand_not_read",
+  "brand_not_in_catalog",
+  "brand_wrong",
+  "candidate_pool_missing_label",
+  "name_not_read",
+  "name_wrong",
+  "name_ambiguous",
+  "name_weak",
+  "color_no_hex",
+  "color_not_confirmed",
+  "color_vetoed",
+  "color_tie_broke_wrong",
+  "false_match_not_in_catalog",
+  "label_not_in_catalog_expected",
+  "unknown",
 ];
 
 /** Outcomes that are not a resolver answer: left out of the rates and the median. */
@@ -64,6 +84,10 @@ function emptyCounts(): Record<Outcome, number> {
   return Object.fromEntries(OUTCOMES.map((outcome) => [outcome, 0])) as Record<Outcome, number>;
 }
 
+function emptyStageCounts(): Record<FailureStage, number> {
+  return Object.fromEntries(FAILURE_STAGES.map((stage) => [stage, 0])) as Record<FailureStage, number>;
+}
+
 function mean(values: number[]): number {
   return values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length;
 }
@@ -79,7 +103,8 @@ function median(values: number[]): number {
  * Pure: totals per outcome, per brand and per finish family, plus the rates. Rates are over the
  * scored catalog samples (skipped and errored samples are counted per outcome but left out of the
  * rates, the medians and the resolver-audit columns). Model calls average only the scored samples
- * that reported a number; the create-card rate is over the scored not-in-catalog samples.
+ * that reported a number; the create-card rate is over the scored not-in-catalog samples. Failure
+ * stages count every sample with a non-null `failureStage`, in total and per brand.
  */
 export function summarize(results: SampleResult[]): EvalSummary {
   const byOutcome = emptyCounts();
@@ -91,8 +116,14 @@ export function summarize(results: SampleResult[]): EvalSummary {
   const scoredMs: number[] = [];
   const scoredFrames: number[] = [];
   const modelCalls: number[] = [];
+  const byFailureStage = emptyStageCounts();
+  const byBrandFailureStage: Record<string, Record<FailureStage, number>> = {};
 
   for (const result of results) {
+    if (result.failureStage) {
+      byFailureStage[result.failureStage] += 1;
+      (byBrandFailureStage[result.brand] ??= emptyStageCounts())[result.failureStage] += 1;
+    }
     byOutcome[result.outcome] += 1;
     const brandCounts = (byBrand[result.brand] ??= emptyCounts());
     brandCounts[result.outcome] += 1;
@@ -122,5 +153,7 @@ export function summarize(results: SampleResult[]): EvalSummary {
     modelCalls: { mean: mean(modelCalls), median: median(modelCalls), samples: modelCalls.length },
     medianFramesNeeded: median(scoredFrames),
     createCardRate: externalScored === 0 ? 0 : externalCreateCards / externalScored,
+    byFailureStage,
+    byBrandFailureStage,
   };
 }

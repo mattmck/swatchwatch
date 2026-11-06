@@ -1,8 +1,8 @@
 import { mkdirSync, writeFileSync } from "fs";
 import path from "path";
 import { renderTable } from "../hex/report";
-import { OUTCOMES } from "./scoring";
-import type { EvalSummary, Outcome, SampleResult } from "./types";
+import { FAILURE_STAGES, OUTCOMES } from "./scoring";
+import type { EvalSummary, FailureStage, Outcome, SampleResult } from "./types";
 
 const SHORT: Record<Outcome, string> = {
   matched_correct: "match ok",
@@ -19,7 +19,11 @@ function pct(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
-/** Plain-text report: outcome counts, rates, median time, resolver-audit stats, per brand and finish family (and per sample when verbose). */
+/**
+ * Plain-text report: outcome counts, rates, median time, resolver-audit stats, per brand and finish
+ * family, failure stages (total and per brand, only stages that occurred), and per sample when
+ * verbose (with the stage, and its detail in the note column).
+ */
 export function formatSummary(summary: EvalSummary, results: SampleResult[], verbose: boolean): string {
   const catalog = results.filter((r) => r.inCatalog).length;
   const lines = [
@@ -69,11 +73,37 @@ export function formatSummary(summary: EvalSummary, results: SampleResult[], ver
     );
   }
 
+  const stages = FAILURE_STAGES.filter((stage) => summary.byFailureStage[stage] > 0);
+  if (stages.length > 0) {
+    const total = stages.reduce((sum, stage) => sum + summary.byFailureStage[stage], 0);
+    lines.push(
+      "",
+      `Failure stages (earliest stage that lost each sample; ${total} sample(s)):`,
+      renderTable(
+        ["stage", "n"],
+        stages.map((stage) => [stage, String(summary.byFailureStage[stage])])
+      )
+    );
+    const stageBrands = Object.keys(summary.byBrandFailureStage).sort((a, b) => a.localeCompare(b));
+    if (stageBrands.length > 0) {
+      lines.push(
+        "",
+        renderTable(
+          ["brand", ...stages],
+          stageBrands.map((brand) => {
+            const counts: Record<FailureStage, number> = summary.byBrandFailureStage[brand];
+            return [brand, ...stages.map((stage) => String(counts[stage]))];
+          })
+        )
+      );
+    }
+  }
+
   if (verbose && results.length > 0) {
     lines.push(
       "",
       renderTable(
-        ["sample", "brand", "shade", "family", "catalog", "frames", "calls", "prompts", "card", "verdict", "outcome", "top", "candidates", "ms", "note"],
+        ["sample", "brand", "shade", "family", "catalog", "frames", "calls", "prompts", "card", "verdict", "outcome", "stage", "top", "candidates", "ms", "note"],
         results.map((r) => [
           String(r.sampleId),
           r.brand,
@@ -86,10 +116,11 @@ export function formatSummary(summary: EvalSummary, results: SampleResult[], ver
           r.createCard ? "yes" : "no",
           r.status,
           r.outcome,
+          r.failureStage ?? "-",
           r.topEntityId === null ? "-" : String(r.topEntityId),
           r.candidateIds.length ? r.candidateIds.join(",") : "-",
           String(r.ms),
-          r.error ?? "",
+          r.error ?? r.failureDetail ?? "",
         ])
       )
     );
