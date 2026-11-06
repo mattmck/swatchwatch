@@ -99,6 +99,19 @@ describe("lib/azure-openai-request — reasoning deployment classification", () 
     assert.equal(isReasoningDeployment("hex-old", env), false);
     assert.deepEqual(parseReasoningDeploymentList(undefined), []);
   });
+
+  it("lets `!name` entries force a prefix-matching deployment to non-reasoning", () => {
+    const env = { AZURE_OPENAI_REASONING_DEPLOYMENTS: "!O3-Vision-4o, prod-vision" };
+    assert.deepEqual(parseReasoningDeploymentList(env.AZURE_OPENAI_REASONING_DEPLOYMENTS), ["prod-vision"]);
+    assert.equal(isReasoningDeployment("o3-vision-4o", env), false);
+    assert.equal(isReasoningDeployment("o3-mini", env), true);
+    assert.equal(isReasoningDeployment("prod-vision", env), true);
+    assert.deepEqual(chatCompletionModelParams("o3-vision-4o", { maxTokens: 60, temperature: 0 }, env).fields, {
+      temperature: 0,
+      max_tokens: 60,
+    });
+    assert.equal(chatCompletionsApiVersion("o3-vision-4o", "2024-05-01-preview", env), "2024-05-01-preview");
+  });
 });
 
 describe("lib/azure-openai-request — field selection", () => {
@@ -119,6 +132,9 @@ describe("lib/azure-openai-request — field selection", () => {
     assert.equal(reasoningEffortForDeployment("o1-preview", {}), null);
     assert.equal(reasoningEffortForDeployment("o1-mini", { AZURE_OPENAI_REASONING_EFFORT: "high" }), null);
     assert.equal(reasoningEffortForDeployment("vision-prod", {}), "minimal");
+    assert.equal(reasoningEffortForDeployment("gpt-5.1", {}), "low", "gpt-5.1 rejects minimal");
+    assert.equal(reasoningEffortForDeployment("GPT-5.2-mini", {}), "low");
+    assert.equal(reasoningEffortForDeployment("gpt-5.1", { AZURE_OPENAI_REASONING_EFFORT: "medium" }), "medium");
     assert.deepEqual(chatCompletionModelParams("o1-mini", { maxTokens: 100 }, {}).fields, { max_completion_tokens: 1024 });
     assert.equal(chatCompletionModelParams("o3-mini", { maxTokens: 100 }, {}).fields.reasoning_effort, "low");
   });
@@ -315,5 +331,14 @@ describe("lib/azure-openai-batch — JSONL request lines per model kind", () => 
     assert.equal("max_tokens" in line.body, false);
     assert.equal("temperature" in line.body, false);
     assert.ok(Array.isArray(line.body.messages));
+  });
+
+  it("sends reasoning_effort low (not minimal) on a gpt-5.1 batch deployment, and keeps an explicit value", async () => {
+    process.env.AZURE_OPENAI_DEPLOYMENT_HEX_BATCH = "gpt-5.1-batch";
+    let line = await submitAndReadFirstLine();
+    assert.equal(line.body.reasoning_effort, "low");
+    process.env.AZURE_OPENAI_REASONING_EFFORT = "high";
+    line = await submitAndReadFirstLine();
+    assert.equal(line.body.reasoning_effort, "high");
   });
 });

@@ -41,24 +41,39 @@ const REASONING_DEPLOYMENT_PREFIXES = ["gpt-5", "o1", "o3", "o4"];
 
 type Env = NodeJS.ProcessEnv | Record<string, string | undefined>;
 
-/** `AZURE_OPENAI_REASONING_DEPLOYMENTS`: comma list of deployment names, lower-cased. */
-export function parseReasoningDeploymentList(raw: string | undefined): string[] {
+function parseDeploymentEntries(raw: string | undefined): string[] {
   return (raw ?? "")
     .split(",")
     .map((name) => name.trim().toLowerCase())
     .filter((name) => name.length > 0);
 }
 
+/** `AZURE_OPENAI_REASONING_DEPLOYMENTS`: the listed (reasoning) deployment names, lower-cased. */
+export function parseReasoningDeploymentList(raw: string | undefined): string[] {
+  return parseDeploymentEntries(raw).filter((name) => !name.startsWith("!"));
+}
+
+/** `AZURE_OPENAI_REASONING_DEPLOYMENTS` entries written `!name`: forced non-reasoning, lower-cased. */
+export function parseNonReasoningDeploymentList(raw: string | undefined): string[] {
+  return parseDeploymentEntries(raw)
+    .filter((name) => name.startsWith("!"))
+    .map((name) => name.slice(1).trim())
+    .filter((name) => name.length > 0);
+}
+
 /**
- * True when the deployment serves a reasoning model: its name starts with `gpt-5`, `o1`, `o3` or
- * `o4` (any case), or it is listed in `AZURE_OPENAI_REASONING_DEPLOYMENTS` for names that do not
- * reveal the model.
+ * True when the deployment serves a reasoning model: it is listed in
+ * `AZURE_OPENAI_REASONING_DEPLOYMENTS` (for names that do not reveal the model), or its name
+ * starts with `gpt-5`, `o1`, `o3` or `o4` (any case) and the list does not exclude it with
+ * `!name` (for a non-reasoning deployment whose name happens to match, e.g. `o3-vision-4o`).
  */
 export function isReasoningDeployment(deployment: string | null | undefined, env: Env = process.env): boolean {
   const name = deployment?.trim().toLowerCase();
   if (!name) return false;
-  if (REASONING_DEPLOYMENT_PREFIXES.some((prefix) => name.startsWith(prefix))) return true;
-  return parseReasoningDeploymentList(env.AZURE_OPENAI_REASONING_DEPLOYMENTS).includes(name);
+  const raw = env.AZURE_OPENAI_REASONING_DEPLOYMENTS;
+  if (parseNonReasoningDeploymentList(raw).includes(name)) return false;
+  if (parseReasoningDeploymentList(raw).includes(name)) return true;
+  return REASONING_DEPLOYMENT_PREFIXES.some((prefix) => name.startsWith(prefix));
 }
 
 /** `AZURE_OPENAI_REASONING_EFFORT` (trimmed, any case); unset or unknown → `minimal`. */
@@ -70,8 +85,8 @@ export function resolveReasoningEffort(env: Env = process.env): ReasoningEffort 
 }
 
 /**
- * The `reasoning_effort` to send, or null to omit it. `minimal` is gpt-5 only: the o-series
- * accept `low` / `medium` / `high`, so `minimal` becomes `low` there, and `o1-preview` /
+ * The `reasoning_effort` to send, or null to omit it. `minimal` is original-gpt-5 only: the
+ * o-series and gpt-5.1+ accept `low` / `medium` / `high`, so `minimal` becomes `low` there, and `o1-preview` /
  * `o1-mini` take no `reasoning_effort` at all. A deployment known only from
  * `AZURE_OPENAI_REASONING_DEPLOYMENTS` is treated like gpt-5 (the configured value as is).
  */
@@ -82,7 +97,9 @@ export function reasoningEffortForDeployment(
   const name = deployment?.trim().toLowerCase() ?? "";
   if (/^o1-(preview|mini)/.test(name)) return null;
   const effort = resolveReasoningEffort(env);
-  if (/^o[134]/.test(name) && effort === "minimal") return "low";
+  // `minimal` exists only on the original gpt-5 models: the o-series and gpt-5.1+ (`gpt-5.1`,
+  // `gpt-5.2-…`) reject it, so they get `low`. Explicit low/medium/high pass through.
+  if (effort === "minimal" && (/^o[134]/.test(name) || /^gpt-5\.\d/.test(name))) return "low";
   return effort;
 }
 

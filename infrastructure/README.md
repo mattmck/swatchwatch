@@ -218,8 +218,8 @@ The preflight should return 204 with the app's fixed `Access-Control-Allow-Metho
 | `azure_openai_batch_api_version` | `2025-03-01-preview` | Function App setting `AZURE_OPENAI_BATCH_API_VERSION` for Files/Batch endpoints |
 | `azure_openai_batch_completion_window` | `24h` | Function App setting `AZURE_OPENAI_BATCH_COMPLETION_WINDOW` sent during batch creation |
 | `azure_openai_vision_detail` | `low` | Function App setting `AZURE_OPENAI_VISION_DETAIL` — image detail level (`low`/`high`/`auto`) for vision hex detection |
-| `azure_openai_reasoning_deployments` | `""` | Function App setting `AZURE_OPENAI_REASONING_DEPLOYMENTS` — comma list of deployments that serve reasoning models (gpt-5 / o-series) when the name does not reveal it; names starting with `gpt-5`, `o1`, `o3`, `o4` are detected anyway |
-| `azure_openai_reasoning_effort` | `minimal` | Function App setting `AZURE_OPENAI_REASONING_EFFORT` — `reasoning_effort` (`minimal`/`low`/`medium`/`high`) sent to reasoning deployments only (`minimal` becomes `low` on o-series; none for `o1-preview` / `o1-mini`) |
+| `azure_openai_reasoning_deployments` | `""` | Function App setting `AZURE_OPENAI_REASONING_DEPLOYMENTS` — comma list of deployments that serve reasoning models (gpt-5 / o-series) when the name does not reveal it; names starting with `gpt-5`, `o1`, `o3`, `o4` are detected anyway; `!name` forces a matching name to non-reasoning |
+| `azure_openai_reasoning_effort` | `minimal` | Function App setting `AZURE_OPENAI_REASONING_EFFORT` — `reasoning_effort` (`minimal`/`low`/`medium`/`high`) sent to reasoning deployments only (`minimal` becomes `low` on o-series and gpt-5.1+; none for `o1-preview` / `o1-mini`) |
 | `hex_detection_batch_enabled` | `false` | Feature-flag Function App setting `HEX_DETECTION_BATCH_ENABLED` |
 | `hex_detection_batch_min_images` | `5` | Function App setting `HEX_DETECTION_BATCH_MIN_IMAGES` threshold before batch mode |
 | `hex_detection_snap_enabled` | `false` | Feature-flag Function App setting `HEX_DETECTION_SNAP_ENABLED` — snap vision-detected hexes to the nearest palette chip measured from the same image (`detected_hex_method = 'vision-snap'`) |
