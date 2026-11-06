@@ -5,6 +5,10 @@ const {
   findIngestedBrandId,
   findShadeForIngestedName,
   renameShadeToCleanName,
+  SHADE_BY_RAW_TITLE_SQL,
+  findShadeByRawTitle,
+  isRawTitleDuplicate,
+  classifyMaterializedCategory,
 } = require("../dist/lib/ingestion-repo.js");
 
 function fakeClient(responders) {
@@ -89,4 +93,42 @@ test("a missing or identical raw title issues a single shade query", async () =>
     assert.equal(found, null);
     assert.equal(client.calls.length, 1);
   }
+});
+
+test("the raw-title lookup never matches private or merged shades", async () => {
+  assert.match(SHADE_BY_RAW_TITLE_SQL, /status <> 'user_submitted'/);
+  assert.match(SHADE_BY_RAW_TITLE_SQL, /merged_into_shade_id IS NULL/);
+  const client = fakeClient([shadeNamed({ "sniff test ppu": 7 })]);
+  await findShadeForIngestedName(client, {
+    brandId: 1, name: "Sniff Test", rawTitle: "Sniff Test PPU", finish: null, collection: null,
+  });
+  assert.doesNotMatch(client.calls[0].text, /user_submitted/);
+  assert.match(client.calls[1].text, /status <> 'user_submitted'/);
+  assert.match(client.calls[1].text, /merged_into_shade_id IS NULL/);
+});
+
+test("raw-title duplicate detection compares the raw shade with the matched one", async () => {
+  const client = fakeClient([shadeNamed({ "sniff test ppu": 7 })]);
+  const rawId = await findShadeByRawTitle(client, {
+    brandId: 1, name: "Sniff Test", rawTitle: "Sniff Test PPU", finish: null, collection: null,
+  });
+  assert.equal(rawId, 7);
+  assert.equal(isRawTitleDuplicate(5, rawId), true);
+  assert.equal(isRawTitleDuplicate(7, rawId), false);
+  assert.equal(isRawTitleDuplicate(5, null), false);
+  const none = await findShadeByRawTitle(fakeClient([]), {
+    brandId: 1, name: "Sniff Test", rawTitle: "sniff test", finish: null, collection: null,
+  });
+  assert.equal(none, null);
+});
+
+test("the stored category reads the raw product title (coat names survive the clean name)", () => {
+  const category = classifyMaterializedCategory({
+    name: "One of a Kind",
+    rawTitle: "Base Coat by Vibrant Scents | One of a Kind",
+    finishes: [],
+    productType: "IPU",
+    tags: [],
+  });
+  assert.equal(category, "base_coat");
 });

@@ -28,7 +28,7 @@ export function shopifyStoreShadeName(
  * returns the input when stripping would leave nothing.
  */
 export function stripRetailerExclusiveSuffix(name: string): string {
-  const stripped = name.replace(/\s+\(?PPU\)?\s*$/, "").trim();
+  const stripped = name.replace(/(?:\s+PPU|\s*\(PPU\))\s*$/, "").trim();
   return stripped ? stripped : name;
 }
 

@@ -1,7 +1,7 @@
 import { query, transaction } from "./db";
 import { ConnectorProductRecord } from "./connectors/types";
 import { SUPPORTED_SOURCES } from "./connectors/types";
-import { defaultShopifyBaseUrl, isShopifySourceEnabledByDefault } from "./connectors/shopify-generic";
+import { defaultShopifyBaseUrl, isShopifyRetailerSource, isShopifySourceEnabledByDefault } from "./connectors/shopify-generic";
 import { detectHexWithAzureOpenAI, type HexDetectionOptions } from "./ai-color-detection";
 import {
   chooseUploadedImageForDetection,
@@ -384,7 +384,18 @@ export async function findShadeForIngestedName(
     collection: string | null;
   }
 ): Promise<{ shadeId: number; matchedRaw: boolean } | null> {
-  const sql = `SELECT shade_id AS "shadeId"
+  const byName = await client.query<{ shadeId: number }>(SHADE_BY_NAME_SQL, [
+    args.brandId,
+    args.name,
+    args.finish,
+    args.collection,
+  ]);
+  if (byName.rows.length > 0) return { shadeId: byName.rows[0].shadeId, matchedRaw: false };
+  const rawShadeId = await findShadeByRawTitle(client, args);
+  return rawShadeId !== null ? { shadeId: rawShadeId, matchedRaw: true } : null;
+}
+
+const SHADE_BY_NAME_SQL = `SELECT shade_id AS "shadeId"
      FROM shade
      WHERE brand_id = $1
        AND product_line_id IS NULL
@@ -393,21 +404,35 @@ export async function findShadeForIngestedName(
        AND coalesce(collection, '') = coalesce($4, '')
      ORDER BY shade_id
      LIMIT 1`;
-  const byName = await client.query<{ shadeId: number }>(sql, [
-    args.brandId,
-    args.name,
-    args.finish,
-    args.collection,
-  ]);
-  if (byName.rows.length > 0) return { shadeId: byName.rows[0].shadeId, matchedRaw: false };
+
+/**
+ * The shade an earlier brand-store ingest stored under the raw store title. It is renamed
+ * afterwards, so it must be a shared catalog row: never a user's private (`user_submitted`)
+ * shade and never a merged-away one.
+ */
+export const SHADE_BY_RAW_TITLE_SQL = SHADE_BY_NAME_SQL.replace(
+  "AND product_line_id IS NULL",
+  "AND product_line_id IS NULL\n       AND status <> 'user_submitted'\n       AND merged_into_shade_id IS NULL"
+);
+
+/** The shade stored under `rawTitle` (when it differs from the clean name), else null. */
+export async function findShadeByRawTitle(
+  client: IngestedShadeQuery,
+  args: { brandId: number; name: string; rawTitle: string | null; finish: string | null; collection: string | null }
+): Promise<number | null> {
   if (!args.rawTitle || args.rawTitle.toLowerCase() === args.name.toLowerCase()) return null;
-  const byRaw = await client.query<{ shadeId: number }>(sql, [
+  const byRaw = await client.query<{ shadeId: number }>(SHADE_BY_RAW_TITLE_SQL, [
     args.brandId,
     args.rawTitle,
     args.finish,
     args.collection,
   ]);
-  return byRaw.rows.length > 0 ? { shadeId: byRaw.rows[0].shadeId, matchedRaw: true } : null;
+  return byRaw.rows.length > 0 ? byRaw.rows[0].shadeId : null;
+}
+
+/** True when a raw-title shade exists that is a different row than the clean-name match (an admin should merge them). */
+export function isRawTitleDuplicate(matchedShadeId: number, rawShadeId: number | null): boolean {
+  return rawShadeId !== null && rawShadeId !== matchedShadeId;
 }
 
 /** Renames a shade stored under a raw title to the cleaned name and keeps the raw title as an alias. */
@@ -1837,6 +1862,7 @@ async function createDataSourceIfMissing(name: string): Promise<DataSourceRecord
       ? "Auto-provisioned Shopify source from supported connector list."
       : "Auto-provisioned Shopify source, disabled pending owner approval.",
     autoProvisioned: true,
+    ...(isShopifyRetailerSource(name) ? { kind: "retailer" } : {}),
   };
 
   const inserted = await query<{
@@ -2695,6 +2721,23 @@ export async function materializeMakeupApiRecords(
   });
 }
 
+/** The rule category stored with a shade; reads the raw product title like the connector gate does. */
+export function classifyMaterializedCategory(input: {
+  name: string;
+  rawTitle: string | null;
+  colorName?: string | null;
+  finishes: string[];
+  productType: string | null;
+  tags: string[];
+}): ProductCategory {
+  return classifyProductCategory({
+    shadeName: input.name,
+    colorName: input.colorName,
+    finishes: input.finishes,
+    products: [{ title: input.rawTitle ?? input.name, productType: input.productType, tags: input.tags }],
+  }).category;
+}
+
 interface HoloTacoRecordMaterializationDelta {
   processed: number;
   brandsCreated: number;
@@ -2712,6 +2755,8 @@ interface HoloTacoRecordMaterializationDelta {
   barcodeConflicts: BarcodeConflict[];
   /** GTINs stored although their check digit is wrong (logged by the caller). */
   barcodeInvalidCheckDigits: string[];
+  /** Another shade holds the product's raw store title while the clean name matched (admin should merge; logged by the caller). */
+  rawTitleDuplicate?: { brand: string; name: string; rawTitle: string; matchedShadeId: number; rawShadeId: number };
   skipped: number;
 }
 
@@ -2815,6 +2860,25 @@ async function materializePreparedHoloTacoRecord(
   let shadeId: number;
   if (existingShade) {
     shadeId = existingShade.shadeId;
+    if (!existingShade.matchedRaw && holo.rawTitle) {
+      // Matched by the clean name: a brand-store shade stored under the raw title ("X PPU") may still exist.
+      const rawShadeId = await findShadeByRawTitle(client, {
+        brandId,
+        name: holo.name,
+        rawTitle: holo.rawTitle,
+        finish: holo.finish,
+        collection: holo.collection,
+      });
+      if (isRawTitleDuplicate(shadeId, rawShadeId) && rawShadeId !== null) {
+        delta.rawTitleDuplicate = {
+          brand: brandName,
+          name: holo.name,
+          rawTitle: holo.rawTitle,
+          matchedShadeId: shadeId,
+          rawShadeId,
+        };
+      }
+    }
     if (existingShade.matchedRaw && holo.rawTitle) {
       // Stored under the raw store title (e.g. "Sniff Test PPU"): take the cleaned name and keep the raw one as an alias.
       await renameShadeToCleanName(client, shadeId, holo.name, holo.rawTitle);
@@ -2991,11 +3055,13 @@ async function materializePreparedHoloTacoRecord(
 
   // Product category (#349): the connector's rule category, re-checked with the merged finishes
   // (a `topper` finish makes a topper). An admin-set category is never changed.
-  const { category: productCategory } = classifyProductCategory({
-    shadeName: holo.name,
+  const productCategory = classifyMaterializedCategory({
+    name: holo.name,
+    rawTitle: holo.rawTitle,
     colorName: holo.colorName,
     finishes: [...asStringArray(normalized.finishes), ...(mergedFinishes ?? [])],
-    products: [{ title: holo.name, productType: asString(normalized.productType), tags: holo.tags }],
+    productType: asString(normalized.productType),
+    tags: holo.tags,
   });
   if (writePlan.writeCategory) {
     await applyRuleProductCategory(client, shadeId, productCategory);
@@ -3351,6 +3417,13 @@ export async function materializeHoloTacoRecords(
             shadeId: delta.shadeId,
             existingShadeId: conflict.existingShadeId,
           }
+        );
+      }
+      if (delta.rawTitleDuplicate) {
+        const dup = delta.rawTitleDuplicate;
+        options?.progressLogger?.warn(
+          `${sourceLogPrefix} Possible duplicate shade for ${dup.brand} "${dup.name}": shade ${dup.matchedShadeId} matched the clean name, but shade ${dup.rawShadeId} is stored under the raw title "${dup.rawTitle}"; an admin can merge them`,
+          { externalId: record.externalId, ...dup }
         );
       }
       skipped += delta.skipped;

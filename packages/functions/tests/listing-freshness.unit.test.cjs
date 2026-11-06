@@ -38,7 +38,8 @@ describe("lib/listing-freshness — markExternalProductsMissing", () => {
     const [mark, clear] = client.calls;
     assert.match(mark.sql, /COALESCE\(missing_since, now\(\)\)/);
     assert.match(mark.sql, /data_source_id = \$1/);
-    assert.match(mark.sql, /<> ALL\(\$2/);
+    assert.match(mark.sql, /external_id IS NOT NULL/);
+    assert.match(mark.sql, /NOT IN \(SELECT unnest\(\$2/);
     assert.deepEqual(mark.params, [7, ["1", "2"]]);
     assert.match(clear.sql, /missing_since = NULL/);
     assert.match(clear.sql, /data_source_id = \$1/);

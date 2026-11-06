@@ -800,6 +800,13 @@ export const SHOPIFY_SOURCES_PENDING_APPROVAL: ReadonlySet<string> = new Set([
   "PolishPickupShopify",
 ]);
 
+/** Retailer sources (listings attach to brand shades as extra buy links; never override brand-store data). */
+export const SHOPIFY_RETAILER_SOURCES: ReadonlySet<string> = new Set(["PolishPickupShopify"]);
+
+export function isShopifyRetailerSource(source: string): boolean {
+  return SHOPIFY_RETAILER_SOURCES.has(source);
+}
+
 /** Whether a newly auto-provisioned data_source row for `source` starts enabled. */
 export function isShopifySourceEnabledByDefault(source: string): boolean {
   return !SHOPIFY_SOURCES_PENDING_APPROVAL.has(source);

@@ -119,6 +119,7 @@ its listings add buy links and fill gaps on the brands' shades but never overrid
 Titles are `Vendor | Shade` or `<Type> by Vendor | Shade`, parsed by `connectors/shopify-title.ts`. Run it by
 hand from Admin Jobs on the opening Friday and again after the window closes (the second run marks that
 month's listings missing). Status: registered disabled, pending the owner's OK.
+Post-release order: migrate, run each brand store once (renames `X PPU` shades and re-detects them once; a raw-title duplicate is reported in the job log for an admin merge), and only then enable Polish Pickup after the owner's OK.
 
 Notes text to append once the store agrees (same format as above):
 

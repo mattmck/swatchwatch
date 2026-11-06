@@ -58,6 +58,8 @@ describe("stripRetailerExclusiveSuffix", () => {
   });
   it("leaves other names alone", () => {
     assert.equal(stripRetailerExclusiveSuffix("PPUrple"), "PPUrple");
+    assert.equal(stripRetailerExclusiveSuffix("Mall Goth (PPU"), "Mall Goth (PPU");
+    assert.equal(stripRetailerExclusiveSuffix("Mall Goth PPU)"), "Mall Goth PPU)");
     assert.equal(stripRetailerExclusiveSuffix("PPU Exclusive Topper"), "PPU Exclusive Topper");
     assert.equal(stripRetailerExclusiveSuffix("PPU"), "PPU");
   });

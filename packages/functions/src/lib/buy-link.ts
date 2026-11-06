@@ -269,7 +269,7 @@ export async function loadBuyLinksForShades(
     return selectBuyLinksByShade(
       rows.map(({ sourceMetadata, ...row }) => ({
         ...row,
-        sourceKind: row.sourceKind ?? sourceKindFromMetadata(sourceMetadata),
+        sourceKind: sourceKindFromMetadata(sourceMetadata),
       }))
     );
   } catch (error) {

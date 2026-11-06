@@ -32,7 +32,8 @@ export async function markExternalProductsMissing(
     `UPDATE external_product
      SET missing_since = COALESCE(missing_since, now())
      WHERE data_source_id = $1
-       AND external_id <> ALL($2::text[])`,
+       AND external_id IS NOT NULL
+       AND external_id NOT IN (SELECT unnest($2::text[]))`,
     [dataSourceId, catalog.externalIds]
   );
   const cleared = await client.query(
