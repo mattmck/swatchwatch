@@ -56,12 +56,14 @@ import {
   planProductGalleryLinks,
   protectedSwatchSql,
   pruneStaleGallerySwatches,
+  unlinkRetailerGallerySwatches,
   shadeSharedWithOtherProduct,
   storeImageFingerprint,
   type FingerprintColumns,
   type ImageFingerprint,
 } from "./gallery-dedupe";
 import { trackEvent } from "./telemetry";
+import { planListingWrites, sourceKindFromMetadata, type DataSourceKind } from "./data-source-kind";
 import {
   ingestedVendorHexParams,
   ingestedVendorHexSetSql,
@@ -154,6 +156,11 @@ export interface HoloTacoMaterializationOptions {
   detectHexOnSuspiciousOnly?: boolean;
   useBatchForHexDetection?: boolean;
   batchMinImages?: number;
+  /**
+   * Kind of the data source (`metadata.kind`); `materializeHoloTacoRecords` fills it from the
+   * database when unset. A retailer never replaces a brand store's catalog data.
+   */
+  sourceKind?: DataSourceKind;
   /**
    * Job log sink (the worker's JobLogger). It receives milestones only: phase start/finish
    * with elapsed time, one summary per call, and every per-record warning/error. Step-by-step
@@ -824,6 +831,55 @@ export async function findRecordsWithUnchangedDetectedHex(
 }
 
 /**
+ * External IDs whose shade already has a detected hex, whichever source supplied its images.
+ * Retailer listings use it to skip the AI call before it is paid for: a retailer never replaces
+ * a detected hex, it would only fill an empty one. Shades are matched like
+ * `findRecordsWithUnchangedDetectedHex` (cleaned name). A lookup failure returns an empty set.
+ */
+export async function findShadesWithDetectedHex(candidates: UnchangedImageCandidate[]): Promise<Set<string>> {
+  if (candidates.length === 0) {
+    return new Set();
+  }
+
+  try {
+    const result = await query<{ externalId: string }>(
+      `WITH input AS (
+         SELECT *
+         FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[])
+           AS t(external_id, brand_name, shade_name, finish, collection)
+       )
+       SELECT DISTINCT input.external_id AS "externalId"
+       FROM input
+       JOIN LATERAL (
+         SELECT ${INGESTED_BRAND_ID_SQL("input.brand_name")} AS brand_id
+       ) b ON b.brand_id IS NOT NULL
+       JOIN shade sh
+         ON sh.brand_id = b.brand_id
+        AND sh.product_line_id IS NULL
+        AND lower(sh.shade_name_canonical) = lower(input.shade_name)
+        AND coalesce(sh.finish, '') = coalesce(input.finish, '')
+        AND coalesce(sh.collection, '') = coalesce(input.collection, '')
+       WHERE sh.detected_hex IS NOT NULL`,
+      [
+        candidates.map((c) => c.externalId),
+        candidates.map((c) => c.brandName),
+        candidates.map((c) => c.shadeName),
+        candidates.map((c) => c.finish),
+        candidates.map((c) => c.collection),
+      ]
+    );
+    return new Set(result.rows.map((row) => row.externalId));
+  } catch (error) {
+    console.warn(
+      `[ingestion-repo] Detected-hex lookup failed; running hex detection for all candidates: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+    return new Set();
+  }
+}
+
+/**
  * Stored images for connector image URLs this data source has already ingested, keyed by URL.
  * Shopify CDN URLs carry a `?v=` version that changes when the image is replaced, so an
  * unchanged URL means an unchanged image and the download can be skipped. A lookup failure
@@ -1270,11 +1326,9 @@ async function prepareHoloTacoImageData(
 
   // --- Phase 2: concurrent AI detection, sequential DB callbacks in record order ---
   const overwriteDetectedHex = options?.overwriteDetectedHex === true;
-  const unchangedWithHex =
-    detectHexFromImage && !overwriteDetectedHex
-      ? await findRecordsWithUnchangedDetectedHex(
-          dataSourceId,
-          uploadResults.flatMap((result): UnchangedImageCandidate[] => {
+  const isRetailerSource = options?.sourceKind === "retailer";
+  const unchangeCandidates: UnchangedImageCandidate[] = detectHexFromImage
+    ? uploadResults.flatMap((result): UnchangedImageCandidate[] => {
             const { holo } = result;
             // Compare against the image detection would run on, not always the primary.
             const checksumSha256 = detectionImages.get(result)?.checksumSha256 ?? result.checksumSha256;
@@ -1301,7 +1355,14 @@ async function prepareHoloTacoImageData(
               },
             ];
           })
-        )
+    : [];
+  // A retailer never replaces a detected hex (even with overwrite on), so its AI call is skipped
+  // for any shade that has one, whichever source supplied the image. Brand stores skip only an
+  // unchanged image of their own.
+  const unchangedWithHex = isRetailerSource
+    ? await findShadesWithDetectedHex(unchangeCandidates)
+    : detectHexFromImage && !overwriteDetectedHex
+      ? await findRecordsWithUnchangedDetectedHex(dataSourceId, unchangeCandidates)
       : new Set<string>();
   if (unchangedWithHex.size > 0) {
     console.log(
@@ -2622,6 +2683,23 @@ interface HoloTacoRecordMaterializationDelta {
   skipped: number;
 }
 
+/** The shade has a primary or gallery image from a data source that is not a retailer. */
+async function shadeHasBrandStoreImagesQuery(client: PoolClient, shadeId: number): Promise<boolean> {
+  const result = await client.query(
+    `SELECT 1
+     FROM swatch sw
+     JOIN image_asset ia ON ia.image_id = sw.image_id_original
+     JOIN data_source ds ON ds.data_source_id = ia.owner_id
+     WHERE sw.shade_id = $1
+       AND sw.swatch_type IN ('source_product', 'source_gallery')
+       AND ia.owner_type = 'source'
+       AND coalesce(ds.metadata ->> 'kind', '') <> 'retailer'
+     LIMIT 1`,
+    [shadeId]
+  );
+  return result.rows.length > 0;
+}
+
 async function materializePreparedHoloTacoRecord(
   client: PoolClient,
   dataSourceId: number,
@@ -2630,7 +2708,8 @@ async function materializePreparedHoloTacoRecord(
   overwriteDetectedHex: boolean,
   sourceLogPrefix: string,
   brandCache: Map<string, number>,
-  finishCatalog?: FinishCatalog
+  finishCatalog?: FinishCatalog,
+  sourceKind: DataSourceKind = "brand_store"
 ): Promise<HoloTacoRecordMaterializationDelta> {
   const delta: HoloTacoRecordMaterializationDelta = {
     processed: 0,
@@ -2710,10 +2789,10 @@ async function materializePreparedHoloTacoRecord(
     }
   } else {
     const insertedShade = await client.query<{ shadeId: number }>(
-      `INSERT INTO shade (brand_id, shade_name_canonical, finish, collection, status, finishes)
-       VALUES ($1, $2, $3, $4, 'active', $5::text[])
+      `INSERT INTO shade (brand_id, shade_name_canonical, finish, collection, status, finishes, catalog_authority)
+       VALUES ($1, $2, $3, $4, 'active', $5::text[], $6)
        RETURNING shade_id AS "shadeId"`,
-      [brandId, holo.name, holo.finish, holo.collection, ingestedFinishes]
+      [brandId, holo.name, holo.finish, holo.collection, ingestedFinishes, sourceKind]
     );
     shadeId = insertedShade.rows[0].shadeId;
     delta.shadesCreated += 1;
@@ -2744,6 +2823,7 @@ async function materializePreparedHoloTacoRecord(
     nameHex: string | null;
     finishes: string[] | null;
     finishesSource: string | null;
+    catalogAuthority: string | null;
   }>(
     `SELECT
        ${SHADE_VENDOR_HEX_COLUMNS},
@@ -2751,7 +2831,8 @@ async function materializePreparedHoloTacoRecord(
        detected_finishes AS "detectedFinishes",
        name_hex AS "nameHex",
        finishes,
-       finishes_source AS "finishesSource"
+       finishes_source AS "finishesSource",
+       catalog_authority AS "catalogAuthority"
      FROM shade WHERE shade_id = $1
      FOR UPDATE`,
     [shadeId]
@@ -2761,17 +2842,43 @@ async function materializePreparedHoloTacoRecord(
   // list (finishes_source = 'admin') is written back exactly as it is.
   const currentFinishes = currentShade.rows[0]?.finishes ?? [];
   const currentFinishesSource = currentShade.rows[0]?.finishesSource ?? null;
+
+  // Source-kind write rules: a retailer only fills gaps on an existing shade; a brand store
+  // takes over a shade a retailer created (replaces its finishes and colors with its own).
+  const shadeCreated = !existingShade;
+  const shadeAuthority: DataSourceKind =
+    currentShade.rows[0]?.catalogAuthority === "retailer" ? "retailer" : "brand_store";
+  const shadeHasBrandStoreImages =
+    sourceKind === "retailer" && !shadeCreated ? await shadeHasBrandStoreImagesQuery(client, shadeId) : false;
+  const writePlan = planListingWrites({
+    sourceKind,
+    shadeCreated,
+    shadeAuthority,
+    shadeHasBrandStoreImages,
+    shadeHasDetectedHex: currentShade.rows[0]?.detectedHex != null,
+  });
+  const { takeOver } = writePlan;
+  // Only a brand store (or the listing that created the shade) may overwrite colors; a takeover
+  // overwrites for this shade even without the job's overwrite switch.
+  const effectiveOverwrite =
+    takeOver || (overwriteDetectedHex && (shadeCreated || sourceKind === "brand_store"));
+  if (takeOver) {
+    console.log(`${sourceLogPrefix} Brand store takes over retailer-created shade ${shadeId}`);
+  }
+
   const mergedFinishes =
     currentFinishesSource === "admin"
       ? currentFinishes
-      : applyIngestedFinishes(currentFinishes, finishResolution, finishCatalog) ??
-        mergeFinishLists([currentFinishes], finishCatalog);
+      : takeOver
+        ? applyIngestedFinishes([], finishResolution, finishCatalog) ?? currentFinishes
+        : applyIngestedFinishes(currentFinishes, finishResolution, finishCatalog) ??
+          mergeFinishLists([currentFinishes], finishCatalog);
 
   // A vendor hex follows the overwrite rule, except an admin-promoted manual label, which
   // ingestion never replaces (#321, D12): the vendor value is kept in vendor_hex_previous.
-  const vendorHexPlan = planIngestedVendorHex(currentShade.rows[0] ?? null, vendorHex || null, overwriteDetectedHex);
+  const vendorHexPlan = planIngestedVendorHex(currentShade.rows[0] ?? null, vendorHex || null, effectiveOverwrite);
 
-  const shouldOverwrite = overwriteDetectedHex;
+  const shouldOverwrite = effectiveOverwrite;
   if (
     shouldOverwrite && currentShade.rows.length > 0 &&
     (vendorHexPlan.vendorHexChanged ||
@@ -2787,7 +2894,10 @@ async function materializePreparedHoloTacoRecord(
   // Write color data to shade (product-level)
   await client.query(
     `UPDATE shade
-     SET color_name = COALESCE(color_name, $2),
+     SET color_name = CASE
+           WHEN $17::boolean AND $2::text IS NOT NULL THEN $2::text
+           ELSE COALESCE(color_name, $2)
+         END,
          ${ingestedVendorHexSetSql("$3", 13)},
          detected_hex = CASE
            WHEN $6::boolean AND $4::text IS NOT NULL THEN $4::text
@@ -2819,6 +2929,7 @@ async function materializePreparedHoloTacoRecord(
          )},
          -- Catalog data confirms a user-submitted shade: promote it to the shared catalog.
          status = CASE WHEN status = 'user_submitted' AND merged_into_shade_id IS NULL THEN 'active' ELSE status END,
+         catalog_authority = COALESCE($16::text, catalog_authority),
          updated_at = now()
      WHERE shade_id = $1`,
     [
@@ -2827,11 +2938,13 @@ async function materializePreparedHoloTacoRecord(
       vendorHexPlan.vendorHex,
       detectedHex,
       detectedFinishes,
-      overwriteDetectedHex,
+      effectiveOverwrite,
       nameHex,
       mergedFinishes,
       ...provenanceParams(detectedHexProvenance),
       ...ingestedVendorHexParams(vendorHexPlan),
+      writePlan.setAuthority,
+      takeOver,
     ]
   );
 
@@ -2843,13 +2956,15 @@ async function materializePreparedHoloTacoRecord(
     finishes: [...asStringArray(normalized.finishes), ...(mergedFinishes ?? [])],
     products: [{ title: holo.name, productType: asString(normalized.productType), tags: holo.tags }],
   });
-  await applyRuleProductCategory(client, shadeId, productCategory);
+  if (writePlan.writeCategory) {
+    await applyRuleProductCategory(client, shadeId, productCategory);
+  }
 
   // Image ids of the product's current images (primary first), for the gallery prune below.
   const currentImageIds: number[] = [];
   let galleryLinked = preparedImage.imageSetComplete;
 
-  if (preparedImage.storageUrl && preparedImage.checksumSha256) {
+  if (writePlan.linkGallery && preparedImage.storageUrl && preparedImage.checksumSha256) {
     console.log(`${sourceLogPrefix} Processing swatch for shade ${shadeId}: checksum=${preparedImage.checksumSha256}`);
     const existingImage = await client.query<{ imageId: number }>(
       `SELECT image_id AS "imageId"
@@ -2944,7 +3059,7 @@ async function materializePreparedHoloTacoRecord(
     maxGalleryImages: getGalleryMaxImagesPerShade(),
   });
   let sharedShade: boolean | null = null;
-  for (const [index, addImg] of preparedImage.additionalImages.entries()) {
+  for (const [index, addImg] of (writePlan.linkGallery ? preparedImage.additionalImages : []).entries()) {
     const decision = galleryPlan[index];
     try {
       const existingAdditional = await client.query<{ imageId: number }>(
@@ -3045,7 +3160,7 @@ async function materializePreparedHoloTacoRecord(
   // (including the same picture stored twice under different checksums by older ingests) would
   // stay linked. Reconcile this data source's gallery with the product's current images, but
   // only when all of them were stored and linked: a failed download must not unlink anything.
-  if (galleryLinked && currentImageIds.length > 0) {
+  if (writePlan.linkGallery && galleryLinked && currentImageIds.length > 0) {
     const pruned = await pruneStaleGallerySwatches(client, {
       shadeId,
       dataSourceId,
@@ -3061,6 +3176,15 @@ async function materializePreparedHoloTacoRecord(
       console.log(
         `${sourceLogPrefix} Gallery prune skipped for shade ${shadeId}: another product of this source maps to it`
       );
+    }
+  }
+
+  // The brand's own images are linked above; the retailer's replace-able ones go (R8).
+  if (takeOver) {
+    const unlinked = await unlinkRetailerGallerySwatches(client, shadeId);
+    if (unlinked > 0) {
+      delta.gallerySwatchesPruned += unlinked;
+      console.log(`${sourceLogPrefix} Unlinked ${unlinked} retailer image(s) from shade ${shadeId}`);
     }
   }
 
@@ -3096,6 +3220,15 @@ export function formatMaterializationSummary(
   return `${label}: ${parts.join(", ")}, ${(durationMs / 1000).toFixed(1)}s`;
 }
 
+/** The source's kind from `data_source.metadata` (a failed lookup fails the job: a retailer must never run with brand-store rules). */
+async function loadDataSourceKind(dataSourceId: number): Promise<DataSourceKind> {
+  const result = await query<{ metadata: unknown }>(
+    `SELECT metadata FROM data_source WHERE data_source_id = $1`,
+    [dataSourceId]
+  );
+  return sourceKindFromMetadata(result.rows[0]?.metadata);
+}
+
 export async function materializeHoloTacoRecords(
   dataSourceId: number,
   records: ConnectorProductRecord[],
@@ -3103,6 +3236,8 @@ export async function materializeHoloTacoRecords(
   sourceLogPrefix: string = "[HoloTaco]"
 ): Promise<HoloTacoMaterializationMetrics> {
   const overwriteDetectedHex = options?.overwriteDetectedHex === true;
+  const sourceKind = options?.sourceKind ?? (await loadDataSourceKind(dataSourceId));
+  options = { ...options, sourceKind };
   const startedAt = Date.now();
   let processed = 0;
   let brandsCreated = 0;
@@ -3141,7 +3276,8 @@ export async function materializeHoloTacoRecords(
           overwriteDetectedHex,
           sourceLogPrefix,
           brandCache,
-          finishCatalog
+          finishCatalog,
+          sourceKind
         )
       );
 
