@@ -15,6 +15,9 @@ const {
   chatCompletionModelParams,
   applyChatCompletionModelParams,
   warnDroppedTemperatureOnce,
+  reasoningEffortForDeployment,
+  chatCompletionsApiVersion,
+  REASONING_CHAT_API_VERSION,
   DEFAULT_REASONING_EFFORT,
 } = require("../dist/lib/azure-openai-request");
 const {
@@ -108,6 +111,25 @@ describe("lib/azure-openai-request — field selection", () => {
     assert.equal(resolveReasoningEffort({ AZURE_OPENAI_REASONING_EFFORT: "extreme" }), "minimal");
   });
 
+  it("picks reasoning_effort per model family", () => {
+    assert.equal(reasoningEffortForDeployment("gpt-5-mini", {}), "minimal");
+    assert.equal(reasoningEffortForDeployment("o3-mini", {}), "low", "o-series reject minimal");
+    assert.equal(reasoningEffortForDeployment("O4-mini", { AZURE_OPENAI_REASONING_EFFORT: "high" }), "high");
+    assert.equal(reasoningEffortForDeployment("o1", {}), "low");
+    assert.equal(reasoningEffortForDeployment("o1-preview", {}), null);
+    assert.equal(reasoningEffortForDeployment("o1-mini", { AZURE_OPENAI_REASONING_EFFORT: "high" }), null);
+    assert.equal(reasoningEffortForDeployment("vision-prod", {}), "minimal");
+    assert.deepEqual(chatCompletionModelParams("o1-mini", { maxTokens: 100 }, {}).fields, { max_completion_tokens: 1024 });
+    assert.equal(chatCompletionModelParams("o3-mini", { maxTokens: 100 }, {}).fields.reasoning_effort, "low");
+  });
+
+  it("uses the newer api-version only for reasoning deployments", () => {
+    assert.equal(REASONING_CHAT_API_VERSION, "2025-04-01-preview");
+    assert.equal(chatCompletionsApiVersion("gpt-5-mini", "2024-05-01-preview", {}), "2025-04-01-preview");
+    assert.equal(chatCompletionsApiVersion("x", "2024-06-01", { AZURE_OPENAI_REASONING_DEPLOYMENTS: "x" }), "2025-04-01-preview");
+    assert.equal(chatCompletionsApiVersion("gpt-4o-mini", "2024-05-01-preview", {}), "2024-05-01-preview");
+  });
+
   it("scales the cap to 4x with a 1024 floor", () => {
     assert.equal(reasoningMaxCompletionTokens(40), 1024);
     assert.equal(reasoningMaxCompletionTokens(120), 1024);
@@ -183,7 +205,7 @@ describe("lib/ai-color-detection — sync request body per model kind", () => {
     const result = await detectHexWithAzureOpenAI("https://img.example.com/a.jpg", { onLog: () => undefined });
     assert.equal(result.hex, "#AA3355");
     assert.equal(calls.length, 1);
-    assert.match(calls[0].url, /\/deployments\/gpt-4o-mini\/chat\/completions/);
+    assert.match(calls[0].url, /\/deployments\/gpt-4o-mini\/chat\/completions\?api-version=2024-05-01-preview$/);
     assert.equal(calls[0].body.temperature, 0);
     assert.equal(calls[0].body.max_tokens, 120);
     assert.equal("max_completion_tokens" in calls[0].body, false);
@@ -200,6 +222,7 @@ describe("lib/ai-color-detection — sync request body per model kind", () => {
     const result = await detectHexWithAzureOpenAI("https://img.example.com/a.jpg", { onLog: () => undefined });
     assert.equal(result.hex, "#AA3355");
     const body = calls[0].body;
+    assert.match(calls[0].url, /\/deployments\/gpt-5-mini\/chat\/completions\?api-version=2025-04-01-preview$/);
     assert.equal("max_tokens" in body, false);
     assert.equal("temperature" in body, false);
     assert.equal(body.max_completion_tokens, 1024);
@@ -236,6 +259,7 @@ describe("lib/ai-color-detection — sync request body per model kind", () => {
     for (const call of calls.slice(1)) {
       assert.equal("temperature" in call.body, false);
       assert.equal(call.body.max_completion_tokens, 1024);
+      assert.equal(call.body.reasoning_effort, "low");
     }
     assert.equal(temperatureWarnings().filter((line) => line.includes("o3-mini-ensemble")).length, 1);
   });

@@ -20,6 +20,22 @@ export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "minimal";
 export const REASONING_MAX_TOKENS_MULTIPLIER = 4;
 export const REASONING_MIN_MAX_COMPLETION_TOKENS = 1024;
 
+/**
+ * Chat-completions `api-version` for reasoning deployments: older versions (the
+ * `2024-05-01-preview` / `2024-06-01` the gpt-4o calls pin) reject `max_completion_tokens` and
+ * `reasoning_effort` as unrecognized arguments. gpt-4o / gpt-4.1 calls keep their own version.
+ */
+export const REASONING_CHAT_API_VERSION = "2025-04-01-preview";
+
+/** `api-version` for a chat-completions call to `deployment`: reasoning → `REASONING_CHAT_API_VERSION`. */
+export function chatCompletionsApiVersion(
+  deployment: string | null | undefined,
+  defaultVersion: string,
+  env: Env = process.env
+): string {
+  return isReasoningDeployment(deployment, env) ? REASONING_CHAT_API_VERSION : defaultVersion;
+}
+
 /** Deployment-name prefixes that reveal a reasoning model (case-insensitive). */
 const REASONING_DEPLOYMENT_PREFIXES = ["gpt-5", "o1", "o3", "o4"];
 
@@ -51,6 +67,23 @@ export function resolveReasoningEffort(env: Env = process.env): ReasoningEffort 
   return (REASONING_EFFORTS as readonly string[]).includes(raw ?? "")
     ? (raw as ReasoningEffort)
     : DEFAULT_REASONING_EFFORT;
+}
+
+/**
+ * The `reasoning_effort` to send, or null to omit it. `minimal` is gpt-5 only: the o-series
+ * accept `low` / `medium` / `high`, so `minimal` becomes `low` there, and `o1-preview` /
+ * `o1-mini` take no `reasoning_effort` at all. A deployment known only from
+ * `AZURE_OPENAI_REASONING_DEPLOYMENTS` is treated like gpt-5 (the configured value as is).
+ */
+export function reasoningEffortForDeployment(
+  deployment: string | null | undefined,
+  env: Env = process.env
+): ReasoningEffort | null {
+  const name = deployment?.trim().toLowerCase() ?? "";
+  if (/^o1-(preview|mini)/.test(name)) return null;
+  const effort = resolveReasoningEffort(env);
+  if (/^o[134]/.test(name) && effort === "minimal") return "low";
+  return effort;
 }
 
 /** The `max_completion_tokens` cap for a call that would send `max_tokens: maxTokens` to gpt-4o. */
@@ -98,10 +131,11 @@ export function chatCompletionModelParams(
       droppedTemperature: null,
     };
   }
+  const effort = reasoningEffortForDeployment(deployment, env);
   return {
     fields: {
       max_completion_tokens: reasoningMaxCompletionTokens(input.maxTokens),
-      reasoning_effort: resolveReasoningEffort(env),
+      ...(effort ? { reasoning_effort: effort } : {}),
     },
     reasoning: true,
     droppedTemperature: hasTemperature && input.temperature !== 0 ? (input.temperature as number) : null,

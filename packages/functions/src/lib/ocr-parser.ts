@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { resolveAzureOpenAiConfig } from "./azure-openai-config";
-import { chatCompletionModelParams, warnDroppedTemperatureOnce } from "./azure-openai-request";
+import {
+  chatCompletionModelParams,
+  chatCompletionsApiVersion,
+  warnDroppedTemperatureOnce,
+} from "./azure-openai-request";
 import { finishNamesForPrompt, loadFinishCatalog, type FinishCatalog } from "./finishes";
 
 const OPENAI_API_VERSION = "2024-06-01";
@@ -180,7 +184,7 @@ export async function parseLabelText(
     onFallback: (message, code) =>
       console.warn(`${LOG_PREFIX} Falling back to built-in finish catalog for the prompt`, { message, code }),
   });
-  const requestUrl = `${resolved.endpoint}/openai/deployments/${resolved.deployment}/chat/completions?api-version=${OPENAI_API_VERSION}`;
+  const requestUrl = `${resolved.endpoint}/openai/deployments/${resolved.deployment}/chat/completions?api-version=${chatCompletionsApiVersion(resolved.deployment, OPENAI_API_VERSION)}`;
 
   const modelParams = chatCompletionModelParams(resolved.deployment, { maxTokens: 500, temperature: 0.1 });
   if (modelParams.droppedTemperature !== null) {

@@ -8,7 +8,11 @@ import { trackMetric } from "./telemetry";
 import { normalizeDescriptors, truncateText } from "./product-text";
 import { resolveAzureOpenAiConfig } from "./azure-openai-config";
 import { describeFetchError } from "./fetch-retry";
-import { applyChatCompletionModelParams, warnDroppedTemperatureOnce } from "./azure-openai-request";
+import {
+  applyChatCompletionModelParams,
+  chatCompletionsApiVersion,
+  warnDroppedTemperatureOnce,
+} from "./azure-openai-request";
 
 const OPENAI_API_VERSION = "2024-05-01-preview";
 const REQUEST_TIMEOUT_MS = 20000;
@@ -653,7 +657,7 @@ export async function requestAzureOpenAIChatCompletion(
   const logLabel = request.logLabel ?? "request";
   emitLog(options, "info", `[ai-color-detection] Config loaded, calling Azure OpenAI for ${logLabel}`);
 
-  const requestUrl = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${OPENAI_API_VERSION}`;
+  const requestUrl = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${chatCompletionsApiVersion(deployment, OPENAI_API_VERSION)}`;
   const createRequestInit = (payload: unknown): RequestInit => {
     // Builders write gpt-4o fields; reasoning deployments (gpt-5*, o-series) need other ones.
     // The eval ensemble's temperature is dropped there with a one-time warning, never an error.

@@ -1,5 +1,5 @@
 import { resolveAzureOpenAiConfig } from "../azure-openai-config";
-import { chatCompletionModelParams } from "../azure-openai-request";
+import { chatCompletionModelParams, chatCompletionsApiVersion } from "../azure-openai-request";
 import { htmlToPlainText } from "../product-text";
 
 /**
@@ -279,7 +279,7 @@ async function detectWithAzureOpenAI(
     return { hex: null, confidence: null, provider: "none" };
   }
 
-  const requestUrl = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${OPENAI_API_VERSION}`;
+  const requestUrl = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${chatCompletionsApiVersion(deployment, OPENAI_API_VERSION)}`;
   const prompt = buildColorNamePrompt(colorName, context);
 
   try {
