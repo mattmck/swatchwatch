@@ -20,7 +20,7 @@ describe("sourceKindFromMetadata", () => {
   }
 });
 
-const { planListingWrites } = require("../dist/lib/data-source-kind");
+const { planListingWrites, planIngestedFinishes } = require("../dist/lib/data-source-kind");
 
 describe("planListingWrites", () => {
   const kinds = ["brand_store", "retailer"];
@@ -58,8 +58,16 @@ describe("planListingWrites", () => {
                 setAuthority: null,
               });
             });
+          } else if (shadeAuthority === "retailer") {
+            it(`retailer on a retailer shade writes like an owner ${label}`, () => {
+              assert.deepEqual(planListingWrites({ ...base, shadeCreated: false }), {
+                ...ALL,
+                takeOver: false,
+                setAuthority: null,
+              });
+            });
           } else {
-            it(`retailer on an existing shade only fills gaps ${label}`, () => {
+            it(`retailer on a brand_store shade only fills gaps ${label}`, () => {
               assert.deepEqual(planListingWrites({ ...base, shadeCreated: false }), {
                 writeCategory: false,
                 linkGallery: !shadeHasBrandStoreImages,
@@ -70,4 +78,25 @@ describe("planListingWrites", () => {
             });
           }
         }
+});
+
+describe("planIngestedFinishes", () => {
+  const base = { current: ["Cream"], adminSet: false, takeOver: false, restrictedRetailer: false, fromEmpty: ["Shimmer"], merged: ["Cream", "Shimmer"] };
+  it("merges for an unrestricted listing", () => {
+    assert.deepEqual(planIngestedFinishes(base), ["Cream", "Shimmer"]);
+  });
+  it("keeps an admin list", () => {
+    assert.deepEqual(planIngestedFinishes({ ...base, adminSet: true, takeOver: true }), ["Cream"]);
+  });
+  it("replaces on takeover, keeping current when nothing resolves", () => {
+    assert.deepEqual(planIngestedFinishes({ ...base, takeOver: true }), ["Shimmer"]);
+    assert.deepEqual(planIngestedFinishes({ ...base, takeOver: true, fromEmpty: null }), ["Cream"]);
+  });
+  it("restricted retailer keeps a non-empty list", () => {
+    assert.deepEqual(planIngestedFinishes({ ...base, restrictedRetailer: true }), ["Cream"]);
+  });
+  it("restricted retailer fills an empty list", () => {
+    assert.deepEqual(planIngestedFinishes({ ...base, current: [], restrictedRetailer: true }), ["Shimmer"]);
+    assert.deepEqual(planIngestedFinishes({ ...base, current: [], restrictedRetailer: true, fromEmpty: null }), []);
+  });
 });

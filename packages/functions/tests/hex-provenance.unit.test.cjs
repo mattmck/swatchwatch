@@ -46,7 +46,7 @@ const {
   HEX_DETECTION_METHOD_VISION_DIRECT,
   parseHexDetectionContent,
 } = require("../dist/lib/ai-color-detection");
-const { applyAiBatchShadeDetections } = require("../dist/lib/ingestion-repo");
+const { applyAiBatchShadeDetections, findRecordsWithUnchangedDetectedHex, findShadesWithDetectedHex } = require("../dist/lib/ingestion-repo");
 
 // ── hex_agreement computation ───────────────────────────────────────────────
 
@@ -277,9 +277,21 @@ describe("applyAiBatchShadeDetections — provenance write", () => {
     const { sql, params } = dbCalls[0];
     assert.deepEqual(params, [7, "ext-1", "#112233", ["creme"], false, 0.8, "vision-direct", "hex-batch-deploy", "vision-direct/old"]);
     // Non-overwrite: provenance only lands when detected_hex was NULL before.
-    assert.match(sql, /\(\$5::boolean AND \$3::text IS NOT NULL\) OR \(sh\.detected_hex IS NULL AND \$3::text IS NOT NULL\)/);
+    assert.match(sql, /\(\(\$5::boolean OR \(src\.is_brand_store AND sh\.catalog_authority = 'retailer'\)\) AND \$3::text IS NOT NULL\) OR \(sh\.detected_hex IS NULL AND \$3::text IS NOT NULL\)/);
     assert.match(sql, /detected_hex_confidence = CASE WHEN .* THEN \$6::numeric/);
     assert.doesNotMatch(sql, /hex_agreement\s*=/);
+  });
+
+  it("overwrites a retailer-authority shade for a brand-store job and flips it, same UPDATE", async () => {
+    await applyAiBatchShadeDetections(7, [{ externalId: "ext-1", detectedHex: "#112233", detectedFinishes: null }], false);
+    const { sql, params } = dbCalls[0];
+    // Source kind is read in SQL from the job's data source ($1); retailer jobs keep today's rule.
+    assert.match(sql, /src AS \(\s*SELECT coalesce\(metadata ->> 'kind', ''\) <> 'retailer' AS is_brand_store\s*FROM data_source\s*WHERE data_source_id = \$1\s*\)/);
+    assert.match(sql, /WHEN \(\$5::boolean OR \(src\.is_brand_store AND sh\.catalog_authority = 'retailer'\)\) AND \$3::text IS NOT NULL THEN \$3::text/);
+    assert.match(sql, /catalog_authority = CASE\s+WHEN src\.is_brand_store AND sh\.catalog_authority = 'retailer' AND \$3::text IS NOT NULL\s+THEN 'brand_store'/);
+    assert.match(sql, /FROM target, src/);
+    assert.equal(params[0], 7);
+    assert.equal(params[4], false);
   });
 
   it("counts appliedHex only for matched rows that carry a detected hex", async () => {
@@ -302,5 +314,26 @@ describe("applyAiBatchShadeDetections — provenance write", () => {
       true
     );
     assert.deepEqual(dbCalls[0].params.slice(5), [null, null, null, null]);
+  });
+});
+
+describe("detected-hex skip lookups and catalog authority", () => {
+  const candidate = { externalId: "e1", brandName: "B", shadeName: "S", finish: null, collection: null, checksumSha256: "abc" };
+  beforeEach(() => {
+    dbCalls = [];
+    dbRows = [{ externalId: "e1" }];
+  });
+
+  it("never skips a shade a retailer still owns (a brand store must re-detect it)", async () => {
+    const out = await findRecordsWithUnchangedDetectedHex(7, [candidate]);
+    assert.deepEqual([...out], ["e1"]);
+    assert.match(dbCalls[0].sql, /sh\.catalog_authority <> 'retailer'/);
+    assert.equal(dbCalls[0].params[0], 7);
+  });
+
+  it("the retailer lookup only needs a detected hex, from any source", async () => {
+    await findShadesWithDetectedHex([candidate]);
+    assert.match(dbCalls[0].sql, /sh\.detected_hex IS NOT NULL/);
+    assert.doesNotMatch(dbCalls[0].sql, /catalog_authority|owner_id/);
   });
 });

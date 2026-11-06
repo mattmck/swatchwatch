@@ -63,7 +63,7 @@ import {
   type ImageFingerprint,
 } from "./gallery-dedupe";
 import { trackEvent } from "./telemetry";
-import { planListingWrites, sourceKindFromMetadata, type DataSourceKind } from "./data-source-kind";
+import { planIngestedFinishes, planListingWrites, sourceKindFromMetadata, type DataSourceKind } from "./data-source-kind";
 import {
   ingestedVendorHexParams,
   ingestedVendorHexSetSql,
@@ -242,6 +242,11 @@ interface HoloTacoPreparedImage {
   detectedFinishes: string[] | null;
   /** Provenance for `detectedHex` (null when no detection ran). */
   detectedHexProvenance: DetectedHexProvenance | null;
+  /**
+   * AI detection applies to this record (job detection on, a color polish, an image to read), so a
+   * brand store taking over a retailer shade waits for its hex before flipping `catalog_authority`.
+   */
+  detectionApplies: boolean;
   additionalImages: StoredSourceImage[];
   /**
    * The primary and every additional image of the product were stored this run, so
@@ -798,6 +803,8 @@ export async function findRecordsWithUnchangedDetectedHex(
         AND coalesce(sh.finish, '') = coalesce(input.finish, '')
         AND coalesce(sh.collection, '') = coalesce(input.collection, '')
        WHERE sh.detected_hex IS NOT NULL
+         -- A retailer-authority shade is re-detected by the brand store that takes it over.
+         AND sh.catalog_authority <> 'retailer'
          AND EXISTS (
            SELECT 1
            FROM swatch s
@@ -1327,7 +1334,7 @@ async function prepareHoloTacoImageData(
   // --- Phase 2: concurrent AI detection, sequential DB callbacks in record order ---
   const overwriteDetectedHex = options?.overwriteDetectedHex === true;
   const isRetailerSource = options?.sourceKind === "retailer";
-  const unchangeCandidates: UnchangedImageCandidate[] = detectHexFromImage
+  const unchangedCandidates: UnchangedImageCandidate[] = detectHexFromImage
     ? uploadResults.flatMap((result): UnchangedImageCandidate[] => {
             const { holo } = result;
             // Compare against the image detection would run on, not always the primary.
@@ -1360,13 +1367,15 @@ async function prepareHoloTacoImageData(
   // for any shade that has one, whichever source supplied the image. Brand stores skip only an
   // unchanged image of their own.
   const unchangedWithHex = isRetailerSource
-    ? await findShadesWithDetectedHex(unchangeCandidates)
+    ? await findShadesWithDetectedHex(unchangedCandidates)
     : detectHexFromImage && !overwriteDetectedHex
-      ? await findRecordsWithUnchangedDetectedHex(dataSourceId, unchangeCandidates)
+      ? await findRecordsWithUnchangedDetectedHex(dataSourceId, unchangedCandidates)
       : new Set<string>();
   if (unchangedWithHex.size > 0) {
     console.log(
-      `${sourceLogPrefix} Skipping AI for ${unchangedWithHex.size} record(s) with an unchanged image and an existing detected hex`
+      isRetailerSource
+        ? `${sourceLogPrefix} Skipping AI for ${unchangedWithHex.size} record(s) whose shade already has a detected hex`
+        : `${sourceLogPrefix} Skipping AI for ${unchangedWithHex.size} record(s) with an unchanged image and an existing detected hex`
     );
   }
   const detectionStartedAt = Date.now();
@@ -1394,6 +1403,7 @@ async function prepareHoloTacoImageData(
         detectedHex: null,
         detectedFinishes: null,
         detectedHexProvenance: null,
+        detectionApplies: false,
         additionalImages: [],
         imageSetComplete: false,
       };
@@ -1446,7 +1456,9 @@ async function prepareHoloTacoImageData(
       metrics.hexDetectionSkipped += 1;
       metrics.hexDetectionSkippedUnchanged += 1;
       console.log(
-        `${sourceLogPrefix} Skipping AI for ${record.externalId}: image unchanged and shade already has a detected hex`
+        isRetailerSource
+          ? `${sourceLogPrefix} Skipping AI for ${record.externalId}: shade already has a detected hex`
+          : `${sourceLogPrefix} Skipping AI for ${record.externalId}: image unchanged and shade already has a detected hex`
       );
     } else if (shouldRunAiDetection && holo) {
       if (!imageForAi) {
@@ -1595,6 +1607,7 @@ async function prepareHoloTacoImageData(
       detectedHex,
       detectedFinishes,
       detectedHexProvenance,
+      detectionApplies: Boolean(shouldRunAiDetection && imageForAi),
       additionalImages,
       imageSetComplete: result.imageSetComplete,
     };
@@ -1624,6 +1637,7 @@ async function prepareHoloTacoImageData(
           detectedHex: null,
           detectedFinishes: null,
           detectedHexProvenance: null,
+          detectionApplies: true,
           additionalImages: result.additionalImages,
           imageSetComplete: result.imageSetComplete,
         };
@@ -2260,6 +2274,13 @@ export interface ApplyAiBatchShadeDetectionsMetrics {
   noShadeMatch: number;
 }
 
+/**
+ * Overwrite predicate of the batch apply UPDATE: the job-wide switch, or a brand-store job on a
+ * shade a retailer created (its hex is replaced by the brand's regardless of the switch).
+ */
+export const BATCH_OVERWRITE_SQL =
+  "($5::boolean OR (src.is_brand_store AND sh.catalog_authority = 'retailer'))";
+
 export async function applyAiBatchShadeDetections(
   dataSourceId: number,
   detections: AiBatchShadeDetectionInput[],
@@ -2308,14 +2329,19 @@ export async function applyAiBatchShadeDetections(
           AND coalesce(sh.collection, '') = coalesce(ext.collection_name, '')
          ORDER BY sh.shade_id DESC
          LIMIT 1
+       ),
+       src AS (
+         SELECT coalesce(metadata ->> 'kind', '') <> 'retailer' AS is_brand_store
+         FROM data_source
+         WHERE data_source_id = $1
        )
        UPDATE shade sh
        SET detected_hex = CASE
-             WHEN $5::boolean AND $3::text IS NOT NULL THEN $3::text
+             WHEN ${BATCH_OVERWRITE_SQL} AND $3::text IS NOT NULL THEN $3::text
              ELSE COALESCE(sh.detected_hex, $3::text)
            END,
            detected_finishes = CASE
-             WHEN $5::boolean AND $4::text[] IS NOT NULL THEN $4::text[]
+             WHEN ${BATCH_OVERWRITE_SQL} AND $4::text[] IS NOT NULL THEN $4::text[]
              WHEN sh.detected_finishes IS NULL THEN $4::text[]
              WHEN $4::text[] IS NULL THEN sh.detected_finishes
              ELSE (
@@ -2329,12 +2355,18 @@ export async function applyAiBatchShadeDetections(
            -- Provenance follows detected_hex: written when overwriting or when it was empty.
            -- hex_agreement is a generated column and refreshes itself.
            ${detectedHexProvenanceSetSql(
-             "($5::boolean AND $3::text IS NOT NULL) OR (sh.detected_hex IS NULL AND $3::text IS NOT NULL)",
+             `(${BATCH_OVERWRITE_SQL} AND $3::text IS NOT NULL) OR (sh.detected_hex IS NULL AND $3::text IS NOT NULL)`,
              6,
              "sh."
            )},
+           -- The brand store's detected hex lands on a retailer-created shade: it is the brand's now.
+           catalog_authority = CASE
+             WHEN src.is_brand_store AND sh.catalog_authority = 'retailer' AND $3::text IS NOT NULL
+               THEN 'brand_store'
+             ELSE sh.catalog_authority
+           END,
            updated_at = now()
-       FROM target
+       FROM target, src
        WHERE sh.shade_id = target.shade_id
        RETURNING sh.shade_id AS "shadeId"`,
       [
@@ -2862,17 +2894,26 @@ async function materializePreparedHoloTacoRecord(
   // overwrites for this shade even without the job's overwrite switch.
   const effectiveOverwrite =
     takeOver || (overwriteDetectedHex && (shadeCreated || sourceKind === "brand_store"));
+  // A takeover flips the authority only once the brand's detected hex is in (or no detection
+  // applies); otherwise the shade stays 'retailer' and the next brand run (or the batch apply)
+  // finishes the job. Every takeover write is idempotent.
+  const authorityToSet =
+    takeOver && preparedImage.detectionApplies && !preparedImage.detectedHex ? null : writePlan.setAuthority;
   if (takeOver) {
     console.log(`${sourceLogPrefix} Brand store takes over retailer-created shade ${shadeId}`);
   }
 
-  const mergedFinishes =
-    currentFinishesSource === "admin"
-      ? currentFinishes
-      : takeOver
-        ? applyIngestedFinishes([], finishResolution, finishCatalog) ?? currentFinishes
-        : applyIngestedFinishes(currentFinishes, finishResolution, finishCatalog) ??
-          mergeFinishLists([currentFinishes], finishCatalog);
+  const mergedFinishes = planIngestedFinishes<string>({
+    current: currentFinishes,
+    adminSet: currentFinishesSource === "admin",
+    takeOver,
+    // A retailer on a brand-store shade fills finishes only when the shade has none.
+    restrictedRetailer: !writePlan.writeCategory,
+    fromEmpty: applyIngestedFinishes([], finishResolution, finishCatalog),
+    merged:
+      applyIngestedFinishes(currentFinishes, finishResolution, finishCatalog) ??
+      mergeFinishLists([currentFinishes], finishCatalog),
+  });
 
   // A vendor hex follows the overwrite rule, except an admin-promoted manual label, which
   // ingestion never replaces (#321, D12): the vendor value is kept in vendor_hex_previous.
@@ -2943,7 +2984,7 @@ async function materializePreparedHoloTacoRecord(
       mergedFinishes,
       ...provenanceParams(detectedHexProvenance),
       ...ingestedVendorHexParams(vendorHexPlan),
-      writePlan.setAuthority,
+      authorityToSet,
       takeOver,
     ]
   );
@@ -3180,7 +3221,9 @@ async function materializePreparedHoloTacoRecord(
   }
 
   // The brand's own images are linked above; the retailer's replace-able ones go (R8).
-  if (takeOver) {
+  // Only once the brand's own primary is linked and its whole image set stored; otherwise the
+  // retailer images stay until the next brand run.
+  if (takeOver && galleryLinked && currentImageIds.length > 0) {
     const unlinked = await unlinkRetailerGallerySwatches(client, shadeId);
     if (unlinked > 0) {
       delta.gallerySwatchesPruned += unlinked;
