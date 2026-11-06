@@ -277,7 +277,7 @@ describe("applyAiBatchShadeDetections — provenance write", () => {
     const { sql, params } = dbCalls[0];
     assert.deepEqual(params, [7, "ext-1", "#112233", ["creme"], false, 0.8, "vision-direct", "hex-batch-deploy", "vision-direct/old"]);
     // Non-overwrite: provenance only lands when detected_hex was NULL before.
-    assert.match(sql, /\(\(\$5::boolean OR \(src\.is_brand_store AND sh\.catalog_authority = 'retailer'\)\) AND \$3::text IS NOT NULL\) OR \(sh\.detected_hex IS NULL AND \$3::text IS NOT NULL\)/);
+    assert.match(sql, /\(\(src\.is_brand_store AND \(\$5::boolean OR sh\.catalog_authority = 'retailer'\)\) AND \$3::text IS NOT NULL\) OR \(sh\.detected_hex IS NULL AND \$3::text IS NOT NULL\)/);
     assert.match(sql, /detected_hex_confidence = CASE WHEN .* THEN \$6::numeric/);
     assert.doesNotMatch(sql, /hex_agreement\s*=/);
   });
@@ -287,11 +287,25 @@ describe("applyAiBatchShadeDetections — provenance write", () => {
     const { sql, params } = dbCalls[0];
     // Source kind is read in SQL from the job's data source ($1); retailer jobs keep today's rule.
     assert.match(sql, /src AS \(\s*SELECT coalesce\(metadata ->> 'kind', ''\) <> 'retailer' AS is_brand_store\s*FROM data_source\s*WHERE data_source_id = \$1\s*\)/);
-    assert.match(sql, /WHEN \(\$5::boolean OR \(src\.is_brand_store AND sh\.catalog_authority = 'retailer'\)\) AND \$3::text IS NOT NULL THEN \$3::text/);
+    assert.match(sql, /detected_hex = CASE\s+WHEN \(src\.is_brand_store AND \(\$5::boolean OR sh\.catalog_authority = 'retailer'\)\) AND \$3::text IS NOT NULL THEN \$3::text/);
     assert.match(sql, /catalog_authority = CASE\s+WHEN src\.is_brand_store AND sh\.catalog_authority = 'retailer' AND \$3::text IS NOT NULL\s+THEN 'brand_store'/);
     assert.match(sql, /FROM target, src/);
     assert.equal(params[0], 7);
     assert.equal(params[4], false);
+  });
+
+  it("never lets a retailer job replace an existing hex, even with overwrite on", async () => {
+    await applyAiBatchShadeDetections(7, [{ externalId: "ext-1", detectedHex: "#112233", detectedFinishes: ["creme"] }], true);
+    const { sql, params } = dbCalls[0];
+    assert.equal(params[4], true);
+    // Hex and provenance: the job-wide switch only counts for a brand-store job; otherwise COALESCE keeps the hex.
+    const hexCase = sql.match(/detected_hex = CASE([\s\S]*?)END/)[1];
+    assert.match(hexCase, /WHEN \(src\.is_brand_store AND \(\$5::boolean OR sh\.catalog_authority = 'retailer'\)\) AND \$3::text IS NOT NULL THEN \$3::text/);
+    assert.match(hexCase, /ELSE COALESCE\(sh\.detected_hex, \$3::text\)/);
+    assert.doesNotMatch(hexCase, /\(\$5::boolean OR \(src\.is_brand_store/);
+    assert.match(sql, /detected_hex_confidence = CASE WHEN \(\(\(src\.is_brand_store AND \(\$5::boolean OR sh\.catalog_authority = 'retailer'\)\) AND \$3::text IS NOT NULL\)/);
+    // Detected finishes keep the shared predicate.
+    assert.match(sql, /detected_finishes = CASE\s+WHEN \(\$5::boolean OR \(src\.is_brand_store AND sh\.catalog_authority = 'retailer'\)\) AND \$4::text\[\] IS NOT NULL THEN \$4::text\[\]/);
   });
 
   it("counts appliedHex only for matched rows that carry a detected hex", async () => {

@@ -394,3 +394,54 @@ describe("selectBuyFromBrandUrl: missing listings and retailer ordering", () => 
     assert.match(BUY_LINK_CANDIDATES_SQL, /available/);
   });
 });
+
+describe("loadBuyLinksForShades: source kind and missing listings (fake rows)", () => {
+  // The fake query never runs the SQL, so `available` comes in as the column value it would return.
+  const row = (overrides) => ({
+    shadeId: "7",
+    sourceEnabled: true,
+    lastSeenAt: "2026-11-01T00:00:00Z",
+    fetchedAt: "2026-11-01T00:00:00Z",
+    missingSince: null,
+    available: true,
+    sourceMetadata: null,
+    price: null,
+    currency: null,
+    ...overrides,
+  });
+
+  it("maps sourceMetadata to the source kind, prefers the brand store and drops a missing listing", async () => {
+    const rows = [
+      // Newest of all, but gone from its catalog.
+      row({ url: "https://brand.example/gone", externalProductId: "3", lastSeenAt: "2026-11-06T00:00:00Z", missingSince: "2026-11-06T00:00:00Z" }),
+      // Seen later than the brand store, but a retailer.
+      row({ url: "https://retailer.example/p", externalProductId: "2", lastSeenAt: "2026-11-05T00:00:00Z", sourceMetadata: { kind: "retailer" }, price: "12.50", currency: "USD" }),
+      row({ url: "https://brand.example/p", externalProductId: "1", price: "13.00", currency: "USD" }),
+    ];
+    const links = await loadBuyLinksForShades(["7"], async () => ({ rows }));
+    assert.equal(links.get("7").url, "https://brand.example/p");
+    assert.equal(links.get("7").price, 13);
+  });
+
+  it("uses the retailer when the brand store listing is sold out, and returns no link when every listing is missing", async () => {
+    const soldOut = [
+      row({ url: "https://brand.example/p", externalProductId: "1", available: false }),
+      row({ url: "https://retailer.example/p", externalProductId: "2", sourceMetadata: { kind: "retailer" } }),
+    ];
+    const live = await loadBuyLinksForShades(["7"], async () => ({ rows: soldOut }));
+    assert.equal(live.get("7").url, "https://retailer.example/p");
+
+    const allGone = soldOut.map((r) => ({ ...r, missingSince: "2026-11-06T00:00:00Z" }));
+    const none = await loadBuyLinksForShades(["7"], async () => ({ rows: allGone }));
+    assert.equal(none.has("7"), false);
+  });
+
+  it("treats an unrecognized metadata kind as a brand store", async () => {
+    const rows = [
+      row({ url: "https://shop-a.example/p", externalProductId: "1", lastSeenAt: "2026-11-01T00:00:00Z", sourceMetadata: { kind: "RETAILER" } }),
+      row({ url: "https://shop-b.example/p", externalProductId: "2", lastSeenAt: "2026-11-02T00:00:00Z", sourceMetadata: { kind: "retailer" } }),
+    ];
+    const links = await loadBuyLinksForShades(["7"], async () => ({ rows }));
+    assert.equal(links.get("7").url, "https://shop-a.example/p");
+  });
+});

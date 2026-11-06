@@ -2307,6 +2307,14 @@ export interface ApplyAiBatchShadeDetectionsMetrics {
 export const BATCH_OVERWRITE_SQL =
   "($5::boolean OR (src.is_brand_store AND sh.catalog_authority = 'retailer'))";
 
+/**
+ * Overwrite predicate for `detected_hex` and its provenance: like `BATCH_OVERWRITE_SQL`, but a
+ * retailer job never replaces an existing hex, even with the job-wide switch on (the same rule as
+ * the sync materializer's `effectiveOverwrite`). A retailer still fills an empty hex.
+ */
+export const BATCH_HEX_OVERWRITE_SQL =
+  "(src.is_brand_store AND ($5::boolean OR sh.catalog_authority = 'retailer'))";
+
 export async function applyAiBatchShadeDetections(
   dataSourceId: number,
   detections: AiBatchShadeDetectionInput[],
@@ -2363,7 +2371,7 @@ export async function applyAiBatchShadeDetections(
        )
        UPDATE shade sh
        SET detected_hex = CASE
-             WHEN ${BATCH_OVERWRITE_SQL} AND $3::text IS NOT NULL THEN $3::text
+             WHEN ${BATCH_HEX_OVERWRITE_SQL} AND $3::text IS NOT NULL THEN $3::text
              ELSE COALESCE(sh.detected_hex, $3::text)
            END,
            detected_finishes = CASE
@@ -2381,7 +2389,7 @@ export async function applyAiBatchShadeDetections(
            -- Provenance follows detected_hex: written when overwriting or when it was empty.
            -- hex_agreement is a generated column and refreshes itself.
            ${detectedHexProvenanceSetSql(
-             `(${BATCH_OVERWRITE_SQL} AND $3::text IS NOT NULL) OR (sh.detected_hex IS NULL AND $3::text IS NOT NULL)`,
+             `(${BATCH_HEX_OVERWRITE_SQL} AND $3::text IS NOT NULL) OR (sh.detected_hex IS NULL AND $3::text IS NOT NULL)`,
              6,
              "sh."
            )},
@@ -3071,7 +3079,7 @@ async function materializePreparedHoloTacoRecord(
   const currentImageIds: number[] = [];
   let galleryLinked = preparedImage.imageSetComplete;
 
-  if (writePlan.linkGallery && preparedImage.storageUrl && preparedImage.checksumSha256) {
+  if (preparedImage.storageUrl && preparedImage.checksumSha256) {
     console.log(`${sourceLogPrefix} Processing swatch for shade ${shadeId}: checksum=${preparedImage.checksumSha256}`);
     const existingImage = await client.query<{ imageId: number }>(
       `SELECT image_id AS "imageId"
@@ -3103,49 +3111,54 @@ async function materializePreparedHoloTacoRecord(
       await recordSourceImageUrl(client, dataSourceId, preparedImage.sourceUrl, imageId);
     }
 
-    const existingSwatch = await client.query<{ swatchId: number; imageIdOriginal: number }>(
-      `SELECT
-         swatch_id AS "swatchId",
-         image_id_original AS "imageIdOriginal"
-       FROM swatch
-       WHERE shade_id = $1
-         AND swatch_type = 'source_product'
-       ORDER BY swatch_id DESC
-       LIMIT 1`,
-      [shadeId]
-    );
+    // A retailer listing that may not link images (the brand store already supplied them) still
+    // records the stored asset and its source URL above, so later runs reuse it instead of
+    // downloading it again; only the swatch links below are skipped.
+    if (writePlan.linkGallery) {
+      const existingSwatch = await client.query<{ swatchId: number; imageIdOriginal: number }>(
+        `SELECT
+           swatch_id AS "swatchId",
+           image_id_original AS "imageIdOriginal"
+         FROM swatch
+         WHERE shade_id = $1
+           AND swatch_type = 'source_product'
+         ORDER BY swatch_id DESC
+         LIMIT 1`,
+        [shadeId]
+      );
 
-    if (existingSwatch.rows.length === 0) {
-      console.log(`${sourceLogPrefix} Inserting new swatch for shade ${shadeId} with image ${imageId}`);
+      if (existingSwatch.rows.length === 0) {
+        console.log(`${sourceLogPrefix} Inserting new swatch for shade ${shadeId} with image ${imageId}`);
+        await client.query(
+          `INSERT INTO swatch (shade_id, image_id_original, swatch_type, lighting, background, quality_score)
+           VALUES ($1, $2, 'source_product', 'unknown', 'transparent', 80.0)`,
+          [shadeId, imageId]
+        );
+        delta.swatchesLinked += 1;
+        console.log(`${sourceLogPrefix} Inserted swatch successfully`);
+      } else if (existingSwatch.rows[0].imageIdOriginal !== imageId) {
+        console.log(`${sourceLogPrefix} Updating swatch ${existingSwatch.rows[0].swatchId} with new image ${imageId}`);
+        await client.query(
+          `UPDATE swatch
+           SET image_id_original = $2
+           WHERE swatch_id = $1
+             AND swatch_type = 'source_product'`,
+          [existingSwatch.rows[0].swatchId, imageId]
+        );
+        delta.swatchesLinked += 1;
+        console.log(`${sourceLogPrefix} Updated swatch successfully`);
+      }
+
+      // A gallery swatch on the primary image duplicates the product swatch, e.g. after the
+      // shop promotes a gallery image to primary. The old primary is re-linked as gallery below.
       await client.query(
-        `INSERT INTO swatch (shade_id, image_id_original, swatch_type, lighting, background, quality_score)
-         VALUES ($1, $2, 'source_product', 'unknown', 'transparent', 80.0)`,
+        `DELETE FROM swatch
+         WHERE shade_id = $1
+           AND image_id_original = $2
+           AND swatch_type = 'source_gallery'`,
         [shadeId, imageId]
       );
-      delta.swatchesLinked += 1;
-      console.log(`${sourceLogPrefix} Inserted swatch successfully`);
-    } else if (existingSwatch.rows[0].imageIdOriginal !== imageId) {
-      console.log(`${sourceLogPrefix} Updating swatch ${existingSwatch.rows[0].swatchId} with new image ${imageId}`);
-      await client.query(
-        `UPDATE swatch
-         SET image_id_original = $2
-         WHERE swatch_id = $1
-           AND swatch_type = 'source_product'`,
-        [existingSwatch.rows[0].swatchId, imageId]
-      );
-      delta.swatchesLinked += 1;
-      console.log(`${sourceLogPrefix} Updated swatch successfully`);
     }
-
-    // A gallery swatch on the primary image duplicates the product swatch, e.g. after the
-    // shop promotes a gallery image to primary. The old primary is re-linked as gallery below.
-    await client.query(
-      `DELETE FROM swatch
-       WHERE shade_id = $1
-         AND image_id_original = $2
-         AND swatch_type = 'source_gallery'`,
-      [shadeId, imageId]
-    );
   }
 
   // Store additional images as image_assets and link each as a source_gallery swatch, except
@@ -3166,7 +3179,7 @@ async function materializePreparedHoloTacoRecord(
     maxGalleryImages: getGalleryMaxImagesPerShade(),
   });
   let sharedShade: boolean | null = null;
-  for (const [index, addImg] of (writePlan.linkGallery ? preparedImage.additionalImages : []).entries()) {
+  for (const [index, addImg] of preparedImage.additionalImages.entries()) {
     const decision = galleryPlan[index];
     try {
       const existingAdditional = await client.query<{ imageId: number }>(
@@ -3198,6 +3211,10 @@ async function materializePreparedHoloTacoRecord(
       currentImageIds.push(galleryImageId);
       await recordSourceImageUrl(client, dataSourceId, addImg.sourceUrl, galleryImageId);
 
+      if (!writePlan.linkGallery) {
+        // Stored and its URL recorded for reuse, but never linked to a brand-store shade.
+        continue;
+      }
       if (decision.reason === "same_image") {
         // Same stored image as the primary or an earlier gallery image: already linked.
         continue;
