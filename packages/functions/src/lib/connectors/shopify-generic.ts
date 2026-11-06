@@ -20,6 +20,12 @@ import { shopifyProductText } from "../product-text.js";
 import { classifyIngestedProduct, classifyProductCategory } from "../product-category.js";
 import { shopifyStoreProductVerdict } from "./store-filters/index.js";
 import {
+  parseEditionCap,
+  shopifyStoreShadeName,
+  stripRetailerExclusiveSuffix,
+  SHOPIFY_TITLE_PARSER_SOURCES,
+} from "./shopify-title.js";
+import {
   normalizeCurrencyCode,
   pickShopifyVariantPrice,
   resolveShopifyStoreCurrency,
@@ -819,6 +825,8 @@ export function defaultShopifyBaseUrl(source: string): string {
   );
 }
 
+const MONTH_ABBREVIATION_REGEX = /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$/;
+
 async function toNormalizedRecord(
   product: ShopifyProduct,
   baseUrl: string,
@@ -854,10 +862,13 @@ async function toNormalizedRecord(
         }).category
       : gate.category;
 
-  const name = asNonEmptyString(product.title);
-  if (!name) {
+  const rawTitle = asNonEmptyString(product.title);
+  if (!rawTitle) {
     return null;
   }
+  // Retailer titles ("Vendor | Shade") are parsed per store, then any " PPU" exclusive suffix is
+  // dropped for every source. The raw title stays in normalized.rawTitle.
+  const name = stripRetailerExclusiveSuffix(shopifyStoreShadeName(source, product) ?? rawTitle);
 
   const handle = asNonEmptyString(product.handle);
   const vendor = resolveShopifyVendor(product.vendor, brandName);
@@ -907,6 +918,10 @@ async function toNormalizedRecord(
     .find((barcode): barcode is string => Boolean(barcode)) || null;
   // Description + descriptors for finish detection (#352); never shown to users.
   const { descriptionText, descriptors } = shopifyProductText(product);
+  // Retailer drops carry their month as a tag ("Nov"); only retailer sources keep it.
+  const releaseTags = SHOPIFY_TITLE_PARSER_SOURCES.includes(source)
+    ? tags.filter((tag) => MONTH_ABBREVIATION_REGEX.test(tag))
+    : null;
   // Brand list price: lowest available variant (else lowest variant), in the store currency.
   const { price, currency } = shopifyProductPrice(product.variants, storeCurrency);
 
@@ -919,6 +934,9 @@ async function toNormalizedRecord(
       productId: externalId,
       brand: vendor,
       name,
+      rawTitle,
+      editionCap: parseEditionCap(descriptionText),
+      ...(releaseTags ? { releaseTags } : {}),
       handle,
       productType,
       // Connector-gate category (#349); materialization re-classifies with the shade's finishes.
