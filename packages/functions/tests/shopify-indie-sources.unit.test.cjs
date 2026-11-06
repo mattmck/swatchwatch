@@ -281,3 +281,12 @@ describe("generic Shopify connector with a placeholder vendor", () => {
     assert.equal(result.records[0].normalized.productUrl, "https://nightowllacquer.com/products/seance-wine");
   });
 });
+
+describe("Polish Pickup retailer source", () => {
+  it("is pending approval, disabled by default and has its base URL", () => {
+    assert.equal(SHOPIFY_SOURCES_PENDING_APPROVAL.has("PolishPickupShopify"), true);
+    assert.equal(SHOPIFY_SOURCE_BASE_URLS.PolishPickupShopify, "https://polishpickup.com");
+    assert.equal(isShopifySourceEnabledByDefault("PolishPickupShopify"), false);
+    assert.ok(SUPPORTED_SOURCES.includes("PolishPickupShopify"));
+  });
+});

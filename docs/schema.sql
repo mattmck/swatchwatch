@@ -271,6 +271,8 @@ CREATE TABLE shade (
   -- 'admin' = finishes set in the Hex Labeling tool (migration 20261024053633287_shade-finishes-source); ingestion
   -- and the product-text backfill never change an 'admin' list (ingestion otherwise merges vendor tag finishes in).
   finishes_source TEXT NOT NULL DEFAULT 'rule' CHECK (finishes_source IN ('rule', 'admin')),
+  -- 'retailer' = created from a retailer listing (e.g. Polish Pickup); a brand store may take the catalog data over (migration 20261106120000000).
+  catalog_authority TEXT NOT NULL DEFAULT 'brand_store' CHECK (catalog_authority IN ('brand_store', 'retailer')),
   created_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL, -- creator of a user-API shade; NULL for catalog/ingestion rows (migration 024)
   color_name TEXT,
   vendor_hex TEXT,                               -- hex published by the vendor (e.g. Shopify variant option), or an admin-promoted manual label
@@ -1039,6 +1041,7 @@ CREATE TABLE external_product (
   raw_json JSONB NOT NULL,                     -- raw provider payload for audit
   normalized_json JSONB,                       -- normalized fields extracted
   etag TEXT,
+  missing_since TIMESTAMPTZ,                   -- set when absent from a complete catalog fetch of the source; NULL = currently listed (migration 20261106120000000)
   UNIQUE(data_source_id, external_id),
   UNIQUE(data_source_id, gtin, external_id)
 );
@@ -1051,6 +1054,7 @@ CREATE INDEX idx_external_product_gtin_compact
   ON external_product ((regexp_replace(gtin, '[[:space:]-]', '', 'g')))
   WHERE gtin IS NOT NULL;
 CREATE INDEX idx_external_product_source_time ON external_product(data_source_id, fetched_at DESC);
+CREATE INDEX idx_external_product_live ON external_product(data_source_id) WHERE missing_since IS NULL;
 
 -- Which connector product(s) each shade was materialized from (migration
 -- 20261017061344201_add-shade-source-product). Drives the "Buy from brand" link (#267):

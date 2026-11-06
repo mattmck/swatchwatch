@@ -755,6 +755,7 @@ export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
   StellaChromaShopify: "https://stellachroma.com",
   LemmingLacquerShopify: "https://lemminglacquer.com",
   SweetAndSourLacquerShopify: "https://sweetandsourlacquer.com",
+  PolishPickupShopify: "https://polishpickup.com",
   HoloTacoShopify: "https://www.holotaco.com",
 };
 
@@ -773,6 +774,8 @@ export const SHOPIFY_SOURCES_PENDING_APPROVAL: ReadonlySet<string> = new Set([
   // SweetAndSourLacquerShopify: written permission received by the owner by email on
   // 2026-10-22 (docs/indie-sources-2026-10.md). Add a new store here until its OK is
   // recorded in data_source.metadata.notes.
+  // Retailer source, pending owner OK; see docs/superpowers/plans/2026-11-06-polish-pickup-retailer-listings.md.
+  "PolishPickupShopify",
 ]);
 
 /** Whether a newly auto-provisioned data_source row for `source` starts enabled. */

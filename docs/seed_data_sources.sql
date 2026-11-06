@@ -377,6 +377,15 @@ VALUES
     '{"priority": "medium", "mvp": "no", "notes": "Sweet & Sour Lacquer Shopify store (indie, US). Verified 2026-10-22: /products.json returns 200 with Shopify products (169, one page; product_type and tags are empty on every product). The generic connector polish filter accepts 8 of 169 (coats and coat refills by title); the store-specific filter connectors/store-filters/sweet-and-sour.ts accepts 155 (150 single shades, 4 base coats, 1 top coat) by title and description, dropping the trio, duo, mystery overpour, 4 coat refills, gift card, magnet, sticker, coozies, tab opener, the clear watermarbling polish and one listing with no description beyond a restock note. robots.txt is the Shopify default (products.json not disallowed). /policies/terms-of-service is the Shopify default template, whose prohibited uses include: spider, crawl, or scrape. Acceptable use confirmed: written permission received by the owner by email on 2026-10-22 (recorded in docs/indie-sources-2026-10.md). Enabled 2026-10-22.", "verification": {"checkedAt": "2026-10-22", "productsJson": true, "products": 169, "polishFilterPass": 8, "storeFilterPass": 155, "storeFilterCheckedAt": "2026-10-22", "robotsTxt": "shopify-default-allows-products-json", "termsScrapingClause": true, "writtenPermission": "email 2026-10-22"}}'::jsonb
   ),
   (
+    'PolishPickupShopify',
+    'api',
+    'https://polishpickup.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://polishpickup.com/policies/terms-of-service',
+    false,
+    '{"kind": "retailer", "currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Polish Pickup: monthly multi-brand indie pre-order shop. Pending owner OK."}'::jsonb
+  ),
+  (
     'CosIng',
     'api',
     'https://ec.europa.eu/growth/sectors/cosmetics/cosing',
