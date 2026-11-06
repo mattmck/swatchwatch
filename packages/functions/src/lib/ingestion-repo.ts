@@ -180,9 +180,11 @@ interface MakeupProductNormalized {
   tags: string[];
 }
 
-interface HoloTacoProductNormalized {
+export interface HoloTacoProductNormalized {
   brand: string | null;
   name: string | null;
+  /** Original product title when it differs from the cleaned `name` (e.g. a trailing " PPU"); else null. */
+  rawTitle: string | null;
   collection: string | null;
   /**
    * Legacy single finish: raw first `finishes` value from the connector. Still the
@@ -339,6 +341,86 @@ function parseMakeupNormalized(
   };
 }
 
+/**
+ * Scalar subquery: the brand id whose canonical name equals the parameter (case-insensitive),
+ * else the brand that has it as an alias, lowest id first. `param` is a SQL expression
+ * such as `$1` or `input.brand_name`.
+ */
+export function INGESTED_BRAND_ID_SQL(param: string): string {
+  return `(SELECT candidate.brand_id FROM (
+    SELECT b.brand_id, 0 AS rank FROM brand b WHERE lower(b.name_canonical) = lower(${param})
+    UNION ALL
+    SELECT ba.brand_id, 1 AS rank FROM brand_alias ba WHERE lower(ba.alias) = lower(${param})
+  ) candidate ORDER BY candidate.rank, candidate.brand_id LIMIT 1)`;
+}
+
+interface IngestedShadeQuery {
+  query<R = unknown>(text: string, values?: unknown[]): Promise<{ rows: R[] }>;
+}
+
+/**
+ * Finds the shade an ingested product belongs to: by the cleaned name first, then (when it
+ * differs) by the raw product title an earlier ingest may have stored it under.
+ */
+export async function findShadeForIngestedName(
+  client: IngestedShadeQuery,
+  args: {
+    brandId: number;
+    name: string;
+    rawTitle: string | null;
+    finish: string | null;
+    collection: string | null;
+  }
+): Promise<{ shadeId: number; matchedRaw: boolean } | null> {
+  const sql = `SELECT shade_id AS "shadeId"
+     FROM shade
+     WHERE brand_id = $1
+       AND product_line_id IS NULL
+       AND lower(shade_name_canonical) = lower($2)
+       AND coalesce(finish, '') = coalesce($3, '')
+       AND coalesce(collection, '') = coalesce($4, '')
+     ORDER BY shade_id
+     LIMIT 1`;
+  const byName = await client.query<{ shadeId: number }>(sql, [
+    args.brandId,
+    args.name,
+    args.finish,
+    args.collection,
+  ]);
+  if (byName.rows.length > 0) return { shadeId: byName.rows[0].shadeId, matchedRaw: false };
+  if (!args.rawTitle || args.rawTitle.toLowerCase() === args.name.toLowerCase()) return null;
+  const byRaw = await client.query<{ shadeId: number }>(sql, [
+    args.brandId,
+    args.rawTitle,
+    args.finish,
+    args.collection,
+  ]);
+  return byRaw.rows.length > 0 ? { shadeId: byRaw.rows[0].shadeId, matchedRaw: true } : null;
+}
+
+/** Renames a shade stored under a raw title to the cleaned name and keeps the raw title as an alias. */
+export async function renameShadeToCleanName(
+  client: IngestedShadeQuery,
+  shadeId: number,
+  name: string,
+  rawTitle: string
+): Promise<void> {
+  await client.query(`UPDATE shade SET shade_name_canonical = $2 WHERE shade_id = $1`, [shadeId, name]);
+  await client.query(
+    `INSERT INTO shade_alias (shade_id, alias) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    [shadeId, rawTitle]
+  );
+}
+
+/** Looks up a brand by name or alias; null when neither matches. */
+export async function findIngestedBrandId(client: IngestedShadeQuery, brandName: string): Promise<number | null> {
+  const result = await client.query<{ brandId: number | null }>(
+    `SELECT ${INGESTED_BRAND_ID_SQL("$1")} AS "brandId"`,
+    [brandName]
+  );
+  return result.rows[0]?.brandId ?? null;
+}
+
 export function parseHoloTacoNormalized(
   normalized: Record<string, unknown>
 ): HoloTacoProductNormalized {
@@ -360,6 +442,10 @@ export function parseHoloTacoNormalized(
   return {
     brand: asString(normalized.brand),
     name: asString(normalized.name),
+    rawTitle: (() => {
+      const raw = asString(normalized.rawTitle);
+      return raw && raw !== name ? raw : null;
+    })(),
     collection: collections[0] || null,
     finish: finishes[0] || null,
     primaryImageUrl: asString(normalized.primaryImageUrl),
@@ -643,12 +729,8 @@ export async function findAdminProductCategories(
               sh.product_category AS "productCategory"
        FROM input
        JOIN LATERAL (
-         SELECT brand_id
-         FROM brand
-         WHERE lower(name_canonical) = lower(input.brand_name)
-         ORDER BY brand_id
-         LIMIT 1
-       ) b ON true
+         SELECT ${INGESTED_BRAND_ID_SQL("input.brand_name")} AS brand_id
+       ) b ON b.brand_id IS NOT NULL
        JOIN shade sh
          ON sh.brand_id = b.brand_id
         AND sh.product_line_id IS NULL
@@ -700,12 +782,8 @@ export async function findRecordsWithUnchangedDetectedHex(
        SELECT DISTINCT input.external_id AS "externalId"
        FROM input
        JOIN LATERAL (
-         SELECT brand_id
-         FROM brand
-         WHERE lower(name_canonical) = lower(input.brand_name)
-         ORDER BY brand_id
-         LIMIT 1
-       ) b ON true
+         SELECT ${INGESTED_BRAND_ID_SQL("input.brand_name")} AS brand_id
+       ) b ON b.brand_id IS NOT NULL
        JOIN shade sh
          ON sh.brand_id = b.brand_id
         AND sh.product_line_id IS NULL
@@ -2160,7 +2238,7 @@ export async function applyAiBatchShadeDetections(
        target AS (
          SELECT sh.shade_id
          FROM ext
-         JOIN brand b ON lower(b.name_canonical) = lower(ext.brand_name)
+         JOIN LATERAL (SELECT ${INGESTED_BRAND_ID_SQL("ext.brand_name")} AS brand_id) b ON b.brand_id IS NOT NULL
          JOIN shade sh
            ON sh.brand_id = b.brand_id
           AND lower(sh.shade_name_canonical) = lower(ext.shade_name)
@@ -2594,17 +2672,10 @@ async function materializePreparedHoloTacoRecord(
   let brandId = brandCache.get(brandKey);
 
   if (!brandId) {
-    const existingBrand = await client.query<{ brandId: number }>(
-      `SELECT brand_id AS "brandId"
-       FROM brand
-       WHERE lower(name_canonical) = lower($1)
-       ORDER BY brand_id
-       LIMIT 1`,
-      [brandName]
-    );
+    const existingBrandId = await findIngestedBrandId(client, brandName);
 
-    if (existingBrand.rows.length > 0) {
-      brandId = existingBrand.rows[0].brandId;
+    if (existingBrandId !== null) {
+      brandId = existingBrandId;
     } else {
       const insertedBrand = await client.query<{ brandId: number }>(
         `INSERT INTO brand (name_canonical)
@@ -2621,21 +2692,21 @@ async function materializePreparedHoloTacoRecord(
 
   delta.processed += 1;
 
-  const existingShade = await client.query<{ shadeId: number }>(
-    `SELECT shade_id AS "shadeId"
-     FROM shade
-     WHERE brand_id = $1
-       AND product_line_id IS NULL
-       AND lower(shade_name_canonical) = lower($2)
-       AND coalesce(finish, '') = coalesce($3, '')
-       AND coalesce(collection, '') = coalesce($4, '')
-     LIMIT 1`,
-    [brandId, holo.name, holo.finish, holo.collection]
-  );
+  const existingShade = await findShadeForIngestedName(client, {
+    brandId,
+    name: holo.name,
+    rawTitle: holo.rawTitle,
+    finish: holo.finish,
+    collection: holo.collection,
+  });
 
   let shadeId: number;
-  if (existingShade.rows.length > 0) {
-    shadeId = existingShade.rows[0].shadeId;
+  if (existingShade) {
+    shadeId = existingShade.shadeId;
+    if (existingShade.matchedRaw && holo.rawTitle) {
+      // Stored under the raw store title (e.g. "Sniff Test PPU"): take the cleaned name and keep the raw one as an alias.
+      await renameShadeToCleanName(client, shadeId, holo.name, holo.rawTitle);
+    }
   } else {
     const insertedShade = await client.query<{ shadeId: number }>(
       `INSERT INTO shade (brand_id, shade_name_canonical, finish, collection, status, finishes)
