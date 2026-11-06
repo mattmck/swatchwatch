@@ -339,7 +339,7 @@ function parseMakeupNormalized(
   };
 }
 
-function parseHoloTacoNormalized(
+export function parseHoloTacoNormalized(
   normalized: Record<string, unknown>
 ): HoloTacoProductNormalized {
   const collections = asStringArray(normalized.collections);
@@ -351,7 +351,11 @@ function parseHoloTacoNormalized(
     shadeName: name,
     colorName,
     finishes,
-    products: [{ title: name, productType: asString(normalized.productType), tags }],
+    // Classify from the raw product title: the cleaned name may have lost a coat cue
+    // ("Base Coat by X | Shade" -> "Shade").
+    products: [
+      { title: asString(normalized.rawTitle) ?? name, productType: asString(normalized.productType), tags },
+    ],
   });
   return {
     brand: asString(normalized.brand),
