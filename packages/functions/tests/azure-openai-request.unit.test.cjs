@@ -16,6 +16,7 @@ const {
   applyChatCompletionModelParams,
   warnDroppedTemperatureOnce,
   reasoningEffortForDeployment,
+  reasoningAliasModel,
   chatCompletionsApiVersion,
   REASONING_CHAT_API_VERSION,
   DEFAULT_REASONING_EFFORT,
@@ -135,6 +136,22 @@ describe("lib/azure-openai-request — field selection", () => {
     assert.equal(reasoningEffortForDeployment("gpt-5.1", {}), "low", "gpt-5.1 rejects minimal");
     assert.equal(reasoningEffortForDeployment("GPT-5.2-mini", {}), "low");
     assert.equal(reasoningEffortForDeployment("gpt-5.1", { AZURE_OPENAI_REASONING_EFFORT: "medium" }), "medium");
+  });
+
+  it("applies the model family's effort rules to `alias=model` entries", () => {
+    const env = { AZURE_OPENAI_REASONING_DEPLOYMENTS: "Vision-Prod = o3-mini, label-x=o1-mini, hex-new=gpt-5-mini, bare" };
+    assert.deepEqual(parseReasoningDeploymentList(env.AZURE_OPENAI_REASONING_DEPLOYMENTS), ["vision-prod", "label-x", "hex-new", "bare"]);
+    assert.equal(reasoningAliasModel("vision-prod", env), "o3-mini");
+    assert.equal(reasoningAliasModel("bare", env), null);
+    for (const name of ["vision-prod", "label-x", "hex-new", "bare"]) {
+      assert.equal(isReasoningDeployment(name, env), true, name);
+    }
+    assert.equal(reasoningEffortForDeployment("vision-prod", env), "low", "o-series alias: minimal → low");
+    assert.equal(reasoningEffortForDeployment("label-x", env), null, "o1-mini alias: no reasoning_effort");
+    assert.equal(reasoningEffortForDeployment("hex-new", env), "minimal", "gpt-5 alias keeps the configured value");
+    assert.equal(reasoningEffortForDeployment("hex-new", { ...env, AZURE_OPENAI_REASONING_EFFORT: "high" }), "high");
+    assert.equal(reasoningEffortForDeployment("bare", env), "minimal");
+    assert.deepEqual(chatCompletionModelParams("label-x", { maxTokens: 500 }, env).fields, { max_completion_tokens: 2000 });
     assert.deepEqual(chatCompletionModelParams("o1-mini", { maxTokens: 100 }, {}).fields, { max_completion_tokens: 1024 });
     assert.equal(chatCompletionModelParams("o3-mini", { maxTokens: 100 }, {}).fields.reasoning_effort, "low");
   });

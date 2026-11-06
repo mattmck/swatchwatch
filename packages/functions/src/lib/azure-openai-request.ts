@@ -48,9 +48,35 @@ function parseDeploymentEntries(raw: string | undefined): string[] {
     .filter((name) => name.length > 0);
 }
 
+/** Splits a listed entry `alias=model` into its deployment name and model (null without `=`). */
+function splitAliasEntry(entry: string): { name: string; model: string | null } {
+  const eq = entry.indexOf("=");
+  if (eq < 0) return { name: entry, model: null };
+  const model = entry.slice(eq + 1).trim();
+  return { name: entry.slice(0, eq).trim(), model: model || null };
+}
+
 /** `AZURE_OPENAI_REASONING_DEPLOYMENTS`: the listed (reasoning) deployment names, lower-cased. */
 export function parseReasoningDeploymentList(raw: string | undefined): string[] {
-  return parseDeploymentEntries(raw).filter((name) => !name.startsWith("!"));
+  return parseDeploymentEntries(raw)
+    .filter((entry) => !entry.startsWith("!"))
+    .map((entry) => splitAliasEntry(entry).name)
+    .filter((name) => name.length > 0);
+}
+
+/**
+ * The model a listed alias serves (`alias=model`, e.g. `vision-prod=o3-mini`), lower-cased, or
+ * null when the deployment is not listed with a model. Used only for the effort rules.
+ */
+export function reasoningAliasModel(deployment: string | null | undefined, env: Env = process.env): string | null {
+  const name = deployment?.trim().toLowerCase();
+  if (!name) return null;
+  for (const entry of parseDeploymentEntries(env.AZURE_OPENAI_REASONING_DEPLOYMENTS)) {
+    if (entry.startsWith("!")) continue;
+    const alias = splitAliasEntry(entry);
+    if (alias.name === name) return alias.model;
+  }
+  return null;
 }
 
 /** `AZURE_OPENAI_REASONING_DEPLOYMENTS` entries written `!name`: forced non-reasoning, lower-cased. */
@@ -86,15 +112,16 @@ export function resolveReasoningEffort(env: Env = process.env): ReasoningEffort 
 
 /**
  * The `reasoning_effort` to send, or null to omit it. `minimal` is original-gpt-5 only: the
- * o-series and gpt-5.1+ accept `low` / `medium` / `high`, so `minimal` becomes `low` there, and `o1-preview` /
- * `o1-mini` take no `reasoning_effort` at all. A deployment known only from
- * `AZURE_OPENAI_REASONING_DEPLOYMENTS` is treated like gpt-5 (the configured value as is).
+ * o-series and gpt-5.1+ accept `low` / `medium` / `high`, so `minimal` becomes `low` there, and
+ * `o1-preview` / `o1-mini` take no `reasoning_effort` at all. The rules read the model name: the
+ * deployment name, or for an `alias=model` entry in `AZURE_OPENAI_REASONING_DEPLOYMENTS` the
+ * model it names. A bare alias (no `=model`) is treated like gpt-5 (the configured value as is).
  */
 export function reasoningEffortForDeployment(
   deployment: string | null | undefined,
   env: Env = process.env
 ): ReasoningEffort | null {
-  const name = deployment?.trim().toLowerCase() ?? "";
+  const name = reasoningAliasModel(deployment, env) ?? deployment?.trim().toLowerCase() ?? "";
   if (/^o1-(preview|mini)/.test(name)) return null;
   const effort = resolveReasoningEffort(env);
   // `minimal` exists only on the original gpt-5 models: the o-series and gpt-5.1+ (`gpt-5.1`,
