@@ -78,6 +78,12 @@ export interface ConnectorPullResult {
   source: SupportedConnectorSource;
   records: ConnectorProductRecord[];
   metadata: Record<string, unknown>;
+  /**
+   * Shopify-style stores only: every product id in the catalog this pull just fetched (before
+   * any filter or window) and whether the fetch reached the end of the store's catalog.
+   * Absent when the catalog came from the job's cache or the connector has no such notion.
+   */
+  catalog?: { externalIds: string[]; complete: boolean };
 }
 
 export interface ProductConnector {

@@ -383,11 +383,12 @@ describe("store-filters/sweet-and-sour — isSweetAndSourPolish (#273 batch 3)",
 });
 
 describe("store-filters — shopifyStoreProductVerdict", () => {
-  it("registers filters for Pahlish, Cirque Colors, Stella Chroma, Lemming Lacquer and Sweet & Sour only", () => {
+  it("registers filters for Pahlish, Cirque Colors, Stella Chroma, Lemming Lacquer, Sweet & Sour and Polish Pickup only", () => {
     assert.deepEqual(Object.keys(SHOPIFY_STORE_PRODUCT_FILTERS).sort(), [
       "CirqueColorsShopify",
       "LemmingLacquerShopify",
       "PahlishShopify",
+      "PolishPickupShopify",
       "StellaChromaShopify",
       "SweetAndSourLacquerShopify",
     ]);

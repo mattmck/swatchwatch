@@ -76,6 +76,33 @@ export async function pruneStaleGallerySwatches(
   return { deleted: deleted.rows.length, skippedSharedShade: false };
 }
 
+/**
+ * A brand store took over a shade a retailer listed: unlink the retailer's `source_product` and
+ * `source_gallery` swatches (images of a `data_source` whose `metadata.kind` is `retailer`), so the
+ * brand's own images are the shade's catalog gallery. Protected swatches (hex labels,
+ * `color_features`) stay; `image_asset` rows and blobs are kept. Call it after the brand
+ * listing's own swatches are linked.
+ */
+export async function unlinkRetailerGallerySwatches(
+  client: { query: (sql: string, params: unknown[]) => Promise<{ rows: any[]; rowCount?: number | null }> },
+  shadeId: number
+): Promise<number> {
+  const deleted = await client.query(
+    `DELETE FROM swatch sw
+     USING image_asset ia, data_source ds
+     WHERE sw.shade_id = $1
+       AND sw.swatch_type IN ('source_gallery', 'source_product')
+       AND ia.image_id = sw.image_id_original
+       AND ia.owner_type = 'source'
+       AND ds.data_source_id = ia.owner_id
+       AND ds.metadata ->> 'kind' = 'retailer'
+       AND NOT ${protectedSwatchSql("sw")}
+     RETURNING sw.swatch_id AS "swatchId"`,
+    [shadeId]
+  );
+  return deleted.rows.length;
+}
+
 // ── Perceptual fingerprint ───────────────────────────────────────────────────
 
 /** Gradient hash grid (bits = DHASH_SIZE²) and color thumbnail edge (pixels = THUMB_SIZE²). */

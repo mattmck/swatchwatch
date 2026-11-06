@@ -13,3 +13,11 @@ export interface StoreFilterProduct {
  * `null` defers to the generic polish filter.
  */
 export type StoreProductFilter = (product: StoreFilterProduct) => boolean | null;
+
+/**
+ * A store-specific shade-name parser for stores whose product title is not the shade
+ * name (retailers). Returns the shade name, or `null` to keep the raw title.
+ */
+export type StoreTitleParser = (
+  product: StoreFilterProduct & { vendor?: unknown }
+) => string | null;
