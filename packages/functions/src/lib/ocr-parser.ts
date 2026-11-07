@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { aiReplayFetch } from "./ai-replay";
 import { resolveAzureOpenAiConfig } from "./azure-openai-config";
 import {
   chatCompletionModelParams,
@@ -60,7 +61,7 @@ async function fetchWithTimeout(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    return await aiReplayFetch(url, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(timeout);
   }

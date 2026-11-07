@@ -129,10 +129,15 @@ export function formatSummary(summary: EvalSummary, results: SampleResult[], ver
 }
 
 /** Write `bottle-<ISO timestamp>.json` (`{ generatedAt, summary, results }`) into `dir`; returns its path. */
-export function writeReportJson(dir: string, summary: EvalSummary, results: SampleResult[]): string {
+export function writeReportJson(
+  dir: string,
+  summary: EvalSummary,
+  results: SampleResult[],
+  meta: { aiReplayMode?: string } = {}
+): string {
   mkdirSync(dir, { recursive: true });
   const generatedAt = new Date().toISOString();
   const file = path.join(dir, `bottle-${generatedAt.replace(/[:.]/g, "-")}.json`);
-  writeFileSync(file, `${JSON.stringify({ generatedAt, summary, results }, null, 2)}\n`);
+  writeFileSync(file, `${JSON.stringify({ generatedAt, ...meta, summary, results }, null, 2)}\n`);
   return file;
 }

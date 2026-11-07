@@ -80,7 +80,7 @@ npm run test:e2e --workspace=swatchwatch-functions  # E2E tests against the runn
   collection), the handler against an in-memory fake of the five aggregate statements, per-user
   caching/invalidation, and isolation (every statement binds the caller as `$1`; another user's rows
   never reach the response).
-- **E2E** (`npm run test:e2e`): `tests/api.test.cjs` + `tests/access-control.e2e.test.cjs` against
+- **E2E** (`npm run test:e2e`): `tests/api.test.cjs` + `tests/access-control.e2e.test.cjs` (+ `tests/capture-replay.e2e.test.cjs`, below) against
   a live host at `http://localhost:7071/api` started with `AUTH_DEV_BYPASS=true` and migrated dev
   data (seed users `dev:1` and `dev:2`). The access-control suite has user 2 attempt to read/modify
   user 1's polish and capture session (including spoofed `userId` bodies/query params and searching by
@@ -92,6 +92,18 @@ npm run test:e2e --workspace=swatchwatch-functions  # E2E tests against the runn
   `userId`-spoofing cases when the owner token isn't `dev:<id>`, otherwise those cases skip). Note that `GET /polishes/{id}` and the default list are
   catalog views joined to the caller's own inventory, so cross-user isolation means "no other user's
   inventory fields", not a 404; `scope=collection` restricts the list to owned items.
+- **Capture on recorded AI responses** (`tests/capture-replay.e2e.test.cjs`, part of `npm run test:e2e`):
+  against a host running `AI_REPLAY_MODE=replay` and `BOTTLE_CAPTURE_ENABLED=true`, starts a
+  capture with the brand hint `OPI`, posts the label PNG (bottom sticker: Document Intelligence OCR →
+  label parse → closed-set sticker read) and the glass PNG (palette pick) from
+  `tests/fixtures/capture-replay/`, and asserts the deterministic read (`readSoFar.shadeName` "Big
+  Apple Red", a glass hex, the read-only check matching OPI — Big Apple Red, the same hex on a
+  second session). Every AI answer comes from the fixtures in `eval/ai-replay/`, so it needs no
+  Azure credentials. It skips itself unless `GET /api/config/flags` reports `aiReplayMode: "replay"` (or
+  `"record"`, which runs it against Azure and stores the fixtures) and `bottleCapture: true`. The sticker-read prompt lists OPI's catalog shades, so it expects the
+  dev seed catalog (migration 003). See [AI record/replay](#ai-recordreplay-srclibai-replayts).
+  **CI does not run it:** no CI job starts a Functions host (Postgres + Azurite + `func`); run the
+  sequence below locally.
 
 - **Hex-detection eval** (`npm run eval:hex -- --strategy <name>`): not a test — a ground-truth
   harness that scores detection strategies against a fixture (see
@@ -159,7 +171,7 @@ Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools
 | `PATCH` | `/api/ingestion/settings` | `globalSettingsHandler` | `ingestion.ts` | ✅ Working |
 | `GET` | `/api/ingestion/queue/stats` | `queueStatsHandler` | `ingestion.ts` | ✅ Working |
 | `DELETE` | `/api/ingestion/queue/messages` | `queueMessagesHandler` | `ingestion.ts` | ✅ Working |
-| `GET` | `/api/config/flags` | `getFeatureFlags` | `config-flags.ts` | ✅ Anonymous, `Cache-Control: public, max-age=60`: `{ flags: { shareableWishlist, shareableLooks, bottleCapture } }` (`FeatureFlagsResponse`). Public flags only; the hex flags are internal. Registry: `src/lib/feature-flags.ts` (#313, D22) |
+| `GET` | `/api/config/flags` | `getFeatureFlags` | `config-flags.ts` | ✅ Anonymous, `Cache-Control: public, max-age=60`: `{ flags: { shareableWishlist, shareableLooks, bottleCapture } }` (`FeatureFlagsResponse`); a local host running the AI record/replay harness adds `aiReplayMode: "record" \| "replay"` (and `Cache-Control: no-store`), never present when hosted in Azure. Public flags only; the hex flags are internal. Registry: `src/lib/feature-flags.ts` (#313, D22) |
 | `GET` | `/api/reference/finishes` | `getReferenceFinishes` | `reference.ts` | ✅ Working |
 | `GET` | `/api/reference/harmonies` | `getReferenceHarmonies` | `reference.ts` | ✅ Working |
 | `GET` | `/api/reference-admin/finishes` | `adminFinishesCollectionHandler` | `admin-reference.ts` | ✅ Working (admin-only) |
@@ -1094,11 +1106,13 @@ Resolver-audit columns (Slice A). When the server's bottle flow is on (`BOTTLE_C
 | `createCard` | The check carried `suggestedShade`, i.e. the app would show a create card. The summary's "Create card (not in catalog)" is the share of scored not-in-catalog samples that got one. |
 | `finishFamily` | `finish_type.family` of the shade's first finish, else the built-in `DUPE_FINISH_FAMILIES` by finish name, else `unknown` (always `unknown` for not-in-catalog samples). The report adds a per-finish-family outcome table next to the per-brand one; `--verbose` shows `family`, `calls`, `prompts` and `card` per sample. |
 
+**Replay (no Azure spend):** run the host with `AI_REPLAY_MODE=record` once (real Azure settings) to store every AI response under `eval/ai-replay/`, then rerun with `AI_REPLAY_MODE=replay` (placeholder Azure settings are enough) to score the same samples deterministically and for free; the host must see the same catalog and the same deployment names, which are part of the request key. `AI_REPLAY_RECORD_MISSING_ONLY=true` records only the samples added since. To compare sticker-read models, record once per `AZURE_OPENAI_DEPLOYMENT_LABEL` (the deployment is in the key, so both recordings coexist) and replay either. The summary prints the mode the host reported (`AI calls (host AI_REPLAY_MODE): …`, read from `GET /api/config/flags`) and the report JSON carries it as `aiReplayMode`. See [AI record/replay](#ai-recordreplay-srclibai-replayts).
+
 `classifyOutcome` is unchanged; the new columns sit beside it on `SampleResult` / `EvalSummary`. `BOTTLE_CAPTURE_ENABLED` flips per environment once false confident matches (`matched_wrong`) read 0 on the eval set, so run the eval with the flag on against that environment's host before turning it on there, and keep the flag-off run as the baseline.
 
 ### Importing bottle eval samples in bulk (`src/eval/bottle/import/`)
 
-`npm run eval:bottle:import` turns a folder of bottle photos or short phone clips into bottle eval samples, so a whole shooting session (many bottles, several lighting takes each) is labelled without tapping through the admin console's Bottle Eval tab. Everything goes through the admin API (`GET /api/catalog/search`, `GET /api/catalog/shade/{id}`, `POST /api/bottle-eval-admin/samples`, `POST /api/bottle-eval-admin/samples/{id}/frames`), never the database or storage, so it works against a local host or the deployed dev environment with a real admin token.
+`npm run eval:bottle:import` turns a folder of bottle photos or short phone clips into bottle eval samples, so a whole shooting session (many bottles, several lighting takes each) is labelled without tapping through the admin console's Bottle Eval tab. Everything goes through the admin API (`GET /api/catalog/search`, `GET /api/catalog/shade/{id}`, `POST /api/bottle-eval-admin/samples`, `POST /api/bottle-eval-admin/samples/{id}/frames`), never the database or storage, so it works against a local host or the deployed dev environment with a real admin token. The importer itself makes no AI calls; the samples it creates are scored by `eval:bottle`, which can run on recorded AI responses (see Replay above).
 
 ```text
 bottles/
@@ -1136,6 +1150,37 @@ API_BASE_URL=https://<dev-func-app>.azurewebsites.net/api ADMIN_BEARER_TOKEN=<ad
 ```
 
 Options: `--dir <path>` (required), `--dry-run`, `--labels <file>`, `--require-catalog`, `--reset`, `--frames-per-clip <n>`, `--only <text>` (bottle folder name substring), `--help`. `API_BASE_URL` and `ADMIN_BEARER_TOKEN` are filled from `local.settings.json` when unset, like the other admin scripts.
+
+## AI record/replay (`src/lib/ai-replay.ts`)
+
+The capture pipeline's AI calls (Azure OpenAI chat completions through `requestAzureOpenAIChatCompletion` in `ai-color-detection.ts`: sticker read, glass palette pick, vision hex detection, palette pick; the label parse in `ocr-parser.ts`; Document Intelligence `prebuilt-read` in `ocr.ts`) use `aiReplayFetch` instead of the global `fetch`. With `AI_REPLAY_MODE` (env table above) a local host can record them once against Azure and replay them afterwards, so `eval:bottle`, `tests/capture-replay.e2e.test.cjs` and local reruns cost nothing and give the same answers. The batch pipeline (`azure-openai-batch.ts`) and vendor image downloads are not covered.
+
+- **Key:** sha256 over the canonical request: method, URL path (host dropped), query without credential parameters (`api-key`, `code`, `sig`, …) and sorted, the allowlisted `content-type` header, and the JSON body with keys sorted and every image payload (`data:` URL, Document Intelligence `base64Source`) replaced by `sha256:<hash of its bytes>`. The deployment is in the path, so recordings of two models coexist; any prompt, catalog (e.g. the brand's shade list in the sticker-read prompt), finish catalog or image change is a new key. The bytes hashed are the ones the host sends, after `stripImageMetadata` re-encodes the frame with sharp (and the glass composite render), so a sharp upgrade or another OS can change the keys: re-record then.
+- **Fixtures:** `eval/ai-replay/<service>/<key>.json` (`azure-openai`, `document-intelligence`), committed. Each holds the canonical request (image hashes, no bytes), the deployment and the response's `model`, status, `content-type` and body. Credential headers (`api-key`, `Ocp-Apim-Subscription-Key`, `Authorization`) are never read into a fixture.
+- **Document Intelligence** answers asynchronously: the recorded submit's `Operation-Location` is rewritten to `https://ai-replay.invalid/ai-replay/poll/<submitKey>`, so the poll keys deterministically (the real URL is only kept in memory while recording), and a poll still `running` / `notStarted` is not stored.
+- **Fail closed:** on a hosted Azure instance the mode is always `off` (logged once). In `replay` a missing fixture throws `AiReplayMissError` (key, request summary and expected file in the message and the host log); the call site then degrades as it does for any failed AI call, so the read is missing and the eval / e2e test fails visibly. A replay miss is never retried.
+
+Record, then replay the capture e2e test (Postgres + Azurite from `npm run dev:infra`, migrated dev seed):
+
+```bash
+# 1. Record: real Azure OpenAI + Document Intelligence settings in local.settings.json, plus
+#    BOTTLE_CAPTURE_ENABLED=true and AUTH_DEV_BYPASS=true
+cd packages/functions && npm run build
+AI_REPLAY_MODE=record func start          # in one terminal
+node --test tests/capture-replay.e2e.test.cjs   # also runs in record mode: real calls, fixtures stored
+#    (npm run eval:bottle against the same host records the eval samples' calls)
+git add eval/ai-replay                    # review: no secrets, no image bytes
+
+# 2. Replay: no Azure credentials needed; placeholders keep the call sites configured
+AI_REPLAY_MODE=replay BOTTLE_CAPTURE_ENABLED=true AUTH_DEV_BYPASS=true \
+AZURE_OPENAI_ENDPOINT=https://ai-replay.invalid AZURE_OPENAI_KEY=replay \
+AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini AZURE_OPENAI_DEPLOYMENT_HEX=gpt-4o-mini \
+AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=https://ai-replay.invalid AZURE_DOCUMENT_INTELLIGENCE_KEY=replay \
+  func start                              # environment variables win over local.settings.json
+npm run test:e2e --workspace=swatchwatch-functions
+```
+
+With the endpoints pointing at `ai-replay.invalid` (a reserved name that never resolves) any call that is not answered from a fixture fails, which proves a replay run makes no network calls. CI does not run this: no CI job starts a Functions host.
 
 ## Migrations
 
@@ -1342,6 +1387,16 @@ Only the exact value `true` (any case) enables a flag; anything else is off.
 | `BOTTLE_CAPTURE_ENABLED` | `false` | Guided bottle recognition on the capture API (brand hint, `nextFrame` photo prompts, unmatched-bottle prefill). While off, capture responses are unchanged. Reported to clients as `bottleCapture` by `GET /api/config/flags`. |
 | `HEX_DETECTION_BATCH_ENABLED` | `false` | Azure OpenAI Batch API for Shopify vision hex detection plus the `ingestion-ai-batch-poller` timer. See Batch hex detection below. |
 | `HEX_DETECTION_SNAP_ENABLED` | `false` | Snap step in `src/lib/hex-snap.ts`: after every vision hex detection (ingestion sync and batch-submit fallback, the batch poller apply step, admin `recalc-hex`) the model's hex is replaced by the nearest palette chip measured from the same image when one is within `HEX_SNAP_MAX_DISTANCE`, stored as `detected_hex_method = 'vision-snap'`. Read at call time. Terraform-managed (`hex_detection_snap_enabled`). |
+
+### AI record/replay (`src/lib/ai-replay.ts`) — local test harness only
+
+Read by the Function App, but **deliberately not Terraform-managed** (same category as the eval and admin-script settings): they exist for local hosts, evals and e2e tests, and must never be on in Azure. On a hosted instance (`isHostedInAzure` in `src/lib/runtime-env.ts`) the mode is forced to `off` and a warning is logged once, whatever the setting says. See [AI record/replay](#ai-recordreplay-srclibai-replayts).
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AI_REPLAY_MODE` | `off` | `off`: AI calls go to Azure untouched. `record`: real call, then the response is stored as a fixture (overwriting an existing one). `replay`: answered from the fixtures only; a miss fails the call loudly (`AiReplayMissError` with the key and a request summary, logged), never a network fallback. Any other value is `off`. Covers Azure OpenAI chat completions (sticker read, glass pick, label parse, vision hex detection, palette pick) and Document Intelligence; not the batch pipeline or image downloads. |
+| `AI_REPLAY_DIR` | `packages/functions/eval/ai-replay` | Fixture store root (`<service>/<sha256 key>.json`). A relative path resolves against the host's working directory. |
+| `AI_REPLAY_RECORD_MISSING_ONLY` | `false` | In `record` mode, reuse an existing fixture and call Azure only for misses (`true` only). |
 
 ### Azure OpenAI client (`src/lib/azure-openai-config.ts`)
 
