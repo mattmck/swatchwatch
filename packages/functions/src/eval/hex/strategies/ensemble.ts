@@ -23,6 +23,9 @@ import type { HexDetectionStrategy, StrategyInput, StrategyOutput } from "../typ
  *   → `AZURE_OPENAI_DEPLOYMENT`).
  * - `HEX_DETECTION_ENSEMBLE_SAMPLES` — samples per deployment (default 3, 1–10).
  * - `HEX_DETECTION_ENSEMBLE_TEMPERATURE` — sampling temperature (default 0.3, 0–2).
+ *   Reasoning deployments (gpt-5*, o-series, `AZURE_OPENAI_REASONING_DEPLOYMENTS`) only take the
+ *   default temperature: it is dropped for them with a one-time warning, so their samples vary
+ *   only as much as the model does on its own.
  */
 
 export const DEFAULT_ENSEMBLE_SAMPLES = 3;
