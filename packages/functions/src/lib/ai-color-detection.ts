@@ -5,6 +5,7 @@ import {
   type FinishCatalog,
 } from "./finishes";
 import { trackMetric } from "./telemetry";
+import { aiReplayFetch, isAiReplayMissError } from "./ai-replay";
 import { normalizeDescriptors, truncateText } from "./product-text";
 import { resolveAzureOpenAiConfig } from "./azure-openai-config";
 import { describeFetchError } from "./fetch-retry";
@@ -491,7 +492,7 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    return await fetch(url, {
+    return await aiReplayFetch(url, {
       ...init,
       signal: controller.signal,
     });
@@ -555,6 +556,8 @@ async function fetchWithRetry(
 
       return response;
     } catch (error) {
+      // A replay miss is final: retrying cannot find a fixture that is not there.
+      if (isAiReplayMissError(error)) throw error;
       lastError = error instanceof Error ? error : new Error(String(error));
       const delay = BASE_DELAY_MS * Math.pow(2, attempt);
       emitLog(

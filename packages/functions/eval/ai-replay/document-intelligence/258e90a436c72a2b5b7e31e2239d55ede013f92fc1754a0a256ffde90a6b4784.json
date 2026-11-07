@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "key": "258e90a436c72a2b5b7e31e2239d55ede013f92fc1754a0a256ffde90a6b4784",
+  "service": "document-intelligence",
+  "recordedAt": "2026-11-07T05:35:05.645Z",
+  "deployment": null,
+  "model": null,
+  "request": {
+    "method": "POST",
+    "path": "/documentintelligence/documentModels/prebuilt-read:analyze",
+    "query": [
+      [
+        "api-version",
+        "2024-11-30"
+      ]
+    ],
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "base64Source": "sha256:e32fc9c8a62a8e1b65ef4cb28c00569fbf818e9b48bfba2fdcf2da2219c44ee1"
+    }
+  },
+  "response": {
+    "status": 202,
+    "headers": {
+      "operation-location": "https://ai-replay.invalid/ai-replay/poll/258e90a436c72a2b5b7e31e2239d55ede013f92fc1754a0a256ffde90a6b4784"
+    },
+    "bodyJson": null,
+    "bodyText": ""
+  }
+}

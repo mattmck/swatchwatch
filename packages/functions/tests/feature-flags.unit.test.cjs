@@ -82,6 +82,33 @@ describe("GET /api/config/flags", () => {
       process.env = saved;
     }
   });
+
+  it("reports aiReplayMode only for a local record/replay host, never when hosted in Azure", async (t) => {
+    t.mock.method(console, "warn", () => undefined);
+    const route = routes["config-flags"];
+    const call = () => route.handler({ method: "GET", headers: { get: () => null }, url: "http://x/api/config/flags" }, { log() {}, error() {} });
+    const saved = { ...process.env };
+    try {
+      delete process.env.WEBSITE_INSTANCE_ID;
+      delete process.env.WEBSITE_HOSTNAME;
+      process.env.AI_REPLAY_MODE = "replay";
+      let res = await call();
+      assert.equal(res.jsonBody.aiReplayMode, "replay");
+      assert.equal(res.headers["Cache-Control"], "no-store");
+
+      process.env.WEBSITE_INSTANCE_ID = "hosted-instance";
+      res = await call();
+      assert.equal("aiReplayMode" in res.jsonBody, false);
+      assert.equal(res.headers["Cache-Control"], "public, max-age=60");
+
+      delete process.env.WEBSITE_INSTANCE_ID;
+      process.env.AI_REPLAY_MODE = "off";
+      res = await call();
+      assert.equal("aiReplayMode" in res.jsonBody, false);
+    } finally {
+      process.env = saved;
+    }
+  });
 });
 
 describe("function registration", () => {

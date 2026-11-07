@@ -21,12 +21,33 @@ import type { CaptureFrameRequestSpec } from "swatchwatch-shared";
 import { readBlobFromStorageUrl, userMediaContainer } from "../../lib/blob-storage";
 import { closePool } from "../../lib/db";
 import { FUNCTIONS_ROOT, loadLocalSettings } from "../hex/env";
-import { assertAdminToken, assertApiReachable, createCaptureApi, EvalConfigError, type CaptureApi } from "./api-client";
+import {
+  assertAdminToken,
+  assertApiReachable,
+  createCaptureApi,
+  EvalConfigError,
+  fetchHostAiReplayMode,
+  type CaptureApi,
+} from "./api-client";
 import { formatSummary, writeReportJson } from "./report";
 import { loadEvalSamples } from "./samples";
 import { attributeFailure, resolverTraceFromStatus } from "./attribution";
 import { candidateShadeId, classifyOutcome, modelCallsFromStatus, summarize } from "./scoring";
 import type { EvalSample, SampleResult } from "./types";
+
+/** One summary line for the host's AI record/replay mode. */
+export function describeAiReplayMode(mode: string): string {
+  switch (mode) {
+    case "replay":
+      return "replay (answers from recorded fixtures, no Azure calls)";
+    case "record":
+      return "record (real Azure calls, responses stored as fixtures)";
+    case "off":
+      return "off (real Azure calls)";
+    default:
+      return "unknown (could not read GET config/flags)";
+  }
+}
 
 export const DEFAULT_API_BASE_URL = "http://localhost:7071/api";
 export const DEFAULT_RESULTS_DIR = path.join(FUNCTIONS_ROOT, "eval", "bottle", "results");
@@ -276,7 +297,8 @@ export async function main(argv: string[]): Promise<number> {
       console.log(args.only ? `No bottle eval samples match "${args.only}".` : "No bottle eval samples yet.");
       return 0;
     }
-    console.error(`API: ${api.baseUrl} — ${samples.length} sample(s)`);
+    const aiReplayMode = await fetchHostAiReplayMode(api);
+    console.error(`API: ${api.baseUrl} — ${samples.length} sample(s), host AI replay mode: ${aiReplayMode}`);
 
     const results: SampleResult[] = [];
     for (const [index, sample] of samples.entries()) {
@@ -292,7 +314,8 @@ export async function main(argv: string[]): Promise<number> {
     const summary = summarize(results);
     console.log("");
     console.log(formatSummary(summary, results, args.verbose));
-    const written = writeReportJson(args.resultsDir, summary, results);
+    console.log(`AI calls (host AI_REPLAY_MODE): ${describeAiReplayMode(aiReplayMode)}`);
+    const written = writeReportJson(args.resultsDir, summary, results, { aiReplayMode });
     console.log(`\nReport JSON: ${written}`);
     return summary.byOutcome.error > 0 ? 1 : 0;
   } finally {
