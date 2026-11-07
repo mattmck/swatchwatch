@@ -189,16 +189,17 @@ export async function extractFrame(file: string, time: number): Promise<Buffer> 
 }
 
 export interface ClipCandidate extends ScoredCandidate {
+  /** The frame already normalized for upload (JPEG, ≤ 2048 px), so a 4K clip does not keep raw PNGs in memory. */
   image: Buffer;
 }
 
-/** Read `candidateCount(framesPerClip)` evenly spaced frames of a clip and score each one. */
+/** Read `candidateCount(framesPerClip)` evenly spaced frames of a clip, normalize and score each one. */
 export async function readClipCandidates(file: string, framesPerClip: number): Promise<ClipCandidate[]> {
   const duration = await clipDuration(file);
   const candidates: ClipCandidate[] = [];
   for (const time of candidateTimestamps(duration, candidateCount(framesPerClip))) {
-    const image = await extractFrame(file, time);
-    candidates.push({ time, image, sharpness: await measureSharpness(image) });
+    const { bytes } = await normalizeForUpload(await extractFrame(file, time));
+    candidates.push({ time, image: bytes, sharpness: await measureSharpness(bytes) });
   }
   return candidates;
 }

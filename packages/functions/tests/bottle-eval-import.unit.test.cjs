@@ -71,6 +71,7 @@ describe("labels.csv", () => {
     assert.throws(() => layout.parseLabelsCsv("brand,shade\nA,B\n"), /folder/);
     assert.throws(() => layout.parseLabelsCsv("folder,shadeId\nx,abc\n"), /shadeId/);
     assert.throws(() => layout.parseLabelsCsv("folder\nX\n x \n"), /twice/);
+    assert.throws(() => layout.parseLabelsCsv("folder,notes\nA,\"open quote\nB,x\n"), /never closed/);
   });
 
   it("resolveBottleLabel: shadeId wins, csv fields override the folder, else null", () => {

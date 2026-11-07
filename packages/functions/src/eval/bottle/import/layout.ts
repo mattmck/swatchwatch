@@ -141,11 +141,12 @@ const LABEL_COLUMNS = ["folder", "shadeid", "brand", "shade", "notes"] as const;
 /**
  * Parse `labels.csv` (header row required: `folder,shadeId,brand,shade,notes`, any order, any case;
  * only `folder` is required). Rows are keyed by the folder name compared case- and
- * whitespace-insensitively (`labelKey`). Throws on a missing folder column, a bad shadeId or a
- * folder listed twice.
+ * whitespace-insensitively (`labelKey`). Throws on an unclosed quote, a missing folder column, a bad
+ * shadeId or a folder listed twice.
  */
 export function parseLabelsCsv(text: string): Map<string, LabelRow> {
-  const { records } = parseCsv(text);
+  const { records, unterminatedQuote } = parseCsv(text);
+  if (unterminatedQuote) throw new Error("labels.csv has a quoted field that is never closed");
   const rows = new Map<string, LabelRow>();
   if (records.length === 0) return rows;
   const header = records[0].map((cell) => cell.trim().toLowerCase().replace(/[\s_-]/g, ""));

@@ -274,13 +274,12 @@ async function prepareFrames(
     const kept = pickClipFrames(candidates, framesPerClip);
     const scores = candidates.map((c) => ({ time: c.time, sharpness: c.sharpness }));
     for (let k = 0; k < variants && k < kept.length; k += 1) {
-      const normalized = await normalizeForUpload(kept[k].image);
       perVariant[k].set(entry.surface, {
         surface: entry.surface,
         source: `${entry.file}@${kept[k].time.toFixed(3)}s`,
         sharpness: kept[k].sharpness,
         candidates: scores,
-        dataUrl: toJpegDataUrl(normalized.bytes),
+        dataUrl: toJpegDataUrl(kept[k].image),
       });
     }
   }
@@ -334,7 +333,7 @@ async function importBottle(
     log(`  label: ✗ ${errorMessage(error)}`);
     return { ...summary, status: "failed", detail: errorMessage(error) };
   }
-  if (bottle.takes.length === 0) {
+  if (!bottle.takes.some((take) => take.layout.surfaces.length > 0)) {
     log("  no files");
     return { ...summary, status: "failed", detail: "no front/bottom/glass/box files" };
   }
@@ -408,6 +407,8 @@ async function importBottle(
       if (args.dryRun) continue;
 
       try {
+        // Write the manifest before any API call, so an unwritable folder fails before a sample exists.
+        await writeManifest(takeDir, manifest);
         let sampleId = recorded?.sampleId;
         if (!sampleId) {
           sampleId = await api.createSample(requestFor(label, notes));
