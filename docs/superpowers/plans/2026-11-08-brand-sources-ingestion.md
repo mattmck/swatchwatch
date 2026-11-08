@@ -38,7 +38,7 @@
 
 ## Review Focus
 
-1. **A reseller run must never overwrite brand-store data.** Orly, China Glaze, Color Club, Cirque, Cracked and Starrily exist from their own stores; a Beyond Polish or Harlow run must only add a listing, barcodes and fill-only data to those shades (vendor hex, detected hex, finishes, images untouched when present). Pinned in Task 3 (`adoptExistingShades` tests) and Task 7 (fixture run asserts zero `hexOverwritten`).
+1. **A retailer run must never overwrite brand-store data.** Orly, China Glaze, Color Club, Cirque, Cracked and Starrily exist from their own stores; a Beyond Polish or Harlow run must only add a listing, barcodes and fill-only data to those shades (vendor hex, detected hex, finishes, images untouched when present). Pinned in Task 3 (`adoptExistingShades` tests) and Task 7 (fixture run asserts zero `hexOverwritten`).
 2. **Set, combo and duo listings must not become shades.** Beyond Polish's `Gel & Lacquer Polish` combos, `Nail Set` / `TIER COMBO` tags, "Lacquer Set - …", "Combo", "Duo", "Trio", "Collection" titles; Harlow's "It's Fall Good Collection"; Hypnotic's grab bags. Pinned in Tasks 6, 7, 8 (fixture lists of rejected titles).
 3. **Vendor spellings must not create duplicate brands.** "ORLY" vs "Orly", "Lippmann" vs "Deborah Lippmann", "Sunday Studio" vs "Sundays", "DND - Daisy Nail Design" vs "DND", "Cirque" vs "Cirque Colors", "Harmony" vs "Gelish", "ella+mila" vs "Ella+Mila". Pinned in Task 5 (`resolveRetailerVendor` tests) with the alias maps in each source's metadata (Tasks 6–8).
 4. **Images are stored only when the source permits it.** A retailer source with `imagesPermitted` absent or `false` must make no blob upload and link no swatch, while the shade still materializes with `name_hex`. Pinned in Task 3 (`storeImages: false` test) and Task 7.
@@ -157,8 +157,8 @@ assert.equal(selectBuyFromBrandLink([reseller(today), brand(lastYear)]).url, bra
 ### Task 4: Retailer title parser
 
 **Files:**
-- Create: `packages/functions/src/lib/connectors/reseller-title.ts`
-- Test: `packages/functions/tests/reseller-title.unit.test.cjs`
+- Create: `packages/functions/src/lib/connectors/retailer-title.ts` (Task 4 created it as `reseller-title.ts`; Task 5 renames it with `git mv` and renames the test and exports to match)
+- Test: `packages/functions/tests/retailer-title.unit.test.cjs`
 - Fixture data: inline in the test (the titles below are real Beyond Polish, Harlow & Co and Hypnotic Polish titles from 2026-11-08)
 
 **Interfaces:**
@@ -194,15 +194,15 @@ p("Zoya - Sonnet Fall Collection", "Zoya").isSet === true
 
 ### Task 5: Retailer mode in the generic Shopify connector
 
-(Registers `parseResellerTitle` in dev's `SHOPIFY_STORE_TITLE_PARSERS` for the retailer sources rather than adding a parallel mechanism; dev's `stripRetailerExclusiveSuffix` still runs on every title.)
+(Dev's `SHOPIFY_STORE_TITLE_PARSERS` returns only a shade-name string, runs in `enrichShopifyRecord` after windowing, and its key list doubles as `SHOPIFY_TITLE_PARSER_SOURCES`, which switches on Polish Pickup's month `releaseTags`. Retailer parsing needs the name, line, code and `isSet` **in the gate**, with the alias-resolved brand, so this task adds a settings-aware hook instead of reusing that registry: `gateShopifyProduct` calls `parseRetailerTitle(title, brand)` when `settings.kind !== "brand"` and drops `null`/`isSet` results before windowing, and `enrichShopifyRecord` reuses the same parse for the record fields; `SHOPIFY_STORE_TITLE_PARSERS` and `releaseTags` stay as they are for Polish Pickup. Dev's `stripRetailerExclusiveSuffix` still runs on every title. A retailer product whose vendor is missing or a placeholder, with no alias match, is **dropped in the gate** (no store-brand fallback: `resolveRetailerVendor` returns `null` for retailer/feed sources instead of `fallbackBrand`), with the gate counting it in `metadata.vendorlessSkipped`.)
 
 **Files:**
 - Modify: `packages/functions/src/lib/connectors/shopify-generic.ts` (constructor options gain `settings: SourceSettings`; `resolveShopifyVendor` gains the alias map; `enrichShopifyRecord` reseller branch)
-- Test: `packages/functions/tests/shopify-reseller-mode.unit.test.cjs`
+- Test: `packages/functions/tests/shopify-retailer-mode.unit.test.cjs`
 - Docs: `packages/functions/README.md` → "Connector Ingestion Jobs" (a "Retailer sources" paragraph)
 
 **Interfaces:**
-- Produces: `resolveRetailerVendor(vendor: unknown, aliases: Record<string, string>, fallbackBrand: string): string` (alias lookup on the lower-cased, whitespace-collapsed vendor; else today's `resolveShopifyVendor`). In retailer mode (`settings.kind === "retailer"`) the record's `normalized` carries: `brand` = resolved vendor; `name` = `parseRetailerTitle(title, brand).shadeName` (the product is dropped **in `gateShopifyProduct`**, before sorting and windowing, when the parser returns null or `isSet`, so a page never comes back empty because of set listings); `productLine`; `vendorCode`; `listingTitle` = the raw title; `finishes` = `[]` (so `parseHoloTacoNormalized` leaves the legacy `finish` identity key null; `extractFinishFromTags` is not used) while `tags` keeps the store's finish words, which the existing resolution in `resolveIngestedShadeFinishResolution` (tags, then descriptors, then description text) turns into the canonical `shade.finishes`; the test materializes one retailer record through the fake client and asserts the shade INSERT has `finish` null and `finishes` `["creme"]`; `collections` = `[]`; `discontinued` = any tag equal to `discontinued` or `bp-discontinued` (case-insensitive); `productUrl` = the retailer's product page as today; `price`/`currency` as today; `kind: "retailer"`. Hypnotic's `| Shimmer` / `|| Top Coat` tags are read with leading `|` characters and spaces stripped before finish parsing.
+- Produces: `resolveRetailerVendor(vendor: unknown, aliases: Record<string, string>, fallbackBrand: string, kind: SourceKind): string | null` (alias lookup on the lower-cased, whitespace-collapsed vendor; else today's `resolveShopifyVendor` for brand sources; `null` for a retailer/feed source whose vendor is missing or a placeholder). The parser's all-lines fallback (Task 4 review): when every segment matches the line regex, the last segment is the shade name. In retailer mode (`settings.kind === "retailer"`) the record's `normalized` carries: `brand` = resolved vendor; `name` = `parseRetailerTitle(title, brand).shadeName` (the product is dropped **in `gateShopifyProduct`**, before sorting and windowing, when the parser returns null or `isSet`, so a page never comes back empty because of set listings); `productLine`; `vendorCode`; `listingTitle` = the raw title; `finishes` = `[]` (so `parseHoloTacoNormalized` leaves the legacy `finish` identity key null; `extractFinishFromTags` is not used) while `tags` keeps the store's finish words, which the existing resolution in `resolveIngestedShadeFinishResolution` (tags, then descriptors, then description text) turns into the canonical `shade.finishes`; the test materializes one retailer record through the fake client and asserts the shade INSERT has `finish` null and `finishes` `["creme"]`; `collections` = `[]`; `discontinued` = any tag equal to `discontinued` or `bp-discontinued` (case-insensitive); `productUrl` = the retailer's product page as today; `price`/`currency` as today; `kind: "retailer"`. Hypnotic's `| Shimmer` / `|| Top Coat` tags are read with leading `|` characters and spaces stripped before finish parsing.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -215,7 +215,9 @@ assert.equal(records[0].normalized.brand, "OPI"); assert.equal(records[0].normal
 assert.equal(records[0].normalized.vendorCode, "NLB83"); assert.equal(records[0].normalized.productLine, "Nail Lacquer");
 assert.equal(records[0].normalized.discontinued, true); assert.deepEqual(records[0].normalized.collections, []);
 assert.equal(records[1].normalized.brand, "Orly");
-assert.equal(resolveRetailerVendor("Lippmann", { lippmann: "Deborah Lippmann" }, "Beyond Polish"), "Deborah Lippmann");
+assert.equal(resolveRetailerVendor("Lippmann", { lippmann: "Deborah Lippmann" }, "Beyond Polish", "retailer"), "Deborah Lippmann");
+assert.equal(resolveRetailerVendor("vendor-unknown", {}, "Beyond Polish", "retailer"), null); // the product is dropped in the gate
+assert.deepEqual(parseRetailerTitle("Brand - Nail Polish - Lacquer Up", "Brand").shadeName, "Lacquer Up");
 ```
 
 - [ ] **Step 2: Run to verify it fails.**
