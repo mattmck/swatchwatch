@@ -17,8 +17,12 @@ const detectionPath = require.resolve("../dist/lib/connectors/color-name-detecti
 const realDetection = require(detectionPath);
 require.cache[detectionPath].exports = {
   ...realDetection,
-  detectHexFromColorName: async () => ({ hex: "#112233", provider: "azure-openai" }),
+  detectHexFromColorName: async (colorName, options) => {
+    lookups.push({ colorName, context: options?.context });
+    return { hex: "#112233", provider: "azure-openai" };
+  },
 };
+let lookups = [];
 
 const { ShopifyGenericConnector, resolveRetailerVendor } = require("../dist/lib/connectors/shopify-generic");
 const { readSourceSettings } = require("../dist/lib/source-settings");
@@ -47,7 +51,18 @@ function retailerConnector(source = "BeyondPolishShopify", baseUrl = "https://ww
 
 describe("ShopifyGenericConnector — retailer mode", () => {
   it("parses brand, shade, line and vendor code, and drops sets and vendor-less listings in the gate", async () => {
+    lookups = [];
     const { records, metadata } = await pull(retailerConnector());
+
+    // The AI color-name lookup gets the parsed shade, the alias-resolved brand and the parsed line.
+    assert.deepEqual(
+      lookups.map(({ colorName, context }) => [colorName, context.brand, context.productLine]),
+      [
+        ["No Room for the Blues", "OPI", "Nail Lacquer"],
+        ["Velvet Dreams", "Orly", "Nail Lacquer"],
+      ]
+    );
+    assert.equal(records[0].normalized.colorName, "No Room for the Blues");
 
     assert.equal(records.length, 2);
     assert.equal(records[0].normalized.brand, "OPI");
@@ -99,7 +114,13 @@ describe("ShopifyGenericConnector — retailer mode", () => {
       currency: "USD",
       settings: readSourceSettings({}),
     });
+    lookups = [];
     const { records, metadata } = await pull(brand);
+
+    // Brand mode keeps today's lookup input (variant option1, the product type as the line).
+    assert.deepEqual(lookups[0].colorName, "Default Title");
+    assert.equal(lookups[0].context.brand, "OPI");
+    assert.equal(lookups[0].context.productLine, "Nail Polish");
 
     assert.deepEqual(JSON.parse(JSON.stringify(records)), brandModeGolden.records);
     assert.deepEqual(metadata, brandModeGolden.metadata);

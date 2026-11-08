@@ -1060,8 +1060,9 @@ export async function enrichShopifyRecord(
     hexSource = "variant-option";
   }
 
-  // Always try color name detection for name_hex (independent of vendor hex)
-  colorName = extractColorNameFromProduct(product);
+  // Always try color name detection for name_hex (independent of vendor hex). A retailer listing
+  // title carries brand, line, size and code, so its lookup uses the parsed shade name.
+  colorName = retailer ? name : extractColorNameFromProduct(product);
   if (colorName) {
     // Brand-aware lookup: "Mooncat Wildberry" is a specific product, not the
     // generic word, so hand the model the vendor, collection, description and tags.
@@ -1069,7 +1070,7 @@ export async function enrichShopifyRecord(
       preferAi: true,
       context: {
         brand: vendor,
-        productLine: productType,
+        productLine: retailer ? retailer.title.productLine : productType,
         collection: collections[0] ?? null,
         description: stripHtmlToText(asNonEmptyString(product.body_html)),
         tags,
