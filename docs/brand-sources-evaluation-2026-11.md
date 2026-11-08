@@ -295,9 +295,10 @@ new**. Together **~3,000 new lacquer shades from two sources**, 30% of the targe
 
 **Risks.** Title noise and duplicates (mitigated by the parser and the audit); reseller stock churn
 (Beyond Polish lists `Discontinued` and `CLEARANCE`, which is a feature for collectors); a reseller
-asking us to stop (then disable the source: the catalog rows and listings stay, and its stored images are
-removed by the admin job the plan adds for this, `POST /api/images-admin/source-images/remove`; nothing
-removes them automatically today); gel lines flooding color search if decision 3 is "no" and the filter is wrong.
+asking us to stop (then disable the source: the catalog rows and listings stay, and disabling alone keeps
+its stored images; they are removed by the admin job `POST /api/images-admin/source-images/remove`, run as
+`npm run remove:source-images -- --source <name> --write` or from the admin Backfills tab, "Remove a
+source's images", which refuses an enabled source and keeps hex-labeled images); gel lines flooding color search if decision 3 is "no" and the filter is wrong.
 
 ### S2 — Brand stores on Shopify: enable the clause-free ones, ask the others
 

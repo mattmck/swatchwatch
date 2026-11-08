@@ -139,6 +139,32 @@ const BACKFILLS: BackfillDefinition[] = [
     applyConfirm: "Unlink the duplicate gallery images? Image rows and blobs are kept.",
   },
   {
+    id: "source-images-remove",
+    title: "Remove a source's images",
+    description:
+      "Removes one data source's catalog images when the store asks us to stop using its pictures: unlinks their swatches, deletes the image rows, blobs and thumbnails. Enter exactly one source name, and disable the source first. Images with a hex label or color features are kept, and a blob another image row shares stays.",
+    command: "npm run remove:source-images --workspace=swatchwatch-functions -- --source <name> --write",
+    path: "images-admin/source-images/remove",
+    cursorKey: "afterImageId",
+    nextKey: "nextAfterImageId",
+    dryRun: true,
+    defaultLimit: 100,
+    maxLimit: 500,
+    sources: true,
+    metrics: [
+      { key: "scanned", label: "Images read" },
+      { key: "swatchesUnlinked", label: "Swatches unlinked" },
+      { key: "imagesDeleted", label: "Image rows deleted" },
+      { key: "blobsDeleted", label: "Blobs deleted" },
+    ],
+    lists: [
+      { key: "kept", label: "Kept", format: (k) => `image ${k.imageId}: ${k.reason}` },
+      { key: "failures", label: "Failures", format: (f) => `image ${f.imageId}: ${f.error}` },
+    ],
+    applyConfirm:
+      "Delete this source's catalog images, rows and blobs? This cannot be undone. The source must be disabled first; labeled images are kept.",
+  },
+  {
     id: "product-text",
     title: "Product text",
     description:
