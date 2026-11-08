@@ -22,6 +22,7 @@ const { isWetNWildPolish } = require("../dist/lib/connectors/store-filters/wet-n
 const { isPenelopeLuzPolish } = require("../dist/lib/connectors/store-filters/penelope-luz");
 const { isNoodlesPolish } = require("../dist/lib/connectors/store-filters/noodles");
 const { isCndPolish } = require("../dist/lib/connectors/store-filters/cnd");
+const { isBarryMPolish } = require("../dist/lib/connectors/store-filters/barry-m");
 const { readSourceSettings } = require("../dist/lib/source-settings");
 const { classifyIngestedProduct } = require("../dist/lib/product-category");
 
@@ -397,6 +398,7 @@ describe("store-filters/sweet-and-sour — isSweetAndSourPolish (#273 batch 3)",
 describe("store-filters — shopifyStoreProductVerdict", () => {
   it("registers filters for the retailers, the indie stores and the brand stores that need one, and no other source", () => {
     assert.deepEqual(Object.keys(SHOPIFY_STORE_PRODUCT_FILTERS).sort(), [
+      "BarryMShopify",
       "BeyondPolishShopify",
       "CirqueColorsShopify",
       "CndShopify",
@@ -1369,5 +1371,70 @@ describe("store-filters/cnd — isCndPolish", () => {
 
   it("is registered for CndShopify", () => {
     assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.CndShopify, isCndPolish);
+  });
+});
+
+// barrym.com/products.json, fetched 2026-11-08 (250 products on page 1), trimmed to 107. Barry M
+// is a UK cosmetics brand; its polish is "Nail Paint", which the generic gate does not read as polish.
+const BARRY_M = require("./fixtures/barry-m-products.json").products;
+
+describe("store-filters/barry-m — isBarryMPolish", () => {
+  it("with the filter keeps 58 of the 107 fixture products", () => {
+    assert.equal(BARRY_M.length, 107);
+    // Nail Paint 42, Nail 5, Topcoat 5, Basecoat 1, Nail Product 1 and the 4 Nail Care treatments.
+    const kept = gateAccepts(BARRY_M, "BarryMShopify");
+    assert.equal(kept.length, 58);
+    assert.ok(kept.every((product) => /nail|coat/i.test(product.product_type)));
+    // The generic gate alone drops 24 Nail Paint shades (no polish word) and keeps lip and face primers.
+    assert.equal(gateAccepts(BARRY_M, "NotARealShopify").length, 48);
+  });
+
+  it("keeps Nail Paint shades, including ones without a polish word in type or tags, and the coats", () => {
+    for (const title of [
+      "Gelly Hi Shine Nail Paint | Black Cherry",
+      "Rose Tinted Nail Paint | Eden Rose",
+      "Glitter Effect Nail Paint | Party Pearl",
+      "Sheer Strength Hardening Nail Paint | Sheer Luck",
+      "Holochrome Holographic Effect Nail Paint  | Pistachio Prism",
+      "Diamond Luxe Matte Nail Paint | Eternal", // typed Nail
+      "Matte Topcoat", // typed Topcoat
+      "All in One Nail Paint", // typed Basecoat
+    ]) {
+      const product = storeProduct(BARRY_M, title);
+      assert.equal(isBarryMPolish(product), true, title);
+      assert.equal(gateKeeps("BarryMShopify", product), true, title);
+    }
+    // Nail Care defers to the generic gate, which keeps the treatments.
+    const treatment = storeProduct(BARRY_M, "Mani Hero Nail Treatment | Strengthen");
+    assert.equal(isBarryMPolish(treatment), null);
+    assert.equal(gateKeeps("BarryMShopify", treatment), true);
+  });
+
+  it("drops cosmetics, including the primers and lip treatments the generic gate reads as coats", () => {
+    for (const title of [
+      "In A Fix Grip Primer (30ml)", // face primer
+      "Lid Lock Eyeshadow Primer | Clear", // eye primer
+      "Lip Rehab Nourishing Lip Treatment | Pistachio Glaze", // lip treatment
+      "Fine Glitter Dust | Gold Iridescent", // body glitter
+      "Juicy Lip Duo Mango", // lip bundle
+    ]) {
+      const product = storeProduct(BARRY_M, title);
+      assert.equal(isBarryMPolish(product), false, title);
+      assert.equal(gateKeeps("BarryMShopify", product), false, title);
+    }
+    for (const product_type of ["Mascara", "Eyeliner", "Lip Liner", "Blusher"]) {
+      const product = BARRY_M.find((entry) => entry.product_type === product_type);
+      assert.ok(product, product_type);
+      assert.equal(isBarryMPolish(product), false, product_type);
+    }
+  });
+
+  it("drops nail art and nail tool types", () => {
+    assert.equal(isBarryMPolish({ title: "Nail Art Pen | White", product_type: "Nail Art", tags: [] }), false);
+    assert.equal(isBarryMPolish({ title: "Glass Nail File", product_type: "Nail Care Tools", tags: [] }), false);
+  });
+
+  it("is registered for BarryMShopify", () => {
+    assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.BarryMShopify, isBarryMPolish);
   });
 });

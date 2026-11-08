@@ -1,3 +1,4 @@
+import { isBarryMPolish } from "./barry-m.js";
 import { isBeyondPolishPolish } from "./beyond-polish.js";
 import { isCirqueColorsPolish } from "./cirque-colors.js";
 import { isCndPolish } from "./cnd.js";
@@ -43,6 +44,7 @@ export const SHOPIFY_STORE_PRODUCT_FILTERS: Readonly<Record<string, StoreProduct
   PenelopeLuzShopify: isPenelopeLuzPolish,
   NoodlesNailPolishShopify: isNoodlesPolish,
   CndShopify: isCndPolish,
+  BarryMShopify: isBarryMPolish,
   WetNWildShopify: isWetNWildPolish,
 };
 
