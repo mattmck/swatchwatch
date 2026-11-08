@@ -1011,7 +1011,7 @@ describe("materializeHoloTacoRecords — a retailer-mode Shopify record", () => 
     const { readSourceSettings } = require("../dist/lib/source-settings");
     const { products } = require("./fixtures/beyond-polish-products.json");
     const opiListing = products.find((product) => product.id === 7001);
-    const connector = new ShopifyGenericConnector("BeyondPolishShopify", "https://www.beyondpolish.com", {
+    const connector = new ShopifyGenericConnector("FixtureRetailerShopify", "https://www.beyondpolish.com", {
       currency: "USD",
       settings: readSourceSettings({ kind: "retailer" }),
     });

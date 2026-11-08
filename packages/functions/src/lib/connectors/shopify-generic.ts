@@ -806,6 +806,7 @@ export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
   SweetAndSourLacquerShopify: "https://sweetandsourlacquer.com",
   PolishPickupShopify: "https://polishpickup.com",
   HarlowAndCoShopify: "https://www.harlowandco.org",
+  BeyondPolishShopify: "https://www.beyondpolish.com",
   HoloTacoShopify: "https://www.holotaco.com",
 };
 
@@ -973,7 +974,7 @@ export function gateShopifyProduct(
   // A store-specific filter decides first for stores the generic gate cannot classify; null defers
   // to the classifier. Sets and bundles are skipped either way.
   const gate = classifyIngestedProduct({ title: asNonEmptyString(product.title), productType, tags });
-  const storeVerdict = shopifyStoreProductVerdict(source, product);
+  const storeVerdict = shopifyStoreProductVerdict(source, product, settings);
   const isPolish = storeVerdict ?? gate.accept;
   if (!isPolish || isBundle(tags) || gate.evidence === "set") {
     return reject;

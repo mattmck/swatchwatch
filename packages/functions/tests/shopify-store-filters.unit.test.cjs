@@ -12,6 +12,7 @@ const {
 } = require("../dist/lib/connectors/store-filters");
 const { ShopifyGenericConnector, isBundle } = require("../dist/lib/connectors/shopify-generic");
 const { isHarlowAndCoPolish } = require("../dist/lib/connectors/store-filters/harlow-and-co");
+const { isBeyondPolishPolish } = require("../dist/lib/connectors/store-filters/beyond-polish");
 const { readSourceSettings } = require("../dist/lib/source-settings");
 const { classifyIngestedProduct } = require("../dist/lib/product-category");
 
@@ -385,8 +386,9 @@ describe("store-filters/sweet-and-sour — isSweetAndSourPolish (#273 batch 3)",
 });
 
 describe("store-filters — shopifyStoreProductVerdict", () => {
-  it("registers filters for Pahlish, Cirque Colors, Stella Chroma, Lemming Lacquer, Sweet & Sour, Polish Pickup and Harlow & Co only", () => {
+  it("registers filters for Beyond Polish, Pahlish, Cirque Colors, Stella Chroma, Lemming Lacquer, Sweet & Sour, Polish Pickup and Harlow & Co only", () => {
     assert.deepEqual(Object.keys(SHOPIFY_STORE_PRODUCT_FILTERS).sort(), [
+      "BeyondPolishShopify",
       "CirqueColorsShopify",
       "HarlowAndCoShopify",
       "LemmingLacquerShopify",
@@ -592,5 +594,138 @@ describe("HarlowAndCoShopify retailer ingestion", () => {
       result.records.filter((r) => r.normalized.productCategory !== "color").map((r) => [r.normalized.name, r.normalized.productCategory]).sort(),
       [["Compass", "topper"], ["Ice and Easy", "topper"]]
     );
+  });
+});
+
+// beyondpolish.com/products.json, fetched 2026-11-08 (17,508 products over 71 pages), trimmed to 247:
+// 8 lacquer-typed products per lacquer vendor, every product_type at least twice, 12 "Gel &
+// Lacquer Polish" combos, 12 "Gel Polish", Nail Set-tagged lacquers and Hair/Body products
+// (fixture _note). Beyond Polish is a multi-brand retailer (metadata.kind = "retailer").
+const BEYOND = require("./fixtures/beyond-polish-pull-products.json").products;
+const BEYOND_LACQUER_TYPES = ["Nail Lacquer", "Lacquer & Dip", "Gel, Lacquer & Dip"];
+const BEYOND_NO_GEL = { includeGel: false };
+const BEYOND_GEL = { includeGel: true };
+
+// Accepted lacquer-typed products per vendor in the fixture (the whole-store numbers are in the
+// README). Each vendor has 8 single-shade lacquers; the extra Nail Set / combo listings of OPI,
+// Orly, CND and Londontown in the fixture are rejected.
+const BEYOND_ACCEPTED_BY_VENDOR = {
+  OPI: 8, Zoya: 8, ORLY: 8, "Cirque Colors": 8, KBShimmer: 8, "Morgan Taylor": 8, CND: 8,
+  "Ella+Mila": 8, Londontown: 8, Essie: 8, "China Glaze": 8, "Color Club": 8, "butter LONDON": 8,
+  "Loud Lacquer": 8, "Sunday Studio": 8, "Cracked Polish": 8, Lippmann: 8, "Deborah Lippmann": 7,
+  "Static Nails": 8, Peacci: 8,
+};
+
+const beyond = (title) => {
+  const product = BEYOND.find((p) => p.title === title);
+  assert.ok(product, `Beyond Polish fixture has no product titled ${title}`);
+  return product;
+};
+const beyondListing = (title, product_type, extra = {}) => ({ title, product_type, vendor: "OPI", tags: [], ...extra });
+
+describe("store-filters/beyond-polish — isBeyondPolishPolish", () => {
+  it("accepts the lacquer lines named in the plan", () => {
+    for (const [title, productType, vendor] of [
+      ["OPI Nail Lacquer - No Room for the Blues 0.5 oz - #NLB83", "Nail Lacquer", "OPI"],
+      ["Zoya - Fairleigh .5 oz. - #ZP1210", "Nail Lacquer", "Zoya"],
+      ["Orly Nail Lacquer - Velvet Dreams - #2000478", "Nail Lacquer", "ORLY"],
+      ["Londontown - Lakur Enhanced Colour - Dream State 0.4 oz", "Nail Lacquer", "Londontown"],
+    ]) {
+      assert.equal(isBeyondPolishPolish({ title, product_type: productType, vendor, tags: [] }, BEYOND_NO_GEL), true, title);
+    }
+    for (const type of BEYOND_LACQUER_TYPES) {
+      assert.equal(isBeyondPolishPolish(beyondListing("OPI - Alpine Snow", type), BEYOND_NO_GEL), true, type);
+    }
+  });
+
+  it("accepts the per-vendor counts of the fixture's lacquer-typed products", () => {
+    const accepted = {};
+    for (const product of BEYOND) {
+      if (isBeyondPolishPolish(product, BEYOND_NO_GEL)) accepted[product.vendor] = (accepted[product.vendor] ?? 0) + 1;
+    }
+    assert.deepEqual(accepted, BEYOND_ACCEPTED_BY_VENDOR);
+    assert.equal(BEYOND.filter((p) => isBeyondPolishPolish(p, BEYOND_NO_GEL)).length, 159);
+  });
+
+  it("accepts a lacquer-typed product only under a lacquer product type", () => {
+    // Every accepted fixture product has a lacquer type; every other type is rejected, whatever
+    // the title says.
+    for (const product of BEYOND) {
+      if (isBeyondPolishPolish(product, BEYOND_GEL)) {
+        assert.ok(
+          [...BEYOND_LACQUER_TYPES, "Gel Polish"].includes(product.product_type),
+          `${product.vendor} | ${product.title} | ${product.product_type}`
+        );
+      }
+    }
+    assert.equal(isBeyondPolishPolish(beyondListing("OPI - Alpine Snow", "Hair"), BEYOND_GEL), false);
+    assert.equal(isBeyondPolishPolish(beyondListing("OPI - Alpine Snow", ""), BEYOND_GEL), false);
+    assert.equal(isBeyondPolishPolish(beyondListing("OPI - Alpine Snow", undefined), BEYOND_GEL), false);
+  });
+
+  it("rejects every Gel & Lacquer Polish product (all are combos), with or without includeGel", () => {
+    const combos = BEYOND.filter((p) => p.product_type === "Gel & Lacquer Polish");
+    assert.equal(combos.length, 12);
+    for (const product of combos) {
+      assert.equal(isBeyondPolishPolish(product, BEYOND_NO_GEL), false, product.title);
+      assert.equal(isBeyondPolishPolish(product, BEYOND_GEL), false, product.title);
+    }
+  });
+
+  it("rejects the combo and set titles of the plan", () => {
+    for (const title of [
+      "OPI - Gel & Lacquer Combo - Metallic Rewind",
+      "OPI - Nail Lacquer Combo - Base, Top & Machu Peach-u 0.5 oz - #NLP36",
+      "Zoya - Sonnet Fall Collection",
+      "Lacquer Set - Ella+Mila Pretty In Pink",
+    ]) {
+      assert.equal(isBeyondPolishPolish(beyondListing(title, "Nail Lacquer"), BEYOND_GEL), false, title);
+    }
+  });
+
+  it("rejects the set tags (Nail Set, TIER COMBO, Custom Bundle, Kit, Mystery Box) in any case, even under a lacquer type", () => {
+    for (const tag of ["Nail Set", "TIER COMBO", "Custom Bundle", "Kit", "Mystery Box", "nail set", "kit", "tier combo"]) {
+      assert.equal(isBeyondPolishPolish(beyondListing("OPI - Alpine Snow", "Nail Lacquer", { tags: ["Nail Polish", tag] }), BEYOND_NO_GEL), false, tag);
+    }
+    // Tags as Shopify's comma string, too.
+    assert.equal(isBeyondPolishPolish(beyondListing("OPI - Alpine Snow", "Nail Lacquer", { tags: "OPI, Nail Set" }), BEYOND_NO_GEL), false);
+    assert.equal(isBeyondPolishPolish(beyondListing("OPI - Alpine Snow", "Nail Lacquer", { tags: "OPI, Nail Polish" }), BEYOND_NO_GEL), true);
+    const tagged = BEYOND.filter(
+      (p) => BEYOND_LACQUER_TYPES.includes(p.product_type) && p.tags.some((t) => /^(?:nail set|tier combo|custom bundle|kit)$/i.test(t))
+    );
+    assert.ok(tagged.length >= 5);
+    for (const product of tagged) assert.equal(isBeyondPolishPolish(product, BEYOND_GEL), false, product.title);
+  });
+
+  it("drops hair, body, jewellery and every other non-polish type", () => {
+    const rejected = BEYOND.filter((p) => !BEYOND_LACQUER_TYPES.includes(p.product_type) && p.product_type !== "Gel Polish");
+    assert.ok(rejected.length >= 60);
+    for (const product of rejected) {
+      assert.equal(isBeyondPolishPolish(product, BEYOND_GEL), false, `${product.vendor} | ${product.title} | ${product.product_type}`);
+    }
+  });
+
+  it("accepts Gel Polish only with includeGel", () => {
+    const gel = beyond("OPI GelColor - Black Cherry Chutney 0.5 oz - #GCI43");
+    assert.equal(isBeyondPolishPolish(gel, BEYOND_NO_GEL), false);
+    assert.equal(isBeyondPolishPolish(gel, BEYOND_GEL), true);
+    const gelProducts = BEYOND.filter((p) => p.product_type === "Gel Polish");
+    assert.equal(gelProducts.length, 12);
+    assert.equal(gelProducts.filter((p) => isBeyondPolishPolish(p, BEYOND_NO_GEL)).length, 0);
+    // The gel combos and sets stay out even with includeGel.
+    assert.equal(gelProducts.filter((p) => isBeyondPolishPolish(p, BEYOND_GEL)).length, 5);
+  });
+
+  it("drops the store's own merchandise: a vendor named Beyond Polish is never a brand", () => {
+    for (const vendor of ["Beyond Polish", "beyond polish", " BEYOND POLISH "]) {
+      assert.equal(isBeyondPolishPolish(beyondListing("Beyond Polish Mystery Lacquer - Surprise", "Nail Lacquer", { vendor }), BEYOND_GEL), false, vendor);
+    }
+  });
+
+  it("defaults to includeGel false when the registry passes no settings", () => {
+    const gel = beyond("OPI GelColor - Black Cherry Chutney 0.5 oz - #GCI43");
+    assert.equal(shopifyStoreProductVerdict("BeyondPolishShopify", gel), false);
+    assert.equal(shopifyStoreProductVerdict("BeyondPolishShopify", gel, readSourceSettings({ kind: "retailer", includeGel: true })), true);
+    assert.equal(shopifyStoreProductVerdict("BeyondPolishShopify", gel, readSourceSettings({ kind: "retailer" })), false);
   });
 });

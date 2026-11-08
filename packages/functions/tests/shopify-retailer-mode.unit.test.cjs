@@ -39,7 +39,7 @@ function pull(connector, catalog = products) {
   });
 }
 
-function retailerConnector(source = "BeyondPolishShopify", baseUrl = "https://www.beyondpolish.com") {
+function retailerConnector(source = "FixtureRetailerShopify", baseUrl = "https://www.beyondpolish.com") {
   return new ShopifyGenericConnector(source, baseUrl, {
     currency: "USD",
     settings: readSourceSettings({
@@ -110,7 +110,7 @@ describe("ShopifyGenericConnector — retailer mode", () => {
   });
 
   it("brand mode produces exactly the pre-retailer-mode records over the same fixture", async () => {
-    const brand = new ShopifyGenericConnector("BeyondPolishShopify", "https://www.beyondpolish.com", {
+    const brand = new ShopifyGenericConnector("FixtureRetailerShopify", "https://www.beyondpolish.com", {
       currency: "USD",
       settings: readSourceSettings({}),
     });

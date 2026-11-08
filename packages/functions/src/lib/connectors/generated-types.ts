@@ -7,6 +7,7 @@ import type { ConnectorProtocol } from "swatchwatch-shared";
 
 export type SupportedConnectorSource =
   | "BeesKneesLacquerShopify"
+  | "BeyondPolishShopify"
   | "ChinaGlazeShopify"
   | "CirqueColorsShopify"
   | "ClionadhShopify"
@@ -55,6 +56,7 @@ export type SupportedConnectorSource =
 /** Maps each connector source to its protocol group for UI grouping and bulk selection. */
 export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProtocol> = {
   BeesKneesLacquerShopify: "Shopify",
+  BeyondPolishShopify: "Shopify",
   ChinaGlazeShopify: "Shopify",
   CirqueColorsShopify: "Shopify",
   ClionadhShopify: "Shopify",
@@ -104,6 +106,7 @@ export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProt
 // Runtime array for validation - same values as the type above
 export const SUPPORTED_SOURCES: SupportedConnectorSource[] = [
   "BeesKneesLacquerShopify",
+  "BeyondPolishShopify",
   "ChinaGlazeShopify",
   "CirqueColorsShopify",
   "ClionadhShopify",

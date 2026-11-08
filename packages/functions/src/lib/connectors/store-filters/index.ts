@@ -1,3 +1,4 @@
+import { isBeyondPolishPolish } from "./beyond-polish.js";
 import { isCirqueColorsPolish } from "./cirque-colors.js";
 import { isHarlowAndCoPolish } from "./harlow-and-co.js";
 import { isLemmingLacquerPolish } from "./lemming-lacquer.js";
@@ -5,6 +6,7 @@ import { isPahlishPolish } from "./pahlish.js";
 import { isPolishPickupPolish } from "./polish-pickup.js";
 import { isStellaChromaPolish } from "./stella-chroma.js";
 import { isSweetAndSourPolish } from "./sweet-and-sour.js";
+import type { SourceSettings } from "../../source-settings.js";
 import type { StoreFilterProduct, StoreProductFilter } from "./types.js";
 
 export type { StoreFilterProduct, StoreProductFilter, StoreTitleParser } from "./types.js";
@@ -23,15 +25,17 @@ export const SHOPIFY_STORE_PRODUCT_FILTERS: Readonly<Record<string, StoreProduct
   SweetAndSourLacquerShopify: isSweetAndSourPolish,
   PolishPickupShopify: isPolishPickupPolish,
   HarlowAndCoShopify: isHarlowAndCoPolish,
+  BeyondPolishShopify: isBeyondPolishPolish,
 };
 
 /** The store filter's verdict for `product`, or null when `source` has none. */
 export function shopifyStoreProductVerdict(
   source: string,
-  product: StoreFilterProduct
+  product: StoreFilterProduct,
+  settings?: SourceSettings
 ): boolean | null {
   const filter = Object.prototype.hasOwnProperty.call(SHOPIFY_STORE_PRODUCT_FILTERS, source)
     ? SHOPIFY_STORE_PRODUCT_FILTERS[source]
     : undefined;
-  return filter ? filter(product) : null;
+  return filter ? filter(product, settings) : null;
 }
