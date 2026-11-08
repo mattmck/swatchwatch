@@ -68,3 +68,25 @@ test("exports the regexes and returns null without a shade", () => {
 test("an all-line title keeps its last segment as the shade", () => {
   partial(p("Brand - Nail Polish - Lacquer Up", "Brand"), { shadeName: "Lacquer Up", productLine: "Nail Polish" });
 });
+
+test("strips the raw vendor prefix when the alias-resolved brand differs from it", () => {
+  // Beyond Polish vendor "Lippmann" is aliased to the brand "Deborah Lippmann"; its titles start
+  // with the raw vendor.
+  partial(p("Lippmann - Celeste", "Deborah Lippmann", ["Lippmann"]), { shadeName: "Celeste" });
+  partial(p("Deborah Lippmann - Celeste", "Deborah Lippmann", ["Lippmann"]), { shadeName: "Celeste" });
+  partial(p("Sunday Studio - Nail Polish - No. 38", "Sundays", ["Sunday Studio"]), {
+    shadeName: "No. 38", productLine: "Nail Polish",
+  });
+  // A single-segment title keeps the raw vendor in the shade name unless it is stripped.
+  partial(p("Lippmann Celeste 0.5 oz", "Deborah Lippmann", ["Lippmann"]), { shadeName: "Celeste" });
+  partial(p("Lippmann Celeste 0.5 oz", "Deborah Lippmann"), { shadeName: "Lippmann Celeste" });
+});
+
+test("reads a vendor code with a dot, and a code glued to the end of a segment", () => {
+  // Beyond Polish, 2026-11-08: "Essie Gel Couture - Strut with it - #182.1", "Essie Skinny Dip 0.5 oz #1122".
+  partial(p("Essie Gel Couture - Strut with it - #182.1", "Essie"), {
+    shadeName: "Strut with it", productLine: "Gel Couture", vendorCode: "182.1",
+  });
+  partial(p("Essie Skinny Dip 0.5 oz #1122", "Essie"), { shadeName: "Skinny Dip", vendorCode: "1122" });
+  partial(p("Zoya - Laurie .5 oz. - #ZP433", "Zoya"), { shadeName: "Laurie", vendorCode: "ZP433" });
+});

@@ -1006,7 +1006,9 @@ function gateRetailerListing(
   if (!brand) {
     return { accept: false, category: "accessory", vendorless: true };
   }
-  const title = parseRetailerTitle(asNonEmptyString(product.title) as string, brand);
+  // A title may start with the raw vendor rather than the alias-resolved brand ("Lippmann - Celeste").
+  const rawVendor = asNonEmptyString(product.vendor);
+  const title = parseRetailerTitle(asNonEmptyString(product.title) as string, brand, rawVendor ? [rawVendor] : []);
   if (!title || title.isSet) {
     return { accept: false, category: "accessory" };
   }

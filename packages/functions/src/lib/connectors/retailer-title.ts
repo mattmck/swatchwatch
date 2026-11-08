@@ -29,7 +29,8 @@ export function isRetailerSetSegment(segment: string): boolean {
 }
 
 const PRE_ORDER_REGEX = /^\s*(?:\*PRE-ORDER\*|PRE-ORDER:)\s*/i;
-const VENDOR_CODE_REGEX = /^#\s*([A-Z0-9-]+)$/i;
+const VENDOR_CODE_REGEX = /^#\s*([A-Z0-9][A-Z0-9.-]*)$/i;
+const TRAILING_CODE_REGEX = /\s+#([A-Z0-9][A-Z0-9.-]*)$/i;
 const TRAILING_SIZE_REGEX = /\s*\(?\d*\.?\d+\s*(?:oz|ml)\.?\)?$/i;
 const TRAILING_MULTIPACK_REGEX = /\s*\d+X Nail Lacquer$/i;
 const TRAILING_FINISH_REGEX = /\s*\((?:magnetic|thermal|flakie|shimmer|holo)\)$/i;
@@ -39,27 +40,38 @@ function normalizeSpace(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
-function stripBrand(segments: string[], brand: string): string[] {
+function stripBrand(segments: string[], brands: readonly string[]): string[] {
   const first = segments[0];
   if (first === undefined) return segments;
-  const wanted = normalizeSpace(brand);
   const have = normalizeSpace(first);
-  if (!wanted) return segments;
-  if (have === wanted) return segments.slice(1);
-  if (have.startsWith(`${wanted} `)) {
-    // Keep the remainder with its original casing.
-    const rest = first.trim().replace(/\s+/g, " ").slice(wanted.length).trim();
-    return [rest, ...segments.slice(1)];
+  for (const brand of brands) {
+    const wanted = normalizeSpace(brand);
+    if (!wanted) continue;
+    if (have === wanted) return segments.slice(1);
+    if (have.startsWith(`${wanted} `)) {
+      // Keep the remainder with its original casing.
+      const rest = first.trim().replace(/\s+/g, " ").slice(wanted.length).trim();
+      return [rest, ...segments.slice(1)];
+    }
   }
   return segments;
 }
 
-export function parseRetailerTitle(title: string, brand: string): RetailerTitle | null {
+/**
+ * Parses one listing title. `brand` is the resolved brand; `extraPrefixes` are other spellings a
+ * title may start with (the raw vendor when an alias renamed it: vendor "Lippmann", brand
+ * "Deborah Lippmann", title "Lippmann Celeste"), stripped like the brand.
+ */
+export function parseRetailerTitle(
+  title: string,
+  brand: string,
+  extraPrefixes: readonly string[] = []
+): RetailerTitle | null {
   const cleaned = title.replace(PRE_ORDER_REGEX, "").trim();
   if (!cleaned) return null;
 
   let segments = cleaned.split(" - ").map((s) => s.trim());
-  segments = stripBrand(segments, brand);
+  segments = stripBrand(segments, [brand, ...extraPrefixes]);
 
   let vendorCode: string | null = null;
   const names: string[] = [];
@@ -69,7 +81,11 @@ export function parseRetailerTitle(title: string, brand: string): RetailerTitle 
       vendorCode = code[1];
       continue;
     }
+    // A code glued to the end of a segment ("Skinny Dip 0.5 oz #1122").
+    const inlineCode = TRAILING_CODE_REGEX.exec(segment);
+    if (inlineCode) vendorCode ??= inlineCode[1];
     const stripped = segment
+      .replace(TRAILING_CODE_REGEX, "")
       .replace(TRAILING_SIZE_REGEX, "")
       .replace(TRAILING_MULTIPACK_REGEX, "")
       .trim();
