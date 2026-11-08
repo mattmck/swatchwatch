@@ -11,7 +11,17 @@ export async function assertSourceEnabledForRun(
   source: string,
   lookup: DataSourceLookup = getDataSourceByName
 ): Promise<HttpResponseInit | null> {
-  const row = await lookup(source);
+  return refuseIfDisabled(source, await lookup(source));
+}
+
+/**
+ * Same decision on a row already in hand. Handlers feed it the row `ensureDataSourceByName`
+ * returned, so a pending Shopify source auto-provisioned disabled is refused too.
+ */
+export function refuseIfDisabled(
+  source: string,
+  row: Pick<DataSourceRecord, "enabled"> | null
+): HttpResponseInit | null {
   if (row && row.enabled === false) {
     return {
       status: 409,

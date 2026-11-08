@@ -62,6 +62,7 @@ const JOB_ID = 7;
 let materializeMock = async (records) => ({ processed: records.length, hexDetected: records.length });
 // data_source.metadata of the job's source (source kind, image permission, …).
 let sourceMetadata = {};
+let sourceEnabled = true;
 registerMock("ingestion-repo", {
   getIngestionJobById: async (jobId) =>
     job && jobId === JOB_ID
@@ -87,7 +88,7 @@ registerMock("ingestion-repo", {
     job.metrics = clone(metrics);
     events.push({ type: "failed", error, metrics: clone(metrics) });
   },
-  getDataSourceByName: async () => ({ dataSourceId: 3, baseUrl: "https://shop.example", metadata: sourceMetadata }),
+  getDataSourceByName: async () => ({ dataSourceId: 3, baseUrl: "https://shop.example", metadata: sourceMetadata, enabled: sourceEnabled, name: "HoloTacoShopify" }),
   upsertExternalProducts: async (_id, records) => ({
     processed: records.length,
     inserted: records.length,
@@ -205,6 +206,7 @@ beforeEach(() => {
   sendMessageMock = async () => {};
   materializeMock = async (records) => ({ processed: records.length, hexDetected: records.length });
   sourceMetadata = {};
+  sourceEnabled = true;
   delete process.env.INGESTION_WORKER_TIME_BUDGET_MS;
   delete process.env.HEX_DETECTION_BATCH_ENABLED;
   delete process.env.HEX_DETECTION_BATCH_MAX_IN_FLIGHT;
@@ -979,5 +981,21 @@ describe("processIngestionJobQueueMessage — source kinds", () => {
     assert.equal(options.overwriteDetectedHex, true);
     assert.equal(options.storeImages, true);
     assert.equal(options.sourceKind, "brand");
+  });
+});
+
+describe("processIngestionJobQueueMessage — disabled source", () => {
+  it("fails the job at start with stage source_disabled and never pulls", async () => {
+    sourceEnabled = false;
+    pages[1] = { records: makeRecords(1, 5), metadata: {} };
+
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    assert.equal(events.filter((e) => e.type === "pull").length, 0);
+    assert.equal(enqueued().length, 0);
+    const failed = events.find((e) => e.type === "failed");
+    assert.ok(failed, "expected the job to be marked failed");
+    assert.equal(failed.error, "Source HoloTacoShopify is disabled; the job was not run");
+    assert.equal(failed.metrics.failedStage, "source_disabled");
   });
 });

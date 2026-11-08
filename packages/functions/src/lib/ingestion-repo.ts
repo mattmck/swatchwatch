@@ -2046,11 +2046,12 @@ async function createDataSourceIfMissing(name: string): Promise<DataSourceRecord
     dataSourceId: number;
     name: string;
     baseUrl: string | null;
+    enabled: boolean;
   }>(
     `INSERT INTO data_source (name, source_type, base_url, enabled, metadata)
      VALUES ($1, 'api', $2, $3, $4::jsonb)
      ON CONFLICT (name) DO NOTHING
-     RETURNING data_source_id AS "dataSourceId", name, base_url AS "baseUrl", metadata`,
+     RETURNING data_source_id AS "dataSourceId", name, base_url AS "baseUrl", metadata, enabled`,
     [name, baseUrl, enabled, JSON.stringify(metadata)]
   );
 

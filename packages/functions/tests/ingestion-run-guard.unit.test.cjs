@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   assertSourceEnabledForRun,
+  refuseIfDisabled,
   partitionDisabledSources,
 } = require("../dist/lib/ingestion-run-guard");
 
@@ -32,4 +33,15 @@ test("partitionDisabledSources lists only existing disabled rows", () => {
     ["B", "D"]
   );
   assert.deepEqual(partitionDisabledSources([]), []);
+});
+
+test("a pending Shopify source provisioned disabled is refused after ensure", () => {
+  const res = refuseIfDisabled("PendingShopify", { enabled: false });
+  assert.equal(res.status, 409);
+  assert.equal(res.jsonBody.error, "source_disabled");
+});
+
+test("an enabled ensured row (or no row) proceeds", () => {
+  assert.equal(refuseIfDisabled("X", { enabled: true }), null);
+  assert.equal(refuseIfDisabled("X", null), null);
 });
