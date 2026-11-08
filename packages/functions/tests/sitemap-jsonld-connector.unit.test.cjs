@@ -484,26 +484,114 @@ describe("SitemapJsonLdConnector: checkpointed crawl", () => {
     assert.deepEqual(result.catalog.externalIds, ["/products/nail-lacquer-flaky", "/products/nail-lacquer-fine"]);
   });
 
-  it("saves the pages already fetched before rethrowing a fatal error", async () => {
+  it("saves the discovery already done before rethrowing a fatal sitemap error", async () => {
     const clock = fakeClock();
-    const urls = [1, 2, 3].map((n) => `${PREFIXES[0]}page-${n}`);
+    const children = ["https://www.opi.com/sitemap-1.xml", "https://www.opi.com/sitemap-2.xml"];
+    const index = `<?xml version="1.0"?><sitemapindex>${children.map((url) => `<sitemap><loc>${url}</loc></sitemap>`).join("")}</sitemapindex>`;
     const routes = {
-      [urls[0]]: ldPage({ "@type": "Product", name: "One", brand: "OPI" }),
-      [urls[1]]: ldPage({ "@type": "Product", name: "Two", brand: "OPI" }),
+      [SITEMAP_URL]: index,
+      [children[0]]: `<?xml version="1.0"?><urlset><url><loc>${PREFIXES[0]}one</loc></url></urlset>`,
     };
     const { fetchImpl: base } = stubFetch(clock, routes);
     const fetchImpl = async (url, init) => {
-      if (url === urls[2]) throw new TypeError("boom: invalid header value");
+      if (url === children[1]) throw new TypeError("boom: invalid header value");
       return base(url, init);
     };
-    const cache = await seededCache(urls);
+    const cache = memoryCache();
     await assert.rejects(
       connector(clock, fetchImpl).pullProducts({ ...PULL, catalogCache: cache, deadlineMs: clock.t + 10_000_000 }),
       /boom/
     );
-    assert.deepEqual(Object.keys(cache.peek().pages), urls.slice(0, 2));
-    assert.equal(cache.peek().generation, 2);
+    assert.equal(cache.peek().discovery.rootRead, true);
+    assert.deepEqual(cache.peek().discovery.done, [children[0]]);
+    assert.deepEqual(cache.peek().urls.map(({ url }) => url), [`${PREFIXES[0]}one`]);
+    assert.equal(cache.peek().generation, 1);
     assert.equal(cache.peek().complete, false);
+  });
+
+  it("counts a page whose fetch throws (TypeError: terminated) as one attempt per pull, then records it as failed", async () => {
+    const clock = fakeClock();
+    const urls = [1, 2, 3].map((n) => `${PREFIXES[0]}page-${n}`);
+    const routes = {
+      [urls[0]]: ldPage({ "@type": "Product", name: "One", brand: "OPI" }),
+      [urls[2]]: ldPage({ "@type": "Product", name: "Three", brand: "OPI" }),
+    };
+    const { fetchImpl: base, log } = stubFetch(clock, routes);
+    let thrown = 0;
+    const fetchImpl = async (url, init) => {
+      if (url === urls[1]) {
+        thrown += 1;
+        log.push({ url, at: clock.t, headers: init.headers });
+        throw new TypeError("terminated");
+      }
+      return base(url, init);
+    };
+    const cache = await seededCache(urls);
+    const crawler = connector(clock, fetchImpl);
+    const warnings = [];
+    const pullLog = (level, message, data) => warnings.push({ level, message, data });
+    const results = [];
+    for (let pull = 0; pull < 3; pull += 1) {
+      results.push(await crawler.pullProducts({ ...PULL, catalogCache: cache, deadlineMs: clock.t + 10_000_000, log: pullLog }));
+    }
+    // The other pages are fetched in the first pull; the throwing one is tried once per pull.
+    assert.deepEqual(results.map((result) => result.metadata.catalogComplete), [false, false, true]);
+    assert.equal(thrown, 3);
+    assert.deepEqual(Object.keys(cache.peek().pages).sort(), [urls[0], urls[2]].sort());
+    assert.deepEqual(cache.peek().failed, [urls[1]]);
+    assert.deepEqual(cache.peek().attempts, {});
+    assert.deepEqual(results[2].records.map((record) => record.externalId), ["/products/nail-lacquer-page-1", "/products/nail-lacquer-page-3"]);
+    assert.equal(warnings.length, 1);
+    assert.equal(warnings[0].level, "warn");
+    assert.match(warnings[0].message, /Crawl gave up on a page: .*page-2 \(.*terminated/);
+  });
+
+  it("gives up at once on a page whose URL is invalid", async () => {
+    const clock = fakeClock();
+    const urls = [`${PREFIXES[0]}bad`, `${PREFIXES[0]}fine`];
+    const routes = { [urls[1]]: ldPage({ "@type": "Product", name: "Fine", brand: "OPI" }) };
+    const { fetchImpl: base } = stubFetch(clock, routes);
+    const fetchImpl = async (url, init) => {
+      if (url === urls[0]) {
+        const error = new TypeError("Invalid URL");
+        error.code = "ERR_INVALID_URL";
+        throw error;
+      }
+      return base(url, init);
+    };
+    const cache = await seededCache(urls);
+    const result = await connector(clock, fetchImpl).pullProducts({ ...PULL, catalogCache: cache, deadlineMs: clock.t + 10_000_000 });
+    assert.equal(result.metadata.catalogComplete, true);
+    assert.deepEqual(cache.peek().failed, [urls[0]]);
+    assert.match(result.metadata.failedThisPull[0].reason, /Invalid URL/);
+  });
+
+  it("logs a give-up through the pull's log when the pull later throws", async () => {
+    const clock = fakeClock();
+    const urls = [`${PREFIXES[0]}forbidden`, `${PREFIXES[0]}fine`];
+    const routes = {
+      [urls[0]]: () => ({ status: 403, body: "" }),
+      [urls[1]]: ldPage({ "@type": "Product", name: "Fine", brand: "OPI" }),
+    };
+    const { fetchImpl } = stubFetch(clock, routes);
+    const cache = await seededCache(urls);
+    cache.saveCheckpoint = async () => {
+      throw new Error("blob storage unavailable");
+    };
+    const warnings = [];
+    await assert.rejects(
+      connector(clock, fetchImpl).pullProducts({
+        ...PULL,
+        catalogCache: cache,
+        deadlineMs: clock.t + 10_000_000,
+        log: (level, message, data) => warnings.push({ level, message, data }),
+      }),
+      /blob storage unavailable/
+    );
+    assert.equal(warnings.length, 1);
+    assert.equal(warnings[0].level, "warn");
+    assert.equal(warnings[0].data.url, urls[0]);
+    assert.match(warnings[0].data.reason, /HTTP 403/);
   });
 
   it("records a page that answers 404 as fetched with nothing on it", async () => {

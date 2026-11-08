@@ -42,6 +42,9 @@ export class ConnectorCheckpointSupersededError extends Error {
   }
 }
 
+/** A pull's line in the job log (the worker passes its job logger). */
+export type ConnectorPullLog = (level: "info" | "warn", message: string, data?: Record<string, unknown>) => void;
+
 export interface ConnectorPullOptions {
   searchTerm: string;
   page: number;
@@ -55,6 +58,12 @@ export interface ConnectorPullOptions {
    * early and saves its checkpoint; connectors that download in one request ignore it.
    */
   deadlineMs?: number;
+  /**
+   * The job log. A connector reports an event the moment it happens (a crawl giving up on a
+   * page), so the line is kept even when the pull later throws or the worker loses the job.
+   * Absent (tests, ad-hoc callers): connectors fall back to `console.warn`.
+   */
+  log?: ConnectorPullLog;
 }
 
 /** Load the raw catalog from `cache` when present, otherwise fetch it and save it to `cache`. */

@@ -1116,20 +1116,56 @@ describe("processIngestionJobQueueMessage — partial crawl pulls", () => {
     assert.equal(freshnessCalls.length, 0);
   });
 
+  // A crawling connector reports each give-up through `options.log` when it records it.
+  const givingUp = (failures, result) => async (options) => {
+    fakeNow += 1000;
+    for (const { url, reason } of failures) {
+      options.log("warn", `Crawl gave up on a page: ${url} (${reason})`, { url, reason });
+    }
+    if (result instanceof Error) throw result;
+    return result;
+  };
+  const failures = [{ url: "https://x.example/a", reason: "HTTP 503" }, { url: "https://x.example/b", reason: "HTTP 500" }];
+  const giveUpWarnings = () => (job.metrics.logs || []).filter((entry) => /Crawl gave up on a page/.test(entry.msg));
+
   it("logs one warning per page the crawl gave up on and keeps the list out of the job metrics", async () => {
-    pages[1] = sequence([
-      partial(150, { failedPages: 2, failedThisPull: [{ url: "https://x.example/a", reason: "HTTP 503" }, { url: "https://x.example/b", reason: "HTTP 500" }] }),
-      complete(makeRecords(1, 1)),
-    ]);
+    let call = 0;
+    pages[1] = async (options) =>
+      call++ === 0
+        ? givingUp(failures, partial(150, { failedPages: 2, failedThisPull: failures }))(options)
+        : complete(makeRecords(1, 1));
 
     await processIngestionJobQueueMessage(makePayload(), context);
 
-    const warnings = (job.metrics.logs || []).filter((entry) => /Crawl gave up on a page/.test(entry.msg));
+    const warnings = giveUpWarnings();
     assert.equal(warnings.length, 2);
     assert.equal(warnings[0].level, "warn");
     assert.match(warnings[0].msg, /https:\/\/x\.example\/a \(HTTP 503\)/);
     assert.equal(job.metrics.failedThisPull, undefined);
     assert.equal(job.metrics.failedPages, 2);
+  });
+
+  it("keeps the give-up warnings when the pull then throws", async () => {
+    pages[1] = givingUp(failures, new Error("blob storage unavailable"));
+
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    assert.equal(job.status, "failed");
+    assert.equal(giveUpWarnings().length, 2);
+  });
+
+  it("still reports the give-ups to the function log when the job was taken over during the pull", async () => {
+    pages[1] = async (options) => {
+      const result = await givingUp(failures, partial(150, { failedThisPull: failures }))(options);
+      job.status = "cancelled";
+      return result;
+    };
+    const warned = [];
+    const watching = { ...context, warn: (message) => warned.push(String(message)) };
+
+    await processIngestionJobQueueMessage(makePayload(), watching);
+
+    assert.equal(warned.filter((message) => /Crawl gave up on a page/.test(message)).length, 2);
   });
 
   it("stops after a partial pull when the job was cancelled, without writing or pulling again", async () => {

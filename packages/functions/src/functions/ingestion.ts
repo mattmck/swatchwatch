@@ -1136,6 +1136,8 @@ export async function processIngestionJobQueueMessage(
           catalogCache,
           // A crawling connector (sitemap) stops its request loop in time to save and hand off.
           deadlineMs: invocationStartedAt + timeBudgetMs,
+          // Events the connector logs as they happen (a crawl giving up on a page).
+          log: (level, message, data) => (level === "warn" ? logger.warn(message, data) : logger.info(message, data)),
         });
       } catch (pullError) {
         // A newer invocation saved the crawl checkpoint first: it owns the job. Stop like a
@@ -1156,15 +1158,9 @@ export async function processIngestionJobQueueMessage(
         return;
       }
 
-      // Pages a crawling connector gave up on in this pull: one warning each, kept out of the
-      // job metrics (the running `failedPages` count stays there).
-      if (Array.isArray(pageResult.metadata?.failedThisPull)) {
-        for (const failure of pageResult.metadata.failedThisPull as Array<{ url?: unknown; reason?: unknown }>) {
-          logger.warn(`Crawl gave up on a page: ${String(failure?.url)} (${String(failure?.reason)})`, {
-            url: failure?.url,
-            reason: failure?.reason,
-          });
-        }
+      // Pages a crawling connector gave up on in this pull: already logged through `log` when
+      // recorded; the list stays out of the job metrics (the running `failedPages` count stays).
+      if (pageResult.metadata && "failedThisPull" in pageResult.metadata) {
         const { failedThisPull: _failedThisPull, ...metadataWithoutFailures } = pageResult.metadata;
         pageResult = { ...pageResult, metadata: metadataWithoutFailures };
       }

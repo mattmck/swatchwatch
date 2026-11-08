@@ -29,6 +29,7 @@ import {
   ConnectorCatalogCache,
   ConnectorCheckpointSupersededError,
   ConnectorProductRecord,
+  ConnectorPullLog,
   ConnectorPullOptions,
   ConnectorPullResult,
   ProductConnector,
@@ -451,15 +452,26 @@ type RequestOutcome =
   /** Every attempt failed with a retryable error (5xx, 429, timeout, network). */
   | { status: "exhausted"; reason: string }
   /**
+   * A product page's fetch or body read threw a non-retryable error (`TypeError: terminated`,
+   * an invalid URL): one attempt for that page, given up on at once when `permanent`.
+   */
+  | { status: "error"; reason: string; permanent: boolean }
+  /**
    * Not attempted (`attempted: false`) or not retried (`attempted: true`, with the last failure)
    * because it would not fit before the save margin.
    */
   | { status: "deferred"; attempted: boolean; reason?: string };
 
-/** A page the crawl gave up on in this pull (the worker logs one warning each). */
+/** A page the crawl gave up on in this pull (logged through the pull's `log` when recorded). */
 export interface FailedPage {
   url: string;
   reason: string;
+}
+
+/** A request error no later attempt can fix (a malformed URL, an unsupported scheme). */
+function isPermanentRequestError(error: Error): boolean {
+  if ((error as { code?: unknown }).code === "ERR_INVALID_URL") return true;
+  return /invalid url|failed to parse url|unsupported protocol|unknown scheme/i.test(error.message);
 }
 
 function isRetryableStatus(status: number): boolean {
@@ -539,7 +551,7 @@ export class SitemapJsonLdConnector implements ProductConnector {
       }
       let crawl: CrawlResult;
       try {
-        crawl = await this.crawl(state, stopAt, failedThisPull);
+        crawl = await this.crawl(state, stopAt, failedThisPull, options.log);
       } catch (error) {
         // Keep what this pull already fetched (the crawl updates `state` in place); the
         // original error still fails the job. A superseded save wins over it: the newer
@@ -570,7 +582,7 @@ export class SitemapJsonLdConnector implements ProductConnector {
       crawledPages,
       totalPages,
       failedPages: state.failed.length,
-      // Pages given up on in this pull; the worker logs one warning per entry.
+      // Pages given up on in this pull (each already logged through `options.log`).
       failedThisPull,
       pagesThisPull,
       requestsThisPull,
@@ -661,7 +673,12 @@ export class SitemapJsonLdConnector implements ProductConnector {
   }
 
   /** Discovery, then product pages, until done, the page budget is spent or `stopAt` is near. */
-  private async crawl(state: SitemapCrawlCheckpoint, stopAt: number, failedThisPull: FailedPage[]): Promise<CrawlResult> {
+  private async crawl(
+    state: SitemapCrawlCheckpoint,
+    stopAt: number,
+    failedThisPull: FailedPage[],
+    log: ConnectorPullLog | undefined
+  ): Promise<CrawlResult> {
     let requests = 0;
     const known = new Set(state.urls.map(({ url }) => url));
     const addUrls = (entries: ParsedSitemap["entries"]) => {
@@ -701,7 +718,19 @@ export class SitemapJsonLdConnector implements ProductConnector {
       state.failed.push(url);
       delete state.attempts[url];
       failedThisPull.push({ url, reason });
+      // Logged when it is recorded, so the line survives a pull that throws later or a worker
+      // that loses the job before it reads `failedThisPull`.
+      const message = `Crawl gave up on a page: ${url} (${reason})`;
+      if (log) log("warn", message, { url, reason });
+      else console.warn(`${this.source} ${message}`);
     };
+    const countAttempt = (url: string, reason: string) => {
+      const attempts = (state.attempts[url] ?? 0) + 1;
+      state.attempts[url] = attempts;
+      if (attempts >= SITEMAP_JSONLD_MAX_URL_ATTEMPTS) giveUp(url, `not answered in ${attempts} pulls (last: ${reason})`);
+    };
+    // A page that errored in this pull stays for the next pull, so the crawl is not complete yet.
+    let pendingRetry = false;
     for (const { url } of state.urls) {
       if (url in state.pages || failed.has(url)) continue;
       if (pages >= this.maxPagesPerRun) return { pages, requests };
@@ -710,16 +739,20 @@ export class SitemapJsonLdConnector implements ProductConnector {
       if (outcome.status === "deferred") {
         // Out of time. A page tried in this pull counts one attempt; after
         // SITEMAP_JSONLD_MAX_URL_ATTEMPTS pulls it is given up on, so a dead page never stalls the crawl.
-        if (outcome.attempted) {
-          const attempts = (state.attempts[url] ?? 0) + 1;
-          state.attempts[url] = attempts;
-          if (attempts >= SITEMAP_JSONLD_MAX_URL_ATTEMPTS) {
-            giveUp(url, `not answered in ${attempts} pulls (last: ${outcome.reason ?? "unknown"})`);
-          }
-        }
+        if (outcome.attempted) countAttempt(url, outcome.reason ?? "unknown");
         return { pages, requests };
       }
       pages += 1;
+      if (outcome.status === "error") {
+        // One attempt for this page in this pull; the crawl moves on to the next page.
+        if (outcome.permanent) {
+          giveUp(url, outcome.reason);
+        } else {
+          countAttempt(url, outcome.reason);
+          if (!failed.has(url)) pendingRetry = true;
+        }
+        continue;
+      }
       if (outcome.status === "exhausted") {
         giveUp(url, outcome.reason);
         continue;
@@ -736,15 +769,16 @@ export class SitemapJsonLdConnector implements ProductConnector {
       }
       delete state.attempts[url];
     }
-    state.complete = true;
+    if (!pendingRetry) state.complete = true;
     return { pages, requests };
   }
 
   /**
    * One GET, paced and bounded by `stopAt`: every attempt (and its wait) starts only with at
    * least `SITEMAP_JSONLD_MIN_REQUEST_MS` left and times out by `stopAt`; a retry that would not
-   * fit is not made (`deferred`). Retryable failures on every attempt are `exhausted`; a
-   * non-retryable thrown error (not a timeout or network error) is fatal and thrown.
+   * fit is not made (`deferred`). Retryable failures on every attempt are `exhausted`. A
+   * non-retryable thrown error (not a timeout or network error) is fatal and thrown for a
+   * sitemap request; for a product page it is returned as `error` (one attempt for that page).
    */
   private async request(url: string, stopAt: number, kind: "sitemap" | "page"): Promise<RequestOutcome> {
     const attemptCount = MAX_REQUEST_RETRIES + 1;
@@ -781,7 +815,11 @@ export class SitemapJsonLdConnector implements ProductConnector {
         if (normalized.name === "AbortError") {
           normalized = new Error(`${this.source} ${kind} request timed out after ${timeoutMs}ms`);
         }
-        if (!isRetryableRequestError(normalized)) throw normalized;
+        if (!isRetryableRequestError(normalized)) {
+          if (kind === "sitemap") throw normalized;
+          const reason = `${normalized.name === "Error" ? "" : `${normalized.name}: `}${normalized.message}`;
+          return { status: "error", reason, permanent: isPermanentRequestError(normalized) };
+        }
         retryReason = normalized.message;
       } finally {
         clearTimeout(timeout);
@@ -802,6 +840,6 @@ interface CrawlResult {
 
 function describeOutcome(outcome: RequestOutcome): string {
   if (outcome.status === "http") return String(outcome.httpStatus);
-  if (outcome.status === "exhausted") return outcome.reason;
+  if (outcome.status === "exhausted" || outcome.status === "error") return outcome.reason;
   return outcome.status;
 }
