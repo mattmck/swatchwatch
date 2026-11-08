@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { MAX_BACKFILL_LIST_ITEMS, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import { MAX_BACKFILL_LIST_ITEMS, mergeBackfillTotals, parseSourceNames, readBackfillCursor } from "./admin-backfills";
 
 describe("mergeBackfillTotals", () => {
