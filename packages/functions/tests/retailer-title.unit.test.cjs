@@ -98,3 +98,38 @@ test("keeps a short trailing number in the name, and trims a trailing dot from a
   partial(p("Essie Skinny Dip 0.5 oz #1122.", "Essie"), { shadeName: "Skinny Dip", vendorCode: "1122" });
   partial(p("Essie Skinny Dip - #1122.", "Essie"), { vendorCode: "1122" });
 });
+
+test("strips the longest matching brand prefix first (raw vendor before its alias target)", () => {
+  // Alias target "Bee's Knees" is a prefix of the raw vendor "Bee's Knees Lacquer": the raw vendor wins,
+  // so "Lacquer" never remains as a product line or the start of a shade name.
+  partial(p("Bee's Knees Lacquer - The Pond Spirit", "Bee's Knees", ["Bee's Knees Lacquer"]), {
+    shadeName: "The Pond Spirit", productLine: null,
+  });
+  partial(p("Bee's Knees Lacquer Some Shade", "Bee's Knees", ["Bee's Knees Lacquer"]), {
+    shadeName: "Some Shade", productLine: null,
+  });
+});
+
+test("strips trailing notes, Refill, Mini and sizes anywhere in a segment (Hypnotic / Beyond Polish 2026-11-08)", () => {
+  partial(p("KBShimmer - Clearly On Top Quick Dry Top Coat 2oz (59ml) Refill", "KBShimmer"), {
+    shadeName: "Clearly On Top Quick Dry Top Coat",
+  });
+  partial(p("Glisten & Glow - Refill Top Coat bottle 60 ml (2 oz)", "Glisten & Glow"), {
+    shadeName: "Refill Top Coat bottle",
+  });
+  partial(p("Picture Polish - Always (Discontinued, last chance)", "Picture Polish"), { shadeName: "Always" });
+  partial(p("Picture Polish - Always (Discontinued)", "Picture Polish"), { shadeName: "Always" });
+  partial(p("Cirque Colors - Jammin' Out (LE)", "Cirque Colors"), { shadeName: "Jammin' Out" });
+  partial(p("Cirque Colors - Jammin' Out (Limited Edition)", "Cirque Colors"), { shadeName: "Jammin' Out" });
+  partial(p("Starrily - Golden Starlight (Reflective)", "Starrily"), { shadeName: "Golden Starlight" });
+  partial(
+    p("*PRE-ORDER* Cuticula Nail Lacquer - Limitless Quick Dry Top Coat (Unscented)", "Cuticula", ["Cuticula Nail Lacquer"]),
+    { shadeName: "Limitless Quick Dry Top Coat", productLine: null }
+  );
+  partial(p("butter LONDON - Patent Shine - Empire Red Mini - 10X Nail Lacquer", "butter LONDON"), {
+    shadeName: "Empire Red", productLine: "Patent Shine",
+  });
+  // Mini after a one-word name is part of the name.
+  partial(p("Brand - Cooper Mini", "Brand"), { shadeName: "Cooper Mini" });
+  partial(p("Brand - Ruby Red 0.5 fl oz", "Brand"), { shadeName: "Ruby Red" });
+});

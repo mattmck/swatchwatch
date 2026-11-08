@@ -46,7 +46,9 @@ export function parseSourceImageRemovalBody(raw: unknown): SourceImageRemovalOpt
  * and their blobs + thumbnail variants. Admin-only, dry run unless `"dryRun": false`; 404 for an
  * unknown source, 409 `source_enabled` while the source is enabled. Keyset-paginated by
  * `image_id` (`afterImageId`, `limit` default 100, max 500); the caller repeats with
- * `nextAfterImageId` until it is null (`scripts/remove-source-images.cjs`). See
+ * `nextAfterImageId` until it is null (`scripts/remove-source-images.cjs`); a batch stops after
+ * about 45 s (`SOURCE_IMAGE_REMOVAL_TIME_BUDGET_MS`) with a cursor to continue, and answers 409 if
+ * the source is re-enabled mid-batch. See
  * `lib/source-image-removal.ts` for what is kept.
  */
 export async function removeSourceImages(
@@ -77,8 +79,8 @@ export async function removeSourceImages(
         query,
         transaction,
         // A source image kept at its vendor URL (no storage at ingest time) has no blob of ours.
-        deleteBlob: async (storageUrl) =>
-          isCatalogStorageUrl(storageUrl) ? deleteBlobFromStorageUrl(storageUrl, { allowedContainers }) : false,
+        ownsBlob: isCatalogStorageUrl,
+        deleteBlob: async (storageUrl) => deleteBlobFromStorageUrl(storageUrl, { allowedContainers }),
       },
       parsed
     );

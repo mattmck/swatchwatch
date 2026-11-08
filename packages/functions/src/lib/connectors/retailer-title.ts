@@ -34,8 +34,36 @@ const VENDOR_CODE_REGEX = /^#\s*([A-Z0-9][A-Z0-9.-]*)$/i;
 const TRAILING_CODE_REGEX = /\s+#([A-Z0-9][A-Z0-9.-]+)$/i;
 const TRAILING_SIZE_REGEX = /\s*\(?\d*\.?\d+\s*(?:oz|ml)\.?\)?$/i;
 const TRAILING_MULTIPACK_REGEX = /\s*\d+X Nail Lacquer$/i;
-const TRAILING_FINISH_REGEX = /\s*\((?:magnetic|thermal|flakie|shimmer|holo)\)$/i;
 const LEADING_LACQUER_SET_REGEX = /^\s*Lacquer Set\b/i;
+const TRAILING_FINISH_REGEX = /\s*\((?:magnetic|thermal|flakie|shimmer|holo)\)$/i;
+// A size anywhere in a segment, with an optional parenthesized second unit:
+// "2oz (59ml)", "60 ml (2 oz)", "0.5 fl oz", "(15ml)".
+const SIZE_UNIT = String.raw`(?:fl\.?\s*oz|oz|ml)`;
+const INLINE_SIZE_REGEX = new RegExp(
+  String.raw`(?:^|\s+)\(?\d*\.?\d+\s*${SIZE_UNIT}\b\.?\)?(?:\s*\(\s*\d*\.?\d+\s*${SIZE_UNIT}\.?\s*\))?`,
+  "gi"
+);
+// Stock and edition notes at the end of a segment: "(LE)", "(Limited Edition)",
+// "(Discontinued, last chance)", "(Reflective)", "(Unscented)".
+const TRAILING_NOTE_REGEX = /\s*\((?:LE|Limited Edition|Discontinued[^)]*|Reflective|Unscented)\)$/i;
+const TRAILING_REFILL_REGEX = /\s+Refill$/i;
+// "Empire Red Mini" -> "Empire Red"; only with at least two other words ("Cooper Mini" stays).
+const TRAILING_MINI_REGEX = /^(\S+(?:\s+\S+)+)\s+Mini$/i;
+
+/** Strips sizes anywhere and trailing notes / Refill / Mini until nothing more comes off. */
+function stripSegmentNoise(segment: string): string {
+  let value = segment.replace(INLINE_SIZE_REGEX, " ").replace(/\s+/g, " ").trim();
+  for (;;) {
+    const next = value
+      .replace(TRAILING_SIZE_REGEX, "")
+      .replace(TRAILING_NOTE_REGEX, "")
+      .replace(TRAILING_REFILL_REGEX, "")
+      .replace(TRAILING_MINI_REGEX, "$1")
+      .trim();
+    if (next === value) return value;
+    value = next;
+  }
+}
 
 /** A code written at the end of a sentence ("#1122.") loses the dot. */
 function trimCode(code: string): string {
@@ -50,7 +78,10 @@ function stripBrand(segments: string[], brands: readonly string[]): string[] {
   const first = segments[0];
   if (first === undefined) return segments;
   const have = normalizeSpace(first);
-  for (const brand of brands) {
+  // Longest first: the raw vendor "Bee's Knees Lacquer" before its alias target "Bee's Knees",
+  // so "Lacquer" never stays behind as a product line or the start of the shade.
+  const ordered = [...brands].sort((a, b) => normalizeSpace(b).length - normalizeSpace(a).length);
+  for (const brand of ordered) {
     const wanted = normalizeSpace(brand);
     if (!wanted) continue;
     if (have === wanted) return segments.slice(1);
@@ -90,11 +121,9 @@ export function parseRetailerTitle(
     // A code glued to the end of a segment ("Skinny Dip 0.5 oz #1122").
     const inlineCode = TRAILING_CODE_REGEX.exec(segment);
     if (inlineCode) vendorCode ??= trimCode(inlineCode[1]);
-    const stripped = segment
-      .replace(TRAILING_CODE_REGEX, "")
-      .replace(TRAILING_SIZE_REGEX, "")
-      .replace(TRAILING_MULTIPACK_REGEX, "")
-      .trim();
+    const stripped = stripSegmentNoise(
+      segment.replace(TRAILING_CODE_REGEX, "").replace(TRAILING_MULTIPACK_REGEX, "").trim()
+    );
     if (stripped) names.push(stripped);
   }
 

@@ -55,11 +55,17 @@ function makeDb({ enabled = false, sourceExists = true } = {}) {
 
   async function query(sql, params) {
     statements.push(sql);
+    if (/FROM data_source/.test(sql) && /data_source_id = \$1/.test(sql)) {
+      return { rows: state.sources.filter((s) => s.data_source_id === params[0]).map((s) => ({ enabled: s.enabled })) };
+    }
     if (/FROM data_source/.test(sql)) {
       return { rows: state.sources.filter((s) => s.name === params[0]).map((s) => ({ dataSourceId: s.data_source_id, enabled: s.enabled })) };
     }
     if (/DELETE FROM swatch/.test(sql)) {
       const id = params[0];
+      if (state.failSwatchDeleteFor === id) {
+        throw new Error('update or delete on table "swatch" violates foreign key constraint');
+      }
       const removed = state.swatches.filter((s) => s.image_id_original === id || s.image_id_normalized === id);
       state.swatches = state.swatches.filter((s) => !removed.includes(s));
       return { rows: removed.map((s) => ({ swatchId: s.swatch_id })) };
@@ -71,7 +77,12 @@ function makeDb({ enabled = false, sourceExists = true } = {}) {
       return { rows: removed.map((i) => ({ imageId: i.image_id })) };
     }
     if (/FOR UPDATE/.test(sql)) {
-      return { rows: state.images.filter((i) => i.image_id === params[0]).map(flags) };
+      const [imageId, ownerId] = params;
+      const rows = state.images
+        .filter((i) => i.image_id === imageId && i.owner_type === "source" && i.owner_id === ownerId)
+        .map(flags);
+      if (state.afterReRead) state.afterReRead(imageId);
+      return { rows };
     }
     if (/FROM image_asset ia/.test(sql)) {
       const [ownerId, after, limit] = params;
@@ -89,6 +100,7 @@ function makeDb({ enabled = false, sourceExists = true } = {}) {
     query,
     transaction: async (callback) => callback({ query }),
     deleted: [],
+    ownsBlob: (url) => url.startsWith(BLOB),
     deleteBlob: async (url) => {
       deps.deleted.push(url);
       return true;
@@ -186,6 +198,77 @@ describe("runSourceImageRemovalBatch", () => {
     assert.equal(result.blobsDeleted, 0);
     assert.deepEqual(result.failures, [{ imageId: 11, error: "boom" }]);
     assert.ok(!state.images.some((i) => i.image_id === 11));
+  });
+});
+
+describe("runSourceImageRemovalBatch guards", () => {
+  it("scans and re-reads only the source's own images", async () => {
+    const { statements, deps } = makeDb();
+    await runSourceImageRemovalBatch(deps, { ...base, dryRun: false });
+    const scan = statements.find((sql) => /FROM image_asset ia/.test(sql) && /LIMIT/.test(sql));
+    assert.match(scan, /owner_type = 'source'/);
+    assert.match(scan, /owner_id = \$1/);
+    const reRead = statements.find((sql) => /FOR UPDATE/.test(sql));
+    assert.match(reRead, /ia\.owner_type = 'source'/);
+    assert.match(reRead, /ia\.owner_id = \$2/);
+  });
+
+  it("records an image whose transaction throws and carries on with the batch", async () => {
+    const { state, deps } = makeDb();
+    state.failSwatchDeleteFor = 11;
+    const result = (await runSourceImageRemovalBatch(deps, { ...base, dryRun: false })).result;
+    assert.equal(result.failures.length, 1);
+    assert.equal(result.failures[0].imageId, 11);
+    assert.match(result.failures[0].error, /foreign key/);
+    assert.ok(state.images.some((i) => i.image_id === 11), "image 11 kept after its failed transaction");
+    assert.ok(!state.images.some((i) => i.image_id === 12), "image 12 still removed");
+    assert.equal(result.imagesDeleted, 1);
+  });
+
+  it("dry run and real run agree on blobsDeleted for an image kept at its vendor URL (0)", async () => {
+    const withVendorImage = () => {
+      const db = makeDb();
+      db.state.images = [
+        { image_id: 20, owner_type: "source", owner_id: 7, storage_url: "https://vendor.example/p.jpg", checksum_sha256: null },
+      ];
+      db.state.swatches = [];
+      db.state.labels = [];
+      return db;
+    };
+    const dry = (await runSourceImageRemovalBatch(withVendorImage().deps, { ...base, dryRun: true })).result;
+    const realDb = withVendorImage();
+    const real = (await runSourceImageRemovalBatch(realDb.deps, { ...base, dryRun: false })).result;
+    assert.equal(dry.blobsDeleted, 0);
+    assert.equal(real.blobsDeleted, 0);
+    assert.equal(dry.imagesDeleted, 1);
+    assert.equal(real.imagesDeleted, 1);
+    assert.deepEqual(realDb.deps.deleted, [], "no blob delete for a URL that is not ours");
+  });
+
+  it("aborts with source_enabled when the source is re-enabled during the batch", async () => {
+    const { state, deps } = makeDb();
+    state.afterReRead = () => {
+      state.sources[0].enabled = true;
+    };
+    const outcome = await runSourceImageRemovalBatch(deps, { ...base, dryRun: false });
+    assert.equal(outcome.status, "source_enabled");
+    // Image 10 (labeled) was re-read before the flip; nothing after it was removed.
+    assert.ok(state.images.some((i) => i.image_id === 11));
+  });
+
+  it("stops after the time budget and returns the cursor of the last finished image", async () => {
+    const { deps } = makeDb();
+    let clock = 0;
+    const now = () => {
+      const value = clock;
+      clock += 30_000;
+      return value;
+    };
+    const result = (await runSourceImageRemovalBatch(deps, { ...base, dryRun: true }, { now, timeBudgetMs: 45_000 }))
+      .result;
+    // start=0; before image 10: first image always runs; before 11: 30s; before 12: 60s >= 45s.
+    assert.equal(result.scanned, 2);
+    assert.equal(result.nextAfterImageId, 11);
   });
 });
 

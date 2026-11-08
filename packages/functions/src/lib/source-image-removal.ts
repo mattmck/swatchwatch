@@ -20,7 +20,24 @@ export interface SourceImageRemovalDeps {
   transaction: <T>(callback: (client: Queryable) => Promise<T>) => Promise<T>;
   /** Delete one catalog blob; false when it did not exist. Throws on any other failure. */
   deleteBlob: (storageUrl: string) => Promise<boolean>;
+  /**
+   * Whether `storageUrl` is a blob of ours (the handler passes `isCatalogStorageUrl`). An image
+   * kept at its vendor URL has none: its row is removed, no blob delete is issued or counted, in
+   * the dry run and the real run alike.
+   */
+  ownsBlob: (storageUrl: string) => boolean;
 }
+
+/** A batch stops starting new images after this long (like the variants backfill). */
+export const SOURCE_IMAGE_REMOVAL_TIME_BUDGET_MS = 45_000;
+
+export interface SourceImageRemovalRunOptions {
+  timeBudgetMs?: number;
+  now?: () => number;
+}
+
+/** Thrown inside an image's transaction when the source was re-enabled mid-batch. */
+class SourceReEnabledError extends Error {}
 
 export interface SourceImageRemovalOptions {
   sourceName: string;
@@ -105,14 +122,22 @@ function errorMessage(error: unknown): string {
 /**
  * One keyset batch (`image_id > afterImageId`, `limit` images) of the source image removal. Runs
  * only on a disabled source (`source_enabled` otherwise, `not_found` for an unknown name), both
- * checked before any scan. Each image is removed in its own transaction that re-reads its flags
- * under `FOR UPDATE`; blob deletes run after it commits, and a blob failure is recorded in
+ * checked before any scan. Each image is removed in its own transaction that re-checks that the
+ * source is still disabled (`source_enabled` aborts the batch otherwise) and re-reads the image's
+ * flags (scoped to the source) under `FOR UPDATE`; a transaction that throws is recorded in
+ * `failures` and the batch goes on. The batch stops starting images after
+ * `SOURCE_IMAGE_REMOVAL_TIME_BUDGET_MS` and returns the last finished image as the cursor. Blob
+ * deletes (only for `ownsBlob` URLs) run after the transaction commits, and a blob failure is recorded in
  * `failures` without undoing the row delete (the orphaned blob is harmless; the run is idempotent).
  */
 export async function runSourceImageRemovalBatch(
   deps: SourceImageRemovalDeps,
-  options: SourceImageRemovalOptions
+  options: SourceImageRemovalOptions,
+  run: SourceImageRemovalRunOptions = {}
 ): Promise<SourceImageRemovalOutcome> {
+  const now = run.now ?? Date.now;
+  const timeBudgetMs = run.timeBudgetMs ?? SOURCE_IMAGE_REMOVAL_TIME_BUDGET_MS;
+  const startedAt = now();
   const source = await deps.query(
     `SELECT data_source_id::bigint AS "dataSourceId", enabled
      FROM data_source
@@ -143,10 +168,14 @@ export async function runSourceImageRemovalBatch(
     blobsDeleted: 0,
     kept: [],
     failures: [],
-    nextAfterImageId: images.length === options.limit ? images[images.length - 1].imageId : null,
+    nextAfterImageId: null,
   };
 
+  // The first image always runs; once the budget is spent the rest wait for the next batch.
+  let processed = 0;
   for (const scanned of images) {
+    if (processed > 0 && now() - startedAt >= timeBudgetMs) break;
+    processed += 1;
     if (options.dryRun) {
       const reason = protectionReason(scanned);
       if (reason) {
@@ -156,19 +185,27 @@ export async function runSourceImageRemovalBatch(
       result.swatchesUnlinked += scanned.swatchCount;
       result.imagesDeleted += 1;
       if (scanned.sharedBlob) result.kept.push({ imageId: scanned.imageId, reason: "shared_blob" });
-      else result.blobsDeleted += 1;
+      else if (deps.ownsBlob(scanned.storageUrl)) result.blobsDeleted += 1;
       continue;
     }
 
     let removed: { flags: ImageFlags; swatches: number } | { kept: SourceImageKeptReason } | null;
     try {
       removed = await deps.transaction(async (client) => {
+        // The source may have been re-enabled since the batch started: stop before deleting.
+        const state = await client.query(
+          `SELECT enabled FROM data_source WHERE data_source_id = $1 FOR SHARE`,
+          [dataSourceId]
+        );
+        if (state.rows[0]?.enabled !== false) throw new SourceReEnabledError();
         const current = await client.query(
           `SELECT ${IMAGE_FLAGS_SQL}
            FROM image_asset ia
            WHERE ia.image_id = $1
+             AND ia.owner_type = 'source'
+             AND ia.owner_id = $2
            FOR UPDATE`,
-          [scanned.imageId]
+          [scanned.imageId, dataSourceId]
         );
         if (current.rows.length === 0) return null; // already gone
         const flags = toFlags(current.rows[0]);
@@ -186,6 +223,7 @@ export async function runSourceImageRemovalBatch(
         return { flags, swatches: swatches.rows.length };
       });
     } catch (error) {
+      if (error instanceof SourceReEnabledError) return { status: "source_enabled" };
       result.failures.push({ imageId: scanned.imageId, error: errorMessage(error) });
       continue;
     }
@@ -201,6 +239,7 @@ export async function runSourceImageRemovalBatch(
       result.kept.push({ imageId: scanned.imageId, reason: "shared_blob" });
       continue;
     }
+    if (!deps.ownsBlob(removed.flags.storageUrl)) continue; // vendor URL: no blob of ours
     try {
       const storageUrl = removed.flags.storageUrl;
       for (const size of IMAGE_VARIANT_SIZES) {
@@ -213,5 +252,9 @@ export async function runSourceImageRemovalBatch(
     }
   }
 
+  result.scanned = processed;
+  if (processed < images.length || images.length === options.limit) {
+    result.nextAfterImageId = images[processed - 1].imageId;
+  }
   return { status: "ok", result };
 }

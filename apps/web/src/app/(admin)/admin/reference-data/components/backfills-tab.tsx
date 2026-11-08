@@ -30,6 +30,8 @@ interface BackfillDefinition {
   maxLimit: number;
   /** Offers the comma-separated data source filter (`sources`). */
   sources?: boolean;
+  /** Replaces the default "comma-separated, empty = all" hint of the data source input. */
+  sourcesHint?: string;
   /** Boolean body fields shown as switches. */
   options?: { key: string; label: string; defaultValue: boolean }[];
   metrics: { key: string; label: string }[];
@@ -142,7 +144,7 @@ const BACKFILLS: BackfillDefinition[] = [
     id: "source-images-remove",
     title: "Remove a source's images",
     description:
-      "Removes one data source's catalog images when the store asks us to stop using its pictures: unlinks their swatches, deletes the image rows, blobs and thumbnails. Enter exactly one source name, and disable the source first. Images with a hex label or color features are kept, and a blob another image row shares stays.",
+      "Removes one data source's catalog images when the store asks us to stop using its pictures: unlinks their swatches, deletes the image rows, blobs and thumbnails. Enter exactly one source name, and disable the source first. Images with a hex label or color features are kept, and a blob another image row shares stays. A batch ends early (about 45 s) and the run carries on from where it stopped.",
     command: "npm run remove:source-images --workspace=swatchwatch-functions -- --source <name> --write",
     path: "images-admin/source-images/remove",
     cursorKey: "afterImageId",
@@ -151,6 +153,7 @@ const BACKFILLS: BackfillDefinition[] = [
     defaultLimit: 100,
     maxLimit: 500,
     sources: true,
+    sourcesHint: "Exactly one disabled data source name",
     metrics: [
       { key: "scanned", label: "Images read" },
       { key: "swatchesUnlinked", label: "Swatches unlinked" },
@@ -478,7 +481,9 @@ function BackfillCard({ definition }: { definition: BackfillDefinition }) {
         </label>
         {definition.sources && (
           <label className="min-w-[12rem] flex-1 space-y-1 text-xs">
-            <span className="text-muted-foreground">Data sources (comma-separated, empty = all)</span>
+            <span className="text-muted-foreground">
+              {definition.sourcesHint ?? "Data sources (comma-separated, empty = all)"}
+            </span>
             <Input
               className="h-8"
               placeholder="MakeupAPI, HoloTacoShopify"

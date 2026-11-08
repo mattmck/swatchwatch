@@ -3473,7 +3473,8 @@ async function materializePreparedHoloTacoRecord(
   await recordShadeSourceProduct(client, shadeId, dataSourceId, record.externalId);
   delta.shadeId = shadeId;
   // Retailer listings carry the vendor code ("NLB83") and the raw listing title; both become
-  // aliases so a bottle label or a pasted title finds the shade (catalog search reads aliases).
+  // aliases, so typed catalog search and CSV import match the code or title through the alias
+  // (the capture / bottle resolver does not read shade_alias).
   await recordRetailerAliases(client, shadeId, holo.name, record.normalized);
   // Catalog barcodes (#21): the product GTIN and variant barcodes resolve scans to this shade.
   const barcodeResult = await materializeProductBarcodes(client, { shadeId, dataSourceId, record });

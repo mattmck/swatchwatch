@@ -311,6 +311,7 @@ describe("Phase B retailer migrations", () => {
   };
 
   for (const [name, file] of [
+    ["HarlowAndCoShopify", "20261108120000000_add-harlow-and-co-source.sql"],
     ["BeyondPolishShopify", "20261108130000000_add-beyond-polish-source.sql"],
     ["HypnoticPolishShopify", "20261108140000000_add-hypnotic-polish-source.sql"],
   ]) {

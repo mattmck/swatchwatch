@@ -1,10 +1,10 @@
--- Reseller duplicates — shades a retailer source may have created next to a brand store's shade,
+-- Retailer duplicates — shades a retailer source may have created next to a brand store's shade,
 -- and brands it may have created next to an existing brand.
 --
 -- Read-only (two SELECTs). Run it after the first dry run of a retailer source (Beyond Polish,
 -- Harlow & Co, Hypnotic Polish) and again after the first real run:
 --
---   psql "$DATABASE_URL" -f docs/queries/reseller-duplicates.sql
+--   psql "$DATABASE_URL" -f docs/queries/retailer-duplicates.sql
 --
 -- Needs pg_trgm (similarity()). A retailer record adopts the brand's shade when the names match
 -- (findExistingShadeForRecord); these queries find what slipped through: spelling differences,
