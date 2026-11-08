@@ -38,9 +38,11 @@ export type SupportedConnectorSource =
   | "HarlowAndCoShopify"
   | "HoloTacoShopify"
   | "HypnoticPolishShopify"
+  | "IlnpWooCommerce"
   | "ImpactAffiliateNetwork"
   | "JinsoonShopify"
   | "KathleenAndCoShopify"
+  | "KbshimmerWooCommerce"
   | "KiaraSkyShopify"
   | "LeMiniMacaronShopify"
   | "LemmingLacquerShopify"
@@ -66,6 +68,7 @@ export type SupportedConnectorSource =
   | "PahlishShopify"
   | "PaintItPrettyPolishShopify"
   | "PenelopeLuzShopify"
+  | "PicturePolishWooCommerce"
   | "PiggyPaintShopify"
   | "PolishPickupShopify"
   | "PotionPolishShopify"
@@ -122,9 +125,11 @@ export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProt
   HarlowAndCoShopify: "Shopify",
   HoloTacoShopify: "HoloTaco",
   HypnoticPolishShopify: "Shopify",
+  IlnpWooCommerce: "WooCommerce",
   ImpactAffiliateNetwork: "Custom",
   JinsoonShopify: "Shopify",
   KathleenAndCoShopify: "Shopify",
+  KbshimmerWooCommerce: "WooCommerce",
   KiaraSkyShopify: "Shopify",
   LeMiniMacaronShopify: "Shopify",
   LemmingLacquerShopify: "Shopify",
@@ -150,6 +155,7 @@ export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProt
   PahlishShopify: "Shopify",
   PaintItPrettyPolishShopify: "Shopify",
   PenelopeLuzShopify: "Shopify",
+  PicturePolishWooCommerce: "WooCommerce",
   PiggyPaintShopify: "Shopify",
   PolishPickupShopify: "Shopify",
   PotionPolishShopify: "Shopify",
@@ -207,9 +213,11 @@ export const SUPPORTED_SOURCES: SupportedConnectorSource[] = [
   "HarlowAndCoShopify",
   "HoloTacoShopify",
   "HypnoticPolishShopify",
+  "IlnpWooCommerce",
   "ImpactAffiliateNetwork",
   "JinsoonShopify",
   "KathleenAndCoShopify",
+  "KbshimmerWooCommerce",
   "KiaraSkyShopify",
   "LeMiniMacaronShopify",
   "LemmingLacquerShopify",
@@ -235,6 +243,7 @@ export const SUPPORTED_SOURCES: SupportedConnectorSource[] = [
   "PahlishShopify",
   "PaintItPrettyPolishShopify",
   "PenelopeLuzShopify",
+  "PicturePolishWooCommerce",
   "PiggyPaintShopify",
   "PolishPickupShopify",
   "PotionPolishShopify",

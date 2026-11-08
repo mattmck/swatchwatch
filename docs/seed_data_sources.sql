@@ -719,6 +719,33 @@ VALUES
     '{"brand": "OPI", "sitemapUrl": "https://www.opi.com/sitemap.xml", "productUrlPrefixes": ["https://www.opi.com/products/nail-lacquer-", "https://www.opi.com/products/infinite-shine-"], "currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "OPI brand store (US, USD), read through its sitemap and product-page JSON-LD (SitemapJsonLd connector, brand sources plan Task 15). Verified 2026-11-08: https://www.opi.com/sitemap.xml is a <urlset> of 1,898 pages, 575 of them under the two product prefixes (nail-lacquer-, infinite-shine-); a product page carries one application/ld+json Product with gtin, sku, brand, images and offers. Terms: no terms page at /terms-of-use on 2026-11-08, so whether automated access is allowed is unknown. REGISTERED DISABLED AND PENDING: the owner locates and reads OPI''s site terms and asks for the OK, records it here as ''Acceptable use confirmed by <name, role> at OPI on <date> via <channel>: <summary>'', then sets enabled = true and removes pendingApproval. The crawl needs CONNECTOR_RAW_CONTAINER (a durable catalog cache).", "verification": {"checkedAt": "2026-11-08", "sitemap": true, "productUrls": "1898-page sitemap on 2026-11-08 (575 under the product prefixes)", "jsonLdProduct": true, "termsScrapingClause": null}}'::jsonb
   ),
   (
+    'PicturePolishWooCommerce',
+    'api',
+    'https://picturepolish.com.au',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    NULL,
+    false,
+    '{"brand": "Picture Polish", "currency": "AUD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Picture Polish brand store (Australia, AUD), read through the WooCommerce Store API (WooCommerce connector, brand sources plan Task 16). Verified 2026-11-08: https://picturepolish.com.au/wp-json/wc/store/v1/products answered 200 with WooCommerce Store API products. Terms: not read yet, so whether automated access is allowed is unknown. REGISTERED DISABLED AND PENDING: the owner reads the store''s terms and asks for the OK, records it here as ''Acceptable use confirmed by <name, role> at Picture Polish on <date> via <channel>: <summary>'', then sets enabled = true and removes pendingApproval. The connector checks robots.txt before any product request.", "verification": {"checkedAt": "2026-11-08", "storeApi": true, "robotsTxt": null, "termsScrapingClause": null}}'::jsonb
+  ),
+  (
+    'IlnpWooCommerce',
+    'api',
+    'https://ilnp.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    NULL,
+    false,
+    '{"brand": "ILNP", "currency": "USD", "priority": "high", "mvp": "no", "pendingApproval": true, "blocked": "robots", "notes": "ILNP brand store (US, USD) on WooCommerce. KNOWN BLOCKED: its robots.txt disallows /wp-json/ and /wc/store/v1/ (October 2026 survey; the Store API itself answered 200), so the WooCommerce connector refuses to run it (WooCommerce Store API disallowed by robots.txt). Registered disabled so the admin console lists it as a known-blocked source; ILNP is reached through resellers instead (Harlow & Co, Hypnotic Polish; docs/brand-sources-evaluation-2026-11.md). Enable only with ILNP''s written OK recorded here as ''Acceptable use confirmed by <name, role> at ILNP on <date> via <channel>: <summary>'' and a robots.txt that allows the Store API.", "verification": {"checkedAt": "2026-11-08", "storeApi": true, "robotsTxt": "store-api-disallowed", "termsScrapingClause": null}}'::jsonb
+  ),
+  (
+    'KbshimmerWooCommerce',
+    'api',
+    'https://kbshimmer.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    NULL,
+    false,
+    '{"brand": "KBShimmer", "currency": "USD", "priority": "high", "mvp": "no", "pendingApproval": true, "blocked": "cloudflare", "notes": "KBShimmer brand store (US, USD) on WordPress. KNOWN BLOCKED: every path answers a Cloudflare challenge (403) to automated requests (November 2026 probe), so the Store API cannot be read. Registered disabled so the admin console lists it as a known-blocked source; KBShimmer is reached through resellers instead (Harlow & Co, Beyond Polish; docs/brand-sources-evaluation-2026-11.md). Enable only with KBShimmer''s written OK recorded here as ''Acceptable use confirmed by <name, role> at KBShimmer on <date> via <channel>: <summary>'' and access that does not hit the challenge.", "verification": {"checkedAt": "2026-11-08", "storeApi": false, "cloudflareChallenge": true, "termsScrapingClause": null}}'::jsonb
+  ),
+  (
     'CosIng',
     'api',
     'https://ec.europa.eu/growth/sectors/cosmetics/cosing',

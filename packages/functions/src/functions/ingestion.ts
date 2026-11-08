@@ -68,6 +68,7 @@ import { MakeupApiConnector } from "../lib/connectors/makeup-api";
 import { HoloTacoShopifyConnector } from "../lib/connectors/holo-taco-shopify";
 import { ShopifyGenericConnector } from "../lib/connectors/shopify-generic";
 import { ProductFeedConnector } from "../lib/connectors/product-feed";
+import { WooCommerceStoreConnector } from "../lib/connectors/woocommerce-store";
 import { SitemapJsonLdConnector } from "../lib/connectors/sitemap-jsonld";
 import { isFeatureEnabled } from "../lib/feature-flags";
 import {
@@ -191,6 +192,8 @@ const CONNECTOR_FACTORIES: Partial<Record<ConnectorProtocol, ConnectorFactory>> 
       productUrlPrefixes: settings.productUrlPrefixes,
     });
   },
+  // The Store API under data_source.base_url; robots.txt is checked before any product request.
+  WooCommerce: (source, baseUrl, settings) => new WooCommerceStoreConnector(source, baseUrl, settings),
 };
 
 function hasRunnableConnector(source: SupportedConnectorSource): boolean {
