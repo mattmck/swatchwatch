@@ -484,7 +484,7 @@ assert.deepEqual(parseRetailerTitle("Brand - Nail Polish - Lacquer Up", "Brand")
 
 | Phase | New shades (lacquer) | Notes |
 |---|---|---|
-| B (Harlow + Beyond Polish) | ≈ 4,000 | ILNP, KBShimmer, OPI, Zoya, Essie, CND, Morgan Taylor, Londontown, Ella+Mila, Sundays, Peacci, Lippmann… |
+| B (Harlow + Beyond Polish) | ≈ 3,000 (Harlow ≈ 635, Beyond Polish ≈ 2,350 after the overlap with existing sources; KBShimmer counted once) | ILNP, KBShimmer, OPI, Zoya, Essie, CND, Morgan Taylor, Londontown, Ella+Mila, Sundays, Peacci, Lippmann… |
 | B (Hypnotic, after OK) | ≈ 250 | Cadillacquer, Cosmic Polish, Cuticula, EUR prices |
 | C (clause-free) | ≈ 700 | plus CND / Barry M / Mavala ≈ 370 if their terms allow |
 | C (pending, after OKs) | ≈ 500 | |

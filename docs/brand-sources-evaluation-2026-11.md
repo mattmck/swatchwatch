@@ -39,8 +39,8 @@ Nothing was ingested; no store was contacted; nothing in the database changed.
    Its terms of service are its own text with **no automated-access clause** (the only "harvesting"
    sentence is about other users' personal data), and its robots.txt is the Shopify default.
    Beyond Polish also publishes list prices and brand product pages, which feed #267 buy links, but
-   **no barcodes** in `products.json`. It is the largest single contribution found: about 3,200 new
-   lacquer shades (a third of the +10k target), or about 7,200 with the gel lines.
+   **no barcodes** in `products.json`. It is the largest single contribution found: about 2,350 new
+   lacquer shades (a quarter of the +10k target), or about 6,350 with the gel lines.
 4. **Polish Pickup is the live roster of the indie scene**: its November 2026 shop (open while this
    was written) lists 92 products from **76 makers**, 20 of which are already SwatchWatch sources.
    The store's own `products.json` is only useful with a store filter (`product_type` is `PPU`/`IPU`,
@@ -60,8 +60,9 @@ Co for a written OK (both have terms without a scraping clause, so the ask is a 
 paper trail, not a legal necessity), build a *reseller* mode for the generic Shopify connector
 (vendor → brand, title → line + shade + code, set tags → skip, no catalog images without the
 reseller's OK), and use the Polish Pickup roster to batch the next indie outreach. That order
-gets about 4,000 new lacquer shades from two sources (40% of the target; past 10k only with the gel
-lines or the Q1 outreach rounds), brings in ILNP and KBShimmer without their cooperation, and
+gets about 3,000 new lacquer shades from two sources (30% of the target; lacquer-only reaches about
+5,200 by the end of Q1 and passes 10k only with the gel lines or 60+ more indie permissions), brings in
+ILNP and KBShimmer without their cooperation, and
 keeps every major's own storefront untouched. The affiliate route is the follow-up for GTINs and
 retail prices, not the first move.
 
@@ -283,14 +284,14 @@ when the vendor is a placeholder) and a *reseller* store filter in `connectors/s
 **People.** One email each to Beyond Polish and Harlow & Co (template in §7). Their terms do not
 forbid it; the email is the paper trail decision D2 asks for.
 
-**Yield.** Beyond Polish lacquer-typed: ~4,000 color shades (OPI ~800 across Nail Lacquer and
+**Yield.** Beyond Polish lacquer-typed: ~3,070 color shades (OPI ~800 across Nail Lacquer and
 Infinite Shine, Zoya ~260, Orly ~250, Morgan Taylor ~200, CND ~150, Londontown ~140, Ella+Mila ~140,
 essie ~120, China Glaze ~100, Color Club ~80, butter LONDON ~65, Sundays ~50, Loud Lacquer ~100,
-KBShimmer ~220, Cirque ~240, Cracked ~45, Lippmann ~40, Static Nails ~25, Peacci ~45) minus overlap with
-existing sources (Orly, China Glaze, Color Club, Cirque, Cracked, Loud Babbs ≈ 800) ≈ **3,200 new
-shades**; with gel in scope another ~4,000. Harlow & Co: ILNP ~570 color + KBShimmer ~240 + Polished
-for Days ~55 + I Scream Nails ≈ **850 new** (KBShimmer overlaps Beyond Polish). Together **~4,000
-new lacquer shades from two sources**, 40% of the target, or 80% with gel.
+KBShimmer ~220, Cirque ~240, Cracked ~45, Lippmann ~40, Static Nails ~25, Peacci ~45) minus the overlap
+with existing sources (Orly ~250, China Glaze ~100, Color Club ~80, Cirque ~240, Cracked ~45 ≈ 715; Loud
+Lacquer is not Loud Babbs) ≈ **2,350 new shades**; with gel in scope another ~4,000. Harlow & Co, counting
+KBShimmer once (at Beyond Polish): ILNP ~570 color + Polished for Days ~55 + I Scream Nails ~10 ≈ **635
+new**. Together **~3,000 new lacquer shades from two sources**, 30% of the target, or 70% with gel.
 
 **Risks.** Title noise and duplicates (mitigated by the parser and the audit); reseller stock churn
 (Beyond Polish lists `Discontinued` and `CLEARANCE`, which is a feature for collectors); a reseller
@@ -428,22 +429,22 @@ feeds.
 
 | Step | Strategy | Owner action | Engineering | Expected new shades | Cumulative |
 |---|---|---|---|---|---|
-| 1 | S1 Harlow & Co | Email for the record; enable | seed row in `docs/seed_data_sources.sql` + `npm run generate:types` (the ingestion API only accepts generated `SUPPORTED_SOURCES`) + migration + `SHOPIFY_SOURCE_BASE_URLS`; the reseller prerequisites above (page limit, identity fallback, `imagesPermitted`); run; audit duplicates | ~850 (ILNP 570, KBShimmer 240, PfD 55) | 850 |
-| 2 | S1 Beyond Polish (lacquer lines) | Email for the record (ask about images and whether a feed with GTINs is available); enable | reseller store filter + title parser + buy-link source priority; `storeImages` off until the OK says images | ~3,200 | ~4,050 |
-| 3 | S3 Polish Pickup round 1 (10 makers, ~5 yes) | 10 emails from the roster | 2–5 store filters | ~300 | ~4,350 |
-| 4 | S2 clause-free brand stores (Lippmann, Londontown, Côte, Manucurist, Olive & June, Piggy Paint, Alchemy, Penelope Luz, Noodles; CND, Barry M and Mavala after a terms check) + S7 feed ask | 12 emails for the record; enable | rows + ~6 store filters; feed connector (shared with S6) | ~1,000 (≈ 700 new beyond S1) | ~5,050 |
-| 4b | S2 clause group (Dazzle Dry, Sundays, JINsoon, Tenoverten, Nailberry, Glam Polish, Nail Hoot, Moon Shine, FUN, Anchor & Heart) | 10 emails, wait for written OK | rows + filters | ~500 | ~5,550 |
-| 5 | Decision 3: gel lines at Beyond Polish | decide | filter switch | +4,000 if yes | ~9,550 |
-| 6 | S3 rounds 2–4 (Q1 2027: one round per Polish Pickup month) | 30 emails | filters | ~900 | ~10,450 |
+| 1 | S1 Harlow & Co | Email for the record; enable | seed row in `docs/seed_data_sources.sql` + `npm run generate:types` (the ingestion API only accepts generated `SUPPORTED_SOURCES`) + migration + `SHOPIFY_SOURCE_BASE_URLS`; the reseller prerequisites above (page limit, identity fallback, `imagesPermitted`); run; audit duplicates | ~635 (ILNP 570, PfD 55, I Scream Nails 10; KBShimmer counted at Beyond Polish) | 635 |
+| 2 | S1 Beyond Polish (lacquer lines) | Email for the record (ask about images and whether a feed with GTINs is available); enable | reseller store filter + title parser + buy-link source priority; `storeImages` off until the OK says images | ~2,350 (3,070 lacquer-typed minus ~715 already held from Orly, China Glaze, Color Club, Cirque, Cracked) | ~2,985 |
+| 3 | S3 Polish Pickup round 1 (10 makers, ~5 yes) | 10 emails from the roster | 2–5 store filters | ~300 | ~3,285 |
+| 4 | S2 clause-free brand stores (Lippmann, Londontown, Côte, Manucurist, Olive & June, Piggy Paint, Alchemy, Penelope Luz, Noodles; CND, Barry M and Mavala after a terms check) + S7 feed ask | 12 emails for the record; enable | rows + ~6 store filters; feed connector (shared with S6) | ~700 (≈ 535 new beyond S1: Londontown and Lippmann are also at Beyond Polish) | ~3,820 |
+| 4b | S2 clause group (Dazzle Dry, Sundays, JINsoon, Tenoverten, Nailberry, Glam Polish, Nail Hoot, Moon Shine, FUN, Anchor & Heart) | 10 emails, wait for written OK | rows + filters | ~500 | ~4,320 |
+| 5 | Decision 3: gel lines at Beyond Polish | decide | filter switch | +4,000 if yes | ~8,320 |
+| 6 | S3 rounds 2–4 (Q1 2027: one round per Polish Pickup month) | 30 emails | filters | ~900 | ~9,220 |
 | 7 | S6 affiliate feeds (Q1) | Rakuten/Impact accounts, advertiser approvals | feed connector, disclosure | GTINs + prices for the majors; prestige brands | — |
 
-By 19 Dec (steps 1–4b, assuming the clause-group replies arrive in time) the plan lands near 5,500
-new lacquer shades; with the gel decision about 9,500; the lacquer-only +10k arrives with the Q1
-outreach rounds and the affiliate feeds, not in December.
-The 19 Dec target was set when the indie route was the only one; the honest read is that the
-lacquer-only +10k needs the affiliate feeds or 60+ indie permissions, neither of which fits by
-December, and that the resellers get the catalog to where it matters for users (the majors
-collectors actually own) in two sources.
+By 19 Dec (steps 1–4b, assuming the clause-group replies arrive in time) the plan lands near 4,300
+new lacquer shades, about 8,300 with the gel decision. Lacquer-only reaches about 5,200 by the end of
+Q1 once the outreach rounds land; the affiliate feeds add barcodes and prices, not shades. The
+lacquer-only +10k therefore needs decision 3 (gel) or 60+ more indie permissions (or further
+retailers), neither of which fits by December. The 19 Dec target was set when the indie route was
+the only one; the honest read is that the resellers get the catalog to where it matters for users
+(the majors collectors actually own) in two sources.
 
 ## 6. Decisions for the owner
 
