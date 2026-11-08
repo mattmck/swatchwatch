@@ -240,15 +240,21 @@ export async function runSourceImageRemovalBatch(
       continue;
     }
     if (!deps.ownsBlob(removed.flags.storageUrl)) continue; // vendor URL: no blob of ours
+    // The row is already gone, so a failure names the blob: it is the operator's only way to
+    // find the orphan and delete it by hand (a re-run cannot see it any more).
+    const storageUrl = removed.flags.storageUrl;
+    let deleting = storageUrl;
     try {
-      const storageUrl = removed.flags.storageUrl;
       for (const size of IMAGE_VARIANT_SIZES) {
         const variantUrl = imageVariantStorageUrl(storageUrl, size);
-        if (variantUrl) await deps.deleteBlob(variantUrl);
+        if (!variantUrl) continue;
+        deleting = variantUrl;
+        await deps.deleteBlob(variantUrl);
       }
+      deleting = storageUrl;
       if (await deps.deleteBlob(storageUrl)) result.blobsDeleted += 1;
     } catch (error) {
-      result.failures.push({ imageId: scanned.imageId, error: errorMessage(error) });
+      result.failures.push({ imageId: scanned.imageId, error: `blob ${deleting}: ${errorMessage(error)}` });
     }
   }
 

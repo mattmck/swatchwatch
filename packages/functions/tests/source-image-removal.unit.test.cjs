@@ -196,7 +196,10 @@ describe("runSourceImageRemovalBatch", () => {
     const result = (await runSourceImageRemovalBatch(deps, { ...base, dryRun: false })).result;
     assert.equal(result.imagesDeleted, 2);
     assert.equal(result.blobsDeleted, 0);
-    assert.deepEqual(result.failures, [{ imageId: 11, error: "boom" }]);
+    assert.equal(result.failures.length, 1);
+    assert.equal(result.failures[0].imageId, 11);
+    // Names the blob that failed, so the operator can delete the orphan by hand.
+    assert.match(result.failures[0].error, /^blob https?:\/\/\S+: boom$/);
     assert.ok(!state.images.some((i) => i.image_id === 11));
   });
 });
