@@ -2187,8 +2187,32 @@ export async function applyAiBatchShadeDetections(
       continue;
     }
 
-    const result = await query<{ shadeId: number }>(
-      `WITH ext AS (
+    // The listing materialization wrote (recordShadeSourceProduct) names the shade exactly, also
+    // for a shade the record adopted; the brand + name + finish + collection identity is only the
+    // fallback for products materialized before listings existed.
+    const listing = await query<{ shadeId: number | string }>(
+      `SELECT ssp.shade_id AS "shadeId"
+       FROM shade_source_product ssp
+       JOIN external_product ep ON ep.external_product_id = ssp.external_product_id
+       WHERE ep.data_source_id = $1
+         AND ep.external_id = $2
+       ORDER BY ssp.last_seen_at DESC, ssp.shade_id DESC
+       LIMIT 1`,
+      [dataSourceId, externalId]
+    );
+    const listedShadeId = listing.rows[0]?.shadeId ?? null;
+    const targetSql =
+      listedShadeId !== null
+        ? `target AS (
+         SELECT ssp.shade_id
+         FROM shade_source_product ssp
+         JOIN external_product ep ON ep.external_product_id = ssp.external_product_id
+         WHERE ep.data_source_id = $1
+           AND ep.external_id = $2
+           AND ssp.shade_id = $10::bigint
+         LIMIT 1
+       )`
+        : `ext AS (
          SELECT
            COALESCE(NULLIF(trim(normalized_json ->> 'brand'), ''), 'Holo Taco') AS brand_name,
            NULLIF(trim(normalized_json ->> 'name'), '') AS shade_name,
@@ -2211,7 +2235,10 @@ export async function applyAiBatchShadeDetections(
           AND coalesce(sh.collection, '') = coalesce(ext.collection_name, '')
          ORDER BY sh.shade_id DESC
          LIMIT 1
-       )
+       )`;
+
+    const result = await query<{ shadeId: number }>(
+      `WITH ${targetSql}
        UPDATE shade sh
        SET detected_hex = CASE
              WHEN $5::boolean AND $3::text IS NOT NULL THEN $3::text
@@ -2247,6 +2274,7 @@ export async function applyAiBatchShadeDetections(
         detectedFinishes,
         overwriteDetectedHex,
         ...provenanceParams(detection.provenance ?? EMPTY_DETECTED_HEX_PROVENANCE),
+        ...(listedShadeId !== null ? [listedShadeId] : []),
       ]
     );
 
@@ -2920,19 +2948,25 @@ async function materializePreparedHoloTacoRecord(
   });
   await applyRuleProductCategory(client, shadeId, productCategory);
 
-  // Reseller and feed images never replace the brand's: they are linked only to a shade that has
-  // no product image yet.
-  const linksImages =
-    !adoptsExistingShades ||
-    (
-      await client.query(
-        `SELECT 1 FROM swatch WHERE shade_id = $1 AND swatch_type = 'source_product' LIMIT 1`,
-        [shadeId]
-      )
-    ).rows.length === 0;
-  if (!linksImages) {
-    console.log(`${sourceLogPrefix} Shade ${shadeId} already has a product image; not linking this source's images`);
-    return delta;
+  // Reseller and feed images never replace another source's: they are linked only to a shade
+  // with no product image yet, or whose product image came from this source (its own refresh).
+  if (adoptsExistingShades) {
+    const productSwatch = await client.query<{ ownImage: boolean }>(
+      `SELECT (ia.owner_type = 'source' AND ia.owner_id = $2) IS TRUE AS "ownImage"
+       FROM swatch sw
+       LEFT JOIN image_asset ia ON ia.image_id = sw.image_id_original
+       WHERE sw.shade_id = $1
+         AND sw.swatch_type = 'source_product'
+       ORDER BY sw.swatch_id DESC
+       LIMIT 1`,
+      [shadeId, dataSourceId]
+    );
+    if (productSwatch.rows.length > 0 && !productSwatch.rows[0].ownImage) {
+      console.log(
+        `${sourceLogPrefix} Shade ${shadeId} has another source's product image; not linking this source's images`
+      );
+      return delta;
+    }
   }
 
   // Image ids of the product's current images (primary first), for the gallery prune below.

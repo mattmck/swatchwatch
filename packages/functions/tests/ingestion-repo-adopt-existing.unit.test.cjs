@@ -23,8 +23,9 @@ let calls;
 let brands;
 // Shades of brand 1: { shadeId, name, finish, collection, finishes, status, mergedInto }.
 let shades;
-// shade ids that already have a source_product swatch.
-let productSwatchShadeIds;
+// Existing source_product swatches by shade id: { swatchId, imageId, ownerId } (ownerId = the
+// data source whose image_asset it is).
+let productSwatches;
 let blobCalls;
 let nextShadeId;
 
@@ -71,10 +72,14 @@ const transactionClient = {
       const shade = shades.find((s) => s.shadeId === params[0]);
       return { rows: [{ finishes: shade?.finishes ?? [], finishesSource: null }] };
     }
+    if (sql.includes("FROM swatch sw") && sql.includes("JOIN image_asset ia") && sql.includes("'source_product'")) {
+      // Source-kind gate: whose image is the shade's product swatch?
+      const swatch = productSwatches[params[0]];
+      return { rows: swatch ? [{ ownImage: swatch.ownerId === params[1] }] : [] };
+    }
     if (sql.includes("FROM swatch") && sql.includes("swatch_type = 'source_product'")) {
-      return {
-        rows: productSwatchShadeIds.includes(params[0]) ? [{ swatchId: 900, imageIdOriginal: 901 }] : [],
-      };
+      const swatch = productSwatches[params[0]];
+      return { rows: swatch ? [{ swatchId: swatch.swatchId, imageIdOriginal: swatch.imageId }] : [] };
     }
     if (sql.includes("FROM image_asset") && sql.includes("checksum_sha256 = $2")) {
       return { rows: [] };
@@ -163,7 +168,7 @@ beforeEach(() => {
   calls = [];
   brands = { orly: 1, "holo taco": 2 };
   shades = [];
-  productSwatchShadeIds = [];
+  productSwatches = {};
   blobCalls = [];
   aiCalls = 0;
   nextShadeId = 100;
@@ -261,7 +266,8 @@ describe("materializeHoloTacoRecords — reseller source adopts the brand's shad
 
   it("leaves the brand's images alone on an adopted shade that already has a product swatch", async () => {
     shades = [{ shadeId: 11, name: "Velvet Dreams", finish: "creme", collection: "Fall 2025", finishes: ["creme"] }];
-    productSwatchShadeIds = [11];
+    // The product image is the brand store's (data source 3); this run is data source 7.
+    productSwatches = { 11: { swatchId: 900, imageId: 901, ownerId: 3 } };
 
     await materialize(record({ finishes: ["creme"], imageUrls: ["https://reseller.example/a.png"] }), {
       ...RESELLER,
@@ -271,6 +277,20 @@ describe("materializeHoloTacoRecords — reseller source adopts the brand's shad
     assert.ok(!calls.some((c) => c.sql.startsWith("INSERT INTO swatch")), "no swatch inserted");
     assert.ok(!calls.some((c) => c.sql.startsWith("UPDATE swatch")), "no swatch repointed");
     assert.ok(!calls.some((c) => c.sql.startsWith("INSERT INTO image_asset")), "no image asset linked");
+  });
+
+  it("lets a reseller refresh a product image it stored itself", async () => {
+    shades = [{ shadeId: 11, name: "Velvet Dreams", finish: "creme", collection: "Fall 2025", finishes: ["creme"] }];
+    productSwatches = { 11: { swatchId: 900, imageId: 901, ownerId: 7 } };
+
+    await materialize(record({ finishes: ["creme"], imageUrls: ["https://reseller.example/new.png"] }), {
+      ...RESELLER,
+      storeImages: true,
+    });
+
+    const swatchUpdate = calls.find((c) => c.sql.startsWith("UPDATE swatch"));
+    assert.ok(swatchUpdate, "expected the product swatch to be repointed");
+    assert.deepEqual(swatchUpdate.params, [900, 700]);
   });
 
   it("links a permitted reseller's image when the shade has none yet", async () => {

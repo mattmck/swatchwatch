@@ -8,6 +8,8 @@ const path = require("node:path");
 // ---------------------------------------------------------------------------
 let dbCalls = [];
 let dbRows = [{ shadeId: 1 }];
+// Rows the shade_source_product listing lookup returns (none = identity fallback).
+let listingRows = [];
 const dbPath = path.resolve(__dirname, "../dist/lib/db.js");
 require.cache[dbPath] = {
   id: dbPath,
@@ -16,6 +18,10 @@ require.cache[dbPath] = {
   exports: {
     query: async (sql, params) => {
       dbCalls.push({ sql, params });
+      if (!sql.includes("UPDATE shade") && sql.includes("FROM shade_source_product")) {
+        return { rows: listingRows };
+      }
+      // The UPDATE matches a row only when its target resolves; a listed target always does here.
       return { rows: dbRows };
     },
     transaction: async (cb) => cb({ query: async () => ({ rows: [] }) }),
@@ -252,7 +258,10 @@ describe("applyAiBatchShadeDetections — provenance write", () => {
   beforeEach(() => {
     dbCalls = [];
     dbRows = [{ shadeId: 1 }];
+    listingRows = [];
   });
+
+  const updateCalls = () => dbCalls.filter((call) => call.sql.includes("UPDATE shade"));
 
   it("writes provenance params after the overwrite flag and gates them like detected_hex", async () => {
     const metrics = await applyAiBatchShadeDetections(
@@ -273,8 +282,8 @@ describe("applyAiBatchShadeDetections — provenance write", () => {
       false
     );
     assert.equal(metrics.applied, 1);
-    assert.equal(dbCalls.length, 1);
-    const { sql, params } = dbCalls[0];
+    assert.equal(updateCalls().length, 1);
+    const { sql, params } = updateCalls()[0];
     assert.deepEqual(params, [7, "ext-1", "#112233", ["creme"], false, 0.8, "vision-direct", "hex-batch-deploy", "vision-direct/old"]);
     // Non-overwrite: provenance only lands when detected_hex was NULL before.
     assert.match(sql, /\(\$5::boolean AND \$3::text IS NOT NULL\) OR \(sh\.detected_hex IS NULL AND \$3::text IS NOT NULL\)/);
@@ -301,6 +310,35 @@ describe("applyAiBatchShadeDetections — provenance write", () => {
       [{ externalId: "ext-1", detectedHex: "#112233", detectedFinishes: null }],
       true
     );
-    assert.deepEqual(dbCalls[0].params.slice(5), [null, null, null, null]);
+    assert.deepEqual(updateCalls()[0].params.slice(5), [null, null, null, null]);
+  });
+
+  it("applies a result to the shade its listing points at, even when the identity differs", async () => {
+    // The record adopted shade 41, whose legacy finish is not the product's first finish.
+    listingRows = [{ shadeId: "41" }];
+    const metrics = await applyAiBatchShadeDetections(
+      7,
+      [{ externalId: "ext-1", detectedHex: "#112233", detectedFinishes: null }],
+      false
+    );
+
+    const listingLookup = dbCalls[0];
+    assert.match(listingLookup.sql, /FROM shade_source_product ssp/);
+    assert.match(listingLookup.sql, /ep\.data_source_id = \$1\s+AND ep\.external_id = \$2/);
+    assert.deepEqual(listingLookup.params, [7, "ext-1"]);
+    const [update] = updateCalls();
+    assert.equal(update.params[9], "41");
+    assert.match(update.sql, /ssp\.shade_id = \$10::bigint/);
+    assert.doesNotMatch(update.sql, /coalesce\(sh\.finish, ''\)/, "no identity match");
+    assert.equal(metrics.applied, 1);
+    assert.equal(metrics.noShadeMatch, 0);
+  });
+
+  it("falls back to the brand + name + finish + collection identity without a listing", async () => {
+    await applyAiBatchShadeDetections(7, [{ externalId: "ext-1", detectedHex: "#112233", detectedFinishes: null }], false);
+
+    const [update] = updateCalls();
+    assert.match(update.sql, /coalesce\(sh\.finish, ''\) = coalesce\(ext\.finish_name, ''\)/);
+    assert.equal(update.params.length, 9);
   });
 });
