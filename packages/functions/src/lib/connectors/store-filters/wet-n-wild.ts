@@ -14,6 +14,7 @@ import type { StoreFilterProduct } from "./types.js";
 
 const POLISH_REGEX = /\b(?:nail\s+colou?rs?|nail\s+polish(?:es)?|wild\s+shine)\b/i;
 
+/** Store filter for wet n wild (WetNWildShopify): `true` keeps the product, `false` drops it, `null` defers to the generic polish gate. */
 export function isWetNWildPolish(product: StoreFilterProduct): boolean {
   const title = typeof product.title === "string" ? product.title : "";
   const productType = typeof product.product_type === "string" ? product.product_type : "";

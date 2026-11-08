@@ -35,6 +35,7 @@ function tagSet(tags: unknown): Set<string> {
   return new Set(list.map(lowerTrim).filter(Boolean));
 }
 
+/** Store filter for Olive & June (OliveAndJuneShopify): `true` keeps the product, `false` drops it, `null` defers to the generic polish gate. */
 export function isOliveAndJunePolish(
   product: StoreFilterProduct,
   settings: { includeGel: boolean } = { includeGel: false }

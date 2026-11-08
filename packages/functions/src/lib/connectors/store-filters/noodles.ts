@@ -35,6 +35,7 @@ const NON_SHADE_TITLE_REGEX = new RegExp(
   "i"
 );
 
+/** Store filter for Noodles Nail Polish (NoodlesNailPolishShopify): `true` keeps the product, `false` drops it, `null` defers to the generic polish gate. */
 export function isNoodlesPolish(product: StoreFilterProduct): boolean {
   const title = typeof product.title === "string" ? product.title : "";
   if (NON_SHADE_TITLE_REGEX.test(title)) {

@@ -69,6 +69,7 @@ function plainTitle(value: unknown): string {
   return typeof value === "string" ? value.replace(/[™®©]/g, "").replace(/\s+/g, " ").trim() : "";
 }
 
+/** Store filter for CND (CndShopify): `true` keeps the product, `false` drops it, `null` defers to the generic polish gate. */
 export function isCndPolish(
   product: StoreFilterProduct,
   settings: { includeGel: boolean } = { includeGel: false }

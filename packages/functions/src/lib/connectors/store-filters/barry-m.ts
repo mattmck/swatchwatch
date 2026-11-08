@@ -24,6 +24,7 @@ const NAIL_TYPE_REGEX = /\bnails?\b|\b(?:base|top)\s*coats?\b/i;
 const DROPPED_NAIL_TYPE_REGEX = /\bnail\s+art\b|\btools?\b/i;
 const CARE_TYPE = "nail care";
 
+/** Store filter for Barry M (BarryMShopify): `true` keeps the product, `false` drops it, `null` defers to the generic polish gate. */
 export function isBarryMPolish(product: StoreFilterProduct): boolean | null {
   const productType = lowerTrim(product.product_type);
   if (productType === CARE_TYPE) {

@@ -29,6 +29,7 @@ const POLISH_TITLE_REGEX = /\bpolish(?:es)?\b/i;
 const MULTI_SHADE_DESCRIPTION_REGEX =
   /\bcolors\s*:|\bfeaturing\b|\b\d+\s+polishes\b|\b(?:trio|quartet|line-?up|collection|bundle)\b/i;
 
+/** Store filter for Piggy Paint (PiggyPaintShopify): `true` keeps the product, `false` drops it, `null` defers to the generic polish gate. */
 export function isPiggyPaintPolish(product: StoreFilterProduct): boolean {
   const title = typeof product.title === "string" ? product.title : "";
   const productType = lowerTrim(product.product_type);

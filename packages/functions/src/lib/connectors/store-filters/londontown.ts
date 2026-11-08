@@ -27,6 +27,7 @@ const CARE_TYPE = "nail care";
 const SET_TITLE_REGEX = /\b(?:sets?|duos?|trios?|kits?|bundles?)\b/i;
 const MINI_TITLE_REGEX = /\sMini$/i;
 
+/** Store filter for Londontown (LondontownShopify): `true` keeps the product, `false` drops it, `null` defers to the generic polish gate. */
 export function isLondontownPolish(
   product: StoreFilterProduct,
   settings: { includeGel: boolean } = { includeGel: false }

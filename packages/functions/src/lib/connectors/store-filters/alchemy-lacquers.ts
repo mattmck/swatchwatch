@@ -13,6 +13,7 @@ import type { StoreFilterProduct } from "./types.js";
 
 const BLIND_LISTING_REGEX = /\b(?:myster(?:y|ies)|grab\s*bags?|samples?|pick\s+(?:any\s+)?\d+|pick\s+(?:two|three|four|five))\b/i;
 
+/** Store filter for Alchemy Lacquers (AlchemyLacquersShopify): `true` keeps the product, `false` drops it, `null` defers to the generic polish gate. */
 export function isAlchemyLacquersPolish(product: StoreFilterProduct): boolean | null {
   const title = typeof product.title === "string" ? product.title : "";
   return BLIND_LISTING_REGEX.test(title) ? false : null;

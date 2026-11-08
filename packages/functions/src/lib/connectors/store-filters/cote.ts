@@ -15,6 +15,7 @@ import type { StoreFilterProduct } from "./types.js";
 
 const LIP_TYPE_REGEX = /\blips?\b/;
 
+/** Store filter for Côte (CoteShopify): `true` keeps the product, `false` drops it, `null` defers to the generic polish gate. */
 export function isCotePolish(product: StoreFilterProduct): boolean | null {
   return LIP_TYPE_REGEX.test(lowerTrim(product.product_type)) ? false : null;
 }

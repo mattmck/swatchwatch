@@ -67,6 +67,7 @@ function stripHtml(value: unknown): string {
   return typeof value === "string" ? value.replace(/<[^>]*>/g, " ") : "";
 }
 
+/** Store filter for Sweet & Sour Lacquer (SweetAndSourLacquerShopify): `true` keeps the product, `false` drops it, `null` defers to the generic polish gate. */
 export function isSweetAndSourPolish(product: StoreFilterProduct): boolean {
   const title = asText(product.title);
   if (NON_SHADE_TITLE_REGEX.test(title)) {

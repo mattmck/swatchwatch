@@ -41,6 +41,7 @@ const NON_SHADE_TITLE_REGEX = new RegExp(
 /** The store's boilerplate opening paragraph, up to the "DESCRIPTION:" heading. */
 const BOILERPLATE_REGEX = /^[\s\S]*?\bdescription\s*:/i;
 
+/** Store filter for Penélope Luz (PenelopeLuzShopify): `true` keeps the product, `false` drops it, `null` defers to the generic polish gate. */
 export function isPenelopeLuzPolish(product: StoreFilterProduct): boolean {
   const title = typeof product.title === "string" ? product.title : "";
   if (NON_SHADE_TITLE_REGEX.test(title)) {
