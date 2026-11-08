@@ -21,6 +21,7 @@ const { isPiggyPaintPolish } = require("../dist/lib/connectors/store-filters/pig
 const { isWetNWildPolish } = require("../dist/lib/connectors/store-filters/wet-n-wild");
 const { isPenelopeLuzPolish } = require("../dist/lib/connectors/store-filters/penelope-luz");
 const { isNoodlesPolish } = require("../dist/lib/connectors/store-filters/noodles");
+const { isCndPolish } = require("../dist/lib/connectors/store-filters/cnd");
 const { readSourceSettings } = require("../dist/lib/source-settings");
 const { classifyIngestedProduct } = require("../dist/lib/product-category");
 
@@ -398,6 +399,7 @@ describe("store-filters — shopifyStoreProductVerdict", () => {
     assert.deepEqual(Object.keys(SHOPIFY_STORE_PRODUCT_FILTERS).sort(), [
       "BeyondPolishShopify",
       "CirqueColorsShopify",
+      "CndShopify",
       "HarlowAndCoShopify",
       "HypnoticPolishShopify",
       "LemmingLacquerShopify",
@@ -1303,5 +1305,69 @@ describe("store-filters/noodles — isNoodlesPolish", () => {
 
   it("is registered for NoodlesNailPolishShopify", () => {
     assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.NoodlesNailPolishShopify, isNoodlesPolish);
+  });
+});
+
+// cnd.com/products.json, fetched 2026-11-08 (117 products, one page), all kept. CND lists its
+// Shellac gel shades as variants of six family listings and its Vinylux shades are not on page 1
+// one by one (only collections, the coats and the line listing).
+const CND = require("./fixtures/cnd-products.json").products;
+
+describe("store-filters/cnd — isCndPolish", () => {
+  it("with the generic gate keeps 12 of the 117 fixture products (17 with includeGel)", () => {
+    assert.equal(CND.length, 117);
+    // The 2 Vinylux top coats and the 10 lacquer treatments (Solaroil, RidgeFx, Stickey, …).
+    assert.equal(gateAccepts(CND, "CndShopify").length, 12);
+    // + the 5 Shellac base and top coats.
+    assert.equal(gateAccepts(CND, "CndShopify", { includeGel: true }).length, 17);
+    // The generic gate alone also keeps the six Shellac family listings, Plexigel and Brisa coats.
+    assert.equal(gateAccepts(CND, "NotARealShopify").length, 27);
+  });
+
+  it("keeps the Vinylux coats and defers the lacquer treatments to the generic gate", () => {
+    for (const title of ["VINYLUX™ Gel-Like Effect Top Coat", "VINYLUX™ Long Wear Shine Top Coat"]) {
+      const product = storeProduct(CND, title);
+      assert.equal(isCndPolish(product), true, title);
+      assert.equal(gateKeeps("CndShopify", product), true, title);
+    }
+    assert.equal(isCndPolish({ title: "CND™ VINYLUX™ Long Wear Polish - Rebellious Ruby", product_type: "", tags: [] }), true);
+    for (const title of ["SOLAROIL™", "RidgeFx™", "Stickey™", "Super Shiney™", "StrengthenerRXx"]) {
+      const product = storeProduct(CND, title);
+      assert.equal(isCndPolish(product), null, title);
+      assert.equal(gateKeeps("CndShopify", product), true, title);
+    }
+  });
+
+  it("drops Shellac gel, collections, enhancements, tools, lamps and skincare", () => {
+    for (const title of [
+      "CND™ SHELLAC™ Gel Nail Polish - Reds", // gel, one listing for 33 shades
+      "CND™ SHELLAC™ Original Top Coat", // gel coat
+      "CND™ VINYLUX™ Party Ready Collection", // collection set
+      "VINYLUX™ Long Wear Polish", // the line listing, not a shade
+      "CND PLEXIGEL™ Color Builder Cool Berry", // builder gel
+      "BRISA™ Base Coat", // sculpting gel system
+      "Liquid Bond", // acrylic primer
+      "Liquid & Powder System Kit", // kit
+      "CND™ Liquid & Powder Sculpting Brush #12", // tool
+      "CND™ LED Lamp", // lamp
+      "Mango & Coconut Hand Wash", // skincare
+      "CND™ Pro Skincare Intensive Hydration Treatment", // skincare
+    ]) {
+      const product = storeProduct(CND, title);
+      assert.equal(isCndPolish(product), false, title);
+      assert.equal(gateKeeps("CndShopify", product), false, title);
+    }
+  });
+
+  it("keeps Shellac coats only with includeGel, never the multi-shade family listings", () => {
+    const settings = readSourceSettings({ includeGel: true });
+    assert.equal(isCndPolish(storeProduct(CND, "CND™ SHELLAC™ Base Coat"), settings), true);
+    assert.equal(isCndPolish(storeProduct(CND, "CND™ SHELLAC™ XPRESS5™ Top Coat"), settings), true);
+    assert.equal(isCndPolish(storeProduct(CND, "CND™ SHELLAC™ Gel Nail Polish - Pinks"), settings), false);
+    assert.equal(gateKeeps("CndShopify", storeProduct(CND, "CND™ SHELLAC™ Base Coat")), false);
+  });
+
+  it("is registered for CndShopify", () => {
+    assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.CndShopify, isCndPolish);
   });
 });

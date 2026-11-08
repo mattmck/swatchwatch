@@ -1,5 +1,6 @@
 import { isBeyondPolishPolish } from "./beyond-polish.js";
 import { isCirqueColorsPolish } from "./cirque-colors.js";
+import { isCndPolish } from "./cnd.js";
 import { isHarlowAndCoPolish } from "./harlow-and-co.js";
 import { isHypnoticPolishPolish } from "./hypnotic-polish.js";
 import { isLemmingLacquerPolish } from "./lemming-lacquer.js";
@@ -41,6 +42,7 @@ export const SHOPIFY_STORE_PRODUCT_FILTERS: Readonly<Record<string, StoreProduct
   PiggyPaintShopify: isPiggyPaintPolish,
   PenelopeLuzShopify: isPenelopeLuzPolish,
   NoodlesNailPolishShopify: isNoodlesPolish,
+  CndShopify: isCndPolish,
   WetNWildShopify: isWetNWildPolish,
 };
 
