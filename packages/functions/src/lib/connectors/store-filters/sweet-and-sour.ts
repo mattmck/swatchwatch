@@ -1,3 +1,4 @@
+import { SHADE_DESCRIPTION_REGEX } from "./shared.js";
 import type { StoreFilterProduct } from "./types.js";
 
 /**
@@ -54,10 +55,6 @@ const NON_SHADE_TITLE_REGEX = new RegExp(
 );
 
 const CARE_TITLE_REGEX = /\b(?:top\s*coat|base\s*coat|topcoat|basecoat)\b/i;
-
-/** Words a Sweet & Sour listing uses to describe a shade's base, finish or wear. */
-const SHADE_DESCRIPTION_REGEX =
-  /\b(?:shimmers?|shimmery|(?:micro)?flakes?|flakies|holographic|holo|glitters?|hexes|jelly|cr[eè]mes?|crelly|magnetic|thermal|glow(?:s|ing)?|metallic|iridescent|chrome|duochrome|multichrome|foils?|sparkles?|matte|satin|neon|sheer|shift(?:s|ing)?|topper|coats|polish(?:es)?|lacquers?)\b/i;
 
 /** The store's boilerplate about screen colours, appended to most descriptions. */
 const DISCLAIMER_REGEX = /disclaimer\s*:[\s\S]*$/i;
