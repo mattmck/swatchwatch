@@ -398,10 +398,12 @@ describe("store-filters/sweet-and-sour — isSweetAndSourPolish (#273 batch 3)",
 describe("store-filters — shopifyStoreProductVerdict", () => {
   it("registers filters for the retailers, the indie stores and the brand stores that need one, and no other source", () => {
     assert.deepEqual(Object.keys(SHOPIFY_STORE_PRODUCT_FILTERS).sort(), [
+      "AlchemyLacquersShopify",
       "BarryMShopify",
       "BeyondPolishShopify",
       "CirqueColorsShopify",
       "CndShopify",
+      "CoteShopify",
       "HarlowAndCoShopify",
       "HypnoticPolishShopify",
       "LemmingLacquerShopify",
@@ -883,16 +885,17 @@ function gateKeeps(source, product, metadata = {}) {
 const LONDONTOWN = require("./fixtures/londontown-products.json").products;
 
 describe("store-filters/londontown — isLondontownPolish", () => {
-  it("with the generic gate keeps 44 of the 106 fixture products (57 with includeGel)", () => {
+  it("with the generic gate keeps 43 of the 106 fixture products (56 with includeGel)", () => {
     assert.equal(LONDONTOWN.length, 106);
-    // Nail Color 25, Nail Veils 5, Concealers 3, and the 11 Nail Care coats and treatments.
-    assert.equal(gateAccepts(LONDONTOWN, "LondontownShopify").length, 44);
+    // Nail Color 24 (25 minus Pearl Mini), Nail Veils 5, Concealers 3, and the 11 Nail Care coats
+    // and treatments.
+    assert.equal(gateAccepts(LONDONTOWN, "LondontownShopify").length, 43);
     // + Gels 12 and the GelShift top coat.
-    assert.equal(gateAccepts(LONDONTOWN, "LondontownShopify", { includeGel: true }).length, 57);
+    assert.equal(gateAccepts(LONDONTOWN, "LondontownShopify", { includeGel: true }).length, 56);
   });
 
   it("keeps Nail Color lacquers, including ones with no polish word in type or tags", () => {
-    for (const title of ["Double Fudge", "Berry Punch", "Pearl Mini", "Room Service", "Chasing Rainbows", "Milk Bath", "Truly Ruby"]) {
+    for (const title of ["Double Fudge", "Berry Punch", "Room Service", "Chasing Rainbows", "Milk Bath", "Truly Ruby"]) {
       const product = storeProduct(LONDONTOWN, title, "Nail Color");
       assert.equal(isLondontownPolish(product), true, title);
       assert.equal(gateKeeps("LondontownShopify", product), true, title);
@@ -918,6 +921,15 @@ describe("store-filters/londontown — isLondontownPolish", () => {
       assert.equal(isLondontownPolish(product), false, `${title} [${type}]`);
       assert.equal(gateKeeps("LondontownShopify", product), false, `${title} [${type}]`);
     }
+  });
+
+  it("drops a title ending in Mini, the mini size of a full-size shade", () => {
+    const mini = storeProduct(LONDONTOWN, "Pearl Mini", "Nail Color");
+    assert.equal(isLondontownPolish(mini), false);
+    assert.equal(gateKeeps("LondontownShopify", mini), false);
+    assert.equal(isLondontownPolish({ title: "Pearl", product_type: "Nail Color", tags: [] }), true);
+    // Only a trailing Mini: a care product named "Mini ..." still defers to the generic gate.
+    assert.equal(isLondontownPolish(storeProduct(LONDONTOWN, "Mini Nourishing Cuticle Oil", "Nail Care")), null);
   });
 
   it("drops a set, duo or kit title under any type", () => {
@@ -1095,7 +1107,8 @@ describe("store-filters/olive-and-june — isOliveAndJunePolish", () => {
   });
 });
 
-// piggypaint.com/products.json, fetched 2026-11-08 (250 products on page 1), trimmed to 82.
+// piggypaint.com/products.json, fetched 2026-11-08 (250 products on page 1), trimmed to 82 with
+// body_html cut to 1,200 characters (the filter reads the descriptions).
 // Piggy Paint is a kids' polish store that also sells toys, hair accessories and bath products;
 // its SOPHi line's shade sets are typed Nail Polishes like the single shades.
 const PIGGY_PAINT = require("./fixtures/piggy-paint-products.json").products;
@@ -1440,14 +1453,24 @@ describe("store-filters/barry-m — isBarryMPolish", () => {
 });
 
 // ---------------------------------------------------------------------------------------------
-// Phase C review follow-ups: vendor aliases on brand stores (C1).
+// Phase C review follow-ups: vendor aliases on brand stores (C1), brand-store title parsers (I1),
+// fixtures for the three filter-less enabled stores (I2).
 
 const { readFileSync: readSeedFile } = require("node:fs");
 const { resolve: resolveSeedPath } = require("node:path");
+const { isCotePolish } = require("../dist/lib/connectors/store-filters/cote");
+const { isAlchemyLacquersPolish } = require("../dist/lib/connectors/store-filters/alchemy-lacquers");
 const {
   resolveBrandStoreVendor,
   resolveShopifyVendor,
 } = require("../dist/lib/connectors/shopify-generic");
+const { SHOPIFY_STORE_TITLE_PARSERS } = require("../dist/lib/connectors/shopify-title");
+const {
+  parseWetNWildTitle,
+  parseBarryMTitle,
+  parsePiggyPaintTitle,
+  parseLineAndShadeTitle,
+} = require("../dist/lib/connectors/store-filters/brand-store-titles");
 
 const SEED_SQL = readSeedFile(resolveSeedPath(__dirname, "../../../docs/seed_data_sources.sql"), "utf8");
 
@@ -1519,12 +1542,61 @@ describe("resolveBrandStoreVendor — brand stores consult vendorAliases first (
   });
 });
 
-describe("wet n wild and Olive & June through the connector (C1)", () => {
-  it("wet n wild records carry the catalog brand Wet n Wild", async () => {
+describe("brand-store title parsers (I1)", () => {
+  it("registers wet n wild, Barry M and Piggy Paint", () => {
+    assert.equal(SHOPIFY_STORE_TITLE_PARSERS.WetNWildShopify, parseWetNWildTitle);
+    assert.equal(SHOPIFY_STORE_TITLE_PARSERS.BarryMShopify, parseBarryMTitle);
+    assert.equal(SHOPIFY_STORE_TITLE_PARSERS.PiggyPaintShopify, parsePiggyPaintTitle);
+  });
+
+  it("parseLineAndShadeTitle splits line and shade on the first pipe", () => {
+    assert.deepEqual(parseLineAndShadeTitle("Fast Dry AF Nail Color | Get Stoned"), {
+      name: "Get Stoned",
+      productLine: "Fast Dry AF Nail Color",
+    });
+    assert.equal(parseLineAndShadeTitle("Photo Focus Matte Face Primer"), null);
+    assert.equal(parseLineAndShadeTitle(" | Shade"), null);
+  });
+
+  it("wet n wild: <Line> | <Shade> gives the shade; a title without a pipe is kept", () => {
+    const parse = (title) => parseWetNWildTitle({ title });
+    assert.equal(parse("Fast Dry AF Nail Color | Get Stoned"), "Get Stoned");
+    assert.equal(parse("Fast Dry AF Nail Color | Sorry, I'm Latte"), "Sorry, I'm Latte");
+    assert.equal(parse("Wild Shine Nail Color | Black Creme"), "Black Creme");
+    assert.equal(parse("Wild Shine Nail Color"), null);
+    assert.equal(parse(""), null);
+  });
+
+  it("Barry M: <Line> | <Shade>, dropping a separated note and keeping an unseparated one", () => {
+    const parse = (title) => parseBarryMTitle({ title });
+    assert.equal(parse("Gelly Hi Shine Nail Paint | Black Cherry"), "Black Cherry");
+    assert.equal(parse("Holochrome Holographic Effect Nail Paint  | Pistachio Prism"), "Pistachio Prism");
+    assert.equal(parse("Barry M Colour Changing Sunlight Reactive Nail Paint | White to Pink C"), "White to Pink C");
+    assert.equal(parse("Gelly Hi Shine Nail Paint | Black Cherry - 10ml"), "Black Cherry");
+    assert.equal(parse("Gelly Hi Shine Nail Paint | Black Cherry | Colour Change"), "Black Cherry");
+    assert.equal(parse("Matte Topcoat"), null);
+  });
+
+  it("Piggy Paint: strips a ' - <descriptor>' suffix after a plausible shade name, never without ' - '", () => {
+    const parse = (title, vendor = "Piggy Paint") => parsePiggyPaintTitle({ title, vendor });
+    assert.equal(parse("Bossy Blueberry - Scented Blue"), "Bossy Blueberry");
+    assert.equal(parse("Yippee Yellow Piggy Paint Pen - Kids Non-toxic Nail Polish"), "Yippee Yellow Piggy Paint Pen");
+    assert.equal(parse("Soft Launch - Soft Lavender with Pink", "SOPHi"), "Soft Launch");
+    assert.equal(parse("Casually Cashmere", "SOPHi"), null);
+    assert.equal(parse("Piggy Paint - Scented"), null); // the vendor, not a shade
+    assert.equal(parse("9 - Nine"), null); // no letter
+    assert.equal(parse("Mint-Green Dream"), null); // a hyphen is not the separator
+  });
+});
+
+describe("wet n wild and Olive & June through the connector (C1, I1)", () => {
+  it("wet n wild records carry the catalog brand Wet n Wild and the parsed shade name", async () => {
     const records = await pullFixture("WetNWildShopify", WET_N_WILD);
     assert.equal(records.length, 6);
     // The fixture's vendors are "Markwins WNW" and "wet n wild Beauty".
     assert.ok(records.every((record) => record.normalized.brand === "Wet n Wild"), records.map((r) => r.normalized.brand).join());
+    assert.equal(recordFor(records, "Fast Dry AF Nail Color | Get Stoned").normalized.name, "Get Stoned");
+    assert.equal(recordFor(records, "Fast Dry AF Nail Color | Out Of Pistachios").normalized.name, "Out Of Pistachios");
   });
 
   it("Olive & June records carry the canonical brand Olive & June", async () => {
@@ -1535,5 +1607,126 @@ describe("wet n wild and Olive & June through the connector (C1)", () => {
     const withGel = await pullFixture("OliveAndJuneShopify", OLIVE_AND_JUNE, { ...seedMetadata("OliveAndJuneShopify"), includeGel: true });
     assert.equal(withGel.length, 24);
     assert.ok(withGel.every((record) => record.normalized.brand === "Olive & June"));
+  });
+
+  it("Barry M records get the shade after the line", async () => {
+    const records = await pullFixture("BarryMShopify", BARRY_M);
+    assert.equal(recordFor(records, "Gelly Hi Shine Nail Paint | Black Cherry").normalized.name, "Black Cherry");
+    assert.equal(recordFor(records, "Rose Tinted Nail Paint | Eden Rose").normalized.name, "Eden Rose");
+    assert.equal(recordFor(records, "Matte Topcoat").normalized.name, "Matte Topcoat");
+  });
+
+  it("Piggy Paint records drop the descriptor suffix; SOPHi stays its own brand", async () => {
+    const records = await pullFixture("PiggyPaintShopify", PIGGY_PAINT);
+    assert.equal(records.length, 10);
+    assert.equal(recordFor(records, "Bossy Blueberry - Scented Blue").normalized.name, "Bossy Blueberry");
+    assert.equal(
+      recordFor(records, "Yippee Yellow Piggy Paint Pen - Kids Non-toxic Nail Polish").normalized.name,
+      "Yippee Yellow Piggy Paint Pen"
+    );
+    assert.equal(recordFor(records, "Made Me Blush - Blush Pink").normalized.brand, "SOPHi");
+    assert.equal(recordFor(records, "Bossy Blueberry - Scented Blue").normalized.brand, "Piggy Paint");
+  });
+});
+
+// deborahlippmann.com/products.json, fetched 2026-11-08 (54 products, one page), kept whole with
+// body_html cut to 1,200 characters. Every vendor is "LIPPMANN" (the catalog brand Deborah Lippmann
+// has the alias 'lippmann', migration 005, so no vendorAliases entry is needed).
+const DEBORAH_LIPPMANN = require("./fixtures/deborah-lippmann-products.json").products;
+
+describe("DeborahLippmannShopify — the generic gate alone (I2)", () => {
+  it("keeps 32 of the 54 fixture products: 25 lacquers, 2 coats and 5 treatments", () => {
+    assert.equal(DEBORAH_LIPPMANN.length, 54);
+    const kept = gateAccepts(DEBORAH_LIPPMANN, "DeborahLippmannShopify");
+    assert.equal(kept.length, 32);
+    assert.equal(gateAccepts(DEBORAH_LIPPMANN, "NotARealShopify").length, 32);
+    const categories = kept.map((product) => gateShopifyProduct(product, "DeborahLippmannShopify").category);
+    assert.equal(categories.filter((category) => category === "color").length, 25);
+    assert.ok(kept.filter((p) => p.product_type === "Nail Polish").length === 25);
+    assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.DeborahLippmannShopify, undefined);
+  });
+
+  it("drops the sets, bundles, tools and the pick-your-own lacquer listing", () => {
+    for (const title of [
+      "The Holiday Set",
+      "Build Your Own Lacquer Bundle",
+      "LIPPMANN Nail Lacquer",
+      "The Nail Hydration Duo",
+      "Cuticle Nipper",
+    ]) {
+      assert.equal(gateKeeps("DeborahLippmannShopify", storeProduct(DEBORAH_LIPPMANN, title)), false, title);
+    }
+  });
+});
+
+// coteshop.co/products.json, fetched 2026-11-08 (129 products, one page), trimmed (fixture _note)
+// with body_html cut to 1,200 characters.
+const COTE = require("./fixtures/cote-products.json").products;
+
+describe("store-filters/cote — isCotePolish (I2)", () => {
+  it("keeps 22 of the 65 fixture products; the generic gate also keeps the lip treatment", () => {
+    assert.equal(COTE.length, 65);
+    assert.equal(gateAccepts(COTE, "CoteShopify").length, 22);
+    const generic = gateAccepts(COTE, "NotARealShopify");
+    assert.equal(generic.length, 23);
+    assert.deepEqual(
+      generic.filter((product) => !gateKeeps("CoteShopify", product)).map((product) => product.title),
+      ["The Ritual Peptide Enriched Lip Treatment"]
+    );
+  });
+
+  it("drops lip-typed products and defers the rest to the generic gate", () => {
+    assert.equal(isCotePolish(storeProduct(COTE, "The Ritual Peptide Enriched Lip Treatment")), false);
+    assert.equal(isCotePolish({ title: "The Necessity Peptide Lip Shine, Stella", product_type: "lip shine" }), false);
+    for (const title of ["Pink Clouds Nail Polish", "Quick Dry Top Coat", "Growth with Garlic Nail Treatment", "Smoothing Base Coat"]) {
+      const product = storeProduct(COTE, title);
+      assert.equal(isCotePolish(product), null, title);
+      assert.equal(gateKeeps("CoteShopify", product), true, title);
+    }
+    assert.equal(isCotePolish({ title: "Slipper Pink", product_type: "Nail Polishes" }), null);
+  });
+
+  it("is registered for CoteShopify and its records carry the catalog brand Côte", async () => {
+    assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.CoteShopify, isCotePolish);
+    const records = await pullFixture("CoteShopify", COTE);
+    assert.equal(records.length, 22);
+    // Vendor "Côte Beauty" would otherwise create a second brand next to the seeded "Côte".
+    assert.ok(records.every((record) => record.normalized.brand === "Côte"));
+  });
+});
+
+// alchemylacquers.com/products.json, fetched 2026-11-08 (228 products, one page), trimmed (fixture
+// _note) with body_html cut to 1,200 characters.
+const ALCHEMY = require("./fixtures/alchemy-lacquers-products.json").products;
+
+describe("store-filters/alchemy-lacquers — isAlchemyLacquersPolish (I2)", () => {
+  it("keeps 61 of the 75 fixture products; the generic gate also keeps Mystery Overpours", () => {
+    assert.equal(ALCHEMY.length, 75);
+    assert.equal(gateAccepts(ALCHEMY, "AlchemyLacquersShopify").length, 61);
+    const generic = gateAccepts(ALCHEMY, "NotARealShopify");
+    assert.equal(generic.length, 62);
+    assert.deepEqual(
+      generic.filter((product) => !gateKeeps("AlchemyLacquersShopify", product)).map((product) => product.title),
+      ["Mystery Overpours"]
+    );
+  });
+
+  it("drops mystery, grab bag, sample and pick-N listings and defers the rest", () => {
+    for (const title of ["Mystery Overpours", "Holiday Grab Bag", "Sample Vial", "Pick 3 Polishes", "Pick Any 2"]) {
+      assert.equal(isAlchemyLacquersPolish({ title, product_type: "Nail Lacquer" }), false, title);
+    }
+    for (const title of ["Hammy", "Lucky", "Cauldron of Chaos (Magnetic)", "Tria Prima Base Coat"]) {
+      const product = storeProduct(ALCHEMY, title);
+      assert.equal(isAlchemyLacquersPolish(product), null, title);
+      assert.equal(gateKeeps("AlchemyLacquersShopify", product), true, title);
+    }
+  });
+
+  it("is registered for AlchemyLacquersShopify and maps the My Store vendor to Alchemy Lacquers", async () => {
+    assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.AlchemyLacquersShopify, isAlchemyLacquersPolish);
+    const records = await pullFixture("AlchemyLacquersShopify", ALCHEMY);
+    assert.equal(records.length, 61);
+    assert.equal(recordFor(records, "Hammy").raw.vendor, "My Store");
+    assert.ok(records.every((record) => record.normalized.brand === "Alchemy Lacquers"));
   });
 });

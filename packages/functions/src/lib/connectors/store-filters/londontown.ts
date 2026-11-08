@@ -14,8 +14,9 @@ import type { StoreFilterProduct } from "./types.js";
  *   nail concealer lacquers); `Gels` and `GelShift` only when the source's `includeGel` is true.
  * - `Nail Care` defers to the generic gate (null), which keeps the base and top coats, hardeners,
  *   ridge fillers and cuticle oils with their category and drops removers, creams and scrubs.
- * - Dropped: every other type (Sets, Tools, Lip Care, Foot Care, Nail Art, PR Bundle) and any title
- *   with set, duo, trio, kit or bundle as a word.
+ * - Dropped: every other type (Sets, Tools, Lip Care, Foot Care, Nail Art, PR Bundle), any title
+ *   with set, duo, trio, kit or bundle as a word, and any title ending in " Mini" (the mini size of
+ *   a full-size shade, "Pearl Mini" next to "Pearl"; Olive & June drops its minis too).
  *
  * Fixture: tests/fixtures/londontown-products.json (106 of the 250 first-page products, 2026-11-08).
  */
@@ -24,13 +25,14 @@ const LACQUER_TYPES: ReadonlySet<string> = new Set(["nail color", "nail veils", 
 const GEL_TYPES: ReadonlySet<string> = new Set(["gels", "gelshift"]);
 const CARE_TYPE = "nail care";
 const SET_TITLE_REGEX = /\b(?:sets?|duos?|trios?|kits?|bundles?)\b/i;
+const MINI_TITLE_REGEX = /\sMini$/i;
 
 export function isLondontownPolish(
   product: StoreFilterProduct,
   settings: { includeGel: boolean } = { includeGel: false }
 ): boolean | null {
   const title = typeof product.title === "string" ? product.title : "";
-  if (SET_TITLE_REGEX.test(title)) {
+  if (SET_TITLE_REGEX.test(title) || MINI_TITLE_REGEX.test(title.trim())) {
     return false;
   }
   const productType = lowerTrim(product.product_type);
