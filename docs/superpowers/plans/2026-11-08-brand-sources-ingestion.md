@@ -243,6 +243,7 @@ assert.equal(resolveResellerVendor("Lippmann", { lippmann: "Deborah Lippmann" },
 - [ ] **Step 2: Run to verify they fail.**
 - [ ] **Step 3: Implement the filter (settings-aware registry), the seed row, base URL, migration; regenerate types.**
 - [ ] **Step 4: Run the tests** → PASS; `npm run typecheck`.
+- [ ] **Step 4b: Page limit.** `MAX_SHOPIFY_PAGES` (30) becomes `SHOPIFY_CONNECTOR_MAX_PAGES` (env, default 30, clamped 1–200; CLAUDE.md group "ingestion and catalog images", README table, `local.settings.json.example`) with a per-source override `data_source.metadata.maxPages` read by `readSourceSettings` (Task 3's `SourceSettings` gains `maxPages: number | null`); Beyond Polish's seed row sets `maxPages: 100`. Test in `shopify-generic-enrichment.unit.test.cjs`: a stubbed store serving 35 full pages is read to the end with `maxPages: 40` and stops at 30 without it.
 - [ ] **Step 5: Local dry run as in Task 6, with `detectHexFromImage: false` the first time.** Expected ≈4,000 accepted records, brands OPI, Zoya, Essie, CND, Morgan Taylor, Londontown, Ella+Mila, Kiara Sky (lacquer line), Loud Lacquer, Sundays, Peacci, Static Nails, Deborah Lippmann created; Orly / China Glaze / Color Club / Cirque / Cracked / KBShimmer adopted. Run `docs/queries/reseller-duplicates.sql` (Task 9) after; the duplicate count per brand goes into the README paragraph.
 - [ ] **Step 6: Docs + commit** — `feat(ingestion): Beyond Polish reseller source (lacquer lines, gel behind includeGel)`.
 
@@ -290,7 +291,7 @@ assert.equal(resolveResellerVendor("Lippmann", { lippmann: "Deborah Lippmann" },
 | `ManucuristShopify` | https://manucurist.com | EUR | 250+: "Vernis à ongles Green™" 68, "Semi-permanent LED Green Flash™" 59, Soins 36; no clause; French `product_type` | Task 11 |
 | `OliveAndJuneShopify` | https://oliveandjune.com | USD | 250+: Press-On 51, Tab Press-On 30, Nail Polish 28, Pressies 22, Gel Polish 20, Dip; no clause | Task 11 |
 | `PiggyPaintShopify` | https://piggypaint.com | USD | 250+: empty 110, Nail Art Kits & Accessories 92, Nail Polishes 24, Wholesale 12; no clause | Task 11 |
-| `MavalaShopify` | https://mavala.com | CHF | 150: Nail Care 34, Skincare 27, Make-Up 26, Instruments 19, Nail Polish 19; terms page 500, no clause found | none |
+| `MavalaShopify` | https://mavala.com | CHF | 150: Nail Care 34, Skincare 27, Make-Up 26, Instruments 19, Nail Polish 19; **terms page answered 500, terms unknown**: disabled, pending as CND | none |
 | `WetNWildShopify` | https://wetnwildbeauty.com | USD | 250+ cosmetics, polish not on page 1; no clause | Task 11 (title/type `Nail Color`) |
 | `AlchemyLacquersShopify` | https://alchemylacquers.com | USD | 228: Nail Lacquer 198, empty 30; no clause (2,100-char terms) | none |
 | `PenelopeLuzShopify` | https://penelopeluz.com | USD | 216 products, `product_type` empty on all; no clause (2,000-char terms) | Task 11 |
@@ -298,7 +299,7 @@ assert.equal(resolveResellerVendor("Lippmann", { lippmann: "Deborah Lippmann" },
 | `CndShopify` | https://cnd.com | USD | 117: empty 111, Gel Polish 6; **no terms page at `/policies/terms-of-service`**: registered **disabled, pending** until the owner reads cnd.com's site terms | Task 11 |
 | `BarryMShopify` | https://barrym.com | GBP | 250+: Nail Paint 106, lip/eye cosmetics; **terms page 404**: disabled, pending as CND | Task 11 (`Nail Paint` is the polish signal) |
 
-- [ ] **Step 1: Extend the test** with the enabled list and the two pending names; run → FAIL.
+- [ ] **Step 1: Extend the test** with the enabled list and the three pending names (CND, Barry M, Mavala); run → FAIL.
 - [ ] **Step 2: Add rows, base URLs, migration; `npm run generate:types`.**
 - [ ] **Step 3: Tests pass; commit** — `feat(ingestion): register clause-free brand Shopify stores`.
 
@@ -451,8 +452,8 @@ assert.equal(resolveResellerVendor("Lippmann", { lippmann: "Deborah Lippmann" },
 |---|---|---|
 | B (Harlow + Beyond Polish) | ≈ 4,000 | ILNP, KBShimmer, OPI, Zoya, Essie, CND, Morgan Taylor, Londontown, Ella+Mila, Sundays, Peacci, Lippmann… |
 | B (Hypnotic, after OK) | ≈ 250 | Cadillacquer, Cosmic Polish, Cuticula, EUR prices |
-| C (clause-free) | ≈ 700 | plus CND / Barry M ≈ 350 if their terms allow |
+| C (clause-free) | ≈ 700 | plus CND / Barry M / Mavala ≈ 370 if their terms allow |
 | C (pending, after OKs) | ≈ 500 | |
-| D (Polish Pickup, after OK) | ≈ 70 / month | one shade per maker per month |
+| D (Polish Pickup, after OK) | ≈ 70 / month | one shade per maker per month; the maker outreach it feeds yields ≈ 300 shades per round of 10 emails (spec S3, half agreeing) |
 | E (OPI sitemap, feeds) | GTINs for ≈ 570 OPI shades; barcodes for every feed source | shades mostly overlap Phase B |
 | Decision 3 = yes | + ≈ 4,000 gel | |

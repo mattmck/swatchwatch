@@ -16,14 +16,14 @@ Nothing was ingested; no store was contacted; nothing in the database changed.
 1. **The four biggest majors are not reachable from their own sites with the connectors we have.** OPI, essie,
    Sally Hansen and Zoya run custom or enterprise platforms (OPI on a sitemap + JSON-LD product
    pages, essie on Sitecore, Zoya on Art of Beauty's own storefront, Sally Hansen on line pages
-   without per-shade pages). Twenty-three of the other brands probed *are* Shopify stores with `products.json`
+   without per-shade pages). Thirty-three of the other brands probed *are* Shopify stores with `products.json`
    open. Their terms split three ways: the Shopify default clause (no spidering, crawling or
    scraping: Dazzle Dry, Sundays, DND, JINsoon, Tenoverten, Nailberry, Glam Polish, Nail Hoot, Moon
    Shine Mani, FUN Lacquer, Anchor & Heart), a custom clause of their own (butter LONDON, Ella+Mila,
    Kiara Sky, Pacifica, Static Nails, Revlon, Modelones, Dreamland, Ethereal), or **no
    automated-access clause at all** (Deborah Lippmann, Londontown, Côte, Manucurist, Olive & June,
    Piggy Paint, wet n wild, Alchemy Lacquers, Penelope Luz, Noodles; CND and Barry M have no terms
-   page at the Shopify path). The last group can be enabled the way Night Owl was (decision D2:
+   page at the Shopify path, and Mavala's answered 500, so those three are unknown, not clear). The last group can be enabled the way Night Owl was (decision D2:
    record the basis, enable, ask for the record). See [§3.1](#31-mass-market-and-professional-majors)
    and appendix A.
 2. **The two most-requested indies, ILNP and KBShimmer, stay closed at the source** (ILNP is
@@ -39,7 +39,8 @@ Nothing was ingested; no store was contacted; nothing in the database changed.
    Its terms of service are its own text with **no automated-access clause** (the only "harvesting"
    sentence is about other users' personal data), and its robots.txt is the Shopify default.
    Beyond Polish also publishes list prices and brand product pages, which feed #267 buy links, but
-   **no barcodes** in `products.json`. This is the one route that moves the +10k target on its own.
+   **no barcodes** in `products.json`. It is the largest single contribution found: about 3,200 new
+   lacquer shades (a third of the +10k target), or about 7,200 with the gel lines.
 4. **Polish Pickup is the live roster of the indie scene**: its November 2026 shop (open while this
    was written) lists 92 products from **76 makers**, 20 of which are already SwatchWatch sources.
    The store's own `products.json` is only useful with a store filter (`product_type` is `PPU`/`IPU`,
@@ -59,7 +60,8 @@ Co for a written OK (both have terms without a scraping clause, so the ask is a 
 paper trail, not a legal necessity), build a *reseller* mode for the generic Shopify connector
 (vendor → brand, title → line + shade + code, set tags → skip, no catalog images without the
 reseller's OK), and use the Polish Pickup roster to batch the next indie outreach. That order
-reaches the +10k target in one source, brings in ILNP and KBShimmer without their cooperation, and
+gets about 4,000 new lacquer shades from two sources (40% of the target; past 10k only with the gel
+lines or the Q1 outreach rounds), brings in ILNP and KBShimmer without their cooperation, and
 keeps every major's own storefront untouched. The affiliate route is the follow-up for GTINs and
 retail prices, not the first move.
 
@@ -114,7 +116,7 @@ blocker without a written OK.
 | **Dazzle Dry** (83 lacquers + 61 minis on page 1), **Sundays** (94 products, types empty), **JINsoon** (135, 15 typed), **Tenoverten** (28 polishes) | various | 30–150 each | **Shopify** open | Shopify clause | Beyond Polish carries Sundays (49) | Written OK round (S2) |
 | **Côte** (66 "Nail Polishes"), **Olive & June** (28 polish + 20 gel + press-ons), **Piggy Paint** (24 polishes), **Manucurist** (68 Green vernis, FR) | various | 25–70 each | **Shopify** open | **No automated-access clause** | — | Enable like Night Owl (ask for the record); small catalogs |
 | **Static Nails** (70 "Liquid Glass Lacquer"), **Pacifica** (polish inside a 250+ cosmetics catalog), **Revlon** (makeup store; polish not on page 1), **wet n wild** (no clause; polish not on page 1), **Pear Nova**, **Mischo** (no answer) | various | 20–70 polish each | Shopify open (Static Nails, Pacifica, Revlon, wet n wild) | Static Nails, Pacifica, Revlon: own "robots, spiders, crawlers" clause; wet n wild none | Beyond Polish carries Static Nails (33) | Low priority: small polish share of a cosmetics store |
-| **Barry M** (UK: 106 "Nail Paint" on page 1 of 250+, no terms page at the Shopify path), **Nailberry** (71 L'Oxygéné, Shopify clause), **Mavala** (19 polishes, no clause, terms page 500), **Nails.INC** (Shopify, terms forbid copying: Oct survey), **Ciaté** (custom site), **Essence** (Shopify, `products.json` answers HTML), **KIKO** (Shopify, `products.json` 404) | various | 20–300 each | mixed (appendix A) | mixed | European retailers | Europe is a second phase; Barry M and Mavala are the easy ones |
+| **Barry M** (UK: 106 "Nail Paint" on page 1 of 250+, no terms page at the Shopify path), **Nailberry** (71 L'Oxygéné, Shopify clause), **Mavala** (19 polishes; terms page answered 500, so its terms are unknown), **Nails.INC** (Shopify, terms forbid copying: Oct survey), **Ciaté** (custom site), **Essence** (Shopify, `products.json` answers HTML), **KIKO** (Shopify, `products.json` 404) | various | 20–300 each | mixed (appendix A) | mixed | European retailers | Europe is a second phase; Barry M and Mavala are the easy ones |
 | **Sinful Colors**, **Maybelline** (drugstore) | Revlon, L'Oréal | 30–100 each | corporate sites, no feeds (Sinful Colors `products.json` 404) | — | Walgreens, Target, Amazon | Affiliate / barcode-learning only |
 | **DND**, **Kiara Sky**, **Gelish/Harmony**, **Madam Glam**, **Aprés**, **The GelBottle**, **Daily Charme**, **Kokoist** (gel systems) | various | 300–1,000 each | DND: Shopify open | — | Beyond Polish (5,577 gel listings in all) | **Scope question**: gel polish is not in the catalog today (see §6, decision 3) |
 
@@ -167,9 +169,10 @@ Its value is the **roster**:
 
 Most of these makers are small (20–150 shades) and most run Shopify stores with the default terms.
 The October experience (three written permissions from one email round) says the ask works; the
-roster is the mailing list. Expected yield: 40 makers × ~60 shades ≈ **2,400 shades**, in return for
-40 emails and 10–20 store filters. That is a quarter of the target for a lot of handling, which is why
-it is strategy S3 and not S1.
+roster is the mailing list. Expected yield at the October rate of about half the makers agreeing:
+40 emails → ~20 makers × ~60 shades ≈ **1,200 shades**, in return for 40 emails and 10–20 store
+filters. That is an eighth of the target for a lot of handling, which is why it is strategy S3 and
+not S1.
 
 ### 3.4 Multi-brand resellers
 
@@ -253,14 +256,24 @@ when the vendor is a placeholder) and a *reseller* store filter in `connectors/s
   NLB83 can match by code); `Discontinued` kept, flagged in `normalized_json`.
 - A `harlow-and-co.ts` filter is optional: its `product_type` is "Nail Polish" on 1,281 products
   and the generic gate already accepts 1,282 of 1,537.
-- Brand identity: the same shade will arrive from Beyond Polish *and* from the brand's own store
-  (Orly, China Glaze, Color Club, Cirque, Cracked, KBShimmer via Harlow). Materialization matches on
-  brand + normalized name today, so most collapse; the ones that do not (reseller title noise:
-  "0.5 oz", "#NLB83") are what the title parser is for. Run the dedupe audit after the first ingest.
+- Catalog size: `fetchAllProducts` in `shopify-generic.ts` stops after `MAX_SHOPIFY_PAGES` = 30 pages
+  of 250, and Beyond Polish has 71. The limit becomes an env setting with a per-source override
+  (`data_source.metadata.maxPages`) before the first run; otherwise an exhaustive job silently drops
+  the last 10,000 products before filtering.
+- Shade identity: the same shade will arrive from Beyond Polish *and* from the brand's own store
+  (Orly, China Glaze, Color Club, Cirque, Cracked, KBShimmer via Harlow). Materialization matches a
+  shade on brand + name **+ `finish` + `collection`** (the first `finish:` tag and the first
+  `collection:` tag), so a reseller record with different tags creates a second shade even when the
+  title is clean. A reseller source therefore needs (a) the title parser for the name, (b) empty
+  `finish` / `collection` on its records, and (c) a fallback match on brand + name alone that adopts
+  the brand store's shade (link the listing, fill only empty data, never overwrite). Run the dedupe
+  audit after the first ingest.
 - Images: reseller product photos are often the brand's own press shots, but the reseller's OK is
-  needed before storing them. Ingest with `storeImages: false` until the OK is on record; hex
-  detection then runs on `name_hex` only (display shows "Estimated color"). The reseller's OK can
-  include images; the brand's cannot be assumed.
+  needed before storing them. The materializer has no image switch today (it prepares and uploads
+  source images even with hex detection off), so a source-level `imagesPermitted` setting that skips
+  image preparation entirely is a prerequisite, built and tested before the first reseller run; until
+  the OK is on record the shade carries `name_hex` only (display shows "Estimated color"). The
+  reseller's OK can include images; the brand's cannot be assumed.
 - Buy links: `productUrl` goes to the reseller, not the brand. `selectBuyFromBrandLink` picks one
   product deterministically; add a source-priority rule (brand store before reseller) so an Orly
   shade keeps its orly.com link.
@@ -286,14 +299,15 @@ cleanup); gel lines flooding color search if decision 3 is "no" and the filter i
 
 ### S2 — Brand stores on Shopify: enable the clause-free ones, ask the others
 
-**What.** The probe (appendix A) found 23 brand stores with `products.json` open. Split them by terms:
+**What.** The probe (appendix A) found 33 brand stores with `products.json` open. Split them by terms:
 
 - **No automated-access clause** (enable the way Night Owl was enabled under D2, and email for the
   record): Deborah Lippmann (25 polishes), Londontown (68 + gels), Côte (66), Manucurist (68, FR),
-  Olive & June (28 + gel), Piggy Paint (24), Mavala (19), wet n wild (polish share unknown), and the
-  indies Alchemy Lacquers (198 "Nail Lacquer"), Penelope Luz (216 products, types empty), Noodles
-  (57). CND (117, types empty) and Barry M (106 "Nail Paint" on page 1) have no terms page at the
-  Shopify path, so the same treatment applies once the owner has looked at their site terms.
+  Olive & June (28 + gel), Piggy Paint (24), wet n wild (polish share unknown), and the indies
+  Alchemy Lacquers (198 "Nail Lacquer"), Penelope Luz (216 products, types empty), Noodles (57).
+  CND (117, types empty) and Barry M (106 "Nail Paint" on page 1) have no terms page at the Shopify
+  path, and Mavala's (19 polishes) answered 500: their terms are unknown, so they wait for the
+  owner to read the site terms (or for a written OK) before activation.
 - **Shopify default clause** (written OK first, as in October): Dazzle Dry, Sundays, JINsoon,
   Tenoverten, Nailberry, DND (gel), Glam Polish (AU), Nail Hoot, Moon Shine Mani, FUN Lacquer,
   Anchor & Heart.
@@ -308,8 +322,8 @@ gels or cosmetics share the catalog (Londontown, Olive & June, Pacifica, Revlon,
 an owner); expect 20–30% from them versus three of three from the indie round.
 
 **Yield.** Clause-free group ≈ **700 shades** (Londontown ~70, Côte ~66, Manucurist ~68, Lippmann
-~25, Olive & June ~28, Piggy Paint ~24, Mavala ~19, Alchemy ~200, Penelope Luz ~150, Noodles ~57) plus
-CND (~150 Vinylux) and Barry M (~200) if their terms allow; clause group ≈ **500** (Dazzle Dry ~140,
+~25, Olive & June ~28, Piggy Paint ~24, Alchemy ~200, Penelope Luz ~150, Noodles ~57) plus CND
+(~150 Vinylux), Barry M (~200) and Mavala (~19) if their terms allow; clause group ≈ **500** (Dazzle Dry ~140,
 Sundays ~90, JINsoon ~115, Tenoverten ~28, Nailberry ~70, Glam Polish ~185, Nail Hoot ~128, Moon
 Shine ~199 → the last three overlap Polish Pickup makers). Most of the majors here are also at
 Beyond Polish, so S2 is as much about brand-direct images and buy links as about shades.
@@ -326,7 +340,9 @@ unless the title says scrub, wax, lotion, decals, sticker, magnet; vendor is the
 month's ~70 shades and, over a year, ~800, with the maker as brand. Worth doing only once the makers
 themselves say yes, since each shade also appears in the maker's own store.
 
-**Yield.** ~2,400 shades over 3–4 monthly rounds, if half the makers agree.
+**Yield.** ~1,200 shades over four rounds of 10 emails if half the makers agree (~300 per round).
+Only the first round, and the December Polish Pickup window, fall before 19 Dec; rounds 2–4 are
+Q1 2027 work.
 
 ### S4 — Sitemap + JSON-LD connector for brand sites without a feed (OPI, and any brand on a
 custom platform)
@@ -411,16 +427,18 @@ feeds.
 
 | Step | Strategy | Owner action | Engineering | Expected new shades | Cumulative |
 |---|---|---|---|---|---|
-| 1 | S1 Harlow & Co | Email for the record; enable | `data_source` row; run; audit duplicates (KBShimmer vs Beyond Polish later) | ~850 (ILNP 570, KBShimmer 240, PfD 55) | 850 |
+| 1 | S1 Harlow & Co | Email for the record; enable | seed row in `docs/seed_data_sources.sql` + `npm run generate:types` (the ingestion API only accepts generated `SUPPORTED_SOURCES`) + migration + `SHOPIFY_SOURCE_BASE_URLS`; the reseller prerequisites above (page limit, identity fallback, `imagesPermitted`); run; audit duplicates | ~850 (ILNP 570, KBShimmer 240, PfD 55) | 850 |
 | 2 | S1 Beyond Polish (lacquer lines) | Email for the record (ask about images and whether a feed with GTINs is available); enable | reseller store filter + title parser + buy-link source priority; `storeImages` off until the OK says images | ~3,200 | ~4,050 |
-| 3 | S3 Polish Pickup round 1 (10 makers) | 10 emails from the roster | 2–5 store filters | ~600 | ~4,650 |
-| 4 | S2 clause-free brand stores (Lippmann, Londontown, Côte, Manucurist, Olive & June, Piggy Paint, Mavala, Alchemy, Penelope Luz, Noodles; CND and Barry M after a terms check) + S7 feed ask | 12 emails for the record; enable | rows + ~6 store filters; feed connector (shared with S6) | ~1,000 (≈ 700 new beyond S1) | ~5,350 |
-| 4b | S2 clause group (Dazzle Dry, Sundays, JINsoon, Tenoverten, Nailberry, Glam Polish, Nail Hoot, Moon Shine, FUN, Anchor & Heart) | 10 emails, wait for written OK | rows + filters | ~500 | ~5,850 |
-| 5 | Decision 3: gel lines at Beyond Polish | decide | filter switch | +4,000 if yes | ~9,850 |
-| 6 | S3 rounds 2–4 | 30 emails | filters | ~1,800 | ~11,650 |
+| 3 | S3 Polish Pickup round 1 (10 makers, ~5 yes) | 10 emails from the roster | 2–5 store filters | ~300 | ~4,350 |
+| 4 | S2 clause-free brand stores (Lippmann, Londontown, Côte, Manucurist, Olive & June, Piggy Paint, Alchemy, Penelope Luz, Noodles; CND, Barry M and Mavala after a terms check) + S7 feed ask | 12 emails for the record; enable | rows + ~6 store filters; feed connector (shared with S6) | ~1,000 (≈ 700 new beyond S1) | ~5,050 |
+| 4b | S2 clause group (Dazzle Dry, Sundays, JINsoon, Tenoverten, Nailberry, Glam Polish, Nail Hoot, Moon Shine, FUN, Anchor & Heart) | 10 emails, wait for written OK | rows + filters | ~500 | ~5,550 |
+| 5 | Decision 3: gel lines at Beyond Polish | decide | filter switch | +4,000 if yes | ~9,550 |
+| 6 | S3 rounds 2–4 (Q1 2027: one round per Polish Pickup month) | 30 emails | filters | ~900 | ~10,450 |
 | 7 | S6 affiliate feeds (Q1) | Rakuten/Impact accounts, advertiser approvals | feed connector, disclosure | GTINs + prices for the majors; prestige brands | — |
 
-Without the gel decision the plan lands near 7,500 new shades by the 19 Dec date; with it, past 10k.
+By 19 Dec (steps 1–4b, assuming the clause-group replies arrive in time) the plan lands near 5,500
+new lacquer shades; with the gel decision about 9,500; the lacquer-only +10k arrives with the Q1
+outreach rounds and the affiliate feeds, not in December.
 The 19 Dec target was set when the indie route was the only one; the honest read is that the
 lacquer-only +10k needs the affiliate feeds or 60+ indie permissions, neither of which fits by
 December, and that the resellers get the catalog to where it matters for users (the majors
@@ -429,7 +447,7 @@ collectors actually own) in two sources.
 ## 6. Decisions for the owner
 
 1. **Reseller sources (S1).** Approve asking Beyond Polish and Harlow & Co, and ingesting with
-   `storeImages: false` on a plain "no objection" and images only on an explicit OK. Their terms do
+   images off (the new `imagesPermitted` setting) on a plain "no objection" and images on only on an explicit OK. Their terms do
    not require the ask; D2 does.
 2. **Buy-link priority.** When a shade has a brand-store listing and a reseller listing, the brand
    store wins the buy link (recommended); otherwise the newest `last_seen_at` wins as today.
