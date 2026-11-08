@@ -47,6 +47,9 @@ const MAX_REQUEST_RETRIES = parseIntEnv(process.env.SHOPIFY_CONNECTOR_MAX_RETRIE
 const RETRY_BASE_DELAY_MS = parseIntEnv(process.env.SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS, 1000, 100, 30000);
 const USER_AGENT = "SwatchWatch/connector-ingestion (+https://github.com/mattmck/swatchwatch)";
 
+/** Pulls in which one page may be tried and left unanswered before it is recorded as failed. */
+export const SITEMAP_JSONLD_MAX_URL_ATTEMPTS = 3;
+
 /** The least time a request is started with: below it the pull stops (or, on entry, throws). */
 export const SITEMAP_JSONLD_MIN_REQUEST_MS = 5000;
 
@@ -90,13 +93,31 @@ export interface SitemapCrawlCheckpoint {
   urls: Array<{ url: string; lastmod: string | null }>;
   /** Fetched pages: the page's JSON-LD Product, or null (gone, or no Product on it). */
   pages: Record<string, JsonLdProduct | null>;
+  /** Pulls in which a page was tried and not answered (cleared once it is answered or fails). */
+  attempts: Record<string, number>;
+  /**
+   * Pages given up on: tried in `SITEMAP_JSONLD_MAX_URL_ATTEMPTS` pulls, retries exhausted, or a
+   * non-retryable status other than 404/410. Never in `pages`; they never block `complete`.
+   */
+  failed: string[];
+  /** Pages that answered 404 or 410 (also in `pages` as null): left out of the catalog ids. */
+  gone: string[];
   complete: boolean;
   /** Incremented on every save (log line only). */
   generation: number;
 }
 
 function emptyCheckpoint(): SitemapCrawlCheckpoint {
-  return { discovery: { rootRead: false, children: [], done: [] }, urls: [], pages: {}, complete: false, generation: 0 };
+  return {
+    discovery: { rootRead: false, children: [], done: [] },
+    urls: [],
+    pages: {},
+    attempts: {},
+    failed: [],
+    gone: [],
+    complete: false,
+    generation: 0,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -126,6 +147,13 @@ export function readCrawlCheckpoint(value: unknown): SitemapCrawlCheckpoint {
         : []
     ),
     pages: value.pages as Record<string, JsonLdProduct | null>,
+    attempts: isRecord(value.attempts)
+      ? Object.fromEntries(
+          Object.entries(value.attempts).filter((entry): entry is [string, number] => typeof entry[1] === "number")
+        )
+      : {},
+    failed: stringList(value.failed),
+    gone: stringList(value.gone),
     complete: value.complete === true,
     generation: typeof value.generation === "number" ? value.generation : 0,
   };
@@ -418,10 +446,21 @@ export interface SitemapJsonLdConnectorOptions {
 
 type RequestOutcome =
   | { status: "ok"; body: string }
-  /** A non-retryable HTTP status (404, 410, 403 ...): the URL is answered, with nothing on it. */
-  | { status: "gone"; httpStatus: number }
-  /** Not attempted or not retried because it would not fit before the save margin. */
-  | { status: "deferred" };
+  /** A non-retryable HTTP status (404, 410, 403 ...). */
+  | { status: "http"; httpStatus: number }
+  /** Every attempt failed with a retryable error (5xx, 429, timeout, network). */
+  | { status: "exhausted"; reason: string }
+  /**
+   * Not attempted (`attempted: false`) or not retried (`attempted: true`, with the last failure)
+   * because it would not fit before the save margin.
+   */
+  | { status: "deferred"; attempted: boolean; reason?: string };
+
+/** A page the crawl gave up on in this pull (the worker logs one warning each). */
+export interface FailedPage {
+  url: string;
+  reason: string;
+}
 
 function isRetryableStatus(status: number): boolean {
   return status === 408 || status === 425 || status === 429 || status >= 500;
@@ -488,6 +527,7 @@ export class SitemapJsonLdConnector implements ProductConnector {
     const state = readCrawlCheckpoint(loaded?.value ?? null);
     let pagesThisPull = 0;
     let requestsThisPull = 0;
+    const failedThisPull: FailedPage[] = [];
 
     if (!state.complete) {
       if (typeof options.deadlineMs !== "number" || !Number.isFinite(options.deadlineMs)) {
@@ -497,7 +537,21 @@ export class SitemapJsonLdConnector implements ProductConnector {
       if (stopAt - this.now() < SITEMAP_JSONLD_MIN_REQUEST_MS) {
         throw new Error("SitemapJsonLd: worker budget too small to fetch a page");
       }
-      const crawl = await this.crawl(state, stopAt);
+      let crawl: CrawlResult;
+      try {
+        crawl = await this.crawl(state, stopAt, failedThisPull);
+      } catch (error) {
+        // Keep what this pull already fetched (the crawl updates `state` in place); the
+        // original error still fails the job. A superseded save wins over it: the newer
+        // invocation owns the job.
+        state.generation += 1;
+        try {
+          await this.save(cache, state, loaded?.etag ?? null);
+        } catch (saveError) {
+          if (saveError instanceof ConnectorCheckpointSupersededError) throw saveError;
+        }
+        throw error;
+      }
       pagesThisPull = crawl.pages;
       requestsThisPull = crawl.requests;
       state.generation += 1;
@@ -505,7 +559,8 @@ export class SitemapJsonLdConnector implements ProductConnector {
     }
 
     const totalPages = state.urls.length;
-    const crawledPages = state.urls.filter(({ url }) => url in state.pages).length;
+    const failed = new Set(state.failed);
+    const crawledPages = state.urls.filter(({ url }) => url in state.pages || failed.has(url)).length;
     const crawlMetadata = {
       requestUrl: this.sitemapUrl,
       storeBaseUrl: this.baseUrl,
@@ -514,6 +569,9 @@ export class SitemapJsonLdConnector implements ProductConnector {
       catalogComplete: state.complete,
       crawledPages,
       totalPages,
+      failedPages: state.failed.length,
+      // Pages given up on in this pull; the worker logs one warning per entry.
+      failedThisPull,
       pagesThisPull,
       requestsThisPull,
       checkpointGeneration: state.generation,
@@ -534,6 +592,7 @@ export class SitemapJsonLdConnector implements ProductConnector {
     let vendorlessSkipped = 0;
     let pagesWithoutProduct = 0;
     for (const { url, lastmod } of state.urls) {
+      if (failed.has(url)) continue;
       const product = state.pages[url];
       if (!product) {
         pagesWithoutProduct += 1;
@@ -561,7 +620,10 @@ export class SitemapJsonLdConnector implements ProductConnector {
     const offset = Math.max(0, (options.page - 1) * options.pageSize);
     const windowed = filtered.slice(offset, offset + options.pageSize).slice(0, options.maxRecords);
     const built = windowed.map((entry) => buildCrawledRecord(entry, this.settings));
-    const externalIds = [...new Set(state.urls.map(({ url }) => urlPath(url)))];
+    // A failed (flaky) page keeps its listing; a page that answered 404/410 is left out so a
+    // delisted product lingering in a lagging sitemap gets missing_since.
+    const gone = new Set(state.gone);
+    const externalIds = [...new Set(state.urls.filter(({ url }) => !gone.has(url)).map(({ url }) => urlPath(url)))];
 
     return {
       source: this.source,
@@ -575,7 +637,7 @@ export class SitemapJsonLdConnector implements ProductConnector {
         responsePageSize: options.pageSize,
         sourceCount: filtered.length,
         sourcePageCount: options.pageSize > 0 ? Math.ceil(filtered.length / options.pageSize) : null,
-        fetchedProductCount: totalPages - pagesWithoutProduct,
+        fetchedProductCount: totalPages - pagesWithoutProduct - state.failed.length,
         pagesWithoutProduct,
         recentDays,
         textFilter,
@@ -599,7 +661,7 @@ export class SitemapJsonLdConnector implements ProductConnector {
   }
 
   /** Discovery, then product pages, until done, the page budget is spent or `stopAt` is near. */
-  private async crawl(state: SitemapCrawlCheckpoint, stopAt: number): Promise<{ pages: number; requests: number }> {
+  private async crawl(state: SitemapCrawlCheckpoint, stopAt: number, failedThisPull: FailedPage[]): Promise<CrawlResult> {
     let requests = 0;
     const known = new Set(state.urls.map(({ url }) => url));
     const addUrls = (entries: ParsedSitemap["entries"]) => {
@@ -614,7 +676,7 @@ export class SitemapJsonLdConnector implements ProductConnector {
       const outcome = await this.request(this.sitemapUrl, stopAt, "sitemap");
       requests += 1;
       if (outcome.status === "deferred") return { pages: 0, requests };
-      if (outcome.status === "gone") throw new Error(`${this.source} sitemap request failed: ${outcome.httpStatus}`);
+      if (outcome.status !== "ok") throw new Error(`${this.source} sitemap request failed: ${describeOutcome(outcome)}`);
       const root = parseSitemapXml(outcome.body);
       if (root.kind === "index") state.discovery.children = [...new Set(root.entries.map((entry) => entry.url))];
       else addUrls(root.entries);
@@ -625,7 +687,7 @@ export class SitemapJsonLdConnector implements ProductConnector {
       const outcome = await this.request(child, stopAt, "sitemap");
       requests += 1;
       if (outcome.status === "deferred") return { pages: 0, requests };
-      if (outcome.status === "gone") throw new Error(`${this.source} child sitemap request failed: ${outcome.httpStatus}`);
+      if (outcome.status !== "ok") throw new Error(`${this.source} child sitemap request failed: ${describeOutcome(outcome)}`);
       const parsed = parseSitemapXml(outcome.body);
       // One level only: a nested index's children are not followed.
       if (parsed.kind === "urlset") addUrls(parsed.entries);
@@ -633,14 +695,46 @@ export class SitemapJsonLdConnector implements ProductConnector {
     }
 
     let pages = 0;
+    const failed = new Set(state.failed);
+    const giveUp = (url: string, reason: string) => {
+      failed.add(url);
+      state.failed.push(url);
+      delete state.attempts[url];
+      failedThisPull.push({ url, reason });
+    };
     for (const { url } of state.urls) {
-      if (url in state.pages) continue;
+      if (url in state.pages || failed.has(url)) continue;
       if (pages >= this.maxPagesPerRun) return { pages, requests };
       const outcome = await this.request(url, stopAt, "page");
       requests += 1;
-      if (outcome.status === "deferred") return { pages, requests };
-      state.pages[url] = outcome.status === "ok" ? extractJsonLdProduct(outcome.body) : null;
+      if (outcome.status === "deferred") {
+        // Out of time. A page tried in this pull counts one attempt; after
+        // SITEMAP_JSONLD_MAX_URL_ATTEMPTS pulls it is given up on, so a dead page never stalls the crawl.
+        if (outcome.attempted) {
+          const attempts = (state.attempts[url] ?? 0) + 1;
+          state.attempts[url] = attempts;
+          if (attempts >= SITEMAP_JSONLD_MAX_URL_ATTEMPTS) {
+            giveUp(url, `not answered in ${attempts} pulls (last: ${outcome.reason ?? "unknown"})`);
+          }
+        }
+        return { pages, requests };
+      }
       pages += 1;
+      if (outcome.status === "exhausted") {
+        giveUp(url, outcome.reason);
+        continue;
+      }
+      if (outcome.status === "http") {
+        if (outcome.httpStatus !== 404 && outcome.httpStatus !== 410) {
+          giveUp(url, `HTTP ${outcome.httpStatus}`);
+          continue;
+        }
+        state.gone.push(url);
+        state.pages[url] = null;
+      } else {
+        state.pages[url] = extractJsonLdProduct(outcome.body);
+      }
+      delete state.attempts[url];
     }
     state.complete = true;
     return { pages, requests };
@@ -649,17 +743,20 @@ export class SitemapJsonLdConnector implements ProductConnector {
   /**
    * One GET, paced and bounded by `stopAt`: every attempt (and its wait) starts only with at
    * least `SITEMAP_JSONLD_MIN_REQUEST_MS` left and times out by `stopAt`; a retry that would not
-   * fit is not made (`deferred`). Retries exhausted with time left fail the job like the
-   * Shopify connector.
+   * fit is not made (`deferred`). Retryable failures on every attempt are `exhausted`; a
+   * non-retryable thrown error (not a timeout or network error) is fatal and thrown.
    */
   private async request(url: string, stopAt: number, kind: "sitemap" | "page"): Promise<RequestOutcome> {
     const attemptCount = MAX_REQUEST_RETRIES + 1;
     let backoffMs = 0;
+    let lastFailure: string | undefined;
     for (let attempt = 1; attempt <= attemptCount; attempt += 1) {
       const paceMs = this.lastRequestAt === null ? 0 : Math.max(0, this.lastRequestAt + this.pageDelayMs - this.now());
       const waitMs = Math.max(paceMs, backoffMs);
       const remainingAfterWait = stopAt - this.now() - waitMs;
-      if (remainingAfterWait < SITEMAP_JSONLD_MIN_REQUEST_MS) return { status: "deferred" };
+      if (remainingAfterWait < SITEMAP_JSONLD_MIN_REQUEST_MS) {
+        return { status: "deferred", attempted: attempt > 1, reason: lastFailure };
+      }
       if (waitMs > 0) await this.sleep(waitMs);
 
       const timeoutMs = Math.min(REQUEST_TIMEOUT_MS, stopAt - this.now());
@@ -677,25 +774,34 @@ export class SitemapJsonLdConnector implements ProductConnector {
           signal: controller.signal,
         });
         if (response.ok) return { status: "ok", body: await response.text() };
-        if (!isRetryableStatus(response.status)) return { status: "gone", httpStatus: response.status };
+        if (!isRetryableStatus(response.status)) return { status: "http", httpStatus: response.status };
         retryReason = `HTTP ${response.status}`;
-        if (attempt >= attemptCount) {
-          throw Object.assign(new Error(`${this.source} ${kind} request failed: ${response.status} ${response.statusText ?? ""}`.trim()), { final: true });
-        }
       } catch (error) {
         let normalized = error instanceof Error ? error : new Error(String(error));
-        if ((normalized as { final?: boolean }).final) throw normalized;
         if (normalized.name === "AbortError") {
           normalized = new Error(`${this.source} ${kind} request timed out after ${timeoutMs}ms`);
         }
-        if (attempt >= attemptCount || !isRetryableRequestError(normalized)) throw normalized;
+        if (!isRetryableRequestError(normalized)) throw normalized;
         retryReason = normalized.message;
       } finally {
         clearTimeout(timeout);
       }
+      lastFailure = retryReason;
+      if (attempt >= attemptCount) return { status: "exhausted", reason: retryReason };
       backoffMs = RETRY_BASE_DELAY_MS * attempt;
       console.warn(`${this.source} ${kind} retry ${attempt}/${MAX_REQUEST_RETRIES} after ${retryReason}; waiting ${backoffMs}ms`, { url });
     }
-    throw new Error(`${this.source} ${kind} request failed`);
+    return { status: "exhausted", reason: lastFailure ?? "request failed" };
   }
+}
+
+interface CrawlResult {
+  pages: number;
+  requests: number;
+}
+
+function describeOutcome(outcome: RequestOutcome): string {
+  if (outcome.status === "http") return String(outcome.httpStatus);
+  if (outcome.status === "exhausted") return outcome.reason;
+  return outcome.status;
 }

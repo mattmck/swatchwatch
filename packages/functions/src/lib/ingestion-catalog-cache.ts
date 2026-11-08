@@ -12,7 +12,9 @@
  * Crawl checkpoints (`loadCheckpoint` / `saveCheckpoint`, the sitemap connector) are different:
  * a crawl that needs many invocations must never restart from zero, so the cache is `durable`
  * only when blob storage is configured and a preflight write of a probe blob
- * (`<snapshot name>.preflight`, never the checkpoint itself) succeeded at creation, a checkpoint
+ * (`<snapshot name>.preflight`, never the checkpoint itself) succeeded; the probe is written
+ * lazily on the first `loadCheckpoint()`, so connectors that never checkpoint (Shopify, feeds)
+ * pay no extra blob write. A checkpoint
  * that exists but cannot be read throws, and every save is fenced on the ETag the caller read
  * (`If-Match`, or `If-None-Match: *` for the first one).
  */
@@ -78,32 +80,36 @@ export function createIngestionCatalogCache(params: {
   const snapshotBlobName = `catalog-cache/${params.source}/${params.jobId}.json.gz`;
   const checkpointBlobName = `catalog-cache/${params.source}/${params.jobId}.checkpoint.json.gz`;
 
-  // Durability preflight, started at creation: write a probe blob next to the snapshot (never the
-  // checkpoint, so a continuation recreating the cache cannot clobber saved progress).
+  // Durability preflight, started by the first checkpoint call: write a probe blob next to the
+  // snapshot (never the checkpoint, so a continuation recreating the cache cannot clobber saved
+  // progress). `durable` is settled once `loadCheckpoint()` resolves.
   let durable = false;
   const storage = (() => {
     const containerName = resolveCatalogContainer();
     const connectionString = asNonEmpty(process.env.AZURE_STORAGE_CONNECTION);
     return containerName && connectionString ? { containerName, connectionString } : null;
   })();
-  const preflight: Promise<void> = storage
-    ? uploadBytesToBlob({
-        connectionString: storage.connectionString,
-        containerName: storage.containerName,
-        blobName: `${snapshotBlobName}.preflight`,
-        bytes: Buffer.from(JSON.stringify({ jobId: params.jobId, checkedAt: new Date().toISOString() }), "utf-8"),
-        contentType: "application/json",
-      }).then(
-        () => {
-          durable = true;
-        },
-        (error: unknown) => {
-          log("warn", `${LOG_PREFIX} Preflight write failed; crawl checkpoints are not durable`, {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      )
-    : Promise.resolve();
+  let preflight: Promise<void> | null = null;
+  const runPreflight = (): Promise<void> =>
+    storage
+      ? uploadBytesToBlob({
+          connectionString: storage.connectionString,
+          containerName: storage.containerName,
+          blobName: `${snapshotBlobName}.preflight`,
+          bytes: Buffer.from(JSON.stringify({ jobId: params.jobId, checkedAt: new Date().toISOString() }), "utf-8"),
+          contentType: "application/json",
+        }).then(
+          () => {
+            durable = true;
+          },
+          (error: unknown) => {
+            log("warn", `${LOG_PREFIX} Preflight write failed; crawl checkpoints are not durable`, {
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        )
+      : Promise.resolve();
+  const ensurePreflight = (): Promise<void> => (preflight ??= runPreflight());
 
   const readCheckpoint = async (): Promise<{ value: unknown; etag: string | null; json: string } | null> => {
     if (!storage) return null;
@@ -119,14 +125,14 @@ export function createIngestionCatalogCache(params: {
     },
 
     async loadCheckpoint() {
-      await preflight;
+      await ensurePreflight();
       if (!durable) return null;
       const current = await readCheckpoint();
       return current ? { value: current.value, etag: current.etag } : null;
     },
 
     async saveCheckpoint(value, etag) {
-      await preflight;
+      await ensurePreflight();
       if (!durable || !storage) {
         throw new Error("Catalog checkpoint storage is not durable (CONNECTOR_RAW_CONTAINER)");
       }

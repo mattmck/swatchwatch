@@ -1156,6 +1156,19 @@ export async function processIngestionJobQueueMessage(
         return;
       }
 
+      // Pages a crawling connector gave up on in this pull: one warning each, kept out of the
+      // job metrics (the running `failedPages` count stays there).
+      if (Array.isArray(pageResult.metadata?.failedThisPull)) {
+        for (const failure of pageResult.metadata.failedThisPull as Array<{ url?: unknown; reason?: unknown }>) {
+          logger.warn(`Crawl gave up on a page: ${String(failure?.url)} (${String(failure?.reason)})`, {
+            url: failure?.url,
+            reason: failure?.reason,
+          });
+        }
+        const { failedThisPull: _failedThisPull, ...metadataWithoutFailures } = pageResult.metadata;
+        pageResult = { ...pageResult, metadata: metadataWithoutFailures };
+      }
+
       // A crawling connector still reading its catalog: no records yet, and an empty partial
       // result never ends the job. Call again with the same page number; each partial pull
       // counts against the time budget, and the job hands off when another pull would not fit.

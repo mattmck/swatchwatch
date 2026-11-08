@@ -1116,6 +1116,22 @@ describe("processIngestionJobQueueMessage — partial crawl pulls", () => {
     assert.equal(freshnessCalls.length, 0);
   });
 
+  it("logs one warning per page the crawl gave up on and keeps the list out of the job metrics", async () => {
+    pages[1] = sequence([
+      partial(150, { failedPages: 2, failedThisPull: [{ url: "https://x.example/a", reason: "HTTP 503" }, { url: "https://x.example/b", reason: "HTTP 500" }] }),
+      complete(makeRecords(1, 1)),
+    ]);
+
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    const warnings = (job.metrics.logs || []).filter((entry) => /Crawl gave up on a page/.test(entry.msg));
+    assert.equal(warnings.length, 2);
+    assert.equal(warnings[0].level, "warn");
+    assert.match(warnings[0].msg, /https:\/\/x\.example\/a \(HTTP 503\)/);
+    assert.equal(job.metrics.failedThisPull, undefined);
+    assert.equal(job.metrics.failedPages, 2);
+  });
+
   it("stops after a partial pull when the job was cancelled, without writing or pulling again", async () => {
     pages[1] = async () => {
       job.status = "cancelled";

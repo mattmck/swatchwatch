@@ -127,8 +127,7 @@ describe("createIngestionCatalogCache", () => {
 
     await cache.save([{ id: 1 }, { id: 2 }]);
 
-    // The durability preflight's probe blob is written beside the snapshot, never over it.
-    uploads = uploads.filter((upload) => !upload.url.endsWith(".preflight"));
+    // No durability probe: only a checkpoint call writes one.
     assert.equal(uploads.length, 1);
     assert.match(uploads[0].url, /connector-raw\/catalog-cache\/MooncatShopify\/7\.json\.gz$/);
     assert.equal(uploads[0].contentType, "application/gzip");
@@ -220,6 +219,19 @@ describe("createIngestionCatalogCache: crawl checkpoints", () => {
     assert.deepEqual(uploads.map((upload) => upload.url), [
       "https://acct.blob.core.windows.net/connector-raw/catalog-cache/OpiSitemap/7.json.gz.preflight",
     ]);
+  });
+
+  it("writes the probe lazily, once, on the first loadCheckpoint (never for load/save alone)", async () => {
+    const cache = create();
+    assert.equal(cache.durable, false);
+    await cache.save([{ id: 1 }]);
+    await cache.load();
+    assert.ok(!uploads.some((upload) => upload.url.endsWith(".preflight")), "no probe without a checkpoint call");
+    await cache.loadCheckpoint();
+    await cache.loadCheckpoint();
+    await cache.saveCheckpoint({ generation: 1 }, null);
+    assert.equal(uploads.filter((upload) => upload.url.endsWith(".preflight")).length, 1);
+    assert.equal(cache.durable, true);
   });
 
   it("is not durable when the preflight write fails", async () => {
