@@ -222,6 +222,7 @@ const ADDITIVE_METRIC_KEYS = new Set([
   "applied",
   "skippedNoDetection",
   "noShadeMatch",
+  "ambiguousShadesSkipped",
 ]);
 
 /**

@@ -28,6 +28,12 @@ let shades;
 let productSwatches;
 let blobCalls;
 let nextShadeId;
+// Active, unmerged shades this (data source, external id) is already linked to (shade_source_product).
+let listings;
+// Rows of the pre-detection lookups (admin category, unchanged image) when they resolve the shade
+// through the listing.
+let adminCategoryRows;
+let unchangedRows;
 
 function sqlOf(text) {
   return text.replace(/\s+/g, " ").trim();
@@ -38,6 +44,11 @@ const transactionClient = {
     const sql = sqlOf(text);
     calls.push({ sql, params });
 
+    if (sql.startsWith("SELECT DISTINCT ssp.shade_id")) {
+      // Lookup step 0: the product's own listings.
+      assert.deepEqual(params, [7, "r1"]);
+      return { rows: listings.map((shadeId) => ({ shadeId })) };
+    }
     if (sql.includes("FROM brand")) {
       const id = brands[String(params[0]).toLowerCase()];
       return { rows: id ? [{ brandId: id }] : [] };
@@ -91,8 +102,28 @@ const transactionClient = {
   },
 };
 
+// Finish catalog: the built-ins with their families, plus a finish that has no family.
+const { CANONICAL_FINISHES, DUPE_FINISH_FAMILIES } = require("swatchwatch-shared");
+const finishTypeRows = [
+  ...CANONICAL_FINISHES.map((name) => ({ kind: "type", sourceValue: name, normalizedFinishName: name, family: DUPE_FINISH_FAMILIES[name] ?? null })),
+  { kind: "type", sourceValue: "magnetic-flakie", normalizedFinishName: "magnetic-flakie", family: null },
+];
+
 mockDistModule("db.js", {
-  query: async () => ({ rows: [] }),
+  query: async (text, params) => {
+    const sql = sqlOf(text);
+    if (sql.includes("FROM finish_type")) return { rows: finishTypeRows };
+    // The pre-detection lookups must resolve the shade through the listing first.
+    if (sql.includes("product_category_source = 'admin'")) {
+      assert.equal(params[5], 7, "data source id");
+      return { rows: sql.includes("FROM shade_source_product ssp") ? adminCategoryRows : [] };
+    }
+    if (sql.includes("WHERE sh.detected_hex IS NOT NULL")) {
+      assert.equal(params[0], 7, "data source id");
+      return { rows: sql.includes("FROM shade_source_product ssp") ? unchangedRows : [] };
+    }
+    return { rows: [] };
+  },
   transaction: async (callback) => callback(transactionClient),
 });
 
@@ -172,6 +203,9 @@ beforeEach(() => {
   blobCalls = [];
   aiCalls = 0;
   nextShadeId = 100;
+  listings = [];
+  adminCategoryRows = [];
+  unchangedRows = [];
 });
 
 // ---------------------------------------------------------------------------
@@ -205,7 +239,7 @@ describe("materializeHoloTacoRecords — reseller source adopts the brand's shad
     assert.equal(sourceProductInserts()[0].params[0], 22);
   });
 
-  it("creates a new shade and warns when the finish cannot decide", async () => {
+  it("skips the record and warns when the finish cannot decide", async () => {
     shades = [
       { shadeId: 21, name: "Velvet Dreams", finish: "creme", collection: null, finishes: ["creme"] },
       { shadeId: 22, name: "Velvet Dreams", finish: "holo", collection: null, finishes: ["holographic"] },
@@ -214,8 +248,11 @@ describe("materializeHoloTacoRecords — reseller source adopts the brand's shad
 
     const metrics = await materialize(record({ finishes: [] }), { ...RESELLER, progressLogger: log });
 
-    assert.equal(shadeInserts().length, 1);
-    assert.equal(metrics.shadesCreated, 1);
+    assert.equal(shadeInserts().length, 0);
+    assert.equal(sourceProductInserts().length, 0);
+    assert.equal(metrics.shadesCreated, 0);
+    assert.equal(metrics.skipped, 1);
+    assert.equal(metrics.ambiguousShadesSkipped, 1);
     const warning = log.lines.warn.find((line) => Array.isArray(line.data?.candidateShadeIds));
     assert.ok(warning, "expected a warning naming the candidates");
     assert.deepEqual(warning.data.candidateShadeIds, [21, 22]);
@@ -251,6 +288,17 @@ describe("materializeHoloTacoRecords — reseller source adopts the brand's shad
 
     assert.equal(shadeInserts().length, 0);
     assert.equal(sourceProductInserts()[0].params[0], 52);
+  });
+
+  it("does not penalize a finish without a family", async () => {
+    shades = [{ shadeId: 53, name: "Velvet Dreams", finish: null, collection: null, finishes: ["magnetic-flakie"] }];
+    const reseller = record({ finishes: ["magnetic-flakie"] });
+    reseller.normalized.finishes = [];
+
+    await materialize(reseller, RESELLER);
+
+    assert.equal(shadeInserts().length, 0);
+    assert.equal(sourceProductInserts()[0].params[0], 53);
   });
 
   it("never adopts an inactive or merged shade", async () => {
@@ -385,5 +433,71 @@ describe("materializeHoloTacoRecords — records without a brand", () => {
       const brandLookup = calls.find((c) => c.sql.includes("FROM brand"));
       assert.equal(brandLookup.params[0], "Holo Taco");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lookup step 0: the product's own listing
+// ---------------------------------------------------------------------------
+
+describe("materializeHoloTacoRecords — existing listing", () => {
+  it("uses the shade the listing links, before the exact match", async () => {
+    shades = [
+      { shadeId: 40, name: "Velvet Dreams", finish: "creme", collection: null, finishes: ["creme"] },
+      { shadeId: 41, name: "Velvet Dreams", finish: "holographic", collection: null, finishes: ["holographic"] },
+    ];
+    listings = [41];
+
+    await materialize(record({ finishes: ["creme"] }), BRAND);
+
+    assert.equal(shadeInserts().length, 0);
+    assert.equal(sourceProductInserts()[0].params[0], 41);
+    assert.ok(!calls.some((c) => c.sql.includes("coalesce(finish, '') = coalesce($3, '')")), "no exact-match lookup");
+  });
+
+  it("skips the record when several active shades are linked", async () => {
+    listings = [41, 42];
+    const log = logger();
+
+    const metrics = await materialize(record({ finishes: ["creme"] }), { ...RESELLER, progressLogger: log });
+
+    assert.equal(shadeInserts().length, 0);
+    assert.equal(sourceProductInserts().length, 0);
+    assert.equal(metrics.skipped, 1);
+    assert.equal(metrics.ambiguousShadesSkipped, 1);
+    const warning = log.lines.warn.find((line) => Array.isArray(line.data?.candidateShadeIds));
+    assert.deepEqual(warning?.data.candidateShadeIds, [41, 42]);
+  });
+
+  it("gates hex detection on the admin category of the listed (adopted) shade", async () => {
+    shades = [{ shadeId: 41, name: "Velvet Dreams", finish: null, collection: null, finishes: ["creme"] }];
+    listings = [41];
+    adminCategoryRows = [{ externalId: "r1", productCategory: "topper" }];
+
+    const metrics = await materializeHoloTacoRecords(
+      7,
+      [record({ finishes: ["creme"], collection: "Fall 2025", imageUrls: ["https://brand.example/a.png"] })],
+      { ...BRAND, detectHexFromImage: true, overwriteDetectedHex: true },
+      "[Test]"
+    );
+
+    assert.equal(aiCalls, 0, "no vision call for an admin topper");
+    assert.equal(metrics.hexDetectionSkippedCategory, 1);
+  });
+
+  it("skips AI for the listed shade's unchanged image", async () => {
+    shades = [{ shadeId: 41, name: "Velvet Dreams", finish: null, collection: null, finishes: ["creme"] }];
+    listings = [41];
+    unchangedRows = [{ externalId: "r1" }];
+
+    const metrics = await materializeHoloTacoRecords(
+      7,
+      [record({ finishes: ["creme"], collection: "Fall 2025", imageUrls: ["https://brand.example/a.png"] })],
+      { ...BRAND, detectHexFromImage: true },
+      "[Test]"
+    );
+
+    assert.equal(aiCalls, 0);
+    assert.equal(metrics.hexDetectionSkippedUnchanged, 1);
   });
 });
