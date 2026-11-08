@@ -1,13 +1,13 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
-  parseResellerTitle,
-  RESELLER_LINE_REGEX,
-  RESELLER_SET_REGEX,
-} = require("../dist/lib/connectors/reseller-title");
+  parseRetailerTitle,
+  RETAILER_LINE_REGEX,
+  RETAILER_SET_REGEX,
+} = require("../dist/lib/connectors/retailer-title");
 
 // Titles are real Beyond Polish, Harlow & Co and Hypnotic Polish titles (2026-11-08).
-const p = parseResellerTitle;
+const p = parseRetailerTitle;
 
 function partial(actual, expected) {
   assert.ok(actual, "expected a parse result");
@@ -55,8 +55,12 @@ test("flags sets", () => {
 });
 
 test("exports the regexes and returns null without a shade", () => {
-  assert.ok(RESELLER_LINE_REGEX instanceof RegExp);
-  assert.ok(RESELLER_SET_REGEX instanceof RegExp);
+  assert.ok(RETAILER_LINE_REGEX instanceof RegExp);
+  assert.ok(RETAILER_SET_REGEX instanceof RegExp);
   assert.equal(p("", "OPI"), null);
   assert.equal(p("OPI - #NLB83", "OPI"), null);
+});
+
+test("an all-line title keeps its last segment as the shade", () => {
+  partial(p("Brand - Nail Polish - Lacquer Up", "Brand"), { shadeName: "Lacquer Up", productLine: "Nail Polish" });
 });

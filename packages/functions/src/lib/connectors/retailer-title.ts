@@ -1,11 +1,11 @@
 /**
- * Reseller listing title parser. Multi-brand stores (Beyond Polish, Harlow & Co,
+ * Retailer listing title parser. Multi-brand stores (Beyond Polish, Harlow & Co,
  * Hypnotic Polish) title listings like
  * "OPI Nail Lacquer - No Room for the Blues 0.5 oz - #NLB83": brand, product
  * line, shade, size and vendor code in one string. Pure, no I/O.
  */
 
-export interface ResellerTitle {
+export interface RetailerTitle {
   shadeName: string;
   productLine: string | null;
   vendorCode: string | null;
@@ -13,11 +13,11 @@ export interface ResellerTitle {
 }
 
 /** Segments naming a product line ("Nail Lacquer", "Infinite Shine", "Lakur Enhanced Colour"). */
-export const RESELLER_LINE_REGEX =
+export const RETAILER_LINE_REGEX =
   /\b(?:nail lacquer|nail polish|lacquer|polish|infinite shine|nature strong|vinylux|shellac|lakur|pure colour|patent shine|gel lab pro|gel couture|breathable|enhanced colour)\b/i;
 
 /** Words marking a multi-item listing (set, combo, duo, collection ...). */
-export const RESELLER_SET_REGEX = /\b(?:set|combo|duo|trio|quad|collection|kit|bundle)\b/i;
+export const RETAILER_SET_REGEX = /\b(?:set|combo|duo|trio|quad|collection|kit|bundle)\b/i;
 
 const PRE_ORDER_REGEX = /^\s*(?:\*PRE-ORDER\*|PRE-ORDER:)\s*/i;
 const VENDOR_CODE_REGEX = /^#\s*([A-Z0-9-]+)$/i;
@@ -45,7 +45,7 @@ function stripBrand(segments: string[], brand: string): string[] {
   return segments;
 }
 
-export function parseResellerTitle(title: string, brand: string): ResellerTitle | null {
+export function parseRetailerTitle(title: string, brand: string): RetailerTitle | null {
   const cleaned = title.replace(PRE_ORDER_REGEX, "").trim();
   if (!cleaned) return null;
 
@@ -67,14 +67,17 @@ export function parseResellerTitle(title: string, brand: string): ResellerTitle 
     if (stripped) names.push(stripped);
   }
 
-  const isSet = LEADING_LACQUER_SET_REGEX.test(cleaned) || names.some((n) => RESELLER_SET_REGEX.test(n));
+  const isSet = LEADING_LACQUER_SET_REGEX.test(cleaned) || names.some((n) => RETAILER_SET_REGEX.test(n));
 
   const lines: string[] = [];
   const shades: string[] = [];
   for (const name of names) {
-    if (names.length > 1 && RESELLER_LINE_REGEX.test(name)) lines.push(name);
+    if (names.length > 1 && RETAILER_LINE_REGEX.test(name)) lines.push(name);
     else shades.push(name);
   }
+  // Every segment reads like a line ("Nail Polish - Lacquer Up"): the last one is the shade.
+  const lastLine = lines.length > 0 && shades.length === 0 ? lines.pop() : undefined;
+  if (lastLine !== undefined) shades.push(lastLine);
 
   const shadeName = shades[shades.length - 1]?.replace(TRAILING_FINISH_REGEX, "").trim();
   if (!shadeName) return null;
