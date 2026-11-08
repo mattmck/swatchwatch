@@ -263,8 +263,8 @@ interface HoloTacoPreparedImage {
   imageSetComplete: boolean;
   /**
    * The record's shade, resolved before any image work (`preResolveRecordShades`); unset when it
-   * could not be resolved there (no name or brand, or the lookup failed), in which case the
-   * materializer looks it up itself.
+   * could not be resolved there (no name or brand, or the lookup failed). The materializer reuses
+   * it only for an adopting source; a brand source (and any `create`) is looked up again.
    */
   shadeResolution?: ExistingShadeLookup;
 }
@@ -3091,10 +3091,13 @@ async function materializePreparedHoloTacoRecord(
   }
 
   const adoptsExistingShades = sourceOptions.adoptExistingShades === true;
-  // The image phase resolved the record before any image work (`preResolveRecordShades`). A found
-  // shade is used unless it has since been merged away (or deleted); an ambiguous record stays
-  // skipped. A `create` is looked up again: an earlier record of this run may have created it.
-  const preResolved = preparedImage.shadeResolution ?? null;
+  // The image phase resolved the record before any image work (`preResolveRecordShades`). For an
+  // adopting source a found shade is used unless it has since been merged away (or deleted), and
+  // an ambiguous record stays skipped. A `create` is looked up again: an earlier record of this
+  // run may have created it. A brand source always looks up again inside this transaction: an
+  // earlier record's brand listing can disqualify a step-2 candidate (it must have no brand
+  // listing), so a pre-resolved adoption may be stale.
+  const preResolved = adoptsExistingShades ? preparedImage.shadeResolution ?? null : null;
   let existingShade: ExistingShadeLookup | null = null;
   if (preResolved?.outcome === "ambiguous") {
     existingShade = preResolved;

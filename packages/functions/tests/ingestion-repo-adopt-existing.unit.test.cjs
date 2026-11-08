@@ -806,3 +806,32 @@ describe("materializeHoloTacoRecords — resolution before detection", () => {
     assert.equal(shadeInserts().length, 1, "the merged shade is not used; a fresh lookup creates one");
   });
 });
+
+describe("materializeHoloTacoRecords — brand pre-resolution is re-checked in the transaction", () => {
+  it("two same-name brand records in one chunk: A adopts the reseller shade, B gets a new shade", async () => {
+    shades = [{ shadeId: 70, name: "Velvet Dreams", finish: null, collection: null, finishes: ["creme"], listingKinds: ["reseller"] }];
+    // A brand listing written by record A makes X a brand-listed shade for record B's lookup.
+    const originalQuery = transactionClient.query;
+    transactionClient.query = async (text, params) => {
+      const sql = sqlOf(text);
+      if (sql.startsWith("INSERT INTO shade_source_product")) {
+        const shade = shades.find((s) => s.shadeId === params[0]);
+        if (shade) shade.listingKinds = [...(shade.listingKinds ?? []), "brand"];
+      }
+      return originalQuery.call(transactionClient, text, params);
+    };
+    const a = record({ finishes: ["creme"], collection: "Fall 2025" });
+    const b = record({ finishes: ["creme"], collection: "Winter 2025" });
+    b.externalId = "r2";
+    try {
+      await materializeHoloTacoRecords(7, [a, b], { ...BRAND, detectHexFromImage: false }, "[Test]");
+    } finally {
+      transactionClient.query = originalQuery;
+    }
+
+    const linked = sourceProductInserts().map((c) => c.params[0]);
+    assert.equal(linked[0], 70, "A adopts the reseller-created shade");
+    assert.equal(shadeInserts().length, 1, "B creates its own shade");
+    assert.equal(linked[1], 100);
+  });
+});
